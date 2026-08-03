@@ -1,7 +1,6 @@
 //! StorageDriver metrics decorator.
 
 use aster_drive_metrics::SharedMetricsRecorder;
-use aster_drive_model::types::DriverType;
 use aster_drive_storage::traits::extensions;
 use aster_drive_storage::{BlobMetadata, MultipartStorageDriver, Result, StorageDriver};
 use async_trait::async_trait;
@@ -38,14 +37,14 @@ struct TimingReader {
 impl MetricsStorageDriver {
     pub(crate) fn new(
         inner: Arc<dyn StorageDriver>,
-        driver_type: DriverType,
+        driver: &'static str,
         metrics: SharedMetricsRecorder,
         multipart: Option<Arc<dyn MultipartStorageDriver>>,
     ) -> Self {
         Self {
             inner,
             multipart,
-            driver: driver_type.as_str(),
+            driver,
             metrics,
         }
     }
@@ -58,12 +57,12 @@ impl MetricsStorageDriver {
 impl MetricsMultipartStorageDriver {
     pub(crate) fn new(
         inner: Arc<dyn MultipartStorageDriver>,
-        driver_type: DriverType,
+        driver: &'static str,
         metrics: SharedMetricsRecorder,
     ) -> Self {
         Self {
             inner,
-            driver: driver_type.as_str(),
+            driver,
             metrics,
         }
     }

@@ -34,7 +34,7 @@ export function OneDriveApplicationFields({
 					value={microsoftGraph.client_id}
 					onChange={(event) =>
 						onFieldChange(
-							"application_credentials",
+							"credential_values",
 							updateMicrosoftGraphCredentials(form, {
 								client_id: event.target.value,
 							}),
@@ -69,7 +69,7 @@ export function OneDriveApplicationFields({
 					value={microsoftGraph.client_secret}
 					onChange={(event) =>
 						onFieldChange(
-							"application_credentials",
+							"credential_values",
 							updateMicrosoftGraphCredentials(form, {
 								client_secret: event.target.value,
 							}),

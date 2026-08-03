@@ -73,6 +73,7 @@ import type {
 	StartStorageAuthorizationRequest,
 	StorageAuthorizationStartResponse,
 	StorageConnectorCatalogQuery,
+	StorageConnectorCredentialInfo,
 	StorageConnectorDescriptor,
 	StorageCredentialProvider,
 	StorageCredentialProviderInfo,
@@ -80,7 +81,6 @@ import type {
 	StoragePolicyActionResult,
 	StoragePolicyCapacityInfo,
 	StoragePolicyConnectionTestResult,
-	StoragePolicyCredentialInfo,
 	StoragePolicyCredentialValidationResult,
 	StoragePolicyGroup,
 	StoragePolicyGroupPage,
@@ -374,7 +374,7 @@ export const adminPolicyService = {
 		),
 
 	listStorageCredentials: (id: number) =>
-		api.get<StoragePolicyCredentialInfo[]>(
+		api.get<StorageConnectorCredentialInfo[]>(
 			`/admin/policies/${id}/storage-credentials`,
 		),
 

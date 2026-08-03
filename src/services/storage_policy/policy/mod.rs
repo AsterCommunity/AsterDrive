@@ -8,7 +8,6 @@ mod shared;
 use crate::errors::Result;
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::ops::audit::{self, AuditContext};
-use aster_drive_model::types::DriverType;
 
 pub use aster_drive_storage::{
     StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionKind,
@@ -23,24 +22,22 @@ pub use groups::{
 };
 pub use models::{
     CreateStoragePolicyGroupInput, CreateStoragePolicyInput, ExecuteDraftStoragePolicyActionInput,
-    ExecuteSavedStoragePolicyActionInput, PolicyGroupAssignmentMigrationResult,
-    PromoteS3CompatiblePolicyDriverInput, StoragePolicy, StoragePolicyActionResult,
-    StoragePolicyActionType, StoragePolicyCapacityInfo, StoragePolicyConnectionInput,
-    StoragePolicyDiagnostic, StoragePolicyGroupInfo, StoragePolicyGroupItemInfo,
-    StoragePolicyGroupItemInput, StoragePolicySummaryInfo, TencentCosCorsConfigResult,
-    TestDraftStoragePolicyConnectionInput, UpdateStoragePolicyGroupInput, UpdateStoragePolicyInput,
+    ExecuteSavedStoragePolicyActionInput, PolicyGroupAssignmentMigrationResult, StoragePolicy,
+    StoragePolicyActionResult, StoragePolicyActionType, StoragePolicyCapacityInfo,
+    StoragePolicyConnectionInput, StoragePolicyDiagnostic, StoragePolicyGroupInfo,
+    StoragePolicyGroupItemInfo, StoragePolicyGroupItemInput, StoragePolicySummaryInfo,
+    TencentCosCorsConfigResult, TestDraftStoragePolicyConnectionInput,
+    UpdateStoragePolicyGroupInput, UpdateStoragePolicyInput,
 };
 pub(crate) use policies::capacity_info_or_status;
 pub use policies::{
     capacity_info, create, delete, execute_draft_action, execute_saved_action, get, list_paginated,
-    promote_s3_compatible_driver, test_connection, test_connection_params, test_default_connection,
-    update,
+    test_connection, test_connection_params, test_default_connection, update,
 };
 
 fn policy_audit_details(policy: &StoragePolicy) -> Option<serde_json::Value> {
     audit::details(audit::StoragePolicyAuditDetails {
-        driver_type: policy.driver_type.as_str(),
-        remote_node_id: policy.remote_node_id,
+        connector_id: policy.connector_id.as_str(),
         max_file_size: policy.max_file_size,
         chunk_size: policy.chunk_size,
         is_default: policy.is_default,
@@ -49,13 +46,13 @@ fn policy_audit_details(policy: &StoragePolicy) -> Option<serde_json::Value> {
 
 fn policy_action_audit_details(
     action: StoragePolicyActionType,
-    driver_type: DriverType,
+    connector_id: &str,
     used_draft_values: bool,
     diagnostic: Option<&StoragePolicyDiagnostic>,
 ) -> Option<serde_json::Value> {
     audit::details(audit::StoragePolicyActionAuditDetails {
         action: action.as_str(),
-        driver_type: driver_type.as_str(),
+        connector_id,
         used_draft_values,
         mutates_remote_state: action.mutates_remote_state(),
         diagnostic_kind: diagnostic.map(|diagnostic| diagnostic.kind.as_str()),
@@ -90,26 +87,6 @@ pub async fn update_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicy> {
     let policy = update(state, id, input).await?;
-    audit::log_with_details(
-        state,
-        audit_ctx,
-        audit::AuditAction::AdminUpdatePolicy,
-        crate::services::ops::audit::AuditEntityType::StoragePolicy,
-        Some(policy.id),
-        Some(&policy.name),
-        || policy_audit_details(&policy),
-    )
-    .await;
-    Ok(policy)
-}
-
-pub async fn promote_s3_compatible_driver_with_audit(
-    state: &impl SharedRuntimeState,
-    id: i64,
-    input: PromoteS3CompatiblePolicyDriverInput,
-    audit_ctx: &AuditContext,
-) -> Result<StoragePolicy> {
-    let policy = promote_s3_compatible_driver(state, id, input).await?;
     audit::log_with_details(
         state,
         audit_ctx,
@@ -168,7 +145,7 @@ pub async fn execute_saved_action_with_audit(
         crate::services::ops::audit::AuditEntityType::StoragePolicy,
         Some(policy.id),
         Some(&policy.name),
-        || policy_action_audit_details(action, policy.driver_type, false, diagnostic),
+        || policy_action_audit_details(action, &policy.connector_id, false, diagnostic),
     )
     .await;
     result
@@ -180,7 +157,7 @@ pub async fn execute_draft_action_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicyActionResult> {
     let action = input.action;
-    let driver_type = input.connection.driver_type;
+    let connector_id = input.connection.connector_config.connector_id.to_string();
     let result = execute_draft_action(state, input).await;
     let error_diagnostic;
     let diagnostic = match &result {
@@ -197,7 +174,7 @@ pub async fn execute_draft_action_with_audit(
         crate::services::ops::audit::AuditEntityType::StoragePolicy,
         None,
         None,
-        || policy_action_audit_details(action, driver_type, true, diagnostic),
+        || policy_action_audit_details(action, &connector_id, true, diagnostic),
     )
     .await;
     result

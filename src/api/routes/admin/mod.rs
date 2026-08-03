@@ -16,10 +16,9 @@ pub use crate::api::dto::admin::{
     CreateUserInvitationReq, CreateUserReq, DeletePolicyQuery, DryRunStoragePolicyMigrationReq,
     ExecuteConfigActionReq, ExecuteConfigActionResp, ExecuteDraftStoragePolicyActionReq,
     ExecuteSavedStoragePolicyActionReq, MigratePolicyGroupAssignmentsReq, PatchPolicyGroupReq,
-    PatchPolicyReq, PatchRemoteNodeReq, PatchUserReq, PolicyGroupItemReq,
-    PromoteS3CompatiblePolicyDriverReq, ResetUserPasswordReq, SetConfigReq, SetFolderPolicyReq,
-    StartStorageAuthorizationReq, StorageConnectorCatalogContext, StorageConnectorCatalogQuery,
-    TestPolicyParamsReq, TestRemoteNodeParamsReq,
+    PatchPolicyReq, PatchRemoteNodeReq, PatchUserReq, PolicyGroupItemReq, ResetUserPasswordReq,
+    SetConfigReq, SetFolderPolicyReq, StartStorageAuthorizationReq, StorageConnectorCatalogContext,
+    StorageConnectorCatalogQuery, TestPolicyParamsReq, TestRemoteNodeParamsReq,
 };
 
 pub(crate) mod audit_logs;
@@ -60,9 +59,9 @@ pub use policies::{
     execute_draft_storage_policy_action, execute_saved_storage_policy_action,
     finish_storage_authorization, get_policy, get_policy_capacity, get_policy_group, list_policies,
     list_policy_groups, list_storage_credential_providers, list_storage_driver_descriptors,
-    list_storage_policy_credentials, migrate_policy_group_assignments,
-    promote_s3_compatible_policy_driver, start_storage_authorization, test_policy_connection,
-    test_policy_params, update_policy, update_policy_group, validate_storage_policy_credential,
+    list_storage_policy_credentials, migrate_policy_group_assignments, start_storage_authorization,
+    test_policy_connection, test_policy_params, update_policy, update_policy_group,
+    validate_storage_policy_credential,
 };
 pub use remote_nodes::{
     create_remote_node, create_remote_node_enrollment_token, create_remote_node_storage_target,
@@ -127,10 +126,6 @@ pub fn routes(
                     .route(
                         "/policies/{id}/test",
                         web::post().to(test_policy_connection),
-                    )
-                    .route(
-                        "/policies/{id}/promote-s3-driver",
-                        web::post().to(promote_s3_compatible_policy_driver),
                     )
                     .route(
                         "/policies/{id}/action",

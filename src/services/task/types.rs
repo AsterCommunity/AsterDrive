@@ -8,13 +8,8 @@ use utoipa::ToSchema;
 
 use crate::config::operations;
 use crate::services::user::account;
-use crate::storage::connectors::{
-    StoragePolicyCleanupDriverSnapshot, StoragePolicyCleanupOneDriveCredentialSnapshot,
-    StoragePolicyCleanupRemoteNodeSnapshot,
-};
-use aster_drive_model::types::{
-    ArchiveFilenameEncoding, BackgroundTaskKind, BackgroundTaskStatus, DriverType,
-};
+use crate::storage::connectors::StoragePolicyCleanupDriverSnapshot;
+use aster_drive_model::types::{ArchiveFilenameEncoding, BackgroundTaskKind, BackgroundTaskStatus};
 
 use super::runtime::SystemRuntimeTaskKind;
 
@@ -359,20 +354,10 @@ pub struct TrashPurgeAllTaskResult {
 pub(crate) struct StoragePolicyCleanupPolicySnapshot {
     pub id: i64,
     pub name: String,
-    pub driver_type: DriverType,
-    pub endpoint: String,
-    pub bucket: String,
-    pub access_key: String,
-    pub secret_key: String,
-    pub base_path: String,
-    pub remote_node_id: Option<i64>,
-    pub remote_storage_target_key: Option<String>,
     pub connector_id: String,
-    pub connector_config: String,
-    pub behavior_config: String,
+    pub storage_config: String,
     pub max_file_size: i64,
     pub allowed_types: String,
-    pub options: String,
     pub is_default: bool,
     pub chunk_size: i64,
 }
@@ -389,14 +374,6 @@ pub(crate) struct StoragePolicyTempCleanupTaskPayload {
     pub policy: StoragePolicyCleanupPolicySnapshot,
     #[serde(default)]
     pub driver_snapshot: Option<StoragePolicyCleanupDriverSnapshot>,
-    /// Deprecated legacy OneDrive cleanup snapshot. New tasks store this under
-    /// `driver_snapshot`; keep this field so queued pre-migration tasks decode.
-    #[serde(default)]
-    pub onedrive_credential: Option<StoragePolicyCleanupOneDriveCredentialSnapshot>,
-    /// Deprecated legacy remote cleanup snapshot. New tasks store this under
-    /// `driver_snapshot`; keep this field so queued pre-migration tasks decode.
-    #[serde(default)]
-    pub remote_node: Option<StoragePolicyCleanupRemoteNodeSnapshot>,
     pub temp_keys: Vec<String>,
     pub multipart_uploads: Vec<StoragePolicyTempCleanupTarget>,
 }
@@ -406,7 +383,7 @@ pub(crate) struct StoragePolicyTempCleanupTaskPayload {
 pub struct StoragePolicyTempCleanupTaskPayloadInfo {
     pub policy_id: i64,
     pub policy_name: String,
-    pub driver_type: DriverType,
+    pub connector_id: String,
     pub temp_key_count: usize,
     pub multipart_upload_count: usize,
 }
@@ -416,7 +393,7 @@ impl From<StoragePolicyTempCleanupTaskPayload> for StoragePolicyTempCleanupTaskP
         Self {
             policy_id: value.policy.id,
             policy_name: value.policy.name,
-            driver_type: value.policy.driver_type,
+            connector_id: value.policy.connector_id,
             temp_key_count: value.temp_keys.len(),
             multipart_upload_count: value.multipart_uploads.len(),
         }
@@ -426,6 +403,7 @@ impl From<StoragePolicyTempCleanupTaskPayload> for StoragePolicyTempCleanupTaskP
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::connectors::StoragePolicyCleanupOneDriveCredentialSnapshot;
 
     #[test]
     fn legacy_onedrive_cleanup_snapshot_decodes_without_refresh_fields() {

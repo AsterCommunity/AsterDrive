@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { StoragePolicyCredentialInfo } from "@/types/api";
+import type { StorageConnectorCredentialInfo } from "@/types/api";
 import { emptyForm } from "./formTypes";
 import { OneDriveCredentialPanel } from "./OneDriveCredentialPanel";
 import { OneDriveTargetFields } from "./OneDriveTargetFields";
@@ -577,7 +577,7 @@ describe("OneDriveCredentialPanel", () => {
 	it("renders reauthorization details and saved credential placeholders", () => {
 		const onStartAuthorization = vi.fn();
 		const onValidateCredential = vi.fn();
-		const credential: StoragePolicyCredentialInfo = {
+		const credential: StorageConnectorCredentialInfo = {
 			account_label: "Ada Lovelace",
 			authorized_at: "2026-03-28T00:00:00Z",
 			expires_at: null,

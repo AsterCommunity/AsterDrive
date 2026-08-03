@@ -182,7 +182,10 @@ pub async fn create_group(
         policy_group_repo::set_only_default_group(&txn, group.id).await?;
     }
     transaction::commit(txn).await?;
-    state.policy_snapshot().reload(state.writer_db()).await?;
+    state
+        .driver_registry()
+        .reload_policy_snapshot(state.policy_snapshot(), state.writer_db())
+        .await?;
     crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
         state,
         "create",
@@ -282,7 +285,10 @@ pub async fn update_group(
     }
 
     transaction::commit(txn).await?;
-    state.policy_snapshot().reload(state.writer_db()).await?;
+    state
+        .driver_registry()
+        .reload_policy_snapshot(state.policy_snapshot(), state.writer_db())
+        .await?;
     crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
         state,
         "update",
@@ -324,7 +330,10 @@ pub async fn delete_group(state: &impl SharedRuntimeState, id: i64) -> Result<()
     }
 
     policy_group_repo::delete_group(state.writer_db(), id).await?;
-    state.policy_snapshot().reload(state.writer_db()).await?;
+    state
+        .driver_registry()
+        .reload_policy_snapshot(state.policy_snapshot(), state.writer_db())
+        .await?;
     crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
         state,
         "delete",
@@ -392,7 +401,10 @@ pub async fn migrate_group_assignments(
             migrated_assignments: 0,
         });
     }
-    state.policy_snapshot().reload(state.writer_db()).await?;
+    state
+        .driver_registry()
+        .reload_policy_snapshot(state.policy_snapshot(), state.writer_db())
+        .await?;
     crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
         state,
         "migrate_assignments",

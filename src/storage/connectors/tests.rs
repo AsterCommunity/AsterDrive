@@ -474,7 +474,7 @@ fn local_descriptor_declares_content_dedup_policy_option() {
 
     assert!(descriptor.fields.iter().any(|field| {
         field.name == "content_dedup"
-            && field.scope == StorageConnectorFieldScope::ConnectorOptions
+            && field.scope == StorageConnectorFieldScope::ConnectorConfig
             && field.kind
                 == aster_drive_storage::connector_descriptor::StorageConnectorFieldKind::Boolean
     }));
@@ -594,9 +594,12 @@ fn object_storage_connection_field_display_metadata_is_connector_owned() {
         field(&s3, "bucket").required_message_key.as_deref(),
         Some("policy_wizard_bucket_required")
     );
-    assert_eq!(field(&s3, "access_key").label_key, "access_key");
-    assert!(!field(&s3, "access_key").trim_on_blur);
-    assert_eq!(field(&s3, "secret_key").label_key, "secret_key");
+    assert_eq!(field(&s3, "s3_access_key_id").label_key, "s3_access_key_id");
+    assert!(!field(&s3, "s3_access_key_id").trim_on_blur);
+    assert_eq!(
+        field(&s3, "s3_secret_access_key").label_key,
+        "s3_secret_access_key"
+    );
     let s3_path_style = field(&s3, "s3_path_style");
     assert_eq!(s3_path_style.label_key, "s3_path_style");
     assert_eq!(
@@ -625,12 +628,12 @@ fn object_storage_connection_field_display_metadata_is_connector_owned() {
         Some("azure_blob_endpoint_protocol_required_error")
     );
     assert_eq!(
-        field(&azure_blob, "access_key").label_key,
+        field(&azure_blob, "azure_blob_account_name").label_key,
         "azure_blob_account_name"
     );
-    assert!(field(&azure_blob, "access_key").trim_on_blur);
+    assert!(field(&azure_blob, "azure_blob_account_name").trim_on_blur);
     assert_eq!(
-        field(&azure_blob, "secret_key").label_key,
+        field(&azure_blob, "azure_blob_account_key").label_key,
         "azure_blob_account_key"
     );
     assert_eq!(
@@ -672,9 +675,15 @@ fn object_storage_connection_field_display_metadata_is_connector_owned() {
             .as_deref(),
         Some("policy_wizard_bucket_required")
     );
-    assert_eq!(field(&tencent_cos, "access_key").label_key, "access_key");
-    assert!(!field(&tencent_cos, "access_key").trim_on_blur);
-    assert_eq!(field(&tencent_cos, "secret_key").label_key, "secret_key");
+    assert_eq!(
+        field(&tencent_cos, "tencent_cos_secret_id").label_key,
+        "tencent_cos_secret_id"
+    );
+    assert!(!field(&tencent_cos, "tencent_cos_secret_id").trim_on_blur);
+    assert_eq!(
+        field(&tencent_cos, "tencent_cos_secret_key").label_key,
+        "tencent_cos_secret_key"
+    );
     assert!(!has_policy_option(&tencent_cos, "s3_path_style"));
 }
 
@@ -704,12 +713,12 @@ fn sftp_connection_field_display_metadata_is_connector_owned() {
         vec!["sftp:"]
     );
     assert!(field(&sftp, "endpoint").allow_endpoint_without_protocol);
-    assert_eq!(field(&sftp, "access_key").label_key, "sftp_username");
-    assert!(field(&sftp, "access_key").trim_on_blur);
-    assert_eq!(field(&sftp, "secret_key").label_key, "sftp_password");
+    assert_eq!(field(&sftp, "sftp_username").label_key, "sftp_username");
+    assert!(field(&sftp, "sftp_username").trim_on_blur);
+    assert_eq!(field(&sftp, "sftp_password").label_key, "sftp_password");
     assert_eq!(
         field(&sftp, "sftp_host_key_fingerprint").scope,
-        StorageConnectorFieldScope::ConnectorOptions
+        StorageConnectorFieldScope::ConnectorConfig
     );
     assert_eq!(
         field(&sftp, "sftp_host_key_fingerprint").label_key,
@@ -724,6 +733,69 @@ fn sftp_connection_field_display_metadata_is_connector_owned() {
     assert!(sftp.fields.iter().all(|field| field.name != "bucket"));
     assert!(!sftp.upload_workflows.presigned_upload);
     assert!(!sftp.upload_workflows.object_multipart_upload);
+}
+
+#[test]
+fn builtin_static_credential_payloads_use_provider_semantics_without_legacy_aliases() {
+    let s3: super::s3::S3StaticCredentialsV1 = serde_json::from_value(serde_json::json!({
+        "s3_access_key_id": "AKIA",
+        "s3_secret_access_key": "SECRET"
+    }))
+    .expect("S3 payload should use AWS credential names");
+    assert_eq!(s3.s3_access_key_id, "AKIA");
+    assert_eq!(s3.s3_secret_access_key, "SECRET");
+    assert!(
+        serde_json::from_value::<super::s3::S3StaticCredentialsV1>(serde_json::json!({
+            "access_key": "AKIA",
+            "secret_key": "SECRET"
+        }))
+        .is_err()
+    );
+
+    let sftp: super::sftp::SftpStaticCredentialsV1 = serde_json::from_value(serde_json::json!({
+        "sftp_username": "aster",
+        "sftp_password": "secret"
+    }))
+    .expect("SFTP payload should use SSH credential names");
+    assert_eq!(sftp.sftp_username, "aster");
+    assert_eq!(sftp.sftp_password, "secret");
+    assert!(
+        serde_json::from_value::<super::sftp::SftpStaticCredentialsV1>(serde_json::json!({
+            "access_key": "aster",
+            "secret_key": "secret"
+        }))
+        .is_err()
+    );
+
+    let azure: super::azure_blob::AzureBlobStaticCredentialsV1 =
+        serde_json::from_value(serde_json::json!({
+            "azure_blob_account_name": "account",
+            "azure_blob_account_key": "key"
+        }))
+        .expect("Azure payload should use storage account names");
+    assert_eq!(azure.azure_blob_account_name, "account");
+    assert_eq!(azure.azure_blob_account_key, "key");
+    assert!(
+        serde_json::from_value::<super::azure_blob::AzureBlobStaticCredentialsV1>(
+            serde_json::json!({ "access_key": "account", "secret_key": "key" })
+        )
+        .is_err()
+    );
+
+    let cos: super::tencent_cos::TencentCosStaticCredentialsV1 =
+        serde_json::from_value(serde_json::json!({
+            "tencent_cos_secret_id": "AKID",
+            "tencent_cos_secret_key": "SECRET"
+        }))
+        .expect("Tencent COS payload should use SecretId/SecretKey names");
+    assert_eq!(cos.tencent_cos_secret_id, "AKID");
+    assert_eq!(cos.tencent_cos_secret_key, "SECRET");
+    assert!(
+        serde_json::from_value::<super::tencent_cos::TencentCosStaticCredentialsV1>(
+            serde_json::json!({ "access_key": "AKID", "secret_key": "SECRET" })
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -1299,6 +1371,7 @@ fn connector_action_endpoint_gate_rejects_non_endpoint_actions() {
 
 fn mock_policy(driver_type: DriverType, chunk_size: i64, options: &str) -> storage_policy::Model {
     let connector_id = format!("asterdrive.storage.{}", driver_type.as_str());
+    let typed_options = aster_drive_model::types::parse_storage_policy_options(options);
     storage_policy::Model {
         id: 1,
         name: "test".to_string(),
@@ -1311,8 +1384,15 @@ fn mock_policy(driver_type: DriverType, chunk_size: i64, options: &str) -> stora
         remote_node_id: None,
         remote_storage_target_key: None,
         connector_id: connector_id.clone(),
-        connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(&connector_id),
-        behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
+        storage_config: super::test_support::policy_config(
+            driver_type,
+            "",
+            "",
+            "",
+            None,
+            None,
+            &typed_options,
+        ),
         max_file_size: 0,
         allowed_types: StoredStoragePolicyAllowedTypes::empty(),
         options: options.to_string().into(),
@@ -1393,7 +1473,7 @@ fn has_policy_option(
     name: &str,
 ) -> bool {
     descriptor.fields.iter().any(|field| {
-        field.scope == StorageConnectorFieldScope::ConnectorOptions && field.name == name
+        field.scope == StorageConnectorFieldScope::ConnectorConfig && field.name == name
     })
 }
 

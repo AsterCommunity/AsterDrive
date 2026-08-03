@@ -592,6 +592,7 @@ mod tests {
     }
 
     fn sample_driver(endpoint: &str) -> TencentCosDriver {
+        let options = aster_drive_model::types::StoragePolicyOptions::default();
         TencentCosDriver::new(&storage_policy::Model {
             id: 1,
             name: "COS".to_string(),
@@ -604,10 +605,15 @@ mod tests {
             remote_node_id: None,
             remote_storage_target_key: None,
             connector_id: "asterdrive.storage.tencent_cos".to_string(),
-            connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(
-                "asterdrive.storage.tencent_cos",
+            storage_config: crate::storage::connectors::test_support::policy_config(
+                DriverType::TencentCos,
+                endpoint,
+                "media-1250000000",
+                "",
+                None,
+                None,
+                &options,
             ),
-            behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
             max_file_size: 0,
             allowed_types: StoredStoragePolicyAllowedTypes::empty(),
             options: StoredStoragePolicyOptions::empty(),

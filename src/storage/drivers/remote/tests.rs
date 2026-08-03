@@ -31,6 +31,7 @@ impl TestHttpServer {
 
 fn build_policy(base_path: &str) -> storage_policy::Model {
     let now = chrono::Utc::now();
+    let options = aster_drive_model::types::StoragePolicyOptions::default();
     storage_policy::Model {
         id: 1,
         name: "remote".to_string(),
@@ -43,10 +44,15 @@ fn build_policy(base_path: &str) -> storage_policy::Model {
         remote_node_id: Some(7),
         remote_storage_target_key: None,
         connector_id: "asterdrive.storage.remote".to_string(),
-        connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(
-            "asterdrive.storage.remote",
+        storage_config: crate::storage::connectors::test_support::policy_config(
+            aster_drive_model::types::DriverType::Remote,
+            "",
+            "",
+            base_path,
+            Some(7),
+            None,
+            &options,
         ),
-        behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
         max_file_size: 0,
         allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
         options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),

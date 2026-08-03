@@ -18,7 +18,7 @@ export function descriptorHasPolicyOptionField(
 ) {
 	return (
 		descriptor?.fields.some(
-			(field) => field.scope === "policy_options" && field.name === fieldName,
+			(field) => field.scope === "connector_config" && field.name === fieldName,
 		) ?? false
 	);
 }
@@ -29,7 +29,7 @@ export function descriptorHasConnectionField(
 ) {
 	return (
 		descriptor?.fields.some(
-			(field) => field.scope === "connection" && field.name === fieldName,
+			(field) => field.scope === "connector_config" && field.name === fieldName,
 		) ?? false
 	);
 }
@@ -40,8 +40,6 @@ export function supportsObjectStorageConnection(
 	return (
 		descriptorHasConnectionField(descriptor, "endpoint") &&
 		descriptorHasConnectionField(descriptor, "bucket") &&
-		descriptorHasConnectionField(descriptor, "access_key") &&
-		descriptorHasConnectionField(descriptor, "secret_key") &&
 		descriptor?.upload_workflows.object_multipart_upload === true
 	);
 }
@@ -52,8 +50,7 @@ export function supportsStaticSecretConnection(
 	return (
 		descriptor?.credential_mode === "static_secret" &&
 		descriptorHasConnectionField(descriptor, "endpoint") &&
-		descriptorHasConnectionField(descriptor, "access_key") &&
-		descriptorHasConnectionField(descriptor, "secret_key")
+		descriptor.fields.some((field) => field.scope === "static_credential")
 	);
 }
 
@@ -86,7 +83,7 @@ export function supportsApplicationCredentials(
 ) {
 	return (
 		descriptor?.fields.some(
-			(field) => field.scope === "application_credential",
+			(field) => field.scope === "authorization_application",
 		) ?? false
 	);
 }
@@ -108,7 +105,8 @@ export function supportsMicrosoftGraphApplicationConfig(
 	return (
 		descriptor?.fields.some(
 			(field) =>
-				field.scope === "application_credential" && field.name === "client_id",
+				field.scope === "authorization_application" &&
+				field.name === "client_id",
 		) ?? false
 	);
 }

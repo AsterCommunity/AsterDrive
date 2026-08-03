@@ -9,9 +9,9 @@ import type {
 	RemoteNodeInfo,
 	RemoteStorageTargetDriverDescriptor,
 	RemoteStorageTargetInfo,
+	StorageConnectorCredentialInfo,
 	StorageConnectorDescriptor,
 	StoragePolicyCapacityInfo,
-	StoragePolicyCredentialInfo,
 } from "@/types/api";
 
 interface PolicyDialogsProps {
@@ -37,7 +37,7 @@ interface PolicyDialogsProps {
 	storageDriverDescriptorsLoading: boolean;
 	policyCapacity: StoragePolicyCapacityInfo | null;
 	policyCapacityLoading: boolean;
-	storageCredentials: StoragePolicyCredentialInfo[];
+	storageCredentials: StorageConnectorCredentialInfo[];
 	storageCredentialsLoading: boolean;
 	storageAuthorizationSubmitting: boolean;
 	storageCredentialValidationSubmitting: boolean;

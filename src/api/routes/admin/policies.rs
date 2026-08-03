@@ -4,8 +4,7 @@ use crate::api::dto::admin::{
     AdminPolicyGroupListQuery, AdminPolicyListQuery, CreatePolicyGroupReq, CreatePolicyReq,
     DeletePolicyQuery, ExecuteDraftStoragePolicyActionReq, ExecuteSavedStoragePolicyActionReq,
     MigratePolicyGroupAssignmentsReq, PatchPolicyGroupReq, PatchPolicyReq, PolicyGroupItemReq,
-    PromoteS3CompatiblePolicyDriverReq, StartStorageAuthorizationReq, StorageConnectorCatalogQuery,
-    TestPolicyParamsReq,
+    StartStorageAuthorizationReq, StorageConnectorCatalogQuery, TestPolicyParamsReq,
 };
 use crate::api::dto::validate_request;
 use crate::api::response::{ApiEmptyData, ApiResponse};
@@ -15,62 +14,21 @@ use crate::runtime::PrimaryAppState;
 use crate::services::storage_policy::credential;
 use crate::services::{auth::local::Claims, ops::audit, storage_policy::policy};
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
-use aster_drive_model::types::DriverType;
 use aster_forge_api::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use aster_forge_api::OffsetPage;
 
 // ── Conversion helpers (must stay here because they use storage_policy::policy types) ──────────
 
-struct PolicyConnectionInputParts {
-    driver_type: DriverType,
-    endpoint: Option<String>,
-    bucket: Option<String>,
-    access_key: Option<String>,
-    secret_key: Option<String>,
-    base_path: Option<String>,
-    remote_node_id: Option<i64>,
-    remote_storage_target_key: Option<String>,
-    options: aster_drive_model::types::StoragePolicyOptions,
-}
-
-impl From<PolicyConnectionInputParts> for policy::StoragePolicyConnectionInput {
-    fn from(value: PolicyConnectionInputParts) -> Self {
-        Self {
-            driver_type: value.driver_type,
-            endpoint: value.endpoint.unwrap_or_default(),
-            bucket: value.bucket.unwrap_or_default(),
-            access_key: value.access_key.unwrap_or_default(),
-            secret_key: value.secret_key.unwrap_or_default(),
-            base_path: value.base_path.unwrap_or_default(),
-            remote_node_id: value.remote_node_id,
-            remote_storage_target_key: value.remote_storage_target_key,
-            options: value.options,
-        }
-    }
-}
-
 impl From<CreatePolicyReq> for policy::CreateStoragePolicyInput {
     fn from(value: CreatePolicyReq) -> Self {
         Self {
             name: value.name,
-            connection: PolicyConnectionInputParts {
-                driver_type: value.driver_type,
-                endpoint: value.endpoint,
-                bucket: value.bucket,
-                access_key: value.access_key,
-                secret_key: value.secret_key,
-                base_path: value.base_path,
-                remote_node_id: value.remote_node_id,
-                remote_storage_target_key: value.remote_storage_target_key.clone(),
-                options: value.options.unwrap_or_default(),
-            }
-            .into(),
+            connection: value.connection,
             max_file_size: value.max_file_size.unwrap_or(0),
             chunk_size: value.chunk_size,
             is_default: value.is_default.unwrap_or(false),
             allowed_types: value.allowed_types,
-            application_config: value.application_config.unwrap_or_default(),
         }
     }
 }
@@ -79,19 +37,13 @@ impl From<PatchPolicyReq> for policy::UpdateStoragePolicyInput {
     fn from(value: PatchPolicyReq) -> Self {
         Self {
             name: value.name,
-            endpoint: value.endpoint,
-            bucket: value.bucket,
-            access_key: value.access_key,
-            secret_key: value.secret_key,
-            base_path: value.base_path,
-            remote_node_id: value.remote_node_id,
-            remote_storage_target_key: value.remote_storage_target_key,
+            connector_config: value.connector_config,
+            behavior: value.behavior,
+            credential: value.credential,
             max_file_size: value.max_file_size,
             chunk_size: value.chunk_size,
             is_default: value.is_default,
             allowed_types: value.allowed_types,
-            options: value.options,
-            application_config: value.application_config.unwrap_or_default(),
         }
     }
 }
@@ -100,18 +52,7 @@ impl From<TestPolicyParamsReq> for policy::TestDraftStoragePolicyConnectionInput
     fn from(value: TestPolicyParamsReq) -> Self {
         Self {
             policy_id: value.policy_id,
-            connection: PolicyConnectionInputParts {
-                driver_type: value.driver_type,
-                endpoint: value.endpoint,
-                bucket: value.bucket,
-                access_key: value.access_key,
-                secret_key: value.secret_key,
-                base_path: value.base_path,
-                remote_node_id: value.remote_node_id,
-                remote_storage_target_key: value.remote_storage_target_key,
-                options: value.options.unwrap_or_default(),
-            }
-            .into(),
+            connection: value.connection,
         }
     }
 }
@@ -121,18 +62,7 @@ impl From<ExecuteDraftStoragePolicyActionReq> for policy::ExecuteDraftStoragePol
         Self {
             action: value.action,
             policy_id: value.policy_id,
-            connection: PolicyConnectionInputParts {
-                driver_type: value.driver_type,
-                endpoint: value.endpoint,
-                bucket: value.bucket,
-                access_key: value.access_key,
-                secret_key: value.secret_key,
-                base_path: value.base_path,
-                remote_node_id: value.remote_node_id,
-                remote_storage_target_key: value.remote_storage_target_key,
-                options: value.options.unwrap_or_default(),
-            }
-            .into(),
+            connection: value.connection,
         }
     }
 }
@@ -141,16 +71,6 @@ impl From<ExecuteSavedStoragePolicyActionReq> for policy::ExecuteSavedStoragePol
     fn from(value: ExecuteSavedStoragePolicyActionReq) -> Self {
         Self {
             action: value.action,
-        }
-    }
-}
-
-impl From<PromoteS3CompatiblePolicyDriverReq> for policy::PromoteS3CompatiblePolicyDriverInput {
-    fn from(value: PromoteS3CompatiblePolicyDriverReq) -> Self {
-        Self {
-            target_driver_type: value.target_driver_type,
-            endpoint: value.endpoint,
-            bucket: value.bucket,
         }
     }
 }
@@ -361,41 +281,6 @@ pub async fn update_policy(
 }
 
 #[aster_forge_api_docs_macros::path(
-    post,
-    path = "/api/v1/admin/policies/{id}/promote-s3-driver",
-    tag = "admin",
-    operation_id = "promote_s3_compatible_policy_driver",
-    params(("id" = i64, Path, description = "Policy ID")),
-    request_body = PromoteS3CompatiblePolicyDriverReq,
-    responses(
-        (status = 200, description = "Policy driver promoted", body = inline(ApiResponse<policy::StoragePolicy>)),
-        (status = 400, description = "Promotion rejected"),
-        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
-        (status = 403, description = "Forbidden"),
-        (status = 404, description = "Policy not found"),
-    ),
-    security(("bearer" = [])),
-)]
-pub async fn promote_s3_compatible_policy_driver(
-    state: web::Data<PrimaryAppState>,
-    claims: web::ReqData<Claims>,
-    req: HttpRequest,
-    path: web::Path<i64>,
-    body: web::Json<PromoteS3CompatiblePolicyDriverReq>,
-) -> Result<HttpResponse> {
-    validate_request(&*body)?;
-    let ctx = audit::AuditContext::from_request(&req, &claims);
-    let policy = policy::promote_s3_compatible_driver_with_audit(
-        state.get_ref(),
-        *path,
-        body.into_inner().into(),
-        &ctx,
-    )
-    .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(policy)))
-}
-
-#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/policies/{id}",
     tag = "admin",
@@ -585,7 +470,7 @@ pub async fn start_storage_authorization(
     operation_id = "list_storage_policy_credentials",
     params(("id" = i64, Path, description = "Policy ID")),
     responses(
-        (status = 200, description = "Storage policy credentials", body = inline(ApiResponse<Vec<credential::StoragePolicyCredentialInfo>>)),
+        (status = 200, description = "Storage policy credentials", body = inline(ApiResponse<Vec<crate::storage::StorageConnectorCredentialInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Policy not found"),

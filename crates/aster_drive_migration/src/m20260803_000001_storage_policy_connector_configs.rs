@@ -1,22 +1,24 @@
-//! Add plugin-safe connector and core behavior envelopes to storage policies.
+//! Add a plugin-safe storage configuration envelope to storage policies.
 //!
 //! This migration intentionally freezes the legacy-to-envelope mapping instead
 //! of calling runtime connector code. Historical migrations must keep producing
 //! the same bytes when connector defaults or schemas evolve later.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::sea_orm::{ConnectionTrait, DbBackend, TransactionTrait};
-use serde_json::{Map, Value as JsonValue, json};
+use serde::Serialize;
+#[cfg(test)]
+use serde_json::json;
+use serde_json::{Map, Value as JsonValue};
 
+const STORAGE_CONFIG_FORMAT_VERSION: u32 = 1;
 const CONNECTOR_CONFIG_FORMAT_VERSION: u32 = 1;
 const CONNECTOR_CONFIG_SCHEMA_VERSION: u32 = 1;
 const BEHAVIOR_CONFIG_FORMAT_VERSION: u32 = 1;
 const BEHAVIOR_CONFIG_SCHEMA_VERSION: u32 = 1;
 const UNCONFIGURED_CONNECTOR_ID: &str = "asterdrive.storage.unconfigured";
-const EMPTY_CONNECTOR_CONFIG: &str = r#"{"format_version":1,"connector_id":"asterdrive.storage.unconfigured","schema_version":1,"values":{}}"#;
-const EMPTY_BEHAVIOR_CONFIG: &str = r#"{"format_version":1,"schema_version":1,"values":{}}"#;
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
@@ -30,11 +32,7 @@ impl MigrationTrait for Migration {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        for column in [
-            StoragePolicies::BehaviorConfig,
-            StoragePolicies::ConnectorConfig,
-            StoragePolicies::ConnectorId,
-        ] {
+        for column in [StoragePolicies::StorageConfig, StoragePolicies::ConnectorId] {
             if manager
                 .has_column(StoragePolicies::Table.to_string(), column.to_string())
                 .await?
@@ -55,6 +53,12 @@ impl MigrationTrait for Migration {
 
 async fn add_columns(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     let backend = manager.get_database_backend();
+    let empty_storage_config = serialize_storage_config(
+        0,
+        UNCONFIGURED_CONNECTOR_ID,
+        FrozenUnconfiguredConfigV1 {},
+        FrozenBehaviorConfigV1::default(),
+    )?;
 
     if !manager
         .has_column(
@@ -78,10 +82,10 @@ async fn add_columns(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
             .await?;
     }
 
-    for (column, default_json) in [
-        (StoragePolicies::ConnectorConfig, EMPTY_CONNECTOR_CONFIG),
-        (StoragePolicies::BehaviorConfig, EMPTY_BEHAVIOR_CONFIG),
-    ] {
+    for (column, default_json) in [(
+        StoragePolicies::StorageConfig,
+        empty_storage_config.as_str(),
+    )] {
         if manager
             .has_column(StoragePolicies::Table.to_string(), column.to_string())
             .await?
@@ -154,14 +158,7 @@ async fn backfill_config_envelopes(manager: &SchemaManager<'_>) -> Result<(), Db
                     StoragePolicies::ConnectorId,
                     update.connector_id.clone().into(),
                 ),
-                (
-                    StoragePolicies::ConnectorConfig,
-                    update.connector_config.into(),
-                ),
-                (
-                    StoragePolicies::BehaviorConfig,
-                    update.behavior_config.into(),
-                ),
+                (StoragePolicies::StorageConfig, update.storage_config.into()),
             ])
             .and_where(Expr::col(StoragePolicies::Id).eq(update.id));
         transaction.execute(&statement).await?;
@@ -174,10 +171,7 @@ async fn enforce_mysql_not_null(manager: &SchemaManager<'_>) -> Result<(), DbErr
         return Ok(());
     }
 
-    for column in [
-        StoragePolicies::ConnectorConfig,
-        StoragePolicies::BehaviorConfig,
-    ] {
+    for column in [StoragePolicies::StorageConfig] {
         manager
             .alter_table(
                 Table::alter()
@@ -206,8 +200,170 @@ struct LegacyStoragePolicy {
 struct ConfigBackfill {
     id: i64,
     connector_id: String,
-    connector_config: String,
-    behavior_config: String,
+    storage_config: String,
+}
+
+#[derive(Serialize)]
+struct FrozenStorageConfigEnvelopeV1<T> {
+    format_version: u32,
+    connector: FrozenConnectorConfigEnvelopeV1<T>,
+    behavior: FrozenBehaviorConfigEnvelopeV1,
+}
+
+#[derive(Serialize)]
+struct FrozenConnectorConfigEnvelopeV1<T> {
+    format_version: u32,
+    connector_id: &'static str,
+    schema_version: u32,
+    values: T,
+}
+
+#[derive(Serialize)]
+struct FrozenBehaviorConfigEnvelopeV1 {
+    format_version: u32,
+    schema_version: u32,
+    values: FrozenBehaviorConfigV1,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct FrozenBehaviorConfigV1 {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thumbnail_processor: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    thumbnail_extensions: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    media_metadata_extensions: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct FrozenUnconfiguredConfigV1 {}
+
+#[derive(Serialize)]
+struct FrozenLocalConfigV1 {
+    base_path: String,
+    content_dedup: bool,
+}
+
+#[derive(Serialize)]
+struct FrozenObjectStorageConfigV1 {
+    endpoint: String,
+    bucket: String,
+    base_path: String,
+    object_storage_upload_strategy: String,
+    object_storage_download_strategy: String,
+}
+
+#[derive(Serialize)]
+struct FrozenS3ConfigV1 {
+    endpoint: String,
+    bucket: String,
+    base_path: String,
+    object_storage_upload_strategy: String,
+    object_storage_download_strategy: String,
+    s3_path_style: bool,
+    s3_region: String,
+    s3_connect_timeout_secs: u64,
+    s3_read_timeout_secs: u64,
+    s3_operation_timeout_secs: u64,
+}
+
+#[derive(Serialize)]
+struct FrozenSftpConfigV1 {
+    endpoint: String,
+    base_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sftp_host_key_fingerprint: Option<String>,
+}
+
+#[derive(Serialize)]
+struct FrozenTencentCosConfigV1 {
+    endpoint: String,
+    bucket: String,
+    base_path: String,
+    object_storage_upload_strategy: String,
+    object_storage_download_strategy: String,
+    storage_native_processing_enabled: bool,
+    storage_native_media_metadata_enabled: bool,
+}
+
+#[derive(Serialize)]
+struct FrozenRemoteConfigV1 {
+    base_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remote_node_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remote_storage_target_key: Option<String>,
+    remote_download_strategy: String,
+    remote_upload_strategy: String,
+}
+
+#[derive(Serialize)]
+struct FrozenOneDriveConfigV1 {
+    base_path: String,
+    provider_resumable_upload_strategy: String,
+    provider_download_strategy: String,
+    provider_download_filename_mode: String,
+    cloud: String,
+    account_mode: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tenant: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    drive_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    root_item_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    site_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    group_id: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum FrozenConnectorConfigV1 {
+    Local(FrozenLocalConfigV1),
+    S3(FrozenS3ConfigV1),
+    Sftp(FrozenSftpConfigV1),
+    AzureBlob(FrozenObjectStorageConfigV1),
+    TencentCos(FrozenTencentCosConfigV1),
+    Remote(FrozenRemoteConfigV1),
+    OneDrive(FrozenOneDriveConfigV1),
+}
+
+impl FrozenConnectorConfigV1 {
+    fn connector_id(&self) -> &'static str {
+        match self {
+            Self::Local(_) => "asterdrive.storage.local",
+            Self::S3(_) => "asterdrive.storage.s3",
+            Self::Sftp(_) => "asterdrive.storage.sftp",
+            Self::AzureBlob(_) => "asterdrive.storage.azure_blob",
+            Self::TencentCos(_) => "asterdrive.storage.tencent_cos",
+            Self::Remote(_) => "asterdrive.storage.remote",
+            Self::OneDrive(_) => "asterdrive.storage.onedrive",
+        }
+    }
+}
+
+fn serialize_storage_config<T: Serialize>(
+    policy_id: i64,
+    connector_id: &'static str,
+    connector: T,
+    behavior: FrozenBehaviorConfigV1,
+) -> Result<String, DbErr> {
+    serde_json::to_string(&FrozenStorageConfigEnvelopeV1 {
+        format_version: STORAGE_CONFIG_FORMAT_VERSION,
+        connector: FrozenConnectorConfigEnvelopeV1 {
+            format_version: CONNECTOR_CONFIG_FORMAT_VERSION,
+            connector_id,
+            schema_version: CONNECTOR_CONFIG_SCHEMA_VERSION,
+            values: connector,
+        },
+        behavior: FrozenBehaviorConfigEnvelopeV1 {
+            format_version: BEHAVIOR_CONFIG_FORMAT_VERSION,
+            schema_version: BEHAVIOR_CONFIG_SCHEMA_VERSION,
+            values: behavior,
+        },
+    })
+    .map_err(|error| migration_error(policy_id, format!("serialize storage config: {error}")))
 }
 
 fn convert_legacy_policy(policy: LegacyStoragePolicy) -> Result<ConfigBackfill, DbErr> {
@@ -216,9 +372,8 @@ fn convert_legacy_policy(policy: LegacyStoragePolicy) -> Result<ConfigBackfill, 
         .get("thumbnail_processor")
         .and_then(JsonValue::as_str)
         == Some("storage_native");
-    let behavior_values = take_behavior_values(policy.id, &mut options)?;
-    let (connector_id, connector_values) =
-        connector_values(policy.id, &policy, &mut options, legacy_native_thumbnail)?;
+    let behavior = take_behavior_values(policy.id, &mut options)?;
+    let connector = connector_values(policy.id, &policy, &mut options, legacy_native_thumbnail)?;
 
     if let Some(field) = options.keys().next() {
         return Err(migration_error(
@@ -230,25 +385,13 @@ fn convert_legacy_policy(policy: LegacyStoragePolicy) -> Result<ConfigBackfill, 
         ));
     }
 
-    let connector_config = serde_json::to_string(&json!({
-        "format_version": CONNECTOR_CONFIG_FORMAT_VERSION,
-        "connector_id": connector_id,
-        "schema_version": CONNECTOR_CONFIG_SCHEMA_VERSION,
-        "values": connector_values,
-    }))
-    .map_err(|error| migration_error(policy.id, format!("serialize connector config: {error}")))?;
-    let behavior_config = serde_json::to_string(&json!({
-        "format_version": BEHAVIOR_CONFIG_FORMAT_VERSION,
-        "schema_version": BEHAVIOR_CONFIG_SCHEMA_VERSION,
-        "values": behavior_values,
-    }))
-    .map_err(|error| migration_error(policy.id, format!("serialize behavior config: {error}")))?;
+    let connector_id = connector.connector_id();
+    let storage_config = serialize_storage_config(policy.id, connector_id, connector, behavior)?;
 
     Ok(ConfigBackfill {
         id: policy.id,
         connector_id: connector_id.to_string(),
-        connector_config,
-        behavior_config,
+        storage_config,
     })
 }
 
@@ -331,9 +474,8 @@ fn known_legacy_option_names() -> HashSet<&'static str> {
 fn take_behavior_values(
     policy_id: i64,
     options: &mut Map<String, JsonValue>,
-) -> Result<BTreeMap<String, JsonValue>, DbErr> {
-    let mut values = BTreeMap::new();
-    if let Some(value) = take_string_enum(
+) -> Result<FrozenBehaviorConfigV1, DbErr> {
+    let thumbnail_processor = take_string_enum(
         policy_id,
         options,
         "thumbnail_processor",
@@ -345,17 +487,16 @@ fn take_behavior_values(
             "ffprobe_cli",
             "storage_native",
         ],
-    )? {
-        values.insert("thumbnail_processor".to_string(), JsonValue::String(value));
-    }
-    for field in ["thumbnail_extensions", "media_metadata_extensions"] {
-        if let Some(extensions) = take_extension_list(policy_id, options, field)?
-            && !extensions.is_empty()
-        {
-            values.insert(field.to_string(), json!(extensions));
-        }
-    }
-    Ok(values)
+    )?;
+    let thumbnail_extensions =
+        take_extension_list(policy_id, options, "thumbnail_extensions")?.unwrap_or_default();
+    let media_metadata_extensions =
+        take_extension_list(policy_id, options, "media_metadata_extensions")?.unwrap_or_default();
+    Ok(FrozenBehaviorConfigV1 {
+        thumbnail_processor,
+        thumbnail_extensions,
+        media_metadata_extensions,
+    })
 }
 
 fn connector_values(
@@ -363,27 +504,17 @@ fn connector_values(
     policy: &LegacyStoragePolicy,
     options: &mut Map<String, JsonValue>,
     legacy_native_thumbnail: bool,
-) -> Result<(&'static str, BTreeMap<String, JsonValue>), DbErr> {
+) -> Result<FrozenConnectorConfigV1, DbErr> {
     match policy.driver_type.as_str() {
         "local" => local_values(policy_id, policy, options),
         "s3" => s3_values(policy_id, policy, options),
         "sftp" => sftp_values(policy_id, policy, options),
-        "azure_blob" => object_storage_values(
-            policy_id,
-            policy,
-            options,
-            "asterdrive.storage.azure_blob",
-            false,
-            legacy_native_thumbnail,
-        ),
-        "tencent_cos" => object_storage_values(
-            policy_id,
-            policy,
-            options,
-            "asterdrive.storage.tencent_cos",
-            true,
-            legacy_native_thumbnail,
-        ),
+        "azure_blob" => {
+            object_storage_values(policy_id, policy, options, false, legacy_native_thumbnail)
+        }
+        "tencent_cos" => {
+            object_storage_values(policy_id, policy, options, true, legacy_native_thumbnail)
+        }
         "remote" => remote_values(policy_id, policy, options),
         "onedrive" => onedrive_values(policy_id, policy, options),
         driver => Err(migration_error(
@@ -397,216 +528,205 @@ fn local_values(
     policy_id: i64,
     policy: &LegacyStoragePolicy,
     options: &mut Map<String, JsonValue>,
-) -> Result<(&'static str, BTreeMap<String, JsonValue>), DbErr> {
-    let mut values = connection_values(policy, false, false);
-    values.insert(
-        "content_dedup".to_string(),
-        JsonValue::Bool(take_bool(policy_id, options, "content_dedup")?.unwrap_or(false)),
-    );
-    Ok(("asterdrive.storage.local", values))
+) -> Result<FrozenConnectorConfigV1, DbErr> {
+    Ok(FrozenConnectorConfigV1::Local(FrozenLocalConfigV1 {
+        base_path: policy.base_path.clone(),
+        content_dedup: take_bool(policy_id, options, "content_dedup")?.unwrap_or(false),
+    }))
 }
 
 fn s3_values(
     policy_id: i64,
     policy: &LegacyStoragePolicy,
     options: &mut Map<String, JsonValue>,
-) -> Result<(&'static str, BTreeMap<String, JsonValue>), DbErr> {
-    let mut values = object_storage_transfer_values(policy_id, policy, options)?;
-    values.insert(
-        "s3_path_style".to_string(),
-        JsonValue::Bool(take_bool(policy_id, options, "s3_path_style")?.unwrap_or(true)),
-    );
-    values.insert(
-        "s3_region".to_string(),
-        JsonValue::String(
-            take_trimmed_string(policy_id, options, "s3_region")?
-                .unwrap_or_else(|| "auto".to_string()),
-        ),
-    );
-    for (field, default) in [
-        ("s3_connect_timeout_secs", 5_u64),
-        ("s3_read_timeout_secs", 30_u64),
-        ("s3_operation_timeout_secs", 3_600_u64),
-    ] {
-        // Legacy runtime treated an explicit zero exactly like an omitted
-        // timeout, so materialize the effective default in the new schema.
-        let timeout = take_u64(policy_id, options, field)?
-            .filter(|value| *value > 0)
-            .unwrap_or(default);
-        values.insert(field.to_string(), json!(timeout));
-    }
-    Ok(("asterdrive.storage.s3", values))
+) -> Result<FrozenConnectorConfigV1, DbErr> {
+    let transfer = object_storage_transfer_values(policy_id, policy, options)?;
+    Ok(FrozenConnectorConfigV1::S3(FrozenS3ConfigV1 {
+        endpoint: transfer.endpoint,
+        bucket: transfer.bucket,
+        base_path: transfer.base_path,
+        object_storage_upload_strategy: transfer.object_storage_upload_strategy,
+        object_storage_download_strategy: transfer.object_storage_download_strategy,
+        s3_path_style: take_bool(policy_id, options, "s3_path_style")?.unwrap_or(true),
+        s3_region: take_trimmed_string(policy_id, options, "s3_region")?
+            .unwrap_or_else(|| "auto".to_string()),
+        s3_connect_timeout_secs: effective_timeout(
+            policy_id,
+            options,
+            "s3_connect_timeout_secs",
+            5,
+        )?,
+        s3_read_timeout_secs: effective_timeout(policy_id, options, "s3_read_timeout_secs", 30)?,
+        s3_operation_timeout_secs: effective_timeout(
+            policy_id,
+            options,
+            "s3_operation_timeout_secs",
+            3_600,
+        )?,
+    }))
 }
 
 fn sftp_values(
     policy_id: i64,
     policy: &LegacyStoragePolicy,
     options: &mut Map<String, JsonValue>,
-) -> Result<(&'static str, BTreeMap<String, JsonValue>), DbErr> {
-    let mut values = connection_values(policy, true, false);
-    if let Some(value) = take_trimmed_string(policy_id, options, "sftp_host_key_fingerprint")? {
-        values.insert(
-            "sftp_host_key_fingerprint".to_string(),
-            JsonValue::String(value),
-        );
-    }
-    Ok(("asterdrive.storage.sftp", values))
+) -> Result<FrozenConnectorConfigV1, DbErr> {
+    Ok(FrozenConnectorConfigV1::Sftp(FrozenSftpConfigV1 {
+        endpoint: policy.endpoint.clone(),
+        base_path: policy.base_path.clone(),
+        sftp_host_key_fingerprint: take_trimmed_string(
+            policy_id,
+            options,
+            "sftp_host_key_fingerprint",
+        )?,
+    }))
 }
 
 fn object_storage_values(
     policy_id: i64,
     policy: &LegacyStoragePolicy,
     options: &mut Map<String, JsonValue>,
-    connector_id: &'static str,
     supports_native_processing: bool,
     legacy_native_thumbnail: bool,
-) -> Result<(&'static str, BTreeMap<String, JsonValue>), DbErr> {
-    let mut values = object_storage_transfer_values(policy_id, policy, options)?;
+) -> Result<FrozenConnectorConfigV1, DbErr> {
+    let transfer = object_storage_transfer_values(policy_id, policy, options)?;
     if supports_native_processing {
         let processing = take_bool(policy_id, options, "storage_native_processing_enabled")?
             .unwrap_or(legacy_native_thumbnail);
         let metadata = take_bool(policy_id, options, "storage_native_media_metadata_enabled")?
             .unwrap_or(false);
-        values.insert(
-            "storage_native_processing_enabled".to_string(),
-            JsonValue::Bool(processing),
-        );
-        values.insert(
-            "storage_native_media_metadata_enabled".to_string(),
-            JsonValue::Bool(metadata),
-        );
+        return Ok(FrozenConnectorConfigV1::TencentCos(
+            FrozenTencentCosConfigV1 {
+                endpoint: transfer.endpoint,
+                bucket: transfer.bucket,
+                base_path: transfer.base_path,
+                object_storage_upload_strategy: transfer.object_storage_upload_strategy,
+                object_storage_download_strategy: transfer.object_storage_download_strategy,
+                storage_native_processing_enabled: processing,
+                storage_native_media_metadata_enabled: metadata,
+            },
+        ));
     }
-    Ok((connector_id, values))
+    Ok(FrozenConnectorConfigV1::AzureBlob(transfer))
 }
 
 fn object_storage_transfer_values(
     policy_id: i64,
     policy: &LegacyStoragePolicy,
     options: &mut Map<String, JsonValue>,
-) -> Result<BTreeMap<String, JsonValue>, DbErr> {
-    let mut values = connection_values(policy, true, true);
-    for field in [
-        "object_storage_upload_strategy",
-        "object_storage_download_strategy",
-    ] {
-        let value = take_string_enum(policy_id, options, field, &["relay_stream", "presigned"])?
-            .unwrap_or_else(|| "relay_stream".to_string());
-        values.insert(field.to_string(), JsonValue::String(value));
-    }
-    Ok(values)
+) -> Result<FrozenObjectStorageConfigV1, DbErr> {
+    Ok(FrozenObjectStorageConfigV1 {
+        endpoint: policy.endpoint.clone(),
+        bucket: policy.bucket.clone(),
+        base_path: policy.base_path.clone(),
+        object_storage_upload_strategy: take_string_enum(
+            policy_id,
+            options,
+            "object_storage_upload_strategy",
+            &["relay_stream", "presigned"],
+        )?
+        .unwrap_or_else(|| "relay_stream".to_string()),
+        object_storage_download_strategy: take_string_enum(
+            policy_id,
+            options,
+            "object_storage_download_strategy",
+            &["relay_stream", "presigned"],
+        )?
+        .unwrap_or_else(|| "relay_stream".to_string()),
+    })
 }
 
 fn remote_values(
     policy_id: i64,
     policy: &LegacyStoragePolicy,
     options: &mut Map<String, JsonValue>,
-) -> Result<(&'static str, BTreeMap<String, JsonValue>), DbErr> {
-    let mut values = connection_values(policy, false, false);
-    if let Some(remote_node_id) = policy.remote_node_id {
-        values.insert("remote_node_id".to_string(), json!(remote_node_id));
-    }
-    if let Some(target_key) = policy
+) -> Result<FrozenConnectorConfigV1, DbErr> {
+    let remote_storage_target_key = policy
         .remote_storage_target_key
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-    {
-        values.insert(
-            "remote_storage_target_key".to_string(),
-            JsonValue::String(target_key.to_string()),
-        );
-    }
-    for field in ["remote_download_strategy", "remote_upload_strategy"] {
-        let value = take_string_enum(policy_id, options, field, &["relay_stream", "presigned"])?
-            .unwrap_or_else(|| "relay_stream".to_string());
-        values.insert(field.to_string(), JsonValue::String(value));
-    }
-    Ok(("asterdrive.storage.remote", values))
+        .map(str::to_string);
+    Ok(FrozenConnectorConfigV1::Remote(FrozenRemoteConfigV1 {
+        base_path: policy.base_path.clone(),
+        remote_node_id: policy.remote_node_id,
+        remote_storage_target_key,
+        remote_download_strategy: take_string_enum(
+            policy_id,
+            options,
+            "remote_download_strategy",
+            &["relay_stream", "presigned"],
+        )?
+        .unwrap_or_else(|| "relay_stream".to_string()),
+        remote_upload_strategy: take_string_enum(
+            policy_id,
+            options,
+            "remote_upload_strategy",
+            &["relay_stream", "presigned"],
+        )?
+        .unwrap_or_else(|| "relay_stream".to_string()),
+    }))
 }
 
 fn onedrive_values(
     policy_id: i64,
     policy: &LegacyStoragePolicy,
     options: &mut Map<String, JsonValue>,
-) -> Result<(&'static str, BTreeMap<String, JsonValue>), DbErr> {
-    let mut values = connection_values(policy, false, false);
-    for (legacy, current, allowed, default) in [
-        (
+) -> Result<FrozenConnectorConfigV1, DbErr> {
+    Ok(FrozenConnectorConfigV1::OneDrive(FrozenOneDriveConfigV1 {
+        base_path: policy.base_path.clone(),
+        provider_resumable_upload_strategy: take_string_enum(
+            policy_id,
+            options,
             "provider_resumable_upload_strategy",
-            "provider_resumable_upload_strategy",
-            &["server_relay", "frontend_direct"][..],
-            "server_relay",
-        ),
-        (
+            &["server_relay", "frontend_direct"],
+        )?
+        .unwrap_or_else(|| "server_relay".to_string()),
+        provider_download_strategy: take_string_enum(
+            policy_id,
+            options,
             "provider_download_strategy",
-            "provider_download_strategy",
-            &["server_relay", "frontend_direct"][..],
-            "server_relay",
-        ),
-        (
+            &["server_relay", "frontend_direct"],
+        )?
+        .unwrap_or_else(|| "server_relay".to_string()),
+        provider_download_filename_mode: take_string_enum(
+            policy_id,
+            options,
             "provider_download_filename_mode",
-            "provider_download_filename_mode",
-            &["provider_native", "strict_current"][..],
-            "provider_native",
-        ),
-        (
-            "onedrive_cloud",
-            "cloud",
-            &["global", "china"][..],
-            "global",
-        ),
-        (
+            &["provider_native", "strict_current"],
+        )?
+        .unwrap_or_else(|| "provider_native".to_string()),
+        cloud: take_string_enum(policy_id, options, "onedrive_cloud", &["global", "china"])?
+            .unwrap_or_else(|| "global".to_string()),
+        account_mode: take_string_enum(
+            policy_id,
+            options,
             "onedrive_account_mode",
-            "account_mode",
             &[
                 "personal",
                 "work_or_school",
                 "sharepoint_site",
                 "group_drive",
-            ][..],
-            "personal",
-        ),
-    ] {
-        let value = take_string_enum(policy_id, options, legacy, allowed)?
-            .unwrap_or_else(|| default.to_string());
-        values.insert(current.to_string(), JsonValue::String(value));
-    }
-    for (legacy, current) in [
-        ("onedrive_tenant", "tenant"),
-        ("onedrive_drive_id", "drive_id"),
-        ("onedrive_root_item_id", "root_item_id"),
-        ("onedrive_site_id", "site_id"),
-        ("onedrive_group_id", "group_id"),
-    ] {
-        if let Some(value) = take_trimmed_string(policy_id, options, legacy)? {
-            values.insert(current.to_string(), JsonValue::String(value));
-        }
-    }
-    Ok(("asterdrive.storage.onedrive", values))
+            ],
+        )?
+        .unwrap_or_else(|| "personal".to_string()),
+        tenant: take_trimmed_string(policy_id, options, "onedrive_tenant")?,
+        drive_id: take_trimmed_string(policy_id, options, "onedrive_drive_id")?,
+        root_item_id: take_trimmed_string(policy_id, options, "onedrive_root_item_id")?,
+        site_id: take_trimmed_string(policy_id, options, "onedrive_site_id")?,
+        group_id: take_trimmed_string(policy_id, options, "onedrive_group_id")?,
+    }))
 }
 
-fn connection_values(
-    policy: &LegacyStoragePolicy,
-    include_endpoint: bool,
-    include_bucket: bool,
-) -> BTreeMap<String, JsonValue> {
-    let mut values = BTreeMap::from([(
-        "base_path".to_string(),
-        JsonValue::String(policy.base_path.clone()),
-    )]);
-    if include_endpoint {
-        values.insert(
-            "endpoint".to_string(),
-            JsonValue::String(policy.endpoint.clone()),
-        );
-    }
-    if include_bucket {
-        values.insert(
-            "bucket".to_string(),
-            JsonValue::String(policy.bucket.clone()),
-        );
-    }
-    values
+fn effective_timeout(
+    policy_id: i64,
+    options: &mut Map<String, JsonValue>,
+    field: &str,
+    default: u64,
+) -> Result<u64, DbErr> {
+    Ok(take_u64(policy_id, options, field)?
+        .filter(|value| *value > 0)
+        .unwrap_or(default))
 }
 
 fn take_bool(
@@ -727,8 +847,7 @@ enum StoragePolicies {
     RemoteStorageTargetKey,
     Options,
     ConnectorId,
-    ConnectorConfig,
-    BehaviorConfig,
+    StorageConfig,
 }
 
 #[cfg(test)]
@@ -761,10 +880,10 @@ mod tests {
         ] {
             let converted = convert_legacy_policy(policy(driver, json!({}))).unwrap();
             assert_eq!(converted.connector_id, connector);
-            let envelope: JsonValue = serde_json::from_str(&converted.connector_config).unwrap();
+            let envelope: JsonValue = serde_json::from_str(&converted.storage_config).unwrap();
             assert_eq!(envelope["format_version"], 1);
-            assert_eq!(envelope["schema_version"], 1);
-            assert_eq!(envelope["connector_id"], connector);
+            assert_eq!(envelope["connector"]["schema_version"], 1);
+            assert_eq!(envelope["connector"]["connector_id"], connector);
         }
     }
 
@@ -783,8 +902,9 @@ mod tests {
             }),
         ))
         .unwrap();
-        let connector: JsonValue = serde_json::from_str(&converted.connector_config).unwrap();
-        let behavior: JsonValue = serde_json::from_str(&converted.behavior_config).unwrap();
+        let storage: JsonValue = serde_json::from_str(&converted.storage_config).unwrap();
+        let connector = &storage["connector"];
+        let behavior = &storage["behavior"];
 
         assert_eq!(
             connector["values"]["object_storage_upload_strategy"],
@@ -807,9 +927,10 @@ mod tests {
         legacy.endpoint = "sftp://host".to_string();
         let converted = convert_legacy_policy(legacy).unwrap();
 
-        assert!(!converted.connector_config.contains("access_key"));
-        assert!(!converted.connector_config.contains("secret_key"));
-        let connector: JsonValue = serde_json::from_str(&converted.connector_config).unwrap();
+        assert!(!converted.storage_config.contains("access_key"));
+        assert!(!converted.storage_config.contains("secret_key"));
+        let storage: JsonValue = serde_json::from_str(&converted.storage_config).unwrap();
+        let connector = &storage["connector"];
         assert_eq!(
             connector["values"]["sftp_host_key_fingerprint"],
             "SHA256:test"

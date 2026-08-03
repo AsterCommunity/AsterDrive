@@ -77,9 +77,18 @@ pub(crate) fn prepare_non_dedup_blob_upload(
 ) -> Result<PreparedNonDedupBlobUpload> {
     match crate::storage::connectors::resolve_policy_upload_transport(registry, policy)? {
         StorageConnectorUploadTransport::Local => {
+            let local = crate::storage::connectors::resolve_local_filesystem_projection(
+                registry, policy,
+            )?
+            .ok_or_else(|| {
+                AsterError::internal_error(format!(
+                    "storage connector '{}' selected local upload transport without a local filesystem projection",
+                    policy.connector_id
+                ))
+            })?;
             let blob_key = aster_forge_utils::id::new_short_token();
             Ok(PreparedNonDedupBlobUpload::Local {
-                base_path: crate::storage::drivers::local::effective_base_path(&policy.base_path),
+                base_path: crate::storage::drivers::local::effective_base_path(&local.base_path),
                 storage_path: aster_forge_validation::filename::storage_path_from_blob_key(
                     &blob_key,
                 )?,
@@ -92,8 +101,8 @@ pub(crate) fn prepare_non_dedup_blob_upload(
             let upload_id = aster_forge_utils::id::new_uuid();
             let hash_prefix = transport.opaque_blob_hash_prefix().ok_or_else(|| {
                 AsterError::validation_error(format!(
-                    "storage policy driver '{}' cannot prepare opaque blob uploads without an opaque hash prefix",
-                    policy.driver_type.as_str()
+                    "storage connector '{}' cannot prepare opaque blob uploads without an opaque hash prefix",
+                    policy.connector_id
                 ))
             })?;
             let storage_path =
@@ -534,6 +543,7 @@ mod storage_path_tests {
     fn policy(driver_type: DriverType) -> aster_drive_model::entities::storage_policy::Model {
         let now = chrono::Utc::now();
         let connector_id = format!("asterdrive.storage.{}", driver_type.as_str());
+        let options = aster_drive_model::types::StoragePolicyOptions::default();
         aster_drive_model::entities::storage_policy::Model {
             id: 1,
             name: "test".to_string(),
@@ -546,10 +556,15 @@ mod storage_path_tests {
             remote_node_id: None,
             remote_storage_target_key: None,
             connector_id: connector_id.clone(),
-            connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(
-                &connector_id,
+            storage_config: crate::storage::connectors::test_support::policy_config(
+                driver_type,
+                "",
+                "",
+                "",
+                None,
+                None,
+                &options,
             ),
-            behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
             max_file_size: 0,
             allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
             options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),

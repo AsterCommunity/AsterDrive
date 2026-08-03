@@ -2,15 +2,13 @@
 
 use chrono::Utc;
 use sea_orm::Set;
-use validator::Validate;
 
 use crate::db::repository::{policy_group_repo, policy_repo, user_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use aster_drive_model::entities::{storage_policy_group, storage_policy_group_item};
 use aster_drive_model::types::{
-    StoragePolicyOptions, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
-    serialize_storage_policy_allowed_types, serialize_storage_policy_options,
+    StoredStoragePolicyAllowedTypes, serialize_storage_policy_allowed_types,
 };
 
 use super::models::{
@@ -25,18 +23,6 @@ pub(super) fn serialize_allowed_types(
 ) -> Result<StoredStoragePolicyAllowedTypes> {
     serialize_storage_policy_allowed_types(allowed_types).map_err(|error| {
         AsterError::internal_error(format!("serialize storage policy allowed_types: {error}"))
-    })
-}
-
-pub(super) fn serialize_options(
-    options: &StoragePolicyOptions,
-) -> Result<StoredStoragePolicyOptions> {
-    let options = options.clone().normalized();
-    options
-        .validate()
-        .map_err(|error| AsterError::validation_error(error.to_string()))?;
-    serialize_storage_policy_options(&options).map_err(|error| {
-        AsterError::internal_error(format!("serialize storage policy options: {error}"))
     })
 }
 
@@ -86,7 +72,7 @@ pub(super) fn build_group_info(
                 policy: StoragePolicySummaryInfo {
                     id: policy.id,
                     name: policy.name,
-                    driver_type: policy.driver_type,
+                    connector_id: policy.connector_id,
                 },
             }
         })

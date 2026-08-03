@@ -14,8 +14,6 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, ReadBuf};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::parse_storage_policy_options;
 use aster_drive_storage::error::{
     Result, StorageError, StorageErrorContext, StorageErrorKind, storage_driver_error,
     storage_driver_error_with_context,
@@ -44,6 +42,19 @@ pub struct SftpDriver {
     base_path: String,
     host_key_fingerprint: Option<String>,
     pool: Arc<SftpConnectionPool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SftpDriverConfig {
+    pub endpoint: String,
+    pub base_path: String,
+    pub host_key_fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SftpStaticCredentials {
+    pub username: String,
+    pub password: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -280,25 +291,17 @@ impl Drop for SftpConnectionLease {
 }
 
 impl SftpDriver {
-    pub fn validate_policy(policy: &storage_policy::Model) -> Result<()> {
-        Self::validate_connection_parts(
-            &policy.endpoint,
-            &policy.access_key,
-            &policy.secret_key,
-            &policy.base_path,
-        )
-    }
-
-    pub(crate) fn validate_connection_parts(
-        endpoint: &str,
-        username: &str,
-        password: &str,
-        base_path: &str,
+    pub fn validate_config(
+        config: &SftpDriverConfig,
+        credentials: &SftpStaticCredentials,
     ) -> Result<()> {
-        parse_sftp_endpoint(endpoint)?;
-        validate_connection_secret(username, "username")?;
-        validate_connection_secret(password, "password")?;
-        normalize_remote_base_path(base_path)?;
+        parse_sftp_endpoint(&config.endpoint)?;
+        validate_connection_secret(&credentials.username, "username")?;
+        validate_connection_secret(&credentials.password, "password")?;
+        normalize_remote_base_path(&config.base_path)?;
+        if let Some(fingerprint) = config.host_key_fingerprint.as_deref() {
+            Self::validate_host_key_fingerprint(fingerprint)?;
+        }
         Ok(())
     }
 
@@ -308,15 +311,16 @@ impl SftpDriver {
         Ok(endpoint.to_string())
     }
 
-    pub fn new(policy: &storage_policy::Model) -> Result<Self> {
-        Self::validate_policy(policy)?;
+    pub fn new(config: SftpDriverConfig, credentials: SftpStaticCredentials) -> Result<Self> {
+        Self::validate_config(&config, &credentials)?;
         Ok(Self {
-            endpoint: parse_sftp_endpoint(&policy.endpoint)?,
-            username: policy.access_key.clone(),
-            password: policy.secret_key.clone(),
-            base_path: normalize_remote_base_path(&policy.base_path)?,
-            host_key_fingerprint: parse_storage_policy_options(policy.options.as_ref())
-                .sftp_host_key_fingerprint,
+            endpoint: parse_sftp_endpoint(&config.endpoint)?,
+            username: credentials.username,
+            password: credentials.password,
+            base_path: normalize_remote_base_path(&config.base_path)?,
+            host_key_fingerprint: config
+                .host_key_fingerprint
+                .map(|value| normalize_host_key_fingerprint(&value)),
             pool: Arc::new(SftpConnectionPool::new(DEFAULT_POOL_SIZE)),
         })
     }
@@ -1212,31 +1216,35 @@ mod tests {
         let password = std::env::var("ASTER_SFTP_TEST_PASSWORD").ok()?;
         let base_path = std::env::var("ASTER_SFTP_TEST_BASE_PATH").ok()?;
         let host_key_fingerprint = std::env::var("ASTER_SFTP_TEST_HOST_KEY_FINGERPRINT").ok()?;
+        let options = aster_drive_model::types::StoragePolicyOptions {
+            sftp_host_key_fingerprint: Some(host_key_fingerprint),
+            ..Default::default()
+        };
         Some(aster_drive_model::entities::storage_policy::Model {
             id: 1,
             name: "sftp acceptance".to_string(),
             driver_type: DriverType::Sftp,
-            endpoint,
+            endpoint: endpoint.clone(),
             bucket: String::new(),
             access_key: username,
             secret_key: password,
-            base_path,
+            base_path: base_path.clone(),
             remote_node_id: None,
             remote_storage_target_key: None,
             connector_id: "asterdrive.storage.sftp".to_string(),
-            connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(
-                "asterdrive.storage.sftp",
+            storage_config: crate::storage::connectors::test_support::policy_config(
+                DriverType::Sftp,
+                endpoint,
+                "",
+                base_path,
+                None,
+                None,
+                &options,
             ),
-            behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
             max_file_size: 0,
             allowed_types: StoredStoragePolicyAllowedTypes::empty(),
-            options: aster_drive_model::types::serialize_storage_policy_options(
-                &aster_drive_model::types::StoragePolicyOptions {
-                    sftp_host_key_fingerprint: Some(host_key_fingerprint),
-                    ..Default::default()
-                },
-            )
-            .expect("serialize SFTP host key options"),
+            options: aster_drive_model::types::serialize_storage_policy_options(&options)
+                .expect("serialize SFTP host key options"),
             is_default: false,
             chunk_size: 1024,
             created_at: Utc::now(),

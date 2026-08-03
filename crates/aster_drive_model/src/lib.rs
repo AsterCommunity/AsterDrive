@@ -11,5 +11,6 @@
     )
 )]
 
+pub mod deprecated;
 pub mod entities;
 pub mod types;

@@ -90,7 +90,8 @@ async fn finalize_chunked_upload_session(
     }
 
     let prepare_started_at = Instant::now();
-    let should_dedup = storage::local_content_dedup_enabled(policy);
+    let should_dedup =
+        storage::local_content_dedup_enabled(state.driver_registry().connectors(), policy)?;
     let chunked_temp = load_offset_staging_file(state, session, should_dedup).await?;
     let prepare_elapsed_ms = prepare_started_at.elapsed().as_millis();
 

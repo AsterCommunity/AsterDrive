@@ -12,9 +12,9 @@ mod tests;
 use aws_credential_types::Credentials;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{BehaviorVersion, Region, timeout::TimeoutConfig};
+use std::time::Duration;
 
 use super::s3_config::normalize_s3_endpoint_and_bucket;
-use aster_drive_model::entities::storage_policy;
 use aster_drive_storage::Result;
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 use aster_drive_storage::object_key;
@@ -23,6 +23,24 @@ pub struct S3Driver {
     client: Client,
     bucket: String,
     base_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct S3DriverConfig {
+    pub endpoint: String,
+    pub bucket: String,
+    pub base_path: String,
+    pub region: String,
+    pub path_style: bool,
+    pub connect_timeout: Duration,
+    pub read_timeout: Duration,
+    pub operation_timeout: Duration,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct S3StaticCredentials {
+    pub access_key: String,
+    pub secret_key: String,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -45,16 +63,19 @@ impl S3DriverOptions {
 }
 
 impl S3Driver {
-    pub fn validate_policy(policy: &storage_policy::Model) -> Result<()> {
-        normalize_s3_endpoint_and_bucket(&policy.endpoint, &policy.bucket)
+    pub fn validate_config(
+        config: &S3DriverConfig,
+        credentials: &S3StaticCredentials,
+    ) -> Result<()> {
+        normalize_s3_endpoint_and_bucket(&config.endpoint, &config.bucket)
             .map_err(Self::rewrap_s3_config_error)?;
-        if policy.access_key.trim().is_empty() {
+        if credentials.access_key.trim().is_empty() {
             return Err(storage_driver_error(
                 StorageErrorKind::Auth,
                 "access_key cannot be empty",
             ));
         }
-        if policy.secret_key.trim().is_empty() {
+        if credentials.secret_key.trim().is_empty() {
             return Err(storage_driver_error(
                 StorageErrorKind::Auth,
                 "secret_key cannot be empty",
@@ -64,41 +85,41 @@ impl S3Driver {
     }
 
     pub fn new<F>(
-        policy: &storage_policy::Model,
+        driver_config: S3DriverConfig,
+        credentials: S3StaticCredentials,
         driver_options: S3DriverOptions,
         configure: F,
     ) -> Result<Self>
     where
         F: FnOnce(aws_sdk_s3::config::Builder) -> aws_sdk_s3::config::Builder,
     {
-        Self::validate_policy(policy)?;
-        let normalized = normalize_s3_endpoint_and_bucket(&policy.endpoint, &policy.bucket)
-            .map_err(Self::rewrap_s3_config_error)?;
-        let options =
-            aster_drive_model::types::parse_storage_policy_options(policy.options.as_ref());
+        Self::validate_config(&driver_config, &credentials)?;
+        let normalized =
+            normalize_s3_endpoint_and_bucket(&driver_config.endpoint, &driver_config.bucket)
+                .map_err(Self::rewrap_s3_config_error)?;
 
         let credentials = Credentials::new(
-            &policy.access_key,
-            &policy.secret_key,
+            credentials.access_key,
+            credentials.secret_key,
             None,
             None,
             "aster-s3-driver",
         );
 
         let timeout_config = TimeoutConfig::builder()
-            .connect_timeout(options.effective_s3_connect_timeout())
-            .read_timeout(options.effective_s3_read_timeout())
-            .operation_timeout(options.effective_s3_operation_timeout())
+            .connect_timeout(driver_config.connect_timeout)
+            .read_timeout(driver_config.read_timeout)
+            .operation_timeout(driver_config.operation_timeout)
             .build();
         let force_path_style = driver_options
             .force_path_style
             // Provider wrappers such as Tencent COS may override addressing
             // style explicitly; plain S3 policies read the persisted option.
-            .unwrap_or_else(|| options.effective_s3_path_style());
+            .unwrap_or(driver_config.path_style);
 
         let mut config_builder = aws_sdk_s3::Config::builder()
             .behavior_version(BehaviorVersion::latest())
-            .region(Region::new(options.effective_s3_region().to_string()))
+            .region(Region::new(driver_config.region))
             .credentials_provider(credentials)
             .timeout_config(timeout_config)
             .force_path_style(force_path_style);
@@ -113,7 +134,7 @@ impl S3Driver {
         Ok(Self {
             client,
             bucket: normalized.bucket,
-            base_path: policy.base_path.clone(),
+            base_path: driver_config.base_path,
         })
     }
 

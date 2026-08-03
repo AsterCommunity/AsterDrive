@@ -56,9 +56,10 @@ macro_rules! storage_connector_schema {
                     $field_visibility:vis $field:ident: $field_type:ty => $descriptor:expr
                 ),* $(,)?
             }
-            credentials static {
+            credentials static $credential_name:ident {
                 $(
-                    $credential_field:ident => $credential_descriptor:expr
+                    $(#[$credential_field_meta:meta])*
+                    $credential_field_visibility:vis $credential_field:ident: $credential_field_type:ty => $credential_descriptor:expr
                 ),* $(,)?
             }
         }
@@ -73,9 +74,10 @@ macro_rules! storage_connector_schema {
                     ),*
                 }
                 credential_mode = $crate::StorageConnectorCredentialMode::StaticSecret;
-                credentials {
+                credentials $credential_name {
                     $(
-                        $credential_field => $credential_descriptor
+                        $(#[$credential_field_meta])*
+                        $credential_field_visibility $credential_field: $credential_field_type => $credential_descriptor
                     ),*
                 }
             }
@@ -90,9 +92,10 @@ macro_rules! storage_connector_schema {
                     $field_visibility:vis $field:ident: $field_type:ty => $descriptor:expr
                 ),* $(,)?
             }
-            credentials authorization_application {
+            credentials authorization_application $credential_name:ident {
                 $(
-                    $credential_field:ident => $credential_descriptor:expr
+                    $(#[$credential_field_meta:meta])*
+                    $credential_field_visibility:vis $credential_field:ident: $credential_field_type:ty => $credential_descriptor:expr
                 ),* $(,)?
             }
         }
@@ -107,9 +110,10 @@ macro_rules! storage_connector_schema {
                     ),*
                 }
                 credential_mode = $crate::StorageConnectorCredentialMode::OauthDelegated;
-                credentials {
+                credentials $credential_name {
                     $(
-                        $credential_field => $credential_descriptor
+                        $(#[$credential_field_meta])*
+                        $credential_field_visibility $credential_field: $credential_field_type => $credential_descriptor
                     ),*
                 }
             }
@@ -177,6 +181,81 @@ macro_rules! storage_connector_schema_impl {
                                 descriptor.name,
                                 stringify!($credential_field),
                                 "credential descriptor name must match its declared field"
+                            );
+                            descriptor
+                        }
+                    ),*
+                ]
+            }
+        }
+    };
+    (
+        $(#[$struct_meta:meta])*
+        $visibility:vis struct $name:ident {
+            config {
+                $(
+                    $(#[$field_meta:meta])*
+                    $field_visibility:vis $field:ident: $field_type:ty => $descriptor:expr
+                ),* $(,)?
+            }
+            credential_mode = $credential_mode:expr;
+            credentials $credential_name:ident {
+                $(
+                    $(#[$credential_field_meta:meta])*
+                    $credential_field_visibility:vis $credential_field:ident: $credential_field_type:ty => $credential_descriptor:expr
+                ),* $(,)?
+            }
+        }
+    ) => {
+        $(#[$struct_meta])*
+        #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        $visibility struct $name {
+            $(
+                $(#[$field_meta])*
+                $field_visibility $field: $field_type,
+            )*
+        }
+
+        #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        $visibility struct $credential_name {
+            $(
+                $(#[$credential_field_meta])*
+                $credential_field_visibility $credential_field: $credential_field_type,
+            )*
+        }
+
+        impl $crate::StorageConnectorConfigSchema for $name {
+            fn connector_config_fields() -> Vec<$crate::StorageConnectorFieldDescriptor> {
+                vec![
+                    $(
+                        {
+                            let descriptor: $crate::StorageConnectorFieldDescriptor = $descriptor;
+                            assert_eq!(
+                                descriptor.name,
+                                stringify!($field),
+                                "connector config descriptor field name must match its serde field"
+                            );
+                            descriptor
+                        }
+                    ),*
+                ]
+            }
+
+            fn credential_mode() -> $crate::StorageConnectorCredentialMode {
+                $credential_mode
+            }
+
+            fn credential_fields() -> Vec<$crate::StorageConnectorFieldDescriptor> {
+                vec![
+                    $(
+                        {
+                            let descriptor: $crate::StorageConnectorFieldDescriptor = $credential_descriptor;
+                            assert_eq!(
+                                descriptor.name,
+                                stringify!($credential_field),
+                                "credential descriptor field name must match its serde field"
                             );
                             descriptor
                         }

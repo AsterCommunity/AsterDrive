@@ -27,6 +27,35 @@ pub struct StoragePolicyBehaviorConfig {
     pub media_metadata_extensions: Vec<String>,
 }
 
+impl StoragePolicyBehaviorConfig {
+    pub fn uses_storage_native_thumbnail(&self) -> bool {
+        self.thumbnail_processor == Some(MediaProcessorKind::StorageNative)
+    }
+
+    pub fn storage_native_thumbnail_matches_file_name(&self, file_name: &str) -> bool {
+        self.uses_storage_native_thumbnail()
+            && extension_matches(file_name, &self.thumbnail_extensions)
+    }
+
+    pub fn uses_storage_native_media_metadata(&self) -> bool {
+        !self.media_metadata_extensions.is_empty()
+    }
+
+    pub fn storage_native_media_metadata_matches_file_name(&self, file_name: &str) -> bool {
+        extension_matches(file_name, &self.media_metadata_extensions)
+    }
+}
+
+fn extension_matches(file_name: &str, extensions: &[String]) -> bool {
+    let Some((_, extension)) = file_name.rsplit_once('.') else {
+        return false;
+    };
+    !extension.is_empty()
+        && extensions
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(extension))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -167,5 +196,20 @@ mod tests {
             decode_storage_policy_behavior_config(wrong_version),
             Err(StoragePolicyBehaviorConfigCodecError::FormatVersionMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn storage_native_extension_matching_is_case_insensitive_and_requires_a_suffix() {
+        let behavior = StoragePolicyBehaviorConfig {
+            thumbnail_processor: Some(MediaProcessorKind::StorageNative),
+            thumbnail_extensions: vec!["jpg".to_string()],
+            media_metadata_extensions: vec!["mp4".to_string()],
+        };
+
+        assert!(behavior.storage_native_thumbnail_matches_file_name("cover.JPG"));
+        assert!(!behavior.storage_native_thumbnail_matches_file_name("coverjpg"));
+        assert!(!behavior.storage_native_thumbnail_matches_file_name("cover."));
+        assert!(behavior.storage_native_media_metadata_matches_file_name("clip.MP4"));
+        assert!(!behavior.storage_native_media_metadata_matches_file_name("clip.mp3"));
     }
 }

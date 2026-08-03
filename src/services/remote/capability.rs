@@ -6,9 +6,7 @@ use crate::services::remote::storage_target::{
 };
 use crate::storage::remote_protocol::{RemoteStorageCapabilities, RemoteStorageTargetCapabilities};
 use aster_drive_model::entities::managed_follower;
-use aster_drive_model::types::{
-    DriverType, RemoteDownloadStrategy, RemoteUploadStrategy, StoragePolicyOptions,
-};
+use aster_drive_model::types::{DriverType, RemoteDownloadStrategy, RemoteUploadStrategy};
 use aster_drive_storage::StorageErrorKind;
 
 const LEGACY_MANAGED_INGRESS_IMPLICIT_PROTOCOL_VERSION: u16 = 4;
@@ -46,10 +44,11 @@ impl RemoteCapabilityResolver {
         self.capabilities.validate_protocol(context)
     }
 
-    pub fn ensure_remote_policy_options_supported(
+    pub fn ensure_remote_policy_config_supported(
         &self,
         policy_id: i64,
-        options: &StoragePolicyOptions,
+        download_strategy: RemoteDownloadStrategy,
+        upload_strategy: RemoteUploadStrategy,
     ) -> Result<()> {
         let context = format!(
             "remote storage policy #{policy_id} on remote node #{}",
@@ -57,15 +56,20 @@ impl RemoteCapabilityResolver {
         );
         self.ensure_protocol_compatible(&context)?;
         self.ensure_features(&context, &self.base_policy_required_features())?;
-        self.ensure_presigned_cors_for_options(options, &context, &context)?;
+        self.ensure_presigned_cors_for_strategies(
+            download_strategy,
+            upload_strategy,
+            &context,
+            &context,
+        )?;
 
         Ok(())
     }
 
-    pub fn ensure_binding_policy_options_supported(
+    pub fn ensure_binding_policy_configs_supported(
         &self,
         remote_node_name: &str,
-        policy_requirements: &[(i64, &StoragePolicyOptions)],
+        policy_requirements: &[(i64, RemoteDownloadStrategy, RemoteUploadStrategy)],
     ) -> Result<()> {
         let context = format!(
             "remote node #{} ('{remote_node_name}') binding reload",
@@ -77,12 +81,17 @@ impl RemoteCapabilityResolver {
         }
 
         self.ensure_features(&context, &self.base_policy_required_features())?;
-        for (policy_id, options) in policy_requirements {
+        for (policy_id, download_strategy, upload_strategy) in policy_requirements {
             let download_context =
                 format!("{context}; policy #{policy_id} requires remote presigned download");
             let upload_context =
                 format!("{context}; policy #{policy_id} requires remote presigned upload");
-            self.ensure_presigned_cors_for_options(options, &download_context, &upload_context)?;
+            self.ensure_presigned_cors_for_strategies(
+                *download_strategy,
+                *upload_strategy,
+                &download_context,
+                &upload_context,
+            )?;
         }
 
         Ok(())
@@ -121,9 +130,12 @@ impl RemoteCapabilityResolver {
             && remote_storage_target_driver_descriptor(driver_type).is_ok()
     }
 
-    pub fn requires_direct_transport_for_presigned(options: &StoragePolicyOptions) -> bool {
-        options.effective_remote_download_strategy() == RemoteDownloadStrategy::Presigned
-            || options.effective_remote_upload_strategy() == RemoteUploadStrategy::Presigned
+    pub fn requires_direct_transport_for_presigned(
+        download_strategy: RemoteDownloadStrategy,
+        upload_strategy: RemoteUploadStrategy,
+    ) -> bool {
+        download_strategy == RemoteDownloadStrategy::Presigned
+            || upload_strategy == RemoteUploadStrategy::Presigned
     }
 
     fn effective_remote_storage_target_capabilities(&self) -> RemoteStorageTargetCapabilities {
@@ -250,13 +262,14 @@ impl RemoteCapabilityResolver {
         ))
     }
 
-    fn ensure_presigned_cors_for_options(
+    fn ensure_presigned_cors_for_strategies(
         &self,
-        options: &StoragePolicyOptions,
+        download_strategy: RemoteDownloadStrategy,
+        upload_strategy: RemoteUploadStrategy,
         download_context: &str,
         upload_context: &str,
     ) -> Result<()> {
-        if options.effective_remote_download_strategy() == RemoteDownloadStrategy::Presigned {
+        if download_strategy == RemoteDownloadStrategy::Presigned {
             self.ensure_browser_presigned_cors(
                 download_context,
                 &["range"],
@@ -264,7 +277,7 @@ impl RemoteCapabilityResolver {
             )?;
         }
 
-        if options.effective_remote_upload_strategy() == RemoteUploadStrategy::Presigned {
+        if upload_strategy == RemoteUploadStrategy::Presigned {
             self.ensure_browser_presigned_cors(upload_context, &["content-type"], &["ETag"])?;
         }
 

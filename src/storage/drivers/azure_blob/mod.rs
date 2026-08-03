@@ -14,7 +14,6 @@ use azure_storage_blob::{
     BlockBlobClient, BlockBlobClientOptions,
 };
 
-use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::effective_object_multipart_chunk_size;
 use aster_drive_storage::object_key;
 use aster_drive_storage::{
@@ -86,16 +85,33 @@ pub struct AzureBlobDriver {
     chunk_size: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AzureBlobDriverConfig {
+    pub endpoint: String,
+    pub container: String,
+    pub base_path: String,
+    pub chunk_size: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AzureBlobStaticCredentials {
+    pub account_name: String,
+    pub account_key: String,
+}
+
 impl AzureBlobDriver {
-    pub fn validate_policy(policy: &storage_policy::Model) -> Result<()> {
-        Self::normalize_endpoint_and_container(&policy.endpoint, &policy.bucket)?;
-        if policy.access_key.trim().is_empty() {
+    pub fn validate_config(
+        config: &AzureBlobDriverConfig,
+        credentials: &AzureBlobStaticCredentials,
+    ) -> Result<()> {
+        Self::normalize_endpoint_and_container(&config.endpoint, &config.container)?;
+        if credentials.account_name.trim().is_empty() {
             return Err(storage_driver_error(
                 StorageErrorKind::Auth,
                 "access_key cannot be empty for Azure Blob storage policies",
             ));
         }
-        if policy.secret_key.trim().is_empty() {
+        if credentials.account_key.trim().is_empty() {
             return Err(storage_driver_error(
                 StorageErrorKind::Auth,
                 "secret_key cannot be empty for Azure Blob storage policies",
@@ -104,16 +120,20 @@ impl AzureBlobDriver {
         Ok(())
     }
 
-    pub fn new(policy: &storage_policy::Model) -> Result<Self> {
-        Self::validate_policy(policy)?;
-        let normalized = Self::normalize_endpoint_and_container(&policy.endpoint, &policy.bucket)?;
+    pub fn new(
+        config: AzureBlobDriverConfig,
+        credentials: AzureBlobStaticCredentials,
+    ) -> Result<Self> {
+        Self::validate_config(&config, &credentials)?;
+        let normalized =
+            Self::normalize_endpoint_and_container(&config.endpoint, &config.container)?;
         Ok(Self {
             endpoint: normalized.endpoint,
-            account_name: policy.access_key.trim().to_string(),
-            account_key: policy.secret_key.trim().to_string(),
+            account_name: credentials.account_name.trim().to_string(),
+            account_key: credentials.account_key.trim().to_string(),
             container: normalized.container,
-            base_path: policy.base_path.clone(),
-            chunk_size: effective_object_multipart_chunk_size(policy.chunk_size),
+            base_path: config.base_path,
+            chunk_size: effective_object_multipart_chunk_size(config.chunk_size),
         })
     }
 
@@ -427,6 +447,7 @@ mod tests {
     };
 
     fn sample_policy() -> storage_policy::Model {
+        let options = aster_drive_model::types::StoragePolicyOptions::default();
         storage_policy::Model {
             id: 1,
             name: "Azure Blob".to_string(),
@@ -439,10 +460,15 @@ mod tests {
             remote_node_id: None,
             remote_storage_target_key: None,
             connector_id: "asterdrive.storage.azure_blob".to_string(),
-            connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(
-                "asterdrive.storage.azure_blob",
+            storage_config: crate::storage::connectors::test_support::policy_config(
+                DriverType::AzureBlob,
+                " https://acct.blob.core.windows.net/ ",
+                " photos ",
+                "base path",
+                None,
+                None,
+                &options,
             ),
-            behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
             max_file_size: 0,
             allowed_types: StoredStoragePolicyAllowedTypes::empty(),
             options: StoredStoragePolicyOptions::empty(),

@@ -12,6 +12,7 @@ use aster_drive_storage::traits::extensions::{
 use url::Url;
 
 fn sample_policy(endpoint: &str, bucket: &str) -> storage_policy::Model {
+    let options = aster_drive_model::types::StoragePolicyOptions::default();
     storage_policy::Model {
         id: 1,
         name: "Tencent COS".to_string(),
@@ -24,10 +25,15 @@ fn sample_policy(endpoint: &str, bucket: &str) -> storage_policy::Model {
         remote_node_id: None,
         remote_storage_target_key: None,
         connector_id: "asterdrive.storage.tencent_cos".to_string(),
-        connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(
-            "asterdrive.storage.tencent_cos",
+        storage_config: crate::storage::connectors::test_support::policy_config(
+            DriverType::TencentCos,
+            endpoint,
+            bucket,
+            "tenant/prefix",
+            None,
+            None,
+            &options,
         ),
-        behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
         max_file_size: 0,
         allowed_types: StoredStoragePolicyAllowedTypes::empty(),
         options: StoredStoragePolicyOptions::empty(),

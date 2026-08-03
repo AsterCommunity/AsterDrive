@@ -51,17 +51,24 @@ pub(crate) async fn stream_request_body_to_temp_upload(
     resolved_policy_hint: Option<aster_drive_model::entities::storage_policy::Model>,
     declared_size: Option<i64>,
 ) -> Result<StreamedTempUpload> {
-    let (temp_path, should_hash) = if let Some(policy) = resolved_policy_hint
+    let local_projection = resolved_policy_hint
         .as_ref()
-        .filter(|policy| policy.driver_type == aster_drive_model::types::DriverType::Local)
-    {
+        .map(|policy| {
+            crate::storage::connectors::resolve_local_filesystem_projection(
+                state.driver_registry().connectors(),
+                policy,
+            )
+        })
+        .transpose()?
+        .flatten();
+    let (temp_path, should_hash) = if let Some(local) = local_projection {
         let staging_token = format!("{}.upload", uuid::Uuid::new_v4());
         let staging_path =
-            crate::storage::drivers::local::upload_staging_path(&policy.base_path, &staging_token)
+            crate::storage::drivers::local::upload_staging_path(&local.base_path, &staging_token)
                 .map_aster_err_ctx(
-                    "resolve local staging path",
-                    AsterError::storage_driver_error,
-                )?;
+                "resolve local staging path",
+                AsterError::storage_driver_error,
+            )?;
         if let Some(parent) = staging_path.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
@@ -69,7 +76,7 @@ pub(crate) async fn stream_request_body_to_temp_upload(
         }
         (
             staging_path.to_string_lossy().into_owned(),
-            storage::local_content_dedup_enabled(policy),
+            local.content_dedup,
         )
     } else {
         let temp_dir = &state.config().server.temp_dir;
@@ -287,17 +294,19 @@ pub(crate) async fn update_content_in_scope(
 
     let size = usize_to_i64(body.len(), "body length")?;
     let resolved_policy = storage::resolve_policy_for_size(state, scope, f.folder_id, size).await?;
-    let result = if resolved_policy.driver_type == aster_drive_model::types::DriverType::Local {
-        let should_dedup = storage::local_content_dedup_enabled(&resolved_policy);
+    let local_projection = crate::storage::connectors::resolve_local_filesystem_projection(
+        state.driver_registry().connectors(),
+        &resolved_policy,
+    )?;
+    let result = if let Some(local) = local_projection {
+        let should_dedup = local.content_dedup;
         let staging_token = format!("{}.upload", uuid::Uuid::new_v4());
-        let staging_path = crate::storage::drivers::local::upload_staging_path(
-            &resolved_policy.base_path,
-            &staging_token,
-        )
-        .map_aster_err_ctx(
-            "resolve local staging path",
-            AsterError::storage_driver_error,
-        )?;
+        let staging_path =
+            crate::storage::drivers::local::upload_staging_path(&local.base_path, &staging_token)
+                .map_aster_err_ctx(
+                "resolve local staging path",
+                AsterError::storage_driver_error,
+            )?;
         if let Some(parent) = staging_path.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
@@ -491,7 +500,7 @@ pub async fn resolve_policy_for_size(
         file_size,
     )
     .await
-    .map(StoragePolicy::from)
+    .and_then(StoragePolicy::try_from)
 }
 
 /// 直接创建空文件（0 字节），不走 multipart upload 流程。

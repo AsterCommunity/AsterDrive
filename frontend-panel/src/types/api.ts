@@ -359,7 +359,6 @@ export type ProviderDownloadFilenameMode =
 	components["schemas"]["ProviderDownloadFilenameMode"];
 export type StoragePolicyOptions =
 	components["schemas"]["StoragePolicyOptions"];
-export type OneDriveAccountMode = components["schemas"]["OneDriveAccountMode"];
 export type StartStorageAuthorizationRequest =
 	components["schemas"]["StartStorageAuthorizationReq"];
 export type StorageAuthorizationStartResponse =
@@ -368,8 +367,8 @@ export type StorageCredentialProvider =
 	components["schemas"]["StorageCredentialProvider"];
 export type StorageCredentialProviderInfo =
 	components["schemas"]["StorageCredentialProviderInfo"];
-export type StoragePolicyCredentialInfo =
-	components["schemas"]["StoragePolicyCredentialInfo"];
+export type StorageConnectorCredentialInfo =
+	components["schemas"]["StorageConnectorCredentialInfo"];
 export type StoragePolicyCredentialValidationResult =
 	components["schemas"]["StoragePolicyCredentialValidationResult"];
 export type MigratePolicyGroupAssignmentsRequest =

@@ -1,19 +1,16 @@
-use chrono::Utc;
-use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 use serde::Serialize;
 
-use crate::db::repository::{policy_repo, storage_policy_credential_repo};
+use crate::db::repository::{policy_repo, storage_policy_connector_credential_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
+use crate::storage::StorageConnectorCredentialInfo;
 use aster_drive_model::types::{StorageCredentialProvider, StorageCredentialStatus};
 use aster_drive_storage::error::StorageErrorKind;
-
-use super::StoragePolicyCredentialInfo;
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct StoragePolicyCredentialValidationResult {
-    pub credential: StoragePolicyCredentialInfo,
+    pub credential: StorageConnectorCredentialInfo,
     pub root_item_id: String,
     pub root_item_name: Option<String>,
 }
@@ -21,13 +18,23 @@ pub struct StoragePolicyCredentialValidationResult {
 pub async fn list_policy_credentials(
     state: &impl SharedRuntimeState,
     policy_id: i64,
-) -> Result<Vec<StoragePolicyCredentialInfo>> {
+) -> Result<Vec<StorageConnectorCredentialInfo>> {
     policy_repo::find_by_id(state.reader_db(), policy_id).await?;
-    let credentials = storage_policy_credential_repo::list_by_policy(state.reader_db(), policy_id)
-        .await?
-        .into_iter()
-        .map(Into::into)
-        .collect();
+    let policy = policy_repo::find_by_id(state.reader_db(), policy_id).await?;
+    let credentials =
+        storage_policy_connector_credential_repo::find_by_policy(state.reader_db(), policy_id)
+            .await?
+            .into_iter()
+            .filter_map(|credential| {
+                crate::storage::connectors::credential_info(
+                    state.driver_registry().connectors(),
+                    state.config().as_ref(),
+                    &policy,
+                    &credential,
+                )
+                .transpose()
+            })
+            .collect::<Result<Vec<_>>>()?;
     Ok(credentials)
 }
 
@@ -40,17 +47,25 @@ pub async fn validate_policy_credential(
     let credential_kind =
         crate::storage::connectors::ensure_storage_credential_validation_supported(
             state.driver_registry().connectors(),
-            policy.driver_type,
+            &policy,
             provider,
         )?;
-    let credential = storage_policy_credential_repo::find_by_policy_provider_kind(
-        state.writer_db(),
-        policy_id,
-        provider,
-        credential_kind,
-    )
-    .await?
-    .ok_or_else(|| AsterError::record_not_found("storage policy credential"))?;
+    let credential =
+        storage_policy_connector_credential_repo::find_by_policy(state.writer_db(), policy_id)
+            .await?
+            .ok_or_else(|| AsterError::record_not_found("storage policy connector credential"))?;
+    let info = crate::storage::connectors::credential_info(
+        state.driver_registry().connectors(),
+        state.config().as_ref(),
+        &policy,
+        &credential,
+    )?
+    .ok_or_else(|| AsterError::record_not_found("storage policy connector credential"))?;
+    if info.provider != provider || info.credential_kind != credential_kind {
+        return Err(AsterError::unsupported_driver(
+            "storage credential does not match the selected connector authorization",
+        ));
+    }
     let validation = match crate::storage::connectors::validate_credential(
         state.driver_registry().connectors(),
         state.writer_db(),
@@ -62,18 +77,24 @@ pub async fn validate_policy_credential(
     {
         Ok(validation) => validation,
         Err(error) => {
-            let mut active = credential.clone().into_active_model();
-            let status_transition =
-                credential_status_transition(credential.status, error.storage_error_kind());
-            if let Some(status) = status_transition {
-                active.status = Set(status);
+            if let Some(payload) =
+                crate::storage::connectors::credential_validation_failure_payload(
+                    state.driver_registry().connectors(),
+                    state.config().as_ref(),
+                    &policy,
+                    &credential,
+                    error.storage_error_kind(),
+                    error.message(),
+                )?
+            {
+                crate::storage::connectors::persist_connector_credential_value(
+                    state.writer_db(),
+                    &state.config().auth.storage_credential_secret_key,
+                    &credential,
+                    payload,
+                )
+                .await?;
             }
-            active.status_reason = Set(Some(error.message().to_string()));
-            active.updated_at = Set(Utc::now());
-            active
-                .update(state.writer_db())
-                .await
-                .map_err(AsterError::from)?;
             if let Err(reload_error) = state
                 .driver_registry()
                 .reload_storage_policy_credentials(state.writer_db(), state.config().as_ref())
@@ -85,7 +106,7 @@ pub async fn validate_policy_credential(
                     "failed to reload storage policy credentials after validation failure: {reload_error}"
                 );
             }
-            if status_transition.is_some() {
+            if error.storage_error_kind().is_some() {
                 crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
                     state,
                     "update_status",
@@ -97,19 +118,13 @@ pub async fn validate_policy_credential(
             return Err(error);
         }
     };
-    let now = Utc::now();
-    let mut active = credential.into_active_model();
-    active.account_label = Set(validation.account_label.clone());
-    active.subject = Set(validation.subject.clone());
-    active.metadata = Set(validation.metadata);
-    active.status = Set(StorageCredentialStatus::Authorized);
-    active.status_reason = Set(None);
-    active.last_validated_at = Set(Some(now));
-    active.updated_at = Set(now);
-    let credential = active
-        .update(state.writer_db())
-        .await
-        .map_err(AsterError::from)?;
+    let credential = crate::storage::connectors::persist_connector_credential_value(
+        state.writer_db(),
+        &state.config().auth.storage_credential_secret_key,
+        &credential,
+        validation.credential_payload,
+    )
+    .await?;
     state
         .driver_registry()
         .reload_storage_policy_credentials(state.writer_db(), state.config().as_ref())
@@ -123,7 +138,13 @@ pub async fn validate_policy_credential(
     .await;
 
     Ok(StoragePolicyCredentialValidationResult {
-        credential: credential.into(),
+        credential: crate::storage::connectors::credential_info(
+            state.driver_registry().connectors(),
+            state.config().as_ref(),
+            &policy,
+            &credential,
+        )?
+        .ok_or_else(|| AsterError::record_not_found("storage policy connector credential"))?,
         root_item_id: validation.root_item_id,
         root_item_name: validation.root_item_name,
     })

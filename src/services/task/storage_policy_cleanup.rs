@@ -11,10 +11,7 @@ use crate::storage::connectors::{
     cleanup_snapshot_for_policy,
 };
 use aster_drive_model::entities::{background_task, storage_policy};
-use aster_drive_model::types::{
-    StoredConnectorConfig, StoredStoragePolicyAllowedTypes, StoredStoragePolicyBehaviorConfig,
-    StoredStoragePolicyOptions,
-};
+use aster_drive_model::types::{StoredStoragePolicyAllowedTypes, StoredStoragePolicyConfig};
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::StorageErrorKind;
 use aster_forge_tasks::{set_task_step_active, set_task_step_succeeded};
@@ -50,7 +47,7 @@ pub(crate) async fn create_storage_policy_temp_cleanup_task(
 
     let connectors = state.driver_registry().connectors();
     let driver_snapshot = cleanup_snapshot_for_policy(connectors, state, policy).await?;
-    if !can_create_cleanup_task_with_snapshot(connectors, policy.driver_type, &driver_snapshot) {
+    if !can_create_cleanup_task_with_snapshot(connectors, policy, &driver_snapshot)? {
         return Err(AsterError::validation_error(format!(
             "storage policy #{} requires a cleanup driver snapshot, but none was available",
             policy.id
@@ -60,8 +57,6 @@ pub(crate) async fn create_storage_policy_temp_cleanup_task(
     let payload = StoragePolicyTempCleanupTaskPayload {
         policy: policy_snapshot(policy),
         driver_snapshot,
-        onedrive_credential: None,
-        remote_node: None,
         temp_keys: dedup_strings(temp_keys.iter().cloned()),
         multipart_uploads: dedup_multipart_targets(multipart_uploads.iter().cloned()),
     };
@@ -123,8 +118,6 @@ pub(super) async fn process_storage_policy_temp_cleanup_task(
         &policy,
         StoragePolicyCleanupSnapshots {
             driver_snapshot: payload.driver_snapshot.as_ref(),
-            legacy_onedrive_credential: payload.onedrive_credential.as_ref(),
-            legacy_remote_node: payload.remote_node.as_ref(),
         },
     )
     .await?;
@@ -258,20 +251,10 @@ fn policy_snapshot(policy: &storage_policy::Model) -> StoragePolicyCleanupPolicy
     StoragePolicyCleanupPolicySnapshot {
         id: policy.id,
         name: policy.name.clone(),
-        driver_type: policy.driver_type,
-        endpoint: policy.endpoint.clone(),
-        bucket: policy.bucket.clone(),
-        access_key: policy.access_key.clone(),
-        secret_key: policy.secret_key.clone(),
-        base_path: policy.base_path.clone(),
-        remote_node_id: policy.remote_node_id,
-        remote_storage_target_key: policy.remote_storage_target_key.clone(),
         connector_id: policy.connector_id.clone(),
-        connector_config: policy.connector_config.as_ref().to_string(),
-        behavior_config: policy.behavior_config.as_ref().to_string(),
+        storage_config: policy.storage_config.as_ref().to_string(),
         max_file_size: policy.max_file_size,
         allowed_types: policy.allowed_types.as_ref().to_string(),
-        options: policy.options.as_ref().to_string(),
         is_default: policy.is_default,
         chunk_size: policy.chunk_size,
     }
@@ -283,20 +266,10 @@ fn policy_model_from_snapshot(
     storage_policy::Model {
         id: policy.id,
         name: policy.name.clone(),
-        driver_type: policy.driver_type,
-        endpoint: policy.endpoint.clone(),
-        bucket: policy.bucket.clone(),
-        access_key: policy.access_key.clone(),
-        secret_key: policy.secret_key.clone(),
-        base_path: policy.base_path.clone(),
-        remote_node_id: policy.remote_node_id,
-        remote_storage_target_key: policy.remote_storage_target_key.clone(),
         connector_id: policy.connector_id.clone(),
-        connector_config: StoredConnectorConfig(policy.connector_config.clone()),
-        behavior_config: StoredStoragePolicyBehaviorConfig(policy.behavior_config.clone()),
+        storage_config: StoredStoragePolicyConfig(policy.storage_config.clone()),
         max_file_size: policy.max_file_size,
         allowed_types: StoredStoragePolicyAllowedTypes(policy.allowed_types.clone()),
-        options: StoredStoragePolicyOptions(policy.options.clone()),
         is_default: policy.is_default,
         chunk_size: policy.chunk_size,
         created_at: Utc::now(),

@@ -97,8 +97,7 @@ pub struct PolicyGroupMigrationDetails<'a> {
 
 #[derive(Serialize)]
 pub struct StoragePolicyAuditDetails<'a> {
-    pub driver_type: &'a str,
-    pub remote_node_id: Option<i64>,
+    pub connector_id: &'a str,
     pub max_file_size: i64,
     pub chunk_size: i64,
     pub is_default: bool,
@@ -107,7 +106,7 @@ pub struct StoragePolicyAuditDetails<'a> {
 #[derive(Serialize)]
 pub struct StoragePolicyActionAuditDetails<'a> {
     pub action: &'a str,
-    pub driver_type: &'a str,
+    pub connector_id: &'a str,
     pub used_draft_values: bool,
     pub mutates_remote_state: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

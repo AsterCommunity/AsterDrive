@@ -1,4 +1,4 @@
-import type { OneDriveAccountMode } from "@/types/api";
+import { connectorStringValue } from "./formTypes";
 import type { SharedFieldProps } from "./StoragePolicyFieldTypes";
 
 export const MICROSOFT_GRAPH_PROVIDER = "microsoft_graph";
@@ -13,7 +13,7 @@ export type OneDriveTenantMode =
 	| "common"
 	| typeof ONE_DRIVE_CUSTOM_TENANT_MODE;
 
-export function getDefaultTenant(mode: OneDriveAccountMode) {
+export function getDefaultTenant(mode: string) {
 	if (mode === "personal") {
 		return "consumers";
 	}
@@ -26,8 +26,13 @@ export function getDefaultTenant(mode: OneDriveAccountMode) {
 export function getTenantMode(
 	form: SharedFieldProps["form"],
 ): OneDriveTenantMode {
-	const tenant = form.onedrive_tenant.trim();
-	if (!tenant || tenant === getDefaultTenant(form.onedrive_account_mode)) {
+	const tenant = connectorStringValue(form, "tenant").trim();
+	const accountMode = connectorStringValue(
+		form,
+		"account_mode",
+		"work_or_school",
+	);
+	if (!tenant || tenant === getDefaultTenant(accountMode)) {
 		return ONE_DRIVE_AUTO_TENANT_MODE;
 	}
 	if (

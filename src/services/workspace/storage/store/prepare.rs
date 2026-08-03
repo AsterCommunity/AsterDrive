@@ -93,12 +93,12 @@ pub(super) async fn prepare_store_from_temp(
         None => resolve_policy_for_size(state, scope, folder_id, size).await?,
     };
     operation_context.checkpoint()?;
-    let should_dedup = local_content_dedup_enabled(&policy);
+    let should_dedup = local_content_dedup_enabled(state.driver_registry().connectors(), &policy)?;
 
     tracing::debug!(
         scope = ?scope,
         policy_id = policy.id,
-        driver_type = ?policy.driver_type,
+        connector_id = %policy.connector_id,
         should_dedup,
         "resolved storage policy for temp file"
     );

@@ -17,6 +17,7 @@ pub mod error;
 pub mod field_contract;
 pub mod object_key;
 pub mod policy_behavior;
+pub mod storage_policy_config;
 pub mod traits;
 
 pub use connector_config::{
@@ -41,6 +42,10 @@ pub use policy_behavior::{
     StoragePolicyBehaviorConfig, StoragePolicyBehaviorConfigCodecError,
     StoragePolicyBehaviorConfigEnvelope, decode_storage_policy_behavior_config,
     encode_storage_policy_behavior_config,
+};
+pub use storage_policy_config::{
+    STORAGE_POLICY_CONFIG_FORMAT_VERSION, StoragePolicyConfigCodecError,
+    StoragePolicyConfigEnvelope, decode_storage_policy_config, encode_storage_policy_config,
 };
 pub use traits::driver::{
     BlobMetadata, PresignedDownloadOptions, StorageDriver, StoragePathVisitor,

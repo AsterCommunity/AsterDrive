@@ -541,6 +541,7 @@ async fn test_state_with_driver_and_options(
         .expect("test migrations should run");
 
     let now = Utc::now();
+    let options = aster_drive_model::types::StoragePolicyOptions::default();
     let policy = aster_drive_model::entities::storage_policy::ActiveModel {
         id: Set(1),
         name: Set("Range metadata policy".to_string()),
@@ -553,10 +554,15 @@ async fn test_state_with_driver_and_options(
         remote_node_id: Set(None),
         remote_storage_target_key: Set(None),
         connector_id: Set("asterdrive.storage.local".to_string()),
-        connector_config: Set(aster_drive_model::types::StoredConnectorConfig::empty_for(
-            "asterdrive.storage.local",
+        storage_config: Set(crate::storage::connectors::test_support::policy_config(
+            aster_drive_model::types::DriverType::Local,
+            "",
+            "",
+            "",
+            None,
+            None,
+            &options,
         )),
-        behavior_config: Set(aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty()),
         max_file_size: Set(0),
         allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
         options: Set(

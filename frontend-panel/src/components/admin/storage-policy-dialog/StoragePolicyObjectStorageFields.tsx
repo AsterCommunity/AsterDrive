@@ -6,6 +6,7 @@ import type {
 	StorageConnectorDescriptor,
 	StorageConnectorFieldDescriptor,
 } from "@/types/api";
+import { connectorBooleanValue, connectorStringValue } from "./formTypes";
 import type { SharedFieldProps } from "./StoragePolicyFieldTypes";
 
 export function ObjectStorageConnectionFields({
@@ -28,19 +29,17 @@ export function ObjectStorageConnectionFields({
 }) {
 	const endpointField = fieldDescriptor(storageDriverDescriptor, "endpoint");
 	const bucketField = fieldDescriptor(storageDriverDescriptor, "bucket");
-	const accessKeyField = fieldDescriptor(storageDriverDescriptor, "access_key");
-	const secretKeyField = fieldDescriptor(storageDriverDescriptor, "secret_key");
+	const staticCredentialFields =
+		storageDriverDescriptor?.fields.filter(
+			(field) => field.scope === "static_credential",
+		) ?? [];
 	const pathStyleField = fieldDescriptor(
 		storageDriverDescriptor,
 		"s3_path_style",
 	);
-	const showPathStyleField = isFieldVisibleForDriver(
-		pathStyleField,
-		form.driver_type,
-	);
+	const showPathStyleField = isFieldVisibleForDriver(pathStyleField);
 	const policyOptionTextFields = policyOptionTextFieldDescriptors(
 		storageDriverDescriptor,
-		form.driver_type,
 	);
 	const hasBucketField = bucketField != null;
 
@@ -52,8 +51,13 @@ export function ObjectStorageConnectionFields({
 				</Label>
 				<Input
 					id="endpoint"
-					value={form.endpoint}
-					onChange={(e) => onFieldChange("endpoint", e.target.value)}
+					value={connectorStringValue(form, "endpoint")}
+					onChange={(e) =>
+						onFieldChange("connector_config_values", {
+							...form.connector_config_values,
+							endpoint: e.target.value,
+						})
+					}
 					onBlur={onSyncNormalizedObjectStorageForm}
 					aria-invalid={endpointValidationMessage ? true : undefined}
 					className={ADMIN_CONTROL_HEIGHT_CLASS}
@@ -77,8 +81,13 @@ export function ObjectStorageConnectionFields({
 					</Label>
 					<Input
 						id="bucket"
-						value={form.bucket}
-						onChange={(e) => onFieldChange("bucket", e.target.value)}
+						value={connectorStringValue(form, "bucket")}
+						onChange={(e) =>
+							onFieldChange("connector_config_values", {
+								...form.connector_config_values,
+								bucket: e.target.value,
+							})
+						}
 						aria-invalid={
 							showCreateValidation && bucketError ? true : undefined
 						}
@@ -98,50 +107,20 @@ export function ObjectStorageConnectionFields({
 					onFieldChange={onFieldChange}
 				/>
 			) : null}
-			<div className="grid grid-cols-2 gap-4">
-				<div className="space-y-2">
-					<Label htmlFor="access_key">
-						{t(fieldLabelKey(accessKeyField, "access_key"))}
-					</Label>
-					<Input
-						id="access_key"
-						name="storage-policy-access-key"
-						value={form.access_key}
-						onChange={(e) => onFieldChange("access_key", e.target.value)}
-						onBlur={(e) => {
-							if (accessKeyField?.trim_on_blur === true) {
-								onFieldChange("access_key", e.target.value.trim());
-							}
-						}}
-						autoComplete="off"
-						className={ADMIN_CONTROL_HEIGHT_CLASS}
-						placeholder={
-							isCreateMode
-								? undefined
-								: t("policy_editor_credentials_keep_placeholder")
-						}
-					/>
+			{staticCredentialFields.length > 0 ? (
+				<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+					{staticCredentialFields.map((field) => (
+						<StaticCredentialField
+							key={field.name}
+							field={field}
+							form={form}
+							isCreateMode={isCreateMode}
+							onFieldChange={onFieldChange}
+							t={t}
+						/>
+					))}
 				</div>
-				<div className="space-y-2">
-					<Label htmlFor="secret_key">
-						{t(fieldLabelKey(secretKeyField, "secret_key"))}
-					</Label>
-					<Input
-						id="secret_key"
-						name="storage-policy-secret-key"
-						type="password"
-						value={form.secret_key}
-						onChange={(e) => onFieldChange("secret_key", e.target.value)}
-						autoComplete="new-password"
-						className={ADMIN_CONTROL_HEIGHT_CLASS}
-						placeholder={
-							isCreateMode
-								? undefined
-								: t("policy_editor_credentials_keep_placeholder")
-						}
-					/>
-				</div>
-			</div>
+			) : null}
 			{policyOptionTextFields.map((field) => (
 				<PolicyOptionTextField
 					key={field.name}
@@ -155,6 +134,55 @@ export function ObjectStorageConnectionFields({
 	);
 }
 
+function StaticCredentialField({
+	field,
+	form,
+	isCreateMode,
+	onFieldChange,
+	t,
+}: SharedFieldProps & {
+	field: StorageConnectorFieldDescriptor;
+	isCreateMode: boolean;
+}) {
+	const values = form.credential_values;
+	const setValue = (value: string) => {
+		onFieldChange("credential_values", {
+			...values,
+			[field.name]: value,
+		});
+	};
+
+	return (
+		<div className="space-y-2">
+			<Label htmlFor={field.name}>{t(field.label_key)}</Label>
+			<Input
+				id={field.name}
+				name={`storage-policy-${field.name}`}
+				type={field.secret || field.kind === "secret" ? "password" : "text"}
+				value={values[field.name] ?? ""}
+				onChange={(event) => setValue(event.target.value)}
+				onBlur={(event) => {
+					if (field.trim_on_blur === true) {
+						setValue(event.target.value.trim());
+					}
+				}}
+				autoComplete={field.secret ? "new-password" : "off"}
+				className={ADMIN_CONTROL_HEIGHT_CLASS}
+				placeholder={
+					field.placeholder ??
+					(isCreateMode
+						? undefined
+						: t("policy_editor_credentials_keep_placeholder"))
+				}
+				required={isCreateMode && field.required}
+			/>
+			{field.help_key ? (
+				<p className="text-xs text-muted-foreground">{t(field.help_key)}</p>
+			) : null}
+		</div>
+	);
+}
+
 function PolicyOptionTextField({
 	field,
 	form,
@@ -163,9 +191,9 @@ function PolicyOptionTextField({
 }: SharedFieldProps & {
 	field: StorageConnectorFieldDescriptor;
 }) {
-	const optionValues = form.policy_option_values ?? {};
+	const optionValues = form.connector_config_values;
 	const setPolicyOptionValue = (value: string) => {
-		onFieldChange("policy_option_values", {
+		onFieldChange("connector_config_values", {
 			...optionValues,
 			[field.name]: value,
 		});
@@ -177,7 +205,7 @@ function PolicyOptionTextField({
 			<Input
 				id={field.name}
 				type={field.kind === "secret" ? "password" : "text"}
-				value={optionValues[field.name] ?? ""}
+				value={String(optionValues[field.name] ?? "")}
 				onChange={(event) => setPolicyOptionValue(event.target.value)}
 				onBlur={(event) => {
 					if (field.trim_on_blur === true) {
@@ -208,8 +236,13 @@ function S3PathStyleField({
 			<div className="flex items-center gap-2">
 				<Switch
 					id="s3_path_style"
-					checked={form.s3_path_style ?? true}
-					onCheckedChange={(value) => onFieldChange("s3_path_style", value)}
+					checked={connectorBooleanValue(form, "s3_path_style", true)}
+					onCheckedChange={(value) =>
+						onFieldChange("connector_config_values", {
+							...form.connector_config_values,
+							s3_path_style: value,
+						})
+					}
 				/>
 				<Label htmlFor="s3_path_style">
 					{t(fieldLabelKey(field, "s3_path_style"))}
@@ -231,14 +264,13 @@ function fieldDescriptor(
 
 function policyOptionTextFieldDescriptors(
 	descriptor: StorageConnectorDescriptor | null | undefined,
-	driverType: string,
 ) {
 	return (
 		descriptor?.fields.filter(
 			(field): field is StorageConnectorFieldDescriptor =>
-				field.scope === "policy_options" &&
+				field.scope === "connector_config" &&
 				(field.kind === "text" || field.kind === "secret") &&
-				isFieldVisibleForDriver(field, driverType),
+				!["endpoint", "bucket", "base_path"].includes(field.name),
 		) ?? []
 	);
 }
@@ -252,16 +284,6 @@ function fieldLabelKey(
 
 function isFieldVisibleForDriver(
 	field: StorageConnectorFieldDescriptor | null,
-	driverType: string,
 ) {
-	if (!field) {
-		return false;
-	}
-	const visibleDriverTypes = field.visible_when_driver_types ?? [];
-	return (
-		visibleDriverTypes.length === 0 ||
-		visibleDriverTypes.includes(
-			driverType as (typeof visibleDriverTypes)[number],
-		)
-	);
+	return field != null;
 }

@@ -33,9 +33,9 @@ import type {
 	RemoteNodeInfo,
 	RemoteStorageTargetDriverDescriptor,
 	RemoteStorageTargetInfo,
+	StorageConnectorCredentialInfo,
 	StorageConnectorDescriptor,
 	StoragePolicyCapacityInfo,
-	StoragePolicyCredentialInfo,
 } from "@/types/api";
 import {
 	descriptorHasPolicyOptionField,
@@ -64,7 +64,7 @@ interface StoragePolicyEditFormProps {
 	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	policyCapacity: StoragePolicyCapacityInfo | null;
 	policyCapacityLoading: boolean;
-	storageCredentials: StoragePolicyCredentialInfo[];
+	storageCredentials: StorageConnectorCredentialInfo[];
 	storageCredentialsLoading: boolean;
 	storageAuthorizationSubmitting: boolean;
 	storageCredentialValidationSubmitting: boolean;

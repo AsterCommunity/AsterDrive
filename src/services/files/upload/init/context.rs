@@ -138,7 +138,7 @@ pub(super) async fn resolve_init_upload_context(
     tracing::debug!(
         scope = ?scope,
         policy_id = policy.id,
-        driver_type = ?policy.driver_type,
+        connector_id = %policy.connector_id,
         chunk_size = policy.chunk_size,
         total_size,
         "resolved upload storage policy"

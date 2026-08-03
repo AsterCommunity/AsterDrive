@@ -221,6 +221,7 @@ mod tests {
     }
 
     fn sample_policy() -> storage_policy::Model {
+        let options = aster_drive_model::types::StoragePolicyOptions::default();
         storage_policy::Model {
             id: 1,
             name: "S3 compatible".to_string(),
@@ -233,10 +234,15 @@ mod tests {
             remote_node_id: None,
             remote_storage_target_key: None,
             connector_id: "asterdrive.storage.s3".to_string(),
-            connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(
-                "asterdrive.storage.s3",
+            storage_config: crate::storage::connectors::test_support::policy_config(
+                DriverType::S3,
+                "https://s3.example.test",
+                "bucket",
+                "tenant-a",
+                None,
+                None,
+                &options,
             ),
-            behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
             max_file_size: 0,
             allowed_types: StoredStoragePolicyAllowedTypes::empty(),
             options: StoredStoragePolicyOptions::empty(),

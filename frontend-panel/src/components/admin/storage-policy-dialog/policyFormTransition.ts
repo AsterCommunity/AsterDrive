@@ -60,12 +60,17 @@ export function applyPolicyDriverTransition(
 		form.policy_option_values ?? {},
 		nextDriverDescriptor,
 	);
+	const nextStaticCredentialValues = staticCredentialValuesForDescriptor(
+		form.static_credential_values,
+		nextDriverDescriptor,
+	);
 
 	if (supportsObjectStorageConnection(nextDriverDescriptor)) {
 		return {
 			...formWithoutS3PathStyle,
 			driver_type: driverType,
 			policy_option_values: nextPolicyOptionValues,
+			static_credential_values: nextStaticCredentialValues,
 			remote_node_id: "",
 			remote_storage_target_key: "",
 			storage_native_processing_enabled: nextSupportsStorageNativeProcessing
@@ -95,8 +100,7 @@ export function applyPolicyDriverTransition(
 			driver_type: driverType,
 			endpoint: "",
 			bucket: "",
-			access_key: "",
-			secret_key: "",
+			static_credential_values: {},
 			policy_option_values: nextPolicyOptionValues,
 			content_dedup: false,
 			storage_native_processing_enabled: false,
@@ -116,8 +120,7 @@ export function applyPolicyDriverTransition(
 			driver_type: driverType,
 			endpoint: "",
 			bucket: "",
-			access_key: "",
-			secret_key: "",
+			static_credential_values: {},
 			policy_option_values: nextPolicyOptionValues,
 			remote_node_id: "",
 			remote_storage_target_key: "",
@@ -158,8 +161,7 @@ export function applyPolicyDriverTransition(
 		driver_type: driverType,
 		endpoint: "",
 		bucket: "",
-		access_key: "",
-		secret_key: "",
+		static_credential_values: {},
 		policy_option_values: nextPolicyOptionValues,
 		remote_node_id: "",
 		remote_storage_target_key: "",
@@ -185,8 +187,24 @@ function policyOptionValuesForDescriptor(
 	const nextValues: Record<string, string> = {};
 	for (const field of descriptor?.fields ?? []) {
 		if (
-			field.scope === "policy_options" &&
+			field.scope === "connector_config" &&
 			(field.kind === "text" || field.kind === "secret") &&
+			Object.hasOwn(values, field.name)
+		) {
+			nextValues[field.name] = values[field.name];
+		}
+	}
+	return nextValues;
+}
+
+function staticCredentialValuesForDescriptor(
+	values: Record<string, string>,
+	descriptor: StorageConnectorDescriptor | null | undefined,
+) {
+	const nextValues: Record<string, string> = {};
+	for (const field of descriptor?.fields ?? []) {
+		if (
+			field.scope === "static_credential" &&
 			Object.hasOwn(values, field.name)
 		) {
 			nextValues[field.name] = values[field.name];

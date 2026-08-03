@@ -1,4 +1,8 @@
-//! Repository helpers for `storage_policy_credentials`.
+//! Deprecated repository helpers for `storage_policy_credentials`.
+//!
+//! This repository is exclusive to the AsterDrive 0.5.0 upgrade path and will
+//! be completely removed with the legacy table in AsterDrive 0.6.0.
+#![allow(deprecated)]
 
 use chrono::Utc;
 use sea_orm::{
@@ -7,7 +11,7 @@ use sea_orm::{
 };
 
 use crate::errors::{AsterError, Result};
-use aster_drive_model::entities::storage_policy_credential::{
+use aster_drive_model::deprecated::storage_policy_credential::{
     self, Entity as StoragePolicyCredential,
 };
 use aster_drive_model::types::{

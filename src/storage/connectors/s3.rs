@@ -1,11 +1,10 @@
 use async_trait::async_trait;
+use std::time::Duration;
 
-use crate::errors::Result;
-use crate::storage::drivers::s3::{S3Driver, S3DriverOptions};
+use crate::errors::{AsterError, Result};
+use crate::storage::drivers::s3::{S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials};
 use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::{
-    ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy, parse_storage_policy_options,
-};
+use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy};
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
     ObjectStorageConnectorDescriptorInput, StorageConnectorDeploymentScope,
@@ -16,10 +15,9 @@ use aster_drive_storage::connector_descriptor::{
 };
 use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
 
-use super::common::{normalize_s3_connection_fields, validate_static_secret_credentials};
 use super::{
-    StorageConnector, StorageConnectorConnectionInput, StorageConnectorUploadTransport,
-    TencentCosConnector,
+    StorageConnector, StorageConnectorCredentialInput, StorageConnectorRuntimeCredential,
+    StorageConnectorUploadTransport, TencentCosConnector,
 };
 
 pub struct S3Connector;
@@ -97,13 +95,13 @@ aster_drive_storage::storage_connector_schema! {
         pub s3_read_timeout_secs: u64 => timeout_field("s3_read_timeout_secs", 30),
         pub s3_operation_timeout_secs: u64 => timeout_field("s3_operation_timeout_secs", 3_600),
         }
-        credentials static {
-            access_key => storage_connector_field(
-                "access_key", StorageConnectorFieldScope::StaticCredential,
+        credentials static S3StaticCredentialsV1 {
+            pub s3_access_key_id: String => storage_connector_field(
+                "s3_access_key_id", StorageConnectorFieldScope::StaticCredential,
                 StorageConnectorFieldKind::Text, true, false,
             ),
-            secret_key => storage_connector_field(
-                "secret_key", StorageConnectorFieldScope::StaticCredential,
+            pub s3_secret_access_key: String => storage_connector_field(
+                "s3_secret_access_key", StorageConnectorFieldScope::StaticCredential,
                 StorageConnectorFieldKind::Secret, true, true,
             ),
         }
@@ -128,6 +126,46 @@ fn timeout_field(
 
 impl S3Connector {
     pub const ID: &'static str = "asterdrive.storage.s3";
+
+    fn decode_config(policy: &storage_policy::Model) -> Result<S3ConnectorConfigV1> {
+        super::common::decode_typed_policy_config(policy, Self::ID, 1)
+            .map(|(config, _behavior)| config)
+    }
+
+    fn driver_config(config: S3ConnectorConfigV1) -> S3DriverConfig {
+        S3DriverConfig {
+            endpoint: config.endpoint,
+            bucket: config.bucket,
+            base_path: config.base_path,
+            region: config.s3_region,
+            path_style: config.s3_path_style,
+            connect_timeout: Duration::from_secs(config.s3_connect_timeout_secs),
+            read_timeout: Duration::from_secs(config.s3_read_timeout_secs),
+            operation_timeout: Duration::from_secs(config.s3_operation_timeout_secs),
+        }
+    }
+
+    fn driver_credentials(credentials: S3StaticCredentialsV1) -> S3StaticCredentials {
+        S3StaticCredentials {
+            access_key: credentials.s3_access_key_id,
+            secret_key: credentials.s3_secret_access_key,
+        }
+    }
+
+    fn validate_region(region: &str) -> Result<()> {
+        if region.is_empty()
+            || region.len() > 128
+            || !region.is_ascii()
+            || region
+                .bytes()
+                .any(|byte| !(b'!'..=b'~').contains(&byte) || byte == b'/')
+        {
+            return Err(AsterError::validation_error(
+                "s3_region must be 1-128 printable ASCII characters without whitespace or '/'",
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl S3Connector {
@@ -178,59 +216,74 @@ impl StorageConnector for S3Connector {
         Self::descriptor_definition()
     }
 
-    fn encode_config(
+    fn validate_connector_config(
         &self,
-        input: &StorageConnectorConnectionInput,
-    ) -> Result<aster_drive_model::types::StoredConnectorConfig> {
-        super::common::encode_typed_connector_config(
-            Self::ID,
-            1,
-            S3ConnectorConfigV1 {
-                endpoint: input.endpoint.clone(),
-                bucket: input.bucket.clone(),
-                base_path: input.base_path.clone(),
-                object_storage_upload_strategy: input
-                    .options
-                    .effective_object_storage_upload_strategy(),
-                object_storage_download_strategy: input
-                    .options
-                    .effective_object_storage_download_strategy(),
-                s3_path_style: input.options.effective_s3_path_style(),
-                s3_region: input.options.effective_s3_region().to_string(),
-                s3_connect_timeout_secs: input.options.effective_s3_connect_timeout().as_secs(),
-                s3_read_timeout_secs: input.options.effective_s3_read_timeout().as_secs(),
-                s3_operation_timeout_secs: input.options.effective_s3_operation_timeout().as_secs(),
-            },
+        input: &aster_drive_storage::ConnectorConfigEnvelope,
+    ) -> Result<aster_drive_storage::ConnectorConfigEnvelope> {
+        let normalized =
+            aster_drive_storage::connector_descriptor::normalize_storage_connector_config(
+                &self.descriptor(),
+                input,
+            )
+            .map_err(|error| AsterError::validation_error(error.to_string()))?;
+        let mut config: S3ConnectorConfigV1 =
+            super::common::decode_normalized_connector_config(&normalized)?;
+        let connection = crate::storage::drivers::s3_config::normalize_s3_endpoint_and_bucket(
+            &config.endpoint,
+            &config.bucket,
+        )
+        .map_err(|error| error.into_aster_error())?;
+        config.endpoint = connection.endpoint;
+        config.bucket = connection.bucket;
+        Self::validate_region(&config.s3_region)?;
+        super::common::encode_normalized_connector_config(
+            normalized.connector_id,
+            normalized.schema_version,
+            config,
         )
     }
 
-    fn normalize_connection_fields(
-        &self,
-        endpoint: &str,
-        bucket: &str,
-    ) -> Result<(String, String)> {
-        normalize_s3_connection_fields(endpoint, bucket)
+    fn validate_credential_input(&self, input: &StorageConnectorCredentialInput) -> Result<()> {
+        let credential: S3StaticCredentialsV1 =
+            super::common::decode_static_credential(input, Self::ID)?;
+        super::common::validate_required_credential_field(
+            &credential.s3_access_key_id,
+            "s3_access_key_id",
+            Self::ID,
+        )?;
+        super::common::validate_required_credential_field(
+            &credential.s3_secret_access_key,
+            "s3_secret_access_key",
+            Self::ID,
+        )
     }
 
-    fn validate_connection_credentials(
+    fn import_legacy_credential(
         &self,
-        input: &StorageConnectorConnectionInput,
-    ) -> Result<()> {
-        validate_static_secret_credentials(input, "S3-compatible")
-    }
-
-    fn supports_saved_draft_credentials(&self) -> bool {
-        true
+        _encryption_key: &str,
+        _policy: &storage_policy::Model,
+        input: super::LegacyStorageConnectorCredentialInput,
+    ) -> Result<Option<serde_json::Value>> {
+        super::common::import_legacy_static_credential(Self::ID, input, |legacy| {
+            S3StaticCredentialsV1 {
+                s3_access_key_id: legacy.access_key,
+                s3_secret_access_key: legacy.secret_key,
+            }
+        })
     }
 
     async fn build_draft_driver(
         &self,
         context: &super::StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
+        credential: &StorageConnectorCredentialInput,
     ) -> Result<Box<dyn StorageDriver>> {
         let _ = context;
+        let config = Self::decode_config(policy)?;
+        let credentials = super::common::decode_static_credential(credential, Self::ID)?;
         Ok(Box::new(S3Driver::new(
-            policy,
+            Self::driver_config(config),
+            Self::driver_credentials(credentials),
             S3DriverOptions::default(),
             std::convert::identity,
         )?))
@@ -238,28 +291,50 @@ impl StorageConnector for S3Connector {
 
     fn build_runtime_driver(
         &self,
-        _registry: &crate::storage::DriverRegistry,
+        registry: &crate::storage::DriverRegistry,
         policy: &storage_policy::Model,
     ) -> Result<super::StorageConnectorDriver> {
+        let config = Self::decode_config(policy)?;
+        let Some(StorageConnectorRuntimeCredential::Static(values)) =
+            registry.get_runtime_credential(policy.id)
+        else {
+            return Err(crate::errors::storage_driver_error(
+                aster_drive_storage::StorageErrorKind::Auth,
+                format!("storage policy {} is missing static credentials", policy.id),
+            ));
+        };
+        let credentials: S3StaticCredentialsV1 =
+            serde_json::from_value(values).map_err(|error| {
+                crate::errors::storage_driver_error(
+                    aster_drive_storage::StorageErrorKind::Misconfigured,
+                    format!(
+                        "storage policy {} has invalid static credentials: {error}",
+                        policy.id
+                    ),
+                )
+            })?;
         Ok(super::StorageConnectorDriver::multipart(
             std::sync::Arc::new(S3Driver::new(
-                policy,
+                Self::driver_config(config),
+                Self::driver_credentials(credentials),
                 S3DriverOptions::default(),
                 std::convert::identity,
             )?),
         ))
     }
 
-    fn upload_transport(&self, policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
-        let options = parse_storage_policy_options(policy.options.as_ref());
-        StorageConnectorUploadTransport::ObjectStorage(
-            options.effective_object_storage_upload_strategy(),
-        )
+    fn upload_transport(
+        &self,
+        policy: &storage_policy::Model,
+    ) -> Result<StorageConnectorUploadTransport> {
+        let config = Self::decode_config(policy)?;
+        Ok(StorageConnectorUploadTransport::ObjectStorage(
+            config.object_storage_upload_strategy,
+        ))
     }
 
-    fn presigned_download_enabled(&self, policy: &storage_policy::Model) -> bool {
-        let options = parse_storage_policy_options(policy.options.as_ref());
-        options.effective_object_storage_download_strategy()
-            == ObjectStorageDownloadStrategy::Presigned
+    fn presigned_download_enabled(&self, policy: &storage_policy::Model) -> Result<bool> {
+        let config = Self::decode_config(policy)?;
+        Ok(config.object_storage_download_strategy == ObjectStorageDownloadStrategy::Presigned)
     }
 }

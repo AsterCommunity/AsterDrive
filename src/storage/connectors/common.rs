@@ -1,86 +1,47 @@
 use chrono::Utc;
-use sea_orm::{ConnectionTrait, DatabaseConnection};
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::db::repository::policy_repo;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::storage::drivers::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
 use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::{
-    StoragePolicyOptions, StoredConnectorConfig, StoredStoragePolicyAllowedTypes,
-    StoredStoragePolicyBehaviorConfig, StoredStoragePolicyOptions,
-    serialize_storage_policy_options,
-};
+use aster_drive_model::types::StoredStoragePolicyAllowedTypes;
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDescriptor,
     StoragePolicyExecutableAction,
 };
 use aster_drive_storage::{
-    ConnectorId, StorageDriver, StorageErrorKind, StoragePolicyBehaviorConfig,
-    encode_connector_config, encode_storage_policy_behavior_config,
+    ConnectorConfigEnvelope, ConnectorId, StorageDriver, StorageErrorKind,
+    StoragePolicyBehaviorConfig,
 };
-use serde::Serialize;
+use serde::{Serialize, de::DeserializeOwned};
 
-use super::{StorageConnector, StorageConnectorConnectionInput};
+use super::StorageConnectorCredentialInput;
 
-pub(super) async fn normalize_policy_connection<C: StorageConnector + ?Sized>(
-    db: &DatabaseConnection,
-    connector: &C,
-    input: StorageConnectorConnectionInput,
-) -> Result<StorageConnectorConnectionInput> {
-    let (endpoint, bucket) =
-        connector.normalize_connection_fields(&input.endpoint, &input.bucket)?;
-    let mut normalized = StorageConnectorConnectionInput {
-        endpoint,
-        bucket,
-        options: input.options.normalized(),
-        ..input
-    };
-    let connector_id = connector.descriptor().connector_id;
-    let input_connector_id =
-        super::contract::connector_id_for_legacy_driver_type(normalized.driver_type);
-    if input_connector_id != connector_id {
-        return Err(AsterError::internal_error(format!(
-            "connector '{}' received connection for '{}'",
-            connector_id, input_connector_id
-        )));
-    }
-    connector.validate_connection_credentials(&normalized)?;
-    normalized.remote_node_id = connector
-        .validate_connection_binding(db, &normalized)
-        .await?;
-    Ok(normalized)
-}
-
-pub(super) async fn build_connection_test_policy<C: StorageConnector + ?Sized>(
-    db: &DatabaseConnection,
-    connector: &C,
-    input: StorageConnectorConnectionInput,
+pub(super) fn build_connection_test_policy(
+    connector_config: ConnectorConfigEnvelope,
+    behavior: StoragePolicyBehaviorConfig,
 ) -> Result<storage_policy::Model> {
-    let input = normalize_policy_connection(db, connector, input).await?;
-    connector
-        .validate_policy_options(db, input.remote_node_id, &input.options)
-        .await?;
-    let connector_id = connector.descriptor().connector_id;
-    let connector_config = connector.encode_config(&input)?;
-    let behavior_config = encode_behavior_config(&input.options)?;
+    let connector_id = connector_config.connector_id.clone();
+    let connector_config = ConnectorConfigEnvelope::new(
+        connector_id.clone(),
+        connector_config.schema_version,
+        serde_json::to_value(connector_config.values).map_err(|error| {
+            AsterError::internal_error(format!("serialize draft connector config: {error}"))
+        })?,
+    );
+    let storage_config =
+        aster_drive_storage::encode_storage_policy_config(connector_config, behavior)
+            .map(aster_drive_model::types::StoredStoragePolicyConfig)
+            .map_err(|error| {
+                AsterError::internal_error(format!("serialize storage policy config: {error}"))
+            })?;
     Ok(storage_policy::Model {
         id: 0,
         name: String::new(),
-        driver_type: input.driver_type,
-        endpoint: input.endpoint,
-        bucket: input.bucket,
-        access_key: input.access_key,
-        secret_key: input.secret_key,
-        base_path: input.base_path,
-        remote_node_id: input.remote_node_id,
-        remote_storage_target_key: input.remote_storage_target_key,
         connector_id: connector_id.as_str().to_string(),
-        connector_config,
-        behavior_config,
+        storage_config,
         max_file_size: 0,
         allowed_types: StoredStoragePolicyAllowedTypes::empty(),
-        options: serialize_connector_options(&input.options)?,
         is_default: false,
         chunk_size: 0,
         created_at: Utc::now(),
@@ -92,9 +53,15 @@ pub(super) fn encode_typed_connector_config<T: Serialize>(
     connector_id: &'static str,
     schema_version: u32,
     values: T,
-) -> Result<StoredConnectorConfig> {
-    encode_connector_config(ConnectorId::declared(connector_id), schema_version, values)
-        .map(StoredConnectorConfig)
+) -> Result<ConnectorConfigEnvelope<serde_json::Value>> {
+    serde_json::to_value(values)
+        .map(|values| {
+            ConnectorConfigEnvelope::new(
+                ConnectorId::declared(connector_id),
+                schema_version,
+                values,
+            )
+        })
         .map_err(|error| {
             AsterError::internal_error(format!(
                 "serialize connector config '{connector_id}': {error}"
@@ -102,55 +69,153 @@ pub(super) fn encode_typed_connector_config<T: Serialize>(
         })
 }
 
-pub(super) fn encode_behavior_config(
-    options: &StoragePolicyOptions,
-) -> Result<StoredStoragePolicyBehaviorConfig> {
-    encode_storage_policy_behavior_config(StoragePolicyBehaviorConfig {
-        thumbnail_processor: options.thumbnail_processor,
-        thumbnail_extensions: options.thumbnail_extensions.clone(),
-        media_metadata_extensions: options.media_metadata_extensions.clone(),
-    })
-    .map(StoredStoragePolicyBehaviorConfig)
+pub(super) fn encode_normalized_connector_config<T: Serialize>(
+    connector_id: ConnectorId,
+    schema_version: u32,
+    values: T,
+) -> Result<ConnectorConfigEnvelope> {
+    let values = serde_json::to_value(values)
+        .and_then(serde_json::from_value)
+        .map_err(|error| {
+            AsterError::internal_error(format!(
+                "serialize normalized connector config '{connector_id}': {error}"
+            ))
+        })?;
+    Ok(ConnectorConfigEnvelope::new(
+        connector_id,
+        schema_version,
+        values,
+    ))
+}
+
+/// Decode one persisted policy through the connector's concrete typed schema.
+///
+/// Connector implementations call this at their boundary and pass plain
+/// runtime values to drivers. Drivers never inspect SeaORM entities or generic
+/// JSON envelopes themselves.
+pub(super) fn decode_typed_policy_config<T: DeserializeOwned>(
+    policy: &storage_policy::Model,
+    connector_id: &'static str,
+    schema_version: u32,
+) -> Result<(T, StoragePolicyBehaviorConfig)> {
+    decode_typed_policy_config_for_id(policy, &ConnectorId::declared(connector_id), schema_version)
+}
+
+pub(super) fn decode_typed_policy_config_for_id<T: DeserializeOwned>(
+    policy: &storage_policy::Model,
+    connector_id: &ConnectorId,
+    schema_version: u32,
+) -> Result<(T, StoragePolicyBehaviorConfig)> {
+    aster_drive_storage::decode_storage_policy_config(
+        policy.storage_config.as_ref(),
+        connector_id,
+        schema_version,
+    )
     .map_err(|error| {
-        AsterError::internal_error(format!("serialize storage policy behavior config: {error}"))
+        crate::errors::storage_driver_error(
+            StorageErrorKind::Misconfigured,
+            format!(
+                "storage policy {} has invalid '{}' configuration: {error}",
+                policy.id, connector_id
+            ),
+        )
     })
 }
 
-pub(super) async fn merge_saved_static_credentials_for_draft<C>(
-    db: &C,
-    policy_id: Option<i64>,
-    mut connection: StorageConnectorConnectionInput,
-    context: &str,
-) -> Result<StorageConnectorConnectionInput>
-where
-    C: ConnectionTrait + Sync,
-{
-    if !connection.access_key.trim().is_empty() && !connection.secret_key.trim().is_empty() {
-        return Ok(connection);
-    }
+pub(super) fn decode_normalized_connector_config<T: DeserializeOwned>(
+    config: &ConnectorConfigEnvelope,
+) -> Result<T> {
+    serde_json::from_value(serde_json::to_value(&config.values).map_err(|error| {
+        AsterError::internal_error(format!("serialize normalized connector config: {error}"))
+    })?)
+    .map_err(|error| {
+        AsterError::validation_error(format!(
+            "invalid '{}' connector configuration: {error}",
+            config.connector_id
+        ))
+    })
+}
 
-    let Some(policy_id) = policy_id else {
-        return Ok(connection);
+pub(super) fn decode_static_credential<T: DeserializeOwned>(
+    credential: &StorageConnectorCredentialInput,
+    connector_id: &str,
+) -> Result<T> {
+    let StorageConnectorCredentialInput::Static(values) = credential else {
+        return Err(AsterError::validation_error(format!(
+            "storage connector '{connector_id}' requires static credentials"
+        )));
     };
+    serde_json::from_value(values.clone()).map_err(|error| {
+        AsterError::validation_error(format!(
+            "invalid static credentials for storage connector '{connector_id}': {error}"
+        ))
+    })
+}
 
-    let saved = policy_repo::find_by_id(db, policy_id).await?;
-    if saved.driver_type != connection.driver_type {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyActionParameterInvalid,
-            format!(
-                "{context} driver '{}' does not match saved policy driver '{}'",
-                connection.driver_type.as_str(),
-                saved.driver_type.as_str(),
-            ),
-        ));
+pub(super) fn decode_authorization_application<T: DeserializeOwned>(
+    credential: &StorageConnectorCredentialInput,
+    connector_id: &str,
+) -> Result<T> {
+    let StorageConnectorCredentialInput::AuthorizationApplication(values) = credential else {
+        return Err(AsterError::validation_error(format!(
+            "storage connector '{connector_id}' requires authorization application credentials"
+        )));
+    };
+    serde_json::from_value(values.clone()).map_err(|error| {
+        AsterError::validation_error(format!(
+            "invalid authorization application credentials for storage connector '{connector_id}': {error}"
+        ))
+    })
+}
+
+pub(super) fn validate_required_credential_field(
+    value: &str,
+    field: &str,
+    connector_id: &str,
+) -> Result<()> {
+    if value.trim().is_empty() {
+        return Err(AsterError::validation_error(format!(
+            "credential field '{field}' is required for storage connector '{connector_id}'"
+        )));
     }
-    if connection.access_key.trim().is_empty() {
-        connection.access_key = saved.access_key;
+    Ok(())
+}
+
+/// Convert the deprecated `access_key`/`secret_key` policy columns into the
+/// current connector-owned static credential struct.
+///
+/// This helper is exclusive to the AsterDrive 0.5.0 startup migration and will
+/// be completely removed together with the legacy columns in AsterDrive 0.6.0.
+pub(super) fn import_legacy_static_credential<T: Serialize>(
+    connector_id: &str,
+    input: super::LegacyStorageConnectorCredentialInput,
+    build: impl FnOnce(super::LegacyStoragePolicyStaticCredential) -> T,
+) -> Result<Option<serde_json::Value>> {
+    if input.application_config.is_some() || input.authorization.is_some() {
+        return Err(AsterError::database_operation(format!(
+            "connector '{connector_id}' received incompatible legacy authorization credentials",
+        )));
     }
-    if connection.secret_key.trim().is_empty() {
-        connection.secret_key = saved.secret_key;
+    let Some(mut credential) = input.static_credential else {
+        return Ok(None);
+    };
+    credential.access_key = credential.access_key.trim().to_string();
+    credential.secret_key = credential.secret_key.trim().to_string();
+    if credential.access_key.is_empty() && credential.secret_key.is_empty() {
+        return Ok(None);
     }
-    Ok(connection)
+    if credential.access_key.is_empty() || credential.secret_key.is_empty() {
+        return Err(AsterError::database_operation(format!(
+            "connector '{connector_id}' has incomplete legacy static credentials",
+        )));
+    }
+    serde_json::to_value(build(credential))
+        .map(Some)
+        .map_err(|error| {
+            AsterError::database_operation(format!(
+                "serialize migrated credential for connector '{connector_id}': {error}",
+            ))
+        })
 }
 
 pub(super) fn normalize_s3_connection_fields(
@@ -167,190 +232,6 @@ pub(super) fn normalize_s3_connection_fields(
                 .with_api_error_code(ApiErrorCode::PolicyStorageEndpointInvalid),
         })?;
     Ok((normalized.endpoint, normalized.bucket))
-}
-
-pub(super) fn reject_unexpected_remote_node(remote_node_id: Option<i64>) -> Result<Option<i64>> {
-    if remote_node_id.is_some() {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyRemoteNodeUnexpected,
-            "remote_node_id is only valid for remote storage policies",
-        ));
-    }
-    Ok(None)
-}
-
-pub(super) fn reject_unexpected_remote_storage_target_key(target_key: Option<&str>) -> Result<()> {
-    if target_key.is_some_and(|value| !value.trim().is_empty()) {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyRemoteNodeUnexpected,
-            "remote_storage_target_key is only valid for remote storage policies",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_connection_secret(value: &str, field: &str, driver: &str) -> Result<()> {
-    if value.trim().is_empty() {
-        let api_code = match field {
-            "access_key" => ApiErrorCode::PolicyStorageAccessKeyRequired,
-            "secret_key" => ApiErrorCode::PolicyStorageSecretKeyRequired,
-            _ => ApiErrorCode::BadRequest,
-        };
-        return Err(validation_error_with_code(
-            api_code,
-            format!("{field} is required for {driver} storage policies"),
-        ));
-    }
-    Ok(())
-}
-
-pub(super) fn validate_static_secret_credentials(
-    input: &StorageConnectorConnectionInput,
-    driver: &str,
-) -> Result<()> {
-    validate_connection_secret(&input.access_key, "access_key", driver)?;
-    validate_connection_secret(&input.secret_key, "secret_key", driver)
-}
-
-fn has_onedrive_options(options: &aster_drive_model::types::StoragePolicyOptions) -> bool {
-    options.provider_resumable_upload_strategy.is_some()
-        || options.provider_download_strategy.is_some()
-        || options.onedrive_cloud.is_some()
-        || options.onedrive_account_mode.is_some()
-        || options.onedrive_tenant.is_some()
-        || options.onedrive_drive_id.is_some()
-        || options.onedrive_root_item_id.is_some()
-        || options.onedrive_site_id.is_some()
-        || options.onedrive_group_id.is_some()
-}
-
-pub(super) fn ensure_onedrive_options_absent(
-    options: &aster_drive_model::types::StoragePolicyOptions,
-) -> Result<()> {
-    if has_onedrive_options(options) {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyOneDriveOptionsUnsupported,
-            "OneDrive options are only valid for OneDrive storage policies",
-        ));
-    }
-    Ok(())
-}
-
-pub(super) fn ensure_sftp_options_absent(
-    options: &aster_drive_model::types::StoragePolicyOptions,
-) -> Result<()> {
-    if options.sftp_host_key_fingerprint.is_some() {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicySftpOptionsUnsupported,
-            "SFTP host key options are only valid for SFTP storage policies",
-        ));
-    }
-    Ok(())
-}
-
-pub(super) fn validate_onedrive_options(
-    options: &aster_drive_model::types::StoragePolicyOptions,
-) -> Result<()> {
-    if options.onedrive_account_mode.is_none() {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyOneDriveAccountModeRequired,
-            "OneDrive storage policies require onedrive_account_mode",
-        ));
-    }
-    if options.onedrive_cloud == Some(aster_drive_model::types::MicrosoftGraphCloud::China)
-        && options.onedrive_account_mode
-            == Some(aster_drive_model::types::OneDriveAccountMode::Personal)
-    {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyOneDrivePersonalChinaCloudUnsupported,
-            "personal OneDrive accounts must use the global Microsoft Graph cloud",
-        ));
-    }
-    if options.onedrive_account_mode
-        == Some(aster_drive_model::types::OneDriveAccountMode::SharepointSite)
-        && options.onedrive_drive_id.is_none()
-        && options.onedrive_site_id.is_none()
-    {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyOneDriveSharePointSiteRequired,
-            "OneDrive sharepoint_site policies require onedrive_site_id when onedrive_drive_id is not set",
-        ));
-    }
-    if options.onedrive_account_mode
-        == Some(aster_drive_model::types::OneDriveAccountMode::SharepointSite)
-        && options.onedrive_group_id.is_some()
-    {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyOneDriveOptionsUnsupported,
-            "onedrive_group_id is only valid for OneDrive group_drive policies",
-        ));
-    }
-    if options.onedrive_account_mode
-        == Some(aster_drive_model::types::OneDriveAccountMode::GroupDrive)
-        && options.onedrive_drive_id.is_none()
-        && options.onedrive_group_id.is_none()
-    {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyOneDriveGroupRequired,
-            "OneDrive group_drive policies require onedrive_group_id when onedrive_drive_id is not set",
-        ));
-    }
-    if options.onedrive_account_mode
-        == Some(aster_drive_model::types::OneDriveAccountMode::GroupDrive)
-        && options.onedrive_site_id.is_some()
-    {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyOneDriveOptionsUnsupported,
-            "onedrive_site_id is only valid for OneDrive sharepoint_site policies",
-        ));
-    }
-    if options.onedrive_account_mode
-        == Some(aster_drive_model::types::OneDriveAccountMode::Personal)
-        && (options.onedrive_site_id.is_some() || options.onedrive_group_id.is_some())
-    {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyOneDriveOptionsUnsupported,
-            "personal OneDrive policies do not accept onedrive_site_id or onedrive_group_id",
-        ));
-    }
-    if options.onedrive_account_mode
-        == Some(aster_drive_model::types::OneDriveAccountMode::WorkOrSchool)
-        && (options.onedrive_site_id.is_some() || options.onedrive_group_id.is_some())
-    {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyOneDriveOptionsUnsupported,
-            "work_or_school OneDrive policies do not accept onedrive_site_id or onedrive_group_id",
-        ));
-    }
-    Ok(())
-}
-
-pub(super) fn ensure_storage_native_processing_supported(
-    descriptor: StorageConnectorDescriptor,
-    options: &aster_drive_model::types::StoragePolicyOptions,
-) -> Result<()> {
-    if options.uses_storage_native_thumbnail() && !descriptor.capabilities.storage_native_thumbnail
-    {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyNativeThumbnailUnsupported,
-            format!(
-                "storage policy driver '{}' does not expose storage-native thumbnail processing",
-                descriptor.connector_id.as_str()
-            ),
-        ));
-    }
-    if options.uses_storage_native_media_metadata()
-        && !descriptor.capabilities.storage_native_media_metadata
-    {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyNativeMediaMetadataUnsupported,
-            format!(
-                "storage policy driver '{}' does not expose storage-native media metadata processing",
-                descriptor.connector_id.as_str()
-            ),
-        ));
-    }
-    Ok(())
 }
 
 pub(super) fn ensure_policy_action_supported(
@@ -418,14 +299,6 @@ pub(super) fn unsupported_saved_connection_test_error(
     )
 }
 
-fn serialize_connector_options(
-    options: &aster_drive_model::types::StoragePolicyOptions,
-) -> Result<StoredStoragePolicyOptions> {
-    serialize_storage_policy_options(options).map_err(|error| {
-        AsterError::internal_error(format!("serialize storage policy options: {error}"))
-    })
-}
-
 pub(super) async fn probe_storage_driver(
     driver: &dyn StorageDriver,
     write_error_context: &'static str,
@@ -453,7 +326,7 @@ pub fn unsupported_multipart_error(policy: &storage_policy::Model) -> AsterError
         StorageErrorKind::Unsupported,
         format!(
             "storage policy {} (driver: {:?}) does not support multipart upload",
-            policy.id, policy.driver_type
+            policy.id, policy.connector_id
         ),
     )
 }

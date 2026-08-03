@@ -1,15 +1,16 @@
-//! SeaORM entity definition for `storage_policy_credentials`.
+//! Deprecated SeaORM entity for `storage_policy_credentials`.
+//!
+//! This definition is exclusive to the AsterDrive 0.5.0 upgrade path. It only
+//! migrates legacy rows into connector-owned credentials and will be completely
+//! removed in AsterDrive 0.6.0.
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-#[cfg(all(debug_assertions, feature = "openapi"))]
-use utoipa::ToSchema;
 
 use crate::types::{StorageCredentialKind, StorageCredentialProvider, StorageCredentialStatus};
 
 #[derive(Clone, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[sea_orm(table_name = "storage_policy_credentials")]
 pub struct Model {
     #[sea_orm(primary_key)]
@@ -28,23 +29,18 @@ pub struct Model {
     pub metadata: String,
     pub status: StorageCredentialStatus,
     pub status_reason: Option<String>,
-    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub expires_at: Option<DateTimeUtc>,
-    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub authorized_at: Option<DateTimeUtc>,
-    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub last_refreshed_at: Option<DateTimeUtc>,
-    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub last_validated_at: Option<DateTimeUtc>,
-    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
-    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: DateTimeUtc,
 }
 
 impl fmt::Debug for Model {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Model")
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DeprecatedStoragePolicyCredential")
             .field("id", &self.id)
             .field("policy_id", &self.policy_id)
             .field("provider", &self.provider)
@@ -83,16 +79,16 @@ impl fmt::Debug for Model {
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::storage_policy::Entity",
+        belongs_to = "crate::entities::storage_policy::Entity",
         from = "Column::PolicyId",
-        to = "super::storage_policy::Column::Id",
+        to = "crate::entities::storage_policy::Column::Id",
         on_update = "NoAction",
         on_delete = "Cascade"
     )]
     StoragePolicy,
 }
 
-impl Related<super::storage_policy::Entity> for Entity {
+impl Related<crate::entities::storage_policy::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::StoragePolicy.def()
     }
@@ -105,7 +101,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn debug_redacts_storage_credential_secrets() {
+    fn debug_redacts_legacy_storage_credential_secrets() {
         let now = chrono::Utc::now();
         let model = Model {
             id: 1,

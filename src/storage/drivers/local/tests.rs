@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use tokio::io::AsyncReadExt;
 
 fn build_policy(base: &Path) -> aster_drive_model::entities::storage_policy::Model {
+    let options = aster_drive_model::types::StoragePolicyOptions::default();
     aster_drive_model::entities::storage_policy::Model {
         id: 1,
         name: "local".into(),
@@ -21,10 +22,15 @@ fn build_policy(base: &Path) -> aster_drive_model::entities::storage_policy::Mod
         remote_node_id: None,
         remote_storage_target_key: None,
         connector_id: "asterdrive.storage.local".to_string(),
-        connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(
-            "asterdrive.storage.local",
+        storage_config: crate::storage::connectors::test_support::policy_config(
+            aster_drive_model::types::DriverType::Local,
+            "",
+            "",
+            base.to_string_lossy(),
+            None,
+            None,
+            &options,
         ),
-        behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
         max_file_size: 0,
         allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
         options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),

@@ -209,7 +209,7 @@ async fn build_presigned_redirect_outcome(
         blob_id = blob.id,
         policy_id = blob.policy_id,
         ttl_secs = PRESIGNED_DOWNLOAD_TTL_SECS,
-        driver_type = ?policy.driver_type,
+        connector_id = %policy.connector_id,
         "redirecting file download to provider storage URL"
     );
 

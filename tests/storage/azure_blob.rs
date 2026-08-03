@@ -3,13 +3,18 @@
 use std::time::Duration;
 
 use aster_drive::storage::drivers::azure_blob::AzureBlobDriver;
+use aster_drive_model::types::{
+    ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy, StoredStoragePolicyConfig,
+};
 use aster_drive_storage::{
-    ListStorageDriver, MultipartStorageDriver, PresignedDownloadOptions, PresignedStorageDriver,
-    StorageDriver, StorageErrorKind, StreamUploadDriver,
+    ConnectorConfigEnvelope, ConnectorId, ListStorageDriver, MultipartStorageDriver,
+    PresignedDownloadOptions, PresignedStorageDriver, StorageDriver, StorageErrorKind,
+    StoragePolicyBehaviorConfig, StreamUploadDriver, encode_storage_policy_config,
 };
 use base64::Engine as _;
 use chrono::Utc;
 use reqwest::StatusCode;
+use serde::Serialize;
 use testcontainers::{GenericImage, ImageExt, core::IntoContainerPort, runners::AsyncRunner};
 use tokio::io::AsyncReadExt as _;
 
@@ -20,6 +25,15 @@ const AZURITE_ACCOUNT: &str = "devstoreaccount1";
 const AZURITE_ACCOUNT_KEY: &str =
     "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==";
 const AZURE_STORAGE_VERSION: &str = "2023-11-03";
+
+#[derive(Serialize)]
+struct AzureBlobConnectorConfigV1 {
+    endpoint: String,
+    bucket: String,
+    base_path: String,
+    object_storage_upload_strategy: ObjectStorageUploadStrategy,
+    object_storage_download_strategy: ObjectStorageDownloadStrategy,
+}
 
 fn azure_policy(
     endpoint: &str,
@@ -40,10 +54,25 @@ fn azure_policy(
         remote_node_id: None,
         remote_storage_target_key: None,
         connector_id: "asterdrive.storage.azure_blob".to_string(),
-        connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(
-            "asterdrive.storage.azure_blob",
+        storage_config: StoredStoragePolicyConfig(
+            encode_storage_policy_config(
+                ConnectorConfigEnvelope::new(
+                    ConnectorId::declared("asterdrive.storage.azure_blob"),
+                    1,
+                    serde_json::to_value(AzureBlobConnectorConfigV1 {
+                        endpoint: endpoint.to_string(),
+                        bucket: container.to_string(),
+                        base_path: base_path.to_string(),
+                        object_storage_upload_strategy: ObjectStorageUploadStrategy::RelayStream,
+                        object_storage_download_strategy:
+                            ObjectStorageDownloadStrategy::RelayStream,
+                    })
+                    .expect("encode typed Azure Blob connector fixture"),
+                ),
+                StoragePolicyBehaviorConfig::default(),
+            )
+            .expect("encode typed Azure Blob policy fixture"),
         ),
-        behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
         max_file_size: 0,
         allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
         options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),

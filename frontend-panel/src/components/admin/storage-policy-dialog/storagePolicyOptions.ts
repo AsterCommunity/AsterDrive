@@ -3,7 +3,6 @@ import type {
 	MicrosoftGraphCloud,
 	ObjectStorageDownloadStrategy,
 	ObjectStorageUploadStrategy,
-	OneDriveAccountMode,
 	ProviderDownloadFilenameMode,
 	ProviderDownloadStrategy,
 	ProviderResumableUploadStrategy,
@@ -25,7 +24,7 @@ export interface StoragePolicyOptionsForm {
 	provider_download_filename_mode: ProviderDownloadFilenameMode;
 	s3_path_style?: boolean;
 	onedrive_cloud: MicrosoftGraphCloud;
-	onedrive_account_mode: OneDriveAccountMode;
+	onedrive_account_mode: string;
 	onedrive_tenant: string;
 	onedrive_drive_id: string;
 	onedrive_root_item_id: string;

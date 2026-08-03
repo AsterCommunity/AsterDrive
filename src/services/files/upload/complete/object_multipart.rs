@@ -270,7 +270,7 @@ fn opaque_blob_hash_prefix(
                 ApiErrorCode::UploadSessionCorrupted,
                 format!(
                     "storage policy driver '{}' cannot finalize opaque upload sessions without an opaque hash prefix",
-                    policy.driver_type.as_str()
+                    policy.connector_id
                 ),
             )
         })

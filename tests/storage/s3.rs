@@ -1,12 +1,31 @@
 //! S3 存储驱动集成测试（使用 testcontainers + rustfs）
 
 use aster_drive::storage::drivers::s3::{S3Driver, S3DriverOptions};
-use aster_drive_storage::{
-    PresignedDownloadOptions, PresignedStorageDriver, StorageDriver, StreamUploadDriver,
+use aster_drive_model::types::{
+    ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy, StoredStoragePolicyConfig,
 };
+use aster_drive_storage::{
+    ConnectorConfigEnvelope, ConnectorId, PresignedDownloadOptions, PresignedStorageDriver,
+    StorageDriver, StoragePolicyBehaviorConfig, StreamUploadDriver, encode_storage_policy_config,
+};
+use serde::Serialize;
 use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 
 const RUSTFS_TEST_IMAGE_TAG: &str = "1.0.0-alpha.90";
+
+#[derive(Serialize)]
+struct S3ConnectorConfigV1 {
+    endpoint: String,
+    bucket: String,
+    base_path: String,
+    object_storage_upload_strategy: ObjectStorageUploadStrategy,
+    object_storage_download_strategy: ObjectStorageDownloadStrategy,
+    s3_path_style: bool,
+    s3_region: String,
+    s3_connect_timeout_secs: u64,
+    s3_read_timeout_secs: u64,
+    s3_operation_timeout_secs: u64,
+}
 
 /// 创建 S3 测试用的 storage_policy model
 fn s3_policy(endpoint: &str, bucket: &str) -> aster_drive_model::entities::storage_policy::Model {
@@ -23,10 +42,30 @@ fn s3_policy(endpoint: &str, bucket: &str) -> aster_drive_model::entities::stora
         remote_node_id: None,
         remote_storage_target_key: None,
         connector_id: "asterdrive.storage.s3".to_string(),
-        connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(
-            "asterdrive.storage.s3",
+        storage_config: StoredStoragePolicyConfig(
+            encode_storage_policy_config(
+                ConnectorConfigEnvelope::new(
+                    ConnectorId::declared("asterdrive.storage.s3"),
+                    1,
+                    serde_json::to_value(S3ConnectorConfigV1 {
+                        endpoint: endpoint.to_string(),
+                        bucket: bucket.to_string(),
+                        base_path: "test-prefix".to_string(),
+                        object_storage_upload_strategy: ObjectStorageUploadStrategy::RelayStream,
+                        object_storage_download_strategy:
+                            ObjectStorageDownloadStrategy::RelayStream,
+                        s3_path_style: true,
+                        s3_region: "us-east-1".to_string(),
+                        s3_connect_timeout_secs: 5,
+                        s3_read_timeout_secs: 30,
+                        s3_operation_timeout_secs: 3_600,
+                    })
+                    .expect("encode typed S3 connector fixture"),
+                ),
+                StoragePolicyBehaviorConfig::default(),
+            )
+            .expect("encode typed S3 policy fixture"),
         ),
-        behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
         max_file_size: 0,
         allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
         options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),

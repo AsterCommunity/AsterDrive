@@ -6,7 +6,6 @@ use crate::services::workspace::scope::{
     WorkspaceStorageScope, require_team_policy_group_id, verify_folder_access,
 };
 use aster_drive_model::entities::folder;
-use aster_drive_model::types::{DriverType, parse_storage_policy_options};
 
 pub(crate) async fn load_storage_limits(
     state: &PrimaryAppState,
@@ -25,12 +24,13 @@ pub(crate) async fn load_storage_limits(
 }
 
 pub(crate) fn local_content_dedup_enabled(
+    registry: &crate::storage::connectors::StorageConnectorRegistry,
     policy: &aster_drive_model::entities::storage_policy::Model,
-) -> bool {
-    policy.driver_type == DriverType::Local
-        && parse_storage_policy_options(policy.options.as_ref())
-            .content_dedup
-            .unwrap_or(false)
+) -> Result<bool> {
+    Ok(
+        crate::storage::connectors::resolve_local_filesystem_projection(registry, policy)?
+            .is_some_and(|projection| projection.content_dedup),
+    )
 }
 
 /// Policy hint captured from a folder after the caller has already verified that the folder is

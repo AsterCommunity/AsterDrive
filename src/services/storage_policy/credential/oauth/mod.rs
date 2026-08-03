@@ -11,26 +11,21 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 use crate::db::repository::{
-    policy_repo, storage_connector_application_config_repo, storage_policy_authorization_flow_repo,
-    storage_policy_credential_repo,
+    policy_repo, storage_policy_authorization_flow_repo, storage_policy_connector_credential_repo,
 };
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::ops::audit::{AuditContext, AuditRequestInfo};
+use crate::storage::StorageConnectorCredentialInfo;
 use crate::storage::drivers::onedrive::{MicrosoftGraphClient, MicrosoftGraphClientConfig};
-use aster_drive_model::entities::{
-    storage_connector_application_config, storage_policy_authorization_flow,
-    storage_policy_credential,
-};
+use aster_drive_model::entities::storage_policy_authorization_flow;
 use aster_drive_model::types::{
-    StorageAuthorizationFlowStatus, StorageCredentialKind, StorageCredentialProvider,
-    StorageCredentialStatus, parse_storage_policy_options,
+    StorageAuthorizationFlowStatus, StorageCredentialProvider, StorageCredentialStatus,
 };
 use aster_forge_utils::id;
 
 use super::{
-    FLOW_TTL_SECS, MicrosoftGraphApplicationConfigInput, MicrosoftGraphAuthorizationContext,
-    MicrosoftGraphAuthorizationInput, StoragePolicyCredentialInfo, crypto,
+    FLOW_TTL_SECS, MicrosoftGraphAuthorizationContext, MicrosoftGraphAuthorizationInput, crypto,
     normalize_optional_string, normalize_required_string, normalize_scopes,
     resolve_onedrive_location, scopes_to_json,
 };
@@ -41,13 +36,14 @@ use audit::{
 };
 use microsoft::{
     MicrosoftGraphFlowContext, build_pkce_challenge, build_pkce_verifier,
-    decrypt_application_client_secret, encrypt_application_client_secret,
-    exchange_microsoft_graph_code, flow_client_secret_aad, metadata_cloud,
-    microsoft_authorization_url, microsoft_graph_flow_cloud, microsoft_graph_flow_tenant,
-    parse_metadata,
+    exchange_microsoft_graph_code, flow_client_secret_aad, microsoft_authorization_url,
+    microsoft_graph_flow_cloud, microsoft_graph_flow_tenant,
 };
 
-pub(crate) use microsoft::{StorageCredentialMetadataInput, storage_credential_metadata};
+pub(crate) use microsoft::{
+    StorageCredentialMetadataInput, decrypt_application_client_secret,
+    encrypt_application_client_secret, storage_credential_metadata,
+};
 pub(crate) use provider::{
     MicrosoftGraphCleanupTokenSnapshot, build_microsoft_graph_cleanup_token_provider,
     build_microsoft_graph_credential_token_provider,
@@ -84,107 +80,92 @@ pub struct StorageAuthorizationCallbackQuery {
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct StorageAuthorizationCallbackOutcome {
-    pub credential: StoragePolicyCredentialInfo,
+    pub credential: StorageConnectorCredentialInfo,
 }
 
 pub(crate) async fn upsert_microsoft_graph_application_config<C: ConnectionTrait>(
     db: &C,
     encryption_key: &str,
     policy_id: i64,
-    input: MicrosoftGraphApplicationConfigInput,
-) -> Result<Option<storage_connector_application_config::Model>> {
-    let existing = storage_connector_application_config_repo::find_by_policy_provider(
+    connector_config: &crate::storage::connectors::OneDriveConnectorConfigV1,
+    input: crate::storage::connectors::OneDriveAuthorizationApplicationV1,
+) -> Result<aster_drive_model::entities::storage_policy_connector_credential::Model> {
+    let existing = storage_policy_connector_credential_repo::find_by_policy(db, policy_id).await?;
+    let existing_payload = existing
+        .as_ref()
+        .map(|credential| {
+            crate::storage::connectors::decode_typed_connector_credential::<
+                crate::storage::connectors::OneDriveCredentialV1,
+            >(
+                encryption_key,
+                credential,
+                &aster_drive_storage::ConnectorId::declared(
+                    crate::storage::connectors::OneDriveConnector::ID,
+                ),
+                1,
+            )
+        })
+        .transpose()?;
+    let cloud = connector_config.cloud;
+    let tenant = normalize_optional_string(connector_config.tenant.clone())
+        .unwrap_or_else(|| "common".to_string());
+    let client_id = normalize_optional_string(Some(input.client_id))
+        .or_else(|| {
+            existing_payload
+                .as_ref()
+                .map(|payload| payload.application.client_id.clone())
+        })
+        .ok_or_else(|| AsterError::validation_error("client_id is required"))?;
+    let client_secret = normalize_optional_string(Some(input.client_secret))
+        .or_else(|| {
+            existing_payload
+                .as_ref()
+                .map(|payload| payload.application.client_secret.clone())
+        })
+        .ok_or_else(|| AsterError::validation_error("client_secret is required"))?;
+    let existing_scopes = existing_payload
+        .as_ref()
+        .map(|payload| payload.application.scopes.clone());
+    let default_scopes =
+        super::default_microsoft_graph_scopes_for_onedrive_config(connector_config);
+    let scopes = match input
+        .scopes
+        .and_then(|value| normalize_optional_string(Some(value)))
+    {
+        Some(scopes) => super::normalize_scopes_with_default(
+            Some(scopes.split_whitespace().map(ToOwned::to_owned).collect()),
+            default_scopes,
+        ),
+        None => existing_scopes
+            .filter(|scopes| !scopes.is_empty())
+            .unwrap_or_else(|| super::normalize_scopes_with_default(None, default_scopes)),
+    };
+    let payload = crate::storage::connectors::OneDriveCredentialV1 {
+        application: crate::storage::connectors::OneDriveApplicationCredentialV1 {
+            cloud,
+            tenant,
+            client_id,
+            client_secret,
+            scopes,
+        },
+        authorization: existing_payload.and_then(|payload| payload.authorization),
+    };
+    crate::storage::connectors::persist_connector_credential_payload(
         db,
+        encryption_key,
         policy_id,
-        StorageCredentialProvider::MicrosoftGraph,
+        &aster_drive_storage::ConnectorId::declared(
+            crate::storage::connectors::OneDriveConnector::ID,
+        ),
+        1,
+        &payload,
     )
     .await?;
-    let existing_metadata = existing
-        .as_ref()
-        .and_then(|config| parse_metadata(&config.metadata));
-    if existing.is_none()
-        && input.cloud.is_none()
-        && normalize_optional_string(input.tenant.clone()).is_none()
-        && normalize_optional_string(input.client_id.clone()).is_none()
-        && normalize_optional_string(input.client_secret.clone()).is_none()
-        && input
-            .scopes
-            .as_ref()
-            .is_none_or(|scopes| scopes.iter().all(|scope| scope.trim().is_empty()))
-    {
-        return Ok(None);
-    }
-
-    let cloud = input
-        .cloud
-        .or_else(|| existing_metadata.as_ref().and_then(metadata_cloud))
-        .unwrap_or_default();
-    let tenant = normalize_optional_string(input.tenant)
-        .or_else(|| {
-            existing
-                .as_ref()
-                .and_then(|config| config.tenant_id.clone())
+    storage_policy_connector_credential_repo::find_by_policy(db, policy_id)
+        .await?
+        .ok_or_else(|| {
+            AsterError::record_not_found("OneDrive connector credential after application update")
         })
-        .unwrap_or_else(|| "common".to_string());
-    let client_id = normalize_optional_string(input.client_id).or_else(|| {
-        existing
-            .as_ref()
-            .and_then(|config| config.client_id.clone())
-    });
-    let client_secret = normalize_optional_string(input.client_secret).map(SecretString::from);
-    let existing_client_secret_ciphertext = existing
-        .as_ref()
-        .and_then(|config| config.client_secret_ciphertext.clone());
-    let scopes = match input.scopes {
-        Some(scopes) => normalize_scopes(Some(scopes)),
-        None => existing
-            .as_ref()
-            .map(|config| super::parse_scopes_json(&config.scopes))
-            .filter(|scopes| !scopes.is_empty())
-            .unwrap_or_else(|| normalize_scopes(None)),
-    };
-    let client_secret_ciphertext = match client_secret.as_ref() {
-        Some(client_secret) => Some(encrypt_application_client_secret(
-            encryption_key,
-            policy_id,
-            client_secret.expose_secret(),
-        )?),
-        None => existing_client_secret_ciphertext,
-    };
-    let metadata = microsoft_graph_application_metadata(existing_metadata.as_ref(), cloud)?;
-    let now = Utc::now();
-
-    storage_connector_application_config_repo::upsert_by_policy_provider(
-        db,
-        storage_connector_application_config::ActiveModel {
-            policy_id: Set(policy_id),
-            provider: Set(StorageCredentialProvider::MicrosoftGraph),
-            tenant_id: Set(Some(tenant)),
-            scopes: Set(scopes_to_json(&scopes)?),
-            client_id: Set(client_id),
-            client_secret_ciphertext: Set(client_secret_ciphertext),
-            metadata: Set(metadata),
-            ..Default::default()
-        },
-        now,
-    )
-    .await
-    .map(Some)
-}
-
-fn microsoft_graph_application_metadata(
-    existing_metadata: Option<&serde_json::Value>,
-    cloud: aster_drive_model::types::MicrosoftGraphCloud,
-) -> Result<String> {
-    let mut metadata = existing_metadata
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!({}));
-    metadata["cloud"] = serde_json::json!(cloud);
-    metadata["graph_base_url"] = serde_json::Value::String(cloud.graph_base_url().to_string());
-    serde_json::to_string(&metadata).map_aster_err_ctx(
-        "failed to serialize Microsoft Graph application metadata",
-        AsterError::internal_error,
-    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -250,7 +231,7 @@ pub async fn start_authorization(
     let policy = policy_repo::find_by_id(state.writer_db(), policy_id).await?;
     crate::storage::connectors::ensure_storage_authorization_supported(
         state.driver_registry().connectors(),
-        policy.driver_type,
+        &policy,
         input.provider,
     )?;
     match input.provider {
@@ -280,57 +261,54 @@ async fn start_microsoft_graph_authorization(
     let input = input.unwrap_or_default();
     reject_unsaved_microsoft_graph_authorization_overrides(&input)?;
     let policy_id = policy.id;
-    let existing_credential = storage_policy_credential_repo::find_by_policy_provider_kind(
-        state.writer_db(),
-        policy_id,
-        StorageCredentialProvider::MicrosoftGraph,
-        StorageCredentialKind::OauthDelegated,
-    )
-    .await?;
-    let existing_app_config = storage_connector_application_config_repo::find_by_policy_provider(
-        state.writer_db(),
-        policy_id,
-        StorageCredentialProvider::MicrosoftGraph,
-    )
-    .await?;
-    let existing_app_metadata = existing_app_config
+    let existing_credential =
+        storage_policy_connector_credential_repo::find_by_policy(state.writer_db(), policy_id)
+            .await?;
+    let existing_payload = existing_credential
         .as_ref()
-        .and_then(|config| parse_metadata(&config.metadata));
-    let options = parse_storage_policy_options(policy.options.as_ref());
+        .map(|credential| {
+            crate::storage::connectors::decode_typed_connector_credential::<
+                crate::storage::connectors::OneDriveCredentialV1,
+            >(
+                &state.config().auth.storage_credential_secret_key,
+                credential,
+                &aster_drive_storage::ConnectorId::declared(
+                    crate::storage::connectors::OneDriveConnector::ID,
+                ),
+                1,
+            )
+        })
+        .transpose()?;
+    let connector_config = crate::storage::connectors::OneDriveConnector::decode_config(&policy)?;
     let cloud = input
         .cloud
-        .or_else(|| existing_app_metadata.as_ref().and_then(metadata_cloud))
-        .or(options.onedrive_cloud)
-        .unwrap_or_default();
+        .or_else(|| {
+            existing_payload
+                .as_ref()
+                .map(|payload| payload.application.cloud)
+        })
+        .unwrap_or(connector_config.cloud);
     let tenant = normalize_optional_string(input.tenant)
         .or_else(|| {
-            existing_app_config
+            existing_payload
                 .as_ref()
-                .and_then(|config| config.tenant_id.clone())
+                .map(|payload| payload.application.tenant.clone())
         })
-        .or_else(|| options.onedrive_tenant.clone())
+        .or_else(|| connector_config.tenant.clone())
         .unwrap_or_else(|| "common".to_string());
     let client_id = match normalize_optional_string(input.client_id).or_else(|| {
-        existing_app_config
+        existing_payload
             .as_ref()
-            .and_then(|config| config.client_id.clone())
+            .map(|payload| payload.application.client_id.clone())
     }) {
         Some(client_id) => normalize_required_string(&client_id, "client_id", 512)?,
         None => return Err(AsterError::validation_error("client_id is required")),
     };
     let client_secret = match normalize_optional_string(input.client_secret) {
         Some(client_secret) => Some(SecretString::from(client_secret)),
-        None => existing_app_config
+        None => existing_payload
             .as_ref()
-            .and_then(|config| config.client_secret_ciphertext.as_deref())
-            .map(|ciphertext| {
-                decrypt_application_client_secret(
-                    &state.config().auth.storage_credential_secret_key,
-                    policy_id,
-                    ciphertext,
-                )
-            })
-            .transpose()?,
+            .map(|payload| SecretString::from(payload.application.client_secret.clone())),
     };
     let client_secret = client_secret
         .map(|client_secret| {
@@ -346,19 +324,14 @@ async fn start_microsoft_graph_authorization(
                 "client_secret is required for Microsoft Graph storage authorization",
             )
         })?;
-    let default_scopes = super::default_microsoft_graph_scopes_for_onedrive_options(&options);
+    let default_scopes =
+        super::default_microsoft_graph_scopes_for_onedrive_config(&connector_config);
     let scopes = match input.scopes {
         Some(scopes) => super::normalize_scopes_with_default(Some(scopes), default_scopes),
-        None => existing_app_config
+        None => existing_payload
             .as_ref()
-            .map(|config| super::parse_scopes_json(&config.scopes))
+            .map(|payload| payload.application.scopes.clone())
             .filter(|scopes| !scopes.is_empty())
-            .or_else(|| {
-                existing_credential
-                    .as_ref()
-                    .map(|credential| super::parse_scopes_json(&credential.scopes))
-                    .filter(|scopes| !scopes.is_empty())
-            })
             .unwrap_or_else(|| super::normalize_scopes_with_default(None, default_scopes)),
     };
     let redirect_uri = callback_redirect_uri(state, req)?;
@@ -593,7 +566,7 @@ pub async fn finish_authorization_callback(
     };
     if let Err(error) = crate::storage::connectors::ensure_storage_authorization_supported(
         state.driver_registry().connectors(),
-        policy.driver_type,
+        &policy,
         flow.provider,
     )
     .map_err(|error| {
@@ -623,7 +596,8 @@ pub async fn finish_authorization_callback(
         .await;
         return Err(error);
     }
-    let policy_options = parse_storage_policy_options(policy.options.as_ref());
+    let connector_config = crate::storage::connectors::OneDriveConnector::decode_config(&policy)
+        .map_err(storage_authorization_callback_server_error)?;
     // Keep Microsoft Graph token exchange and drive resolution outside the DB
     // transaction; provider latency must not hold SQLite/MySQL/Postgres locks.
     txn.commit()
@@ -633,25 +607,43 @@ pub async fn finish_authorization_callback(
     let credential_result = finish_authorization_provider_callback(
         &state.config().auth.storage_credential_secret_key,
         &flow,
-        &policy_options,
+        &connector_config,
         code,
         now,
     )
     .await;
     let credential = match credential_result {
-        Ok(credential) => {
+        Ok(payload) => {
             let txn = state
                 .writer_db()
                 .begin()
                 .await
                 .map_err(|error| storage_authorization_callback_server_error(error.into()))?;
-            let credential = match storage_policy_credential_repo::upsert_by_policy_provider_kind(
-                &txn, credential, now,
+            let credential = match crate::storage::connectors::persist_connector_credential_payload(
+                &txn,
+                &state.config().auth.storage_credential_secret_key,
+                policy_id,
+                &aster_drive_storage::ConnectorId::declared(
+                    crate::storage::connectors::OneDriveConnector::ID,
+                ),
+                1,
+                &payload,
             )
             .await
             .map_err(storage_authorization_callback_server_error)
             {
-                Ok(credential) => credential,
+                Ok(()) => {
+                    crate::db::repository::storage_policy_connector_credential_repo::find_by_policy(
+                        &txn, policy_id,
+                    )
+                    .await
+                    .map_err(|error| storage_authorization_callback_server_error(error))?
+                    .ok_or_else(|| {
+                        storage_authorization_callback_server_error(AsterError::record_not_found(
+                            "storage policy connector credential after authorization",
+                        ))
+                    })?
+                }
                 Err(error) => {
                     let _ = txn.rollback().await;
                     return Err(error);
@@ -714,8 +706,23 @@ pub async fn finish_authorization_callback(
         },
     )
     .await;
+    let policy = policy_repo::find_by_id(state.writer_db(), policy_id)
+        .await
+        .map_err(storage_authorization_callback_server_error)?;
+    let credential_info = crate::storage::connectors::credential_info(
+        state.driver_registry().connectors(),
+        state.config().as_ref(),
+        &policy,
+        &credential,
+    )
+    .map_err(storage_authorization_callback_server_error)?
+    .ok_or_else(|| {
+        storage_authorization_callback_server_error(AsterError::record_not_found(
+            "storage policy connector credential after authorization",
+        ))
+    })?;
     Ok(StorageAuthorizationCallbackOutcome {
-        credential: credential.into(),
+        credential: credential_info,
     })
 }
 
@@ -728,11 +735,13 @@ fn storage_authorization_callback_server_error(
 async fn finish_microsoft_graph_callback(
     encryption_key: &str,
     flow: &storage_policy_authorization_flow::Model,
-    options: &aster_drive_model::types::StoragePolicyOptions,
+    connector_config: &crate::storage::connectors::OneDriveConnectorConfigV1,
     code: &str,
     now: chrono::DateTime<Utc>,
-) -> std::result::Result<storage_policy_credential::ActiveModel, StorageAuthorizationCallbackError>
-{
+) -> std::result::Result<
+    crate::storage::connectors::OneDriveCredentialV1,
+    StorageAuthorizationCallbackError,
+> {
     let policy_id = flow.policy_id.ok_or_else(|| {
         storage_authorization_callback_server_error(AsterError::database_operation(
             "storage authorization flow missing policy_id",
@@ -785,7 +794,7 @@ async fn finish_microsoft_graph_callback(
         token.access_token.clone(),
     ))
     .map_err(|error| storage_authorization_callback_server_error(error.into()))?;
-    let location = resolve_onedrive_location(&graph_client, options)
+    let location = resolve_onedrive_location(&graph_client, connector_config)
         .await
         .map_err(|error| {
             StorageAuthorizationCallbackError::new(
@@ -807,69 +816,55 @@ async fn finish_microsoft_graph_callback(
         })
         .filter(|scopes| !scopes.is_empty())
         .unwrap_or_else(|| context.scopes.clone());
-    let access_aad = crypto::token_aad(
-        policy_id,
-        StorageCredentialProvider::MicrosoftGraph.as_str(),
-        "access",
-    );
-    let refresh_aad = crypto::token_aad(
-        policy_id,
-        StorageCredentialProvider::MicrosoftGraph.as_str(),
-        "refresh",
-    );
-    let access_token_ciphertext =
-        crypto::encrypt_token(encryption_key, access_aad.as_bytes(), &token.access_token)
-            .map_err(storage_authorization_callback_server_error)?;
-    let refresh_token_ciphertext = match token.refresh_token.as_deref() {
-        Some(refresh_token) if !refresh_token.trim().is_empty() => Some(
-            crypto::encrypt_token(encryption_key, refresh_aad.as_bytes(), refresh_token)
-                .map_err(storage_authorization_callback_server_error)?,
-        ),
-        _ => None,
-    };
-    Ok(storage_policy_credential::ActiveModel {
-        policy_id: Set(policy_id),
-        provider: Set(StorageCredentialProvider::MicrosoftGraph),
-        credential_kind: Set(StorageCredentialKind::OauthDelegated),
-        account_label: Set(root_item.name.clone()),
-        subject: Set(Some(root_item.id.clone())),
-        tenant_id: Set(Some(context.tenant.clone())),
-        scopes: Set(
-            scopes_to_json(&granted_scopes).map_err(storage_authorization_callback_server_error)?
-        ),
-        access_token_ciphertext: Set(Some(access_token_ciphertext)),
-        refresh_token_ciphertext: Set(refresh_token_ciphertext),
-        metadata: Set(storage_credential_metadata(StorageCredentialMetadataInput {
+    Ok(crate::storage::connectors::OneDriveCredentialV1 {
+        application: crate::storage::connectors::OneDriveApplicationCredentialV1 {
             cloud: context.cloud,
-            drive_id: &location.drive_id,
-            root_item_id: &root_item.id,
-            root_item_name: root_item.name.as_deref(),
-            id_token: token.id_token.as_deref(),
-        })
-        .map_err(storage_authorization_callback_server_error)?),
-        status: Set(StorageCredentialStatus::Authorized),
-        status_reason: Set(None),
-        expires_at: Set(expires_at),
-        authorized_at: Set(Some(now)),
-        last_refreshed_at: Set(None),
-        last_validated_at: Set(None),
-        ..Default::default()
+            tenant: context.tenant.clone(),
+            client_id: context.client_id.clone(),
+            client_secret: client_secret.expose_secret().to_string(),
+            scopes: context.scopes.clone(),
+        },
+        authorization: Some(
+            crate::storage::connectors::OneDriveAuthorizationCredentialV1 {
+                account_label: root_item.name.clone(),
+                subject: Some(root_item.id.clone()),
+                tenant_id: Some(context.tenant.clone()),
+                scopes: granted_scopes,
+                access_token: token.access_token,
+                refresh_token: token.refresh_token.filter(|value| !value.trim().is_empty()),
+                metadata: crate::storage::connectors::OneDriveAuthorizationMetadataV1 {
+                    cloud: context.cloud,
+                    drive_id: location.drive_id,
+                    root_item_id: root_item.id,
+                    root_item_name: root_item.name,
+                    id_token_present: token.id_token.is_some(),
+                },
+                status: StorageCredentialStatus::Authorized,
+                status_reason: None,
+                expires_at,
+                authorized_at: Some(now),
+                last_refreshed_at: None,
+                last_validated_at: None,
+            },
+        ),
     })
 }
 
 async fn finish_authorization_provider_callback(
     encryption_key: &str,
     flow: &storage_policy_authorization_flow::Model,
-    options: &aster_drive_model::types::StoragePolicyOptions,
+    connector_config: &crate::storage::connectors::OneDriveConnectorConfigV1,
     code: &str,
     now: chrono::DateTime<Utc>,
-) -> std::result::Result<storage_policy_credential::ActiveModel, StorageAuthorizationCallbackError>
-{
+) -> std::result::Result<
+    crate::storage::connectors::OneDriveCredentialV1,
+    StorageAuthorizationCallbackError,
+> {
     // Provider protocol handling stays in storage_policy::credential; the
     // connector layer only decides whether the policy is allowed to use it.
     match flow.provider {
         StorageCredentialProvider::MicrosoftGraph => {
-            finish_microsoft_graph_callback(encryption_key, flow, options, code, now).await
+            finish_microsoft_graph_callback(encryption_key, flow, connector_config, code, now).await
         }
         StorageCredentialProvider::GoogleDrive => Err(StorageAuthorizationCallbackError::new(
             StorageAuthorizationFailureReason::UnsupportedProvider,

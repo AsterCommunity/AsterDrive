@@ -1,4 +1,8 @@
 import type { ObjectStorageDownloadStrategy } from "@/types/api";
+import {
+	connectorStringValue,
+	updatedConnectorConfigValues,
+} from "./formTypes";
 import type { SelectOption, SharedFieldProps } from "./StoragePolicyFieldTypes";
 import { StrategySelectField } from "./StoragePolicyStrategyFields";
 
@@ -17,18 +21,30 @@ export function ObjectStorageDownloadStrategyField({
 			value: "presigned",
 		},
 	] satisfies ReadonlyArray<SelectOption<ObjectStorageDownloadStrategy>>;
+	const value = connectorStringValue(
+		form,
+		"object_storage_download_strategy",
+		"relay_stream",
+	) as ObjectStorageDownloadStrategy;
 
 	return (
 		<StrategySelectField
 			id="object_storage_download_strategy"
 			label={t("object_storage_download_strategy")}
 			options={options}
-			value={form.object_storage_download_strategy}
+			value={value}
 			onChange={(value) =>
-				onFieldChange("object_storage_download_strategy", value)
+				onFieldChange(
+					"connector_config_values",
+					updatedConnectorConfigValues(
+						form,
+						"object_storage_download_strategy",
+						value,
+					),
+				)
 			}
 			description={t(
-				form.object_storage_download_strategy === "relay_stream"
+				value === "relay_stream"
 					? "download_strategy_relay_stream_desc"
 					: "download_strategy_presigned_desc",
 			)}

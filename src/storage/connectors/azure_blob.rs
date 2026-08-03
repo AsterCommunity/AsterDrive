@@ -2,11 +2,11 @@ use async_trait::async_trait;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::Result;
-use crate::storage::drivers::azure_blob::{AzureBlobConfigError, AzureBlobDriver};
-use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::{
-    ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy, parse_storage_policy_options,
+use crate::storage::drivers::azure_blob::{
+    AzureBlobConfigError, AzureBlobDriver, AzureBlobDriverConfig, AzureBlobStaticCredentials,
 };
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy};
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
     ObjectStorageConnectorDescriptorInput, StorageConnectorDeploymentScope,
@@ -17,8 +17,10 @@ use aster_drive_storage::connector_descriptor::{
 };
 use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
 
-use super::common::validate_static_secret_credentials;
-use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorUploadTransport};
+use super::{
+    StorageConnector, StorageConnectorCredentialInput, StorageConnectorRuntimeCredential,
+    StorageConnectorUploadTransport,
+};
 
 pub struct AzureBlobConnector;
 
@@ -53,17 +55,17 @@ aster_drive_storage::storage_connector_schema! {
             "object_storage_download_strategy",
         ),
         }
-        credentials static {
-            access_key => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
-                name: "access_key", scope: StorageConnectorFieldScope::StaticCredential,
+        credentials static AzureBlobStaticCredentialsV1 {
+            pub azure_blob_account_name: String => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                name: "azure_blob_account_name", scope: StorageConnectorFieldScope::StaticCredential,
                 kind: StorageConnectorFieldKind::Text, required: true, secret: false,
                 label_key: "azure_blob_account_name", placeholder: None, help_key: None,
                 required_message_key: None, invalid_protocol_message_key: None,
                 allowed_endpoint_protocols: Vec::new(), allow_endpoint_without_protocol: false,
                 trim_on_blur: true,
             }),
-            secret_key => storage_connector_field(
-                "secret_key", StorageConnectorFieldScope::StaticCredential,
+            pub azure_blob_account_key: String => storage_connector_field(
+                "azure_blob_account_key", StorageConnectorFieldScope::StaticCredential,
                 StorageConnectorFieldKind::Secret, true, true,
             ),
         }
@@ -87,6 +89,30 @@ fn object_transfer_field(name: &str) -> aster_drive_storage::StorageConnectorFie
 
 impl AzureBlobConnector {
     pub const ID: &'static str = "asterdrive.storage.azure_blob";
+
+    fn decode_config(policy: &storage_policy::Model) -> Result<AzureBlobConnectorConfigV1> {
+        super::common::decode_typed_policy_config(policy, Self::ID, 1)
+            .map(|(config, _behavior)| config)
+    }
+
+    fn driver_config(
+        policy: &storage_policy::Model,
+        config: AzureBlobConnectorConfigV1,
+    ) -> AzureBlobDriverConfig {
+        AzureBlobDriverConfig {
+            endpoint: config.endpoint,
+            container: config.bucket,
+            base_path: config.base_path,
+            chunk_size: policy.chunk_size,
+        }
+    }
+
+    fn driver_credentials(credentials: AzureBlobStaticCredentialsV1) -> AzureBlobStaticCredentials {
+        AzureBlobStaticCredentials {
+            account_name: credentials.azure_blob_account_name,
+            account_key: credentials.azure_blob_account_key,
+        }
+    }
 }
 
 impl AzureBlobConnector {
@@ -125,88 +151,129 @@ impl StorageConnector for AzureBlobConnector {
         Self::descriptor_definition()
     }
 
-    fn encode_config(
+    fn validate_connector_config(
         &self,
-        input: &StorageConnectorConnectionInput,
-    ) -> Result<aster_drive_model::types::StoredConnectorConfig> {
-        super::common::encode_typed_connector_config(
-            Self::ID,
-            1,
-            AzureBlobConnectorConfigV1 {
-                endpoint: input.endpoint.clone(),
-                bucket: input.bucket.clone(),
-                base_path: input.base_path.clone(),
-                object_storage_upload_strategy: input
-                    .options
-                    .effective_object_storage_upload_strategy(),
-                object_storage_download_strategy: input
-                    .options
-                    .effective_object_storage_download_strategy(),
-            },
+        input: &aster_drive_storage::ConnectorConfigEnvelope,
+    ) -> Result<aster_drive_storage::ConnectorConfigEnvelope> {
+        let normalized =
+            aster_drive_storage::connector_descriptor::normalize_storage_connector_config(
+                &self.descriptor(),
+                input,
+            )
+            .map_err(|error| crate::errors::AsterError::validation_error(error.to_string()))?;
+        let mut config: AzureBlobConnectorConfigV1 =
+            super::common::decode_normalized_connector_config(&normalized)?;
+        let connection =
+            AzureBlobDriver::try_normalize_endpoint_and_container(&config.endpoint, &config.bucket)
+                .map_err(|error| {
+                    let api_code = match &error {
+                        AzureBlobConfigError::MissingContainer => {
+                            ApiErrorCode::PolicyStorageBucketRequired
+                        }
+                        AzureBlobConfigError::MissingEndpoint
+                        | AzureBlobConfigError::InvalidEndpoint(_) => {
+                            ApiErrorCode::PolicyStorageEndpointInvalid
+                        }
+                    };
+                    error.into_aster_error().with_api_error_code(api_code)
+                })?;
+        config.endpoint = connection.endpoint;
+        config.bucket = connection.container;
+        super::common::encode_normalized_connector_config(
+            normalized.connector_id,
+            normalized.schema_version,
+            config,
         )
     }
 
-    fn normalize_connection_fields(
-        &self,
-        endpoint: &str,
-        bucket: &str,
-    ) -> Result<(String, String)> {
-        let normalized = AzureBlobDriver::try_normalize_endpoint_and_container(endpoint, bucket)
-            .map_err(|error| {
-                let api_code = match &error {
-                    AzureBlobConfigError::MissingContainer => {
-                        ApiErrorCode::PolicyStorageBucketRequired
-                    }
-                    AzureBlobConfigError::MissingEndpoint
-                    | AzureBlobConfigError::InvalidEndpoint(_) => {
-                        ApiErrorCode::PolicyStorageEndpointInvalid
-                    }
-                };
-                error.into_aster_error().with_api_error_code(api_code)
-            })?;
-        Ok((normalized.endpoint, normalized.container))
+    fn validate_credential_input(&self, input: &StorageConnectorCredentialInput) -> Result<()> {
+        let credential: AzureBlobStaticCredentialsV1 =
+            super::common::decode_static_credential(input, Self::ID)?;
+        super::common::validate_required_credential_field(
+            &credential.azure_blob_account_name,
+            "azure_blob_account_name",
+            Self::ID,
+        )?;
+        super::common::validate_required_credential_field(
+            &credential.azure_blob_account_key,
+            "azure_blob_account_key",
+            Self::ID,
+        )
     }
 
-    fn validate_connection_credentials(
+    fn import_legacy_credential(
         &self,
-        input: &StorageConnectorConnectionInput,
-    ) -> Result<()> {
-        validate_static_secret_credentials(input, "Azure Blob")
-    }
-
-    fn supports_saved_draft_credentials(&self) -> bool {
-        true
+        _encryption_key: &str,
+        _policy: &storage_policy::Model,
+        input: super::LegacyStorageConnectorCredentialInput,
+    ) -> Result<Option<serde_json::Value>> {
+        super::common::import_legacy_static_credential(Self::ID, input, |legacy| {
+            AzureBlobStaticCredentialsV1 {
+                azure_blob_account_name: legacy.access_key,
+                azure_blob_account_key: legacy.secret_key,
+            }
+        })
     }
 
     async fn build_draft_driver(
         &self,
         context: &super::StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
+        credential: &StorageConnectorCredentialInput,
     ) -> Result<Box<dyn StorageDriver>> {
         let _ = context;
-        Ok(Box::new(AzureBlobDriver::new(policy)?))
+        let config = Self::decode_config(policy)?;
+        let credentials = super::common::decode_static_credential(credential, Self::ID)?;
+        Ok(Box::new(AzureBlobDriver::new(
+            Self::driver_config(policy, config),
+            Self::driver_credentials(credentials),
+        )?))
     }
 
     fn build_runtime_driver(
         &self,
-        _registry: &crate::storage::DriverRegistry,
+        registry: &crate::storage::DriverRegistry,
         policy: &storage_policy::Model,
     ) -> Result<super::StorageConnectorDriver> {
+        let config = Self::decode_config(policy)?;
+        let Some(StorageConnectorRuntimeCredential::Static(values)) =
+            registry.get_runtime_credential(policy.id)
+        else {
+            return Err(crate::errors::storage_driver_error(
+                aster_drive_storage::StorageErrorKind::Auth,
+                format!("storage policy {} is missing static credentials", policy.id),
+            ));
+        };
+        let credentials: AzureBlobStaticCredentialsV1 =
+            serde_json::from_value(values).map_err(|error| {
+                crate::errors::storage_driver_error(
+                    aster_drive_storage::StorageErrorKind::Misconfigured,
+                    format!(
+                        "storage policy {} has invalid static credentials: {error}",
+                        policy.id
+                    ),
+                )
+            })?;
         Ok(super::StorageConnectorDriver::multipart(
-            std::sync::Arc::new(AzureBlobDriver::new(policy)?),
+            std::sync::Arc::new(AzureBlobDriver::new(
+                Self::driver_config(policy, config),
+                Self::driver_credentials(credentials),
+            )?),
         ))
     }
 
-    fn upload_transport(&self, policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
-        let options = parse_storage_policy_options(policy.options.as_ref());
-        StorageConnectorUploadTransport::ObjectStorage(
-            options.effective_object_storage_upload_strategy(),
-        )
+    fn upload_transport(
+        &self,
+        policy: &storage_policy::Model,
+    ) -> Result<StorageConnectorUploadTransport> {
+        let config = Self::decode_config(policy)?;
+        Ok(StorageConnectorUploadTransport::ObjectStorage(
+            config.object_storage_upload_strategy,
+        ))
     }
 
-    fn presigned_download_enabled(&self, policy: &storage_policy::Model) -> bool {
-        let options = parse_storage_policy_options(policy.options.as_ref());
-        options.effective_object_storage_download_strategy()
-            == ObjectStorageDownloadStrategy::Presigned
+    fn presigned_download_enabled(&self, policy: &storage_policy::Model) -> Result<bool> {
+        let config = Self::decode_config(policy)?;
+        Ok(config.object_storage_download_strategy == ObjectStorageDownloadStrategy::Presigned)
     }
 }

@@ -133,7 +133,7 @@ pub(crate) async fn create_empty(
 
     let policy = resolve_policy_for_size(state, scope, folder_id, EMPTY_SIZE).await?;
     let driver = state.driver_registry().get_driver(&policy)?;
-    let should_dedup = local_content_dedup_enabled(&policy);
+    let should_dedup = local_content_dedup_enabled(state.driver_registry().connectors(), &policy)?;
     let now = Utc::now();
 
     let created = if should_dedup {

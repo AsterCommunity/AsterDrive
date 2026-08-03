@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 
+use crate::errors::AsterError;
 use crate::errors::Result;
-use crate::storage::drivers::sftp::SftpDriver;
+use crate::storage::drivers::sftp::{SftpDriver, SftpDriverConfig, SftpStaticCredentials};
 use aster_drive_model::entities::storage_policy;
 use aster_drive_storage::StorageConnectorConfigSchema;
 use aster_drive_storage::StorageDriver;
@@ -14,8 +15,10 @@ use aster_drive_storage::connector_descriptor::{
     storage_connector_field, storage_connector_field_with_display, storage_connector_ui_descriptor,
 };
 
-use super::common::{ensure_onedrive_options_absent, validate_static_secret_credentials};
-use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorUploadTransport};
+use super::{
+    StorageConnector, StorageConnectorCredentialInput, StorageConnectorRuntimeCredential,
+    StorageConnectorUploadTransport,
+};
 
 pub struct SftpConnector;
 
@@ -62,9 +65,9 @@ aster_drive_storage::storage_connector_schema! {
             field
         },
         }
-        credentials static {
-            access_key => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
-                name: "access_key",
+        credentials static SftpStaticCredentialsV1 {
+            pub sftp_username: String => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                name: "sftp_username",
                 scope: StorageConnectorFieldScope::StaticCredential,
                 kind: StorageConnectorFieldKind::Text,
                 required: true,
@@ -78,8 +81,8 @@ aster_drive_storage::storage_connector_schema! {
                 allow_endpoint_without_protocol: false,
                 trim_on_blur: true,
             }),
-            secret_key => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
-                name: "secret_key",
+            pub sftp_password: String => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                name: "sftp_password",
                 scope: StorageConnectorFieldScope::StaticCredential,
                 kind: StorageConnectorFieldKind::Secret,
                 required: true,
@@ -99,6 +102,25 @@ aster_drive_storage::storage_connector_schema! {
 
 impl SftpConnector {
     pub const ID: &'static str = "asterdrive.storage.sftp";
+
+    fn decode_config(policy: &storage_policy::Model) -> Result<SftpConnectorConfigV1> {
+        super::common::decode_typed_policy_config(policy, Self::ID, 1).map(|(config, _)| config)
+    }
+
+    fn driver_config(config: SftpConnectorConfigV1) -> SftpDriverConfig {
+        SftpDriverConfig {
+            endpoint: config.endpoint,
+            base_path: config.base_path,
+            host_key_fingerprint: config.sftp_host_key_fingerprint,
+        }
+    }
+
+    fn driver_credentials(credentials: SftpStaticCredentialsV1) -> SftpStaticCredentials {
+        SftpStaticCredentials {
+            username: credentials.sftp_username,
+            password: credentials.sftp_password,
+        }
+    }
 }
 
 impl SftpConnector {
@@ -164,82 +186,110 @@ impl StorageConnector for SftpConnector {
         Self::descriptor_definition()
     }
 
-    fn encode_config(
+    fn validate_connector_config(
         &self,
-        input: &StorageConnectorConnectionInput,
-    ) -> Result<aster_drive_model::types::StoredConnectorConfig> {
-        super::common::encode_typed_connector_config(
-            Self::ID,
-            1,
-            SftpConnectorConfigV1 {
-                endpoint: input.endpoint.clone(),
-                base_path: input.base_path.clone(),
-                sftp_host_key_fingerprint: input.options.sftp_host_key_fingerprint.clone(),
-            },
+        input: &aster_drive_storage::ConnectorConfigEnvelope,
+    ) -> Result<aster_drive_storage::ConnectorConfigEnvelope> {
+        let normalized =
+            aster_drive_storage::connector_descriptor::normalize_storage_connector_config(
+                &self.descriptor(),
+                input,
+            )
+            .map_err(|error| AsterError::validation_error(error.to_string()))?;
+        let mut config: SftpConnectorConfigV1 =
+            super::common::decode_normalized_connector_config(&normalized)?;
+        config.endpoint = SftpDriver::normalize_endpoint(&config.endpoint)?;
+        if let Some(fingerprint) = config.sftp_host_key_fingerprint.as_deref() {
+            SftpDriver::validate_host_key_fingerprint(fingerprint)?;
+        }
+        super::common::encode_normalized_connector_config(
+            normalized.connector_id,
+            normalized.schema_version,
+            config,
         )
     }
 
-    fn normalize_connection_fields(
-        &self,
-        endpoint: &str,
-        bucket: &str,
-    ) -> Result<(String, String)> {
-        let _ = bucket;
-        Ok((SftpDriver::normalize_endpoint(endpoint)?, String::new()))
+    fn validate_credential_input(&self, input: &StorageConnectorCredentialInput) -> Result<()> {
+        let credential: SftpStaticCredentialsV1 =
+            super::common::decode_static_credential(input, Self::ID)?;
+        super::common::validate_required_credential_field(
+            &credential.sftp_username,
+            "sftp_username",
+            Self::ID,
+        )?;
+        super::common::validate_required_credential_field(
+            &credential.sftp_password,
+            "sftp_password",
+            Self::ID,
+        )
     }
 
-    fn validate_connection_credentials(
+    fn import_legacy_credential(
         &self,
-        input: &StorageConnectorConnectionInput,
-    ) -> Result<()> {
-        validate_static_secret_credentials(input, "SFTP")?;
-        Ok(SftpDriver::validate_connection_parts(
-            &input.endpoint,
-            &input.access_key,
-            &input.secret_key,
-            &input.base_path,
-        )?)
-    }
-
-    fn supports_saved_draft_credentials(&self) -> bool {
-        true
-    }
-
-    async fn validate_policy_options(
-        &self,
-        db: &sea_orm::DatabaseConnection,
-        remote_node_id: Option<i64>,
-        options: &aster_drive_model::types::StoragePolicyOptions,
-    ) -> Result<()> {
-        let _ = (db, remote_node_id);
-        ensure_onedrive_options_absent(options)?;
-        if let Some(fingerprint) = options.sftp_host_key_fingerprint.as_deref() {
-            SftpDriver::validate_host_key_fingerprint(fingerprint)?;
-        }
-        Ok(())
+        _encryption_key: &str,
+        _policy: &storage_policy::Model,
+        input: super::LegacyStorageConnectorCredentialInput,
+    ) -> Result<Option<serde_json::Value>> {
+        super::common::import_legacy_static_credential(Self::ID, input, |legacy| {
+            SftpStaticCredentialsV1 {
+                sftp_username: legacy.access_key,
+                sftp_password: legacy.secret_key,
+            }
+        })
     }
 
     async fn build_draft_driver(
         &self,
         context: &super::StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
+        credential: &StorageConnectorCredentialInput,
     ) -> Result<Box<dyn StorageDriver>> {
         let _ = context;
-        Ok(Box::new(SftpDriver::new(policy)?))
+        let config = Self::decode_config(policy)?;
+        let credentials = super::common::decode_static_credential(credential, Self::ID)?;
+        Ok(Box::new(SftpDriver::new(
+            Self::driver_config(config),
+            Self::driver_credentials(credentials),
+        )?))
     }
 
     fn build_runtime_driver(
         &self,
-        _registry: &crate::storage::DriverRegistry,
+        registry: &crate::storage::DriverRegistry,
         policy: &storage_policy::Model,
     ) -> Result<super::StorageConnectorDriver> {
+        let config = Self::decode_config(policy)?;
+        let Some(StorageConnectorRuntimeCredential::Static(values)) =
+            registry.get_runtime_credential(policy.id)
+        else {
+            return Err(crate::errors::storage_driver_error(
+                aster_drive_storage::StorageErrorKind::Auth,
+                format!("storage policy {} is missing static credentials", policy.id),
+            ));
+        };
+        let credentials: SftpStaticCredentialsV1 =
+            serde_json::from_value(values).map_err(|error| {
+                crate::errors::storage_driver_error(
+                    aster_drive_storage::StorageErrorKind::Misconfigured,
+                    format!(
+                        "storage policy {} has invalid static credentials: {error}",
+                        policy.id
+                    ),
+                )
+            })?;
         Ok(super::StorageConnectorDriver::storage(std::sync::Arc::new(
-            SftpDriver::new(policy)?,
+            SftpDriver::new(
+                Self::driver_config(config),
+                Self::driver_credentials(credentials),
+            )?,
         )))
     }
 
-    fn upload_transport(&self, policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
+    fn upload_transport(
+        &self,
+        policy: &storage_policy::Model,
+    ) -> Result<StorageConnectorUploadTransport> {
         let _ = policy;
-        StorageConnectorUploadTransport::Sftp
+        Ok(StorageConnectorUploadTransport::Sftp)
     }
 }

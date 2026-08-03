@@ -81,7 +81,7 @@ fn application_client_secret_aad(policy_id: i64) -> String {
     format!("storage_connector_application_config:{policy_id}:microsoft_graph:client_secret")
 }
 
-pub(super) fn encrypt_application_client_secret(
+pub(crate) fn encrypt_application_client_secret(
     encryption_key: &str,
     policy_id: i64,
     client_secret: &str,
@@ -93,7 +93,7 @@ pub(super) fn encrypt_application_client_secret(
     )
 }
 
-pub(super) fn decrypt_application_client_secret(
+pub(crate) fn decrypt_application_client_secret(
     encryption_key: &str,
     policy_id: i64,
     ciphertext: &str,

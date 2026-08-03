@@ -33,10 +33,10 @@ import { getStorageDriverDescriptor } from "@/lib/adminStorageDriverDescriptors"
 import { adminPolicyService } from "@/services/adminService";
 import type {
 	DriverType,
+	StorageConnectorCredentialInfo,
 	StorageConnectorDescriptor,
 	StoragePolicy,
 	StoragePolicyCapacityInfo,
-	StoragePolicyCredentialInfo,
 } from "@/types/api";
 
 interface StoragePolicyActionControllerInput {
@@ -52,7 +52,7 @@ interface StoragePolicyActionControllerInput {
 	setPolicies: Dispatch<SetStateAction<StoragePolicy[]>>;
 	setPolicyCapacity: Dispatch<SetStateAction<StoragePolicyCapacityInfo | null>>;
 	setStorageCredentials: Dispatch<
-		SetStateAction<StoragePolicyCredentialInfo[]>
+		SetStateAction<StorageConnectorCredentialInfo[]>
 	>;
 	storageCredentialValidationRequestSerial: MutableRefObject<number>;
 	storageDriverDescriptors: StorageConnectorDescriptor[];

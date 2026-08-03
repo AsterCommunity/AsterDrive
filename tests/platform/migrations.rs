@@ -493,83 +493,116 @@ async fn storage_policy_connector_configs_backfill_all_builtin_drivers_and_reapp
     let local = &by_id[&101];
     assert_eq!(local.connector_id, "asterdrive.storage.local");
     assert_eq!(
-        local.connector_config["values"]["base_path"],
+        local.storage_config["connector"]["values"]["base_path"],
         "./data/uploads"
     );
-    assert_eq!(local.connector_config["values"]["content_dedup"], true);
+    assert_eq!(
+        local.storage_config["connector"]["values"]["content_dedup"],
+        true
+    );
 
     let s3 = &by_id[&102];
     assert_eq!(s3.connector_id, "asterdrive.storage.s3");
-    assert_eq!(s3.connector_config["format_version"], 1);
-    assert_eq!(s3.connector_config["schema_version"], 1);
+    assert_eq!(s3.storage_config["format_version"], 1);
+    assert_eq!(s3.storage_config["connector"]["format_version"], 1);
+    assert_eq!(s3.storage_config["connector"]["schema_version"], 1);
     assert_eq!(
-        s3.connector_config["values"]["endpoint"],
+        s3.storage_config["connector"]["values"]["endpoint"],
         "https://s3.example.test"
     );
-    assert_eq!(s3.connector_config["values"]["bucket"], "archive");
     assert_eq!(
-        s3.connector_config["values"]["object_storage_upload_strategy"],
+        s3.storage_config["connector"]["values"]["bucket"],
+        "archive"
+    );
+    assert_eq!(
+        s3.storage_config["connector"]["values"]["object_storage_upload_strategy"],
         "presigned"
     );
-    assert_eq!(s3.connector_config["values"]["s3_path_style"], false);
-    assert_eq!(s3.connector_config["values"]["s3_region"], "cn-beijing");
-    assert_eq!(s3.connector_config["values"]["s3_connect_timeout_secs"], 5);
-    assert_eq!(s3.behavior_config["format_version"], 1);
-    assert_eq!(s3.behavior_config["schema_version"], 1);
     assert_eq!(
-        s3.behavior_config["values"]["thumbnail_extensions"],
+        s3.storage_config["connector"]["values"]["s3_path_style"],
+        false
+    );
+    assert_eq!(
+        s3.storage_config["connector"]["values"]["s3_region"],
+        "cn-beijing"
+    );
+    assert_eq!(
+        s3.storage_config["connector"]["values"]["s3_connect_timeout_secs"],
+        5
+    );
+    assert_eq!(s3.storage_config["behavior"]["format_version"], 1);
+    assert_eq!(s3.storage_config["behavior"]["schema_version"], 1);
+    assert_eq!(
+        s3.storage_config["behavior"]["values"]["thumbnail_extensions"],
         serde_json::json!(["jpg", "webp"])
     );
 
     let sftp = &by_id[&103];
     assert_eq!(
-        sftp.connector_config["values"]["endpoint"],
+        sftp.storage_config["connector"]["values"]["endpoint"],
         "sftp://files.example.test:22"
     );
     assert_eq!(
-        sftp.connector_config["values"]["sftp_host_key_fingerprint"],
+        sftp.storage_config["connector"]["values"]["sftp_host_key_fingerprint"],
         "SHA256:test"
     );
 
     let azure = &by_id[&104];
     assert_eq!(azure.connector_id, "asterdrive.storage.azure_blob");
     assert_eq!(
-        azure.connector_config["values"]["object_storage_download_strategy"],
+        azure.storage_config["connector"]["values"]["object_storage_download_strategy"],
         "presigned"
     );
 
     let cos = &by_id[&105];
     assert_eq!(cos.connector_id, "asterdrive.storage.tencent_cos");
     assert_eq!(
-        cos.connector_config["values"]["storage_native_processing_enabled"],
+        cos.storage_config["connector"]["values"]["storage_native_processing_enabled"],
         true
     );
     assert_eq!(
-        cos.connector_config["values"]["storage_native_media_metadata_enabled"],
+        cos.storage_config["connector"]["values"]["storage_native_media_metadata_enabled"],
         true
     );
 
     let remote = &by_id[&106];
-    assert_eq!(remote.connector_config["values"]["remote_node_id"], 77);
     assert_eq!(
-        remote.connector_config["values"]["remote_storage_target_key"],
+        remote.storage_config["connector"]["values"]["remote_node_id"],
+        77
+    );
+    assert_eq!(
+        remote.storage_config["connector"]["values"]["remote_storage_target_key"],
         "rst_hot"
     );
 
     let onedrive = &by_id[&107];
-    assert_eq!(onedrive.connector_config["values"]["cloud"], "china");
     assert_eq!(
-        onedrive.connector_config["values"]["account_mode"],
+        onedrive.storage_config["connector"]["values"]["cloud"],
+        "china"
+    );
+    assert_eq!(
+        onedrive.storage_config["connector"]["values"]["account_mode"],
         "sharepoint_site"
     );
-    assert_eq!(onedrive.connector_config["values"]["tenant"], "tenant-id");
+    assert_eq!(
+        onedrive.storage_config["connector"]["values"]["tenant"],
+        "tenant-id"
+    );
 
     for row in by_id.values() {
-        let serialized = row.connector_config.to_string();
+        let serialized = row.storage_config.to_string();
         assert!(!serialized.contains("legacy-access-key"));
         assert!(!serialized.contains("legacy-secret-key"));
-        assert!(row.connector_config["values"].get("access_key").is_none());
-        assert!(row.connector_config["values"].get("secret_key").is_none());
+        assert!(
+            row.storage_config["connector"]["values"]
+                .get("access_key")
+                .is_none()
+        );
+        assert!(
+            row.storage_config["connector"]["values"]
+                .get("secret_key")
+                .is_none()
+        );
     }
 
     let before_rollback = load_storage_policy_connector_configs(&db).await;
@@ -577,7 +610,7 @@ async fn storage_policy_connector_configs_backfill_all_builtin_drivers_and_reapp
         .await
         .expect("storage connector config migration should roll back");
     let rolled_back_columns = sqlite_table_columns(&db, "storage_policies").await;
-    for column in ["connector_id", "connector_config", "behavior_config"] {
+    for column in ["connector_id", "storage_config"] {
         assert!(!has_column(&rolled_back_columns, column));
     }
     CurrentMigrator::up(&db, Some(1))
@@ -639,11 +672,11 @@ async fn storage_policy_connector_configs_reject_invalid_rows_without_partial_ba
         assert!(error.to_string().contains("storage policy 202"));
 
         let columns = sqlite_table_columns(&db, "storage_policies").await;
-        if has_column(&columns, "connector_config") {
+        if has_column(&columns, "storage_config") {
             let row = db
                 .query_one_raw(Statement::from_string(
                     DbBackend::Sqlite,
-                    "SELECT connector_id, connector_config FROM storage_policies WHERE id = 201",
+                    "SELECT connector_id, storage_config FROM storage_policies WHERE id = 201",
                 ))
                 .await
                 .expect("placeholder connector config should query")
@@ -697,8 +730,7 @@ async fn storage_policy_connector_configs_reject_invalid_rows_without_partial_ba
 struct StoredPolicyConfigRow {
     id: i64,
     connector_id: String,
-    connector_config: serde_json::Value,
-    behavior_config: serde_json::Value,
+    storage_config: serde_json::Value,
 }
 
 async fn insert_legacy_storage_policy(
@@ -741,7 +773,7 @@ async fn insert_legacy_storage_policy(
 
 async fn assert_storage_policy_connector_config_columns(db: &DatabaseConnection) {
     let columns = sqlite_table_columns(db, "storage_policies").await;
-    for column in ["connector_id", "connector_config", "behavior_config"] {
+    for column in ["connector_id", "storage_config"] {
         assert!(has_column(&columns, column));
         assert!(sqlite_column_is_not_null(db, "storage_policies", column).await);
     }
@@ -752,7 +784,7 @@ async fn load_storage_policy_connector_configs(
 ) -> Vec<StoredPolicyConfigRow> {
     db.query_all_raw(Statement::from_string(
         DbBackend::Sqlite,
-        "SELECT id, connector_id, connector_config, behavior_config \
+        "SELECT id, connector_id, storage_config \
          FROM storage_policies ORDER BY id",
     ))
     .await
@@ -761,9 +793,7 @@ async fn load_storage_policy_connector_configs(
     .map(|row| StoredPolicyConfigRow {
         id: row.try_get_by_index(0).unwrap(),
         connector_id: row.try_get_by_index(1).unwrap(),
-        connector_config: serde_json::from_str(&row.try_get_by_index::<String>(2).unwrap())
-            .unwrap(),
-        behavior_config: serde_json::from_str(&row.try_get_by_index::<String>(3).unwrap()).unwrap(),
+        storage_config: serde_json::from_str(&row.try_get_by_index::<String>(2).unwrap()).unwrap(),
     })
     .collect()
 }

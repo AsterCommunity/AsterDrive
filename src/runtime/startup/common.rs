@@ -24,11 +24,9 @@ pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntim
     crate::config::deployment::validate_static(cfg.as_ref())?;
     crate::services::mail::template::validate_template_registry()?;
     let metrics = aster_drive_metrics::create_metrics_recorder();
-    let connector_registry =
-        Arc::new(crate::storage::connectors::builtin_storage_connector_registry()?);
-
     let database = db::connect_with_metrics(&cfg.database, metrics.clone()).await?;
-    initialize_database_state(&database, cfg.as_ref(), mode).await?;
+    let connector_registry =
+        Arc::new(initialize_database_state(&database, cfg.as_ref(), mode).await?);
     if matches!(mode, NodeRuntimeMode::Primary) {
         crate::services::ops::deployment::validate_primary_topology(
             &connector_registry,
@@ -44,13 +42,14 @@ pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntim
     )
     .await?;
 
-    let policy_snapshot = Arc::new(crate::storage::PolicySnapshot::new());
-    policy_snapshot.reload(&database).await?;
-
     let driver_registry = Arc::new(DriverRegistry::with_connectors(
         metrics.clone(),
         connector_registry,
     ));
+    let policy_snapshot = Arc::new(crate::storage::PolicySnapshot::new());
+    driver_registry
+        .reload_policy_snapshot(&policy_snapshot, &database)
+        .await?;
     match mode {
         NodeRuntimeMode::Primary => {
             driver_registry
@@ -101,10 +100,17 @@ pub async fn initialize_database_state(
     database: &sea_orm::DatabaseConnection,
     cfg: &crate::config::Config,
     mode: NodeRuntimeMode,
-) -> Result<()> {
+) -> Result<crate::storage::connectors::StorageConnectorRegistry> {
     Migrator::up(database, None)
         .await
         .map_aster_err(AsterError::database_operation)?;
+    let connector_registry = crate::storage::connectors::builtin_storage_connector_registry()?;
+    crate::services::storage_policy::credential::migrate_legacy_storage_credentials(
+        database,
+        cfg,
+        &connector_registry,
+    )
+    .await?;
 
     if let Some(sqlite_search) = db::sqlite_search::ensure_sqlite_search_ready(database).await? {
         tracing::info!(
@@ -134,7 +140,7 @@ pub async fn initialize_database_state(
                 .await,
         );
     }
-    Ok(())
+    Ok(connector_registry)
 }
 
 fn handle_optional_follower_bootstrap<T>(result: Result<T>) {

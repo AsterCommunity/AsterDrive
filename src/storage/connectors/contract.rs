@@ -2,14 +2,15 @@ use async_trait::async_trait;
 use sea_orm::{DatabaseConnection, DatabaseTransaction};
 use std::collections::HashMap;
 use std::sync::Arc;
-use validator::Validate;
 
 use crate::config::{Config, RuntimeConfig};
 use crate::errors::{AsterError, Result};
 use crate::storage::DriverRegistry;
 use crate::storage::remote_protocol::RemoteProtocolRuntime;
-use aster_drive_model::entities::{storage_policy, storage_policy_credential};
-use aster_drive_model::types::{DriverType, StoragePolicyOptions, StoredConnectorConfig};
+use aster_drive_model::entities::{storage_policy, storage_policy_connector_credential};
+use aster_drive_model::types::DriverType;
+use aster_drive_storage::ConnectorConfigEnvelope;
+use aster_drive_storage::StoragePolicyBehaviorConfig;
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorAffordanceAction, StorageConnectorDescriptor, StorageConnectorObjectNamingMode,
     StoragePolicyExecutableAction,
@@ -18,8 +19,9 @@ use aster_drive_storage::{ConnectorId, MultipartStorageDriver, StorageDriver, St
 
 use super::common;
 use super::models::{
-    ExecuteDraftStorageConnectorActionInput, StorageConnectorActionResult,
-    StorageConnectorApplicationConfigInput, StorageConnectorConnectionInput,
+    ExecuteDraftStorageConnectorActionInput, LegacyStorageConnectorCredentialInput,
+    LocalFilesystemPolicyProjection, RemotePolicyBindingProjection, StorageConnectorActionResult,
+    StorageConnectorCredentialInfo, StorageConnectorCredentialInput,
     StorageConnectorCredentialRequirement, StorageConnectorRuntimeCredential,
     StorageCredentialValidationOutcome, StoragePolicyCleanupDriverSnapshot,
     StoragePolicyCleanupSnapshots, TestDraftStorageConnectorConnectionInput,
@@ -117,96 +119,84 @@ impl StorageConnectorDriver {
 pub(crate) trait StorageConnector: Send + Sync {
     fn descriptor(&self) -> StorageConnectorDescriptor;
 
-    /// Serialize the connector-owned v1 configuration through its concrete
-    /// typed config. Implementations must not manually assemble JSON values.
-    fn encode_config(
-        &self,
-        input: &StorageConnectorConnectionInput,
-    ) -> Result<StoredConnectorConfig>;
-
-    fn normalize_connection_fields(&self, endpoint: &str, bucket: &str)
-    -> Result<(String, String)>;
-
-    fn validate_connection_credentials(
-        &self,
-        input: &StorageConnectorConnectionInput,
-    ) -> Result<()>;
-
-    fn supports_saved_draft_credentials(&self) -> bool {
-        false
-    }
-
-    fn prepare_connection_for_storage(
-        &self,
-        input: StorageConnectorConnectionInput,
-        application_config: &StorageConnectorApplicationConfigInput,
-    ) -> Result<StorageConnectorConnectionInput> {
-        if !application_config.is_empty() {
-            return Err(AsterError::validation_error(format!(
-                "application credential config is not valid for {} storage policies",
-                self.descriptor().connector_id.as_str()
-            )));
+    fn validate_credential_input(&self, input: &StorageConnectorCredentialInput) -> Result<()> {
+        use aster_drive_storage::StorageConnectorCredentialMode;
+        let valid = matches!(
+            (self.descriptor().credential_mode, input),
+            (
+                StorageConnectorCredentialMode::None,
+                StorageConnectorCredentialInput::None
+            ) | (
+                StorageConnectorCredentialMode::StaticSecret,
+                StorageConnectorCredentialInput::Static(_)
+            ) | (
+                StorageConnectorCredentialMode::OauthDelegated,
+                StorageConnectorCredentialInput::AuthorizationApplication(_)
+            )
+        );
+        if valid {
+            return Ok(());
         }
-        Ok(input)
+        Err(AsterError::validation_error(format!(
+            "credential mode does not match storage connector '{}'",
+            self.descriptor().connector_id
+        )))
     }
 
-    async fn validate_connection_binding(
+    async fn validate_config_binding(
         &self,
         _db: &DatabaseConnection,
-        input: &StorageConnectorConnectionInput,
-    ) -> Result<Option<i64>> {
-        common::reject_unexpected_remote_storage_target_key(
-            input.remote_storage_target_key.as_deref(),
-        )?;
-        common::reject_unexpected_remote_node(input.remote_node_id)
-    }
-
-    async fn validate_policy_options(
-        &self,
-        _db: &DatabaseConnection,
-        _remote_node_id: Option<i64>,
-        options: &StoragePolicyOptions,
+        _config: &ConnectorConfigEnvelope,
     ) -> Result<()> {
-        options
-            .validate()
-            .map_err(|error| AsterError::validation_error(error.to_string()))?;
-        if options.s3_region.is_some()
-            && !self
-                .descriptor()
-                .fields
-                .iter()
-                .any(|field| field.name == "s3_region")
-        {
-            return Err(AsterError::validation_error(
-                "connector does not declare the legacy s3_region field",
-            ));
-        }
-        common::ensure_storage_native_processing_supported(self.descriptor(), options)?;
-        common::ensure_onedrive_options_absent(options)?;
-        common::ensure_sftp_options_absent(options)
-    }
-
-    async fn persist_application_config(
-        &self,
-        _db: &DatabaseTransaction,
-        _encryption_key: &str,
-        _policy_id: i64,
-        _options: &StoragePolicyOptions,
-        application_config: StorageConnectorApplicationConfigInput,
-    ) -> Result<()> {
-        if !application_config.is_empty() {
-            return Err(AsterError::validation_error(format!(
-                "application credential config is not valid for {} storage policies",
-                self.descriptor().connector_id.as_str()
-            )));
-        }
         Ok(())
+    }
+
+    fn validate_connector_config(
+        &self,
+        config: &ConnectorConfigEnvelope,
+    ) -> Result<ConnectorConfigEnvelope> {
+        let normalized =
+            aster_drive_storage::connector_descriptor::normalize_storage_connector_config(
+                &self.descriptor(),
+                config,
+            )
+            .map_err(|error| AsterError::validation_error(error.to_string()))?;
+        Ok(normalized)
+    }
+
+    async fn persist_credential(
+        &self,
+        db: &DatabaseTransaction,
+        encryption_key: &str,
+        policy_id: i64,
+        connector_config: &ConnectorConfigEnvelope,
+        credential: StorageConnectorCredentialInput,
+    ) -> Result<()> {
+        match credential {
+            StorageConnectorCredentialInput::None => Ok(()),
+            StorageConnectorCredentialInput::Static(values) => {
+                super::persist_static_credential(
+                    db,
+                    encryption_key,
+                    policy_id,
+                    connector_config,
+                    values,
+                )
+                .await
+            }
+            StorageConnectorCredentialInput::AuthorizationApplication(_) => {
+                Err(AsterError::validation_error(
+                    "authorization application credential persistence is connector-owned",
+                ))
+            }
+        }
     }
 
     async fn build_draft_driver(
         &self,
         _context: &StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
+        credential: &StorageConnectorCredentialInput,
     ) -> Result<Box<dyn StorageDriver>>;
 
     fn build_runtime_driver(
@@ -215,20 +205,105 @@ pub(crate) trait StorageConnector: Send + Sync {
         policy: &storage_policy::Model,
     ) -> Result<StorageConnectorDriver>;
 
-    fn upload_transport(&self, policy: &storage_policy::Model) -> StorageConnectorUploadTransport;
+    fn upload_transport(
+        &self,
+        policy: &storage_policy::Model,
+    ) -> Result<StorageConnectorUploadTransport>;
+
+    /// Decode the core-owned behavior section after validating the complete
+    /// connector envelope against this plugin's id and schema version.
+    fn policy_behavior(
+        &self,
+        policy: &storage_policy::Model,
+    ) -> Result<StoragePolicyBehaviorConfig> {
+        let descriptor = self.descriptor();
+        common::decode_typed_policy_config_for_id::<serde_json::Value>(
+            policy,
+            &descriptor.connector_id,
+            descriptor.config_schema_version,
+        )
+        .map(|(_config, behavior)| behavior)
+    }
+
+    fn local_filesystem_projection(
+        &self,
+        _policy: &storage_policy::Model,
+    ) -> Result<Option<LocalFilesystemPolicyProjection>> {
+        Ok(None)
+    }
+
+    fn remote_binding_projection(
+        &self,
+        _policy: &storage_policy::Model,
+    ) -> Result<Option<RemotePolicyBindingProjection>> {
+        Ok(None)
+    }
 
     fn runtime_credential_requirement(&self) -> Option<StorageConnectorCredentialRequirement> {
         None
     }
 
+    fn credential_info(
+        &self,
+        _config: &Config,
+        _credential: &storage_policy_connector_credential::Model,
+    ) -> Result<Option<StorageConnectorCredentialInfo>> {
+        Ok(None)
+    }
+
+    fn credential_validation_failure_payload(
+        &self,
+        _config: &Config,
+        _credential: &storage_policy_connector_credential::Model,
+        _error_kind: Option<StorageErrorKind>,
+        _reason: &str,
+    ) -> Result<Option<serde_json::Value>> {
+        Ok(None)
+    }
+
+    /// Convert rows from the deprecated credential stores into this
+    /// connector's current typed payload during the AsterDrive 0.5.0-only
+    /// startup migration.
+    ///
+    /// The default rejects unexpected legacy data so a missing connector hook
+    /// stops startup instead of silently discarding credentials. This contract
+    /// and the deprecated inputs are scheduled for removal in AsterDrive 0.6.0.
+    fn import_legacy_credential(
+        &self,
+        _encryption_key: &str,
+        policy: &storage_policy::Model,
+        input: LegacyStorageConnectorCredentialInput,
+    ) -> Result<Option<serde_json::Value>> {
+        if input.is_empty() {
+            return Ok(None);
+        }
+        Err(AsterError::database_operation(format!(
+            "storage policy {} has legacy credentials unsupported by connector '{}'",
+            policy.id,
+            self.descriptor().connector_id.as_str(),
+        )))
+    }
+
     async fn load_runtime_credential(
         &self,
         _db: &DatabaseConnection,
-        _config: &Config,
+        config: &Config,
         _policy: &storage_policy::Model,
-        _credential: &storage_policy_credential::Model,
+        credential: &storage_policy_connector_credential::Model,
     ) -> Result<Option<StorageConnectorRuntimeCredential>> {
-        Ok(None)
+        if self.descriptor().credential_mode
+            != aster_drive_storage::StorageConnectorCredentialMode::StaticSecret
+        {
+            return Ok(None);
+        }
+        let descriptor = self.descriptor();
+        let values = super::decode_connector_credential(
+            &config.auth.storage_credential_secret_key,
+            credential,
+            &descriptor.connector_id,
+            descriptor.config_schema_version,
+        )?;
+        Ok(Some(StorageConnectorRuntimeCredential::Static(values)))
     }
 
     fn build_authorized_driver(
@@ -251,7 +326,7 @@ pub(crate) trait StorageConnector: Send + Sync {
         _db: &DatabaseConnection,
         _config: &Config,
         _policy: &storage_policy::Model,
-        _credential: &storage_policy_credential::Model,
+        _credential: &storage_policy_connector_credential::Model,
     ) -> Result<StorageCredentialValidationOutcome> {
         Err(AsterError::unsupported_driver(format!(
             "credential validation is not implemented for {} storage policies",
@@ -259,12 +334,15 @@ pub(crate) trait StorageConnector: Send + Sync {
         )))
     }
 
-    fn presigned_download_enabled(&self, _policy: &storage_policy::Model) -> bool {
-        false
+    fn presigned_download_enabled(&self, _policy: &storage_policy::Model) -> Result<bool> {
+        Ok(false)
     }
 
-    fn presigned_download_requires_filename_match(&self, _policy: &storage_policy::Model) -> bool {
-        false
+    fn presigned_download_requires_filename_match(
+        &self,
+        _policy: &storage_policy::Model,
+    ) -> Result<bool> {
+        Ok(false)
     }
 
     async fn test_draft_connection(
@@ -278,20 +356,15 @@ pub(crate) trait StorageConnector: Send + Sync {
         }) {
             return Err(common::unsupported_draft_connection_test_error(descriptor));
         }
-        let connection = if self.supports_saved_draft_credentials() {
-            common::merge_saved_static_credentials_for_draft(
-                context.writer_db(),
-                input.policy_id,
-                input.connection,
-                "draft storage policy connection test",
-            )
-            .await?
-        } else {
-            input.connection
-        };
-        let policy =
-            common::build_connection_test_policy(context.writer_db(), self, connection).await?;
-        let driver = self.build_draft_driver(context, &policy).await?;
+        let connection = input.connection;
+        self.validate_credential_input(&connection.credential)?;
+        let connector_config = self.validate_connector_config(&connection.connector_config)?;
+        self.validate_config_binding(context.writer_db(), &connector_config)
+            .await?;
+        let policy = common::build_connection_test_policy(connector_config, connection.behavior)?;
+        let driver = self
+            .build_draft_driver(context, &policy, &connection.credential)
+            .await?;
         common::probe_storage_driver(driver.as_ref(), "connection test failed").await
     }
 
@@ -355,17 +428,6 @@ pub(crate) trait StorageConnector: Send + Sync {
             .build_runtime_driver(context.driver_registry(), policy)?
             .storage)
     }
-
-    fn validate_promotion_candidate(&self, policy: &storage_policy::Model) -> Result<()> {
-        let _ = policy;
-        Err(crate::errors::validation_error_with_code(
-            crate::api::api_error_code::ApiErrorCode::PolicyPromotionTargetUnsupported,
-            format!(
-                "promoting S3-compatible policy to '{}' is not supported",
-                self.descriptor().connector_id.as_str()
-            ),
-        ))
-    }
 }
 
 /// Ordered connector catalog and runtime-factory lookup table.
@@ -374,7 +436,7 @@ pub(crate) trait StorageConnector: Send + Sync {
 /// Runtime dispatch uses plugin-safe [`ConnectorId`] lookup. `DriverType` is
 /// accepted only by the temporary database adapter until policy persistence is
 /// migrated to connector ids.
-pub(crate) struct StorageConnectorRegistry {
+pub struct StorageConnectorRegistry {
     ordered: Vec<Arc<dyn StorageConnector>>,
     by_connector_id: HashMap<ConnectorId, Arc<dyn StorageConnector>>,
 }
@@ -425,6 +487,28 @@ impl StorageConnectorRegistry {
             })
     }
 
+    /// Resolve the runtime factory from the policy's persisted plugin id.
+    ///
+    /// The policy entity deliberately carries no built-in driver enum. Invalid
+    /// persisted ids are treated as a misconfigured storage policy rather than
+    /// being translated through a core-owned provider table.
+    pub(crate) fn require_policy(
+        &self,
+        policy: &storage_policy::Model,
+    ) -> Result<&dyn StorageConnector> {
+        let connector_id = ConnectorId::declared(policy.connector_id.clone());
+        connector_id.validate().map_err(|error| {
+            crate::errors::storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                format!(
+                    "storage policy {} has invalid connector id '{}': {error}",
+                    policy.id, policy.connector_id
+                ),
+            )
+        })?;
+        self.require_connector(&connector_id)
+    }
+
     pub(crate) fn descriptors(&self) -> Vec<StorageConnectorDescriptor> {
         self.ordered
             .iter()
@@ -437,7 +521,7 @@ impl StorageConnectorRegistry {
         policy: &storage_policy::Model,
     ) -> Result<StorageConnectorObjectNamingMode> {
         Ok(self
-            .require(policy.driver_type)?
+            .require_policy(policy)?
             .descriptor()
             .capabilities
             .object_naming)

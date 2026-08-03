@@ -38,6 +38,7 @@ sea-orm-migration = { workspace = true, features = [
   "sqlx-mysql",
   "sqlx-sqlite",
 ] }
+serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
 tracing = { workspace = true }

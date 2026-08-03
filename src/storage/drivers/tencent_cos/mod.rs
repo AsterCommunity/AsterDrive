@@ -14,11 +14,10 @@ use std::{sync::Arc, time::Duration};
 
 use url::Url;
 
-use super::s3::{S3Driver, S3DriverOptions};
+use super::s3::{S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials};
 use super::s3_compatible::S3CompatibleDriver;
 use super::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
-use aster_drive_model::entities::storage_policy;
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 use aster_drive_storage::object_key;
 use aster_drive_storage::{MapStorageErr, Result};
@@ -41,10 +40,28 @@ pub struct TencentCosDriver {
     base_path: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TencentCosDriverConfig {
+    pub endpoint: String,
+    pub bucket: String,
+    pub base_path: String,
+    pub connect_timeout: Duration,
+    pub read_timeout: Duration,
+    pub operation_timeout: Duration,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TencentCosStaticCredentials {
+    pub access_key: String,
+    pub secret_key: String,
+}
+
 impl TencentCosDriver {
-    pub fn validate_policy(policy: &storage_policy::Model) -> Result<()> {
-        S3Driver::validate_policy(policy)?;
-        let normalized = normalize_s3_endpoint_and_bucket(&policy.endpoint, &policy.bucket)
+    pub fn validate_config(
+        config: &TencentCosDriverConfig,
+        credentials: &TencentCosStaticCredentials,
+    ) -> Result<()> {
+        let normalized = normalize_s3_endpoint_and_bucket(&config.endpoint, &config.bucket)
             .map_err(Self::rewrap_s3_config_error)?;
         if normalized.endpoint.trim().is_empty() {
             return Err(storage_driver_error(
@@ -63,33 +80,67 @@ impl TencentCosDriver {
                 "COS endpoint must use a Tencent COS myqcloud.com host",
             ));
         }
+        S3Driver::validate_config(
+            &S3DriverConfig {
+                endpoint: signing::cos_virtual_hosted_s3_endpoint(
+                    &normalized.endpoint,
+                    &normalized.bucket,
+                )?,
+                bucket: normalized.bucket,
+                base_path: config.base_path.clone(),
+                region: "auto".to_string(),
+                path_style: false,
+                connect_timeout: config.connect_timeout,
+                read_timeout: config.read_timeout,
+                operation_timeout: config.operation_timeout,
+            },
+            &S3StaticCredentials {
+                access_key: credentials.access_key.clone(),
+                secret_key: credentials.secret_key.clone(),
+            },
+        )?;
         Ok(())
     }
 
-    pub fn new(policy: &storage_policy::Model) -> Result<Self> {
-        Self::validate_policy(policy)?;
-        let normalized = normalize_s3_endpoint_and_bucket(&policy.endpoint, &policy.bucket)
+    pub fn new(
+        config: TencentCosDriverConfig,
+        credentials: TencentCosStaticCredentials,
+    ) -> Result<Self> {
+        Self::validate_config(&config, &credentials)?;
+        let normalized = normalize_s3_endpoint_and_bucket(&config.endpoint, &config.bucket)
             .map_err(Self::rewrap_s3_config_error)?;
-        let mut storage_policy = policy.clone();
-        storage_policy.endpoint =
-            signing::cos_virtual_hosted_s3_endpoint(&normalized.endpoint, &normalized.bucket)?;
-        storage_policy.bucket = normalized.bucket.clone();
         let s3_driver = S3Driver::new(
-            &storage_policy,
+            S3DriverConfig {
+                endpoint: signing::cos_virtual_hosted_s3_endpoint(
+                    &normalized.endpoint,
+                    &normalized.bucket,
+                )?,
+                bucket: normalized.bucket.clone(),
+                base_path: config.base_path.clone(),
+                region: "auto".to_string(),
+                path_style: false,
+                connect_timeout: config.connect_timeout,
+                read_timeout: config.read_timeout,
+                operation_timeout: config.operation_timeout,
+            },
+            S3StaticCredentials {
+                access_key: credentials.access_key.clone(),
+                secret_key: credentials.secret_key.clone(),
+            },
             S3DriverOptions::virtual_hosted_style(),
             signing::configure_cos_auth,
         )?;
         let storage = S3CompatibleDriver::from_s3_driver(Arc::new(s3_driver));
-        let client = cos_ci_http_client(policy)?;
+        let client = cos_ci_http_client(&config)?;
 
         Ok(Self {
             storage,
             client,
             endpoint: normalized.endpoint,
             bucket: normalized.bucket,
-            access_key: policy.access_key.clone(),
-            secret_key: policy.secret_key.clone(),
-            base_path: policy.base_path.clone(),
+            access_key: credentials.access_key,
+            secret_key: credentials.secret_key,
+            base_path: config.base_path,
         })
     }
 
@@ -112,12 +163,11 @@ impl TencentCosDriver {
     }
 }
 
-fn cos_ci_http_client(policy: &storage_policy::Model) -> Result<reqwest::Client> {
-    let options = aster_drive_model::types::parse_storage_policy_options(policy.options.as_ref());
+fn cos_ci_http_client(config: &TencentCosDriverConfig) -> Result<reqwest::Client> {
     reqwest::Client::builder()
-        .connect_timeout(options.effective_s3_connect_timeout())
-        .read_timeout(options.effective_s3_read_timeout())
-        .timeout(options.effective_s3_operation_timeout())
+        .connect_timeout(config.connect_timeout)
+        .read_timeout(config.read_timeout)
+        .timeout(config.operation_timeout)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(OUTBOUND_HTTP_USER_AGENT)
         .build()

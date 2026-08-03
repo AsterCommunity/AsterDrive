@@ -7,9 +7,9 @@ use utoipa::ToSchema;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::response::ApiErrorDiagnostic;
 use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::{
-    DriverType, StoragePolicyOptions, parse_storage_policy_allowed_types,
-    parse_storage_policy_options,
+use aster_drive_model::types::parse_storage_policy_allowed_types;
+use aster_drive_storage::{
+    ConnectorConfigEnvelope, StoragePolicyBehaviorConfig, StoragePolicyConfigEnvelope,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -46,7 +46,7 @@ impl From<StoragePolicyDiagnostic> for ApiErrorDiagnostic {
 pub struct StoragePolicySummaryInfo {
     pub id: i64,
     pub name: String,
-    pub driver_type: DriverType,
+    pub connector_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,15 +89,12 @@ pub struct StoragePolicyGroupItemInput {
 pub struct StoragePolicy {
     pub id: i64,
     pub name: String,
-    pub driver_type: DriverType,
-    pub endpoint: String,
-    pub bucket: String,
-    pub base_path: String,
-    pub remote_node_id: Option<i64>,
-    pub remote_storage_target_key: Option<String>,
+    pub connector_id: String,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Object))]
+    pub connector_config: ConnectorConfigEnvelope,
+    pub behavior: StoragePolicyBehaviorConfig,
     pub max_file_size: i64,
     pub allowed_types: Vec<String>,
-    pub options: StoragePolicyOptions,
     pub is_default: bool,
     pub chunk_size: i64,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
@@ -110,7 +107,7 @@ pub struct StoragePolicy {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePolicyCapacityInfo {
     pub policy_id: i64,
-    pub driver_type: DriverType,
+    pub connector_id: String,
     pub blob_count: i64,
     pub blob_total_bytes: i64,
     pub capacity: aster_drive_storage::StorageCapacityInfo,
@@ -150,25 +147,45 @@ impl From<crate::storage::StorageConnectorActionResult> for StoragePolicyActionR
     }
 }
 
-impl From<storage_policy::Model> for StoragePolicy {
-    fn from(model: storage_policy::Model) -> Self {
-        Self {
+impl TryFrom<storage_policy::Model> for StoragePolicy {
+    type Error = crate::errors::AsterError;
+
+    fn try_from(model: storage_policy::Model) -> Result<Self, Self::Error> {
+        let storage_config: StoragePolicyConfigEnvelope =
+            serde_json::from_str(model.storage_config.as_ref()).map_err(|error| {
+                crate::errors::AsterError::database_operation(format!(
+                    "storage policy {} has invalid storage_config: {error}",
+                    model.id
+                ))
+            })?;
+        if storage_config.connector.connector_id.as_str() != model.connector_id {
+            return Err(crate::errors::AsterError::database_operation(format!(
+                "storage policy {} connector id does not match storage_config",
+                model.id
+            )));
+        }
+        Ok(Self {
             id: model.id,
             name: model.name,
-            driver_type: model.driver_type,
-            endpoint: model.endpoint,
-            bucket: model.bucket,
-            base_path: model.base_path,
-            remote_node_id: model.remote_node_id,
-            remote_storage_target_key: model.remote_storage_target_key,
+            connector_id: model.connector_id,
+            connector_config: ConnectorConfigEnvelope::new(
+                storage_config.connector.connector_id,
+                storage_config.connector.schema_version,
+                serde_json::from_value(storage_config.connector.values).map_err(|error| {
+                    crate::errors::AsterError::database_operation(format!(
+                        "storage policy {} connector config must be a JSON object: {error}",
+                        model.id
+                    ))
+                })?,
+            ),
+            behavior: storage_config.behavior.values,
             max_file_size: model.max_file_size,
             allowed_types: parse_storage_policy_allowed_types(model.allowed_types.as_ref()),
-            options: parse_storage_policy_options(model.options.as_ref()),
             is_default: model.is_default,
             chunk_size: model.chunk_size,
             created_at: model.created_at,
             updated_at: model.updated_at,
-        }
+        })
     }
 }
 
@@ -190,32 +207,18 @@ pub struct CreateStoragePolicyInput {
     pub chunk_size: Option<i64>,
     pub is_default: bool,
     pub allowed_types: Option<Vec<String>>,
-    pub application_config: crate::storage::StorageConnectorApplicationConfigInput,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct UpdateStoragePolicyInput {
     pub name: Option<String>,
-    pub endpoint: Option<String>,
-    pub bucket: Option<String>,
-    pub access_key: Option<String>,
-    pub secret_key: Option<String>,
-    pub base_path: Option<String>,
-    pub remote_node_id: Option<i64>,
-    pub remote_storage_target_key: Option<String>,
+    pub connector_config: Option<ConnectorConfigEnvelope>,
+    pub behavior: Option<StoragePolicyBehaviorConfig>,
+    pub credential: Option<crate::storage::StorageConnectorCredentialInput>,
     pub max_file_size: Option<i64>,
     pub chunk_size: Option<i64>,
     pub is_default: Option<bool>,
     pub allowed_types: Option<Vec<String>>,
-    pub options: Option<StoragePolicyOptions>,
-    pub application_config: crate::storage::StorageConnectorApplicationConfigInput,
-}
-
-#[derive(Debug, Clone)]
-pub struct PromoteS3CompatiblePolicyDriverInput {
-    pub target_driver_type: DriverType,
-    pub endpoint: String,
-    pub bucket: String,
 }
 
 #[derive(Debug, Clone)]

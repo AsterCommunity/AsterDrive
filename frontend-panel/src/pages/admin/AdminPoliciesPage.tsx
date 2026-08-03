@@ -36,9 +36,9 @@ import { useAuthStore } from "@/stores/authStore";
 import { useSystemSetupStore } from "@/stores/systemSetupStore";
 import type {
 	DriverType,
+	StorageConnectorCredentialInfo,
 	StoragePolicy,
 	StoragePolicyCapacityInfo,
-	StoragePolicyCredentialInfo,
 } from "@/types/api";
 import { useStoragePolicyActionController } from "./admin-policies-page/useStoragePolicyActionController";
 import { useStoragePolicyDescriptorController } from "./admin-policies-page/useStoragePolicyDescriptorController";
@@ -119,7 +119,7 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 	const [policyCapacityLoading, setPolicyCapacityLoading] = useState(false);
 	const policyCapacityRequestSerial = useRef(0);
 	const [storageCredentials, setStorageCredentials] = useState<
-		StoragePolicyCredentialInfo[]
+		StorageConnectorCredentialInfo[]
 	>([]);
 	const [storageCredentialsLoading, setStorageCredentialsLoading] =
 		useState(false);

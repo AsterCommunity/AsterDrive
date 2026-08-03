@@ -22,7 +22,7 @@ use super::field_contract::{StorageDescriptorFieldKind, StorageDescriptorFieldSe
 pub enum StorageConnectorCredentialMode {
     /// 不需要密钥或远端绑定，例如纯本地路径。
     None,
-    /// 使用 access_key / secret_key 这类静态密钥。
+    /// 使用 connector 自己定义字段的静态凭据。
     StaticSecret,
     /// 通过已注册 remote node 代理访问。
     RemoteNode,
@@ -1118,14 +1118,57 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::{
-        ObjectStorageConnectorDescriptorInput, ObjectStorageFieldDescriptorInput,
+        ObjectStorageConnectorDescriptorInput, StorageConnectorCredentialMode,
         StorageConnectorDeploymentScope, StorageConnectorFieldDefaultValue,
+        StorageConnectorFieldDisplayInput, StorageConnectorFieldKind, StorageConnectorFieldScope,
         StorageConnectorOptionsValidationError, StorageConnectorUiDescriptorInput,
         normalize_storage_connector_config, object_storage_connector_descriptor,
+        storage_connector_field, storage_connector_field_with_display,
     };
     use crate::{CONNECTOR_CONFIG_FORMAT_VERSION, ConnectorConfigEnvelope, ConnectorId};
 
     fn s3_descriptor() -> super::StorageConnectorDescriptor {
+        let mut path_style = storage_connector_field(
+            "s3_path_style",
+            StorageConnectorFieldScope::ConnectorConfig,
+            StorageConnectorFieldKind::Boolean,
+            false,
+            false,
+        );
+        path_style.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(true));
+
+        let mut region = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+            name: "s3_region",
+            scope: StorageConnectorFieldScope::ConnectorConfig,
+            kind: StorageConnectorFieldKind::Text,
+            required: false,
+            secret: false,
+            label_key: "s3_region",
+            placeholder: Some("auto"),
+            help_key: None,
+            required_message_key: None,
+            invalid_protocol_message_key: None,
+            allowed_endpoint_protocols: Vec::new(),
+            allow_endpoint_without_protocol: false,
+            trim_on_blur: true,
+        });
+        region.default_value = Some(StorageConnectorFieldDefaultValue::String(
+            "auto".to_string(),
+        ));
+
+        let timeout_field = |name: &str, default_value: i64| {
+            let mut field = storage_connector_field(
+                name,
+                StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Number,
+                false,
+                false,
+            );
+            field.default_value = Some(StorageConnectorFieldDefaultValue::Integer(default_value));
+            field.validation.min_integer = Some(1);
+            field
+        };
+
         object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
             connector_id: ConnectorId::declared("asterdrive.storage.s3"),
             label: "S3",
@@ -1144,18 +1187,14 @@ mod tests {
             },
             deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
             supports_initial_setup: true,
-            fields: ObjectStorageFieldDescriptorInput {
-                endpoint_placeholder: "https://s3.example.com",
-                endpoint_help_key: "endpoint_help",
-                endpoint_protocol_error_key: "endpoint_protocol",
-                bucket_required_message_key: "bucket_required",
-                access_key_label_key: "access_key",
-                secret_key_label_key: "secret_key",
-                access_key_trim_on_blur: false,
-            },
-            include_s3_path_style: true,
-            include_s3_region: true,
-            include_s3_timeouts: true,
+            credential_mode: StorageConnectorCredentialMode::StaticSecret,
+            fields: vec![
+                path_style,
+                region,
+                timeout_field("s3_connect_timeout_secs", 5),
+                timeout_field("s3_read_timeout_secs", 30),
+                timeout_field("s3_operation_timeout_secs", 3_600),
+            ],
             presigned_part_etag_required: true,
             storage_native_processing: false,
             config_schema_version: 3,

@@ -3,7 +3,12 @@
 use std::time::Duration;
 
 use aster_drive::storage::drivers::sftp::SftpDriver;
-use aster_drive_storage::{StorageDriver, StorageErrorKind, StreamUploadDriver};
+use aster_drive_model::types::StoredStoragePolicyConfig;
+use aster_drive_storage::{
+    ConnectorConfigEnvelope, ConnectorId, StorageDriver, StorageErrorKind,
+    StoragePolicyBehaviorConfig, StreamUploadDriver, encode_storage_policy_config,
+};
+use serde::Serialize;
 use testcontainers::{GenericImage, ImageExt, core::IntoContainerPort, runners::AsyncRunner};
 use tokio::io::AsyncReadExt as _;
 
@@ -13,6 +18,14 @@ const SFTP_PORT: u16 = 2222;
 const SFTP_USERNAME: &str = "aster";
 const SFTP_PASSWORD: &str = "asterpass";
 const SFTP_PROBE_TIMEOUT: Duration = Duration::from_secs(15);
+
+#[derive(Serialize)]
+struct SftpConnectorConfigV1 {
+    endpoint: String,
+    base_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sftp_host_key_fingerprint: Option<String>,
+}
 
 fn sftp_policy(
     endpoint: &str,
@@ -45,10 +58,22 @@ fn sftp_policy(
         remote_node_id: None,
         remote_storage_target_key: None,
         connector_id: "asterdrive.storage.sftp".to_string(),
-        connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(
-            "asterdrive.storage.sftp",
+        storage_config: StoredStoragePolicyConfig(
+            encode_storage_policy_config(
+                ConnectorConfigEnvelope::new(
+                    ConnectorId::declared("asterdrive.storage.sftp"),
+                    1,
+                    serde_json::to_value(SftpConnectorConfigV1 {
+                        endpoint: endpoint.to_string(),
+                        base_path: base_path.to_string(),
+                        sftp_host_key_fingerprint: host_key_fingerprint.map(str::to_string),
+                    })
+                    .expect("encode typed SFTP connector fixture"),
+                ),
+                StoragePolicyBehaviorConfig::default(),
+            )
+            .expect("encode typed SFTP policy fixture"),
         ),
-        behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
         max_file_size: 0,
         allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
         options,

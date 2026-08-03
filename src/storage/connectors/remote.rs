@@ -9,11 +9,10 @@ use crate::errors::{
 };
 use crate::services::remote::capability::RemoteCapabilityResolver;
 use crate::services::storage_policy::credential::crypto;
-use crate::storage::drivers::remote::RemoteDriver;
+use crate::storage::drivers::remote::{RemoteDriver, RemoteDriverConfig};
 use aster_drive_model::entities::{managed_follower, storage_policy};
 use aster_drive_model::types::{
     RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteUploadStrategy,
-    parse_storage_policy_options,
 };
 use aster_drive_storage::connector_descriptor::{
     ObjectMultipartUploadCapabilitiesInput, StorageConnectorCapabilities,
@@ -27,11 +26,10 @@ use aster_drive_storage::connector_descriptor::{
 use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
 use aster_drive_storage::{StorageDriver, StorageErrorKind, storage_driver_error};
 
-use super::common::{ensure_onedrive_options_absent, ensure_storage_native_processing_supported};
 use super::{
-    StorageConnector, StorageConnectorConnectionInput, StorageConnectorUploadTransport,
-    StoragePolicyCleanupDriverSnapshot, StoragePolicyCleanupRemoteNodeSnapshot,
-    StoragePolicyCleanupSnapshots,
+    RemotePolicyBindingProjection, StorageConnector, StorageConnectorCredentialInput,
+    StorageConnectorUploadTransport, StoragePolicyCleanupDriverSnapshot,
+    StoragePolicyCleanupRemoteNodeSnapshot, StoragePolicyCleanupSnapshots,
 };
 
 pub struct RemoteConnector;
@@ -81,6 +79,22 @@ fn remote_transfer_field(name: &str) -> aster_drive_storage::StorageConnectorFie
 
 impl RemoteConnector {
     pub const ID: &'static str = "asterdrive.storage.remote";
+
+    fn decode_config(policy: &storage_policy::Model) -> Result<RemoteConnectorConfigV1> {
+        super::common::decode_typed_policy_config(policy, Self::ID, 1)
+            .map(|(config, _behavior)| config)
+    }
+
+    fn driver_config(
+        policy: &storage_policy::Model,
+        config: &RemoteConnectorConfigV1,
+    ) -> RemoteDriverConfig {
+        RemoteDriverConfig {
+            base_path: config.base_path.clone(),
+            remote_storage_target_key: config.remote_storage_target_key.clone(),
+            max_file_size: policy.max_file_size,
+        }
+    }
 }
 
 impl RemoteConnector {
@@ -150,46 +164,14 @@ impl StorageConnector for RemoteConnector {
         Self::descriptor_definition()
     }
 
-    fn encode_config(
-        &self,
-        input: &StorageConnectorConnectionInput,
-    ) -> Result<aster_drive_model::types::StoredConnectorConfig> {
-        super::common::encode_typed_connector_config(
-            Self::ID,
-            1,
-            RemoteConnectorConfigV1 {
-                base_path: input.base_path.clone(),
-                remote_node_id: input.remote_node_id,
-                remote_storage_target_key: input.remote_storage_target_key.clone(),
-                remote_download_strategy: input.options.effective_remote_download_strategy(),
-                remote_upload_strategy: input.options.effective_remote_upload_strategy(),
-            },
-        )
-    }
-
-    fn normalize_connection_fields(
-        &self,
-        endpoint: &str,
-        bucket: &str,
-    ) -> Result<(String, String)> {
-        let _ = (endpoint, bucket);
-        Ok((String::new(), String::new()))
-    }
-
-    fn validate_connection_credentials(
-        &self,
-        input: &StorageConnectorConnectionInput,
-    ) -> Result<()> {
-        let _ = input;
-        Ok(())
-    }
-
-    async fn validate_connection_binding(
+    async fn validate_config_binding(
         &self,
         db: &sea_orm::DatabaseConnection,
-        input: &StorageConnectorConnectionInput,
-    ) -> Result<Option<i64>> {
-        let remote_node_id = input.remote_node_id.ok_or_else(|| {
+        connector_config: &aster_drive_storage::ConnectorConfigEnvelope,
+    ) -> Result<()> {
+        let config: RemoteConnectorConfigV1 =
+            super::common::decode_normalized_connector_config(connector_config)?;
+        let remote_node_id = config.remote_node_id.ok_or_else(|| {
             validation_error_with_code(
                 ApiErrorCode::PolicyRemoteNodeRequired,
                 "remote storage policy requires remote_node_id",
@@ -210,28 +192,11 @@ impl StorageConnector for RemoteConnector {
                 "remote node base_url is required for remote storage policies",
             ));
         }
-        Ok(Some(remote_node_id))
-    }
-
-    async fn validate_policy_options(
-        &self,
-        db: &sea_orm::DatabaseConnection,
-        remote_node_id: Option<i64>,
-        options: &aster_drive_model::types::StoragePolicyOptions,
-    ) -> Result<()> {
-        ensure_storage_native_processing_supported(self.descriptor(), options)?;
-        ensure_onedrive_options_absent(options)?;
-        let Some(remote_node_id) = remote_node_id else {
-            return Ok(());
-        };
-        let remote_node = managed_follower_repo::find_by_id(db, remote_node_id).await?;
         if remote_node
             .transport_mode
             .resolves_to_reverse_tunnel(&remote_node.base_url)
-            && (options.effective_remote_download_strategy()
-                == aster_drive_model::types::RemoteDownloadStrategy::Presigned
-                || options.effective_remote_upload_strategy()
-                    == aster_drive_model::types::RemoteUploadStrategy::Presigned)
+            && (config.remote_download_strategy == RemoteDownloadStrategy::Presigned
+                || config.remote_upload_strategy == RemoteUploadStrategy::Presigned)
         {
             return Err(validation_error_with_code(
                 ApiErrorCode::PolicyRemoteNodeTransferStrategyUnsupported,
@@ -245,8 +210,11 @@ impl StorageConnector for RemoteConnector {
         &self,
         context: &super::StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
+        credential: &StorageConnectorCredentialInput,
     ) -> Result<Box<dyn StorageDriver>> {
-        let remote_node_id = policy.remote_node_id.ok_or_else(|| {
+        let _ = credential;
+        let config = Self::decode_config(policy)?;
+        let remote_node_id = config.remote_node_id.ok_or_else(|| {
             validation_error_with_code(
                 ApiErrorCode::PolicyRemoteNodeRequired,
                 "remote storage policy requires remote_node_id",
@@ -254,11 +222,10 @@ impl StorageConnector for RemoteConnector {
         })?;
         let remote_node =
             managed_follower_repo::find_by_id(context.writer_db(), remote_node_id).await?;
-        Ok(Box::new(
-            context
-                .remote_protocol()?
-                .driver_for_policy(policy, &remote_node)?,
-        ))
+        Ok(Box::new(context.remote_protocol()?.driver_for_config(
+            &Self::driver_config(policy, &config),
+            &remote_node,
+        )?))
     }
 
     fn build_runtime_driver(
@@ -266,7 +233,8 @@ impl StorageConnector for RemoteConnector {
         registry: &crate::storage::DriverRegistry,
         policy: &storage_policy::Model,
     ) -> Result<super::StorageConnectorDriver> {
-        let remote_node_id = policy.remote_node_id.ok_or_else(|| {
+        let config = Self::decode_config(policy)?;
+        let remote_node_id = config.remote_node_id.ok_or_else(|| {
             AsterError::from(storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 "remote storage policy missing remote_node_id",
@@ -287,9 +255,11 @@ impl StorageConnector for RemoteConnector {
             ));
         }
         let capabilities = RemoteCapabilityResolver::from_remote_node(&remote_node);
-        let options = parse_storage_policy_options(policy.options.as_ref());
-        if let Err(error) = capabilities.ensure_remote_policy_options_supported(policy.id, &options)
-        {
+        if let Err(error) = capabilities.ensure_remote_policy_config_supported(
+            policy.id,
+            config.remote_download_strategy,
+            config.remote_upload_strategy,
+        ) {
             tracing::warn!(
                 remote_node_id,
                 policy_id = policy.id,
@@ -299,30 +269,46 @@ impl StorageConnector for RemoteConnector {
             );
             return Err(error);
         }
+        let driver_config = Self::driver_config(policy, &config);
         let driver = if let Some(remote_protocol) = registry.remote_protocol() {
-            Arc::new(remote_protocol.driver_for_policy(policy, &remote_node)?)
+            Arc::new(remote_protocol.driver_for_config(&driver_config, &remote_node)?)
         } else {
-            Arc::new(RemoteDriver::new(policy, &remote_node)?)
+            Arc::new(RemoteDriver::new(&driver_config, &remote_node)?)
         };
         Ok(super::StorageConnectorDriver::multipart(driver))
     }
 
-    fn upload_transport(&self, policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
-        let options = parse_storage_policy_options(policy.options.as_ref());
-        StorageConnectorUploadTransport::Remote(options.effective_remote_upload_strategy())
+    fn upload_transport(
+        &self,
+        policy: &storage_policy::Model,
+    ) -> Result<StorageConnectorUploadTransport> {
+        Self::decode_config(policy)
+            .map(|config| StorageConnectorUploadTransport::Remote(config.remote_upload_strategy))
     }
 
-    fn presigned_download_enabled(&self, policy: &storage_policy::Model) -> bool {
-        let options = parse_storage_policy_options(policy.options.as_ref());
-        options.effective_remote_download_strategy()
-            == aster_drive_model::types::RemoteDownloadStrategy::Presigned
+    fn remote_binding_projection(
+        &self,
+        policy: &storage_policy::Model,
+    ) -> Result<Option<RemotePolicyBindingProjection>> {
+        let config = Self::decode_config(policy)?;
+        Ok(Some(RemotePolicyBindingProjection {
+            remote_node_id: config.remote_node_id,
+            download_strategy: config.remote_download_strategy,
+            upload_strategy: config.remote_upload_strategy,
+        }))
+    }
+
+    fn presigned_download_enabled(&self, policy: &storage_policy::Model) -> Result<bool> {
+        Self::decode_config(policy)
+            .map(|config| config.remote_download_strategy == RemoteDownloadStrategy::Presigned)
     }
     async fn cleanup_snapshot_for_policy(
         &self,
         context: &super::StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
     ) -> Result<Option<StoragePolicyCleanupDriverSnapshot>> {
-        let remote_node_id = policy.remote_node_id.ok_or_else(|| {
+        let config = Self::decode_config(policy)?;
+        let remote_node_id = config.remote_node_id.ok_or_else(|| {
             AsterError::validation_error("remote storage policy requires remote_node_id")
         })?;
         let remote = managed_follower_repo::find_by_id(context.writer_db(), remote_node_id).await?;
@@ -396,11 +382,11 @@ impl StorageConnector for RemoteConnector {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
-        Ok(Arc::new(
-            context
-                .remote_protocol()?
-                .driver_for_policy(policy, &follower)?,
-        ))
+        let config = Self::decode_config(policy)?;
+        Ok(Arc::new(context.remote_protocol()?.driver_for_config(
+            &Self::driver_config(policy, &config),
+            &follower,
+        )?))
     }
 }
 
@@ -412,9 +398,9 @@ fn remote_snapshot_from_cleanup_input(
         Some(_) => Err(AsterError::validation_error(
             "remote storage policy cleanup received incompatible driver snapshot",
         )),
-        None => snapshots.legacy_remote_node.ok_or_else(|| {
-            AsterError::validation_error("remote storage policy cleanup missing remote snapshot")
-        }),
+        None => Err(AsterError::validation_error(
+            "remote storage policy cleanup missing remote snapshot",
+        )),
     }
 }
 

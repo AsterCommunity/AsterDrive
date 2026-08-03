@@ -5,7 +5,7 @@ use sea_orm::DatabaseConnection;
 use crate::config::Config;
 use crate::db::repository::{managed_follower_repo, policy_repo};
 use crate::errors::{AsterError, Result};
-use aster_drive_model::types::{DriverType, RemoteNodeTransportMode, UploadSessionKind};
+use aster_drive_model::types::{RemoteNodeTransportMode, UploadSessionKind};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DeploymentTopologyReport {
@@ -49,16 +49,16 @@ impl DeploymentTopologyReport {
 pub(crate) fn validate_storage_policy_driver(
     registry: &crate::storage::connectors::StorageConnectorRegistry,
     config: &Config,
-    driver_type: DriverType,
+    connector_id: &aster_drive_storage::ConnectorId,
 ) -> Result<()> {
-    let descriptor = crate::storage::connectors::storage_driver_descriptor(registry, driver_type)?;
+    let descriptor = registry.require_connector(connector_id)?.descriptor();
     if !crate::services::storage_policy::connector_catalog::connector_compatible_with_deployment(
         config,
         &descriptor,
     ) {
         return Err(AsterError::validation_error(format!(
             "this deployment profile requires storage shared by every primary; connector '{}' has deployment scope '{}'",
-            driver_type.as_str(),
+            connector_id.as_str(),
             descriptor.deployment_scope.as_str()
         )));
     }
@@ -125,8 +125,7 @@ pub(crate) async fn inspect_primary_topology(
 
     let mut instance_local_storage_policies = Vec::new();
     for policy in policy_repo::find_all(db).await? {
-        let descriptor =
-            crate::storage::connectors::storage_driver_descriptor(registry, policy.driver_type)?;
+        let descriptor = registry.require_policy(&policy)?.descriptor();
         if !crate::services::storage_policy::connector_catalog::connector_compatible_with_deployment(
             config,
             &descriptor,

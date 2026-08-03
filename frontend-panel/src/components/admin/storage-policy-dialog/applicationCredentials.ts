@@ -1,42 +1,27 @@
-import type { MicrosoftGraphCloud } from "@/types/api";
 import type { PolicyFormData } from "./formTypes";
 
-export type MicrosoftGraphCredentialForm = {
-	cloud?: MicrosoftGraphCloud;
-	tenant?: string;
+export interface MicrosoftGraphCredentialForm {
 	client_id: string;
 	client_secret: string;
 	scopes: string;
-};
-
-export type StorageApplicationCredentialForm = {
-	microsoft_graph?: MicrosoftGraphCredentialForm;
-};
+}
 
 export function microsoftGraphCredentials(
 	form: PolicyFormData,
 ): MicrosoftGraphCredentialForm {
-	return (
-		form.application_credentials?.microsoft_graph ?? {
-			cloud: form.onedrive_cloud,
-			tenant: form.onedrive_tenant,
-			client_id: "",
-			client_secret: "",
-			scopes: "",
-		}
-	);
+	return {
+		client_id: form.credential_values.client_id ?? "",
+		client_secret: form.credential_values.client_secret ?? "",
+		scopes: form.credential_values.scopes ?? "",
+	};
 }
 
 export function updateMicrosoftGraphCredentials(
 	form: PolicyFormData,
 	patch: Partial<MicrosoftGraphCredentialForm>,
-): StorageApplicationCredentialForm {
-	const current = microsoftGraphCredentials(form);
+) {
 	return {
-		...form.application_credentials,
-		microsoft_graph: {
-			...current,
-			...patch,
-		},
+		...form.credential_values,
+		...patch,
 	};
 }

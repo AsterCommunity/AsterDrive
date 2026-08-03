@@ -60,19 +60,11 @@ impl fmt::Debug for Model {
 pub enum Relation {
     #[sea_orm(has_many = "super::follower_enrollment_session::Entity")]
     FollowerEnrollmentSessions,
-    #[sea_orm(has_many = "super::storage_policy::Entity")]
-    StoragePolicies,
 }
 
 impl Related<super::follower_enrollment_session::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::FollowerEnrollmentSessions.def()
-    }
-}
-
-impl Related<super::storage_policy::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::StoragePolicies.def()
     }
 }
 

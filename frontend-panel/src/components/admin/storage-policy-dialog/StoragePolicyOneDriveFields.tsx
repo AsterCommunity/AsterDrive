@@ -14,7 +14,6 @@ import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type {
 	MicrosoftGraphCloud,
-	OneDriveAccountMode,
 	ProviderDownloadFilenameMode,
 	ProviderDownloadStrategy,
 	ProviderResumableUploadStrategy,
@@ -36,7 +35,7 @@ function getCloudOptions(t: Translate) {
 function getAccountModeOptions(t: Translate, cloud: MicrosoftGraphCloud) {
 	const accountModeOptions: Array<{
 		label: string;
-		value: OneDriveAccountMode;
+		value: string;
 	}> = [
 		{
 			label: t("onedrive_account_mode_work_or_school"),

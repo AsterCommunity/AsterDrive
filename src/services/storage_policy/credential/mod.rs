@@ -2,17 +2,15 @@
 
 pub(crate) mod crypto;
 mod management;
+mod migration;
 mod oauth;
 
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::{AsterError, Result};
 use crate::storage::drivers::onedrive::{MicrosoftGraphClient, MicrosoftGraphDriveItem};
-use aster_drive_model::entities::storage_policy_credential;
 use aster_drive_model::types::{
-    MicrosoftGraphCloud, OneDriveAccountMode, StorageCredentialKind, StorageCredentialProvider,
-    StorageCredentialStatus, StoragePolicyOptions,
+    MicrosoftGraphCloud, OneDriveAccountMode, StorageCredentialProvider,
 };
 
 pub use management::{
@@ -24,11 +22,11 @@ pub use oauth::{
     finish_authorization_callback, start_authorization,
 };
 
-pub use crate::storage::MicrosoftGraphApplicationConfigInput;
-
+pub(crate) use migration::migrate_legacy_storage_credentials;
 pub(crate) use oauth::{
     MicrosoftGraphCleanupTokenSnapshot, StorageCredentialMetadataInput,
     build_microsoft_graph_cleanup_token_provider, build_microsoft_graph_credential_token_provider,
+    decrypt_application_client_secret, encrypt_application_client_secret,
     storage_credential_metadata, upsert_microsoft_graph_application_config,
 };
 
@@ -40,33 +38,6 @@ const DEFAULT_MICROSOFT_GRAPH_ANY_DRIVE_SCOPES: &str = "offline_access Files.Rea
 const DEFAULT_MICROSOFT_GRAPH_SHARED_DRIVE_SCOPES: &str =
     "offline_access Files.ReadWrite.All Sites.ReadWrite.All";
 const REDACTED_SECRET: &str = "***REDACTED***";
-
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
-pub struct StoragePolicyCredentialInfo {
-    pub id: i64,
-    pub policy_id: i64,
-    pub provider: StorageCredentialProvider,
-    pub credential_kind: StorageCredentialKind,
-    pub account_label: Option<String>,
-    pub subject: Option<String>,
-    pub tenant_id: Option<String>,
-    pub scopes: Vec<String>,
-    pub status: StorageCredentialStatus,
-    pub status_reason: Option<String>,
-    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
-    pub expires_at: Option<chrono::DateTime<Utc>>,
-    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
-    pub authorized_at: Option<chrono::DateTime<Utc>>,
-    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
-    pub last_refreshed_at: Option<chrono::DateTime<Utc>>,
-    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
-    pub last_validated_at: Option<chrono::DateTime<Utc>>,
-    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
-    pub created_at: chrono::DateTime<Utc>,
-    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
-    pub updated_at: chrono::DateTime<Utc>,
-}
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
@@ -104,29 +75,6 @@ pub struct MicrosoftGraphAuthorizationInput {
 pub(crate) struct ResolvedOneDriveLocation {
     pub drive_id: String,
     pub root_item: MicrosoftGraphDriveItem,
-}
-
-impl From<storage_policy_credential::Model> for StoragePolicyCredentialInfo {
-    fn from(model: storage_policy_credential::Model) -> Self {
-        Self {
-            id: model.id,
-            policy_id: model.policy_id,
-            provider: model.provider,
-            credential_kind: model.credential_kind,
-            account_label: model.account_label,
-            subject: model.subject,
-            tenant_id: model.tenant_id,
-            scopes: parse_scopes_json(&model.scopes),
-            status: model.status,
-            status_reason: model.status_reason,
-            expires_at: model.expires_at,
-            authorized_at: model.authorized_at,
-            last_refreshed_at: model.last_refreshed_at,
-            last_validated_at: model.last_validated_at,
-            created_at: model.created_at,
-            updated_at: model.updated_at,
-        }
-    }
 }
 
 pub fn list_supported_providers() -> Vec<StorageCredentialProviderInfo> {
@@ -177,41 +125,38 @@ pub(crate) fn normalize_scopes_with_default(
     }
 }
 
-pub(crate) fn default_microsoft_graph_scopes_for_onedrive_options(
-    options: &StoragePolicyOptions,
+pub(crate) fn default_microsoft_graph_scopes_for_onedrive_config(
+    config: &crate::storage::connectors::OneDriveConnectorConfigV1,
 ) -> &'static str {
-    match options.onedrive_account_mode {
-        Some(OneDriveAccountMode::Personal | OneDriveAccountMode::WorkOrSchool)
-            if options.onedrive_drive_id.is_none() =>
+    match config.account_mode {
+        OneDriveAccountMode::Personal | OneDriveAccountMode::WorkOrSchool
+            if config.drive_id.is_none() =>
         {
             DEFAULT_MICROSOFT_GRAPH_USER_DRIVE_SCOPES
         }
-        Some(OneDriveAccountMode::Personal | OneDriveAccountMode::WorkOrSchool) => {
+        OneDriveAccountMode::Personal | OneDriveAccountMode::WorkOrSchool => {
             DEFAULT_MICROSOFT_GRAPH_ANY_DRIVE_SCOPES
         }
-        Some(OneDriveAccountMode::SharepointSite | OneDriveAccountMode::GroupDrive) => {
+        OneDriveAccountMode::SharepointSite | OneDriveAccountMode::GroupDrive => {
             DEFAULT_MICROSOFT_GRAPH_SHARED_DRIVE_SCOPES
         }
-        None => DEFAULT_MICROSOFT_GRAPH_SCOPES,
     }
 }
 
 pub(crate) async fn resolve_onedrive_location(
     client: &MicrosoftGraphClient,
-    options: &StoragePolicyOptions,
+    config: &crate::storage::connectors::OneDriveConnectorConfigV1,
 ) -> Result<ResolvedOneDriveLocation> {
-    let account_mode = options.onedrive_account_mode.ok_or_else(|| {
-        AsterError::validation_error("OneDrive storage policy missing onedrive_account_mode")
-    })?;
-    let drive_id = match normalized_option_ref(options.onedrive_drive_id.as_deref()) {
+    let account_mode = config.account_mode;
+    let drive_id = match normalized_option_ref(config.drive_id.as_deref()) {
         Some(value) => value.to_string(),
         None => match account_mode {
             OneDriveAccountMode::Personal | OneDriveAccountMode::WorkOrSchool => {
                 client.get_me_drive().await?.id
             }
             OneDriveAccountMode::SharepointSite => {
-                let site_id = normalized_option_ref(options.onedrive_site_id.as_deref())
-                    .ok_or_else(|| {
+                let site_id =
+                    normalized_option_ref(config.site_id.as_deref()).ok_or_else(|| {
                         AsterError::validation_error(
                             "OneDrive sharepoint_site policy missing onedrive_site_id",
                         )
@@ -219,8 +164,8 @@ pub(crate) async fn resolve_onedrive_location(
                 client.get_site_drive(site_id).await?.id
             }
             OneDriveAccountMode::GroupDrive => {
-                let group_id = normalized_option_ref(options.onedrive_group_id.as_deref())
-                    .ok_or_else(|| {
+                let group_id =
+                    normalized_option_ref(config.group_id.as_deref()).ok_or_else(|| {
                         AsterError::validation_error(
                             "OneDrive group_drive policy missing onedrive_group_id",
                         )
@@ -234,8 +179,8 @@ pub(crate) async fn resolve_onedrive_location(
             "Microsoft Graph returned empty OneDrive drive id",
         ));
     }
-    let configured_root_item_id = options
-        .onedrive_root_item_id
+    let configured_root_item_id = config
+        .root_item_id
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or("root");

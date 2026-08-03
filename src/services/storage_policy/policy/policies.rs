@@ -7,24 +7,22 @@ use sea_orm::{ActiveModelTrait, Set};
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::pagination::{AdminPolicySortBy, load_offset_page};
 use crate::db::repository::{
-    file_repo, policy_group_repo, policy_repo, system_initialization_repo, upload_session_repo,
+    file_repo, policy_group_repo, policy_repo, system_initialization_repo,
 };
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState, TaskRuntimeState};
-use crate::services::remote::storage_target;
 use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::{DriverType, parse_storage_policy_options};
+use aster_drive_storage::{ConnectorConfigEnvelope, StoragePolicyConfigEnvelope};
 use aster_forge_api::{OffsetPage, SortOrder};
 
 use super::models::{
     CreateStoragePolicyInput, ExecuteDraftStoragePolicyActionInput,
-    ExecuteSavedStoragePolicyActionInput, PromoteS3CompatiblePolicyDriverInput, StoragePolicy,
-    StoragePolicyActionResult, StoragePolicyCapacityInfo, StoragePolicyConnectionInput,
-    StoragePolicyDiagnostic, TestDraftStoragePolicyConnectionInput, UpdateStoragePolicyInput,
+    ExecuteSavedStoragePolicyActionInput, StoragePolicy, StoragePolicyActionResult,
+    StoragePolicyCapacityInfo, StoragePolicyConnectionInput, StoragePolicyDiagnostic,
+    TestDraftStoragePolicyConnectionInput, UpdateStoragePolicyInput,
 };
 use super::shared::{
-    SYSTEM_STORAGE_POLICY_ID, serialize_allowed_types, serialize_options,
-    set_default_policy_and_group,
+    SYSTEM_STORAGE_POLICY_ID, serialize_allowed_types, set_default_policy_and_group,
 };
 
 pub async fn list_paginated(
@@ -38,7 +36,11 @@ pub async fn list_paginated(
         let (items, total) =
             policy_repo::find_paginated(state.reader_db(), limit, offset, sort_by, sort_order)
                 .await?;
-        Ok((items.into_iter().map(Into::into).collect(), total))
+        let items = items
+            .into_iter()
+            .map(StoragePolicy::try_from)
+            .collect::<Result<Vec<_>>>()?;
+        Ok((items, total))
     })
     .await
 }
@@ -46,7 +48,7 @@ pub async fn list_paginated(
 pub async fn get(state: &impl SharedRuntimeState, id: i64) -> Result<StoragePolicy> {
     policy_repo::find_by_id(state.reader_db(), id)
         .await
-        .map(Into::into)
+        .and_then(StoragePolicy::try_from)
 }
 
 pub async fn capacity_info(
@@ -56,10 +58,11 @@ pub async fn capacity_info(
     let policy = policy_repo::find_by_id(state.reader_db(), id).await?;
     let driver = state.driver_registry().get_driver(&policy)?;
     let blob_summary = file_repo::summarize_blobs_by_policy(state.reader_db(), policy.id).await?;
-    let (capacity, diagnostic) = capacity_info_or_status(driver.as_ref(), policy.driver_type).await;
+    let (capacity, diagnostic) =
+        capacity_info_or_status(driver.as_ref(), &policy.connector_id).await;
     Ok(StoragePolicyCapacityInfo {
         policy_id: policy.id,
-        driver_type: policy.driver_type,
+        connector_id: policy.connector_id,
         blob_count: blob_summary.count,
         blob_total_bytes: blob_summary.total_size,
         capacity,
@@ -69,7 +72,7 @@ pub async fn capacity_info(
 
 pub(crate) async fn capacity_info_or_status(
     driver: &dyn aster_drive_storage::StorageDriver,
-    driver_type: DriverType,
+    connector_id: &str,
 ) -> (
     aster_drive_storage::StorageCapacityInfo,
     Option<StoragePolicyDiagnostic>,
@@ -81,7 +84,7 @@ pub(crate) async fn capacity_info_or_status(
             (
                 aster_drive_storage::StorageCapacityInfo::unsupported(format!(
                     "{}_driver",
-                    driver_type.as_str()
+                    connector_id
                 )),
                 StoragePolicyDiagnostic::from_error(&error),
             )
@@ -94,7 +97,7 @@ pub(crate) async fn capacity_info_or_status(
                 .unwrap_or("unknown");
             let api_code = error.api_error_code().as_str();
             tracing::warn!(
-                driver_type = driver_type.as_str(),
+                connector_id,
                 kind,
                 api_code,
                 "storage capacity observability failed"
@@ -102,7 +105,7 @@ pub(crate) async fn capacity_info_or_status(
             (
                 aster_drive_storage::StorageCapacityInfo::unavailable(format!(
                     "{}_driver",
-                    driver_type.as_str()
+                    connector_id
                 )),
                 StoragePolicyDiagnostic::from_error(&error),
             )
@@ -121,41 +124,25 @@ pub async fn create(
         chunk_size,
         is_default,
         allowed_types,
-        application_config,
     } = input;
-    let mut connection = connection;
-    let remote_storage_target_key =
-        normalize_remote_storage_target_key(connection.remote_storage_target_key.clone());
-    connection.remote_storage_target_key = remote_storage_target_key.clone();
     let connectors = state.driver_registry().connectors();
-    let connection = crate::storage::connectors::normalize_policy_connection(
-        connectors,
-        state.writer_db(),
-        connection,
-    )
-    .await?;
+    let connection =
+        crate::storage::connectors::normalize_connection(connectors, state.writer_db(), connection)
+            .await?;
     let StoragePolicyConnectionInput {
-        driver_type,
-        endpoint,
-        bucket,
-        access_key,
-        secret_key,
-        base_path,
-        remote_node_id,
-        remote_storage_target_key: normalized_connection_target_key,
-        options,
-    } = crate::storage::connectors::prepare_connection_for_storage(
-        connectors,
-        connection,
-        &application_config,
-    )?;
+        connector_config,
+        behavior,
+        credential,
+    } = connection;
+    let connector_id = connector_config.connector_id.as_str().to_string();
     crate::services::ops::deployment::validate_storage_policy_driver(
         connectors,
         state.config(),
-        driver_type,
+        &connector_config.connector_id,
     )?;
-    let descriptor =
-        crate::storage::connectors::storage_driver_descriptor(connectors, driver_type)?;
+    let descriptor = connectors
+        .require_connector(&connector_config.connector_id)?
+        .descriptor();
     let setup_state_at_admission =
         crate::services::storage_policy::connector_catalog::validate_connector_for_current_setup_state(
             state.writer_db(),
@@ -163,27 +150,22 @@ pub async fn create(
         )
         .await?;
     let allowed_types = allowed_types.unwrap_or_default();
-    let options = options.normalized();
-    let serialized_options = serialize_options(&options)?;
+    let persisted_connector_config = ConnectorConfigEnvelope::new(
+        connector_config.connector_id.clone(),
+        connector_config.schema_version,
+        serde_json::to_value(&connector_config.values).map_err(|error| {
+            AsterError::internal_error(format!("serialize connector config: {error}"))
+        })?,
+    );
+    let storage_config =
+        aster_drive_storage::encode_storage_policy_config(persisted_connector_config, behavior)
+            .map(aster_drive_model::types::StoredStoragePolicyConfig)
+            .map_err(|error| {
+                AsterError::internal_error(format!("serialize storage policy config: {error}"))
+            })?;
     let max_file_size =
         aster_drive_storage::field_contract::normalize_storage_policy_max_file_size(max_file_size)?;
     let chunk_size = chunk_size.unwrap_or(5_242_880);
-    crate::storage::connectors::validate_policy_options(
-        connectors,
-        state.writer_db(),
-        driver_type,
-        remote_node_id,
-        &options,
-    )
-    .await?;
-    let remote_storage_target_key = validate_remote_storage_policy_target(
-        state,
-        driver_type,
-        remote_node_id,
-        normalized_connection_target_key,
-        true,
-    )
-    .await?;
     let creates_initial_default_policy = is_default
         && setup_state_at_admission
             == crate::services::system_setup::SystemSetupState::NeedsStorage;
@@ -196,17 +178,10 @@ pub async fn create(
     let now = Utc::now();
     let model = storage_policy::ActiveModel {
         name: Set(name),
-        driver_type: Set(driver_type),
-        endpoint: Set(endpoint),
-        bucket: Set(bucket),
-        access_key: Set(access_key),
-        secret_key: Set(secret_key),
-        base_path: Set(base_path),
-        remote_node_id: Set(remote_node_id),
-        remote_storage_target_key: Set(remote_storage_target_key),
         max_file_size: Set(max_file_size),
         allowed_types: Set(serialize_allowed_types(&allowed_types)?),
-        options: Set(serialized_options),
+        connector_id: Set(connector_id),
+        storage_config: Set(storage_config),
         is_default: Set(false),
         chunk_size: Set(chunk_size),
         created_at: Set(now),
@@ -214,21 +189,27 @@ pub async fn create(
         ..Default::default()
     };
     let result = policy_repo::create(&txn, model).await?;
-    crate::storage::connectors::persist_application_config(
+    crate::storage::connectors::persist_credential(
         connectors,
         &txn,
-        driver_type,
         &state.config().auth.storage_credential_secret_key,
         result.id,
-        &options,
-        application_config,
+        &connector_config,
+        credential,
     )
     .await?;
     if is_default {
         set_default_policy_and_group(&txn, result.id).await?;
     }
     transaction::commit(txn).await?;
-    state.policy_snapshot().reload(state.writer_db()).await?;
+    state
+        .driver_registry()
+        .reload_storage_policy_credentials(state.writer_db(), state.config())
+        .await?;
+    state
+        .driver_registry()
+        .reload_policy_snapshot(state.policy_snapshot(), state.writer_db())
+        .await?;
     crate::services::ops::config::invalidate_public_thumbnail_support_cache();
     crate::services::ops::config::invalidate_public_media_data_support_cache();
     crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
@@ -240,7 +221,7 @@ pub async fn create(
     .await;
     policy_repo::find_by_id(state.writer_db(), result.id)
         .await
-        .map(Into::into)
+        .and_then(StoragePolicy::try_from)
 }
 
 pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool) -> Result<()> {
@@ -335,7 +316,10 @@ pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool
     // 与 update 一致：先 invalidate driver 再 reload snapshot，
     // 避免"策略行已删除但 driver 仍在缓存里"的窗口。
     state.driver_registry().invalidate(id);
-    state.policy_snapshot().reload(state.writer_db()).await?;
+    state
+        .driver_registry()
+        .reload_policy_snapshot(state.policy_snapshot(), state.writer_db())
+        .await?;
     crate::services::ops::config::invalidate_public_thumbnail_support_cache();
     crate::services::ops::config::invalidate_public_media_data_support_cache();
     crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
@@ -361,98 +345,78 @@ pub async fn update(
 ) -> Result<StoragePolicy> {
     let UpdateStoragePolicyInput {
         name,
-        endpoint,
-        bucket,
-        access_key,
-        secret_key,
-        base_path,
-        remote_node_id,
-        remote_storage_target_key,
+        connector_config,
+        behavior,
+        credential,
         max_file_size,
         chunk_size,
         is_default,
         allowed_types,
-        options,
-        application_config,
     } = input;
+    let credential_updated = credential.is_some();
     let existing = policy_repo::find_by_id(state.writer_db(), id).await?;
-    let existing_endpoint = existing.endpoint.clone();
-    let existing_bucket = existing.bucket.clone();
-    let existing_access_key = existing.access_key.clone();
-    let existing_secret_key = existing.secret_key.clone();
-    let existing_driver_type = existing.driver_type;
-    let existing_remote_node_id = existing.remote_node_id;
-    let existing_remote_storage_target_key = existing.remote_storage_target_key.clone();
-    let existing_options = parse_storage_policy_options(existing.options.as_ref());
-    let final_endpoint = endpoint.unwrap_or_else(|| existing_endpoint.clone());
-    let final_bucket = bucket.unwrap_or_else(|| existing_bucket.clone());
-    let final_access_key = access_key
-        .clone()
-        .unwrap_or_else(|| existing_access_key.clone());
-    let final_secret_key = secret_key
-        .clone()
-        .unwrap_or_else(|| existing_secret_key.clone());
-    let final_base_path = base_path
-        .clone()
-        .unwrap_or_else(|| existing.base_path.clone());
-    let normalized_connection = crate::storage::connectors::normalize_policy_connection(
-        state.driver_registry().connectors(),
-        state.writer_db(),
-        StoragePolicyConnectionInput {
-            driver_type: existing_driver_type,
-            endpoint: final_endpoint,
-            bucket: final_bucket,
-            access_key: final_access_key,
-            secret_key: final_secret_key,
-            base_path: final_base_path,
-            remote_node_id: remote_node_id.or(existing.remote_node_id),
-            remote_storage_target_key: normalize_remote_storage_target_key(
-                remote_storage_target_key
-                    .clone()
-                    .or(existing_remote_storage_target_key.clone()),
-            ),
-            options: existing_options.clone(),
-        },
-    )
-    .await?;
-    let normalized_connection = crate::storage::connectors::prepare_connection_for_storage(
-        state.driver_registry().connectors(),
-        normalized_connection,
-        &application_config,
-    )?;
-    let normalized_endpoint = normalized_connection.endpoint.clone();
-    let normalized_bucket = normalized_connection.bucket.clone();
-    let normalized_access_key = normalized_connection.access_key.clone();
-    let normalized_secret_key = normalized_connection.secret_key.clone();
-    let normalized_remote_node_id = normalized_connection.remote_node_id;
-    let normalized_remote_storage_target_key =
-        normalized_connection.remote_storage_target_key.clone();
-    let options_provided = options.is_some();
-    let final_options = options.unwrap_or(existing_options).normalized();
-    let serialized_final_options = serialize_options(&final_options)?;
-    crate::storage::connectors::validate_policy_options(
-        state.driver_registry().connectors(),
-        state.writer_db(),
-        existing_driver_type,
-        normalized_remote_node_id,
-        &final_options,
-    )
-    .await?;
-    let remote_target_binding_changed = normalized_remote_node_id != existing_remote_node_id
-        || normalized_remote_storage_target_key != existing_remote_storage_target_key;
-    let final_remote_storage_target_key =
-        if existing_driver_type == DriverType::Remote && !remote_target_binding_changed {
-            existing_remote_storage_target_key.clone()
-        } else {
-            validate_remote_storage_policy_target(
-                state,
-                existing_driver_type,
-                normalized_remote_node_id,
-                normalized_remote_storage_target_key,
-                remote_target_binding_changed,
+    let existing_storage_config: StoragePolicyConfigEnvelope =
+        serde_json::from_str(existing.storage_config.as_ref()).map_err(|error| {
+            AsterError::database_operation(format!(
+                "storage policy {} has invalid storage_config: {error}",
+                existing.id
+            ))
+        })?;
+    if existing_storage_config.connector.connector_id.as_str() != existing.connector_id {
+        return Err(AsterError::database_operation(format!(
+            "storage policy {} connector id does not match storage_config",
+            existing.id
+        )));
+    }
+    let connectors = state.driver_registry().connectors();
+    let connector_config = match connector_config {
+        Some(connector_config) => {
+            if connector_config.connector_id.as_str() != existing.connector_id {
+                return Err(AsterError::validation_error(
+                    "storage policy connector_id cannot be changed by patch",
+                ));
+            }
+            crate::storage::connectors::normalize_connector_config(
+                connectors,
+                state.writer_db(),
+                connector_config,
             )
             .await?
-        };
+        }
+        None => ConnectorConfigEnvelope::new(
+            existing_storage_config.connector.connector_id.clone(),
+            existing_storage_config.connector.schema_version,
+            serde_json::from_value(existing_storage_config.connector.values.clone()).map_err(
+                |error| {
+                    AsterError::database_operation(format!(
+                        "storage policy {} connector config must be a JSON object: {error}",
+                        existing.id
+                    ))
+                },
+            )?,
+        ),
+    };
+    if let Some(credential) = credential.as_ref() {
+        crate::storage::connectors::validate_credential_input(
+            connectors,
+            &connector_config.connector_id,
+            credential,
+        )?;
+    }
+    let behavior = behavior.unwrap_or(existing_storage_config.behavior.values);
+    let persisted_connector_config = ConnectorConfigEnvelope::new(
+        connector_config.connector_id.clone(),
+        connector_config.schema_version,
+        serde_json::to_value(&connector_config.values).map_err(|error| {
+            AsterError::internal_error(format!("serialize connector config: {error}"))
+        })?,
+    );
+    let storage_config =
+        aster_drive_storage::encode_storage_policy_config(persisted_connector_config, behavior)
+            .map(aster_drive_model::types::StoredStoragePolicyConfig)
+            .map_err(|error| {
+                AsterError::internal_error(format!("serialize storage policy config: {error}"))
+            })?;
 
     let txn = transaction::begin(state.writer_db()).await?;
     if let Some(false) = is_default
@@ -473,27 +437,6 @@ pub async fn update(
     if let Some(v) = name {
         active.name = Set(v);
     }
-    if normalized_endpoint != existing_endpoint {
-        active.endpoint = Set(normalized_endpoint);
-    }
-    if normalized_bucket != existing_bucket {
-        active.bucket = Set(normalized_bucket);
-    }
-    if normalized_access_key != existing_access_key {
-        active.access_key = Set(normalized_access_key);
-    }
-    if normalized_secret_key != existing_secret_key {
-        active.secret_key = Set(normalized_secret_key);
-    }
-    if let Some(v) = base_path {
-        active.base_path = Set(v);
-    }
-    if normalized_remote_node_id != existing_remote_node_id {
-        active.remote_node_id = Set(normalized_remote_node_id);
-    }
-    if final_remote_storage_target_key != existing_remote_storage_target_key {
-        active.remote_storage_target_key = Set(final_remote_storage_target_key);
-    }
     if let Some(v) = max_file_size {
         active.max_file_size =
             Set(aster_drive_storage::field_contract::normalize_storage_policy_max_file_size(v)?);
@@ -507,37 +450,45 @@ pub async fn update(
     if let Some(v) = allowed_types {
         active.allowed_types = Set(serialize_allowed_types(&v)?);
     }
-    if options_provided {
-        active.options = Set(serialized_final_options);
-    }
+    active.storage_config = Set(storage_config);
     active.updated_at = Set(Utc::now());
     let result = active
         .update(&txn)
         .await
         .map_aster_err(AsterError::database_operation)?;
 
-    crate::storage::connectors::persist_application_config(
-        state.driver_registry().connectors(),
-        &txn,
-        existing_driver_type,
-        &state.config().auth.storage_credential_secret_key,
-        result.id,
-        &final_options,
-        application_config,
-    )
-    .await?;
+    if let Some(credential) = credential {
+        crate::storage::connectors::persist_credential(
+            connectors,
+            &txn,
+            &state.config().auth.storage_credential_secret_key,
+            result.id,
+            &connector_config,
+            credential,
+        )
+        .await?;
+    }
 
     if is_default == Some(true) {
         set_default_policy_and_group(&txn, result.id).await?;
     }
 
     transaction::commit(txn).await?;
+    if credential_updated {
+        state
+            .driver_registry()
+            .reload_storage_policy_credentials(state.writer_db(), state.config())
+            .await?;
+    }
 
     // 失效顺序很关键：必须先 invalidate driver 再 reload snapshot。
     // 如果反过来，中间窗口里读请求可能拿到"新 policy model + 旧 driver cache"，
     // 把写操作发到老的 endpoint/bucket/credential 上——无日志、无报错的静默错路由。
     state.driver_registry().invalidate(id);
-    state.policy_snapshot().reload(state.writer_db()).await?;
+    state
+        .driver_registry()
+        .reload_policy_snapshot(state.policy_snapshot(), state.writer_db())
+        .await?;
     crate::services::ops::config::invalidate_public_thumbnail_support_cache();
     crate::services::ops::config::invalidate_public_media_data_support_cache();
     crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
@@ -550,233 +501,7 @@ pub async fn update(
 
     policy_repo::find_by_id(state.writer_db(), result.id)
         .await
-        .map(Into::into)
-}
-
-pub async fn promote_s3_compatible_driver(
-    state: &impl SharedRuntimeState,
-    id: i64,
-    input: PromoteS3CompatiblePolicyDriverInput,
-) -> Result<StoragePolicy> {
-    let existing = policy_repo::find_by_id(state.writer_db(), id).await?;
-    let connectors = state.driver_registry().connectors();
-    crate::storage::connectors::validate_driver_promotion_source(connectors, existing.driver_type)?;
-    crate::storage::connectors::validate_driver_promotion_target(
-        connectors,
-        existing.driver_type,
-        input.target_driver_type,
-    )?;
-
-    let existing_options = parse_storage_policy_options(existing.options.as_ref());
-    let normalized_connection = crate::storage::connectors::normalize_policy_connection(
-        connectors,
-        state.writer_db(),
-        StoragePolicyConnectionInput {
-            driver_type: input.target_driver_type,
-            endpoint: input.endpoint,
-            bucket: input.bucket,
-            access_key: existing.access_key.clone(),
-            secret_key: existing.secret_key.clone(),
-            base_path: existing.base_path.clone(),
-            remote_node_id: existing.remote_node_id,
-            remote_storage_target_key: existing.remote_storage_target_key.clone(),
-            options: existing_options,
-        },
-    )
-    .await?;
-    let normalized_endpoint = normalized_connection.endpoint;
-    let normalized_bucket = normalized_connection.bucket;
-    if normalized_bucket != existing.bucket {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyPromotionBucketChangeDenied,
-            "bucket cannot be changed by S3-compatible driver promotion",
-        ));
-    }
-
-    let active_upload_sessions =
-        upload_session_repo::count_active_by_policy(state.writer_db(), id).await?;
-    if active_upload_sessions > 0 {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyUploadSessionsExist,
-            format!(
-                "cannot promote policy: {active_upload_sessions} active upload session(s) still reference it"
-            ),
-        ));
-    }
-
-    let mut candidate_policy = existing.clone();
-    candidate_policy.driver_type = input.target_driver_type;
-    candidate_policy.endpoint = normalized_endpoint.clone();
-    candidate_policy.bucket = normalized_bucket;
-    validate_s3_compatible_promotion_candidate(state, &candidate_policy).await?;
-
-    let txn = transaction::begin(state.writer_db()).await?;
-    let active_upload_sessions = upload_session_repo::count_active_by_policy(&txn, id).await?;
-    if active_upload_sessions > 0 {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyUploadSessionsExist,
-            format!(
-                "cannot promote policy: {active_upload_sessions} active upload session(s) still reference it"
-            ),
-        ));
-    }
-    policy_repo::promote_s3_compatible_driver(
-        &txn,
-        id,
-        DriverType::S3,
-        input.target_driver_type,
-        normalized_endpoint,
-    )
-    .await?;
-    transaction::commit(txn).await?;
-
-    // 与普通 update 一致：先 invalidate driver，再 reload snapshot。
-    state.driver_registry().invalidate(id);
-    state.policy_snapshot().reload(state.writer_db()).await?;
-    crate::services::ops::config::invalidate_public_thumbnail_support_cache();
-    crate::services::ops::config::invalidate_public_media_data_support_cache();
-    crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
-        state,
-        "promote_driver",
-        "storage_policy",
-        id,
-    )
-    .await;
-
-    policy_repo::find_by_id(state.writer_db(), id)
-        .await
-        .map(Into::into)
-}
-
-async fn validate_s3_compatible_promotion_candidate(
-    state: &impl SharedRuntimeState,
-    candidate_policy: &storage_policy::Model,
-) -> Result<()> {
-    crate::storage::connectors::validate_driver_promotion_candidate(
-        state.driver_registry().connectors(),
-        candidate_policy,
-    )?;
-
-    verify_s3_compatible_promotion_sample(state, candidate_policy).await
-}
-
-async fn verify_s3_compatible_promotion_sample(
-    state: &impl SharedRuntimeState,
-    candidate_policy: &storage_policy::Model,
-) -> Result<()> {
-    const PROMOTION_SAMPLE_SIZE: u64 = 10;
-
-    let blobs = file_repo::find_blobs_by_policy_paginated(
-        state.writer_db(),
-        candidate_policy.id,
-        0,
-        PROMOTION_SAMPLE_SIZE,
-    )
-    .await?;
-    if blobs.is_empty() {
-        return Ok(());
-    }
-
-    let driver = state
-        .driver_registry()
-        .build_uncached_driver(candidate_policy)?;
-    for blob in blobs {
-        let metadata = driver.metadata(&blob.storage_path).await.map_err(|error| {
-            AsterError::storage_driver_error(format!(
-                "verify existing object '{}' (blob id {}) before S3-compatible driver promotion: {error}",
-                blob.storage_path, blob.id
-            ))
-        })?;
-        let actual_size =
-            aster_forge_utils::numbers::u64_to_i64(metadata.size, "blob metadata size")?;
-        if actual_size != blob.size {
-            return Err(AsterError::storage_driver_error(format!(
-                "object '{}' (blob id {}) size mismatch before S3-compatible driver promotion: expected {}, got {}",
-                blob.storage_path, blob.id, blob.size, actual_size
-            )));
-        }
-    }
-
-    Ok(())
-}
-
-fn normalize_remote_storage_target_key(value: Option<String>) -> Option<String> {
-    value
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-}
-
-async fn validate_remote_storage_policy_target<S: RemoteProtocolRuntimeState + Sync>(
-    state: &S,
-    driver_type: DriverType,
-    remote_node_id: Option<i64>,
-    target_key: Option<String>,
-    require_explicit: bool,
-) -> Result<Option<String>> {
-    if driver_type != DriverType::Remote {
-        if target_key.is_some() {
-            return Err(validation_error_with_code(
-                ApiErrorCode::PolicyRemoteNodeUnexpected,
-                "remote_storage_target_key is only valid for remote storage policies",
-            ));
-        }
-        return Ok(None);
-    }
-
-    let Some(remote_node_id) = remote_node_id else {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyRemoteNodeRequired,
-            "remote storage policy requires remote_node_id",
-        ));
-    };
-    let Some(target_key) = target_key else {
-        if require_explicit {
-            return Err(validation_error_with_code(
-                ApiErrorCode::PolicyRemoteStorageTargetRequired,
-                "remote storage policy requires remote_storage_target_key",
-            ));
-        }
-        // TODO(remote-storage-target): legacy remote policies created before
-        // 0.4.0 may not have a target key. The primary database cannot safely
-        // infer which follower-side target was intended, so keep the null value
-        // only while the policy's remote binding remains unchanged. Runtime
-        // requests without target_key fall back to the follower binding default.
-        return Ok(None);
-    };
-
-    let targets = storage_target::list_remote(state, remote_node_id).await?;
-    let target = targets
-        .into_iter()
-        .find(|target| target.target_key == target_key)
-        .ok_or_else(|| {
-            validation_error_with_code(
-                ApiErrorCode::RemoteStorageTargetNotFound,
-                format!(
-                    "remote storage target '{}' does not exist on remote node #{}",
-                    target_key, remote_node_id
-                ),
-            )
-        })?;
-    if !target.last_error.trim().is_empty() {
-        return Err(validation_error_with_code(
-            ApiErrorCode::ManagedIngressDefaultError,
-            format!(
-                "remote storage target '{}' is not ready: {}",
-                target.target_key, target.last_error
-            ),
-        ));
-    }
-    if target.applied_revision < target.desired_revision {
-        return Err(validation_error_with_code(
-            ApiErrorCode::ManagedIngressDefaultNotApplied,
-            format!(
-                "remote storage target '{}' is pending apply",
-                target.target_key
-            ),
-        ));
-    }
-
-    Ok(Some(target.target_key))
+        .and_then(StoragePolicy::try_from)
 }
 
 pub async fn test_default_connection<S: SharedRuntimeState + Sync>(state: &S) -> Result<()> {

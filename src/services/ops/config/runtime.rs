@@ -35,7 +35,10 @@ pub async fn reconcile_storage_topology(state: &impl SharedRuntimeState) -> Resu
                 .await?;
         }
     }
-    state.policy_snapshot().reload(state.writer_db()).await?;
+    state
+        .driver_registry()
+        .reload_policy_snapshot(state.policy_snapshot(), state.writer_db())
+        .await?;
     state.driver_registry().invalidate_all();
     super::system::invalidate_all_dependent_public_config_caches();
     Ok(())

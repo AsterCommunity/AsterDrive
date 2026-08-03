@@ -24,6 +24,7 @@ struct PolicySnapshotData {
     policy_group_items_by_group_id: HashMap<i64, Vec<ResolvedPolicyGroupItem>>,
     user_policy_group_by_user_id: HashMap<i64, i64>,
     enabled_remote_node_ids: HashSet<i64>,
+    remote_node_id_by_policy_id: HashMap<i64, Option<i64>>,
     system_default_policy_group_id: Option<i64>,
     system_default_policy_id: Option<i64>,
 }
@@ -39,7 +40,11 @@ impl PolicySnapshot {
         }
     }
 
-    pub async fn reload(&self, db: &DatabaseConnection) -> Result<()> {
+    pub(crate) async fn reload(
+        &self,
+        db: &DatabaseConnection,
+        connectors: &crate::storage::connectors::StorageConnectorRegistry,
+    ) -> Result<()> {
         let policies = policy_repo::find_all(db).await?;
         let policy_groups = policy_group_repo::find_all_groups(db).await?;
         let policy_group_items = policy_group_repo::find_all_group_items(db).await?;
@@ -50,6 +55,14 @@ impl PolicySnapshot {
             .iter()
             .find(|policy| policy.is_default)
             .map(|policy| policy.id);
+        let mut remote_node_id_by_policy_id = HashMap::new();
+        for policy in &policies {
+            if let Some(binding) =
+                crate::storage::connectors::resolve_remote_policy_binding(connectors, policy)?
+            {
+                remote_node_id_by_policy_id.insert(policy.id, binding.remote_node_id);
+            }
+        }
         let policies_by_id = policies
             .into_iter()
             .map(|policy| (policy.id, policy))
@@ -94,6 +107,7 @@ impl PolicySnapshot {
             policy_group_items_by_group_id,
             user_policy_group_by_user_id,
             enabled_remote_node_ids,
+            remote_node_id_by_policy_id,
             system_default_policy_group_id,
             system_default_policy_id,
         };
@@ -127,20 +141,19 @@ impl PolicySnapshot {
         &self,
         policy: &storage_policy::Model,
     ) -> Option<String> {
-        if policy.driver_type != aster_drive_model::types::DriverType::Remote {
+        let snapshot = self.snapshot.read();
+        let Some(remote_node_id) = snapshot
+            .remote_node_id_by_policy_id
+            .get(&policy.id)
+            .copied()
+        else {
             return None;
-        }
-
-        let Some(remote_node_id) = policy.remote_node_id else {
+        };
+        let Some(remote_node_id) = remote_node_id else {
             return Some("remote policy has no bound remote node".to_string());
         };
 
-        if self
-            .snapshot
-            .read()
-            .enabled_remote_node_ids
-            .contains(&remote_node_id)
-        {
+        if snapshot.enabled_remote_node_ids.contains(&remote_node_id) {
             None
         } else {
             Some(format!(
@@ -226,7 +239,11 @@ impl PolicySnapshot {
                 return Ok(resolved.policy.clone());
             }
             if matches_size_rule(&resolved.item, file_size)
-                && resolved.policy.driver_type == aster_drive_model::types::DriverType::Remote
+                && self
+                    .snapshot
+                    .read()
+                    .remote_node_id_by_policy_id
+                    .contains_key(&resolved.policy.id)
             {
                 skipped_disabled_remote = true;
             }
@@ -306,18 +323,19 @@ impl PolicySnapshot {
     }
 
     fn policy_available_for_outbound(&self, policy: &storage_policy::Model) -> bool {
-        if policy.driver_type != aster_drive_model::types::DriverType::Remote {
+        let snapshot = self.snapshot.read();
+        let Some(remote_node_id) = snapshot
+            .remote_node_id_by_policy_id
+            .get(&policy.id)
+            .copied()
+        else {
             return true;
-        }
-
-        let Some(remote_node_id) = policy.remote_node_id else {
+        };
+        let Some(remote_node_id) = remote_node_id else {
             return false;
         };
 
-        self.snapshot
-            .read()
-            .enabled_remote_node_ids
-            .contains(&remote_node_id)
+        snapshot.enabled_remote_node_ids.contains(&remote_node_id)
     }
 }
 

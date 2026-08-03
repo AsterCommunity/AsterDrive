@@ -8,7 +8,7 @@ import { writeTextToClipboard } from "@/lib/clipboard";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { StoragePolicyCredentialInfo } from "@/types/api";
+import type { StorageConnectorCredentialInfo } from "@/types/api";
 import { OneDriveApplicationFields } from "./OneDriveApplicationFields";
 import { onedriveCredentialStatusReasonKey } from "./onedriveCredentialReason";
 import { MICROSOFT_GRAPH_PROVIDER } from "./onedriveFieldUtils";
@@ -32,7 +32,7 @@ export function OneDriveCredentialPanel({
 	authorizationPending: boolean;
 	canStartAuthorization?: boolean;
 	canValidateCredential?: boolean;
-	credentials: StoragePolicyCredentialInfo[];
+	credentials: StorageConnectorCredentialInfo[];
 	form: SharedFieldProps["form"];
 	loading: boolean;
 	redirectUri: string;

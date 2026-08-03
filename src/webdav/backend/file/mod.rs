@@ -129,10 +129,15 @@ impl AsterDavFile {
                 .await
                 .map_err(|_| FsError::GeneralFailure)?;
 
-            if policy.driver_type == aster_drive_model::types::DriverType::Local {
+            if let Some(local) = crate::storage::connectors::resolve_local_filesystem_projection(
+                state.driver_registry().connectors(),
+                &policy,
+            )
+            .map_err(|_| FsError::GeneralFailure)?
+            {
                 let staging_token = format!("{}.upload", aster_forge_utils::id::new_uuid());
                 let staging_path = crate::storage::drivers::local::upload_staging_path(
-                    &policy.base_path,
+                    &local.base_path,
                     &staging_token,
                 )
                 .map_err(|_| FsError::GeneralFailure)?;
@@ -144,7 +149,7 @@ impl AsterDavFile {
                 let file = tokio::fs::File::create(&staging_path)
                     .await
                     .map_err(|_| FsError::GeneralFailure)?;
-                let hasher = storage::local_content_dedup_enabled(&policy).then(Sha256::new);
+                let hasher = local.content_dedup.then(Sha256::new);
 
                 (
                     file,
@@ -160,7 +165,7 @@ impl AsterDavFile {
             .map_err(|error| {
                 tracing::warn!(
                     policy_id = policy.id,
-                    driver_type = %policy.driver_type.as_str(),
+                    connector_id = %policy.connector_id,
                     error = %error,
                     "failed to resolve WebDAV streaming direct upload eligibility"
                 );
@@ -195,7 +200,7 @@ impl AsterDavFile {
                 .map_err(|error| {
                     tracing::warn!(
                         policy_id = policy.id,
-                        driver_type = %policy.driver_type.as_str(),
+                        connector_id = %policy.connector_id,
                         "failed to prepare WebDAV direct blob upload: {error}"
                     );
                     FsError::GeneralFailure

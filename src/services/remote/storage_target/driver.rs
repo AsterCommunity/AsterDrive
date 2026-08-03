@@ -1,5 +1,5 @@
-use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
@@ -7,19 +7,14 @@ use crate::runtime::FollowerRuntimeState;
 use crate::storage::drivers::s3_config::normalize_s3_endpoint_and_bucket;
 use crate::storage::drivers::{
     local::LocalDriver,
-    s3::{S3Driver, S3DriverOptions},
+    s3::{S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials},
 };
-use aster_drive_model::entities::{remote_storage_target, storage_policy};
-use aster_drive_model::types::{
-    DriverType, StoragePolicyOptions, StoredStoragePolicyAllowedTypes,
-    StoredStoragePolicyBehaviorConfig, StoredStoragePolicyOptions,
-};
+use aster_drive_model::entities::remote_storage_target;
+use aster_drive_model::types::DriverType;
+use aster_drive_storage::StorageDriver;
 use aster_drive_storage::field_contract::{
     StorageDescriptorFieldKind, StorageDescriptorFieldSemantics, normalize_object_storage_prefix,
     normalize_required_storage_field,
-};
-use aster_drive_storage::{
-    StorageDriver, StoragePolicyBehaviorConfig, encode_storage_policy_behavior_config,
 };
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -185,14 +180,15 @@ trait RemoteStorageTargetDriverConnector {
         fields: RemoteStorageTargetDriverFields,
     ) -> Result<NormalizedRemoteStorageTargetDriverFields>;
 
-    fn policy_base_path<S: FollowerRuntimeState>(
+    fn validate_target<S: FollowerRuntimeState>(
         state: &S,
         target: &remote_storage_target::Model,
-    ) -> Result<String>;
+    ) -> Result<()>;
 
-    fn validate_policy(policy: &storage_policy::Model) -> Result<()>;
-
-    fn build_driver(policy: &storage_policy::Model) -> Result<Arc<dyn StorageDriver>>;
+    fn build_driver<S: FollowerRuntimeState>(
+        state: &S,
+        target: &remote_storage_target::Model,
+    ) -> Result<Arc<dyn StorageDriver>>;
 }
 
 struct LocalRemoteStorageTargetDriverConnector;
@@ -242,25 +238,19 @@ impl RemoteStorageTargetDriverConnector for LocalRemoteStorageTargetDriverConnec
         })
     }
 
-    fn policy_base_path<S: FollowerRuntimeState>(
+    fn validate_target<S: FollowerRuntimeState>(
         state: &S,
         target: &remote_storage_target::Model,
-    ) -> Result<String> {
-        Ok(resolve_remote_storage_target_local_path(
+    ) -> Result<()> {
+        let base_path = resolve_remote_storage_target_local_path(
             &state
                 .config()
                 .server
                 .follower
                 .remote_storage_target_local_root,
             &target.base_path,
-        )?
-        .to_string_lossy()
-        .into_owned())
-    }
-
-    fn validate_policy(policy: &storage_policy::Model) -> Result<()> {
-        let base_path = Path::new(&policy.base_path);
-        std::fs::create_dir_all(base_path).map_aster_err_ctx(
+        )?;
+        std::fs::create_dir_all(&base_path).map_aster_err_ctx(
             &format!(
                 "create remote storage target local path '{}'",
                 base_path.display()
@@ -269,9 +259,20 @@ impl RemoteStorageTargetDriverConnector for LocalRemoteStorageTargetDriverConnec
         )
     }
 
-    fn build_driver(policy: &storage_policy::Model) -> Result<Arc<dyn StorageDriver>> {
-        Self::validate_policy(policy)?;
-        Ok(Arc::new(LocalDriver::new(&policy.base_path)?))
+    fn build_driver<S: FollowerRuntimeState>(
+        state: &S,
+        target: &remote_storage_target::Model,
+    ) -> Result<Arc<dyn StorageDriver>> {
+        Self::validate_target(state, target)?;
+        let base_path = resolve_remote_storage_target_local_path(
+            &state
+                .config()
+                .server
+                .follower
+                .remote_storage_target_local_root,
+            &target.base_path,
+        )?;
+        Ok(Arc::new(LocalDriver::new(&base_path.to_string_lossy())?))
     }
 }
 
@@ -346,24 +347,47 @@ impl RemoteStorageTargetDriverConnector for S3RemoteStorageTargetDriverConnector
         })
     }
 
-    fn policy_base_path<S: FollowerRuntimeState>(
+    fn validate_target<S: FollowerRuntimeState>(
         _state: &S,
         target: &remote_storage_target::Model,
-    ) -> Result<String> {
-        Ok(target.base_path.clone())
+    ) -> Result<()> {
+        let (config, credentials) = s3_target_runtime(target);
+        Ok(S3Driver::validate_config(&config, &credentials)?)
     }
 
-    fn validate_policy(policy: &storage_policy::Model) -> Result<()> {
-        Ok(S3Driver::validate_policy(policy)?)
-    }
-
-    fn build_driver(policy: &storage_policy::Model) -> Result<Arc<dyn StorageDriver>> {
+    fn build_driver<S: FollowerRuntimeState>(
+        _state: &S,
+        target: &remote_storage_target::Model,
+    ) -> Result<Arc<dyn StorageDriver>> {
+        let (config, credentials) = s3_target_runtime(target);
         Ok(Arc::new(S3Driver::new(
-            policy,
+            config,
+            credentials,
             S3DriverOptions::default(),
             std::convert::identity,
         )?))
     }
+}
+
+fn s3_target_runtime(
+    target: &remote_storage_target::Model,
+) -> (S3DriverConfig, S3StaticCredentials) {
+    (
+        S3DriverConfig {
+            endpoint: target.endpoint.clone(),
+            bucket: target.bucket.clone(),
+            base_path: target.base_path.clone(),
+            region: "auto".to_string(),
+            path_style: true,
+            connect_timeout: Duration::from_secs(5),
+            read_timeout: Duration::from_secs(30),
+            operation_timeout: Duration::from_secs(3_600),
+        },
+        S3StaticCredentials {
+            access_key: target.access_key.clone(),
+            secret_key: target.secret_key.clone(),
+        },
+    )
 }
 
 struct RemoteStorageTargetDriverRegistration {
@@ -395,28 +419,25 @@ impl BuiltinRemoteStorageTargetDriverConnector {
         }
     }
 
-    fn policy_base_path<S: FollowerRuntimeState>(
+    fn validate_target<S: FollowerRuntimeState>(
         self,
         state: &S,
         target: &remote_storage_target::Model,
-    ) -> Result<String> {
+    ) -> Result<()> {
         match self {
-            Self::Local => LocalRemoteStorageTargetDriverConnector::policy_base_path(state, target),
-            Self::S3 => S3RemoteStorageTargetDriverConnector::policy_base_path(state, target),
+            Self::Local => LocalRemoteStorageTargetDriverConnector::validate_target(state, target),
+            Self::S3 => S3RemoteStorageTargetDriverConnector::validate_target(state, target),
         }
     }
 
-    fn validate_policy(self, policy: &storage_policy::Model) -> Result<()> {
+    fn build_driver<S: FollowerRuntimeState>(
+        self,
+        state: &S,
+        target: &remote_storage_target::Model,
+    ) -> Result<Arc<dyn StorageDriver>> {
         match self {
-            Self::Local => LocalRemoteStorageTargetDriverConnector::validate_policy(policy),
-            Self::S3 => S3RemoteStorageTargetDriverConnector::validate_policy(policy),
-        }
-    }
-
-    fn build_driver(self, policy: &storage_policy::Model) -> Result<Arc<dyn StorageDriver>> {
-        match self {
-            Self::Local => LocalRemoteStorageTargetDriverConnector::build_driver(policy),
-            Self::S3 => S3RemoteStorageTargetDriverConnector::build_driver(policy),
+            Self::Local => LocalRemoteStorageTargetDriverConnector::build_driver(state, target),
+            Self::S3 => S3RemoteStorageTargetDriverConnector::build_driver(state, target),
         }
     }
 }
@@ -478,8 +499,7 @@ pub(in crate::services::remote::storage_target) fn validate_driver_from_target<
     target: &remote_storage_target::Model,
 ) -> Result<()> {
     let registration = registration_for(target.driver_type)?;
-    let policy = build_policy_model(state, target, registration)?;
-    registration.connector.validate_policy(&policy)
+    registration.connector.validate_target(state, target)
 }
 
 pub(in crate::services::remote::storage_target) fn build_driver_from_target<
@@ -489,8 +509,7 @@ pub(in crate::services::remote::storage_target) fn build_driver_from_target<
     target: &remote_storage_target::Model,
 ) -> Result<Arc<dyn StorageDriver>> {
     let registration = registration_for(target.driver_type)?;
-    let policy = build_policy_model(state, target, registration)?;
-    registration.connector.build_driver(&policy)
+    registration.connector.build_driver(state, target)
 }
 
 fn remote_storage_target_unsupported_driver_error(driver_type: DriverType) -> AsterError {
@@ -501,62 +520,4 @@ fn remote_storage_target_unsupported_driver_error(driver_type: DriverType) -> As
             driver_type.as_str()
         ),
     )
-}
-
-fn build_policy_model<S: FollowerRuntimeState>(
-    state: &S,
-    target: &remote_storage_target::Model,
-    registration: &RemoteStorageTargetDriverRegistration,
-) -> Result<storage_policy::Model> {
-    let base_path = registration.connector.policy_base_path(state, target)?;
-    let connector_id =
-        crate::storage::connectors::connector_id_for_legacy_driver_type(target.driver_type);
-    let connector = state
-        .driver_registry()
-        .connectors()
-        .require_connector(&connector_id)?;
-    let connector_config = connector.encode_config(
-        &crate::storage::connectors::StorageConnectorConnectionInput {
-            driver_type: target.driver_type,
-            endpoint: target.endpoint.clone(),
-            bucket: target.bucket.clone(),
-            access_key: target.access_key.clone(),
-            secret_key: target.secret_key.clone(),
-            base_path: base_path.clone(),
-            remote_node_id: None,
-            remote_storage_target_key: None,
-            options: StoragePolicyOptions::default(),
-        },
-    )?;
-    let behavior_config =
-        encode_storage_policy_behavior_config(StoragePolicyBehaviorConfig::default())
-            .map(StoredStoragePolicyBehaviorConfig)
-            .map_err(|error| {
-                AsterError::internal_error(format!(
-                    "serialize remote storage target policy behavior config: {error}"
-                ))
-            })?;
-
-    Ok(storage_policy::Model {
-        id: target.id,
-        name: target.name.clone(),
-        driver_type: target.driver_type,
-        endpoint: target.endpoint.clone(),
-        bucket: target.bucket.clone(),
-        access_key: target.access_key.clone(),
-        secret_key: target.secret_key.clone(),
-        base_path,
-        remote_node_id: None,
-        remote_storage_target_key: None,
-        connector_id: connector_id.as_str().to_string(),
-        connector_config,
-        behavior_config,
-        max_file_size: 0,
-        allowed_types: StoredStoragePolicyAllowedTypes::empty(),
-        options: StoredStoragePolicyOptions::empty(),
-        is_default: target.is_default,
-        chunk_size: 0,
-        created_at: target.created_at,
-        updated_at: target.updated_at,
-    })
 }

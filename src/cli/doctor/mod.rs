@@ -881,7 +881,8 @@ async fn doctor_storage_policy_check(db: &sea_orm::DatabaseConnection) -> Doctor
     };
 
     let snapshot = crate::storage::PolicySnapshot::new();
-    if let Err(err) = snapshot.reload(db).await {
+    let driver_registry = crate::storage::DriverRegistry::noop();
+    if let Err(err) = driver_registry.reload_policy_snapshot(&snapshot, db).await {
         return DoctorCheck {
             name: "storage_policies",
             label: "Storage policies",

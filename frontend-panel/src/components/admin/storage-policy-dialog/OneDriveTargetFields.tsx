@@ -8,7 +8,10 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
-import type { OneDriveAccountMode } from "@/types/api";
+import {
+	connectorStringValue,
+	updatedConnectorConfigValues,
+} from "./formTypes";
 import {
 	getDefaultTenant,
 	getTenantMode,
@@ -24,10 +27,20 @@ export function OneDriveTargetFields({
 }: SharedFieldProps & {
 	accountModeOptions: Array<{
 		label: string;
-		value: OneDriveAccountMode;
+		value: string;
 	}>;
 	t: Translate;
 }) {
+	const accountMode = connectorStringValue(
+		form,
+		"account_mode",
+		"work_or_school",
+	);
+	const setConnectorValue = (name: string, value: string) =>
+		onFieldChange(
+			"connector_config_values",
+			updatedConnectorConfigValues(form, name, value),
+		);
 	return (
 		<>
 			<div className="space-y-2">
@@ -36,13 +49,13 @@ export function OneDriveTargetFields({
 				</Label>
 				<Select
 					items={accountModeOptions}
-					value={form.onedrive_account_mode}
+					value={accountMode}
 					onValueChange={(value) => {
-						const nextMode = (value ?? "work_or_school") as OneDriveAccountMode;
+						const nextMode = value ?? "work_or_school";
 						const tenantMode = getTenantMode(form);
-						onFieldChange("onedrive_account_mode", nextMode);
+						setConnectorValue("account_mode", nextMode);
 						if (tenantMode === ONE_DRIVE_AUTO_TENANT_MODE) {
-							onFieldChange("onedrive_tenant", getDefaultTenant(nextMode));
+							setConnectorValue("tenant", getDefaultTenant(nextMode));
 						}
 					}}
 				>
@@ -65,9 +78,9 @@ export function OneDriveTargetFields({
 				<Label htmlFor="onedrive_drive_id">{t("onedrive_drive_id")}</Label>
 				<Input
 					id="onedrive_drive_id"
-					value={form.onedrive_drive_id}
+					value={connectorStringValue(form, "drive_id")}
 					onChange={(event) =>
-						onFieldChange("onedrive_drive_id", event.target.value)
+						setConnectorValue("drive_id", event.target.value)
 					}
 					className={ADMIN_CONTROL_HEIGHT_CLASS}
 					placeholder={t("onedrive_drive_id_placeholder")}
@@ -83,9 +96,9 @@ export function OneDriveTargetFields({
 				</Label>
 				<Input
 					id="onedrive_root_item_id"
-					value={form.onedrive_root_item_id || "root"}
+					value={connectorStringValue(form, "root_item_id", "root")}
 					onChange={(event) =>
-						onFieldChange("onedrive_root_item_id", event.target.value)
+						setConnectorValue("root_item_id", event.target.value)
 					}
 					className={ADMIN_CONTROL_HEIGHT_CLASS}
 					placeholder={t("onedrive_root_item_id_placeholder")}
@@ -95,14 +108,14 @@ export function OneDriveTargetFields({
 				</p>
 			</div>
 
-			{form.onedrive_account_mode === "sharepoint_site" ? (
+			{accountMode === "sharepoint_site" ? (
 				<div className="space-y-2">
 					<Label htmlFor="onedrive_site_id">{t("onedrive_site_id")}</Label>
 					<Input
 						id="onedrive_site_id"
-						value={form.onedrive_site_id}
+						value={connectorStringValue(form, "site_id")}
 						onChange={(event) =>
-							onFieldChange("onedrive_site_id", event.target.value)
+							setConnectorValue("site_id", event.target.value)
 						}
 						className={ADMIN_CONTROL_HEIGHT_CLASS}
 						placeholder={t("onedrive_site_id_placeholder")}
@@ -111,14 +124,14 @@ export function OneDriveTargetFields({
 						{t("onedrive_site_id_desc")}
 					</p>
 				</div>
-			) : form.onedrive_account_mode === "group_drive" ? (
+			) : accountMode === "group_drive" ? (
 				<div className="space-y-2">
 					<Label htmlFor="onedrive_group_id">{t("onedrive_group_id")}</Label>
 					<Input
 						id="onedrive_group_id"
-						value={form.onedrive_group_id}
+						value={connectorStringValue(form, "group_id")}
 						onChange={(event) =>
-							onFieldChange("onedrive_group_id", event.target.value)
+							setConnectorValue("group_id", event.target.value)
 						}
 						className={ADMIN_CONTROL_HEIGHT_CLASS}
 						placeholder={t("onedrive_group_id_placeholder")}

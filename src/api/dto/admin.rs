@@ -109,25 +109,13 @@ pub struct ResetUserPasswordReq {
 pub struct CreatePolicyReq {
     #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
     pub name: String,
-    pub driver_type: aster_drive_model::types::DriverType,
-    pub endpoint: Option<String>,
-    pub bucket: Option<String>,
-    pub access_key: Option<String>,
-    pub secret_key: Option<String>,
-    pub base_path: Option<String>,
-    #[validate(range(min = 1, message = "remote_node_id must be greater than 0"))]
-    pub remote_node_id: Option<i64>,
-    #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
-    pub remote_storage_target_key: Option<String>,
+    pub connection: crate::storage::StorageConnectorConnectionInput,
     #[validate(range(min = 0, message = "max_file_size must be non-negative"))]
     pub max_file_size: Option<i64>,
     #[validate(range(min = 1, message = "chunk_size must be greater than 0"))]
     pub chunk_size: Option<i64>,
     pub is_default: Option<bool>,
     pub allowed_types: Option<Vec<String>>,
-    #[validate(nested)]
-    pub options: Option<aster_drive_model::types::StoragePolicyOptions>,
-    pub application_config: Option<crate::storage::StorageConnectorApplicationConfigInput>,
 }
 
 /// Patch a storage policy.
@@ -137,24 +125,16 @@ pub struct CreatePolicyReq {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PatchPolicyReq {
     pub name: Option<String>,
-    pub endpoint: Option<String>,
-    pub bucket: Option<String>,
-    pub access_key: Option<String>,
-    pub secret_key: Option<String>,
-    pub base_path: Option<String>,
-    #[validate(range(min = 1, message = "remote_node_id must be greater than 0"))]
-    pub remote_node_id: Option<i64>,
-    #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
-    pub remote_storage_target_key: Option<String>,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Object))]
+    pub connector_config: Option<aster_drive_storage::ConnectorConfigEnvelope>,
+    pub behavior: Option<aster_drive_storage::StoragePolicyBehaviorConfig>,
+    pub credential: Option<crate::storage::StorageConnectorCredentialInput>,
     #[validate(range(min = 0, message = "max_file_size must be non-negative"))]
     pub max_file_size: Option<i64>,
     #[validate(range(min = 1, message = "chunk_size must be greater than 0"))]
     pub chunk_size: Option<i64>,
     pub is_default: Option<bool>,
     pub allowed_types: Option<Vec<String>>,
-    #[validate(nested)]
-    pub options: Option<aster_drive_model::types::StoragePolicyOptions>,
-    pub application_config: Option<crate::storage::StorageConnectorApplicationConfigInput>,
 }
 
 /// Query parameters for deleting a storage policy.
@@ -210,18 +190,7 @@ impl From<StorageConnectorCatalogContext>
 pub struct TestPolicyParamsReq {
     #[validate(range(min = 1, message = "policy_id must be greater than 0"))]
     pub policy_id: Option<i64>,
-    pub driver_type: aster_drive_model::types::DriverType,
-    pub endpoint: Option<String>,
-    pub bucket: Option<String>,
-    pub access_key: Option<String>,
-    pub secret_key: Option<String>,
-    pub base_path: Option<String>,
-    #[validate(range(min = 1, message = "remote_node_id must be greater than 0"))]
-    pub remote_node_id: Option<i64>,
-    #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
-    pub remote_storage_target_key: Option<String>,
-    #[validate(nested)]
-    pub options: Option<aster_drive_model::types::StoragePolicyOptions>,
+    pub connection: crate::storage::StorageConnectorConnectionInput,
 }
 
 /// Execute a storage policy action by draft policy parameters.
@@ -231,18 +200,7 @@ pub struct ExecuteDraftStoragePolicyActionReq {
     pub action: aster_drive_storage::StoragePolicyExecutableAction,
     #[validate(range(min = 1, message = "policy_id must be greater than 0"))]
     pub policy_id: Option<i64>,
-    pub driver_type: aster_drive_model::types::DriverType,
-    pub endpoint: Option<String>,
-    pub bucket: Option<String>,
-    pub access_key: Option<String>,
-    pub secret_key: Option<String>,
-    pub base_path: Option<String>,
-    #[validate(range(min = 1, message = "remote_node_id must be greater than 0"))]
-    pub remote_node_id: Option<i64>,
-    #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
-    pub remote_storage_target_key: Option<String>,
-    #[validate(nested)]
-    pub options: Option<aster_drive_model::types::StoragePolicyOptions>,
+    pub connection: crate::storage::StorageConnectorConnectionInput,
 }
 
 /// Execute a storage policy action for a saved policy.
@@ -260,17 +218,6 @@ pub struct StartStorageAuthorizationReq {
     pub provider: aster_drive_model::types::StorageCredentialProvider,
     pub microsoft_graph:
         Option<crate::services::storage_policy::credential::MicrosoftGraphAuthorizationInput>,
-}
-
-/// Promote an S3-compatible storage policy to a specialized S3-compatible driver.
-#[derive(Deserialize, Validate)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct PromoteS3CompatiblePolicyDriverReq {
-    pub target_driver_type: aster_drive_model::types::DriverType,
-    #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
-    pub endpoint: String,
-    #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
-    pub bucket: String,
 }
 
 /// Create a remote node.
