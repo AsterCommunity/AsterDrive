@@ -29,7 +29,7 @@ use std::sync::Arc;
 use crate::errors::Result;
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::{DriverType, StorageCredentialKind, StorageCredentialProvider};
+use aster_drive_model::types::{StorageCredentialKind, StorageCredentialProvider};
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDescriptor,
@@ -48,10 +48,9 @@ pub use models::{
 pub(crate) use models::{
     LegacyStorageConnectorCredentialInput, LegacyStoragePolicyStaticCredential,
     LocalFilesystemPolicyProjection, RemotePolicyBindingProjection,
-    StorageConnectorCredentialRequirement, StorageConnectorRuntimeCredential,
-    StorageCredentialValidationOutcome, StoragePolicyCleanupDriverSnapshot,
-    StoragePolicyCleanupOneDriveCredentialSnapshot, StoragePolicyCleanupRemoteNodeSnapshot,
-    StoragePolicyCleanupSnapshots,
+    StorageConnectorRuntimeCredential, StorageCredentialValidationOutcome,
+    StoragePolicyCleanupDriverSnapshot, StoragePolicyCleanupOneDriveCredentialSnapshot,
+    StoragePolicyCleanupRemoteNodeSnapshot, StoragePolicyCleanupSnapshots,
 };
 pub(crate) use onedrive::{
     OneDriveApplicationCredentialV1, OneDriveAuthorizationApplicationV1,
@@ -218,13 +217,6 @@ pub(crate) fn list_storage_driver_descriptors(
     registry: &StorageConnectorRegistry,
 ) -> Vec<StorageConnectorDescriptor> {
     registry.descriptors()
-}
-
-pub(crate) fn storage_driver_descriptor(
-    registry: &StorageConnectorRegistry,
-    driver_type: DriverType,
-) -> Result<StorageConnectorDescriptor> {
-    Ok(registry.require(driver_type)?.descriptor())
 }
 
 pub(crate) fn storage_policy_supports_native_thumbnail(
@@ -569,15 +561,6 @@ pub(crate) fn presigned_download_requires_filename_match(
         .presigned_download_requires_filename_match(policy)
 }
 
-pub(crate) fn runtime_credential_requirement(
-    registry: &StorageConnectorRegistry,
-    policy: &storage_policy::Model,
-) -> Result<Option<StorageConnectorCredentialRequirement>> {
-    Ok(registry
-        .require_policy(policy)?
-        .runtime_credential_requirement())
-}
-
 pub(crate) fn credential_info(
     registry: &StorageConnectorRegistry,
     config: &crate::config::Config,
@@ -600,19 +583,6 @@ pub(crate) fn credential_validation_failure_payload(
     registry
         .require_policy(policy)?
         .credential_validation_failure_payload(config, credential, error_kind, reason)
-}
-
-pub(crate) async fn load_runtime_credential(
-    registry: &StorageConnectorRegistry,
-    db: &sea_orm::DatabaseConnection,
-    config: &crate::config::Config,
-    policy: &storage_policy::Model,
-    credential: &aster_drive_model::entities::storage_policy_connector_credential::Model,
-) -> Result<Option<StorageConnectorRuntimeCredential>> {
-    registry
-        .require_policy(policy)?
-        .load_runtime_credential(db, config, policy, credential)
-        .await
 }
 
 pub(crate) async fn validate_credential(

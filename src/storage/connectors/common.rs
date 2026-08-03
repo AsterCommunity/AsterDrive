@@ -2,7 +2,6 @@ use chrono::Utc;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
-use crate::storage::drivers::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::StoredStoragePolicyAllowedTypes;
 use aster_drive_storage::connector_descriptor::{
@@ -47,26 +46,6 @@ pub(super) fn build_connection_test_policy(
         created_at: Utc::now(),
         updated_at: Utc::now(),
     })
-}
-
-pub(super) fn encode_typed_connector_config<T: Serialize>(
-    connector_id: &'static str,
-    schema_version: u32,
-    values: T,
-) -> Result<ConnectorConfigEnvelope<serde_json::Value>> {
-    serde_json::to_value(values)
-        .map(|values| {
-            ConnectorConfigEnvelope::new(
-                ConnectorId::declared(connector_id),
-                schema_version,
-                values,
-            )
-        })
-        .map_err(|error| {
-            AsterError::internal_error(format!(
-                "serialize connector config '{connector_id}': {error}"
-            ))
-        })
 }
 
 pub(super) fn encode_normalized_connector_config<T: Serialize>(
@@ -216,22 +195,6 @@ pub(super) fn import_legacy_static_credential<T: Serialize>(
                 "serialize migrated credential for connector '{connector_id}': {error}",
             ))
         })
-}
-
-pub(super) fn normalize_s3_connection_fields(
-    endpoint: &str,
-    bucket: &str,
-) -> Result<(String, String)> {
-    let normalized =
-        normalize_s3_endpoint_and_bucket(endpoint, bucket).map_err(|error| match error {
-            S3ConfigError::MissingBucket => error
-                .into_aster_error()
-                .with_api_error_code(ApiErrorCode::PolicyStorageBucketRequired),
-            S3ConfigError::InvalidEndpoint(_) => error
-                .into_aster_error()
-                .with_api_error_code(ApiErrorCode::PolicyStorageEndpointInvalid),
-        })?;
-    Ok((normalized.endpoint, normalized.bucket))
 }
 
 pub(super) fn ensure_policy_action_supported(

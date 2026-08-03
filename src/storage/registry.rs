@@ -661,7 +661,9 @@ mod tests {
     fn runtime_driver_construction_dispatches_through_injected_connector_registry() {
         let descriptor = builtin_storage_connector_registry()
             .expect("built-in connector registry")
-            .require(DriverType::Local)
+            .require_connector(&aster_drive_storage::ConnectorId::declared(
+                "asterdrive.storage.local",
+            ))
             .expect("local connector")
             .descriptor();
         let runtime_builds = Arc::new(AtomicUsize::new(0));
@@ -695,7 +697,9 @@ mod tests {
     fn connector_registry_accepts_non_builtin_plugin_id_without_a_parallel_path() {
         let mut descriptor = builtin_storage_connector_registry()
             .expect("built-in connector registry")
-            .require(DriverType::Local)
+            .require_connector(&aster_drive_storage::ConnectorId::declared(
+                "asterdrive.storage.local",
+            ))
             .expect("local connector")
             .descriptor();
         let plugin_id = aster_drive_storage::ConnectorId::declared("com.example.storage");

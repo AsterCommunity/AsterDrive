@@ -5,9 +5,8 @@ use super::audit::{
     storage_credential_oauth_audit_details, write_storage_credential_oauth_audit,
 };
 use super::microsoft::{
-    MicrosoftTokenResponse, StorageCredentialMetadataInput, decrypt_application_client_secret,
-    encrypt_application_client_secret, microsoft_authorization_url, storage_credential_metadata,
-    validate_microsoft_token_response,
+    MicrosoftTokenResponse, decrypt_application_client_secret, encrypt_application_client_secret,
+    microsoft_authorization_url, validate_microsoft_token_response,
 };
 use super::provider::{
     MicrosoftGraphCleanupTokenSnapshot, MicrosoftGraphTokenRefreshRequest,
@@ -701,7 +700,8 @@ async fn microsoft_graph_app_config_is_stored_in_connector_app_config_not_policy
         vec!["Files.ReadWrite.All", "offline_access"]
     );
 
-    let metadata = parse_metadata(&app_config.metadata).expect("metadata should parse");
+    let metadata: serde_json::Value =
+        serde_json::from_str(&app_config.metadata).expect("metadata should parse");
     assert_eq!(metadata["cloud"], serde_json::json!("china"));
     let decrypted = decrypt_application_client_secret(
         encryption_key,
@@ -830,7 +830,8 @@ async fn microsoft_graph_app_config_update_preserves_authorization_tokens_and_sa
         "old-refresh-token"
     );
 
-    let metadata = parse_metadata(&updated_credential.metadata).expect("metadata should parse");
+    let metadata: serde_json::Value =
+        serde_json::from_str(&updated_credential.metadata).expect("metadata should parse");
     assert_eq!(metadata["cloud"], serde_json::json!("global"));
     assert_eq!(metadata["drive_id"], "drive-id");
     assert!(metadata.get("client_id").is_none());
@@ -1189,28 +1190,6 @@ fn storage_credential_oauth_audit_details_omit_absent_optional_fields() {
     assert!(details.get("client_secret_configured").is_none());
     assert!(details.get("refresh_token_rotated").is_none());
     assert!(details.get("recovered_from_token_rotation").is_none());
-}
-
-#[test]
-fn storage_metadata_contains_authorization_result_without_application_secret() {
-    let metadata = storage_credential_metadata(StorageCredentialMetadataInput {
-        cloud: MicrosoftGraphCloud::Global,
-        drive_id: "drive-id",
-        root_item_id: "root",
-        root_item_name: Some("Root"),
-        id_token: Some("id-token"),
-    })
-    .unwrap();
-    let parsed = serde_json::from_str::<serde_json::Value>(&metadata).unwrap();
-
-    assert_eq!(parsed["cloud"], "global");
-    assert_eq!(parsed["drive_id"], "drive-id");
-    assert_eq!(parsed["root_item_id"], "root");
-    assert_eq!(parsed["root_item_name"], "Root");
-    assert_eq!(parsed["id_token"], "***REDACTED***");
-    assert!(parsed.get("client_id").is_none());
-    assert!(parsed.get("client_secret_ciphertext").is_none());
-    assert!(parsed.get("client_secret_configured").is_none());
 }
 
 #[test]

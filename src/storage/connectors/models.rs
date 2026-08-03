@@ -39,14 +39,6 @@ pub struct StorageConnectorConnectionInput {
     pub credential: StorageConnectorCredentialInput,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct StorageConnectorCredentialRequirement {
-    pub provider: StorageCredentialProvider,
-    pub credential_kind: StorageCredentialKind,
-    pub requires_application_config: bool,
-    pub requires_authorization: bool,
-}
-
 /// Strongly typed legacy credential rows used only by AsterDrive 0.5.0.
 ///
 /// The deprecated table models stay outside the normal entity namespace. Core
@@ -111,9 +103,6 @@ pub(crate) struct RemotePolicyBindingProjection {
 #[derive(Debug, Clone)]
 pub(crate) struct StorageCredentialValidationOutcome {
     pub credential_payload: serde_json::Value,
-    pub account_label: Option<String>,
-    pub subject: Option<String>,
-    pub metadata: String,
     pub root_item_id: String,
     pub root_item_name: Option<String>,
 }

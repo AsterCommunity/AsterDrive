@@ -30,10 +30,10 @@ use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDef
 
 use super::common::unsupported_draft_connection_test_error;
 use super::{
-    StorageConnector, StorageConnectorCredentialInput, StorageConnectorCredentialRequirement,
-    StorageConnectorRuntimeCredential, StorageConnectorUploadTransport,
-    StorageCredentialValidationOutcome, StoragePolicyCleanupDriverSnapshot,
-    StoragePolicyCleanupOneDriveCredentialSnapshot, StoragePolicyCleanupSnapshots,
+    StorageConnector, StorageConnectorCredentialInput, StorageConnectorRuntimeCredential,
+    StorageConnectorUploadTransport, StorageCredentialValidationOutcome,
+    StoragePolicyCleanupDriverSnapshot, StoragePolicyCleanupOneDriveCredentialSnapshot,
+    StoragePolicyCleanupSnapshots,
 };
 
 pub struct OneDriveConnector;
@@ -582,15 +582,6 @@ impl StorageConnector for OneDriveConnector {
         Ok(config.provider_download_filename_mode == ProviderDownloadFilenameMode::StrictCurrent)
     }
 
-    fn runtime_credential_requirement(&self) -> Option<StorageConnectorCredentialRequirement> {
-        Some(StorageConnectorCredentialRequirement {
-            provider: StorageCredentialProvider::MicrosoftGraph,
-            credential_kind: StorageCredentialKind::OauthDelegated,
-            requires_application_config: true,
-            requires_authorization: true,
-        })
-    }
-
     fn credential_info(
         &self,
         config: &crate::config::Config,
@@ -824,24 +815,12 @@ impl StorageConnector for OneDriveConnector {
             root_item_name: root_item.name.clone(),
             id_token_present: authorization.metadata.id_token_present,
         };
-        let metadata = crate::services::storage_policy::credential::storage_credential_metadata(
-            crate::services::storage_policy::credential::StorageCredentialMetadataInput {
-                cloud: connector_config.cloud,
-                drive_id: &location.drive_id,
-                root_item_id: &root_item.id,
-                root_item_name: root_item.name.as_deref(),
-                id_token: None,
-            },
-        )?;
         Ok(StorageCredentialValidationOutcome {
             credential_payload: serde_json::to_value(payload).map_err(|error| {
                 AsterError::internal_error(format!(
                     "serialize validated OneDrive connector credential: {error}"
                 ))
             })?,
-            account_label: root_item.name.clone(),
-            subject: Some(root_item.id.clone()),
-            metadata,
             root_item_id: root_item.id,
             root_item_name: root_item.name,
         })

@@ -40,10 +40,7 @@ use microsoft::{
     microsoft_graph_flow_cloud, microsoft_graph_flow_tenant,
 };
 
-pub(crate) use microsoft::{
-    StorageCredentialMetadataInput, decrypt_application_client_secret,
-    encrypt_application_client_secret, storage_credential_metadata,
-};
+pub(crate) use microsoft::{decrypt_application_client_secret, encrypt_application_client_secret};
 pub(crate) use provider::{
     MicrosoftGraphCleanupTokenSnapshot, build_microsoft_graph_cleanup_token_provider,
     build_microsoft_graph_credential_token_provider,

@@ -10,7 +10,7 @@ use aster_drive_model::entities::storage_policy_authorization_flow;
 use aster_drive_model::types::{MicrosoftGraphCloud, StorageCredentialProvider};
 use aster_drive_storage::StorageErrorKind;
 
-use super::super::{REDACTED_SECRET, crypto};
+use super::super::crypto;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(super) struct MicrosoftGraphFlowContext {
@@ -44,35 +44,6 @@ struct MicrosoftTokenError {
     error_description: Option<String>,
 }
 
-pub(crate) struct StorageCredentialMetadataInput<'a> {
-    pub(crate) cloud: MicrosoftGraphCloud,
-    pub(crate) drive_id: &'a str,
-    pub(crate) root_item_id: &'a str,
-    pub(crate) root_item_name: Option<&'a str>,
-    pub(crate) id_token: Option<&'a str>,
-}
-
-pub(crate) fn storage_credential_metadata(
-    input: StorageCredentialMetadataInput<'_>,
-) -> Result<String> {
-    let mut metadata = serde_json::json!({
-        "cloud": input.cloud,
-        "graph_base_url": input.cloud.graph_base_url(),
-        "drive_id": input.drive_id,
-        "root_item_id": input.root_item_id,
-    });
-    if let Some(root_item_name) = input.root_item_name {
-        metadata["root_item_name"] = serde_json::Value::String(root_item_name.to_string());
-    }
-    if input.id_token.is_some() {
-        metadata["id_token"] = serde_json::Value::String(REDACTED_SECRET.to_string());
-    }
-    serde_json::to_string(&metadata).map_aster_err_ctx(
-        "failed to serialize storage credential metadata",
-        AsterError::internal_error,
-    )
-}
-
 pub(super) fn flow_client_secret_aad(policy_id: i64, state_hash: &str) -> String {
     format!("storage_policy_authorization_flow:{policy_id}:{state_hash}:client_secret")
 }
@@ -104,14 +75,6 @@ pub(crate) fn decrypt_application_client_secret(
         ciphertext,
     )
     .map(SecretString::from)
-}
-
-pub(super) fn parse_metadata(value: &str) -> Option<serde_json::Value> {
-    serde_json::from_str(value).ok()
-}
-
-pub(super) fn metadata_cloud(metadata: &serde_json::Value) -> Option<MicrosoftGraphCloud> {
-    serde_json::from_value(metadata.get("cloud")?.clone()).ok()
 }
 
 pub(super) fn microsoft_graph_flow_cloud(

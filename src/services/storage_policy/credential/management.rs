@@ -4,8 +4,7 @@ use crate::db::repository::{policy_repo, storage_policy_connector_credential_rep
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::storage::StorageConnectorCredentialInfo;
-use aster_drive_model::types::{StorageCredentialProvider, StorageCredentialStatus};
-use aster_drive_storage::error::StorageErrorKind;
+use aster_drive_model::types::StorageCredentialProvider;
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
@@ -148,107 +147,4 @@ pub async fn validate_policy_credential(
         root_item_id: validation.root_item_id,
         root_item_name: validation.root_item_name,
     })
-}
-
-fn credential_status_for_validation_error(
-    kind: Option<StorageErrorKind>,
-) -> Option<StorageCredentialStatus> {
-    match kind {
-        Some(StorageErrorKind::Auth) => Some(StorageCredentialStatus::ReauthRequired),
-        Some(StorageErrorKind::Permission) => Some(StorageCredentialStatus::PermissionDenied),
-        Some(StorageErrorKind::Misconfigured) => Some(StorageCredentialStatus::Invalid),
-        _ => None,
-    }
-}
-
-fn credential_status_transition(
-    current: StorageCredentialStatus,
-    kind: Option<StorageErrorKind>,
-) -> Option<StorageCredentialStatus> {
-    let next = credential_status_for_validation_error(kind)?;
-    (next != current).then_some(next)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn credential_status_for_validation_error_only_persists_deterministic_failures() {
-        assert_eq!(
-            credential_status_for_validation_error(Some(StorageErrorKind::Auth)),
-            Some(StorageCredentialStatus::ReauthRequired)
-        );
-        assert_eq!(
-            credential_status_for_validation_error(Some(StorageErrorKind::Permission)),
-            Some(StorageCredentialStatus::PermissionDenied)
-        );
-        assert_eq!(
-            credential_status_for_validation_error(Some(StorageErrorKind::Misconfigured)),
-            Some(StorageCredentialStatus::Invalid)
-        );
-        assert_eq!(
-            credential_status_for_validation_error(Some(StorageErrorKind::Transient)),
-            None
-        );
-        assert_eq!(
-            credential_status_for_validation_error(Some(StorageErrorKind::RateLimited)),
-            None
-        );
-        assert_eq!(
-            credential_status_for_validation_error(Some(StorageErrorKind::Unknown)),
-            None
-        );
-    }
-
-    #[test]
-    fn credential_status_transition_only_reports_topology_changes() {
-        let current_statuses = [
-            StorageCredentialStatus::Authorized,
-            StorageCredentialStatus::ReauthRequired,
-            StorageCredentialStatus::PermissionDenied,
-            StorageCredentialStatus::Revoked,
-            StorageCredentialStatus::Invalid,
-        ];
-        let deterministic_failures = [
-            (
-                StorageErrorKind::Auth,
-                StorageCredentialStatus::ReauthRequired,
-            ),
-            (
-                StorageErrorKind::Permission,
-                StorageCredentialStatus::PermissionDenied,
-            ),
-            (
-                StorageErrorKind::Misconfigured,
-                StorageCredentialStatus::Invalid,
-            ),
-        ];
-
-        for (kind, target) in deterministic_failures {
-            for current in current_statuses {
-                assert_eq!(
-                    credential_status_transition(current, Some(kind)),
-                    (current != target).then_some(target),
-                    "unexpected transition from {} after {kind:?}",
-                    current.as_str(),
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn credential_status_transition_ignores_non_deterministic_failures() {
-        for kind in [
-            None,
-            Some(StorageErrorKind::Transient),
-            Some(StorageErrorKind::RateLimited),
-            Some(StorageErrorKind::Unknown),
-        ] {
-            assert_eq!(
-                credential_status_transition(StorageCredentialStatus::Authorized, kind),
-                None
-            );
-        }
-    }
 }

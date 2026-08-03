@@ -8,7 +8,6 @@ use crate::errors::{AsterError, Result};
 use crate::storage::DriverRegistry;
 use crate::storage::remote_protocol::RemoteProtocolRuntime;
 use aster_drive_model::entities::{storage_policy, storage_policy_connector_credential};
-use aster_drive_model::types::DriverType;
 use aster_drive_storage::ConnectorConfigEnvelope;
 use aster_drive_storage::StoragePolicyBehaviorConfig;
 use aster_drive_storage::connector_descriptor::{
@@ -22,9 +21,9 @@ use super::models::{
     ExecuteDraftStorageConnectorActionInput, LegacyStorageConnectorCredentialInput,
     LocalFilesystemPolicyProjection, RemotePolicyBindingProjection, StorageConnectorActionResult,
     StorageConnectorCredentialInfo, StorageConnectorCredentialInput,
-    StorageConnectorCredentialRequirement, StorageConnectorRuntimeCredential,
-    StorageCredentialValidationOutcome, StoragePolicyCleanupDriverSnapshot,
-    StoragePolicyCleanupSnapshots, TestDraftStorageConnectorConnectionInput,
+    StorageConnectorRuntimeCredential, StorageCredentialValidationOutcome,
+    StoragePolicyCleanupDriverSnapshot, StoragePolicyCleanupSnapshots,
+    TestDraftStorageConnectorConnectionInput,
 };
 use super::upload::StorageConnectorUploadTransport;
 
@@ -239,10 +238,6 @@ pub(crate) trait StorageConnector: Send + Sync {
         Ok(None)
     }
 
-    fn runtime_credential_requirement(&self) -> Option<StorageConnectorCredentialRequirement> {
-        None
-    }
-
     fn credential_info(
         &self,
         _config: &Config,
@@ -433,9 +428,7 @@ pub(crate) trait StorageConnector: Send + Sync {
 /// Ordered connector catalog and runtime-factory lookup table.
 ///
 /// Registration order is preserved for stable descriptor presentation, while
-/// Runtime dispatch uses plugin-safe [`ConnectorId`] lookup. `DriverType` is
-/// accepted only by the temporary database adapter until policy persistence is
-/// migrated to connector ids.
+/// runtime dispatch uses plugin-safe [`ConnectorId`] lookup.
 pub struct StorageConnectorRegistry {
     ordered: Vec<Arc<dyn StorageConnector>>,
     by_connector_id: HashMap<ConnectorId, Arc<dyn StorageConnector>>,
@@ -466,10 +459,6 @@ impl StorageConnectorRegistry {
             ordered: connectors,
             by_connector_id,
         })
-    }
-
-    pub(crate) fn require(&self, driver_type: DriverType) -> Result<&dyn StorageConnector> {
-        self.require_connector(&connector_id_for_legacy_driver_type(driver_type))
     }
 
     pub(crate) fn require_connector(
@@ -526,8 +515,4 @@ impl StorageConnectorRegistry {
             .capabilities
             .object_naming)
     }
-}
-
-pub(crate) fn connector_id_for_legacy_driver_type(driver_type: DriverType) -> ConnectorId {
-    ConnectorId::declared(format!("asterdrive.storage.{}", driver_type.as_str()))
 }

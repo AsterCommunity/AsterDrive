@@ -24,10 +24,9 @@ pub use oauth::{
 
 pub(crate) use migration::migrate_legacy_storage_credentials;
 pub(crate) use oauth::{
-    MicrosoftGraphCleanupTokenSnapshot, StorageCredentialMetadataInput,
-    build_microsoft_graph_cleanup_token_provider, build_microsoft_graph_credential_token_provider,
-    decrypt_application_client_secret, encrypt_application_client_secret,
-    storage_credential_metadata, upsert_microsoft_graph_application_config,
+    MicrosoftGraphCleanupTokenSnapshot, build_microsoft_graph_cleanup_token_provider,
+    build_microsoft_graph_credential_token_provider, decrypt_application_client_secret,
+    encrypt_application_client_secret, upsert_microsoft_graph_application_config,
 };
 
 const FLOW_TTL_SECS: u64 = 300;
@@ -206,17 +205,6 @@ fn scopes_to_json(scopes: &[String]) -> crate::errors::Result<String> {
         crate::errors::AsterError::internal_error(format!(
             "failed to serialize storage credential scopes: {err}"
         ))
-    })
-}
-
-fn parse_scopes_json(value: &str) -> Vec<String> {
-    serde_json::from_str::<Vec<String>>(value).unwrap_or_else(|_| {
-        value
-            .split_whitespace()
-            .map(str::trim)
-            .filter(|scope| !scope.is_empty())
-            .map(ToOwned::to_owned)
-            .collect()
     })
 }
 
