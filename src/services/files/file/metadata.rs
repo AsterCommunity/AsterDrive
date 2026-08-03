@@ -14,6 +14,7 @@ use crate::services::{
 };
 use aster_drive_model::entities::file;
 use aster_forge_api::NullablePatch;
+use aster_forge_db::transaction;
 
 pub(crate) async fn get_info_in_scope(
     state: &impl SharedRuntimeState,
@@ -40,7 +41,21 @@ pub(crate) async fn get_info_with_storage_used_in_scope(
         .await?
         .remove(&(aster_drive_model::types::EntityType::File, file.id))
         .unwrap_or_default();
-    Ok(FileInfo::from_model_with_storage_used(file, storage_used).with_tags(tags))
+    let lock_states = crate::services::files::lock::load_for_scope(
+        state,
+        scope.into(),
+        std::slice::from_ref(&file),
+        &[],
+    )
+    .await?;
+    let lock_state = crate::services::files::lock::state_for(
+        &lock_states,
+        aster_drive_model::types::EntityType::File,
+        file.id,
+    );
+    Ok(FileInfo::from_model_with_storage_used(file, storage_used)
+        .with_tags(tags)
+        .with_lock_state(lock_state))
 }
 
 pub(crate) async fn update_in_scope(
@@ -50,7 +65,6 @@ pub(crate) async fn update_in_scope(
     name: Option<String>,
     folder_id: NullablePatch<i64>,
 ) -> Result<file::Model> {
-    let db = state.writer_db();
     tracing::debug!(
         scope = ?scope,
         file_id = id,
@@ -58,10 +72,14 @@ pub(crate) async fn update_in_scope(
         folder_patch = ?folder_id,
         "updating file metadata"
     );
-    let f = storage::verify_file_access(state, scope, id).await?;
-    if f.is_locked {
-        return Err(AsterError::resource_locked("file is locked"));
-    }
+    let snapshot = storage::verify_file_access(state, scope, id).await?;
+    let txn = transaction::begin(state.writer_db()).await?;
+    let f = crate::services::files::lock::enforce_file_mutation_on(
+        &txn,
+        &snapshot,
+        &crate::services::files::lock::SubmittedLockCredentials::none(),
+    )
+    .await?;
 
     let target_folder = match folder_id {
         NullablePatch::Absent => f.folder_id,
@@ -69,7 +87,7 @@ pub(crate) async fn update_in_scope(
         NullablePatch::Value(fid) => Some(fid),
     };
     if let NullablePatch::Value(fid) = folder_id {
-        storage::verify_folder_access(state, scope, fid).await?;
+        storage::lock_folder_access_on(&txn, state, scope, fid).await?;
     }
 
     let name = match name {
@@ -82,10 +100,11 @@ pub(crate) async fn update_in_scope(
     let final_name = name.clone().unwrap_or_else(|| f.name.clone());
     let existing = match scope {
         WorkspaceStorageScope::Personal { user_id } => {
-            file_repo::find_by_name_in_folder(db, user_id, target_folder, &final_name).await?
+            file_repo::find_by_name_in_folder(&txn, user_id, target_folder, &final_name).await?
         }
         WorkspaceStorageScope::Team { team_id, .. } => {
-            file_repo::find_by_name_in_team_folder(db, team_id, target_folder, &final_name).await?
+            file_repo::find_by_name_in_team_folder(&txn, team_id, target_folder, &final_name)
+                .await?
         }
     };
     if let Some(existing) = existing
@@ -111,9 +130,10 @@ pub(crate) async fn update_in_scope(
     }
     active.updated_at = Set(Utc::now());
     let updated = active
-        .update(db)
+        .update(&txn)
         .await
         .map_err(|err| file_repo::map_name_db_err(err, &final_name))?;
+    transaction::commit(txn).await?;
     storage_change::publish(
         state,
         storage_change::StorageChangeEvent::new(

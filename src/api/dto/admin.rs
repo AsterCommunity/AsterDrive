@@ -693,7 +693,7 @@ pub struct AdminFileInfo {
     pub updated_at: DateTime<Utc>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub deleted_at: Option<DateTime<Utc>>,
-    pub is_locked: bool,
+    pub lock_state: crate::services::files::lock::ResourceLockState,
     pub blob: AdminFileBlobSummary,
 }
 

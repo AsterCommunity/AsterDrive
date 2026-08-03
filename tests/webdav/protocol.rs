@@ -1637,7 +1637,6 @@ async fn test_webdav_propfind_lockdiscovery_chunks_large_depth_one_directories()
         created_at: Set(now),
         updated_at: Set(now),
         deleted_at: Set(None),
-        is_locked: Set(false),
         ..Default::default()
     }
     .insert(state.writer_db())
@@ -1656,7 +1655,6 @@ async fn test_webdav_propfind_lockdiscovery_chunks_large_depth_one_directories()
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
-            is_locked: Set(false),
             ..Default::default()
         })
         .collect::<Vec<_>>();
@@ -5896,22 +5894,6 @@ async fn test_webdav_delete_rolls_back_when_rooted_lock_cleanup_fails() {
         .await
         .expect("SQLite lock cleanup trigger should be removed");
 
-    let account = webdav_account::Entity::find()
-        .filter(webdav_account::Column::Username.eq(username))
-        .one(state.writer_db())
-        .await
-        .unwrap()
-        .unwrap();
-    let file = file_repo::find_by_name_in_folder(
-        state.writer_db(),
-        account.user_id,
-        None,
-        "atomic-delete-lock.txt",
-    )
-    .await
-    .unwrap()
-    .expect("resource mutation must roll back with lock cleanup");
-    assert!(file.is_locked);
     assert_eq!(
         lock_repo::find_by_path(state.writer_db(), "/atomic-delete-lock.txt")
             .await
@@ -5969,32 +5951,15 @@ async fn test_webdav_unlock_rolls_back_when_locked_flag_sync_fails() {
         .expect("LOCK response should include Lock-Token")
         .to_string();
 
-    let account = webdav_account::Entity::find()
-        .filter(webdav_account::Column::Username.eq(username))
-        .one(state.writer_db())
-        .await
-        .unwrap()
-        .unwrap();
-    let file = file_repo::find_by_name_in_folder(
-        state.writer_db(),
-        account.user_id,
-        None,
-        "atomic-unlock.txt",
-    )
-    .await
-    .unwrap()
-    .unwrap();
-
     state
         .writer_db()
         .execute_unprepared(
-            "CREATE TRIGGER webdav_unlock_flag_sync_failure \
-             BEFORE UPDATE OF is_locked ON files \
-             WHEN NEW.is_locked = 0 BEGIN \
-             SELECT RAISE(ABORT, 'injected WebDAV unlock flag sync failure'); END;",
+            "CREATE TRIGGER webdav_unlock_lock_row_failure \
+             BEFORE DELETE ON resource_locks BEGIN \
+             SELECT RAISE(ABORT, 'injected WebDAV unlock lock-row failure'); END;",
         )
         .await
-        .expect("WebDAV unlock failure trigger should install");
+        .expect("WebDAV unlock lock-row failure trigger should install");
     let req = test::TestRequest::with_uri(path)
         .method(actix_web::http::Method::from_bytes(b"UNLOCK").unwrap())
         .insert_header(("Authorization", auth.clone()))
@@ -6008,20 +5973,14 @@ async fn test_webdav_unlock_rolls_back_when_locked_flag_sync_fails() {
             .unwrap()
             .len(),
         1,
-        "UNLOCK must retain the lock row when is_locked synchronization fails"
-    );
-    assert!(
-        file_repo::find_by_id(state.writer_db(), file.id)
-            .await
-            .unwrap()
-            .is_locked
+        "UNLOCK must retain the lock row when lock-row deletion fails"
     );
 
     state
         .writer_db()
-        .execute_unprepared("DROP TRIGGER webdav_unlock_flag_sync_failure")
+        .execute_unprepared("DROP TRIGGER webdav_unlock_lock_row_failure")
         .await
-        .expect("WebDAV unlock failure trigger should be removed");
+        .expect("WebDAV unlock lock-row failure trigger should be removed");
     let req = test::TestRequest::with_uri(path)
         .method(actix_web::http::Method::from_bytes(b"UNLOCK").unwrap())
         .insert_header(("Authorization", auth))
@@ -6033,12 +5992,6 @@ async fn test_webdav_unlock_rolls_back_when_locked_flag_sync_fails() {
             .await
             .unwrap()
             .is_empty()
-    );
-    assert!(
-        !file_repo::find_by_id(state.writer_db(), file.id)
-            .await
-            .unwrap()
-            .is_locked
     );
 }
 
@@ -6281,8 +6234,8 @@ async fn test_webdav_copy_rolls_back_when_destination_lock_rebind_fails() {
         .writer_db()
         .execute_unprepared(
             "CREATE TRIGGER webdav_rebind_lock_failure \
-             BEFORE UPDATE OF entity_id ON resource_locks \
-             WHEN OLD.path = '/atomic-copy-target.txt' BEGIN \
+             BEFORE UPDATE OF root_file_id, root_folder_id ON resource_locks \
+             WHEN OLD.lockroot_path = '/atomic-copy-target.txt' BEGIN \
              SELECT RAISE(ABORT, 'injected destination lock rebind failure'); END;",
         )
         .await
@@ -6316,12 +6269,8 @@ async fn test_webdav_copy_rolls_back_when_destination_lock_rebind_fails() {
         .unwrap()
         .pop()
         .unwrap();
-    assert_eq!(current_lock.entity_id, old_lock.entity_id);
-    assert_eq!(current_lock.entity_type, old_lock.entity_type);
-    let original = file_repo::find_by_id(state.writer_db(), old_lock.entity_id)
-        .await
-        .unwrap();
-    assert!(original.is_locked);
+    assert_eq!(current_lock.entity_id(), old_lock.entity_id());
+    assert_eq!(current_lock.entity_type(), old_lock.entity_type());
 }
 
 #[actix_web::test]
@@ -6563,6 +6512,126 @@ async fn test_webdav_lock_missing_file_creates_locked_empty_resource() {
 }
 
 #[actix_web::test]
+async fn test_webdav_lock_null_missing_parent_returns_conflict_without_side_effects() {
+    let (app, state) = setup_with_webdav_rate_limit(
+        RateLimitConfig::default(),
+        aster_drive::config::NetworkTrustConfig::default(),
+    )
+    .await;
+    let (username, password) = seed_real_webdav_account(&state).await;
+    let auth = basic_auth_header(&username, &password);
+    let lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+</D:lockinfo>"#;
+
+    let req = test::TestRequest::with_uri("/webdav/missing-parent/lock-null.txt")
+        .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("Depth", "0"))
+        .set_payload(lock_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        409,
+        "LOCK cannot create a lock-null resource when its parent collection is unmapped"
+    );
+    assert!(
+        lock_repo::find_by_path(state.writer_db(), "/missing-parent/lock-null.txt")
+            .await
+            .unwrap()
+            .is_empty(),
+        "a missing lock-null parent must not leave a lock row"
+    );
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/missing-parent/lock-null.txt")
+        .insert_header(("Authorization", auth))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+}
+
+#[actix_web::test]
+async fn test_webdav_lock_null_rolls_back_file_when_lock_insert_fails() {
+    let (app, state) = setup_with_webdav_rate_limit(
+        RateLimitConfig::default(),
+        aster_drive::config::NetworkTrustConfig::default(),
+    )
+    .await;
+    let (username, password) = seed_real_webdav_account(&state).await;
+    let account = aster_drive::db::repository::webdav_account_repo::find_by_username(
+        state.writer_db(),
+        &username,
+    )
+    .await
+    .unwrap()
+    .expect("seeded WebDAV account should exist");
+    let auth = basic_auth_header(&username, &password);
+
+    state
+        .writer_db()
+        .execute_unprepared(
+            "CREATE TRIGGER webdav_lock_null_insert_failure \
+             BEFORE INSERT ON resource_locks BEGIN \
+             SELECT RAISE(ABORT, 'injected lock-null lock insert failure'); END;",
+        )
+        .await
+        .expect("SQLite lock insert trigger should install");
+
+    let lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+</D:lockinfo>"#;
+    let req = test::TestRequest::with_uri("/webdav/atomic-lock-null.txt")
+        .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("Depth", "0"))
+        .set_payload(lock_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 500);
+
+    state
+        .writer_db()
+        .execute_unprepared("DROP TRIGGER webdav_lock_null_insert_failure")
+        .await
+        .expect("SQLite lock insert trigger should be removed");
+
+    assert!(
+        file_repo::find_by_name_in_folder(
+            state.writer_db(),
+            account.user_id,
+            None,
+            "atomic-lock-null.txt",
+        )
+        .await
+        .unwrap()
+        .is_none(),
+        "a failed lock insert must roll back the lock-null file row"
+    );
+    assert!(
+        lock_repo::find_by_path(state.writer_db(), "/atomic-lock-null.txt")
+            .await
+            .unwrap()
+            .is_empty(),
+        "a failed lock insert must not leave a lock row"
+    );
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/atomic-lock-null.txt")
+        .insert_header(("Authorization", auth))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+}
+
+#[actix_web::test]
 async fn test_webdav_lock_mount_root_returns_success_instead_of_backend_error() {
     let app = setup_with_webdav!();
     let (token, _) = register_and_login!(app);
@@ -6665,6 +6734,35 @@ async fn test_webdav_depth_zero_collection_lock_protects_member_urls() {
         resp.status(),
         423,
         "PUT creating a member URL must submit the depth-0 parent collection lock token"
+    );
+
+    let req = test::TestRequest::with_uri("/webdav/parent-lock/lock-null.txt")
+        .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("Depth", "0"))
+        .set_payload(lock_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        423,
+        "LOCK creating a lock-null member must submit the parent collection lock token"
+    );
+
+    let req = test::TestRequest::with_uri("/webdav/parent-lock/lock-null.txt")
+        .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("Depth", "0"))
+        .insert_header(("If", format!("</webdav/parent-lock/> (<{lock_token}>)")))
+        .set_payload(lock_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        201,
+        "a tagged parent token should authorize lock-null member creation"
     );
 
     let req = test::TestRequest::delete()

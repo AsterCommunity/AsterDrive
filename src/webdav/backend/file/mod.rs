@@ -13,13 +13,23 @@ use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 use aster_drive_storage::StorageDriver;
 use aster_forge_utils::numbers::{i64_to_u64, u64_to_i64, usize_to_u64};
-use aster_forge_webdav::{DavBackendError, DavWriteHandle, FsError};
+use aster_forge_webdav::{DavBackendError, DavBackendErrorKind, DavWriteHandle, FsError};
 
 const RELAY_DIRECT_BUFFER_SIZE: usize = 64 * 1024;
 
 /// WebDAV 顺序写句柄，按后端能力选择临时文件或直连流写入。
 pub struct AsterDavWriteHandle {
     mode: WriteMode,
+}
+
+pub(crate) struct DavWriteOpenContext {
+    pub(crate) scope: WorkspaceStorageScope,
+    pub(crate) folder_id: Option<i64>,
+    pub(crate) filename: String,
+    pub(crate) existing_file_id: Option<i64>,
+    pub(crate) declared_size: Option<u64>,
+    pub(crate) submitted_lock_tokens: Vec<String>,
+    pub(crate) audit_ctx: AuditContext,
 }
 
 impl std::fmt::Debug for AsterDavWriteHandle {
@@ -59,6 +69,7 @@ enum WriteMode {
         folder_id: Option<i64>,
         filename: String,
         existing_file_id: Option<i64>,
+        submitted_lock_tokens: Vec<String>,
         audit_ctx: AuditContext,
         declared_size: Option<i64>,
         resolved_policy: Option<aster_drive_model::entities::storage_policy::Model>,
@@ -73,6 +84,7 @@ enum WriteMode {
         folder_id: Option<i64>,
         filename: String,
         existing_file_id: Option<i64>,
+        submitted_lock_tokens: Vec<String>,
         audit_ctx: AuditContext,
         declared_size: i64,
         policy: aster_drive_model::entities::storage_policy::Model,
@@ -96,15 +108,18 @@ impl AsterDavWriteHandle {
     ) -> Result<Self, FsError> {
         Self::for_write_with_audit(
             state,
-            WorkspaceStorageScope::Personal { user_id },
-            folder_id,
-            filename,
-            existing_file_id,
-            declared_size,
-            AuditContext {
-                user_id,
-                ip_address: None,
-                user_agent: None,
+            DavWriteOpenContext {
+                scope: WorkspaceStorageScope::Personal { user_id },
+                folder_id,
+                filename,
+                existing_file_id,
+                declared_size,
+                submitted_lock_tokens: Vec::new(),
+                audit_ctx: AuditContext {
+                    user_id,
+                    ip_address: None,
+                    user_agent: None,
+                },
             },
         )
         .await
@@ -112,13 +127,17 @@ impl AsterDavWriteHandle {
 
     pub(crate) async fn for_write_with_audit(
         state: PrimaryAppState,
-        scope: WorkspaceStorageScope,
-        folder_id: Option<i64>,
-        filename: String,
-        existing_file_id: Option<i64>,
-        declared_size: Option<u64>,
-        audit_ctx: AuditContext,
+        context: DavWriteOpenContext,
     ) -> Result<Self, FsError> {
+        let DavWriteOpenContext {
+            scope,
+            folder_id,
+            filename,
+            existing_file_id,
+            declared_size,
+            submitted_lock_tokens,
+            audit_ctx,
+        } = context;
         let declared_size = declared_size.and_then(|size| i64::try_from(size).ok());
         let (file, temp_path, resolved_policy, hasher) = if let Some(size_hint) = declared_size {
             let policy = storage::resolve_policy_for_size(&state, scope, folder_id, size_hint)
@@ -211,6 +230,7 @@ impl AsterDavWriteHandle {
                         folder_id,
                         filename,
                         existing_file_id,
+                        submitted_lock_tokens,
                         audit_ctx,
                         declared_size: size_hint,
                         policy,
@@ -237,6 +257,7 @@ impl AsterDavWriteHandle {
                 folder_id,
                 filename,
                 existing_file_id,
+                submitted_lock_tokens,
                 audit_ctx,
                 declared_size,
                 resolved_policy,
@@ -384,6 +405,7 @@ impl DavWriteHandle for AsterDavWriteHandle {
                 folder_id,
                 filename,
                 existing_file_id,
+                submitted_lock_tokens,
                 audit_ctx,
                 declared_size,
                 resolved_policy,
@@ -433,7 +455,10 @@ impl DavWriteHandle for AsterDavWriteHandle {
                         temp_path,
                         size: written_size,
                         existing_file_id: *existing_file_id,
-                        skip_lock_check: true, // WebDAV: handler 已验证 lock token
+                        lock_credentials:
+                            crate::services::files::lock::LockMutationCredentials::SubmittedTokens(
+                                submitted_lock_tokens.clone(),
+                            ),
                     },
                     storage::StoreFromTempHints {
                         resolved_policy: resolved_policy_hint,
@@ -468,6 +493,7 @@ impl DavWriteHandle for AsterDavWriteHandle {
                 folder_id,
                 filename,
                 existing_file_id,
+                submitted_lock_tokens,
                 audit_ctx,
                 declared_size,
                 policy,
@@ -499,7 +525,7 @@ impl DavWriteHandle for AsterDavWriteHandle {
                         )
                         .await;
                     }
-                    return Err(map_store_error(error).into());
+                    return Err(map_store_error(error));
                 }
 
                 if *written != declared_size_u64(*declared_size)? {
@@ -528,7 +554,10 @@ impl DavWriteHandle for AsterDavWriteHandle {
                         filename,
                         size: *declared_size,
                         existing_file_id: *existing_file_id,
-                        skip_lock_check: true,
+                        lock_credentials:
+                            crate::services::files::lock::LockMutationCredentials::SubmittedTokens(
+                                submitted_lock_tokens.clone(),
+                            ),
                         policy,
                         preuploaded_blob: prepared_upload,
                         actor_username: None,
@@ -591,14 +620,18 @@ impl DavWriteHandle for AsterDavWriteHandle {
     }
 }
 
-fn map_store_error(error: crate::errors::AsterError) -> FsError {
+fn map_store_error(error: crate::errors::AsterError) -> DavBackendError {
     tracing::warn!("WebDAV store failed: {error}");
-    match &error {
-        crate::errors::AsterError::FileTooLarge(_) => FsError::TooLarge,
-        crate::errors::AsterError::StorageQuotaExceeded(_) => FsError::InsufficientStorage,
-        _ if file_repo::is_any_duplicate_name_error(&error) => FsError::Exists,
-        _ => FsError::GeneralFailure,
-    }
+    let kind = match &error {
+        crate::errors::AsterError::FileTooLarge(_) => DavBackendErrorKind::PayloadTooLarge,
+        crate::errors::AsterError::StorageQuotaExceeded(_) => {
+            DavBackendErrorKind::InsufficientStorage
+        }
+        crate::errors::AsterError::ResourceLocked(_) => DavBackendErrorKind::Locked,
+        _ if file_repo::is_any_duplicate_name_error(&error) => DavBackendErrorKind::AlreadyExists,
+        _ => DavBackendErrorKind::Internal,
+    };
+    DavBackendError::new(kind)
 }
 
 #[cfg(test)]

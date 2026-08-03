@@ -26,7 +26,6 @@ struct ResolvedPathFolderRow {
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
     deleted_at: Option<chrono::DateTime<chrono::Utc>>,
-    is_locked: bool,
 }
 
 impl From<ResolvedPathFolderRow> for folder::Model {
@@ -44,7 +43,6 @@ impl From<ResolvedPathFolderRow> for folder::Model {
             created_at: row.created_at,
             updated_at: row.updated_at,
             deleted_at: row.deleted_at,
-            is_locked: row.is_locked,
         }
     }
 }
@@ -63,7 +61,6 @@ struct AncestorFolderRow {
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
     deleted_at: Option<chrono::DateTime<chrono::Utc>>,
-    is_locked: bool,
 }
 
 impl From<AncestorFolderRow> for folder::Model {
@@ -81,7 +78,6 @@ impl From<AncestorFolderRow> for folder::Model {
             created_at: row.created_at,
             updated_at: row.updated_at,
             deleted_at: row.deleted_at,
-            is_locked: row.is_locked,
         }
     }
 }
@@ -113,7 +109,6 @@ enum FolderChain {
     CreatedAt,
     UpdatedAt,
     DeletedAt,
-    IsLocked,
 }
 
 #[derive(Clone, Copy)]
@@ -136,7 +131,7 @@ fn build_find_ancestors_statement(
         (DbBackend::Postgres, AncestorScope::Owner { user_id }) => (
             format!(
                 "WITH RECURSIVE folder_ancestors ( \
-                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at, is_locked \
+                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at \
              ) AS ( \
                  SELECT \
                      {root_depth_expr} AS depth, \
@@ -150,8 +145,7 @@ fn build_find_ancestors_statement(
                      f.policy_id, \
                      f.created_at, \
                      f.updated_at, \
-                     f.deleted_at, \
-                     f.is_locked \
+                     f.deleted_at \
                  FROM folders f \
                  WHERE f.id = $1 \
                    AND f.owner_user_id = $2 \
@@ -169,15 +163,14 @@ fn build_find_ancestors_statement(
                      parent.policy_id, \
                      parent.created_at, \
                      parent.updated_at, \
-                     parent.deleted_at, \
-                     parent.is_locked \
+                     parent.deleted_at \
                  FROM folders parent \
                  JOIN folder_ancestors fa ON fa.parent_id = parent.id \
                  WHERE parent.owner_user_id = $2 \
                    AND parent.deleted_at IS NULL \
              ) \
              SELECT \
-                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at, is_locked \
+                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at \
              FROM folder_ancestors \
              ORDER BY depth DESC"
             ),
@@ -186,7 +179,7 @@ fn build_find_ancestors_statement(
         (DbBackend::Postgres, AncestorScope::Team { team_id }) => (
             format!(
                 "WITH RECURSIVE folder_ancestors ( \
-                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at, is_locked \
+                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at \
              ) AS ( \
                  SELECT \
                      {root_depth_expr} AS depth, \
@@ -200,8 +193,7 @@ fn build_find_ancestors_statement(
                      f.policy_id, \
                      f.created_at, \
                      f.updated_at, \
-                     f.deleted_at, \
-                     f.is_locked \
+                     f.deleted_at \
                  FROM folders f \
                  WHERE f.id = $1 \
                    AND f.team_id = $2 \
@@ -219,15 +211,14 @@ fn build_find_ancestors_statement(
                      parent.policy_id, \
                      parent.created_at, \
                      parent.updated_at, \
-                     parent.deleted_at, \
-                     parent.is_locked \
+                     parent.deleted_at \
                  FROM folders parent \
                  JOIN folder_ancestors fa ON fa.parent_id = parent.id \
                  WHERE parent.team_id = $2 \
                    AND parent.deleted_at IS NULL \
              ) \
              SELECT \
-                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at, is_locked \
+                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at \
              FROM folder_ancestors \
              ORDER BY depth DESC"
             ),
@@ -236,7 +227,7 @@ fn build_find_ancestors_statement(
         (_, AncestorScope::Owner { user_id }) => (
             format!(
                 "WITH RECURSIVE folder_ancestors ( \
-                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at, is_locked \
+                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at \
              ) AS ( \
                  SELECT \
                      {root_depth_expr} AS depth, \
@@ -250,8 +241,7 @@ fn build_find_ancestors_statement(
                      f.policy_id, \
                      f.created_at, \
                      f.updated_at, \
-                     f.deleted_at, \
-                     f.is_locked \
+                     f.deleted_at \
                  FROM folders f \
                  WHERE f.id = ? \
                    AND f.owner_user_id = ? \
@@ -269,15 +259,14 @@ fn build_find_ancestors_statement(
                      parent.policy_id, \
                      parent.created_at, \
                      parent.updated_at, \
-                     parent.deleted_at, \
-                     parent.is_locked \
+                     parent.deleted_at \
                  FROM folders parent \
                  JOIN folder_ancestors fa ON fa.parent_id = parent.id \
                  WHERE parent.owner_user_id = ? \
                    AND parent.deleted_at IS NULL \
              ) \
              SELECT \
-                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at, is_locked \
+                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at \
              FROM folder_ancestors \
              ORDER BY depth DESC"
             ),
@@ -286,7 +275,7 @@ fn build_find_ancestors_statement(
         (_, AncestorScope::Team { team_id }) => (
             format!(
                 "WITH RECURSIVE folder_ancestors ( \
-                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at, is_locked \
+                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at \
              ) AS ( \
                  SELECT \
                      {root_depth_expr} AS depth, \
@@ -300,8 +289,7 @@ fn build_find_ancestors_statement(
                      f.policy_id, \
                      f.created_at, \
                      f.updated_at, \
-                     f.deleted_at, \
-                     f.is_locked \
+                     f.deleted_at \
                  FROM folders f \
                  WHERE f.id = ? \
                    AND f.team_id = ? \
@@ -319,15 +307,14 @@ fn build_find_ancestors_statement(
                      parent.policy_id, \
                      parent.created_at, \
                      parent.updated_at, \
-                     parent.deleted_at, \
-                     parent.is_locked \
+                     parent.deleted_at \
                  FROM folders parent \
                  JOIN folder_ancestors fa ON fa.parent_id = parent.id \
                  WHERE parent.team_id = ? \
                    AND parent.deleted_at IS NULL \
              ) \
              SELECT \
-                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at, is_locked \
+                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at \
              FROM folder_ancestors \
              ORDER BY depth DESC"
             ),
@@ -396,7 +383,6 @@ fn build_resolve_path_chain_query(
         .column((folder::Entity, folder::Column::CreatedAt))
         .column((folder::Entity, folder::Column::UpdatedAt))
         .column((folder::Entity, folder::Column::DeletedAt))
-        .column((folder::Entity, folder::Column::IsLocked))
         .from(folder::Entity)
         .join_subquery(
             sea_orm::JoinType::InnerJoin,
@@ -435,7 +421,6 @@ fn build_resolve_path_chain_query(
         .column((folder::Entity, folder::Column::CreatedAt))
         .column((folder::Entity, folder::Column::UpdatedAt))
         .column((folder::Entity, folder::Column::DeletedAt))
-        .column((folder::Entity, folder::Column::IsLocked))
         .from(folder::Entity)
         .join(
             sea_orm::JoinType::InnerJoin,
@@ -477,7 +462,6 @@ fn build_resolve_path_chain_query(
             FolderChain::CreatedAt,
             FolderChain::UpdatedAt,
             FolderChain::DeletedAt,
-            FolderChain::IsLocked,
         ])
         .query(
             base_select
@@ -499,7 +483,6 @@ fn build_resolve_path_chain_query(
         .column((FolderChain::Table, FolderChain::CreatedAt))
         .column((FolderChain::Table, FolderChain::UpdatedAt))
         .column((FolderChain::Table, FolderChain::DeletedAt))
-        .column((FolderChain::Table, FolderChain::IsLocked))
         .from(FolderChain::Table)
         .order_by((FolderChain::Table, FolderChain::SegmentIndex), Order::Asc)
         .to_owned();

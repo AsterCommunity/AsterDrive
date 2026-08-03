@@ -18,8 +18,8 @@ use bytes::BytesMut;
 use futures::StreamExt;
 
 use super::locks::{
-    ActiveWopiLockState, active_wopi_lock_value, ensure_wopi_lock_matches,
-    ensure_wopi_putfile_lock_matches, load_active_lock,
+    ActiveWopiLockState, WopiMutationAuthorization, active_wopi_lock_value,
+    ensure_wopi_lock_matches, ensure_wopi_putfile_lock_matches, load_active_lock,
 };
 use super::session::{resolve_access_token, scope_from_payload};
 use super::targets::{
@@ -144,11 +144,13 @@ pub async fn put_file_contents(
     let resolved = resolve_access_token(state, file_id, access_token, request_source).await?;
     // PutFile 有一个容易漏掉的协议细节：对现有文件，客户端必须先持有 lock。
     // 只有"未锁定且大小为 0 的新建文件"允许直接首写，这对应 editnew 的落盘流程。
-    if let Some(conflict) =
-        ensure_wopi_putfile_lock_matches(state, &resolved.file, requested_lock).await?
-    {
-        return Ok(WopiPutFileResult::Conflict(conflict));
-    }
+    let lock_credentials =
+        match ensure_wopi_putfile_lock_matches(state, &resolved.file, requested_lock).await? {
+            WopiMutationAuthorization::Authorized(credentials) => credentials,
+            WopiMutationAuthorization::Conflict(conflict) => {
+                return Ok(WopiPutFileResult::Conflict(conflict));
+            }
+        };
 
     let (updated, item_version) = file::update_content_stream_in_scope(
         state,
@@ -157,6 +159,7 @@ pub async fn put_file_contents(
         payload,
         content_length,
         None,
+        lock_credentials,
     )
     .await?;
     let audit_ctx = audit_info.to_context(resolved.payload.actor_user_id);

@@ -1,42 +1,124 @@
-use super::state::clear_entity_locked_if_unlocked;
+use super::owner_info::{deserialize_resource_lock_owner_info, serialize_resource_lock_owner_info};
 use super::*;
 
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use aster_drive_migration::Migrator;
+use async_trait::async_trait;
 use chrono::{Duration, Utc};
-use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
+use sea_orm::{ActiveModelTrait, Set};
 
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
-use crate::db::repository::{file_repo, lock_repo};
+use crate::db::repository::{lock_namespace_repo, lock_repo};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::mail::sender;
+use crate::services::workspace::storage::WorkspaceResourceScope;
 use crate::storage::{DriverRegistry, PolicySnapshot};
-use aster_drive_model::entities::{file, file_blob, resource_lock, storage_policy, user};
+use aster_drive_model::entities::{
+    file, file_blob, folder, resource_lock, storage_policy, team, user,
+};
 use aster_drive_model::types::{
-    DriverType, EntityType, StoredLockOwnerInfo, StoredStoragePolicyAllowedTypes,
-    StoredStoragePolicyOptions, UserRole, UserStatus,
+    DriverType, EntityType, LockDepth, LockMode, LockOrigin, LockRootKind, LockWorkspaceType,
+    StoredLockOwnerInfo, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole,
+    UserStatus,
 };
 use aster_forge_cache as cache;
-use aster_forge_cache::CacheConfig;
+use aster_forge_cache::{CacheBackend, CacheConfig, CacheExt, MemoryCache};
+
+struct ProjectionCacheSpy {
+    inner: MemoryCache,
+    get_calls: AtomicUsize,
+    set_calls: AtomicUsize,
+    fail_reads: bool,
+}
+
+impl ProjectionCacheSpy {
+    fn new(fail_reads: bool) -> Self {
+        Self {
+            inner: MemoryCache::new(300),
+            get_calls: AtomicUsize::new(0),
+            set_calls: AtomicUsize::new(0),
+            fail_reads,
+        }
+    }
+}
+
+#[async_trait]
+impl CacheBackend for ProjectionCacheSpy {
+    fn backend_name(&self) -> &'static str {
+        "resource-lock-test"
+    }
+
+    async fn health_check(&self) -> aster_forge_cache::Result<()> {
+        Ok(())
+    }
+
+    async fn get_bytes(&self, key: &str) -> Option<Vec<u8>> {
+        self.get_calls.fetch_add(1, Ordering::Relaxed);
+        if self.fail_reads {
+            None
+        } else {
+            self.inner.get_bytes(key).await
+        }
+    }
+
+    async fn take_bytes(&self, key: &str) -> Option<Vec<u8>> {
+        self.inner.take_bytes(key).await
+    }
+
+    async fn set_bytes(&self, key: &str, value: Vec<u8>, ttl_secs: Option<u64>) {
+        self.set_calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.set_bytes(key, value, ttl_secs).await;
+    }
+
+    async fn set_bytes_if_absent(&self, key: &str, value: Vec<u8>, ttl_secs: Option<u64>) -> bool {
+        self.inner.set_bytes_if_absent(key, value, ttl_secs).await
+    }
+
+    async fn delete(&self, key: &str) {
+        self.inner.delete(key).await;
+    }
+
+    async fn delete_many(&self, keys: &[String]) {
+        self.inner.delete_many(keys).await;
+    }
+
+    async fn invalidate_prefix(&self, prefix: &str) {
+        self.inner.invalidate_prefix(prefix).await;
+    }
+}
+
+struct LockTestFixture {
+    state: PrimaryAppState,
+    user: user::Model,
+    team: team::Model,
+    folder: folder::Model,
+    file: file::Model,
+}
 
 fn sample_lock(owner_info: Option<StoredLockOwnerInfo>) -> resource_lock::Model {
     resource_lock::Model {
         id: 42,
         token: "urn:uuid:test".to_string(),
-        entity_type: EntityType::File.into(),
-        entity_id: 7,
-        path: "/docs/report.txt".to_string(),
-        owner_id: Some(9),
+        namespace_id: 3,
+        root_kind: LockRootKind::File,
+        root_folder_id: None,
+        root_file_id: Some(7),
+        depth: LockDepth::Resource,
+        mode: LockMode::Exclusive,
+        origin: LockOrigin::Product,
+        holder_user_id: Some(9),
         owner_info,
         timeout_at: None,
-        shared: false,
-        deep: false,
+        lockroot_path: Some("/docs/report.txt".to_string()),
         created_at: Utc::now(),
     }
 }
 
-async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) {
+async fn build_lock_test_fixture() -> LockTestFixture {
     let temp_root =
         std::env::temp_dir().join(format!("asterdrive-lock-service-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&temp_root).expect("lock service temp root should exist");
@@ -98,6 +180,39 @@ async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) 
     .await
     .expect("lock test user should insert");
 
+    let team = team::ActiveModel {
+        name: Set("Lock Test Team".to_string()),
+        description: Set(String::new()),
+        created_by: Set(user.id),
+        storage_used: Set(0),
+        storage_quota: Set(0),
+        policy_group_id: Set(None),
+        created_at: Set(now),
+        updated_at: Set(now),
+        archived_at: Set(None),
+        ..Default::default()
+    }
+    .insert(&db)
+    .await
+    .expect("lock test team should insert");
+
+    let folder = folder::ActiveModel {
+        name: Set("docs".to_string()),
+        parent_id: Set(None),
+        team_id: Set(None),
+        owner_user_id: Set(Some(user.id)),
+        created_by_user_id: Set(Some(user.id)),
+        created_by_username: Set(user.username.clone()),
+        policy_id: Set(Some(policy.id)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        deleted_at: Set(None),
+        ..Default::default()
+    }
+    .insert(&db)
+    .await
+    .expect("lock test folder should insert");
+
     let blob = file_blob::ActiveModel {
         hash: Set(format!("lock-blob-{}", uuid::Uuid::new_v4())),
         size: Set(1),
@@ -117,7 +232,7 @@ async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) 
 
     let file = file::ActiveModel {
         name: Set("lock-target.txt".to_string()),
-        folder_id: Set(None),
+        folder_id: Set(Some(folder.id)),
         team_id: Set(None),
         blob_id: Set(blob.id),
         size: Set(1),
@@ -128,7 +243,6 @@ async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) 
         created_at: Set(now),
         updated_at: Set(now),
         deleted_at: Set(None),
-        is_locked: Set(false),
         ..Default::default()
     }
     .insert(&db)
@@ -136,10 +250,7 @@ async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) 
     .expect("lock test file should insert");
 
     let runtime_config = Arc::new(RuntimeConfig::new());
-    let cache = cache::create_cache(&CacheConfig {
-        ..Default::default()
-    })
-    .await;
+    let cache = cache::create_cache(&CacheConfig::default()).await;
     let mut config = Config::default();
     config.server.temp_dir = temp_root.join(".tmp").to_string_lossy().into_owned();
     config.server.upload_temp_dir = temp_root.join(".uploads").to_string_lossy().into_owned();
@@ -169,439 +280,529 @@ async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) 
         remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
     };
 
-    (state, user, file)
+    LockTestFixture {
+        state,
+        user,
+        team,
+        folder,
+        file,
+    }
 }
 
-async fn insert_lock_for_test(
-    state: &PrimaryAppState,
-    file: &file::Model,
-    token: &str,
-    owner_id: i64,
-    timeout_at: Option<chrono::DateTime<Utc>>,
-) -> resource_lock::Model {
-    let now = Utc::now();
-    lock_repo::create(
-        state.writer_db(),
-        resource_lock::ActiveModel {
-            token: Set(token.to_string()),
-            entity_type: Set(EntityType::File.into()),
-            entity_id: Set(file.id),
-            path: Set("/lock-target.txt".to_string()),
-            owner_id: Set(Some(owner_id)),
-            owner_info: Set(None),
-            timeout_at: Set(timeout_at),
-            shared: Set(false),
-            deep: Set(false),
-            created_at: Set(now),
-            ..Default::default()
+async fn namespace_generation(
+    fixture: &LockTestFixture,
+    workspace_type: LockWorkspaceType,
+    workspace_id: i64,
+) -> i64 {
+    lock_namespace_repo::find_by_workspace(fixture.state.writer_db(), workspace_type, workspace_id)
+        .await
+        .expect("namespace should query")
+        .expect("namespace should exist")
+        .generation
+}
+
+async fn projected_file_state(fixture: &LockTestFixture) -> ResourceLockState {
+    let states = load_for_scope(
+        &fixture.state,
+        WorkspaceResourceScope::Personal {
+            user_id: fixture.user.id,
         },
+        std::slice::from_ref(&fixture.file),
+        &[],
     )
     .await
-    .expect("test lock should insert")
+    .expect("lock projection should load");
+    state_for(&states, EntityType::File, fixture.file.id)
 }
 
 #[test]
-fn serializes_and_deserializes_wopi_owner_payload() {
-    let owner_info = ResourceLockOwnerInfo::Wopi(WopiLockOwnerInfo {
-        app_key: "collabora".to_string(),
-        lock: "lock-123".to_string(),
-    });
-    let stored = serialize_resource_lock_owner_info(Some(&owner_info))
-        .expect("wopi payload should serialize")
-        .expect("stored owner info should exist");
-    let parsed = deserialize_resource_lock_owner_info(&sample_lock(Some(stored)))
-        .expect("wopi payload should deserialize");
-
-    assert_eq!(parsed, Some(owner_info));
+fn serializes_and_deserializes_owner_payloads() {
+    for owner_info in [
+        ResourceLockOwnerInfo::Wopi(WopiLockOwnerInfo {
+            app_key: "collabora".to_string(),
+            lock: "lock-123".to_string(),
+        }),
+        ResourceLockOwnerInfo::Webdav(WebdavLockOwnerInfo {
+            xml: "<D:owner xmlns:D=\"DAV:\"><D:href>mailto:test@example.com</D:href></D:owner>"
+                .to_string(),
+        }),
+        ResourceLockOwnerInfo::Text(TextLockOwnerInfo {
+            value: "user@example.com".to_string(),
+        }),
+    ] {
+        let stored = serialize_resource_lock_owner_info(Some(&owner_info))
+            .expect("owner payload should serialize")
+            .expect("stored owner info should exist");
+        let parsed = deserialize_resource_lock_owner_info(&sample_lock(Some(stored)))
+            .expect("owner payload should deserialize");
+        assert_eq!(parsed, Some(owner_info));
+    }
 }
 
 #[test]
-fn serializes_and_deserializes_webdav_owner_payload() {
-    let owner_info = ResourceLockOwnerInfo::Webdav(WebdavLockOwnerInfo {
-        xml: "<D:owner xmlns:D=\"DAV:\"><D:href>mailto:test@example.com</D:href></D:owner>"
-            .to_string(),
-    });
-    let stored = serialize_resource_lock_owner_info(Some(&owner_info))
-        .expect("webdav payload should serialize")
-        .expect("stored owner info should exist");
-    let parsed = deserialize_resource_lock_owner_info(&sample_lock(Some(stored)))
-        .expect("webdav payload should deserialize");
-
-    assert_eq!(parsed, Some(owner_info));
-}
-
-#[test]
-fn serializes_and_deserializes_text_owner_payload() {
-    let owner_info = ResourceLockOwnerInfo::Text(TextLockOwnerInfo {
-        value: "user@example.com".to_string(),
-    });
-    let stored = serialize_resource_lock_owner_info(Some(&owner_info))
-        .expect("text payload should serialize")
-        .expect("stored owner info should exist");
-    let parsed = deserialize_resource_lock_owner_info(&sample_lock(Some(stored)))
-        .expect("text owner payload should deserialize");
-
-    assert_eq!(parsed, Some(owner_info));
-}
-
-#[test]
-fn rejects_legacy_webdav_xml_owner_payload() {
-    let error = deserialize_resource_lock_owner_info(&sample_lock(Some(StoredLockOwnerInfo(
-        "<D:owner xmlns:D=\"DAV:\"><D:href>mailto:test@example.com</D:href></D:owner>".to_string(),
-    ))))
-    .expect_err("legacy raw xml payload should be rejected");
-
-    assert!(
-        error
-            .to_string()
-            .contains("deserialize resource lock owner payload")
-    );
-}
-
-#[test]
-fn rejects_legacy_text_owner_payload() {
-    let error = deserialize_resource_lock_owner_info(&sample_lock(Some(StoredLockOwnerInfo(
-        "user@example.com".to_string(),
-    ))))
-    .expect_err("legacy raw text payload should be rejected");
-
-    assert!(
-        error
-            .to_string()
-            .contains("deserialize resource lock owner payload")
-    );
-}
-
-#[test]
-fn rejects_unknown_owner_payload_kind() {
-    let error = deserialize_resource_lock_owner_info(&sample_lock(Some(StoredLockOwnerInfo(
-        r#"{"kind":"legacy","value":"user@example.com"}"#.to_string(),
-    ))))
-    .expect_err("unknown owner payload kind should be rejected");
-
-    assert!(
-        error
-            .to_string()
-            .contains("deserialize resource lock owner payload")
-    );
+fn rejects_legacy_or_unknown_owner_payloads() {
+    for raw in [
+        "<D:owner xmlns:D=\"DAV:\"><D:href>mailto:test@example.com</D:href></D:owner>",
+        "user@example.com",
+        r#"{"kind":"legacy","value":"user@example.com"}"#,
+    ] {
+        let error = deserialize_resource_lock_owner_info(&sample_lock(Some(StoredLockOwnerInfo(
+            raw.to_string(),
+        ))))
+        .expect_err("invalid owner payload should be rejected");
+        assert!(
+            error
+                .to_string()
+                .contains("deserialize resource lock owner payload")
+        );
+    }
 }
 
 #[tokio::test]
-async fn lock_replaces_expired_lock_and_keeps_single_row() {
-    let (state, user, file) = build_lock_test_state().await;
-    let now = Utc::now();
-    lock_repo::create(
-        state.writer_db(),
-        resource_lock::ActiveModel {
-            token: Set("expired-lock".to_string()),
-            entity_type: Set(EntityType::File.into()),
-            entity_id: Set(file.id),
-            path: Set("/lock-target.txt".to_string()),
-            owner_id: Set(Some(user.id)),
-            owner_info: Set(None),
-            timeout_at: Set(Some(now - Duration::seconds(5))),
-            shared: Set(false),
-            deep: Set(false),
-            created_at: Set(now - Duration::seconds(30)),
-            ..Default::default()
+async fn expired_lock_is_replaced_and_generation_advances_once_per_commit() {
+    let fixture = build_lock_test_fixture().await;
+    acquire(
+        &fixture.state,
+        LockTarget {
+            workspace: LockWorkspace::Personal {
+                user_id: fixture.user.id,
+            },
+            root: LockRoot::File {
+                file_id: fixture.file.id,
+            },
+            depth: LockDepth::Resource,
         },
+        LockMode::Exclusive,
+        LockOrigin::Product,
+        Some(fixture.user.id),
+        None,
+        Some(Duration::seconds(-5)),
+        Some("/docs/lock-target.txt".to_string()),
     )
     .await
-    .expect("expired lock should insert");
+    .expect("expired lock fixture should acquire");
 
     let replacement = lock(
-        &state,
-        EntityType::File,
-        file.id,
-        Some(user.id),
+        &fixture.state,
+        aster_drive_model::types::EntityType::File,
+        fixture.file.id,
+        Some(fixture.user.id),
         None,
         Some(Duration::seconds(30)),
     )
     .await
     .expect("expired lock should be replaced");
 
-    let locks = lock_repo::find_all(state.writer_db())
+    let locks = lock_repo::find_all(fixture.state.writer_db())
         .await
         .expect("locks should load");
-    assert_eq!(locks.len(), 1, "only the replacement lock should remain");
+    assert_eq!(locks.len(), 1);
     assert_eq!(locks[0].id, replacement.id);
-    assert_ne!(locks[0].token, "expired-lock");
-
-    let reloaded_file = file_repo::find_by_id(state.writer_db(), file.id)
-        .await
-        .expect("file should reload");
-    assert!(
-        reloaded_file.is_locked,
-        "replacement lock should sync is_locked"
+    assert_eq!(
+        namespace_generation(&fixture, LockWorkspaceType::Personal, fixture.user.id).await,
+        2
     );
 }
 
 #[tokio::test]
-async fn clear_entity_locked_if_unlocked_keeps_flag_when_replacement_lock_exists() {
-    let (state, user, file) = build_lock_test_state().await;
-    set_entity_locked(state.writer_db(), EntityType::File, file.id, true)
-        .await
-        .expect("file should be marked locked");
-
-    let now = Utc::now();
-    lock_repo::create(
-        state.writer_db(),
-        resource_lock::ActiveModel {
-            token: Set("active-lock".to_string()),
-            entity_type: Set(EntityType::File.into()),
-            entity_id: Set(file.id),
-            path: Set("/lock-target.txt".to_string()),
-            owner_id: Set(Some(user.id)),
-            owner_info: Set(None),
-            timeout_at: Set(Some(now + Duration::seconds(30))),
-            shared: Set(false),
-            deep: Set(false),
-            created_at: Set(now),
-            ..Default::default()
+async fn exclusive_and_shared_compatibility_is_enforced() {
+    let fixture = build_lock_test_fixture().await;
+    let target = LockTarget {
+        workspace: LockWorkspace::Personal {
+            user_id: fixture.user.id,
         },
+        root: LockRoot::File {
+            file_id: fixture.file.id,
+        },
+        depth: LockDepth::Resource,
+    };
+    acquire(
+        &fixture.state,
+        target,
+        LockMode::Shared,
+        LockOrigin::WebDav,
+        Some(fixture.user.id),
+        None,
+        None,
+        Some("/docs/lock-target.txt".to_string()),
     )
     .await
-    .expect("active lock should insert");
-
-    clear_entity_locked_if_unlocked(state.writer_db(), EntityType::File, file.id)
-        .await
-        .expect("helper should succeed");
-
-    let reloaded_file = file_repo::find_by_id(state.writer_db(), file.id)
-        .await
-        .expect("file should reload");
-    assert!(
-        reloaded_file.is_locked,
-        "existing replacement lock must keep is_locked cache set"
-    );
-}
-
-#[tokio::test]
-async fn clear_entity_locked_if_unlocked_clears_flag_when_no_lock_remains() {
-    let (state, _, file) = build_lock_test_state().await;
-    set_entity_locked(state.writer_db(), EntityType::File, file.id, true)
-        .await
-        .expect("file should be marked locked");
-
-    clear_entity_locked_if_unlocked(state.writer_db(), EntityType::File, file.id)
-        .await
-        .expect("helper should succeed");
-
-    let reloaded_file = file_repo::find_by_id(state.writer_db(), file.id)
-        .await
-        .expect("file should reload");
-    assert!(
-        !reloaded_file.is_locked,
-        "is_locked should be cleared once no lock row remains"
-    );
-}
-
-#[tokio::test]
-async fn unlock_as_entity_owner_removes_all_locks_and_clears_flag() {
-    let (state, user, file) = build_lock_test_state().await;
-    insert_lock_for_test(&state, &file, "owner-lock", user.id, None).await;
-    insert_lock_for_test(&state, &file, "foreign-lock", user.id + 1, None).await;
-    set_entity_locked(state.writer_db(), EntityType::File, file.id, true)
-        .await
-        .expect("file should be marked locked");
-
-    unlock(&state, EntityType::File, file.id, user.id)
-        .await
-        .expect("entity owner should unlock all locks");
-
-    let locks = lock_repo::find_all_by_entity(state.writer_db(), EntityType::File, file.id)
-        .await
-        .expect("locks should load");
-    assert!(locks.is_empty());
-    let reloaded_file = file_repo::find_by_id(state.writer_db(), file.id)
-        .await
-        .expect("file should reload");
-    assert!(!reloaded_file.is_locked);
-}
-
-#[tokio::test]
-async fn unlock_as_lock_owner_removes_only_own_locks_when_no_foreign_active_lock_exists() {
-    let (state, user, file) = build_lock_test_state().await;
-    let lock_owner_id = user.id + 1;
-    insert_lock_for_test(&state, &file, "own-lock", lock_owner_id, None).await;
-    insert_lock_for_test(
-        &state,
-        &file,
-        "expired-foreign-lock",
-        user.id + 2,
-        Some(Utc::now() - Duration::seconds(30)),
+    .expect("first shared lock should acquire");
+    acquire(
+        &fixture.state,
+        target,
+        LockMode::Shared,
+        LockOrigin::WebDav,
+        Some(fixture.user.id + 1),
+        None,
+        None,
+        Some("/docs/lock-target.txt".to_string()),
     )
-    .await;
-    set_entity_locked(state.writer_db(), EntityType::File, file.id, true)
-        .await
-        .expect("file should be marked locked");
+    .await
+    .expect("second shared lock should acquire");
 
-    unlock(&state, EntityType::File, file.id, lock_owner_id)
-        .await
-        .expect("lock owner should remove own locks");
-
-    let locks = lock_repo::find_all_by_entity(state.writer_db(), EntityType::File, file.id)
-        .await
-        .expect("locks should load");
-    assert!(locks.is_empty(), "expired foreign locks should be pruned");
-    let reloaded_file = file_repo::find_by_id(state.writer_db(), file.id)
-        .await
-        .expect("file should reload");
-    assert!(
-        !reloaded_file.is_locked,
-        "is_locked should clear after own and expired locks are removed"
-    );
-}
-
-#[tokio::test]
-async fn unlock_prunes_only_expired_locks_and_clears_stale_locked_flag() {
-    let (state, user, file) = build_lock_test_state().await;
-    insert_lock_for_test(
-        &state,
-        &file,
-        "expired-lock",
-        user.id + 1,
-        Some(Utc::now() - Duration::seconds(30)),
+    let error = acquire(
+        &fixture.state,
+        target,
+        LockMode::Exclusive,
+        LockOrigin::Product,
+        Some(fixture.user.id),
+        None,
+        None,
+        Some("/docs/lock-target.txt".to_string()),
     )
-    .await;
-    set_entity_locked(state.writer_db(), EntityType::File, file.id, true)
-        .await
-        .expect("file should be marked locked");
-
-    unlock(&state, EntityType::File, file.id, user.id + 2)
-        .await
-        .expect("expired-only locks should be pruned without ownership failure");
-
-    let locks = lock_repo::find_all_by_entity(state.writer_db(), EntityType::File, file.id)
-        .await
-        .expect("locks should load");
-    assert!(locks.is_empty(), "expired lock rows should be deleted");
-    let reloaded_file = file_repo::find_by_id(state.writer_db(), file.id)
-        .await
-        .expect("file should reload");
-    assert!(
-        !reloaded_file.is_locked,
-        "stale is_locked should be cleared after expired lock cleanup"
-    );
+    .await
+    .expect_err("exclusive lock should conflict with active shared locks");
+    assert!(matches!(
+        error,
+        crate::errors::AsterError::ResourceLocked(_)
+    ));
 }
 
 #[tokio::test]
-async fn unlock_as_lock_owner_rejects_foreign_active_locks_without_deleting_anything() {
-    let (state, user, file) = build_lock_test_state().await;
-    let lock_owner_id = user.id + 1;
-    let own_lock = insert_lock_for_test(&state, &file, "own-lock", lock_owner_id, None).await;
-    let foreign_lock = insert_lock_for_test(&state, &file, "foreign-lock", user.id + 2, None).await;
-    set_entity_locked(state.writer_db(), EntityType::File, file.id, true)
-        .await
-        .expect("file should be marked locked");
+async fn protocol_locks_require_their_internal_token_not_a_matching_holder() {
+    let fixture = build_lock_test_fixture().await;
+    let target = LockTarget {
+        workspace: LockWorkspace::Personal {
+            user_id: fixture.user.id,
+        },
+        root: LockRoot::File {
+            file_id: fixture.file.id,
+        },
+        depth: LockDepth::Resource,
+    };
+    let webdav_lock = acquire(
+        &fixture.state,
+        target,
+        LockMode::Exclusive,
+        LockOrigin::WebDav,
+        Some(fixture.user.id),
+        None,
+        None,
+        Some("/docs/lock-target.txt".to_string()),
+    )
+    .await
+    .expect("WebDAV lock should acquire");
 
-    let error = unlock(&state, EntityType::File, file.id, lock_owner_id)
-        .await
-        .expect_err("foreign active lock should block non-owner unlock");
+    let error = enforce_file_mutation(
+        fixture.state.writer_db(),
+        &fixture.file,
+        &LockMutationCredentials::HolderUser(fixture.user.id).submitted(),
+    )
+    .await
+    .expect_err("matching holder must not authorize a WebDAV lock");
+    assert!(matches!(
+        error,
+        crate::errors::AsterError::ResourceLocked(_)
+    ));
 
-    assert!(matches!(error, crate::errors::AsterError::AuthForbidden(_)));
-    let locks = lock_repo::find_all_by_entity(state.writer_db(), EntityType::File, file.id)
-        .await
-        .expect("locks should load");
-    let lock_ids: std::collections::BTreeSet<i64> = locks.iter().map(|lock| lock.id).collect();
+    enforce_file_mutation(
+        fixture.state.writer_db(),
+        &fixture.file,
+        &LockMutationCredentials::SubmittedTokens(vec![webdav_lock.token]).submitted(),
+    )
+    .await
+    .expect("the internal WebDAV lock token should authorize the mutation");
+}
+
+#[tokio::test]
+async fn folder_infinity_lock_conflicts_with_descendant_file_lock() {
+    let fixture = build_lock_test_fixture().await;
+    acquire(
+        &fixture.state,
+        LockTarget {
+            workspace: LockWorkspace::Personal {
+                user_id: fixture.user.id,
+            },
+            root: LockRoot::Folder {
+                folder_id: fixture.folder.id,
+            },
+            depth: LockDepth::Infinity,
+        },
+        LockMode::Exclusive,
+        LockOrigin::WebDav,
+        Some(fixture.user.id),
+        None,
+        None,
+        Some("/docs".to_string()),
+    )
+    .await
+    .expect("folder infinity lock should acquire");
+
+    let error = lock(
+        &fixture.state,
+        aster_drive_model::types::EntityType::File,
+        fixture.file.id,
+        Some(fixture.user.id),
+        None,
+        None,
+    )
+    .await
+    .expect_err("descendant file lock should conflict");
+    assert!(matches!(
+        error,
+        crate::errors::AsterError::ResourceLocked(_)
+    ));
+}
+
+#[tokio::test]
+async fn token_unlock_force_unlock_refresh_and_replace_update_generation() {
+    let fixture = build_lock_test_fixture().await;
+    let first = lock(
+        &fixture.state,
+        aster_drive_model::types::EntityType::File,
+        fixture.file.id,
+        Some(fixture.user.id),
+        None,
+        None,
+    )
+    .await
+    .expect("file lock should acquire");
+    let refreshed_at = Utc::now() + Duration::minutes(5);
+    let refreshed =
+        refresh_by_token_on(fixture.state.writer_db(), &first.token, Some(refreshed_at))
+            .await
+            .expect("lock should refresh");
+    assert_eq!(refreshed.timeout_at, Some(refreshed_at));
+    let replaced_at = Utc::now() + Duration::minutes(10);
+    let replacement_owner = ResourceLockOwnerInfo::Wopi(WopiLockOwnerInfo {
+        app_key: "onlyoffice".to_string(),
+        lock: "replacement-lock".to_string(),
+    });
+    let replaced = replace_owner_info_and_timeout_by_token_on(
+        fixture.state.writer_db(),
+        &first.token,
+        replacement_owner.clone(),
+        Some(replaced_at),
+    )
+    .await
+    .expect("lock owner payload should replace");
+    assert_eq!(replaced.timeout_at, Some(replaced_at));
     assert_eq!(
-        lock_ids,
-        [own_lock.id, foreign_lock.id].into_iter().collect()
+        deserialize_resource_lock_owner_info(&replaced).expect("owner payload should deserialize"),
+        Some(replacement_owner)
     );
-    let reloaded_file = file_repo::find_by_id(state.writer_db(), file.id)
+    unlock_by_token(&fixture.state, &first.token)
         .await
-        .expect("file should reload");
-    assert!(reloaded_file.is_locked);
+        .expect("token unlock should succeed");
+
+    let second = lock(
+        &fixture.state,
+        aster_drive_model::types::EntityType::File,
+        fixture.file.id,
+        Some(fixture.user.id),
+        None,
+        None,
+    )
+    .await
+    .expect("second file lock should acquire");
+    force_unlock(&fixture.state, second.id)
+        .await
+        .expect("force unlock should succeed");
+
+    assert!(
+        lock_repo::find_all(fixture.state.writer_db())
+            .await
+            .expect("locks should load")
+            .is_empty()
+    );
+    assert_eq!(
+        namespace_generation(&fixture, LockWorkspaceType::Personal, fixture.user.id).await,
+        6
+    );
 }
 
 #[tokio::test]
-async fn unlock_by_token_rolls_back_lock_deletion_when_flag_sync_fails() {
-    let (state, user, file) = build_lock_test_state().await;
-    let lock = insert_lock_for_test(&state, &file, "token-rollback-lock", user.id, None).await;
-    set_entity_locked(state.writer_db(), EntityType::File, file.id, true)
-        .await
-        .expect("file should be marked locked");
-    state
-        .writer_db()
-        .execute_unprepared(
-            "CREATE TRIGGER lock_token_flag_sync_failure \
-             BEFORE UPDATE OF is_locked ON files \
-             WHEN NEW.is_locked = 0 BEGIN \
-             SELECT RAISE(ABORT, 'injected lock flag sync failure'); END;",
-        )
-        .await
-        .expect("flag sync failure trigger should install");
+async fn lock_projection_cache_miss_then_hit_uses_one_fill() {
+    let mut fixture = build_lock_test_fixture().await;
+    let cache = Arc::new(ProjectionCacheSpy::new(false));
+    fixture.state.cache = cache.clone();
+    lock(
+        &fixture.state,
+        EntityType::File,
+        fixture.file.id,
+        Some(fixture.user.id),
+        None,
+        None,
+    )
+    .await
+    .expect("file lock should acquire");
 
-    unlock_by_token(&state, &lock.token)
-        .await
-        .expect_err("flag sync failure should fail token unlock");
-
-    assert!(
-        lock_repo::find_by_token(state.writer_db(), &lock.token)
-            .await
-            .expect("lock should reload")
-            .is_some(),
-        "lock deletion must roll back with is_locked synchronization"
-    );
-    assert!(
-        file_repo::find_by_id(state.writer_db(), file.id)
-            .await
-            .expect("file should reload")
-            .is_locked
-    );
-
-    state
-        .writer_db()
-        .execute_unprepared("DROP TRIGGER lock_token_flag_sync_failure")
-        .await
-        .expect("flag sync failure trigger should be removed");
-    unlock_by_token(&state, &lock.token)
-        .await
-        .expect("token unlock should be retryable after the failure is removed");
+    assert!(matches!(
+        projected_file_state(&fixture).await,
+        ResourceLockState::Direct { .. }
+    ));
+    assert!(matches!(
+        projected_file_state(&fixture).await,
+        ResourceLockState::Direct { .. }
+    ));
+    assert_eq!(cache.get_calls.load(Ordering::Relaxed), 2);
+    assert_eq!(cache.set_calls.load(Ordering::Relaxed), 1);
 }
 
 #[tokio::test]
-async fn force_unlock_rolls_back_lock_deletion_when_flag_sync_fails() {
-    let (state, user, file) = build_lock_test_state().await;
-    let lock = insert_lock_for_test(&state, &file, "force-rollback-lock", user.id, None).await;
-    set_entity_locked(state.writer_db(), EntityType::File, file.id, true)
-        .await
-        .expect("file should be marked locked");
-    state
-        .writer_db()
-        .execute_unprepared(
-            "CREATE TRIGGER force_unlock_flag_sync_failure \
-             BEFORE UPDATE OF is_locked ON files \
-             WHEN NEW.is_locked = 0 BEGIN \
-             SELECT RAISE(ABORT, 'injected force unlock flag sync failure'); END;",
-        )
-        .await
-        .expect("flag sync failure trigger should install");
-
-    force_unlock(&state, lock.id)
-        .await
-        .expect_err("flag sync failure should fail force unlock");
-
-    assert!(
-        lock_repo::find_by_id(state.writer_db(), lock.id)
-            .await
-            .expect("lock should reload")
-            .is_some(),
-        "force unlock deletion must roll back with is_locked synchronization"
+async fn malformed_or_unavailable_lock_projection_cache_falls_back_to_database() {
+    let mut fixture = build_lock_test_fixture().await;
+    let lock = lock(
+        &fixture.state,
+        EntityType::File,
+        fixture.file.id,
+        Some(fixture.user.id),
+        None,
+        None,
+    )
+    .await
+    .expect("file lock should acquire");
+    let generation =
+        namespace_generation(&fixture, LockWorkspaceType::Personal, fixture.user.id).await;
+    let key = format!(
+        "resource_lock_projection:{}:{generation}",
+        lock.namespace_id
     );
-    assert!(
-        file_repo::find_by_id(state.writer_db(), file.id)
-            .await
-            .expect("file should reload")
-            .is_locked
-    );
+    fixture
+        .state
+        .cache()
+        .set_bytes(&key, b"not-json".to_vec(), Some(300))
+        .await;
 
-    state
-        .writer_db()
-        .execute_unprepared("DROP TRIGGER force_unlock_flag_sync_failure")
+    assert!(matches!(
+        projected_file_state(&fixture).await,
+        ResourceLockState::Direct { .. }
+    ));
+    let repaired = fixture
+        .state
+        .cache()
+        .get::<serde_json::Value>(&key)
         .await
-        .expect("flag sync failure trigger should be removed");
-    force_unlock(&state, lock.id)
+        .expect("malformed cache entry should be replaced");
+    assert!(repaired.is_array());
+
+    let unavailable = Arc::new(ProjectionCacheSpy::new(true));
+    fixture.state.cache = unavailable.clone();
+    assert!(matches!(
+        projected_file_state(&fixture).await,
+        ResourceLockState::Direct { .. }
+    ));
+    assert_eq!(unavailable.get_calls.load(Ordering::Relaxed), 1);
+    assert_eq!(unavailable.set_calls.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn lock_projection_generation_change_ignores_stale_cached_timeout() {
+    let fixture = build_lock_test_fixture().await;
+    let lock = lock(
+        &fixture.state,
+        EntityType::File,
+        fixture.file.id,
+        Some(fixture.user.id),
+        None,
+        Some(Duration::minutes(1)),
+    )
+    .await
+    .expect("file lock should acquire");
+    let first_state = projected_file_state(&fixture).await;
+    let refreshed_at = Utc::now() + Duration::minutes(10);
+    refresh_by_token_on(fixture.state.writer_db(), &lock.token, Some(refreshed_at))
         .await
-        .expect("force unlock should be retryable after the failure is removed");
+        .expect("lock should refresh");
+
+    let refreshed_state = projected_file_state(&fixture).await;
+    assert_ne!(first_state, refreshed_state);
+    assert_eq!(
+        refreshed_state,
+        ResourceLockState::Direct {
+            mode: LockMode::Exclusive,
+            expires_at: Some(refreshed_at),
+        }
+    );
+}
+
+#[tokio::test]
+async fn team_workspace_root_lifecycle_and_missing_team_are_distinguished() {
+    let fixture = build_lock_test_fixture().await;
+    let target = LockTarget {
+        workspace: LockWorkspace::Team {
+            team_id: fixture.team.id,
+        },
+        root: LockRoot::WorkspaceRoot,
+        depth: LockDepth::Infinity,
+    };
+    let root_lock = acquire(
+        &fixture.state,
+        target,
+        LockMode::Exclusive,
+        LockOrigin::Product,
+        Some(fixture.user.id),
+        None,
+        None,
+        Some("/".to_string()),
+    )
+    .await
+    .expect("team workspace root should lock");
+    assert_eq!(root_lock.root_kind, LockRootKind::WorkspaceRoot);
+    unlock_by_token(&fixture.state, &root_lock.token)
+        .await
+        .expect("team workspace root should unlock by token");
+
+    let error = acquire(
+        &fixture.state,
+        LockTarget {
+            workspace: LockWorkspace::Team {
+                team_id: fixture.team.id + 100_000,
+            },
+            root: LockRoot::WorkspaceRoot,
+            depth: LockDepth::Infinity,
+        },
+        LockMode::Exclusive,
+        LockOrigin::Product,
+        Some(fixture.user.id),
+        None,
+        None,
+        Some("/".to_string()),
+    )
+    .await
+    .expect_err("missing team target should be reported");
+    assert!(matches!(
+        error,
+        crate::errors::AsterError::RecordNotFound(_)
+    ));
+}
+
+#[tokio::test]
+async fn workspace_root_lock_blocks_root_membership_creation() {
+    let fixture = build_lock_test_fixture().await;
+    acquire(
+        &fixture.state,
+        LockTarget {
+            workspace: LockWorkspace::Personal {
+                user_id: fixture.user.id,
+            },
+            root: LockRoot::WorkspaceRoot,
+            depth: LockDepth::Resource,
+        },
+        LockMode::Exclusive,
+        LockOrigin::Product,
+        Some(fixture.user.id),
+        None,
+        None,
+        Some("/".to_string()),
+    )
+    .await
+    .expect("workspace root lock should acquire");
+
+    let error = crate::services::files::folder::create_in_scope(
+        &fixture.state,
+        crate::services::workspace::storage::WorkspaceStorageScope::Personal {
+            user_id: fixture.user.id,
+        },
+        "blocked-at-root",
+        None,
+        crate::services::files::lock::LockMutationCredentials::None,
+    )
+    .await
+    .expect_err("workspace root lock should block root membership changes");
+    assert!(matches!(
+        error,
+        crate::errors::AsterError::ResourceLocked(_)
+    ));
 }

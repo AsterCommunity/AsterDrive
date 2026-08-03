@@ -5,6 +5,7 @@ import { TagChips } from "@/components/files/TagChips";
 import { Icon } from "@/components/ui/icon";
 import { TableCell } from "@/components/ui/table";
 import { formatBytes, formatDate } from "@/lib/format";
+import { isResourceLocked } from "@/lib/resourceLock";
 import type { FileListItem, FolderListItem } from "@/types/api";
 
 export function FileNameCell({
@@ -34,7 +35,7 @@ export function FileNameCell({
 					</div>
 					<FileItemStatusIndicators
 						isShared={file.is_shared}
-						isLocked={file.is_locked}
+						isLocked={isResourceLocked(file.lock_state)}
 						compact
 						className="ml-auto"
 					/>
@@ -67,7 +68,7 @@ export function FolderNameCell({ folder }: { folder: FolderListItem }) {
 					</div>
 					<FileItemStatusIndicators
 						isShared={folder.is_shared}
-						isLocked={folder.is_locked}
+						isLocked={isResourceLocked(folder.lock_state)}
 						compact
 						className="ml-auto"
 					/>

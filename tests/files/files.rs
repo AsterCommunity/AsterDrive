@@ -840,7 +840,7 @@ async fn test_file_lock_unlock() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["is_locked"], true);
+    assert_eq!(body["data"]["lock_state"]["state"], "direct");
     let event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
         .await
         .expect("file lock should publish storage change event")
@@ -1605,7 +1605,6 @@ async fn test_folder_detail_storage_used_handles_paginated_file_batches() {
                 created_at: Set(now),
                 updated_at: Set(now),
                 deleted_at: Set(None),
-                is_locked: Set(false),
                 ..Default::default()
             }
         })

@@ -210,7 +210,7 @@ function file(overrides: Partial<FileListItem> = {}): FileListItem {
 		extension: "md",
 		file_category: "document",
 		id: 7,
-		is_locked: false,
+		lock_state: { state: "unlocked" },
 		is_shared: false,
 		mime_type: "text/markdown",
 		name: "notes.md",

@@ -123,7 +123,7 @@ function fileItem(
 		extension: name.includes(".") ? name.split(".").pop()?.toLowerCase() : "",
 		file_category: mimeType.startsWith("audio/") ? "audio" : "document",
 		id,
-		is_locked: false,
+		lock_state: { state: "unlocked" },
 		is_shared: false,
 		mime_type: mimeType,
 		name,

@@ -28,8 +28,6 @@ pub struct Model {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub deleted_at: Option<DateTimeUtc>,
-    #[serde(default)]
-    pub is_locked: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

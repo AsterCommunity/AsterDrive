@@ -1,5 +1,5 @@
 use crate::db::repository::file_repo;
-use crate::errors::{AsterError, Result};
+use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{events::storage_change, workspace::storage::WorkspaceStorageScope};
 use aster_drive_model::entities::file;
@@ -44,11 +44,18 @@ pub(crate) async fn delete_in_scope_on<C: ConnectionTrait>(
     id: i64,
     allow_locked: bool,
 ) -> Result<file::Model> {
-    let file = file_repo::lock_by_id(db, id).await?;
-    crate::services::workspace::storage::ensure_active_file_scope(&file, scope)?;
-    if file.is_locked && !allow_locked {
-        return Err(AsterError::resource_locked("file is locked"));
-    }
+    let snapshot = file_repo::find_by_id(db, id).await?;
+    crate::services::workspace::storage::ensure_active_file_scope(&snapshot, scope)?;
+    let file = if allow_locked {
+        file_repo::lock_by_id(db, id).await?
+    } else {
+        crate::services::files::lock::enforce_file_mutation_on(
+            db,
+            &snapshot,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await?
+    };
     file_repo::soft_delete(db, id).await?;
     Ok(file)
 }

@@ -23,6 +23,7 @@ pub use super::preferences::{
     BrowserOpenMode, ColorPreset, Language, PrefViewMode, StoredUserConfig, ThemeMode, UserConfig,
     UserPreferences,
 };
+pub use super::resource_lock::{LockDepth, LockMode, LockOrigin, LockRootKind, LockWorkspaceType};
 pub use super::sort::SortBy;
 pub use super::storage_credential::{
     MicrosoftGraphCloud, StorageAuthorizationFlowStatus, StorageCredentialKind,

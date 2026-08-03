@@ -142,7 +142,20 @@ pub(crate) async fn update_in_scope_with_audit(
         || details.clone(),
     )
     .await;
-    Ok(file.into())
+    let lock_states = crate::services::files::lock::load_for_scope(
+        state,
+        scope.into(),
+        std::slice::from_ref(&file),
+        &[],
+    )
+    .await?;
+    Ok(
+        FileInfo::from(file).with_lock_state(crate::services::files::lock::state_for(
+            &lock_states,
+            aster_drive_model::types::EntityType::File,
+            file_id,
+        )),
+    )
 }
 
 pub(crate) async fn update_content_stream_in_scope_with_audit(
@@ -154,9 +167,16 @@ pub(crate) async fn update_content_stream_in_scope_with_audit(
     if_match: Option<&str>,
     audit_ctx: &AuditContext,
 ) -> Result<(FileInfo, String)> {
-    let (file, new_hash) =
-        update_content_stream_in_scope(state, scope, file_id, payload, declared_size, if_match)
-            .await?;
+    let (file, new_hash) = update_content_stream_in_scope(
+        state,
+        scope,
+        file_id,
+        payload,
+        declared_size,
+        if_match,
+        crate::services::files::lock::LockMutationCredentials::HolderUser(scope.actor_user_id()),
+    )
+    .await?;
     let details = audit_location_details_for_model(state, scope, &file).await;
     audit::log_with_details(
         state,
@@ -194,7 +214,20 @@ pub(crate) async fn set_lock_in_scope_with_audit(
         || details.clone(),
     )
     .await;
-    Ok(file.into())
+    let lock_states = crate::services::files::lock::load_for_scope(
+        state,
+        scope.into(),
+        std::slice::from_ref(&file),
+        &[],
+    )
+    .await?;
+    Ok(
+        FileInfo::from(file).with_lock_state(crate::services::files::lock::state_for(
+            &lock_states,
+            aster_drive_model::types::EntityType::File,
+            file_id,
+        )),
+    )
 }
 
 pub(crate) async fn copy_file_in_scope_with_audit(

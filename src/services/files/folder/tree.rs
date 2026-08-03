@@ -253,23 +253,6 @@ fn folder_tree_limit_error() -> AsterError {
     )
 }
 
-pub(crate) async fn collect_folder_forest_in_scope<C: ConnectionTrait>(
-    db: &C,
-    scope: WorkspaceStorageScope,
-    root_folder_ids: &[i64],
-    include_deleted: bool,
-    limits: Option<FolderTreeTraversalLimits>,
-) -> Result<(Vec<file::Model>, Vec<i64>)> {
-    collect_folder_forest_in_resource_scope(
-        db,
-        scope.into(),
-        root_folder_ids,
-        include_deleted,
-        limits,
-    )
-    .await
-}
-
 pub(crate) async fn collect_folder_tree_in_resource_scope<C: ConnectionTrait>(
     db: &C,
     scope: WorkspaceResourceScope,

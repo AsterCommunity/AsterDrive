@@ -156,12 +156,14 @@ pub(crate) async fn batch_move_in_scope(
             result.record_failure("file", id, err.to_string());
             continue;
         }
-        if file.is_locked {
-            result.record_failure(
-                "file",
-                id,
-                AsterError::resource_locked("file is locked").to_string(),
-            );
+        if let Err(error) = crate::services::files::lock::enforce_file_mutation(
+            state.writer_db(),
+            file,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await
+        {
+            result.record_failure("file", id, error.to_string());
             continue;
         }
         if let Some(error) = target_error.as_ref() {
@@ -203,12 +205,15 @@ pub(crate) async fn batch_move_in_scope(
             result.record_failure("folder", id, err.to_string());
             continue;
         }
-        if folder.is_locked {
-            result.record_failure(
-                "folder",
-                id,
-                AsterError::resource_locked("folder is locked").to_string(),
-            );
+        if let Err(error) = crate::services::files::lock::enforce_folder_mutation(
+            state.writer_db(),
+            folder,
+            aster_drive_model::types::LockDepth::Infinity,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await
+        {
+            result.record_failure("folder", id, error.to_string());
             continue;
         }
         if target_folder_id == Some(folder.id) {
@@ -270,6 +275,31 @@ pub(crate) async fn batch_move_in_scope(
             .collect();
 
         let txn = transaction::begin(state.writer_db()).await?;
+        let workspace = match scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                crate::services::files::lock::LockWorkspace::Personal { user_id }
+            }
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                crate::services::files::lock::LockWorkspace::Team { team_id }
+            }
+        };
+        crate::services::files::lock::lock_workspace_for_mutation_on(&txn, workspace).await?;
+        if let Some(target_folder_id) = target_folder_id {
+            let target = folder_repo::lock_by_id(&txn, target_folder_id).await?;
+            storage::ensure_active_folder_scope(&target, scope)?;
+        }
+        let mut locked_file_ids = file_ids_to_move.clone();
+        locked_file_ids.sort_unstable();
+        for file_id in locked_file_ids {
+            let snapshot = file_repo::find_by_id(&txn, file_id).await?;
+            storage::ensure_active_file_scope(&snapshot, scope)?;
+            crate::services::files::lock::enforce_file_mutation_on(
+                &txn,
+                &snapshot,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
+        }
         revalidate_batch_folder_move(&txn, scope, &folder_ids_to_move, target_folder_id).await?;
         file_repo::move_many_to_folder(&txn, &file_ids_to_move, target_folder_id, now).await?;
         folder_repo::move_many_to_parent(&txn, &folder_ids_to_move, target_folder_id, now).await?;
@@ -310,6 +340,16 @@ async fn revalidate_batch_folder_move<C: ConnectionTrait>(
     folder_ids_to_move: &[i64],
     target_folder_id: Option<i64>,
 ) -> Result<()> {
+    let Some(first_folder_id) = folder_ids_to_move.first().copied() else {
+        return Ok(());
+    };
+    let workspace_snapshot = folder_repo::find_by_id(db, first_folder_id).await?;
+    storage::ensure_active_folder_scope(&workspace_snapshot, scope)?;
+    crate::services::files::lock::lock_workspace_for_mutation_on(
+        db,
+        crate::services::files::lock::LockWorkspace::from_folder(&workspace_snapshot)?,
+    )
+    .await?;
     let initial_target_chain = load_folder_chain_in_scope(db, scope, target_folder_id).await?;
     let mut lock_ids: Vec<i64> = folder_ids_to_move.to_vec();
     lock_ids.extend(initial_target_chain.iter().map(|folder| folder.id));
@@ -319,9 +359,13 @@ async fn revalidate_batch_folder_move<C: ConnectionTrait>(
     for &folder_id in folder_ids_to_move {
         let folder = folder_repo::lock_by_id(db, folder_id).await?;
         storage::ensure_active_folder_scope(&folder, scope)?;
-        if folder.is_locked {
-            return Err(AsterError::resource_locked("folder is locked"));
-        }
+        crate::services::files::lock::enforce_folder_mutation_on(
+            db,
+            &folder,
+            aster_drive_model::types::LockDepth::Infinity,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await?;
         if target_chain.iter().any(|ancestor| ancestor.id == folder_id) {
             return Err(AsterError::validation_error(
                 "cannot move folder into its own subfolder",

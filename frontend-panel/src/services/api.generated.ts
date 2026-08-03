@@ -4361,7 +4361,7 @@ export interface components {
             folder_id?: number | null;
             /** Format: int64 */
             id: number;
-            is_locked: boolean;
+            lock_state: components["schemas"]["ResourceLockState"];
             mime_type: string;
             name: string;
             /** Format: int64 */
@@ -4407,7 +4407,7 @@ export interface components {
             sort_order?: null | components["schemas"]["SortOrder"];
         };
         /** @enum {string} */
-        AdminLockSortBy: "id" | "path" | "entity_type" | "owner_id" | "timeout_at" | "shared" | "deep" | "created_at";
+        AdminLockSortBy: "id" | "lockroot_path" | "root_kind" | "holder_user_id" | "timeout_at" | "mode" | "depth" | "created_at";
         AdminOverview: {
             daily_reports: components["schemas"]["AdminOverviewDailyReport"][];
             /** Format: int32 */
@@ -5502,7 +5502,6 @@ export interface components {
             folder_id?: number | null;
             /** Format: int64 */
             id: number;
-            is_locked?: boolean;
             mime_type: string;
             name: string;
             /** Format: int64 */
@@ -5528,7 +5527,7 @@ export interface components {
             folder_id?: number | null;
             /** Format: int64 */
             id: number;
-            is_locked: boolean;
+            lock_state: components["schemas"]["ResourceLockState"];
             mime_type: string;
             name: string;
             /** Format: int64 */
@@ -5558,8 +5557,8 @@ export interface components {
             file_category: components["schemas"]["FileCategory"];
             /** Format: int64 */
             id: number;
-            is_locked: boolean;
             is_shared: boolean;
+            lock_state: components["schemas"]["ResourceLockState"];
             mime_type: string;
             name: string;
             /** Format: int64 */
@@ -5627,7 +5626,6 @@ export interface components {
             folder_id?: number | null;
             /** Format: int64 */
             id: number;
-            is_locked: boolean;
             mime_type: string;
             name: string;
             /** Format: int64 */
@@ -5671,7 +5669,6 @@ export interface components {
             deleted_at?: string | null;
             /** Format: int64 */
             id: number;
-            is_locked?: boolean;
             name: string;
             /** Format: int64 */
             owner_user_id?: number | null;
@@ -5691,7 +5688,7 @@ export interface components {
             deleted_at?: string | null;
             /** Format: int64 */
             id: number;
-            is_locked: boolean;
+            lock_state: components["schemas"]["ResourceLockState"];
             name: string;
             /** Format: int64 */
             owner_user_id?: number | null;
@@ -5713,8 +5710,8 @@ export interface components {
         FolderListItem: {
             /** Format: int64 */
             id: number;
-            is_locked: boolean;
             is_shared: boolean;
+            lock_state: components["schemas"]["ResourceLockState"];
             name: string;
             tags: components["schemas"]["TagSummary"][];
             updated_at: string;
@@ -5909,6 +5906,35 @@ export interface components {
             limit?: number | null;
             /** Format: int64 */
             offset?: number | null;
+        };
+        /**
+         * @description Hierarchy depth covered by a resource lock.
+         * @enum {string}
+         */
+        LockDepth: "resource" | "infinity";
+        /**
+         * @description Compatibility mode for locks covering the same resource hierarchy.
+         * @enum {string}
+         */
+        LockMode: "exclusive" | "shared";
+        /**
+         * @description Product integration that created a lock.
+         * @enum {string}
+         */
+        LockOrigin: "product" | "web_dav" | "wopi";
+        /**
+         * @description Stable identity kind of a lock root.
+         * @enum {string}
+         */
+        LockRootKind: "workspace_root" | "folder" | "file";
+        LockRootSummary: {
+            /** @enum {string} */
+            kind: "workspace_root";
+        } | {
+            /** Format: int64 */
+            folder_id: number;
+            /** @enum {string} */
+            kind: "folder";
         };
         /** @description Standard login credentials. */
         LoginReq: {
@@ -6328,7 +6354,7 @@ export interface components {
                 folder_id?: number | null;
                 /** Format: int64 */
                 id: number;
-                is_locked: boolean;
+                lock_state: components["schemas"]["ResourceLockState"];
                 mime_type: string;
                 name: string;
                 /** Format: int64 */
@@ -6544,16 +6570,21 @@ export interface components {
             /** @description Items in the current page. */
             items: {
                 created_at: string;
-                deep: boolean;
-                /** Format: int64 */
-                entity_id: number;
-                entity_type: components["schemas"]["ResourceLockTargetType"];
+                depth: components["schemas"]["LockDepth"];
                 /** Format: int64 */
                 id: number;
+                lockroot_path?: string | null;
+                mode: components["schemas"]["LockMode"];
+                /** Format: int64 */
+                namespace_id: number;
+                origin: components["schemas"]["LockOrigin"];
                 owner?: null | components["schemas"]["UserSummary"];
                 owner_info?: null | components["schemas"]["ResourceLockOwnerInfo"];
-                path: string;
-                shared: boolean;
+                /** Format: int64 */
+                root_file_id?: number | null;
+                /** Format: int64 */
+                root_folder_id?: number | null;
+                root_kind: components["schemas"]["LockRootKind"];
                 timeout_at?: string | null;
                 token: string;
             }[];
@@ -7399,16 +7430,21 @@ export interface components {
         };
         ResourceLock: {
             created_at: string;
-            deep: boolean;
-            /** Format: int64 */
-            entity_id: number;
-            entity_type: components["schemas"]["ResourceLockTargetType"];
+            depth: components["schemas"]["LockDepth"];
             /** Format: int64 */
             id: number;
+            lockroot_path?: string | null;
+            mode: components["schemas"]["LockMode"];
+            /** Format: int64 */
+            namespace_id: number;
+            origin: components["schemas"]["LockOrigin"];
             owner?: null | components["schemas"]["UserSummary"];
             owner_info?: null | components["schemas"]["ResourceLockOwnerInfo"];
-            path: string;
-            shared: boolean;
+            /** Format: int64 */
+            root_file_id?: number | null;
+            /** Format: int64 */
+            root_folder_id?: number | null;
+            root_kind: components["schemas"]["LockRootKind"];
             timeout_at?: string | null;
             token: string;
         };
@@ -7422,14 +7458,21 @@ export interface components {
             /** @enum {string} */
             kind: "text";
         });
-        /**
-         * @description Resource identity used by lock persistence.
-         *
-         *     WebDAV mount roots can be virtual workspace resources rather than rows in `files` or
-         *     `folders`, so lock storage needs a target type that can represent those roots explicitly.
-         * @enum {string}
-         */
-        ResourceLockTargetType: "file" | "folder" | "personal_root" | "team_root";
+        ResourceLockState: {
+            /** @enum {string} */
+            state: "unlocked";
+        } | {
+            expires_at?: string | null;
+            mode: components["schemas"]["LockMode"];
+            /** @enum {string} */
+            state: "direct";
+        } | {
+            expires_at?: string | null;
+            mode: components["schemas"]["LockMode"];
+            root: components["schemas"]["LockRootSummary"];
+            /** @enum {string} */
+            state: "inherited";
+        };
         RuntimeSystemHealthComponent: {
             details?: components["schemas"]["HealthComponentDetail"][];
             message: string;
@@ -8472,7 +8515,7 @@ export interface components {
             expires_at: string;
             /** Format: int64 */
             id: number;
-            is_locked: boolean;
+            lock_state: components["schemas"]["ResourceLockState"];
             mime_type: string;
             name: string;
             original_path: string;
@@ -8485,7 +8528,7 @@ export interface components {
             expires_at: string;
             /** Format: int64 */
             id: number;
-            is_locked: boolean;
+            lock_state: components["schemas"]["ResourceLockState"];
             name: string;
             original_path: string;
             updated_at: string;
@@ -10172,7 +10215,7 @@ export interface operations {
                                 folder_id?: number | null;
                                 /** Format: int64 */
                                 id: number;
-                                is_locked: boolean;
+                                lock_state: components["schemas"]["ResourceLockState"];
                                 mime_type: string;
                                 name: string;
                                 /** Format: int64 */
@@ -10300,16 +10343,21 @@ export interface operations {
                             /** @description Items in the current page. */
                             items: {
                                 created_at: string;
-                                deep: boolean;
-                                /** Format: int64 */
-                                entity_id: number;
-                                entity_type: components["schemas"]["ResourceLockTargetType"];
+                                depth: components["schemas"]["LockDepth"];
                                 /** Format: int64 */
                                 id: number;
+                                lockroot_path?: string | null;
+                                mode: components["schemas"]["LockMode"];
+                                /** Format: int64 */
+                                namespace_id: number;
+                                origin: components["schemas"]["LockOrigin"];
                                 owner?: null | components["schemas"]["UserSummary"];
                                 owner_info?: null | components["schemas"]["ResourceLockOwnerInfo"];
-                                path: string;
-                                shared: boolean;
+                                /** Format: int64 */
+                                root_file_id?: number | null;
+                                /** Format: int64 */
+                                root_folder_id?: number | null;
+                                root_kind: components["schemas"]["LockRootKind"];
                                 timeout_at?: string | null;
                                 token: string;
                             }[];
@@ -17058,7 +17106,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -17138,7 +17186,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -17392,7 +17440,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -17567,7 +17615,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -17680,7 +17728,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -17849,7 +17897,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -17941,7 +17989,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -18264,7 +18312,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -18657,7 +18705,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -18838,7 +18886,7 @@ export interface operations {
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -19003,7 +19051,7 @@ export interface operations {
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -19121,7 +19169,7 @@ export interface operations {
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -19189,7 +19237,7 @@ export interface operations {
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -19261,7 +19309,7 @@ export interface operations {
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -22861,7 +22909,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -22944,7 +22992,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -23263,7 +23311,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -23465,7 +23513,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -23596,7 +23644,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -23776,7 +23824,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -23877,7 +23925,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -24245,7 +24293,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -24701,7 +24749,7 @@ export interface operations {
                             folder_id?: number | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
@@ -24911,7 +24959,7 @@ export interface operations {
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -25103,7 +25151,7 @@ export interface operations {
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -25239,7 +25287,7 @@ export interface operations {
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -25316,7 +25364,7 @@ export interface operations {
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -25397,7 +25445,7 @@ export interface operations {
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
-                            is_locked: boolean;
+                            lock_state: components["schemas"]["ResourceLockState"];
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;

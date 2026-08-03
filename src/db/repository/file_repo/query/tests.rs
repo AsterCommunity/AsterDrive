@@ -45,7 +45,6 @@ async fn insert_test_file(
         created_at: Set(now),
         updated_at: Set(now),
         deleted_at: Set(deleted.then_some(now)),
-        is_locked: Set(false),
         ..Default::default()
     }
     .insert(db)

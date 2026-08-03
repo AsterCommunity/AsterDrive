@@ -440,6 +440,18 @@ async fn verify_folder_access_with_db<C: ConnectionTrait>(
     Ok(folder)
 }
 
+pub(crate) async fn lock_folder_access_on<C: ConnectionTrait>(
+    db: &C,
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceStorageScope,
+    folder_id: i64,
+) -> Result<folder::Model> {
+    require_scope_access_with_db(state, db, scope).await?;
+    let folder = folder_repo::lock_by_id(db, folder_id).await?;
+    ensure_active_folder_scope(&folder, scope)?;
+    Ok(folder)
+}
+
 pub(crate) async fn verify_file_access(
     state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,
@@ -749,7 +761,6 @@ mod tests {
                 created_at: Set(now),
                 updated_at: Set(now),
                 deleted_at: Set(None),
-                is_locked: Set(false),
                 ..Default::default()
             },
         )
@@ -768,7 +779,6 @@ mod tests {
                 created_at: Set(now),
                 updated_at: Set(now),
                 deleted_at: Set(None),
-                is_locked: Set(false),
                 ..Default::default()
             },
         )

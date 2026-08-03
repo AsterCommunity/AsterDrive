@@ -36,6 +36,7 @@ pub(super) async fn persist_temp_store(
         mime,
         now,
         actor_username,
+        lock_credentials,
     } = prepared;
 
     operation_context.checkpoint()?;
@@ -89,6 +90,7 @@ pub(super) async fn persist_temp_store(
     let transaction_mime = mime.clone();
     let transaction_overwrite_ctx = overwrite_ctx.clone();
     let transaction_actor_username = actor_username.clone();
+    let transaction_lock_credentials = lock_credentials.clone();
     let transaction_now = now;
     let create_result = aster_forge_db::transaction::with_transaction_retry(
         state.writer_db(),
@@ -100,8 +102,20 @@ pub(super) async fn persist_temp_store(
             let mime = transaction_mime.clone();
             let overwrite_ctx = transaction_overwrite_ctx.clone();
             let actor_username = transaction_actor_username.clone();
+            let lock_credentials = transaction_lock_credentials.clone();
             let now = transaction_now;
             Box::pin(async move {
+                let workspace = match scope {
+                    crate::services::workspace::storage::WorkspaceStorageScope::Personal {
+                        user_id,
+                    } => crate::services::files::lock::LockWorkspace::Personal { user_id },
+                    crate::services::workspace::storage::WorkspaceStorageScope::Team {
+                        team_id,
+                        ..
+                    } => crate::services::files::lock::LockWorkspace::Team { team_id },
+                };
+                crate::services::files::lock::lock_workspace_for_mutation_on(txn, workspace)
+                    .await?;
                 crate::services::workspace::storage::lock_storage_usage(txn, scope).await?;
                 operation_context.checkpoint()?;
                 if storage_delta > 0 {
@@ -124,6 +138,7 @@ pub(super) async fn persist_temp_store(
                         storage_delta,
                         new_file_mode,
                         actor_username: actor_username.as_deref(),
+                        lock_credentials: &lock_credentials,
                     },
                 )
                 .await?;

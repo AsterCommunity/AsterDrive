@@ -463,23 +463,6 @@ pub async fn force_delete(
 
     let upload_session_count = upload_session_repo::delete_all_by_user(db, target_user_id).await?;
 
-    let locks = lock_repo::find_by_owner(db, target_user_id).await?;
-    for lock in &locks {
-        if let Some(entity_type) = lock.entity_type.entity_type()
-            && let Err(error) = crate::services::files::lock::set_entity_locked(
-                db,
-                entity_type,
-                lock.entity_id,
-                false,
-            )
-            .await
-        {
-            tracing::warn!(
-                lock_id = lock.id,
-                "failed to unlock during user cleanup: {error}"
-            );
-        }
-    }
     let lock_count = lock_repo::delete_all_by_owner(db, target_user_id).await?;
 
     user_repo::delete(db, target_user_id).await?;

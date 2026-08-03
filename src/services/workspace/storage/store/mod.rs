@@ -1,5 +1,6 @@
 //! 工作空间存储服务子模块：`store`。
 
+mod empty;
 pub(crate) mod from_temp;
 mod preuploaded_contract;
 
@@ -16,15 +17,15 @@ use aster_drive_model::entities::file;
 use super::{
     NewFileMode, PreparedNonDedupBlobUpload, WorkspaceStorageScope, check_quota,
     cleanup_preuploaded_blob_upload, create_new_file_from_blob,
-    create_new_file_from_blob_with_actor_username, local_content_dedup_enabled, lock_storage_usage,
-    persist_preuploaded_blob, prepare_non_dedup_blob_upload, resolve_policy_for_size,
+    create_new_file_from_blob_with_actor_username, lock_storage_usage, persist_preuploaded_blob,
     update_storage_used, verify_file_access, verify_folder_access,
 };
+pub(crate) use empty::{EmptyFileNameMode, PreparedEmptyFile};
 use preuploaded_contract::{
     VerifiedPreuploadedNondedupStoreBlob, cleanup_verified_preuploaded_nondedup_store_blob,
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct StoreFromTempParams<'a> {
     pub scope: WorkspaceStorageScope,
     pub folder_id: Option<i64>,
@@ -32,7 +33,7 @@ pub(crate) struct StoreFromTempParams<'a> {
     pub temp_path: &'a str,
     pub size: i64,
     pub existing_file_id: Option<i64>,
-    pub skip_lock_check: bool,
+    pub lock_credentials: crate::services::files::lock::LockMutationCredentials,
 }
 
 impl<'a> StoreFromTempParams<'a> {
@@ -50,7 +51,7 @@ impl<'a> StoreFromTempParams<'a> {
             temp_path,
             size,
             existing_file_id: None,
-            skip_lock_check: false,
+            lock_credentials: crate::services::files::lock::LockMutationCredentials::None,
         }
     }
 
@@ -59,8 +60,11 @@ impl<'a> StoreFromTempParams<'a> {
         self
     }
 
-    pub(crate) fn skip_lock_check(mut self) -> Self {
-        self.skip_lock_check = true;
+    pub(crate) fn with_lock_credentials(
+        mut self,
+        credentials: crate::services::files::lock::LockMutationCredentials,
+    ) -> Self {
+        self.lock_credentials = credentials;
         self
     }
 }
@@ -79,7 +83,7 @@ pub(crate) struct StorePreuploadedNondedupParams<'a> {
     pub filename: &'a str,
     pub size: i64,
     pub existing_file_id: Option<i64>,
-    pub skip_lock_check: bool,
+    pub lock_credentials: crate::services::files::lock::LockMutationCredentials,
     pub policy: &'a aster_drive_model::entities::storage_policy::Model,
     pub preuploaded_blob: PreparedNonDedupBlobUpload,
     pub actor_username: Option<&'a str>,
@@ -126,108 +130,50 @@ pub(crate) async fn create_empty(
     if let Some(folder_id) = folder_id {
         verify_folder_access(state, scope, folder_id).await?;
     }
-    let filename = aster_forge_validation::filename::normalize_validate_name(filename)?;
-
-    const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-    const EMPTY_SIZE: i64 = 0;
-
-    let policy = resolve_policy_for_size(state, scope, folder_id, EMPTY_SIZE).await?;
-    let driver = state.driver_registry().get_driver(&policy)?;
-    let should_dedup = local_content_dedup_enabled(&policy);
-    let now = Utc::now();
-
-    let created = if should_dedup {
-        let storage_path =
-            aster_forge_validation::filename::storage_path_from_blob_key(EMPTY_SHA256)?;
-        if !driver.exists(&storage_path).await? {
-            driver.put(&storage_path, &[]).await?;
+    let prepared = PreparedEmptyFile::prepare(
+        state,
+        scope,
+        folder_id,
+        filename,
+        EmptyFileNameMode::ResolveUnique,
+    )
+    .await?;
+    let workspace = match scope {
+        WorkspaceStorageScope::Personal { user_id } => {
+            crate::services::files::lock::LockWorkspace::Personal { user_id }
         }
-        let retry_on_mysql_deadlock = state.writer_db().get_database_backend() == DbBackend::MySql;
-        let transaction_storage_path = storage_path.clone();
-        let transaction_filename = filename.clone();
-        let transaction_now = now;
-        let policy_id = policy.id;
-        aster_forge_db::transaction::with_transaction_retry(
-            state.writer_db(),
-            &aster_forge_db::retry::RetryConfig::deadlock(),
-            move |txn| {
-                let storage_path = transaction_storage_path.clone();
-                let filename = transaction_filename.clone();
-                let now = transaction_now;
-                Box::pin(async move {
-                    lock_storage_usage(txn, scope).await?;
-                    let blob = file_repo::find_or_create_blob(
-                        txn,
-                        EMPTY_SHA256,
-                        EMPTY_SIZE,
-                        policy_id,
-                        &storage_path,
-                    )
-                    .await?;
-                    create_new_file_from_blob(txn, scope, folder_id, &filename, &blob.model, now)
-                        .await
-                })
-            },
-            move |error: &AsterError| {
-                retry_on_mysql_deadlock
-                    && error.database_error_kind()
-                        == Some(aster_forge_db::DatabaseErrorKind::Deadlock)
-            },
-        )
-        .await?
-    } else {
-        let prepared = prepare_non_dedup_blob_upload(&policy, EMPTY_SIZE, Some(&filename))?;
-        driver.put(prepared.storage_path(), &[]).await?;
-        let retry_on_mysql_deadlock = state.writer_db().get_database_backend() == DbBackend::MySql;
-        let transaction_prepared = prepared.clone();
-        let transaction_filename = filename.clone();
-        let transaction_now = now;
-        let result = aster_forge_db::transaction::with_transaction_retry(
-            state.writer_db(),
-            &aster_forge_db::retry::RetryConfig::deadlock(),
-            move |txn| {
-                let prepared = transaction_prepared.clone();
-                let filename = transaction_filename.clone();
-                let now = transaction_now;
-                Box::pin(async move {
-                    lock_storage_usage(txn, scope).await?;
-                    let blob = persist_preuploaded_blob(txn, &prepared).await?;
-                    create_new_file_from_blob(txn, scope, folder_id, &filename, &blob, now).await
-                })
-            },
-            move |error: &AsterError| {
-                retry_on_mysql_deadlock
-                    && error.database_error_kind()
-                        == Some(aster_forge_db::DatabaseErrorKind::Deadlock)
-            },
-        )
-        .await;
-        match result {
-            Ok(file) => file,
-            Err(error) => {
-                if !error.database_commit_outcome_uncertain() {
-                    cleanup_preuploaded_blob_upload(
-                        driver.as_ref(),
-                        &prepared,
-                        "empty file DB error",
-                    )
-                    .await;
-                }
-                return Err(error);
-            }
+        WorkspaceStorageScope::Team { team_id, .. } => {
+            crate::services::files::lock::LockWorkspace::Team { team_id }
         }
     };
-    storage_change::publish(
-        state,
-        storage_change::StorageChangeEvent::new(
-            storage_change::StorageChangeKind::FileCreated,
-            scope,
-            vec![created.id],
-            vec![],
-            vec![created.folder_id],
-        )
-        .with_storage_delta(EMPTY_SIZE),
-    );
+    let transaction_prepared = prepared.clone();
+    let result =
+        aster_forge_db::transaction::with_transaction(state.writer_db(), async move |txn| {
+            crate::services::files::lock::lock_workspace_for_mutation_on(txn, workspace).await?;
+            lock_storage_usage(txn, scope).await?;
+            crate::services::files::lock::enforce_collection_membership_mutation_on(
+                txn,
+                workspace,
+                folder_id,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
+            let blob = transaction_prepared.persist_blob_on(txn).await?;
+            transaction_prepared.create_file_on(txn, &blob).await
+        })
+        .await;
+    let created = match result {
+        Ok(created) => created,
+        Err(error) => {
+            if !error.database_commit_outcome_uncertain() {
+                prepared
+                    .cleanup_after_db_failure("empty file DB error")
+                    .await;
+            }
+            return Err(error);
+        }
+    };
+    prepared.publish_created(state, &created);
     tracing::debug!(
         scope = ?scope,
         file_id = created.id,
@@ -248,7 +194,7 @@ pub(crate) async fn store_preuploaded_nondedup(
         filename,
         size,
         existing_file_id,
-        skip_lock_check,
+        lock_credentials,
         policy,
         preuploaded_blob,
         actor_username,
@@ -261,7 +207,7 @@ pub(crate) async fn store_preuploaded_nondedup(
         filename = %filename,
         size,
         existing_file_id,
-        skip_lock_check,
+        lock_credentials = ?lock_credentials,
         policy_id = policy.id,
         "storing file from preuploaded blob"
     );
@@ -304,14 +250,17 @@ pub(crate) async fn store_preuploaded_nondedup(
 
     let overwrite_ctx = if let Some(existing_id) = existing_file_id {
         let old_file = verify_file_access(state, scope, existing_id).await?;
-        if old_file.is_locked && !skip_lock_check {
+        let submitted = lock_credentials.submitted();
+        if let Err(error) =
+            crate::services::files::lock::enforce_file_mutation(db, &old_file, &submitted).await
+        {
             cleanup_verified_preuploaded_nondedup_store_blob(
                 driver.as_ref(),
                 &verified_blob,
                 "lock check failure",
             )
             .await;
-            return Err(AsterError::resource_locked("file is locked"));
+            return Err(error);
         }
         let old_blob = file_repo::find_blob_by_id(db, old_file.blob_id).await?;
         if let Err(err) =
@@ -337,6 +286,7 @@ pub(crate) async fn store_preuploaded_nondedup(
     let transaction_mime = mime.clone();
     let transaction_filename = filename.clone();
     let transaction_actor_username = actor_username.map(str::to_owned);
+    let transaction_lock_credentials = lock_credentials.clone();
     let transaction_now = now;
     let create_result = aster_forge_db::transaction::with_transaction_retry(
         state.writer_db(),
@@ -347,8 +297,19 @@ pub(crate) async fn store_preuploaded_nondedup(
             let mime = transaction_mime.clone();
             let filename = transaction_filename.clone();
             let actor_username = transaction_actor_username.clone();
+            let lock_credentials = transaction_lock_credentials.clone();
             let now = transaction_now;
             Box::pin(async move {
+                let workspace = match scope {
+                    WorkspaceStorageScope::Personal { user_id } => {
+                        crate::services::files::lock::LockWorkspace::Personal { user_id }
+                    }
+                    WorkspaceStorageScope::Team { team_id, .. } => {
+                        crate::services::files::lock::LockWorkspace::Team { team_id }
+                    }
+                };
+                crate::services::files::lock::lock_workspace_for_mutation_on(txn, workspace)
+                    .await?;
                 lock_storage_usage(txn, scope).await?;
                 if storage_delta > 0 {
                     check_quota(txn, scope, storage_delta).await?;
@@ -364,7 +325,7 @@ pub(crate) async fn store_preuploaded_nondedup(
                         txn,
                         scope,
                         &old_file,
-                        skip_lock_check,
+                        &lock_credentials,
                     )
                     .await?;
                     let existing_id = current_file.id;
@@ -401,6 +362,11 @@ pub(crate) async fn store_preuploaded_nondedup(
                     }
                     updated
                 } else {
+                    let submitted = lock_credentials.submitted();
+                    crate::services::files::lock::enforce_collection_membership_mutation_on(
+                        txn, workspace, folder_id, &submitted,
+                    )
+                    .await?;
                     let created = match actor_username.as_deref() {
                         Some(username) => {
                             create_new_file_from_blob_with_actor_username(
@@ -482,9 +448,11 @@ async fn revalidate_preuploaded_overwrite_target<C: sea_orm::ConnectionTrait>(
     txn: &C,
     scope: WorkspaceStorageScope,
     old_file: &file::Model,
-    skip_lock_check: bool,
+    lock_credentials: &crate::services::files::lock::LockMutationCredentials,
 ) -> Result<file::Model> {
-    let current_file = file_repo::lock_by_id(txn, old_file.id).await?;
+    let credentials = lock_credentials.submitted();
+    let current_file =
+        crate::services::files::lock::enforce_file_mutation_on(txn, old_file, &credentials).await?;
     super::ensure_active_file_scope(&current_file, scope)?;
 
     if current_file.blob_id != old_file.blob_id {
@@ -492,26 +460,6 @@ async fn revalidate_preuploaded_overwrite_target<C: sea_orm::ConnectionTrait>(
             ApiErrorCode::FileModifiedDuringWrite,
             "file changed while upload body was being received",
         ));
-    }
-
-    if current_file.is_locked {
-        if !skip_lock_check {
-            return Err(AsterError::resource_locked("file is locked"));
-        }
-
-        let lock = crate::db::repository::lock_repo::find_by_entity(
-            txn,
-            aster_drive_model::types::EntityType::File,
-            current_file.id,
-        )
-        .await?;
-        if let Some(lock) = lock
-            && lock.owner_id != Some(scope.actor_user_id())
-        {
-            return Err(AsterError::resource_locked(
-                "file is locked by another user",
-            ));
-        }
     }
 
     Ok(current_file)

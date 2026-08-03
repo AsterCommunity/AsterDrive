@@ -143,34 +143,8 @@ async fn cleanup_team_temp_object(
     }
 }
 
-fn is_missing_cleanup_target(err: &AsterError) -> bool {
-    matches!(
-        err,
-        AsterError::RecordNotFound(_) | AsterError::FileNotFound(_) | AsterError::FolderNotFound(_)
-    )
-}
-
 async fn clear_team_locks<C: ConnectionTrait>(db: &C, team_id: i64) -> Result<()> {
     let prefix = format!("/teams/{team_id}/");
-    let locks = lock_repo::find_by_path_prefix(db, &prefix).await?;
-    for lock in &locks {
-        if let Some(entity_type) = lock.entity_type.entity_type()
-            && let Err(err) = crate::services::files::lock::set_entity_locked(
-                db,
-                entity_type,
-                lock.entity_id,
-                false,
-            )
-            .await
-            && !is_missing_cleanup_target(&err)
-        {
-            tracing::warn!(
-                lock_id = lock.id,
-                team_id,
-                "failed to clear team lock flag during cleanup: {err}"
-            );
-        }
-    }
     lock_repo::delete_by_path_prefix(db, &prefix).await?;
     Ok(())
 }

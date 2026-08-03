@@ -27,6 +27,7 @@ fn write_open_options(create_new: bool) -> DavWriteOptions {
         create_new,
         expected_length: None,
         checksum: None,
+        credentials: Default::default(),
     }
 }
 

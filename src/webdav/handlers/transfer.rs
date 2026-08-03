@@ -204,7 +204,7 @@ pub(crate) async fn handle_put(
     {
         return resp;
     }
-    if let Err(resp) = aster_forge_webdav::actix::enforce_unlocked(
+    let mut credentials = match aster_forge_webdav::actix::enforce_unlocked(
         lock_system,
         &path,
         false,
@@ -215,10 +215,11 @@ pub(crate) async fn handle_put(
     )
     .await
     {
-        return resp;
-    }
-    if !plan.resource_existed
-        && let Err(resp) = aster_forge_webdav::actix::enforce_parent_unlocked(
+        Ok(credentials) => credentials,
+        Err(resp) => return resp,
+    };
+    if !plan.resource_existed {
+        let parent_credentials = match aster_forge_webdav::actix::enforce_parent_unlocked(
             lock_system,
             &path,
             prefix,
@@ -227,8 +228,11 @@ pub(crate) async fn handle_put(
             request_host,
         )
         .await
-    {
-        return resp;
+        {
+            Ok(credentials) => credentials,
+            Err(resp) => return resp,
+        };
+        credentials.merge(parent_credentials);
     }
 
     if !matches!(&plan.write, DavPutWritePlan::Replace) {
@@ -243,6 +247,7 @@ pub(crate) async fn handle_put(
                 create_new: plan.create_new,
                 expected_length: plan.content_length_hint,
                 checksum: None,
+                credentials,
             },
         )
         .await

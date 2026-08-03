@@ -158,7 +158,6 @@ fn preview_test_file(size: i64) -> file::Model {
         created_at: now,
         updated_at: now,
         deleted_at: None,
-        is_locked: false,
     }
 }
 

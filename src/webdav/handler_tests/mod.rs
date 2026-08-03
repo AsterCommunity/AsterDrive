@@ -225,7 +225,6 @@ async fn create_root_file(
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
-            is_locked: Set(false),
             ..Default::default()
         },
     )
@@ -253,7 +252,6 @@ async fn create_test_folder(
         created_at: Set(now),
         updated_at: Set(now),
         deleted_at: Set(None),
-        is_locked: Set(false),
         ..Default::default()
     }
     .insert(state.writer_db())
@@ -279,13 +277,8 @@ impl NoopLockSystem {
 impl DavLockSystem for NoopLockSystem {
     fn lock(
         &self,
-        _path: &aster_forge_webdav::DavPath,
-        _principal: Option<&str>,
-        _owner: Option<&Element>,
-        _timeout: Option<Duration>,
-        _shared: bool,
-        _deep: bool,
-    ) -> LsFuture<'_, Result<DavLock, DavLockError>> {
+        _request: aster_forge_webdav::DavLockAcquireRequest<'_>,
+    ) -> LsFuture<'_, Result<aster_forge_webdav::DavLockAcquireResult, DavLockError>> {
         Box::pin(async { panic!("lock should not be called in these WebDAV handler tests") })
     }
 
@@ -1144,7 +1137,6 @@ async fn propfind_child_lock_preload_timeout_ends_started_stream_with_error() {
         created_at: Set(now),
         updated_at: Set(now),
         deleted_at: Set(None),
-        is_locked: Set(false),
         ..Default::default()
     }
     .insert(state.writer_db())

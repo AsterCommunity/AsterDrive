@@ -46,12 +46,12 @@ import type { AdminLockSortBy } from "@/types/adminSort";
 
 const LOCK_SORT_BY_OPTIONS = [
 	"id",
-	"path",
-	"entity_type",
-	"owner_id",
+	"lockroot_path",
+	"root_kind",
+	"holder_user_id",
 	"timeout_at",
-	"shared",
-	"deep",
+	"mode",
+	"depth",
 	"created_at",
 ] as const satisfies readonly AdminLockSortBy[];
 const DEFAULT_LOCK_SORT_BY = "id" as const satisfies AdminLockSortBy;
@@ -168,7 +168,9 @@ export default function AdminLocksPage() {
 		l.timeout_at != null && new Date(l.timeout_at) < new Date();
 
 	const unlockPath =
-		unlockId !== null ? (locks.find((l) => l.id === unlockId)?.path ?? "") : "";
+		unlockId !== null
+			? (locks.find((l) => l.id === unlockId)?.lockroot_path ?? "")
+			: "";
 
 	return (
 		<AdminLayout>
@@ -203,7 +205,7 @@ export default function AdminLocksPage() {
 									{t("id")}
 								</AdminSortableTableHead>
 								<AdminSortableTableHead
-									sortKey="path"
+									sortKey="lockroot_path"
 									sortBy={sortBy}
 									sortOrder={sortOrder}
 									onSortChange={handleSortChange}
@@ -211,7 +213,7 @@ export default function AdminLocksPage() {
 									{t("path")}
 								</AdminSortableTableHead>
 								<AdminSortableTableHead
-									sortKey="owner_id"
+									sortKey="holder_user_id"
 									sortBy={sortBy}
 									sortOrder={sortOrder}
 									onSortChange={handleSortChange}
@@ -219,7 +221,7 @@ export default function AdminLocksPage() {
 									{t("owner")}
 								</AdminSortableTableHead>
 								<AdminSortableTableHead
-									sortKey="entity_type"
+									sortKey="root_kind"
 									sortBy={sortBy}
 									sortOrder={sortOrder}
 									onSortChange={handleSortChange}
@@ -258,7 +260,7 @@ export default function AdminLocksPage() {
 							<TableRow key={l.id}>
 								<TableCell className="font-mono text-xs">{l.id}</TableCell>
 								<TableCell className="font-mono text-xs max-w-[200px] truncate">
-									{l.path}
+									{l.lockroot_path ?? ""}
 								</TableCell>
 								<TableCell>
 									{formatLockOwnerInfo(l) ?? <UserIdentity user={l.owner} />}
@@ -266,9 +268,11 @@ export default function AdminLocksPage() {
 								<TableCell>
 									<div className="flex gap-1">
 										<Badge variant="outline">
-											{l.shared ? t("shared_lock") : t("exclusive")}
+											{l.mode === "shared" ? t("shared_lock") : t("exclusive")}
 										</Badge>
-										{l.deep && <Badge variant="outline">{t("deep")}</Badge>}
+										{l.depth === "infinity" && (
+											<Badge variant="outline">{t("deep")}</Badge>
+										)}
 									</div>
 								</TableCell>
 								<TableCell>

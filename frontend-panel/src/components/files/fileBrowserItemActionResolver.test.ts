@@ -39,7 +39,11 @@ function emptySelection() {
 describe("fileBrowserItemActionResolver", () => {
 	it("maps writable file actions to item callbacks", () => {
 		const handlers = createHandlers();
-		const file = { id: 7, name: "bundle.zip", is_locked: true } as FileListItem;
+		const file = {
+			id: 7,
+			name: "bundle.zip",
+			lock_state: { state: "direct", mode: "exclusive" },
+		} as FileListItem;
 		const props = resolveFileBrowserItemMenuProps({
 			handlers,
 			isFolder: false,
@@ -97,7 +101,11 @@ describe("fileBrowserItemActionResolver", () => {
 	it("limits read-only file actions to open and download", () => {
 		const handlers = createHandlers();
 		handlers.onFileOpen = undefined;
-		const file = { id: 7, name: "bundle.zip", is_locked: true } as FileListItem;
+		const file = {
+			id: 7,
+			name: "bundle.zip",
+			lock_state: { state: "direct", mode: "exclusive" },
+		} as FileListItem;
 		const props = resolveFileBrowserItemMenuProps({
 			handlers,
 			isFolder: false,
@@ -121,7 +129,11 @@ describe("fileBrowserItemActionResolver", () => {
 
 	it("maps writable folder actions and folder-only policy", () => {
 		const handlers = createHandlers();
-		const folder = { id: 3, name: "Docs", is_locked: false } as FolderListItem;
+		const folder = {
+			id: 3,
+			name: "Docs",
+			lock_state: { state: "unlocked" },
+		} as FolderListItem;
 		const props = resolveFileBrowserItemMenuProps({
 			handlers,
 			isFolder: true,
@@ -170,7 +182,11 @@ describe("fileBrowserItemActionResolver", () => {
 		const props = resolveFileBrowserItemMenuProps({
 			handlers,
 			isFolder: true,
-			item: { id: 3, name: "Docs", is_locked: true } as FolderListItem,
+			item: {
+				id: 3,
+				name: "Docs",
+				lock_state: { state: "direct", mode: "exclusive" },
+			} as FolderListItem,
 			readOnly: true,
 			selection: emptySelection(),
 		});
@@ -204,13 +220,21 @@ describe("fileBrowserItemActionResolver", () => {
 		const fileProps = resolveFileBrowserItemMenuProps({
 			handlers,
 			isFolder: false,
-			item: { id: 7, name: "note.txt", is_locked: false } as FileListItem,
+			item: {
+				id: 7,
+				name: "note.txt",
+				lock_state: { state: "unlocked" },
+			} as FileListItem,
 			selection: emptySelection(),
 		});
 		const folderProps = resolveFileBrowserItemMenuProps({
 			handlers,
 			isFolder: true,
-			item: { id: 3, name: "Docs", is_locked: false } as FolderListItem,
+			item: {
+				id: 3,
+				name: "Docs",
+				lock_state: { state: "unlocked" },
+			} as FolderListItem,
 			selection: emptySelection(),
 		});
 
@@ -243,7 +267,11 @@ describe("fileBrowserItemActionResolver", () => {
 			},
 			handlers,
 			isFolder: false,
-			item: { id: 7, name: "bundle.zip" } as FileListItem,
+			item: {
+				id: 7,
+				name: "bundle.zip",
+				lock_state: { state: "unlocked" },
+			} as FileListItem,
 			selection: {
 				selectedFileIds: new Set([7, 8]),
 				selectedFolderIds: new Set(),
@@ -271,7 +299,11 @@ describe("fileBrowserItemActionResolver", () => {
 			},
 			handlers,
 			isFolder: false,
-			item: { id: 7, name: "bundle.zip" } as FileListItem,
+			item: {
+				id: 7,
+				name: "bundle.zip",
+				lock_state: { state: "unlocked" },
+			} as FileListItem,
 			selection: {
 				selectedFileIds: new Set([7, 8]),
 				selectedFolderIds: new Set(),
@@ -284,5 +316,26 @@ describe("fileBrowserItemActionResolver", () => {
 		expect(handlers.onFileOpen).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 7 }),
 		);
+	});
+
+	it("shows inherited locks without exposing a direct unlock action", () => {
+		const handlers = createHandlers();
+		const props = resolveFileBrowserItemMenuProps({
+			handlers,
+			isFolder: false,
+			item: {
+				id: 9,
+				name: "inherited.txt",
+				lock_state: {
+					state: "inherited",
+					root: { kind: "folder", folder_id: 3 },
+					mode: "exclusive",
+				},
+			} as FileListItem,
+			selection: emptySelection(),
+		});
+
+		expect(props.isLocked).toBe(true);
+		expect(props.onToggleLock).toBeUndefined();
 	});
 });

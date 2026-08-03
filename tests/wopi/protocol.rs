@@ -4,19 +4,24 @@ use crate::common;
 
 use actix_web::test;
 use chrono::{DateTime, Duration, Utc};
-use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
+use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 use aster_drive::config::{RuntimeConfig, site_url::PUBLIC_SITE_URL_KEY};
-use aster_drive::db::repository::{lock_repo, user_repo, wopi_session_repo};
+use aster_drive::db::repository::{
+    file_repo, lock_namespace_repo, lock_repo, user_repo, wopi_session_repo,
+};
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::preview::apps::{
     PREVIEW_APPS_CONFIG_KEY, PreviewAppProvider, PreviewOpenMode, PublicPreviewAppConfig,
     PublicPreviewAppDefinition, default_public_preview_apps,
 };
 use aster_drive_model::entities::{resource_lock, wopi_session};
-use aster_drive_model::types::{EntityType, StoredLockOwnerInfo};
+use aster_drive_model::types::{
+    EntityType, LockDepth, LockMode, LockOrigin, LockRootKind, LockWorkspaceType,
+    StoredLockOwnerInfo,
+};
 use aster_forge_actix_middleware::security_headers::{
     REFERRER_POLICY_VALUE, X_CONTENT_TYPE_OPTIONS_VALUE, X_FRAME_OPTIONS_VALUE,
 };
@@ -191,26 +196,45 @@ fn stored_text_owner(value: &str) -> StoredLockOwnerInfo {
     )
 }
 
-async fn insert_test_resource_lock<C: ConnectionTrait>(
-    db: &C,
+async fn insert_test_resource_lock(
+    db: &DatabaseConnection,
     file_id: i64,
     token_label: &str,
     owner_info: Option<StoredLockOwnerInfo>,
     timeout_at: Option<DateTime<Utc>>,
 ) -> resource_lock::Model {
     let now = Utc::now();
+    let file = file_repo::find_by_id(db, file_id)
+        .await
+        .expect("test lock file should query");
+    let namespace = lock_namespace_repo::ensure_and_lock(
+        db,
+        if file.team_id.is_some() {
+            LockWorkspaceType::Team
+        } else {
+            LockWorkspaceType::Personal
+        },
+        file.team_id
+            .or(file.owner_user_id)
+            .expect("file workspace should exist"),
+    )
+    .await
+    .expect("test lock namespace should exist");
     lock_repo::create(
         db,
         resource_lock::ActiveModel {
             token: Set(format!("urn:uuid:{token_label}-{}", uuid::Uuid::new_v4())),
-            entity_type: Set(EntityType::File.into()),
-            entity_id: Set(file_id),
-            path: Set(format!("/wopi/{file_id}/{token_label}")),
-            owner_id: Set(None),
+            namespace_id: Set(namespace.id),
+            root_kind: Set(LockRootKind::File),
+            root_folder_id: Set(None),
+            root_file_id: Set(Some(file_id)),
+            depth: Set(LockDepth::Resource),
+            mode: Set(LockMode::Exclusive),
+            origin: Set(LockOrigin::Wopi),
+            holder_user_id: Set(None),
             owner_info: Set(owner_info),
             timeout_at: Set(timeout_at),
-            shared: Set(false),
-            deep: Set(false),
+            lockroot_path: Set(Some(format!("/wopi/{file_id}/{token_label}"))),
             created_at: Set(now),
             ..Default::default()
         },
@@ -219,7 +243,7 @@ async fn insert_test_resource_lock<C: ConnectionTrait>(
     .expect("test resource lock should insert")
 }
 
-async fn insert_active_wopi_locks<C: ConnectionTrait>(db: &C, file_id: i64, lock_values: &[&str]) {
+async fn insert_active_wopi_locks(db: &DatabaseConnection, file_id: i64, lock_values: &[&str]) {
     for lock_value in lock_values {
         insert_test_resource_lock(
             db,
@@ -537,7 +561,7 @@ async fn test_wopi_lock_put_get_and_unlock_lifecycle() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["is_locked"], true);
+    assert_eq!(body["data"]["lock_state"]["state"], "direct");
 
     let req = test::TestRequest::post()
         .uri(&wopi_contents_query(file_id, wopi_access_token))
@@ -590,7 +614,7 @@ async fn test_wopi_lock_put_get_and_unlock_lifecycle() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["is_locked"], false);
+    assert_eq!(body["data"]["lock_state"]["state"], "unlocked");
 }
 
 #[actix_web::test]
@@ -822,6 +846,7 @@ async fn test_wopi_get_lock_prunes_expired_locks_and_returns_empty_current_lock(
 async fn test_wopi_unlock_and_relock_replaces_active_lock() {
     let state = common::setup().await;
     configure_test_wopi_runtime(&state);
+    let db = state.writer_db().clone();
     let app = create_test_app!(state);
 
     let (access_cookie, _) = register_and_login!(app);
@@ -842,6 +867,17 @@ async fn test_wopi_unlock_and_relock_replaces_active_lock() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+    let initial_lock = lock_repo::find_all_by_entity(&db, EntityType::File, file_id)
+        .await
+        .expect("initial WOPI lock should load")
+        .into_iter()
+        .next()
+        .expect("initial WOPI lock should exist");
+    let initial_generation = lock_namespace_repo::find_by_id(&db, initial_lock.namespace_id)
+        .await
+        .expect("lock namespace should load")
+        .expect("lock namespace should exist")
+        .generation;
 
     let req = test::TestRequest::post()
         .uri(&wopi_file_query(file_id, wopi_access_token))
@@ -852,6 +888,16 @@ async fn test_wopi_unlock_and_relock_replaces_active_lock() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+    let replaced_lock = lock_repo::find_by_token(&db, &initial_lock.token)
+        .await
+        .expect("replaced WOPI lock should load")
+        .expect("replaced WOPI lock should exist");
+    let replaced_generation = lock_namespace_repo::find_by_id(&db, replaced_lock.namespace_id)
+        .await
+        .expect("lock namespace should load")
+        .expect("lock namespace should exist")
+        .generation;
+    assert_eq!(replaced_generation, initial_generation + 1);
 
     let req = test::TestRequest::post()
         .uri(&wopi_file_query(file_id, wopi_access_token))

@@ -198,7 +198,7 @@ pub(crate) async fn handle_mkcol(
     {
         return resp;
     }
-    if let Err(resp) = aster_forge_webdav::actix::enforce_unlocked(
+    let mut credentials = match aster_forge_webdav::actix::enforce_unlocked(
         lock_system,
         &path,
         false,
@@ -209,9 +209,10 @@ pub(crate) async fn handle_mkcol(
     )
     .await
     {
-        return resp;
-    }
-    if let Err(resp) = aster_forge_webdav::actix::enforce_parent_unlocked(
+        Ok(credentials) => credentials,
+        Err(resp) => return resp,
+    };
+    let parent_credentials = match aster_forge_webdav::actix::enforce_parent_unlocked(
         lock_system,
         &path,
         prefix,
@@ -221,10 +222,12 @@ pub(crate) async fn handle_mkcol(
     )
     .await
     {
-        return resp;
-    }
+        Ok(credentials) => credentials,
+        Err(resp) => return resp,
+    };
+    credentials.merge(parent_credentials);
 
-    match dav_fs.create_dir(&path).await {
+    match dav_fs.create_dir(&path, credentials).await {
         Ok(()) => match collection_created_response(prefix, &path) {
             Ok(response) => aster_forge_webdav::actix::into_response(response),
             Err(_) => responses::empty(StatusCode::INTERNAL_SERVER_ERROR),

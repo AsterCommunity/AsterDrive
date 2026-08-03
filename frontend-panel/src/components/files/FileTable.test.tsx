@@ -221,7 +221,7 @@ const folder = {
 	id: 1,
 	name: "Docs",
 	updated_at: "2026-01-01",
-	is_locked: false,
+	lock_state: { state: "unlocked" },
 };
 
 const file = {
@@ -229,7 +229,7 @@ const file = {
 	name: "report.pdf",
 	size: 123,
 	updated_at: "2026-01-02",
-	is_locked: true,
+	lock_state: { state: "direct", mode: "exclusive" },
 };
 
 describe("FileTable", () => {

@@ -18,7 +18,7 @@ pub struct TrashFileItem {
     pub updated_at: chrono::DateTime<chrono::Utc>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub expires_at: chrono::DateTime<chrono::Utc>,
-    pub is_locked: bool,
+    pub lock_state: crate::services::files::lock::ResourceLockState,
     pub original_path: String,
 }
 
@@ -33,7 +33,7 @@ pub struct TrashFolderItem {
     pub updated_at: chrono::DateTime<chrono::Utc>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub expires_at: chrono::DateTime<chrono::Utc>,
-    pub is_locked: bool,
+    pub lock_state: crate::services::files::lock::ResourceLockState,
     pub original_path: String,
 }
 

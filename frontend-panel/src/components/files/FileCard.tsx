@@ -14,6 +14,7 @@ import {
 	writeInternalDragData,
 } from "@/lib/dragDrop";
 import { formatBytes } from "@/lib/format";
+import { isResourceLocked } from "@/lib/resourceLock";
 import { cn } from "@/lib/utils";
 import type { FileListItem, FolderListItem } from "@/types/api";
 
@@ -161,7 +162,7 @@ export function FileCard({
 
 			<FileItemStatusIndicators
 				isShared={item.is_shared}
-				isLocked={item.is_locked}
+				isLocked={isResourceLocked(item.lock_state)}
 				compact
 				className={cn(
 					"absolute top-2 flex-col items-end gap-1",

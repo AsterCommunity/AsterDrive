@@ -1135,7 +1135,7 @@ async fn preuploaded_quota_failure_cleans_local_blob() {
             filename: "quota-fail-preuploaded.bin",
             size: payload.len() as i64,
             existing_file_id: None,
-            skip_lock_check: false,
+            lock_credentials: crate::services::files::lock::LockMutationCredentials::None,
             policy: &policy,
             preuploaded_blob: prepared,
             actor_username: None,

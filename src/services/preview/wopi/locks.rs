@@ -1,11 +1,10 @@
 //! WOPI 服务子模块：`locks`。
 
 use chrono::{Duration, Utc};
-use sea_orm::{ActiveModelTrait, Set};
 
 use crate::config::wopi;
 use crate::db::repository::lock_repo;
-use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     files::file as file_ops,
@@ -31,6 +30,11 @@ pub(crate) struct ActiveWopiLock {
 pub(crate) enum ActiveWopiLockState {
     None,
     Single(ActiveWopiLock),
+    Conflict(WopiConflict),
+}
+
+pub(crate) enum WopiMutationAuthorization {
+    Authorized(crate::services::files::lock::LockMutationCredentials),
     Conflict(WopiConflict),
 }
 
@@ -239,13 +243,7 @@ pub async fn unlock_file(
 
     match active_lock.payload {
         Some(payload) if payload.lock == lock_value => {
-            lock_repo::delete_by_id(state.writer_db(), active_lock.lock.id).await?;
-            lock::clear_entity_locked_if_unlocked(
-                state.writer_db(),
-                EntityType::File,
-                resolved.file.id,
-            )
-            .await?;
+            lock::unlock_by_token_on(state.writer_db(), &active_lock.lock.token).await?;
             log_wopi_lock_action(
                 state,
                 request_info,
@@ -310,22 +308,33 @@ pub(crate) async fn ensure_wopi_putfile_lock_matches(
     state: &impl SharedRuntimeState,
     file: &file::Model,
     requested_lock: Option<&str>,
-) -> Result<Option<WopiConflict>> {
+) -> Result<WopiMutationAuthorization> {
     match load_active_lock(state, file.id).await? {
         ActiveWopiLockState::None => {
             if file.size == 0 {
-                return Ok(None);
+                return Ok(WopiMutationAuthorization::Authorized(
+                    crate::services::files::lock::LockMutationCredentials::None,
+                ));
             }
 
-            Ok(Some(WopiConflict {
+            Ok(WopiMutationAuthorization::Conflict(WopiConflict {
                 current_lock: Some(String::new()),
                 reason: "existing file requires a WOPI lock".to_string(),
             }))
         }
         ActiveWopiLockState::Single(active_lock) => {
-            ensure_active_wopi_lock_matches(&active_lock, requested_lock)
+            if let Some(conflict) = ensure_active_wopi_lock_matches(&active_lock, requested_lock)? {
+                return Ok(WopiMutationAuthorization::Conflict(conflict));
+            }
+            Ok(WopiMutationAuthorization::Authorized(
+                crate::services::files::lock::LockMutationCredentials::SubmittedTokens(vec![
+                    active_lock.lock.token,
+                ]),
+            ))
         }
-        ActiveWopiLockState::Conflict(conflict) => Ok(Some(conflict)),
+        ActiveWopiLockState::Conflict(conflict) => {
+            Ok(WopiMutationAuthorization::Conflict(conflict))
+        }
     }
 }
 
@@ -361,7 +370,7 @@ pub(crate) async fn load_active_lock(
 
     for lock in lock_repo::find_all_by_entity(state.writer_db(), EntityType::File, file_id).await? {
         if lock.timeout_at.is_some_and(|timeout_at| timeout_at < now) {
-            lock_repo::delete_by_id(state.writer_db(), lock.id).await?;
+            lock::force_unlock(state, lock.id).await?;
             continue;
         }
 
@@ -372,7 +381,6 @@ pub(crate) async fn load_active_lock(
     }
 
     if active_locks.is_empty() {
-        lock::clear_entity_locked_if_unlocked(state.writer_db(), EntityType::File, file_id).await?;
         return Ok(ActiveWopiLockState::None);
     }
 
@@ -463,14 +471,12 @@ async fn refresh_lock_model(
     state: &impl SharedRuntimeState,
     lock: resource_lock::Model,
 ) -> Result<()> {
-    let mut active: resource_lock::ActiveModel = lock.into();
-    active.timeout_at = Set(Some(
-        Utc::now() + Duration::seconds(wopi::lock_ttl_secs(state.runtime_config())),
-    ));
-    active
-        .update(state.writer_db())
-        .await
-        .map_aster_err(AsterError::database_operation)?;
+    lock::refresh_by_token_on(
+        state.writer_db(),
+        &lock.token,
+        Some(Utc::now() + Duration::seconds(wopi::lock_ttl_secs(state.runtime_config()))),
+    )
+    .await?;
     Ok(())
 }
 
@@ -480,20 +486,18 @@ async fn replace_wopi_lock_model(
     payload: &WopiAccessTokenPayload,
     requested_lock: &str,
 ) -> Result<()> {
-    let mut active: resource_lock::ActiveModel = lock.into();
     // app_key 仍保留在 owner_info 里做审计/排障，但 lock 是否匹配只比较 opaque lock ID。
     let owner_info = lock::ResourceLockOwnerInfo::Wopi(lock::WopiLockOwnerInfo {
         app_key: payload.app_key.clone(),
         lock: requested_lock.to_string(),
     });
-    active.owner_info = Set(lock::serialize_resource_lock_owner_info(Some(&owner_info))?);
-    active.timeout_at = Set(Some(
-        Utc::now() + Duration::seconds(wopi::lock_ttl_secs(state.runtime_config())),
-    ));
-    active
-        .update(state.writer_db())
-        .await
-        .map_aster_err(AsterError::database_operation)?;
+    lock::replace_owner_info_and_timeout_by_token_on(
+        state.writer_db(),
+        &lock.token,
+        owner_info,
+        Some(Utc::now() + Duration::seconds(wopi::lock_ttl_secs(state.runtime_config()))),
+    )
+    .await?;
     Ok(())
 }
 

@@ -26,7 +26,7 @@ use crate::webdav::backend::dir_entry::AsterDavDirEntry;
 use crate::webdav::backend::download_audit::{
     WebdavDownloadAuditIdentity, WebdavDownloadRequestKind, record_download,
 };
-use crate::webdav::backend::file::AsterDavWriteHandle;
+use crate::webdav::backend::file::{AsterDavWriteHandle, DavWriteOpenContext};
 use crate::webdav::backend::metadata::AsterDavMeta;
 use crate::webdav::backend::path_resolver::ResolvedNode;
 use crate::webdav::handlers::resources::MUTATION_FOLDER_TREE_LIMITS;
@@ -39,8 +39,9 @@ use aster_forge_webdav::plan_atomic_proppatch;
 use aster_forge_webdav::{
     DavBackendError, DavBackendErrorKind, DavContentStream, DavDirectoryEnumerator,
     DavDirectoryPage, DavDirectoryPageRequest, DavDownloadSource, DavFileSystem, DavLockError,
-    DavMetaData, DavMutationOperation, DavMutationTargetRole, DavOpenedDownload, DavPath, DavProp,
-    DavWriteOptions, DavWriteSystem, FsError, FsFuture, IfHeader, parent_relative_path,
+    DavMetaData, DavMutationCredentials, DavMutationOperation, DavMutationTargetRole,
+    DavOpenedDownload, DavPath, DavProp, DavWriteOptions, DavWriteSystem, FsError, FsFuture,
+    IfHeader, parent_relative_path,
 };
 
 /// AsterDrive WebDAV 文件系统，per-account workspace 实例。
@@ -217,7 +218,11 @@ impl AsterDavFs {
         let txn = transaction::begin(self.state.writer_db())
             .await
             .map_err(|_| AsterDavMutationError::Backend)?;
-        lock::lock_mutation_ancestor_entities(&txn, self.scope, self.root_folder_id, path)
+        let mut lock_mutation = lock::WebDavLockMutation::begin(&txn, self.scope)
+            .await
+            .map_err(map_ancestor_lock_error)?;
+        lock_mutation
+            .lock_ancestor_entities(self.scope, self.root_folder_id, path)
             .await
             .map_err(map_ancestor_lock_error)?;
 
@@ -248,11 +253,25 @@ impl AsterDavFs {
             _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
         };
 
-        revalidate_atomic_target(&txn, path, is_collection, &conditions).await?;
+        revalidate_atomic_target(
+            &txn,
+            lock_mutation.namespace_id(),
+            path,
+            is_collection,
+            &conditions,
+        )
+        .await?;
         if let Some(parent) = parent_relative_path(path.as_str())
             && let Ok(parent) = DavPath::new(&parent)
         {
-            revalidate_atomic_target(&txn, &parent, false, &conditions).await?;
+            revalidate_atomic_target(
+                &txn,
+                lock_mutation.namespace_id(),
+                &parent,
+                false,
+                &conditions,
+            )
+            .await?;
         }
 
         let deleted = match (node, prepared_folder) {
@@ -271,7 +290,12 @@ impl AsterDavFs {
             ),
             _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
         };
-        lock::delete_rooted_locks_on(&txn, path)
+        lock_mutation
+            .delete_rooted_locks(path)
+            .await
+            .map_err(map_atomic_lock_error)?;
+        lock_mutation
+            .finish()
             .await
             .map_err(map_atomic_lock_error)?;
         transaction::commit(txn)
@@ -330,10 +354,14 @@ impl AsterDavFs {
         let txn = transaction::begin(self.state.writer_db())
             .await
             .map_err(|_| AsterDavMutationError::Backend)?;
+        let mut lock_mutation = lock::WebDavLockMutation::begin(&txn, self.scope)
+            .await
+            .map_err(map_ancestor_lock_error)?;
         let mut lock_paths = [source, destination];
         lock_paths.sort_by(|left, right| left.as_str().cmp(right.as_str()));
         for path in lock_paths {
-            lock::lock_mutation_ancestor_entities(&txn, self.scope, self.root_folder_id, path)
+            lock_mutation
+                .lock_ancestor_entities(self.scope, self.root_folder_id, path)
                 .await
                 .map_err(map_ancestor_lock_error)?;
         }
@@ -379,11 +407,25 @@ impl AsterDavFs {
                 return Err(AsterDavMutationError::FileSystem(FsError::Forbidden));
             }
         };
-        revalidate_atomic_target(&txn, source, source_is_collection, &conditions).await?;
+        revalidate_atomic_target(
+            &txn,
+            lock_mutation.namespace_id(),
+            source,
+            source_is_collection,
+            &conditions,
+        )
+        .await?;
         if let Some(parent) = parent_relative_path(source.as_str())
             && let Ok(parent) = DavPath::new(&parent)
         {
-            revalidate_atomic_target(&txn, &parent, false, &conditions).await?;
+            revalidate_atomic_target(
+                &txn,
+                lock_mutation.namespace_id(),
+                &parent,
+                false,
+                &conditions,
+            )
+            .await?;
         }
 
         let prepared_destination_folder = match &destination_node {
@@ -404,6 +446,7 @@ impl AsterDavFs {
         if let Some(node) = &destination_node {
             revalidate_atomic_target(
                 &txn,
+                lock_mutation.namespace_id(),
                 destination,
                 matches!(node, ResolvedNode::Folder(_)),
                 &conditions,
@@ -413,7 +456,14 @@ impl AsterDavFs {
         if let Some(parent) = parent_relative_path(destination.as_str())
             && let Ok(parent) = DavPath::new(&parent)
         {
-            revalidate_atomic_target(&txn, &parent, false, &conditions).await?;
+            revalidate_atomic_target(
+                &txn,
+                lock_mutation.namespace_id(),
+                &parent,
+                false,
+                &conditions,
+            )
+            .await?;
         }
 
         if let Some(node) = destination_node {
@@ -432,7 +482,8 @@ impl AsterDavFs {
                 }
                 _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
             }
-            lock::delete_descendant_rooted_locks_on(&txn, destination)
+            lock_mutation
+                .delete_descendant_rooted_locks(destination)
                 .await
                 .map_err(map_atomic_lock_error)?;
         }
@@ -516,10 +567,16 @@ impl AsterDavFs {
                 return Err(AsterDavMutationError::FileSystem(FsError::Forbidden));
             }
         };
-        lock::delete_rooted_locks_on(&txn, source)
+        lock_mutation
+            .delete_rooted_locks(source)
             .await
             .map_err(map_atomic_lock_error)?;
-        lock::rebind_destination_root_locks_on(&txn, destination, entity_type, entity_id)
+        lock_mutation
+            .rebind_destination_root_locks(destination, entity_type, entity_id)
+            .await
+            .map_err(map_atomic_lock_error)?;
+        lock_mutation
+            .finish()
             .await
             .map_err(map_atomic_lock_error)?;
         transaction::commit(txn)
@@ -567,7 +624,11 @@ impl AsterDavFs {
         let txn = transaction::begin(self.state.writer_db())
             .await
             .map_err(|_| AsterDavMutationError::Backend)?;
-        lock::lock_mutation_ancestor_entities(&txn, self.scope, self.root_folder_id, destination)
+        let mut lock_mutation = lock::WebDavLockMutation::begin(&txn, self.scope)
+            .await
+            .map_err(map_ancestor_lock_error)?;
+        lock_mutation
+            .lock_ancestor_entities(self.scope, self.root_folder_id, destination)
             .await
             .map_err(map_ancestor_lock_error)?;
         let source_file = match path_resolver::resolve_path_in_scope(
@@ -620,6 +681,7 @@ impl AsterDavFs {
         if let Some(node) = &destination_node {
             revalidate_atomic_target(
                 &txn,
+                lock_mutation.namespace_id(),
                 destination,
                 matches!(node, ResolvedNode::Folder(_)),
                 &conditions,
@@ -629,7 +691,14 @@ impl AsterDavFs {
         if let Some(parent) = parent_relative_path(destination.as_str())
             && let Ok(parent) = DavPath::new(&parent)
         {
-            revalidate_atomic_target(&txn, &parent, false, &conditions).await?;
+            revalidate_atomic_target(
+                &txn,
+                lock_mutation.namespace_id(),
+                &parent,
+                false,
+                &conditions,
+            )
+            .await?;
         }
         if let Some(node) = destination_node {
             match (node, prepared_destination_folder) {
@@ -647,7 +716,8 @@ impl AsterDavFs {
                 }
                 _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
             }
-            lock::delete_descendant_rooted_locks_on(&txn, destination)
+            lock_mutation
+                .delete_descendant_rooted_locks(destination)
                 .await
                 .map_err(map_atomic_lock_error)?;
         }
@@ -678,7 +748,12 @@ impl AsterDavFs {
         )
         .await
         .map_err(AsterDavMutationError::FileSystem)?;
-        lock::rebind_destination_root_locks_on(&txn, destination, EntityType::File, copied.id)
+        lock_mutation
+            .rebind_destination_root_locks(destination, EntityType::File, copied.id)
+            .await
+            .map_err(map_atomic_lock_error)?;
+        lock_mutation
+            .finish()
             .await
             .map_err(map_atomic_lock_error)?;
         transaction::commit(txn)
@@ -721,7 +796,11 @@ impl AsterDavFs {
         let txn = transaction::begin(self.state.writer_db())
             .await
             .map_err(|_| AsterDavMutationError::Backend)?;
-        lock::lock_mutation_ancestor_entities(&txn, self.scope, self.root_folder_id, destination)
+        let mut lock_mutation = lock::WebDavLockMutation::begin(&txn, self.scope)
+            .await
+            .map_err(map_ancestor_lock_error)?;
+        lock_mutation
+            .lock_ancestor_entities(self.scope, self.root_folder_id, destination)
             .await
             .map_err(map_ancestor_lock_error)?;
         let source_folder = match path_resolver::resolve_path_in_scope(
@@ -756,12 +835,26 @@ impl AsterDavFs {
             ResolvedNode::Folder(_) | ResolvedNode::Root => None,
         });
         if destination_node.is_some() {
-            revalidate_atomic_target(&txn, destination, false, &conditions).await?;
+            revalidate_atomic_target(
+                &txn,
+                lock_mutation.namespace_id(),
+                destination,
+                false,
+                &conditions,
+            )
+            .await?;
         }
         if let Some(parent) = parent_relative_path(destination.as_str())
             && let Ok(parent) = DavPath::new(&parent)
         {
-            revalidate_atomic_target(&txn, &parent, false, &conditions).await?;
+            revalidate_atomic_target(
+                &txn,
+                lock_mutation.namespace_id(),
+                &parent,
+                false,
+                &conditions,
+            )
+            .await?;
         }
         let (destination_parent_id, destination_name) = path_resolver::resolve_parent_in_scope(
             &txn,
@@ -823,14 +916,14 @@ impl AsterDavFs {
         )
         .await
         .map_err(AsterDavMutationError::FileSystem)?;
-        lock::rebind_destination_root_locks_on(
-            &txn,
-            destination,
-            EntityType::Folder,
-            destination_folder.id,
-        )
-        .await
-        .map_err(map_atomic_lock_error)?;
+        lock_mutation
+            .rebind_destination_root_locks(destination, EntityType::Folder, destination_folder.id)
+            .await
+            .map_err(map_atomic_lock_error)?;
+        lock_mutation
+            .finish()
+            .await
+            .map_err(map_atomic_lock_error)?;
         transaction::commit(txn)
             .await
             .map_err(|_| AsterDavMutationError::Backend)?;
@@ -1357,12 +1450,15 @@ impl DavWriteSystem for AsterDavFs {
         }
         AsterDavWriteHandle::for_write_with_audit(
             self.app_state(),
-            self.scope,
-            parent_id,
-            filename,
-            existing_file_id,
-            options.expected_length,
-            self.audit_ctx.clone(),
+            DavWriteOpenContext {
+                scope: self.scope,
+                folder_id: parent_id,
+                filename,
+                existing_file_id,
+                declared_size: options.expected_length,
+                submitted_lock_tokens: options.credentials.submitted_lock_tokens,
+                audit_ctx: self.audit_ctx.clone(),
+            },
         )
         .await
         .map_err(DavBackendError::from)
@@ -1395,7 +1491,11 @@ impl DavFileSystem for AsterDavFs {
         })
     }
 
-    fn create_dir<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, ()> {
+    fn create_dir<'a>(
+        &'a self,
+        path: &'a DavPath,
+        credentials: DavMutationCredentials,
+    ) -> FsFuture<'a, ()> {
         Box::pin(async move {
             match path_resolver::resolve_path_cached_in_scope(
                 &self.state,
@@ -1424,6 +1524,9 @@ impl DavFileSystem for AsterDavFs {
                 self.scope(),
                 &name,
                 parent_id,
+                crate::services::files::lock::LockMutationCredentials::SubmittedTokens(
+                    credentials.submitted_lock_tokens,
+                ),
                 &self.audit_ctx,
             )
             .await
@@ -2237,27 +2340,21 @@ fn to_fs_error(err: crate::errors::AsterError) -> FsError {
 
 async fn revalidate_atomic_target<C: ConnectionTrait>(
     db: &C,
+    namespace_id: i64,
     path: &DavPath,
     deep: bool,
     conditions: &DavMutationConditions<'_>,
 ) -> Result<(), AsterDavMutationError> {
-    lock::revalidate_mutation_locks(
-        db,
-        path,
-        deep,
-        conditions.prefix,
-        conditions.if_header,
-        conditions.request_scheme,
-        conditions.request_host,
-    )
-    .await
-    .map_err(map_atomic_lock_error)
+    lock::revalidate_mutation_locks(db, namespace_id, path, deep, conditions)
+        .await
+        .map_err(map_atomic_lock_error)
 }
 
 fn map_atomic_lock_error(error: DavLockError) -> AsterDavMutationError {
     match error {
         DavLockError::Conflict(lock) => AsterDavMutationError::Locked((*lock.path).clone()),
         DavLockError::TokenMismatch
+        | DavLockError::ParentMissing
         | DavLockError::LimitExceeded
         | DavLockError::NotFound
         | DavLockError::Backend => AsterDavMutationError::Backend,

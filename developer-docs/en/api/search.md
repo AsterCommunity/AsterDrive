@@ -47,7 +47,7 @@ The response contains two result sets:
 - `total_files`
 - `total_folders`
 
-The `files` and `folders` items reuse the list-item shape from the regular listing APIs, so they include state such as `is_locked`, `is_shared`, and `tags`. File items also include `extension`, `compound_extension`, and `file_category`.
+The `files` and `folders` items reuse the list-item shape from the regular listing APIs, so they include state such as `lock_state`, `is_shared`, and `tags`. File items also include `extension`, `compound_extension`, and `file_category`.
 
 ## Current semantics
 

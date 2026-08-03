@@ -298,7 +298,7 @@ function fileItem(id: number, name: string): FileListItem {
 		compound_extension: null,
 		extension: name.split(".").pop() ?? "",
 		file_category: "document",
-		is_locked: false,
+		lock_state: { state: "unlocked" },
 		is_shared: false,
 		mime_type: "text/plain",
 		name,
@@ -312,7 +312,7 @@ function fileItem(id: number, name: string): FileListItem {
 function folderItem(id: number, name: string): FolderListItem {
 	return {
 		id,
-		is_locked: false,
+		lock_state: { state: "unlocked" },
 		is_shared: false,
 		name,
 		tags: [],

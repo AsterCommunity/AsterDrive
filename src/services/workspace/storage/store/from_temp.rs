@@ -80,9 +80,11 @@ pub(super) async fn revalidate_overwrite_target<C: ConnectionTrait>(
     txn: &C,
     scope: WorkspaceStorageScope,
     old_file: &file::Model,
-    skip_lock_check: bool,
+    lock_credentials: &crate::services::files::lock::LockMutationCredentials,
 ) -> Result<file::Model> {
-    let current_file = file_repo::lock_by_id(txn, old_file.id).await?;
+    let credentials = lock_credentials.submitted();
+    let current_file =
+        crate::services::files::lock::enforce_file_mutation_on(txn, old_file, &credentials).await?;
     crate::services::workspace::storage::ensure_active_file_scope(&current_file, scope)?;
 
     if current_file.blob_id != old_file.blob_id {
@@ -90,26 +92,6 @@ pub(super) async fn revalidate_overwrite_target<C: ConnectionTrait>(
             ApiErrorCode::FileModifiedDuringWrite,
             "file changed while upload body was being received",
         ));
-    }
-
-    if current_file.is_locked {
-        if !skip_lock_check {
-            return Err(AsterError::resource_locked("file is locked"));
-        }
-
-        let lock = crate::db::repository::lock_repo::find_by_entity(
-            txn,
-            aster_drive_model::types::EntityType::File,
-            current_file.id,
-        )
-        .await?;
-        if let Some(lock) = lock
-            && lock.owner_id != Some(scope.actor_user_id())
-        {
-            return Err(AsterError::resource_locked(
-                "file is locked by another user",
-            ));
-        }
     }
 
     Ok(current_file)

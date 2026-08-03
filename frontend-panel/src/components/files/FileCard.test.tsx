@@ -98,7 +98,7 @@ const folder = {
 	id: 7,
 	name: "Docs",
 	is_shared: false,
-	is_locked: false,
+	lock_state: { state: "unlocked" },
 };
 
 const file = {
@@ -106,7 +106,7 @@ const file = {
 	name: "report.pdf",
 	mime_type: "application/pdf",
 	is_shared: true,
-	is_locked: true,
+	lock_state: { state: "direct", mode: "exclusive" },
 };
 
 describe("FileCard", () => {
