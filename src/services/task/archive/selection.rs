@@ -553,7 +553,20 @@ async fn collect_archive_entries_from_shared_selection(
             false,
             Some(tree_limits),
         )
-        .await?;
+        .await
+        .map_err(|error| {
+            if matches!(&error, AsterError::OperationResourceLimitExceeded(_))
+                && error.message() == folder_ops::FOLDER_TREE_RESOURCE_LIMIT_MESSAGE
+            {
+                AsterError::validation_error(format!(
+                    "archive selection expands to {} entries or more, exceeds server limit {}",
+                    limits.max_entries.saturating_add(1),
+                    limits.max_entries
+                ))
+            } else {
+                error
+            }
+        })?;
         let folder_paths = folder_ops::build_folder_paths_cached(state, &tree_folder_ids).await?;
         let root_path = folder_paths
             .get(&folder_id)
@@ -647,7 +660,20 @@ pub(super) async fn collect_archive_entries_from_selection_in_scope(
             false,
             Some(tree_limits),
         )
-        .await?;
+        .await
+        .map_err(|error| {
+            if matches!(&error, AsterError::OperationResourceLimitExceeded(_))
+                && error.message() == folder_ops::FOLDER_TREE_RESOURCE_LIMIT_MESSAGE
+            {
+                AsterError::validation_error(format!(
+                    "archive selection expands to {} entries or more, exceeds server limit {}",
+                    limits.max_entries.saturating_add(1),
+                    limits.max_entries
+                ))
+            } else {
+                error
+            }
+        })?;
         let folder_paths = folder_ops::build_folder_paths_cached(state, &tree_folder_ids).await?;
         let root_path = folder_paths
             .get(&folder_id)

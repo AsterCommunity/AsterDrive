@@ -15,7 +15,8 @@ use aster_forge_webdav::{DavEventOutcome, DavXmlElement as Element};
 use base64::Engine;
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, Set,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
+    PaginatorTrait, QueryFilter, Set,
 };
 use std::io::Cursor;
 use std::num::{NonZeroU32, NonZeroU64};
@@ -59,6 +60,110 @@ fn multipart_payload_for_range<'a>(
     let next_boundary = format!("\r\n--{boundary}");
     let payload_end = find_bytes(payload, next_boundary.as_bytes())?;
     Some(&payload[..payload_end])
+}
+
+#[derive(Clone, Copy)]
+enum ResourceLockFailureEvent {
+    Insert,
+    Update,
+    Delete,
+}
+
+impl ResourceLockFailureEvent {
+    const fn sql(self) -> &'static str {
+        match self {
+            Self::Insert => "INSERT",
+            Self::Update => "UPDATE",
+            Self::Delete => "DELETE",
+        }
+    }
+
+    const fn postgres_return_row(self) -> &'static str {
+        match self {
+            Self::Delete => "OLD",
+            Self::Insert | Self::Update => "NEW",
+        }
+    }
+}
+
+async fn install_resource_lock_failure_trigger(
+    db: &DatabaseConnection,
+    name: &str,
+    event: ResourceLockFailureEvent,
+    predicate: Option<&str>,
+    message: &str,
+) {
+    let postgres_return_row = event.postgres_return_row();
+    let event = event.sql();
+    match db.get_database_backend() {
+        DbBackend::Sqlite => {
+            let when = predicate
+                .map(|predicate| format!(" WHEN {predicate}"))
+                .unwrap_or_default();
+            db.execute_unprepared(&format!(
+                "CREATE TRIGGER {name} BEFORE {event} ON resource_locks{when} BEGIN \
+                 SELECT RAISE(ABORT, '{message}'); END;"
+            ))
+            .await
+            .expect("SQLite resource lock failure trigger should install");
+        }
+        DbBackend::Postgres => {
+            let function_name = format!("{name}_fn");
+            let failure = predicate.map_or_else(
+                || format!("RAISE EXCEPTION '{message}';"),
+                |predicate| format!("IF {predicate} THEN RAISE EXCEPTION '{message}'; END IF;"),
+            );
+            db.execute_unprepared(&format!(
+                "CREATE FUNCTION {function_name}() RETURNS trigger AS $trigger$ BEGIN \
+                 {failure} RETURN {}; END; $trigger$ LANGUAGE plpgsql",
+                postgres_return_row
+            ))
+            .await
+            .expect("PostgreSQL resource lock failure function should install");
+            db.execute_unprepared(&format!(
+                "CREATE TRIGGER {name} BEFORE {event} ON resource_locks \
+                 FOR EACH ROW EXECUTE FUNCTION {function_name}()"
+            ))
+            .await
+            .expect("PostgreSQL resource lock failure trigger should install");
+        }
+        DbBackend::MySql => {
+            let body = predicate.map_or_else(
+                || format!("SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '{message}'"),
+                |predicate| {
+                    format!(
+                        "BEGIN IF {predicate} THEN SIGNAL SQLSTATE '45000' \
+                         SET MESSAGE_TEXT = '{message}'; END IF; END"
+                    )
+                },
+            );
+            db.execute_unprepared(&format!(
+                "CREATE TRIGGER {name} BEFORE {event} ON resource_locks FOR EACH ROW {body}"
+            ))
+            .await
+            .expect("MySQL resource lock failure trigger should install");
+        }
+        backend => panic!("unsupported resource lock failure trigger backend: {backend:?}"),
+    }
+}
+
+async fn remove_resource_lock_failure_trigger(db: &DatabaseConnection, name: &str) {
+    match db.get_database_backend() {
+        DbBackend::Postgres => {
+            db.execute_unprepared(&format!("DROP TRIGGER {name} ON resource_locks"))
+                .await
+                .expect("PostgreSQL resource lock failure trigger should be removed");
+            db.execute_unprepared(&format!("DROP FUNCTION {name}_fn()"))
+                .await
+                .expect("PostgreSQL resource lock failure function should be removed");
+        }
+        DbBackend::MySql | DbBackend::Sqlite => {
+            db.execute_unprepared(&format!("DROP TRIGGER {name}"))
+                .await
+                .expect("resource lock failure trigger should be removed");
+        }
+        backend => panic!("unsupported resource lock failure trigger backend: {backend:?}"),
+    }
 }
 
 async fn count_file_download_audit_rows(state: &PrimaryAppState, entity_name: &str) -> u64 {
@@ -5872,15 +5977,14 @@ async fn test_webdav_delete_rolls_back_when_rooted_lock_cleanup_fails() {
         .expect("LOCK response should include Lock-Token")
         .to_string();
 
-    state
-        .writer_db()
-        .execute_unprepared(
-            "CREATE TRIGGER webdav_delete_lock_failure \
-             BEFORE DELETE ON resource_locks BEGIN \
-             SELECT RAISE(ABORT, 'injected lock cleanup failure'); END;",
-        )
-        .await
-        .expect("SQLite lock cleanup trigger should install");
+    install_resource_lock_failure_trigger(
+        state.writer_db(),
+        "webdav_delete_lock_failure",
+        ResourceLockFailureEvent::Delete,
+        None,
+        "injected lock cleanup failure",
+    )
+    .await;
     let req = test::TestRequest::with_uri(path)
         .method(actix_web::http::Method::from_bytes(b"DELETE").unwrap())
         .insert_header(("Authorization", auth.clone()))
@@ -5888,11 +5992,7 @@ async fn test_webdav_delete_rolls_back_when_rooted_lock_cleanup_fails() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 500);
-    state
-        .writer_db()
-        .execute_unprepared("DROP TRIGGER webdav_delete_lock_failure")
-        .await
-        .expect("SQLite lock cleanup trigger should be removed");
+    remove_resource_lock_failure_trigger(state.writer_db(), "webdav_delete_lock_failure").await;
 
     assert_eq!(
         lock_repo::find_by_path(state.writer_db(), "/atomic-delete-lock.txt")
@@ -5951,15 +6051,14 @@ async fn test_webdav_unlock_rolls_back_when_locked_flag_sync_fails() {
         .expect("LOCK response should include Lock-Token")
         .to_string();
 
-    state
-        .writer_db()
-        .execute_unprepared(
-            "CREATE TRIGGER webdav_unlock_lock_row_failure \
-             BEFORE DELETE ON resource_locks BEGIN \
-             SELECT RAISE(ABORT, 'injected WebDAV unlock lock-row failure'); END;",
-        )
-        .await
-        .expect("WebDAV unlock lock-row failure trigger should install");
+    install_resource_lock_failure_trigger(
+        state.writer_db(),
+        "webdav_unlock_lock_row_failure",
+        ResourceLockFailureEvent::Delete,
+        None,
+        "injected WebDAV unlock lock-row failure",
+    )
+    .await;
     let req = test::TestRequest::with_uri(path)
         .method(actix_web::http::Method::from_bytes(b"UNLOCK").unwrap())
         .insert_header(("Authorization", auth.clone()))
@@ -5976,11 +6075,7 @@ async fn test_webdav_unlock_rolls_back_when_locked_flag_sync_fails() {
         "UNLOCK must retain the lock row when lock-row deletion fails"
     );
 
-    state
-        .writer_db()
-        .execute_unprepared("DROP TRIGGER webdav_unlock_lock_row_failure")
-        .await
-        .expect("WebDAV unlock lock-row failure trigger should be removed");
+    remove_resource_lock_failure_trigger(state.writer_db(), "webdav_unlock_lock_row_failure").await;
     let req = test::TestRequest::with_uri(path)
         .method(actix_web::http::Method::from_bytes(b"UNLOCK").unwrap())
         .insert_header(("Authorization", auth))
@@ -6036,15 +6131,14 @@ async fn test_webdav_move_rolls_back_when_source_lock_cleanup_fails() {
         .unwrap()
         .to_string();
 
-    state
-        .writer_db()
-        .execute_unprepared(
-            "CREATE TRIGGER webdav_move_lock_failure \
-             BEFORE DELETE ON resource_locks BEGIN \
-             SELECT RAISE(ABORT, 'injected source lock cleanup failure'); END;",
-        )
-        .await
-        .unwrap();
+    install_resource_lock_failure_trigger(
+        state.writer_db(),
+        "webdav_move_lock_failure",
+        ResourceLockFailureEvent::Delete,
+        None,
+        "injected source lock cleanup failure",
+    )
+    .await;
     let req = test::TestRequest::with_uri(source)
         .method(actix_web::http::Method::from_bytes(b"MOVE").unwrap())
         .insert_header(("Authorization", auth.clone()))
@@ -6053,11 +6147,7 @@ async fn test_webdav_move_rolls_back_when_source_lock_cleanup_fails() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 500);
-    state
-        .writer_db()
-        .execute_unprepared("DROP TRIGGER webdav_move_lock_failure")
-        .await
-        .unwrap();
+    remove_resource_lock_failure_trigger(state.writer_db(), "webdav_move_lock_failure").await;
 
     for (uri, status) in [(source, 200), (destination, 404)] {
         let req = test::TestRequest::get()
@@ -6123,15 +6213,14 @@ async fn test_webdav_recursive_delete_keeps_namespace_when_child_lock_cleanup_fa
         .unwrap()
         .to_string();
 
-    state
-        .writer_db()
-        .execute_unprepared(
-            "CREATE TRIGGER webdav_child_lock_failure \
-             BEFORE DELETE ON resource_locks BEGIN \
-             SELECT RAISE(ABORT, 'injected child lock cleanup failure'); END;",
-        )
-        .await
-        .unwrap();
+    install_resource_lock_failure_trigger(
+        state.writer_db(),
+        "webdav_child_lock_failure",
+        ResourceLockFailureEvent::Delete,
+        None,
+        "injected child lock cleanup failure",
+    )
+    .await;
     let req = test::TestRequest::with_uri(root)
         .method(actix_web::http::Method::from_bytes(b"DELETE").unwrap())
         .insert_header(("Authorization", auth.clone()))
@@ -6153,11 +6242,7 @@ async fn test_webdav_recursive_delete_keeps_namespace_when_child_lock_cleanup_fa
         "{xml}"
     );
     assert!(xml.contains("500 Internal Server Error"), "{xml}");
-    state
-        .writer_db()
-        .execute_unprepared("DROP TRIGGER webdav_child_lock_failure")
-        .await
-        .unwrap();
+    remove_resource_lock_failure_trigger(state.writer_db(), "webdav_child_lock_failure").await;
 
     let req = test::TestRequest::get()
         .uri(child)
@@ -6230,16 +6315,14 @@ async fn test_webdav_copy_rolls_back_when_destination_lock_rebind_fails() {
         .pop()
         .unwrap();
 
-    state
-        .writer_db()
-        .execute_unprepared(
-            "CREATE TRIGGER webdav_rebind_lock_failure \
-             BEFORE UPDATE OF root_file_id, root_folder_id ON resource_locks \
-             WHEN OLD.lockroot_path = '/atomic-copy-target.txt' BEGIN \
-             SELECT RAISE(ABORT, 'injected destination lock rebind failure'); END;",
-        )
-        .await
-        .unwrap();
+    install_resource_lock_failure_trigger(
+        state.writer_db(),
+        "webdav_rebind_lock_failure",
+        ResourceLockFailureEvent::Update,
+        Some("OLD.lockroot_path = '/atomic-copy-target.txt'"),
+        "injected destination lock rebind failure",
+    )
+    .await;
     let req = test::TestRequest::with_uri(source)
         .method(actix_web::http::Method::from_bytes(b"COPY").unwrap())
         .insert_header(("Authorization", auth.clone()))
@@ -6251,11 +6334,7 @@ async fn test_webdav_copy_rolls_back_when_destination_lock_rebind_fails() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 500);
-    state
-        .writer_db()
-        .execute_unprepared("DROP TRIGGER webdav_rebind_lock_failure")
-        .await
-        .unwrap();
+    remove_resource_lock_failure_trigger(state.writer_db(), "webdav_rebind_lock_failure").await;
 
     let req = test::TestRequest::get()
         .uri(destination)
@@ -6572,15 +6651,14 @@ async fn test_webdav_lock_null_rolls_back_file_when_lock_insert_fails() {
     .expect("seeded WebDAV account should exist");
     let auth = basic_auth_header(&username, &password);
 
-    state
-        .writer_db()
-        .execute_unprepared(
-            "CREATE TRIGGER webdav_lock_null_insert_failure \
-             BEFORE INSERT ON resource_locks BEGIN \
-             SELECT RAISE(ABORT, 'injected lock-null lock insert failure'); END;",
-        )
-        .await
-        .expect("SQLite lock insert trigger should install");
+    install_resource_lock_failure_trigger(
+        state.writer_db(),
+        "webdav_lock_null_insert_failure",
+        ResourceLockFailureEvent::Insert,
+        None,
+        "injected lock-null lock insert failure",
+    )
+    .await;
 
     let lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
 <D:lockinfo xmlns:D="DAV:">
@@ -6597,11 +6675,8 @@ async fn test_webdav_lock_null_rolls_back_file_when_lock_insert_fails() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 500);
 
-    state
-        .writer_db()
-        .execute_unprepared("DROP TRIGGER webdav_lock_null_insert_failure")
-        .await
-        .expect("SQLite lock insert trigger should be removed");
+    remove_resource_lock_failure_trigger(state.writer_db(), "webdav_lock_null_insert_failure")
+        .await;
 
     assert!(
         file_repo::find_by_name_in_folder(

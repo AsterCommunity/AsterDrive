@@ -14,6 +14,10 @@ use aster_drive_model::entities::{file, folder};
 use aster_forge_utils::numbers::usize_to_u64;
 
 const FOLDER_TREE_FILE_PAGE_SIZE: usize = 512;
+pub(crate) const FOLDER_TREE_RESOURCE_LIMIT_MESSAGE: &str =
+    "recursive folder tree exceeds the operation resource budget";
+const FOLDER_TREE_SHAPE_LIMIT_MESSAGE: &str =
+    "recursive folder tree exceeds the operation frontier or depth bound";
 
 /// Optional resource bounds for a product-owned folder-tree traversal.
 ///
@@ -101,7 +105,9 @@ pub(crate) async fn collect_folder_forest_in_resource_scope<C: ConnectionTrait>(
                 .filter(|folder| folder_matches_scope(folder, scope))
                 .map(|folder| folder.id)
                 .collect();
-            depth = depth.checked_add(1).ok_or_else(folder_tree_limit_error)?;
+            depth = depth
+                .checked_add(1)
+                .ok_or_else(folder_tree_shape_limit_error)?;
             continue;
         }
 
@@ -121,7 +127,9 @@ pub(crate) async fn collect_folder_forest_in_resource_scope<C: ConnectionTrait>(
                     .collect()
             }
         };
-        depth = depth.checked_add(1).ok_or_else(folder_tree_limit_error)?;
+        depth = depth
+            .checked_add(1)
+            .ok_or_else(folder_tree_shape_limit_error)?;
     }
 
     Ok((files, folder_ids))
@@ -223,7 +231,7 @@ fn check_folder_tree_frontier_limits(
         return Ok(());
     };
     if depth > limits.maximum_depth || frontier > limits.maximum_frontier {
-        return Err(folder_tree_limit_error());
+        return Err(folder_tree_shape_limit_error());
     }
     Ok(())
 }
@@ -248,9 +256,11 @@ fn check_folder_tree_resource_limits(
 }
 
 fn folder_tree_limit_error() -> AsterError {
-    AsterError::operation_resource_limit_exceeded(
-        "recursive folder tree exceeds the operation resource budget",
-    )
+    AsterError::operation_resource_limit_exceeded(FOLDER_TREE_RESOURCE_LIMIT_MESSAGE)
+}
+
+fn folder_tree_shape_limit_error() -> AsterError {
+    AsterError::operation_resource_limit_exceeded(FOLDER_TREE_SHAPE_LIMIT_MESSAGE)
 }
 
 pub(crate) async fn collect_folder_tree_in_resource_scope<C: ConnectionTrait>(
@@ -272,4 +282,26 @@ pub(crate) async fn collect_folder_tree_in_scope<C: ConnectionTrait>(
 ) -> Result<(Vec<file::Model>, Vec<i64>)> {
     collect_folder_tree_in_resource_scope(db, scope.into(), folder_id, include_deleted, limits)
         .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn folder_tree_resource_limit_has_stable_budget_message() {
+        let limits = Some(FolderTreeTraversalLimits::new(1, 1, 1));
+        let error = check_folder_tree_resource_limits(limits, 1, 0, 1).unwrap_err();
+
+        assert_eq!(error.message(), FOLDER_TREE_RESOURCE_LIMIT_MESSAGE);
+    }
+
+    #[test]
+    fn folder_tree_shape_limit_is_distinct_from_resource_budget() {
+        let limits = Some(FolderTreeTraversalLimits::new(10, 1, 1));
+        let error = check_folder_tree_frontier_limits(limits, 2, 0).unwrap_err();
+
+        assert_eq!(error.message(), FOLDER_TREE_SHAPE_LIMIT_MESSAGE);
+        assert_ne!(error.message(), FOLDER_TREE_RESOURCE_LIMIT_MESSAGE);
+    }
 }

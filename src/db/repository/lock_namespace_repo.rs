@@ -1,7 +1,7 @@
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, IntoActiveModel, QueryFilter,
-    QuerySelect, Set, sea_query::OnConflict,
+    QuerySelect, Set,
 };
 
 use crate::errors::{AsterError, Result};
@@ -22,14 +22,10 @@ pub async fn ensure_and_lock<C: ConnectionTrait>(
         updated_at: Set(now),
         ..Default::default()
     })
-    .on_conflict(
-        OnConflict::columns([
-            resource_lock_namespace::Column::WorkspaceType,
-            resource_lock_namespace::Column::WorkspaceId,
-        ])
-        .do_nothing()
-        .to_owned(),
-    )
+    .on_conflict_do_nothing_on([
+        resource_lock_namespace::Column::WorkspaceType,
+        resource_lock_namespace::Column::WorkspaceId,
+    ])
     .exec_without_returning(db)
     .await
     .map_err(AsterError::from)?;
@@ -91,4 +87,34 @@ pub async fn increment_generation<C: ConnectionTrait>(
     active.generation = Set(generation);
     active.updated_at = Set(Utc::now());
     active.update(db).await.map_err(AsterError::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use sea_orm::{DbBackend, EntityTrait, QueryTrait, Set};
+
+    use super::*;
+
+    #[test]
+    fn ensure_namespace_insert_uses_valid_mysql_conflict_syntax() {
+        let now = Utc::now();
+        let sql = resource_lock_namespace::Entity::insert(resource_lock_namespace::ActiveModel {
+            workspace_type: Set(LockWorkspaceType::Personal),
+            workspace_id: Set(42),
+            generation: Set(0),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .on_conflict_do_nothing_on([
+            resource_lock_namespace::Column::WorkspaceType,
+            resource_lock_namespace::Column::WorkspaceId,
+        ])
+        .build(DbBackend::MySql)
+        .to_string();
+
+        assert!(sql.contains("ON DUPLICATE KEY UPDATE `id` = `id`"), "{sql}");
+        assert!(!sql.contains("ON DUPLICATE KEY IGNORE"), "{sql}");
+    }
 }

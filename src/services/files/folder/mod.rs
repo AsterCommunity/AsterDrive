@@ -56,8 +56,9 @@ pub(crate) use mutation::{
     lock_tree_for_deletion_on, set_lock_in_scope, update_in_scope,
 };
 pub(crate) use tree::{
-    FolderTreeTraversalLimits, collect_folder_forest_in_resource_scope,
-    collect_folder_tree_in_resource_scope, collect_folder_tree_in_scope,
+    FOLDER_TREE_RESOURCE_LIMIT_MESSAGE, FolderTreeTraversalLimits,
+    collect_folder_forest_in_resource_scope, collect_folder_tree_in_resource_scope,
+    collect_folder_tree_in_scope,
 };
 
 // 和其他 service 一样，审计包装留在聚合层，避免核心目录逻辑被日志副作用污染。

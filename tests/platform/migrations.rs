@@ -533,10 +533,6 @@ fn steps_before_migration(migration_name: &str) -> u32 {
     u32::try_from(position).expect("migration step count should fit u32")
 }
 
-fn steps_to_roll_back_allow_shared_webdav_locks() -> u32 {
-    steps_to_roll_back_migration(ALLOW_SHARED_WEBDAV_LOCKS_MIGRATION)
-}
-
 fn steps_to_roll_back_upload_session_object_fields() -> u32 {
     steps_to_roll_back_migration(RENAME_UPLOAD_SESSION_OBJECT_FIELDS_MIGRATION)
 }
@@ -560,7 +556,7 @@ fn steps_to_roll_back_storage_policy_remote_storage_target_key() -> u32 {
 async fn roll_back_allow_shared_webdav_locks(
     db: &sea_orm::DatabaseConnection,
 ) -> Result<(), DbErr> {
-    CurrentMigrator::down(db, Some(steps_to_roll_back_allow_shared_webdav_locks())).await
+    CurrentMigrator::down(db, Some(1)).await
 }
 
 async fn insert_resource_lock(
@@ -1338,7 +1334,15 @@ async fn remote_storage_target_max_file_size_migration_removes_target_level_limi
 
 #[tokio::test]
 async fn allow_shared_webdav_locks_down_recreates_unique_index_without_duplicates() {
-    let db = setup_current_schema().await;
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite memory database should connect");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(ALLOW_SHARED_WEBDAV_LOCKS_MIGRATION) + 1),
+    )
+    .await
+    .expect("shared WebDAV lock schema should apply");
     insert_resource_lock(&db, "urn:uuid:one", "file", 1).await;
     insert_resource_lock(&db, "urn:uuid:two", "file", 2).await;
 
@@ -1368,7 +1372,15 @@ async fn allow_shared_webdav_locks_down_recreates_unique_index_without_duplicate
 
 #[tokio::test]
 async fn allow_shared_webdav_locks_down_reports_duplicate_entity_locks() {
-    let db = setup_current_schema().await;
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite memory database should connect");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(ALLOW_SHARED_WEBDAV_LOCKS_MIGRATION) + 1),
+    )
+    .await
+    .expect("shared WebDAV lock schema should apply");
     insert_resource_lock(&db, "urn:uuid:one", "file", 1).await;
     insert_resource_lock(&db, "urn:uuid:two", "file", 1).await;
 

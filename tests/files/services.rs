@@ -847,16 +847,6 @@ async fn test_file_lock_cleanup_expired_unlocks_only_expired_resources() {
         .await
         .unwrap();
 
-    let expired_lock = lock::lock(
-        &state,
-        aster_drive_model::types::EntityType::Folder,
-        expired_folder.id,
-        Some(user.id),
-        None,
-        Some(Duration::seconds(-1)),
-    )
-    .await
-    .unwrap();
     let active_lock = lock::lock(
         &state,
         aster_drive_model::types::EntityType::Folder,
@@ -867,6 +857,24 @@ async fn test_file_lock_cleanup_expired_unlocks_only_expired_resources() {
     )
     .await
     .unwrap();
+    let expired_lock = lock::lock(
+        &state,
+        aster_drive_model::types::EntityType::Folder,
+        expired_folder.id,
+        Some(user.id),
+        None,
+        Some(Duration::seconds(-1)),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        lock_repo::find_by_token(state.writer_db(), &expired_lock.token)
+            .await
+            .unwrap()
+            .is_some(),
+        "cleanup fixture should retain an expired lock before cleanup starts"
+    );
 
     let cleaned = lock::cleanup_expired(&state).await.unwrap();
     assert_eq!(cleaned, 1);

@@ -181,6 +181,10 @@ pub(crate) async fn create_in_scope(
 
     let name = aster_forge_validation::filename::normalize_validate_name(name)?;
     let created_by_username = load_scope_actor_username(state.writer_db(), scope).await?;
+    if let Some(parent_id) = parent_id {
+        let parent = folder_repo::find_by_id(state.writer_db(), parent_id).await?;
+        ensure_folder_model_in_scope(&parent, scope)?;
+    }
 
     let now = Utc::now();
     let created = transaction::with_transaction(state.writer_db(), async |txn| {
