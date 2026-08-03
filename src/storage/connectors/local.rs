@@ -3,19 +3,48 @@ use async_trait::async_trait;
 use crate::errors::Result;
 use crate::storage::drivers::local::{DEFAULT_LOCAL_STORAGE_PATH, LocalDriver};
 use aster_drive_model::entities::storage_policy;
+use aster_drive_storage::StorageConnectorConfigSchema;
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
-    StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDeploymentScope,
-    StorageConnectorDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
-    StorageConnectorObjectNamingMode, StorageConnectorUiDescriptorInput,
-    StorageConnectorUploadWorkflows, draft_connection_test_action_descriptor,
-    saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
-    storage_connector_field, storage_connector_ui_descriptor,
+    StorageConnectorCapabilities, StorageConnectorDeploymentScope, StorageConnectorDescriptor,
+    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
+    StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
+    draft_connection_test_action_descriptor, saved_connection_test_action_descriptor,
+    server_relay_simple_upload_capabilities, storage_connector_field,
+    storage_connector_ui_descriptor,
 };
 
 use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorUploadTransport};
 
 pub struct LocalConnector;
+
+aster_drive_storage::storage_connector_schema! {
+    pub struct LocalConnectorConfigV1 {
+        config {
+            pub base_path: String => storage_connector_field(
+                "base_path",
+                StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Text,
+                false,
+                false,
+            ),
+            pub content_dedup: bool => {
+                let mut field = storage_connector_field(
+                    "content_dedup",
+                    StorageConnectorFieldScope::ConnectorConfig,
+                    StorageConnectorFieldKind::Boolean,
+                    false,
+                    false,
+                );
+                field.default_value = Some(
+                    aster_drive_storage::StorageConnectorFieldDefaultValue::Boolean(false),
+                );
+                field
+            },
+        }
+        credentials none
+    }
+}
 
 impl LocalConnector {
     pub const ID: &'static str = "asterdrive.storage.local";
@@ -39,7 +68,7 @@ impl LocalConnector {
                 base_path_empty_display: DEFAULT_LOCAL_STORAGE_PATH,
                 base_path_placeholder: DEFAULT_LOCAL_STORAGE_PATH,
             }),
-            credential_mode: StorageConnectorCredentialMode::None,
+            credential_mode: LocalConnectorConfigV1::credential_mode(),
             deployment_scope: StorageConnectorDeploymentScope::InstanceLocal,
             supports_initial_setup: true,
             requires_authorization: false,
@@ -66,28 +95,7 @@ impl LocalConnector {
                 frontend_direct_provider_resumable_upload: false,
                 provider_resumable_upload_capabilities: None,
             },
-            fields: vec![
-                storage_connector_field(
-                    "base_path",
-                    StorageConnectorFieldScope::Connection,
-                    StorageConnectorFieldKind::Text,
-                    false,
-                    false,
-                ),
-                {
-                    let mut field = storage_connector_field(
-                        "content_dedup",
-                        StorageConnectorFieldScope::ConnectorOptions,
-                        StorageConnectorFieldKind::Boolean,
-                        false,
-                        false,
-                    );
-                    field.default_value = Some(
-                        aster_drive_storage::StorageConnectorFieldDefaultValue::Boolean(false),
-                    );
-                    field
-                },
-            ],
+            fields: LocalConnectorConfigV1::descriptor_fields(),
             config_schema_version: 1,
             actions: vec![
                 draft_connection_test_action_descriptor(),
@@ -103,6 +111,20 @@ impl LocalConnector {
 impl StorageConnector for LocalConnector {
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
+    }
+
+    fn encode_config(
+        &self,
+        input: &StorageConnectorConnectionInput,
+    ) -> Result<aster_drive_model::types::StoredConnectorConfig> {
+        super::common::encode_typed_connector_config(
+            Self::ID,
+            1,
+            LocalConnectorConfigV1 {
+                base_path: input.base_path.clone(),
+                content_dedup: input.options.content_dedup.unwrap_or(false),
+            },
+        )
     }
 
     fn normalize_connection_fields(

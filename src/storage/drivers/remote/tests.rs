@@ -42,6 +42,11 @@ fn build_policy(base_path: &str) -> storage_policy::Model {
         base_path: base_path.to_string(),
         remote_node_id: Some(7),
         remote_storage_target_key: None,
+        connector_id: "asterdrive.storage.remote".to_string(),
+        connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(
+            "asterdrive.storage.remote",
+        ),
+        behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
         max_file_size: 0,
         allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
         options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),

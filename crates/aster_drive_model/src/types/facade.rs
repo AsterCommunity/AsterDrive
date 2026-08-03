@@ -32,11 +32,11 @@ pub use super::storage_policy::{
     DriverType, MediaProcessorKind, OBJECT_MULTIPART_MIN_PART_SIZE, ObjectStorageDownloadStrategy,
     ObjectStorageUploadStrategy, OneDriveAccountMode, ProviderDownloadFilenameMode,
     ProviderDownloadStrategy, ProviderResumableUploadStrategy, RemoteDownloadStrategy,
-    RemoteNodeTransportMode, RemoteUploadStrategy, StoragePolicyOptions,
-    StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UploadMode, UploadSessionStatus,
-    effective_object_multipart_chunk_size, parse_storage_policy_allowed_types,
-    parse_storage_policy_options, serialize_storage_policy_allowed_types,
-    serialize_storage_policy_options,
+    RemoteNodeTransportMode, RemoteUploadStrategy, StoragePolicyOptions, StoredConnectorConfig,
+    StoredStoragePolicyAllowedTypes, StoredStoragePolicyBehaviorConfig, StoredStoragePolicyOptions,
+    UploadMode, UploadSessionStatus, effective_object_multipart_chunk_size,
+    parse_storage_policy_allowed_types, parse_storage_policy_options,
+    serialize_storage_policy_allowed_types, serialize_storage_policy_options,
 };
 pub use super::tag::TagScopeType;
 pub use super::task::{

@@ -11,12 +11,15 @@ use crate::storage::drivers::{
 };
 use aster_drive_model::entities::{remote_storage_target, storage_policy};
 use aster_drive_model::types::{
-    DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
+    DriverType, StoragePolicyOptions, StoredStoragePolicyAllowedTypes,
+    StoredStoragePolicyBehaviorConfig, StoredStoragePolicyOptions,
 };
-use aster_drive_storage::StorageDriver;
 use aster_drive_storage::field_contract::{
     StorageDescriptorFieldKind, StorageDescriptorFieldSemantics, normalize_object_storage_prefix,
     normalize_required_storage_field,
+};
+use aster_drive_storage::{
+    StorageDriver, StoragePolicyBehaviorConfig, encode_storage_policy_behavior_config,
 };
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -506,6 +509,33 @@ fn build_policy_model<S: FollowerRuntimeState>(
     registration: &RemoteStorageTargetDriverRegistration,
 ) -> Result<storage_policy::Model> {
     let base_path = registration.connector.policy_base_path(state, target)?;
+    let connector_id =
+        crate::storage::connectors::connector_id_for_legacy_driver_type(target.driver_type);
+    let connector = state
+        .driver_registry()
+        .connectors()
+        .require_connector(&connector_id)?;
+    let connector_config = connector.encode_config(
+        &crate::storage::connectors::StorageConnectorConnectionInput {
+            driver_type: target.driver_type,
+            endpoint: target.endpoint.clone(),
+            bucket: target.bucket.clone(),
+            access_key: target.access_key.clone(),
+            secret_key: target.secret_key.clone(),
+            base_path: base_path.clone(),
+            remote_node_id: None,
+            remote_storage_target_key: None,
+            options: StoragePolicyOptions::default(),
+        },
+    )?;
+    let behavior_config =
+        encode_storage_policy_behavior_config(StoragePolicyBehaviorConfig::default())
+            .map(StoredStoragePolicyBehaviorConfig)
+            .map_err(|error| {
+                AsterError::internal_error(format!(
+                    "serialize remote storage target policy behavior config: {error}"
+                ))
+            })?;
 
     Ok(storage_policy::Model {
         id: target.id,
@@ -518,6 +548,9 @@ fn build_policy_model<S: FollowerRuntimeState>(
         base_path,
         remote_node_id: None,
         remote_storage_target_key: None,
+        connector_id: connector_id.as_str().to_string(),
+        connector_config,
+        behavior_config,
         max_file_size: 0,
         allowed_types: StoredStoragePolicyAllowedTypes::empty(),
         options: StoredStoragePolicyOptions::empty(),

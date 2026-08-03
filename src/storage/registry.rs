@@ -583,6 +583,11 @@ mod tests {
             base_path: "base".to_string(),
             remote_node_id,
             remote_storage_target_key: None,
+            connector_id: "asterdrive.storage.remote".to_string(),
+            connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(
+                "asterdrive.storage.remote",
+            ),
+            behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
             max_file_size: 0,
             allowed_types: StoredStoragePolicyAllowedTypes::empty(),
             options: StoredStoragePolicyOptions::empty(),

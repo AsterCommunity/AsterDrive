@@ -11,16 +11,20 @@ use crate::services::remote::capability::RemoteCapabilityResolver;
 use crate::services::storage_policy::credential::crypto;
 use crate::storage::drivers::remote::RemoteDriver;
 use aster_drive_model::entities::{managed_follower, storage_policy};
-use aster_drive_model::types::{RemoteNodeTransportMode, parse_storage_policy_options};
+use aster_drive_model::types::{
+    RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteUploadStrategy,
+    parse_storage_policy_options,
+};
 use aster_drive_storage::connector_descriptor::{
     ObjectMultipartUploadCapabilitiesInput, StorageConnectorCapabilities,
-    StorageConnectorCredentialMode, StorageConnectorDeploymentScope, StorageConnectorDescriptor,
-    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
+    StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorFieldKind,
+    StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
     StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
     draft_connection_test_action_descriptor, object_multipart_upload_capabilities,
     saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
     storage_connector_field, storage_connector_field_with_options, storage_connector_ui_descriptor,
 };
+use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
 use aster_drive_storage::{StorageDriver, StorageErrorKind, storage_driver_error};
 
 use super::common::{ensure_onedrive_options_absent, ensure_storage_native_processing_supported};
@@ -31,6 +35,49 @@ use super::{
 };
 
 pub struct RemoteConnector;
+
+aster_drive_storage::storage_connector_schema! {
+    pub struct RemoteConnectorConfigV1 {
+        config {
+        pub base_path: String => storage_connector_field(
+            "base_path", StorageConnectorFieldScope::ConnectorConfig,
+            StorageConnectorFieldKind::Text, false, false,
+        ),
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub remote_node_id: Option<i64> => storage_connector_field(
+            "remote_node_id", StorageConnectorFieldScope::ConnectorConfig,
+            StorageConnectorFieldKind::Select, true, false,
+        ),
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub remote_storage_target_key: Option<String> => storage_connector_field(
+            "remote_storage_target_key", StorageConnectorFieldScope::ConnectorConfig,
+            StorageConnectorFieldKind::Select, true, false,
+        ),
+        pub remote_download_strategy: RemoteDownloadStrategy => remote_transfer_field(
+            "remote_download_strategy",
+        ),
+        pub remote_upload_strategy: RemoteUploadStrategy => remote_transfer_field(
+            "remote_upload_strategy",
+        ),
+        }
+        credentials none
+    }
+}
+
+fn remote_transfer_field(name: &str) -> aster_drive_storage::StorageConnectorFieldDescriptor {
+    let mut field = storage_connector_field_with_options(
+        name,
+        StorageConnectorFieldScope::ConnectorConfig,
+        StorageConnectorFieldKind::Select,
+        true,
+        false,
+        vec!["relay_stream", "presigned"],
+    );
+    field.default_value = Some(StorageConnectorFieldDefaultValue::String(
+        "relay_stream".to_string(),
+    ));
+    field
+}
 
 impl RemoteConnector {
     pub const ID: &'static str = "asterdrive.storage.remote";
@@ -54,7 +101,7 @@ impl RemoteConnector {
                 base_path_empty_display: "core:root",
                 base_path_placeholder: "tenant/prefix",
             }),
-            credential_mode: StorageConnectorCredentialMode::RemoteNode,
+            credential_mode: RemoteConnectorConfigV1::credential_mode(),
             deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
             supports_initial_setup: true,
             requires_authorization: false,
@@ -85,54 +132,7 @@ impl RemoteConnector {
                 frontend_direct_provider_resumable_upload: false,
                 provider_resumable_upload_capabilities: None,
             },
-            fields: vec![
-                storage_connector_field(
-                    "remote_node_id",
-                    StorageConnectorFieldScope::RemoteNodeBinding,
-                    StorageConnectorFieldKind::Select,
-                    true,
-                    false,
-                ),
-                storage_connector_field(
-                    "base_path",
-                    StorageConnectorFieldScope::Connection,
-                    StorageConnectorFieldKind::Text,
-                    false,
-                    false,
-                ),
-                {
-                    let mut field = storage_connector_field_with_options(
-                        "remote_download_strategy",
-                        StorageConnectorFieldScope::ConnectorOptions,
-                        StorageConnectorFieldKind::Select,
-                        true,
-                        false,
-                        vec!["relay_stream", "presigned"],
-                    );
-                    field.default_value = Some(
-                        aster_drive_storage::StorageConnectorFieldDefaultValue::String(
-                            "relay_stream".to_string(),
-                        ),
-                    );
-                    field
-                },
-                {
-                    let mut field = storage_connector_field_with_options(
-                        "remote_upload_strategy",
-                        StorageConnectorFieldScope::ConnectorOptions,
-                        StorageConnectorFieldKind::Select,
-                        true,
-                        false,
-                        vec!["relay_stream", "presigned"],
-                    );
-                    field.default_value = Some(
-                        aster_drive_storage::StorageConnectorFieldDefaultValue::String(
-                            "relay_stream".to_string(),
-                        ),
-                    );
-                    field
-                },
-            ],
+            fields: RemoteConnectorConfigV1::descriptor_fields(),
             config_schema_version: 1,
             actions: vec![
                 draft_connection_test_action_descriptor(),
@@ -148,6 +148,23 @@ impl RemoteConnector {
 impl StorageConnector for RemoteConnector {
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
+    }
+
+    fn encode_config(
+        &self,
+        input: &StorageConnectorConnectionInput,
+    ) -> Result<aster_drive_model::types::StoredConnectorConfig> {
+        super::common::encode_typed_connector_config(
+            Self::ID,
+            1,
+            RemoteConnectorConfigV1 {
+                base_path: input.base_path.clone(),
+                remote_node_id: input.remote_node_id,
+                remote_storage_target_key: input.remote_storage_target_key.clone(),
+                remote_download_strategy: input.options.effective_remote_download_strategy(),
+                remote_upload_strategy: input.options.effective_remote_upload_strategy(),
+            },
+        )
     }
 
     fn normalize_connection_fields(

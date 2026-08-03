@@ -9,7 +9,7 @@ use crate::errors::{AsterError, Result};
 use crate::storage::DriverRegistry;
 use crate::storage::remote_protocol::RemoteProtocolRuntime;
 use aster_drive_model::entities::{storage_policy, storage_policy_credential};
-use aster_drive_model::types::{DriverType, StoragePolicyOptions};
+use aster_drive_model::types::{DriverType, StoragePolicyOptions, StoredConnectorConfig};
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorAffordanceAction, StorageConnectorDescriptor, StorageConnectorObjectNamingMode,
     StoragePolicyExecutableAction,
@@ -116,6 +116,13 @@ impl StorageConnectorDriver {
 /// and invoke this object-safe contract without matching concrete providers.
 pub(crate) trait StorageConnector: Send + Sync {
     fn descriptor(&self) -> StorageConnectorDescriptor;
+
+    /// Serialize the connector-owned v1 configuration through its concrete
+    /// typed config. Implementations must not manually assemble JSON values.
+    fn encode_config(
+        &self,
+        input: &StorageConnectorConnectionInput,
+    ) -> Result<StoredConnectorConfig>;
 
     fn normalize_connection_fields(&self, endpoint: &str, bucket: &str)
     -> Result<(String, String)>;

@@ -552,6 +552,11 @@ async fn test_state_with_driver_and_options(
         base_path: Set(String::new()),
         remote_node_id: Set(None),
         remote_storage_target_key: Set(None),
+        connector_id: Set("asterdrive.storage.local".to_string()),
+        connector_config: Set(aster_drive_model::types::StoredConnectorConfig::empty_for(
+            "asterdrive.storage.local",
+        )),
+        behavior_config: Set(aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty()),
         max_file_size: Set(0),
         allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
         options: Set(

@@ -20,6 +20,11 @@ fn build_policy(base: &Path) -> aster_drive_model::entities::storage_policy::Mod
         base_path: base.to_string_lossy().into(),
         remote_node_id: None,
         remote_storage_target_key: None,
+        connector_id: "asterdrive.storage.local".to_string(),
+        connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(
+            "asterdrive.storage.local",
+        ),
+        behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
         max_file_size: 0,
         allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
         options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),

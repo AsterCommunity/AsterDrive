@@ -60,6 +60,7 @@ pub use upload::StorageConnectorUploadTransport;
 
 pub(crate) use contract::{
     StorageConnector, StorageConnectorContext, StorageConnectorDriver, StorageConnectorRegistry,
+    connector_id_for_legacy_driver_type,
 };
 
 pub(crate) fn builtin_storage_connector_registry() -> Result<StorageConnectorRegistry> {

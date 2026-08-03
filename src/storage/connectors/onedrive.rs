@@ -12,20 +12,21 @@ use crate::storage::drivers::onedrive::{
 };
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
-    ProviderDownloadFilenameMode, ProviderDownloadStrategy, StorageCredentialKind,
+    MicrosoftGraphCloud, OneDriveAccountMode, ProviderDownloadFilenameMode,
+    ProviderDownloadStrategy, ProviderResumableUploadStrategy, StorageCredentialKind,
     StorageCredentialProvider, StorageCredentialStatus, parse_storage_policy_options,
 };
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
-    StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDeploymentScope,
-    StorageConnectorDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
-    StorageConnectorObjectNamingMode, StorageConnectorProviderResumableUploadCapabilities,
-    StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
-    saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
-    start_authorization_action_descriptor, storage_connector_field,
-    storage_connector_field_with_options, storage_connector_ui_descriptor,
+    StorageConnectorCapabilities, StorageConnectorDeploymentScope, StorageConnectorDescriptor,
+    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
+    StorageConnectorProviderResumableUploadCapabilities, StorageConnectorUiDescriptorInput,
+    StorageConnectorUploadWorkflows, saved_connection_test_action_descriptor,
+    server_relay_simple_upload_capabilities, start_authorization_action_descriptor,
+    storage_connector_field, storage_connector_field_with_options, storage_connector_ui_descriptor,
     validate_credential_action_descriptor,
 };
+use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
 
 use super::common::{
     ensure_storage_native_processing_supported, unsupported_draft_connection_test_error,
@@ -40,6 +41,83 @@ use super::{
 };
 
 pub struct OneDriveConnector;
+
+aster_drive_storage::storage_connector_schema! {
+    pub struct OneDriveConnectorConfigV1 {
+        config {
+        pub base_path: String => storage_connector_field(
+            "base_path", StorageConnectorFieldScope::ConnectorConfig,
+            StorageConnectorFieldKind::Text, false, false,
+        ),
+        pub provider_resumable_upload_strategy: ProviderResumableUploadStrategy => onedrive_select_field(
+            "provider_resumable_upload_strategy", vec!["server_relay", "frontend_direct"], "server_relay",
+        ),
+        pub provider_download_strategy: ProviderDownloadStrategy => onedrive_select_field(
+            "provider_download_strategy", vec!["server_relay", "frontend_direct"], "server_relay",
+        ),
+        pub provider_download_filename_mode: ProviderDownloadFilenameMode => onedrive_select_field(
+            "provider_download_filename_mode", vec!["provider_native", "strict_current"], "provider_native",
+        ),
+        pub cloud: MicrosoftGraphCloud => onedrive_select_field(
+            "cloud", vec!["global", "china"], "global",
+        ),
+        pub account_mode: OneDriveAccountMode => onedrive_select_field(
+            "account_mode", vec!["personal", "work_or_school", "sharepoint_site", "group_drive"], "personal",
+        ),
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub tenant: Option<String> => onedrive_optional_text_field("tenant"),
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub drive_id: Option<String> => onedrive_optional_text_field("drive_id"),
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub root_item_id: Option<String> => onedrive_optional_text_field("root_item_id"),
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub site_id: Option<String> => onedrive_optional_text_field("site_id"),
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub group_id: Option<String> => onedrive_optional_text_field("group_id"),
+        }
+        credentials authorization_application {
+            client_id => storage_connector_field(
+                "client_id", StorageConnectorFieldScope::AuthorizationApplication,
+                StorageConnectorFieldKind::Text, true, false,
+            ),
+            client_secret => storage_connector_field(
+                "client_secret", StorageConnectorFieldScope::AuthorizationApplication,
+                StorageConnectorFieldKind::Secret, true, true,
+            ),
+        }
+    }
+}
+
+fn onedrive_select_field(
+    name: &str,
+    options: Vec<&str>,
+    default_value: &str,
+) -> aster_drive_storage::StorageConnectorFieldDescriptor {
+    let mut field = storage_connector_field_with_options(
+        name,
+        StorageConnectorFieldScope::ConnectorConfig,
+        StorageConnectorFieldKind::Select,
+        true,
+        false,
+        options,
+    );
+    field.default_value = Some(StorageConnectorFieldDefaultValue::String(
+        default_value.to_string(),
+    ));
+    field
+}
+
+fn onedrive_optional_text_field(
+    name: &str,
+) -> aster_drive_storage::StorageConnectorFieldDescriptor {
+    storage_connector_field(
+        name,
+        StorageConnectorFieldScope::ConnectorConfig,
+        StorageConnectorFieldKind::Text,
+        false,
+        false,
+    )
+}
 
 impl OneDriveConnector {
     pub const ID: &'static str = "asterdrive.storage.onedrive";
@@ -72,7 +150,7 @@ impl OneDriveConnector {
                 base_path_empty_display: "core:root",
                 base_path_placeholder: "tenant/prefix",
             }),
-            credential_mode: StorageConnectorCredentialMode::OauthDelegated,
+            credential_mode: OneDriveConnectorConfigV1::credential_mode(),
             deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
             supports_initial_setup: false,
             requires_authorization: true,
@@ -115,118 +193,7 @@ impl OneDriveConnector {
                     },
                 ),
             },
-            fields: vec![
-                storage_connector_field(
-                    "client_id",
-                    StorageConnectorFieldScope::ApplicationCredential,
-                    StorageConnectorFieldKind::Text,
-                    true,
-                    false,
-                ),
-                storage_connector_field(
-                    "client_secret",
-                    StorageConnectorFieldScope::ApplicationCredential,
-                    StorageConnectorFieldKind::Secret,
-                    true,
-                    true,
-                ),
-                storage_connector_field_with_options(
-                    "provider_resumable_upload_strategy",
-                    StorageConnectorFieldScope::ConnectorOptions,
-                    StorageConnectorFieldKind::Select,
-                    true,
-                    false,
-                    vec!["server_relay", "frontend_direct"],
-                ),
-                storage_connector_field_with_options(
-                    "provider_download_strategy",
-                    StorageConnectorFieldScope::ConnectorOptions,
-                    StorageConnectorFieldKind::Select,
-                    true,
-                    false,
-                    vec!["server_relay", "frontend_direct"],
-                ),
-                storage_connector_field_with_options(
-                    "provider_download_filename_mode",
-                    StorageConnectorFieldScope::ConnectorOptions,
-                    StorageConnectorFieldKind::Select,
-                    true,
-                    false,
-                    vec!["provider_native", "strict_current"],
-                ),
-                {
-                    let mut field = storage_connector_field_with_options(
-                        "cloud",
-                        StorageConnectorFieldScope::ConnectorOptions,
-                        StorageConnectorFieldKind::Select,
-                        true,
-                        false,
-                        vec!["global", "china"],
-                    );
-                    field.default_value = Some(
-                        aster_drive_storage::StorageConnectorFieldDefaultValue::String(
-                            "global".to_string(),
-                        ),
-                    );
-                    field
-                },
-                {
-                    let mut field = storage_connector_field_with_options(
-                        "account_mode",
-                        StorageConnectorFieldScope::ConnectorOptions,
-                        StorageConnectorFieldKind::Select,
-                        true,
-                        false,
-                        vec![
-                            "personal",
-                            "work_or_school",
-                            "sharepoint_site",
-                            "group_drive",
-                        ],
-                    );
-                    field.default_value = Some(
-                        aster_drive_storage::StorageConnectorFieldDefaultValue::String(
-                            "personal".to_string(),
-                        ),
-                    );
-                    field
-                },
-                storage_connector_field(
-                    "tenant",
-                    StorageConnectorFieldScope::ConnectorOptions,
-                    StorageConnectorFieldKind::Text,
-                    false,
-                    false,
-                ),
-                storage_connector_field(
-                    "drive_id",
-                    StorageConnectorFieldScope::ConnectorOptions,
-                    StorageConnectorFieldKind::Text,
-                    false,
-                    false,
-                ),
-                storage_connector_field(
-                    "root_item_id",
-                    StorageConnectorFieldScope::ConnectorOptions,
-                    StorageConnectorFieldKind::Text,
-                    false,
-                    false,
-                ),
-                storage_connector_field(
-                    "site_id",
-                    StorageConnectorFieldScope::ConnectorOptions,
-                    StorageConnectorFieldKind::Text,
-                    false,
-                    false,
-                ),
-                storage_connector_field(
-                    "group_id",
-                    StorageConnectorFieldScope::ConnectorOptions,
-                    StorageConnectorFieldKind::Text,
-                    false,
-                    false,
-                ),
-            ],
+            fields: OneDriveConnectorConfigV1::descriptor_fields(),
             config_schema_version: 1,
             actions: vec![
                 start_authorization_action_descriptor(),
@@ -243,6 +210,36 @@ impl OneDriveConnector {
 impl StorageConnector for OneDriveConnector {
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
+    }
+
+    fn encode_config(
+        &self,
+        input: &StorageConnectorConnectionInput,
+    ) -> Result<aster_drive_model::types::StoredConnectorConfig> {
+        super::common::encode_typed_connector_config(
+            Self::ID,
+            1,
+            OneDriveConnectorConfigV1 {
+                base_path: input.base_path.clone(),
+                provider_resumable_upload_strategy: input
+                    .options
+                    .effective_provider_resumable_upload_strategy(),
+                provider_download_strategy: input.options.effective_provider_download_strategy(),
+                provider_download_filename_mode: input
+                    .options
+                    .effective_provider_download_filename_mode(),
+                cloud: input.options.effective_onedrive_cloud(),
+                account_mode: input
+                    .options
+                    .onedrive_account_mode
+                    .unwrap_or(OneDriveAccountMode::Personal),
+                tenant: input.options.onedrive_tenant.clone(),
+                drive_id: input.options.onedrive_drive_id.clone(),
+                root_item_id: input.options.onedrive_root_item_id.clone(),
+                site_id: input.options.onedrive_site_id.clone(),
+                group_id: input.options.onedrive_group_id.clone(),
+            },
+        )
     }
 
     fn normalize_connection_fields(

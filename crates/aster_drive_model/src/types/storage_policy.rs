@@ -340,6 +340,54 @@ impl From<StoredStoragePolicyOptions> for String {
     }
 }
 
+/// Opaque versioned connector envelope stored in `storage_policies.connector_config`.
+///
+/// The model crate deliberately does not deserialize connector-owned fields.
+/// Runtime connector code in `aster_drive_storage` owns that contract.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, DeriveValueType)]
+pub struct StoredConnectorConfig(pub String);
+
+impl AsRef<str> for StoredConnectorConfig {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for StoredConnectorConfig {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<StoredConnectorConfig> for String {
+    fn from(value: StoredConnectorConfig) -> Self {
+        value.0
+    }
+}
+
+/// Opaque versioned core behavior envelope stored in
+/// `storage_policies.behavior_config`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, DeriveValueType)]
+pub struct StoredStoragePolicyBehaviorConfig(pub String);
+
+impl AsRef<str> for StoredStoragePolicyBehaviorConfig {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for StoredStoragePolicyBehaviorConfig {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<StoredStoragePolicyBehaviorConfig> for String {
+    fn from(value: StoredStoragePolicyBehaviorConfig) -> Self {
+        value.0
+    }
+}
+
 const DEFAULT_S3_CONNECT_TIMEOUT_SECS: u64 = 5;
 const DEFAULT_S3_READ_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_S3_OPERATION_TIMEOUT_SECS: u64 = 60 * 60;

@@ -4,18 +4,86 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::Result;
 use crate::storage::drivers::azure_blob::{AzureBlobConfigError, AzureBlobDriver};
 use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::{ObjectStorageDownloadStrategy, parse_storage_policy_options};
+use aster_drive_model::types::{
+    ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy, parse_storage_policy_options,
+};
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
-    ObjectStorageConnectorDescriptorInput, ObjectStorageFieldDescriptorInput,
-    StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorUiDescriptorInput,
-    object_storage_connector_descriptor,
+    ObjectStorageConnectorDescriptorInput, StorageConnectorDeploymentScope,
+    StorageConnectorDescriptor, StorageConnectorFieldDisplayInput, StorageConnectorFieldKind,
+    StorageConnectorFieldScope, StorageConnectorUiDescriptorInput,
+    object_storage_connector_descriptor, storage_connector_field,
+    storage_connector_field_with_display, storage_connector_field_with_options,
 };
+use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
 
 use super::common::validate_static_secret_credentials;
 use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorUploadTransport};
 
 pub struct AzureBlobConnector;
+
+aster_drive_storage::storage_connector_schema! {
+    pub struct AzureBlobConnectorConfigV1 {
+        config {
+        pub endpoint: String => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+            name: "endpoint", scope: StorageConnectorFieldScope::ConnectorConfig,
+            kind: StorageConnectorFieldKind::Text, required: true, secret: false,
+            label_key: "endpoint", placeholder: Some("https://<account>.blob.core.windows.net"),
+            help_key: Some("azure_blob_endpoint_hint"), required_message_key: None,
+            invalid_protocol_message_key: Some("azure_blob_endpoint_protocol_required_error"),
+            allowed_endpoint_protocols: vec!["http:", "https:"],
+            allow_endpoint_without_protocol: false, trim_on_blur: false,
+        }),
+        pub bucket: String => {
+            let mut field = storage_connector_field(
+                "bucket", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Text, true, false,
+            );
+            field.required_message_key = Some("policy_wizard_container_required".to_string());
+            field
+        },
+        pub base_path: String => storage_connector_field(
+            "base_path", StorageConnectorFieldScope::ConnectorConfig,
+            StorageConnectorFieldKind::Text, false, false,
+        ),
+        pub object_storage_upload_strategy: ObjectStorageUploadStrategy => object_transfer_field(
+            "object_storage_upload_strategy",
+        ),
+        pub object_storage_download_strategy: ObjectStorageDownloadStrategy => object_transfer_field(
+            "object_storage_download_strategy",
+        ),
+        }
+        credentials static {
+            access_key => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                name: "access_key", scope: StorageConnectorFieldScope::StaticCredential,
+                kind: StorageConnectorFieldKind::Text, required: true, secret: false,
+                label_key: "azure_blob_account_name", placeholder: None, help_key: None,
+                required_message_key: None, invalid_protocol_message_key: None,
+                allowed_endpoint_protocols: Vec::new(), allow_endpoint_without_protocol: false,
+                trim_on_blur: true,
+            }),
+            secret_key => storage_connector_field(
+                "secret_key", StorageConnectorFieldScope::StaticCredential,
+                StorageConnectorFieldKind::Secret, true, true,
+            ),
+        }
+    }
+}
+
+fn object_transfer_field(name: &str) -> aster_drive_storage::StorageConnectorFieldDescriptor {
+    let mut field = storage_connector_field_with_options(
+        name,
+        StorageConnectorFieldScope::ConnectorConfig,
+        StorageConnectorFieldKind::Select,
+        true,
+        false,
+        vec!["relay_stream", "presigned"],
+    );
+    field.default_value = Some(StorageConnectorFieldDefaultValue::String(
+        "relay_stream".to_string(),
+    ));
+    field
+}
 
 impl AzureBlobConnector {
     pub const ID: &'static str = "asterdrive.storage.azure_blob";
@@ -41,18 +109,8 @@ impl AzureBlobConnector {
             },
             deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
             supports_initial_setup: true,
-            fields: ObjectStorageFieldDescriptorInput {
-                endpoint_placeholder: "https://<account>.blob.core.windows.net",
-                endpoint_help_key: "azure_blob_endpoint_hint",
-                endpoint_protocol_error_key: "azure_blob_endpoint_protocol_required_error",
-                bucket_required_message_key: "policy_wizard_container_required",
-                access_key_label_key: "azure_blob_account_name",
-                secret_key_label_key: "azure_blob_account_key",
-                access_key_trim_on_blur: true,
-            },
-            include_s3_path_style: false,
-            include_s3_region: false,
-            include_s3_timeouts: false,
+            credential_mode: AzureBlobConnectorConfigV1::credential_mode(),
+            fields: AzureBlobConnectorConfigV1::descriptor_fields(),
             presigned_part_etag_required: false,
             storage_native_processing: false,
             config_schema_version: 1,
@@ -65,6 +123,27 @@ impl AzureBlobConnector {
 impl StorageConnector for AzureBlobConnector {
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
+    }
+
+    fn encode_config(
+        &self,
+        input: &StorageConnectorConnectionInput,
+    ) -> Result<aster_drive_model::types::StoredConnectorConfig> {
+        super::common::encode_typed_connector_config(
+            Self::ID,
+            1,
+            AzureBlobConnectorConfigV1 {
+                endpoint: input.endpoint.clone(),
+                bucket: input.bucket.clone(),
+                base_path: input.base_path.clone(),
+                object_storage_upload_strategy: input
+                    .options
+                    .effective_object_storage_upload_strategy(),
+                object_storage_download_strategy: input
+                    .options
+                    .effective_object_storage_download_strategy(),
+            },
+        )
     }
 
     fn normalize_connection_fields(

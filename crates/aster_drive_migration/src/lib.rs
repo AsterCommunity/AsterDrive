@@ -58,6 +58,7 @@ mod m20260719_000001_add_upload_provider_session;
 mod m20260723_000001_require_upload_session_kind;
 mod m20260725_000001_remote_tunnel_owners;
 mod m20260728_000001_provider_relay_resumable_upload;
+mod m20260803_000001_storage_policy_connector_configs;
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
@@ -183,6 +184,7 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20260723_000001_require_upload_session_kind::Migration),
             Box::new(m20260725_000001_remote_tunnel_owners::Migration),
             Box::new(m20260728_000001_provider_relay_resumable_upload::Migration),
+            Box::new(m20260803_000001_storage_policy_connector_configs::Migration),
         ]
     }
 }

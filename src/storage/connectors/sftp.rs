@@ -3,21 +3,99 @@ use async_trait::async_trait;
 use crate::errors::Result;
 use crate::storage::drivers::sftp::SftpDriver;
 use aster_drive_model::entities::storage_policy;
+use aster_drive_storage::StorageConnectorConfigSchema;
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
-    StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDeploymentScope,
-    StorageConnectorDescriptor, StorageConnectorFieldDisplayInput, StorageConnectorFieldKind,
-    StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
-    StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
-    draft_connection_test_action_descriptor, saved_connection_test_action_descriptor,
-    server_relay_simple_upload_capabilities, storage_connector_field,
-    storage_connector_field_with_display, storage_connector_ui_descriptor,
+    StorageConnectorCapabilities, StorageConnectorDeploymentScope, StorageConnectorDescriptor,
+    StorageConnectorFieldDisplayInput, StorageConnectorFieldKind, StorageConnectorFieldScope,
+    StorageConnectorObjectNamingMode, StorageConnectorUiDescriptorInput,
+    StorageConnectorUploadWorkflows, draft_connection_test_action_descriptor,
+    saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
+    storage_connector_field, storage_connector_field_with_display, storage_connector_ui_descriptor,
 };
 
 use super::common::{ensure_onedrive_options_absent, validate_static_secret_credentials};
 use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorUploadTransport};
 
 pub struct SftpConnector;
+
+aster_drive_storage::storage_connector_schema! {
+    pub struct SftpConnectorConfigV1 {
+        config {
+        pub endpoint: String => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+            name: "endpoint",
+            scope: StorageConnectorFieldScope::ConnectorConfig,
+            kind: StorageConnectorFieldKind::Text,
+            required: true,
+            secret: false,
+            label_key: "endpoint",
+            placeholder: Some("sftp://example.com:22"),
+            help_key: Some("sftp_endpoint_hint"),
+            required_message_key: None,
+            invalid_protocol_message_key: Some("sftp_endpoint_protocol_required_error"),
+            allowed_endpoint_protocols: vec!["sftp:"],
+            allow_endpoint_without_protocol: true,
+            trim_on_blur: true,
+        }),
+        pub base_path: String => storage_connector_field(
+            "base_path", StorageConnectorFieldScope::ConnectorConfig,
+            StorageConnectorFieldKind::Text, false, false,
+        ),
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub sftp_host_key_fingerprint: Option<String> => {
+            let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                name: "sftp_host_key_fingerprint",
+                scope: StorageConnectorFieldScope::ConnectorConfig,
+                kind: StorageConnectorFieldKind::Text,
+                required: false,
+                secret: false,
+                label_key: "sftp_host_key_fingerprint",
+                placeholder: Some("SHA256:..."),
+                help_key: Some("sftp_host_key_fingerprint_hint"),
+                required_message_key: None,
+                invalid_protocol_message_key: None,
+                allowed_endpoint_protocols: Vec::new(),
+                allow_endpoint_without_protocol: false,
+                trim_on_blur: true,
+            });
+            field.validation.max_length = Some(512);
+            field
+        },
+        }
+        credentials static {
+            access_key => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                name: "access_key",
+                scope: StorageConnectorFieldScope::StaticCredential,
+                kind: StorageConnectorFieldKind::Text,
+                required: true,
+                secret: false,
+                label_key: "sftp_username",
+                placeholder: None,
+                help_key: None,
+                required_message_key: None,
+                invalid_protocol_message_key: None,
+                allowed_endpoint_protocols: Vec::new(),
+                allow_endpoint_without_protocol: false,
+                trim_on_blur: true,
+            }),
+            secret_key => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                name: "secret_key",
+                scope: StorageConnectorFieldScope::StaticCredential,
+                kind: StorageConnectorFieldKind::Secret,
+                required: true,
+                secret: true,
+                label_key: "sftp_password",
+                placeholder: None,
+                help_key: None,
+                required_message_key: None,
+                invalid_protocol_message_key: None,
+                allowed_endpoint_protocols: Vec::new(),
+                allow_endpoint_without_protocol: false,
+                trim_on_blur: false,
+            }),
+        }
+    }
+}
 
 impl SftpConnector {
     pub const ID: &'static str = "asterdrive.storage.sftp";
@@ -41,7 +119,7 @@ impl SftpConnector {
                 base_path_empty_display: "core:root",
                 base_path_placeholder: "/srv/asterdrive",
             }),
-            credential_mode: StorageConnectorCredentialMode::StaticSecret,
+            credential_mode: SftpConnectorConfigV1::credential_mode(),
             deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
             supports_initial_setup: true,
             requires_authorization: false,
@@ -68,80 +146,7 @@ impl SftpConnector {
                 frontend_direct_provider_resumable_upload: false,
                 provider_resumable_upload_capabilities: None,
             },
-            fields: vec![
-                storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
-                    name: "endpoint",
-                    scope: StorageConnectorFieldScope::Connection,
-                    kind: StorageConnectorFieldKind::Text,
-                    required: true,
-                    secret: false,
-                    label_key: "endpoint",
-                    placeholder: Some("sftp://example.com:22"),
-                    help_key: Some("sftp_endpoint_hint"),
-                    required_message_key: None,
-                    invalid_protocol_message_key: Some("sftp_endpoint_protocol_required_error"),
-                    allowed_endpoint_protocols: vec!["sftp:"],
-                    allow_endpoint_without_protocol: true,
-                    trim_on_blur: true,
-                }),
-                storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
-                    name: "access_key",
-                    scope: StorageConnectorFieldScope::Connection,
-                    kind: StorageConnectorFieldKind::Text,
-                    required: true,
-                    secret: false,
-                    label_key: "sftp_username",
-                    placeholder: None,
-                    help_key: None,
-                    required_message_key: None,
-                    invalid_protocol_message_key: None,
-                    allowed_endpoint_protocols: Vec::new(),
-                    allow_endpoint_without_protocol: false,
-                    trim_on_blur: true,
-                }),
-                storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
-                    name: "secret_key",
-                    scope: StorageConnectorFieldScope::Connection,
-                    kind: StorageConnectorFieldKind::Secret,
-                    required: true,
-                    secret: true,
-                    label_key: "sftp_password",
-                    placeholder: None,
-                    help_key: None,
-                    required_message_key: None,
-                    invalid_protocol_message_key: None,
-                    allowed_endpoint_protocols: Vec::new(),
-                    allow_endpoint_without_protocol: false,
-                    trim_on_blur: false,
-                }),
-                storage_connector_field(
-                    "base_path",
-                    StorageConnectorFieldScope::Connection,
-                    StorageConnectorFieldKind::Text,
-                    false,
-                    false,
-                ),
-                {
-                    let mut field =
-                        storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
-                            name: "sftp_host_key_fingerprint",
-                            scope: StorageConnectorFieldScope::ConnectorOptions,
-                            kind: StorageConnectorFieldKind::Text,
-                            required: false,
-                            secret: false,
-                            label_key: "sftp_host_key_fingerprint",
-                            placeholder: Some("SHA256:..."),
-                            help_key: Some("sftp_host_key_fingerprint_hint"),
-                            required_message_key: None,
-                            invalid_protocol_message_key: None,
-                            allowed_endpoint_protocols: Vec::new(),
-                            allow_endpoint_without_protocol: false,
-                            trim_on_blur: true,
-                        });
-                    field.validation.max_length = Some(512);
-                    field
-                },
-            ],
+            fields: SftpConnectorConfigV1::descriptor_fields(),
             config_schema_version: 1,
             actions: vec![
                 draft_connection_test_action_descriptor(),
@@ -157,6 +162,21 @@ impl SftpConnector {
 impl StorageConnector for SftpConnector {
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
+    }
+
+    fn encode_config(
+        &self,
+        input: &StorageConnectorConnectionInput,
+    ) -> Result<aster_drive_model::types::StoredConnectorConfig> {
+        super::common::encode_typed_connector_config(
+            Self::ID,
+            1,
+            SftpConnectorConfigV1 {
+                endpoint: input.endpoint.clone(),
+                base_path: input.base_path.clone(),
+                sftp_host_key_fingerprint: input.options.sftp_host_key_fingerprint.clone(),
+            },
+        )
     }
 
     fn normalize_connection_fields(

@@ -1298,6 +1298,7 @@ fn connector_action_endpoint_gate_rejects_non_endpoint_actions() {
 }
 
 fn mock_policy(driver_type: DriverType, chunk_size: i64, options: &str) -> storage_policy::Model {
+    let connector_id = format!("asterdrive.storage.{}", driver_type.as_str());
     storage_policy::Model {
         id: 1,
         name: "test".to_string(),
@@ -1309,6 +1310,9 @@ fn mock_policy(driver_type: DriverType, chunk_size: i64, options: &str) -> stora
         base_path: String::new(),
         remote_node_id: None,
         remote_storage_target_key: None,
+        connector_id: connector_id.clone(),
+        connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(&connector_id),
+        behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
         max_file_size: 0,
         allowed_types: StoredStoragePolicyAllowedTypes::empty(),
         options: options.to_string().into(),

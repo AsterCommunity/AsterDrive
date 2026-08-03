@@ -438,6 +438,11 @@ mod tests {
             base_path: "base path".to_string(),
             remote_node_id: None,
             remote_storage_target_key: None,
+            connector_id: "asterdrive.storage.azure_blob".to_string(),
+            connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(
+                "asterdrive.storage.azure_blob",
+            ),
+            behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
             max_file_size: 0,
             allowed_types: StoredStoragePolicyAllowedTypes::empty(),
             options: StoredStoragePolicyOptions::empty(),

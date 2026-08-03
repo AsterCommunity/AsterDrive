@@ -13,6 +13,180 @@ use utoipa::ToSchema;
 
 pub const CONNECTOR_CONFIG_FORMAT_VERSION: u32 = 1;
 
+/// Declare every connector field once while keeping persistence channels
+/// structurally separate.
+///
+/// Only `config` fields become members of the serde config struct. Static and
+/// application credentials contribute descriptor fields but can never be
+/// serialized into the connector config envelope.
+#[macro_export]
+macro_rules! storage_connector_schema {
+    (
+        $(#[$struct_meta:meta])*
+        $visibility:vis struct $name:ident {
+            config {
+                $(
+                    $(#[$field_meta:meta])*
+                    $field_visibility:vis $field:ident: $field_type:ty => $descriptor:expr
+                ),* $(,)?
+            }
+            credentials none
+        }
+    ) => {
+        $crate::storage_connector_schema_impl! {
+            $(#[$struct_meta])*
+            $visibility struct $name {
+                config {
+                    $(
+                        $(#[$field_meta])*
+                        $field_visibility $field: $field_type => $descriptor
+                    ),*
+                }
+                credential_mode = $crate::StorageConnectorCredentialMode::None;
+                credentials {}
+            }
+        }
+    };
+    (
+        $(#[$struct_meta:meta])*
+        $visibility:vis struct $name:ident {
+            config {
+                $(
+                    $(#[$field_meta:meta])*
+                    $field_visibility:vis $field:ident: $field_type:ty => $descriptor:expr
+                ),* $(,)?
+            }
+            credentials static {
+                $(
+                    $credential_field:ident => $credential_descriptor:expr
+                ),* $(,)?
+            }
+        }
+    ) => {
+        $crate::storage_connector_schema_impl! {
+            $(#[$struct_meta])*
+            $visibility struct $name {
+                config {
+                    $(
+                        $(#[$field_meta])*
+                        $field_visibility $field: $field_type => $descriptor
+                    ),*
+                }
+                credential_mode = $crate::StorageConnectorCredentialMode::StaticSecret;
+                credentials {
+                    $(
+                        $credential_field => $credential_descriptor
+                    ),*
+                }
+            }
+        }
+    };
+    (
+        $(#[$struct_meta:meta])*
+        $visibility:vis struct $name:ident {
+            config {
+                $(
+                    $(#[$field_meta:meta])*
+                    $field_visibility:vis $field:ident: $field_type:ty => $descriptor:expr
+                ),* $(,)?
+            }
+            credentials authorization_application {
+                $(
+                    $credential_field:ident => $credential_descriptor:expr
+                ),* $(,)?
+            }
+        }
+    ) => {
+        $crate::storage_connector_schema_impl! {
+            $(#[$struct_meta])*
+            $visibility struct $name {
+                config {
+                    $(
+                        $(#[$field_meta])*
+                        $field_visibility $field: $field_type => $descriptor
+                    ),*
+                }
+                credential_mode = $crate::StorageConnectorCredentialMode::OauthDelegated;
+                credentials {
+                    $(
+                        $credential_field => $credential_descriptor
+                    ),*
+                }
+            }
+        }
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! storage_connector_schema_impl {
+    (
+        $(#[$struct_meta:meta])*
+        $visibility:vis struct $name:ident {
+            config {
+                $(
+                    $(#[$field_meta:meta])*
+                    $field_visibility:vis $field:ident: $field_type:ty => $descriptor:expr
+                ),* $(,)?
+            }
+            credential_mode = $credential_mode:expr;
+            credentials {
+                $(
+                    $credential_field:ident => $credential_descriptor:expr
+                ),* $(,)?
+            }
+        }
+    ) => {
+        $(#[$struct_meta])*
+        #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        $visibility struct $name {
+            $(
+                $(#[$field_meta])*
+                $field_visibility $field: $field_type,
+            )*
+        }
+
+        impl $crate::StorageConnectorConfigSchema for $name {
+            fn connector_config_fields() -> Vec<$crate::StorageConnectorFieldDescriptor> {
+                vec![
+                    $(
+                        {
+                            let descriptor: $crate::StorageConnectorFieldDescriptor = $descriptor;
+                            assert_eq!(
+                                descriptor.name,
+                                stringify!($field),
+                                "connector config descriptor field name must match its serde field"
+                            );
+                            descriptor
+                        }
+                    ),*
+                ]
+            }
+
+            fn credential_mode() -> $crate::StorageConnectorCredentialMode {
+                $credential_mode
+            }
+
+            fn credential_fields() -> Vec<$crate::StorageConnectorFieldDescriptor> {
+                vec![
+                    $(
+                        {
+                            let descriptor: $crate::StorageConnectorFieldDescriptor = $credential_descriptor;
+                            assert_eq!(
+                                descriptor.name,
+                                stringify!($credential_field),
+                                "credential descriptor name must match its declared field"
+                            );
+                            descriptor
+                        }
+                    ),*
+                ]
+            }
+        }
+    };
+}
+
 /// Stable connector/plugin identifier.
 ///
 /// Built-in connectors use reverse-DNS-style identifiers such as
@@ -79,23 +253,100 @@ fn validate_connector_id(value: &str) -> Result<(), ConnectorIdError> {
 /// temporarily unavailable, this entire envelope is preserved byte-for-byte.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct ConnectorConfigEnvelope {
+pub struct ConnectorConfigEnvelope<T = BTreeMap<String, serde_json::Value>> {
     pub format_version: u32,
     pub connector_id: ConnectorId,
     pub schema_version: u32,
-    #[serde(default)]
-    pub values: BTreeMap<String, serde_json::Value>,
+    pub values: T,
 }
 
-impl ConnectorConfigEnvelope {
-    pub fn empty(connector_id: ConnectorId, schema_version: u32) -> Self {
+impl<T> ConnectorConfigEnvelope<T> {
+    pub fn new(connector_id: ConnectorId, schema_version: u32, values: T) -> Self {
         Self {
             format_version: CONNECTOR_CONFIG_FORMAT_VERSION,
             connector_id,
             schema_version,
-            values: BTreeMap::new(),
+            values,
         }
     }
+}
+
+#[derive(Debug)]
+pub enum ConnectorConfigCodecError {
+    InvalidJson(serde_json::Error),
+    FormatVersionMismatch { expected: u32, actual: u32 },
+    ConnectorIdMismatch { expected: String, actual: String },
+    SchemaVersionMismatch { expected: u32, actual: u32 },
+}
+
+impl fmt::Display for ConnectorConfigCodecError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidJson(error) => write!(formatter, "invalid connector config JSON: {error}"),
+            Self::FormatVersionMismatch { expected, actual } => write!(
+                formatter,
+                "connector config format version mismatch: expected {expected}, got {actual}"
+            ),
+            Self::ConnectorIdMismatch { expected, actual } => write!(
+                formatter,
+                "connector config id mismatch: expected '{expected}', got '{actual}'"
+            ),
+            Self::SchemaVersionMismatch { expected, actual } => write!(
+                formatter,
+                "connector config schema version mismatch: expected {expected}, got {actual}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ConnectorConfigCodecError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::InvalidJson(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+pub fn encode_connector_config<T: Serialize>(
+    connector_id: ConnectorId,
+    schema_version: u32,
+    values: T,
+) -> Result<String, ConnectorConfigCodecError> {
+    serde_json::to_string(&ConnectorConfigEnvelope::new(
+        connector_id,
+        schema_version,
+        values,
+    ))
+    .map_err(ConnectorConfigCodecError::InvalidJson)
+}
+
+pub fn decode_connector_config<'a, T: Deserialize<'a>>(
+    raw: &'a str,
+    expected_connector_id: &ConnectorId,
+    expected_schema_version: u32,
+) -> Result<T, ConnectorConfigCodecError> {
+    let envelope: ConnectorConfigEnvelope<T> =
+        serde_json::from_str(raw).map_err(ConnectorConfigCodecError::InvalidJson)?;
+    if envelope.format_version != CONNECTOR_CONFIG_FORMAT_VERSION {
+        return Err(ConnectorConfigCodecError::FormatVersionMismatch {
+            expected: CONNECTOR_CONFIG_FORMAT_VERSION,
+            actual: envelope.format_version,
+        });
+    }
+    if &envelope.connector_id != expected_connector_id {
+        return Err(ConnectorConfigCodecError::ConnectorIdMismatch {
+            expected: expected_connector_id.as_str().to_string(),
+            actual: envelope.connector_id.as_str().to_string(),
+        });
+    }
+    if envelope.schema_version != expected_schema_version {
+        return Err(ConnectorConfigCodecError::SchemaVersionMismatch {
+            expected: expected_schema_version,
+            actual: envelope.schema_version,
+        });
+    }
+    Ok(envelope.values)
 }
 
 #[cfg(test)]
@@ -130,18 +381,54 @@ mod tests {
 
     #[test]
     fn connector_config_envelope_round_trips_unknown_values() {
-        let envelope = ConnectorConfigEnvelope {
-            format_version: CONNECTOR_CONFIG_FORMAT_VERSION,
-            connector_id: ConnectorId::declared("com.example.storage"),
-            schema_version: 17,
-            values: BTreeMap::from([(
+        let envelope = ConnectorConfigEnvelope::new(
+            ConnectorId::declared("com.example.storage"),
+            17,
+            BTreeMap::from([(
                 "opaque".to_string(),
                 serde_json::json!({"nested": [1, true, "value"]}),
             )]),
-        };
+        );
 
         let json = serde_json::to_string(&envelope).unwrap();
         let parsed: ConnectorConfigEnvelope = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, envelope);
+    }
+
+    #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct TypedConfig {
+        base_path: String,
+    }
+
+    #[test]
+    fn typed_codec_round_trips_and_rejects_contract_mismatches() {
+        let connector_id = ConnectorId::declared("com.example.storage");
+        let raw = encode_connector_config(
+            connector_id.clone(),
+            4,
+            TypedConfig {
+                base_path: "archive".to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            decode_connector_config::<TypedConfig>(&raw, &connector_id, 4).unwrap(),
+            TypedConfig {
+                base_path: "archive".to_string()
+            }
+        );
+        assert!(matches!(
+            decode_connector_config::<TypedConfig>(
+                &raw,
+                &ConnectorId::declared("com.example.other"),
+                4
+            ),
+            Err(ConnectorConfigCodecError::ConnectorIdMismatch { .. })
+        ));
+        assert!(matches!(
+            decode_connector_config::<TypedConfig>(&raw, &connector_id, 5),
+            Err(ConnectorConfigCodecError::SchemaVersionMismatch { .. })
+        ));
     }
 }

@@ -7,13 +7,19 @@ use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code}
 use crate::storage::drivers::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
-    StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, serialize_storage_policy_options,
+    StoragePolicyOptions, StoredConnectorConfig, StoredStoragePolicyAllowedTypes,
+    StoredStoragePolicyBehaviorConfig, StoredStoragePolicyOptions,
+    serialize_storage_policy_options,
 };
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDescriptor,
     StoragePolicyExecutableAction,
 };
-use aster_drive_storage::{StorageDriver, StorageErrorKind};
+use aster_drive_storage::{
+    ConnectorId, StorageDriver, StorageErrorKind, StoragePolicyBehaviorConfig,
+    encode_connector_config, encode_storage_policy_behavior_config,
+};
+use serde::Serialize;
 
 use super::{StorageConnector, StorageConnectorConnectionInput};
 
@@ -55,6 +61,9 @@ pub(super) async fn build_connection_test_policy<C: StorageConnector + ?Sized>(
     connector
         .validate_policy_options(db, input.remote_node_id, &input.options)
         .await?;
+    let connector_id = connector.descriptor().connector_id;
+    let connector_config = connector.encode_config(&input)?;
+    let behavior_config = encode_behavior_config(&input.options)?;
     Ok(storage_policy::Model {
         id: 0,
         name: String::new(),
@@ -66,6 +75,9 @@ pub(super) async fn build_connection_test_policy<C: StorageConnector + ?Sized>(
         base_path: input.base_path,
         remote_node_id: input.remote_node_id,
         remote_storage_target_key: input.remote_storage_target_key,
+        connector_id: connector_id.as_str().to_string(),
+        connector_config,
+        behavior_config,
         max_file_size: 0,
         allowed_types: StoredStoragePolicyAllowedTypes::empty(),
         options: serialize_connector_options(&input.options)?,
@@ -73,6 +85,34 @@ pub(super) async fn build_connection_test_policy<C: StorageConnector + ?Sized>(
         chunk_size: 0,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+    })
+}
+
+pub(super) fn encode_typed_connector_config<T: Serialize>(
+    connector_id: &'static str,
+    schema_version: u32,
+    values: T,
+) -> Result<StoredConnectorConfig> {
+    encode_connector_config(ConnectorId::declared(connector_id), schema_version, values)
+        .map(StoredConnectorConfig)
+        .map_err(|error| {
+            AsterError::internal_error(format!(
+                "serialize connector config '{connector_id}': {error}"
+            ))
+        })
+}
+
+pub(super) fn encode_behavior_config(
+    options: &StoragePolicyOptions,
+) -> Result<StoredStoragePolicyBehaviorConfig> {
+    encode_storage_policy_behavior_config(StoragePolicyBehaviorConfig {
+        thumbnail_processor: options.thumbnail_processor,
+        thumbnail_extensions: options.thumbnail_extensions.clone(),
+        media_metadata_extensions: options.media_metadata_extensions.clone(),
+    })
+    .map(StoredStoragePolicyBehaviorConfig)
+    .map_err(|error| {
+        AsterError::internal_error(format!("serialize storage policy behavior config: {error}"))
     })
 }
 

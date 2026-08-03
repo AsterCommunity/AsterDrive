@@ -533,6 +533,7 @@ mod storage_path_tests {
 
     fn policy(driver_type: DriverType) -> aster_drive_model::entities::storage_policy::Model {
         let now = chrono::Utc::now();
+        let connector_id = format!("asterdrive.storage.{}", driver_type.as_str());
         aster_drive_model::entities::storage_policy::Model {
             id: 1,
             name: "test".to_string(),
@@ -544,6 +545,11 @@ mod storage_path_tests {
             base_path: String::new(),
             remote_node_id: None,
             remote_storage_target_key: None,
+            connector_id: connector_id.clone(),
+            connector_config: aster_drive_model::types::StoredConnectorConfig::empty_for(
+                &connector_id,
+            ),
+            behavior_config: aster_drive_model::types::StoredStoragePolicyBehaviorConfig::empty(),
             max_file_size: 0,
             allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
             options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),

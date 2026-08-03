@@ -11,7 +11,10 @@ use crate::storage::connectors::{
     cleanup_snapshot_for_policy,
 };
 use aster_drive_model::entities::{background_task, storage_policy};
-use aster_drive_model::types::{StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
+use aster_drive_model::types::{
+    StoredConnectorConfig, StoredStoragePolicyAllowedTypes, StoredStoragePolicyBehaviorConfig,
+    StoredStoragePolicyOptions,
+};
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::StorageErrorKind;
 use aster_forge_tasks::{set_task_step_active, set_task_step_succeeded};
@@ -263,6 +266,9 @@ fn policy_snapshot(policy: &storage_policy::Model) -> StoragePolicyCleanupPolicy
         base_path: policy.base_path.clone(),
         remote_node_id: policy.remote_node_id,
         remote_storage_target_key: policy.remote_storage_target_key.clone(),
+        connector_id: policy.connector_id.clone(),
+        connector_config: policy.connector_config.as_ref().to_string(),
+        behavior_config: policy.behavior_config.as_ref().to_string(),
         max_file_size: policy.max_file_size,
         allowed_types: policy.allowed_types.as_ref().to_string(),
         options: policy.options.as_ref().to_string(),
@@ -285,6 +291,9 @@ fn policy_model_from_snapshot(
         base_path: policy.base_path.clone(),
         remote_node_id: policy.remote_node_id,
         remote_storage_target_key: policy.remote_storage_target_key.clone(),
+        connector_id: policy.connector_id.clone(),
+        connector_config: StoredConnectorConfig(policy.connector_config.clone()),
+        behavior_config: StoredStoragePolicyBehaviorConfig(policy.behavior_config.clone()),
         max_file_size: policy.max_file_size,
         allowed_types: StoredStoragePolicyAllowedTypes(policy.allowed_types.clone()),
         options: StoredStoragePolicyOptions(policy.options.clone()),

@@ -5,13 +5,18 @@ use crate::config::site_url;
 use crate::errors::{Result, validation_error_with_code};
 use crate::storage::drivers::tencent_cos::TencentCosDriver;
 use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::{ObjectStorageDownloadStrategy, parse_storage_policy_options};
+use aster_drive_model::types::{
+    ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy, parse_storage_policy_options,
+};
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
-    ObjectStorageConnectorDescriptorInput, ObjectStorageFieldDescriptorInput,
-    StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorUiDescriptorInput,
-    StoragePolicyExecutableAction, object_storage_connector_descriptor, policy_action_descriptor,
+    ObjectStorageConnectorDescriptorInput, StorageConnectorDeploymentScope,
+    StorageConnectorDescriptor, StorageConnectorFieldDisplayInput, StorageConnectorFieldKind,
+    StorageConnectorFieldScope, StorageConnectorUiDescriptorInput, StoragePolicyExecutableAction,
+    object_storage_connector_descriptor, policy_action_descriptor, storage_connector_field,
+    storage_connector_field_with_display, storage_connector_field_with_options,
 };
+use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
 
 use super::common::{
     build_connection_test_policy, ensure_policy_action_supported, normalize_s3_connection_fields,
@@ -23,6 +28,73 @@ use super::{
 };
 
 pub struct TencentCosConnector;
+
+aster_drive_storage::storage_connector_schema! {
+    pub struct TencentCosConnectorConfigV1 {
+        config {
+        pub endpoint: String => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+            name: "endpoint", scope: StorageConnectorFieldScope::ConnectorConfig,
+            kind: StorageConnectorFieldKind::Text, required: true, secret: false,
+            label_key: "endpoint", placeholder: Some("https://<bucket-appid>.cos.<region>.myqcloud.com"),
+            help_key: Some("cos_endpoint_hint"), required_message_key: None,
+            invalid_protocol_message_key: Some("s3_endpoint_protocol_required_error"),
+            allowed_endpoint_protocols: vec!["http:", "https:"],
+            allow_endpoint_without_protocol: false, trim_on_blur: false,
+        }),
+        pub bucket: String => {
+            let mut field = storage_connector_field(
+                "bucket", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Text, true, false,
+            );
+            field.required_message_key = Some("policy_wizard_bucket_required".to_string());
+            field
+        },
+        pub base_path: String => storage_connector_field(
+            "base_path", StorageConnectorFieldScope::ConnectorConfig,
+            StorageConnectorFieldKind::Text, false, false,
+        ),
+        pub object_storage_upload_strategy: ObjectStorageUploadStrategy => cos_transfer_field(
+            "object_storage_upload_strategy",
+        ),
+        pub object_storage_download_strategy: ObjectStorageDownloadStrategy => cos_transfer_field(
+            "object_storage_download_strategy",
+        ),
+        pub storage_native_processing_enabled: bool => storage_connector_field(
+            "storage_native_processing_enabled", StorageConnectorFieldScope::ConnectorConfig,
+            StorageConnectorFieldKind::Boolean, false, false,
+        ),
+        pub storage_native_media_metadata_enabled: bool => storage_connector_field(
+            "storage_native_media_metadata_enabled", StorageConnectorFieldScope::ConnectorConfig,
+            StorageConnectorFieldKind::Boolean, false, false,
+        ),
+        }
+        credentials static {
+            access_key => storage_connector_field(
+                "access_key", StorageConnectorFieldScope::StaticCredential,
+                StorageConnectorFieldKind::Text, true, false,
+            ),
+            secret_key => storage_connector_field(
+                "secret_key", StorageConnectorFieldScope::StaticCredential,
+                StorageConnectorFieldKind::Secret, true, true,
+            ),
+        }
+    }
+}
+
+fn cos_transfer_field(name: &str) -> aster_drive_storage::StorageConnectorFieldDescriptor {
+    let mut field = storage_connector_field_with_options(
+        name,
+        StorageConnectorFieldScope::ConnectorConfig,
+        StorageConnectorFieldKind::Select,
+        true,
+        false,
+        vec!["relay_stream", "presigned"],
+    );
+    field.default_value = Some(StorageConnectorFieldDefaultValue::String(
+        "relay_stream".to_string(),
+    ));
+    field
+}
 
 impl TencentCosConnector {
     pub const ID: &'static str = "asterdrive.storage.tencent_cos";
@@ -49,18 +121,8 @@ impl TencentCosConnector {
                 },
                 deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
                 supports_initial_setup: true,
-                fields: ObjectStorageFieldDescriptorInput {
-                    endpoint_placeholder: "https://<bucket-appid>.cos.<region>.myqcloud.com",
-                    endpoint_help_key: "cos_endpoint_hint",
-                    endpoint_protocol_error_key: "s3_endpoint_protocol_required_error",
-                    bucket_required_message_key: "policy_wizard_bucket_required",
-                    access_key_label_key: "access_key",
-                    secret_key_label_key: "secret_key",
-                    access_key_trim_on_blur: false,
-                },
-                include_s3_path_style: false,
-                include_s3_region: false,
-                include_s3_timeouts: false,
+                credential_mode: TencentCosConnectorConfigV1::credential_mode(),
+                fields: TencentCosConnectorConfigV1::descriptor_fields(),
                 presigned_part_etag_required: true,
                 storage_native_processing: true,
                 config_schema_version: 1,
@@ -122,6 +184,33 @@ fn resolve_cos_cors_allowed_origins(
 impl StorageConnector for TencentCosConnector {
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
+    }
+
+    fn encode_config(
+        &self,
+        input: &StorageConnectorConnectionInput,
+    ) -> Result<aster_drive_model::types::StoredConnectorConfig> {
+        super::common::encode_typed_connector_config(
+            Self::ID,
+            1,
+            TencentCosConnectorConfigV1 {
+                endpoint: input.endpoint.clone(),
+                bucket: input.bucket.clone(),
+                base_path: input.base_path.clone(),
+                object_storage_upload_strategy: input
+                    .options
+                    .effective_object_storage_upload_strategy(),
+                object_storage_download_strategy: input
+                    .options
+                    .effective_object_storage_download_strategy(),
+                storage_native_processing_enabled: input
+                    .options
+                    .storage_native_processing_enabled(),
+                storage_native_media_metadata_enabled: input
+                    .options
+                    .storage_native_media_metadata_enabled(),
+            },
+        )
     }
 
     fn normalize_connection_fields(

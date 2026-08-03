@@ -6,7 +6,10 @@ use std::fmt;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::types::{DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
+use crate::types::{
+    DriverType, StoredConnectorConfig, StoredStoragePolicyAllowedTypes,
+    StoredStoragePolicyBehaviorConfig, StoredStoragePolicyOptions,
+};
 
 #[derive(Clone, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -26,6 +29,11 @@ pub struct Model {
     pub base_path: String,
     pub remote_node_id: Option<i64>,
     pub remote_storage_target_key: Option<String>,
+    pub connector_id: String,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
+    pub connector_config: StoredConnectorConfig,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
+    pub behavior_config: StoredStoragePolicyBehaviorConfig,
     pub max_file_size: i64, // 0 = unlimited
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub allowed_types: StoredStoragePolicyAllowedTypes, // JSON array
@@ -52,6 +60,9 @@ impl fmt::Debug for Model {
             .field("base_path", &self.base_path)
             .field("remote_node_id", &self.remote_node_id)
             .field("remote_storage_target_key", &self.remote_storage_target_key)
+            .field("connector_id", &self.connector_id)
+            .field("connector_config", &self.connector_config)
+            .field("behavior_config", &self.behavior_config)
             .field("max_file_size", &self.max_file_size)
             .field("allowed_types", &self.allowed_types)
             .field("options", &self.options)
@@ -139,6 +150,14 @@ mod tests {
             base_path: "base".to_string(),
             remote_node_id: None,
             remote_storage_target_key: None,
+            connector_id: "asterdrive.storage.s3".to_string(),
+            connector_config: StoredConnectorConfig::from(
+                r#"{"format_version":1,"connector_id":"asterdrive.storage.s3","schema_version":1,"values":{}}"#
+                    .to_string(),
+            ),
+            behavior_config: StoredStoragePolicyBehaviorConfig::from(
+                r#"{"format_version":1,"schema_version":1,"values":{}}"#.to_string(),
+            ),
             max_file_size: 0,
             allowed_types: StoredStoragePolicyAllowedTypes::from("[]".to_string()),
             options: StoredStoragePolicyOptions::from("{}".to_string()),
