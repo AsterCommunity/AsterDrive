@@ -148,6 +148,14 @@ Mermaid 图默认支持点击放大。普通文档视图里要保持紧凑，节
 - `records/` 目录是草稿和历史快照，文件必须显式标注状态（草稿 / 历史快照），不作为当前实现依据。
 - 改完用 `bun run developer-docs:build` 验证，而不是 `docs:build`。
 
+工程工作流文档还要保持单一职责：
+
+- `architecture/project-contract.md` 只写长期产品边界、工程不变量和完成标准，不枚举容易漂移的当前模块清单。
+- `contributing/engineering-workflow.md` 只写从接收任务到交付、自迭代的执行流程，不复制各子系统设计。
+- `contributing/task-routing.md` 只写任务到文档、代码入口和最低验证的映射，不把实现细节展开成第二份架构文档。
+- 具体模块当前长什么样写进 `architecture/`，子系统契约写进 `design/`，测试环境和命令写进 `testing/`。
+- 同一规则已经有权威页面时，其他入口只保留一句摘要和链接，避免以后同步三份相似文字。
+
 ## 版本化怎么运转
 
 线上用户文档按分支版本化，不是按构建快照：

@@ -57,6 +57,7 @@ const sidebar = assertUniqueSidebarLinks([
 		collapsed: false,
 		items: [
 			{ label: '架构概览', translations: { en: 'Architecture Overview' }, link: '/architecture/' },
+			{ label: '项目契约', translations: { en: 'Project Contract' }, link: '/architecture/project-contract/' },
 			{ label: '关键模块设计', translations: { en: 'Core Module Design' }, link: '/architecture/module-designs/' },
 			{
 				label: '后端服务所有权',
@@ -197,6 +198,16 @@ const sidebar = assertUniqueSidebarLinks([
 		translations: { en: 'Contributing' },
 		collapsed: false,
 		items: [
+			{
+				label: '工程工作流',
+				translations: { en: 'Engineering Workflow' },
+				link: '/contributing/engineering-workflow/'
+			},
+			{
+				label: '开发任务路由',
+				translations: { en: 'Development Task Routing' },
+				link: '/contributing/task-routing/'
+			},
 			{
 				label: '文档贡献指南',
 				translations: { en: 'Documentation Guide' },
