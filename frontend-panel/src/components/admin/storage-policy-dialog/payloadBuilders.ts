@@ -1,7 +1,9 @@
 import type {
 	CreatePolicyRequest,
 	ExecuteDraftStoragePolicyActionRequest,
+	StorageConnectorActionId,
 	StorageConnectorDescriptor,
+	StorageConnectorFieldValue,
 	TestPolicyParamsRequest,
 	UpdatePolicyRequest,
 } from "@/types/api";
@@ -34,13 +36,16 @@ export function buildPolicyTestPayload(
 	};
 }
 
-export function buildTencentCosCorsPayload(
+export function buildStorageConnectorActionPayload(
 	form: PolicyFormData,
 	policyId: number | null | undefined,
 	descriptor: StorageConnectorDescriptor,
+	actionId: StorageConnectorActionId,
+	values: Record<string, StorageConnectorFieldValue>,
 ): ExecuteDraftStoragePolicyActionRequest {
 	return {
-		action: "configure_tencent_cos_cors",
+		action_id: actionId,
+		values,
 		policy_id: policyId ?? undefined,
 		connection: buildStorageConnectorConnection(form, descriptor, true),
 	};
@@ -155,12 +160,18 @@ function credentialValues(
 	form: PolicyFormData,
 	descriptor: StorageConnectorDescriptor,
 ) {
+	const expectedScope =
+		descriptor.credential_mode === "static_secret"
+			? "static_credential"
+			: descriptor.credential_mode === "oauth_delegated"
+				? "authorization_application"
+				: null;
+	if (expectedScope == null) {
+		return {};
+	}
 	const values: Record<string, string> = {};
 	for (const field of descriptor.fields) {
-		if (
-			field.scope !== "static_credential" &&
-			field.scope !== "authorization_application"
-		) {
+		if (field.scope !== expectedScope) {
 			continue;
 		}
 		const value = form.credential_values[field.name] ?? "";

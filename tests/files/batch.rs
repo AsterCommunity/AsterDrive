@@ -3,7 +3,6 @@
 use crate::common;
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::db::repository::folder_repo;
-use aster_drive::runtime::SharedRuntimeState;
 use aster_drive_model::entities::{file, folder};
 
 use actix_web::test;

@@ -11,19 +11,21 @@ use aster_drive_model::entities::{storage_policy, storage_policy_connector_crede
 use aster_drive_storage::ConnectorConfigEnvelope;
 use aster_drive_storage::StoragePolicyBehaviorConfig;
 use aster_drive_storage::connector_descriptor::{
-    StorageConnectorAffordanceAction, StorageConnectorDescriptor, StorageConnectorObjectNamingMode,
-    StoragePolicyExecutableAction,
+    StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionId,
+    StorageConnectorActionKind, StorageConnectorDescriptor, StorageConnectorObjectNamingMode,
 };
 use aster_drive_storage::{ConnectorId, MultipartStorageDriver, StorageDriver, StorageErrorKind};
 
 use super::common;
 use super::models::{
-    ExecuteDraftStorageConnectorActionInput, LegacyStorageConnectorCredentialInput,
-    LocalFilesystemPolicyProjection, RemotePolicyBindingProjection, StorageConnectorActionResult,
-    StorageConnectorCredentialInfo, StorageConnectorCredentialInput,
-    StorageConnectorRuntimeCredential, StorageCredentialValidationOutcome,
-    StoragePolicyCleanupDriverSnapshot, StoragePolicyCleanupSnapshots,
-    TestDraftStorageConnectorConnectionInput,
+    ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
+    LegacyStorageConnectorCredentialInput, LocalFilesystemPolicyProjection,
+    RemotePolicyBindingProjection, StorageConnectorActionResult,
+    StorageConnectorAuthorizationCallback, StorageConnectorAuthorizationError,
+    StorageConnectorAuthorizationStart, StorageConnectorCredentialInfo,
+    StorageConnectorCredentialInput, StorageConnectorRuntimeCredential,
+    StorageCredentialValidationOutcome, StoragePolicyCleanupDriverSnapshot,
+    StoragePolicyCleanupSnapshots, TestDraftStorageConnectorConnectionInput,
 };
 use super::upload::StorageConnectorUploadTransport;
 
@@ -298,7 +300,10 @@ pub(crate) trait StorageConnector: Send + Sync {
             &descriptor.connector_id,
             descriptor.config_schema_version,
         )?;
-        Ok(Some(StorageConnectorRuntimeCredential::Static(values)))
+        Ok(Some(StorageConnectorRuntimeCredential::new(
+            descriptor.connector_id,
+            values,
+        )))
     }
 
     fn build_authorized_driver(
@@ -329,6 +334,46 @@ pub(crate) trait StorageConnector: Send + Sync {
         )))
     }
 
+    /// Start a connector-owned authorization flow.
+    ///
+    /// The core service supplies only the saved policy and callback URI. The
+    /// connector generates protocol state, builds its opaque flow context, and
+    /// returns a typed result that core persists without decoding.
+    async fn start_authorization(
+        &self,
+        _context: &StorageConnectorContext<'_>,
+        _policy: &storage_policy::Model,
+        _redirect_uri: &str,
+    ) -> Result<StorageConnectorAuthorizationStart> {
+        Err(AsterError::unsupported_driver(format!(
+            "storage connector '{}' does not implement authorization",
+            self.descriptor().connector_id.as_str()
+        )))
+    }
+
+    /// Finish a connector-owned authorization flow after core has consumed the
+    /// one-time state row. `code` and the opaque flow context are passed to the
+    /// connector; core only persists the returned connector payload.
+    async fn finish_authorization(
+        &self,
+        _context: &StorageConnectorContext<'_>,
+        _policy: &storage_policy::Model,
+        _flow: &aster_drive_model::entities::storage_policy_authorization_flow::Model,
+        _code: &str,
+        _now: chrono::DateTime<chrono::Utc>,
+    ) -> std::result::Result<
+        StorageConnectorAuthorizationCallback,
+        StorageConnectorAuthorizationError,
+    > {
+        Err(StorageConnectorAuthorizationError::new(
+            super::StorageAuthorizationFailureReason::UnsupportedProvider,
+            AsterError::unsupported_driver(format!(
+                "storage connector '{}' does not implement authorization",
+                self.descriptor().connector_id.as_str()
+            )),
+        ))
+    }
+
     fn presigned_download_enabled(&self, _policy: &storage_policy::Model) -> Result<bool> {
         Ok(false)
     }
@@ -347,7 +392,10 @@ pub(crate) trait StorageConnector: Send + Sync {
     ) -> Result<()> {
         let descriptor = self.descriptor();
         if !descriptor.actions.iter().any(|action| {
-            action.affordance_action == Some(StorageConnectorAffordanceAction::TestDraftConnection)
+            action.kind == StorageConnectorActionKind::ConnectionTest
+                && action
+                    .endpoints
+                    .contains(&StorageConnectorActionEndpoint::TestPolicyParams)
         }) {
             return Err(common::unsupported_draft_connection_test_error(descriptor));
         }
@@ -370,7 +418,10 @@ pub(crate) trait StorageConnector: Send + Sync {
     ) -> Result<()> {
         let descriptor = self.descriptor();
         if !descriptor.actions.iter().any(|action| {
-            action.affordance_action == Some(StorageConnectorAffordanceAction::TestSavedConnection)
+            action.kind == StorageConnectorActionKind::ConnectionTest
+                && action
+                    .endpoints
+                    .contains(&StorageConnectorActionEndpoint::TestPolicyConnection)
         }) {
             return Err(common::unsupported_saved_connection_test_error(descriptor));
         }
@@ -382,11 +433,11 @@ pub(crate) trait StorageConnector: Send + Sync {
         &self,
         _context: &StorageConnectorContext<'_>,
         _policy: &storage_policy::Model,
-        action: StoragePolicyExecutableAction,
+        input: ExecuteSavedStorageConnectorActionInput,
     ) -> Result<StorageConnectorActionResult> {
-        Err(common::unsupported_policy_action_error(
-            self.descriptor(),
-            action,
+        Err(common::unsupported_connector_action_error(
+            &self.descriptor(),
+            &input.action_id,
         ))
     }
 
@@ -395,9 +446,9 @@ pub(crate) trait StorageConnector: Send + Sync {
         _context: &StorageConnectorContext<'_>,
         input: ExecuteDraftStorageConnectorActionInput,
     ) -> Result<StorageConnectorActionResult> {
-        Err(common::unsupported_policy_action_error(
-            self.descriptor(),
-            input.action,
+        Err(common::unsupported_connector_action_error(
+            &self.descriptor(),
+            &input.action_id,
         ))
     }
 
@@ -429,6 +480,7 @@ pub(crate) trait StorageConnector: Send + Sync {
 ///
 /// Registration order is preserved for stable descriptor presentation, while
 /// runtime dispatch uses plugin-safe [`ConnectorId`] lookup.
+#[derive(Clone)]
 pub struct StorageConnectorRegistry {
     ordered: Vec<Arc<dyn StorageConnector>>,
     by_connector_id: HashMap<ConnectorId, Arc<dyn StorageConnector>>,
@@ -439,9 +491,9 @@ impl StorageConnectorRegistry {
         let mut by_connector_id = HashMap::with_capacity(connectors.len());
         for connector in &connectors {
             let descriptor = connector.descriptor();
-            descriptor.connector_id.validate().map_err(|error| {
+            descriptor.validate().map_err(|error| {
                 AsterError::internal_error(format!(
-                    "storage connector declares invalid id '{}': {error}",
+                    "storage connector '{}' declares an invalid descriptor: {error}",
                     descriptor.connector_id
                 ))
             })?;
@@ -503,6 +555,27 @@ impl StorageConnectorRegistry {
             .iter()
             .map(|connector| connector.descriptor())
             .collect()
+    }
+
+    /// Resolve connector-owned metadata for a provider policy action.
+    ///
+    /// An unknown connector is a registry/configuration failure. An unknown
+    /// action is returned as None for generic metadata consumers such as audit;
+    /// execution dispatch performs its own strict endpoint/schema resolution.
+    pub(crate) fn action_descriptor(
+        &self,
+        connector_id: &ConnectorId,
+        action_id: &StorageConnectorActionId,
+    ) -> Result<Option<StorageConnectorActionDescriptor>> {
+        Ok(self
+            .require_connector(connector_id)?
+            .descriptor()
+            .actions
+            .into_iter()
+            .find(|candidate| {
+                candidate.kind == StorageConnectorActionKind::Custom
+                    && &candidate.action_id == action_id
+            }))
     }
 
     pub(crate) fn object_naming(

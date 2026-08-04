@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::api::api_error_code::ApiErrorCode;
@@ -15,66 +16,81 @@ use aster_drive_model::types::{
     RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteUploadStrategy,
 };
 use aster_drive_storage::connector_descriptor::{
-    ObjectMultipartUploadCapabilitiesInput, StorageConnectorCapabilities,
+    ObjectMultipartUploadCapabilitiesInput, StorageConnectorBadgeRgb, StorageConnectorCapabilities,
     StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorFieldKind,
     StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
     StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
     draft_connection_test_action_descriptor, object_multipart_upload_capabilities,
     saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
-    storage_connector_field, storage_connector_field_with_options, storage_connector_ui_descriptor,
+    storage_connector_dynamic_select_field, storage_connector_field,
+    storage_connector_ui_descriptor,
 };
-use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
+use aster_drive_storage::{
+    StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue,
+    StorageConnectorSelectDataSource, StorageConnectorSelectValueKind,
+};
 use aster_drive_storage::{StorageDriver, StorageErrorKind, storage_driver_error};
 
+use super::common::{StorageTransferDirection, transfer_strategy_field};
 use super::{
     RemotePolicyBindingProjection, StorageConnector, StorageConnectorCredentialInput,
     StorageConnectorUploadTransport, StoragePolicyCleanupDriverSnapshot,
-    StoragePolicyCleanupRemoteNodeSnapshot, StoragePolicyCleanupSnapshots,
+    StoragePolicyCleanupSnapshots,
 };
 
 pub struct RemoteConnector;
 
+const CLEANUP_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RemoteCleanupSnapshotV1 {
+    id: i64,
+    name: String,
+    base_url: String,
+    #[serde(default)]
+    transport_mode: RemoteNodeTransportMode,
+    access_key_ciphertext: String,
+    secret_key_ciphertext: String,
+    #[serde(default)]
+    last_capabilities: String,
+}
+
 aster_drive_storage::storage_connector_schema! {
     pub struct RemoteConnectorConfigV1 {
         config {
-        pub base_path: String => storage_connector_field(
-            "base_path", StorageConnectorFieldScope::ConnectorConfig,
-            StorageConnectorFieldKind::Text, false, false,
+        pub base_path: String => {
+            let mut field = storage_connector_field(
+                "base_path", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Text, false, false,
+            );
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String(String::new()));
+            field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
+            field
+        },
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub remote_node_id: Option<i64> => storage_connector_dynamic_select_field(
+            "remote_node_id", StorageConnectorFieldScope::ConnectorConfig, true,
+            StorageConnectorSelectValueKind::Integer,
+            StorageConnectorSelectDataSource::RemoteNodes,
+            None,
         ),
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub remote_node_id: Option<i64> => storage_connector_field(
-            "remote_node_id", StorageConnectorFieldScope::ConnectorConfig,
-            StorageConnectorFieldKind::Select, true, false,
+        pub remote_storage_target_key: Option<String> => storage_connector_dynamic_select_field(
+            "remote_storage_target_key", StorageConnectorFieldScope::ConnectorConfig, true,
+            StorageConnectorSelectValueKind::String,
+            StorageConnectorSelectDataSource::RemoteStorageTargets,
+            Some("remote_node_id"),
         ),
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub remote_storage_target_key: Option<String> => storage_connector_field(
-            "remote_storage_target_key", StorageConnectorFieldScope::ConnectorConfig,
-            StorageConnectorFieldKind::Select, true, false,
+        pub remote_download_strategy: RemoteDownloadStrategy => transfer_strategy_field(
+            "remote_download_strategy", StorageTransferDirection::Download,
         ),
-        pub remote_download_strategy: RemoteDownloadStrategy => remote_transfer_field(
-            "remote_download_strategy",
-        ),
-        pub remote_upload_strategy: RemoteUploadStrategy => remote_transfer_field(
-            "remote_upload_strategy",
+        pub remote_upload_strategy: RemoteUploadStrategy => transfer_strategy_field(
+            "remote_upload_strategy", StorageTransferDirection::Upload,
         ),
         }
         credentials none
     }
-}
-
-fn remote_transfer_field(name: &str) -> aster_drive_storage::StorageConnectorFieldDescriptor {
-    let mut field = storage_connector_field_with_options(
-        name,
-        StorageConnectorFieldScope::ConnectorConfig,
-        StorageConnectorFieldKind::Select,
-        true,
-        false,
-        vec!["relay_stream", "presigned"],
-    );
-    field.default_value = Some(StorageConnectorFieldDefaultValue::String(
-        "relay_stream".to_string(),
-    ));
-    field
 }
 
 impl RemoteConnector {
@@ -108,6 +124,7 @@ impl RemoteConnector {
                 description_key: "policy_wizard_remote_storage_desc",
                 icon_src: Some("/static/storage/asterdrive-node.svg"),
                 icon_name: None,
+                badge_rgb: StorageConnectorBadgeRgb::new(245, 158, 11),
                 helper_key: "policy_wizard_remote_helper",
                 config_step_title_key: "policy_wizard_step_remote_title",
                 config_step_description_key: "policy_wizard_step_remote_desc",
@@ -152,7 +169,6 @@ impl RemoteConnector {
                 draft_connection_test_action_descriptor(),
                 saved_connection_test_action_descriptor(false),
             ],
-            driver_recommendations: Vec::new(),
             related_issues: vec![328, 329],
         }
     }
@@ -313,8 +329,10 @@ impl StorageConnector for RemoteConnector {
         })?;
         let remote = managed_follower_repo::find_by_id(context.writer_db(), remote_node_id).await?;
         let encryption_key = &context.config().auth.storage_credential_secret_key;
-        Ok(Some(StoragePolicyCleanupDriverSnapshot::RemoteNode(
-            StoragePolicyCleanupRemoteNodeSnapshot {
+        StoragePolicyCleanupDriverSnapshot::encode(
+            aster_drive_storage::ConnectorId::declared(Self::ID),
+            CLEANUP_SNAPSHOT_SCHEMA_VERSION,
+            &RemoteCleanupSnapshotV1 {
                 id: remote.id,
                 name: remote.name,
                 base_url: remote.base_url,
@@ -335,7 +353,8 @@ impl StorageConnector for RemoteConnector {
                 )?,
                 last_capabilities: remote.last_capabilities,
             },
-        )))
+        )
+        .map(Some)
     }
 
     fn cleanup_snapshot_required(&self) -> bool {
@@ -372,7 +391,7 @@ impl StorageConnector for RemoteConnector {
             transport_mode: remote.transport_mode,
             last_capabilities: remote_capabilities_from_snapshot_or_current(
                 context.writer_db(),
-                remote,
+                &remote,
             )
             .await?,
             last_error: String::new(),
@@ -392,16 +411,13 @@ impl StorageConnector for RemoteConnector {
 
 fn remote_snapshot_from_cleanup_input(
     snapshots: StoragePolicyCleanupSnapshots<'_>,
-) -> Result<&StoragePolicyCleanupRemoteNodeSnapshot> {
-    match snapshots.driver_snapshot {
-        Some(StoragePolicyCleanupDriverSnapshot::RemoteNode(snapshot)) => Ok(snapshot),
-        Some(_) => Err(AsterError::validation_error(
-            "remote storage policy cleanup received incompatible driver snapshot",
-        )),
-        None => Err(AsterError::validation_error(
-            "remote storage policy cleanup missing remote snapshot",
-        )),
-    }
+) -> Result<RemoteCleanupSnapshotV1> {
+    snapshots
+        .driver_snapshot
+        .ok_or_else(|| {
+            AsterError::validation_error("remote storage policy cleanup missing remote snapshot")
+        })?
+        .decode(RemoteConnector::ID, CLEANUP_SNAPSHOT_SCHEMA_VERSION)
 }
 
 fn remote_snapshot_secret_aad(policy_id: i64, remote_node_id: i64, field: &str) -> String {
@@ -441,7 +457,7 @@ fn decrypt_remote_snapshot_secret(
 
 async fn remote_capabilities_from_snapshot_or_current(
     db: &sea_orm::DatabaseConnection,
-    remote: &StoragePolicyCleanupRemoteNodeSnapshot,
+    remote: &RemoteCleanupSnapshotV1,
 ) -> Result<String> {
     if !remote.last_capabilities.trim().is_empty() {
         return Ok(remote.last_capabilities.clone());

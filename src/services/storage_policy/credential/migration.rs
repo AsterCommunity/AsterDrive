@@ -8,13 +8,17 @@
 //! This module and both deprecated source tables are scheduled for complete
 //! removal in AsterDrive 0.6.0.
 
-#![allow(deprecated)]
+#![expect(
+    deprecated,
+    reason = "AsterDrive 0.5.0 startup migration reads deprecated credential stores until 0.6.0"
+)]
 
 use std::collections::BTreeMap;
 
+use aster_drive_migration::SchemaManager;
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
-    TransactionTrait,
+    ColumnTrait, ConnectionTrait, DatabaseTransaction, DbBackend, EntityTrait, QueryFilter,
+    QueryOrder, QuerySelect,
     sea_query::{Alias, Expr, Query},
 };
 
@@ -50,28 +54,27 @@ struct LegacyStaticCredentialRow {
 /// aborts the transaction and therefore aborts startup without partial writes.
 /// This entrypoint is scheduled for removal in AsterDrive 0.6.0.
 pub(crate) async fn migrate_legacy_storage_credentials(
-    db: &sea_orm::DatabaseConnection,
+    transaction: &DatabaseTransaction,
     config: &Config,
     connectors: &StorageConnectorRegistry,
 ) -> Result<LegacyStorageCredentialMigrationReport> {
-    let transaction = db.begin().await.map_err(AsterError::from)?;
     let mut policy_query = storage_policy::Entity::find().order_by_asc(storage_policy::Column::Id);
     if transaction.get_database_backend() != DbBackend::Sqlite {
         policy_query = policy_query.lock_exclusive();
     }
     let policies = policy_query
-        .all(&transaction)
+        .all(transaction)
         .await
         .map_err(AsterError::from)?;
-    let static_rows = load_legacy_static_credentials(&transaction).await?;
+    let static_rows = load_legacy_static_credentials(transaction).await?;
     let applications = storage_connector_application_config::Entity::find()
         .order_by_asc(storage_connector_application_config::Column::Id)
-        .all(&transaction)
+        .all(transaction)
         .await
         .map_err(AsterError::from)?;
     let authorizations = storage_policy_credential::Entity::find()
         .order_by_asc(storage_policy_credential::Column::Id)
-        .all(&transaction)
+        .all(transaction)
         .await
         .map_err(AsterError::from)?;
 
@@ -81,7 +84,6 @@ pub(crate) async fn migrate_legacy_storage_credentials(
         || !applications.is_empty()
         || !authorizations.is_empty();
     if !has_legacy_data {
-        transaction.commit().await.map_err(AsterError::from)?;
         return Ok(LegacyStorageCredentialMigrationReport::default());
     }
 
@@ -135,7 +137,7 @@ pub(crate) async fn migrate_legacy_storage_credentials(
         };
         let existing = storage_policy_connector_credential::Entity::find()
             .filter(storage_policy_connector_credential::Column::PolicyId.eq(policy.id))
-            .one(&transaction)
+            .one(transaction)
             .await
             .map_err(AsterError::from)?;
         if let Some(existing) = existing {
@@ -156,7 +158,7 @@ pub(crate) async fn migrate_legacy_storage_credentials(
         }
 
         crate::storage::connectors::persist_connector_credential_payload(
-            &transaction,
+            transaction,
             &config.auth.storage_credential_secret_key,
             policy.id,
             &descriptor.connector_id,
@@ -172,14 +174,14 @@ pub(crate) async fn migrate_legacy_storage_credentials(
         &applications_by_policy,
         &authorizations_by_policy,
     )?;
-    clear_legacy_static_credentials(&transaction).await?;
+    clear_legacy_static_credentials(transaction).await?;
     let deleted_applications = storage_connector_application_config::Entity::delete_many()
-        .exec(&transaction)
+        .exec(transaction)
         .await
         .map_err(AsterError::from)?
         .rows_affected;
     let deleted_authorizations = storage_policy_credential::Entity::delete_many()
-        .exec(&transaction)
+        .exec(transaction)
         .await
         .map_err(AsterError::from)?
         .rows_affected;
@@ -192,7 +194,6 @@ pub(crate) async fn migrate_legacy_storage_credentials(
     )
     .map_err(|_| AsterError::database_operation("legacy credential delete count exceeds usize"))?;
 
-    transaction.commit().await.map_err(AsterError::from)?;
     tracing::info!(
         migrated = report.migrated,
         already_current = report.already_current,
@@ -266,6 +267,9 @@ fn ensure_no_orphaned_legacy_rows<A, C>(
 async fn load_legacy_static_credentials(
     db: &sea_orm::DatabaseTransaction,
 ) -> Result<Vec<LegacyStaticCredentialRow>> {
+    if !legacy_static_credential_columns_exist(db).await? {
+        return Ok(Vec::new());
+    }
     let statement = Query::select()
         .columns([
             Alias::new("id"),
@@ -290,6 +294,9 @@ async fn load_legacy_static_credentials(
 }
 
 async fn clear_legacy_static_credentials(db: &sea_orm::DatabaseTransaction) -> Result<()> {
+    if !legacy_static_credential_columns_exist(db).await? {
+        return Ok(());
+    }
     let statement = Query::update()
         .table(Alias::new("storage_policies"))
         .values([
@@ -303,17 +310,37 @@ async fn clear_legacy_static_credentials(db: &sea_orm::DatabaseTransaction) -> R
         .map_err(AsterError::from)
 }
 
+async fn legacy_static_credential_columns_exist(db: &sea_orm::DatabaseTransaction) -> Result<bool> {
+    let manager = SchemaManager::new(db);
+    let has_access_key = manager
+        .has_column("storage_policies", "access_key")
+        .await
+        .map_err(AsterError::from)?;
+    let has_secret_key = manager
+        .has_column("storage_policies", "secret_key")
+        .await
+        .map_err(AsterError::from)?;
+    match (has_access_key, has_secret_key) {
+        (true, true) => Ok(true),
+        (false, false) => Ok(false),
+        _ => Err(AsterError::database_operation(
+            "legacy storage policy static credential columns are partially present",
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::Utc;
-    use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
+    use sea_orm::{
+        ActiveModelTrait, DatabaseConnection, Set, TransactionTrait, sea_query::ExprTrait,
+    };
     use serde::Serialize;
 
     use aster_drive_model::types::{
-        MicrosoftGraphCloud, OneDriveAccountMode, ProviderDownloadFilenameMode,
-        ProviderDownloadStrategy, ProviderResumableUploadStrategy, StorageCredentialKind,
-        StorageCredentialProvider, StorageCredentialStatus,
+        MicrosoftGraphCloud, StorageCredentialKind, StorageCredentialProvider,
+        StorageCredentialStatus,
     };
     use aster_drive_storage::{
         ConnectorConfigEnvelope, ConnectorId, StoragePolicyBehaviorConfig,
@@ -321,7 +348,8 @@ mod tests {
     };
 
     use crate::storage::connectors::{
-        OneDriveConnectorConfigV1, OneDriveCredentialV1, builtin_storage_connector_registry,
+        OneDriveAccountMode, OneDriveCredentialV1, builtin_storage_connector_registry,
+        encrypt_application_client_secret,
     };
 
     const KEY: &str = "legacy-storage-credential-test-key-32bytes";
@@ -362,20 +390,21 @@ mod tests {
         config
     }
 
-    fn onedrive_config() -> OneDriveConnectorConfigV1 {
-        OneDriveConnectorConfigV1 {
-            base_path: String::new(),
-            provider_resumable_upload_strategy: ProviderResumableUploadStrategy::ServerRelay,
-            provider_download_strategy: ProviderDownloadStrategy::ServerRelay,
-            provider_download_filename_mode: ProviderDownloadFilenameMode::ProviderNative,
-            cloud: MicrosoftGraphCloud::Global,
-            account_mode: OneDriveAccountMode::Personal,
-            tenant: Some("common".to_string()),
-            drive_id: Some("drive-id".to_string()),
-            root_item_id: Some("root-item-id".to_string()),
-            site_id: None,
-            group_id: None,
-        }
+    fn onedrive_config() -> serde_json::Value {
+        let policy = crate::storage::connectors::test_support::onedrive_policy(
+            OneDriveAccountMode::Personal,
+            Some("drive-id".to_string()),
+            None,
+            None,
+            StoragePolicyBehaviorConfig::default(),
+        );
+        aster_drive_storage::decode_storage_policy_config::<serde_json::Value>(
+            policy.storage_config.as_ref(),
+            &ConnectorId::declared("asterdrive.storage.onedrive"),
+            1,
+        )
+        .expect("typed OneDrive test policy should decode")
+        .0
     }
 
     async fn insert_policy<T: Serialize>(
@@ -423,25 +452,25 @@ mod tests {
                 Alias::new("storage_config"),
             ])
             .values([
-                Expr::value(id).into(),
-                Expr::value(format!("policy-{id}")).into(),
-                Expr::value(driver_type).into(),
-                Expr::value("").into(),
-                Expr::value("").into(),
-                Expr::value("").into(),
-                Expr::value("").into(),
-                Expr::value("").into(),
-                Expr::value(Option::<i64>::None).into(),
-                Expr::value(Option::<String>::None).into(),
-                Expr::value(0_i64).into(),
-                Expr::value("[]").into(),
-                Expr::value("{}").into(),
-                Expr::value(false).into(),
-                Expr::value(0_i64).into(),
-                Expr::value(now).into(),
-                Expr::value(now).into(),
-                Expr::value(connector_id).into(),
-                Expr::value(storage_config).into(),
+                Expr::value(id),
+                Expr::value(format!("policy-{id}")),
+                Expr::value(driver_type),
+                Expr::value(""),
+                Expr::value(""),
+                Expr::value(""),
+                Expr::value(""),
+                Expr::value(""),
+                Expr::value(Option::<i64>::None),
+                Expr::value(Option::<String>::None),
+                Expr::value(0_i64),
+                Expr::value("[]"),
+                Expr::value("{}"),
+                Expr::value(false),
+                Expr::value(0_i64),
+                Expr::value(now),
+                Expr::value(now),
+                Expr::value(connector_id),
+                Expr::value(storage_config),
             ])
             .expect("test storage policy insert values should be valid")
             .to_owned();
@@ -479,12 +508,8 @@ mod tests {
         let now = Utc::now();
         let ciphertext = ciphertext.or_else(|| {
             Some(
-                crate::services::storage_policy::credential::encrypt_application_client_secret(
-                    encryption_key,
-                    policy_id,
-                    "client-secret",
-                )
-                .expect("legacy application secret should encrypt"),
+                encrypt_application_client_secret(encryption_key, policy_id, "client-secret")
+                    .expect("legacy application secret should encrypt"),
             )
         });
         storage_connector_application_config::ActiveModel {
@@ -605,17 +630,116 @@ mod tests {
         .expect("connector credential should decrypt")
     }
 
+    async fn run_migration(
+        db: &DatabaseConnection,
+        config: &Config,
+        connectors: &StorageConnectorRegistry,
+    ) -> Result<LegacyStorageCredentialMigrationReport> {
+        let transaction = db
+            .begin()
+            .await
+            .expect("credential migration transaction should begin");
+        match migrate_legacy_storage_credentials(&transaction, config, connectors).await {
+            Ok(report) => {
+                transaction
+                    .commit()
+                    .await
+                    .expect("successful credential migration should commit");
+                Ok(report)
+            }
+            Err(error) => {
+                transaction
+                    .rollback()
+                    .await
+                    .expect("failed credential migration should roll back");
+                Err(error)
+            }
+        }
+    }
+
+    async fn legacy_static_rows(db: &DatabaseConnection) -> Vec<LegacyStaticCredentialRow> {
+        let transaction = db
+            .begin()
+            .await
+            .expect("legacy static verification transaction should begin");
+        let rows = load_legacy_static_credentials(&transaction)
+            .await
+            .expect("legacy static rows should load");
+        transaction
+            .rollback()
+            .await
+            .expect("read-only legacy static verification should roll back");
+        rows
+    }
+
     async fn assert_legacy_static_cleared(db: &DatabaseConnection) {
-        let rows = load_legacy_static_credentials(
-            &db.begin()
-                .await
-                .expect("legacy static verification transaction should begin"),
-        )
-        .await
-        .expect("legacy static rows should load");
+        let rows = legacy_static_rows(db).await;
         assert!(
             rows.iter()
                 .all(|row| row.access_key.is_empty() && row.secret_key.is_empty())
+        );
+    }
+
+    #[tokio::test]
+    async fn finalized_schema_skips_removed_static_credential_columns_idempotently() {
+        let db = database().await;
+        aster_drive_migration::finalize_storage_policy_upgrade(&db)
+            .await
+            .expect("test storage policy schema should finalize");
+        let connectors = builtin_storage_connector_registry().unwrap();
+
+        let first = run_migration(&db, &config(KEY), &connectors)
+            .await
+            .expect("finalized schema should skip legacy static credential scan");
+        let second = run_migration(&db, &config(KEY), &connectors)
+            .await
+            .expect("repeated finalized-schema migration should remain idempotent");
+
+        assert_eq!(first, LegacyStorageCredentialMigrationReport::default());
+        assert_eq!(second, LegacyStorageCredentialMigrationReport::default());
+        let manager = SchemaManager::new(&db);
+        assert!(
+            !manager
+                .has_column("storage_policies", "access_key")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !manager
+                .has_column("storage_policies", "secret_key")
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn partially_removed_static_credential_columns_abort_migration() {
+        let db = database().await;
+        db.execute_unprepared("ALTER TABLE storage_policies DROP COLUMN access_key")
+            .await
+            .expect("test schema should drop only the legacy access key column");
+
+        let error = run_migration(
+            &db,
+            &config(KEY),
+            &builtin_storage_connector_registry().unwrap(),
+        )
+        .await
+        .expect_err("partially finalized static credential columns must abort");
+
+        assert!(error.to_string().contains("partially present"));
+        let manager = SchemaManager::new(&db);
+        assert!(
+            !manager
+                .has_column("storage_policies", "access_key")
+                .await
+                .unwrap()
+        );
+        assert!(
+            manager
+                .has_column("storage_policies", "secret_key")
+                .await
+                .unwrap()
         );
     }
 
@@ -654,9 +778,7 @@ mod tests {
             set_legacy_static_credential(&db, policy_id, " legacy-id ", " legacy-secret ").await;
         }
 
-        let report = migrate_legacy_storage_credentials(&db, &config(KEY), &connectors)
-            .await
-            .unwrap();
+        let report = run_migration(&db, &config(KEY), &connectors).await.unwrap();
         assert_eq!(report.migrated, cases.len());
         assert_eq!(report.already_current, 0);
         for (policy_id, connector_id, id_field, secret_field) in cases {
@@ -676,7 +798,7 @@ mod tests {
         insert_legacy_application(&db, 1, KEY, StorageCredentialProvider::MicrosoftGraph, None)
             .await;
 
-        let report = migrate_legacy_storage_credentials(
+        let report = run_migration(
             &db,
             &config(KEY),
             &builtin_storage_connector_registry().unwrap(),
@@ -717,7 +839,7 @@ mod tests {
         )
         .await;
 
-        let report = migrate_legacy_storage_credentials(
+        let report = run_migration(
             &db,
             &config(KEY),
             &builtin_storage_connector_registry().unwrap(),
@@ -757,7 +879,7 @@ mod tests {
         )
         .await;
 
-        let error = migrate_legacy_storage_credentials(
+        let error = run_migration(
             &db,
             &config(KEY),
             &builtin_storage_connector_registry().unwrap(),
@@ -806,7 +928,7 @@ mod tests {
                 insert_legacy_authorization(&db, 1, KEY, provider, credential_kind, None).await;
             }
 
-            let error = migrate_legacy_storage_credentials(
+            let error = run_migration(
                 &db,
                 &config(KEY),
                 &builtin_storage_connector_registry().unwrap(),
@@ -822,7 +944,7 @@ mod tests {
         let db = database().await;
         insert_policy(&db, 1, "asterdrive.storage.s3", EmptyTestConnectorConfig {}).await;
         set_legacy_static_credential(&db, 1, "only-id", "").await;
-        let error = migrate_legacy_storage_credentials(
+        let error = run_migration(
             &db,
             &config(KEY),
             &builtin_storage_connector_registry().unwrap(),
@@ -834,16 +956,10 @@ mod tests {
                 .to_string()
                 .contains("incomplete legacy static credentials")
         );
-        assert_eq!(
-            load_legacy_static_credentials(&db.begin().await.unwrap())
-                .await
-                .unwrap()[0]
-                .access_key,
-            "only-id"
-        );
+        assert_eq!(legacy_static_rows(&db).await[0].access_key, "only-id");
 
         set_legacy_static_credential(&db, 1, "", "").await;
-        let report = migrate_legacy_storage_credentials(
+        let report = run_migration(
             &db,
             &config(KEY),
             &builtin_storage_connector_registry().unwrap(),
@@ -876,7 +992,7 @@ mod tests {
             )
             .await;
 
-            let error = migrate_legacy_storage_credentials(
+            let error = run_migration(
                 &db,
                 &config(startup_key),
                 &builtin_storage_connector_registry().unwrap(),
@@ -903,32 +1019,22 @@ mod tests {
         insert_policy(&db, 1, "asterdrive.storage.s3", EmptyTestConnectorConfig {}).await;
         set_legacy_static_credential(&db, 1, "id-one", "secret-one").await;
         let connectors = builtin_storage_connector_registry().unwrap();
-        migrate_legacy_storage_credentials(&db, &config(KEY), &connectors)
-            .await
-            .unwrap();
+        run_migration(&db, &config(KEY), &connectors).await.unwrap();
 
         set_legacy_static_credential(&db, 1, "id-one", "secret-one").await;
-        let report = migrate_legacy_storage_credentials(&db, &config(KEY), &connectors)
-            .await
-            .unwrap();
+        let report = run_migration(&db, &config(KEY), &connectors).await.unwrap();
         assert_eq!(report.migrated, 0);
         assert_eq!(report.already_current, 1);
         assert_legacy_static_cleared(&db).await;
 
         set_legacy_static_credential(&db, 1, "id-two", "secret-two").await;
-        let error = migrate_legacy_storage_credentials(&db, &config(KEY), &connectors)
+        let error = run_migration(&db, &config(KEY), &connectors)
             .await
             .unwrap_err();
         assert!(error.to_string().contains("conflicting legacy"));
         let payload = stored_payload(&db, KEY, 1, "asterdrive.storage.s3").await;
         assert_eq!(payload["s3_access_key_id"], "id-one");
-        assert_eq!(
-            load_legacy_static_credentials(&db.begin().await.unwrap())
-                .await
-                .unwrap()[0]
-                .access_key,
-            "id-two"
-        );
+        assert_eq!(legacy_static_rows(&db).await[0].access_key, "id-two");
     }
 
     #[tokio::test]
@@ -945,7 +1051,7 @@ mod tests {
         set_legacy_static_credential(&db, 1, "good-id", "good-secret").await;
         set_legacy_static_credential(&db, 2, "broken-user", "").await;
 
-        let error = migrate_legacy_storage_credentials(
+        let error = run_migration(
             &db,
             &config(KEY),
             &builtin_storage_connector_registry().unwrap(),
@@ -963,9 +1069,7 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
-        let rows = load_legacy_static_credentials(&db.begin().await.unwrap())
-            .await
-            .unwrap();
+        let rows = legacy_static_rows(&db).await;
         assert_eq!(rows[0].access_key, "good-id");
         assert_eq!(rows[0].secret_key, "good-secret");
         assert_eq!(rows[1].access_key, "broken-user");

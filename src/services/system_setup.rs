@@ -127,13 +127,11 @@ mod tests {
     use super::*;
     use aster_drive_migration::Migrator;
     use chrono::Utc;
-    use sea_orm::{ActiveModelTrait, Set};
+    use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 
-    use aster_drive_model::entities::{
-        storage_policy, storage_policy_group, storage_policy_group_item, user,
-    };
+    use aster_drive_model::entities::{storage_policy_group, storage_policy_group_item, user};
     use aster_drive_model::types::{
-        DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserStatus,
+        ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy, UserStatus,
     };
 
     async fn setup_db() -> sea_orm::DatabaseConnection {
@@ -185,27 +183,24 @@ mod tests {
 
     async fn insert_default_policy(db: &sea_orm::DatabaseConnection) -> i64 {
         let now = Utc::now();
-        storage_policy::ActiveModel {
-            name: Set("Shared Default".to_string()),
-            driver_type: Set(DriverType::S3),
-            endpoint: Set("http://storage.test".to_string()),
-            bucket: Set("asterdrive".to_string()),
-            access_key: Set(String::new()),
-            secret_key: Set(String::new()),
-            base_path: Set(String::new()),
-            max_file_size: Set(0),
-            allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(StoredStoragePolicyOptions::empty()),
-            is_default: Set(true),
-            chunk_size: Set(5_242_880),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
-        }
-        .insert(db)
-        .await
-        .expect("setup state test policy should insert")
-        .id
+        let mut policy = crate::storage::connectors::test_support::s3_policy(
+            "http://storage.test",
+            "asterdrive",
+            "",
+            ObjectStorageUploadStrategy::RelayStream,
+            ObjectStorageDownloadStrategy::RelayStream,
+        );
+        policy.name = "Shared Default".to_string();
+        policy.is_default = true;
+        policy.chunk_size = 5_242_880;
+        policy.created_at = now;
+        policy.updated_at = now;
+        policy
+            .into_active_model()
+            .insert(db)
+            .await
+            .expect("setup state test policy should insert")
+            .id
     }
 
     async fn insert_default_group(

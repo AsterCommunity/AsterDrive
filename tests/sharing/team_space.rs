@@ -1,7 +1,6 @@
 //! Team workspace file-space tests
 
 use crate::common;
-use aster_drive::runtime::SharedRuntimeState;
 
 use actix_web::test;
 use serde_json::Value;
@@ -126,8 +125,8 @@ async fn set_default_policy_chunk_size(
     active.chunk_size = Set(chunk_size);
     active.update(state.writer_db()).await.unwrap();
     state
-        .policy_snapshot
-        .reload(state.writer_db())
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
         .await
         .unwrap();
 }

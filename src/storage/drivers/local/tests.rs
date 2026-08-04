@@ -8,37 +8,8 @@ use aster_drive_storage::traits::extensions::{
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncReadExt;
 
-fn build_policy(base: &Path) -> aster_drive_model::entities::storage_policy::Model {
-    let options = aster_drive_model::types::StoragePolicyOptions::default();
-    aster_drive_model::entities::storage_policy::Model {
-        id: 1,
-        name: "local".into(),
-        driver_type: aster_drive_model::types::DriverType::Local,
-        endpoint: String::new(),
-        bucket: String::new(),
-        access_key: String::new(),
-        secret_key: String::new(),
-        base_path: base.to_string_lossy().into(),
-        remote_node_id: None,
-        remote_storage_target_key: None,
-        connector_id: "asterdrive.storage.local".to_string(),
-        storage_config: crate::storage::connectors::test_support::policy_config(
-            aster_drive_model::types::DriverType::Local,
-            "",
-            "",
-            base.to_string_lossy(),
-            None,
-            None,
-            &options,
-        ),
-        max_file_size: 0,
-        allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
-        options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
-        is_default: false,
-        chunk_size: 0,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
-    }
+fn test_base_path(base: &Path) -> String {
+    base.to_string_lossy().into_owned()
 }
 
 fn unique_temp_dir(label: &str) -> PathBuf {
@@ -51,10 +22,10 @@ fn unique_temp_dir(label: &str) -> PathBuf {
 
 #[test]
 fn empty_policy_base_path_uses_uploads_directory() {
-    let policy = build_policy(Path::new(""));
+    let base_path = test_base_path(Path::new(""));
 
     assert_eq!(
-        effective_base_path(&policy.base_path),
+        effective_base_path(&base_path),
         PathBuf::from(DEFAULT_LOCAL_STORAGE_PATH)
     );
 }
@@ -106,8 +77,8 @@ async fn get_range_returns_partial_bytes() {
     let base = unique_temp_dir("range-test");
     tokio::fs::create_dir_all(&base).await.unwrap();
 
-    let policy = build_policy(&base);
-    let driver = super::LocalDriver::new(&policy.base_path).unwrap();
+    let base_path = test_base_path(&base);
+    let driver = super::LocalDriver::new(&base_path).unwrap();
     driver.put("sample.txt", b"Hello, world!").await.unwrap();
 
     // offset=7, length=5 -> "world"
@@ -136,8 +107,8 @@ async fn capacity_info_reports_filesystem_space_for_base_path() {
     let base = unique_temp_dir("capacity-test");
     tokio::fs::create_dir_all(&base).await.unwrap();
 
-    let policy = build_policy(&base);
-    let driver = super::LocalDriver::new(&policy.base_path).unwrap();
+    let base_path = test_base_path(&base);
+    let driver = super::LocalDriver::new(&base_path).unwrap();
 
     let capacity = driver
         .capacity_info()
@@ -164,8 +135,8 @@ async fn promote_local_file_if_absent_does_not_overwrite_existing_target() {
     let base = unique_temp_dir("local-promote-test");
     tokio::fs::create_dir_all(&base).await.unwrap();
 
-    let policy = build_policy(&base);
-    let driver = super::LocalDriver::new(&policy.base_path).unwrap();
+    let base_path = test_base_path(&base);
+    let driver = super::LocalDriver::new(&base_path).unwrap();
     let target = "ab/cd/existing";
     let target_full = driver.full_path(target).unwrap();
     tokio::fs::create_dir_all(target_full.parent().unwrap())
@@ -191,8 +162,8 @@ async fn promote_local_file_if_absent_reports_created_target() {
     let base = unique_temp_dir("local-promote-created-test");
     tokio::fs::create_dir_all(&base).await.unwrap();
 
-    let policy = build_policy(&base);
-    let driver = super::LocalDriver::new(&policy.base_path).unwrap();
+    let base_path = test_base_path(&base);
+    let driver = super::LocalDriver::new(&base_path).unwrap();
     let target = "ab/cd/new";
     let target_full = driver.full_path(target).unwrap();
 
@@ -214,8 +185,8 @@ async fn promote_local_file_if_absent_rejects_existing_size_mismatch() {
     let base = unique_temp_dir("local-promote-mismatch-test");
     tokio::fs::create_dir_all(&base).await.unwrap();
 
-    let policy = build_policy(&base);
-    let driver = super::LocalDriver::new(&policy.base_path).unwrap();
+    let base_path = test_base_path(&base);
+    let driver = super::LocalDriver::new(&base_path).unwrap();
     let target = "ab/cd/existing";
     let target_full = driver.full_path(target).unwrap();
     tokio::fs::create_dir_all(target_full.parent().unwrap())
@@ -241,8 +212,8 @@ async fn promote_local_file_if_absent_rolls_back_linked_size_mismatch() {
     let base = unique_temp_dir("local-promote-linked-mismatch-test");
     tokio::fs::create_dir_all(&base).await.unwrap();
 
-    let policy = build_policy(&base);
-    let driver = super::LocalDriver::new(&policy.base_path).unwrap();
+    let base_path = test_base_path(&base);
+    let driver = super::LocalDriver::new(&base_path).unwrap();
     let target = "ab/cd/new-target";
     let target_full = driver.full_path(target).unwrap();
 
@@ -269,8 +240,8 @@ async fn put_rejects_symlink_escape_inside_storage_root() {
     std::fs::create_dir_all(&outside).unwrap();
     std::os::unix::fs::symlink(&outside, base.join("escape")).unwrap();
 
-    let policy = build_policy(&base);
-    let driver = super::LocalDriver::new(&policy.base_path).unwrap();
+    let base_path = test_base_path(&base);
+    let driver = super::LocalDriver::new(&base_path).unwrap();
     let result = driver.put("escape/pwned.txt", b"nope").await;
 
     assert!(result.is_err());
@@ -289,8 +260,8 @@ fn staging_path_rejects_symlink_escape() {
     std::fs::create_dir_all(&outside).unwrap();
     std::os::unix::fs::symlink(&outside, base.join(".staging")).unwrap();
 
-    let policy = build_policy(&base);
-    let result = super::upload_staging_path(&policy.base_path, "token.upload");
+    let base_path = test_base_path(&base);
+    let result = super::upload_staging_path(&base_path, "token.upload");
 
     assert!(result.is_err());
 
@@ -302,8 +273,8 @@ async fn list_paths_returns_sorted_recursive_files_and_honors_prefix() {
     let base = unique_temp_dir("local-list-test");
     tokio::fs::create_dir_all(&base).await.unwrap();
 
-    let policy = build_policy(&base);
-    let driver = super::LocalDriver::new(&policy.base_path).unwrap();
+    let base_path = test_base_path(&base);
+    let driver = super::LocalDriver::new(&base_path).unwrap();
     driver.put("b/two.txt", b"2").await.unwrap();
     driver.put("a/one.txt", b"1").await.unwrap();
     driver.put("a/nested/three.txt", b"3").await.unwrap();
@@ -335,8 +306,8 @@ async fn scan_paths_visits_single_file_and_missing_prefix() {
     let base = unique_temp_dir("local-scan-file-test");
     tokio::fs::create_dir_all(&base).await.unwrap();
 
-    let policy = build_policy(&base);
-    let driver = super::LocalDriver::new(&policy.base_path).unwrap();
+    let base_path = test_base_path(&base);
+    let driver = super::LocalDriver::new(&base_path).unwrap();
     driver.put("folder/file.txt", b"content").await.unwrap();
 
     let mut visitor = CollectingVisitor { paths: Vec::new() };
@@ -360,8 +331,8 @@ async fn scan_paths_walks_directories_in_stable_order() {
     let base = unique_temp_dir("local-scan-dir-test");
     tokio::fs::create_dir_all(&base).await.unwrap();
 
-    let policy = build_policy(&base);
-    let driver = super::LocalDriver::new(&policy.base_path).unwrap();
+    let base_path = test_base_path(&base);
+    let driver = super::LocalDriver::new(&base_path).unwrap();
     driver.put("root/z.txt", b"z").await.unwrap();
     driver.put("root/a.txt", b"a").await.unwrap();
     driver.put("root/child/b.txt", b"b").await.unwrap();
@@ -386,8 +357,8 @@ async fn copy_metadata_stream_and_delete_roundtrip() {
     let base = unique_temp_dir("local-roundtrip-test");
     tokio::fs::create_dir_all(&base).await.unwrap();
 
-    let policy = build_policy(&base);
-    let driver = super::LocalDriver::new(&policy.base_path).unwrap();
+    let base_path = test_base_path(&base);
+    let driver = super::LocalDriver::new(&base_path).unwrap();
     driver.put("src/file.txt", b"copy me").await.unwrap();
 
     let copied = driver

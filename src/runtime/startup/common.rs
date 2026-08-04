@@ -105,12 +105,22 @@ pub async fn initialize_database_state(
         .await
         .map_aster_err(AsterError::database_operation)?;
     let connector_registry = crate::storage::connectors::builtin_storage_connector_registry()?;
-    crate::services::storage_policy::credential::migrate_legacy_storage_credentials(
-        database,
-        cfg,
-        &connector_registry,
-    )
-    .await?;
+    let upgrade_config = cfg.clone();
+    let upgrade_connectors = connector_registry.clone();
+    aster_drive_migration::with_database_migration_lock(database, move |transaction| {
+        Box::pin(async move {
+            crate::services::storage_policy::credential::migrate_legacy_storage_credentials(
+                transaction,
+                &upgrade_config,
+                &upgrade_connectors,
+            )
+            .await
+            .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;
+            aster_drive_migration::finalize_storage_policy_upgrade(transaction).await
+        })
+    })
+    .await
+    .map_err(|error| AsterError::database_operation(error.to_string()))?;
 
     if let Some(sqlite_search) = db::sqlite_search::ensure_sqlite_search_ready(database).await? {
         tracing::info!(
@@ -158,7 +168,7 @@ fn handle_optional_follower_bootstrap<T>(result: Result<T>) {
 mod tests {
     use super::*;
     use aster_forge_config::ConfigSource;
-    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+    use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter};
     use std::net::TcpListener;
 
     #[test]
@@ -266,6 +276,33 @@ mod tests {
                 .await
                 .unwrap();
             assert!(obsolete.is_empty());
+
+            let schema = aster_drive_migration::SchemaManager::new(&db);
+            for legacy_column in [
+                "driver_type",
+                "endpoint",
+                "bucket",
+                "access_key",
+                "secret_key",
+                "base_path",
+                "remote_node_id",
+                "remote_storage_target_key",
+                "options",
+            ] {
+                assert!(
+                    !schema
+                        .has_column("storage_policies", legacy_column)
+                        .await
+                        .unwrap(),
+                    "startup should remove legacy storage policy column {legacy_column}"
+                );
+            }
+            crate::storage::connectors::test_support::insertable_policy(
+                crate::storage::connectors::test_support::local_policy("./data/uploads"),
+            )
+            .insert(&db)
+            .await
+            .expect("current storage policy entity should insert after startup finalization");
         }
     }
 }

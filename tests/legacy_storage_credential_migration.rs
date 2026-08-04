@@ -2,7 +2,10 @@
 //!
 //! Remove this test with the deprecated source stores in AsterDrive 0.6.0.
 
-#![allow(deprecated)]
+#![expect(
+    deprecated,
+    reason = "AsterDrive 0.5.0 integration coverage reads deprecated credential stores until 0.6.0"
+)]
 
 use aes_gcm::{
     Aes256Gcm, Nonce,
@@ -21,6 +24,7 @@ use sha2::Sha256;
 
 use aster_drive::config::{Config, node_mode::NodeRuntimeMode};
 use aster_drive::runtime::startup::initialize_database_state;
+use aster_drive_migration::Migrator;
 use aster_drive_model::deprecated::{
     storage_connector_application_config, storage_policy_credential,
 };
@@ -63,7 +67,7 @@ struct OneDriveMetadata<'a> {
     id_token: &'a str,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct ConnectorCiphertextEnvelope {
     format_version: u32,
     connector_id: String,
@@ -77,13 +81,13 @@ fn test_config(key: &str) -> Config {
     config
 }
 
-async fn database(config: &Config) -> DatabaseConnection {
+async fn database() -> DatabaseConnection {
     let db = Database::connect("sqlite::memory:")
         .await
         .expect("credential migration integration database should connect");
-    initialize_database_state(&db, config, NodeRuntimeMode::Primary)
+    Migrator::up(&db, None)
         .await
-        .expect("credential migration integration schema should initialize");
+        .expect("credential migration integration schema should migrate");
     db
 }
 
@@ -149,25 +153,25 @@ async fn insert_policy<T: Serialize>(
             Alias::new("storage_config"),
         ])
         .values([
-            Expr::value(id).into(),
-            Expr::value(format!("policy-{id}")).into(),
-            Expr::value(driver_type).into(),
-            Expr::value("").into(),
-            Expr::value("").into(),
-            Expr::value("").into(),
-            Expr::value("").into(),
-            Expr::value("").into(),
-            Expr::value(Option::<i64>::None).into(),
-            Expr::value(Option::<String>::None).into(),
-            Expr::value(0_i64).into(),
-            Expr::value("[]").into(),
-            Expr::value("{}").into(),
-            Expr::value(false).into(),
-            Expr::value(0_i64).into(),
-            Expr::value(now).into(),
-            Expr::value(now).into(),
-            Expr::value(connector_id).into(),
-            Expr::value(storage_config).into(),
+            Expr::value(id),
+            Expr::value(format!("policy-{id}")),
+            Expr::value(driver_type),
+            Expr::value(""),
+            Expr::value(""),
+            Expr::value(""),
+            Expr::value(""),
+            Expr::value(""),
+            Expr::value(Option::<i64>::None),
+            Expr::value(Option::<String>::None),
+            Expr::value(0_i64),
+            Expr::value("[]"),
+            Expr::value("{}"),
+            Expr::value(false),
+            Expr::value(0_i64),
+            Expr::value(now),
+            Expr::value(now),
+            Expr::value(connector_id),
+            Expr::value(storage_config),
         ])
         .expect("integration storage policy insert values should be valid")
         .to_owned();
@@ -243,6 +247,46 @@ fn decrypt_token(master_key: &str, aad: &[u8], ciphertext: &str) -> String {
 
 fn token_aad(policy_id: i64, token_name: &str) -> String {
     format!("storage_policy_credential:{policy_id}:microsoft_graph:{token_name}")
+}
+
+fn encrypt_connector_payload(
+    key: &str,
+    policy_id: i64,
+    connector_id: &str,
+    payload: &serde_json::Value,
+) -> String {
+    let aad = format!("storage_policy_connector_credential:{policy_id}:{connector_id}:1");
+    let ciphertext = encrypt_token(
+        key,
+        aad.as_bytes(),
+        &serde_json::to_string(payload).expect("current connector payload should serialize"),
+    );
+    serde_json::to_string(&ConnectorCiphertextEnvelope {
+        format_version: 1,
+        connector_id: connector_id.to_string(),
+        schema_version: 1,
+        ciphertext,
+    })
+    .expect("current connector ciphertext envelope should serialize")
+}
+
+async fn insert_current_connector_credential(
+    db: &DatabaseConnection,
+    key: &str,
+    policy_id: i64,
+    connector_id: &str,
+    payload: serde_json::Value,
+) {
+    let ciphertext = encrypt_connector_payload(key, policy_id, connector_id, &payload);
+    aster_drive::db::repository::storage_policy_connector_credential_repo::upsert(
+        db,
+        policy_id,
+        connector_id.to_string(),
+        1,
+        ciphertext,
+    )
+    .await
+    .expect("current connector credential should insert");
 }
 
 fn application_secret_aad(policy_id: i64) -> String {
@@ -370,10 +414,26 @@ async fn legacy_static_rows(db: &DatabaseConnection) -> Vec<(i64, String, String
         .collect()
 }
 
+async fn assert_legacy_static_columns_removed(db: &DatabaseConnection) {
+    let manager = aster_drive_migration::SchemaManager::new(db);
+    assert!(
+        !manager
+            .has_column("storage_policies", "access_key")
+            .await
+            .unwrap()
+    );
+    assert!(
+        !manager
+            .has_column("storage_policies", "secret_key")
+            .await
+            .unwrap()
+    );
+}
+
 #[tokio::test]
 async fn startup_migrates_all_static_connectors_with_typed_field_names() {
     let config = test_config(KEY);
-    let db = database(&config).await;
+    let db = database().await;
     let cases = [
         (
             1,
@@ -416,18 +476,13 @@ async fn startup_migrates_all_static_connectors_with_typed_field_names() {
         assert!(payload.get("access_key").is_none());
         assert!(payload.get("secret_key").is_none());
     }
-    assert!(
-        legacy_static_rows(&db)
-            .await
-            .iter()
-            .all(|(_, access_key, secret_key)| access_key.is_empty() && secret_key.is_empty())
-    );
+    assert_legacy_static_columns_removed(&db).await;
 }
 
 #[tokio::test]
 async fn startup_merges_onedrive_application_and_oauth_then_cleans_old_tables() {
     let config = test_config(KEY);
-    let db = database(&config).await;
+    let db = database().await;
     insert_policy(&db, 1, "asterdrive.storage.onedrive", onedrive_config()).await;
     insert_onedrive_application(&db, 1, KEY, None).await;
     insert_onedrive_authorization(&db, 1, KEY).await;
@@ -469,8 +524,7 @@ async fn startup_merges_onedrive_application_and_oauth_then_cleans_old_tables() 
 #[tokio::test]
 async fn startup_rejects_wrong_key_and_rolls_back_prior_static_import() {
     let config = test_config(OTHER_KEY);
-    let schema_config = test_config(KEY);
-    let db = database(&schema_config).await;
+    let db = database().await;
     insert_policy(&db, 1, "asterdrive.storage.s3", EmptyConnectorConfig {}).await;
     set_static(&db, 1, "good-id", "good-secret").await;
     insert_policy(&db, 2, "asterdrive.storage.onedrive", onedrive_config()).await;
@@ -507,14 +561,24 @@ async fn startup_rejects_wrong_key_and_rolls_back_prior_static_import() {
 #[tokio::test]
 async fn startup_is_idempotent_for_matching_target_and_rejects_conflicts() {
     let config = test_config(KEY);
-    let db = database(&config).await;
+    let db = database().await;
     insert_policy(&db, 1, "asterdrive.storage.s3", EmptyConnectorConfig {}).await;
     set_static(&db, 1, "id-one", "secret-one").await;
+    insert_current_connector_credential(
+        &db,
+        KEY,
+        1,
+        "asterdrive.storage.s3",
+        serde_json::json!({
+            "s3_access_key_id": "id-one",
+            "s3_secret_access_key": "secret-one",
+        }),
+    )
+    .await;
     initialize_database_state(&db, &config, NodeRuntimeMode::Primary)
         .await
         .unwrap();
 
-    set_static(&db, 1, "id-one", "secret-one").await;
     initialize_database_state(&db, &config, NodeRuntimeMode::Primary)
         .await
         .unwrap();
@@ -525,15 +589,36 @@ async fn startup_is_idempotent_for_matching_target_and_rejects_conflicts() {
         .unwrap()
         .unwrap();
     assert_eq!(record.revision, 1);
-    assert_eq!(legacy_static_rows(&db).await[0].1, "");
+    assert_legacy_static_columns_removed(&db).await;
 
-    set_static(&db, 1, "id-two", "secret-two").await;
-    let error = initialize_database_state(&db, &config, NodeRuntimeMode::Primary)
+    let conflict_db = database().await;
+    insert_policy(
+        &conflict_db,
+        1,
+        "asterdrive.storage.s3",
+        EmptyConnectorConfig {},
+    )
+    .await;
+    set_static(&conflict_db, 1, "id-two", "secret-two").await;
+    insert_current_connector_credential(
+        &conflict_db,
+        KEY,
+        1,
+        "asterdrive.storage.s3",
+        serde_json::json!({
+            "s3_access_key_id": "id-one",
+            "s3_secret_access_key": "secret-one",
+        }),
+    )
+    .await;
+    let error = initialize_database_state(&conflict_db, &config, NodeRuntimeMode::Primary)
         .await
         .err()
         .expect("conflicting credential should abort startup migration");
     assert!(error.to_string().contains("conflicting legacy"));
-    let payload = connector_payload(&db, KEY, 1, "asterdrive.storage.s3").await;
+    let payload = connector_payload(&conflict_db, KEY, 1, "asterdrive.storage.s3").await;
     assert_eq!(payload["s3_access_key_id"], "id-one");
-    assert_eq!(legacy_static_rows(&db).await[0].1, "id-two");
+    let legacy_rows = legacy_static_rows(&conflict_db).await;
+    assert_eq!(legacy_rows[0].1, "id-two");
+    assert_eq!(legacy_rows[0].2, "secret-two");
 }

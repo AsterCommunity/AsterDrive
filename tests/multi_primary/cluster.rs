@@ -4,20 +4,28 @@ use std::process::Command;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use aes_gcm::{
+    Aes256Gcm, Nonce,
+    aead::{Aead, Generate, KeyInit},
+};
 use aster_drive_migration::Migrator;
 use aster_forge_test::postgres::{PostgresTestContainer, PostgresTestDatabase};
 use aster_forge_test::process::{TestProcess, available_loopback_port};
 use aster_forge_test::redis::RedisTestContainer;
 use aster_forge_test::smtp::SmtpTestContainer;
 use aster_forge_test::suite::TestContainerSuite;
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::Utc;
 use futures::{SinkExt, StreamExt};
+use hkdf::Hkdf;
 use reqwest::header::SET_COOKIE;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, Database, DatabaseConnection, EntityTrait,
     QueryFilter, Set,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::Sha256;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
@@ -41,6 +49,361 @@ const SHARED_SECRET: &str = "asterdrive399abcdef0123456789abcdef0123456789abcdef
 const INTERNAL_PROXY_SECRET: &str =
     "asterdrive399proxyabcdef0123456789abcdef0123456789abcdef012345";
 const DATABASE_FAULT_ROLE_PASSWORD: &str = "AsterDriveDatabaseFault399";
+const S3_CONNECTOR_ID: &str = "asterdrive.storage.s3";
+const SFTP_CONNECTOR_ID: &str = "asterdrive.storage.sftp";
+const CONNECTOR_SCHEMA_VERSION: u32 = 1;
+const CONNECTOR_CREDENTIAL_FORMAT_VERSION: u32 = 1;
+const STORAGE_CREDENTIAL_INFO: &[u8] = b"asterdrive:storage-credential-token:v1";
+const CONNECTOR_CREDENTIAL_AAD_PREFIX: &str = "storage_policy_connector_credential";
+
+// These test-owned mirrors keep process-level fixtures aligned with the private
+// built-in connector schemas without widening production module visibility.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MultiPrimaryS3ConnectorConfigV1 {
+    endpoint: String,
+    bucket: String,
+    base_path: String,
+    object_storage_upload_strategy: aster_drive_model::types::ObjectStorageUploadStrategy,
+    object_storage_download_strategy: aster_drive_model::types::ObjectStorageDownloadStrategy,
+    s3_path_style: bool,
+    s3_region: String,
+    s3_connect_timeout_secs: u64,
+    s3_read_timeout_secs: u64,
+    s3_operation_timeout_secs: u64,
+}
+
+impl Default for MultiPrimaryS3ConnectorConfigV1 {
+    fn default() -> Self {
+        Self {
+            endpoint: "http://127.0.0.1:9000".to_string(),
+            bucket: "asterdrive-e2e".to_string(),
+            base_path: String::new(),
+            object_storage_upload_strategy:
+                aster_drive_model::types::ObjectStorageUploadStrategy::RelayStream,
+            object_storage_download_strategy:
+                aster_drive_model::types::ObjectStorageDownloadStrategy::RelayStream,
+            s3_path_style: true,
+            s3_region: "auto".to_string(),
+            s3_connect_timeout_secs: 5,
+            s3_read_timeout_secs: 30,
+            s3_operation_timeout_secs: 3_600,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MultiPrimaryS3StaticCredentialsV1 {
+    s3_access_key_id: String,
+    s3_secret_access_key: String,
+}
+
+impl Default for MultiPrimaryS3StaticCredentialsV1 {
+    fn default() -> Self {
+        Self {
+            s3_access_key_id: "e2e-access".to_string(),
+            s3_secret_access_key: "e2e-secret".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MultiPrimarySftpConnectorConfigV1 {
+    endpoint: String,
+    base_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sftp_host_key_fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MultiPrimarySftpStaticCredentialsV1 {
+    sftp_username: String,
+    sftp_password: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MultiPrimaryConnectorCredentialCiphertextEnvelope {
+    format_version: u32,
+    connector_id: String,
+    schema_version: u32,
+    ciphertext: String,
+}
+
+// Multi-primary processes decrypt this stable persistence format at startup.
+// Encoding it outside the application crate makes the E2E fixture exercise the
+// same boundary as an already-populated database instead of calling internals.
+fn encode_multi_primary_policy_config<T: Serialize>(
+    connector_id: &str,
+    config: T,
+) -> aster_drive_model::types::StoredStoragePolicyConfig {
+    let values = serde_json::to_value(config).expect("serialize multi-primary connector config");
+    let encoded = aster_drive_storage::encode_storage_policy_config(
+        aster_drive_storage::ConnectorConfigEnvelope::new(
+            aster_drive_storage::ConnectorId::declared(connector_id),
+            CONNECTOR_SCHEMA_VERSION,
+            values,
+        ),
+        aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+    )
+    .expect("encode multi-primary storage policy config");
+    aster_drive_model::types::StoredStoragePolicyConfig::from(encoded)
+}
+
+fn connector_credential_aad(policy_id: i64, connector_id: &str, schema_version: u32) -> String {
+    format!("{CONNECTOR_CREDENTIAL_AAD_PREFIX}:{policy_id}:{connector_id}:{schema_version}")
+}
+
+fn multi_primary_credential_cipher() -> Aes256Gcm {
+    let hk = Hkdf::<Sha256>::new(None, SHARED_SECRET.as_bytes());
+    let mut key = [0_u8; 32];
+    hk.expand(STORAGE_CREDENTIAL_INFO, &mut key)
+        .expect("derive multi-primary storage credential encryption key");
+    Aes256Gcm::new_from_slice(&key).expect("construct multi-primary storage credential cipher")
+}
+
+fn encrypt_multi_primary_connector_credential<T: Serialize>(
+    policy_id: i64,
+    connector_id: &str,
+    payload: &T,
+) -> String {
+    let plaintext = serde_json::to_string(payload)
+        .expect("serialize multi-primary connector credential payload");
+    let nonce = Nonce::generate();
+    let aad = connector_credential_aad(policy_id, connector_id, CONNECTOR_SCHEMA_VERSION);
+    let ciphertext = multi_primary_credential_cipher()
+        .encrypt(
+            &nonce,
+            aes_gcm::aead::Payload {
+                msg: plaintext.as_bytes(),
+                aad: aad.as_bytes(),
+            },
+        )
+        .expect("encrypt multi-primary connector credential payload");
+    serde_json::to_string(&MultiPrimaryConnectorCredentialCiphertextEnvelope {
+        format_version: CONNECTOR_CREDENTIAL_FORMAT_VERSION,
+        connector_id: connector_id.to_string(),
+        schema_version: CONNECTOR_SCHEMA_VERSION,
+        ciphertext: format!(
+            "v1:{}:{}",
+            URL_SAFE_NO_PAD.encode(nonce),
+            URL_SAFE_NO_PAD.encode(ciphertext)
+        ),
+    })
+    .expect("serialize multi-primary connector credential ciphertext envelope")
+}
+
+fn decrypt_multi_primary_connector_credential<T: for<'de> Deserialize<'de>>(
+    policy_id: i64,
+    connector_id: &str,
+    schema_version: u32,
+    raw: &str,
+) -> Result<T, String> {
+    let envelope: MultiPrimaryConnectorCredentialCiphertextEnvelope =
+        serde_json::from_str(raw).map_err(|error| error.to_string())?;
+    if envelope.format_version != CONNECTOR_CREDENTIAL_FORMAT_VERSION
+        || envelope.connector_id != connector_id
+        || envelope.schema_version != schema_version
+    {
+        return Err("connector credential ciphertext envelope identity mismatch".to_string());
+    }
+    let mut parts = envelope.ciphertext.split(':');
+    if parts.next() != Some("v1") {
+        return Err("connector credential ciphertext version mismatch".to_string());
+    }
+    let nonce = parts
+        .next()
+        .ok_or_else(|| "connector credential ciphertext nonce is missing".to_string())?;
+    let ciphertext = parts
+        .next()
+        .ok_or_else(|| "connector credential ciphertext body is missing".to_string())?;
+    if parts.next().is_some() {
+        return Err("connector credential ciphertext has trailing fields".to_string());
+    }
+    let nonce = URL_SAFE_NO_PAD
+        .decode(nonce)
+        .map_err(|error| error.to_string())?;
+    let nonce: [u8; 12] = nonce
+        .try_into()
+        .map_err(|_| "connector credential nonce length mismatch".to_string())?;
+    let nonce = Nonce::try_from(nonce.as_slice())
+        .map_err(|_| "connector credential nonce length mismatch".to_string())?;
+    let ciphertext = URL_SAFE_NO_PAD
+        .decode(ciphertext)
+        .map_err(|error| error.to_string())?;
+    let aad = connector_credential_aad(policy_id, connector_id, schema_version);
+    let plaintext = multi_primary_credential_cipher()
+        .decrypt(
+            &nonce,
+            aes_gcm::aead::Payload {
+                msg: &ciphertext,
+                aad: aad.as_bytes(),
+            },
+        )
+        .map_err(|error| error.to_string())?;
+    serde_json::from_slice(&plaintext).map_err(|error| error.to_string())
+}
+
+async fn persist_multi_primary_connector_credential<T: Serialize>(
+    database: &DatabaseConnection,
+    policy_id: i64,
+    connector_id: &str,
+    payload: &T,
+) -> aster_drive_model::entities::storage_policy_connector_credential::Model {
+    let ciphertext = encrypt_multi_primary_connector_credential(policy_id, connector_id, payload);
+    aster_drive::db::repository::storage_policy_connector_credential_repo::upsert(
+        database,
+        policy_id,
+        connector_id.to_string(),
+        i32::try_from(CONNECTOR_SCHEMA_VERSION)
+            .expect("connector schema version should fit database column"),
+        ciphertext,
+    )
+    .await
+    .expect("persist multi-primary connector credential")
+}
+
+async fn create_multi_primary_s3_policy(
+    database: &DatabaseConnection,
+    name: &str,
+    max_file_size: i64,
+    is_default: bool,
+) -> aster_drive_model::entities::storage_policy::Model {
+    let now = Utc::now();
+    let policy = aster_drive::db::repository::policy_repo::create(
+        database,
+        aster_drive_model::entities::storage_policy::ActiveModel {
+            name: Set(name.to_string()),
+            connector_id: Set(S3_CONNECTOR_ID.to_string()),
+            storage_config: Set(encode_multi_primary_policy_config(
+                S3_CONNECTOR_ID,
+                MultiPrimaryS3ConnectorConfigV1::default(),
+            )),
+            max_file_size: Set(max_file_size),
+            allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
+            is_default: Set(is_default),
+            chunk_size: Set(5_242_880),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("create multi-primary S3 storage policy");
+    let credential = persist_multi_primary_connector_credential(
+        database,
+        policy.id,
+        S3_CONNECTOR_ID,
+        &MultiPrimaryS3StaticCredentialsV1::default(),
+    )
+    .await;
+    assert_eq!(credential.revision, 1);
+    policy
+}
+
+#[test]
+fn multi_primary_policy_fixtures_encode_current_connector_contracts() {
+    let s3_config = MultiPrimaryS3ConnectorConfigV1::default();
+    let encoded_s3 = encode_multi_primary_policy_config(S3_CONNECTOR_ID, s3_config.clone());
+    let (decoded_s3, behavior) =
+        aster_drive_storage::decode_storage_policy_config::<MultiPrimaryS3ConnectorConfigV1>(
+            encoded_s3.as_ref(),
+            &aster_drive_storage::ConnectorId::declared(S3_CONNECTOR_ID),
+            CONNECTOR_SCHEMA_VERSION,
+        )
+        .expect("decode multi-primary S3 policy fixture");
+    assert_eq!(decoded_s3, s3_config);
+    assert_eq!(
+        behavior,
+        aster_drive_storage::StoragePolicyBehaviorConfig::default()
+    );
+    assert!(!encoded_s3.as_ref().contains("s3_access_key_id"));
+    assert!(!encoded_s3.as_ref().contains("s3_secret_access_key"));
+
+    let sftp_config = MultiPrimarySftpConnectorConfigV1 {
+        endpoint: "sftp://127.0.0.1:22".to_string(),
+        base_path: String::new(),
+        sftp_host_key_fingerprint: None,
+    };
+    let encoded_sftp = encode_multi_primary_policy_config(SFTP_CONNECTOR_ID, sftp_config.clone());
+    let (decoded_sftp, _) =
+        aster_drive_storage::decode_storage_policy_config::<MultiPrimarySftpConnectorConfigV1>(
+            encoded_sftp.as_ref(),
+            &aster_drive_storage::ConnectorId::declared(SFTP_CONNECTOR_ID),
+            CONNECTOR_SCHEMA_VERSION,
+        )
+        .expect("decode multi-primary SFTP policy fixture");
+    assert_eq!(decoded_sftp, sftp_config);
+    assert!(!encoded_sftp.as_ref().contains("sftp_username"));
+    assert!(!encoded_sftp.as_ref().contains("sftp_password"));
+}
+
+#[test]
+fn multi_primary_connector_credential_fixture_encrypts_and_binds_identity() {
+    let credentials = MultiPrimaryS3StaticCredentialsV1::default();
+    let encrypted = encrypt_multi_primary_connector_credential(7, S3_CONNECTOR_ID, &credentials);
+
+    assert!(!encrypted.contains(&credentials.s3_access_key_id));
+    assert!(!encrypted.contains(&credentials.s3_secret_access_key));
+    assert_eq!(
+        decrypt_multi_primary_connector_credential::<MultiPrimaryS3StaticCredentialsV1>(
+            7,
+            S3_CONNECTOR_ID,
+            CONNECTOR_SCHEMA_VERSION,
+            &encrypted,
+        )
+        .expect("decrypt matching multi-primary connector credential fixture"),
+        credentials
+    );
+    assert!(
+        decrypt_multi_primary_connector_credential::<MultiPrimaryS3StaticCredentialsV1>(
+            8,
+            S3_CONNECTOR_ID,
+            CONNECTOR_SCHEMA_VERSION,
+            &encrypted,
+        )
+        .is_err(),
+        "credential ciphertext must be bound to its policy"
+    );
+    assert!(
+        decrypt_multi_primary_connector_credential::<MultiPrimaryS3StaticCredentialsV1>(
+            7,
+            SFTP_CONNECTOR_ID,
+            CONNECTOR_SCHEMA_VERSION,
+            &encrypted,
+        )
+        .is_err(),
+        "credential envelope must reject a different connector"
+    );
+    assert!(
+        decrypt_multi_primary_connector_credential::<MultiPrimaryS3StaticCredentialsV1>(
+            7,
+            S3_CONNECTOR_ID,
+            CONNECTOR_SCHEMA_VERSION + 1,
+            &encrypted,
+        )
+        .is_err(),
+        "credential envelope must reject a different schema version"
+    );
+
+    let mut tampered: MultiPrimaryConnectorCredentialCiphertextEnvelope =
+        serde_json::from_str(&encrypted).expect("decode encrypted fixture envelope");
+    tampered.ciphertext.push('A');
+    let tampered = serde_json::to_string(&tampered).expect("encode tampered fixture envelope");
+    assert!(
+        decrypt_multi_primary_connector_credential::<MultiPrimaryS3StaticCredentialsV1>(
+            7,
+            S3_CONNECTOR_ID,
+            CONNECTOR_SCHEMA_VERSION,
+            &tampered,
+        )
+        .is_err(),
+        "credential ciphertext must reject tampering"
+    );
+}
 
 struct DatabaseFaultRole {
     name: String,
@@ -85,31 +448,14 @@ impl SharedServices {
             Migrator::up(&database, None)
                 .await
                 .expect("apply migrations to isolated multi-primary database");
-            let now = Utc::now();
-            aster_drive::db::repository::policy_repo::create(
-                &database,
-                aster_drive_model::entities::storage_policy::ActiveModel {
-                    name: Set("E2E Shared Object Storage".to_string()),
-                    driver_type: Set(aster_drive_model::types::DriverType::S3),
-                    endpoint: Set("http://127.0.0.1:9000".to_string()),
-                    bucket: Set("asterdrive-e2e".to_string()),
-                    access_key: Set("e2e-access".to_string()),
-                    secret_key: Set("e2e-secret".to_string()),
-                    base_path: Set(String::new()),
-                    max_file_size: Set(0),
-                    allowed_types: Set(
-                        aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
-                    ),
-                    options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
-                    is_default: Set(true),
-                    chunk_size: Set(5_242_880),
-                    created_at: Set(now),
-                    updated_at: Set(now),
-                    ..Default::default()
-                },
-            )
+            aster_drive_migration::with_database_migration_lock(&database, |transaction| {
+                Box::pin(aster_drive_migration::finalize_storage_policy_upgrade(
+                    transaction,
+                ))
+            })
             .await
-            .expect("create shared E2E storage policy");
+            .expect("finalize isolated multi-primary storage policy schema");
+            create_multi_primary_s3_policy(&database, "E2E Shared Object Storage", 0, true).await;
             aster_drive::services::storage_policy::policy::ensure_policy_groups_seeded(&database)
                 .await
                 .expect("seed default E2E storage policy group");
@@ -289,14 +635,31 @@ async fn configure_default_sftp_policy(database: &DatabaseConnection) -> i64 {
         .expect("default E2E storage policy should exist");
     let policy_id = policy.id;
     let mut active: aster_drive_model::entities::storage_policy::ActiveModel = policy.into();
-    active.driver_type = Set(aster_drive_model::types::DriverType::Sftp);
-    active.endpoint = Set("sftp://127.0.0.1:22".to_string());
-    active.access_key = Set("asterdrive-e2e".to_string());
-    active.secret_key = Set("unused-before-staging-validation".to_string());
+    active.connector_id = Set(SFTP_CONNECTOR_ID.to_string());
+    active.storage_config = Set(encode_multi_primary_policy_config(
+        SFTP_CONNECTOR_ID,
+        MultiPrimarySftpConnectorConfigV1 {
+            endpoint: "sftp://127.0.0.1:22".to_string(),
+            base_path: String::new(),
+            sftp_host_key_fingerprint: None,
+        },
+    ));
     active
         .update(database)
         .await
         .expect("configure default SFTP policy for cluster staging E2E");
+    let credential = persist_multi_primary_connector_credential(
+        database,
+        policy_id,
+        SFTP_CONNECTOR_ID,
+        &MultiPrimarySftpStaticCredentialsV1 {
+            sftp_username: "asterdrive-e2e".to_string(),
+            sftp_password: "unused-before-staging-validation".to_string(),
+        },
+    )
+    .await;
+    assert_eq!(credential.connector_id, SFTP_CONNECTOR_ID);
+    assert_eq!(credential.revision, 2);
     policy_id
 }
 
@@ -1775,28 +2138,8 @@ async fn user_policy_group_assignment_propagates_to_second_primary_without_resta
     let services = SharedServices::start().await;
     let database = services.connect_database().await;
     let now = Utc::now();
-    let constrained_policy = aster_drive::db::repository::policy_repo::create(
-        &database,
-        aster_drive_model::entities::storage_policy::ActiveModel {
-            name: Set("E2E User Policy Group Limit".to_string()),
-            driver_type: Set(aster_drive_model::types::DriverType::S3),
-            endpoint: Set("http://127.0.0.1:9000".to_string()),
-            bucket: Set("asterdrive-e2e".to_string()),
-            access_key: Set("e2e-access".to_string()),
-            secret_key: Set("e2e-secret".to_string()),
-            base_path: Set(String::new()),
-            max_file_size: Set(1),
-            allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
-            is_default: Set(false),
-            chunk_size: Set(5_242_880),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
-        },
-    )
-    .await
-    .expect("create constrained E2E policy group policy");
+    let constrained_policy =
+        create_multi_primary_s3_policy(&database, "E2E User Policy Group Limit", 1, false).await;
     let constrained_group = aster_drive::db::repository::policy_group_repo::create_group(
         &database,
         aster_drive_model::entities::storage_policy_group::ActiveModel {

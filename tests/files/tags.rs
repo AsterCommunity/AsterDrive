@@ -5,7 +5,6 @@ use crate::common;
 use actix_web::{http::StatusCode, test};
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::db::repository::property_repo;
-use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::{
     content::tag::TAG_PROPERTY_NAMESPACE, events::storage_change::StorageChangeKind,
 };

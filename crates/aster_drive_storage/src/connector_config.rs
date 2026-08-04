@@ -13,6 +13,19 @@ use utoipa::ToSchema;
 
 pub const CONNECTOR_CONFIG_FORMAT_VERSION: u32 = 1;
 
+/// Scalar value accepted by connector config and action field contracts.
+///
+/// Complex values must be decomposed into named descriptor fields so the
+/// admin UI and backend validator share an inspectable schema.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum StorageConnectorFieldValue {
+    Boolean(bool),
+    Integer(i64),
+    String(String),
+}
+
 /// Declare every connector field once while keeping persistence channels
 /// structurally separate.
 ///
@@ -116,6 +129,54 @@ macro_rules! storage_connector_schema {
                         $credential_field_visibility $credential_field: $credential_field_type => $credential_descriptor
                     ),*
                 }
+            }
+        }
+    };
+}
+
+/// Declare a typed connector action input and its descriptor fields together.
+///
+/// Action values are ephemeral and every declared field must use
+/// [`StorageConnectorFieldScope::ActionInput`]. Keeping the serde struct and
+/// descriptor declarations in one macro prevents plugin UI metadata from
+/// drifting away from the connector's actual decoder.
+#[macro_export]
+macro_rules! storage_connector_action_schema {
+    (
+        $(#[$struct_meta:meta])*
+        $visibility:vis struct $name:ident {
+            $($field_visibility:vis $field:ident: $field_type:ty => $descriptor:expr),* $(,)?
+        }
+    ) => {
+        $(#[$struct_meta])*
+        #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        $visibility struct $name {
+            $(
+                $field_visibility $field: $field_type,
+            )*
+        }
+
+        impl $crate::StorageConnectorActionSchema for $name {
+            fn action_fields() -> Vec<$crate::StorageConnectorFieldDescriptor> {
+                vec![
+                    $(
+                        {
+                            let descriptor: $crate::StorageConnectorFieldDescriptor = $descriptor;
+                            assert_eq!(
+                                descriptor.name,
+                                stringify!($field),
+                                "connector action descriptor field name must match its serde field"
+                            );
+                            assert_eq!(
+                                descriptor.scope,
+                                $crate::StorageConnectorFieldScope::ActionInput,
+                                "connector action fields must use the action_input scope"
+                            );
+                            descriptor
+                        }
+                    ),*
+                ]
             }
         }
     };
@@ -331,11 +392,19 @@ fn validate_connector_id(value: &str) -> Result<(), ConnectorIdError> {
 /// namespaces would only create ambiguous ownership. If the connector is
 /// temporarily unavailable, this entire envelope is preserved byte-for-byte.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(ToSchema),
+    schema(bound = "")
+)]
 pub struct ConnectorConfigEnvelope<T = BTreeMap<String, serde_json::Value>> {
     pub format_version: u32,
     pub connector_id: ConnectorId,
     pub schema_version: u32,
+    #[cfg_attr(
+        all(debug_assertions, feature = "openapi"),
+        schema(value_type = BTreeMap<String, StorageConnectorFieldValue>)
+    )]
     pub values: T,
 }
 

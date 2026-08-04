@@ -40,9 +40,7 @@ interface FolderPolicyDialogProps {
 }
 
 function formatPolicyDriver(policy: StoragePolicy) {
-	return policy.driver_type === "remote"
-		? `remote #${policy.remote_node_id ?? "-"}`
-		: policy.driver_type;
+	return policy.connector_id;
 }
 
 function buildInitialPolicyValue(folderInfo: FolderInfo | null) {

@@ -142,13 +142,10 @@ impl PolicySnapshot {
         policy: &storage_policy::Model,
     ) -> Option<String> {
         let snapshot = self.snapshot.read();
-        let Some(remote_node_id) = snapshot
+        let remote_node_id = snapshot
             .remote_node_id_by_policy_id
             .get(&policy.id)
-            .copied()
-        else {
-            return None;
-        };
+            .copied()?;
         let Some(remote_node_id) = remote_node_id else {
             return Some("remote policy has no bound remote node".to_string());
         };
@@ -358,8 +355,11 @@ mod tests {
     use crate::config::DatabaseConfig;
     use crate::db;
     use crate::db::repository::{managed_follower_repo, policy_group_repo, policy_repo, user_repo};
+    use crate::storage::connectors::builtin_storage_connector_registry;
     use aster_drive_migration::Migrator;
-    use aster_drive_model::types::{DriverType, UserRole, UserStatus};
+    use aster_drive_model::types::{
+        RemoteDownloadStrategy, RemoteUploadStrategy, UserRole, UserStatus,
+    };
     use chrono::Utc;
     use sea_orm::{ActiveModelTrait, Set};
 
@@ -385,21 +385,17 @@ mod tests {
         is_default: bool,
     ) -> aster_drive_model::entities::storage_policy::Model {
         let now = Utc::now();
+        let fixture = crate::storage::connectors::test_support::local_policy(base_path);
         policy_repo::create(
             db,
             aster_drive_model::entities::storage_policy::ActiveModel {
                 name: Set(name.to_string()),
-                driver_type: Set(DriverType::Local),
-                endpoint: Set(String::new()),
-                bucket: Set(String::new()),
-                access_key: Set(String::new()),
-                secret_key: Set(String::new()),
-                base_path: Set(base_path.to_string()),
+                connector_id: Set(fixture.connector_id),
+                storage_config: Set(fixture.storage_config),
                 max_file_size: Set(0),
                 allowed_types: Set(
                     aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
                 ),
-                options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
                 is_default: Set(is_default),
                 chunk_size: Set(5_242_880),
                 created_at: Set(now),
@@ -443,22 +439,22 @@ mod tests {
         remote_node_id: i64,
     ) -> aster_drive_model::entities::storage_policy::Model {
         let now = Utc::now();
+        let fixture = crate::storage::connectors::test_support::remote_policy(
+            "",
+            Some(remote_node_id),
+            RemoteDownloadStrategy::RelayStream,
+            RemoteUploadStrategy::RelayStream,
+        );
         policy_repo::create(
             db,
             aster_drive_model::entities::storage_policy::ActiveModel {
                 name: Set(name.to_string()),
-                driver_type: Set(DriverType::Remote),
-                endpoint: Set(String::new()),
-                bucket: Set(String::new()),
-                access_key: Set(String::new()),
-                secret_key: Set(String::new()),
-                base_path: Set(String::new()),
-                remote_node_id: Set(Some(remote_node_id)),
+                connector_id: Set(fixture.connector_id),
+                storage_config: Set(fixture.storage_config),
                 max_file_size: Set(0),
                 allowed_types: Set(
                     aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
                 ),
-                options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
                 is_default: Set(false),
                 chunk_size: Set(5_242_880),
                 created_at: Set(now),
@@ -545,8 +541,9 @@ mod tests {
         let secondary = create_policy(&db, "Secondary", "/tmp/policy-snap-secondary", false).await;
         let default_group = create_group(&db, "Default Group", system_default.id, true, 0, 0).await;
         let snapshot = PolicySnapshot::new();
+        let connectors = builtin_storage_connector_registry().unwrap();
 
-        snapshot.reload(&db).await.unwrap();
+        snapshot.reload(&db, &connectors).await.unwrap();
 
         assert_eq!(
             snapshot.system_default_policy_group().unwrap().id,
@@ -576,7 +573,8 @@ mod tests {
         user_active.update(&db).await.unwrap();
 
         let snapshot = PolicySnapshot::new();
-        snapshot.reload(&db).await.unwrap();
+        let connectors = builtin_storage_connector_registry().unwrap();
+        snapshot.reload(&db, &connectors).await.unwrap();
 
         assert_eq!(
             snapshot.resolve_default_policy_group_id(user.id),
@@ -632,7 +630,8 @@ mod tests {
         }
 
         let snapshot = PolicySnapshot::new();
-        snapshot.reload(&db).await.unwrap();
+        let connectors = builtin_storage_connector_registry().unwrap();
+        snapshot.reload(&db, &connectors).await.unwrap();
 
         assert_eq!(
             snapshot.resolve_policy_in_group(group.id, 5).unwrap().id,
@@ -684,7 +683,8 @@ mod tests {
         }
 
         let snapshot = PolicySnapshot::new();
-        snapshot.reload(&db).await.unwrap();
+        let connectors = builtin_storage_connector_registry().unwrap();
+        snapshot.reload(&db, &connectors).await.unwrap();
 
         let err = snapshot.resolve_policy_in_group(group.id, 15).unwrap_err();
         assert_eq!(err.code(), "E005");
@@ -732,7 +732,8 @@ mod tests {
         }
 
         let snapshot = PolicySnapshot::new();
-        snapshot.reload(&db).await.unwrap();
+        let connectors = builtin_storage_connector_registry().unwrap();
+        snapshot.reload(&db, &connectors).await.unwrap();
 
         assert_eq!(
             snapshot.resolve_policy_in_group(group.id, 5).unwrap().id,

@@ -40,6 +40,7 @@ const COPY_TABLE_ORDER: &[&str] = &[
     "managed_followers",
     "remote_tunnel_owners",
     "storage_policies",
+    "storage_policy_connector_credentials",
     "storage_connector_application_configs",
     "storage_policy_credentials",
     "storage_policy_groups",

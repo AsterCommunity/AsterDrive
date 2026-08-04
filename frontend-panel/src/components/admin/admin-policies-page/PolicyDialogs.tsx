@@ -1,16 +1,17 @@
 import { useTranslation } from "react-i18next";
 import { StoragePolicyDialog } from "@/components/admin/StoragePolicyDialog";
 import type { PolicyFormData } from "@/components/admin/storage-policy-dialog/formTypes";
+import type { StorageConnectorActionValues } from "@/components/admin/storage-policy-dialog/StorageConnectorActionsPanel";
 import type { ConfirmDialogProps } from "@/components/common/ConfirmDialog";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import type {
-	DriverType,
 	RemoteCreateStorageTargetRequest,
 	RemoteNodeInfo,
 	RemoteStorageTargetDriverDescriptor,
 	RemoteStorageTargetInfo,
 	StorageConnectorCredentialInfo,
 	StorageConnectorDescriptor,
+	StorageConnectorFieldValue,
 	StoragePolicyCapacityInfo,
 } from "@/types/api";
 
@@ -42,15 +43,9 @@ interface PolicyDialogsProps {
 	storageAuthorizationSubmitting: boolean;
 	storageCredentialValidationSubmitting: boolean;
 	storageAuthorizationRedirectUri: string;
-	cosCorsConfirmOpen: boolean;
-	cosCorsSubmitting: boolean;
-	cosCorsUsesDraftValues: boolean;
-	canConfigureTencentCosCors: boolean;
-	s3CompatibleDriverSuggestionTargetLabel: string | null;
-	s3DriverPromotionBlocked: boolean;
-	s3DriverPromotionConfirmOpen: boolean;
-	s3DriverPromotionSubmitting: boolean;
-	s3DriverPromotionTargetLabel: string | null;
+	connectorActionConfirmId: string | null;
+	connectorActionSubmittingId: string | null;
+	connectorActionValues: StorageConnectorActionValues;
 	remoteNodes: RemoteNodeInfo[];
 	remoteStorageTargetDriverDescriptors: RemoteStorageTargetDriverDescriptor[];
 	remoteStorageTargetDriverDescriptorsError: string | null;
@@ -64,13 +59,10 @@ interface PolicyDialogsProps {
 	forceDefaultPolicy?: boolean;
 	storageDialogPresentation?: "dialog" | "setup";
 	onStorageSetupLogout?: () => void;
-	onApplyS3CompatibleDriverSuggestion: () => void;
-	onCancelCosCorsConfigure: () => void;
+	onCancelConnectorAction: () => void;
 	onCancelSaveAnyway: () => void;
-	onCancelS3DriverPromotion: () => void;
 	onConfirmSaveAnyway: () => void;
-	onConfirmCosCorsConfigure: () => void;
-	onConfirmS3DriverPromotion: () => void;
+	onConfirmConnectorAction: (actionId: string) => void;
 	onStartStorageAuthorization: () => void;
 	onValidateStorageCredential: () => void;
 	onCreateRemoteStorageTarget: (
@@ -80,15 +72,19 @@ interface PolicyDialogsProps {
 	onCreateNext: () => void;
 	onCreateStepChange: (step: number) => void;
 	onDialogOpenChange: (open: boolean) => void;
-	onDriverTypeChange: (driverType: DriverType) => void;
+	onConnectorIdChange: (connectorId: string) => void;
 	onFieldChange: <K extends keyof PolicyFormData>(
 		key: K,
 		value: PolicyFormData[K],
 	) => void;
-	onRequestS3DriverPromotion: () => void;
+	onConnectorActionValueChange: (
+		actionId: string,
+		fieldName: string,
+		value: StorageConnectorFieldValue | undefined,
+	) => void;
+	onRequestConnectorAction: (actionId: string) => void;
 	onRunConnectionTest: () => Promise<boolean>;
 	onSubmit: () => void;
-	onSyncNormalizedObjectStorageForm: () => void;
 }
 
 export function PolicyDialogs({
@@ -113,15 +109,9 @@ export function PolicyDialogs({
 	storageAuthorizationSubmitting,
 	storageCredentialValidationSubmitting,
 	storageAuthorizationRedirectUri,
-	cosCorsConfirmOpen,
-	cosCorsSubmitting,
-	cosCorsUsesDraftValues,
-	canConfigureTencentCosCors,
-	s3CompatibleDriverSuggestionTargetLabel,
-	s3DriverPromotionBlocked,
-	s3DriverPromotionConfirmOpen,
-	s3DriverPromotionSubmitting,
-	s3DriverPromotionTargetLabel,
+	connectorActionConfirmId,
+	connectorActionSubmittingId,
+	connectorActionValues,
 	remoteNodes,
 	remoteStorageTargetDriverDescriptors,
 	remoteStorageTargetDriverDescriptorsError,
@@ -135,13 +125,10 @@ export function PolicyDialogs({
 	forceDefaultPolicy = false,
 	storageDialogPresentation = "dialog",
 	onStorageSetupLogout,
-	onApplyS3CompatibleDriverSuggestion,
-	onCancelCosCorsConfigure,
+	onCancelConnectorAction,
 	onCancelSaveAnyway,
-	onCancelS3DriverPromotion,
 	onConfirmSaveAnyway,
-	onConfirmCosCorsConfigure,
-	onConfirmS3DriverPromotion,
+	onConfirmConnectorAction,
 	onStartStorageAuthorization,
 	onValidateStorageCredential,
 	onCreateRemoteStorageTarget,
@@ -149,12 +136,12 @@ export function PolicyDialogs({
 	onCreateNext,
 	onCreateStepChange,
 	onDialogOpenChange,
-	onDriverTypeChange,
+	onConnectorIdChange,
 	onFieldChange,
-	onRequestS3DriverPromotion,
+	onConnectorActionValueChange,
+	onRequestConnectorAction,
 	onRunConnectionTest,
 	onSubmit,
-	onSyncNormalizedObjectStorageForm,
 }: PolicyDialogsProps) {
 	const { t } = useTranslation("admin");
 
@@ -191,17 +178,9 @@ export function PolicyDialogs({
 					storageCredentialValidationSubmitting
 				}
 				storageAuthorizationRedirectUri={storageAuthorizationRedirectUri}
-				cosCorsConfirmOpen={cosCorsConfirmOpen}
-				cosCorsSubmitting={cosCorsSubmitting}
-				cosCorsUsesDraftValues={cosCorsUsesDraftValues}
-				canConfigureTencentCosCors={canConfigureTencentCosCors}
-				s3CompatibleDriverSuggestionTargetLabel={
-					s3CompatibleDriverSuggestionTargetLabel
-				}
-				s3DriverPromotionBlocked={s3DriverPromotionBlocked}
-				s3DriverPromotionConfirmOpen={s3DriverPromotionConfirmOpen}
-				s3DriverPromotionSubmitting={s3DriverPromotionSubmitting}
-				s3DriverPromotionTargetLabel={s3DriverPromotionTargetLabel}
+				connectorActionConfirmId={connectorActionConfirmId}
+				connectorActionSubmittingId={connectorActionSubmittingId}
+				connectorActionValues={connectorActionValues}
 				remoteNodes={remoteNodes}
 				remoteStorageTargetDriverDescriptors={
 					remoteStorageTargetDriverDescriptors
@@ -220,28 +199,23 @@ export function PolicyDialogs({
 				createStepTouched={createStepTouched}
 				endpointValidationMessage={endpointValidationMessage}
 				saveAnywayConfirmOpen={saveAnywayConfirmOpen}
-				onApplyS3CompatibleDriverSuggestion={
-					onApplyS3CompatibleDriverSuggestion
-				}
-				onCancelCosCorsConfigure={onCancelCosCorsConfigure}
+				onCancelConnectorAction={onCancelConnectorAction}
 				onOpenChange={onDialogOpenChange}
 				onCancelSaveAnyway={onCancelSaveAnyway}
-				onCancelS3DriverPromotion={onCancelS3DriverPromotion}
 				onConfirmSaveAnyway={onConfirmSaveAnyway}
-				onConfirmCosCorsConfigure={onConfirmCosCorsConfigure}
-				onConfirmS3DriverPromotion={onConfirmS3DriverPromotion}
+				onConfirmConnectorAction={onConfirmConnectorAction}
 				onStartStorageAuthorization={onStartStorageAuthorization}
 				onValidateStorageCredential={onValidateStorageCredential}
 				onCreateRemoteStorageTarget={onCreateRemoteStorageTarget}
 				onSubmit={onSubmit}
-				onRequestS3DriverPromotion={onRequestS3DriverPromotion}
 				onRunConnectionTest={onRunConnectionTest}
 				onFieldChange={onFieldChange}
-				onDriverTypeChange={onDriverTypeChange}
+				onConnectorActionValueChange={onConnectorActionValueChange}
+				onRequestConnectorAction={onRequestConnectorAction}
+				onConnectorIdChange={onConnectorIdChange}
 				onCreateBack={onCreateBack}
 				onCreateStepChange={onCreateStepChange}
 				onCreateNext={onCreateNext}
-				onSyncNormalizedObjectStorageForm={onSyncNormalizedObjectStorageForm}
 				showCloseButton={showStorageDialogCloseButton}
 				forceDefaultPolicy={forceDefaultPolicy}
 				presentation={storageDialogPresentation}

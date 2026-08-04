@@ -7,7 +7,7 @@ use aster_drive_model::types::{
 /// Connector 对 upload service 暴露的上传传输模型。
 ///
 /// 这个 enum 是 upload service 和 storage connector 之间的边界：upload service 通过它
-/// 决定 Direct / Chunked / Presigned / Multipart，而不是自己 match `DriverType`。
+/// 决定 Direct / Chunked / Presigned / Multipart，而不是自己匹配内建 provider。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageConnectorUploadTransport {
     /// 本机文件系统写入。

@@ -4,7 +4,6 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use aster_drive_migration::Migrator;
 use async_trait::async_trait;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
@@ -18,9 +17,7 @@ use crate::services::mail::sender;
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::storage::{DriverRegistry, PolicySnapshot};
 use aster_drive_model::entities::{file, file_blob, storage_policy, user};
-use aster_drive_model::types::{
-    DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole, UserStatus,
-};
+use aster_drive_model::types::{UserRole, UserStatus};
 use aster_drive_storage::{BlobMetadata, StorageDriver};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
@@ -143,31 +140,18 @@ async fn build_deletion_test_state() -> (
     )
     .await
     .expect("deletion test DB should connect");
-    Migrator::up(&db, None)
-        .await
-        .expect("deletion test migrations should succeed");
+    crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
 
     let now = Utc::now();
-    let policy = storage_policy::ActiveModel {
-        name: Set("Deletion Test Policy".to_string()),
-        driver_type: Set(DriverType::Local),
-        endpoint: Set(String::new()),
-        bucket: Set(String::new()),
-        access_key: Set(String::new()),
-        secret_key: Set(String::new()),
-        base_path: Set(temp_root.join("uploads").to_string_lossy().into_owned()),
-        max_file_size: Set(0),
-        allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-        options: Set(StoredStoragePolicyOptions::empty()),
-        is_default: Set(true),
-        chunk_size: Set(0),
-        created_at: Set(now),
-        updated_at: Set(now),
-        ..Default::default()
-    }
-    .insert(&db)
-    .await
-    .expect("deletion test policy should insert");
+    let mut policy = crate::storage::connectors::test_support::local_policy(
+        temp_root.join("uploads").to_string_lossy().into_owned(),
+    );
+    policy.name = "Deletion Test Policy".to_string();
+    policy.is_default = true;
+    let policy = crate::storage::connectors::test_support::insertable_policy(policy)
+        .insert(&db)
+        .await
+        .expect("deletion test policy should insert");
 
     let user = user::ActiveModel {
         username: Set(format!("deletion-user-{}", uuid::Uuid::new_v4())),
@@ -200,11 +184,12 @@ async fn build_deletion_test_state() -> (
     config.server.upload_temp_dir = temp_root.join(".uploads").to_string_lossy().into_owned();
 
     let driver = TrackingDeleteDriver::default();
-    let driver_registry = Arc::new(DriverRegistry::noop());
+    let driver_registry =
+        Arc::new(DriverRegistry::noop().expect("built-in storage connector registry"));
     driver_registry.insert_for_test(policy.id, Arc::new(driver.clone()));
     let policy_snapshot = Arc::new(PolicySnapshot::new());
-    policy_snapshot
-        .reload(&db)
+    driver_registry
+        .reload_policy_snapshot(&policy_snapshot, &db)
         .await
         .expect("policy snapshot should reload");
 

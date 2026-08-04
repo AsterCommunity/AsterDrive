@@ -4,7 +4,6 @@ use crate::db::repository::{policy_repo, storage_policy_connector_credential_rep
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::storage::StorageConnectorCredentialInfo;
-use aster_drive_model::types::StorageCredentialProvider;
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
@@ -40,14 +39,12 @@ pub async fn list_policy_credentials(
 pub async fn validate_policy_credential(
     state: &impl SharedRuntimeState,
     policy_id: i64,
-    provider: StorageCredentialProvider,
 ) -> Result<StoragePolicyCredentialValidationResult> {
     let policy = policy_repo::find_by_id(state.writer_db(), policy_id).await?;
-    let credential_kind =
+    let (provider, credential_kind) =
         crate::storage::connectors::ensure_storage_credential_validation_supported(
             state.driver_registry().connectors(),
             &policy,
-            provider,
         )?;
     let credential =
         storage_policy_connector_credential_repo::find_by_policy(state.writer_db(), policy_id)

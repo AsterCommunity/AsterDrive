@@ -98,6 +98,7 @@ impl ActiveModelBehavior for ActiveModel {}
 
 #[cfg(test)]
 mod tests {
+    #[allow(dead_code)]
     use super::*;
 
     #[test]

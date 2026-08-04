@@ -356,22 +356,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/policies/storage-credential-providers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["list_storage_credential_providers"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/admin/policies/storage-drivers": {
         parameters: {
             query?: never;
@@ -484,7 +468,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/policies/{id}/storage-credentials/{provider}/validate": {
+    "/api/v1/admin/policies/{id}/storage-credentials/validate": {
         parameters: {
             query?: never;
             header?: never;
@@ -5087,6 +5071,23 @@ export interface components {
          */
         ConfigVisibility: "private" | "public" | "authenticated";
         /**
+         * @description Persisted configuration for exactly one connector.
+         *
+         *     A storage policy currently has one active connector, so a map of historical
+         *     namespaces would only create ambiguous ownership. If the connector is
+         *     temporarily unavailable, this entire envelope is preserved byte-for-byte.
+         */
+        ConnectorConfigEnvelope: {
+            connector_id: components["schemas"]["ConnectorId"];
+            /** Format: int32 */
+            format_version: number;
+            /** Format: int32 */
+            schema_version: number;
+            values: {
+                [key: string]: components["schemas"]["StorageConnectorFieldValue"];
+            };
+        };
+        /**
          * @description Stable connector/plugin identifier.
          *
          *     Built-in connectors use reverse-DNS-style identifiers such as
@@ -5263,11 +5264,6 @@ export interface components {
         DirectLinkTokenInfo: {
             token: string;
         };
-        /**
-         * @description 存储驱动类型
-         * @enum {string}
-         */
-        DriverType: "local" | "s3" | "sftp" | "azure_blob" | "tencent_cos" | "remote" | "one_drive";
         /** @description Check a storage policy migration plan without creating a task. */
         DryRunStoragePolicyMigrationReq: {
             delete_source_after_success?: boolean;
@@ -5315,16 +5311,20 @@ export interface components {
             message: string;
             value?: string | null;
         };
-        /** @description Execute a storage policy action by draft policy parameters. */
-        ExecuteDraftStoragePolicyActionReq: {
-            action: components["schemas"]["StoragePolicyExecutableAction"];
+        ExecuteDraftStorageConnectorActionInput: {
+            action_id: components["schemas"]["StorageConnectorActionId"];
             connection: components["schemas"]["StorageConnectorConnectionInput"];
             /** Format: int64 */
             policy_id?: number | null;
+            values?: {
+                [key: string]: components["schemas"]["StorageConnectorFieldValue"];
+            };
         };
-        /** @description Execute a storage policy action for a saved policy. */
-        ExecuteSavedStoragePolicyActionReq: {
-            action: components["schemas"]["StoragePolicyExecutableAction"];
+        ExecuteSavedStorageConnectorActionInput: {
+            action_id: components["schemas"]["StorageConnectorActionId"];
+            values?: {
+                [key: string]: components["schemas"]["StorageConnectorFieldValue"];
+            };
         };
         ExternalAuthCallbackQuery: {
             code?: string | null;
@@ -6079,25 +6079,6 @@ export interface components {
             /** @description Tenant selector: `common`, `organizations`, `consumers`, or a tenant UUID. */
             tenant: string;
         };
-        MicrosoftGraphAuthorizationContext: {
-            client_id: string;
-            client_secret_configured: boolean;
-            cloud: components["schemas"]["MicrosoftGraphCloud"];
-            scopes: string[];
-            tenant: string;
-        };
-        MicrosoftGraphAuthorizationInput: {
-            client_id?: string | null;
-            client_secret?: string | null;
-            cloud?: null | components["schemas"]["MicrosoftGraphCloud"];
-            scopes?: string[] | null;
-            tenant?: string | null;
-        };
-        /**
-         * @description Microsoft Graph cloud deployment for OneDrive / SharePoint storage backends.
-         * @enum {string}
-         */
-        MicrosoftGraphCloud: "global" | "china";
         /** @description Migrate all user and team assignments from one policy group to another. */
         MigratePolicyGroupAssignmentsReq: {
             /** Format: int64 */
@@ -6584,7 +6565,7 @@ export interface components {
                 behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
                 /** Format: int64 */
                 chunk_size: number;
-                connector_config: Record<string, never>;
+                connector_config: components["schemas"]["ConnectorConfigEnvelope"];
                 connector_id: string;
                 created_at: string;
                 /** Format: int64 */
@@ -6937,7 +6918,7 @@ export interface components {
             behavior?: null | components["schemas"]["StoragePolicyBehaviorConfig"];
             /** Format: int64 */
             chunk_size?: number | null;
-            connector_config: Record<string, never>;
+            connector_config?: null | components["schemas"]["ConnectorConfigEnvelope"];
             credential?: null | components["schemas"]["StorageConnectorCredentialInput"];
             is_default?: boolean | null;
             /** Format: int64 */
@@ -7282,6 +7263,8 @@ export interface components {
         RemoteStorageTargetDriverFieldValidation: {
             relative_local_path: boolean;
         };
+        /** @enum {string} */
+        RemoteStorageTargetDriverKind: "local" | "s3";
         RemoteStorageTargetDriverType: string;
         RemoteStorageTargetInfo: {
             /** Format: int64 */
@@ -7291,7 +7274,7 @@ export interface components {
             created_at: string;
             /** Format: int64 */
             desired_revision: number;
-            driver_type: components["schemas"]["DriverType"];
+            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
             endpoint: string;
             is_default: boolean;
             last_error: string;
@@ -7310,7 +7293,7 @@ export interface components {
             access_key?: string | null;
             base_path?: string | null;
             bucket?: string | null;
-            driver_type?: null | components["schemas"]["DriverType"];
+            driver_type?: null | components["schemas"]["RemoteStorageTargetDriverKind"];
             endpoint?: string | null;
             is_default?: boolean | null;
             name?: string | null;
@@ -7518,11 +7501,6 @@ export interface components {
          * @enum {string}
          */
         SortOrder: "asc" | "desc";
-        /** @description Start an OAuth authorization flow for an administrator-managed storage policy credential. */
-        StartStorageAuthorizationReq: {
-            microsoft_graph?: null | components["schemas"]["MicrosoftGraphAuthorizationInput"];
-            provider: components["schemas"]["StorageCredentialProvider"];
-        };
         StorageAuthorizationCallbackOutcome: {
             credential: components["schemas"]["StorageConnectorCredentialInfo"];
         };
@@ -7536,8 +7514,6 @@ export interface components {
             authorization_url: string;
             /** Format: int64 */
             expires_in: number;
-            microsoft_graph?: null | components["schemas"]["MicrosoftGraphAuthorizationContext"];
-            provider: components["schemas"]["StorageCredentialProvider"];
         };
         StorageCapacityInfo: {
             /** Format: int64 */
@@ -7576,25 +7552,50 @@ export interface components {
             team_id: number;
         };
         StorageConnectorActionDescriptor: {
-            affordance_action?: null | components["schemas"]["StorageConnectorAffordanceAction"];
+            /** @description Connector 内唯一且稳定的 action ID。 */
+            action_id: components["schemas"]["StorageConnectorActionId"];
+            /** @description 前端本地化说明 key。 */
+            description_key: string;
             /** @description 该 action 可通过哪些后端 endpoint 执行。 */
             endpoints?: components["schemas"]["StorageConnectorActionEndpoint"][];
+            /** @description Action-owned input schema. Values are never persisted into the policy. */
+            fields?: components["schemas"]["StorageConnectorFieldDescriptor"][];
             /** @description 用于把 action 归类到授权、连接测试、policy action 等入口。 */
             kind: components["schemas"]["StorageConnectorActionKind"];
+            /** @description 前端本地化 label key。 */
+            label_key: string;
             /** @description true 表示该动作会修改 provider 远端状态。 */
             mutates_remote_state: boolean;
-            policy_action?: null | components["schemas"]["StoragePolicyExecutableAction"];
             /** @description true 表示执行前必须存在可用授权凭据。 */
             requires_authorization: boolean;
+            /** @description true 表示 UI 在执行前应展示明确确认步骤。 */
+            requires_confirmation: boolean;
             /** @description true 表示必须先保存 policy，draft 参数不能执行。 */
             requires_saved_policy: boolean;
         };
         /** @enum {string} */
         StorageConnectorActionEndpoint: "execute_draft_storage_policy_action" | "execute_saved_storage_policy_action" | "start_storage_authorization" | "validate_storage_policy_credential" | "test_policy_params" | "test_policy_connection";
+        /**
+         * @description Stable action identity owned by one connector.
+         *
+         *     The descriptor carries the action's fields and execution contract. This
+         *     newtype only prevents action IDs from being mixed with connector IDs and
+         *     arbitrary field names while crossing registry, API, and audit boundaries.
+         */
+        StorageConnectorActionId: string;
         /** @enum {string} */
-        StorageConnectorActionKind: "policy_action" | "authorization" | "credential_validation" | "connection_test";
-        /** @enum {string} */
-        StorageConnectorAffordanceAction: "start_authorization" | "validate_credential" | "test_draft_connection" | "test_saved_connection";
+        StorageConnectorActionKind: "custom" | "authorization" | "credential_validation" | "connection_test";
+        StorageConnectorActionOutput: {
+            [key: string]: unknown;
+        };
+        StorageConnectorBadgeRgb: {
+            /** Format: int32 */
+            blue: number;
+            /** Format: int32 */
+            green: number;
+            /** Format: int32 */
+            red: number;
+        };
         StorageConnectorCapabilities: {
             /** @description 是否支持容量观测。 */
             capacity: boolean;
@@ -7619,7 +7620,7 @@ export interface components {
         StorageConnectorCatalogContext: "manage" | "create" | "setup";
         StorageConnectorConnectionInput: {
             behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
-            connector_config: Record<string, never>;
+            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
             credential: components["schemas"]["StorageConnectorCredentialInput"];
         };
         StorageConnectorCredentialInfo: {
@@ -7669,27 +7670,20 @@ export interface components {
          *
          *     This is a static connector capability. Deployment-specific filtering and
          *     write guards must consume this field instead of maintaining a separate
-         *     `DriverType` allow/deny list.
+         *     core-owned provider allow/deny list.
          * @enum {string}
          */
         StorageConnectorDeploymentScope: "instance_local" | "shared_across_primary_instances";
-        StorageConnectorDriverRecommendation: {
-            /**
-             * @description Host rules owned by the source connector.
-             *
-             *     This keeps provider-detection rules in connector metadata instead of in
-             *     the admin UI. Frontend code only performs generic URL host matching.
-             */
-            endpoint_host_rules: components["schemas"]["StorageConnectorEndpointHostRule"][];
-            /** @description Candidate connector that should be suggested for matching endpoint hosts. */
-            target_connector_id: components["schemas"]["ConnectorId"];
-        };
-        StorageConnectorEndpointHostRule: {
-            /** @description Suffix hostname match after URL parsing and lower-casing. */
-            ends_with?: string | null;
-            /** @description Exact hostname match after URL parsing and lower-casing. */
-            equals?: string | null;
-        };
+        /**
+         * @description Controls when a connector-declared field default is applied.
+         *
+         *     Missing values use the descriptor default in both modes. Empty text is
+         *     distinct because some connector fields model an omitted optional value,
+         *     while others use an empty form value to request a connector-owned root or
+         *     local default path.
+         * @enum {string}
+         */
+        StorageConnectorFieldDefaultMode: "missing_only" | "missing_or_empty_text";
         /**
          * @description Descriptor 可声明的 JSON 标量默认值。
          *
@@ -7702,6 +7696,11 @@ export interface components {
             allow_endpoint_without_protocol?: boolean;
             /** @description endpoint 允许的 URL protocol，取值与浏览器 `URL.protocol` 一致，例如 `https:`。 */
             allowed_endpoint_protocols?: string[];
+            /**
+             * @description Connector-owned rule deciding whether an empty optional text field also
+             *     resolves to `default_value`.
+             */
+            default_mode?: components["schemas"]["StorageConnectorFieldDefaultMode"];
             default_value?: null | components["schemas"]["StorageConnectorFieldDefaultValue"];
             /** @description 可选 help 文案 key。 */
             help_key?: string | null;
@@ -7713,8 +7712,6 @@ export interface components {
             label_key: string;
             /** @description 提交 payload 中的字段名。 */
             name: string;
-            /** @description select/radio 等枚举控件的稳定取值。 */
-            options?: string[];
             /** @description 可选 placeholder，本地化策略由前端决定。 */
             placeholder?: string | null;
             /** @description 是否必填。复杂条件校验仍由 connector/service 做最终裁决。 */
@@ -7725,6 +7722,7 @@ export interface components {
             scope: components["schemas"]["StorageConnectorFieldScope"];
             /** @description 是否是敏感字段，前端应按 secret input 处理，后端不应明文回显。 */
             secret: boolean;
+            select?: null | components["schemas"]["StorageConnectorSelectDescriptor"];
             /** @description true 表示该字段失焦时前端可以安全 trim。 */
             trim_on_blur?: boolean;
             /** @description 可被前端用于即时反馈、且必须由后端再次执行的基础约束。 */
@@ -7733,7 +7731,7 @@ export interface components {
         /** @enum {string} */
         StorageConnectorFieldKind: "text" | "secret" | "select" | "boolean" | "number";
         /** @enum {string} */
-        StorageConnectorFieldScope: "connector_config" | "static_credential" | "authorization_application";
+        StorageConnectorFieldScope: "connector_config" | "static_credential" | "authorization_application" | "action_input";
         StorageConnectorFieldValidation: {
             /** Format: int64 */
             max_integer?: number | null;
@@ -7742,6 +7740,13 @@ export interface components {
             /** Format: int64 */
             min_integer?: number | null;
         };
+        /**
+         * @description Scalar value accepted by connector config and action field contracts.
+         *
+         *     Complex values must be decomposed into named descriptor fields so the
+         *     admin UI and backend validator share an inspectable schema.
+         */
+        StorageConnectorFieldValue: boolean | number | string;
         StorageConnectorObjectMultipartUploadCapabilities: {
             /** @description 是否支持清理未完成的 provider multipart/block upload。 */
             abort_supported: boolean;
@@ -7797,6 +7802,40 @@ export interface components {
             /** @description 当前实现是否向上层暴露 provider-native status/query。 */
             status_query_supported: boolean;
         };
+        /**
+         * @description Platform-provided option catalogs that a connector field can consume.
+         *
+         *     The platform owns loading these catalogs. The connector only opts into one
+         *     and declares field dependencies, so the UI never infers behavior from a
+         *     provider id or field name.
+         * @enum {string}
+         */
+        StorageConnectorSelectDataSource: "remote_nodes" | "remote_storage_targets";
+        StorageConnectorSelectDescriptor: {
+            data_source?: null | components["schemas"]["StorageConnectorSelectDataSource"];
+            /** @description Field whose current value scopes the dynamic catalog. */
+            depends_on?: string | null;
+            /** @description Connector-owned fixed choices. Mutually exclusive with `data_source`. */
+            options?: components["schemas"]["StorageConnectorSelectOption"][];
+            value_kind: components["schemas"]["StorageConnectorSelectValueKind"];
+        };
+        StorageConnectorSelectOption: {
+            /** @description Optional connector-owned explanation for richer selectors. */
+            description_key?: string | null;
+            /** @description Connector-owned frontend localization key. */
+            label_key: string;
+            /** @description Stable value submitted in the connector payload. */
+            value: components["schemas"]["StorageConnectorSelectOptionValue"];
+        };
+        StorageConnectorSelectOptionValue: number | string;
+        /**
+         * @description Scalar type submitted by a select field.
+         *
+         *     Select is a UI control, not a wire type. Keeping the value type explicit is
+         *     required for dynamic choices such as a numeric remote node id.
+         * @enum {string}
+         */
+        StorageConnectorSelectValueKind: "string" | "integer";
         StorageConnectorSimpleUploadCapabilities: {
             /**
              * Format: int64
@@ -7809,6 +7848,14 @@ export interface components {
             server_side_relay: boolean;
         };
         StorageConnectorUiDescriptor: {
+            /**
+             * @description Connector-owned badge accent color.
+             *
+             *     Keeping the color as structured RGB data lets external connectors pick
+             *     their own presentation without extending a core-owned color enum or
+             *     sending executable CSS through the descriptor API.
+             */
+            badge_rgb: components["schemas"]["StorageConnectorBadgeRgb"];
             /** @description base_path 为空时展示的 fallback 文案。 */
             base_path_empty_display: string;
             /** @description base_path input placeholder。 */
@@ -7858,12 +7905,6 @@ export interface components {
          * @enum {string}
          */
         StorageCredentialProvider: "microsoft_graph" | "google_drive";
-        StorageCredentialProviderInfo: {
-            default_scopes: string[];
-            display_name: string;
-            provider: components["schemas"]["StorageCredentialProvider"];
-            supported: boolean;
-        };
         /**
          * @description Current usability state of a stored storage policy credential.
          * @enum {string}
@@ -7874,7 +7915,7 @@ export interface components {
             behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
             /** Format: int64 */
             chunk_size: number;
-            connector_config: Record<string, never>;
+            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
             connector_id: string;
             created_at: string;
             /** Format: int64 */
@@ -7886,10 +7927,10 @@ export interface components {
             updated_at: string;
         };
         StoragePolicyActionResult: {
-            action: components["schemas"]["StoragePolicyExecutableAction"];
+            action_id: components["schemas"]["StorageConnectorActionId"];
             diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
             ok: boolean;
-            tencent_cos_cors?: null | components["schemas"]["TencentCosCorsConfigResult"];
+            output?: null | components["schemas"]["StorageConnectorActionOutput"];
         };
         StoragePolicyBehaviorConfig: {
             media_metadata_extensions?: string[];
@@ -7907,8 +7948,6 @@ export interface components {
             message: string;
             retryable: boolean;
         };
-        /** @enum {string} */
-        StoragePolicyExecutableAction: "configure_tencent_cos_cors";
         StoragePolicyGroup: {
             created_at: string;
             description: string;
@@ -8314,14 +8353,6 @@ export interface components {
             label_i18n_key: string;
             /** @description Placeholder token displayed in UI, such as `{{username}}`. */
             token: string;
-        };
-        TencentCosCorsConfigResult: {
-            allowed_origins: string[];
-            preserved_rule_count: number;
-            replaced_existing_rule: boolean;
-            request_id?: string | null;
-            response_vary: boolean;
-            rule_id: string;
         };
         /** @description Test WebDAV credentials. */
         TestConnectionReq: {
@@ -10427,7 +10458,7 @@ export interface operations {
                                 behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
                                 /** Format: int64 */
                                 chunk_size: number;
-                                connector_config: Record<string, never>;
+                                connector_config: components["schemas"]["ConnectorConfigEnvelope"];
                                 connector_id: string;
                                 created_at: string;
                                 /** Format: int64 */
@@ -10501,7 +10532,7 @@ export interface operations {
                             behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
                             /** Format: int64 */
                             chunk_size: number;
-                            connector_config: Record<string, never>;
+                            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
                             connector_id: string;
                             created_at: string;
                             /** Format: int64 */
@@ -10542,7 +10573,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ExecuteDraftStoragePolicyActionReq"];
+                "application/json": components["schemas"]["ExecuteDraftStorageConnectorActionInput"];
             };
         };
         responses: {
@@ -10555,10 +10586,10 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
-                            action: components["schemas"]["StoragePolicyExecutableAction"];
+                            action_id: components["schemas"]["StorageConnectorActionId"];
                             diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
                             ok: boolean;
-                            tencent_cos_cors?: null | components["schemas"]["TencentCosCorsConfigResult"];
+                            output?: null | components["schemas"]["StorageConnectorActionOutput"];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -10611,50 +10642,6 @@ export interface operations {
             };
         };
     };
-    list_storage_credential_providers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Supported storage credential providers */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        code: components["schemas"]["ApiErrorCode"];
-                        data?: {
-                            default_scopes: string[];
-                            display_name: string;
-                            provider: components["schemas"]["StorageCredentialProvider"];
-                            supported: boolean;
-                        }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
-                        msg: string;
-                    };
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     list_storage_driver_descriptors: {
         parameters: {
             query?: {
@@ -10694,8 +10681,6 @@ export interface operations {
                             deployment_scope: components["schemas"]["StorageConnectorDeploymentScope"];
                             /** @description 人类可读说明。 */
                             description: string;
-                            /** @description Connector-owned recommendations for moving a policy to a more specific driver. */
-                            driver_recommendations?: components["schemas"]["StorageConnectorDriverRecommendation"][];
                             /** @description 管理端配置字段声明。 */
                             fields: components["schemas"]["StorageConnectorFieldDescriptor"][];
                             /** @description 人类可读名称。 */
@@ -10809,7 +10794,7 @@ export interface operations {
                             behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
                             /** Format: int64 */
                             chunk_size: number;
-                            connector_config: Record<string, never>;
+                            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
                             connector_id: string;
                             created_at: string;
                             /** Format: int64 */
@@ -10921,7 +10906,7 @@ export interface operations {
                             behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
                             /** Format: int64 */
                             chunk_size: number;
-                            connector_config: Record<string, never>;
+                            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
                             connector_id: string;
                             created_at: string;
                             /** Format: int64 */
@@ -10972,7 +10957,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ExecuteSavedStoragePolicyActionReq"];
+                "application/json": components["schemas"]["ExecuteSavedStorageConnectorActionInput"];
             };
         };
         responses: {
@@ -10985,10 +10970,10 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
-                            action: components["schemas"]["StoragePolicyExecutableAction"];
+                            action_id: components["schemas"]["StorageConnectorActionId"];
                             diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
                             ok: boolean;
-                            tencent_cos_cors?: null | components["schemas"]["TencentCosCorsConfigResult"];
+                            output?: null | components["schemas"]["StorageConnectorActionOutput"];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -11094,11 +11079,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StartStorageAuthorizationReq"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Storage credential authorization URL */
             200: {
@@ -11112,8 +11093,6 @@ export interface operations {
                             authorization_url: string;
                             /** Format: int64 */
                             expires_in: number;
-                            microsoft_graph?: null | components["schemas"]["MicrosoftGraphAuthorizationContext"];
-                            provider: components["schemas"]["StorageCredentialProvider"];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -11225,8 +11204,6 @@ export interface operations {
             path: {
                 /** @description Policy ID */
                 id: number;
-                /** @description Storage credential provider */
-                provider: string;
             };
             cookie?: never;
         };
@@ -12146,7 +12123,7 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             description_key: string;
-                            driver_type: components["schemas"]["DriverType"];
+                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
                             fields: components["schemas"]["RemoteStorageTargetDriverFieldDescriptor"][];
                             label_key: string;
                         }[];
@@ -12206,7 +12183,7 @@ export interface operations {
                             created_at: string;
                             /** Format: int64 */
                             desired_revision: number;
-                            driver_type: components["schemas"]["DriverType"];
+                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
                             endpoint: string;
                             is_default: boolean;
                             last_error: string;
@@ -12281,7 +12258,7 @@ export interface operations {
                             created_at: string;
                             /** Format: int64 */
                             desired_revision: number;
-                            driver_type: components["schemas"]["DriverType"];
+                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
                             endpoint: string;
                             is_default: boolean;
                             last_error: string;
@@ -12409,7 +12386,7 @@ export interface operations {
                             created_at: string;
                             /** Format: int64 */
                             desired_revision: number;
-                            driver_type: components["schemas"]["DriverType"];
+                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
                             endpoint: string;
                             is_default: boolean;
                             last_error: string;

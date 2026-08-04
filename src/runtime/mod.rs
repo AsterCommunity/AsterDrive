@@ -51,17 +51,27 @@ pub struct FollowerAppState {
     pub metrics: SharedMetricsRecorder,
 }
 
-/// Product runtime dependencies available on both primary and follower nodes.
+/// Runtime dependencies required by storage connector configuration workflows.
 ///
-/// Storage connectors receive a narrower [`crate::storage::connectors::StorageConnectorContext`]
-/// assembled from this state instead of depending on the product state directly.
-pub trait SharedRuntimeState {
+/// This boundary is limited to persistence, connector lookup, and the two
+/// configuration views needed to construct or reload a connector. Connector
+/// workflows must not inherit reader projections, cache, metrics, or unrelated
+/// product services from the concrete application state.
+pub trait StorageConnectorRuntimeState {
     fn writer_db(&self) -> &DatabaseConnection;
-    fn reader_db(&self) -> &DatabaseConnection;
     fn driver_registry(&self) -> &Arc<DriverRegistry>;
     fn runtime_config(&self) -> &Arc<RuntimeConfig>;
-    fn policy_snapshot(&self) -> &Arc<PolicySnapshot>;
     fn config(&self) -> &Arc<Config>;
+}
+
+/// Product runtime dependencies shared by primary and follower nodes.
+///
+/// Storage connector workflows should prefer StorageConnectorRuntimeState;
+/// this broader contract is for use cases that also need read projections or
+/// other product-wide runtime services.
+pub trait SharedRuntimeState: StorageConnectorRuntimeState {
+    fn reader_db(&self) -> &DatabaseConnection;
+    fn policy_snapshot(&self) -> &Arc<PolicySnapshot>;
     fn cache(&self) -> &Arc<dyn aster_forge_cache::CacheBackend>;
     fn config_sync(&self) -> &aster_forge_config::ConfigSyncRuntime;
     fn metrics(&self) -> &SharedMetricsRecorder;
@@ -175,13 +185,9 @@ impl FollowerAppState {
     }
 }
 
-impl SharedRuntimeState for PrimaryAppState {
+impl StorageConnectorRuntimeState for PrimaryAppState {
     fn writer_db(&self) -> &DatabaseConnection {
         self.db_handles.writer()
-    }
-
-    fn reader_db(&self) -> &DatabaseConnection {
-        self.db_handles.reader()
     }
 
     fn driver_registry(&self) -> &Arc<DriverRegistry> {
@@ -192,12 +198,18 @@ impl SharedRuntimeState for PrimaryAppState {
         &self.runtime_config
     }
 
-    fn policy_snapshot(&self) -> &Arc<PolicySnapshot> {
-        &self.policy_snapshot
-    }
-
     fn config(&self) -> &Arc<Config> {
         &self.config
+    }
+}
+
+impl SharedRuntimeState for PrimaryAppState {
+    fn reader_db(&self) -> &DatabaseConnection {
+        self.db_handles.reader()
+    }
+
+    fn policy_snapshot(&self) -> &Arc<PolicySnapshot> {
+        &self.policy_snapshot
     }
 
     fn cache(&self) -> &Arc<dyn aster_forge_cache::CacheBackend> {
@@ -243,13 +255,9 @@ impl TaskRuntimeState for PrimaryAppState {
     }
 }
 
-impl SharedRuntimeState for FollowerAppState {
+impl StorageConnectorRuntimeState for FollowerAppState {
     fn writer_db(&self) -> &DatabaseConnection {
         self.db_handles.writer()
-    }
-
-    fn reader_db(&self) -> &DatabaseConnection {
-        self.db_handles.reader()
     }
 
     fn driver_registry(&self) -> &Arc<DriverRegistry> {
@@ -260,12 +268,18 @@ impl SharedRuntimeState for FollowerAppState {
         &self.runtime_config
     }
 
-    fn policy_snapshot(&self) -> &Arc<PolicySnapshot> {
-        &self.policy_snapshot
-    }
-
     fn config(&self) -> &Arc<Config> {
         &self.config
+    }
+}
+
+impl SharedRuntimeState for FollowerAppState {
+    fn reader_db(&self) -> &DatabaseConnection {
+        self.db_handles.reader()
+    }
+
+    fn policy_snapshot(&self) -> &Arc<PolicySnapshot> {
+        &self.policy_snapshot
     }
 
     fn cache(&self) -> &Arc<dyn aster_forge_cache::CacheBackend> {
@@ -285,7 +299,7 @@ impl FollowerRuntimeState for FollowerAppState {}
 
 #[cfg(test)]
 pub(crate) mod test_support {
-    use super::SharedRuntimeState;
+    use super::{SharedRuntimeState, StorageConnectorRuntimeState};
     use crate::config::{Config, RuntimeConfig};
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use aster_drive_metrics::SharedMetricsRecorder;
@@ -315,13 +329,9 @@ pub(crate) mod test_support {
         }
     }
 
-    impl SharedRuntimeState for CacheOnlyState {
+    impl StorageConnectorRuntimeState for CacheOnlyState {
         fn writer_db(&self) -> &DatabaseConnection {
             panic!("cache-only test state must not access writer_db")
-        }
-
-        fn reader_db(&self) -> &DatabaseConnection {
-            panic!("cache-only test state must not access reader_db")
         }
 
         fn driver_registry(&self) -> &Arc<DriverRegistry> {
@@ -332,12 +342,18 @@ pub(crate) mod test_support {
             panic!("cache-only test state must not access runtime_config")
         }
 
-        fn policy_snapshot(&self) -> &Arc<PolicySnapshot> {
-            panic!("cache-only test state must not access policy_snapshot")
-        }
-
         fn config(&self) -> &Arc<Config> {
             &self.config
+        }
+    }
+
+    impl SharedRuntimeState for CacheOnlyState {
+        fn reader_db(&self) -> &DatabaseConnection {
+            panic!("cache-only test state must not access reader_db")
+        }
+
+        fn policy_snapshot(&self) -> &Arc<PolicySnapshot> {
+            panic!("cache-only test state must not access policy_snapshot")
         }
 
         fn cache(&self) -> &Arc<dyn aster_forge_cache::CacheBackend> {
@@ -356,7 +372,9 @@ pub(crate) mod test_support {
 
 #[cfg(test)]
 mod tests {
-    use super::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
+    use super::{
+        PrimaryAppState, SharedRuntimeState, StorageConnectorRuntimeState, TaskRuntimeState,
+    };
     use crate::config::{Config, RuntimeConfig};
     use crate::services::share::build_share_download_rollback_queue;
     use crate::storage::{DriverRegistry, PolicySnapshot};
@@ -393,7 +411,9 @@ mod tests {
 
         let state = PrimaryAppState {
             db_handles: aster_forge_db::DbHandles::single(db),
-            driver_registry: Arc::new(DriverRegistry::noop()),
+            driver_registry: Arc::new(
+                DriverRegistry::noop().expect("built-in storage connector registry"),
+            ),
             runtime_config,
             policy_snapshot: Arc::new(PolicySnapshot::new()),
             config: Arc::new(Config::default()),
@@ -441,8 +461,8 @@ mod tests {
             follower.reader_db().get_database_backend()
         );
         assert_eq!(
-            SharedRuntimeState::writer_db(&state).get_database_backend(),
-            SharedRuntimeState::writer_db(&follower).get_database_backend()
+            StorageConnectorRuntimeState::writer_db(&state).get_database_backend(),
+            StorageConnectorRuntimeState::writer_db(&follower).get_database_backend()
         );
         assert_eq!(
             SharedRuntimeState::reader_db(&state).get_database_backend(),

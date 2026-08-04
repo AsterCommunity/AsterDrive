@@ -6,7 +6,7 @@ use super::*;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::AsterError;
 use actix_web::{App, HttpRequest, HttpResponse, HttpServer, web};
-use aster_drive_model::types::DriverType;
+use aster_drive_model::types::RemoteStorageTargetDriverKind;
 use aster_drive_storage::error::StorageErrorKind;
 use aster_drive_storage::{PresignedDownloadOptions, StorageCapacityInfo, StorageCapacityStatus};
 use std::collections::HashMap;
@@ -463,7 +463,7 @@ fn s3_ingress_profile_create_debug_redacts_credentials() {
 fn ingress_profile_update_debug_redacts_optional_credentials() {
     let request = RemoteUpdateStorageTargetRequest {
         name: Some("s3".to_string()),
-        driver_type: Some(DriverType::S3),
+        driver_type: Some(RemoteStorageTargetDriverKind::S3),
         endpoint: Some("https://s3.example.com".to_string()),
         bucket: Some("bucket-a".to_string()),
         access_key: Some("plain-access-key".to_string()),
@@ -1212,11 +1212,11 @@ fn remote_storage_target_capabilities_accept_unknown_driver_ids() {
         .remote_storage_target
         .as_ref()
         .expect("remote storage target capabilities should decode");
-    assert!(remote_storage_target.supports_known_driver(DriverType::Local));
-    assert!(!remote_storage_target.supports_known_driver(DriverType::S3));
+    assert!(remote_storage_target.supports_known_driver(RemoteStorageTargetDriverKind::Local));
+    assert!(!remote_storage_target.supports_known_driver(RemoteStorageTargetDriverKind::S3));
     assert_eq!(
         remote_storage_target.driver_types[0].as_known_driver_type(),
-        Some(DriverType::Local)
+        Some(RemoteStorageTargetDriverKind::Local)
     );
     assert_eq!(
         remote_storage_target.driver_types[1].as_known_driver_type(),
@@ -1244,7 +1244,7 @@ fn remote_storage_target_capabilities_require_enabled_and_matching_driver() {
             .remote_storage_target
             .as_ref()
             .expect("remote storage target capabilities should decode")
-            .supports_known_driver(DriverType::Local)
+            .supports_known_driver(RemoteStorageTargetDriverKind::Local)
     );
 
     let enabled_without_driver_types: RemoteStorageCapabilities =
@@ -1261,7 +1261,7 @@ fn remote_storage_target_capabilities_require_enabled_and_matching_driver() {
             .remote_storage_target
             .as_ref()
             .expect("remote storage target capabilities should decode")
-            .supports_known_driver(DriverType::Local)
+            .supports_known_driver(RemoteStorageTargetDriverKind::Local)
     );
 
     let enabled_with_unknown_only: RemoteStorageCapabilities =
@@ -1279,14 +1279,17 @@ fn remote_storage_target_capabilities_require_enabled_and_matching_driver() {
             .remote_storage_target
             .as_ref()
             .expect("remote storage target capabilities should decode")
-            .supports_known_driver(DriverType::Local)
+            .supports_known_driver(RemoteStorageTargetDriverKind::Local)
     );
 }
 
 #[test]
 fn remote_storage_target_capabilities_serialize_known_driver_ids_as_strings() {
     let capabilities = RemoteStorageCapabilities::current()
-        .with_remote_storage_target_driver_types(vec![DriverType::Local, DriverType::S3]);
+        .with_remote_storage_target_driver_types(vec![
+            RemoteStorageTargetDriverKind::Local,
+            RemoteStorageTargetDriverKind::S3,
+        ]);
 
     let value = serde_json::to_value(&capabilities)
         .expect("remote storage target capabilities should serialize");
@@ -1306,9 +1309,8 @@ fn remote_storage_target_capabilities_serialize_known_driver_ids_as_strings() {
         .remote_storage_target
         .as_ref()
         .expect("remote storage target capabilities should roundtrip");
-    assert!(remote_storage_target.supports_known_driver(DriverType::Local));
-    assert!(remote_storage_target.supports_known_driver(DriverType::S3));
-    assert!(!remote_storage_target.supports_known_driver(DriverType::Remote));
+    assert!(remote_storage_target.supports_known_driver(RemoteStorageTargetDriverKind::Local));
+    assert!(remote_storage_target.supports_known_driver(RemoteStorageTargetDriverKind::S3));
 }
 
 #[test]
@@ -1327,8 +1329,8 @@ fn remote_storage_target_capabilities_decode_new_alias() {
         .remote_storage_target
         .as_ref()
         .expect("remote storage target capabilities should decode from alias");
-    assert!(remote_storage_target.supports_known_driver(DriverType::Local));
-    assert!(remote_storage_target.supports_known_driver(DriverType::S3));
+    assert!(remote_storage_target.supports_known_driver(RemoteStorageTargetDriverKind::Local));
+    assert!(remote_storage_target.supports_known_driver(RemoteStorageTargetDriverKind::S3));
 }
 
 #[test]
@@ -1376,6 +1378,6 @@ fn missing_remote_storage_target_capabilities_remain_wire_missing() {
             .remote_storage_target
             .as_ref()
             .expect("remote storage target capabilities should decode")
-            .supports_known_driver(DriverType::Local)
+            .supports_known_driver(RemoteStorageTargetDriverKind::Local)
     );
 }

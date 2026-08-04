@@ -10,7 +10,7 @@ use crate::storage::drivers::{
     s3::{S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials},
 };
 use aster_drive_model::entities::remote_storage_target;
-use aster_drive_model::types::DriverType;
+use aster_drive_model::types::RemoteStorageTargetDriverKind;
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::field_contract::{
     StorageDescriptorFieldKind, StorageDescriptorFieldSemantics, normalize_object_storage_prefix,
@@ -23,7 +23,7 @@ use utoipa::ToSchema;
 use super::paths::{normalize_relative_local_path, resolve_remote_storage_target_local_path};
 
 pub(in crate::services::remote::storage_target) struct RemoteStorageTargetDriverFields {
-    pub driver_type: DriverType,
+    pub driver_type: RemoteStorageTargetDriverKind,
     pub endpoint: String,
     pub bucket: String,
     pub access_key: String,
@@ -32,7 +32,7 @@ pub(in crate::services::remote::storage_target) struct RemoteStorageTargetDriver
 }
 
 pub(in crate::services::remote::storage_target) struct NormalizedRemoteStorageTargetDriverFields {
-    pub driver_type: DriverType,
+    pub driver_type: RemoteStorageTargetDriverKind,
     pub endpoint: String,
     pub bucket: String,
     pub access_key: String,
@@ -101,7 +101,7 @@ pub struct RemoteStorageTargetDriverFieldDescriptor {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RemoteStorageTargetDriverDescriptor {
-    pub driver_type: DriverType,
+    pub driver_type: RemoteStorageTargetDriverKind,
     pub label_key: String,
     pub description_key: String,
     pub fields: Vec<RemoteStorageTargetDriverFieldDescriptor>,
@@ -172,7 +172,7 @@ fn remote_storage_target_boolean_field(
 }
 
 trait RemoteStorageTargetDriverConnector {
-    fn driver_type() -> DriverType;
+    fn driver_type() -> RemoteStorageTargetDriverKind;
 
     fn descriptor() -> Result<RemoteStorageTargetDriverDescriptor>;
 
@@ -194,8 +194,8 @@ trait RemoteStorageTargetDriverConnector {
 struct LocalRemoteStorageTargetDriverConnector;
 
 impl RemoteStorageTargetDriverConnector for LocalRemoteStorageTargetDriverConnector {
-    fn driver_type() -> DriverType {
-        DriverType::Local
+    fn driver_type() -> RemoteStorageTargetDriverKind {
+        RemoteStorageTargetDriverKind::Local
     }
 
     fn descriptor() -> Result<RemoteStorageTargetDriverDescriptor> {
@@ -279,8 +279,8 @@ impl RemoteStorageTargetDriverConnector for LocalRemoteStorageTargetDriverConnec
 struct S3RemoteStorageTargetDriverConnector;
 
 impl RemoteStorageTargetDriverConnector for S3RemoteStorageTargetDriverConnector {
-    fn driver_type() -> DriverType {
-        DriverType::S3
+    fn driver_type() -> RemoteStorageTargetDriverKind {
+        RemoteStorageTargetDriverKind::S3
     }
 
     fn descriptor() -> Result<RemoteStorageTargetDriverDescriptor> {
@@ -391,7 +391,7 @@ fn s3_target_runtime(
 }
 
 struct RemoteStorageTargetDriverRegistration {
-    driver_type: DriverType,
+    driver_type: RemoteStorageTargetDriverKind,
     connector: BuiltinRemoteStorageTargetDriverConnector,
 }
 
@@ -444,17 +444,17 @@ impl BuiltinRemoteStorageTargetDriverConnector {
 
 static REMOTE_STORAGE_TARGET_DRIVER_REGISTRATIONS: &[RemoteStorageTargetDriverRegistration] = &[
     RemoteStorageTargetDriverRegistration {
-        driver_type: DriverType::Local,
+        driver_type: RemoteStorageTargetDriverKind::Local,
         connector: BuiltinRemoteStorageTargetDriverConnector::Local,
     },
     RemoteStorageTargetDriverRegistration {
-        driver_type: DriverType::S3,
+        driver_type: RemoteStorageTargetDriverKind::S3,
         connector: BuiltinRemoteStorageTargetDriverConnector::S3,
     },
 ];
 
 fn registration_for(
-    driver_type: DriverType,
+    driver_type: RemoteStorageTargetDriverKind,
 ) -> Result<&'static RemoteStorageTargetDriverRegistration> {
     REMOTE_STORAGE_TARGET_DRIVER_REGISTRATIONS
         .iter()
@@ -462,7 +462,8 @@ fn registration_for(
         .ok_or_else(|| remote_storage_target_unsupported_driver_error(driver_type))
 }
 
-pub(crate) fn registered_remote_storage_target_driver_types() -> Vec<DriverType> {
+pub(crate) fn registered_remote_storage_target_driver_types() -> Vec<RemoteStorageTargetDriverKind>
+{
     REMOTE_STORAGE_TARGET_DRIVER_REGISTRATIONS
         .iter()
         .map(|registration| registration.driver_type)
@@ -479,7 +480,7 @@ pub(crate) fn list_registered_remote_storage_target_driver_descriptors()
 }
 
 pub fn remote_storage_target_driver_descriptor(
-    driver_type: DriverType,
+    driver_type: RemoteStorageTargetDriverKind,
 ) -> Result<RemoteStorageTargetDriverDescriptor> {
     registration_for(driver_type)?.connector.descriptor()
 }
@@ -512,7 +513,9 @@ pub(in crate::services::remote::storage_target) fn build_driver_from_target<
     registration.connector.build_driver(state, target)
 }
 
-fn remote_storage_target_unsupported_driver_error(driver_type: DriverType) -> AsterError {
+fn remote_storage_target_unsupported_driver_error(
+    driver_type: RemoteStorageTargetDriverKind,
+) -> AsterError {
     validation_error_with_code(
         ApiErrorCode::ManagedIngressDriverUnsupported,
         format!(

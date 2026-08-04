@@ -1,6 +1,6 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::Result;
-use aster_drive_model::types::DriverType;
+use aster_drive_model::types::RemoteStorageTargetDriverKind;
 use aster_drive_storage::StorageCapacityInfo;
 use aster_drive_storage::StorageErrorKind;
 use serde::{Deserialize, Serialize};
@@ -94,7 +94,7 @@ impl RemoteStorageCapabilities {
 
     pub fn with_remote_storage_target_driver_types(
         mut self,
-        driver_types: Vec<DriverType>,
+        driver_types: Vec<RemoteStorageTargetDriverKind>,
     ) -> Self {
         self.remote_storage_target = Some(
             RemoteStorageTargetCapabilities::from_known_driver_types(driver_types),
@@ -177,7 +177,7 @@ pub struct RemoteStorageTargetCapabilities {
 }
 
 impl RemoteStorageTargetCapabilities {
-    pub fn from_known_driver_types(driver_types: Vec<DriverType>) -> Self {
+    pub fn from_known_driver_types(driver_types: Vec<RemoteStorageTargetDriverKind>) -> Self {
         Self {
             enabled: !driver_types.is_empty(),
             driver_types: driver_types
@@ -187,7 +187,7 @@ impl RemoteStorageTargetCapabilities {
         }
     }
 
-    pub fn supports_known_driver(&self, driver_type: DriverType) -> bool {
+    pub fn supports_known_driver(&self, driver_type: RemoteStorageTargetDriverKind) -> bool {
         self.enabled
             && self
                 .driver_types
@@ -202,7 +202,7 @@ impl RemoteStorageTargetCapabilities {
 pub struct RemoteStorageTargetDriverType(String);
 
 impl RemoteStorageTargetDriverType {
-    pub fn from_known_driver_type(driver_type: DriverType) -> Self {
+    pub fn from_known_driver_type(driver_type: RemoteStorageTargetDriverKind) -> Self {
         Self(driver_type.as_str().to_string())
     }
 
@@ -210,11 +210,11 @@ impl RemoteStorageTargetDriverType {
         &self.0
     }
 
-    pub fn as_known_driver_type(&self) -> Option<DriverType> {
+    pub fn as_known_driver_type(&self) -> Option<RemoteStorageTargetDriverKind> {
         self.0.parse().ok()
     }
 
-    pub fn matches_known_driver(&self, driver_type: DriverType) -> bool {
+    pub fn matches_known_driver(&self, driver_type: RemoteStorageTargetDriverKind) -> bool {
         self.as_str() == driver_type.as_str()
     }
 }
@@ -368,7 +368,7 @@ pub struct RemoteBindingSyncRequest {
 pub struct RemoteStorageTargetInfo {
     pub target_key: String,
     pub name: String,
-    pub driver_type: DriverType,
+    pub driver_type: RemoteStorageTargetDriverKind,
     pub endpoint: String,
     pub bucket: String,
     pub base_path: String,
@@ -391,10 +391,10 @@ pub enum RemoteCreateStorageTargetRequest {
 }
 
 impl RemoteCreateStorageTargetRequest {
-    pub fn driver_type(&self) -> DriverType {
+    pub fn driver_type(&self) -> RemoteStorageTargetDriverKind {
         match self {
-            Self::Local(_) => DriverType::Local,
-            Self::S3(_) => DriverType::S3,
+            Self::Local(_) => RemoteStorageTargetDriverKind::Local,
+            Self::S3(_) => RemoteStorageTargetDriverKind::S3,
         }
     }
 }
@@ -439,7 +439,7 @@ impl fmt::Debug for RemoteCreateS3StorageTargetRequest {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RemoteUpdateStorageTargetRequest {
     pub name: Option<String>,
-    pub driver_type: Option<DriverType>,
+    pub driver_type: Option<RemoteStorageTargetDriverKind>,
     pub endpoint: Option<String>,
     pub bucket: Option<String>,
     pub access_key: Option<String>,

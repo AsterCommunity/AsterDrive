@@ -1,8 +1,8 @@
 use super::{
     create, delete,
     driver::{
-        build_driver_from_target, list_registered_remote_storage_target_driver_descriptors,
-        registered_remote_storage_target_driver_types, validate_driver_from_target,
+        list_registered_remote_storage_target_driver_descriptors,
+        registered_remote_storage_target_driver_types,
     },
     list,
     normalization::{normalize_create_input, normalize_update_input},
@@ -11,14 +11,14 @@ use super::{
 };
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{master_binding_repo, remote_storage_target_repo};
-use crate::runtime::{FollowerRuntimeState, SharedRuntimeState};
+use crate::runtime::{FollowerRuntimeState, SharedRuntimeState, StorageConnectorRuntimeState};
 use crate::storage::remote_protocol::{
     RemoteCreateLocalStorageTargetRequest, RemoteCreateS3StorageTargetRequest,
     RemoteCreateStorageTargetRequest, RemoteUpdateStorageTargetRequest,
 };
 use aster_drive_metrics::SharedMetricsRecorder;
 use aster_drive_model::entities::{master_binding, remote_storage_target};
-use aster_drive_model::types::DriverType;
+use aster_drive_model::types::RemoteStorageTargetDriverKind;
 use chrono::Utc;
 use sea_orm::{DatabaseConnection, Set};
 use std::fs;
@@ -35,12 +35,8 @@ struct TestFollowerState {
     metrics: SharedMetricsRecorder,
 }
 
-impl SharedRuntimeState for TestFollowerState {
+impl StorageConnectorRuntimeState for TestFollowerState {
     fn writer_db(&self) -> &DatabaseConnection {
-        &self.db
-    }
-
-    fn reader_db(&self) -> &DatabaseConnection {
         &self.db
     }
 
@@ -52,12 +48,18 @@ impl SharedRuntimeState for TestFollowerState {
         &self.runtime_config
     }
 
-    fn policy_snapshot(&self) -> &Arc<crate::storage::PolicySnapshot> {
-        &self.policy_snapshot
-    }
-
     fn config(&self) -> &Arc<crate::config::Config> {
         &self.config
+    }
+}
+
+impl SharedRuntimeState for TestFollowerState {
+    fn reader_db(&self) -> &DatabaseConnection {
+        &self.db
+    }
+
+    fn policy_snapshot(&self) -> &Arc<crate::storage::PolicySnapshot> {
+        &self.policy_snapshot
     }
 
     fn cache(&self) -> &Arc<dyn aster_forge_cache::CacheBackend> {
@@ -111,7 +113,9 @@ async fn setup_state() -> TestFollowerState {
 
     TestFollowerState {
         db,
-        driver_registry: Arc::new(crate::storage::DriverRegistry::noop()),
+        driver_registry: Arc::new(
+            crate::storage::DriverRegistry::noop().expect("built-in storage connector registry"),
+        ),
         runtime_config: Arc::new(crate::config::RuntimeConfig::new()),
         policy_snapshot: Arc::new(crate::storage::PolicySnapshot::new()),
         config,
@@ -167,7 +171,7 @@ fn s3_create(
     })
 }
 
-fn model_with_driver(driver_type: DriverType) -> remote_storage_target::Model {
+fn model_with_driver(driver_type: RemoteStorageTargetDriverKind) -> remote_storage_target::Model {
     let now = Utc::now();
     remote_storage_target::Model {
         id: 1,
@@ -299,7 +303,7 @@ fn resolve_remote_storage_target_local_path_rejects_empty_root() {
 fn normalize_create_input_trims_local_and_s3_fields() {
     let local = normalize_create_input(local_create(" Local ", " ./dropbox/ ", true)).unwrap();
     assert_eq!(local.name, "Local");
-    assert_eq!(local.driver_type, DriverType::Local);
+    assert_eq!(local.driver_type, RemoteStorageTargetDriverKind::Local);
     assert_eq!(local.base_path, "dropbox");
     assert_eq!(local.is_default, Some(true));
 
@@ -312,7 +316,7 @@ fn normalize_create_input_trims_local_and_s3_fields() {
     ))
     .unwrap();
     assert_eq!(s3.name, "S3");
-    assert_eq!(s3.driver_type, DriverType::S3);
+    assert_eq!(s3.driver_type, RemoteStorageTargetDriverKind::S3);
     assert_eq!(s3.endpoint, "https://s3.example.com/path");
     assert_eq!(s3.bucket, "bucket");
     assert_eq!(s3.base_path, "prefix");
@@ -336,7 +340,7 @@ fn normalize_create_input_rejects_invalid_values() {
 
 #[test]
 fn normalize_update_input_keeps_existing_driver_fields_and_trims_replacements() {
-    let existing = model_with_driver(DriverType::S3);
+    let existing = model_with_driver(RemoteStorageTargetDriverKind::S3);
     let normalized = normalize_update_input(
         existing.clone(),
         RemoteUpdateStorageTargetRequest {
@@ -349,7 +353,7 @@ fn normalize_update_input_keeps_existing_driver_fields_and_trims_replacements() 
     .unwrap();
 
     assert_eq!(normalized.name, "Updated");
-    assert_eq!(normalized.driver_type, DriverType::S3);
+    assert_eq!(normalized.driver_type, RemoteStorageTargetDriverKind::S3);
     assert_eq!(normalized.endpoint, existing.endpoint);
     assert_eq!(normalized.bucket, existing.bucket);
     assert_eq!(normalized.access_key, existing.access_key);
@@ -360,7 +364,7 @@ fn normalize_update_input_keeps_existing_driver_fields_and_trims_replacements() 
 
 #[test]
 fn normalize_update_input_preserves_secret_when_same_driver_omits_credentials() {
-    let existing = model_with_driver(DriverType::S3);
+    let existing = model_with_driver(RemoteStorageTargetDriverKind::S3);
     let normalized = normalize_update_input(
         existing.clone(),
         RemoteUpdateStorageTargetRequest {
@@ -372,7 +376,7 @@ fn normalize_update_input_preserves_secret_when_same_driver_omits_credentials() 
     )
     .unwrap();
 
-    assert_eq!(normalized.driver_type, DriverType::S3);
+    assert_eq!(normalized.driver_type, RemoteStorageTargetDriverKind::S3);
     assert_eq!(normalized.access_key, existing.access_key);
     assert_eq!(normalized.secret_key, existing.secret_key);
 }
@@ -380,7 +384,7 @@ fn normalize_update_input_preserves_secret_when_same_driver_omits_credentials() 
 #[test]
 fn normalize_update_input_replaces_secret_when_same_driver_provides_credentials() {
     let normalized = normalize_update_input(
-        model_with_driver(DriverType::S3),
+        model_with_driver(RemoteStorageTargetDriverKind::S3),
         RemoteUpdateStorageTargetRequest {
             access_key: Some(" new-access ".to_string()),
             secret_key: Some(" new-secret ".to_string()),
@@ -395,18 +399,18 @@ fn normalize_update_input_replaces_secret_when_same_driver_provides_credentials(
 
 #[test]
 fn normalize_update_input_resets_driver_specific_fields_when_driver_changes() {
-    let existing = model_with_driver(DriverType::S3);
+    let existing = model_with_driver(RemoteStorageTargetDriverKind::S3);
     let normalized = normalize_update_input(
         existing,
         RemoteUpdateStorageTargetRequest {
-            driver_type: Some(DriverType::Local),
+            driver_type: Some(RemoteStorageTargetDriverKind::Local),
             base_path: Some(" local/profile ".to_string()),
             ..Default::default()
         },
     )
     .unwrap();
 
-    assert_eq!(normalized.driver_type, DriverType::Local);
+    assert_eq!(normalized.driver_type, RemoteStorageTargetDriverKind::Local);
     assert_eq!(normalized.endpoint, "");
     assert_eq!(normalized.bucket, "");
     assert_eq!(normalized.access_key, "");
@@ -418,7 +422,10 @@ fn normalize_update_input_resets_driver_specific_fields_when_driver_changes() {
 fn remote_storage_target_driver_registry_contains_supported_builtin_drivers() {
     assert_eq!(
         registered_remote_storage_target_driver_types(),
-        vec![DriverType::Local, DriverType::S3]
+        vec![
+            RemoteStorageTargetDriverKind::Local,
+            RemoteStorageTargetDriverKind::S3,
+        ]
     );
 }
 
@@ -430,7 +437,7 @@ fn remote_storage_target_driver_descriptors_cover_builtin_profile_fields() {
 
     let local = descriptors
         .iter()
-        .find(|descriptor| descriptor.driver_type == DriverType::Local)
+        .find(|descriptor| descriptor.driver_type == RemoteStorageTargetDriverKind::Local)
         .expect("local remote storage target descriptor should be registered");
     assert_eq!(
         local
@@ -455,7 +462,7 @@ fn remote_storage_target_driver_descriptors_cover_builtin_profile_fields() {
 
     let s3 = descriptors
         .iter()
-        .find(|descriptor| descriptor.driver_type == DriverType::S3)
+        .find(|descriptor| descriptor.driver_type == RemoteStorageTargetDriverKind::S3)
         .expect("s3 remote storage target descriptor should be registered");
     assert_eq!(
         s3.fields
@@ -484,58 +491,16 @@ fn remote_storage_target_driver_descriptors_cover_builtin_profile_fields() {
     assert_eq!(s3_base_path.validation, None);
 }
 
-#[tokio::test]
-async fn driver_builder_rejects_remote_remote_storage_targets() {
-    let state = setup_state().await;
-    let profile = model_with_driver(DriverType::Remote);
-
-    let validate_error = validate_driver_from_target(&state, &profile).unwrap_err();
-    assert_eq!(
-        validate_error.api_error_code_override(),
-        Some(ApiErrorCode::ManagedIngressDriverUnsupported)
-    );
-    assert!(
-        validate_error
-            .message()
-            .contains("do not support the remote driver")
-    );
-    let build_error = expect_aster_err(build_driver_from_target(&state, &profile));
-    assert_eq!(
-        build_error.api_error_code_override(),
-        Some(ApiErrorCode::ManagedIngressDriverUnsupported)
-    );
-    assert!(
-        build_error
-            .message()
-            .contains("do not support the remote driver")
-    );
-}
-
-#[tokio::test]
-async fn driver_builder_rejects_tencent_cos_remote_storage_targets() {
-    let state = setup_state().await;
-    let profile = model_with_driver(DriverType::TencentCos);
-
-    let validate_error = validate_driver_from_target(&state, &profile).unwrap_err();
-    assert_eq!(
-        validate_error.api_error_code_override(),
-        Some(ApiErrorCode::ManagedIngressDriverUnsupported)
-    );
-    assert!(
-        validate_error
-            .message()
-            .contains("do not support the tencent_cos driver")
-    );
-    let build_error = expect_aster_err(build_driver_from_target(&state, &profile));
-    assert_eq!(
-        build_error.api_error_code_override(),
-        Some(ApiErrorCode::ManagedIngressDriverUnsupported)
-    );
-    assert!(
-        build_error
-            .message()
-            .contains("do not support the tencent_cos driver")
-    );
+#[test]
+fn remote_storage_target_driver_kind_rejects_storage_policy_provider_names() {
+    for unsupported in ["remote", "tencent_cos", "sftp", "azure_blob", "onedrive"] {
+        assert!(
+            unsupported
+                .parse::<RemoteStorageTargetDriverKind>()
+                .is_err(),
+            "{unsupported} must not enter the remote target driver domain"
+        );
+    }
 }
 
 #[tokio::test]

@@ -11,7 +11,6 @@ use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::config::operations::ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY;
 use aster_drive::config::operations::SHARE_STREAM_SESSION_TTL_SECS_KEY;
 use aster_drive::db::repository::share_repo;
-use aster_drive::runtime::SharedRuntimeState;
 use aster_drive_model::types::BackgroundTaskStatus;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};

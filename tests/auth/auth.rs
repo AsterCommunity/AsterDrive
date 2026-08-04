@@ -797,8 +797,8 @@ async fn test_setup_state_machine_is_identical_across_deployment_profiles() {
             .await
             .unwrap();
         state
-            .policy_snapshot
-            .reload(state.writer_db())
+            .driver_registry
+            .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
             .await
             .unwrap();
         let mut config = state.config.as_ref().clone();
@@ -5196,12 +5196,11 @@ async fn test_avatar_upload_and_source_switch() {
         .runtime_config
         .get(aster_drive::config::avatar::AVATAR_DIR_KEY)
         .expect("avatar_dir should exist");
-    let shared_policy_base_path =
-        aster_drive::db::repository::policy_repo::find_default(state.writer_db())
-            .await
-            .unwrap()
-            .expect("default policy should exist")
-            .base_path;
+    let default_policy = aster_drive::db::repository::policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .expect("default policy should exist");
+    let shared_policy_base_path = common::local_policy_base_path(&default_policy);
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 

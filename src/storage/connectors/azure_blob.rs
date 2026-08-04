@@ -9,18 +9,16 @@ use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy};
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
-    ObjectStorageConnectorDescriptorInput, StorageConnectorDeploymentScope,
-    StorageConnectorDescriptor, StorageConnectorFieldDisplayInput, StorageConnectorFieldKind,
-    StorageConnectorFieldScope, StorageConnectorUiDescriptorInput,
+    ObjectStorageConnectorDescriptorInput, StorageConnectorBadgeRgb,
+    StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorFieldDisplayInput,
+    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorUiDescriptorInput,
     object_storage_connector_descriptor, storage_connector_field,
-    storage_connector_field_with_display, storage_connector_field_with_options,
+    storage_connector_field_with_display,
 };
 use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
 
-use super::{
-    StorageConnector, StorageConnectorCredentialInput, StorageConnectorRuntimeCredential,
-    StorageConnectorUploadTransport,
-};
+use super::common::{StorageTransferDirection, transfer_strategy_field};
+use super::{StorageConnector, StorageConnectorCredentialInput, StorageConnectorUploadTransport};
 
 pub struct AzureBlobConnector;
 
@@ -44,15 +42,20 @@ aster_drive_storage::storage_connector_schema! {
             field.required_message_key = Some("policy_wizard_container_required".to_string());
             field
         },
-        pub base_path: String => storage_connector_field(
-            "base_path", StorageConnectorFieldScope::ConnectorConfig,
-            StorageConnectorFieldKind::Text, false, false,
+        pub base_path: String => {
+            let mut field = storage_connector_field(
+                "base_path", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Text, false, false,
+            );
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String(String::new()));
+            field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
+            field
+        },
+        pub object_storage_upload_strategy: ObjectStorageUploadStrategy => transfer_strategy_field(
+            "object_storage_upload_strategy", StorageTransferDirection::Upload,
         ),
-        pub object_storage_upload_strategy: ObjectStorageUploadStrategy => object_transfer_field(
-            "object_storage_upload_strategy",
-        ),
-        pub object_storage_download_strategy: ObjectStorageDownloadStrategy => object_transfer_field(
-            "object_storage_download_strategy",
+        pub object_storage_download_strategy: ObjectStorageDownloadStrategy => transfer_strategy_field(
+            "object_storage_download_strategy", StorageTransferDirection::Download,
         ),
         }
         credentials static AzureBlobStaticCredentialsV1 {
@@ -70,21 +73,6 @@ aster_drive_storage::storage_connector_schema! {
             ),
         }
     }
-}
-
-fn object_transfer_field(name: &str) -> aster_drive_storage::StorageConnectorFieldDescriptor {
-    let mut field = storage_connector_field_with_options(
-        name,
-        StorageConnectorFieldScope::ConnectorConfig,
-        StorageConnectorFieldKind::Select,
-        true,
-        false,
-        vec!["relay_stream", "presigned"],
-    );
-    field.default_value = Some(StorageConnectorFieldDefaultValue::String(
-        "relay_stream".to_string(),
-    ));
-    field
 }
 
 impl AzureBlobConnector {
@@ -126,6 +114,7 @@ impl AzureBlobConnector {
                 description_key: "policy_wizard_azure_blob_storage_desc",
                 icon_src: Some("/static/storage/azure-blob.svg"),
                 icon_name: None,
+                badge_rgb: StorageConnectorBadgeRgb::new(14, 165, 233),
                 helper_key: "policy_wizard_azure_blob_helper",
                 config_step_title_key: "policy_wizard_step_connection_title",
                 config_step_description_key: "policy_wizard_step_azure_blob_connection_desc",
@@ -236,24 +225,8 @@ impl StorageConnector for AzureBlobConnector {
         policy: &storage_policy::Model,
     ) -> Result<super::StorageConnectorDriver> {
         let config = Self::decode_config(policy)?;
-        let Some(StorageConnectorRuntimeCredential::Static(values)) =
-            registry.get_runtime_credential(policy.id)
-        else {
-            return Err(crate::errors::storage_driver_error(
-                aster_drive_storage::StorageErrorKind::Auth,
-                format!("storage policy {} is missing static credentials", policy.id),
-            ));
-        };
         let credentials: AzureBlobStaticCredentialsV1 =
-            serde_json::from_value(values).map_err(|error| {
-                crate::errors::storage_driver_error(
-                    aster_drive_storage::StorageErrorKind::Misconfigured,
-                    format!(
-                        "storage policy {} has invalid static credentials: {error}",
-                        policy.id
-                    ),
-                )
-            })?;
+            super::common::runtime_static_credential(registry, policy, Self::ID)?;
         Ok(super::StorageConnectorDriver::multipart(
             std::sync::Arc::new(AzureBlobDriver::new(
                 Self::driver_config(policy, config),

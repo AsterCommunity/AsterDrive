@@ -202,60 +202,40 @@ delegate_s3_compatible_multipart_driver!(S3CompatibleDriver, inner);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aster_drive_model::entities::storage_policy;
-    use aster_drive_model::types::{
-        DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
-    };
     use aster_drive_storage::{StorageDriver, StorageErrorKind};
     use std::time::Duration;
 
-    fn build_driver(
-        policy: &storage_policy::Model,
+    fn build_driver_with_access_key(
+        access_key: &str,
     ) -> aster_drive_storage::Result<S3CompatibleDriver> {
         let driver = S3Driver::new(
-            policy,
+            super::super::s3::S3DriverConfig {
+                endpoint: "https://s3.example.test".to_string(),
+                bucket: "bucket".to_string(),
+                base_path: "tenant-a".to_string(),
+                region: "auto".to_string(),
+                path_style: true,
+                connect_timeout: Duration::from_secs(5),
+                read_timeout: Duration::from_secs(30),
+                operation_timeout: Duration::from_secs(3_600),
+            },
+            super::super::s3::S3StaticCredentials {
+                access_key: access_key.to_string(),
+                secret_key: "secret-key".to_string(),
+            },
             super::super::s3::S3DriverOptions::default(),
             std::convert::identity,
         )?;
         Ok(S3CompatibleDriver::from_s3_driver(Arc::new(driver)))
     }
 
-    fn sample_policy() -> storage_policy::Model {
-        let options = aster_drive_model::types::StoragePolicyOptions::default();
-        storage_policy::Model {
-            id: 1,
-            name: "S3 compatible".to_string(),
-            driver_type: DriverType::S3,
-            endpoint: "https://s3.example.test".to_string(),
-            bucket: "bucket".to_string(),
-            access_key: "access-key".to_string(),
-            secret_key: "secret-key".to_string(),
-            base_path: "tenant-a".to_string(),
-            remote_node_id: None,
-            remote_storage_target_key: None,
-            connector_id: "asterdrive.storage.s3".to_string(),
-            storage_config: crate::storage::connectors::test_support::policy_config(
-                DriverType::S3,
-                "https://s3.example.test",
-                "bucket",
-                "tenant-a",
-                None,
-                None,
-                &options,
-            ),
-            max_file_size: 0,
-            allowed_types: StoredStoragePolicyAllowedTypes::empty(),
-            options: StoredStoragePolicyOptions::empty(),
-            is_default: false,
-            chunk_size: 0,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        }
+    fn build_driver() -> aster_drive_storage::Result<S3CompatibleDriver> {
+        build_driver_with_access_key("access-key")
     }
 
     #[test]
     fn exposes_s3_compatible_optional_capabilities() {
-        let driver = build_driver(&sample_policy()).expect("driver should build");
+        let driver = build_driver().expect("driver should build");
 
         assert!(driver.supports_efficient_range());
         assert!(driver.extensions().presigned.is_some());
@@ -267,7 +247,7 @@ mod tests {
 
     #[tokio::test]
     async fn presigned_urls_are_forwarded_through_s3_driver() {
-        let driver = build_driver(&sample_policy()).expect("driver should build");
+        let driver = build_driver().expect("driver should build");
         let presigned = driver
             .extensions()
             .presigned
@@ -289,10 +269,7 @@ mod tests {
 
     #[test]
     fn construction_keeps_s3_validation_errors() {
-        let mut policy = sample_policy();
-        policy.access_key = String::new();
-
-        let err = build_driver(&policy)
+        let err = build_driver_with_access_key("")
             .err()
             .expect("empty access key should fail");
 

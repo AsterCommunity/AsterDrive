@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use serde::Serialize;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::site_url;
@@ -10,22 +11,74 @@ use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy};
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
-    ObjectStorageConnectorDescriptorInput, StorageConnectorDeploymentScope,
+    ObjectStorageConnectorDescriptorInput, StorageConnectorActionId, StorageConnectorBadgeRgb,
+    StorageConnectorCustomActionDescriptorInput, StorageConnectorDeploymentScope,
     StorageConnectorDescriptor, StorageConnectorFieldDisplayInput, StorageConnectorFieldKind,
-    StorageConnectorFieldScope, StorageConnectorUiDescriptorInput, StoragePolicyExecutableAction,
-    object_storage_connector_descriptor, policy_action_descriptor, storage_connector_field,
-    storage_connector_field_with_display, storage_connector_field_with_options,
+    StorageConnectorFieldScope, StorageConnectorUiDescriptorInput, custom_action_descriptor,
+    object_storage_connector_descriptor, storage_connector_field,
+    storage_connector_field_with_display,
 };
-use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
+use aster_drive_storage::{
+    StorageConnectorActionSchema, StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue,
+};
 
-use super::common::{build_connection_test_policy, ensure_policy_action_supported};
+use super::common::{
+    StorageTransferDirection, build_connection_test_policy,
+    decode_normalized_connector_action_input, transfer_strategy_field,
+    unsupported_connector_action_error,
+};
 use super::{
-    ExecuteDraftStorageConnectorActionInput, StorageConnector, StorageConnectorActionResult,
-    StorageConnectorCredentialInput, StorageConnectorRuntimeCredential,
-    StorageConnectorUploadTransport, TencentCosCorsConfigResult,
+    ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
+    StorageConnector, StorageConnectorActionResult, StorageConnectorCredentialInput,
+    StorageConnectorUploadTransport,
 };
 
 pub struct TencentCosConnector;
+
+const CONFIGURE_CORS_ACTION_ID: &str = "configure_tencent_cos_cors";
+
+aster_drive_storage::storage_connector_action_schema! {
+    struct ConfigureTencentCosCorsActionInput {}
+}
+
+fn configure_cors_action_descriptor() -> aster_drive_storage::StorageConnectorActionDescriptor {
+    custom_action_descriptor(StorageConnectorCustomActionDescriptorInput {
+        action_id: StorageConnectorActionId::declared(CONFIGURE_CORS_ACTION_ID),
+        label_key: "policy_cos_cors_action",
+        description_key: "policy_cos_cors_desc",
+        fields: ConfigureTencentCosCorsActionInput::action_fields(),
+        supports_draft: true,
+        supports_saved: true,
+        requires_authorization: false,
+        mutates_remote_state: true,
+        requires_confirmation: true,
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct TencentCosCorsActionOutput {
+    rule_id: String,
+    allowed_origins: Vec<String>,
+    request_id: Option<String>,
+    preserved_rule_count: usize,
+    replaced_existing_rule: bool,
+    response_vary: bool,
+}
+
+impl From<crate::storage::drivers::tencent_cos::cors::TencentCosCorsApplyResult>
+    for TencentCosCorsActionOutput
+{
+    fn from(value: crate::storage::drivers::tencent_cos::cors::TencentCosCorsApplyResult) -> Self {
+        Self {
+            rule_id: value.rule_id,
+            allowed_origins: value.allowed_origins,
+            request_id: value.request_id,
+            preserved_rule_count: value.preserved_rule_count,
+            replaced_existing_rule: value.replaced_existing_rule,
+            response_vary: value.response_vary,
+        }
+    }
+}
 
 aster_drive_storage::storage_connector_schema! {
     pub struct TencentCosConnectorConfigV1 {
@@ -47,24 +100,37 @@ aster_drive_storage::storage_connector_schema! {
             field.required_message_key = Some("policy_wizard_bucket_required".to_string());
             field
         },
-        pub base_path: String => storage_connector_field(
-            "base_path", StorageConnectorFieldScope::ConnectorConfig,
-            StorageConnectorFieldKind::Text, false, false,
+        pub base_path: String => {
+            let mut field = storage_connector_field(
+                "base_path", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Text, false, false,
+            );
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String(String::new()));
+            field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
+            field
+        },
+        pub object_storage_upload_strategy: ObjectStorageUploadStrategy => transfer_strategy_field(
+            "object_storage_upload_strategy", StorageTransferDirection::Upload,
         ),
-        pub object_storage_upload_strategy: ObjectStorageUploadStrategy => cos_transfer_field(
-            "object_storage_upload_strategy",
+        pub object_storage_download_strategy: ObjectStorageDownloadStrategy => transfer_strategy_field(
+            "object_storage_download_strategy", StorageTransferDirection::Download,
         ),
-        pub object_storage_download_strategy: ObjectStorageDownloadStrategy => cos_transfer_field(
-            "object_storage_download_strategy",
-        ),
-        pub storage_native_processing_enabled: bool => storage_connector_field(
-            "storage_native_processing_enabled", StorageConnectorFieldScope::ConnectorConfig,
-            StorageConnectorFieldKind::Boolean, false, false,
-        ),
-        pub storage_native_media_metadata_enabled: bool => storage_connector_field(
-            "storage_native_media_metadata_enabled", StorageConnectorFieldScope::ConnectorConfig,
-            StorageConnectorFieldKind::Boolean, false, false,
-        ),
+        pub storage_native_processing_enabled: bool => {
+            let mut field = storage_connector_field(
+                "storage_native_processing_enabled", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Boolean, false, false,
+            );
+            field.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(false));
+            field
+        },
+        pub storage_native_media_metadata_enabled: bool => {
+            let mut field = storage_connector_field(
+                "storage_native_media_metadata_enabled", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Boolean, false, false,
+            );
+            field.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(false));
+            field
+        },
         }
         credentials static TencentCosStaticCredentialsV1 {
             pub tencent_cos_secret_id: String => storage_connector_field(
@@ -77,21 +143,6 @@ aster_drive_storage::storage_connector_schema! {
             ),
         }
     }
-}
-
-fn cos_transfer_field(name: &str) -> aster_drive_storage::StorageConnectorFieldDescriptor {
-    let mut field = storage_connector_field_with_options(
-        name,
-        StorageConnectorFieldScope::ConnectorConfig,
-        StorageConnectorFieldKind::Select,
-        true,
-        false,
-        vec!["relay_stream", "presigned"],
-    );
-    field.default_value = Some(StorageConnectorFieldDefaultValue::String(
-        "relay_stream".to_string(),
-    ));
-    field
 }
 
 impl TencentCosConnector {
@@ -126,24 +177,8 @@ impl TencentCosConnector {
         policy: &storage_policy::Model,
     ) -> Result<TencentCosDriver> {
         let config = Self::decode_config(policy)?;
-        let Some(StorageConnectorRuntimeCredential::Static(values)) =
-            registry.get_runtime_credential(policy.id)
-        else {
-            return Err(crate::errors::storage_driver_error(
-                aster_drive_storage::StorageErrorKind::Auth,
-                format!("storage policy {} is missing static credentials", policy.id),
-            ));
-        };
         let credentials: TencentCosStaticCredentialsV1 =
-            serde_json::from_value(values).map_err(|error| {
-                crate::errors::storage_driver_error(
-                    aster_drive_storage::StorageErrorKind::Misconfigured,
-                    format!(
-                        "storage policy {} has invalid static credentials: {error}",
-                        policy.id
-                    ),
-                )
-            })?;
+            super::common::runtime_static_credential(registry, policy, Self::ID)?;
         Ok(TencentCosDriver::new(
             Self::driver_config(config),
             Self::driver_credentials(credentials),
@@ -163,6 +198,7 @@ impl TencentCosConnector {
                     description_key: "policy_wizard_tencent_cos_storage_desc",
                     icon_src: Some("/static/storage/tencent-cloud-cos.webp"),
                     icon_name: None,
+                    badge_rgb: StorageConnectorBadgeRgb::new(6, 182, 212),
                     helper_key: "policy_wizard_tencent_cos_helper",
                     config_step_title_key: "policy_wizard_step_connection_title",
                     config_step_description_key: "policy_wizard_step_tencent_cos_connection_desc",
@@ -179,9 +215,7 @@ impl TencentCosConnector {
                 config_schema_version: 1,
                 related_issues: vec![328, 329],
             });
-        descriptor.actions.push(policy_action_descriptor(
-            StoragePolicyExecutableAction::ConfigureTencentCosCors,
-        ));
+        descriptor.actions.push(configure_cors_action_descriptor());
         descriptor
     }
 }
@@ -189,7 +223,7 @@ impl TencentCosConnector {
 async fn configure_tencent_cos_cors_for_policy(
     runtime_config: &crate::config::RuntimeConfig,
     driver: TencentCosDriver,
-) -> Result<TencentCosCorsConfigResult> {
+) -> Result<TencentCosCorsActionOutput> {
     let origins = resolve_cos_cors_allowed_origins(runtime_config)?;
     driver
         .configure_asterdrive_cors(&origins)
@@ -310,20 +344,23 @@ impl StorageConnector for TencentCosConnector {
         &self,
         context: &super::StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
-        action: StoragePolicyExecutableAction,
+        input: ExecuteSavedStorageConnectorActionInput,
     ) -> Result<StorageConnectorActionResult> {
-        ensure_policy_action_supported(self.descriptor(), action)?;
-        match action {
-            StoragePolicyExecutableAction::ConfigureTencentCosCors => {
-                let driver = Self::runtime_driver(context.driver_registry(), policy)?;
-                let result =
-                    configure_tencent_cos_cors_for_policy(context.runtime_config(), driver).await?;
-                Ok(StorageConnectorActionResult {
-                    action,
-                    tencent_cos_cors: Some(result),
-                })
-            }
+        let descriptor = self.descriptor();
+        if input.action_id.as_str() != CONFIGURE_CORS_ACTION_ID {
+            return Err(unsupported_connector_action_error(
+                &descriptor,
+                &input.action_id,
+            ));
         }
+        let _: ConfigureTencentCosCorsActionInput = decode_normalized_connector_action_input(
+            &configure_cors_action_descriptor(),
+            &input.values,
+        )?;
+        let driver = Self::runtime_driver(context.driver_registry(), policy)?;
+        let result =
+            configure_tencent_cos_cors_for_policy(context.runtime_config(), driver).await?;
+        StorageConnectorActionResult::with_output(input.action_id, result)
     }
 
     async fn execute_draft_action(
@@ -331,29 +368,31 @@ impl StorageConnector for TencentCosConnector {
         context: &super::StorageConnectorContext<'_>,
         input: ExecuteDraftStorageConnectorActionInput,
     ) -> Result<StorageConnectorActionResult> {
-        ensure_policy_action_supported(self.descriptor(), input.action)?;
-        match input.action {
-            StoragePolicyExecutableAction::ConfigureTencentCosCors => {
-                let connection = input.connection;
-                self.validate_credential_input(&connection.credential)?;
-                let connector_config =
-                    self.validate_connector_config(&connection.connector_config)?;
-                let policy = build_connection_test_policy(connector_config, connection.behavior)?;
-                let config = Self::decode_config(&policy)?;
-                let credentials =
-                    super::common::decode_static_credential(&connection.credential, Self::ID)?;
-                let driver = TencentCosDriver::new(
-                    Self::driver_config(config),
-                    Self::driver_credentials(credentials),
-                )?;
-                let result =
-                    configure_tencent_cos_cors_for_policy(context.runtime_config(), driver).await?;
-                Ok(StorageConnectorActionResult {
-                    action: input.action,
-                    tencent_cos_cors: Some(result),
-                })
-            }
+        let descriptor = self.descriptor();
+        if input.action_id.as_str() != CONFIGURE_CORS_ACTION_ID {
+            return Err(unsupported_connector_action_error(
+                &descriptor,
+                &input.action_id,
+            ));
         }
+        let _: ConfigureTencentCosCorsActionInput = decode_normalized_connector_action_input(
+            &configure_cors_action_descriptor(),
+            &input.values,
+        )?;
+        let connection = input.connection;
+        self.validate_credential_input(&connection.credential)?;
+        let connector_config = self.validate_connector_config(&connection.connector_config)?;
+        let policy = build_connection_test_policy(connector_config, connection.behavior)?;
+        let config = Self::decode_config(&policy)?;
+        let credentials =
+            super::common::decode_static_credential(&connection.credential, Self::ID)?;
+        let driver = TencentCosDriver::new(
+            Self::driver_config(config),
+            Self::driver_credentials(credentials),
+        )?;
+        let result =
+            configure_tencent_cos_cors_for_policy(context.runtime_config(), driver).await?;
+        StorageConnectorActionResult::with_output(input.action_id, result)
     }
 
     fn upload_transport(

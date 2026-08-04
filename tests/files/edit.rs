@@ -1,7 +1,6 @@
 //! 集成测试：`edit`。
 
 use crate::common;
-use aster_drive::runtime::SharedRuntimeState;
 
 use actix_web::body::to_bytes;
 use actix_web::test;

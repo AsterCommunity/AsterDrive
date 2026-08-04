@@ -3,7 +3,6 @@ use super::*;
 
 use std::sync::Arc;
 
-use aster_drive_migration::Migrator;
 use chrono::{Duration, Utc};
 use sea_orm::{ActiveModelTrait, Set};
 
@@ -12,11 +11,8 @@ use crate::db::repository::{file_repo, lock_repo};
 use crate::runtime::PrimaryAppState;
 use crate::services::mail::sender;
 use crate::storage::{DriverRegistry, PolicySnapshot};
-use aster_drive_model::entities::{file, file_blob, resource_lock, storage_policy, user};
-use aster_drive_model::types::{
-    DriverType, EntityType, StoredLockOwnerInfo, StoredStoragePolicyAllowedTypes,
-    StoredStoragePolicyOptions, UserRole, UserStatus,
-};
+use aster_drive_model::entities::{file, file_blob, resource_lock, user};
+use aster_drive_model::types::{EntityType, StoredLockOwnerInfo, UserRole, UserStatus};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
 
@@ -51,31 +47,18 @@ async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) 
     )
     .await
     .expect("lock service test DB should connect");
-    Migrator::up(&db, None)
-        .await
-        .expect("lock service migrations should succeed");
+    crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
 
     let now = Utc::now();
-    let policy = storage_policy::ActiveModel {
-        name: Set("Lock Test Policy".to_string()),
-        driver_type: Set(DriverType::Local),
-        endpoint: Set(String::new()),
-        bucket: Set(String::new()),
-        access_key: Set(String::new()),
-        secret_key: Set(String::new()),
-        base_path: Set(temp_root.join("uploads").to_string_lossy().into_owned()),
-        max_file_size: Set(0),
-        allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-        options: Set(StoredStoragePolicyOptions::empty()),
-        is_default: Set(true),
-        chunk_size: Set(0),
-        created_at: Set(now),
-        updated_at: Set(now),
-        ..Default::default()
-    }
-    .insert(&db)
-    .await
-    .expect("lock test policy should insert");
+    let mut policy = crate::storage::connectors::test_support::local_policy(
+        temp_root.join("uploads").to_string_lossy().into_owned(),
+    );
+    policy.name = "Lock Test Policy".to_string();
+    policy.is_default = true;
+    let policy = crate::storage::connectors::test_support::insertable_policy(policy)
+        .insert(&db)
+        .await
+        .expect("lock test policy should insert");
 
     let user = user::ActiveModel {
         username: Set(format!("lock-user-{}", uuid::Uuid::new_v4())),
@@ -154,7 +137,9 @@ async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) 
 
     let state = PrimaryAppState {
         db_handles: aster_forge_db::DbHandles::single(db),
-        driver_registry: Arc::new(DriverRegistry::noop()),
+        driver_registry: Arc::new(
+            DriverRegistry::noop().expect("built-in storage connector registry"),
+        ),
         runtime_config: runtime_config.clone(),
         policy_snapshot: Arc::new(PolicySnapshot::new()),
         config: Arc::new(config),

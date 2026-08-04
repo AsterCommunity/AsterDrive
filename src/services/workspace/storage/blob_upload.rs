@@ -536,43 +536,29 @@ pub(crate) async fn persist_preuploaded_blob<C: ConnectionTrait>(
 #[cfg(test)]
 mod storage_path_tests {
     use super::{nondedup_storage_path_for_policy, original_filename_storage_path};
-    use aster_drive_model::types::DriverType;
+    use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy};
+    use aster_drive_storage::StoragePolicyBehaviorConfig;
 
     const UPLOAD_ID: &str = "550e8400-e29b-41d4-a716-446655440000";
 
-    fn policy(driver_type: DriverType) -> aster_drive_model::entities::storage_policy::Model {
-        let now = chrono::Utc::now();
-        let connector_id = format!("asterdrive.storage.{}", driver_type.as_str());
-        let options = aster_drive_model::types::StoragePolicyOptions::default();
-        aster_drive_model::entities::storage_policy::Model {
-            id: 1,
-            name: "test".to_string(),
-            driver_type,
-            endpoint: String::new(),
-            bucket: String::new(),
-            access_key: String::new(),
-            secret_key: String::new(),
-            base_path: String::new(),
-            remote_node_id: None,
-            remote_storage_target_key: None,
-            connector_id: connector_id.clone(),
-            storage_config: crate::storage::connectors::test_support::policy_config(
-                driver_type,
-                "",
-                "",
-                "",
-                None,
-                None,
-                &options,
-            ),
-            max_file_size: 0,
-            allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
-            options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
-            is_default: false,
-            chunk_size: 5_242_880,
-            created_at: now,
-            updated_at: now,
-        }
+    fn s3_policy() -> aster_drive_model::entities::storage_policy::Model {
+        crate::storage::connectors::test_support::s3_policy(
+            "https://s3.example.test",
+            "test-bucket",
+            "",
+            ObjectStorageUploadStrategy::RelayStream,
+            ObjectStorageDownloadStrategy::RelayStream,
+        )
+    }
+
+    fn onedrive_policy() -> aster_drive_model::entities::storage_policy::Model {
+        crate::storage::connectors::test_support::onedrive_policy(
+            crate::storage::connectors::OneDriveAccountMode::Personal,
+            None,
+            None,
+            None,
+            StoragePolicyBehaviorConfig::default(),
+        )
     }
 
     #[test]
@@ -623,7 +609,7 @@ mod storage_path_tests {
         assert_eq!(
             nondedup_storage_path_for_policy(
                 &registry,
-                &policy(DriverType::S3),
+                &s3_policy(),
                 UPLOAD_ID,
                 Some("../../ignored.txt"),
             )
@@ -633,7 +619,7 @@ mod storage_path_tests {
         assert!(
             nondedup_storage_path_for_policy(
                 &registry,
-                &policy(DriverType::S3),
+                &s3_policy(),
                 "not-a-uuid",
                 Some("ignored.txt"),
             )
@@ -647,7 +633,7 @@ mod storage_path_tests {
         assert_eq!(
             nondedup_storage_path_for_policy(
                 &registry,
-                &policy(DriverType::OneDrive),
+                &onedrive_policy(),
                 UPLOAD_ID,
                 Some("video.mp4"),
             )
@@ -657,7 +643,7 @@ mod storage_path_tests {
         assert_eq!(
             nondedup_storage_path_for_policy(
                 &registry,
-                &policy(DriverType::S3),
+                &s3_policy(),
                 UPLOAD_ID,
                 Some("video.mp4"),
             )

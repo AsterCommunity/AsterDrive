@@ -1,7 +1,6 @@
 //! 集成测试：`db_indexes`。
 
 use crate::common;
-use aster_drive::runtime::SharedRuntimeState;
 
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
 

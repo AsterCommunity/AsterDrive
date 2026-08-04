@@ -282,9 +282,9 @@ mod tests {
 
     use aster_drive_migration::Migrator;
     use aster_forge_config::ConfigSyncConfig;
-    use sea_orm::{ActiveModelTrait, Set};
+    use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 
-    use crate::runtime::SharedRuntimeState;
+    use crate::runtime::{SharedRuntimeState, StorageConnectorRuntimeState};
 
     struct ReloadTestState {
         db: sea_orm::DatabaseConnection,
@@ -297,12 +297,8 @@ mod tests {
         metrics: aster_drive_metrics::SharedMetricsRecorder,
     }
 
-    impl SharedRuntimeState for ReloadTestState {
+    impl StorageConnectorRuntimeState for ReloadTestState {
         fn writer_db(&self) -> &sea_orm::DatabaseConnection {
-            &self.db
-        }
-
-        fn reader_db(&self) -> &sea_orm::DatabaseConnection {
             &self.db
         }
 
@@ -314,12 +310,18 @@ mod tests {
             &self.runtime_config
         }
 
-        fn policy_snapshot(&self) -> &Arc<crate::storage::PolicySnapshot> {
-            &self.policy_snapshot
-        }
-
         fn config(&self) -> &Arc<crate::config::Config> {
             &self.config
+        }
+    }
+
+    impl SharedRuntimeState for ReloadTestState {
+        fn reader_db(&self) -> &sea_orm::DatabaseConnection {
+            &self.db
+        }
+
+        fn policy_snapshot(&self) -> &Arc<crate::storage::PolicySnapshot> {
+            &self.policy_snapshot
         }
 
         fn cache(&self) -> &Arc<dyn aster_forge_cache::CacheBackend> {
@@ -425,30 +427,21 @@ mod tests {
             .await
             .expect("config reload test defaults should load");
         let now = chrono::Utc::now();
-        let policy = crate::db::repository::policy_repo::create(
-            &db,
-            aster_drive_model::entities::storage_policy::ActiveModel {
-                name: Set("config reload policy".to_string()),
-                driver_type: Set(aster_drive_model::types::DriverType::S3),
-                endpoint: Set("https://old.example.com".to_string()),
-                bucket: Set("test".to_string()),
-                access_key: Set("access".to_string()),
-                secret_key: Set("secret".to_string()),
-                base_path: Set(String::new()),
-                max_file_size: Set(0),
-                allowed_types: Set(
-                    aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
-                ),
-                options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
-                is_default: Set(true),
-                chunk_size: Set(5_242_880),
-                created_at: Set(now),
-                updated_at: Set(now),
-                ..Default::default()
-            },
-        )
-        .await
-        .expect("config reload test policy should insert");
+        let mut policy = crate::storage::connectors::test_support::s3_policy(
+            "https://old.example.com",
+            "test",
+            "",
+            aster_drive_model::types::ObjectStorageUploadStrategy::RelayStream,
+            aster_drive_model::types::ObjectStorageDownloadStrategy::RelayStream,
+        );
+        policy.name = "config reload policy".to_string();
+        policy.is_default = true;
+        policy.chunk_size = 5_242_880;
+        policy.created_at = now;
+        policy.updated_at = now;
+        let policy = crate::db::repository::policy_repo::create(&db, policy.into_active_model())
+            .await
+            .expect("config reload test policy should insert");
         crate::services::storage_policy::policy::ensure_policy_groups_seeded(&db)
             .await
             .expect("config reload test policy groups should seed");
@@ -458,17 +451,19 @@ mod tests {
             .reload(&db)
             .await
             .expect("initial runtime config should load");
-        let policy_snapshot = Arc::new(crate::storage::PolicySnapshot::new());
-        policy_snapshot
-            .reload(&db)
-            .await
-            .expect("initial policy snapshot should load");
         let config = Arc::new(crate::config::Config::default());
-        let driver_registry = Arc::new(crate::storage::DriverRegistry::noop());
+        let driver_registry = Arc::new(
+            crate::storage::DriverRegistry::noop().expect("built-in storage connector registry"),
+        );
         driver_registry
             .reload_primary_state(&db, config.as_ref())
             .await
             .expect("initial driver registry state should load");
+        let policy_snapshot = Arc::new(crate::storage::PolicySnapshot::new());
+        policy_snapshot
+            .reload(&db, driver_registry.connectors())
+            .await
+            .expect("initial policy snapshot should load");
         let state = Arc::new(ReloadTestState {
             db: db.clone(),
             runtime_config: runtime_config.clone(),

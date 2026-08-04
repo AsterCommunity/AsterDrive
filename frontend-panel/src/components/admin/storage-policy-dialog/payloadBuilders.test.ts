@@ -1,0 +1,200 @@
+import { describe, expect, it } from "vitest";
+import type {
+	StorageConnectorDescriptor,
+	StorageConnectorFieldDescriptor,
+} from "@/types/api";
+import { emptyForm, type PolicyFormData } from "./formTypes";
+import {
+	buildCreatePolicyPayload,
+	buildPolicyTestPayload,
+	buildStorageConnectorActionPayload,
+	buildUpdatePolicyPayload,
+} from "./payloadBuilders";
+
+function field(
+	name: string,
+	scope: StorageConnectorFieldDescriptor["scope"],
+	overrides: Partial<StorageConnectorFieldDescriptor> = {},
+): StorageConnectorFieldDescriptor {
+	return {
+		kind: scope === "static_credential" ? "secret" : "text",
+		label_key: name,
+		name,
+		required: false,
+		scope,
+		secret: scope === "static_credential",
+		...overrides,
+	};
+}
+
+function descriptor(
+	credentialMode: StorageConnectorDescriptor["credential_mode"] = "static_secret",
+) {
+	return {
+		config_schema_version: 4,
+		connector_id: "plugin.archive",
+		credential_mode: credentialMode,
+		fields: [
+			field("endpoint", "connector_config", {
+				required: true,
+				trim_on_blur: true,
+			}),
+			field("optional", "connector_config"),
+			field("access_key", "static_credential", { trim_on_blur: true }),
+			field("client_id", "authorization_application", { trim_on_blur: true }),
+			field("action_only", "action_input"),
+		],
+	} as StorageConnectorDescriptor;
+}
+
+function form(overrides: Partial<PolicyFormData> = {}): PolicyFormData {
+	return {
+		...emptyForm,
+		chunk_size: "8",
+		connector_id: "plugin.archive",
+		connector_config_values: {
+			endpoint: "  https://archive.example.test  ",
+			optional: "",
+		},
+		credential_values: {
+			access_key: "  KEY  ",
+			client_id: "  CLIENT  ",
+		},
+		is_default: true,
+		max_file_size: "1024",
+		media_metadata_extensions: ["mp4"],
+		name: "Archive",
+		thumbnail_extensions: ["jpg"],
+		thumbnail_processor: "storage_native",
+		...overrides,
+	};
+}
+
+describe("storage policy payload builders", () => {
+	it("builds a versioned create connection and keeps config, credential, and behavior isolated", () => {
+		const payload = buildCreatePolicyPayload(form(), descriptor());
+
+		expect(payload).toEqual({
+			chunk_size: 8 * 1024 * 1024,
+			connection: {
+				behavior: {
+					media_metadata_extensions: ["mp4"],
+					thumbnail_extensions: ["jpg"],
+					thumbnail_processor: "storage_native",
+				},
+				connector_config: {
+					connector_id: "plugin.archive",
+					format_version: 1,
+					schema_version: 4,
+					values: { endpoint: "https://archive.example.test" },
+				},
+				credential: { mode: "static", values: { access_key: "KEY" } },
+			},
+			is_default: true,
+			max_file_size: 1024,
+			name: "Archive",
+		});
+	});
+
+	it("uses authorization application credentials only for OAuth connectors", () => {
+		const payload = buildCreatePolicyPayload(
+			form(),
+			descriptor("oauth_delegated"),
+		);
+
+		expect(payload.connection.credential).toEqual({
+			mode: "authorization_application",
+			values: { client_id: "CLIENT" },
+		});
+	});
+
+	it("omits blank update credentials and keeps required empty connector values", () => {
+		const schema = descriptor();
+		const payload = buildUpdatePolicyPayload(
+			form({
+				connector_config_values: { endpoint: "" },
+				credential_values: { access_key: "" },
+			}),
+			schema,
+		);
+
+		expect(payload).not.toHaveProperty("credential");
+		expect(payload.connector_config.values).toEqual({ endpoint: "" });
+	});
+
+	it("builds draft connection tests and custom action inputs without persisting action values", () => {
+		const schema = descriptor();
+		const testPayload = buildPolicyTestPayload(form(), schema, 7);
+		const actionPayload = buildStorageConnectorActionPayload(
+			form(),
+			7,
+			schema,
+			"plugin.reindex",
+			{ action_only: "full" },
+		);
+
+		expect(testPayload.policy_id).toBe(7);
+		expect(actionPayload).toMatchObject({
+			action_id: "plugin.reindex",
+			policy_id: 7,
+			values: { action_only: "full" },
+		});
+		expect(actionPayload.connection.connector_config.values).not.toHaveProperty(
+			"action_only",
+		);
+	});
+
+	it("handles empty, zero, and invalid numeric inputs deterministically", () => {
+		const schema = descriptor("none");
+		const zero = buildCreatePolicyPayload(
+			form({ chunk_size: "0", max_file_size: "0", credential_values: {} }),
+			schema,
+		);
+		const invalid = buildCreatePolicyPayload(
+			form({ chunk_size: "bad", max_file_size: "", credential_values: {} }),
+			schema,
+		);
+
+		expect(zero.chunk_size).toBe(0);
+		expect(zero.max_file_size).toBe(0);
+		expect(zero.connection.credential).toEqual({ mode: "none" });
+		expect(invalid.chunk_size).toBe(0);
+		expect(invalid.max_file_size).toBeUndefined();
+	});
+
+	it("uses descriptor default modes consistently for create, update, and connection tests", () => {
+		const schema = descriptor("none");
+		schema.fields.push(
+			field("base_path", "connector_config", {
+				default_mode: "missing_or_empty_text",
+				default_value: "./data/uploads",
+				trim_on_blur: true,
+			}),
+			field("ordinary_prefix", "connector_config", {
+				default_value: "objects",
+			}),
+		);
+		const input = form({
+			connector_config_values: {
+				base_path: "   ",
+				endpoint: "https://archive.example.test",
+				ordinary_prefix: "",
+			},
+			credential_values: {},
+		});
+
+		const create = buildCreatePolicyPayload(input, schema);
+		const update = buildUpdatePolicyPayload(input, schema);
+		const connectionTest = buildPolicyTestPayload(input, schema);
+		for (const values of [
+			create.connection.connector_config.values,
+			update.connector_config.values,
+			connectionTest.connection.connector_config.values,
+		]) {
+			expect(values).toEqual({
+				base_path: "./data/uploads",
+				endpoint: "https://archive.example.test",
+			});
+		}
+	});
+});

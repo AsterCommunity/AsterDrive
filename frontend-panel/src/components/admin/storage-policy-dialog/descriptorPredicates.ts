@@ -1,9 +1,13 @@
 import type {
+	StorageConnectorActionId,
 	StorageConnectorActionKind,
-	StorageConnectorAffordanceAction,
 	StorageConnectorDescriptor,
-	StoragePolicyExecutableAction,
+	StorageConnectorFieldDescriptor,
 } from "@/types/api";
+
+type StorageConnectorSelectDataSource = NonNullable<
+	NonNullable<StorageConnectorFieldDescriptor["select"]>["data_source"]
+>;
 
 export function descriptorHasField(
 	descriptor: StorageConnectorDescriptor | null | undefined,
@@ -12,45 +16,14 @@ export function descriptorHasField(
 	return descriptor?.fields.some((field) => field.name === fieldName) ?? false;
 }
 
-export function descriptorHasPolicyOptionField(
+export function findConnectorFieldByDataSource(
 	descriptor: StorageConnectorDescriptor | null | undefined,
-	fieldName: string,
+	dataSource: StorageConnectorSelectDataSource,
 ) {
 	return (
-		descriptor?.fields.some(
-			(field) => field.scope === "connector_config" && field.name === fieldName,
-		) ?? false
-	);
-}
-
-export function descriptorHasConnectionField(
-	descriptor: StorageConnectorDescriptor | null | undefined,
-	fieldName: string,
-) {
-	return (
-		descriptor?.fields.some(
-			(field) => field.scope === "connector_config" && field.name === fieldName,
-		) ?? false
-	);
-}
-
-export function supportsObjectStorageConnection(
-	descriptor: StorageConnectorDescriptor | null | undefined,
-) {
-	return (
-		descriptorHasConnectionField(descriptor, "endpoint") &&
-		descriptorHasConnectionField(descriptor, "bucket") &&
-		descriptor?.upload_workflows.object_multipart_upload === true
-	);
-}
-
-export function supportsStaticSecretConnection(
-	descriptor: StorageConnectorDescriptor | null | undefined,
-) {
-	return (
-		descriptor?.credential_mode === "static_secret" &&
-		descriptorHasConnectionField(descriptor, "endpoint") &&
-		descriptor.fields.some((field) => field.scope === "static_credential")
+		descriptor?.fields.find(
+			(field) => field.select?.data_source === dataSource,
+		) ?? null
 	);
 }
 
@@ -58,34 +31,6 @@ export function supportsRemoteNodeBinding(
 	descriptor: StorageConnectorDescriptor | null | undefined,
 ) {
 	return descriptor?.capabilities.remote_node_binding === true;
-}
-
-export function supportsObjectStorageTransferStrategy(
-	descriptor: StorageConnectorDescriptor | null | undefined,
-) {
-	return descriptor?.capabilities.object_storage_transfer_strategy === true;
-}
-
-export function supportsOneDrivePolicyOptions(
-	descriptor: StorageConnectorDescriptor | null | undefined,
-) {
-	return descriptorHasPolicyOptionField(descriptor, "account_mode");
-}
-
-export function supportsContentDedupPolicyOption(
-	descriptor: StorageConnectorDescriptor | null | undefined,
-) {
-	return descriptorHasPolicyOptionField(descriptor, "content_dedup");
-}
-
-export function supportsApplicationCredentials(
-	descriptor: StorageConnectorDescriptor | null | undefined,
-) {
-	return (
-		descriptor?.fields.some(
-			(field) => field.scope === "authorization_application",
-		) ?? false
-	);
 }
 
 export function supportsStorageCredentialLifecycle(
@@ -96,18 +41,6 @@ export function supportsStorageCredentialLifecycle(
 		supportsCredentialValidationAction(descriptor) ||
 		descriptor?.credential_mode === "oauth_delegated" ||
 		descriptor?.authorization_provider != null
-	);
-}
-
-export function supportsMicrosoftGraphApplicationConfig(
-	descriptor: StorageConnectorDescriptor | null | undefined,
-) {
-	return (
-		descriptor?.fields.some(
-			(field) =>
-				field.scope === "authorization_application" &&
-				field.name === "client_id",
-		) ?? false
 	);
 }
 
@@ -165,27 +98,27 @@ export function supportsCredentialValidationAction(
 
 export function supportsStorageConnectorAction(
 	descriptor: StorageConnectorDescriptor | null | undefined,
-	action: StorageConnectorAffordanceAction,
+	actionId: StorageConnectorActionId,
 	kind?: StorageConnectorActionKind,
 ) {
-	return descriptor
-		? descriptor.actions.some(
-				(actionDescriptor) =>
-					actionDescriptor.affordance_action === action &&
-					(kind === undefined || actionDescriptor.kind === kind),
-			)
-		: false;
+	return findStorageConnectorAction(descriptor, actionId, kind) != null;
 }
 
-export function supportsStoragePolicyAction(
+export function findStorageConnectorAction(
 	descriptor: StorageConnectorDescriptor | null | undefined,
-	action: StoragePolicyExecutableAction,
+	actionId: StorageConnectorActionId,
+	kind?: StorageConnectorActionKind,
 ) {
-	return descriptor
-		? descriptor.actions.some(
-				(actionDescriptor) =>
-					actionDescriptor.policy_action === action &&
-					actionDescriptor.kind === "policy_action",
-			)
-		: false;
+	return descriptor?.actions.find(
+		(action) =>
+			action.action_id === actionId &&
+			(kind === undefined || action.kind === kind),
+	);
+}
+
+export function supportsStorageConnectorCustomAction(
+	descriptor: StorageConnectorDescriptor | null | undefined,
+	actionId: StorageConnectorActionId,
+) {
+	return supportsStorageConnectorAction(descriptor, actionId, "custom");
 }

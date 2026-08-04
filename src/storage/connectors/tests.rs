@@ -1,24 +1,26 @@
-use super::*;
-use crate::api::api_error_code::ApiErrorCode;
-use crate::config::DatabaseConfig;
-use aster_drive_migration::Migrator;
-use aster_drive_storage::connector_descriptor::{
-    StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDeploymentScope,
-    StorageConnectorFieldScope, StoragePolicyExecutableAction,
-};
-use chrono::Utc;
-use sea_orm::ActiveValue::Set;
+use std::collections::{BTreeMap, HashSet};
+use std::sync::Arc;
 
-use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
-    MicrosoftGraphCloud, ObjectStorageUploadStrategy, OneDriveAccountMode,
-    ProviderResumableUploadStrategy, RemoteUploadStrategy, StoragePolicyOptions,
-    StoredStoragePolicyAllowedTypes, UploadMode, parse_storage_policy_options,
+    MicrosoftGraphCloud, ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy,
+    ProviderDownloadFilenameMode, ProviderDownloadStrategy, ProviderResumableUploadStrategy,
+    RemoteDownloadStrategy, RemoteUploadStrategy,
 };
-use aster_drive_storage::StorageConnectorObjectNamingMode;
+use aster_drive_storage::connector_descriptor::{
+    StorageConnectorBadgeRgb, StorageConnectorCredentialMode, StorageConnectorDeploymentScope,
+    StorageConnectorFieldScope, StorageConnectorObjectNamingMode, StorageConnectorSelectDataSource,
+    StorageConnectorSelectValueKind,
+};
+use aster_drive_storage::{ConnectorConfigEnvelope, ConnectorId, StoragePolicyBehaviorConfig};
 
-const OBJECT_STORAGE_LARGE_UPLOAD_SIZE: i64 = 5_242_881;
-const ONEDRIVE_MAX_SIMPLE_UPLOAD_SIZE: u64 = 250_000_000;
+use super::azure_blob::AzureBlobConnectorConfigV1;
+use super::local::LocalConnectorConfigV1;
+use super::onedrive::{OneDriveAccountMode, OneDriveConnectorConfigV1};
+use super::remote::RemoteConnectorConfigV1;
+use super::s3::S3ConnectorConfigV1;
+use super::sftp::SftpConnectorConfigV1;
+use super::tencent_cos::TencentCosConnectorConfigV1;
+use super::*;
 
 fn registry() -> &'static StorageConnectorRegistry {
     static REGISTRY: std::sync::LazyLock<StorageConnectorRegistry> =
@@ -28,2088 +30,703 @@ fn registry() -> &'static StorageConnectorRegistry {
     &REGISTRY
 }
 
-fn descriptor(driver_type: DriverType) -> StorageConnectorDescriptor {
-    storage_driver_descriptor(registry(), driver_type)
-        .expect("storage connector descriptor should resolve")
+fn connector(id: &'static str) -> &'static dyn StorageConnector {
+    registry()
+        .require_connector(&ConnectorId::declared(id))
+        .expect("registered connector")
 }
 
-async fn setup_connector_test_db() -> sea_orm::DatabaseConnection {
-    let db = crate::db::connect_with_metrics(
-        &DatabaseConfig {
-            url: "sqlite::memory:".into(),
-            pool_size: 1,
-            retry_count: 0,
-        },
-        aster_drive_metrics::NoopMetrics::arc(),
-    )
-    .await
-    .expect("connector test DB should connect");
-    Migrator::up(&db, None)
-        .await
-        .expect("connector test migrations should succeed");
-    db
+fn descriptor(id: &'static str) -> StorageConnectorDescriptor {
+    connector(id).descriptor()
 }
 
-async fn create_saved_connector_policy(
-    db: &sea_orm::DatabaseConnection,
-    driver_type: DriverType,
-) -> storage_policy::Model {
-    let now = Utc::now();
-    crate::db::repository::policy_repo::create(
-        db,
-        storage_policy::ActiveModel {
-            name: Set(format!("Saved {}", driver_type.as_str())),
-            driver_type: Set(driver_type),
-            endpoint: Set(match driver_type {
-                DriverType::AzureBlob => "https://acct.blob.core.windows.net".to_string(),
-                DriverType::S3 | DriverType::TencentCos => "https://s3.example.test".to_string(),
-                _ => String::new(),
-            }),
-            bucket: Set("archive".to_string()),
-            access_key: Set("saved-access".to_string()),
-            secret_key: Set("saved-secret".to_string()),
-            base_path: Set("tenant-a".to_string()),
-            remote_node_id: Set(None),
-            max_file_size: Set(0),
-            allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
-            is_default: Set(false),
-            chunk_size: Set(5_242_880),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
-        },
-    )
-    .await
-    .expect("saved connector policy should insert")
+fn local_config(base_path: &str) -> LocalConnectorConfigV1 {
+    LocalConnectorConfigV1 {
+        base_path: base_path.to_string(),
+        content_dedup: false,
+    }
 }
 
-fn draft_connection(driver_type: DriverType) -> StorageConnectorConnectionInput {
-    StorageConnectorConnectionInput {
-        driver_type,
-        endpoint: match driver_type {
-            DriverType::AzureBlob => "https://acct.blob.core.windows.net".to_string(),
-            DriverType::S3 | DriverType::TencentCos => "https://s3.example.test".to_string(),
-            _ => String::new(),
-        },
+fn s3_config(upload: ObjectStorageUploadStrategy) -> S3ConnectorConfigV1 {
+    S3ConnectorConfigV1 {
+        endpoint: "https://s3.example.test".to_string(),
         bucket: "archive".to_string(),
-        access_key: String::new(),
-        secret_key: String::new(),
-        base_path: "tenant-b".to_string(),
-        remote_node_id: None,
-        remote_storage_target_key: None,
-        options: StoragePolicyOptions::default(),
+        base_path: "tenant-a".to_string(),
+        object_storage_upload_strategy: upload,
+        object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
+        s3_path_style: true,
+        s3_region: "auto".to_string(),
+        s3_connect_timeout_secs: 5,
+        s3_read_timeout_secs: 30,
+        s3_operation_timeout_secs: 3_600,
     }
 }
 
-async fn assert_saved_credentials_merge_for_driver(driver_type: DriverType) {
-    let db = setup_connector_test_db().await;
-    let saved = create_saved_connector_policy(&db, driver_type).await;
+fn sftp_config() -> SftpConnectorConfigV1 {
+    SftpConnectorConfigV1 {
+        endpoint: "sftp://storage.example.test:22".to_string(),
+        base_path: "tenant-a".to_string(),
+        sftp_host_key_fingerprint: Some("SHA256:abc123".to_string()),
+    }
+}
 
-    let merged = common::merge_saved_static_credentials_for_draft(
-        &db,
-        Some(saved.id),
-        draft_connection(driver_type),
-        "draft storage policy connection test",
+fn azure_config(upload: ObjectStorageUploadStrategy) -> AzureBlobConnectorConfigV1 {
+    AzureBlobConnectorConfigV1 {
+        endpoint: "https://account.blob.core.windows.net".to_string(),
+        bucket: "archive".to_string(),
+        base_path: "tenant-a".to_string(),
+        object_storage_upload_strategy: upload,
+        object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
+    }
+}
+
+fn cos_config(upload: ObjectStorageUploadStrategy) -> TencentCosConnectorConfigV1 {
+    TencentCosConnectorConfigV1 {
+        endpoint: "https://cos.ap-beijing.myqcloud.com".to_string(),
+        bucket: "archive-1250000000".to_string(),
+        base_path: "tenant-a".to_string(),
+        object_storage_upload_strategy: upload,
+        object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
+        storage_native_processing_enabled: false,
+        storage_native_media_metadata_enabled: false,
+    }
+}
+
+fn remote_config(upload: RemoteUploadStrategy) -> RemoteConnectorConfigV1 {
+    RemoteConnectorConfigV1 {
+        base_path: "tenant-a".to_string(),
+        remote_node_id: Some(7),
+        remote_storage_target_key: Some("rst_test".to_string()),
+        remote_download_strategy: RemoteDownloadStrategy::RelayStream,
+        remote_upload_strategy: upload,
+    }
+}
+
+fn onedrive_config(
+    strategy: ProviderResumableUploadStrategy,
+    account_mode: OneDriveAccountMode,
+) -> OneDriveConnectorConfigV1 {
+    OneDriveConnectorConfigV1 {
+        base_path: "tenant-a".to_string(),
+        provider_resumable_upload_strategy: strategy,
+        provider_download_strategy: ProviderDownloadStrategy::ServerRelay,
+        provider_download_filename_mode: ProviderDownloadFilenameMode::ProviderNative,
+        cloud: MicrosoftGraphCloud::Global,
+        account_mode,
+        tenant: None,
+        drive_id: None,
+        root_item_id: None,
+        site_id: None,
+        group_id: None,
+    }
+}
+
+fn policy<T: serde::Serialize>(connector_id: &'static str, values: T) -> storage_policy::Model {
+    super::test_support::policy(
+        connector_id,
+        1,
+        values,
+        StoragePolicyBehaviorConfig::default(),
     )
-    .await
-    .expect("blank draft credentials should merge from saved policy");
-
-    assert_eq!(merged.access_key, "saved-access");
-    assert_eq!(merged.secret_key, "saved-secret");
-}
-
-async fn assert_saved_credentials_driver_mismatch_for_driver(driver_type: DriverType) {
-    let db = setup_connector_test_db().await;
-    let saved = create_saved_connector_policy(&db, DriverType::Local).await;
-
-    let error = common::merge_saved_static_credentials_for_draft(
-        &db,
-        Some(saved.id),
-        draft_connection(driver_type),
-        "draft storage policy connection test",
-    )
-    .await
-    .expect_err("saved policy with a different driver should be rejected");
-
-    assert_eq!(
-        error.api_error_code(),
-        ApiErrorCode::PolicyActionParameterInvalid
-    );
-}
-
-#[tokio::test]
-async fn non_remote_draft_connection_rejects_remote_storage_target_key() {
-    let db = setup_connector_test_db().await;
-    let mut input = draft_connection(DriverType::Local);
-    input.remote_storage_target_key = Some("rst_unexpected".to_string());
-
-    let error = normalize_policy_connection(registry(), &db, input)
-        .await
-        .expect_err("local policy drafts must not accept remote target keys");
-
-    assert_eq!(
-        error.api_error_code(),
-        ApiErrorCode::PolicyRemoteNodeUnexpected
-    );
-}
-
-#[tokio::test]
-async fn s3_draft_connection_can_merge_saved_credentials() {
-    assert!(S3Connector.supports_saved_draft_credentials());
-    assert_saved_credentials_merge_for_driver(DriverType::S3).await;
-}
-
-#[tokio::test]
-async fn s3_draft_connection_rejects_saved_credential_driver_mismatch() {
-    assert!(S3Connector.supports_saved_draft_credentials());
-    assert_saved_credentials_driver_mismatch_for_driver(DriverType::S3).await;
-}
-
-#[tokio::test]
-async fn azure_blob_draft_connection_can_merge_saved_credentials() {
-    assert!(AzureBlobConnector.supports_saved_draft_credentials());
-    assert_saved_credentials_merge_for_driver(DriverType::AzureBlob).await;
-}
-
-#[tokio::test]
-async fn azure_blob_draft_connection_rejects_saved_credential_driver_mismatch() {
-    assert!(AzureBlobConnector.supports_saved_draft_credentials());
-    assert_saved_credentials_driver_mismatch_for_driver(DriverType::AzureBlob).await;
-}
-
-#[tokio::test]
-async fn sftp_draft_connection_can_merge_saved_credentials() {
-    assert!(SftpConnector.supports_saved_draft_credentials());
-    assert_saved_credentials_merge_for_driver(DriverType::Sftp).await;
-}
-
-#[tokio::test]
-async fn sftp_draft_connection_rejects_saved_credential_driver_mismatch() {
-    assert!(SftpConnector.supports_saved_draft_credentials());
-    assert_saved_credentials_driver_mismatch_for_driver(DriverType::Sftp).await;
 }
 
 #[test]
-fn descriptors_cover_every_storage_driver() {
-    let descriptors = list_storage_driver_descriptors(registry());
-
-    assert_eq!(descriptors.len(), 7);
-    for driver_type in [
-        DriverType::Local,
-        DriverType::S3,
-        DriverType::Sftp,
-        DriverType::AzureBlob,
-        DriverType::TencentCos,
-        DriverType::Remote,
-        DriverType::OneDrive,
-    ] {
-        assert!(
-            descriptors.iter().any(|descriptor| {
-                descriptor.connector_id
-                    == super::contract::connector_id_for_legacy_driver_type(driver_type)
-            }),
-            "missing descriptor for {driver_type:?}"
-        );
-    }
-}
-
-#[test]
-fn descriptors_explicitly_declare_multi_primary_reference_scope() {
-    assert_eq!(
-        descriptor(DriverType::Local).deployment_scope,
-        StorageConnectorDeploymentScope::InstanceLocal
-    );
-
-    for driver_type in [
-        DriverType::S3,
-        DriverType::Sftp,
-        DriverType::AzureBlob,
-        DriverType::TencentCos,
-        DriverType::Remote,
-        DriverType::OneDrive,
-    ] {
-        let scope = descriptor(driver_type).deployment_scope;
-        assert_eq!(
-            scope,
-            StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
-            "{driver_type:?} must be safely referenceable by every primary"
-        );
-        assert!(scope.supports_multi_primary());
-    }
-    assert!(
-        !descriptor(DriverType::Local)
-            .deployment_scope
-            .supports_multi_primary()
-    );
-}
-
-#[test]
-fn initial_setup_support_is_a_connector_owned_capability() {
-    assert!(!descriptor(DriverType::OneDrive).supports_initial_setup);
-
-    for driver_type in [
-        DriverType::Local,
-        DriverType::S3,
-        DriverType::Sftp,
-        DriverType::AzureBlob,
-        DriverType::TencentCos,
-        DriverType::Remote,
-    ] {
-        assert!(
-            descriptor(driver_type).supports_initial_setup,
-            "{driver_type:?} should support direct initial policy setup"
-        );
-    }
-}
-
-#[test]
-fn object_naming_is_explicitly_declared_by_each_connector() {
-    assert_eq!(
-        descriptor(DriverType::OneDrive).capabilities.object_naming,
-        StorageConnectorObjectNamingMode::OriginalFilename
-    );
-
-    for driver_type in [
-        DriverType::Local,
-        DriverType::S3,
-        DriverType::AzureBlob,
-        DriverType::TencentCos,
-        DriverType::Remote,
-        DriverType::Sftp,
-    ] {
-        assert_eq!(
-            descriptor(driver_type).capabilities.object_naming,
-            StorageConnectorObjectNamingMode::OpaqueUuid,
-            "{driver_type:?} must explicitly retain opaque UUID object naming"
-        );
-    }
-}
-
-#[test]
-fn object_naming_capability_has_stable_wire_values() {
-    assert_eq!(
-        serde_json::to_value(StorageConnectorObjectNamingMode::OpaqueUuid).unwrap(),
-        serde_json::json!("opaque_uuid")
-    );
-    assert_eq!(
-        serde_json::to_value(StorageConnectorObjectNamingMode::OriginalFilename).unwrap(),
-        serde_json::json!("original_filename")
-    );
-    assert_eq!(
-        serde_json::from_value::<StorageConnectorObjectNamingMode>(serde_json::json!(
-            "original_filename"
-        ))
-        .unwrap(),
-        StorageConnectorObjectNamingMode::OriginalFilename
-    );
-    assert!(
-        serde_json::from_value::<StorageConnectorObjectNamingMode>(serde_json::json!(
-            "driver_type_guess"
-        ))
-        .is_err()
-    );
-}
-
-#[test]
-fn descriptors_expose_connector_owned_ui_metadata() {
-    let descriptors = list_storage_driver_descriptors(registry());
-
-    for descriptor in descriptors {
-        assert!(
-            !descriptor.ui.label_key.trim().is_empty(),
-            "{:?} missing label key",
-            descriptor.connector_id
-        );
-        assert!(
-            !descriptor.ui.description_key.trim().is_empty(),
-            "{:?} missing description key",
-            descriptor.connector_id
-        );
-        assert!(
-            !descriptor.ui.helper_key.trim().is_empty(),
-            "{:?} missing create helper key",
-            descriptor.connector_id
-        );
-        assert!(
-            !descriptor.ui.edit_context_key.trim().is_empty(),
-            "{:?} missing edit context key",
-            descriptor.connector_id
-        );
-        assert!(
-            descriptor.ui.icon_src.is_some() || descriptor.ui.icon_name.is_some(),
-            "{:?} should declare a visual affordance",
-            descriptor.connector_id
-        );
-    }
-
-    let local = descriptor(DriverType::Local);
-    assert_eq!(local.ui.label_key, "driver_type_local");
-    assert_eq!(
-        local.ui.config_step_title_key,
-        "policy_wizard_step_local_title"
-    );
-    assert_eq!(
-        local.ui.config_step_description_key,
-        "policy_wizard_step_local_desc"
-    );
-    assert_eq!(local.ui.base_path_empty_display, "./data/uploads");
-    assert_eq!(local.ui.base_path_placeholder, "./data/uploads");
-
-    let azure = descriptor(DriverType::AzureBlob);
-    assert_eq!(azure.ui.label_key, "driver_type_azure_blob");
-    assert_eq!(azure.ui.helper_key, "policy_wizard_azure_blob_helper");
-    assert_eq!(
-        azure.ui.config_step_description_key,
-        "policy_wizard_step_azure_blob_connection_desc"
-    );
-    assert_eq!(
-        azure.ui.edit_context_key,
-        "policy_edit_context_azure_blob_desc"
-    );
-    assert_eq!(azure.ui.base_path_empty_display, "core:root");
-
-    let onedrive = descriptor(DriverType::OneDrive);
-    assert_eq!(onedrive.ui.label_key, "driver_type_onedrive");
-    assert_eq!(onedrive.ui.helper_key, "policy_wizard_onedrive_helper");
-    assert_eq!(
-        onedrive.ui.config_step_title_key,
-        "policy_wizard_step_onedrive_title"
-    );
-
-    let sftp = descriptor(DriverType::Sftp);
-    assert_eq!(sftp.ui.label_key, "driver_type_sftp");
-    assert_eq!(sftp.ui.helper_key, "policy_wizard_sftp_helper");
-    assert_eq!(
-        sftp.ui.config_step_description_key,
-        "policy_wizard_step_sftp_desc"
-    );
-    assert_eq!(sftp.ui.base_path_empty_display, "core:root");
-}
-
-#[test]
-fn connector_registry_covers_every_builtin_storage_driver() {
-    for driver_type in [
-        DriverType::Local,
-        DriverType::S3,
-        DriverType::Sftp,
-        DriverType::AzureBlob,
-        DriverType::TencentCos,
-        DriverType::Remote,
-        DriverType::OneDrive,
-    ] {
-        let connector = registry()
-            .require(driver_type)
-            .expect("registered connector");
-
-        assert_eq!(
-            connector.descriptor().connector_id,
-            super::contract::connector_id_for_legacy_driver_type(driver_type)
-        );
-    }
-}
-
-#[test]
-fn connector_registry_rejects_duplicate_driver_types() {
-    let error = match StorageConnectorRegistry::new(vec![
-        std::sync::Arc::new(LocalConnector),
-        std::sync::Arc::new(LocalConnector),
-    ]) {
-        Ok(_) => panic!("duplicate connector registrations must be rejected"),
-        Err(error) => error,
-    };
-
-    assert!(
-        error
-            .to_string()
-            .contains("storage connector 'asterdrive.storage.local' is registered more than once")
-    );
-}
-
-#[test]
-fn connector_registry_rejects_missing_driver_lookup() {
-    let registry = StorageConnectorRegistry::new(Vec::new())
-        .expect("an empty connector registry should be valid");
-
-    let error = match registry.require(DriverType::S3) {
-        Ok(_) => panic!("missing connector lookup must fail"),
-        Err(error) => error,
-    };
-
-    assert!(
-        error
-            .to_string()
-            .contains("storage connector 'asterdrive.storage.s3' is not registered")
-    );
-}
-
-#[test]
-fn connector_registry_preserves_registration_order() {
-    let registry = StorageConnectorRegistry::new(vec![
-        std::sync::Arc::new(S3Connector),
-        std::sync::Arc::new(LocalConnector),
-        std::sync::Arc::new(AzureBlobConnector),
-    ])
-    .expect("unique connector registrations should succeed");
-
-    let connector_ids = registry
-        .descriptors()
-        .into_iter()
-        .map(|descriptor| descriptor.connector_id)
+fn registry_exposes_each_builtin_connector_once_in_stable_order() {
+    let descriptors = registry().descriptors();
+    let actual = descriptors
+        .iter()
+        .map(|descriptor| descriptor.connector_id.as_str())
         .collect::<Vec<_>>();
-
     assert_eq!(
-        connector_ids,
+        actual,
         vec![
-            aster_drive_storage::ConnectorId::declared("asterdrive.storage.s3"),
-            aster_drive_storage::ConnectorId::declared("asterdrive.storage.local"),
-            aster_drive_storage::ConnectorId::declared("asterdrive.storage.azure_blob"),
+            LocalConnector::ID,
+            S3Connector::ID,
+            SftpConnector::ID,
+            AzureBlobConnector::ID,
+            TencentCosConnector::ID,
+            RemoteConnector::ID,
+            OneDriveConnector::ID,
         ]
     );
+    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 7);
 }
 
 #[test]
-fn local_descriptor_declares_content_dedup_policy_option() {
-    let descriptor = descriptor(DriverType::Local);
-
-    assert!(descriptor.fields.iter().any(|field| {
-        field.name == "content_dedup"
-            && field.scope == StorageConnectorFieldScope::ConnectorConfig
-            && field.kind
-                == aster_drive_storage::connector_descriptor::StorageConnectorFieldKind::Boolean
-    }));
-}
-
-#[test]
-fn transfer_strategy_policy_options_are_declared_by_descriptors() {
-    let s3 = descriptor(DriverType::S3);
-    assert!(has_policy_option(&s3, "object_storage_upload_strategy"));
-    assert!(has_policy_option(&s3, "object_storage_download_strategy"));
-    assert!(has_policy_option(&s3, "s3_path_style"));
-    assert!(has_policy_option(&s3, "s3_region"));
-
-    let azure_blob = descriptor(DriverType::AzureBlob);
-    assert!(has_policy_option(
-        &azure_blob,
-        "object_storage_upload_strategy"
-    ));
-    assert!(has_policy_option(
-        &azure_blob,
-        "object_storage_download_strategy"
-    ));
-    assert!(!has_policy_option(&azure_blob, "s3_path_style"));
-
-    let remote = descriptor(DriverType::Remote);
-    assert!(has_policy_option(&remote, "remote_download_strategy"));
-    assert!(has_policy_option(&remote, "remote_upload_strategy"));
-
-    let onedrive = descriptor(DriverType::OneDrive);
-    assert!(has_policy_option(
-        &onedrive,
-        "provider_resumable_upload_strategy"
-    ));
-    assert!(has_policy_option(&onedrive, "provider_download_strategy"));
-    assert!(has_policy_option(
-        &onedrive,
-        "provider_download_filename_mode"
-    ));
-
-    let sftp = descriptor(DriverType::Sftp);
-    assert!(!has_policy_option(&sftp, "object_storage_upload_strategy"));
-    assert!(!has_policy_option(
-        &sftp,
-        "object_storage_download_strategy"
-    ));
-    assert!(!has_policy_option(&sftp, "s3_path_style"));
-
-    for driver_type in [
-        DriverType::Local,
-        DriverType::Sftp,
-        DriverType::AzureBlob,
-        DriverType::TencentCos,
-        DriverType::Remote,
-        DriverType::OneDrive,
-    ] {
-        assert!(
-            !has_policy_option(&descriptor(driver_type), "s3_region"),
-            "{} must not advertise the S3 signing region",
-            driver_type.as_str()
-        );
-    }
-}
-
-#[tokio::test]
-async fn s3_draft_policy_normalizes_and_validates_signing_region_before_driver_build() {
-    let db = setup_connector_test_db().await;
-    let mut connection = draft_connection(DriverType::S3);
-    connection.access_key = "draft-access".to_string();
-    connection.secret_key = "draft-secret".to_string();
-    connection.options.s3_region = Some(" us-east-1 ".to_string());
-
-    let policy = common::build_connection_test_policy(&db, &S3Connector, connection)
-        .await
-        .expect("valid draft S3 region should build a temporary policy");
-    let options = parse_storage_policy_options(policy.options.as_ref());
-    assert_eq!(options.s3_region.as_deref(), Some("us-east-1"));
-    assert_eq!(options.effective_s3_region(), "us-east-1");
-
-    let mut invalid = draft_connection(DriverType::S3);
-    invalid.access_key = "draft-access".to_string();
-    invalid.secret_key = "draft-secret".to_string();
-    invalid.options.s3_region = Some("us-east-1/invalid".to_string());
-
-    let error = common::build_connection_test_policy(&db, &S3Connector, invalid)
-        .await
-        .expect_err("invalid draft S3 region should fail before probing storage");
-    assert!(error.to_string().contains("s3_region must be"), "{error}");
-}
-
-#[test]
-fn object_storage_connection_field_display_metadata_is_connector_owned() {
-    let s3 = descriptor(DriverType::S3);
-    assert_eq!(s3.ui.label_key, "driver_type_s3");
-    assert_eq!(s3.ui.helper_key, "policy_wizard_object_storage_helper");
-    assert_eq!(
-        s3.ui.config_step_description_key,
-        "policy_wizard_step_object_storage_connection_desc"
-    );
-    assert_eq!(
-        s3.ui.edit_context_key,
-        "policy_edit_context_object_storage_desc"
-    );
-    assert_eq!(s3.ui.base_path_empty_display, "core:root");
-    assert_eq!(s3.ui.base_path_placeholder, "tenant/prefix");
-    let s3_endpoint = field(&s3, "endpoint");
-    assert_eq!(s3_endpoint.label_key, "endpoint");
-    assert_eq!(
-        s3_endpoint.placeholder.as_deref(),
-        Some("https://s3.amazonaws.com")
-    );
-    assert_eq!(s3_endpoint.help_key.as_deref(), Some("s3_endpoint_hint"));
-    assert_eq!(
-        s3_endpoint.invalid_protocol_message_key.as_deref(),
-        Some("s3_endpoint_protocol_required_error")
-    );
-    assert_eq!(
-        field(&s3, "bucket").required_message_key.as_deref(),
-        Some("policy_wizard_bucket_required")
-    );
-    assert_eq!(field(&s3, "s3_access_key_id").label_key, "s3_access_key_id");
-    assert!(!field(&s3, "s3_access_key_id").trim_on_blur);
-    assert_eq!(
-        field(&s3, "s3_secret_access_key").label_key,
-        "s3_secret_access_key"
-    );
-    let s3_path_style = field(&s3, "s3_path_style");
-    assert_eq!(s3_path_style.label_key, "s3_path_style");
-    assert_eq!(
-        s3_path_style.help_key.as_deref(),
-        Some("s3_path_style_desc")
-    );
-    let s3_region = field(&s3, "s3_region");
-    assert_eq!(s3_region.label_key, "s3_region");
-    assert_eq!(s3_region.placeholder.as_deref(), Some("auto"));
-    assert_eq!(s3_region.help_key.as_deref(), Some("s3_region_desc"));
-    assert!(s3_region.trim_on_blur);
-
-    let azure_blob = descriptor(DriverType::AzureBlob);
-    assert_eq!(
-        field(&azure_blob, "endpoint").placeholder.as_deref(),
-        Some("https://<account>.blob.core.windows.net")
-    );
-    assert_eq!(
-        field(&azure_blob, "endpoint").help_key.as_deref(),
-        Some("azure_blob_endpoint_hint")
-    );
-    assert_eq!(
-        field(&azure_blob, "endpoint")
-            .invalid_protocol_message_key
-            .as_deref(),
-        Some("azure_blob_endpoint_protocol_required_error")
-    );
-    assert_eq!(
-        field(&azure_blob, "azure_blob_account_name").label_key,
-        "azure_blob_account_name"
-    );
-    assert!(field(&azure_blob, "azure_blob_account_name").trim_on_blur);
-    assert_eq!(
-        field(&azure_blob, "azure_blob_account_key").label_key,
-        "azure_blob_account_key"
-    );
-    assert_eq!(
-        field(&azure_blob, "bucket").required_message_key.as_deref(),
-        Some("policy_wizard_container_required")
-    );
-
-    let tencent_cos = descriptor(DriverType::TencentCos);
-    assert_eq!(tencent_cos.ui.label_key, "driver_type_tencent_cos");
-    assert_eq!(
-        tencent_cos.ui.helper_key,
-        "policy_wizard_tencent_cos_helper"
-    );
-    assert_eq!(
-        tencent_cos.ui.config_step_description_key,
-        "policy_wizard_step_tencent_cos_connection_desc"
-    );
-    assert_eq!(
-        tencent_cos.ui.edit_context_key,
-        "policy_edit_context_object_storage_desc"
-    );
-    assert_eq!(
-        field(&tencent_cos, "endpoint").placeholder.as_deref(),
-        Some("https://<bucket-appid>.cos.<region>.myqcloud.com")
-    );
-    assert_eq!(
-        field(&tencent_cos, "endpoint").help_key.as_deref(),
-        Some("cos_endpoint_hint")
-    );
-    assert_eq!(
-        field(&tencent_cos, "endpoint")
-            .invalid_protocol_message_key
-            .as_deref(),
-        Some("s3_endpoint_protocol_required_error")
-    );
-    assert_eq!(
-        field(&tencent_cos, "bucket")
-            .required_message_key
-            .as_deref(),
-        Some("policy_wizard_bucket_required")
-    );
-    assert_eq!(
-        field(&tencent_cos, "tencent_cos_secret_id").label_key,
-        "tencent_cos_secret_id"
-    );
-    assert!(!field(&tencent_cos, "tencent_cos_secret_id").trim_on_blur);
-    assert_eq!(
-        field(&tencent_cos, "tencent_cos_secret_key").label_key,
-        "tencent_cos_secret_key"
-    );
-    assert!(!has_policy_option(&tencent_cos, "s3_path_style"));
-}
-
-#[test]
-fn sftp_connection_field_display_metadata_is_connector_owned() {
-    let sftp = descriptor(DriverType::Sftp);
-
-    assert_eq!(sftp.ui.label_key, "driver_type_sftp");
-    assert_eq!(sftp.ui.helper_key, "policy_wizard_sftp_helper");
-    assert_eq!(sftp.ui.edit_context_key, "policy_edit_context_sftp_desc");
-    assert_eq!(
-        field(&sftp, "endpoint").placeholder.as_deref(),
-        Some("sftp://example.com:22")
-    );
-    assert_eq!(
-        field(&sftp, "endpoint").help_key.as_deref(),
-        Some("sftp_endpoint_hint")
-    );
-    assert_eq!(
-        field(&sftp, "endpoint")
-            .invalid_protocol_message_key
-            .as_deref(),
-        Some("sftp_endpoint_protocol_required_error")
-    );
-    assert_eq!(
-        field(&sftp, "endpoint").allowed_endpoint_protocols,
-        vec!["sftp:"]
-    );
-    assert!(field(&sftp, "endpoint").allow_endpoint_without_protocol);
-    assert_eq!(field(&sftp, "sftp_username").label_key, "sftp_username");
-    assert!(field(&sftp, "sftp_username").trim_on_blur);
-    assert_eq!(field(&sftp, "sftp_password").label_key, "sftp_password");
-    assert_eq!(
-        field(&sftp, "sftp_host_key_fingerprint").scope,
-        StorageConnectorFieldScope::ConnectorConfig
-    );
-    assert_eq!(
-        field(&sftp, "sftp_host_key_fingerprint").label_key,
-        "sftp_host_key_fingerprint"
-    );
-    assert_eq!(
-        field(&sftp, "sftp_host_key_fingerprint")
-            .help_key
-            .as_deref(),
-        Some("sftp_host_key_fingerprint_hint")
-    );
-    assert!(sftp.fields.iter().all(|field| field.name != "bucket"));
-    assert!(!sftp.upload_workflows.presigned_upload);
-    assert!(!sftp.upload_workflows.object_multipart_upload);
-}
-
-#[test]
-fn builtin_static_credential_payloads_use_provider_semantics_without_legacy_aliases() {
-    let s3: super::s3::S3StaticCredentialsV1 = serde_json::from_value(serde_json::json!({
-        "s3_access_key_id": "AKIA",
-        "s3_secret_access_key": "SECRET"
-    }))
-    .expect("S3 payload should use AWS credential names");
-    assert_eq!(s3.s3_access_key_id, "AKIA");
-    assert_eq!(s3.s3_secret_access_key, "SECRET");
-    assert!(
-        serde_json::from_value::<super::s3::S3StaticCredentialsV1>(serde_json::json!({
-            "access_key": "AKIA",
-            "secret_key": "SECRET"
-        }))
-        .is_err()
-    );
-
-    let sftp: super::sftp::SftpStaticCredentialsV1 = serde_json::from_value(serde_json::json!({
-        "sftp_username": "aster",
-        "sftp_password": "secret"
-    }))
-    .expect("SFTP payload should use SSH credential names");
-    assert_eq!(sftp.sftp_username, "aster");
-    assert_eq!(sftp.sftp_password, "secret");
-    assert!(
-        serde_json::from_value::<super::sftp::SftpStaticCredentialsV1>(serde_json::json!({
-            "access_key": "aster",
-            "secret_key": "secret"
-        }))
-        .is_err()
-    );
-
-    let azure: super::azure_blob::AzureBlobStaticCredentialsV1 =
-        serde_json::from_value(serde_json::json!({
-            "azure_blob_account_name": "account",
-            "azure_blob_account_key": "key"
-        }))
-        .expect("Azure payload should use storage account names");
-    assert_eq!(azure.azure_blob_account_name, "account");
-    assert_eq!(azure.azure_blob_account_key, "key");
-    assert!(
-        serde_json::from_value::<super::azure_blob::AzureBlobStaticCredentialsV1>(
-            serde_json::json!({ "access_key": "account", "secret_key": "key" })
-        )
-        .is_err()
-    );
-
-    let cos: super::tencent_cos::TencentCosStaticCredentialsV1 =
-        serde_json::from_value(serde_json::json!({
-            "tencent_cos_secret_id": "AKID",
-            "tencent_cos_secret_key": "SECRET"
-        }))
-        .expect("Tencent COS payload should use SecretId/SecretKey names");
-    assert_eq!(cos.tencent_cos_secret_id, "AKID");
-    assert_eq!(cos.tencent_cos_secret_key, "SECRET");
-    assert!(
-        serde_json::from_value::<super::tencent_cos::TencentCosStaticCredentialsV1>(
-            serde_json::json!({ "access_key": "AKID", "secret_key": "SECRET" })
-        )
-        .is_err()
-    );
-}
-
-#[test]
-fn object_storage_multipart_etag_requirements_are_connector_owned() {
-    for (driver_type, expected_etag_required) in [
-        (DriverType::S3, true),
-        (DriverType::TencentCos, true),
-        (DriverType::Remote, true),
-        (DriverType::AzureBlob, false),
-    ] {
-        let descriptor = descriptor(driver_type);
-        let capabilities = descriptor
-            .upload_workflows
-            .object_multipart_upload_capabilities
-            .as_ref()
-            .unwrap_or_else(|| {
-                panic!("{driver_type:?} should declare object multipart capabilities")
-            });
-        assert_eq!(
-            capabilities.presigned_part_etag_required, expected_etag_required,
-            "{driver_type:?} presigned part ETag requirement should be declared by its connector"
-        );
-    }
-}
-
-#[test]
-fn s3_descriptor_declares_connector_owned_endpoint_driver_recommendation() {
-    let s3 = descriptor(DriverType::S3);
-    let recommendation = s3
-        .driver_recommendations
-        .iter()
-        .find(|recommendation| {
-            recommendation.target_connector_id
-                == aster_drive_storage::ConnectorId::declared("asterdrive.storage.tencent_cos")
-        })
-        .expect("S3 connector should recommend the specialized Tencent COS driver");
-
-    assert!(
-        recommendation
-            .endpoint_host_rules
-            .iter()
-            .any(|rule| rule.equals.as_deref() == Some("myqcloud.com"))
-    );
-    assert!(
-        recommendation
-            .endpoint_host_rules
-            .iter()
-            .any(|rule| rule.ends_with.as_deref() == Some(".myqcloud.com"))
-    );
-
-    let tencent_cos = descriptor(DriverType::TencentCos);
-    assert!(tencent_cos.driver_recommendations.is_empty());
-}
-
-#[test]
-fn onedrive_descriptor_requires_saved_authorized_connection_test() {
-    let descriptor = descriptor(DriverType::OneDrive);
-
-    assert_eq!(
-        descriptor.authorization_provider.as_deref(),
-        Some("microsoft_graph")
-    );
-    assert!(!descriptor.actions.iter().any(|action| {
-        action.affordance_action == Some(StorageConnectorAffordanceAction::TestDraftConnection)
-            && action.kind == StorageConnectorActionKind::ConnectionTest
-    }));
-    let saved_connection_test = descriptor
-        .actions
-        .iter()
-        .find(|action| {
-            action.affordance_action == Some(StorageConnectorAffordanceAction::TestSavedConnection)
-                && action.kind == StorageConnectorActionKind::ConnectionTest
-        })
-        .expect("saved connection test action");
-    assert!(saved_connection_test.requires_saved_policy);
-    assert!(saved_connection_test.requires_authorization);
-    assert!(descriptor.requires_authorization);
-    assert!(descriptor.upload_workflows.stream_upload);
-    assert!(!descriptor.upload_workflows.object_multipart_upload);
-    assert!(descriptor.upload_workflows.provider_resumable_upload);
-    assert!(
-        descriptor
-            .upload_workflows
-            .frontend_direct_provider_resumable_upload
-    );
-    let upload_capabilities = descriptor
-        .upload_workflows
-        .provider_resumable_upload_capabilities
-        .as_ref()
-        .expect("OneDrive should describe provider-native upload session semantics");
-    assert_eq!(upload_capabilities.provider, "microsoft_graph");
-    assert_eq!(
-        upload_capabilities.session_label,
-        "Microsoft Graph upload session"
-    );
-    assert_eq!(upload_capabilities.min_fragment_size, 320 * 1024);
-    assert_eq!(upload_capabilities.fragment_alignment, 320 * 1024);
-    assert_eq!(upload_capabilities.default_fragment_size, 10 * 1024 * 1024);
-    assert_eq!(upload_capabilities.max_fragment_size, 50 * 1024 * 1024);
-    assert_eq!(
-        upload_capabilities.max_simple_upload_size,
-        Some(ONEDRIVE_MAX_SIMPLE_UPLOAD_SIZE)
-    );
-    assert!(upload_capabilities.frontend_direct_upload);
-    assert!(upload_capabilities.implicit_completion);
-    assert!(upload_capabilities.abort_supported);
-    assert!(upload_capabilities.status_query_supported);
-}
-
-#[test]
-fn onedrive_prepare_connection_for_storage_clears_legacy_policy_key_fields() {
-    let prepared = prepare_connection_for_storage(
-        registry(),
-        StorageConnectorConnectionInput {
-            driver_type: DriverType::OneDrive,
-            endpoint: String::new(),
-            bucket: String::new(),
-            access_key: "legacy-client-id".to_string(),
-            secret_key: "legacy-client-secret".to_string(),
-            base_path: "docs".to_string(),
-            remote_node_id: None,
-            remote_storage_target_key: None,
-            options: StoragePolicyOptions::default(),
-        },
-        &StorageConnectorApplicationConfigInput {
-            microsoft_graph: Some(crate::storage::MicrosoftGraphApplicationConfigInput {
-                client_id: Some("metadata-client-id".to_string()),
-                client_secret: Some("metadata-client-secret".to_string()),
-                ..Default::default()
-            }),
-        },
-    )
-    .expect("OneDrive app config should be accepted by connector");
-
-    assert_eq!(prepared.access_key, "");
-    assert_eq!(prepared.secret_key, "");
-    assert_eq!(prepared.base_path, "docs");
-}
-
-#[test]
-fn non_onedrive_connectors_reject_microsoft_graph_application_config() {
-    let error = prepare_connection_for_storage(
-        registry(),
-        StorageConnectorConnectionInput {
-            driver_type: DriverType::S3,
-            endpoint: "https://s3.example.test".to_string(),
-            bucket: "bucket".to_string(),
-            access_key: "access".to_string(),
-            secret_key: "secret".to_string(),
-            base_path: String::new(),
-            remote_node_id: None,
-            remote_storage_target_key: None,
-            options: StoragePolicyOptions::default(),
-        },
-        &StorageConnectorApplicationConfigInput {
-            microsoft_graph: Some(crate::storage::MicrosoftGraphApplicationConfigInput {
-                client_id: Some("client-id".to_string()),
-                ..Default::default()
-            }),
-        },
-    )
-    .expect_err("S3 connector should reject Microsoft Graph app config");
-
-    assert!(
-        error
-            .to_string()
-            .contains("application credential config is not valid for asterdrive.storage.s3")
-    );
-}
-
-#[test]
-fn credential_validation_support_is_declared_by_connector_action() {
-    assert_eq!(
-        ensure_storage_credential_validation_supported(
-            registry(),
-            DriverType::OneDrive,
-            StorageCredentialProvider::MicrosoftGraph,
-        )
-        .unwrap(),
-        StorageCredentialKind::OauthDelegated
-    );
-
-    let s3_error = ensure_storage_credential_validation_supported(
-        registry(),
-        DriverType::S3,
-        StorageCredentialProvider::MicrosoftGraph,
-    )
-    .unwrap_err();
-    assert!(
-        s3_error
-            .to_string()
-            .contains("is not supported for s3 storage policies")
-    );
-
-    let provider_error = ensure_storage_credential_validation_supported(
-        registry(),
-        DriverType::OneDrive,
-        StorageCredentialProvider::GoogleDrive,
-    )
-    .unwrap_err();
-    assert!(
-        provider_error
-            .to_string()
-            .contains("validation provider 'google_drive' is not supported")
-    );
-}
-
-#[test]
-fn runtime_credential_requirement_is_connector_owned() {
-    for driver_type in [
-        DriverType::Local,
-        DriverType::S3,
-        DriverType::Sftp,
-        DriverType::AzureBlob,
-        DriverType::TencentCos,
-        DriverType::Remote,
-    ] {
-        assert_eq!(
-            runtime_credential_requirement(registry(), driver_type)
-                .expect("runtime credential requirement should resolve"),
-            None,
-            "{driver_type:?} should not require delegated runtime credential loading"
-        );
-    }
-
-    let onedrive = runtime_credential_requirement(registry(), DriverType::OneDrive)
-        .expect("runtime credential requirement should resolve")
-        .expect("OneDrive should declare Microsoft Graph runtime credentials");
-    assert_eq!(onedrive.provider, StorageCredentialProvider::MicrosoftGraph);
-    assert_eq!(
-        onedrive.credential_kind,
-        StorageCredentialKind::OauthDelegated
-    );
-    assert!(onedrive.requires_application_config);
-    assert!(onedrive.requires_authorization);
-}
-
-#[test]
-fn tencent_cos_descriptor_exposes_cors_action() {
-    let descriptor = descriptor(DriverType::TencentCos);
-
-    assert!(descriptor.actions.iter().any(|action| action.policy_action
-        == Some(StoragePolicyExecutableAction::ConfigureTencentCosCors)
-        && action.kind == StorageConnectorActionKind::PolicyAction
-        && action.mutates_remote_state));
-    assert!(descriptor.capabilities.object_storage_transfer_strategy);
-}
-
-#[test]
-fn storage_native_support_is_declared_by_connector_capabilities() {
-    assert!(
-        !storage_connector_supports_native_thumbnail(registry(), DriverType::S3)
-            .expect("native thumbnail support should resolve")
-    );
-    assert!(
-        !storage_connector_supports_native_media_metadata(registry(), DriverType::S3)
-            .expect("native media metadata support should resolve")
-    );
-    assert!(
-        storage_connector_supports_native_thumbnail(registry(), DriverType::TencentCos)
-            .expect("native thumbnail support should resolve")
-    );
-    assert!(
-        storage_connector_supports_native_media_metadata(registry(), DriverType::TencentCos)
-            .expect("native media metadata support should resolve")
-    );
-}
-
-#[test]
-fn unsupported_storage_native_media_metadata_is_rejected() {
-    let options = StoragePolicyOptions {
-        storage_native_processing_enabled: Some(true),
-        storage_native_media_metadata_enabled: Some(true),
-        media_metadata_extensions: vec!["mp4".to_string()],
-        ..Default::default()
-    };
-
-    let error =
-        common::ensure_storage_native_processing_supported(descriptor(DriverType::S3), &options)
-            .unwrap_err();
-
-    assert_eq!(
-        error.api_error_code(),
-        ApiErrorCode::PolicyNativeMediaMetadataUnsupported
-    );
-    assert!(
-        error
-            .to_string()
-            .contains("storage-native media metadata processing")
-    );
-}
-
-#[test]
-fn local_connector_normalizes_connection_paths() {
-    let (endpoint, bucket) = LocalConnector
-        .normalize_connection_fields("  /data/uploads  ", "  ")
-        .unwrap();
-
-    assert_eq!(endpoint, "/data/uploads");
-    assert_eq!(bucket, "");
-}
-
-#[test]
-fn azure_blob_connector_maps_endpoint_and_container_errors() {
-    let endpoint_error = AzureBlobConnector
-        .normalize_connection_fields("", "photos")
-        .unwrap_err();
-    assert_eq!(
-        endpoint_error.api_error_code(),
-        ApiErrorCode::PolicyStorageEndpointInvalid
-    );
-
-    let container_error = AzureBlobConnector
-        .normalize_connection_fields("https://acct.blob.core.windows.net", "")
-        .unwrap_err();
-    assert_eq!(
-        container_error.api_error_code(),
-        ApiErrorCode::PolicyStorageBucketRequired
-    );
-
-    let invalid_endpoint_error = AzureBlobConnector
-        .normalize_connection_fields("acct.blob.core.windows.net", "photos")
-        .unwrap_err();
-    assert_eq!(
-        invalid_endpoint_error.api_error_code(),
-        ApiErrorCode::PolicyStorageEndpointInvalid
-    );
-}
-
-#[test]
-fn onedrive_options_are_rejected_for_non_onedrive_connector() {
-    let options = StoragePolicyOptions {
-        onedrive_account_mode: Some(OneDriveAccountMode::WorkOrSchool),
-        onedrive_drive_id: Some("drive".to_string()),
-        onedrive_root_item_id: Some("root".to_string()),
-        ..Default::default()
-    };
-
-    let error = common::ensure_onedrive_options_absent(&options).unwrap_err();
-
-    assert_eq!(
-        error.api_error_code(),
-        ApiErrorCode::PolicyOneDriveOptionsUnsupported
-    );
-    assert!(
-        error
-            .to_string()
-            .contains("OneDrive options are only valid for OneDrive")
-    );
-}
-
-#[test]
-fn provider_transfer_strategies_are_rejected_for_non_onedrive_connectors() {
-    for options in [
-        StoragePolicyOptions {
-            provider_resumable_upload_strategy: Some(
-                ProviderResumableUploadStrategy::FrontendDirect,
-            ),
-            ..Default::default()
-        },
-        StoragePolicyOptions {
-            provider_download_strategy: Some(
-                aster_drive_model::types::ProviderDownloadStrategy::FrontendDirect,
-            ),
-            ..Default::default()
-        },
-    ] {
-        let error = common::ensure_onedrive_options_absent(&options).unwrap_err();
-
-        assert_eq!(
-            error.api_error_code(),
-            ApiErrorCode::PolicyOneDriveOptionsUnsupported
-        );
-    }
-}
-
-#[test]
-fn sftp_host_key_options_are_rejected_for_non_sftp_connector() {
-    let options = StoragePolicyOptions {
-        sftp_host_key_fingerprint: Some("SHA256:abc123".to_string()),
-        ..Default::default()
-    };
-
-    let error = common::ensure_sftp_options_absent(&options).unwrap_err();
-
-    assert_eq!(
-        error.api_error_code(),
-        ApiErrorCode::PolicySftpOptionsUnsupported
-    );
-    assert!(
-        error
-            .to_string()
-            .contains("SFTP host key options are only valid for SFTP")
-    );
-}
-
-#[test]
-fn onedrive_connector_accepts_automatic_default_drive() {
-    let options = StoragePolicyOptions {
-        onedrive_account_mode: Some(OneDriveAccountMode::WorkOrSchool),
-        ..Default::default()
-    };
-
-    common::validate_onedrive_options(&options)
-        .expect("work or school OneDrive resolves the default drive during authorization");
-}
-
-#[test]
-fn onedrive_connector_requires_account_mode() {
-    let options = StoragePolicyOptions {
-        onedrive_root_item_id: Some("root".to_string()),
-        ..Default::default()
-    };
-
-    let error = common::validate_onedrive_options(&options).unwrap_err();
-
-    assert_eq!(
-        error.api_error_code(),
-        ApiErrorCode::PolicyOneDriveAccountModeRequired
-    );
-    assert!(
-        error
-            .to_string()
-            .contains("OneDrive storage policies require onedrive_account_mode")
-    );
-}
-
-#[test]
-fn onedrive_connector_rejects_personal_china_cloud() {
-    let options = StoragePolicyOptions {
-        onedrive_cloud: Some(MicrosoftGraphCloud::China),
-        onedrive_account_mode: Some(OneDriveAccountMode::Personal),
-        ..Default::default()
-    };
-
-    let error = common::validate_onedrive_options(&options).unwrap_err();
-
-    assert_eq!(
-        error.api_error_code(),
-        ApiErrorCode::PolicyOneDrivePersonalChinaCloudUnsupported
-    );
-    assert!(error.to_string().contains("global Microsoft Graph cloud"));
-}
-
-#[test]
-fn onedrive_connector_sharepoint_site_requires_site_id_without_drive_id() {
-    let options = StoragePolicyOptions {
-        onedrive_account_mode: Some(OneDriveAccountMode::SharepointSite),
-        ..Default::default()
-    };
-
-    let error = common::validate_onedrive_options(&options).unwrap_err();
-
-    assert_eq!(
-        error.api_error_code(),
-        ApiErrorCode::PolicyOneDriveSharePointSiteRequired
-    );
-    assert!(error.to_string().contains("onedrive_site_id"));
-}
-
-#[test]
-fn onedrive_connector_group_drive_requires_group_id_without_drive_id() {
-    let options = StoragePolicyOptions {
-        onedrive_account_mode: Some(OneDriveAccountMode::GroupDrive),
-        ..Default::default()
-    };
-
-    let error = common::validate_onedrive_options(&options).unwrap_err();
-
-    assert_eq!(
-        error.api_error_code(),
-        ApiErrorCode::PolicyOneDriveGroupRequired
-    );
-    assert!(error.to_string().contains("onedrive_group_id"));
-}
-
-#[test]
-fn onedrive_connector_modes_reject_other_mode_target_ids() {
-    let options = StoragePolicyOptions {
-        onedrive_account_mode: Some(OneDriveAccountMode::SharepointSite),
-        onedrive_site_id: Some("site".to_string()),
-        onedrive_group_id: Some("group".to_string()),
-        ..Default::default()
-    };
-
-    let error = common::validate_onedrive_options(&options).unwrap_err();
-
-    assert_eq!(
-        error.api_error_code(),
-        ApiErrorCode::PolicyOneDriveOptionsUnsupported
-    );
-    assert!(error.to_string().contains("onedrive_group_id"));
-
-    let options = StoragePolicyOptions {
-        onedrive_account_mode: Some(OneDriveAccountMode::GroupDrive),
-        onedrive_site_id: Some("site".to_string()),
-        onedrive_group_id: Some("group".to_string()),
-        ..Default::default()
-    };
-
-    let error = common::validate_onedrive_options(&options).unwrap_err();
-
-    assert_eq!(
-        error.api_error_code(),
-        ApiErrorCode::PolicyOneDriveOptionsUnsupported
-    );
-    assert!(error.to_string().contains("onedrive_site_id"));
-}
-
-#[test]
-fn onedrive_connector_personal_and_work_modes_reject_site_and_group_ids() {
-    for mode in [
-        OneDriveAccountMode::Personal,
-        OneDriveAccountMode::WorkOrSchool,
-    ] {
-        let options = StoragePolicyOptions {
-            onedrive_account_mode: Some(mode),
-            onedrive_site_id: Some("site".to_string()),
-            ..Default::default()
-        };
-        let error = common::validate_onedrive_options(&options).unwrap_err();
-        assert_eq!(
-            error.api_error_code(),
-            ApiErrorCode::PolicyOneDriveOptionsUnsupported
-        );
-        assert!(error.to_string().contains("onedrive_site_id"));
-
-        let options = StoragePolicyOptions {
-            onedrive_account_mode: Some(mode),
-            onedrive_group_id: Some("group".to_string()),
-            ..Default::default()
-        };
-        let error = common::validate_onedrive_options(&options).unwrap_err();
-        assert_eq!(
-            error.api_error_code(),
-            ApiErrorCode::PolicyOneDriveOptionsUnsupported
-        );
-        assert!(error.to_string().contains("onedrive_group_id"));
-    }
-}
-
-#[test]
-fn connector_action_endpoint_gate_rejects_non_endpoint_actions() {
-    let onedrive = OneDriveConnector.descriptor();
-
-    assert!(onedrive.actions.iter().any(|action| {
-        action.affordance_action == Some(StorageConnectorAffordanceAction::StartAuthorization)
-            && action.kind == StorageConnectorActionKind::Authorization
-    }));
-    assert!(
-        common::unsupported_policy_action_error(
-            onedrive,
-            StoragePolicyExecutableAction::ConfigureTencentCosCors
-        )
-        .to_string()
-        .contains("not supported")
-    );
-    assert!(
-        TencentCosConnector
-            .descriptor()
-            .actions
-            .iter()
-            .any(|action| {
-                action.policy_action == Some(StoragePolicyExecutableAction::ConfigureTencentCosCors)
-            })
-    );
-    assert!(
-        !OneDriveConnector.descriptor().actions.iter().any(|action| {
-            action.policy_action == Some(StoragePolicyExecutableAction::ConfigureTencentCosCors)
-        })
-    );
-}
-
-fn mock_policy(driver_type: DriverType, chunk_size: i64, options: &str) -> storage_policy::Model {
-    let connector_id = format!("asterdrive.storage.{}", driver_type.as_str());
-    let typed_options = aster_drive_model::types::parse_storage_policy_options(options);
-    storage_policy::Model {
-        id: 1,
-        name: "test".to_string(),
-        driver_type,
-        endpoint: String::new(),
-        bucket: String::new(),
-        access_key: String::new(),
-        secret_key: String::new(),
-        base_path: String::new(),
-        remote_node_id: None,
-        remote_storage_target_key: None,
-        connector_id: connector_id.clone(),
-        storage_config: super::test_support::policy_config(
-            driver_type,
-            "",
-            "",
-            "",
-            None,
-            None,
-            &typed_options,
-        ),
-        max_file_size: 0,
-        allowed_types: StoredStoragePolicyAllowedTypes::empty(),
-        options: options.to_string().into(),
-        is_default: false,
-        chunk_size,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-    }
-}
-
-fn runtime_object_storage_policy(driver_type: DriverType) -> storage_policy::Model {
-    let mut policy = mock_policy(driver_type, 5_242_880, "{}");
-    policy.endpoint = match driver_type {
-        DriverType::AzureBlob => "https://account.blob.core.windows.net".to_string(),
-        DriverType::TencentCos => "https://cos.ap-beijing.myqcloud.com".to_string(),
-        _ => "https://s3.example.test".to_string(),
-    };
-    policy.bucket = match driver_type {
-        DriverType::TencentCos => "bucket-1250000000".to_string(),
-        _ => "bucket".to_string(),
-    };
-    policy.access_key = "access-key".to_string();
-    policy.secret_key = "secret-key".to_string();
-    policy
-}
-
-#[test]
-fn object_storage_runtime_factories_preserve_multipart_bundles() {
-    let driver_registry = crate::storage::DriverRegistry::noop();
-
-    let s3 = S3Connector
-        .build_runtime_driver(
-            &driver_registry,
-            &runtime_object_storage_policy(DriverType::S3),
-        )
-        .expect("S3 runtime driver should build");
-    let azure = AzureBlobConnector
-        .build_runtime_driver(
-            &driver_registry,
-            &runtime_object_storage_policy(DriverType::AzureBlob),
-        )
-        .expect("Azure Blob runtime driver should build");
-    let cos = TencentCosConnector
-        .build_runtime_driver(
-            &driver_registry,
-            &runtime_object_storage_policy(DriverType::TencentCos),
-        )
-        .expect("Tencent COS runtime driver should build");
-
-    assert!(s3.multipart.is_some());
-    assert!(azure.multipart.is_some());
-    assert!(cos.multipart.is_some());
-}
-
-#[test]
-fn onedrive_runtime_factory_requires_loaded_credentials() {
-    let registry = crate::storage::DriverRegistry::noop();
-    let policy = mock_policy(DriverType::OneDrive, 5_242_880, "{}");
-
-    let error = match registry.get_driver(&policy) {
-        Ok(_) => panic!("OneDrive runtime construction must require loaded credentials"),
+fn registry_rejects_duplicate_and_unknown_connector_ids() {
+    let error = match StorageConnectorRegistry::new(vec![
+        Arc::new(LocalConnector),
+        Arc::new(LocalConnector),
+    ]) {
+        Ok(_) => panic!("duplicate connector id must fail registration"),
         Err(error) => error,
     };
+    assert!(error.to_string().contains("registered more than once"));
+
+    let error = match registry().require_connector(&ConnectorId::declared("com.example.missing")) {
+        Ok(_) => panic!("unknown connector id must fail lookup"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("is not registered"));
+}
+
+#[test]
+fn policy_lookup_rejects_invalid_and_unregistered_persisted_ids() {
+    let mut invalid = policy(LocalConnector::ID, local_config("./data/uploads"));
+    invalid.connector_id = "INVALID ID".to_string();
+    let error = match registry().require_policy(&invalid) {
+        Ok(_) => panic!("invalid persisted connector id must fail"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("invalid connector id"));
+
+    let mut missing = invalid;
+    missing.connector_id = "com.example.missing".to_string();
+    let error = match registry().require_policy(&missing) {
+        Ok(_) => panic!("unregistered persisted connector id must fail"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("is not registered"));
+}
+
+#[test]
+fn descriptors_are_complete_and_keep_config_credentials_separate() {
+    for descriptor in registry().descriptors() {
+        assert!(!descriptor.ui.label_key.trim().is_empty());
+        assert!(!descriptor.ui.description_key.trim().is_empty());
+        assert!(descriptor.ui.icon_src.is_some() || descriptor.ui.icon_name.is_some());
+        assert!(descriptor.config_schema_version > 0);
+
+        let mut names = Vec::new();
+        for field in &descriptor.fields {
+            assert!(
+                !names.contains(&(field.scope, field.name.as_str())),
+                "duplicate descriptor field '{}' in scope {:?}",
+                field.name,
+                field.scope
+            );
+            names.push((field.scope, field.name.as_str()));
+            if field.secret {
+                assert_ne!(field.scope, StorageConnectorFieldScope::ConnectorConfig);
+            }
+            if matches!(
+                field.name.as_str(),
+                "object_storage_upload_strategy"
+                    | "object_storage_download_strategy"
+                    | "remote_upload_strategy"
+                    | "remote_download_strategy"
+                    | "provider_resumable_upload_strategy"
+                    | "provider_download_strategy"
+                    | "provider_download_filename_mode"
+            ) {
+                assert!(
+                    field.select.as_ref().is_some_and(|select| select
+                        .options
+                        .iter()
+                        .all(|option| option.description_key.is_some())),
+                    "strategy field '{}' must explain every option",
+                    field.name
+                );
+            }
+        }
+    }
+
+    for (id, rgb) in [
+        (
+            LocalConnector::ID,
+            StorageConnectorBadgeRgb::new(16, 185, 129),
+        ),
+        (S3Connector::ID, StorageConnectorBadgeRgb::new(59, 130, 246)),
+        (
+            OneDriveConnector::ID,
+            StorageConnectorBadgeRgb::new(59, 130, 246),
+        ),
+        (
+            RemoteConnector::ID,
+            StorageConnectorBadgeRgb::new(245, 158, 11),
+        ),
+        (
+            SftpConnector::ID,
+            StorageConnectorBadgeRgb::new(139, 92, 246),
+        ),
+        (
+            TencentCosConnector::ID,
+            StorageConnectorBadgeRgb::new(6, 182, 212),
+        ),
+        (
+            AzureBlobConnector::ID,
+            StorageConnectorBadgeRgb::new(14, 165, 233),
+        ),
+    ] {
+        assert_eq!(descriptor(id).ui.badge_rgb, rgb);
+    }
 
     assert_eq!(
-        error.storage_error_kind(),
-        Some(aster_drive_storage::StorageErrorKind::Auth)
+        descriptor(LocalConnector::ID).deployment_scope,
+        StorageConnectorDeploymentScope::InstanceLocal
     );
-    assert!(
-        error
-            .to_string()
-            .contains("missing authorized Microsoft Graph credentials")
+    for id in [
+        S3Connector::ID,
+        SftpConnector::ID,
+        AzureBlobConnector::ID,
+        TencentCosConnector::ID,
+        RemoteConnector::ID,
+        OneDriveConnector::ID,
+    ] {
+        assert_eq!(
+            descriptor(id).deployment_scope,
+            StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances
+        );
+    }
+}
+
+#[test]
+fn transfer_strategy_descriptors_keep_upload_and_download_copy_distinct() {
+    for connector_id in [
+        S3Connector::ID,
+        AzureBlobConnector::ID,
+        TencentCosConnector::ID,
+    ] {
+        assert_transfer_strategy_copy(
+            &descriptor(connector_id),
+            "object_storage_upload_strategy",
+            "upload_strategy_relay_stream",
+            "upload_strategy_relay_stream_desc",
+            "upload_strategy_presigned",
+            "upload_strategy_presigned_desc",
+        );
+        assert_transfer_strategy_copy(
+            &descriptor(connector_id),
+            "object_storage_download_strategy",
+            "download_strategy_relay_stream",
+            "download_strategy_relay_stream_desc",
+            "download_strategy_presigned",
+            "download_strategy_presigned_desc",
+        );
+    }
+
+    let remote = descriptor(RemoteConnector::ID);
+    assert_transfer_strategy_copy(
+        &remote,
+        "remote_upload_strategy",
+        "upload_strategy_relay_stream",
+        "upload_strategy_relay_stream_desc",
+        "upload_strategy_presigned",
+        "upload_strategy_presigned_desc",
+    );
+    assert_transfer_strategy_copy(
+        &remote,
+        "remote_download_strategy",
+        "download_strategy_relay_stream",
+        "download_strategy_relay_stream_desc",
+        "download_strategy_presigned",
+        "download_strategy_presigned_desc",
     );
 }
 
-fn has_policy_option(
-    descriptor: &aster_drive_storage::StorageConnectorDescriptor,
-    name: &str,
-) -> bool {
-    descriptor.fields.iter().any(|field| {
-        field.scope == StorageConnectorFieldScope::ConnectorConfig && field.name == name
-    })
-}
-
-fn field<'a>(
-    descriptor: &'a aster_drive_storage::StorageConnectorDescriptor,
-    name: &str,
-) -> &'a aster_drive_storage::StorageConnectorFieldDescriptor {
-    descriptor
+fn assert_transfer_strategy_copy(
+    descriptor: &StorageConnectorDescriptor,
+    field_name: &str,
+    relay_label: &str,
+    relay_description: &str,
+    presigned_label: &str,
+    presigned_description: &str,
+) {
+    let field = descriptor
         .fields
         .iter()
-        .find(|field| field.name == name)
-        .unwrap_or_else(|| panic!("descriptor field '{name}' should exist"))
-}
-
-#[test]
-fn local_policy_resolves_direct_and_chunked_modes() {
-    let policy = mock_policy(DriverType::Local, 1024, "{}");
-    let transport = resolve_policy_upload_transport(registry(), &policy)
-        .expect("upload transport should resolve");
-
-    assert_eq!(transport, StorageConnectorUploadTransport::Local);
+        .find(|field| field.name == field_name)
+        .unwrap_or_else(|| panic!("missing transfer strategy field '{field_name}'"));
+    let options = &field.select.as_ref().expect("select descriptor").options;
+    assert_eq!(options.len(), 2);
+    assert_eq!(options[0].label_key, relay_label);
     assert_eq!(
-        transport.resolve_init_mode(&policy, 100),
-        UploadMode::Direct
+        options[0].description_key.as_deref(),
+        Some(relay_description)
     );
+    assert_eq!(options[1].label_key, presigned_label);
     assert_eq!(
-        transport.resolve_init_mode(&policy, 2048),
-        UploadMode::Chunked
-    );
-    assert!(!transport.supports_streaming_direct_upload(&policy, 100));
-    assert!(!transport.uses_relay_multipart_tracking());
-    assert_eq!(transport.opaque_blob_hash_prefix(), None);
-    assert!(
-        !presigned_download_enabled(registry(), &policy)
-            .expect("presigned download support should resolve")
+        options[1].description_key.as_deref(),
+        Some(presigned_description)
     );
 }
 
 #[test]
-fn non_local_upload_transports_expose_opaque_blob_hash_prefix() {
-    for transport in [
-        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream),
-        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
-        StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::RelayStream),
-        StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::Presigned),
-        StorageConnectorUploadTransport::ProviderResumable(
-            ProviderResumableUploadStrategy::ServerRelay,
-        ),
-        StorageConnectorUploadTransport::Sftp,
+fn object_naming_and_local_default_path_are_connector_owned() {
+    assert_eq!(
+        descriptor(OneDriveConnector::ID).capabilities.object_naming,
+        StorageConnectorObjectNamingMode::OriginalFilename
+    );
+    for id in [
+        LocalConnector::ID,
+        S3Connector::ID,
+        SftpConnector::ID,
+        AzureBlobConnector::ID,
+        TencentCosConnector::ID,
+        RemoteConnector::ID,
     ] {
-        assert!(
-            transport.opaque_blob_hash_prefix().is_some(),
-            "{transport:?} must declare an opaque blob hash prefix"
+        assert_eq!(
+            descriptor(id).capabilities.object_naming,
+            StorageConnectorObjectNamingMode::OpaqueUuid
         );
+    }
+    let local = descriptor(LocalConnector::ID);
+    assert_eq!(local.ui.base_path_empty_display, "./data/uploads");
+    assert_eq!(local.ui.base_path_placeholder, "./data/uploads");
+}
+
+#[test]
+fn remote_connector_declares_dynamic_select_sources_and_dependency_types() {
+    let remote = descriptor(RemoteConnector::ID);
+    remote
+        .validate()
+        .expect("built-in remote descriptor must be registration-safe");
+
+    let node = remote
+        .fields
+        .iter()
+        .find(|field| field.name == "remote_node_id")
+        .unwrap();
+    let node_select = node.select.as_ref().unwrap();
+    assert_eq!(
+        node_select.data_source,
+        Some(StorageConnectorSelectDataSource::RemoteNodes)
+    );
+    assert_eq!(
+        node_select.value_kind,
+        StorageConnectorSelectValueKind::Integer
+    );
+    assert_eq!(node_select.depends_on, None);
+    assert!(node_select.options.is_empty());
+
+    let target = remote
+        .fields
+        .iter()
+        .find(|field| field.name == "remote_storage_target_key")
+        .unwrap();
+    let target_select = target.select.as_ref().unwrap();
+    assert_eq!(
+        target_select.data_source,
+        Some(StorageConnectorSelectDataSource::RemoteStorageTargets)
+    );
+    assert_eq!(
+        target_select.value_kind,
+        StorageConnectorSelectValueKind::String
+    );
+    assert_eq!(target_select.depends_on.as_deref(), Some("remote_node_id"));
+    assert!(target_select.options.is_empty());
+}
+
+#[test]
+fn credential_channels_are_mutually_exclusive_by_connector_contract() {
+    let none = StorageConnectorCredentialInput::None;
+    let wrong_static = StorageConnectorCredentialInput::Static(serde_json::json!({}));
+    let wrong_application =
+        StorageConnectorCredentialInput::AuthorizationApplication(serde_json::json!({}));
+
+    let credential_values = |connector: &dyn StorageConnector, scope| {
+        serde_json::Value::Object(
+            connector
+                .descriptor()
+                .fields
+                .into_iter()
+                .filter(|field| field.scope == scope)
+                .map(|field| {
+                    (
+                        field.name,
+                        serde_json::Value::String("test-value".to_string()),
+                    )
+                })
+                .collect(),
+        )
+    };
+
+    for id in [LocalConnector::ID, RemoteConnector::ID] {
+        let connector = connector(id);
+        assert_eq!(
+            connector.descriptor().credential_mode,
+            StorageConnectorCredentialMode::None
+        );
+        assert!(connector.validate_credential_input(&none).is_ok());
+        assert!(connector.validate_credential_input(&wrong_static).is_err());
+        assert!(
+            connector
+                .validate_credential_input(&wrong_application)
+                .is_err()
+        );
+    }
+    for id in [
+        S3Connector::ID,
+        SftpConnector::ID,
+        AzureBlobConnector::ID,
+        TencentCosConnector::ID,
+    ] {
+        let connector = connector(id);
+        assert_eq!(
+            connector.descriptor().credential_mode,
+            StorageConnectorCredentialMode::StaticSecret
+        );
+        let static_secret = StorageConnectorCredentialInput::Static(credential_values(
+            connector,
+            StorageConnectorFieldScope::StaticCredential,
+        ));
+        assert!(connector.validate_credential_input(&static_secret).is_ok());
+        assert!(connector.validate_credential_input(&none).is_err());
+        assert!(
+            connector
+                .validate_credential_input(&wrong_application)
+                .is_err()
+        );
+    }
+    let onedrive = connector(OneDriveConnector::ID);
+    assert_eq!(
+        onedrive.descriptor().credential_mode,
+        StorageConnectorCredentialMode::OauthDelegated
+    );
+    let application = StorageConnectorCredentialInput::AuthorizationApplication(credential_values(
+        onedrive,
+        StorageConnectorFieldScope::AuthorizationApplication,
+    ));
+    assert!(onedrive.validate_credential_input(&application).is_ok());
+    assert!(onedrive.validate_credential_input(&none).is_err());
+    assert!(onedrive.validate_credential_input(&wrong_static).is_err());
+}
+
+#[test]
+fn typed_connector_config_round_trips_and_rejects_unknown_fields() {
+    let connector = connector(S3Connector::ID);
+    let input = super::test_support::connection_config(
+        S3Connector::ID,
+        1,
+        s3_config(ObjectStorageUploadStrategy::RelayStream),
+    );
+    let normalized = connector
+        .validate_connector_config(&input)
+        .expect("typed S3 config should normalize");
+    let values: S3ConnectorConfigV1 =
+        serde_json::from_value(serde_json::to_value(normalized.values).unwrap()).unwrap();
+    assert_eq!(values.bucket, "archive");
+    assert_eq!(values.s3_region, "auto");
+
+    let mut values = BTreeMap::new();
+    values.insert(
+        "endpoint".to_string(),
+        serde_json::json!("https://s3.example.test"),
+    );
+    values.insert("bucket".to_string(), serde_json::json!("archive"));
+    values.insert("unknown".to_string(), serde_json::json!(true));
+    let unknown = ConnectorConfigEnvelope::new(ConnectorId::declared(S3Connector::ID), 1, values);
+    let error = connector
+        .validate_connector_config(&unknown)
+        .expect_err("unknown connector field must fail");
+    assert!(error.to_string().contains("unknown"));
+}
+
+fn assert_empty_base_path_normalizes<T>(
+    connector_id: &'static str,
+    config: T,
+    expected_base_path: &str,
+) where
+    T: serde::Serialize + serde::de::DeserializeOwned,
+{
+    let input = super::test_support::connection_config(connector_id, 1, config);
+    let normalized = connector(connector_id)
+        .validate_connector_config(&input)
+        .expect("an empty optional base_path should normalize");
+    let typed: T = serde_json::from_value(
+        serde_json::to_value(normalized.values).expect("normalized field map should serialize"),
+    )
+    .expect("normalized connector config should decode into its declared type");
+    let typed = serde_json::to_value(typed).expect("typed connector config should serialize");
+    assert_eq!(typed["base_path"], expected_base_path, "{connector_id}");
+}
+
+#[test]
+fn optional_empty_base_paths_decode_without_weakening_required_fields() {
+    assert_empty_base_path_normalizes(LocalConnector::ID, local_config(""), "./data/uploads");
+
+    let mut s3 = s3_config(ObjectStorageUploadStrategy::RelayStream);
+    s3.base_path.clear();
+    assert_empty_base_path_normalizes(S3Connector::ID, s3.clone(), "");
+
+    let mut sftp = sftp_config();
+    sftp.base_path.clear();
+    assert_empty_base_path_normalizes(SftpConnector::ID, sftp, "");
+
+    let mut azure = azure_config(ObjectStorageUploadStrategy::RelayStream);
+    azure.base_path.clear();
+    assert_empty_base_path_normalizes(AzureBlobConnector::ID, azure, "");
+
+    let mut cos = cos_config(ObjectStorageUploadStrategy::RelayStream);
+    cos.base_path.clear();
+    assert_empty_base_path_normalizes(TencentCosConnector::ID, cos, "");
+
+    let mut remote = remote_config(RemoteUploadStrategy::RelayStream);
+    remote.base_path.clear();
+    assert_empty_base_path_normalizes(RemoteConnector::ID, remote, "");
+
+    let mut onedrive = onedrive_config(
+        ProviderResumableUploadStrategy::ServerRelay,
+        OneDriveAccountMode::Personal,
+    );
+    onedrive.base_path.clear();
+    assert_empty_base_path_normalizes(OneDriveConnector::ID, onedrive, "");
+
+    let mut missing_required = serde_json::to_value(s3)
+        .and_then(serde_json::from_value::<BTreeMap<String, serde_json::Value>>)
+        .expect("typed S3 config should become a field map");
+    missing_required.remove("endpoint");
+    let error = connector(S3Connector::ID)
+        .validate_connector_config(&ConnectorConfigEnvelope::new(
+            ConnectorId::declared(S3Connector::ID),
+            1,
+            missing_required,
+        ))
+        .expect_err("missing required endpoint must still fail");
+    assert!(error.to_string().contains("endpoint"));
+}
+
+#[test]
+fn policy_envelope_rejects_connector_id_and_schema_mismatches() {
+    let mut wrong_id = policy(LocalConnector::ID, local_config("./data/uploads"));
+    wrong_id.connector_id = S3Connector::ID.to_string();
+    let error = connector(S3Connector::ID)
+        .policy_behavior(&wrong_id)
+        .expect_err("envelope connector id mismatch must fail");
+    assert!(error.to_string().contains("connector config id mismatch"));
+
+    let wrong_schema = super::test_support::policy(
+        LocalConnector::ID,
+        2,
+        local_config("./data/uploads"),
+        StoragePolicyBehaviorConfig::default(),
+    );
+    let error = connector(LocalConnector::ID)
+        .policy_behavior(&wrong_schema)
+        .expect_err("connector schema mismatch must fail");
+    assert!(error.to_string().contains("schema version mismatch"));
+}
+
+#[test]
+fn onedrive_semantics_are_validated_inside_the_connector() {
+    let connector = connector(OneDriveConnector::ID);
+    let missing_site = super::test_support::connection_config(
+        OneDriveConnector::ID,
+        1,
+        onedrive_config(
+            ProviderResumableUploadStrategy::ServerRelay,
+            OneDriveAccountMode::SharepointSite,
+        ),
+    );
+    let error = connector
+        .validate_connector_config(&missing_site)
+        .expect_err("SharePoint mode without site id must fail");
+    assert!(error.to_string().contains("requires site_id"));
+
+    let mut group = onedrive_config(
+        ProviderResumableUploadStrategy::ServerRelay,
+        OneDriveAccountMode::GroupDrive,
+    );
+    group.group_id = Some("group-id".to_string());
+    assert!(
+        connector
+            .validate_connector_config(&super::test_support::connection_config(
+                OneDriveConnector::ID,
+                1,
+                group,
+            ))
+            .is_ok()
+    );
+}
+
+#[test]
+fn upload_transport_is_resolved_by_connector_owned_typed_config() {
+    let cases = [
+        (
+            LocalConnector::ID,
+            policy(LocalConnector::ID, local_config("./data/uploads")),
+            StorageConnectorUploadTransport::Local,
+        ),
+        (
+            S3Connector::ID,
+            policy(
+                S3Connector::ID,
+                s3_config(ObjectStorageUploadStrategy::Presigned),
+            ),
+            StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
+        ),
+        (
+            SftpConnector::ID,
+            policy(SftpConnector::ID, sftp_config()),
+            StorageConnectorUploadTransport::Sftp,
+        ),
+        (
+            AzureBlobConnector::ID,
+            policy(
+                AzureBlobConnector::ID,
+                azure_config(ObjectStorageUploadStrategy::RelayStream),
+            ),
+            StorageConnectorUploadTransport::ObjectStorage(
+                ObjectStorageUploadStrategy::RelayStream,
+            ),
+        ),
+        (
+            TencentCosConnector::ID,
+            policy(
+                TencentCosConnector::ID,
+                cos_config(ObjectStorageUploadStrategy::Presigned),
+            ),
+            StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
+        ),
+        (
+            RemoteConnector::ID,
+            policy(
+                RemoteConnector::ID,
+                remote_config(RemoteUploadStrategy::Presigned),
+            ),
+            StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::Presigned),
+        ),
+        (
+            OneDriveConnector::ID,
+            policy(
+                OneDriveConnector::ID,
+                onedrive_config(
+                    ProviderResumableUploadStrategy::FrontendDirect,
+                    OneDriveAccountMode::Personal,
+                ),
+            ),
+            StorageConnectorUploadTransport::ProviderResumable(
+                ProviderResumableUploadStrategy::FrontendDirect,
+            ),
+        ),
+    ];
+
+    for (id, policy, expected) in cases {
+        assert_eq!(connector(id).upload_transport(&policy).unwrap(), expected);
     }
 }
 
 #[test]
-fn presigned_download_policy_is_connector_owned() {
-    let s3 = mock_policy(
-        DriverType::S3,
-        1024,
-        r#"{"object_storage_download_strategy":"presigned"}"#,
+fn upload_transport_boundaries_preserve_chunk_and_direct_semantics() {
+    let mut policy = policy(
+        S3Connector::ID,
+        s3_config(ObjectStorageUploadStrategy::Presigned),
     );
-    let remote = mock_policy(
-        DriverType::Remote,
-        1024,
-        r#"{"remote_download_strategy":"presigned"}"#,
-    );
-    let relay_s3 = mock_policy(
-        DriverType::S3,
-        1024,
-        r#"{"object_storage_download_strategy":"relay_stream"}"#,
-    );
-    let sftp = mock_policy(DriverType::Sftp, 1024, "{}");
-    let onedrive = mock_policy(
-        DriverType::OneDrive,
-        1024,
-        r#"{"provider_download_strategy":"frontend_direct"}"#,
-    );
-    let relay_onedrive = mock_policy(DriverType::OneDrive, 1024, "{}");
-    let strict_onedrive = mock_policy(
-        DriverType::OneDrive,
-        1024,
-        r#"{"provider_download_strategy":"frontend_direct","provider_download_filename_mode":"strict_current"}"#,
-    );
-
-    assert!(
-        presigned_download_enabled(registry(), &s3)
-            .expect("presigned download support should resolve")
-    );
-    assert!(
-        presigned_download_enabled(registry(), &remote)
-            .expect("presigned download support should resolve")
-    );
-    assert!(
-        !presigned_download_enabled(registry(), &relay_s3)
-            .expect("presigned download support should resolve")
-    );
-    assert!(
-        !presigned_download_enabled(registry(), &sftp)
-            .expect("presigned download support should resolve")
-    );
-    assert!(
-        presigned_download_enabled(registry(), &onedrive)
-            .expect("direct download support should resolve")
-    );
-    assert!(
-        !presigned_download_enabled(registry(), &relay_onedrive)
-            .expect("relay download support should resolve")
-    );
-    assert!(
-        !presigned_download_requires_filename_match(registry(), &onedrive)
-            .expect("default filename mode should resolve")
-    );
-    assert!(
-        presigned_download_requires_filename_match(registry(), &strict_onedrive)
-            .expect("strict filename mode should resolve")
-    );
-}
-
-#[test]
-fn s3_relay_stream_uses_effective_chunk_size_and_relay_tracking() {
-    let policy = mock_policy(
-        DriverType::S3,
-        1_048_576,
-        r#"{"object_storage_upload_strategy":"relay_stream"}"#,
-    );
-    let transport = resolve_policy_upload_transport(registry(), &policy)
-        .expect("upload transport should resolve");
-
-    assert_eq!(
-        transport,
-        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream)
-    );
-    assert_eq!(transport.effective_chunk_size(&policy), 5_242_880);
+    policy.chunk_size = 5_242_880;
+    let transport = connector(S3Connector::ID)
+        .upload_transport(&policy)
+        .unwrap();
     assert_eq!(
         transport.resolve_init_mode(&policy, 5_242_880),
-        UploadMode::Direct
+        aster_drive_model::types::UploadMode::Presigned
     );
     assert_eq!(
         transport.resolve_init_mode(&policy, 5_242_881),
-        UploadMode::Chunked
-    );
-    assert!(transport.supports_streaming_direct_upload(&policy, 1024));
-    assert!(!transport.supports_streaming_direct_upload(&policy, 5_242_881));
-    assert!(transport.uses_relay_multipart_tracking());
-    assert_eq!(transport.opaque_blob_hash_prefix(), Some("s3"));
-}
-
-#[test]
-fn s3_presigned_uses_presigned_modes() {
-    let policy = mock_policy(
-        DriverType::S3,
-        1024,
-        r#"{"object_storage_upload_strategy":"presigned"}"#,
-    );
-    let transport = resolve_policy_upload_transport(registry(), &policy)
-        .expect("upload transport should resolve");
-
-    assert_eq!(
-        transport,
-        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned)
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 5_242_880),
-        UploadMode::Presigned
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 5_242_881),
-        UploadMode::PresignedMultipart
-    );
-    assert!(!transport.supports_streaming_direct_upload(&policy, 1024));
-    assert!(!transport.uses_relay_multipart_tracking());
-    assert_eq!(transport.opaque_blob_hash_prefix(), Some("s3"));
-}
-
-#[test]
-fn azure_blob_relay_stream_uses_object_storage_transport_modes() {
-    let policy = mock_policy(
-        DriverType::AzureBlob,
-        1_048_576,
-        r#"{"object_storage_upload_strategy":"relay_stream"}"#,
-    );
-    let transport = resolve_policy_upload_transport(registry(), &policy)
-        .expect("upload transport should resolve");
-
-    assert_eq!(
-        transport,
-        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream)
-    );
-    assert_eq!(transport.effective_chunk_size(&policy), 5_242_880);
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 5_242_880),
-        UploadMode::Direct
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 5_242_881),
-        UploadMode::Chunked
-    );
-    assert!(transport.supports_streaming_direct_upload(&policy, 1024));
-    assert!(!transport.supports_streaming_direct_upload(&policy, 5_242_881));
-    assert!(transport.uses_relay_multipart_tracking());
-}
-
-#[test]
-fn azure_blob_presigned_uses_object_storage_presigned_modes() {
-    let policy = mock_policy(
-        DriverType::AzureBlob,
-        1024,
-        r#"{"object_storage_upload_strategy":"presigned"}"#,
-    );
-    let transport = resolve_policy_upload_transport(registry(), &policy)
-        .expect("upload transport should resolve");
-
-    assert_eq!(
-        transport,
-        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned)
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 5_242_880),
-        UploadMode::Presigned
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 5_242_881),
-        UploadMode::PresignedMultipart
-    );
-    assert!(!transport.supports_streaming_direct_upload(&policy, 1024));
-    assert!(!transport.uses_relay_multipart_tracking());
-}
-
-#[test]
-fn tencent_cos_presigned_uses_object_storage_presigned_modes() {
-    let options = parse_storage_policy_options(r#"{"object_storage_upload_strategy":"presigned"}"#);
-    assert_eq!(
-        options.effective_object_storage_upload_strategy(),
-        ObjectStorageUploadStrategy::Presigned
-    );
-    let policy = mock_policy(
-        DriverType::TencentCos,
-        1024,
-        r#"{"object_storage_upload_strategy":"presigned"}"#,
-    );
-    let transport = resolve_policy_upload_transport(registry(), &policy)
-        .expect("upload transport should resolve");
-
-    assert_eq!(
-        transport,
-        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned)
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 5_242_880),
-        UploadMode::Presigned
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 5_242_881),
-        UploadMode::PresignedMultipart
-    );
-    assert!(!transport.supports_streaming_direct_upload(&policy, 1024));
-    assert!(!transport.uses_relay_multipart_tracking());
-}
-
-#[test]
-fn remote_relay_stream_uses_direct_and_chunked_modes() {
-    let policy = mock_policy(
-        DriverType::Remote,
-        1024,
-        r#"{"remote_upload_strategy":"relay_stream"}"#,
-    );
-    let transport = resolve_policy_upload_transport(registry(), &policy)
-        .expect("upload transport should resolve");
-
-    assert_eq!(
-        transport,
-        StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::RelayStream)
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 100),
-        UploadMode::Direct
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 2048),
-        UploadMode::Chunked
-    );
-    assert!(transport.supports_streaming_direct_upload(&policy, 100));
-    assert!(transport.uses_relay_multipart_tracking());
-    assert_eq!(transport.opaque_blob_hash_prefix(), Some("remote"));
-}
-
-#[test]
-fn remote_presigned_keeps_presigned_init_but_allows_server_streaming_fast_path() {
-    let policy = mock_policy(
-        DriverType::Remote,
-        1024,
-        r#"{"remote_upload_strategy":"presigned"}"#,
-    );
-    let transport = resolve_policy_upload_transport(registry(), &policy)
-        .expect("upload transport should resolve");
-
-    assert_eq!(
-        transport,
-        StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::Presigned)
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 100),
-        UploadMode::Presigned
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 2048),
-        UploadMode::PresignedMultipart
-    );
-    assert!(transport.supports_streaming_direct_upload(&policy, 100));
-    assert!(!transport.uses_relay_multipart_tracking());
-    assert_eq!(transport.opaque_blob_hash_prefix(), Some("remote"));
-}
-
-#[test]
-fn onedrive_uses_server_relay_without_presigned_or_multipart_tracking() {
-    let policy = mock_policy(DriverType::OneDrive, 1024, "{}");
-    let transport = resolve_policy_upload_transport(registry(), &policy)
-        .expect("upload transport should resolve");
-
-    assert_eq!(
-        transport,
-        StorageConnectorUploadTransport::ProviderResumable(
-            ProviderResumableUploadStrategy::ServerRelay,
-        )
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 1024),
-        UploadMode::Direct
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 1025),
-        UploadMode::Chunked
-    );
-    assert!(transport.supports_streaming_direct_upload(&policy, 1024));
-    assert!(!transport.supports_streaming_direct_upload(&policy, 0));
-    assert!(!transport.uses_relay_multipart_tracking());
-    assert_eq!(transport.opaque_blob_hash_prefix(), Some("provider"));
-}
-
-#[test]
-fn onedrive_frontend_direct_strategy_uses_provider_resumable_mode() {
-    let policy = mock_policy(
-        DriverType::OneDrive,
-        1024,
-        r#"{"provider_resumable_upload_strategy":"frontend_direct"}"#,
-    );
-    let transport = resolve_policy_upload_transport(registry(), &policy)
-        .expect("upload transport should resolve");
-
-    assert_eq!(
-        transport,
-        StorageConnectorUploadTransport::ProviderResumable(
-            ProviderResumableUploadStrategy::FrontendDirect,
-        )
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 1),
-        UploadMode::ProviderResumable
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 1025),
-        UploadMode::ProviderResumable
+        aster_drive_model::types::UploadMode::PresignedMultipart
     );
     assert!(!transport.supports_streaming_direct_upload(&policy, 1));
-}
 
-#[test]
-fn sftp_uses_server_relay_without_presigned_or_multipart_tracking() {
-    let policy = mock_policy(DriverType::Sftp, 1024, "{}");
-    let transport = resolve_policy_upload_transport(registry(), &policy)
-        .expect("upload transport should resolve");
-
-    assert_eq!(transport, StorageConnectorUploadTransport::Sftp);
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 1024),
-        UploadMode::Direct
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 1025),
-        UploadMode::Chunked
-    );
-    assert!(!transport.supports_streaming_direct_upload(&policy, 0));
-    assert!(transport.supports_streaming_direct_upload(&policy, 1024));
-    assert!(!transport.supports_streaming_direct_upload(&policy, 1025));
-    assert!(!transport.uses_relay_multipart_tracking());
-    assert_eq!(transport.opaque_blob_hash_prefix(), Some("sftp"));
-}
-
-#[test]
-fn sftp_zero_chunk_size_uses_single_streaming_request() {
-    let policy = mock_policy(DriverType::Sftp, 0, "{}");
-    let transport = resolve_policy_upload_transport(registry(), &policy)
-        .expect("upload transport should resolve");
-
-    assert_eq!(
-        transport.resolve_init_mode(&policy, i64::MAX),
-        UploadMode::Direct
-    );
-    assert!(transport.supports_streaming_direct_upload(&policy, i64::MAX));
-}
-
-#[test]
-fn upload_workflow_descriptors_match_default_connector_transports() {
-    assert_upload_workflow_alignment(
-        DriverType::Local,
-        "{}",
-        ExpectedUploadWorkflow {
-            transport: StorageConnectorUploadTransport::Local,
-            object_multipart: false,
-            provider_resumable: false,
-            presigned: false,
-            frontend_direct_provider_resumable: false,
-            small_mode: UploadMode::Direct,
-            large_mode: UploadMode::Chunked,
-        },
-    );
-    for driver_type in [
-        DriverType::S3,
-        DriverType::AzureBlob,
-        DriverType::TencentCos,
-    ] {
-        assert_upload_workflow_alignment(
-            driver_type,
-            r#"{"object_storage_upload_strategy":"relay_stream"}"#,
-            ExpectedUploadWorkflow {
-                transport: StorageConnectorUploadTransport::ObjectStorage(
-                    ObjectStorageUploadStrategy::RelayStream,
-                ),
-                object_multipart: true,
-                provider_resumable: false,
-                presigned: true,
-                frontend_direct_provider_resumable: false,
-                small_mode: UploadMode::Direct,
-                large_mode: UploadMode::Chunked,
-            },
-        );
-    }
-    assert_upload_workflow_alignment(
-        DriverType::Remote,
-        r#"{"remote_upload_strategy":"relay_stream"}"#,
-        ExpectedUploadWorkflow {
-            transport: StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::RelayStream),
-            object_multipart: true,
-            provider_resumable: false,
-            presigned: true,
-            frontend_direct_provider_resumable: false,
-            small_mode: UploadMode::Direct,
-            large_mode: UploadMode::Chunked,
-        },
-    );
-    assert_upload_workflow_alignment(
-        DriverType::Sftp,
-        "{}",
-        ExpectedUploadWorkflow {
-            transport: StorageConnectorUploadTransport::Sftp,
-            object_multipart: false,
-            provider_resumable: false,
-            presigned: false,
-            frontend_direct_provider_resumable: false,
-            small_mode: UploadMode::Direct,
-            large_mode: UploadMode::Chunked,
-        },
-    );
-    assert_upload_workflow_alignment(
-        DriverType::OneDrive,
-        "{}",
-        ExpectedUploadWorkflow {
-            transport: StorageConnectorUploadTransport::ProviderResumable(
-                ProviderResumableUploadStrategy::ServerRelay,
-            ),
-            object_multipart: false,
-            provider_resumable: true,
-            presigned: false,
-            frontend_direct_provider_resumable: true,
-            small_mode: UploadMode::Direct,
-            large_mode: UploadMode::Chunked,
-        },
-    );
-}
-
-#[test]
-fn upload_workflow_descriptors_match_presigned_connector_transports() {
-    for driver_type in [
-        DriverType::S3,
-        DriverType::AzureBlob,
-        DriverType::TencentCos,
-    ] {
-        assert_upload_workflow_alignment(
-            driver_type,
-            r#"{"object_storage_upload_strategy":"presigned"}"#,
-            ExpectedUploadWorkflow {
-                transport: StorageConnectorUploadTransport::ObjectStorage(
-                    ObjectStorageUploadStrategy::Presigned,
-                ),
-                object_multipart: true,
-                provider_resumable: false,
-                presigned: true,
-                frontend_direct_provider_resumable: false,
-                small_mode: UploadMode::Presigned,
-                large_mode: UploadMode::PresignedMultipart,
-            },
-        );
-    }
-    assert_upload_workflow_alignment(
-        DriverType::Remote,
-        r#"{"remote_upload_strategy":"presigned"}"#,
-        ExpectedUploadWorkflow {
-            transport: StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::Presigned),
-            object_multipart: true,
-            provider_resumable: false,
-            presigned: true,
-            frontend_direct_provider_resumable: false,
-            small_mode: UploadMode::Presigned,
-            large_mode: UploadMode::PresignedMultipart,
-        },
-    );
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ExpectedUploadWorkflow {
-    transport: StorageConnectorUploadTransport,
-    object_multipart: bool,
-    provider_resumable: bool,
-    presigned: bool,
-    frontend_direct_provider_resumable: bool,
-    small_mode: UploadMode,
-    large_mode: UploadMode,
-}
-
-fn assert_upload_workflow_alignment(
-    driver_type: DriverType,
-    options: &str,
-    expected: ExpectedUploadWorkflow,
-) {
-    let large_upload_size = match expected.transport {
-        StorageConnectorUploadTransport::ObjectStorage(_) => OBJECT_STORAGE_LARGE_UPLOAD_SIZE,
-        StorageConnectorUploadTransport::Local
-        | StorageConnectorUploadTransport::Remote(_)
-        | StorageConnectorUploadTransport::ProviderResumable(_)
-        | StorageConnectorUploadTransport::Sftp => 2048,
-    };
-    let descriptor = descriptor(driver_type);
-    let workflows = descriptor.upload_workflows;
-    assert!(
-        workflows.simple_upload,
-        "{driver_type:?} should expose simple upload because every built-in connector accepts small direct uploads"
-    );
-    assert!(workflows.simple_upload_capabilities.server_side_relay);
-    assert!(workflows.simple_upload_capabilities.policy_limited);
-    assert_eq!(
-        workflows
-            .simple_upload_capabilities
-            .max_provider_single_request_size,
-        if driver_type == DriverType::OneDrive {
-            Some(ONEDRIVE_MAX_SIMPLE_UPLOAD_SIZE)
-        } else {
-            None
-        },
-        "{driver_type:?} descriptor simple upload provider limit drifted"
-    );
-    assert!(
-        workflows.stream_upload,
-        "{driver_type:?} should expose server-mediated stream upload"
-    );
-    assert_eq!(
-        workflows.object_multipart_upload, expected.object_multipart,
-        "{driver_type:?} descriptor object multipart workflow drifted from upload transport"
-    );
-    assert_eq!(
-        workflows.object_multipart_upload_capabilities.is_some(),
-        expected.object_multipart,
-        "{driver_type:?} descriptor object multipart detail drifted from workflow flag"
-    );
-    if let Some(capabilities) = workflows.object_multipart_upload_capabilities.as_ref() {
-        assert_eq!(
-            capabilities.min_part_size,
-            aster_drive_model::types::OBJECT_MULTIPART_MIN_PART_SIZE
-        );
-        assert!(capabilities.policy_limited_part_size);
-        assert!(capabilities.relay_part_upload);
-        assert!(capabilities.presigned_part_upload);
-        assert!(capabilities.explicit_complete_required);
-        assert!(capabilities.abort_supported);
-        assert!(capabilities.list_parts_supported);
-        assert_eq!(
-            capabilities.presigned_part_etag_required,
-            driver_type != DriverType::AzureBlob,
-            "{driver_type:?} descriptor presigned part ETag requirement drifted"
-        );
-    }
-    assert_eq!(
-        workflows.provider_resumable_upload, expected.provider_resumable,
-        "{driver_type:?} descriptor provider resumable workflow drifted from upload transport"
-    );
-    assert_eq!(
-        workflows.provider_resumable_upload_capabilities.is_some(),
-        expected.provider_resumable,
-        "{driver_type:?} descriptor provider resumable detail drifted from provider resumable workflow"
-    );
-    assert_eq!(
-        workflows.presigned_upload, expected.presigned,
-        "{driver_type:?} descriptor presigned workflow drifted from upload transport"
-    );
-    assert_eq!(
-        workflows.frontend_direct_provider_resumable_upload,
-        expected.frontend_direct_provider_resumable,
-        "{driver_type:?} descriptor frontend provider resumable workflow drifted from upload transport"
-    );
-
-    let policy = mock_policy(driver_type, 1024, options);
-    let transport = resolve_policy_upload_transport(registry(), &policy)
-        .expect("upload transport should resolve");
-    assert_eq!(
-        transport, expected.transport,
-        "{driver_type:?} runtime upload transport drifted from descriptor expectation"
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, 100),
-        expected.small_mode,
-        "{driver_type:?} small upload mode is inconsistent with workflow descriptor"
-    );
-    assert_eq!(
-        transport.resolve_init_mode(&policy, large_upload_size),
-        expected.large_mode,
-        "{driver_type:?} large upload mode is inconsistent with workflow descriptor"
-    );
-    assert_eq!(
-        matches!(
-            transport,
-            StorageConnectorUploadTransport::ObjectStorage(_)
-                | StorageConnectorUploadTransport::Remote(_)
-        ),
-        expected.object_multipart || expected.presigned,
-        "{driver_type:?} descriptor should only claim object/presigned workflows for transports with upload sessions"
-    );
+    let remote = StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::Presigned);
+    assert!(!remote.supports_streaming_direct_upload(&policy, 0));
+    assert!(remote.supports_streaming_direct_upload(&policy, 1));
 }

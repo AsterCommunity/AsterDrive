@@ -22,16 +22,27 @@ pub mod traits;
 
 pub use connector_config::{
     CONNECTOR_CONFIG_FORMAT_VERSION, ConnectorConfigCodecError, ConnectorConfigEnvelope,
-    ConnectorId, ConnectorIdError, decode_connector_config, encode_connector_config,
+    ConnectorId, ConnectorIdError, StorageConnectorFieldValue, decode_connector_config,
+    encode_connector_config,
 };
 pub use connector_descriptor::{
-    StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionKind,
-    StorageConnectorAffordanceAction, StorageConnectorCapabilities, StorageConnectorConfigSchema,
-    StorageConnectorCredentialMode, StorageConnectorDeploymentScope, StorageConnectorDescriptor,
-    StorageConnectorFieldDefaultValue, StorageConnectorFieldDescriptor, StorageConnectorFieldKind,
-    StorageConnectorFieldScope, StorageConnectorFieldValidation, StorageConnectorObjectNamingMode,
-    StorageConnectorOptionsValidationError, StorageConnectorUploadWorkflows,
-    StoragePolicyExecutableAction, normalize_storage_connector_config,
+    StorageConnectorActionDescriptor, StorageConnectorActionDescriptorError,
+    StorageConnectorActionEndpoint, StorageConnectorActionId,
+    StorageConnectorActionInvocationError, StorageConnectorActionKind,
+    StorageConnectorActionSchema, StorageConnectorBadgeRgb, StorageConnectorCapabilities,
+    StorageConnectorConfigSchema, StorageConnectorCredentialMode,
+    StorageConnectorCustomActionDescriptorInput, StorageConnectorDeploymentScope,
+    StorageConnectorDescriptor, StorageConnectorDescriptorError, StorageConnectorFieldDefaultMode,
+    StorageConnectorFieldDefaultValue, StorageConnectorFieldDescriptor,
+    StorageConnectorFieldDescriptorError, StorageConnectorFieldKind, StorageConnectorFieldScope,
+    StorageConnectorFieldValidation, StorageConnectorObjectNamingMode,
+    StorageConnectorOptionsValidationError, StorageConnectorSelectDataSource,
+    StorageConnectorSelectDescriptor, StorageConnectorSelectOption,
+    StorageConnectorSelectOptionInput, StorageConnectorSelectOptionValue,
+    StorageConnectorSelectValueKind, StorageConnectorUploadWorkflows, custom_action_descriptor,
+    normalize_storage_connector_action_input, normalize_storage_connector_config,
+    normalize_storage_connector_custom_action_invocation, storage_connector_dynamic_select_field,
+    storage_connector_select_field,
 };
 pub use error::{
     MapStorageErr, Result, StorageError, StorageErrorContext, StorageErrorKind,

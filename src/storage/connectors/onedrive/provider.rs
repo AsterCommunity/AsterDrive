@@ -12,15 +12,18 @@ use aster_drive_model::types::{
 };
 use aster_drive_storage::StorageErrorKind;
 
-use super::audit::{
+use super::oauth::{
+    MicrosoftTokenResponse, decrypt_application_client_secret, refresh_microsoft_graph_token,
+};
+use super::{normalize_microsoft_graph_scopes, normalized_option};
+use crate::services::storage_policy::credential::crypto;
+use crate::services::storage_policy::credential::{
     OAUTH_AUDIT_EVENT_CREDENTIAL_REFRESHED, OAUTH_AUDIT_EVENT_REAUTH_REQUIRED,
     OAUTH_AUDIT_RESULT_FAILED, OAUTH_AUDIT_RESULT_RECOVERED, OAUTH_AUDIT_RESULT_SUCCESS,
     StorageCredentialOauthAuditDetails, write_storage_credential_oauth_audit,
 };
-use super::microsoft::{
-    MicrosoftTokenResponse, decrypt_application_client_secret, refresh_microsoft_graph_token,
-};
-use super::{crypto, normalize_optional_string, normalize_scopes};
+
+const REDACTED_SECRET: &str = "***REDACTED***";
 
 pub(crate) struct MicrosoftGraphCredentialTokenProvider {
     db: sea_orm::DatabaseConnection,
@@ -61,7 +64,7 @@ struct MicrosoftGraphCredentialTokenCache {
 
 #[derive(Debug)]
 struct MicrosoftGraphConnectorCredentialCache {
-    credential: crate::storage::connectors::OneDriveCredentialV1,
+    credential: super::OneDriveCredentialV1,
     revision: i64,
 }
 
@@ -78,7 +81,7 @@ impl fmt::Debug for MicrosoftGraphCredentialTokenProvider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("MicrosoftGraphCredentialTokenProvider")
             .field("policy_id", &self.policy_id)
-            .field("cache", &super::super::REDACTED_SECRET)
+            .field("cache", &REDACTED_SECRET)
             .field("token_refresher", &self.token_refresher)
             .finish()
     }
@@ -93,12 +96,9 @@ impl fmt::Debug for MicrosoftGraphCleanupTokenProvider {
             .field("client_id", &self.client_id)
             .field(
                 "client_secret",
-                &self
-                    .client_secret
-                    .as_ref()
-                    .map(|_| super::super::REDACTED_SECRET),
+                &self.client_secret.as_ref().map(|_| REDACTED_SECRET),
             )
-            .field("cache", &super::super::REDACTED_SECRET)
+            .field("cache", &REDACTED_SECRET)
             .field("token_refresher", &self.token_refresher)
             .finish()
     }
@@ -112,12 +112,9 @@ impl fmt::Debug for MicrosoftGraphTokenRefreshRequest {
             .field("client_id", &self.client_id)
             .field(
                 "client_secret",
-                &self
-                    .client_secret
-                    .as_ref()
-                    .map(|_| super::super::REDACTED_SECRET),
+                &self.client_secret.as_ref().map(|_| REDACTED_SECRET),
             )
-            .field("refresh_token", &super::super::REDACTED_SECRET)
+            .field("refresh_token", &REDACTED_SECRET)
             .finish()
     }
 }
@@ -155,7 +152,7 @@ pub(crate) fn build_microsoft_graph_credential_token_provider(
     encryption_key: String,
     policy: &storage_policy::Model,
     credential: &storage_policy_connector_credential::Model,
-    payload: crate::storage::connectors::OneDriveCredentialV1,
+    payload: super::OneDriveCredentialV1,
 ) -> Result<Arc<dyn MicrosoftGraphAccessTokenProvider>> {
     build_microsoft_graph_credential_token_provider_with_refresher(
         db,
@@ -194,7 +191,7 @@ pub(super) fn build_microsoft_graph_cleanup_token_provider_with_refresher(
     )?;
     let client_id = snapshot
         .client_id
-        .and_then(|value| normalize_optional_string(Some(value)))
+        .and_then(|value| normalized_option(Some(value)))
         .ok_or_else(|| {
             storage_driver_error(
                 StorageErrorKind::Auth,
@@ -203,7 +200,7 @@ pub(super) fn build_microsoft_graph_cleanup_token_provider_with_refresher(
         })?;
     let client_secret = snapshot
         .client_secret_ciphertext
-        .and_then(|value| normalize_optional_string(Some(value)))
+        .and_then(|value| normalized_option(Some(value)))
         .map(|ciphertext| {
             decrypt_application_client_secret(&encryption_key, policy.id, &ciphertext)
         })
@@ -220,7 +217,7 @@ pub(super) fn build_microsoft_graph_cleanup_token_provider_with_refresher(
         cloud: snapshot.cloud,
         tenant: snapshot
             .tenant_id
-            .and_then(|tenant| normalize_optional_string(Some(tenant)))
+            .and_then(|tenant| normalized_option(Some(tenant)))
             .unwrap_or_else(|| "common".to_string()),
         client_id,
         client_secret: Some(client_secret),
@@ -256,7 +253,7 @@ pub(super) fn build_microsoft_graph_credential_token_provider_with_refresher(
     encryption_key: String,
     policy: &storage_policy::Model,
     credential: &storage_policy_connector_credential::Model,
-    payload: crate::storage::connectors::OneDriveCredentialV1,
+    payload: super::OneDriveCredentialV1,
     token_refresher: Arc<dyn MicrosoftGraphTokenRefresher>,
 ) -> Result<Arc<dyn MicrosoftGraphAccessTokenProvider>> {
     debug_assert_eq!(
@@ -264,13 +261,13 @@ pub(super) fn build_microsoft_graph_credential_token_provider_with_refresher(
         "Microsoft Graph credential must belong to the supplied storage policy"
     );
     let application = &payload.application;
-    if normalize_optional_string(Some(application.client_id.clone())).is_none() {
+    if normalized_option(Some(application.client_id.clone())).is_none() {
         return Err(storage_driver_error(
             StorageErrorKind::Auth,
             "OneDrive connector credential is missing Microsoft Graph client_id",
         ));
     }
-    if normalize_optional_string(Some(application.client_secret.clone())).is_none() {
+    if normalized_option(Some(application.client_secret.clone())).is_none() {
         return Err(storage_driver_error(
             StorageErrorKind::Auth,
             "OneDrive connector credential is missing Microsoft Graph client_secret",
@@ -362,6 +359,12 @@ impl MicrosoftGraphAccessTokenProvider for MicrosoftGraphCredentialTokenProvider
                     .recover_from_concurrent_refresh(&mut cache, used_revision)
                     .await?
                 {
+                    let fields = microsoft_graph_audit_fields(
+                        application.cloud,
+                        &application.tenant,
+                        None,
+                        Some(true),
+                    );
                     write_storage_credential_oauth_audit(
                         &self.db,
                         0,
@@ -369,13 +372,12 @@ impl MicrosoftGraphAccessTokenProvider for MicrosoftGraphCredentialTokenProvider
                             event: OAUTH_AUDIT_EVENT_CREDENTIAL_REFRESHED,
                             result: OAUTH_AUDIT_RESULT_RECOVERED,
                             policy_id: Some(self.policy_id),
-                            cloud: Some(application.cloud),
-                            tenant: Some(&application.tenant),
+                            connector_id: Some(super::OneDriveConnector::ID),
+                            provider: Some(StorageCredentialProvider::MicrosoftGraph),
                             reason: Some(
                                 "refresh token was already rotated by another provider instance",
                             ),
-                            recovered_from_token_rotation: Some(true),
-                            ..Default::default()
+                            fields: Some(&fields),
                         },
                     )
                     .await;
@@ -398,9 +400,10 @@ impl MicrosoftGraphAccessTokenProvider for MicrosoftGraphCredentialTokenProvider
             .expires_in
             .and_then(|seconds| (seconds > 0).then(|| now + Duration::seconds(seconds)));
         let refreshed_scopes = token.scope.as_deref().map(|scope| {
-            normalize_scopes(Some(
-                scope.split_whitespace().map(ToOwned::to_owned).collect(),
-            ))
+            normalize_microsoft_graph_scopes(
+                Some(scope.split_whitespace().map(ToOwned::to_owned).collect()),
+                "",
+            )
         });
         let refresh_token_rotated = token
             .refresh_token
@@ -423,6 +426,7 @@ impl MicrosoftGraphAccessTokenProvider for MicrosoftGraphCredentialTokenProvider
         if let Some(refresh_token) = token.refresh_token.filter(|value| !value.trim().is_empty()) {
             authorization.refresh_token = Some(refresh_token);
         }
+        let access_token = authorization.access_token.clone();
         let updated = self
             .persist_cache_if_revision(&cache, used_revision)
             .await?;
@@ -431,6 +435,12 @@ impl MicrosoftGraphAccessTokenProvider for MicrosoftGraphCredentialTokenProvider
                 .recover_from_concurrent_refresh(&mut cache, used_revision)
                 .await?
             {
+                let fields = microsoft_graph_audit_fields(
+                    application.cloud,
+                    &application.tenant,
+                    None,
+                    Some(true),
+                );
                 write_storage_credential_oauth_audit(
                     &self.db,
                     0,
@@ -438,13 +448,12 @@ impl MicrosoftGraphAccessTokenProvider for MicrosoftGraphCredentialTokenProvider
                         event: OAUTH_AUDIT_EVENT_CREDENTIAL_REFRESHED,
                         result: OAUTH_AUDIT_RESULT_RECOVERED,
                         policy_id: Some(self.policy_id),
-                        cloud: Some(application.cloud),
-                        tenant: Some(&application.tenant),
+                        connector_id: Some(super::OneDriveConnector::ID),
+                        provider: Some(StorageCredentialProvider::MicrosoftGraph),
                         reason: Some(
                             "refresh token was already rotated by another provider instance",
                         ),
-                        recovered_from_token_rotation: Some(true),
-                        ..Default::default()
+                        fields: Some(&fields),
                     },
                 )
                 .await;
@@ -458,6 +467,12 @@ impl MicrosoftGraphAccessTokenProvider for MicrosoftGraphCredentialTokenProvider
         cache.revision = cache.revision.checked_add(1).ok_or_else(|| {
             AsterError::database_operation("storage connector credential revision overflow")
         })?;
+        let fields = microsoft_graph_audit_fields(
+            application.cloud,
+            &application.tenant,
+            Some(refresh_token_rotated),
+            None,
+        );
         write_storage_credential_oauth_audit(
             &self.db,
             0,
@@ -465,20 +480,14 @@ impl MicrosoftGraphAccessTokenProvider for MicrosoftGraphCredentialTokenProvider
                 event: OAUTH_AUDIT_EVENT_CREDENTIAL_REFRESHED,
                 result: OAUTH_AUDIT_RESULT_SUCCESS,
                 policy_id: Some(self.policy_id),
-                cloud: Some(application.cloud),
-                tenant: Some(&application.tenant),
-                refresh_token_rotated: Some(refresh_token_rotated),
+                connector_id: Some(super::OneDriveConnector::ID),
+                provider: Some(StorageCredentialProvider::MicrosoftGraph),
+                fields: Some(&fields),
                 ..Default::default()
             },
         )
         .await;
-        Ok(cache
-            .credential
-            .authorization
-            .as_ref()
-            .expect("authorization checked before persistence")
-            .access_token
-            .clone())
+        Ok(access_token)
     }
 }
 
@@ -585,14 +594,14 @@ impl MicrosoftGraphCredentialTokenProvider {
         let ciphertext = crypto::encrypt_connector_credential(
             &self.encryption_key,
             self.policy_id,
-            crate::storage::connectors::OneDriveConnector::ID,
+            super::OneDriveConnector::ID,
             1,
             &plaintext,
         )?;
         storage_policy_connector_credential_repo::update_if_revision(
             &self.db,
             self.policy_id,
-            crate::storage::connectors::OneDriveConnector::ID,
+            super::OneDriveConnector::ID,
             1,
             expected_revision,
             ciphertext,
@@ -614,13 +623,11 @@ impl MicrosoftGraphCredentialTokenProvider {
         if credential.revision == used_revision {
             return Ok(None);
         }
-        let payload: crate::storage::connectors::OneDriveCredentialV1 =
+        let payload: super::OneDriveCredentialV1 =
             crate::storage::connectors::decode_typed_connector_credential(
                 &self.encryption_key,
                 &credential,
-                &aster_drive_storage::ConnectorId::declared(
-                    crate::storage::connectors::OneDriveConnector::ID,
-                ),
+                &aster_drive_storage::ConnectorId::declared(super::OneDriveConnector::ID),
                 1,
             )?;
         let Some(authorization) = payload.authorization.as_ref() else {
@@ -663,6 +670,8 @@ impl MicrosoftGraphCredentialTokenProvider {
             })?;
         }
         let application = &cache.credential.application;
+        let fields =
+            microsoft_graph_audit_fields(application.cloud, &application.tenant, None, None);
         write_storage_credential_oauth_audit(
             &self.db,
             0,
@@ -670,10 +679,10 @@ impl MicrosoftGraphCredentialTokenProvider {
                 event: OAUTH_AUDIT_EVENT_REAUTH_REQUIRED,
                 result: OAUTH_AUDIT_RESULT_FAILED,
                 policy_id: Some(self.policy_id),
-                cloud: Some(application.cloud),
-                tenant: Some(&application.tenant),
+                connector_id: Some(super::OneDriveConnector::ID),
+                provider: Some(StorageCredentialProvider::MicrosoftGraph),
+                fields: Some(&fields),
                 reason: Some(reason),
-                ..Default::default()
             },
         )
         .await;
@@ -683,4 +692,34 @@ impl MicrosoftGraphCredentialTokenProvider {
 
 fn cached_access_token_is_fresh(expires_at: Option<chrono::DateTime<Utc>>) -> bool {
     expires_at.is_some_and(|expires_at| expires_at > Utc::now() + Duration::seconds(60))
+}
+
+fn microsoft_graph_audit_fields(
+    cloud: MicrosoftGraphCloud,
+    tenant: &str,
+    refresh_token_rotated: Option<bool>,
+    recovered_from_token_rotation: Option<bool>,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut fields = serde_json::Map::new();
+    fields.insert(
+        "cloud".to_string(),
+        serde_json::to_value(cloud).unwrap_or(serde_json::Value::Null),
+    );
+    fields.insert(
+        "tenant".to_string(),
+        serde_json::Value::String(tenant.to_string()),
+    );
+    if let Some(value) = refresh_token_rotated {
+        fields.insert(
+            "refresh_token_rotated".to_string(),
+            serde_json::Value::Bool(value),
+        );
+    }
+    if let Some(value) = recovered_from_token_rotation {
+        fields.insert(
+            "recovered_from_token_rotation".to_string(),
+            serde_json::Value::Bool(value),
+        );
+    }
+    fields
 }

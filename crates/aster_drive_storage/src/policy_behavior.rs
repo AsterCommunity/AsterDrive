@@ -8,6 +8,7 @@
 
 use aster_drive_model::types::MediaProcessorKind;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::fmt;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
@@ -28,6 +29,18 @@ pub struct StoragePolicyBehaviorConfig {
 }
 
 impl StoragePolicyBehaviorConfig {
+    /// Canonicalize core-owned extension lists before they are persisted or
+    /// exposed through capability aggregation.
+    ///
+    /// File extensions are case-insensitive identifiers, not display text.
+    /// Storing one canonical representation prevents duplicate behavior and
+    /// keeps API output deterministic across connectors and plugins.
+    pub fn normalized(mut self) -> Self {
+        self.thumbnail_extensions = normalize_extensions(self.thumbnail_extensions);
+        self.media_metadata_extensions = normalize_extensions(self.media_metadata_extensions);
+        self
+    }
+
     pub fn uses_storage_native_thumbnail(&self) -> bool {
         self.thumbnail_processor == Some(MediaProcessorKind::StorageNative)
     }
@@ -44,6 +57,21 @@ impl StoragePolicyBehaviorConfig {
     pub fn storage_native_media_metadata_matches_file_name(&self, file_name: &str) -> bool {
         extension_matches(file_name, &self.media_metadata_extensions)
     }
+}
+
+fn normalize_extensions(extensions: Vec<String>) -> Vec<String> {
+    extensions
+        .into_iter()
+        .filter_map(|extension| {
+            let extension = extension
+                .trim()
+                .trim_start_matches('.')
+                .to_ascii_lowercase();
+            (!extension.is_empty()).then_some(extension)
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 fn extension_matches(file_name: &str, extensions: &[String]) -> bool {
@@ -70,7 +98,7 @@ impl StoragePolicyBehaviorConfigEnvelope {
         Self {
             format_version: STORAGE_POLICY_BEHAVIOR_FORMAT_VERSION,
             schema_version: STORAGE_POLICY_BEHAVIOR_SCHEMA_VERSION,
-            values,
+            values: values.normalized(),
         }
     }
 
@@ -211,5 +239,44 @@ mod tests {
         assert!(!behavior.storage_native_thumbnail_matches_file_name("cover."));
         assert!(behavior.storage_native_media_metadata_matches_file_name("clip.MP4"));
         assert!(!behavior.storage_native_media_metadata_matches_file_name("clip.mp3"));
+    }
+
+    #[test]
+    fn behavior_normalization_trims_dots_case_blanks_and_duplicates() {
+        let behavior = StoragePolicyBehaviorConfig {
+            thumbnail_processor: Some(MediaProcessorKind::StorageNative),
+            thumbnail_extensions: vec![
+                " .JPG ".to_string(),
+                "jpg".to_string(),
+                "...WEBP".to_string(),
+                " . ".to_string(),
+                String::new(),
+            ],
+            media_metadata_extensions: vec![
+                "MP4".to_string(),
+                ".m4a".to_string(),
+                " mp4 ".to_string(),
+            ],
+        }
+        .normalized();
+
+        assert_eq!(behavior.thumbnail_extensions, ["jpg", "webp"]);
+        assert_eq!(behavior.media_metadata_extensions, ["m4a", "mp4"]);
+        assert_eq!(
+            behavior.thumbnail_processor,
+            Some(MediaProcessorKind::StorageNative)
+        );
+    }
+
+    #[test]
+    fn behavior_envelope_persists_only_normalized_extensions() {
+        let envelope = StoragePolicyBehaviorConfigEnvelope::new(StoragePolicyBehaviorConfig {
+            thumbnail_processor: None,
+            thumbnail_extensions: vec![" .PNG ".to_string(), "png".to_string()],
+            media_metadata_extensions: vec![" .MP4 ".to_string()],
+        });
+
+        assert_eq!(envelope.values.thumbnail_extensions, ["png"]);
+        assert_eq!(envelope.values.media_metadata_extensions, ["mp4"]);
     }
 }

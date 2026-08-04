@@ -4,7 +4,6 @@ use crate::common;
 
 use actix_web::test;
 use aster_drive::db::repository::{folder_repo, user_repo};
-use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::events::storage_change::StorageChangeKind;
 use serde_json::Value;
 use std::time::Duration;

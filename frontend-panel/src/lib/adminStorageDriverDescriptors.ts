@@ -1,6 +1,5 @@
 import { adminPolicyService } from "@/services/adminService";
 import type {
-	DriverType,
 	StorageConnectorCatalogContext,
 	StorageConnectorDescriptor,
 } from "@/types/api";
@@ -107,12 +106,13 @@ export async function loadAdminStorageDriverDescriptors(options?: {
 	return request;
 }
 
-export function getStorageDriverDescriptor(
+export function getStorageConnectorDescriptor(
 	descriptors: StorageConnectorDescriptor[] | null,
-	driverType: DriverType,
+	connectorId: string,
 ) {
 	return (
-		descriptors?.find((descriptor) => descriptor.driver_type === driverType) ??
-		null
+		descriptors?.find(
+			(descriptor) => descriptor.connector_id === connectorId,
+		) ?? null
 	);
 }

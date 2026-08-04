@@ -6,11 +6,10 @@ use sha2::{Digest, Sha256};
 
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::errors::{AsterError, MapAsterErr, Result, storage_driver_error};
-use aster_drive_model::entities::storage_policy_authorization_flow;
-use aster_drive_model::types::{MicrosoftGraphCloud, StorageCredentialProvider};
+use aster_drive_model::types::MicrosoftGraphCloud;
 use aster_drive_storage::StorageErrorKind;
 
-use super::super::crypto;
+use crate::services::storage_policy::credential::crypto;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(super) struct MicrosoftGraphFlowContext {
@@ -77,28 +76,6 @@ pub(crate) fn decrypt_application_client_secret(
     .map(SecretString::from)
 }
 
-pub(super) fn microsoft_graph_flow_cloud(
-    flow: &storage_policy_authorization_flow::Model,
-) -> Option<MicrosoftGraphCloud> {
-    if flow.provider != StorageCredentialProvider::MicrosoftGraph {
-        return None;
-    }
-    serde_json::from_str::<MicrosoftGraphFlowContext>(&flow.context)
-        .ok()
-        .map(|context| context.cloud)
-}
-
-pub(super) fn microsoft_graph_flow_tenant(
-    flow: &storage_policy_authorization_flow::Model,
-) -> Option<String> {
-    if flow.provider != StorageCredentialProvider::MicrosoftGraph {
-        return None;
-    }
-    serde_json::from_str::<MicrosoftGraphFlowContext>(&flow.context)
-        .ok()
-        .map(|context| context.tenant)
-}
-
 pub(super) async fn exchange_microsoft_graph_code(
     context: &MicrosoftGraphFlowContext,
     client_secret: Option<&SecretString>,
@@ -116,16 +93,18 @@ pub(super) async fn exchange_microsoft_graph_code(
             AsterError::internal_error,
         )?;
     let token_endpoint = context.cloud.token_endpoint(&context.tenant);
-    let mut form = url::form_urlencoded::Serializer::new(String::new());
-    form.append_pair("grant_type", "authorization_code");
-    form.append_pair("client_id", &context.client_id);
-    form.append_pair("code", code);
-    form.append_pair("redirect_uri", redirect_uri);
-    form.append_pair("code_verifier", pkce_verifier);
-    if let Some(client_secret) = client_secret {
-        form.append_pair("client_secret", client_secret.expose_secret());
-    }
-    let body = form.finish();
+    let body = {
+        let mut form = url::form_urlencoded::Serializer::new(String::new());
+        form.append_pair("grant_type", "authorization_code");
+        form.append_pair("client_id", &context.client_id);
+        form.append_pair("code", code);
+        form.append_pair("redirect_uri", redirect_uri);
+        form.append_pair("code_verifier", pkce_verifier);
+        if let Some(client_secret) = client_secret {
+            form.append_pair("client_secret", client_secret.expose_secret());
+        }
+        form.finish()
+    };
     let response = client
         .post(&token_endpoint)
         .header(

@@ -29,7 +29,6 @@ use aster_drive::config::operations::{
     OFFLINE_DOWNLOAD_TEMP_DIR_KEY,
 };
 use aster_drive::db::repository::{background_task_repo, file_repo, policy_repo};
-use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::task::{
     self, RuntimeTaskRunOutcome, SystemRuntimeTaskKind,
     types::{
@@ -37,7 +36,7 @@ use aster_drive::services::task::{
         RuntimeTaskName, RuntimeTaskPayload,
     },
 };
-use aster_drive_model::entities::{background_task, file_blob, storage_policy};
+use aster_drive_model::entities::{background_task, file_blob};
 use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
 use aster_drive_storage::{BlobMetadata, StorageDriver};
 
@@ -1737,28 +1736,24 @@ async fn test_blob_maintenance_keeps_cached_policy_drivers_stable() {
     ));
     std::fs::create_dir_all(&untouched_policy_root)
         .expect("untouched policy root should be created");
-    let now = Utc::now();
-    let untouched_policy = storage_policy::ActiveModel {
-        name: Set("Untouched maintenance policy".to_string()),
-        driver_type: Set(aster_drive_model::types::DriverType::Local),
-        endpoint: Set(String::new()),
-        bucket: Set(String::new()),
-        access_key: Set(String::new()),
-        secret_key: Set(String::new()),
-        base_path: Set(untouched_policy_root.to_string_lossy().into_owned()),
-        remote_node_id: Set(None),
-        max_file_size: Set(0),
-        allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
-        options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
-        is_default: Set(false),
-        chunk_size: Set(0),
-        created_at: Set(now),
-        updated_at: Set(now),
-        ..Default::default()
-    }
-    .insert(state.writer_db())
+    let untouched_policy = aster_drive::services::storage_policy::policy::create(
+        &state,
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyInput {
+            name: "Untouched maintenance policy".to_string(),
+            connection: common::local_connection(
+                untouched_policy_root.to_string_lossy().into_owned(),
+            ),
+            max_file_size: 0,
+            chunk_size: Some(0),
+            is_default: false,
+            allowed_types: None,
+        },
+    )
     .await
-    .expect("untouched policy should insert");
+    .expect("untouched policy should be created through connector service");
+    let untouched_policy = policy_repo::find_by_id(state.writer_db(), untouched_policy.id)
+        .await
+        .expect("untouched policy should be queryable");
 
     let touched_driver_before = state
         .driver_registry

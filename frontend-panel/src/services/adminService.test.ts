@@ -339,11 +339,6 @@ describe("adminService", () => {
 			driver_type: "s3" as never,
 			endpoint: "https://example.com",
 		});
-		adminPolicyService.promoteS3CompatibleDriver(3, {
-			target_driver_type: "tencent_cos" as never,
-			endpoint: "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
-			bucket: "media-1250000000",
-		});
 		adminRemoteNodeService.get(6);
 		adminRemoteNodeService.create({
 			name: "Remote A",
@@ -454,17 +449,8 @@ describe("adminService", () => {
 			driver_type: "s3",
 			endpoint: "https://example.com",
 		});
-		expect(mockState.post).toHaveBeenNthCalledWith(
-			6,
-			"/admin/policies/3/promote-s3-driver",
-			{
-				target_driver_type: "tencent_cos",
-				endpoint: "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
-				bucket: "media-1250000000",
-			},
-		);
 		expect(mockState.get).toHaveBeenNthCalledWith(5, "/admin/remote-nodes/6");
-		expect(mockState.post).toHaveBeenNthCalledWith(7, "/admin/remote-nodes", {
+		expect(mockState.post).toHaveBeenNthCalledWith(6, "/admin/remote-nodes", {
 			name: "Remote A",
 			base_url: "https://remote.example.com",
 		});
@@ -480,11 +466,11 @@ describe("adminService", () => {
 			"/admin/remote-nodes/6",
 		);
 		expect(mockState.post).toHaveBeenNthCalledWith(
-			8,
+			7,
 			"/admin/remote-nodes/6/test",
 		);
 		expect(mockState.post).toHaveBeenNthCalledWith(
-			9,
+			8,
 			"/admin/remote-nodes/test",
 			{
 				base_url: "https://remote.example.com",
@@ -493,7 +479,7 @@ describe("adminService", () => {
 			},
 		);
 		expect(mockState.post).toHaveBeenNthCalledWith(
-			10,
+			9,
 			"/admin/remote-nodes/6/enrollment-token",
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(
@@ -509,7 +495,7 @@ describe("adminService", () => {
 			"/admin/external-auth/providers/15",
 		);
 		expect(mockState.post).toHaveBeenNthCalledWith(
-			11,
+			10,
 			"/admin/external-auth/providers",
 			{
 				client_id: "client-id",
@@ -529,7 +515,7 @@ describe("adminService", () => {
 			},
 		);
 		expect(mockState.post).toHaveBeenNthCalledWith(
-			12,
+			11,
 			"/admin/external-auth/providers/15/test",
 		);
 		expect(mockState.delete).toHaveBeenNthCalledWith(
@@ -538,7 +524,7 @@ describe("adminService", () => {
 		);
 
 		expect(mockState.get).toHaveBeenNthCalledWith(9, "/admin/policy-groups/4");
-		expect(mockState.post).toHaveBeenNthCalledWith(13, "/admin/policy-groups", {
+		expect(mockState.post).toHaveBeenNthCalledWith(12, "/admin/policy-groups", {
 			name: "Default Group",
 			items: [{ policy_id: 3, priority: 1 }],
 		});
@@ -550,7 +536,7 @@ describe("adminService", () => {
 			},
 		);
 		expect(mockState.post).toHaveBeenNthCalledWith(
-			14,
+			13,
 			"/admin/policy-groups/4/migrate-assignments",
 			{
 				target_group_id: 8,
@@ -590,14 +576,14 @@ describe("adminService", () => {
 			},
 		);
 		expect(mockState.post).toHaveBeenNthCalledWith(
-			15,
+			14,
 			"/admin/config/mail.host/action",
 			{
 				action: "reload",
 			},
 		);
 		expect(mockState.post).toHaveBeenNthCalledWith(
-			16,
+			15,
 			"/admin/config/mail/action",
 			{
 				action: "send_test_email",
@@ -605,7 +591,7 @@ describe("adminService", () => {
 			},
 		);
 		expect(mockState.post).toHaveBeenNthCalledWith(
-			17,
+			16,
 			"/admin/config/mail/action",
 			{
 				action: "send_test_email",

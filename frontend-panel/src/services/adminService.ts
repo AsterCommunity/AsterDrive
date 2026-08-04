@@ -58,7 +58,6 @@ import type {
 	LockPage,
 	MigratePolicyGroupAssignmentsRequest,
 	PolicyGroupAssignmentMigrationResult,
-	PromoteS3CompatiblePolicyDriverRequest,
 	RemoteCreateStorageTargetRequest,
 	RemoteEnrollmentCommandInfo,
 	RemoteNodeInfo,
@@ -70,13 +69,10 @@ import type {
 	RemovedCountResponse,
 	ResetUserPasswordRequest,
 	ShareInfo,
-	StartStorageAuthorizationRequest,
 	StorageAuthorizationStartResponse,
 	StorageConnectorCatalogQuery,
 	StorageConnectorCredentialInfo,
 	StorageConnectorDescriptor,
-	StorageCredentialProvider,
-	StorageCredentialProviderInfo,
 	StoragePolicy,
 	StoragePolicyActionResult,
 	StoragePolicyCapacityInfo,
@@ -354,23 +350,9 @@ export const adminPolicyService = {
 	) =>
 		api.post<StoragePolicyActionResult>(`/admin/policies/${id}/action`, data),
 
-	promoteS3CompatibleDriver: (
-		id: number,
-		data: PromoteS3CompatiblePolicyDriverRequest,
-	) => api.post<StoragePolicy>(`/admin/policies/${id}/promote-s3-driver`, data),
-
-	listStorageCredentialProviders: () =>
-		api.get<StorageCredentialProviderInfo[]>(
-			"/admin/policies/storage-credential-providers",
-		),
-
-	startStorageAuthorization: (
-		id: number,
-		data: StartStorageAuthorizationRequest,
-	) =>
+	startStorageAuthorization: (id: number) =>
 		api.post<StorageAuthorizationStartResponse>(
 			`/admin/policies/${id}/storage-authorization/start`,
-			data,
 		),
 
 	listStorageCredentials: (id: number) =>
@@ -378,12 +360,9 @@ export const adminPolicyService = {
 			`/admin/policies/${id}/storage-credentials`,
 		),
 
-	validateStorageCredential: (
-		id: number,
-		provider: StorageCredentialProvider,
-	) =>
+	validateStorageCredential: (id: number) =>
 		api.post<StoragePolicyCredentialValidationResult>(
-			`/admin/policies/${id}/storage-credentials/${provider}/validate`,
+			`/admin/policies/${id}/storage-credentials/validate`,
 		),
 
 	createMigration: (data: CreateStoragePolicyMigrationRequest) =>

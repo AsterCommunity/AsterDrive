@@ -160,9 +160,6 @@ export const ApiErrorCode = {
 	PolicyNativeThumbnailUnsupported: "policy.native_thumbnail_unsupported",
 	PolicyNativeMediaMetadataUnsupported:
 		"policy.native_media_metadata_unsupported",
-	PolicyPromotionSourceUnsupported: "policy.promotion_source_unsupported",
-	PolicyPromotionTargetUnsupported: "policy.promotion_target_unsupported",
-	PolicyPromotionBucketChangeDenied: "policy.promotion_bucket_change_denied",
 	PolicyActionUnsupported: "policy.action_unsupported",
 	PolicyActionParameterRequired: "policy.action_parameter_required",
 	PolicyActionParameterInvalid: "policy.action_parameter_invalid",

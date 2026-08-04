@@ -34,7 +34,7 @@ import {
 } from "@/lib/constants";
 import type { StoragePolicy } from "@/types/api";
 
-export type PolicyLookup = Pick<StoragePolicy, "driver_type" | "id" | "name">;
+export type PolicyLookup = Pick<StoragePolicy, "connector_id" | "id" | "name">;
 
 interface PolicyGroupDialogProps {
 	open: boolean;
@@ -70,7 +70,7 @@ function matchesPolicySearch(policy: PolicyLookup, query: string) {
 	return (
 		policy.name.toLowerCase().includes(normalizedQuery) ||
 		String(policy.id).includes(normalizedQuery) ||
-		policy.driver_type.toLowerCase().includes(normalizedQuery)
+		policy.connector_id.toLowerCase().includes(normalizedQuery)
 	);
 }
 

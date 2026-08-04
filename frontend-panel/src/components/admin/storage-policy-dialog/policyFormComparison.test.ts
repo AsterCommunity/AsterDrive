@@ -1,218 +1,160 @@
 import { describe, expect, it } from "vitest";
 import type {
-	DriverType,
 	StorageConnectorDescriptor,
 	StorageConnectorFieldDescriptor,
 	StoragePolicy,
-	StoragePolicyOptions,
 } from "@/types/api";
-import { emptyForm, getPolicyForm, type PolicyFormData } from "./formTypes";
+import { emptyForm, getPolicyForm } from "./formTypes";
 import { policyFormHasUnsavedChanges } from "./policyFormComparison";
 
 function field(
 	name: string,
-	scope: StorageConnectorFieldDescriptor["scope"],
+	scope: StorageConnectorFieldDescriptor["scope"] = "connector_config",
+	overrides: Partial<StorageConnectorFieldDescriptor> = {},
 ): StorageConnectorFieldDescriptor {
 	return {
 		kind: "text",
+		label_key: name,
 		name,
 		required: false,
 		scope,
 		secret: false,
-	};
-}
-
-function descriptor(
-	driverType: DriverType,
-	overrides: Partial<StorageConnectorDescriptor> = {},
-): StorageConnectorDescriptor {
-	return {
-		actions: [],
-		authorization_provider: null,
-		capabilities: {
-			capacity: true,
-			efficient_range: true,
-			list: true,
-			object_storage_transfer_strategy: false,
-			presigned_download: false,
-			remote_node_binding: false,
-			storage_native_media_metadata: false,
-			storage_native_thumbnail: false,
-		},
-		credential_mode: "none",
-		description: `${driverType} descriptor`,
-		driver_recommendations: [],
-		driver_type: driverType,
-		enabled: true,
-		fields: [],
-		label: driverType,
-		related_issues: [],
-		requires_authorization: false,
-		ui: {
-			description_key: `${driverType}_description`,
-			icon: null,
-			label_key: driverType,
-		},
-		upload_workflows: {
-			frontend_direct_provider_resumable_upload: false,
-			object_multipart_upload: false,
-			presigned_upload: false,
-			provider_resumable_upload: false,
-			simple_upload: true,
-			stream_upload: true,
-		},
 		...overrides,
 	};
 }
 
-function policy(
-	overrides: Partial<StoragePolicy> & { options?: StoragePolicyOptions } = {},
-): StoragePolicy {
+function descriptor(fields: StorageConnectorFieldDescriptor[]) {
+	return {
+		fields,
+		capabilities: { object_storage_transfer_strategy: false },
+	} as StorageConnectorDescriptor;
+}
+
+function policy(overrides: Partial<StoragePolicy> = {}): StoragePolicy {
 	return {
 		allowed_types: [],
-		base_path: "",
-		bucket: "",
+		behavior: {
+			media_metadata_extensions: [],
+			thumbnail_extensions: [],
+			thumbnail_processor: null,
+		},
 		chunk_size: 5 * 1024 * 1024,
+		connector_config: {
+			connector_id: "plugin.storage",
+			format_version: 1,
+			schema_version: 1,
+			values: {},
+		},
+		connector_id: "plugin.storage",
 		created_at: "2026-01-01T00:00:00Z",
-		driver_type: "local",
-		endpoint: "",
 		id: 1,
 		is_default: false,
-		max_file_size: null,
-		name: "",
-		options: {},
+		max_file_size: 0,
+		name: "Storage",
 		updated_at: "2026-01-01T00:00:00Z",
 		...overrides,
-	} as unknown as StoragePolicy;
+	};
 }
 
 describe("policyFormComparison", () => {
-	it("does not report unsaved changes when no policy is being edited", () => {
+	it("does not report changes without an editing policy", () => {
 		expect(policyFormHasUnsavedChanges(emptyForm, null)).toBe(false);
 	});
 
-	it("detects storage-native array value changes", () => {
-		const form: PolicyFormData = {
-			...emptyForm,
-			storage_native_processing_enabled: true,
-			thumbnail_processor: "storage_native",
-			thumbnail_extensions: ["jpg"],
+	it("compares the connector-owned config envelope and trims declared fields", () => {
+		const saved = policy({
+			connector_config: {
+				connector_id: "plugin.storage",
+				format_version: 1,
+				schema_version: 1,
+				values: { endpoint: "https://storage.example.test", mode: "direct" },
+			},
+		});
+		const schema = descriptor([
+			field("endpoint", "connector_config", { trim_on_blur: true }),
+			field("mode"),
+		]);
+		const form = {
+			...getPolicyForm(saved),
+			connector_config_values: {
+				endpoint: "  https://storage.example.test  ",
+				mode: "direct",
+			},
 		};
 
+		expect(policyFormHasUnsavedChanges(form, saved, schema)).toBe(false);
 		expect(
 			policyFormHasUnsavedChanges(
-				form,
-				policy({
-					options: {
-						storage_native_processing_enabled: true,
-						thumbnail_processor: "storage_native",
-						thumbnail_extensions: ["png"],
+				{
+					...form,
+					connector_config_values: {
+						...form.connector_config_values,
+						mode: "relay",
 					},
-				}),
-			),
-		).toBe(true);
-	});
-
-	it("ignores empty Microsoft Graph application credentials", () => {
-		const oneDriveDescriptor = descriptor("one_drive", {
-			fields: [
-				field("account_mode", "policy_options"),
-				field("client_id", "application_credential"),
-			],
-		});
-		const form: PolicyFormData = {
-			...emptyForm,
-			base_path: "/files",
-			driver_type: "one_drive",
-			name: "OneDrive",
-			onedrive_tenant: " common ",
-			application_credentials: {
-				microsoft_graph: {
-					cloud: "global",
-					tenant: " common ",
-					client_id: " ",
-					client_secret: " ",
-					scopes: " ",
 				},
-			},
-		};
-
-		expect(
-			policyFormHasUnsavedChanges(
-				form,
-				policy({
-					base_path: "/files",
-					driver_type: "one_drive",
-					name: "OneDrive",
-					options: {
-						onedrive_account_mode: "work_or_school",
-						onedrive_cloud: "global",
-						onedrive_tenant: "common",
-					},
-				}),
-				oneDriveDescriptor,
-			),
-		).toBe(false);
-	});
-
-	it("keeps non-empty Microsoft Graph application credentials comparable", () => {
-		const oneDriveDescriptor = descriptor("one_drive", {
-			fields: [field("client_id", "application_credential")],
-		});
-		const form: PolicyFormData = {
-			...emptyForm,
-			driver_type: "one_drive",
-			application_credentials: {
-				microsoft_graph: {
-					cloud: "global",
-					tenant: "common",
-					client_id: "client-id",
-					client_secret: "",
-					scopes: "",
-				},
-			},
-		};
-
-		expect(
-			policyFormHasUnsavedChanges(
-				form,
-				policy({ driver_type: "one_drive" }),
-				oneDriveDescriptor,
+				saved,
+				schema,
 			),
 		).toBe(true);
 	});
 
-	it("compares descriptor-owned OneDrive transfer strategies", () => {
-		const oneDriveDescriptor = descriptor("one_drive", {
-			fields: [
-				field("account_mode", "policy_options"),
-				field("provider_resumable_upload_strategy", "policy_options"),
-				field("provider_download_strategy", "policy_options"),
-			],
-		});
-		const savedPolicy = policy({
-			driver_type: "one_drive",
-			options: {
-				onedrive_account_mode: "work_or_school",
-				provider_resumable_upload_strategy: "frontend_direct",
-				provider_download_strategy: "frontend_direct",
-			},
-		});
-		const form: PolicyFormData = {
-			...getPolicyForm(savedPolicy),
-			provider_resumable_upload_strategy: "frontend_direct",
-			provider_download_strategy: "frontend_direct",
+	it("ignores empty credential inputs and detects non-empty replacements", () => {
+		const saved = policy();
+		const schema = descriptor([
+			field("access_key", "static_credential", { trim_on_blur: true }),
+			field("secret_key", "static_credential", {
+				kind: "secret",
+				secret: true,
+			}),
+		]);
+		const form = {
+			...getPolicyForm(saved),
+			credential_values: { access_key: "  ", secret_key: "" },
 		};
 
-		expect(
-			policyFormHasUnsavedChanges(form, savedPolicy, oneDriveDescriptor),
-		).toBe(false);
+		expect(policyFormHasUnsavedChanges(form, saved, schema)).toBe(false);
 		expect(
 			policyFormHasUnsavedChanges(
-				{ ...form, provider_download_strategy: "server_relay" },
-				savedPolicy,
-				oneDriveDescriptor,
+				{ ...form, credential_values: { access_key: "new-key" } },
+				saved,
+				schema,
 			),
 		).toBe(true);
+	});
+
+	it("detects policy behavior arrays, limits, default state, and connector changes", () => {
+		const saved = policy({
+			behavior: {
+				media_metadata_extensions: ["mp4"],
+				thumbnail_extensions: ["jpg"],
+				thumbnail_processor: "storage_native",
+			},
+			is_default: true,
+			max_file_size: 1024,
+		});
+		const form = getPolicyForm(saved);
+
+		expect(policyFormHasUnsavedChanges(form, saved)).toBe(false);
+		expect(
+			policyFormHasUnsavedChanges(
+				{ ...form, thumbnail_extensions: ["png"] },
+				saved,
+			),
+		).toBe(true);
+		expect(
+			policyFormHasUnsavedChanges(
+				{ ...form, connector_id: "plugin.other" },
+				saved,
+			),
+		).toBe(true);
+	});
+
+	it("treats malformed connector envelopes as empty without throwing", () => {
+		const saved = policy({ connector_config: "broken" as never });
+		const form = getPolicyForm(saved);
+
+		expect(form.connector_config_values).toEqual({});
+		expect(form.connector_id).toBe("plugin.storage");
+		expect(policyFormHasUnsavedChanges(form, saved)).toBe(false);
 	});
 });

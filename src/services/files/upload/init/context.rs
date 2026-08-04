@@ -64,7 +64,7 @@ pub(super) struct MultipartSessionInitParams {
 
 /// Resolves the persisted data plane from connector-owned transport semantics.
 ///
-/// This is intentionally expressed in terms of `PolicyUploadTransport`, not `DriverType`: a
+/// This is intentionally expressed in terms of `PolicyUploadTransport`, not a provider enum: a
 /// connector may expose the same driver through different upload strategies, and the strategy is
 /// what determines the session lifecycle and cleanup contract.
 pub(super) fn session_kind_for_transport(

@@ -471,7 +471,10 @@ mod tests {
         (
             PrimaryAppState {
                 db_handles: aster_forge_db::DbHandles::single(db),
-                driver_registry: Arc::new(crate::storage::DriverRegistry::noop()),
+                driver_registry: Arc::new(
+                    crate::storage::DriverRegistry::noop()
+                        .expect("built-in storage connector registry"),
+                ),
                 runtime_config,
                 policy_snapshot: Arc::new(crate::storage::PolicySnapshot::new()),
                 config: Arc::new(crate::config::Config::default()),

@@ -22,18 +22,21 @@ mod tencent_cos;
 mod upload;
 
 #[cfg(test)]
+pub(crate) mod test_support;
+#[cfg(test)]
 mod tests;
 
 use std::sync::Arc;
 
 use crate::errors::Result;
-use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
+use crate::runtime::{RemoteProtocolRuntimeState, StorageConnectorRuntimeState};
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{StorageCredentialKind, StorageCredentialProvider};
+use aster_drive_storage::StorageConnectorActionInvocationError;
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
-    StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDescriptor,
-    StorageConnectorObjectNamingMode, StoragePolicyExecutableAction,
+    StorageConnectorActionEndpoint, StorageConnectorActionKind, StorageConnectorDescriptor,
+    StorageConnectorObjectNamingMode,
 };
 
 use azure_blob::AzureBlobConnector;
@@ -41,21 +44,23 @@ pub use common::unsupported_multipart_error;
 use local::LocalConnector;
 pub use models::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
-    StorageConnectorActionResult, StorageConnectorConnectionInput, StorageConnectorCredentialInfo,
-    StorageConnectorCredentialInput, TencentCosCorsConfigResult,
+    StorageConnectorActionOutput, StorageConnectorActionResult, StorageConnectorConnectionInput,
+    StorageConnectorCredentialInfo, StorageConnectorCredentialInput,
     TestDraftStorageConnectorConnectionInput,
 };
 pub(crate) use models::{
     LegacyStorageConnectorCredentialInput, LegacyStoragePolicyStaticCredential,
     LocalFilesystemPolicyProjection, RemotePolicyBindingProjection,
-    StorageConnectorRuntimeCredential, StorageCredentialValidationOutcome,
-    StoragePolicyCleanupDriverSnapshot, StoragePolicyCleanupOneDriveCredentialSnapshot,
-    StoragePolicyCleanupRemoteNodeSnapshot, StoragePolicyCleanupSnapshots,
+    StorageAuthorizationFailureReason, StorageConnectorAuthorizationAudit,
+    StorageConnectorAuthorizationCallback, StorageConnectorAuthorizationError,
+    StorageConnectorAuthorizationStart, StorageConnectorRuntimeCredential,
+    StorageCredentialValidationOutcome, StoragePolicyCleanupDriverSnapshot,
+    StoragePolicyCleanupSnapshots,
 };
+pub(crate) use onedrive::OneDriveConnector;
+#[cfg(test)]
 pub(crate) use onedrive::{
-    OneDriveApplicationCredentialV1, OneDriveAuthorizationApplicationV1,
-    OneDriveAuthorizationCredentialV1, OneDriveAuthorizationMetadataV1, OneDriveConnector,
-    OneDriveConnectorConfigV1, OneDriveCredentialV1,
+    OneDriveAccountMode, OneDriveCredentialV1, encrypt_application_client_secret,
 };
 use remote::RemoteConnector;
 use s3::S3Connector;
@@ -117,80 +122,8 @@ pub(crate) fn validate_credential_input(
         .validate_credential_input(credential)
 }
 
-#[cfg(test)]
-pub(crate) mod test_support {
-    use super::*;
-    use aster_drive_model::types::{StoragePolicyOptions, StoredStoragePolicyConfig};
-
-    /// Encode test policy state through the same connector-owned typed schema
-    /// used by production configuration flows.
-    pub(crate) fn connector_config(
-        driver_type: DriverType,
-        endpoint: impl Into<String>,
-        bucket: impl Into<String>,
-        base_path: impl Into<String>,
-        remote_node_id: Option<i64>,
-        remote_storage_target_key: Option<String>,
-        options: StoragePolicyOptions,
-    ) -> aster_drive_storage::ConnectorConfigEnvelope<serde_json::Value> {
-        let input = StorageConnectorConnectionInput {
-            driver_type,
-            endpoint: endpoint.into(),
-            bucket: bucket.into(),
-            access_key: String::new(),
-            secret_key: String::new(),
-            base_path: base_path.into(),
-            remote_node_id,
-            remote_storage_target_key,
-            options,
-        };
-        let registry = builtin_storage_connector_registry().expect("built-in connector registry");
-        registry
-            .require(input.driver_type)
-            .expect("test connector")
-            .encode_config(&input)
-            .expect("typed test connector config")
-    }
-
-    /// Encode core behavior fixtures through the versioned production codec.
-    pub(crate) fn storage_config(
-        connector: aster_drive_storage::ConnectorConfigEnvelope<serde_json::Value>,
-        options: &StoragePolicyOptions,
-    ) -> StoredStoragePolicyConfig {
-        aster_drive_storage::encode_storage_policy_config(
-            connector,
-            common::behavior_config(options),
-        )
-        .map(StoredStoragePolicyConfig)
-        .expect("typed test storage policy config")
-    }
-
-    pub(crate) fn policy_config(
-        driver_type: DriverType,
-        endpoint: impl Into<String>,
-        bucket: impl Into<String>,
-        base_path: impl Into<String>,
-        remote_node_id: Option<i64>,
-        remote_storage_target_key: Option<String>,
-        options: &StoragePolicyOptions,
-    ) -> StoredStoragePolicyConfig {
-        storage_config(
-            connector_config(
-                driver_type,
-                endpoint,
-                bucket,
-                base_path,
-                remote_node_id,
-                remote_storage_target_key,
-                options.clone(),
-            ),
-            options,
-        )
-    }
-}
-
 pub(crate) fn shared_connector_context<'a>(
-    state: &'a (impl SharedRuntimeState + Sync),
+    state: &'a (impl StorageConnectorRuntimeState + Sync),
 ) -> StorageConnectorContext<'a> {
     StorageConnectorContext::new(
         state.writer_db(),
@@ -244,23 +177,23 @@ pub(crate) fn storage_policy_supports_native_media_metadata(
 pub(crate) fn ensure_storage_authorization_supported(
     registry: &StorageConnectorRegistry,
     policy: &storage_policy::Model,
-    provider: StorageCredentialProvider,
-) -> Result<StorageCredentialKind> {
+) -> Result<StorageCredentialProvider> {
     let descriptor = registry.require_policy(policy)?.descriptor();
     let starts_authorization = descriptor.actions.iter().any(|action| {
-        action.affordance_action == Some(StorageConnectorAffordanceAction::StartAuthorization)
-            && action.kind == StorageConnectorActionKind::Authorization
+        action.kind == StorageConnectorActionKind::Authorization
+            && action
+                .endpoints
+                .contains(&StorageConnectorActionEndpoint::StartStorageAuthorization)
     });
     let supported_provider = descriptor
         .authorization_provider
         .as_deref()
         .and_then(|provider| provider.parse().ok());
-    if starts_authorization && supported_provider == Some(provider) {
-        return Ok(StorageCredentialKind::OauthDelegated);
+    if starts_authorization && let Some(provider) = supported_provider {
+        return Ok(provider);
     }
     Err(crate::errors::AsterError::unsupported_driver(format!(
-        "storage credential authorization provider '{}' is not supported for {} storage policies",
-        provider.as_str(),
+        "storage credential authorization is not supported for {} storage policies",
         policy.connector_id
     )))
 }
@@ -270,23 +203,23 @@ pub(crate) fn ensure_storage_authorization_supported(
 pub(crate) fn ensure_storage_credential_validation_supported(
     registry: &StorageConnectorRegistry,
     policy: &storage_policy::Model,
-    provider: StorageCredentialProvider,
-) -> Result<StorageCredentialKind> {
+) -> Result<(StorageCredentialProvider, StorageCredentialKind)> {
     let descriptor = registry.require_policy(policy)?.descriptor();
     let validates_credential = descriptor.actions.iter().any(|action| {
-        action.affordance_action == Some(StorageConnectorAffordanceAction::ValidateCredential)
-            && action.kind == StorageConnectorActionKind::CredentialValidation
+        action.kind == StorageConnectorActionKind::CredentialValidation
+            && action
+                .endpoints
+                .contains(&StorageConnectorActionEndpoint::ValidateStoragePolicyCredential)
     });
     let supported_provider = descriptor
         .authorization_provider
         .as_deref()
         .and_then(|provider| provider.parse().ok());
-    if validates_credential && supported_provider == Some(provider) {
-        return Ok(StorageCredentialKind::OauthDelegated);
+    if validates_credential && let Some(provider) = supported_provider {
+        return Ok((provider, StorageCredentialKind::OauthDelegated));
     }
     Err(crate::errors::AsterError::unsupported_driver(format!(
-        "storage credential validation provider '{}' is not supported for {} storage policies",
-        provider.as_str(),
+        "storage credential validation is not supported for {} storage policies",
         policy.connector_id
     )))
 }
@@ -469,7 +402,7 @@ pub(crate) async fn test_draft_connection<S: RemoteProtocolRuntimeState + Sync>(
         .await
 }
 
-pub(crate) async fn test_saved_connection<S: SharedRuntimeState + Sync>(
+pub(crate) async fn test_saved_connection<S: StorageConnectorRuntimeState + Sync>(
     registry: &StorageConnectorRegistry,
     state: &S,
     policy: &storage_policy::Model,
@@ -480,15 +413,24 @@ pub(crate) async fn test_saved_connection<S: SharedRuntimeState + Sync>(
         .await
 }
 
-pub(crate) async fn execute_saved_action<S: SharedRuntimeState + Sync>(
+pub(crate) async fn execute_saved_action<S: StorageConnectorRuntimeState + Sync>(
     registry: &StorageConnectorRegistry,
     state: &S,
     policy: &storage_policy::Model,
-    action: StoragePolicyExecutableAction,
+    input: ExecuteSavedStorageConnectorActionInput,
 ) -> Result<StorageConnectorActionResult> {
-    registry
-        .require_policy(policy)?
-        .execute_saved_action(&shared_connector_context(state), policy, action)
+    let connector = registry.require_policy(policy)?;
+    let descriptor = connector.descriptor();
+    let mut input = input;
+    input.values = aster_drive_storage::normalize_storage_connector_custom_action_invocation(
+        &descriptor,
+        &input.action_id,
+        StorageConnectorActionEndpoint::ExecuteSavedStoragePolicyAction,
+        &input.values,
+    )
+    .map_err(map_action_invocation_error)?;
+    connector
+        .execute_saved_action(&shared_connector_context(state), policy, input)
         .await
 }
 
@@ -498,10 +440,33 @@ pub(crate) async fn execute_draft_action<S: RemoteProtocolRuntimeState + Sync>(
     input: ExecuteDraftStorageConnectorActionInput,
 ) -> Result<StorageConnectorActionResult> {
     let connector_id = input.connection.connector_config.connector_id.clone();
-    registry
-        .require_connector(&connector_id)?
+    let connector = registry.require_connector(&connector_id)?;
+    let descriptor = connector.descriptor();
+    let mut input = input;
+    input.values = aster_drive_storage::normalize_storage_connector_custom_action_invocation(
+        &descriptor,
+        &input.action_id,
+        StorageConnectorActionEndpoint::ExecuteDraftStoragePolicyAction,
+        &input.values,
+    )
+    .map_err(map_action_invocation_error)?;
+    connector
         .execute_draft_action(&remote_connector_context(state), input)
         .await
+}
+
+fn map_action_invocation_error(
+    error: StorageConnectorActionInvocationError,
+) -> crate::errors::AsterError {
+    let code = match &error {
+        StorageConnectorActionInvocationError::Unsupported { .. } => {
+            crate::api::api_error_code::ApiErrorCode::PolicyActionUnsupported
+        }
+        StorageConnectorActionInvocationError::InvalidInput(_) => {
+            crate::api::api_error_code::ApiErrorCode::PolicyActionParameterInvalid
+        }
+    };
+    crate::errors::validation_error_with_code(code, error.to_string())
 }
 
 pub(crate) fn resolve_policy_upload_transport(
@@ -607,7 +572,7 @@ pub(crate) fn streaming_direct_upload_eligible(
         .supports_streaming_direct_upload(policy, declared_size))
 }
 
-pub(crate) async fn cleanup_snapshot_for_policy<S: SharedRuntimeState + Sync>(
+pub(crate) async fn cleanup_snapshot_for_policy<S: StorageConnectorRuntimeState + Sync>(
     registry: &StorageConnectorRegistry,
     state: &S,
     policy: &storage_policy::Model,

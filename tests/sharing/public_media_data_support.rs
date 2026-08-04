@@ -1,10 +1,8 @@
 //! 集成测试：`public_media_data_support`。
 
 use crate::common;
-use aster_drive::runtime::SharedRuntimeState;
 
 use actix_web::test;
-use sea_orm::Set;
 use serde_json::{Value, json};
 
 fn extension_values<'a>(kind_support: &'a Value, name: &str) -> &'a [Value] {
@@ -23,48 +21,30 @@ fn available_test_command() -> String {
 
 async fn create_storage_native_media_metadata_policy(
     state: &aster_drive::runtime::PrimaryAppState,
-    driver_type: aster_drive_model::types::DriverType,
+    mut connection: aster_drive::storage::StorageConnectorConnectionInput,
     name: &str,
     extensions: Vec<String>,
 ) -> aster_drive_model::entities::storage_policy::Model {
-    let now = chrono::Utc::now();
-    let options = aster_drive_model::types::serialize_storage_policy_options(
-        &aster_drive_model::types::StoragePolicyOptions {
-            storage_native_processing_enabled: Some(true),
-            storage_native_media_metadata_enabled: Some(true),
-            media_metadata_extensions: extensions,
-            ..Default::default()
-        },
-    )
-    .expect("storage policy options should serialize");
-    let policy = aster_drive::db::repository::policy_repo::create(
-        state.writer_db(),
-        aster_drive_model::entities::storage_policy::ActiveModel {
-            name: Set(name.to_string()),
-            driver_type: Set(driver_type),
-            endpoint: Set("https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com".to_string()),
-            bucket: Set("bucket-1250000000".to_string()),
-            access_key: Set("AKID".to_string()),
-            secret_key: Set("SECRET".to_string()),
-            base_path: Set(String::new()),
-            max_file_size: Set(0),
-            allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(options),
-            is_default: Set(false),
-            chunk_size: Set(5_242_880),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
+    connection.behavior = aster_drive_storage::StoragePolicyBehaviorConfig {
+        media_metadata_extensions: extensions,
+        ..Default::default()
+    };
+    let created = aster_drive::services::storage_policy::policy::create(
+        state,
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyInput {
+            name: name.to_string(),
+            connection,
+            max_file_size: 0,
+            chunk_size: Some(5_242_880),
+            is_default: false,
+            allowed_types: None,
         },
     )
     .await
-    .expect("policy should be created");
-    state
-        .policy_snapshot
-        .reload(state.reader_db())
+    .expect("storage-native policy should be created through the connector service");
+    aster_drive::db::repository::policy_repo::find_by_id(state.writer_db(), created.id)
         .await
-        .expect("policy snapshot should reload");
-    policy
+        .expect("created storage-native policy should be queryable")
 }
 
 #[actix_web::test]
@@ -207,7 +187,13 @@ async fn test_public_media_data_support_includes_storage_native_policy_extension
     let app = create_test_app!(state.clone());
     let policy = create_storage_native_media_metadata_policy(
         &state,
-        aster_drive_model::types::DriverType::TencentCos,
+        common::tencent_cos_connection(
+            "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com",
+            "bucket-1250000000",
+            "",
+            "AKID",
+            "SECRET",
+        ),
         "Native Metadata",
         vec![" .MP4 ".to_string(), "mp4".to_string(), ".m4a".to_string()],
     )
@@ -245,7 +231,13 @@ async fn test_public_media_data_support_ignores_storage_native_options_for_unsup
     let app = create_test_app!(state.clone());
     let policy = create_storage_native_media_metadata_policy(
         &state,
-        aster_drive_model::types::DriverType::S3,
+        common::s3_connection(
+            "https://s3.example.com",
+            "unsupported-native-metadata",
+            "",
+            "AKID",
+            "SECRET",
+        ),
         "Unsupported Native Metadata",
         vec!["zzrawmedia".to_string()],
     )

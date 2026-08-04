@@ -4,7 +4,7 @@ use crate::common;
 
 use actix_web::test;
 use aster_drive::db::repository::policy_repo;
-use aster_drive::runtime::SharedRuntimeState;
+use aster_drive::services::storage_policy::policy;
 use aster_drive_model::entities::storage_policy;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
@@ -100,18 +100,22 @@ async fn test_health_ready_returns_503_when_default_storage_is_unavailable() {
         .await
         .unwrap()
         .expect("default policy should exist");
-    let blocked_base_path = std::path::Path::new(&default_policy.base_path).join("not-a-dir");
+    let blocked_base_path =
+        std::path::Path::new(&common::local_policy_base_path(&default_policy)).join("not-a-dir");
     std::fs::write(&blocked_base_path, b"block local driver parent dir").unwrap();
 
     let mut active: storage_policy::ActiveModel = default_policy.clone().into();
-    active.base_path = Set(blocked_base_path.to_string_lossy().into_owned());
+    active.storage_config = Set(common::with_local_policy_base_path(
+        &default_policy,
+        blocked_base_path.to_string_lossy().into_owned(),
+    ));
     active.updated_at = Set(Utc::now());
     active.update(state.writer_db()).await.unwrap();
 
     state.driver_registry.invalidate(default_policy.id);
     state
-        .policy_snapshot
-        .reload(state.writer_db())
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
         .await
         .unwrap();
 
@@ -159,8 +163,8 @@ async fn test_health_ready_returns_needs_storage_when_default_policy_is_missing(
 
     state.driver_registry.invalidate(default_policy.id);
     state
-        .policy_snapshot
-        .reload(state.writer_db())
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
         .await
         .unwrap();
 
@@ -185,30 +189,25 @@ async fn test_health_ready_does_not_probe_s3_network() {
     )
     .await
     .expect("health readiness setup should complete");
-    let default_policy = policy_repo::find_default(state.writer_db())
-        .await
-        .unwrap()
-        .expect("default policy should exist");
-
-    let mut active: storage_policy::ActiveModel = default_policy.clone().into();
-    active.driver_type = Set(aster_drive_model::types::DriverType::S3);
-    active.endpoint = Set("http://127.0.0.1:9".to_string());
-    active.bucket = Set("ready-probe".to_string());
-    active.access_key = Set("test-access-key".to_string());
-    active.secret_key = Set("test-secret-key".to_string());
-    active.options = Set(aster_drive_model::types::StoredStoragePolicyOptions(
-        r#"{"s3_connect_timeout_secs":1,"s3_read_timeout_secs":1,"s3_operation_timeout_secs":1}"#
-            .to_string(),
-    ));
-    active.updated_at = Set(Utc::now());
-    active.update(state.writer_db()).await.unwrap();
-
-    state.driver_registry.invalidate(default_policy.id);
-    state
-        .policy_snapshot
-        .reload(state.writer_db())
-        .await
-        .unwrap();
+    policy::create(
+        &state,
+        policy::CreateStoragePolicyInput {
+            name: "Readiness S3".to_string(),
+            connection: common::s3_connection(
+                "http://127.0.0.1:9",
+                "ready-probe",
+                "health-ready",
+                "test-access-key",
+                "test-secret-key",
+            ),
+            max_file_size: 0,
+            chunk_size: None,
+            is_default: true,
+            allowed_types: None,
+        },
+    )
+    .await
+    .expect("S3 readiness fixture should be created through the connector service");
 
     let app = create_test_app!(state);
 

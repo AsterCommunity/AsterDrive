@@ -5,7 +5,6 @@ use std::sync::{
 use std::time::Duration;
 
 use actix_web::body;
-use aster_drive_migration::Migrator;
 use async_trait::async_trait;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
@@ -19,7 +18,8 @@ use crate::services::{mail::sender, storage_policy::policy};
 use crate::storage::{DriverRegistry, PolicySnapshot};
 use aster_drive_model::entities::{file, file_blob, storage_policy, user};
 use aster_drive_model::types::{
-    DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole, UserStatus,
+    ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy, ProviderDownloadFilenameMode,
+    ProviderDownloadStrategy, UserRole, UserStatus,
 };
 use aster_drive_storage::{
     BlobMetadata, PresignedDownloadOptions, PresignedStorageDriver, StorageDriver,
@@ -267,21 +267,13 @@ async fn build_download_test_state(
     file_blob::Model,
     impl StorageDriver + Clone + 'static,
 ) {
-    build_download_test_state_with_policy(
-        driver,
-        payload_size,
-        DriverType::Local,
-        StoredStoragePolicyOptions::empty(),
-        "text/plain",
-    )
-    .await
+    build_download_test_state_with_policy(driver, payload_size, None, "text/plain").await
 }
 
 async fn build_download_test_state_with_policy<D>(
     driver: D,
     payload_size: i64,
-    driver_type: DriverType,
-    options: StoredStoragePolicyOptions,
+    policy: Option<storage_policy::Model>,
     mime_type: &str,
 ) -> (PrimaryAppState, file::Model, file_blob::Model, D)
 where
@@ -303,31 +295,21 @@ where
     )
     .await
     .expect("download test database should connect");
-    Migrator::up(&db, None)
-        .await
-        .expect("download test migrations should succeed");
+    crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
 
     let now = Utc::now();
-    let policy = storage_policy::ActiveModel {
-        name: Set("Download Stream Policy".to_string()),
-        driver_type: Set(driver_type),
-        endpoint: Set(String::new()),
-        bucket: Set(String::new()),
-        access_key: Set(String::new()),
-        secret_key: Set(String::new()),
-        base_path: Set(temp_root.to_string_lossy().into_owned()),
-        max_file_size: Set(0),
-        allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-        options: Set(options),
-        is_default: Set(true),
-        chunk_size: Set(5_242_880),
-        created_at: Set(now),
-        updated_at: Set(now),
-        ..Default::default()
-    }
-    .insert(&db)
-    .await
-    .expect("download test policy should be inserted");
+    let mut policy = policy.unwrap_or_else(|| {
+        crate::storage::connectors::test_support::local_policy(
+            temp_root.to_string_lossy().into_owned(),
+        )
+    });
+    policy.name = "Download Stream Policy".to_string();
+    policy.is_default = true;
+    policy.chunk_size = 5_242_880;
+    let policy = crate::storage::connectors::test_support::insertable_policy(policy)
+        .insert(&db)
+        .await
+        .expect("download test policy should be inserted");
 
     let user = user::ActiveModel {
         username: Set("dldstream".to_string()),
@@ -354,14 +336,14 @@ where
         .await
         .expect("download test policy groups should be seeded");
 
+    let driver_registry =
+        Arc::new(DriverRegistry::noop().expect("built-in storage connector registry"));
+    driver_registry.insert_for_test(policy.id, Arc::new(driver.clone()));
     let policy_snapshot = Arc::new(PolicySnapshot::new());
-    policy_snapshot
-        .reload(&db)
+    driver_registry
+        .reload_policy_snapshot(&policy_snapshot, &db)
         .await
         .expect("download test policy snapshot should reload");
-
-    let driver_registry = Arc::new(DriverRegistry::noop());
-    driver_registry.insert_for_test(policy.id, Arc::new(driver.clone()));
 
     let runtime_config = Arc::new(RuntimeConfig::new());
     let cache = cache::create_cache(&CacheConfig {
@@ -476,22 +458,49 @@ async fn build_stream_response_uses_get_stream_instead_of_get() {
     );
 }
 
-fn presigned_download_options() -> StoredStoragePolicyOptions {
-    StoredStoragePolicyOptions::from(
-        r#"{"object_storage_download_strategy":"presigned"}"#.to_string(),
+fn s3_presigned_download_policy() -> storage_policy::Model {
+    crate::storage::connectors::test_support::s3_policy(
+        "https://s3.example.test",
+        "test-bucket",
+        "",
+        ObjectStorageUploadStrategy::RelayStream,
+        ObjectStorageDownloadStrategy::Presigned,
     )
 }
 
-fn provider_direct_download_options() -> StoredStoragePolicyOptions {
-    StoredStoragePolicyOptions::from(
-        r#"{"provider_download_strategy":"frontend_direct"}"#.to_string(),
+fn onedrive_download_policy(
+    strategy: ProviderDownloadStrategy,
+    filename_mode: ProviderDownloadFilenameMode,
+) -> storage_policy::Model {
+    crate::storage::connectors::test_support::onedrive_policy_with_download(
+        crate::storage::connectors::OneDriveAccountMode::Personal,
+        None,
+        None,
+        None,
+        strategy,
+        filename_mode,
+        aster_drive_storage::StoragePolicyBehaviorConfig::default(),
     )
 }
 
-fn provider_direct_strict_filename_options() -> StoredStoragePolicyOptions {
-    StoredStoragePolicyOptions::from(
-        r#"{"provider_download_strategy":"frontend_direct","provider_download_filename_mode":"strict_current"}"#
-            .to_string(),
+fn onedrive_frontend_direct_download_policy() -> storage_policy::Model {
+    onedrive_download_policy(
+        ProviderDownloadStrategy::FrontendDirect,
+        ProviderDownloadFilenameMode::ProviderNative,
+    )
+}
+
+fn onedrive_relay_download_policy() -> storage_policy::Model {
+    onedrive_download_policy(
+        ProviderDownloadStrategy::ServerRelay,
+        ProviderDownloadFilenameMode::ProviderNative,
+    )
+}
+
+fn onedrive_strict_frontend_direct_download_policy() -> storage_policy::Model {
+    onedrive_download_policy(
+        ProviderDownloadStrategy::FrontendDirect,
+        ProviderDownloadFilenameMode::StrictCurrent,
     )
 }
 
@@ -503,8 +512,7 @@ async fn attachment_download_redirects_to_presigned_url_with_attachment_disposit
     let (state, file, blob, _) = build_download_test_state_with_policy(
         base_driver.with_presigned(),
         payload_len_i64(&payload),
-        DriverType::S3,
-        presigned_download_options(),
+        Some(s3_presigned_download_policy()),
         "text/plain",
     )
     .await;
@@ -557,8 +565,7 @@ async fn safe_inline_preview_redirects_to_presigned_url_with_inline_disposition(
     let (state, file, blob, _) = build_download_test_state_with_policy(
         base_driver.with_presigned(),
         payload_len_i64(&payload),
-        DriverType::S3,
-        presigned_download_options(),
+        Some(s3_presigned_download_policy()),
         "image/webp",
     )
     .await;
@@ -607,8 +614,7 @@ async fn onedrive_direct_download_redirects_only_when_explicitly_enabled() {
     let (direct_state, direct_file, direct_blob, _) = build_download_test_state_with_policy(
         direct_base_driver.with_presigned(),
         payload_len_i64(&payload),
-        DriverType::OneDrive,
-        provider_direct_download_options(),
+        Some(onedrive_frontend_direct_download_policy()),
         "application/octet-stream",
     )
     .await;
@@ -632,8 +638,7 @@ async fn onedrive_direct_download_redirects_only_when_explicitly_enabled() {
     let (relay_state, relay_file, relay_blob, _) = build_download_test_state_with_policy(
         relay_base_driver.with_presigned(),
         payload_len_i64(&payload),
-        DriverType::OneDrive,
-        StoredStoragePolicyOptions::empty(),
+        Some(onedrive_relay_download_policy()),
         "application/octet-stream",
     )
     .await;
@@ -661,8 +666,7 @@ async fn onedrive_direct_download_keeps_range_request_on_redirect_path() {
     let (state, file, blob, _) = build_download_test_state_with_policy(
         base_driver.with_presigned(),
         payload_len_i64(&payload),
-        DriverType::OneDrive,
-        provider_direct_download_options(),
+        Some(onedrive_frontend_direct_download_policy()),
         "application/octet-stream",
     )
     .await;
@@ -692,8 +696,7 @@ async fn onedrive_strict_filename_mode_requires_provider_name_match() {
     let (state, file, blob, _) = build_download_test_state_with_policy(
         base_driver.with_presigned(),
         payload_len_i64(&payload),
-        DriverType::OneDrive,
-        provider_direct_strict_filename_options(),
+        Some(onedrive_strict_frontend_direct_download_policy()),
         "application/octet-stream",
     )
     .await;
@@ -728,8 +731,7 @@ async fn onedrive_direct_download_requires_runtime_temporary_url_capability() {
     let (state, file, blob, _) = build_download_test_state_with_policy(
         CountingStreamDriver::new(payload.clone()),
         payload_len_i64(&payload),
-        DriverType::OneDrive,
-        provider_direct_download_options(),
+        Some(onedrive_frontend_direct_download_policy()),
         "application/octet-stream",
     )
     .await;
@@ -760,8 +762,7 @@ async fn onedrive_legacy_uuid_object_falls_back_to_same_origin_streaming() {
     let (state, file, blob, _) = build_download_test_state_with_policy(
         base_driver.with_unavailable_presigned(),
         payload_len_i64(&payload),
-        DriverType::OneDrive,
-        provider_direct_download_options(),
+        Some(onedrive_frontend_direct_download_policy()),
         "application/octet-stream",
     )
     .await;
@@ -791,8 +792,7 @@ async fn onedrive_direct_download_falls_back_for_conditional_and_sandboxed_inlin
         let (state, file, blob, _) = build_download_test_state_with_policy(
             base_driver.with_presigned(),
             payload_len_i64(&payload),
-            DriverType::OneDrive,
-            provider_direct_download_options(),
+            Some(onedrive_frontend_direct_download_policy()),
             mime_type,
         )
         .await;
@@ -821,8 +821,7 @@ async fn conditional_miss_inline_preview_streams_instead_of_presigned_redirect()
     let (state, file, blob, _) = build_download_test_state_with_policy(
         base_driver.with_presigned(),
         payload_len_i64(&payload),
-        DriverType::S3,
-        presigned_download_options(),
+        Some(s3_presigned_download_policy()),
         "image/webp",
     )
     .await;
@@ -858,8 +857,7 @@ async fn sandboxed_inline_preview_does_not_redirect_to_presigned_storage() {
     let (state, file, blob, _) = build_download_test_state_with_policy(
         base_driver.with_presigned(),
         payload_len_i64(&payload),
-        DriverType::S3,
-        presigned_download_options(),
+        Some(s3_presigned_download_policy()),
         "text/html",
     )
     .await;

@@ -1,51 +1,13 @@
-import { normalizeObjectStorageConnectionFields } from "@/lib/objectStorageConnectionFields";
-import type { StorageConnectorDescriptor, StoragePolicy } from "@/types/api";
-import { supportsObjectStorageConnection } from "./descriptorPredicates";
+import type {
+	StorageConnectorDescriptor,
+	StorageConnectorFieldDescriptor,
+	StoragePolicy,
+} from "@/types/api";
 import type { ConnectorFormValue, PolicyFormData } from "./formTypes";
-import { connectorStringValue } from "./formTypes";
-
-export interface S3CompatibleDriverPromotionTarget {
-	connectorId: string;
-	driverLabel: string;
-}
 
 interface ConnectorSelection {
 	connector_id: string;
 	connector_config_values: Record<string, ConnectorFormValue>;
-}
-
-export function getS3CompatibleDriverPromotionTarget(
-	selection: ConnectorSelection | null,
-	sourceDescriptor: StorageConnectorDescriptor | null | undefined,
-	getConnectorLabel: (connectorId: string) => string,
-): S3CompatibleDriverPromotionTarget | null {
-	if (
-		selection == null ||
-		sourceDescriptor?.connector_id !== selection.connector_id
-	) {
-		return null;
-	}
-
-	const host = parseEndpointHost(
-		stringValue(selection.connector_config_values.endpoint),
-	);
-	if (host == null) {
-		return null;
-	}
-
-	for (const recommendation of sourceDescriptor.driver_recommendations ?? []) {
-		if (
-			recommendation.endpoint_host_rules.some((rule) =>
-				endpointHostMatchesRule(host, rule),
-			)
-		) {
-			return {
-				connectorId: recommendation.target_connector_id,
-				driverLabel: getConnectorLabel(recommendation.target_connector_id),
-			};
-		}
-	}
-	return null;
 }
 
 export function normalizePolicyForm(
@@ -65,15 +27,6 @@ export function normalizePolicyForm(
 		form.credential_values,
 		descriptor,
 	);
-
-	if (supportsObjectStorageConnection(descriptor)) {
-		const normalized = normalizeObjectStorageConnectionFields(
-			stringValue(connectorConfigValues.endpoint),
-			stringValue(connectorConfigValues.bucket),
-		);
-		connectorConfigValues.endpoint = normalized.endpoint;
-		connectorConfigValues.bucket = normalized.bucket;
-	}
 
 	if (
 		recordsEqual(connectorConfigValues, form.connector_config_values) &&
@@ -130,13 +83,18 @@ export function getEndpointValidationMessage(
 	descriptor?: StorageConnectorDescriptor | null,
 ) {
 	const endpointField = descriptor?.fields.find(
-		(field) => field.scope === "connector_config" && field.name === "endpoint",
+		(field) =>
+			field.scope === "connector_config" &&
+			((field.allowed_endpoint_protocols?.length ?? 0) > 0 ||
+				field.allow_endpoint_without_protocol === true ||
+				field.invalid_protocol_message_key != null),
 	);
 	if (!endpointField) {
 		return null;
 	}
 
-	const endpoint = connectorStringValue(form, "endpoint").trim();
+	const rawEndpoint = form.connector_config_values[endpointField.name];
+	const endpoint = typeof rawEndpoint === "string" ? rawEndpoint.trim() : "";
 	if (!endpoint) {
 		return null;
 	}
@@ -163,7 +121,7 @@ export function getEndpointValidationMessage(
 export function policyConnectorSelection(
 	policy: StoragePolicy,
 ): ConnectorSelection {
-	const envelope = isRecord(policy.connector_config)
+	const envelope: Record<string, unknown> = isRecord(policy.connector_config)
 		? policy.connector_config
 		: {};
 	const values = isRecord(envelope.values) ? envelope.values : {};
@@ -194,14 +152,35 @@ function normalizeFieldValues(
 		if (field.scope !== scope) {
 			continue;
 		}
-		const value = values[field.name];
+		const value = normalizeConnectorFieldValue(field, values[field.name]);
 		if (value === undefined) {
 			continue;
 		}
-		normalized[field.name] =
-			field.trim_on_blur === true && typeof value === "string"
-				? value.trim()
-				: value;
+		normalized[field.name] = value;
+	}
+	return normalized;
+}
+
+/** Mirror backend descriptor default and text-normalization semantics. */
+export function normalizeConnectorFieldValue(
+	field: StorageConnectorFieldDescriptor,
+	value: ConnectorFormValue | undefined,
+): ConnectorFormValue | undefined {
+	let normalized =
+		value === undefined ? (field.default_value ?? undefined) : value;
+	if (field.trim_on_blur === true && typeof normalized === "string") {
+		normalized = normalized.trim();
+	}
+	if (
+		normalized === "" &&
+		!field.required &&
+		field.default_mode === "missing_or_empty_text" &&
+		field.default_value != null
+	) {
+		normalized = field.default_value;
+		if (field.trim_on_blur === true && typeof normalized === "string") {
+			normalized = normalized.trim();
+		}
 	}
 	return normalized;
 }
@@ -227,37 +206,8 @@ function normalizeCredentialValues(
 	return normalized;
 }
 
-function endpointHostMatchesRule(
-	host: string,
-	rule: NonNullable<
-		StorageConnectorDescriptor["driver_recommendations"]
-	>[number]["endpoint_host_rules"][number],
-) {
-	const equals = rule.equals?.trim().toLowerCase();
-	if (equals && host === equals) {
-		return true;
-	}
-	const endsWith = rule.ends_with?.trim().toLowerCase();
-	return Boolean(endsWith && host.endsWith(endsWith));
-}
-
-function parseEndpointHost(endpoint: string) {
-	if (!endpoint.trim()) {
-		return null;
-	}
-	try {
-		return new URL(endpoint.trim()).hostname.toLowerCase();
-	} catch {
-		return null;
-	}
-}
-
 function hasEndpointUrlScheme(endpoint: string) {
 	return /^[a-z][a-z0-9+.-]*:\/\//i.test(endpoint);
-}
-
-function stringValue(value: ConnectorFormValue | undefined) {
-	return typeof value === "string" ? value : "";
 }
 
 function recordsEqual(

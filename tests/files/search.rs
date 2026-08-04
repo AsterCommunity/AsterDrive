@@ -1,7 +1,6 @@
 //! 集成测试：`search`。
 
 use crate::common;
-use aster_drive::runtime::SharedRuntimeState;
 
 use actix_web::test;
 use serde_json::Value;

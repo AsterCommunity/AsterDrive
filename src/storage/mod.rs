@@ -12,8 +12,8 @@ pub mod registry;
 pub mod remote_protocol;
 pub use connectors::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
-    StorageConnectorActionResult, StorageConnectorConnectionInput, StorageConnectorCredentialInfo,
-    StorageConnectorCredentialInput, TencentCosCorsConfigResult,
+    StorageConnectorActionOutput, StorageConnectorActionResult, StorageConnectorConnectionInput,
+    StorageConnectorCredentialInfo, StorageConnectorCredentialInput,
     TestDraftStorageConnectorConnectionInput,
 };
 pub use policy_snapshot::PolicySnapshot;

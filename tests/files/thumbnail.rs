@@ -4,11 +4,8 @@ use crate::common;
 
 use actix_web::test;
 use aster_drive::db::repository::{background_task_repo, file_repo, policy_repo};
-use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
-use aster_drive_model::types::{
-    BackgroundTaskKind, BackgroundTaskStatus, MediaProcessorKind, StoragePolicyOptions,
-    serialize_storage_policy_options,
-};
+use aster_drive::runtime::PrimaryAppState;
+use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus, MediaProcessorKind};
 use base64::Engine;
 use image::GenericImageView;
 use sea_orm::{ActiveModelTrait, Set};
@@ -220,17 +217,20 @@ async fn enable_default_policy_storage_native_thumbnail(state: &PrimaryAppState)
         .await
         .unwrap()
         .expect("default policy should exist");
-    let mut active: aster_drive_model::entities::storage_policy::ActiveModel = policy.into();
-    active.options = Set(serialize_storage_policy_options(&StoragePolicyOptions {
-        thumbnail_processor: Some(MediaProcessorKind::StorageNative),
-        thumbnail_extensions: vec!["png".to_string()],
-        ..Default::default()
-    })
-    .unwrap());
+    let mut active: aster_drive_model::entities::storage_policy::ActiveModel =
+        policy.clone().into();
+    active.storage_config = Set(common::with_storage_policy_behavior(
+        &policy,
+        aster_drive_storage::StoragePolicyBehaviorConfig {
+            thumbnail_processor: Some(MediaProcessorKind::StorageNative),
+            thumbnail_extensions: vec!["png".to_string()],
+            ..Default::default()
+        },
+    ));
     active.update(state.writer_db()).await.unwrap();
     state
-        .policy_snapshot
-        .reload(state.writer_db())
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
         .await
         .unwrap();
 }

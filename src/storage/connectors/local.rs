@@ -6,12 +6,12 @@ use aster_drive_model::entities::storage_policy;
 use aster_drive_storage::StorageConnectorConfigSchema;
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
-    StorageConnectorCapabilities, StorageConnectorDeploymentScope, StorageConnectorDescriptor,
-    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
-    StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
-    draft_connection_test_action_descriptor, saved_connection_test_action_descriptor,
-    server_relay_simple_upload_capabilities, storage_connector_field,
-    storage_connector_ui_descriptor,
+    StorageConnectorBadgeRgb, StorageConnectorCapabilities, StorageConnectorDeploymentScope,
+    StorageConnectorDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
+    StorageConnectorObjectNamingMode, StorageConnectorUiDescriptorInput,
+    StorageConnectorUploadWorkflows, draft_connection_test_action_descriptor,
+    saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
+    storage_connector_field, storage_connector_ui_descriptor,
 };
 
 use super::LocalFilesystemPolicyProjection;
@@ -22,13 +22,23 @@ pub struct LocalConnector;
 aster_drive_storage::storage_connector_schema! {
     pub struct LocalConnectorConfigV1 {
         config {
-            pub base_path: String => storage_connector_field(
-                "base_path",
-                StorageConnectorFieldScope::ConnectorConfig,
-                StorageConnectorFieldKind::Text,
-                false,
-                false,
-            ),
+            pub base_path: String => {
+                let mut field = storage_connector_field(
+                    "base_path",
+                    StorageConnectorFieldScope::ConnectorConfig,
+                    StorageConnectorFieldKind::Text,
+                    false,
+                    false,
+                );
+                field.default_value = Some(
+                    aster_drive_storage::StorageConnectorFieldDefaultValue::String(
+                        DEFAULT_LOCAL_STORAGE_PATH.to_string(),
+                    ),
+                );
+                field.default_mode =
+                    aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
+                field
+            },
             pub content_dedup: bool => {
                 let mut field = storage_connector_field(
                     "content_dedup",
@@ -67,6 +77,7 @@ impl LocalConnector {
                 description_key: "policy_wizard_local_storage_desc",
                 icon_src: Some("/static/asterdrive/asterdrive-dark.svg"),
                 icon_name: None,
+                badge_rgb: StorageConnectorBadgeRgb::new(16, 185, 129),
                 helper_key: "policy_wizard_local_helper",
                 config_step_title_key: "policy_wizard_step_local_title",
                 config_step_description_key: "policy_wizard_step_local_desc",
@@ -107,7 +118,6 @@ impl LocalConnector {
                 draft_connection_test_action_descriptor(),
                 saved_connection_test_action_descriptor(false),
             ],
-            driver_recommendations: Vec::new(),
             related_issues: vec![328],
         }
     }

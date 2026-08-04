@@ -103,3 +103,71 @@ fn api_response_openapi_code_references_api_error_code_schema() {
 
     assert!(checked > 0, "at least one ApiResponse schema should exist");
 }
+
+#[test]
+fn storage_connector_action_openapi_exposes_plugin_owned_contracts() {
+    let value = serde_json::to_value(ApiDoc::openapi()).unwrap();
+    let schemas = value["components"]["schemas"]
+        .as_object()
+        .expect("components schemas should be object");
+
+    assert!(!schemas.contains_key("StoragePolicyExecutableAction"));
+    assert!(!schemas.contains_key("StorageConnectorAffordanceAction"));
+    assert!(!schemas.contains_key("ExecuteDraftStoragePolicyActionReq"));
+    assert!(!schemas.contains_key("ExecuteSavedStoragePolicyActionReq"));
+
+    let connector_config = &schemas["ConnectorConfigEnvelope"];
+    assert_eq!(
+        connector_config["properties"]["values"]["additionalProperties"]["$ref"],
+        "#/components/schemas/StorageConnectorFieldValue"
+    );
+
+    let action = &schemas["StorageConnectorActionDescriptor"];
+    let action_properties = action["properties"]
+        .as_object()
+        .expect("action descriptor properties should be object");
+    for field in [
+        "action_id",
+        "label_key",
+        "description_key",
+        "kind",
+        "endpoints",
+        "fields",
+        "requires_saved_policy",
+        "requires_authorization",
+        "mutates_remote_state",
+        "requires_confirmation",
+    ] {
+        assert!(
+            action_properties.contains_key(field),
+            "missing action field {field}"
+        );
+    }
+    assert!(!action_properties.contains_key("policy_action"));
+    assert!(!action_properties.contains_key("affordance_action"));
+
+    let kinds = schemas["StorageConnectorActionKind"]["enum"]
+        .as_array()
+        .expect("action kinds should be enum");
+    assert!(kinds.contains(&serde_json::json!("custom")));
+    assert!(!kinds.contains(&serde_json::json!("policy_action")));
+
+    for request in [
+        "ExecuteDraftStorageConnectorActionInput",
+        "ExecuteSavedStorageConnectorActionInput",
+    ] {
+        let properties = schemas[request]["properties"]
+            .as_object()
+            .expect("action request properties should be object");
+        assert!(properties.contains_key("action_id"));
+        assert_eq!(
+            properties["values"]["additionalProperties"]["$ref"],
+            "#/components/schemas/StorageConnectorFieldValue"
+        );
+    }
+
+    assert_eq!(
+        schemas["StorageConnectorActionOutput"]["additionalProperties"],
+        true
+    );
+}

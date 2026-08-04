@@ -1,7 +1,6 @@
 //! 集成测试：`webdav_lock_system`。
 
 use crate::common;
-use aster_drive::runtime::SharedRuntimeState;
 use aster_forge_webdav::DavLockError;
 
 use std::io::Cursor;

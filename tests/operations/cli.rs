@@ -10,10 +10,9 @@ use aster_drive::db;
 use aster_drive::db::repository::{
     contact_verification_token_repo, file_repo, follower_enrollment_session_repo,
     managed_follower_repo, master_binding_repo, mfa_factor_repo, mfa_login_flow_repo,
-    mfa_recovery_code_repo, mfa_totp_setup_flow_repo, policy_repo, property_repo, tag_repo,
-    user_repo,
+    mfa_recovery_code_repo, mfa_totp_setup_flow_repo, policy_repo, property_repo,
+    storage_policy_connector_credential_repo, tag_repo, user_repo,
 };
-use aster_drive::runtime::SharedRuntimeState;
 use aster_drive_migration::{CurrentMigrator, Migrator, MigratorTrait};
 use aster_drive_model::entities::{
     contact_verification_token, follower_enrollment_session, managed_follower, master_binding,
@@ -21,8 +20,8 @@ use aster_drive_model::entities::{
     user_invitation,
 };
 use aster_drive_model::types::{
-    DriverType, EntityType, MfaFirstFactor, MfaPersistentFactorMethod, StoredPasskeyCredential,
-    StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, TagScopeType,
+    EntityType, MfaFirstFactor, MfaPersistentFactorMethod, RemoteDownloadStrategy,
+    RemoteUploadStrategy, StoredPasskeyCredential, StoredStoragePolicyAllowedTypes, TagScopeType,
     UserInvitationStatus, VerificationChannel, VerificationPurpose,
 };
 use chrono::{Duration, Utc};
@@ -37,6 +36,7 @@ fn aster_drive_bin() -> &'static str {
 
 const MIGRATION_REMOTE_NODE_NAME: &str = "MigratedRemoteNode";
 const MIGRATION_REMOTE_POLICY_NAME: &str = "MigratedRemotePolicy";
+const MIGRATION_REMOTE_POLICY_CIPHERTEXT: &str = "encrypted-migration-credential";
 const MIGRATION_MASTER_BINDING_NAME: &str = "MigratedMasterBinding";
 const MIGRATION_MASTER_STORAGE_NAMESPACE: &str = "mb_migrate_remote_space";
 const MIGRATION_TAG_NAME: &str = "Migrated Tag";
@@ -421,20 +421,24 @@ async fn seed_remote_node_fixture(db: &DatabaseConnection) {
     .await
     .unwrap();
 
-    policy_repo::create(
+    let remote_policy = policy_repo::create(
         db,
         storage_policy::ActiveModel {
             name: Set(MIGRATION_REMOTE_POLICY_NAME.to_string()),
-            driver_type: Set(DriverType::Remote),
-            endpoint: Set(String::new()),
-            bucket: Set(String::new()),
-            access_key: Set(String::new()),
-            secret_key: Set(String::new()),
-            base_path: Set("remote-ingress".to_string()),
-            remote_node_id: Set(Some(remote_node.id)),
+            connector_id: Set("asterdrive.storage.remote".to_string()),
+            storage_config: Set(common::encoded_policy_config(
+                "asterdrive.storage.remote",
+                common::TestRemoteConnectorConfigV1 {
+                    base_path: "remote-ingress".to_string(),
+                    remote_node_id: Some(remote_node.id),
+                    remote_storage_target_key: Some("migration-target".to_string()),
+                    remote_download_strategy: RemoteDownloadStrategy::RelayStream,
+                    remote_upload_strategy: RemoteUploadStrategy::RelayStream,
+                },
+                aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+            )),
             max_file_size: Set(0),
             allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(StoredStoragePolicyOptions::empty()),
             is_default: Set(false),
             chunk_size: Set(5_242_880),
             created_at: Set(now),
@@ -444,6 +448,15 @@ async fn seed_remote_node_fixture(db: &DatabaseConnection) {
     )
     .await
     .unwrap();
+    storage_policy_connector_credential_repo::upsert(
+        db,
+        remote_policy.id,
+        "asterdrive.storage.remote".to_string(),
+        1,
+        MIGRATION_REMOTE_POLICY_CIPHERTEXT.to_string(),
+    )
+    .await
+    .expect("connector credential migration fixture should be stored");
 
     follower_enrollment_session_repo::create(
         db,
@@ -689,15 +702,18 @@ async fn assert_migrated_fixture(
         ),
     )
     .await;
-    let remote_policies = scalar_i64(
-        &target_db,
-        target_backend,
-        &format!(
-            "SELECT COUNT(*) FROM storage_policies \
-             WHERE name = '{MIGRATION_REMOTE_POLICY_NAME}' AND remote_node_id IS NOT NULL"
-        ),
-    )
-    .await;
+    let remote_policy = policy_repo::find_all(&target_db)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|policy| policy.name == MIGRATION_REMOTE_POLICY_NAME)
+        .expect("migrated remote policy should exist");
+    let remote_policy_config = common::remote_policy_config(&remote_policy);
+    let remote_policy_credential =
+        storage_policy_connector_credential_repo::find_by_policy(&target_db, remote_policy.id)
+            .await
+            .unwrap()
+            .expect("migrated connector credential should exist");
     let file_name = scalar_string(
         &target_db,
         target_backend,
@@ -763,7 +779,22 @@ async fn assert_migrated_fixture(
     assert_eq!(user_invitations, 1);
     assert_eq!(tags, 1);
     assert_eq!(migrated_file_tag_bindings, 1);
-    assert_eq!(remote_policies, 1);
+    assert_eq!(remote_policy.connector_id, "asterdrive.storage.remote");
+    assert_eq!(remote_policy_config.remote_node_id, Some(1));
+    assert_eq!(
+        remote_policy_config.remote_storage_target_key.as_deref(),
+        Some("migration-target")
+    );
+    assert_eq!(
+        remote_policy_credential.connector_id,
+        "asterdrive.storage.remote"
+    );
+    assert_eq!(remote_policy_credential.schema_version, 1);
+    assert_eq!(remote_policy_credential.revision, 1);
+    assert_eq!(
+        remote_policy_credential.ciphertext,
+        MIGRATION_REMOTE_POLICY_CIPHERTEXT
+    );
     assert_eq!(file_name, "test-in-folder.txt");
     assert_eq!(passkey.name, "Migrated Passkey");
     let credential = passkey

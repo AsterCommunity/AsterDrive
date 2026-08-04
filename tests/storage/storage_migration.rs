@@ -22,11 +22,9 @@ use aster_drive::db::repository::{
 };
 use aster_drive::errors::{AsterError, MapAsterErr};
 use aster_drive::runtime::PrimaryAppState;
-use aster_drive::services::task;
+use aster_drive::services::{storage_policy::policy, task};
 use aster_drive_model::entities::{file, file_blob, file_version, storage_policy};
-use aster_drive_model::types::{
-    BackgroundTaskStatus, DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
-};
+use aster_drive_model::types::BackgroundTaskStatus;
 use aster_drive_storage::{
     BlobMetadata, MultipartStorageDriver, Result, StorageDriver, StorageDriverExtensions,
     StorageErrorKind, StreamUploadDriver,
@@ -567,33 +565,26 @@ async fn start_rustfs_context(bucket_prefix: &str) -> RustFsTestContext {
 }
 
 async fn create_local_policy(state: &PrimaryAppState, name: &str) -> storage_policy::Model {
-    let now = Utc::now();
     let base_path = format!("{}/policy-{name}", state.config.server.temp_dir);
     tokio::fs::create_dir_all(&base_path)
         .await
         .expect("policy test dir should be created");
-    policy_repo::create(
-        state.writer_db(),
-        storage_policy::ActiveModel {
-            name: Set(name.to_string()),
-            driver_type: Set(DriverType::Local),
-            endpoint: Set(String::new()),
-            bucket: Set(String::new()),
-            access_key: Set(String::new()),
-            secret_key: Set(String::new()),
-            base_path: Set(base_path),
-            max_file_size: Set(0),
-            allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(StoredStoragePolicyOptions::empty()),
-            is_default: Set(false),
-            chunk_size: Set(5_242_880),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
+    let created = policy::create(
+        state,
+        policy::CreateStoragePolicyInput {
+            name: name.to_string(),
+            connection: common::local_connection(base_path),
+            max_file_size: 0,
+            chunk_size: Some(5_242_880),
+            is_default: false,
+            allowed_types: None,
         },
     )
     .await
-    .expect("local policy should insert")
+    .expect("local policy should insert through connector service");
+    policy_repo::find_by_id(state.writer_db(), created.id)
+        .await
+        .expect("created local policy entity should be queryable")
 }
 
 async fn create_s3_policy(
@@ -602,31 +593,28 @@ async fn create_s3_policy(
     endpoint: &str,
     bucket: &str,
 ) -> storage_policy::Model {
-    let now = Utc::now();
-    let policy = policy_repo::create(
-        state.writer_db(),
-        storage_policy::ActiveModel {
-            name: Set(name.to_string()),
-            driver_type: Set(DriverType::S3),
-            endpoint: Set(endpoint.to_string()),
-            bucket: Set(bucket.to_string()),
-            access_key: Set("rustfsadmin".to_string()),
-            secret_key: Set("rustfsadmin123".to_string()),
-            base_path: Set(format!("migration-{name}")),
-            max_file_size: Set(0),
-            allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(StoredStoragePolicyOptions::from(
-                r#"{"object_storage_upload_strategy":"relay_stream"}"#.to_string(),
-            )),
-            is_default: Set(false),
-            chunk_size: Set(5_242_880),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
+    let created = policy::create(
+        state,
+        policy::CreateStoragePolicyInput {
+            name: name.to_string(),
+            connection: common::s3_connection(
+                endpoint,
+                bucket,
+                format!("migration-{name}"),
+                "rustfsadmin",
+                "rustfsadmin123",
+            ),
+            max_file_size: 0,
+            chunk_size: Some(5_242_880),
+            is_default: false,
+            allowed_types: None,
         },
     )
     .await
-    .expect("s3 policy should insert");
+    .expect("s3 policy should insert through connector service");
+    let policy = policy_repo::find_by_id(state.writer_db(), created.id)
+        .await
+        .expect("created S3 policy entity should be queryable");
     state.driver_registry.invalidate(policy.id);
     policy
 }
@@ -718,7 +706,11 @@ async fn s3_object_exists(endpoint: &str, bucket: &str, key: &str) -> bool {
 }
 
 fn policy_object_key(policy: &storage_policy::Model, storage_path: &str) -> String {
-    format!("{}/{}", policy.base_path.trim_matches('/'), storage_path)
+    format!(
+        "{}/{}",
+        common::s3_policy_base_path(policy).trim_matches('/'),
+        storage_path
+    )
 }
 
 fn multipart_test_bytes(size: usize) -> Vec<u8> {
@@ -735,7 +727,8 @@ async fn create_blob_with_object(
 ) -> file_blob::Model {
     let hash = aster_forge_crypto::sha256_hex(bytes);
     let storage_path = aster_forge_validation::filename::storage_path_from_blob_key(&hash).unwrap();
-    let full_path = std::path::Path::new(&policy.base_path).join(&storage_path);
+    let base_path = common::local_policy_base_path(policy);
+    let full_path = std::path::Path::new(&base_path).join(&storage_path);
     tokio::fs::create_dir_all(full_path.parent().expect("blob path should have parent"))
         .await
         .expect("blob parent should be created");
@@ -797,7 +790,8 @@ async fn create_opaque_blob_with_object(
 ) -> file_blob::Model {
     let storage_path =
         aster_forge_validation::filename::storage_path_from_blob_key(blob_key).unwrap();
-    let full_path = std::path::Path::new(&policy.base_path).join(&storage_path);
+    let base_path = common::local_policy_base_path(policy);
+    let full_path = std::path::Path::new(&base_path).join(&storage_path);
     tokio::fs::create_dir_all(full_path.parent().expect("blob path should have parent"))
         .await
         .expect("blob parent should be created");
@@ -1143,7 +1137,11 @@ async fn test_storage_policy_capacity_api_reports_local_filesystem_capacity() {
     assert_eq!(body["code"], "success");
     let data = &body["data"];
     assert_eq!(data["policy_id"], policy.id);
-    assert_eq!(data["driver_type"], "local");
+    assert_eq!(data["connector_id"], "asterdrive.storage.local");
+    assert!(
+        data.get("driver_type").is_none(),
+        "capacity response must not restore the removed driver_type compatibility field"
+    );
     assert_eq!(data["blob_count"], 1);
     assert_eq!(data["blob_total_bytes"], blob.size);
     assert_eq!(data["capacity"]["status"], "supported");
@@ -1228,7 +1226,8 @@ async fn test_storage_migration_resume_reuses_checkpoint_after_failed_task() {
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let second_path = std::path::Path::new(&source.base_path).join(&second.storage_path);
+    let second_path =
+        std::path::Path::new(&common::local_policy_base_path(&source)).join(&second.storage_path);
     tokio::fs::write(&second_path, b"bad!!!")
         .await
         .expect("second source object should be tampered before migration starts");
@@ -1307,7 +1306,7 @@ async fn test_storage_migration_moves_blob_to_empty_target_policy() {
     );
     assert!(migrated.thumbnail_path.is_none());
     assert!(
-        std::path::Path::new(&target.base_path)
+        std::path::Path::new(&common::local_policy_base_path(&target))
             .join(&migrated.storage_path)
             .exists()
     );
@@ -1348,12 +1347,13 @@ async fn test_storage_migration_moves_opaque_local_blob_key_without_content_hash
         .expect("blob should still exist");
     assert_eq!(migrated.hash, blob.hash);
     assert_eq!(migrated.policy_id, target.id);
-    let target_object =
-        tokio::fs::read(std::path::Path::new(&target.base_path).join(
+    let target_object = tokio::fs::read(
+        std::path::Path::new(&common::local_policy_base_path(&target)).join(
             aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap(),
-        ))
-        .await
-        .expect("target object should exist");
+        ),
+    )
+    .await
+    .expect("target object should exist");
     assert_eq!(target_object, b"opaque blob bytes");
 
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
@@ -1456,7 +1456,8 @@ async fn test_storage_migration_local_to_rustfs_s3_resume_after_partial_failure_
     assert_eq!(body["code"], "success");
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
 
-    let second_source_path = std::path::Path::new(&source.base_path).join(&second.storage_path);
+    let second_source_path =
+        std::path::Path::new(&common::local_policy_base_path(&source)).join(&second.storage_path);
     tokio::fs::write(&second_source_path, tampered_second_bytes)
         .await
         .expect("second source object should be tampered before first run");
@@ -1604,10 +1605,12 @@ async fn test_storage_migration_crosses_batch_boundary_and_merges_existing_targe
             .await
             .expect("migrated source blob row should remain");
         assert_eq!(migrated.policy_id, target.id);
-        let target_object =
-            tokio::fs::read(std::path::Path::new(&target.base_path).join(&migrated.storage_path))
-                .await
-                .expect("target object should exist for migrated blob");
+        let target_object = tokio::fs::read(
+            std::path::Path::new(&common::local_policy_base_path(&target))
+                .join(&migrated.storage_path),
+        )
+        .await
+        .expect("target object should exist for migrated blob");
         assert_eq!(target_object, source_bytes[index]);
     }
 
@@ -1766,15 +1769,18 @@ async fn test_storage_migration_does_not_merge_opaque_blob_key_with_same_size() 
     assert_ne!(migrated.hash, target_blob.hash);
     assert!(migrated.hash.starts_with("migration-"));
     assert_ne!(migrated.storage_path, target_blob.storage_path);
-    let migrated_bytes =
-        tokio::fs::read(std::path::Path::new(&target.base_path).join(&migrated.storage_path))
-            .await
-            .expect("migrated opaque object should exist");
+    let migrated_bytes = tokio::fs::read(
+        std::path::Path::new(&common::local_policy_base_path(&target)).join(&migrated.storage_path),
+    )
+    .await
+    .expect("migrated opaque object should exist");
     assert_eq!(migrated_bytes, b"source");
-    let target_bytes =
-        tokio::fs::read(std::path::Path::new(&target.base_path).join(&target_blob.storage_path))
-            .await
-            .expect("existing opaque target object should remain");
+    let target_bytes = tokio::fs::read(
+        std::path::Path::new(&common::local_policy_base_path(&target))
+            .join(&target_blob.storage_path),
+    )
+    .await
+    .expect("existing opaque target object should remain");
     assert_eq!(target_bytes, b"target");
 
     let checkpoint = storage_migration_checkpoint_repo::get_by_task_id(state.writer_db(), task_id)
@@ -1892,7 +1898,8 @@ async fn test_storage_migration_cleans_target_object_when_verification_fails() {
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let source_full_path = std::path::Path::new(&source.base_path).join(&blob.storage_path);
+    let source_full_path =
+        std::path::Path::new(&common::local_policy_base_path(&source)).join(&blob.storage_path);
     tokio::fs::write(&source_full_path, b"bad-data!!")
         .await
         .expect("source object should be tampered before migration starts");
@@ -2351,7 +2358,10 @@ async fn test_storage_migration_fails_when_policy_changes_after_task_creation() 
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
 
     let mut target_update: storage_policy::ActiveModel = target.clone().into();
-    target_update.base_path = Set(format!("{}-changed", target.base_path));
+    target_update.storage_config = Set(common::with_local_policy_base_path(
+        &target,
+        format!("{}-changed", common::local_policy_base_path(&target)),
+    ));
     target_update.updated_at = Set(Utc::now() + chrono::Duration::seconds(1));
     target_update
         .update(state.writer_db())

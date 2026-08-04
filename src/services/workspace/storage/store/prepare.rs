@@ -111,17 +111,18 @@ pub(super) async fn prepare_store_from_temp(
     }
 
     let driver = state.driver_registry().get_driver(&policy)?;
-    let blob_plan = build_temp_blob_plan(
-        state.driver_registry().connectors(),
-        temp_path,
-        size,
-        &filename,
-        precomputed_hash,
-        should_dedup,
-        &policy,
-        &operation_context,
-    )
-    .await?;
+    let blob_plan = if should_dedup {
+        TempBlobPlan::Dedup(
+            compute_dedup_target(temp_path, precomputed_hash, &operation_context).await?,
+        )
+    } else {
+        TempBlobPlan::Preuploaded(prepare_non_dedup_blob_upload(
+            state.driver_registry().connectors(),
+            &policy,
+            size,
+            Some(&filename),
+        )?)
+    };
     operation_context.checkpoint()?;
     let overwrite_ctx =
         load_overwrite_context(state, scope, existing_file_id, skip_lock_check).await?;
@@ -179,30 +180,6 @@ pub(super) async fn prepare_store_from_temp(
         now: Utc::now(),
         actor_username: actor_username.map(ToOwned::to_owned),
     })
-}
-
-async fn build_temp_blob_plan(
-    registry: &crate::storage::connectors::StorageConnectorRegistry,
-    temp_path: &str,
-    size: i64,
-    filename: &str,
-    precomputed_hash: Option<&str>,
-    should_dedup: bool,
-    policy: &storage_policy::Model,
-    operation_context: &StorageOperationContext,
-) -> Result<TempBlobPlan> {
-    if should_dedup {
-        return Ok(TempBlobPlan::Dedup(
-            compute_dedup_target(temp_path, precomputed_hash, operation_context).await?,
-        ));
-    }
-
-    Ok(TempBlobPlan::Preuploaded(prepare_non_dedup_blob_upload(
-        registry,
-        policy,
-        size,
-        Some(filename),
-    )?))
 }
 
 async fn compute_dedup_target(

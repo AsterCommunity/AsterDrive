@@ -35,8 +35,8 @@ use aster_drive::storage::remote_protocol::{
 };
 use aster_drive_model::entities::{follower_enrollment_session, storage_policy};
 use aster_drive_model::types::{
-    DriverType, RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteUploadStrategy,
-    StoragePolicyOptions, StoredStoragePolicyAllowedTypes, serialize_storage_policy_options,
+    RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteStorageTargetDriverKind,
+    RemoteUploadStrategy,
 };
 use bytes::Bytes;
 use chrono::{Duration as ChronoDuration, Utc};
@@ -64,6 +64,24 @@ struct RawHttpResponse {
     headers: std::collections::HashMap<String, String>,
     body: Vec<u8>,
     trailing: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct RemotePolicyTransferOptions {
+    remote_download_strategy: Option<RemoteDownloadStrategy>,
+    remote_upload_strategy: Option<RemoteUploadStrategy>,
+}
+
+impl RemotePolicyTransferOptions {
+    fn download_strategy(self) -> RemoteDownloadStrategy {
+        self.remote_download_strategy
+            .unwrap_or(RemoteDownloadStrategy::RelayStream)
+    }
+
+    fn upload_strategy(self) -> RemoteUploadStrategy {
+        self.remote_upload_strategy
+            .unwrap_or(RemoteUploadStrategy::RelayStream)
+    }
 }
 
 impl TestHttpServer {
@@ -470,7 +488,7 @@ async fn create_remote_policy(
         remote_node_id,
         name,
         base_path,
-        StoragePolicyOptions::default(),
+        RemotePolicyTransferOptions::default(),
         5_242_880,
     )
     .await
@@ -481,42 +499,28 @@ async fn create_remote_policy_with_options(
     remote_node_id: i64,
     name: &str,
     base_path: &str,
-    options: StoragePolicyOptions,
+    options: RemotePolicyTransferOptions,
     chunk_size: i64,
 ) -> storage_policy::Model {
-    let now = Utc::now();
-    let policy = policy_repo::create(
-        state.writer_db(),
-        storage_policy::ActiveModel {
-            name: Set(name.to_string()),
-            driver_type: Set(DriverType::Remote),
-            endpoint: Set(String::new()),
-            bucket: Set(String::new()),
-            access_key: Set(String::new()),
-            secret_key: Set(String::new()),
-            base_path: Set(base_path.to_string()),
-            remote_node_id: Set(Some(remote_node_id)),
-            max_file_size: Set(0),
-            allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(serialize_storage_policy_options(&options)
-                .expect("remote policy options should serialize")),
-            is_default: Set(false),
-            chunk_size: Set(chunk_size),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
-        },
+    // Mirror the admin form's dynamic select flow: resolve a concrete target
+    // through the remote target API, then persist its key in the new policy.
+    let target_key = storage_target::list_remote(state, remote_node_id)
+        .await
+        .expect("remote storage targets should be listed before policy creation")
+        .into_iter()
+        .find(|target| target.is_default)
+        .expect("remote policy test node should expose a default storage target")
+        .target_key;
+    create_remote_policy_via_service_with_options(
+        state,
+        remote_node_id,
+        name,
+        base_path,
+        &target_key,
+        options,
+        chunk_size,
     )
     .await
-    .expect("remote policy should be created");
-
-    state
-        .policy_snapshot
-        .reload(state.writer_db())
-        .await
-        .expect("policy snapshot should reload after creating remote policy");
-
-    policy
 }
 
 async fn create_remote_policy_via_service_with_options(
@@ -525,37 +529,31 @@ async fn create_remote_policy_via_service_with_options(
     name: &str,
     base_path: &str,
     target_key: &str,
-    options: StoragePolicyOptions,
+    options: RemotePolicyTransferOptions,
     chunk_size: i64,
 ) -> storage_policy::Model {
     let created = policy::create(
         state,
         policy::CreateStoragePolicyInput {
             name: name.to_string(),
-            connection: policy::StoragePolicyConnectionInput {
-                driver_type: DriverType::Remote,
-                endpoint: String::new(),
-                bucket: String::new(),
-                access_key: String::new(),
-                secret_key: String::new(),
-                base_path: base_path.to_string(),
-                remote_node_id: Some(remote_node_id),
-                remote_storage_target_key: Some(target_key.to_string()),
-                options,
-            },
+            connection: common::remote_connection(
+                base_path,
+                Some(remote_node_id),
+                Some(target_key.to_string()),
+                options.download_strategy(),
+                options.upload_strategy(),
+            ),
             max_file_size: 0,
             chunk_size: Some(chunk_size),
             is_default: false,
             allowed_types: None,
-            application_config: Default::default(),
         },
     )
     .await
-    .expect("remote policy should be created through service");
-
+    .expect("remote policy should be created through connector service");
     policy_repo::find_by_id(state.writer_db(), created.id)
         .await
-        .expect("created remote policy should be queryable")
+        .expect("created remote policy entity should be queryable")
 }
 
 async fn seed_remote_capabilities(
@@ -598,8 +596,8 @@ async fn set_policy_max_file_size(
         .await
         .expect("policy max_file_size should update");
     state
-        .policy_snapshot
-        .reload(state.writer_db())
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
         .await
         .expect("policy snapshot should reload after updating max_file_size");
     state.driver_registry.invalidate(policy.id);
@@ -714,7 +712,7 @@ async fn create_managed_local_ingress_for_binding(
     provider_state: &aster_drive::runtime::PrimaryAppState,
     access_key: &str,
     base_path: &str,
-) {
+) -> aster_drive::storage::remote_protocol::RemoteStorageTargetInfo {
     let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), access_key)
         .await
         .expect("provider master binding lookup should succeed")
@@ -729,7 +727,7 @@ async fn create_managed_local_ingress_for_binding(
         }),
     )
     .await
-    .expect("provider managed remote storage target should be created");
+    .expect("provider managed remote storage target should be created")
 }
 
 async fn setup_reverse_tunnel_ingress_profile_target(
@@ -784,8 +782,10 @@ async fn setup_reverse_tunnel_ingress_profile_target(
     seed_remote_capabilities(
         &consumer_state,
         consumer_node.id,
-        RemoteStorageCapabilities::current()
-            .with_remote_storage_target_driver_types(vec![DriverType::Local, DriverType::S3]),
+        RemoteStorageCapabilities::current().with_remote_storage_target_driver_types(vec![
+            RemoteStorageTargetDriverKind::Local,
+            RemoteStorageTargetDriverKind::S3,
+        ]),
     )
     .await;
 
@@ -956,7 +956,7 @@ async fn test_remote_ingress_profile_create_rejects_driver_missing_from_capabili
         &consumer_state,
         consumer_node.id,
         RemoteStorageCapabilities::current()
-            .with_remote_storage_target_driver_types(vec![DriverType::Local]),
+            .with_remote_storage_target_driver_types(vec![RemoteStorageTargetDriverKind::Local]),
     )
     .await;
 
@@ -1008,7 +1008,7 @@ async fn test_remote_ingress_profile_update_rejects_driver_missing_from_capabili
         &consumer_state,
         consumer_node.id,
         RemoteStorageCapabilities::current()
-            .with_remote_storage_target_driver_types(vec![DriverType::Local]),
+            .with_remote_storage_target_driver_types(vec![RemoteStorageTargetDriverKind::Local]),
     )
     .await;
 
@@ -1017,7 +1017,7 @@ async fn test_remote_ingress_profile_update_rejects_driver_missing_from_capabili
         consumer_node.id,
         "profile-a",
         RemoteUpdateStorageTargetRequest {
-            driver_type: Some(DriverType::S3),
+            driver_type: Some(RemoteStorageTargetDriverKind::S3),
             endpoint: Some("https://s3.example.com".to_string()),
             bucket: Some("bucket".to_string()),
             access_key: Some("access".to_string()),
@@ -1109,7 +1109,7 @@ async fn test_remote_storage_target_driver_descriptors_follow_remote_capabilitie
         &consumer_state,
         consumer_node.id,
         RemoteStorageCapabilities::current()
-            .with_remote_storage_target_driver_types(vec![DriverType::Local]),
+            .with_remote_storage_target_driver_types(vec![RemoteStorageTargetDriverKind::Local]),
     )
     .await;
 
@@ -1550,7 +1550,7 @@ async fn setup_browser_presigned_cors_fixture(
         .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
-    create_managed_local_ingress_for_binding(
+    let remote_target = create_managed_local_ingress_for_binding(
         &provider_state,
         &consumer_node_model.access_key,
         &consumer_node_model.access_key,
@@ -1563,12 +1563,13 @@ async fn setup_browser_presigned_cors_fixture(
     )
     .await;
 
-    let remote_policy = create_remote_policy_with_options(
+    let remote_policy = create_remote_policy_via_service_with_options(
         &consumer_state,
         consumer_node.id,
         &format!("Remote Presigned {label} Policy"),
         &format!("{label}-base"),
-        StoragePolicyOptions {
+        &remote_target.target_key,
+        RemotePolicyTransferOptions {
             remote_upload_strategy: Some(RemoteUploadStrategy::Presigned),
             ..Default::default()
         },
@@ -1779,12 +1780,14 @@ async fn test_remote_policy_uses_selected_remote_storage_target_key() {
         "Selected Target Policy",
         "policy-prefix",
         &selected_target.target_key,
-        StoragePolicyOptions::default(),
+        RemotePolicyTransferOptions::default(),
         5_242_880,
     )
     .await;
     assert_eq!(
-        remote_policy.remote_storage_target_key.as_deref(),
+        common::remote_policy_config(&remote_policy)
+            .remote_storage_target_key
+            .as_deref(),
         Some(selected_target.target_key.as_str())
     );
 
@@ -2635,12 +2638,13 @@ async fn test_remote_node_probe_rejects_presigned_download_when_range_cors_missi
     .await
     .expect("remote node should be created");
     mark_remote_node_enrollment_completed(&state, node.id).await;
-    create_remote_policy_with_options(
+    create_remote_policy_via_service_with_options(
         &state,
         node.id,
         "Remote Presigned Download Needs Range CORS",
         "base",
-        StoragePolicyOptions {
+        "capability-probe-target",
+        RemotePolicyTransferOptions {
             remote_download_strategy: Some(RemoteDownloadStrategy::Presigned),
             ..Default::default()
         },
@@ -3130,7 +3134,7 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
         &provider_state,
         &provider_binding.access_key,
         &provider_binding.storage_namespace,
-        &remote_policy.base_path,
+        &common::remote_policy_config(&remote_policy).base_path,
         &created_blob.storage_path,
     );
     let provider_uploaded_bytes = tokio::fs::read(&provider_uploaded_path)
@@ -3192,7 +3196,7 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
         &provider_state,
         &provider_binding.access_key,
         &provider_binding.storage_namespace,
-        &remote_policy.base_path,
+        &common::remote_policy_config(&remote_policy).base_path,
         &empty_blob.storage_path,
     );
     let empty_meta = tokio::fs::metadata(&provider_empty_path)
@@ -3366,7 +3370,7 @@ async fn test_remote_storage_end_to_end_via_reverse_tunnel() {
         &provider_state,
         &provider_binding.access_key,
         &provider_binding.storage_namespace,
-        &remote_policy.base_path,
+        &common::remote_policy_config(&remote_policy).base_path,
         "files/streamed.txt",
     );
     assert_eq!(
@@ -3595,7 +3599,7 @@ async fn test_reverse_tunnel_e2e_over_http_with_follower_worker() {
         &provider_state,
         &provider_binding.access_key,
         &provider_binding.storage_namespace,
-        &remote_policy.base_path,
+        &common::remote_policy_config(&remote_policy).base_path,
         "files/http-large.bin",
     );
     assert_eq!(
@@ -3723,7 +3727,7 @@ async fn test_reverse_tunnel_production_worker_falls_back_to_poll_when_stream_un
         &provider_state,
         &provider_binding.access_key,
         &provider_binding.storage_namespace,
-        &remote_policy.base_path,
+        &common::remote_policy_config(&remote_policy).base_path,
         "files/fallback.txt",
     );
     assert_eq!(
@@ -3869,7 +3873,7 @@ async fn test_reverse_tunnel_policy_connection_test_uses_tunnel_registry() {
         .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
-    create_managed_local_ingress_for_binding(
+    let remote_target = create_managed_local_ingress_for_binding(
         &provider_state,
         &provider_binding.access_key,
         &provider_binding.access_key,
@@ -3892,19 +3896,15 @@ async fn test_reverse_tunnel_policy_connection_test_uses_tunnel_registry() {
 
     policy::test_connection_params(
         &consumer_state,
-        policy::TestDraftStoragePolicyConnectionInput {
+        policy::TestDraftStorageConnectorConnectionInput {
             policy_id: None,
-            connection: policy::StoragePolicyConnectionInput {
-                driver_type: DriverType::Remote,
-                endpoint: String::new(),
-                bucket: String::new(),
-                access_key: String::new(),
-                secret_key: String::new(),
-                base_path: "reverse-policy-test".to_string(),
-                remote_node_id: Some(consumer_node.id),
-                remote_storage_target_key: None,
-                options: Default::default(),
-            },
+            connection: common::remote_connection(
+                "reverse-policy-test",
+                Some(consumer_node.id),
+                Some(remote_target.target_key),
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::RelayStream,
+            ),
         },
     )
     .await
@@ -4365,29 +4365,24 @@ async fn test_reverse_tunnel_remote_policy_rejects_presigned_strategies() {
     .await
     .expect("reverse remote node should be created");
 
-    let make_input = |options| policy::CreateStoragePolicyInput {
+    let make_input = |options: RemotePolicyTransferOptions| policy::CreateStoragePolicyInput {
         name: "Reverse Presigned Rejected".to_string(),
-        connection: policy::StoragePolicyConnectionInput {
-            driver_type: DriverType::Remote,
-            endpoint: String::new(),
-            bucket: String::new(),
-            access_key: String::new(),
-            secret_key: String::new(),
-            base_path: "reverse-presigned".to_string(),
-            remote_node_id: Some(node.id),
-            remote_storage_target_key: None,
-            options,
-        },
+        connection: common::remote_connection(
+            "reverse-presigned",
+            Some(node.id),
+            Some("reverse-presigned-target".to_string()),
+            options.download_strategy(),
+            options.upload_strategy(),
+        ),
         max_file_size: 0,
         chunk_size: Some(5_242_880),
         is_default: false,
         allowed_types: None,
-        application_config: Default::default(),
     };
 
     let upload_error = policy::create(
         &state,
-        make_input(StoragePolicyOptions {
+        make_input(RemotePolicyTransferOptions {
             remote_upload_strategy: Some(RemoteUploadStrategy::Presigned),
             ..Default::default()
         }),
@@ -4406,7 +4401,7 @@ async fn test_reverse_tunnel_remote_policy_rejects_presigned_strategies() {
 
     let download_error = policy::create(
         &state,
-        make_input(StoragePolicyOptions {
+        make_input(RemotePolicyTransferOptions {
             remote_download_strategy: Some(RemoteDownloadStrategy::Presigned),
             ..Default::default()
         }),
@@ -4443,25 +4438,17 @@ async fn test_auto_empty_url_remote_policy_rejects_presigned_strategies() {
         &state,
         policy::CreateStoragePolicyInput {
             name: "Auto Empty Presigned Rejected".to_string(),
-            connection: policy::StoragePolicyConnectionInput {
-                driver_type: DriverType::Remote,
-                endpoint: String::new(),
-                bucket: String::new(),
-                access_key: String::new(),
-                secret_key: String::new(),
-                base_path: "auto-empty-presigned".to_string(),
-                remote_node_id: Some(node.id),
-                remote_storage_target_key: None,
-                options: StoragePolicyOptions {
-                    remote_upload_strategy: Some(RemoteUploadStrategy::Presigned),
-                    ..Default::default()
-                },
-            },
+            connection: common::remote_connection(
+                "auto-empty-presigned",
+                Some(node.id),
+                Some("auto-empty-target".to_string()),
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::Presigned,
+            ),
             max_file_size: 0,
             chunk_size: Some(5_242_880),
             is_default: false,
             allowed_types: None,
-            application_config: Default::default(),
         },
     )
     .await
@@ -4494,22 +4481,29 @@ async fn test_reverse_tunnel_remote_policy_update_rejects_presigned_strategies()
     .await
     .expect("reverse remote node should be created");
     seed_remote_capabilities(&state, node.id, RemoteStorageCapabilities::current()).await;
-    let policy = create_remote_policy(
+    let policy = create_remote_policy_via_service_with_options(
         &state,
         node.id,
         "Reverse Presigned Update Rejected",
         "reverse-presigned-update",
+        "reverse-update-target",
+        RemotePolicyTransferOptions::default(),
+        5_242_880,
     )
     .await;
+    let existing_config = common::remote_policy_config(&policy);
 
     let upload_error = policy::update(
         &state,
         policy.id,
         policy::UpdateStoragePolicyInput {
-            options: Some(StoragePolicyOptions {
-                remote_upload_strategy: Some(RemoteUploadStrategy::Presigned),
-                ..Default::default()
-            }),
+            connector_config: Some(common::remote_connector_config(
+                existing_config.base_path.clone(),
+                existing_config.remote_node_id,
+                existing_config.remote_storage_target_key.clone(),
+                existing_config.remote_download_strategy,
+                RemoteUploadStrategy::Presigned,
+            )),
             ..Default::default()
         },
     )
@@ -4529,10 +4523,13 @@ async fn test_reverse_tunnel_remote_policy_update_rejects_presigned_strategies()
         &state,
         policy.id,
         policy::UpdateStoragePolicyInput {
-            options: Some(StoragePolicyOptions {
-                remote_download_strategy: Some(RemoteDownloadStrategy::Presigned),
-                ..Default::default()
-            }),
+            connector_config: Some(common::remote_connector_config(
+                existing_config.base_path,
+                existing_config.remote_node_id,
+                existing_config.remote_storage_target_key,
+                RemoteDownloadStrategy::Presigned,
+                existing_config.remote_upload_strategy,
+            )),
             ..Default::default()
         },
     )
@@ -4572,12 +4569,13 @@ async fn test_remote_node_update_rejects_reverse_tunnel_when_referenced_policy_u
         RemoteStorageCapabilities::current(),
     )
     .await;
-    let _policy = create_remote_policy_with_options(
+    let _policy = create_remote_policy_via_service_with_options(
         &consumer_state,
         node.id,
         "Direct Presigned Before Reverse Switch",
         "direct-presigned-before-switch",
-        StoragePolicyOptions {
+        "direct-presigned-target",
+        RemotePolicyTransferOptions {
             remote_upload_strategy: Some(RemoteUploadStrategy::Presigned),
             ..Default::default()
         },
@@ -4663,7 +4661,7 @@ async fn test_remote_presigned_download_redirects_to_follower() {
         consumer_node.id,
         "Remote Presigned Download Policy",
         "presigned-download-base",
-        StoragePolicyOptions {
+        RemotePolicyTransferOptions {
             remote_download_strategy: Some(RemoteDownloadStrategy::Presigned),
             ..Default::default()
         },
@@ -4838,6 +4836,13 @@ async fn test_disabling_remote_node_syncs_follower_binding_and_blocks_remote_use
     .await;
 
     wait_for_remote_probe(&consumer_state, consumer_node.id).await;
+    let remote_policy = create_remote_policy(
+        &consumer_state,
+        consumer_node.id,
+        "Existing Remote Policy",
+        "disabled-base",
+    )
+    .await;
 
     remote_node::update(
         &consumer_state,
@@ -4876,22 +4881,17 @@ async fn test_disabling_remote_node_syncs_follower_binding_and_blocks_remote_use
         &consumer_state,
         policy::CreateStoragePolicyInput {
             name: "Disabled Remote Policy".to_string(),
-            connection: policy::StoragePolicyConnectionInput {
-                driver_type: DriverType::Remote,
-                endpoint: String::new(),
-                bucket: String::new(),
-                access_key: String::new(),
-                secret_key: String::new(),
-                base_path: String::new(),
-                remote_node_id: Some(consumer_node.id),
-                remote_storage_target_key: None,
-                options: StoragePolicyOptions::default(),
-            },
+            connection: common::remote_connection(
+                String::new(),
+                Some(consumer_node.id),
+                Some("disabled-target".to_string()),
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::RelayStream,
+            ),
             max_file_size: 0,
             chunk_size: None,
             is_default: false,
             allowed_types: Some(Vec::new()),
-            application_config: Default::default(),
         },
     )
     .await
@@ -4903,13 +4903,6 @@ async fn test_disabling_remote_node_syncs_follower_binding_and_blocks_remote_use
     );
     assert!(create_error.message().contains("is disabled"));
 
-    let remote_policy = create_remote_policy(
-        &consumer_state,
-        consumer_node.id,
-        "Disabled Remote Policy",
-        "disabled-base",
-    )
-    .await;
     let driver_error = match consumer_state.driver_registry.get_driver(&remote_policy) {
         Ok(_) => panic!("disabled remote nodes should not resolve into remote drivers"),
         Err(error) => error,
@@ -5538,7 +5531,7 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
         consumer_node.id,
         "Remote Presigned Policy",
         "presigned-base",
-        StoragePolicyOptions {
+        RemotePolicyTransferOptions {
             remote_upload_strategy: Some(RemoteUploadStrategy::Presigned),
             ..Default::default()
         },
@@ -5595,7 +5588,13 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
         &consumer_node_model.access_key,
         &provider_binding.storage_namespace,
         "",
-        &format!("{}/{}", remote_policy.base_path.trim_matches('/'), temp_key),
+        &format!(
+            "{}/{}",
+            common::remote_policy_config(&remote_policy)
+                .base_path
+                .trim_matches('/'),
+            temp_key
+        ),
     );
     let uploaded_temp = tokio::fs::read(&uploaded_temp_path)
         .await
@@ -5654,7 +5653,7 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
         &provider_state,
         &consumer_node_model.access_key,
         &provider_binding.storage_namespace,
-        &remote_policy.base_path,
+        &common::remote_policy_config(&remote_policy).base_path,
         &created_blob.storage_path,
     );
     let stored = tokio::fs::read(&stored_path)
@@ -5723,7 +5722,7 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
         consumer_node.id,
         "Late Remote Presigned Cleanup",
         "late-presigned-base",
-        StoragePolicyOptions {
+        RemotePolicyTransferOptions {
             remote_upload_strategy: Some(RemoteUploadStrategy::Presigned),
             ..Default::default()
         },
@@ -5773,7 +5772,13 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
         &consumer_node_model.access_key,
         &provider_binding.storage_namespace,
         "",
-        &format!("{}/{}", remote_policy.base_path.trim_matches('/'), temp_key),
+        &format!(
+            "{}/{}",
+            common::remote_policy_config(&remote_policy)
+                .base_path
+                .trim_matches('/'),
+            temp_key
+        ),
     );
     assert!(
         !tokio::fs::try_exists(&provider_temp_path)
@@ -5892,7 +5897,7 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
         consumer_node.id,
         "Remote Relay Direct Policy",
         "relay-direct-base",
-        StoragePolicyOptions {
+        RemotePolicyTransferOptions {
             remote_upload_strategy: Some(RemoteUploadStrategy::RelayStream),
             ..Default::default()
         },
@@ -5980,7 +5985,7 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
         &provider_state,
         &consumer_node_model.access_key,
         &provider_binding.storage_namespace,
-        &remote_policy.base_path,
+        &common::remote_policy_config(&remote_policy).base_path,
         &created_blob.storage_path,
     );
     let stored = tokio::fs::read(&provider_path)
@@ -6029,7 +6034,7 @@ async fn test_remote_presigned_upload_browser_cors_follows_bound_master_origin()
         .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
-    create_managed_local_ingress_for_binding(
+    let remote_target = create_managed_local_ingress_for_binding(
         &provider_state,
         &consumer_node_model.access_key,
         &consumer_node_model.access_key,
@@ -6042,12 +6047,13 @@ async fn test_remote_presigned_upload_browser_cors_follows_bound_master_origin()
     )
     .await;
 
-    let remote_policy = create_remote_policy_with_options(
+    let remote_policy = create_remote_policy_via_service_with_options(
         &consumer_state,
         consumer_node.id,
         "Remote Presigned Browser CORS Policy",
         "browser-cors-base",
-        StoragePolicyOptions {
+        &remote_target.target_key,
+        RemotePolicyTransferOptions {
             remote_upload_strategy: Some(RemoteUploadStrategy::Presigned),
             ..Default::default()
         },
@@ -6257,7 +6263,7 @@ async fn test_remote_presigned_download_browser_cors_allows_get() {
         .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
-    create_managed_local_ingress_for_binding(
+    let remote_target = create_managed_local_ingress_for_binding(
         &provider_state,
         &consumer_node_model.access_key,
         &consumer_node_model.access_key,
@@ -6270,12 +6276,13 @@ async fn test_remote_presigned_download_browser_cors_allows_get() {
     )
     .await;
 
-    let remote_policy = create_remote_policy_with_options(
+    let remote_policy = create_remote_policy_via_service_with_options(
         &consumer_state,
         consumer_node.id,
         "Remote Presigned Browser Download CORS Policy",
         "browser-download-cors-base",
-        StoragePolicyOptions {
+        &remote_target.target_key,
+        RemotePolicyTransferOptions {
             remote_download_strategy: Some(RemoteDownloadStrategy::Presigned),
             ..Default::default()
         },
@@ -6562,7 +6569,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
         consumer_node.id,
         "Remote Relay Chunked Policy",
         "relay-chunked-base",
-        StoragePolicyOptions {
+        RemotePolicyTransferOptions {
             remote_upload_strategy: Some(RemoteUploadStrategy::RelayStream),
             ..Default::default()
         },
@@ -6766,7 +6773,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
         &provider_state,
         &consumer_node_model.access_key,
         &provider_binding.storage_namespace,
-        &remote_policy.base_path,
+        &common::remote_policy_config(&remote_policy).base_path,
         &created_blob.storage_path,
     );
     let stored = tokio::fs::read(&stored_path)
@@ -6791,7 +6798,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
         &provider_state,
         &consumer_node_model.access_key,
         &provider_binding.storage_namespace,
-        &remote_policy.base_path,
+        &common::remote_policy_config(&remote_policy).base_path,
         &format!("uploads/{remote_multipart_id}/parts/1"),
     );
     assert!(
@@ -6842,7 +6849,7 @@ async fn test_remote_presigned_upload_browser_cors_accepts_master_url_with_path_
         .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
-    create_managed_local_ingress_for_binding(
+    let remote_target = create_managed_local_ingress_for_binding(
         &provider_state,
         &consumer_node_model.access_key,
         &consumer_node_model.access_key,
@@ -6855,12 +6862,13 @@ async fn test_remote_presigned_upload_browser_cors_accepts_master_url_with_path_
     )
     .await;
 
-    let remote_policy = create_remote_policy_with_options(
+    let remote_policy = create_remote_policy_via_service_with_options(
         &consumer_state,
         consumer_node.id,
         "Remote Presigned Browser Origin Path Policy",
         "browser-origin-path-base",
-        StoragePolicyOptions {
+        &remote_target.target_key,
+        RemotePolicyTransferOptions {
             remote_upload_strategy: Some(RemoteUploadStrategy::Presigned),
             ..Default::default()
         },
@@ -6960,7 +6968,7 @@ async fn test_remote_presigned_upload_browser_cors_rejects_disabled_binding() {
         .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
-    create_managed_local_ingress_for_binding(
+    let remote_target = create_managed_local_ingress_for_binding(
         &provider_state,
         &binding.access_key,
         &binding.access_key,
@@ -6973,12 +6981,13 @@ async fn test_remote_presigned_upload_browser_cors_rejects_disabled_binding() {
     )
     .await;
 
-    let remote_policy = create_remote_policy_with_options(
+    let remote_policy = create_remote_policy_via_service_with_options(
         &consumer_state,
         consumer_node.id,
         "Remote Presigned Disabled Binding Policy",
         "browser-disabled-binding-base",
-        StoragePolicyOptions {
+        &remote_target.target_key,
+        RemotePolicyTransferOptions {
             remote_upload_strategy: Some(RemoteUploadStrategy::Presigned),
             ..Default::default()
         },
@@ -7417,7 +7426,7 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
         consumer_node.id,
         "Remote Presigned Multipart Policy",
         "presigned-multipart-base",
-        StoragePolicyOptions {
+        RemotePolicyTransferOptions {
             remote_upload_strategy: Some(RemoteUploadStrategy::Presigned),
             ..Default::default()
         },
@@ -7551,7 +7560,7 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
         &provider_state,
         &consumer_node_model.access_key,
         &provider_binding.storage_namespace,
-        &remote_policy.base_path,
+        &common::remote_policy_config(&remote_policy).base_path,
         &created_blob.storage_path,
     );
     let stored = tokio::fs::read(&stored_path)
@@ -7563,7 +7572,7 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
         &provider_state,
         &consumer_node_model.access_key,
         &provider_binding.storage_namespace,
-        &remote_policy.base_path,
+        &common::remote_policy_config(&remote_policy).base_path,
         &format!("uploads/{remote_multipart_id}/parts/1"),
     );
     assert!(

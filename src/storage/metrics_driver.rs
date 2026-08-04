@@ -625,7 +625,7 @@ mod tests {
         let metrics = Arc::new(CapturingMetrics::default());
         let driver = MetricsStorageDriver::new(
             Arc::new(MemoryDriver),
-            DriverType::Local,
+            "asterdrive.storage.local",
             metrics.clone(),
             None,
         );
@@ -654,7 +654,7 @@ mod tests {
         let metrics = Arc::new(CapturingMetrics::default());
         let driver = MetricsStorageDriver::new(
             Arc::new(MemoryDriver),
-            DriverType::Local,
+            "asterdrive.storage.local",
             metrics.clone(),
             None,
         );
@@ -681,7 +681,7 @@ mod tests {
         let metrics = Arc::new(CapturingMetrics::default());
         let driver = MetricsStorageDriver::new(
             Arc::new(MemoryDriver),
-            DriverType::Local,
+            "asterdrive.storage.local",
             metrics.clone(),
             None,
         );
@@ -704,7 +704,7 @@ mod tests {
         let metrics = Arc::new(CapturingMetrics::default());
         let driver = MetricsStorageDriver::new(
             Arc::new(MemoryDriver),
-            DriverType::Local,
+            "asterdrive.storage.local",
             metrics.clone(),
             None,
         );
@@ -724,7 +724,7 @@ mod tests {
     fn metrics_wrapper_preserves_provider_resumable_extension() {
         let driver = MetricsStorageDriver::new(
             Arc::new(ProviderResumableDriver),
-            DriverType::OneDrive,
+            "asterdrive.storage.onedrive",
             Arc::new(CapturingMetrics::default()),
             None,
         );

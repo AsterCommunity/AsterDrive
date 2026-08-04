@@ -215,37 +215,17 @@ mod tests {
     fn policy_with_max_file_size(
         max_file_size: i64,
     ) -> aster_drive_model::entities::storage_policy::Model {
-        let now = chrono::Utc::now();
-        let options = aster_drive_model::types::StoragePolicyOptions::default();
-        aster_drive_model::entities::storage_policy::Model {
-            id: 1,
-            name: "test".to_string(),
-            driver_type: aster_drive_model::types::DriverType::S3,
-            endpoint: String::new(),
-            bucket: String::new(),
-            access_key: String::new(),
-            secret_key: String::new(),
-            base_path: String::new(),
-            remote_node_id: None,
-            remote_storage_target_key: None,
-            connector_id: "asterdrive.storage.s3".to_string(),
-            storage_config: crate::storage::connectors::test_support::policy_config(
-                aster_drive_model::types::DriverType::S3,
-                "",
-                "",
-                "",
-                None,
-                None,
-                &options,
-            ),
-            max_file_size,
-            allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
-            options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
-            is_default: true,
-            chunk_size: 5_242_880,
-            created_at: now,
-            updated_at: now,
-        }
+        let mut policy = crate::storage::connectors::test_support::s3_policy(
+            "https://s3.example.test",
+            "test-bucket",
+            "",
+            aster_drive_model::types::ObjectStorageUploadStrategy::Presigned,
+            aster_drive_model::types::ObjectStorageDownloadStrategy::RelayStream,
+        );
+        policy.max_file_size = max_file_size;
+        policy.is_default = true;
+        policy.chunk_size = 5_242_880;
+        policy
     }
 
     #[test]

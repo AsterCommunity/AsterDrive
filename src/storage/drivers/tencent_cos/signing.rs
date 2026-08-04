@@ -537,16 +537,14 @@ mod tests {
     use reqwest::header::AUTHORIZATION;
     use url::Url;
 
-    use aster_drive_model::entities::storage_policy;
-    use aster_drive_model::types::{
-        DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
-    };
-
     use super::TencentCosDriver;
     use super::{
         canonical_header_list, canonical_headers, canonical_param_list, canonical_params,
         canonical_url_path, configure_cos_auth, cos_authorization, host_header_value,
         percent_encode_query_key, percent_encode_query_value,
+    };
+    use crate::storage::drivers::tencent_cos::{
+        TencentCosDriverConfig, TencentCosStaticCredentials,
     };
 
     fn cos_sdk_client(
@@ -592,36 +590,20 @@ mod tests {
     }
 
     fn sample_driver(endpoint: &str) -> TencentCosDriver {
-        let options = aster_drive_model::types::StoragePolicyOptions::default();
-        TencentCosDriver::new(&storage_policy::Model {
-            id: 1,
-            name: "COS".to_string(),
-            driver_type: DriverType::TencentCos,
-            endpoint: endpoint.to_string(),
-            bucket: "media-1250000000".to_string(),
-            access_key: "AKIDEXAMPLE".to_string(),
-            secret_key: "SECRETEXAMPLE".to_string(),
-            base_path: String::new(),
-            remote_node_id: None,
-            remote_storage_target_key: None,
-            connector_id: "asterdrive.storage.tencent_cos".to_string(),
-            storage_config: crate::storage::connectors::test_support::policy_config(
-                DriverType::TencentCos,
-                endpoint,
-                "media-1250000000",
-                "",
-                None,
-                None,
-                &options,
-            ),
-            max_file_size: 0,
-            allowed_types: StoredStoragePolicyAllowedTypes::empty(),
-            options: StoredStoragePolicyOptions::empty(),
-            is_default: false,
-            chunk_size: 5_242_880,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        })
+        TencentCosDriver::new(
+            TencentCosDriverConfig {
+                endpoint: endpoint.to_string(),
+                bucket: "media-1250000000".to_string(),
+                base_path: String::new(),
+                connect_timeout: Duration::from_secs(5),
+                read_timeout: Duration::from_secs(30),
+                operation_timeout: Duration::from_secs(3_600),
+            },
+            TencentCosStaticCredentials {
+                access_key: "AKIDEXAMPLE".to_string(),
+                secret_key: "SECRETEXAMPLE".to_string(),
+            },
+        )
         .expect("valid Tencent COS driver")
     }
 

@@ -210,24 +210,23 @@ mod tests {
         let error = validate_storage_policy_driver(
             &connectors,
             &config,
-            aster_drive_model::types::DriverType::Local,
+            &aster_drive_storage::ConnectorId::declared("asterdrive.storage.local"),
         )
         .expect_err("cluster profile must reject instance-local connectors")
         .to_string();
         assert!(error.contains("local"));
         assert!(error.contains("instance_local"));
-        for driver_type in [
-            aster_drive_model::types::DriverType::S3,
-            aster_drive_model::types::DriverType::Sftp,
-            aster_drive_model::types::DriverType::AzureBlob,
-            aster_drive_model::types::DriverType::TencentCos,
-            aster_drive_model::types::DriverType::Remote,
-            aster_drive_model::types::DriverType::OneDrive,
+        for connector_id in [
+            "asterdrive.storage.s3",
+            "asterdrive.storage.sftp",
+            "asterdrive.storage.azure_blob",
+            "asterdrive.storage.tencent_cos",
+            "asterdrive.storage.remote",
+            "asterdrive.storage.onedrive",
         ] {
-            validate_storage_policy_driver(&connectors, &config, driver_type).unwrap_or_else(
-                |error| {
-                    panic!("cluster profile rejected shared connector {driver_type:?}: {error}")
-                },
+            let connector_id = aster_drive_storage::ConnectorId::declared(connector_id);
+            validate_storage_policy_driver(&connectors, &config, &connector_id).unwrap_or_else(
+                |error| panic!("cluster profile rejected shared connector {connector_id}: {error}"),
             );
         }
         assert!(

@@ -7,18 +7,16 @@ use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy};
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
-    ObjectStorageConnectorDescriptorInput, StorageConnectorDeploymentScope,
-    StorageConnectorDescriptor, StorageConnectorFieldDisplayInput, StorageConnectorFieldKind,
-    StorageConnectorFieldScope, StorageConnectorUiDescriptorInput, endpoint_driver_recommendation,
-    endpoint_host_rule, object_storage_connector_descriptor, storage_connector_field,
-    storage_connector_field_with_display, storage_connector_field_with_options,
+    ObjectStorageConnectorDescriptorInput, StorageConnectorBadgeRgb,
+    StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorFieldDisplayInput,
+    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorUiDescriptorInput,
+    object_storage_connector_descriptor, storage_connector_field,
+    storage_connector_field_with_display,
 };
 use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
 
-use super::{
-    StorageConnector, StorageConnectorCredentialInput, StorageConnectorRuntimeCredential,
-    StorageConnectorUploadTransport, TencentCosConnector,
-};
+use super::common::{StorageTransferDirection, transfer_strategy_field};
+use super::{StorageConnector, StorageConnectorCredentialInput, StorageConnectorUploadTransport};
 
 pub struct S3Connector;
 
@@ -44,27 +42,26 @@ aster_drive_storage::storage_connector_schema! {
             "bucket", StorageConnectorFieldScope::ConnectorConfig,
             StorageConnectorFieldKind::Text, true, false,
         ),
-        pub base_path: String => storage_connector_field(
-            "base_path", StorageConnectorFieldScope::ConnectorConfig,
-            StorageConnectorFieldKind::Text, false, false,
-        ),
-        pub object_storage_upload_strategy: ObjectStorageUploadStrategy => {
-            let mut field = storage_connector_field_with_options(
-                "object_storage_upload_strategy", StorageConnectorFieldScope::ConnectorConfig,
-                StorageConnectorFieldKind::Select, true, false,
-                vec!["relay_stream", "presigned"],
+        pub base_path: String => {
+            let mut field = storage_connector_field(
+                "base_path", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Text, false, false,
             );
-            field.default_value = Some(StorageConnectorFieldDefaultValue::String("relay_stream".to_string()));
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String(String::new()));
+            field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
             field
         },
+        pub object_storage_upload_strategy: ObjectStorageUploadStrategy => {
+            transfer_strategy_field(
+                "object_storage_upload_strategy",
+                StorageTransferDirection::Upload,
+            )
+        },
         pub object_storage_download_strategy: ObjectStorageDownloadStrategy => {
-            let mut field = storage_connector_field_with_options(
-                "object_storage_download_strategy", StorageConnectorFieldScope::ConnectorConfig,
-                StorageConnectorFieldKind::Select, true, false,
-                vec!["relay_stream", "presigned"],
-            );
-            field.default_value = Some(StorageConnectorFieldDefaultValue::String("relay_stream".to_string()));
-            field
+            transfer_strategy_field(
+                "object_storage_download_strategy",
+                StorageTransferDirection::Download,
+            )
         },
         pub s3_path_style: bool => {
             let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
@@ -170,43 +167,32 @@ impl S3Connector {
 
 impl S3Connector {
     fn descriptor_definition() -> StorageConnectorDescriptor {
-        let mut descriptor = object_storage_connector_descriptor(
-            ObjectStorageConnectorDescriptorInput {
-                connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
-                label: "S3-compatible object storage",
-                description: "S3-compatible object storage policy",
-                ui: StorageConnectorUiDescriptorInput {
-                    label_key: "driver_type_s3",
-                    description_key: "policy_wizard_s3_storage_desc",
-                    icon_src: Some("/static/storage/amazon-s3.svg"),
-                    icon_name: None,
-                    helper_key: "policy_wizard_object_storage_helper",
-                    config_step_title_key: "policy_wizard_step_connection_title",
-                    config_step_description_key: "policy_wizard_step_object_storage_connection_desc",
-                    edit_context_key: "policy_edit_context_object_storage_desc",
-                    base_path_empty_display: "core:root",
-                    base_path_placeholder: "tenant/prefix",
-                },
-                deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
-                supports_initial_setup: true,
-                credential_mode: S3ConnectorConfigV1::credential_mode(),
-                fields: S3ConnectorConfigV1::descriptor_fields(),
-                presigned_part_etag_required: true,
-                storage_native_processing: false,
-                config_schema_version: 1,
-                related_issues: vec![328, 329, 452],
+        object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
+            connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
+            label: "S3-compatible object storage",
+            description: "S3-compatible object storage policy",
+            ui: StorageConnectorUiDescriptorInput {
+                label_key: "driver_type_s3",
+                description_key: "policy_wizard_s3_storage_desc",
+                icon_src: Some("/static/storage/amazon-s3.svg"),
+                icon_name: None,
+                badge_rgb: StorageConnectorBadgeRgb::new(59, 130, 246),
+                helper_key: "policy_wizard_object_storage_helper",
+                config_step_title_key: "policy_wizard_step_connection_title",
+                config_step_description_key: "policy_wizard_step_object_storage_connection_desc",
+                edit_context_key: "policy_edit_context_object_storage_desc",
+                base_path_empty_display: "core:root",
+                base_path_placeholder: "tenant/prefix",
             },
-        );
-        descriptor
-            .driver_recommendations
-            .push(endpoint_driver_recommendation(
-                aster_drive_storage::ConnectorId::declared(TencentCosConnector::ID),
-                vec![
-                    endpoint_host_rule(Some("myqcloud.com"), None),
-                    endpoint_host_rule(None, Some(".myqcloud.com")),
-                ],
-            ));
-        descriptor
+            deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
+            supports_initial_setup: true,
+            credential_mode: S3ConnectorConfigV1::credential_mode(),
+            fields: S3ConnectorConfigV1::descriptor_fields(),
+            presigned_part_etag_required: true,
+            storage_native_processing: false,
+            config_schema_version: 1,
+            related_issues: vec![328, 329, 452],
+        })
     }
 }
 
@@ -295,24 +281,8 @@ impl StorageConnector for S3Connector {
         policy: &storage_policy::Model,
     ) -> Result<super::StorageConnectorDriver> {
         let config = Self::decode_config(policy)?;
-        let Some(StorageConnectorRuntimeCredential::Static(values)) =
-            registry.get_runtime_credential(policy.id)
-        else {
-            return Err(crate::errors::storage_driver_error(
-                aster_drive_storage::StorageErrorKind::Auth,
-                format!("storage policy {} is missing static credentials", policy.id),
-            ));
-        };
         let credentials: S3StaticCredentialsV1 =
-            serde_json::from_value(values).map_err(|error| {
-                crate::errors::storage_driver_error(
-                    aster_drive_storage::StorageErrorKind::Misconfigured,
-                    format!(
-                        "storage policy {} has invalid static credentials: {error}",
-                        policy.id
-                    ),
-                )
-            })?;
+            super::common::runtime_static_credential(registry, policy, Self::ID)?;
         Ok(super::StorageConnectorDriver::multipart(
             std::sync::Arc::new(S3Driver::new(
                 Self::driver_config(config),

@@ -464,16 +464,19 @@ async fn storage_policy_connector_configs_backfill_all_builtin_drivers_and_reapp
         ),
     ];
     for (id, driver, endpoint, bucket, base_path, node_id, target_key, options) in fixtures {
+        let options = options.to_string();
         insert_legacy_storage_policy(
             &db,
-            id,
-            driver,
-            endpoint,
-            bucket,
-            base_path,
-            node_id,
-            target_key,
-            &options.to_string(),
+            LegacyStoragePolicyFixture {
+                id,
+                driver_type: driver,
+                endpoint,
+                bucket,
+                base_path,
+                remote_node_id: node_id,
+                remote_storage_target_key: target_key,
+                options: &options,
+            },
         )
         .await;
     }
@@ -643,26 +646,30 @@ async fn storage_policy_connector_configs_reject_invalid_rows_without_partial_ba
         .expect("legacy storage policy schema should apply");
         insert_legacy_storage_policy(
             &db,
-            201,
-            "local",
-            "",
-            "",
-            "./data/uploads",
-            None,
-            None,
-            r#"{"content_dedup":true}"#,
+            LegacyStoragePolicyFixture {
+                id: 201,
+                driver_type: "local",
+                endpoint: "",
+                bucket: "",
+                base_path: "./data/uploads",
+                remote_node_id: None,
+                remote_storage_target_key: None,
+                options: r#"{"content_dedup":true}"#,
+            },
         )
         .await;
         insert_legacy_storage_policy(
             &db,
-            202,
-            "s3",
-            "https://s3.example.test",
-            "bucket",
-            "tenant",
-            None,
-            None,
-            invalid,
+            LegacyStoragePolicyFixture {
+                id: 202,
+                driver_type: "s3",
+                endpoint: "https://s3.example.test",
+                bucket: "bucket",
+                base_path: "tenant",
+                remote_node_id: None,
+                remote_storage_target_key: None,
+                options: invalid,
+            },
         )
         .await;
 
@@ -716,7 +723,20 @@ async fn storage_policy_connector_configs_reject_invalid_rows_without_partial_ba
     )
     .await
     .unwrap();
-    insert_legacy_storage_policy(&db, 203, "future_plugin", "", "", "", None, None, "{}").await;
+    insert_legacy_storage_policy(
+        &db,
+        LegacyStoragePolicyFixture {
+            id: 203,
+            driver_type: "future_plugin",
+            endpoint: "",
+            bucket: "",
+            base_path: "",
+            remote_node_id: None,
+            remote_storage_target_key: None,
+            options: "{}",
+        },
+    )
+    .await;
     assert!(
         CurrentMigrator::up(&db, Some(1))
             .await
@@ -733,17 +753,31 @@ struct StoredPolicyConfigRow {
     storage_config: serde_json::Value,
 }
 
+struct LegacyStoragePolicyFixture<'a> {
+    id: i64,
+    driver_type: &'a str,
+    endpoint: &'a str,
+    bucket: &'a str,
+    base_path: &'a str,
+    remote_node_id: Option<i64>,
+    remote_storage_target_key: Option<&'a str>,
+    options: &'a str,
+}
+
 async fn insert_legacy_storage_policy(
     db: &DatabaseConnection,
-    id: i64,
-    driver_type: &str,
-    endpoint: &str,
-    bucket: &str,
-    base_path: &str,
-    remote_node_id: Option<i64>,
-    remote_storage_target_key: Option<&str>,
-    options: &str,
+    fixture: LegacyStoragePolicyFixture<'_>,
 ) {
+    let LegacyStoragePolicyFixture {
+        id,
+        driver_type,
+        endpoint,
+        bucket,
+        base_path,
+        remote_node_id,
+        remote_storage_target_key,
+        options,
+    } = fixture;
     db.execute_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         "INSERT INTO storage_policies (\

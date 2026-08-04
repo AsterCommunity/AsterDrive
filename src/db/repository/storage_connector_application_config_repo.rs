@@ -2,7 +2,10 @@
 //!
 //! This repository is exclusive to the AsterDrive 0.5.0 upgrade path and will
 //! be completely removed with the legacy table in AsterDrive 0.6.0.
-#![allow(deprecated)]
+#![expect(
+    deprecated,
+    reason = "AsterDrive 0.5.0-only repository is removed with the legacy table in 0.6.0"
+)]
 
 use chrono::Utc;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set, sea_query::OnConflict};

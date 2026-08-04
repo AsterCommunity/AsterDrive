@@ -6,7 +6,7 @@ use std::fmt;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::types::DriverType;
+use crate::types::RemoteStorageTargetDriverKind;
 
 #[derive(Clone, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -17,7 +17,7 @@ pub struct Model {
     pub master_binding_id: i64,
     pub target_key: String,
     pub name: String,
-    pub driver_type: DriverType,
+    pub driver_type: RemoteStorageTargetDriverKind,
     pub endpoint: String,
     pub bucket: String,
     #[serde(skip_serializing)]
@@ -90,7 +90,7 @@ mod tests {
             master_binding_id: 2,
             target_key: "profile".to_string(),
             name: "ingress".to_string(),
-            driver_type: DriverType::S3,
+            driver_type: RemoteStorageTargetDriverKind::S3,
             endpoint: "https://s3.example.test".to_string(),
             bucket: "bucket".to_string(),
             access_key: "plain-access-key".to_string(),

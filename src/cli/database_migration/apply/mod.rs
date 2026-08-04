@@ -30,6 +30,13 @@ pub(super) async fn execute_apply_mode(ctx: ApplyModeContext<'_>) -> Result<Appl
     Migrator::up(ctx.target_db, None)
         .await
         .map_aster_err(AsterError::database_operation)?;
+    aster_drive_migration::with_database_migration_lock(ctx.target_db, |transaction| {
+        Box::pin(aster_drive_migration::finalize_storage_policy_upgrade(
+            transaction,
+        ))
+    })
+    .await
+    .map_aster_err(AsterError::database_operation)?;
     let target_backend = ctx.target_db.get_database_backend();
     let target_pending_after = pending_migrations(ctx.target_db).await?;
     if !target_pending_after.is_empty() {

@@ -22,8 +22,9 @@ import {
 import type { SortOrder } from "@/lib/pagination";
 import type { AdminPolicySortBy } from "@/types/adminSort";
 import type { StorageConnectorDescriptor, StoragePolicy } from "@/types/api";
+import { policyConnectorSelection } from "../storage-policy-dialog/connectionNormalization";
 import {
-	getPolicyDriverBadgeClass,
+	getStorageConnectorBadgePresentation,
 	PROTECTED_POLICY_ID,
 } from "./policyPresentation";
 
@@ -53,11 +54,11 @@ export function PoliciesTable({
 	storageDriverDescriptors,
 }: PoliciesTableProps) {
 	const { t } = useTranslation("admin");
-	const descriptorByDriverType = useMemo(
+	const descriptorByConnectorId = useMemo(
 		() =>
 			new Map(
 				storageDriverDescriptors.map((descriptor) => [
-					descriptor.driver_type,
+					descriptor.connector_id,
 					descriptor,
 				]),
 			),
@@ -85,29 +86,14 @@ export function PoliciesTable({
 						{t("core:name")}
 					</AdminSortableTableHead>
 					<AdminSortableTableHead
-						sortKey="driver_type"
+						sortKey="connector_id"
 						sortBy={sortBy}
 						sortOrder={sortOrder}
 						onSortChange={onSortChange}
 					>
 						{t("driver_type")}
 					</AdminSortableTableHead>
-					<AdminSortableTableHead
-						sortKey="endpoint"
-						sortBy={sortBy}
-						sortOrder={sortOrder}
-						onSortChange={onSortChange}
-					>
-						{t("endpoint_path")}
-					</AdminSortableTableHead>
-					<AdminSortableTableHead
-						sortKey="bucket"
-						sortBy={sortBy}
-						sortOrder={sortOrder}
-						onSortChange={onSortChange}
-					>
-						{t("bucket")}
-					</AdminSortableTableHead>
+					<TableHead>{t("policy_connector_configuration")}</TableHead>
 					<AdminSortableTableHead
 						className="w-20"
 						sortKey="is_default"
@@ -130,7 +116,7 @@ export function PoliciesTable({
 		<AdminTableList
 			loading={loading}
 			items={policies}
-			columns={7}
+			columns={6}
 			rows={6}
 			emptyTitle={t("no_policies")}
 			emptyDescription={t("no_policies_desc")}
@@ -140,38 +126,20 @@ export function PoliciesTable({
 				const deleteLabel = isDeleting
 					? t("policy_deleting")
 					: t("delete_policy");
-				const descriptor = descriptorByDriverType.get(policy.driver_type);
-				const driverLabel = descriptor?.ui
+				const selection = policyConnectorSelection(policy);
+				const descriptor = descriptorByConnectorId.get(policy.connector_id);
+				const badgePresentation = getStorageConnectorBadgePresentation(
+					descriptor?.ui.badge_rgb,
+				);
+				const connectorLabel = descriptor?.ui
 					? t(descriptor.ui.label_key)
-					: policy.driver_type;
-				const basePathEmptyDisplay = descriptor?.ui
-					? translateStorageConnectorUiValue(
-							descriptor.ui.base_path_empty_display,
-							t,
-						)
-					: t("core:root");
-				const showsEndpoint = descriptor
-					? descriptor.fields.some(
-							(field) =>
-								field.scope === "connection" && field.name === "endpoint",
-						)
-					: Boolean(policy.endpoint);
-				const showsRemoteNode = descriptor
-					? descriptor.fields.some(
-							(field) =>
-								field.scope === "remote_node_binding" &&
-								field.name === "remote_node_id",
-						)
-					: policy.remote_node_id != null;
-				const endpointOrPath = showsEndpoint
-					? policy.endpoint
-					: policy.base_path || basePathEmptyDisplay;
-				const bucketOrBinding = showsRemoteNode
-					? policy.remote_node_id != null
-						? (remoteNodeNameById.get(policy.remote_node_id) ??
-							`#${policy.remote_node_id}`)
-						: "-"
-					: policy.bucket || "-";
+					: policy.connector_id;
+				const configurationSummary = buildConfigurationSummary(
+					descriptor,
+					selection.connector_config_values,
+					remoteNodeNameById,
+					t,
+				);
 
 				return (
 					<TableRow
@@ -206,23 +174,17 @@ export function PoliciesTable({
 							<div className={ADMIN_TABLE_BADGE_CELL_CLASS}>
 								<Badge
 									variant="outline"
-									className={getPolicyDriverBadgeClass(policy.driver_type)}
+									className={badgePresentation.className}
+									style={badgePresentation.style}
 								>
-									{driverLabel}
+									{connectorLabel}
 								</Badge>
 							</div>
 						</TableCell>
 						<TableCell>
 							<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
-								<span className="truncate text-xs font-mono text-muted-foreground">
-									{endpointOrPath}
-								</span>
-							</div>
-						</TableCell>
-						<TableCell>
-							<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
-								<span className="truncate text-xs text-muted-foreground">
-									{bucketOrBinding}
+								<span className="line-clamp-2 text-xs text-muted-foreground">
+									{configurationSummary}
 								</span>
 							</div>
 						</TableCell>
@@ -269,9 +231,44 @@ export function PoliciesTable({
 	);
 }
 
-function translateStorageConnectorUiValue(
-	value: string,
+function buildConfigurationSummary(
+	descriptor: StorageConnectorDescriptor | undefined,
+	values: Record<string, unknown>,
+	remoteNodeNameById: Map<number, string>,
 	t: (key: string) => string,
 ) {
-	return t(value);
+	const parts = (descriptor?.fields ?? [])
+		.filter(
+			(field) =>
+				field.scope === "connector_config" &&
+				!field.secret &&
+				values[field.name] !== undefined &&
+				values[field.name] !== null &&
+				values[field.name] !== "",
+		)
+		.slice(0, 3)
+		.map((field) => {
+			const value = values[field.name];
+			const displayed =
+				field.select?.data_source === "remote_nodes" &&
+				typeof value === "number"
+					? (remoteNodeNameById.get(value) ?? `#${value}`)
+					: field.select?.options?.find((option) => option.value === value)
+						? t(
+								field.select.options.find((option) => option.value === value)
+									?.label_key ?? field.label_key,
+							)
+						: scalarDisplay(value, t);
+			return `${t(field.label_key)}: ${displayed}`;
+		});
+	return parts.length > 0 ? parts.join(" · ") : "-";
+}
+
+function scalarDisplay(value: unknown, t: (key: string) => string) {
+	if (typeof value === "boolean") {
+		return value ? t("core:yes") : t("core:no");
+	}
+	return typeof value === "string" || typeof value === "number"
+		? String(value)
+		: "-";
 }

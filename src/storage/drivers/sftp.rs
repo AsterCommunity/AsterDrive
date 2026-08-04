@@ -1020,15 +1020,14 @@ fn is_sftp_not_found(error: &SftpError) -> bool {
 mod tests {
     use super::{
         CONNECT_TIMEOUT, DEFAULT_POOL_SIZE, IO_TIMEOUT, POOL_ACQUIRE_TIMEOUT,
-        POOLED_CONNECTION_IDLE_TTL, SSH_KEEPALIVE_INTERVAL, SftpConnectionPool,
-        classify_sftp_error, host_key_fingerprint_matches, is_sftp_connection_reusable_after_error,
-        is_valid_host_key_fingerprint, join_remote_path, normalize_host_key_fingerprint,
-        normalize_remote_base_path, parse_sftp_endpoint, sanitize_relative_storage_path,
+        POOLED_CONNECTION_IDLE_TTL, SSH_KEEPALIVE_INTERVAL, SftpConnectionPool, SftpDriverConfig,
+        SftpStaticCredentials, classify_sftp_error, host_key_fingerprint_matches,
+        is_sftp_connection_reusable_after_error, is_valid_host_key_fingerprint, join_remote_path,
+        normalize_host_key_fingerprint, normalize_remote_base_path, parse_sftp_endpoint,
+        sanitize_relative_storage_path,
     };
-    use aster_drive_model::types::{DriverType, StoredStoragePolicyAllowedTypes};
     use aster_drive_storage::error::StorageErrorKind;
     use aster_drive_storage::{StorageDriver, StreamUploadDriver};
-    use chrono::Utc;
     use russh_sftp::client::error::Error as SftpError;
     use russh_sftp::protocol::{Status, StatusCode};
     use tokio::io::AsyncReadExt;
@@ -1210,56 +1209,30 @@ mod tests {
         ));
     }
 
-    fn env_policy() -> Option<aster_drive_model::entities::storage_policy::Model> {
+    fn env_config() -> Option<(SftpDriverConfig, SftpStaticCredentials)> {
         let endpoint = std::env::var("ASTER_SFTP_TEST_ENDPOINT").ok()?;
         let username = std::env::var("ASTER_SFTP_TEST_USERNAME").ok()?;
         let password = std::env::var("ASTER_SFTP_TEST_PASSWORD").ok()?;
         let base_path = std::env::var("ASTER_SFTP_TEST_BASE_PATH").ok()?;
         let host_key_fingerprint = std::env::var("ASTER_SFTP_TEST_HOST_KEY_FINGERPRINT").ok()?;
-        let options = aster_drive_model::types::StoragePolicyOptions {
-            sftp_host_key_fingerprint: Some(host_key_fingerprint),
-            ..Default::default()
-        };
-        Some(aster_drive_model::entities::storage_policy::Model {
-            id: 1,
-            name: "sftp acceptance".to_string(),
-            driver_type: DriverType::Sftp,
-            endpoint: endpoint.clone(),
-            bucket: String::new(),
-            access_key: username,
-            secret_key: password,
-            base_path: base_path.clone(),
-            remote_node_id: None,
-            remote_storage_target_key: None,
-            connector_id: "asterdrive.storage.sftp".to_string(),
-            storage_config: crate::storage::connectors::test_support::policy_config(
-                DriverType::Sftp,
+        Some((
+            SftpDriverConfig {
                 endpoint,
-                "",
                 base_path,
-                None,
-                None,
-                &options,
-            ),
-            max_file_size: 0,
-            allowed_types: StoredStoragePolicyAllowedTypes::empty(),
-            options: aster_drive_model::types::serialize_storage_policy_options(&options)
-                .expect("serialize SFTP host key options"),
-            is_default: false,
-            chunk_size: 1024,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        })
+                host_key_fingerprint: Some(host_key_fingerprint),
+            },
+            SftpStaticCredentials { username, password },
+        ))
     }
 
     #[tokio::test]
     #[ignore = "requires ASTER_SFTP_TEST_* environment variables and a reachable SFTP server"]
     async fn real_sftp_driver_round_trip_uses_streaming_upload() {
-        let Some(policy) = env_policy() else {
+        let Some((config, credentials)) = env_config() else {
             eprintln!("skipping real SFTP test because ASTER_SFTP_TEST_* is not set");
             return;
         };
-        let driver = super::SftpDriver::new(&policy).unwrap();
+        let driver = super::SftpDriver::new(config, credentials).unwrap();
         let test_root = format!("codex-acceptance/{}", uuid::Uuid::new_v4());
         let object_path = format!("{test_root}/streamed.bin");
         let copy_path = format!("{test_root}/copied.bin");

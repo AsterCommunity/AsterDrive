@@ -5,38 +5,30 @@ import { toast } from "sonner";
 import {
 	getEndpointValidationMessage,
 	getPolicyConnectionTestKey,
-	getS3CompatibleDriverPromotionTarget,
 } from "@/components/admin/storage-policy-dialog/connectionNormalization";
-import {
-	supportsObjectStorageConnection,
-	supportsRemoteNodeBinding,
-	supportsStoragePolicyAction,
-} from "@/components/admin/storage-policy-dialog/descriptorPredicates";
-import {
-	getPolicyForm,
-	type PolicyFormData,
-} from "@/components/admin/storage-policy-dialog/formTypes";
-import { MICROSOFT_GRAPH_PROVIDER } from "@/components/admin/storage-policy-dialog/onedriveFieldUtils";
+import { findStorageConnectorAction } from "@/components/admin/storage-policy-dialog/descriptorPredicates";
+import type { PolicyFormData } from "@/components/admin/storage-policy-dialog/formTypes";
 import {
 	buildPolicyTestPayload,
-	buildTencentCosCorsPayload,
+	buildStorageConnectorActionPayload,
 } from "@/components/admin/storage-policy-dialog/payloadBuilders";
 import {
+	selectStorageConnectorCustomActionExecutionMode,
 	selectStoragePolicyActionValueSource,
 	selectStoragePolicyConnectionTestMode,
 } from "@/components/admin/storage-policy-dialog/policyActionSelection";
 import { policyFormHasUnsavedChanges } from "@/components/admin/storage-policy-dialog/policyFormComparison";
+import type { StorageConnectorActionValues } from "@/components/admin/storage-policy-dialog/StorageConnectorActionsPanel";
 import { handleApiError } from "@/hooks/useApiError";
 import { usePendingAction } from "@/hooks/usePendingAction";
-import { invalidateAdminPolicyLookup } from "@/lib/adminPolicyLookup";
-import { getStorageDriverDescriptor } from "@/lib/adminStorageDriverDescriptors";
+import { getStorageConnectorDescriptor } from "@/lib/adminStorageDriverDescriptors";
 import { adminPolicyService } from "@/services/adminService";
 import type {
-	DriverType,
+	StorageConnectorActionId,
 	StorageConnectorCredentialInfo,
 	StorageConnectorDescriptor,
+	StorageConnectorFieldValue,
 	StoragePolicy,
-	StoragePolicyCapacityInfo,
 } from "@/types/api";
 
 interface StoragePolicyActionControllerInput {
@@ -46,18 +38,12 @@ interface StoragePolicyActionControllerInput {
 	editingPolicy: StoragePolicy | null;
 	form: PolicyFormData;
 	loadPolicyCapacity: (policyId: number) => void;
-	setEditingId: Dispatch<SetStateAction<number | null>>;
-	setEditingPolicy: Dispatch<SetStateAction<StoragePolicy | null>>;
-	setForm: Dispatch<SetStateAction<PolicyFormData>>;
-	setPolicies: Dispatch<SetStateAction<StoragePolicy[]>>;
-	setPolicyCapacity: Dispatch<SetStateAction<StoragePolicyCapacityInfo | null>>;
 	setStorageCredentials: Dispatch<
 		SetStateAction<StorageConnectorCredentialInfo[]>
 	>;
 	storageCredentialValidationRequestSerial: MutableRefObject<number>;
 	storageDriverDescriptors: StorageConnectorDescriptor[];
 	syncNormalizedPolicyForm: () => PolicyFormData;
-	onDriverSuggestionApply: (driverType: DriverType) => void;
 }
 
 export function useStoragePolicyActionController({
@@ -67,32 +53,22 @@ export function useStoragePolicyActionController({
 	editingPolicy,
 	form,
 	loadPolicyCapacity,
-	onDriverSuggestionApply,
-	setEditingId,
-	setEditingPolicy,
-	setForm,
-	setPolicies,
-	setPolicyCapacity,
 	setStorageCredentials,
 	storageCredentialValidationRequestSerial,
 	storageDriverDescriptors,
 	syncNormalizedPolicyForm,
 }: StoragePolicyActionControllerInput) {
 	const { t } = useTranslation("admin");
-	const [cosCorsConfirmOpen, setCosCorsConfirmOpen] = useState(false);
-	const [s3DriverPromotionConfirmOpen, setS3DriverPromotionConfirmOpen] =
-		useState(false);
+	const [connectorActionConfirmId, setConnectorActionConfirmId] = useState<
+		string | null
+	>(null);
+	const [connectorActionSubmittingId, setConnectorActionSubmittingId] =
+		useState<string | null>(null);
+	const [connectorActionValues, setConnectorActionValues] =
+		useState<StorageConnectorActionValues>({});
 	const [validatedConnectionKey, setValidatedConnectionKey] = useState<
 		string | null
 	>(null);
-	const {
-		pending: s3DriverPromotionSubmitting,
-		runWithPending: runWithS3DriverPromotion,
-	} = usePendingAction();
-	const {
-		pending: cosCorsSubmitting,
-		runWithPending: runWithCosCorsConfigure,
-	} = usePendingAction();
 	const {
 		pending: storageAuthorizationSubmitting,
 		runWithPending: runWithStorageAuthorization,
@@ -102,66 +78,14 @@ export function useStoragePolicyActionController({
 		runWithPending: runWithStorageCredentialValidation,
 	} = usePendingAction();
 
-	const canConfigureTencentCosCors = supportsStoragePolicyAction(
-		currentStorageDriverDescriptor,
-		"configure_tencent_cos_cors",
-	);
-	const currentAuthorizationProvider =
-		currentStorageDriverDescriptor?.authorization_provider ?? null;
-	const isMicrosoftGraphAuthorizationProvider =
-		currentAuthorizationProvider === MICROSOFT_GRAPH_PROVIDER;
-	const getS3CompatiblePromotionDriverLabel = (driverType: DriverType) => {
-		const descriptor = getStorageDriverDescriptor(
-			storageDriverDescriptors,
-			driverType,
-		);
-		return descriptor?.ui ? t(descriptor.ui.label_key) : driverType;
-	};
-	const savedS3DriverPromotionTarget = getS3CompatibleDriverPromotionTarget(
-		editingPolicy,
-		getStorageDriverDescriptor(
-			storageDriverDescriptors,
-			editingPolicy?.driver_type ?? form.driver_type,
-		),
-		getS3CompatiblePromotionDriverLabel,
-	);
-	const draftS3DriverPromotionTarget = getS3CompatibleDriverPromotionTarget(
-		editingId !== null
-			? { driver_type: form.driver_type, endpoint: form.endpoint }
-			: null,
-		currentStorageDriverDescriptor,
-		getS3CompatiblePromotionDriverLabel,
-	);
-	const s3DriverPromotionTarget =
-		draftS3DriverPromotionTarget ?? savedS3DriverPromotionTarget;
-	const s3CompatibleDriverSuggestionTarget =
-		getS3CompatibleDriverPromotionTarget(
-			{ driver_type: form.driver_type, endpoint: form.endpoint },
-			currentStorageDriverDescriptor,
-			getS3CompatiblePromotionDriverLabel,
-		);
-	const s3DriverPromotionBlocked =
-		s3DriverPromotionTarget != null &&
-		policyFormHasUnsavedChanges(
-			form,
-			editingPolicy,
-			currentStorageDriverDescriptor,
-		);
-	const cosCorsUsesDraftValues =
-		selectStoragePolicyActionValueSource({
-			descriptor: currentStorageDriverDescriptor,
-			editingId,
-			editingPolicy,
-			form,
-		}) === "draft";
-
 	const clearActionConfirms = () => {
-		setS3DriverPromotionConfirmOpen(false);
-		setCosCorsConfirmOpen(false);
+		setConnectorActionConfirmId(null);
 	};
 
 	const resetActionState = () => {
 		clearActionConfirms();
+		setConnectorActionSubmittingId(null);
+		setConnectorActionValues({});
 		setValidatedConnectionKey(null);
 	};
 
@@ -173,10 +97,14 @@ export function useStoragePolicyActionController({
 		showFailureError?: boolean;
 	} = {}) => {
 		const currentForm = syncNormalizedPolicyForm();
-		const descriptor = getStorageDriverDescriptor(
+		const descriptor = getStorageConnectorDescriptor(
 			storageDriverDescriptors,
-			currentForm.driver_type,
+			currentForm.connector_id,
 		);
+		if (!descriptor) {
+			setValidatedConnectionKey(null);
+			return false;
+		}
 		const currentEndpointValidationMessage = getEndpointValidationMessage(
 			currentForm,
 			t,
@@ -210,14 +138,9 @@ export function useStoragePolicyActionController({
 				await adminPolicyService.testConnection(editingId);
 			}
 
-			if (
-				supportsObjectStorageConnection(descriptor) ||
-				supportsRemoteNodeBinding(descriptor)
-			) {
-				setValidatedConnectionKey(
-					getPolicyConnectionTestKey(currentForm, descriptor),
-				);
-			}
+			setValidatedConnectionKey(
+				getPolicyConnectionTestKey(currentForm, descriptor),
+			);
 			if (showSuccessToast) {
 				toast.success(t("connection_success"));
 			}
@@ -231,41 +154,80 @@ export function useStoragePolicyActionController({
 		}
 	};
 
-	const requestS3DriverPromotion = () => {
-		if (!savedS3DriverPromotionTarget || s3DriverPromotionBlocked) {
+	const cancelConnectorAction = () => {
+		setConnectorActionConfirmId(null);
+	};
+
+	const setConnectorActionValue = (
+		actionId: string,
+		fieldName: string,
+		value: StorageConnectorFieldValue | undefined,
+	) => {
+		setConnectorActionValues((current) => {
+			const actionValues = { ...(current[actionId] ?? {}) };
+			if (value === undefined) {
+				delete actionValues[fieldName];
+			} else {
+				actionValues[fieldName] = value;
+			}
+			return { ...current, [actionId]: actionValues };
+		});
+	};
+
+	const executeConnectorAction = async (actionId: StorageConnectorActionId) => {
+		const action = findStorageConnectorAction(
+			currentStorageDriverDescriptor,
+			actionId,
+			"custom",
+		);
+		if (!action || !currentStorageDriverDescriptor) {
 			return;
 		}
-		setS3DriverPromotionConfirmOpen(true);
-	};
-
-	const cancelS3DriverPromotion = () => {
-		setS3DriverPromotionConfirmOpen(false);
-	};
-
-	const cancelCosCorsConfigure = () => {
-		setCosCorsConfirmOpen(false);
-	};
-
-	const requestOrConfirmCosCorsConfigure = () => {
-		if (cosCorsConfirmOpen) {
-			void configureTencentCosCors();
-			return;
-		}
-		setCosCorsConfirmOpen(true);
-	};
-
-	const configureTencentCosCors = async () => {
-		if (!canConfigureTencentCosCors) {
+		const values = connectorActionValues[actionId] ?? {};
+		const missingField = action.fields?.find((field) => {
+			if (!field.required) {
+				return false;
+			}
+			const value = values[field.name] ?? field.default_value;
+			return value === undefined || value === "";
+		});
+		if (missingField) {
+			toast.error(
+				t(
+					missingField.required_message_key ??
+						"policy_connector_action_field_required",
+					{ field: t(missingField.label_key) },
+				),
+			);
 			return;
 		}
 
-		await runWithCosCorsConfigure(async () => {
-			try {
-				const currentForm = syncNormalizedPolicyForm();
-				const descriptor = getStorageDriverDescriptor(
-					storageDriverDescriptors,
-					currentForm.driver_type,
-				);
+		setConnectorActionSubmittingId(actionId);
+		try {
+			const currentForm = syncNormalizedPolicyForm();
+			const descriptor = currentStorageDriverDescriptor;
+			if (!descriptor || descriptor.connector_id !== currentForm.connector_id) {
+				return;
+			}
+			const valueSource = selectStoragePolicyActionValueSource({
+				descriptor,
+				editingId,
+				editingPolicy,
+				form: currentForm,
+			});
+			const executionMode = selectStorageConnectorCustomActionExecutionMode(
+				action,
+				valueSource,
+				editingId,
+			);
+			if (executionMode === "save_first") {
+				toast.error(t("policy_connector_action_save_first"));
+				return;
+			}
+			if (executionMode === "unsupported") {
+				return;
+			}
+			if (executionMode === "draft") {
 				const currentEndpointValidationMessage = getEndpointValidationMessage(
 					currentForm,
 					t,
@@ -275,90 +237,63 @@ export function useStoragePolicyActionController({
 					toast.error(currentEndpointValidationMessage);
 					return;
 				}
-
-				const shouldUseDraft =
-					selectStoragePolicyActionValueSource({
-						descriptor,
+				await adminPolicyService.executeDraftPolicyAction(
+					buildStorageConnectorActionPayload(
+						currentForm,
 						editingId,
-						editingPolicy,
-						form: currentForm,
-					}) === "draft";
-				const result =
-					editingId !== null && !shouldUseDraft
-						? await adminPolicyService.executeSavedPolicyAction(editingId, {
-								action: "configure_tencent_cos_cors",
-							})
-						: await adminPolicyService.executeDraftPolicyAction(
-								buildTencentCosCorsPayload(currentForm, editingId, descriptor),
-							);
-				const requestId = result.tencent_cos_cors?.request_id;
-				setCosCorsConfirmOpen(false);
-				toast.success(t("policy_cos_cors_success"), {
-					description: requestId
-						? t("policy_cos_cors_success_request_id", {
-								requestId,
-							})
-						: undefined,
+						descriptor,
+						actionId,
+						values,
+					),
+				);
+			} else {
+				const savedPolicyId = editingId;
+				if (savedPolicyId === null) {
+					return;
+				}
+				await adminPolicyService.executeSavedPolicyAction(savedPolicyId, {
+					action_id: actionId,
+					values,
 				});
-			} catch (error) {
-				handleApiError(error);
 			}
-		});
+			setConnectorActionConfirmId(null);
+			toast.success(
+				t("policy_connector_action_success", {
+					action: t(action.label_key),
+				}),
+			);
+		} catch (error) {
+			handleApiError(error);
+		} finally {
+			setConnectorActionSubmittingId(null);
+		}
 	};
 
-	const confirmS3DriverPromotion = () => {
-		if (
-			!editingPolicy ||
-			!savedS3DriverPromotionTarget ||
-			s3DriverPromotionBlocked
-		) {
+	const requestConnectorAction = (actionId: StorageConnectorActionId) => {
+		const action = findStorageConnectorAction(
+			currentStorageDriverDescriptor,
+			actionId,
+			"custom",
+		);
+		if (!action) {
 			return;
 		}
-
-		void runWithS3DriverPromotion(async () => {
-			try {
-				const updated = await adminPolicyService.promoteS3CompatibleDriver(
-					editingPolicy.id,
-					{
-						target_driver_type: savedS3DriverPromotionTarget.driverType,
-						endpoint: editingPolicy.endpoint,
-						bucket: editingPolicy.bucket,
-					},
-				);
-				setS3DriverPromotionConfirmOpen(false);
-				setEditingId(updated.id);
-				setEditingPolicy(updated);
-				setForm(getPolicyForm(updated));
-				setPolicies((prev) =>
-					prev.map((policy) => (policy.id === updated.id ? updated : policy)),
-				);
-				setPolicyCapacity((prev) =>
-					prev == null ? prev : { ...prev, driver_type: updated.driver_type },
-				);
-				invalidateAdminPolicyLookup();
-				toast.success(
-					t("policy_s3_driver_promotion_success", {
-						driver: savedS3DriverPromotionTarget.driverLabel,
-					}),
-				);
-			} catch (error) {
-				handleApiError(error);
-			}
-		});
-	};
-
-	const applyS3CompatibleDriverSuggestion = () => {
-		if (!s3CompatibleDriverSuggestionTarget) {
+		if (action.requires_confirmation) {
+			setConnectorActionConfirmId(actionId);
 			return;
 		}
-		onDriverSuggestionApply(s3CompatibleDriverSuggestionTarget.driverType);
+		void executeConnectorAction(actionId);
 	};
 
 	const startStorageAuthorization = () => {
 		if (
 			editingId === null ||
 			!editingPolicy ||
-			!isMicrosoftGraphAuthorizationProvider
+			!findStorageConnectorAction(
+				currentStorageDriverDescriptor,
+				"start_authorization",
+				"authorization",
+			)
 		) {
 			return;
 		}
@@ -374,12 +309,8 @@ export function useStoragePolicyActionController({
 		}
 		void runWithStorageAuthorization(async () => {
 			try {
-				const result = await adminPolicyService.startStorageAuthorization(
-					editingId,
-					{
-						provider: MICROSOFT_GRAPH_PROVIDER,
-					},
-				);
+				const result =
+					await adminPolicyService.startStorageAuthorization(editingId);
 				toast.success(t("onedrive_authorization_started"));
 				const opened = window.open(result.authorization_url, "_blank");
 				if (opened) {
@@ -394,7 +325,14 @@ export function useStoragePolicyActionController({
 	};
 
 	const validateStorageCredential = () => {
-		if (editingId === null || !isMicrosoftGraphAuthorizationProvider) {
+		if (
+			editingId === null ||
+			!findStorageConnectorAction(
+				currentStorageDriverDescriptor,
+				"validate_credential",
+				"credential_validation",
+			)
+		) {
 			return;
 		}
 		if (
@@ -422,10 +360,8 @@ export function useStoragePolicyActionController({
 					return;
 				}
 
-				const result = await adminPolicyService.validateStorageCredential(
-					policyId,
-					MICROSOFT_GRAPH_PROVIDER,
-				);
+				const result =
+					await adminPolicyService.validateStorageCredential(policyId);
 				if (isCurrentValidationRequest()) {
 					setStorageCredentials((prev) => {
 						const nextCredential = result.credential;
@@ -462,26 +398,17 @@ export function useStoragePolicyActionController({
 	};
 
 	return {
-		applyS3CompatibleDriverSuggestion,
-		canConfigureTencentCosCors,
-		cancelCosCorsConfigure,
-		cancelS3DriverPromotion,
+		cancelConnectorAction,
 		clearActionConfirms,
-		confirmS3DriverPromotion,
-		cosCorsConfirmOpen,
-		cosCorsSubmitting,
-		cosCorsUsesDraftValues,
-		requestOrConfirmCosCorsConfigure,
-		requestS3DriverPromotion,
+		connectorActionConfirmId,
+		connectorActionSubmittingId,
+		connectorActionValues,
+		executeConnectorAction,
+		requestConnectorAction,
 		resetActionState,
 		runConnectionTest,
-		s3CompatibleDriverSuggestionTargetLabel:
-			s3CompatibleDriverSuggestionTarget?.driverLabel ?? null,
-		s3DriverPromotionBlocked,
-		s3DriverPromotionConfirmOpen,
-		s3DriverPromotionSubmitting,
-		s3DriverPromotionTargetLabel: s3DriverPromotionTarget?.driverLabel ?? null,
 		setValidatedConnectionKey,
+		setConnectorActionValue,
 		startStorageAuthorization,
 		storageAuthorizationSubmitting,
 		storageCredentialValidationSubmitting,

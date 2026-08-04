@@ -5,16 +5,98 @@ use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code}
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::StoredStoragePolicyAllowedTypes;
 use aster_drive_storage::connector_descriptor::{
-    StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDescriptor,
-    StoragePolicyExecutableAction,
+    StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionId,
+    StorageConnectorActionKind, StorageConnectorDescriptor, StorageConnectorFieldDescriptor,
+    StorageConnectorFieldScope, StorageConnectorSelectOptionInput, storage_connector_select_field,
 };
 use aster_drive_storage::{
-    ConnectorConfigEnvelope, ConnectorId, StorageDriver, StorageErrorKind,
+    ConnectorConfigEnvelope, ConnectorId, StorageConnectorActionSchema,
+    StorageConnectorFieldDefaultValue, StorageDriver, StorageErrorKind,
     StoragePolicyBehaviorConfig,
 };
 use serde::{Serialize, de::DeserializeOwned};
 
 use super::StorageConnectorCredentialInput;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum StorageTransferDirection {
+    Upload,
+    Download,
+}
+
+/// Build the common relay/presigned transfer strategy field.
+///
+/// Direction is explicit because a boolean argument makes call sites such as
+/// `transfer_options(true)` impossible to review without opening the helper.
+pub(super) fn transfer_strategy_field(
+    name: &str,
+    direction: StorageTransferDirection,
+) -> StorageConnectorFieldDescriptor {
+    let mut field = storage_connector_select_field(
+        name,
+        StorageConnectorFieldScope::ConnectorConfig,
+        true,
+        transfer_strategy_options(direction),
+    );
+    field.default_value = Some(StorageConnectorFieldDefaultValue::String(
+        "relay_stream".to_string(),
+    ));
+    field
+}
+
+fn transfer_strategy_options(
+    direction: StorageTransferDirection,
+) -> Vec<StorageConnectorSelectOptionInput<'static>> {
+    let (relay_label, relay_description, presigned_label, presigned_description) = match direction {
+        StorageTransferDirection::Upload => (
+            "upload_strategy_relay_stream",
+            "upload_strategy_relay_stream_desc",
+            "upload_strategy_presigned",
+            "upload_strategy_presigned_desc",
+        ),
+        StorageTransferDirection::Download => (
+            "download_strategy_relay_stream",
+            "download_strategy_relay_stream_desc",
+            "download_strategy_presigned",
+            "download_strategy_presigned_desc",
+        ),
+    };
+    vec![
+        StorageConnectorSelectOptionInput {
+            value: "relay_stream",
+            label_key: relay_label,
+            description_key: Some(relay_description),
+        },
+        StorageConnectorSelectOptionInput {
+            value: "presigned",
+            label_key: presigned_label,
+            description_key: Some(presigned_description),
+        },
+    ]
+}
+
+pub(super) fn runtime_static_credential<T: DeserializeOwned>(
+    registry: &crate::storage::DriverRegistry,
+    policy: &storage_policy::Model,
+    connector_id: &'static str,
+) -> Result<T> {
+    let credential = registry.get_runtime_credential(policy.id).ok_or_else(|| {
+        crate::errors::storage_driver_error(
+            StorageErrorKind::Auth,
+            format!("storage policy {} is missing static credentials", policy.id),
+        )
+    })?;
+    let values = credential.require::<serde_json::Value>(connector_id)?;
+    serde_json::from_value(values.clone()).map_err(|error| {
+        crate::errors::storage_driver_error(
+            StorageErrorKind::Misconfigured,
+            format!(
+                "storage policy {} has invalid static credentials: {error}",
+                policy.id
+            ),
+        )
+    })
+}
 
 pub(super) fn build_connection_test_policy(
     connector_config: ConnectorConfigEnvelope,
@@ -197,28 +279,42 @@ pub(super) fn import_legacy_static_credential<T: Serialize>(
         })
 }
 
-pub(super) fn ensure_policy_action_supported(
-    descriptor: StorageConnectorDescriptor,
-    action: StoragePolicyExecutableAction,
-) -> Result<()> {
-    if descriptor.actions.iter().any(|descriptor_action| {
-        descriptor_action.kind == StorageConnectorActionKind::PolicyAction
-            && descriptor_action.policy_action == Some(action)
-    }) {
-        return Ok(());
+pub(super) fn decode_normalized_connector_action_input<T>(
+    descriptor: &StorageConnectorActionDescriptor,
+    values: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> Result<T>
+where
+    T: DeserializeOwned + StorageConnectorActionSchema,
+{
+    let declared_fields = T::action_fields();
+    if descriptor.fields != declared_fields {
+        return Err(AsterError::internal_error(format!(
+            "storage connector action '{}' descriptor fields do not match its typed input schema",
+            descriptor.action_id.as_str()
+        )));
     }
-    Err(unsupported_policy_action_error(descriptor, action))
+    serde_json::to_value(values)
+        .and_then(serde_json::from_value)
+        .map_err(|error| {
+            validation_error_with_code(
+                ApiErrorCode::PolicyActionParameterInvalid,
+                format!(
+                    "storage connector action '{}' input is invalid: {error}",
+                    descriptor.action_id.as_str()
+                ),
+            )
+        })
 }
 
-pub(super) fn unsupported_policy_action_error(
-    descriptor: StorageConnectorDescriptor,
-    action: StoragePolicyExecutableAction,
+pub(super) fn unsupported_connector_action_error(
+    descriptor: &StorageConnectorDescriptor,
+    action_id: &StorageConnectorActionId,
 ) -> AsterError {
     validation_error_with_code(
         ApiErrorCode::PolicyActionUnsupported,
         format!(
-            "storage policy action '{}' is not supported for {} storage policies",
-            action.as_str(),
+            "storage connector action '{}' is not supported for connector '{}'",
+            action_id.as_str(),
             descriptor.connector_id.as_str()
         ),
     )
@@ -228,8 +324,10 @@ pub(super) fn unsupported_draft_connection_test_error(
     descriptor: StorageConnectorDescriptor,
 ) -> AsterError {
     if descriptor.actions.iter().any(|action| {
-        action.affordance_action == Some(StorageConnectorAffordanceAction::TestSavedConnection)
-            && action.kind == StorageConnectorActionKind::ConnectionTest
+        action.kind == StorageConnectorActionKind::ConnectionTest
+            && action
+                .endpoints
+                .contains(&StorageConnectorActionEndpoint::TestPolicyConnection)
             && action.requires_saved_policy
             && action.requires_authorization
     }) {

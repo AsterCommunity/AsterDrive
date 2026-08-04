@@ -17,7 +17,7 @@ import {
 	type PolicyFormData,
 } from "@/components/admin/storage-policy-dialog/formTypes";
 import {
-	applyPolicyDriverTransition,
+	applyPolicyConnectorTransition,
 	applyPolicyFormFieldChange,
 } from "@/components/admin/storage-policy-dialog/policyFormTransition";
 import { AdminLayout } from "@/components/layout/AdminLayout";
@@ -29,13 +29,12 @@ import { config } from "@/config/app";
 import { handleApiError } from "@/hooks/useApiError";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { invalidateAdminPolicyLookup } from "@/lib/adminPolicyLookup";
-import { getStorageDriverDescriptor } from "@/lib/adminStorageDriverDescriptors";
+import { getStorageConnectorDescriptor } from "@/lib/adminStorageDriverDescriptors";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { adminPolicyService } from "@/services/adminService";
 import { useAuthStore } from "@/stores/authStore";
 import { useSystemSetupStore } from "@/stores/systemSetupStore";
 import type {
-	DriverType,
 	StorageConnectorCredentialInfo,
 	StoragePolicy,
 	StoragePolicyCapacityInfo,
@@ -144,7 +143,7 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 		if (
 			creatableDescriptors.length === 0 ||
 			creatableDescriptors.some(
-				(descriptor) => descriptor.driver_type === form.driver_type,
+				(descriptor) => descriptor.connector_id === form.connector_id,
 			)
 		) {
 			return;
@@ -152,9 +151,9 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 
 		const firstDescriptor = creatableDescriptors[0];
 		setForm((current) => {
-			const transitioned = applyPolicyDriverTransition(
+			const transitioned = applyPolicyConnectorTransition(
 				current,
-				firstDescriptor.driver_type,
+				firstDescriptor.connector_id,
 				firstDescriptor,
 			);
 			return setupMode ? { ...transitioned, is_default: true } : transitioned;
@@ -163,7 +162,7 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 		descriptorController.creatableStorageDriverDescriptors,
 		dialogOpen,
 		editingId,
-		form.driver_type,
+		form.connector_id,
 		setupMode,
 	]);
 	const [submitting, setSubmitting] = useState(false);
@@ -214,12 +213,6 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 		editingPolicy,
 		form,
 		loadPolicyCapacity,
-		onDriverSuggestionApply: setDriverType,
-		setEditingId,
-		setEditingPolicy,
-		setForm,
-		setPolicies: policyList.setPolicies,
-		setPolicyCapacity,
 		setStorageCredentials,
 		storageCredentialValidationRequestSerial,
 		storageDriverDescriptors: descriptorController.storageDriverDescriptors,
@@ -286,10 +279,10 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 	};
 
 	const loadStorageCredentials = useCallback(
-		(policyId: number, driverType: DriverType) => {
-			const descriptor = getStorageDriverDescriptor(
+		(policyId: number, connectorId: string) => {
+			const descriptor = getStorageConnectorDescriptor(
 				descriptorController.storageDriverDescriptors,
-				driverType,
+				connectorId,
 			);
 			if (!supportsStorageCredentialLifecycle(descriptor)) {
 				setStorageCredentials([]);
@@ -332,7 +325,7 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 		if (!editingPolicy) {
 			return;
 		}
-		loadStorageCredentials(editingPolicy.id, editingPolicy.driver_type);
+		loadStorageCredentials(editingPolicy.id, editingPolicy.connector_id);
 	}, [editingPolicy, loadStorageCredentials]);
 
 	const openEdit = useCallback(
@@ -415,18 +408,18 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 		});
 	};
 
-	function setDriverType(driverType: DriverType) {
+	function setConnectorId(connectorId: string) {
 		setSaveAnywayConfirmOpen(false);
 		actionController.resetActionState();
 		setCreateStepTouched(false);
 		setForm((prev) => {
-			const nextDriverDescriptor = getStorageDriverDescriptor(
+			const nextDriverDescriptor = getStorageConnectorDescriptor(
 				descriptorController.storageDriverDescriptors,
-				driverType,
+				connectorId,
 			);
-			const next = applyPolicyDriverTransition(
+			const next = applyPolicyConnectorTransition(
 				prev,
-				driverType,
+				connectorId,
 				nextDriverDescriptor,
 			);
 			return setupMode ? { ...next, is_default: true } : next;
@@ -434,9 +427,9 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 	}
 
 	function syncNormalizedPolicyForm() {
-		const descriptor = getStorageDriverDescriptor(
+		const descriptor = getStorageConnectorDescriptor(
 			descriptorController.storageDriverDescriptors,
-			form.driver_type,
+			form.connector_id,
 		);
 		const normalizedForm = normalizePolicyForm(
 			setupMode ? { ...form, is_default: true } : form,
@@ -506,21 +499,9 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 				actionController.storageCredentialValidationSubmitting
 			}
 			storageAuthorizationRedirectUri={storageAuthorizationRedirectUri}
-			cosCorsConfirmOpen={actionController.cosCorsConfirmOpen}
-			cosCorsSubmitting={actionController.cosCorsSubmitting}
-			cosCorsUsesDraftValues={actionController.cosCorsUsesDraftValues}
-			canConfigureTencentCosCors={actionController.canConfigureTencentCosCors}
-			s3CompatibleDriverSuggestionTargetLabel={
-				actionController.s3CompatibleDriverSuggestionTargetLabel
-			}
-			s3DriverPromotionBlocked={actionController.s3DriverPromotionBlocked}
-			s3DriverPromotionConfirmOpen={
-				actionController.s3DriverPromotionConfirmOpen
-			}
-			s3DriverPromotionSubmitting={actionController.s3DriverPromotionSubmitting}
-			s3DriverPromotionTargetLabel={
-				actionController.s3DriverPromotionTargetLabel
-			}
+			connectorActionConfirmId={actionController.connectorActionConfirmId}
+			connectorActionSubmittingId={actionController.connectorActionSubmittingId}
+			connectorActionValues={actionController.connectorActionValues}
 			remoteNodes={descriptorController.remoteNodes}
 			remoteStorageTargetDriverDescriptors={
 				descriptorController.remoteStorageTargetDriverDescriptors
@@ -545,38 +526,33 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 			forceDefaultPolicy={setupMode}
 			storageDialogPresentation={setupMode ? "setup" : "dialog"}
 			onStorageSetupLogout={setupMode ? () => void logout() : undefined}
-			onApplyS3CompatibleDriverSuggestion={
-				actionController.applyS3CompatibleDriverSuggestion
-			}
-			onCancelCosCorsConfigure={actionController.cancelCosCorsConfigure}
+			onCancelConnectorAction={actionController.cancelConnectorAction}
 			onCancelSaveAnyway={editorController.cancelSaveAnyway}
-			onCancelS3DriverPromotion={actionController.cancelS3DriverPromotion}
 			onConfirmSaveAnyway={() =>
 				editorController.confirmSaveAnyway(actionController)
 			}
-			onConfirmCosCorsConfigure={() => {
+			onConfirmConnectorAction={(actionId) => {
 				setSaveAnywayConfirmOpen(false);
-				actionController.requestOrConfirmCosCorsConfigure();
+				void actionController.executeConnectorAction(actionId);
 			}}
-			onConfirmS3DriverPromotion={actionController.confirmS3DriverPromotion}
 			onStartStorageAuthorization={actionController.startStorageAuthorization}
 			onValidateStorageCredential={actionController.validateStorageCredential}
 			onCreateRemoteStorageTarget={
 				descriptorController.createRemoteStorageTargetForPolicy
 			}
 			onDialogOpenChange={handleDialogOpenChange}
+			onConnectorActionValueChange={actionController.setConnectorActionValue}
 			onSubmit={() => editorController.handleSubmit(actionController)}
-			onRequestS3DriverPromotion={() => {
+			onRequestConnectorAction={(actionId) => {
 				setSaveAnywayConfirmOpen(false);
-				actionController.requestS3DriverPromotion();
+				actionController.requestConnectorAction(actionId);
 			}}
 			onRunConnectionTest={() => actionController.runConnectionTest()}
 			onFieldChange={setField}
-			onDriverTypeChange={setDriverType}
+			onConnectorIdChange={setConnectorId}
 			onCreateBack={editorController.handleCreateBack}
 			onCreateStepChange={editorController.handleCreateStepChange}
 			onCreateNext={editorController.handleCreateNext}
-			onSyncNormalizedObjectStorageForm={syncNormalizedPolicyForm}
 		/>
 	);
 

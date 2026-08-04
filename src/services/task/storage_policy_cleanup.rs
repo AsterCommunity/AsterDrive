@@ -344,10 +344,12 @@ fn dedup_multipart_targets(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::connectors::test_support::{local_policy, onedrive_policy, remote_policy};
     use crate::storage::connectors::{
-        StoragePolicyCleanupDriverSnapshot, StoragePolicyCleanupOneDriveCredentialSnapshot,
-        StoragePolicyCleanupRemoteNodeSnapshot, builtin_storage_connector_registry,
+        OneDriveAccountMode, StoragePolicyCleanupDriverSnapshot, builtin_storage_connector_registry,
     };
+    use aster_drive_model::types::{RemoteDownloadStrategy, RemoteUploadStrategy};
+    use aster_drive_storage::{ConnectorId, StoragePolicyBehaviorConfig};
 
     fn registry() -> crate::storage::connectors::StorageConnectorRegistry {
         builtin_storage_connector_registry().expect("built-in connector registry")
@@ -356,57 +358,47 @@ mod tests {
     #[test]
     fn onedrive_cleanup_task_requires_driver_snapshot() {
         let registry = registry();
-        assert!(!can_create_cleanup_task_with_snapshot(
-            &registry,
-            aster_drive_model::types::DriverType::OneDrive,
-            &None
-        ));
-        assert!(can_create_cleanup_task_with_snapshot(
-            &registry,
-            aster_drive_model::types::DriverType::Local,
-            &None
-        ));
+        let onedrive = onedrive_policy(
+            OneDriveAccountMode::Personal,
+            Some("drive".to_string()),
+            None,
+            None,
+            StoragePolicyBehaviorConfig::default(),
+        );
+        let local = local_policy("");
+        assert!(!can_create_cleanup_task_with_snapshot(&registry, &onedrive, &None).unwrap());
+        assert!(can_create_cleanup_task_with_snapshot(&registry, &local, &None).unwrap());
 
-        let snapshot = StoragePolicyCleanupOneDriveCredentialSnapshot {
-            cloud: aster_drive_model::types::MicrosoftGraphCloud::Global,
-            tenant_id: None,
-            client_id: None,
-            client_secret_ciphertext: None,
-            drive_id: "drive".to_string(),
-            root_item_id: "root".to_string(),
-            access_token_ciphertext: "access".to_string(),
-            refresh_token_ciphertext: Some("refresh".to_string()),
-            expires_at: None,
-        };
-        assert!(can_create_cleanup_task_with_snapshot(
-            &registry,
-            aster_drive_model::types::DriverType::OneDrive,
-            &Some(StoragePolicyCleanupDriverSnapshot::MicrosoftGraph(snapshot))
-        ));
+        let snapshot = StoragePolicyCleanupDriverSnapshot::encode(
+            ConnectorId::declared("asterdrive.storage.onedrive"),
+            1,
+            &serde_json::json!({ "credential": "snapshot" }),
+        )
+        .unwrap();
+        assert!(
+            can_create_cleanup_task_with_snapshot(&registry, &onedrive, &Some(snapshot)).unwrap()
+        );
     }
 
     #[test]
     fn remote_cleanup_task_requires_driver_snapshot() {
         let registry = registry();
-        assert!(!can_create_cleanup_task_with_snapshot(
-            &registry,
-            aster_drive_model::types::DriverType::Remote,
-            &None
-        ));
+        let remote = remote_policy(
+            "",
+            Some(7),
+            RemoteDownloadStrategy::RelayStream,
+            RemoteUploadStrategy::RelayStream,
+        );
+        assert!(!can_create_cleanup_task_with_snapshot(&registry, &remote, &None).unwrap());
 
-        let snapshot = StoragePolicyCleanupRemoteNodeSnapshot {
-            id: 7,
-            name: "edge".to_string(),
-            base_url: "https://edge.example.test".to_string(),
-            transport_mode: aster_drive_model::types::RemoteNodeTransportMode::Direct,
-            access_key_ciphertext: "access".to_string(),
-            secret_key_ciphertext: "secret".to_string(),
-            last_capabilities: "{}".to_string(),
-        };
-        assert!(can_create_cleanup_task_with_snapshot(
-            &registry,
-            aster_drive_model::types::DriverType::Remote,
-            &Some(StoragePolicyCleanupDriverSnapshot::RemoteNode(snapshot))
-        ));
+        let snapshot = StoragePolicyCleanupDriverSnapshot::encode(
+            ConnectorId::declared("asterdrive.storage.remote"),
+            1,
+            &serde_json::json!({ "remote_node": 7 }),
+        )
+        .unwrap();
+        assert!(
+            can_create_cleanup_task_with_snapshot(&registry, &remote, &Some(snapshot)).unwrap()
+        );
     }
 }

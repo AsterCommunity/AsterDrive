@@ -2,9 +2,8 @@
 
 use crate::api::dto::admin::{
     AdminPolicyGroupListQuery, AdminPolicyListQuery, CreatePolicyGroupReq, CreatePolicyReq,
-    DeletePolicyQuery, ExecuteDraftStoragePolicyActionReq, ExecuteSavedStoragePolicyActionReq,
-    MigratePolicyGroupAssignmentsReq, PatchPolicyGroupReq, PatchPolicyReq, PolicyGroupItemReq,
-    StartStorageAuthorizationReq, StorageConnectorCatalogQuery, TestPolicyParamsReq,
+    DeletePolicyQuery, MigratePolicyGroupAssignmentsReq, PatchPolicyGroupReq, PatchPolicyReq,
+    PolicyGroupItemReq, StorageConnectorCatalogQuery, TestPolicyParamsReq,
 };
 use crate::api::dto::validate_request;
 use crate::api::response::{ApiEmptyData, ApiResponse};
@@ -48,38 +47,11 @@ impl From<PatchPolicyReq> for policy::UpdateStoragePolicyInput {
     }
 }
 
-impl From<TestPolicyParamsReq> for policy::TestDraftStoragePolicyConnectionInput {
+impl From<TestPolicyParamsReq> for policy::TestDraftStorageConnectorConnectionInput {
     fn from(value: TestPolicyParamsReq) -> Self {
         Self {
             policy_id: value.policy_id,
             connection: value.connection,
-        }
-    }
-}
-
-impl From<ExecuteDraftStoragePolicyActionReq> for policy::ExecuteDraftStoragePolicyActionInput {
-    fn from(value: ExecuteDraftStoragePolicyActionReq) -> Self {
-        Self {
-            action: value.action,
-            policy_id: value.policy_id,
-            connection: value.connection,
-        }
-    }
-}
-
-impl From<ExecuteSavedStoragePolicyActionReq> for policy::ExecuteSavedStoragePolicyActionInput {
-    fn from(value: ExecuteSavedStoragePolicyActionReq) -> Self {
-        Self {
-            action: value.action,
-        }
-    }
-}
-
-impl From<StartStorageAuthorizationReq> for credential::StorageAuthorizationStartInput {
-    fn from(value: StartStorageAuthorizationReq) -> Self {
-        Self {
-            provider: value.provider,
-            microsoft_graph: value.microsoft_graph,
         }
     }
 }
@@ -355,7 +327,7 @@ pub async fn test_policy_params(
     tag = "admin",
     operation_id = "execute_saved_storage_policy_action",
     params(("id" = i64, Path, description = "Policy ID")),
-    request_body = ExecuteSavedStoragePolicyActionReq,
+    request_body = policy::ExecuteSavedStorageConnectorActionInput,
     responses(
         (status = 200, description = "Storage policy action executed", body = inline(ApiResponse<policy::StoragePolicyActionResult>)),
         (status = 400, description = "Action rejected"),
@@ -370,17 +342,13 @@ pub async fn execute_saved_storage_policy_action(
     claims: web::ReqData<Claims>,
     path: web::Path<i64>,
     req: HttpRequest,
-    body: web::Json<ExecuteSavedStoragePolicyActionReq>,
+    body: web::Json<policy::ExecuteSavedStorageConnectorActionInput>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
-    let result = policy::execute_saved_action_with_audit(
-        state.get_ref(),
-        *path,
-        body.into_inner().into(),
-        &ctx,
-    )
-    .await?;
+    let result =
+        policy::execute_saved_action_with_audit(state.get_ref(), *path, body.into_inner(), &ctx)
+            .await?;
     Ok(storage_policy_action_response(result))
 }
 
@@ -389,7 +357,7 @@ pub async fn execute_saved_storage_policy_action(
     path = "/api/v1/admin/policies/action",
     tag = "admin",
     operation_id = "execute_draft_storage_policy_action",
-    request_body = ExecuteDraftStoragePolicyActionReq,
+    request_body = policy::ExecuteDraftStorageConnectorActionInput,
     responses(
         (status = 200, description = "Storage policy action executed", body = inline(ApiResponse<policy::StoragePolicyActionResult>)),
         (status = 400, description = "Action rejected"),
@@ -402,30 +370,13 @@ pub async fn execute_draft_storage_policy_action(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
     req: HttpRequest,
-    body: web::Json<ExecuteDraftStoragePolicyActionReq>,
+    body: web::Json<policy::ExecuteDraftStorageConnectorActionInput>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     let result =
-        policy::execute_draft_action_with_audit(state.get_ref(), body.into_inner().into(), &ctx)
-            .await?;
+        policy::execute_draft_action_with_audit(state.get_ref(), body.into_inner(), &ctx).await?;
     Ok(storage_policy_action_response(result))
-}
-
-#[aster_forge_api_docs_macros::path(
-    get,
-    path = "/api/v1/admin/policies/storage-credential-providers",
-    tag = "admin",
-    operation_id = "list_storage_credential_providers",
-    responses(
-        (status = 200, description = "Supported storage credential providers", body = inline(ApiResponse<Vec<credential::StorageCredentialProviderInfo>>)),
-        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
-        (status = 403, description = "Forbidden"),
-    ),
-    security(("bearer" = [])),
-)]
-pub async fn list_storage_credential_providers() -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(credential::list_supported_providers())))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -434,7 +385,6 @@ pub async fn list_storage_credential_providers() -> Result<HttpResponse> {
     tag = "admin",
     operation_id = "start_storage_authorization",
     params(("id" = i64, Path, description = "Policy ID")),
-    request_body = StartStorageAuthorizationReq,
     responses(
         (status = 200, description = "Storage credential authorization URL", body = inline(ApiResponse<credential::StorageAuthorizationStartResponse>)),
         (status = 400, description = "Invalid authorization configuration"),
@@ -449,17 +399,9 @@ pub async fn start_storage_authorization(
     claims: web::ReqData<Claims>,
     req: HttpRequest,
     path: web::Path<i64>,
-    body: web::Json<StartStorageAuthorizationReq>,
 ) -> Result<HttpResponse> {
-    validate_request(&*body)?;
-    let response = credential::start_authorization(
-        state.get_ref(),
-        &req,
-        *path,
-        claims.user_id,
-        body.into_inner().into(),
-    )
-    .await?;
+    let response =
+        credential::start_authorization(state.get_ref(), &req, *path, claims.user_id).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(response)))
 }
 
@@ -487,12 +429,11 @@ pub async fn list_storage_policy_credentials(
 
 #[aster_forge_api_docs_macros::path(
     post,
-    path = "/api/v1/admin/policies/{id}/storage-credentials/{provider}/validate",
+    path = "/api/v1/admin/policies/{id}/storage-credentials/validate",
     tag = "admin",
     operation_id = "validate_storage_policy_credential",
     params(
         ("id" = i64, Path, description = "Policy ID"),
-        ("provider" = String, Path, description = "Storage credential provider"),
     ),
     responses(
         (status = 200, description = "Storage policy credential validation result", body = inline(ApiResponse<credential::StoragePolicyCredentialValidationResult>)),
@@ -505,14 +446,9 @@ pub async fn list_storage_policy_credentials(
 )]
 pub async fn validate_storage_policy_credential(
     state: web::Data<PrimaryAppState>,
-    path: web::Path<(i64, String)>,
+    path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let (policy_id, provider) = path.into_inner();
-    let provider = provider.parse().map_err(|()| {
-        crate::errors::AsterError::validation_error("unsupported storage credential provider")
-    })?;
-    let result =
-        credential::validate_policy_credential(state.get_ref(), policy_id, provider).await?;
+    let result = credential::validate_policy_credential(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
 }
 

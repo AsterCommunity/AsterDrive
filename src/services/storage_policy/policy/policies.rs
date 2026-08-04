@@ -10,19 +10,23 @@ use crate::db::repository::{
     file_repo, policy_group_repo, policy_repo, system_initialization_repo,
 };
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
-use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState, TaskRuntimeState};
+use crate::runtime::{
+    RemoteProtocolRuntimeState, SharedRuntimeState, StorageConnectorRuntimeState, TaskRuntimeState,
+};
 use aster_drive_model::entities::storage_policy;
 use aster_drive_storage::{ConnectorConfigEnvelope, StoragePolicyConfigEnvelope};
 use aster_forge_api::{OffsetPage, SortOrder};
 
 use super::models::{
-    CreateStoragePolicyInput, ExecuteDraftStoragePolicyActionInput,
-    ExecuteSavedStoragePolicyActionInput, StoragePolicy, StoragePolicyActionResult,
-    StoragePolicyCapacityInfo, StoragePolicyConnectionInput, StoragePolicyDiagnostic,
-    TestDraftStoragePolicyConnectionInput, UpdateStoragePolicyInput,
+    CreateStoragePolicyInput, StoragePolicy, StoragePolicyActionResult, StoragePolicyCapacityInfo,
+    StoragePolicyDiagnostic, UpdateStoragePolicyInput,
 };
 use super::shared::{
     SYSTEM_STORAGE_POLICY_ID, serialize_allowed_types, set_default_policy_and_group,
+};
+use crate::storage::{
+    ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
+    StorageConnectorConnectionInput, TestDraftStorageConnectorConnectionInput,
 };
 
 pub async fn list_paginated(
@@ -129,7 +133,7 @@ pub async fn create(
     let connection =
         crate::storage::connectors::normalize_connection(connectors, state.writer_db(), connection)
             .await?;
-    let StoragePolicyConnectionInput {
+    let StorageConnectorConnectionInput {
         connector_config,
         behavior,
         credential,
@@ -519,7 +523,10 @@ pub async fn test_default_connection<S: SharedRuntimeState + Sync>(state: &S) ->
     .await
 }
 
-pub async fn test_connection<S: SharedRuntimeState + Sync>(state: &S, id: i64) -> Result<()> {
+pub async fn test_connection<S: StorageConnectorRuntimeState + Sync>(
+    state: &S,
+    id: i64,
+) -> Result<()> {
     let policy = policy_repo::find_by_id(state.writer_db(), id).await?;
     crate::storage::connectors::test_saved_connection(
         state.driver_registry().connectors(),
@@ -531,7 +538,7 @@ pub async fn test_connection<S: SharedRuntimeState + Sync>(state: &S, id: i64) -
 
 pub async fn test_connection_params<S: RemoteProtocolRuntimeState + Sync>(
     state: &S,
-    input: TestDraftStoragePolicyConnectionInput,
+    input: TestDraftStorageConnectorConnectionInput,
 ) -> Result<()> {
     crate::storage::connectors::test_draft_connection(
         state.driver_registry().connectors(),
@@ -541,17 +548,17 @@ pub async fn test_connection_params<S: RemoteProtocolRuntimeState + Sync>(
     .await
 }
 
-pub async fn execute_saved_action<S: SharedRuntimeState + Sync>(
+pub async fn execute_saved_action<S: StorageConnectorRuntimeState + Sync>(
     state: &S,
     id: i64,
-    input: ExecuteSavedStoragePolicyActionInput,
+    input: ExecuteSavedStorageConnectorActionInput,
 ) -> Result<StoragePolicyActionResult> {
     let policy = policy_repo::find_by_id(state.writer_db(), id).await?;
     crate::storage::connectors::execute_saved_action(
         state.driver_registry().connectors(),
         state,
         &policy,
-        input.action,
+        input,
     )
     .await
     .map(Into::into)
@@ -559,7 +566,7 @@ pub async fn execute_saved_action<S: SharedRuntimeState + Sync>(
 
 pub async fn execute_draft_action<S: RemoteProtocolRuntimeState + Sync>(
     state: &S,
-    input: ExecuteDraftStoragePolicyActionInput,
+    input: ExecuteDraftStorageConnectorActionInput,
 ) -> Result<StoragePolicyActionResult> {
     crate::storage::connectors::execute_draft_action(
         state.driver_registry().connectors(),
@@ -572,39 +579,24 @@ pub async fn execute_draft_action<S: RemoteProtocolRuntimeState + Sync>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use async_trait::async_trait;
+    use sea_orm::ActiveValue::Set;
+    use tokio::io::AsyncRead;
+
     use super::*;
     use crate::config::{Config, DatabaseConfig, RuntimeConfig};
     use crate::db;
-    use crate::db::repository::{
-        storage_connector_application_config_repo, storage_policy_credential_repo,
-    };
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use aster_drive_migration::Migrator;
-    use aster_drive_model::types::{
-        MicrosoftGraphCloud, OneDriveAccountMode, RemoteDownloadStrategy, RemoteUploadStrategy,
-        StorageCredentialKind, StorageCredentialProvider, StoragePolicyOptions,
-        StoredStoragePolicyAllowedTypes,
-    };
     use aster_drive_storage::error::storage_driver_error;
     use aster_drive_storage::traits::driver::{BlobMetadata, StorageDriver};
     use aster_drive_storage::traits::extensions::{StorageCapacityInfo, StorageCapacityStatus};
     use aster_forge_cache::CacheConfig;
-    use async_trait::async_trait;
-    use sea_orm::ActiveValue::Set;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use tokio::io::AsyncRead;
-
-    async fn setup_state(encryption_key: &str) -> crate::runtime::PrimaryAppState {
-        setup_state_with_config_sync(
-            encryption_key,
-            aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-        )
-        .await
-    }
 
     async fn setup_state_with_config_sync(
-        encryption_key: &str,
         config_sync: aster_forge_config::ConfigSyncRuntime,
     ) -> crate::runtime::PrimaryAppState {
         let db = db::connect_with_metrics(
@@ -627,7 +619,8 @@ mod tests {
         })
         .await;
         let mut config = Config::default();
-        config.auth.storage_credential_secret_key = encryption_key.to_string();
+        config.auth.storage_credential_secret_key =
+            "storage-token-test-master-key-32bytes".to_string();
         let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
             crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
@@ -639,7 +632,9 @@ mod tests {
 
         crate::runtime::PrimaryAppState {
             db_handles: aster_forge_db::DbHandles::single(db),
-            driver_registry: Arc::new(DriverRegistry::noop()),
+            driver_registry: Arc::new(
+                DriverRegistry::noop().expect("built-in storage connector registry"),
+            ),
             runtime_config: runtime_config.clone(),
             policy_snapshot: Arc::new(PolicySnapshot::new()),
             config: Arc::new(config),
@@ -655,27 +650,121 @@ mod tests {
         }
     }
 
-    struct FlakyConfigNotifier {
-        publish_attempts: AtomicUsize,
+    async fn setup_state() -> crate::runtime::PrimaryAppState {
+        setup_state_with_config_sync(aster_forge_config::ConfigSyncRuntime::disabled_for_test(
+            "aster_drive",
+        ))
+        .await
+    }
+
+    fn local_policy_input(name: &str) -> CreateStoragePolicyInput {
+        CreateStoragePolicyInput {
+            name: name.to_string(),
+            connection: crate::storage::connectors::test_support::local_connection("data/uploads"),
+            max_file_size: 0,
+            chunk_size: Some(5_242_880),
+            is_default: false,
+            allowed_types: None,
+        }
+    }
+
+    struct CapacityErrorDriver(aster_drive_storage::StorageError);
+
+    #[async_trait]
+    impl StorageDriver for CapacityErrorDriver {
+        async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
+            Err(self.0.clone())
+        }
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
+            Err(self.0.clone())
+        }
+        async fn get_stream(
+            &self,
+            _path: &str,
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
+            Err(self.0.clone())
+        }
+        async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
+            Err(self.0.clone())
+        }
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
+            Err(self.0.clone())
+        }
+        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
+            Err(self.0.clone())
+        }
+        async fn capacity_info(&self) -> aster_drive_storage::Result<StorageCapacityInfo> {
+            Err(self.0.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn capacity_errors_keep_connector_identity_and_retryability() {
+        let unsupported = CapacityErrorDriver(storage_driver_error(
+            aster_drive_storage::StorageErrorKind::Unsupported,
+            "capacity is not exposed",
+        ));
+        let (capacity, diagnostic) =
+            capacity_info_or_status(&unsupported, "asterdrive.storage.s3").await;
+        assert_eq!(capacity.status, StorageCapacityStatus::Unsupported);
+        assert_eq!(capacity.source, "asterdrive.storage.s3_driver");
+        assert!(!diagnostic.unwrap().retryable);
+
+        let transient = CapacityErrorDriver(storage_driver_error(
+            aster_drive_storage::StorageErrorKind::Transient,
+            "capacity probe timed out",
+        ));
+        let (capacity, diagnostic) =
+            capacity_info_or_status(&transient, "asterdrive.storage.local").await;
+        assert_eq!(capacity.status, StorageCapacityStatus::Unavailable);
+        assert!(diagnostic.unwrap().retryable);
+    }
+
+    #[tokio::test]
+    async fn create_and_update_reject_negative_max_file_size() {
+        let state = setup_state().await;
+        let mut input = local_policy_input("Local");
+        input.max_file_size = -1;
+        let error = create(&state, input)
+            .await
+            .expect_err("negative create max_file_size must fail");
+        assert!(error.message().contains("must be non-negative"));
+
+        let policy = create(&state, local_policy_input("Local")).await.unwrap();
+        let error = update(
+            &state,
+            policy.id,
+            UpdateStoragePolicyInput {
+                max_file_size: Some(-1),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect_err("negative update max_file_size must fail");
+        assert!(error.message().contains("must be non-negative"));
+    }
+
+    struct FlakyNotifier {
+        attempts: AtomicUsize,
         failures_remaining: AtomicUsize,
     }
 
     #[async_trait]
-    impl aster_forge_config::ConfigChangeNotifier for FlakyConfigNotifier {
+    impl aster_forge_config::ConfigChangeNotifier for FlakyNotifier {
         async fn publish_reload(
             &self,
             _message: aster_forge_config::ConfigReloadMessage,
         ) -> aster_forge_config::Result<()> {
-            self.publish_attempts.fetch_add(1, Ordering::SeqCst);
+            self.attempts.fetch_add(1, Ordering::SeqCst);
             if self
                 .failures_remaining
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
-                    remaining.checked_sub(1)
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
+                    value.checked_sub(1)
                 })
                 .is_ok()
             {
                 Err(aster_forge_config::ConfigCoreError::notification(
-                    "injected config notification failure",
+                    "injected notification failure",
                 ))
             } else {
                 Ok(())
@@ -686,36 +775,44 @@ mod tests {
             &self,
         ) -> aster_forge_config::Result<aster_forge_config::ConfigNotification> {
             Err(aster_forge_config::ConfigCoreError::notification(
-                "injected config subscription failure",
+                "subscription is not used",
             ))
         }
     }
 
-    fn local_policy_input(name: &str) -> CreateStoragePolicyInput {
-        CreateStoragePolicyInput {
-            name: name.to_string(),
-            connection: StoragePolicyConnectionInput {
-                driver_type: DriverType::Local,
-                endpoint: "data/uploads".to_string(),
-                bucket: String::new(),
-                access_key: String::new(),
-                secret_key: String::new(),
-                base_path: "data/uploads".to_string(),
-                remote_node_id: None,
-                remote_storage_target_key: None,
-                options: StoragePolicyOptions::default(),
-            },
-            max_file_size: 0,
-            chunk_size: Some(5_242_880),
-            is_default: false,
-            allowed_types: None,
-            application_config: Default::default(),
-        }
+    #[tokio::test]
+    async fn committed_create_survives_notification_failure_and_retries() {
+        let notifier = Arc::new(FlakyNotifier {
+            attempts: AtomicUsize::new(0),
+            failures_remaining: AtomicUsize::new(3),
+        });
+        let shared_notifier: aster_forge_config::SharedConfigChangeNotifier = notifier.clone();
+        let state = setup_state_with_config_sync(
+            aster_forge_config::ConfigSyncRuntime::with_notifier_for_test(
+                "aster_drive",
+                "policy-notification-test",
+                shared_notifier,
+            ),
+        )
+        .await;
+
+        let policy = create(&state, local_policy_input("Committed"))
+            .await
+            .expect("notification failure must not undo committed policy");
+        assert_eq!(policy.name, "Committed");
+        assert_eq!(notifier.attempts.load(Ordering::SeqCst), 3);
+        assert!(
+            policy_repo::find_by_id(state.writer_db(), policy.id)
+                .await
+                .is_ok()
+        );
     }
 
-    async fn create_remote_node(state: &crate::runtime::PrimaryAppState) -> i64 {
+    #[tokio::test]
+    async fn remote_policy_requires_explicit_target_key() {
+        let state = setup_state().await;
         let now = Utc::now();
-        crate::db::repository::managed_follower_repo::create(
+        let remote_node = crate::db::repository::managed_follower_repo::create(
             state.writer_db(),
             aster_drive_model::entities::managed_follower::ActiveModel {
                 name: Set("Remote Node".to_string()),
@@ -726,7 +823,7 @@ mod tests {
                 last_capabilities: Set(serde_json::to_string(
                     &crate::storage::remote_protocol::RemoteStorageCapabilities::current(),
                 )
-                .expect("current remote capabilities should serialize")),
+                .unwrap()),
                 last_error: Set(String::new()),
                 last_checked_at: Set(Some(now)),
                 created_at: Set(now),
@@ -735,486 +832,27 @@ mod tests {
             },
         )
         .await
-        .expect("remote node should insert")
-        .id
-    }
-
-    fn onedrive_options() -> StoragePolicyOptions {
-        StoragePolicyOptions {
-            onedrive_cloud: Some(MicrosoftGraphCloud::Global),
-            onedrive_account_mode: Some(OneDriveAccountMode::WorkOrSchool),
-            onedrive_tenant: Some("common".to_string()),
-            onedrive_root_item_id: Some("root".to_string()),
-            ..Default::default()
-        }
-    }
-
-    struct CapacityErrorDriver {
-        error: aster_drive_storage::StorageError,
-    }
-
-    #[async_trait]
-    impl StorageDriver for CapacityErrorDriver {
-        async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
-            Err(self.error.clone())
-        }
-
-        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
-            Err(self.error.clone())
-        }
-
-        async fn get_stream(
-            &self,
-            _path: &str,
-        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
-            Err(self.error.clone())
-        }
-
-        async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
-            Err(self.error.clone())
-        }
-
-        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
-            Err(self.error.clone())
-        }
-
-        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
-            Err(self.error.clone())
-        }
-
-        async fn capacity_info(&self) -> aster_drive_storage::Result<StorageCapacityInfo> {
-            Err(self.error.clone())
-        }
-    }
-
-    #[tokio::test]
-    async fn capacity_info_or_status_maps_unsupported_to_diagnostic_payload() {
-        let driver = CapacityErrorDriver {
-            error: storage_driver_error(
-                aster_drive_storage::StorageErrorKind::Unsupported,
-                "storage driver does not support capacity observability",
-            ),
-        };
-
-        let (capacity, diagnostic) = capacity_info_or_status(&driver, DriverType::S3).await;
-
-        assert_eq!(capacity.status, StorageCapacityStatus::Unsupported);
-        assert_eq!(capacity.source, "s3_driver");
-        let diagnostic = diagnostic.expect("unsupported capacity error should be diagnostic");
-        assert_eq!(diagnostic.kind, "unsupported");
-        assert_eq!(
-            diagnostic.message,
-            "storage driver does not support capacity observability"
-        );
-        assert!(!diagnostic.retryable);
-    }
-
-    #[tokio::test]
-    async fn capacity_info_or_status_maps_storage_failures_to_unavailable_diagnostic_payload() {
-        let driver = CapacityErrorDriver {
-            error: storage_driver_error(
-                aster_drive_storage::StorageErrorKind::Transient,
-                "capacity probe timed out",
-            ),
-        };
-
-        let (capacity, diagnostic) = capacity_info_or_status(&driver, DriverType::Local).await;
-
-        assert_eq!(capacity.status, StorageCapacityStatus::Unavailable);
-        assert_eq!(capacity.source, "local_driver");
-        let diagnostic = diagnostic.expect("storage capacity error should be diagnostic");
-        assert_eq!(diagnostic.kind, "transient");
-        assert_eq!(diagnostic.message, "capacity probe timed out");
-        assert!(diagnostic.retryable);
-    }
-
-    #[tokio::test]
-    async fn create_rejects_negative_max_file_size_at_service_boundary() {
-        let state = setup_state("storage-token-test-master-key-32bytes").await;
-
-        let error = create(
-            &state,
-            CreateStoragePolicyInput {
-                name: "Local".to_string(),
-                connection: StoragePolicyConnectionInput {
-                    driver_type: DriverType::Local,
-                    endpoint: "data/uploads".to_string(),
-                    bucket: String::new(),
-                    access_key: String::new(),
-                    secret_key: String::new(),
-                    base_path: "data/uploads".to_string(),
-                    remote_node_id: None,
-                    remote_storage_target_key: None,
-                    options: StoragePolicyOptions::default(),
-                },
-                max_file_size: -1,
-                chunk_size: Some(5_242_880),
-                is_default: false,
-                allowed_types: None,
-                application_config: Default::default(),
-            },
-        )
-        .await
-        .expect_err("negative max_file_size should be rejected");
-
-        assert!(
-            error
-                .message()
-                .contains("max_file_size must be non-negative")
-        );
-    }
-
-    #[tokio::test]
-    async fn create_returns_committed_policy_when_reload_notification_fails() {
-        let notifier = Arc::new(FlakyConfigNotifier {
-            publish_attempts: AtomicUsize::new(0),
-            failures_remaining: AtomicUsize::new(3),
-        });
-        let shared_notifier: aster_forge_config::SharedConfigChangeNotifier = notifier.clone();
-        let state = setup_state_with_config_sync(
-            "storage-token-test-master-key-32bytes",
-            aster_forge_config::ConfigSyncRuntime::with_notifier_for_test(
-                "aster_drive",
-                "policy-notification-failure",
-                shared_notifier,
-            ),
-        )
-        .await;
-
-        let policy = create(&state, local_policy_input("Committed policy"))
-            .await
-            .expect("notification failure must not change a committed create result");
-        let stored = policy_repo::find_by_id(state.writer_db(), policy.id)
-            .await
-            .expect("committed policy must remain readable");
-
-        assert_eq!(stored.name, "Committed policy");
-        assert_eq!(notifier.publish_attempts.load(Ordering::SeqCst), 3);
-    }
-
-    #[tokio::test]
-    async fn create_retries_transient_reload_notification_failure() {
-        let notifier = Arc::new(FlakyConfigNotifier {
-            publish_attempts: AtomicUsize::new(0),
-            failures_remaining: AtomicUsize::new(1),
-        });
-        let shared_notifier: aster_forge_config::SharedConfigChangeNotifier = notifier.clone();
-        let state = setup_state_with_config_sync(
-            "storage-token-test-master-key-32bytes",
-            aster_forge_config::ConfigSyncRuntime::with_notifier_for_test(
-                "aster_drive",
-                "policy-notification-retry",
-                shared_notifier,
-            ),
-        )
-        .await;
-
-        let policy = create(&state, local_policy_input("Retried policy"))
-            .await
-            .expect("a transient notification failure should be retried after commit");
-
-        assert_eq!(policy.name, "Retried policy");
-        assert_eq!(notifier.publish_attempts.load(Ordering::SeqCst), 2);
-    }
-
-    #[tokio::test]
-    async fn update_rejects_negative_max_file_size_at_service_boundary() {
-        let state = setup_state("storage-token-test-master-key-32bytes").await;
-        let policy = create(
-            &state,
-            CreateStoragePolicyInput {
-                name: "Local".to_string(),
-                connection: StoragePolicyConnectionInput {
-                    driver_type: DriverType::Local,
-                    endpoint: "data/uploads".to_string(),
-                    bucket: String::new(),
-                    access_key: String::new(),
-                    secret_key: String::new(),
-                    base_path: "data/uploads".to_string(),
-                    remote_node_id: None,
-                    remote_storage_target_key: None,
-                    options: StoragePolicyOptions::default(),
-                },
-                max_file_size: 0,
-                chunk_size: Some(5_242_880),
-                is_default: false,
-                allowed_types: None,
-                application_config: Default::default(),
-            },
-        )
-        .await
-        .expect("policy should create");
-
-        let error = update(
-            &state,
-            policy.id,
-            UpdateStoragePolicyInput {
-                max_file_size: Some(-1),
-                ..Default::default()
-            },
-        )
-        .await
-        .expect_err("negative max_file_size should be rejected");
-
-        assert!(
-            error
-                .message()
-                .contains("max_file_size must be non-negative")
-        );
-    }
-
-    #[tokio::test]
-    async fn create_remote_policy_requires_explicit_remote_storage_target_key() {
-        let encryption_key = "storage-token-test-master-key-32bytes";
-        let state = setup_state(encryption_key).await;
-        let remote_node_id = create_remote_node(&state).await;
-
+        .unwrap();
         let error = create(
             &state,
             CreateStoragePolicyInput {
                 name: "Remote".to_string(),
-                connection: StoragePolicyConnectionInput {
-                    driver_type: DriverType::Remote,
-                    endpoint: String::new(),
-                    bucket: String::new(),
-                    access_key: String::new(),
-                    secret_key: String::new(),
-                    base_path: String::new(),
-                    remote_node_id: Some(remote_node_id),
-                    remote_storage_target_key: None,
-                    options: StoragePolicyOptions {
-                        remote_upload_strategy: Some(RemoteUploadStrategy::RelayStream),
-                        remote_download_strategy: Some(RemoteDownloadStrategy::RelayStream),
-                        ..Default::default()
-                    },
-                },
+                connection: crate::storage::connectors::test_support::remote_connection(
+                    "",
+                    Some(remote_node.id),
+                    None,
+                ),
                 max_file_size: 0,
                 chunk_size: Some(5_242_880),
                 is_default: false,
                 allowed_types: None,
-                application_config: Default::default(),
             },
         )
         .await
-        .expect_err("remote storage policies require an explicit target key");
-
+        .expect_err("remote target key must be explicit");
         assert_eq!(
             error.api_error_code_override(),
             Some(ApiErrorCode::PolicyRemoteStorageTargetRequired)
-        );
-    }
-
-    #[tokio::test]
-    async fn create_onedrive_policy_stores_app_config_outside_legacy_key_fields() {
-        let encryption_key = "storage-token-test-master-key-32bytes";
-        let state = setup_state(encryption_key).await;
-
-        let policy = create(
-            &state,
-            CreateStoragePolicyInput {
-                name: "OneDrive".to_string(),
-                connection: StoragePolicyConnectionInput {
-                    driver_type: DriverType::OneDrive,
-                    endpoint: String::new(),
-                    bucket: String::new(),
-                    access_key: "legacy-client-id".to_string(),
-                    secret_key: "legacy-client-secret".to_string(),
-                    base_path: String::new(),
-                    remote_node_id: None,
-                    remote_storage_target_key: None,
-                    options: onedrive_options(),
-                },
-                max_file_size: 0,
-                chunk_size: Some(5_242_880),
-                is_default: false,
-                allowed_types: None,
-                application_config: crate::storage::StorageConnectorApplicationConfigInput {
-                    microsoft_graph: Some(crate::storage::MicrosoftGraphApplicationConfigInput {
-                        client_id: Some("metadata-client-id".to_string()),
-                        client_secret: Some("metadata-client-secret".to_string()),
-                        ..Default::default()
-                    }),
-                },
-            },
-        )
-        .await
-        .expect("OneDrive policy should create");
-
-        let stored = policy_repo::find_by_id(state.writer_db(), policy.id)
-            .await
-            .expect("policy should load");
-        assert_eq!(stored.access_key, "");
-        assert_eq!(stored.secret_key, "");
-
-        let application_config =
-            storage_connector_application_config_repo::find_by_policy_provider(
-                state.writer_db(),
-                policy.id,
-                StorageCredentialProvider::MicrosoftGraph,
-            )
-            .await
-            .expect("application config lookup should succeed")
-            .expect("application config should exist");
-        assert_eq!(
-            application_config.client_id,
-            Some("metadata-client-id".to_string())
-        );
-        assert!(application_config.client_secret_ciphertext.is_some());
-
-        let credential = storage_policy_credential_repo::find_by_policy_provider_kind(
-            state.writer_db(),
-            policy.id,
-            StorageCredentialProvider::MicrosoftGraph,
-            StorageCredentialKind::OauthDelegated,
-        )
-        .await
-        .expect("credential lookup should succeed");
-        assert!(
-            credential.is_none(),
-            "saving connector app config must not create an OAuth authorization credential"
-        );
-    }
-
-    #[tokio::test]
-    async fn update_onedrive_policy_clears_legacy_keys_and_writes_app_config_metadata() {
-        let encryption_key = "storage-token-test-master-key-32bytes";
-        let state = setup_state(encryption_key).await;
-        let now = Utc::now();
-        let policy = policy_repo::create(
-            state.writer_db(),
-            storage_policy::ActiveModel {
-                name: Set("OneDrive".to_string()),
-                driver_type: Set(DriverType::OneDrive),
-                endpoint: Set(String::new()),
-                bucket: Set(String::new()),
-                access_key: Set("old-client-id".to_string()),
-                secret_key: Set("old-client-secret".to_string()),
-                base_path: Set(String::new()),
-                remote_node_id: Set(None),
-                max_file_size: Set(0),
-                allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-                options: Set(aster_drive_model::types::serialize_storage_policy_options(
-                    &onedrive_options(),
-                )
-                .expect("options should serialize")),
-                is_default: Set(false),
-                chunk_size: Set(5_242_880),
-                created_at: Set(now),
-                updated_at: Set(now),
-                ..Default::default()
-            },
-        )
-        .await
-        .expect("policy should insert");
-
-        update(
-            &state,
-            policy.id,
-            UpdateStoragePolicyInput {
-                access_key: Some("ignored-client-id".to_string()),
-                secret_key: Some("ignored-client-secret".to_string()),
-                application_config: crate::storage::StorageConnectorApplicationConfigInput {
-                    microsoft_graph: Some(crate::storage::MicrosoftGraphApplicationConfigInput {
-                        client_id: Some("metadata-client-id".to_string()),
-                        client_secret: Some("metadata-client-secret".to_string()),
-                        ..Default::default()
-                    }),
-                },
-                ..Default::default()
-            },
-        )
-        .await
-        .expect("OneDrive policy should update");
-
-        let stored = policy_repo::find_by_id(state.writer_db(), policy.id)
-            .await
-            .expect("policy should load");
-        assert_eq!(stored.access_key, "");
-        assert_eq!(stored.secret_key, "");
-
-        let application_config =
-            storage_connector_application_config_repo::find_by_policy_provider(
-                state.writer_db(),
-                policy.id,
-                StorageCredentialProvider::MicrosoftGraph,
-            )
-            .await
-            .expect("application config lookup should succeed")
-            .expect("application config should exist");
-        assert_eq!(
-            application_config.client_id,
-            Some("metadata-client-id".to_string())
-        );
-        assert!(application_config.client_secret_ciphertext.is_some());
-
-        let credential = storage_policy_credential_repo::find_by_policy_provider_kind(
-            state.writer_db(),
-            policy.id,
-            StorageCredentialProvider::MicrosoftGraph,
-            StorageCredentialKind::OauthDelegated,
-        )
-        .await
-        .expect("credential lookup should succeed");
-        assert!(
-            credential.is_none(),
-            "updating connector app config must not create an OAuth authorization credential"
-        );
-    }
-
-    #[tokio::test]
-    async fn update_remote_policy_skips_target_health_check_when_binding_is_unchanged() {
-        let encryption_key = "storage-token-test-master-key-32bytes";
-        let state = setup_state(encryption_key).await;
-        let remote_node_id = create_remote_node(&state).await;
-        let now = Utc::now();
-        let policy = policy_repo::create(
-            state.writer_db(),
-            storage_policy::ActiveModel {
-                name: Set("Remote".to_string()),
-                driver_type: Set(DriverType::Remote),
-                endpoint: Set(String::new()),
-                bucket: Set(String::new()),
-                access_key: Set(String::new()),
-                secret_key: Set(String::new()),
-                base_path: Set(String::new()),
-                remote_node_id: Set(Some(remote_node_id)),
-                remote_storage_target_key: Set(Some("rst_existing".to_string())),
-                max_file_size: Set(0),
-                allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-                options: Set(aster_drive_model::types::serialize_storage_policy_options(
-                    &StoragePolicyOptions {
-                        remote_upload_strategy: Some(RemoteUploadStrategy::RelayStream),
-                        remote_download_strategy: Some(RemoteDownloadStrategy::RelayStream),
-                        ..Default::default()
-                    },
-                )
-                .expect("options should serialize")),
-                is_default: Set(false),
-                chunk_size: Set(5_242_880),
-                created_at: Set(now),
-                updated_at: Set(now),
-                ..Default::default()
-            },
-        )
-        .await
-        .expect("remote policy should insert");
-
-        let updated = update(
-            &state,
-            policy.id,
-            UpdateStoragePolicyInput {
-                name: Some("Remote Renamed".to_string()),
-                ..Default::default()
-            },
-        )
-        .await
-        .expect("unchanged remote target binding should not be revalidated");
-
-        assert_eq!(updated.name, "Remote Renamed");
-        assert_eq!(updated.remote_node_id, Some(remote_node_id));
-        assert_eq!(
-            updated.remote_storage_target_key.as_deref(),
-            Some("rst_existing")
         );
     }
 }

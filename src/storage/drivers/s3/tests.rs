@@ -1,8 +1,5 @@
-use super::S3Driver;
-use super::S3DriverOptions;
 use super::presigned::{MAX_PRESIGN_TTL, clamp_presign_ttl};
-use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::{StoragePolicyOptions, serialize_storage_policy_options};
+use super::{S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials};
 use aster_drive_storage::error::StorageErrorKind;
 use aster_drive_storage::traits::driver::{StorageDriver, StoragePathVisitor};
 use aster_drive_storage::traits::extensions::{ListStorageDriver, PresignedStorageDriver};
@@ -133,43 +130,31 @@ fn assert_storage_driver_error(
     );
 }
 
-fn sample_policy(endpoint: &str, bucket: &str) -> storage_policy::Model {
-    let options = aster_drive_model::types::StoragePolicyOptions::default();
-    storage_policy::Model {
-        id: 1,
-        name: "S3".to_string(),
-        driver_type: aster_drive_model::types::DriverType::S3,
+fn sample_config(endpoint: &str, bucket: &str) -> S3DriverConfig {
+    S3DriverConfig {
         endpoint: endpoint.to_string(),
         bucket: bucket.to_string(),
+        base_path: String::new(),
+        region: "auto".to_string(),
+        path_style: true,
+        connect_timeout: Duration::from_secs(5),
+        read_timeout: Duration::from_secs(30),
+        operation_timeout: Duration::from_secs(3_600),
+    }
+}
+
+fn sample_credentials() -> S3StaticCredentials {
+    S3StaticCredentials {
         access_key: "key".to_string(),
         secret_key: "secret".to_string(),
-        base_path: String::new(),
-        remote_node_id: None,
-        remote_storage_target_key: None,
-        connector_id: "asterdrive.storage.s3".to_string(),
-        storage_config: crate::storage::connectors::test_support::policy_config(
-            aster_drive_model::types::DriverType::S3,
-            endpoint,
-            bucket,
-            "",
-            None,
-            None,
-            &options,
-        ),
-        max_file_size: 0,
-        allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
-        options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
-        is_default: false,
-        chunk_size: 0,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
     }
 }
 
 #[test]
 fn new_keeps_generic_s3_endpoint_path_unchanged() {
     let driver = S3Driver::new(
-        &sample_policy("https://s3.example.test/custom/path", "archive"),
+        sample_config("https://s3.example.test/custom/path", "archive"),
+        sample_credentials(),
         S3DriverOptions::default(),
         std::convert::identity,
     )
@@ -179,18 +164,19 @@ fn new_keeps_generic_s3_endpoint_path_unchanged() {
 }
 
 #[test]
-fn new_applies_timeout_config_from_policy_options() {
-    let mut policy = sample_policy("https://s3.example.test", "bucket");
-    policy.options = serialize_storage_policy_options(&StoragePolicyOptions {
-        s3_connect_timeout_secs: Some(9),
-        s3_read_timeout_secs: Some(45),
-        s3_operation_timeout_secs: Some(1_200),
-        ..Default::default()
-    })
-    .expect("options should serialize");
+fn new_applies_timeout_config() {
+    let mut config = sample_config("https://s3.example.test", "bucket");
+    config.connect_timeout = Duration::from_secs(9);
+    config.read_timeout = Duration::from_secs(45);
+    config.operation_timeout = Duration::from_secs(1_200);
 
-    let driver = S3Driver::new(&policy, S3DriverOptions::default(), std::convert::identity)
-        .expect("driver should build with timeout config");
+    let driver = S3Driver::new(
+        config,
+        sample_credentials(),
+        S3DriverOptions::default(),
+        std::convert::identity,
+    )
+    .expect("driver should build with timeout config");
     let timeout_config = driver
         .client
         .config()
@@ -209,16 +195,17 @@ fn new_applies_timeout_config_from_policy_options() {
 }
 
 #[test]
-fn new_applies_signing_region_from_policy_options() {
-    let mut policy = sample_policy("https://s3.example.test", "bucket");
-    policy.options = serialize_storage_policy_options(&StoragePolicyOptions {
-        s3_region: Some("us-west-004".to_string()),
-        ..Default::default()
-    })
-    .expect("options should serialize");
+fn new_applies_signing_region_from_config() {
+    let mut config = sample_config("https://s3.example.test", "bucket");
+    config.region = "us-west-004".to_string();
 
-    let driver = S3Driver::new(&policy, S3DriverOptions::default(), std::convert::identity)
-        .expect("driver should build with configured region");
+    let driver = S3Driver::new(
+        config,
+        sample_credentials(),
+        S3DriverOptions::default(),
+        std::convert::identity,
+    )
+    .expect("driver should build with configured region");
 
     assert_eq!(
         driver.client.config().region().map(AsRef::as_ref),
@@ -229,7 +216,8 @@ fn new_applies_signing_region_from_policy_options() {
 #[test]
 fn new_defaults_signing_region_to_auto() {
     let driver = S3Driver::new(
-        &sample_policy("https://s3.example.test", "bucket"),
+        sample_config("https://s3.example.test", "bucket"),
+        sample_credentials(),
         S3DriverOptions::default(),
         std::convert::identity,
     )
@@ -244,25 +232,24 @@ fn new_defaults_signing_region_to_auto() {
 #[tokio::test]
 async fn presigned_put_url_uses_configured_addressing_style() {
     let path_style_driver = S3Driver::new(
-        &sample_policy("https://s3.example.test", "bucket"),
+        sample_config("https://s3.example.test", "bucket"),
+        sample_credentials(),
         S3DriverOptions::default(),
         std::convert::identity,
     )
     .expect("path-style driver");
     let override_virtual_hosted_driver = S3Driver::new(
-        &sample_policy("https://s3.example.test", "bucket"),
+        sample_config("https://s3.example.test", "bucket"),
+        sample_credentials(),
         S3DriverOptions::virtual_hosted_style(),
         std::convert::identity,
     )
     .expect("override virtual-hosted driver");
-    let mut virtual_hosted_policy = sample_policy("https://s3.example.test", "bucket");
-    virtual_hosted_policy.options = serialize_storage_policy_options(&StoragePolicyOptions {
-        s3_path_style: Some(false),
-        ..Default::default()
-    })
-    .expect("options should serialize");
+    let mut virtual_hosted_config = sample_config("https://s3.example.test", "bucket");
+    virtual_hosted_config.path_style = false;
     let virtual_hosted_driver = S3Driver::new(
-        &virtual_hosted_policy,
+        virtual_hosted_config,
+        sample_credentials(),
         S3DriverOptions::default(),
         std::convert::identity,
     )

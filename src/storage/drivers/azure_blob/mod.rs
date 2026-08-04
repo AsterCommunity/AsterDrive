@@ -439,43 +439,22 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
-    use super::AzureBlobDriver;
-    use aster_drive_model::entities::storage_policy;
-    use aster_drive_model::types::{
-        DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
-        effective_object_multipart_chunk_size,
-    };
+    use super::{AzureBlobDriver, AzureBlobDriverConfig, AzureBlobStaticCredentials};
+    use aster_drive_model::types::effective_object_multipart_chunk_size;
 
-    fn sample_policy() -> storage_policy::Model {
-        let options = aster_drive_model::types::StoragePolicyOptions::default();
-        storage_policy::Model {
-            id: 1,
-            name: "Azure Blob".to_string(),
-            driver_type: DriverType::AzureBlob,
+    fn sample_config() -> AzureBlobDriverConfig {
+        AzureBlobDriverConfig {
             endpoint: " https://acct.blob.core.windows.net/ ".to_string(),
-            bucket: " photos ".to_string(),
-            access_key: " account-name ".to_string(),
-            secret_key: "c2VjcmV0".to_string(),
+            container: " photos ".to_string(),
             base_path: "base path".to_string(),
-            remote_node_id: None,
-            remote_storage_target_key: None,
-            connector_id: "asterdrive.storage.azure_blob".to_string(),
-            storage_config: crate::storage::connectors::test_support::policy_config(
-                DriverType::AzureBlob,
-                " https://acct.blob.core.windows.net/ ",
-                " photos ",
-                "base path",
-                None,
-                None,
-                &options,
-            ),
-            max_file_size: 0,
-            allowed_types: StoredStoragePolicyAllowedTypes::empty(),
-            options: StoredStoragePolicyOptions::empty(),
-            is_default: false,
             chunk_size: 1,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    fn sample_credentials() -> AzureBlobStaticCredentials {
+        AzureBlobStaticCredentials {
+            account_name: " account-name ".to_string(),
+            account_key: "c2VjcmV0".to_string(),
         }
     }
 
@@ -506,18 +485,19 @@ mod tests {
             );
         }
 
-        let mut policy = sample_policy();
-        policy.access_key.clear();
-        assert!(AzureBlobDriver::validate_policy(&policy).is_err());
+        let mut credentials = sample_credentials();
+        credentials.account_name.clear();
+        assert!(AzureBlobDriver::validate_config(&sample_config(), &credentials).is_err());
 
-        let mut policy = sample_policy();
-        policy.secret_key = "   ".to_string();
-        assert!(AzureBlobDriver::validate_policy(&policy).is_err());
+        let mut credentials = sample_credentials();
+        credentials.account_key = "   ".to_string();
+        assert!(AzureBlobDriver::validate_config(&sample_config(), &credentials).is_err());
     }
 
     #[test]
     fn new_trims_credentials_and_applies_minimum_chunk_size() {
-        let driver = AzureBlobDriver::new(&sample_policy()).expect("valid Azure driver");
+        let driver = AzureBlobDriver::new(sample_config(), sample_credentials())
+            .expect("valid Azure driver");
 
         assert_eq!(driver.endpoint, "https://acct.blob.core.windows.net");
         assert_eq!(driver.container, "photos");
@@ -541,7 +521,8 @@ mod tests {
 
     #[test]
     fn builds_encoded_blob_and_container_sas_urls() {
-        let driver = AzureBlobDriver::new(&sample_policy()).expect("valid Azure driver");
+        let driver = AzureBlobDriver::new(sample_config(), sample_credentials())
+            .expect("valid Azure driver");
         let blob_url = driver
             .blob_url(
                 "folder with space/中文+plus.txt",
@@ -574,10 +555,11 @@ mod tests {
 
     #[test]
     fn local_azurite_sas_urls_allow_http() {
-        let mut policy = sample_policy();
-        policy.endpoint = "http://127.0.0.1:10000/devstoreaccount1".to_string();
-        policy.access_key = "devstoreaccount1".to_string();
-        let driver = AzureBlobDriver::new(&policy).expect("valid Azurite driver");
+        let mut config = sample_config();
+        config.endpoint = "http://127.0.0.1:10000/devstoreaccount1".to_string();
+        let mut credentials = sample_credentials();
+        credentials.account_name = "devstoreaccount1".to_string();
+        let driver = AzureBlobDriver::new(config, credentials).expect("valid Azurite driver");
         let blob_url = driver
             .blob_url("local.bin", "cw", Duration::from_secs(300))
             .expect("blob URL");
@@ -588,7 +570,8 @@ mod tests {
 
     #[test]
     fn chunk_size_respects_configured_minimum_and_azure_block_limits() {
-        let driver = AzureBlobDriver::new(&sample_policy()).expect("valid Azure driver");
+        let driver = AzureBlobDriver::new(sample_config(), sample_credentials())
+            .expect("valid Azure driver");
         let configured = effective_object_multipart_chunk_size(1);
         let configured_u64 = u64::try_from(configured).expect("configured chunk size");
 

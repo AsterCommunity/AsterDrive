@@ -403,54 +403,43 @@ impl From<StoragePolicyTempCleanupTaskPayload> for StoragePolicyTempCleanupTaskP
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::connectors::StoragePolicyCleanupOneDriveCredentialSnapshot;
+    use aster_drive_storage::ConnectorId;
 
-    #[test]
-    fn legacy_onedrive_cleanup_snapshot_decodes_without_refresh_fields() {
-        let value = serde_json::json!({
-            "cloud": "global",
-            "drive_id": "drive",
-            "root_item_id": "root",
-            "access_token_ciphertext": "access",
-        });
-
-        let snapshot: StoragePolicyCleanupOneDriveCredentialSnapshot =
-            serde_json::from_value(value).expect("legacy snapshot should decode");
-
-        assert_eq!(snapshot.tenant_id, None);
-        assert_eq!(snapshot.client_id, None);
-        assert_eq!(snapshot.client_secret_ciphertext, None);
-        assert_eq!(snapshot.refresh_token_ciphertext, None);
-        assert_eq!(snapshot.expires_at, None);
+    #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+    struct TestCleanupSnapshot {
+        token: String,
     }
 
     #[test]
-    fn onedrive_cleanup_snapshot_serializes_refresh_fields_for_new_tasks() {
-        let expires_at = chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
-            .unwrap()
-            .with_timezone(&chrono::Utc);
-        let snapshot = StoragePolicyCleanupOneDriveCredentialSnapshot {
-            cloud: aster_drive_model::types::MicrosoftGraphCloud::Global,
-            tenant_id: Some("tenant".to_string()),
-            client_id: Some("client-id".to_string()),
-            client_secret_ciphertext: Some("client-secret-ciphertext".to_string()),
-            drive_id: "drive".to_string(),
-            root_item_id: "root".to_string(),
-            access_token_ciphertext: "access".to_string(),
-            refresh_token_ciphertext: Some("refresh".to_string()),
-            expires_at: Some(expires_at),
-        };
-
-        let value = serde_json::to_value(snapshot).expect("snapshot should serialize");
-
-        assert_eq!(value["tenant_id"], "tenant");
-        assert_eq!(value["client_id"], "client-id");
+    fn cleanup_snapshot_envelope_round_trips_typed_payload() {
+        let connector_id = ConnectorId::declared("plugin.cleanup");
+        let snapshot = StoragePolicyCleanupDriverSnapshot::encode(
+            connector_id.clone(),
+            2,
+            &TestCleanupSnapshot {
+                token: "ciphertext".to_string(),
+            },
+        )
+        .expect("cleanup snapshot should encode");
+        let decoded: TestCleanupSnapshot = snapshot
+            .decode(connector_id.as_str(), 2)
+            .expect("cleanup snapshot should decode");
         assert_eq!(
-            value["client_secret_ciphertext"],
-            "client-secret-ciphertext"
+            decoded,
+            TestCleanupSnapshot {
+                token: "ciphertext".to_string()
+            }
         );
-        assert_eq!(value["refresh_token_ciphertext"], "refresh");
-        assert!(value.get("expires_at").is_some());
+        assert!(
+            snapshot
+                .decode::<TestCleanupSnapshot>("plugin.other", 2)
+                .is_err()
+        );
+        assert!(
+            snapshot
+                .decode::<TestCleanupSnapshot>(connector_id.as_str(), 3)
+                .is_err()
+        );
     }
 }
 

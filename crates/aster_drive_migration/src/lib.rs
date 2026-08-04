@@ -14,7 +14,8 @@
 pub use sea_orm_migration::prelude::*;
 
 use sea_orm_migration::sea_orm::{
-    ConnectionTrait as SeaConnectionTrait, DatabaseConnection, DbBackend, Statement,
+    ConnectionTrait as SeaConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend,
+    Statement,
 };
 
 mod m20260512_000001_baseline_schema;
@@ -60,7 +61,10 @@ mod m20260725_000001_remote_tunnel_owners;
 mod m20260728_000001_provider_relay_resumable_upload;
 mod m20260803_000001_storage_policy_connector_configs;
 mod m20260803_000002_add_storage_policy_connector_credentials;
+mod storage_policy_upgrade;
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
+
+pub use storage_policy_upgrade::finalize_storage_policy_upgrade;
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
 const POSTGRES_MIGRATION_LOCK_KEY: i64 = 0x4153_5445_5244_5249;
@@ -263,13 +267,29 @@ where
 }
 
 pub async fn apply_database_migrations(database: &DatabaseConnection) -> Result<(), DbErr> {
-    let options = aster_forge_db_migration::MigrationLockOptions::new(MYSQL_MIGRATION_LOCK_NAME)
-        .with_postgres_advisory_key(POSTGRES_MIGRATION_LOCK_KEY)
-        .with_mysql_timeout_seconds(MYSQL_MIGRATION_LOCK_TIMEOUT_SECONDS);
-    aster_forge_db_migration::with_migration_lock(database, &options, |connection| {
+    with_database_migration_lock(database, |connection| {
         Box::pin(apply_database_migrations_unlocked(connection))
     })
     .await
+}
+
+/// Run schema-sensitive startup work under AsterDrive's database migration lock.
+///
+/// The 0.5.0 storage-policy credential importer uses this after ordinary SeaORM
+/// migrations have completed. Keeping connector-owned credential conversion and
+/// legacy-column removal under the same lock prevents concurrent instances from
+/// observing a partially finalized storage-policy schema.
+pub async fn with_database_migration_lock<T, F>(
+    database: &DatabaseConnection,
+    operation: F,
+) -> Result<T, DbErr>
+where
+    F: for<'a> FnOnce(&'a DatabaseTransaction) -> aster_forge_db_migration::MigrationFuture<'a, T>,
+{
+    let options = aster_forge_db_migration::MigrationLockOptions::new(MYSQL_MIGRATION_LOCK_NAME)
+        .with_postgres_advisory_key(POSTGRES_MIGRATION_LOCK_KEY)
+        .with_mysql_timeout_seconds(MYSQL_MIGRATION_LOCK_TIMEOUT_SECONDS);
+    aster_forge_db_migration::with_migration_lock(database, &options, operation).await
 }
 
 async fn apply_database_migrations_unlocked<'c, C>(database: &'c C) -> Result<(), DbErr>

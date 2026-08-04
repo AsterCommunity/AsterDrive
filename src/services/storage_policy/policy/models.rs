@@ -9,7 +9,8 @@ use crate::api::response::ApiErrorDiagnostic;
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::parse_storage_policy_allowed_types;
 use aster_drive_storage::{
-    ConnectorConfigEnvelope, StoragePolicyBehaviorConfig, StoragePolicyConfigEnvelope,
+    ConnectorConfigEnvelope, StorageConnectorActionId, StoragePolicyBehaviorConfig,
+    StoragePolicyConfigEnvelope,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -90,7 +91,6 @@ pub struct StoragePolicy {
     pub id: i64,
     pub name: String,
     pub connector_id: String,
-    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Object))]
     pub connector_config: ConnectorConfigEnvelope,
     pub behavior: StoragePolicyBehaviorConfig,
     pub max_file_size: i64,
@@ -115,23 +115,13 @@ pub struct StoragePolicyCapacityInfo {
     pub diagnostic: Option<StoragePolicyDiagnostic>,
 }
 
-pub type StoragePolicyActionType = aster_drive_storage::StoragePolicyExecutableAction;
-pub type ExecuteSavedStoragePolicyActionInput =
-    crate::storage::ExecuteSavedStorageConnectorActionInput;
-pub type ExecuteDraftStoragePolicyActionInput =
-    crate::storage::ExecuteDraftStorageConnectorActionInput;
-pub type StoragePolicyConnectionInput = crate::storage::StorageConnectorConnectionInput;
-pub type TestDraftStoragePolicyConnectionInput =
-    crate::storage::TestDraftStorageConnectorConnectionInput;
-pub type TencentCosCorsConfigResult = crate::storage::TencentCosCorsConfigResult;
-
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePolicyActionResult {
     pub ok: bool,
-    pub action: StoragePolicyActionType,
+    pub action_id: StorageConnectorActionId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tencent_cos_cors: Option<TencentCosCorsConfigResult>,
+    pub output: Option<crate::storage::StorageConnectorActionOutput>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic: Option<StoragePolicyDiagnostic>,
 }
@@ -140,8 +130,8 @@ impl From<crate::storage::StorageConnectorActionResult> for StoragePolicyActionR
     fn from(value: crate::storage::StorageConnectorActionResult) -> Self {
         Self {
             ok: true,
-            action: value.action,
-            tencent_cos_cors: value.tencent_cos_cors,
+            action_id: value.action_id,
+            output: value.output,
             diagnostic: None,
         }
     }
@@ -202,7 +192,7 @@ pub struct PolicyGroupAssignmentMigrationResult {
 #[derive(Debug, Clone)]
 pub struct CreateStoragePolicyInput {
     pub name: String,
-    pub connection: StoragePolicyConnectionInput,
+    pub connection: crate::storage::StorageConnectorConnectionInput,
     pub max_file_size: i64,
     pub chunk_size: Option<i64>,
     pub is_default: bool,
@@ -241,13 +231,10 @@ pub struct UpdateStoragePolicyGroupInput {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        StoragePolicyActionResult, StoragePolicyActionType, StoragePolicyDiagnostic,
-        TencentCosCorsConfigResult,
-    };
+    use super::{StoragePolicyActionResult, StoragePolicyDiagnostic};
     use crate::api::api_error_code::ApiErrorCode;
-    use aster_drive_storage::StorageErrorKind;
     use aster_drive_storage::error::storage_driver_error;
+    use aster_drive_storage::{StorageConnectorActionId, StorageErrorKind};
 
     #[test]
     fn storage_policy_diagnostic_sanitizes_admin_storage_details() {
@@ -292,72 +279,49 @@ mod tests {
     }
 
     #[test]
-    fn storage_policy_action_type_uses_stable_snake_case_wire_value() {
-        let action = StoragePolicyActionType::ConfigureTencentCosCors;
-
-        assert_eq!(action.as_str(), "configure_tencent_cos_cors");
-        assert!(action.mutates_remote_state());
-        assert_eq!(
-            serde_json::to_string(&action).expect("serialize action"),
-            "\"configure_tencent_cos_cors\""
-        );
-        assert_eq!(
-            serde_json::from_str::<StoragePolicyActionType>("\"configure_tencent_cos_cors\"")
-                .expect("deserialize action"),
-            action
-        );
-    }
-
-    #[test]
-    fn storage_policy_action_result_omits_unrelated_payloads() {
+    fn storage_policy_action_result_preserves_plugin_id_and_omits_empty_output() {
         let empty_payload = StoragePolicyActionResult {
             ok: true,
-            action: StoragePolicyActionType::ConfigureTencentCosCors,
-            tencent_cos_cors: None,
+            action_id: StorageConnectorActionId::declared("plugin.verify_namespace"),
+            output: None,
             diagnostic: None,
         };
 
         let value = serde_json::to_value(empty_payload).expect("serialize empty payload");
 
         assert_eq!(value["ok"], true);
-        assert_eq!(value["action"], "configure_tencent_cos_cors");
-        assert!(value.get("tencent_cos_cors").is_none());
+        assert_eq!(value["action_id"], "plugin.verify_namespace");
+        assert!(value.get("output").is_none());
         assert!(value.get("diagnostic").is_none());
     }
 
     #[test]
-    fn storage_policy_action_result_serializes_tencent_cos_cors_payload() {
-        let result = StoragePolicyActionResult {
-            ok: true,
-            action: StoragePolicyActionType::ConfigureTencentCosCors,
-            tencent_cos_cors: Some(TencentCosCorsConfigResult {
-                rule_id: "asterdrive-presigned-access".to_string(),
-                allowed_origins: vec![
-                    "https://drive.example.com".to_string(),
-                    "https://admin.example.com".to_string(),
-                ],
-                request_id: Some("req-1".to_string()),
-                preserved_rule_count: 2,
-                replaced_existing_rule: true,
-                response_vary: true,
+    fn storage_policy_action_result_serializes_connector_owned_nested_output() {
+        let connector_result = crate::storage::StorageConnectorActionResult::with_output(
+            StorageConnectorActionId::declared("plugin.inspect_remote_state"),
+            serde_json::json!({
+                "request_id": "req-1",
+                "summary": {
+                    "changed": true,
+                    "preserved_items": 2
+                },
+                "warnings": ["remote value retained"]
             }),
-            diagnostic: None,
-        };
+        )
+        .expect("connector action output should serialize");
+        let result = StoragePolicyActionResult::from(connector_result);
 
-        let value = serde_json::to_value(result).expect("serialize COS payload");
+        let value = serde_json::to_value(result).expect("serialize action result");
 
-        assert_eq!(value["action"], "configure_tencent_cos_cors");
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["action_id"], "plugin.inspect_remote_state");
+        assert_eq!(value["output"]["request_id"], "req-1");
+        assert_eq!(value["output"]["summary"]["changed"], true);
+        assert_eq!(value["output"]["summary"]["preserved_items"], 2);
         assert_eq!(
-            value["tencent_cos_cors"]["rule_id"],
-            "asterdrive-presigned-access"
+            value["output"]["warnings"],
+            serde_json::json!(["remote value retained"])
         );
-        assert_eq!(
-            value["tencent_cos_cors"]["allowed_origins"],
-            serde_json::json!(["https://drive.example.com", "https://admin.example.com"])
-        );
-        assert_eq!(value["tencent_cos_cors"]["request_id"], "req-1");
-        assert_eq!(value["tencent_cos_cors"]["preserved_rule_count"], 2);
-        assert_eq!(value["tencent_cos_cors"]["replaced_existing_rule"], true);
-        assert_eq!(value["tencent_cos_cors"]["response_vary"], true);
+        assert!(value.get("diagnostic").is_none());
     }
 }
