@@ -141,14 +141,13 @@ async fn test_db_lock_system_deep_lock_supports_check_refresh_discover_and_delet
         })
         .await
         .unwrap();
-    assert_eq!(
+    assert!(
         lock_system
             .discover(&shallow_child_path)
             .await
             .unwrap()
-            .len(),
-        1,
-        "If-header state resolution must accept a Depth 0 parent token for member-URL changes"
+            .is_empty(),
+        "single-path discovery must exclude a Depth 0 parent lock from the child resource state"
     );
     assert!(
         lock_system
@@ -158,7 +157,7 @@ async fn test_db_lock_system_deep_lock_supports_check_refresh_discover_and_delet
             .remove(&shallow_child_path)
             .unwrap()
             .is_empty(),
-        "batched lockdiscovery must apply the same Depth 0 filtering"
+        "batched lockdiscovery must match single-path Depth 0 filtering"
     );
 
     let refreshed = lock_system

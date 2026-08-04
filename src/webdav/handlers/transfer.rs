@@ -197,7 +197,7 @@ pub(crate) async fn handle_put(
             .and_then(|metadata| metadata.file_model())
             .map_or(
                 crate::services::workspace::storage::FileWritePrecondition::Missing,
-                |file| crate::services::workspace::storage::FileWritePrecondition::existing(&file),
+                crate::services::workspace::storage::FileWritePrecondition::existing,
             )
     });
 

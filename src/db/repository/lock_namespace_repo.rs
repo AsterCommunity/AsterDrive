@@ -94,11 +94,9 @@ pub async fn delete_by_workspace<C: ConnectionTrait>(
     workspace_type: LockWorkspaceType,
     workspace_id: i64,
 ) -> Result<u64> {
-    let Some(namespace) = find_by_workspace(db, workspace_type, workspace_id).await? else {
-        return Ok(0);
-    };
-    let namespace = lock_by_id(db, namespace.id).await?;
-    let result = resource_lock_namespace::Entity::delete_by_id(namespace.id)
+    let result = resource_lock_namespace::Entity::delete_many()
+        .filter(resource_lock_namespace::Column::WorkspaceType.eq(workspace_type))
+        .filter(resource_lock_namespace::Column::WorkspaceId.eq(workspace_id))
         .exec(db)
         .await
         .map_err(AsterError::from)?;

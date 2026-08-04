@@ -72,6 +72,9 @@ pub struct DbLockSystem {
     scope: WorkspaceStorageScope,
     root_folder_id: Option<i64>,
     audit_ctx: AuditContext,
+    #[cfg(test)]
+    lock_transaction_test_barrier:
+        std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<tokio::sync::Barrier>>>>,
 }
 
 impl DbLockSystem {
@@ -85,6 +88,8 @@ impl DbLockSystem {
                 ip_address: None,
                 user_agent: None,
             },
+            #[cfg(test)]
+            lock_transaction_test_barrier: std::sync::Arc::new(std::sync::Mutex::new(None)),
         })
     }
 
@@ -99,7 +104,20 @@ impl DbLockSystem {
             scope,
             root_folder_id,
             audit_ctx,
+            #[cfg(test)]
+            lock_transaction_test_barrier: std::sync::Arc::new(std::sync::Mutex::new(None)),
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_lock_transaction_test_barrier(
+        &mut self,
+        barrier: std::sync::Arc<tokio::sync::Barrier>,
+    ) {
+        *self
+            .lock_transaction_test_barrier
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(barrier);
     }
 
     async fn log_lock_action(&self, entity_type: EntityType, entity_id: i64, locked: bool) {
@@ -331,6 +349,16 @@ impl DavLockSystem for DbLockSystem {
             let (model, target, created) = loop {
                 let transaction_result =
                     transaction::with_transaction(self.state.writer_db(), async |txn| {
+                    #[cfg(test)]
+                    let lock_transaction_test_barrier = self
+                        .lock_transaction_test_barrier
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .take();
+                    #[cfg(test)]
+                    if let Some(barrier) = lock_transaction_test_barrier {
+                        barrier.wait().await;
+                    }
                     let namespace = crate::services::files::lock::lock_workspace_for_mutation_on(
                         txn, workspace,
                     )
@@ -489,7 +517,7 @@ impl DavLockSystem for DbLockSystem {
                                     .and_then(|locks| {
                                         locks.into_iter().find(|lock| {
                                             lock.timeout_at
-                                                .is_none_or(|expires_at| expires_at >= Utc::now())
+                                                .is_none_or(|expires_at| expires_at > Utc::now())
                                         })
                                     })
                                     .map(|lock| model_to_dav_lock(&lock)),
@@ -695,14 +723,14 @@ impl DavLockSystem for DbLockSystem {
             all_locks.retain(|lock| lock_paths_overlap(lock.path(), lock.deep(), &path_str, deep));
 
             for (index, lock) in all_locks.iter().enumerate() {
-                if lock.timeout_at.is_some_and(|timeout_at| timeout_at < now) {
+                if lock.timeout_at.is_some_and(|timeout_at| timeout_at <= now) {
                     continue;
                 }
                 if all_locks[..index].iter().any(|previous| {
                     previous.path() == lock.path()
                         && previous
                             .timeout_at
-                            .is_none_or(|timeout_at| timeout_at >= now)
+                            .is_none_or(|timeout_at| timeout_at > now)
                 }) {
                     continue;
                 }
@@ -710,7 +738,7 @@ impl DavLockSystem for DbLockSystem {
                     candidate.path() == lock.path()
                         && candidate
                             .timeout_at
-                            .is_none_or(|timeout_at| timeout_at >= now)
+                            .is_none_or(|timeout_at| timeout_at > now)
                         && tokens.contains(&candidate.token)
                 });
                 if !root_is_satisfied {
@@ -750,7 +778,10 @@ impl DavLockSystem for DbLockSystem {
 
             Ok(locks
                 .iter()
-                .filter(|lock| lock.timeout_at.is_none_or(|timeout_at| timeout_at >= now))
+                .filter(|lock| {
+                    lock.timeout_at.is_none_or(|timeout_at| timeout_at > now)
+                        && lock_paths_overlap(lock.path(), lock.deep(), &path_str, false)
+                })
                 .map(model_to_dav_lock)
                 .collect())
         })
@@ -801,7 +832,7 @@ impl DavLockSystem for DbLockSystem {
                     })?,
                 );
             }
-            locks.retain(|lock| lock.timeout_at.is_none_or(|timeout_at| timeout_at >= now));
+            locks.retain(|lock| lock.timeout_at.is_none_or(|timeout_at| timeout_at > now));
             locks.sort_by_key(|lock| lock.id);
 
             let mut locks_by_path: HashMap<String, Vec<DavLock>> = HashMap::new();
@@ -863,7 +894,7 @@ impl DavLockSystem for DbLockSystem {
                     DavBackendError::new(DavBackendErrorKind::Internal)
                 })?
                 .iter()
-                .filter(|lock| lock.timeout_at.is_none_or(|timeout_at| timeout_at >= now))
+                .filter(|lock| lock.timeout_at.is_none_or(|timeout_at| timeout_at > now))
                 .map(model_to_dav_lock)
                 .collect())
         })
@@ -1077,12 +1108,12 @@ pub(crate) async fn revalidate_mutation_locks<C: ConnectionTrait>(
             DavLockError::Backend
         })?;
     for (index, lock) in conflicts.iter().enumerate() {
-        if lock.timeout_at.is_some_and(|timeout_at| timeout_at < now)
+        if lock.timeout_at.is_some_and(|timeout_at| timeout_at <= now)
             || conflicts[..index].iter().any(|previous| {
                 previous.path() == lock.path()
                     && previous
                         .timeout_at
-                        .is_none_or(|timeout_at| timeout_at >= now)
+                        .is_none_or(|timeout_at| timeout_at > now)
             })
         {
             continue;
@@ -1103,7 +1134,7 @@ pub(crate) async fn revalidate_mutation_locks<C: ConnectionTrait>(
             candidate.path() == lock.path()
                 && candidate
                     .timeout_at
-                    .is_none_or(|timeout_at| timeout_at >= now)
+                    .is_none_or(|timeout_at| timeout_at > now)
                 && submitted.iter().any(|token| token == &candidate.token)
         });
         if !satisfied {

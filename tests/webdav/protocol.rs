@@ -5784,6 +5784,12 @@ async fn test_webdav_copy_locked_source_does_not_require_source_lock_token() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+    let lock_token = resp
+        .headers()
+        .get("Lock-Token")
+        .and_then(|value| value.to_str().ok())
+        .expect("LOCK response should include Lock-Token")
+        .to_string();
 
     let req = test::TestRequest::with_uri("/webdav/copy-locked-source.txt")
         .method(actix_web::http::Method::from_bytes(b"COPY").unwrap())
@@ -5805,6 +5811,43 @@ async fn test_webdav_copy_locked_source_does_not_require_source_lock_token() {
     assert_eq!(resp.status(), 200);
     let body = test::read_body(resp).await;
     assert_eq!(String::from_utf8_lossy(&body), "copy locked source");
+
+    let req = test::TestRequest::with_uri("/webdav/copy-locked-source.txt")
+        .method(actix_web::http::Method::from_bytes(b"COPY").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Destination", "/webdav/copy-locked-source-if-target.txt"))
+        .insert_header(("If", "(<urn:uuid:00000000-0000-0000-0000-000000000000>)"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        actix_web::http::StatusCode::PRECONDITION_FAILED,
+        "COPY source lock token is optional, but an explicitly submitted false token must fail"
+    );
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/copy-locked-source-if-target.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        404,
+        "a failed COPY If condition must not create the destination"
+    );
+
+    let req = test::TestRequest::with_uri("/webdav/copy-locked-source.txt")
+        .method(actix_web::http::Method::from_bytes(b"COPY").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Destination", "/webdav/copy-locked-source-if-target.txt"))
+        .insert_header(("If", format!("({lock_token})")))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(
+        resp.status() == 201 || resp.status() == 204,
+        "COPY with the explicitly submitted source token should proceed, got {}",
+        resp.status()
+    );
 }
 
 #[actix_web::test]
@@ -6869,15 +6912,52 @@ async fn test_webdav_depth_zero_collection_lock_protects_member_urls() {
     );
 
     let req = test::TestRequest::put()
-        .uri("/webdav/parent-lock/new.txt")
+        .uri("/webdav/parent-lock/untagged.txt")
         .insert_header(("Authorization", auth.clone()))
         .insert_header(("If", format!("(<{lock_token}>)")))
-        .set_payload("new")
+        .set_payload("untagged")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        actix_web::http::StatusCode::PRECONDITION_FAILED,
+        "an untagged parent token must not match the child Request-URI state"
+    );
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/parent-lock/untagged.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        404,
+        "failed DAV If must not create the member"
+    );
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/parent-lock/submitted.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("If", format!("(<{lock_token}>) (Not <DAV:no-lock>)")))
+        .set_payload("submitted")
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert!(
         resp.status() == 201 || resp.status() == 204,
-        "submitting the parent collection lock token should allow member creation, got {}",
+        "a separately true If list must allow an untagged parent token to be submitted, got {}",
+        resp.status()
+    );
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/parent-lock/tagged.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("If", format!("</webdav/parent-lock/> (<{lock_token}>)")))
+        .set_payload("tagged")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(
+        resp.status() == 201 || resp.status() == 204,
+        "a token tagged to the locked parent collection should allow member creation, got {}",
         resp.status()
     );
 }
@@ -8032,6 +8112,73 @@ async fn test_webdav_mutations_http_etag_preconditions() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert!(resp.status() == 201 || resp.status() == 204);
+}
+
+#[actix_web::test]
+async fn test_webdav_copy_evaluates_dav_if_etag_and_state_token_conditions() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/copy-if-source.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("copy If source")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 201 || resp.status() == 204);
+
+    let req = test::TestRequest::default()
+        .method(actix_web::http::Method::HEAD)
+        .uri("/webdav/copy-if-source.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let etag = resp
+        .headers()
+        .get("ETag")
+        .and_then(|value| value.to_str().ok())
+        .expect("HEAD should return source ETag")
+        .to_string();
+
+    for condition in [
+        r#"(["wrong-copy-if-etag"])"#.to_string(),
+        "(<urn:uuid:00000000-0000-0000-0000-000000000000>)".to_string(),
+    ] {
+        let req = test::TestRequest::with_uri("/webdav/copy-if-source.txt")
+            .method(actix_web::http::Method::from_bytes(b"COPY").unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Destination", "/webdav/copy-if-target.txt"))
+            .insert_header(("If", condition))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            actix_web::http::StatusCode::PRECONDITION_FAILED,
+            "COPY must reject a false DAV If condition"
+        );
+    }
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/copy-if-target.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+
+    let req = test::TestRequest::with_uri("/webdav/copy-if-source.txt")
+        .method(actix_web::http::Method::from_bytes(b"COPY").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Destination", "/webdav/copy-if-target.txt"))
+        .insert_header(("If", format!("([{etag}])")))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(
+        resp.status() == 201 || resp.status() == 204,
+        "COPY with a matching DAV If ETag should proceed, got {}",
+        resp.status()
+    );
 }
 
 #[actix_web::test]

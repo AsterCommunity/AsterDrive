@@ -162,19 +162,27 @@ async fn resource_lock_migration_backfills_workspace_and_typed_root() {
     CurrentMigrator::up(&db, Some(1))
         .await
         .expect("downgraded resource lock migration should reapply");
-    let ownerless_origin = db
+    let ownerless_row = db
         .query_one_raw(Statement::from_string(
             DbBackend::Sqlite,
-            "SELECT origin FROM resource_locks WHERE token = 'legacy-ownerless-token'",
+            "SELECT origin, owner_info FROM resource_locks WHERE token = 'legacy-ownerless-token'",
         ))
         .await
         .expect("reapplied ownerless lock should query")
-        .expect("reapplied ownerless lock should exist")
+        .expect("reapplied ownerless lock should exist");
+    let ownerless_origin = ownerless_row
         .try_get_by_index::<String>(0)
         .expect("reapplied ownerless origin should decode");
+    let ownerless_info = ownerless_row
+        .try_get_by_index::<Option<String>>(1)
+        .expect("reapplied ownerless payload should decode");
     assert_eq!(
         ownerless_origin, "webdav",
         "fail-closed ownerless origin must survive migration round-trip"
+    );
+    assert!(
+        ownerless_info.is_none(),
+        "migration round-trip must preserve the absent owner payload"
     );
 }
 

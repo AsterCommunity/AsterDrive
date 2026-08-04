@@ -393,17 +393,16 @@ pub(crate) async fn handle_copy_move(
         Ok(headers) => headers,
         Err(response) => return response,
     };
-    if is_move
-        && let Err(resp) = aster_forge_webdav::actix::enforce_if_header_with_backends(
-            request_head.if_header.as_ref(),
-            dav_fs,
-            lock_system,
-            &source,
-            prefix,
-            request_scheme,
-            request_host,
-        )
-        .await
+    if let Err(resp) = aster_forge_webdav::actix::enforce_if_header_with_backends(
+        request_head.if_header.as_ref(),
+        dav_fs,
+        lock_system,
+        &source,
+        prefix,
+        request_scheme,
+        request_host,
+    )
+    .await
     {
         return resp;
     }

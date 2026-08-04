@@ -9,10 +9,10 @@ use std::sync::{
 use aster_drive_migration::Migrator;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
-use sea_orm::{ActiveModelTrait, Set};
+use sea_orm::{ActiveModelTrait, ConnectOptions, ConnectionTrait, Set, SqlxSqliteConnector};
 
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
-use crate::db::repository::{lock_namespace_repo, lock_repo};
+use crate::db::repository::{lock_namespace_repo, lock_repo, team_repo};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::mail::sender;
 use crate::services::workspace::storage::WorkspaceResourceScope;
@@ -30,6 +30,7 @@ use aster_forge_cache::{CacheBackend, CacheConfig, CacheExt, MemoryCache};
 use aster_forge_webdav::{
     DavLockAcquireRequest, DavLockError, DavLockSystem, DavMutationCredentials, DavPath,
 };
+use tokio::sync::Barrier;
 
 struct ProjectionCacheSpy {
     inner: MemoryCache,
@@ -122,20 +123,72 @@ fn sample_lock(owner_info: Option<StoredLockOwnerInfo>) -> resource_lock::Model 
 }
 
 async fn build_lock_test_fixture() -> LockTestFixture {
+    build_lock_test_fixture_with_pool_size(1).await
+}
+
+async fn build_lock_test_fixture_with_pool_size(pool_size: u32) -> LockTestFixture {
     let temp_root =
         std::env::temp_dir().join(format!("asterdrive-lock-service-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&temp_root).expect("lock service temp root should exist");
+    let database_url = if pool_size == 1 {
+        "sqlite::memory:".to_string()
+    } else {
+        format!("sqlite://{}?mode=rwc", temp_root.join("locks.db").display())
+    };
 
-    let db = crate::db::connect_with_metrics(
-        &DatabaseConfig {
-            url: "sqlite::memory:".into(),
-            pool_size: 1,
-            retry_count: 0,
-        },
-        aster_drive_metrics::NoopMetrics::arc(),
-    )
-    .await
-    .expect("lock service test DB should connect");
+    let db = if pool_size == 1 {
+        crate::db::connect_with_metrics(
+            &DatabaseConfig {
+                url: database_url.into(),
+                pool_size,
+                retry_count: 0,
+            },
+            aster_drive_metrics::NoopMetrics::arc(),
+        )
+        .await
+        .expect("lock service test DB should connect")
+    } else {
+        let mut options = ConnectOptions::new(database_url);
+        options
+            .max_connections(pool_size)
+            .min_connections(1)
+            .sqlx_logging(false)
+            .test_before_acquire(true)
+            .map_sqlx_sqlite_pool_opts(|pool_options| {
+                pool_options.after_connect(|connection, _metadata| {
+                    Box::pin(async move {
+                        use sea_orm::sqlx::Executor;
+
+                        connection.execute("PRAGMA busy_timeout=15000;").await?;
+                        connection.execute("PRAGMA synchronous=NORMAL;").await?;
+                        connection.execute("PRAGMA foreign_keys=ON;").await?;
+                        Ok(())
+                    })
+                })
+            });
+        let db = SqlxSqliteConnector::connect(options)
+            .await
+            .expect("multi-connection lock test DB should connect");
+        db.execute_unprepared("PRAGMA journal_mode=WAL;")
+            .await
+            .expect("multi-connection lock test DB should enable WAL");
+
+        let pool = db.get_sqlite_connection_pool();
+        let first = pool
+            .acquire()
+            .await
+            .expect("first SQLite writer connection should acquire");
+        let second = pool
+            .acquire()
+            .await
+            .expect("second SQLite writer connection should acquire");
+        assert!(
+            pool.size() >= 2,
+            "concurrency tests require at least two live SQLite writer connections"
+        );
+        drop((first, second));
+        db
+    };
     Migrator::up(&db, None)
         .await
         .expect("lock service migrations should succeed");
@@ -572,6 +625,28 @@ async fn holder_cleanup_advances_generation_for_surviving_namespace() {
 #[tokio::test]
 async fn deleting_team_workspace_namespace_removes_workspace_root_lock() {
     let fixture = build_lock_test_fixture().await;
+    assert_eq!(
+        fixture.user.id, fixture.team.id,
+        "fresh fixture should exercise equal numeric IDs across workspace types"
+    );
+    let personal_root_lock = acquire(
+        &fixture.state,
+        LockTarget {
+            workspace: LockWorkspace::Personal {
+                user_id: fixture.user.id,
+            },
+            root: LockRoot::WorkspaceRoot,
+            depth: LockDepth::Infinity,
+        },
+        LockMode::Exclusive,
+        LockOrigin::WebDav,
+        Some(fixture.user.id),
+        None,
+        None,
+        Some("/".to_string()),
+    )
+    .await
+    .unwrap();
     let root_lock = acquire(
         &fixture.state,
         LockTarget {
@@ -618,6 +693,24 @@ async fn deleting_team_workspace_namespace_removes_workspace_root_lock() {
             .unwrap()
             .is_none()
     );
+    assert!(
+        lock_namespace_repo::find_by_workspace(
+            fixture.state.writer_db(),
+            LockWorkspaceType::Personal,
+            fixture.user.id,
+        )
+        .await
+        .unwrap()
+        .is_some(),
+        "deleting a team namespace must not delete the same numeric personal workspace"
+    );
+    assert!(
+        lock_repo::find_by_token(fixture.state.writer_db(), &personal_root_lock.token)
+            .await
+            .unwrap()
+            .is_some(),
+        "the personal workspace lock must survive team namespace deletion"
+    );
 
     let txn = aster_forge_db::transaction::begin(fixture.state.writer_db())
         .await
@@ -632,14 +725,76 @@ async fn deleting_team_workspace_namespace_removes_workspace_root_lock() {
 }
 
 #[tokio::test]
-async fn concurrent_webdav_locks_share_one_owner_quota_across_workspaces() {
-    let fixture = build_lock_test_fixture().await;
-    apply_webdav_lock_limit(&fixture, "1");
-    let personal = crate::webdav::backend::lock::DbLockSystem::new(
-        fixture.state.clone(),
-        fixture.user.id,
+async fn concurrent_workspace_namespace_delete_has_one_winner() {
+    let fixture = build_lock_test_fixture_with_pool_size(4).await;
+    let root_lock = acquire(
+        &fixture.state,
+        LockTarget {
+            workspace: LockWorkspace::Team {
+                team_id: fixture.team.id,
+            },
+            root: LockRoot::WorkspaceRoot,
+            depth: LockDepth::Infinity,
+        },
+        LockMode::Exclusive,
+        LockOrigin::WebDav,
+        Some(fixture.user.id),
         None,
+        None,
+        Some("/".to_string()),
+    )
+    .await
+    .unwrap();
+
+    let start = Arc::new(Barrier::new(3));
+    let workspace_id = fixture.team.id;
+    let first_db = fixture.state.writer_db().clone();
+    let first_start = start.clone();
+    let first = tokio::spawn(async move {
+        first_start.wait().await;
+        lock_namespace_repo::delete_by_workspace(&first_db, LockWorkspaceType::Team, workspace_id)
+            .await
+    });
+    let second_db = fixture.state.writer_db().clone();
+    let second_start = start.clone();
+    let second = tokio::spawn(async move {
+        second_start.wait().await;
+        lock_namespace_repo::delete_by_workspace(&second_db, LockWorkspaceType::Team, workspace_id)
+            .await
+    });
+    start.wait().await;
+
+    let mut affected = [
+        first.await.unwrap().unwrap(),
+        second.await.unwrap().unwrap(),
+    ];
+    affected.sort_unstable();
+    assert_eq!(affected, [0, 1]);
+    assert!(
+        lock_namespace_repo::find_by_workspace(
+            fixture.state.writer_db(),
+            LockWorkspaceType::Team,
+            fixture.team.id,
+        )
+        .await
+        .unwrap()
+        .is_none()
     );
+    assert!(
+        lock_repo::find_by_token(fixture.state.writer_db(), &root_lock.token)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn team_root_lock_rolls_back_recreated_namespace_after_team_deletion() {
+    let fixture = build_lock_test_fixture().await;
+    team_repo::delete(fixture.state.writer_db(), fixture.team.id)
+        .await
+        .expect("team fixture should delete");
+
     let team = crate::webdav::backend::lock::DbLockSystem::new_with_audit(
         fixture.state.clone(),
         crate::services::workspace::storage::WorkspaceStorageScope::Team {
@@ -653,29 +808,103 @@ async fn concurrent_webdav_locks_share_one_owner_quota_across_workspaces() {
             user_agent: None,
         },
     );
-    let personal_path = DavPath::new("/").unwrap();
-    let team_path = DavPath::new("/").unwrap();
-
-    let (personal_result, team_result) = tokio::join!(
-        personal.lock(DavLockAcquireRequest {
-            path: &personal_path,
-            principal: None,
-            owner: None,
-            timeout: Some(std::time::Duration::from_secs(60)),
-            shared: false,
-            deep: true,
-            credentials: DavMutationCredentials::default(),
-        }),
-        team.lock(DavLockAcquireRequest {
-            path: &team_path,
-            principal: None,
-            owner: None,
-            timeout: Some(std::time::Duration::from_secs(60)),
-            shared: false,
-            deep: true,
-            credentials: DavMutationCredentials::default(),
-        }),
+    let path = DavPath::new("/").unwrap();
+    assert!(
+        matches!(
+            team.lock(DavLockAcquireRequest {
+                path: &path,
+                principal: None,
+                owner: None,
+                timeout: Some(std::time::Duration::from_secs(60)),
+                shared: false,
+                deep: true,
+                credentials: DavMutationCredentials::default(),
+            })
+            .await,
+            Err(DavLockError::Backend)
+        ),
+        "a root LOCK that resumes after team deletion must fail"
     );
+    assert!(
+        lock_namespace_repo::find_by_workspace(
+            fixture.state.writer_db(),
+            LockWorkspaceType::Team,
+            fixture.team.id,
+        )
+        .await
+        .unwrap()
+        .is_none(),
+        "failed root LOCK must roll back the recreated namespace"
+    );
+}
+
+#[tokio::test]
+async fn concurrent_webdav_locks_share_one_owner_quota_across_workspaces() {
+    let fixture = build_lock_test_fixture_with_pool_size(4).await;
+    apply_webdav_lock_limit(&fixture, "1");
+    let mut personal = crate::webdav::backend::lock::DbLockSystem::new(
+        fixture.state.clone(),
+        fixture.user.id,
+        None,
+    );
+    let mut team = crate::webdav::backend::lock::DbLockSystem::new_with_audit(
+        fixture.state.clone(),
+        crate::services::workspace::storage::WorkspaceStorageScope::Team {
+            team_id: fixture.team.id,
+            actor_user_id: fixture.user.id,
+        },
+        None,
+        crate::services::ops::audit::AuditContext {
+            user_id: fixture.user.id,
+            ip_address: None,
+            user_agent: None,
+        },
+    );
+    let transactions_started = Arc::new(Barrier::new(2));
+    personal.set_lock_transaction_test_barrier(transactions_started.clone());
+    team.set_lock_transaction_test_barrier(transactions_started);
+    let start = Arc::new(Barrier::new(3));
+    let personal_start = start.clone();
+    let personal_task = tokio::spawn(async move {
+        let path = DavPath::new("/").unwrap();
+        personal_start.wait().await;
+        personal
+            .lock(DavLockAcquireRequest {
+                path: &path,
+                principal: None,
+                owner: None,
+                timeout: Some(std::time::Duration::from_secs(60)),
+                shared: false,
+                deep: true,
+                credentials: DavMutationCredentials::default(),
+            })
+            .await
+    });
+    let team_start = start.clone();
+    let team_task = tokio::spawn(async move {
+        let path = DavPath::new("/").unwrap();
+        team_start.wait().await;
+        team.lock(DavLockAcquireRequest {
+            path: &path,
+            principal: None,
+            owner: None,
+            timeout: Some(std::time::Duration::from_secs(60)),
+            shared: false,
+            deep: true,
+            credentials: DavMutationCredentials::default(),
+        })
+        .await
+    });
+    start.wait().await;
+
+    let (personal_result, team_result) =
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            tokio::join!(personal_task, team_task)
+        })
+        .await
+        .expect("the quota race should not deadlock");
+    let personal_result = personal_result.unwrap();
+    let team_result = team_result.unwrap();
     let results = [personal_result, team_result];
     assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
     assert_eq!(
@@ -690,6 +919,85 @@ async fn concurrent_webdav_locks_share_one_owner_quota_across_workspaces() {
             .await
             .unwrap(),
         1
+    );
+}
+
+#[tokio::test]
+async fn expired_webdav_lock_does_not_consume_owner_quota() {
+    let fixture = build_lock_test_fixture().await;
+    apply_webdav_lock_limit(&fixture, "1");
+    let expired = acquire(
+        &fixture.state,
+        LockTarget {
+            workspace: LockWorkspace::Personal {
+                user_id: fixture.user.id,
+            },
+            root: LockRoot::File {
+                file_id: fixture.file.id,
+            },
+            depth: LockDepth::Resource,
+        },
+        LockMode::Exclusive,
+        LockOrigin::WebDav,
+        Some(fixture.user.id),
+        None,
+        Some(Duration::seconds(-1)),
+        Some("/docs/lock-target.txt".to_string()),
+    )
+    .await
+    .unwrap();
+    let expires_at = expired
+        .timeout_at
+        .expect("the quota boundary fixture should have a timeout");
+    assert_eq!(
+        lock_repo::count_active_by_owner(fixture.state.writer_db(), fixture.user.id, expires_at,)
+            .await
+            .unwrap(),
+        0,
+        "a lock expiring exactly at the quota cutoff must be treated as expired"
+    );
+
+    let team = crate::webdav::backend::lock::DbLockSystem::new_with_audit(
+        fixture.state.clone(),
+        crate::services::workspace::storage::WorkspaceStorageScope::Team {
+            team_id: fixture.team.id,
+            actor_user_id: fixture.user.id,
+        },
+        None,
+        crate::services::ops::audit::AuditContext {
+            user_id: fixture.user.id,
+            ip_address: None,
+            user_agent: None,
+        },
+    );
+    let path = DavPath::new("/").unwrap();
+    let active = team
+        .lock(DavLockAcquireRequest {
+            path: &path,
+            principal: None,
+            owner: None,
+            timeout: Some(std::time::Duration::from_secs(60)),
+            shared: false,
+            deep: true,
+            credentials: DavMutationCredentials::default(),
+        })
+        .await
+        .expect("expired locks must not consume the active-lock quota")
+        .lock;
+
+    assert_ne!(active.token, expired.token);
+    assert_eq!(
+        lock_repo::count_active_by_owner(fixture.state.writer_db(), fixture.user.id, Utc::now())
+            .await
+            .unwrap(),
+        1
+    );
+    assert!(
+        lock_repo::find_by_token(fixture.state.writer_db(), &expired.token)
+            .await
+            .unwrap()
+            .is_some(),
+        "quota counting must ignore expiry without relying on cleanup timing"
     );
 }
 

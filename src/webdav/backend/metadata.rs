@@ -74,8 +74,8 @@ impl AsterDavMeta {
         }
     }
 
-    pub(crate) fn file_model(&self) -> Option<file::Model> {
-        self.file.clone()
+    pub(crate) fn file_model(&self) -> Option<&file::Model> {
+        self.file.as_ref()
     }
 }
 

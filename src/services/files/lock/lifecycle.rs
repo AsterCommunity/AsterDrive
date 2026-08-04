@@ -167,7 +167,7 @@ pub(crate) async fn acquire_after_namespace_lock_on<C: sea_orm::ConnectionTrait>
     for existing in lock_repo::find_all_by_namespace_for_update(db, namespace.id).await? {
         if existing
             .timeout_at
-            .is_some_and(|expires_at| expires_at < now)
+            .is_some_and(|expires_at| expires_at <= now)
         {
             lock_repo::delete_by_id(db, existing.id).await?;
             projection_changed = true;
@@ -476,7 +476,14 @@ async fn lock_and_revalidate_target<C: sea_orm::ConnectionTrait>(
     target: LockTarget,
 ) -> Result<()> {
     match target.root {
-        LockRoot::WorkspaceRoot => {}
+        LockRoot::WorkspaceRoot => match target.workspace {
+            LockWorkspace::Personal { user_id } => {
+                user_repo::lock_by_id(db, user_id).await?;
+            }
+            LockWorkspace::Team { team_id } => {
+                team_repo::lock_by_id(db, team_id).await?;
+            }
+        },
         LockRoot::File { file_id } => {
             let file = file_repo::lock_by_id(db, file_id).await?;
             if LockWorkspace::from_file(&file)? != target.workspace {
