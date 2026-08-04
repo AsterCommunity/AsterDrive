@@ -6,6 +6,11 @@ on:
     paths:
       - 'src/webdav/**'
       - 'src/services/files/**'
+      - 'src/services/preview/wopi/locks.rs'
+      - 'src/db/repository/lock*.rs'
+      - 'crates/aster_drive_model/src/entities/resource_lock*.rs'
+      - 'crates/aster_drive_model/src/types/resource_lock.rs'
+      - 'crates/aster_drive_migration/src/*resource_locks*.rs'
       - 'tests/common/**'
       - 'tests/webdav/**'
       - 'scripts/ci/webdav-compat/**'
@@ -19,6 +24,11 @@ on:
     paths:
       - 'src/webdav/**'
       - 'src/services/files/**'
+      - 'src/services/preview/wopi/locks.rs'
+      - 'src/db/repository/lock*.rs'
+      - 'crates/aster_drive_model/src/entities/resource_lock*.rs'
+      - 'crates/aster_drive_model/src/types/resource_lock.rs'
+      - 'crates/aster_drive_migration/src/*resource_locks*.rs'
       - 'tests/common/**'
       - 'tests/webdav/**'
       - 'scripts/ci/webdav-compat/**'
@@ -32,7 +42,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: webdav-compatibility-${{ github.workflow }}-${{ github.ref }}
+  group: webdav-compatibility-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:

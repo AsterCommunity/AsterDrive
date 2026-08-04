@@ -58,7 +58,8 @@ async fn resource_lock_migration_backfills_workspace_and_typed_root() {
          INSERT INTO files (id, name, folder_id, team_id, blob_id, size, owner_user_id, created_by_user_id, created_by_username, mime_type, extension, compound_extension, file_category, created_at, updated_at, deleted_at, is_locked) \
          VALUES (301, 'locked.txt', NULL, NULL, 201, 0, 101, 101, 'lock-owner', 'text/plain', 'txt', NULL, 'document', '{now}', '{now}', NULL, 1); \
          INSERT INTO resource_locks (token, entity_type, entity_id, path, owner_id, owner_info, timeout_at, shared, deep, created_at) \
-         VALUES ('legacy-token', 'file', 301, '/locked.txt', 101, '{{\"kind\":\"webdav\",\"xml\":\"<owner/>\"}}', NULL, 0, 0, '{now}')"
+         VALUES ('legacy-token', 'file', 301, '/locked.txt', 101, '{{\"kind\":\"webdav\",\"xml\":\"<owner/>\"}}', NULL, 0, 0, '{now}'), \
+                ('legacy-ownerless-token', 'file', 301, '/locked.txt', 101, NULL, NULL, 0, 0, '{now}')"
     ))
     .await
     .expect("legacy resource-lock fixture should insert");
@@ -85,6 +86,20 @@ async fn resource_lock_migration_backfills_workspace_and_typed_root() {
     assert_eq!(row.try_get_by_index::<String>(5).unwrap(), "exclusive");
     assert_eq!(row.try_get_by_index::<String>(6).unwrap(), "webdav");
     assert_eq!(row.try_get_by_index::<String>(7).unwrap(), "/locked.txt");
+    let ownerless_origin = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT origin FROM resource_locks WHERE token = 'legacy-ownerless-token'",
+        ))
+        .await
+        .expect("ownerless migrated lock should query")
+        .expect("ownerless migrated lock should exist")
+        .try_get_by_index::<String>(0)
+        .expect("ownerless migrated origin should decode");
+    assert_eq!(
+        ownerless_origin, "webdav",
+        "ambiguous legacy ownerless locks must require token-based authorization"
+    );
     assert!(!has_column(
         &sqlite_table_columns(&db, "files").await,
         "is_locked"
@@ -115,6 +130,20 @@ async fn resource_lock_migration_backfills_workspace_and_typed_root() {
     assert_eq!(legacy_row.try_get_by_index::<i64>(3).unwrap(), 101);
     assert!(!legacy_row.try_get_by_index::<bool>(4).unwrap());
     assert!(!legacy_row.try_get_by_index::<bool>(5).unwrap());
+    let ownerless_legacy = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT owner_info FROM resource_locks WHERE token = 'legacy-ownerless-token'",
+        ))
+        .await
+        .expect("downgraded ownerless lock should query")
+        .expect("downgraded ownerless lock should exist");
+    assert!(
+        ownerless_legacy
+            .try_get_by_index::<Option<String>>(0)
+            .expect("downgraded ownerless payload should decode")
+            .is_none()
+    );
     let file_locked = db
         .query_one_raw(Statement::from_string(
             DbBackend::Sqlite,
@@ -133,6 +162,20 @@ async fn resource_lock_migration_backfills_workspace_and_typed_root() {
     CurrentMigrator::up(&db, Some(1))
         .await
         .expect("downgraded resource lock migration should reapply");
+    let ownerless_origin = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT origin FROM resource_locks WHERE token = 'legacy-ownerless-token'",
+        ))
+        .await
+        .expect("reapplied ownerless lock should query")
+        .expect("reapplied ownerless lock should exist")
+        .try_get_by_index::<String>(0)
+        .expect("reapplied ownerless origin should decode");
+    assert_eq!(
+        ownerless_origin, "webdav",
+        "fail-closed ownerless origin must survive migration round-trip"
+    );
 }
 
 #[tokio::test]

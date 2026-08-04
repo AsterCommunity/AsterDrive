@@ -27,6 +27,9 @@ use aster_drive_model::types::{
 };
 use aster_forge_cache as cache;
 use aster_forge_cache::{CacheBackend, CacheConfig, CacheExt, MemoryCache};
+use aster_forge_webdav::{
+    DavLockAcquireRequest, DavLockError, DavLockSystem, DavMutationCredentials, DavPath,
+};
 
 struct ProjectionCacheSpy {
     inner: MemoryCache,
@@ -315,6 +318,27 @@ async fn projected_file_state(fixture: &LockTestFixture) -> ResourceLockState {
     state_for(&states, EntityType::File, fixture.file.id)
 }
 
+fn apply_webdav_lock_limit(fixture: &LockTestFixture, value: &str) {
+    fixture
+        .state
+        .runtime_config
+        .apply(aster_forge_db::system_config::Model {
+            id: 1,
+            key: crate::config::definitions::WEBDAV_MAX_ACTIVE_LOCKS_PER_USER_KEY.to_string(),
+            value: value.to_string(),
+            value_type: aster_forge_config::ConfigValueType::Number,
+            requires_restart: false,
+            is_sensitive: false,
+            source: aster_forge_config::ConfigSource::System,
+            visibility: aster_forge_config::ConfigVisibility::Private,
+            namespace: String::new(),
+            category: crate::config::definitions::CONFIG_CATEGORY_WEBDAV.to_string(),
+            description: "test".to_string(),
+            updated_at: Utc::now(),
+            updated_by: None,
+        });
+}
+
 #[test]
 fn serializes_and_deserializes_owner_payloads() {
     for owner_info in [
@@ -401,6 +425,271 @@ async fn expired_lock_is_replaced_and_generation_advances_once_per_commit() {
     assert_eq!(
         namespace_generation(&fixture, LockWorkspaceType::Personal, fixture.user.id).await,
         2
+    );
+}
+
+#[tokio::test]
+async fn expired_cleanup_is_idempotent_and_empty_database_needs_no_namespace() {
+    let fixture = build_lock_test_fixture().await;
+    assert_eq!(cleanup_expired(&fixture.state).await.unwrap(), 0);
+    assert!(
+        lock_namespace_repo::find_by_workspace(
+            fixture.state.writer_db(),
+            LockWorkspaceType::Personal,
+            fixture.user.id,
+        )
+        .await
+        .unwrap()
+        .is_none()
+    );
+    let orphan_namespace = lock_namespace_repo::ensure_and_lock(
+        fixture.state.writer_db(),
+        LockWorkspaceType::Personal,
+        fixture.user.id + 500_000,
+    )
+    .await
+    .unwrap();
+    assert_eq!(orphan_namespace.generation, 0);
+    assert_eq!(cleanup_expired(&fixture.state).await.unwrap(), 0);
+    assert_eq!(
+        lock_namespace_repo::find_by_id(fixture.state.writer_db(), orphan_namespace.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .generation,
+        0
+    );
+
+    acquire(
+        &fixture.state,
+        LockTarget {
+            workspace: LockWorkspace::Personal {
+                user_id: fixture.user.id,
+            },
+            root: LockRoot::File {
+                file_id: fixture.file.id,
+            },
+            depth: LockDepth::Resource,
+        },
+        LockMode::Exclusive,
+        LockOrigin::Product,
+        Some(fixture.user.id),
+        None,
+        Some(Duration::seconds(-1)),
+        Some("/docs/lock-target.txt".to_string()),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(cleanup_expired(&fixture.state).await.unwrap(), 1);
+    assert_eq!(
+        namespace_generation(&fixture, LockWorkspaceType::Personal, fixture.user.id).await,
+        2
+    );
+    assert!(
+        lock_repo::find_all(fixture.state.writer_db())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(cleanup_expired(&fixture.state).await.unwrap(), 0);
+    assert_eq!(
+        namespace_generation(&fixture, LockWorkspaceType::Personal, fixture.user.id).await,
+        2
+    );
+}
+
+#[tokio::test]
+async fn holder_cleanup_advances_generation_for_surviving_namespace() {
+    let fixture = build_lock_test_fixture().await;
+    let target = LockTarget {
+        workspace: LockWorkspace::Team {
+            team_id: fixture.team.id,
+        },
+        root: LockRoot::WorkspaceRoot,
+        depth: LockDepth::Infinity,
+    };
+    acquire(
+        &fixture.state,
+        target,
+        LockMode::Shared,
+        LockOrigin::WebDav,
+        Some(fixture.user.id),
+        None,
+        None,
+        Some("/".to_string()),
+    )
+    .await
+    .unwrap();
+    let surviving_holder_id = fixture.user.id + 100_000;
+    acquire(
+        &fixture.state,
+        target,
+        LockMode::Shared,
+        LockOrigin::WebDav,
+        Some(surviving_holder_id),
+        None,
+        None,
+        Some("/".to_string()),
+    )
+    .await
+    .unwrap();
+
+    let txn = aster_forge_db::transaction::begin(fixture.state.writer_db())
+        .await
+        .unwrap();
+    assert_eq!(
+        delete_all_held_by_on(&txn, fixture.user.id).await.unwrap(),
+        1
+    );
+    aster_forge_db::transaction::commit(txn).await.unwrap();
+
+    let remaining = lock_repo::find_by_owner(fixture.state.writer_db(), surviving_holder_id)
+        .await
+        .unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(
+        namespace_generation(&fixture, LockWorkspaceType::Team, fixture.team.id).await,
+        3
+    );
+
+    let txn = aster_forge_db::transaction::begin(fixture.state.writer_db())
+        .await
+        .unwrap();
+    assert_eq!(
+        delete_all_held_by_on(&txn, fixture.user.id + 200_000)
+            .await
+            .unwrap(),
+        0
+    );
+    aster_forge_db::transaction::commit(txn).await.unwrap();
+    assert_eq!(
+        namespace_generation(&fixture, LockWorkspaceType::Team, fixture.team.id).await,
+        3
+    );
+}
+
+#[tokio::test]
+async fn deleting_team_workspace_namespace_removes_workspace_root_lock() {
+    let fixture = build_lock_test_fixture().await;
+    let root_lock = acquire(
+        &fixture.state,
+        LockTarget {
+            workspace: LockWorkspace::Team {
+                team_id: fixture.team.id,
+            },
+            root: LockRoot::WorkspaceRoot,
+            depth: LockDepth::Infinity,
+        },
+        LockMode::Exclusive,
+        LockOrigin::WebDav,
+        Some(fixture.user.id),
+        None,
+        None,
+        Some("/".to_string()),
+    )
+    .await
+    .unwrap();
+
+    let txn = aster_forge_db::transaction::begin(fixture.state.writer_db())
+        .await
+        .unwrap();
+    assert_eq!(
+        delete_workspace_namespace_on(&txn, LockWorkspaceType::Team, fixture.team.id)
+            .await
+            .unwrap(),
+        1
+    );
+    aster_forge_db::transaction::commit(txn).await.unwrap();
+
+    assert!(
+        lock_namespace_repo::find_by_workspace(
+            fixture.state.writer_db(),
+            LockWorkspaceType::Team,
+            fixture.team.id,
+        )
+        .await
+        .unwrap()
+        .is_none()
+    );
+    assert!(
+        lock_repo::find_by_token(fixture.state.writer_db(), &root_lock.token)
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    let txn = aster_forge_db::transaction::begin(fixture.state.writer_db())
+        .await
+        .unwrap();
+    assert_eq!(
+        delete_workspace_namespace_on(&txn, LockWorkspaceType::Team, fixture.team.id)
+            .await
+            .unwrap(),
+        0
+    );
+    aster_forge_db::transaction::commit(txn).await.unwrap();
+}
+
+#[tokio::test]
+async fn concurrent_webdav_locks_share_one_owner_quota_across_workspaces() {
+    let fixture = build_lock_test_fixture().await;
+    apply_webdav_lock_limit(&fixture, "1");
+    let personal = crate::webdav::backend::lock::DbLockSystem::new(
+        fixture.state.clone(),
+        fixture.user.id,
+        None,
+    );
+    let team = crate::webdav::backend::lock::DbLockSystem::new_with_audit(
+        fixture.state.clone(),
+        crate::services::workspace::storage::WorkspaceStorageScope::Team {
+            team_id: fixture.team.id,
+            actor_user_id: fixture.user.id,
+        },
+        None,
+        crate::services::ops::audit::AuditContext {
+            user_id: fixture.user.id,
+            ip_address: None,
+            user_agent: None,
+        },
+    );
+    let personal_path = DavPath::new("/").unwrap();
+    let team_path = DavPath::new("/").unwrap();
+
+    let (personal_result, team_result) = tokio::join!(
+        personal.lock(DavLockAcquireRequest {
+            path: &personal_path,
+            principal: None,
+            owner: None,
+            timeout: Some(std::time::Duration::from_secs(60)),
+            shared: false,
+            deep: true,
+            credentials: DavMutationCredentials::default(),
+        }),
+        team.lock(DavLockAcquireRequest {
+            path: &team_path,
+            principal: None,
+            owner: None,
+            timeout: Some(std::time::Duration::from_secs(60)),
+            shared: false,
+            deep: true,
+            credentials: DavMutationCredentials::default(),
+        }),
+    );
+    let results = [personal_result, team_result];
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| matches!(result, Err(DavLockError::LimitExceeded)))
+            .count(),
+        1
+    );
+    assert_eq!(
+        lock_repo::count_active_by_owner(fixture.state.writer_db(), fixture.user.id, Utc::now())
+            .await
+            .unwrap(),
+        1
     );
 }
 

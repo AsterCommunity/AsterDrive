@@ -210,6 +210,7 @@ pub async fn store_from_temp(
             size: request.size,
             existing_file_id: request.existing_file_id,
             lock_credentials: request.lock_credentials,
+            file_precondition: None,
         },
         StoreFromTempHints::default(),
         NewFileMode::ResolveUnique,

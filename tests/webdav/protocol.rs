@@ -6232,16 +6232,9 @@ async fn test_webdav_recursive_delete_keeps_namespace_when_child_lock_cleanup_fa
     let resp = test::call_service(&app, req).await;
     assert_eq!(
         resp.status(),
-        207,
-        "a child commit failure must be reported as an internal resource failure"
+        500,
+        "an atomic DELETE transaction failure must fail the whole request"
     );
-    let body = test::read_body(resp).await;
-    let xml = String::from_utf8_lossy(&body);
-    assert!(
-        xml.contains("/webdav/atomic-folder-delete/child.txt"),
-        "{xml}"
-    );
-    assert!(xml.contains("500 Internal Server Error"), "{xml}");
     remove_resource_lock_failure_trigger(state.writer_db(), "webdav_child_lock_failure").await;
 
     let req = test::TestRequest::get()
@@ -8262,7 +8255,7 @@ async fn test_webdav_if_header_uses_or_between_tagged_resource_groups() {
 }
 
 #[actix_web::test]
-async fn test_webdav_recursive_delete_reports_locked_children_as_multistatus() {
+async fn test_webdav_recursive_delete_is_atomic_when_a_descendant_is_locked() {
     let app = setup_with_webdav!();
     let (token, _) = register_and_login!(app);
     let auth = create_webdav_basic_auth!(app, token);
@@ -8305,13 +8298,9 @@ async fn test_webdav_recursive_delete_reports_locked_children_as_multistatus() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(
         resp.status(),
-        207,
-        "recursive DELETE with locked descendants should return Multi-Status"
+        423,
+        "recursive DELETE must reject the whole tree before deleting any resource"
     );
-    let body = test::read_body(resp).await;
-    let xml = String::from_utf8_lossy(&body);
-    assert!(xml.contains("/webdav/partial-delete/locked.txt"), "{xml}");
-    assert!(xml.contains("423 Locked"), "{xml}");
 
     let req = test::TestRequest::get()
         .uri("/webdav/partial-delete/locked.txt")
@@ -8321,7 +8310,60 @@ async fn test_webdav_recursive_delete_reports_locked_children_as_multistatus() {
     assert_eq!(
         resp.status(),
         200,
-        "locked descendant should remain after Multi-Status preflight failure"
+        "locked descendant should remain after atomic tree rejection"
+    );
+}
+
+#[actix_web::test]
+async fn test_webdav_recursive_delete_rejects_locked_root_before_deleting_children() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    let req = test::TestRequest::with_uri("/webdav/locked-root/")
+        .method(actix_web::http::Method::from_bytes(b"MKCOL").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 201);
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/locked-root/child.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("must remain")
+        .to_request();
+    assert!(matches!(
+        test::call_service(&app, req).await.status().as_u16(),
+        201 | 204
+    ));
+
+    let lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+</D:lockinfo>"#;
+    let req = test::TestRequest::with_uri("/webdav/locked-root/")
+        .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("Depth", "0"))
+        .set_payload(lock_body)
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
+
+    let req = test::TestRequest::delete()
+        .uri("/webdav/locked-root/")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 423);
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/locked-root/child.txt")
+        .insert_header(("Authorization", auth))
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, req).await.status(),
+        200,
+        "root lock rejection must happen before any child is deleted"
     );
 }
 

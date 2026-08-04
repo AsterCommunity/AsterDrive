@@ -521,3 +521,17 @@ pub async fn delete_all_by_owner<C: ConnectionTrait>(db: &C, owner_id: i64) -> R
         .map_err(AsterError::from)?;
     Ok(res.rows_affected)
 }
+
+pub async fn delete_by_owner_in_namespace<C: ConnectionTrait>(
+    db: &C,
+    namespace_id: i64,
+    owner_id: i64,
+) -> Result<u64> {
+    let res = ResourceLock::delete_many()
+        .filter(resource_lock::Column::NamespaceId.eq(namespace_id))
+        .filter(resource_lock::Column::HolderUserId.eq(owner_id))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(res.rows_affected)
+}

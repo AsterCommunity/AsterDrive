@@ -39,6 +39,7 @@ struct AsterDavMutationPort<'a> {
     dav_fs: &'a backend::AsterDavFs,
     request_head: &'a DavRequestHead,
     prefix: &'a str,
+    http_headers: &'a http::HeaderMap,
 }
 
 impl DavMutationPort for AsterDavMutationPort<'_> {
@@ -49,6 +50,9 @@ impl DavMutationPort for AsterDavMutationPort<'_> {
             if_header: self.request_head.if_header.as_ref(),
             request_scheme: &self.request_head.origin.scheme,
             request_host: &self.request_head.origin.host,
+            http_headers: self.http_headers,
+            http_method: self.request_head.method,
+            http_target: &self.request_head.target,
         };
         let result = match command.step {
             DavMutationStepKind::CopyFile => {
@@ -114,6 +118,10 @@ impl DavMutationPort for AsterDavMutationPort<'_> {
             backend::AsterDavMutationError::Conflict => DavMutationStepError::from_backend(
                 affected_path,
                 &DavBackendError::new(DavBackendErrorKind::Conflict),
+            ),
+            backend::AsterDavMutationError::PreconditionFailed => DavMutationStepError::status(
+                affected_path,
+                StatusCode::PRECONDITION_FAILED.as_u16(),
             ),
             backend::AsterDavMutationError::Backend => DavMutationStepError::backend(affected_path),
         })
@@ -269,6 +277,10 @@ pub(crate) async fn handle_delete(
     if let Err(resp) = enforce_http_conditionals(req.headers(), DavMethod::Delete, &meta) {
         return resp;
     }
+    let http_headers = match aster_forge_webdav::actix::converted_headers(req.headers()) {
+        Ok(headers) => headers,
+        Err(response) => return response,
+    };
     let request_scheme = request_head.origin.scheme.as_str();
     let request_host = request_head.origin.host.as_str();
     if let Err(resp) = aster_forge_webdav::actix::enforce_if_header_with_backends(
@@ -284,17 +296,16 @@ pub(crate) async fn handle_delete(
     {
         return resp;
     }
-    if !meta.is_dir()
-        && let Err(resp) = aster_forge_webdav::actix::enforce_unlocked(
-            lock_system,
-            &path,
-            false,
-            prefix,
-            request_head.if_header.as_ref(),
-            request_scheme,
-            request_host,
-        )
-        .await
+    if let Err(resp) = aster_forge_webdav::actix::enforce_unlocked(
+        lock_system,
+        &path,
+        false,
+        prefix,
+        request_head.if_header.as_ref(),
+        request_scheme,
+        request_host,
+    )
+    .await
     {
         return resp;
     }
@@ -311,33 +322,31 @@ pub(crate) async fn handle_delete(
         return resp;
     }
 
-    let port = AsterDavMutationPort {
-        dav_fs,
-        request_head,
+    let conditions = backend::DavMutationConditions {
         prefix,
+        if_header: request_head.if_header.as_ref(),
+        request_scheme: &request_head.origin.scheme,
+        request_host: &request_head.origin.host,
+        http_headers: &http_headers,
+        http_method: request_head.method,
+        http_target: &request_head.target,
     };
-    let enumerator = dav_fs.write_directory_enumerator();
-    let outcome = execute_recursive_mutation(
-        DavMutationRequest {
-            operation: DavMutationOperation::Delete,
-            source: path,
-            source_kind: resource_kind,
-            destination: None,
-            destination_kind: None,
-            destination_existed: false,
-            recurse_collections: true,
-        },
-        &enumerator,
-        &port,
-        &DavNeverCancelled,
-        mutation_executor_limits(),
-    )
-    .await;
-    record_mutation_observations(&outcome);
-    match mutation_outcome_response(prefix, &outcome, Default::default()) {
-        Ok(response) => aster_forge_webdav::actix::into_response(response),
-        Err(error) => {
-            tracing::warn!(error = %error, "failed to compose WebDAV DELETE response");
+    match dav_fs
+        .delete_with_locks(
+            &path,
+            meta.is_dir(),
+            DavMutationOperation::Delete,
+            aster_forge_webdav::DavMutationTargetRole::Source,
+            conditions,
+        )
+        .await
+    {
+        Ok(()) => responses::empty(StatusCode::NO_CONTENT),
+        Err(backend::AsterDavMutationError::FileSystem(error)) => fs_error_response(error),
+        Err(backend::AsterDavMutationError::Locked(_)) => responses::empty(StatusCode::LOCKED),
+        Err(backend::AsterDavMutationError::Conflict) => responses::empty(StatusCode::CONFLICT),
+        Err(backend::AsterDavMutationError::PreconditionFailed) => responses::precondition_failed(),
+        Err(backend::AsterDavMutationError::Backend) => {
             responses::empty(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -380,16 +389,21 @@ pub(crate) async fn handle_copy_move(
     if let Err(resp) = enforce_http_conditionals(req.headers(), request_head.method, &source_meta) {
         return resp;
     }
-    if let Err(resp) = aster_forge_webdav::actix::enforce_if_header_with_backends(
-        request_head.if_header.as_ref(),
-        dav_fs,
-        lock_system,
-        &source,
-        prefix,
-        request_scheme,
-        request_host,
-    )
-    .await
+    let http_headers = match aster_forge_webdav::actix::converted_headers(req.headers()) {
+        Ok(headers) => headers,
+        Err(response) => return response,
+    };
+    if is_move
+        && let Err(resp) = aster_forge_webdav::actix::enforce_if_header_with_backends(
+            request_head.if_header.as_ref(),
+            dav_fs,
+            lock_system,
+            &source,
+            prefix,
+            request_scheme,
+            request_host,
+        )
+        .await
     {
         return resp;
     }
@@ -497,6 +511,7 @@ pub(crate) async fn handle_copy_move(
         dav_fs,
         request_head,
         prefix,
+        http_headers: &http_headers,
     };
     let enumerator = dav_fs.write_directory_enumerator();
     let outcome = execute_recursive_mutation(

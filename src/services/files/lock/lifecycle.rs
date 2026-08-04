@@ -38,19 +38,27 @@ pub async fn lock(
     owner_info: Option<ResourceLockOwnerInfo>,
     timeout: Option<Duration>,
 ) -> Result<resource_lock::Model> {
-    let target = resolve_entity_target(state.writer_db(), entity_type, entity_id).await?;
-    let path = resolve_entity_path(state.writer_db(), entity_type, entity_id).await?;
-    acquire(
-        state,
-        target,
-        LockMode::Exclusive,
-        origin_for_owner_info(owner_info.as_ref()),
-        owner_id,
-        owner_info,
-        timeout,
-        Some(path),
+    let txn = transaction::begin(state.writer_db()).await?;
+    let target = resolve_entity_target(&txn, entity_type, entity_id).await?;
+    let namespace = lock_target_namespace(&txn, target.workspace).await?;
+    lock_and_revalidate_target(&txn, target).await?;
+    let path = resolve_entity_path(&txn, entity_type, entity_id).await?;
+    let lock = acquire_after_namespace_lock_on(
+        &txn,
+        namespace,
+        LockAcquireCommand {
+            target,
+            mode: LockMode::Exclusive,
+            origin: origin_for_owner_info(owner_info.as_ref()),
+            holder_user_id: owner_id,
+            owner_info,
+            timeout,
+            presentation_path: Some(path),
+        },
     )
-    .await
+    .await?;
+    transaction::commit(txn).await?;
+    Ok(lock)
 }
 
 #[expect(

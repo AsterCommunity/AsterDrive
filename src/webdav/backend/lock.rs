@@ -37,6 +37,7 @@ const DISCOVER_MANY_ANCESTOR_CHUNK_SIZE: usize = 500;
 #[derive(Debug)]
 enum LockAcquireTransactionError {
     TargetBecameMissing,
+    LimitExceeded,
     Product(crate::errors::AsterError),
 }
 
@@ -56,6 +57,7 @@ impl std::fmt::Display for LockAcquireTransactionError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::TargetBecameMissing => formatter.write_str("WebDAV LOCK target became missing"),
+            Self::LimitExceeded => formatter.write_str("WebDAV active lock limit exceeded"),
             Self::Product(error) => std::fmt::Display::fmt(error, formatter),
         }
     }
@@ -333,6 +335,20 @@ impl DavLockSystem for DbLockSystem {
                         txn, workspace,
                     )
                     .await?;
+                    self.ensure_lock_quota(txn, Utc::now())
+                        .await
+                        .map_err(|error| match error {
+                            DavLockPreflightError::LimitExceeded => {
+                                LockAcquireTransactionError::LimitExceeded
+                            }
+                            DavLockPreflightError::GeneralFailure => {
+                                LockAcquireTransactionError::Product(
+                                    crate::errors::AsterError::internal_error(
+                                        "failed to enforce WebDAV lock quota",
+                                    ),
+                                )
+                            }
+                        })?;
                     let resolved =
                         resolve_path_to_entity(txn, self.scope, self.root_folder_id, &path_str)
                             .await
@@ -446,6 +462,9 @@ impl DavLockSystem for DbLockSystem {
                                 DavLockError::Backend
                             })?,
                         );
+                    }
+                    Err(LockAcquireTransactionError::LimitExceeded) => {
+                        return Err(DavLockError::LimitExceeded);
                     }
                     Err(LockAcquireTransactionError::Product(error)) => {
                         if !error.database_commit_outcome_uncertain()
@@ -731,7 +750,7 @@ impl DavLockSystem for DbLockSystem {
 
             Ok(locks
                 .iter()
-                .filter(|l| l.timeout_at.is_none_or(|t| t >= now))
+                .filter(|lock| lock.timeout_at.is_none_or(|timeout_at| timeout_at >= now))
                 .map(model_to_dav_lock)
                 .collect())
         })
@@ -798,7 +817,19 @@ impl DavLockSystem for DbLockSystem {
                 let mut discovered = Vec::new();
                 for ancestor in ancestors {
                     if let Some(locks) = locks_by_path.get(&ancestor) {
-                        discovered.extend(locks.iter().cloned());
+                        discovered.extend(
+                            locks
+                                .iter()
+                                .filter(|lock| {
+                                    lock_paths_overlap(
+                                        lock.path.as_str(),
+                                        lock.deep,
+                                        path.as_str(),
+                                        false,
+                                    )
+                                })
+                                .cloned(),
+                        );
                     }
                 }
                 result.insert(path, discovered);

@@ -111,6 +111,56 @@ async fn test_db_lock_system_deep_lock_supports_check_refresh_discover_and_delet
     assert_eq!(discovered[0].principal, None);
     assert!(discovered[0].owner.is_some());
 
+    let shallow_path = DavPath::new("/shallow/").unwrap();
+    let shallow_child_path = DavPath::new("/shallow/child.txt").unwrap();
+    let shallow_folder = folder::create(&state, user.id, "shallow", None)
+        .await
+        .unwrap();
+    let shallow_temp_path = write_temp_fixture("child.txt", "child");
+    file::store_from_temp(
+        &state,
+        user.id,
+        file::StoreFromTempRequest::new(
+            Some(shallow_folder.id),
+            "child.txt",
+            &shallow_temp_path,
+            5,
+        ),
+    )
+    .await
+    .unwrap();
+    lock_system
+        .lock(DavLockAcquireRequest {
+            path: &shallow_path,
+            principal: None,
+            owner: None,
+            timeout: Some(Duration::from_secs(120)),
+            shared: false,
+            deep: false,
+            credentials: DavMutationCredentials::default(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        lock_system
+            .discover(&shallow_child_path)
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "If-header state resolution must accept a Depth 0 parent token for member-URL changes"
+    );
+    assert!(
+        lock_system
+            .discover_many(std::slice::from_ref(&shallow_child_path))
+            .await
+            .unwrap()
+            .remove(&shallow_child_path)
+            .unwrap()
+            .is_empty(),
+        "batched lockdiscovery must apply the same Depth 0 filtering"
+    );
+
     let refreshed = lock_system
         .refresh(&folder_path, &lock.token, Some(Duration::from_secs(30)))
         .await

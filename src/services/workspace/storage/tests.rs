@@ -16,7 +16,7 @@ use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
 use async_trait::async_trait;
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -29,11 +29,11 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::{Notify, oneshot};
 
 use super::{
-    StorageCancellationCheck, StorageOperationContext, StoreFromTempHints, StoreFromTempParams,
-    StorePreuploadedNondedupParams, WorkspaceStorageScope, persist_preuploaded_blob,
-    prepare_non_dedup_blob_upload, store_from_temp_exact_name_silent_with_hints,
-    store_from_temp_exact_name_with_hints, store_from_temp_with_hints, store_preuploaded_nondedup,
-    upload_temp_file_to_prepared_blob,
+    FileWritePrecondition, StorageCancellationCheck, StorageOperationContext, StoreFromTempHints,
+    StoreFromTempParams, StorePreuploadedNondedupParams, WorkspaceStorageScope,
+    persist_preuploaded_blob, prepare_non_dedup_blob_upload,
+    store_from_temp_exact_name_silent_with_hints, store_from_temp_exact_name_with_hints,
+    store_from_temp_with_hints, store_preuploaded_nondedup, upload_temp_file_to_prepared_blob,
 };
 
 #[derive(Clone)]
@@ -1217,6 +1217,211 @@ async fn slow_nondedup_preupload_does_not_block_task_listing() {
         .expect("store task should join")
         .expect("store task should succeed");
     assert_eq!(stored.name, "slow-upload.bin");
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[tokio::test]
+async fn conditional_overwrite_rejects_file_changed_while_body_is_staged() {
+    let (state, temp_root, policy, user) = build_test_state().await;
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+
+    let initial_temp = temp_root.join("conditional-existing-initial.bin");
+    let initial_payload = b"initial payload";
+    tokio::fs::write(&initial_temp, initial_payload)
+        .await
+        .unwrap();
+    let initial = store_from_temp_exact_name_with_hints(
+        &state,
+        StoreFromTempParams::new(
+            scope,
+            None,
+            "conditional-existing.txt",
+            &initial_temp.to_string_lossy(),
+            initial_payload.len() as i64,
+        ),
+        StoreFromTempHints {
+            resolved_policy: Some(policy.clone()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let (blocking_driver, entered_rx, release_put_file) = BlockingPutFileDriver::new(&policy);
+    state
+        .driver_registry
+        .insert_for_test(policy.id, Arc::new(blocking_driver));
+    let replacement_temp = temp_root.join("conditional-existing-replacement.bin");
+    let replacement_payload = b"replacement payload";
+    tokio::fs::write(&replacement_temp, replacement_payload)
+        .await
+        .unwrap();
+
+    let state_for_store = state.clone();
+    let policy_for_store = policy.clone();
+    let replacement_path = replacement_temp.to_string_lossy().into_owned();
+    let expected = initial.clone();
+    let store_task = tokio::spawn(async move {
+        let mut params = StoreFromTempParams::new(
+            scope,
+            None,
+            "conditional-existing.txt",
+            &replacement_path,
+            replacement_payload.len() as i64,
+        )
+        .overwrite(expected.id);
+        params.file_precondition = Some(FileWritePrecondition::existing(&expected));
+        store_from_temp_exact_name_with_hints(
+            &state_for_store,
+            params,
+            StoreFromTempHints {
+                resolved_policy: Some(policy_for_store),
+                ..Default::default()
+            },
+        )
+        .await
+    });
+
+    tokio::time::timeout(Duration::from_secs(1), entered_rx)
+        .await
+        .expect("conditional overwrite should stage its blob")
+        .expect("staging entry signal should be sent");
+
+    let concurrent_updated_at = initial.updated_at + chrono::Duration::seconds(1);
+    let mut concurrent_update: file::ActiveModel = initial.clone().into();
+    concurrent_update.updated_at = Set(concurrent_updated_at);
+    concurrent_update.update(state.writer_db()).await.unwrap();
+    release_put_file.notify_one();
+
+    let error = tokio::time::timeout(Duration::from_secs(1), store_task)
+        .await
+        .expect("conditional overwrite should finish")
+        .expect("conditional overwrite task should join")
+        .expect_err("a resource changed after preflight must reject the final write");
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::FileModifiedDuringWrite
+    );
+
+    let persisted = file::Entity::find_by_id(initial.id)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(persisted.blob_id, initial.blob_id);
+    assert_eq!(persisted.size, initial.size);
+    assert_eq!(persisted.updated_at, concurrent_updated_at);
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[tokio::test]
+async fn conditional_create_rejects_file_appearing_while_body_is_staged() {
+    let (state, temp_root, policy, user) = build_test_state().await;
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+    let (blocking_driver, entered_rx, release_put_file) = BlockingPutFileDriver::new(&policy);
+    state
+        .driver_registry
+        .insert_for_test(policy.id, Arc::new(blocking_driver));
+
+    let conditional_temp = temp_root.join("conditional-missing.bin");
+    let conditional_payload = b"conditional payload";
+    tokio::fs::write(&conditional_temp, conditional_payload)
+        .await
+        .unwrap();
+    let state_for_store = state.clone();
+    let policy_for_store = policy.clone();
+    let conditional_path = conditional_temp.to_string_lossy().into_owned();
+    let store_task = tokio::spawn(async move {
+        let mut params = StoreFromTempParams::new(
+            scope,
+            None,
+            "conditional-missing.txt",
+            &conditional_path,
+            conditional_payload.len() as i64,
+        );
+        params.file_precondition = Some(FileWritePrecondition::Missing);
+        store_from_temp_exact_name_with_hints(
+            &state_for_store,
+            params,
+            StoreFromTempHints {
+                resolved_policy: Some(policy_for_store),
+                ..Default::default()
+            },
+        )
+        .await
+    });
+
+    tokio::time::timeout(Duration::from_secs(1), entered_rx)
+        .await
+        .expect("conditional create should stage its blob")
+        .expect("staging entry signal should be sent");
+
+    let now = Utc::now();
+    let concurrent_blob = file_blob::ActiveModel {
+        hash: Set(format!("conditional-race-{}", uuid::Uuid::new_v4())),
+        size: Set(1),
+        policy_id: Set(policy.id),
+        storage_path: Set(format!("files/{}", uuid::Uuid::new_v4())),
+        thumbnail_path: Set(None),
+        thumbnail_processor: Set(None),
+        thumbnail_version: Set(None),
+        ref_count: Set(1),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
+    let concurrent_file = file::ActiveModel {
+        name: Set("conditional-missing.txt".to_string()),
+        folder_id: Set(None),
+        team_id: Set(None),
+        blob_id: Set(concurrent_blob.id),
+        size: Set(1),
+        owner_user_id: Set(Some(user.id)),
+        created_by_user_id: Set(Some(user.id)),
+        created_by_username: Set(user.username.clone()),
+        mime_type: Set("text/plain".to_string()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        deleted_at: Set(None),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
+    release_put_file.notify_one();
+
+    let error = tokio::time::timeout(Duration::from_secs(1), store_task)
+        .await
+        .expect("conditional create should finish")
+        .expect("conditional create task should join")
+        .expect_err("a resource appearing after preflight must reject the final write");
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::FileModifiedDuringWrite
+    );
+
+    let persisted = file::Entity::find_by_id(concurrent_file.id)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(persisted.blob_id, concurrent_blob.id);
+    assert_eq!(persisted.size, 1);
+    assert_eq!(
+        file::Entity::find()
+            .filter(file::Column::Name.eq("conditional-missing.txt"))
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        1
+    );
 
     drop(state);
     let _ = std::fs::remove_dir_all(&temp_root);

@@ -6,7 +6,7 @@ use aster_forge_webdav::{
     DavCapabilitySnapshot, DavDownloadOpenError, DavDownloadPlanError, DavMetaData,
     DavMultiRangeLimits, DavMultiRangePolicy, DavPutResourceState, DavPutWritePlan,
     DavRangeLimitBehavior, DavRequestHead, DavResponseBody, DavWriteHandle, DavWriteOptions,
-    DavWriteSystem, open_download, plan_download_response_with_multi_range, plan_put_request,
+    open_download, plan_download_response_with_multi_range, plan_put_request,
     put_plan_error_response, put_success_response,
 };
 use futures::StreamExt;
@@ -188,6 +188,18 @@ pub(crate) async fn handle_put(
             return aster_forge_webdav::actix::into_response(put_plan_error_response(&error));
         }
     };
+    let has_write_precondition = headers.contains_key(http::header::IF_MATCH)
+        || headers.contains_key(http::header::IF_UNMODIFIED_SINCE)
+        || headers.contains_key(http::header::IF_NONE_MATCH);
+    let file_precondition = has_write_precondition.then(|| {
+        target_meta
+            .as_ref()
+            .and_then(|metadata| metadata.file_model())
+            .map_or(
+                crate::services::workspace::storage::FileWritePrecondition::Missing,
+                |file| crate::services::workspace::storage::FileWritePrecondition::existing(&file),
+            )
+    });
 
     let request_scheme = request_head.origin.scheme.as_str();
     let request_host = request_head.origin.host.as_str();
@@ -239,7 +251,7 @@ pub(crate) async fn handle_put(
         return responses::bad_request_text("Partial WebDAV writes are disabled");
     }
     let mut writer = match dav_fs
-        .open_write(
+        .open_write_with_precondition(
             &path,
             DavWriteOptions {
                 truncate: true,
@@ -249,6 +261,7 @@ pub(crate) async fn handle_put(
                 checksum: None,
                 credentials,
             },
+            file_precondition,
         )
         .await
     {

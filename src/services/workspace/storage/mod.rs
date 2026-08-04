@@ -51,9 +51,10 @@ pub(crate) use multipart::{WorkspaceUploadHints, upload_with_hints};
 pub(crate) use operation_context::{StorageCancellationCheck, StorageOperationContext};
 pub(crate) use store::from_temp::store_from_temp_internal;
 pub(crate) use store::{
-    EmptyFileNameMode, PreparedEmptyFile, StoreFromTempHints, StoreFromTempParams,
-    StorePreuploadedNondedupParams, create_empty, store_from_temp_exact_name_silent_with_hints,
-    store_from_temp_exact_name_with_hints, store_from_temp_with_hints, store_preuploaded_nondedup,
+    EmptyFileNameMode, FileWritePrecondition, PreparedEmptyFile, StoreFromTempHints,
+    StoreFromTempParams, StorePreuploadedNondedupParams, create_empty,
+    store_from_temp_exact_name_silent_with_hints, store_from_temp_exact_name_with_hints,
+    store_from_temp_with_hints, store_preuploaded_nondedup,
 };
 
 // Local content-dedup 会在不把整文件读入内存的前提下流式计算 SHA-256。
