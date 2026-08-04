@@ -3,8 +3,9 @@ use sea_orm::{DatabaseConnection, DatabaseTransaction};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::api::api_error_code::ApiErrorCode;
 use crate::config::{Config, RuntimeConfig};
-use crate::errors::{AsterError, Result};
+use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::storage::DriverRegistry;
 use crate::storage::remote_protocol::RemoteProtocolRuntime;
 use aster_drive_model::entities::{storage_policy, storage_policy_connector_credential};
@@ -168,6 +169,84 @@ pub(crate) trait StorageConnector: Send + Sync {
             )
             .map_err(|error| AsterError::validation_error(error.to_string()))?;
         Ok(normalized)
+    }
+
+    /// Validate core-owned policy behavior against connector-declared capabilities.
+    ///
+    /// Connectors advertise the executable capability; core owns the behavior
+    /// payload. Keeping the admission check on this contract makes create,
+    /// update, and draft actions consistent for built-ins and external plugins.
+    fn validate_policy_behavior(&self, behavior: &StoragePolicyBehaviorConfig) -> Result<()> {
+        let descriptor = self.descriptor();
+        if behavior.uses_storage_native_thumbnail()
+            && !descriptor.capabilities.storage_native_thumbnail
+        {
+            return Err(validation_error_with_code(
+                ApiErrorCode::PolicyNativeThumbnailUnsupported,
+                format!(
+                    "storage connector '{}' does not expose storage-native thumbnail processing",
+                    descriptor.connector_id
+                ),
+            ));
+        }
+        if behavior.uses_storage_native_media_metadata()
+            && !descriptor.capabilities.storage_native_media_metadata
+        {
+            return Err(validation_error_with_code(
+                ApiErrorCode::PolicyNativeMediaMetadataUnsupported,
+                format!(
+                    "storage connector '{}' does not expose storage-native media metadata processing",
+                    descriptor.connector_id
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Resolve edit-form placeholders before a draft connection test.
+    ///
+    /// Static connectors share an object-level merge implementation. A future
+    /// connector with a different persisted credential shape can override this
+    /// hook without adding provider branches to the policy service.
+    async fn prepare_draft_credential(
+        &self,
+        context: &StorageConnectorContext<'_>,
+        policy_id: Option<i64>,
+        input: StorageConnectorCredentialInput,
+    ) -> Result<StorageConnectorCredentialInput> {
+        use aster_drive_storage::StorageConnectorCredentialMode;
+
+        let descriptor = self.descriptor();
+        if descriptor.credential_mode != StorageConnectorCredentialMode::StaticSecret {
+            return Ok(input);
+        }
+        let Some(policy_id) = policy_id else {
+            return Ok(input);
+        };
+        let policy =
+            crate::db::repository::policy_repo::find_by_id(context.writer_db(), policy_id).await?;
+        if policy.connector_id != descriptor.connector_id.as_str() {
+            return Err(AsterError::validation_error(format!(
+                "storage policy #{policy_id} uses connector '{}', not '{}'",
+                policy.connector_id, descriptor.connector_id
+            )));
+        }
+        let Some(saved) =
+            crate::db::repository::storage_policy_connector_credential_repo::find_by_policy(
+                context.writer_db(),
+                policy_id,
+            )
+            .await?
+        else {
+            return Ok(input);
+        };
+        let saved = super::decode_connector_credential(
+            &context.config().auth.storage_credential_secret_key,
+            &saved,
+            &descriptor.connector_id,
+            descriptor.config_schema_version,
+        )?;
+        common::merge_saved_static_credential(input, saved)
     }
 
     async fn persist_credential(
@@ -405,13 +484,18 @@ pub(crate) trait StorageConnector: Send + Sync {
             return Err(common::unsupported_draft_connection_test_error(descriptor));
         }
         let connection = input.connection;
-        self.validate_credential_input(&connection.credential)?;
+        let credential = self
+            .prepare_draft_credential(context, input.policy_id, connection.credential)
+            .await?;
+        self.validate_credential_input(&credential)?;
         let connector_config = self.validate_connector_config(&connection.connector_config)?;
         self.validate_config_binding(context.writer_db(), &connector_config)
             .await?;
-        let policy = common::build_connection_test_policy(connector_config, connection.behavior)?;
+        let behavior = connection.behavior.normalized();
+        self.validate_policy_behavior(&behavior)?;
+        let policy = common::build_connection_test_policy(connector_config, behavior)?;
         let driver = self
-            .build_draft_driver(context, &policy, &connection.credential)
+            .build_draft_driver(context, &policy, &credential)
             .await?;
         common::probe_storage_driver(driver.as_ref(), "connection test failed").await
     }

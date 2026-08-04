@@ -344,6 +344,45 @@ pub(super) fn validate_required_credential_field(
     Ok(())
 }
 
+/// Fill omitted or blank static credential fields from the saved encrypted payload.
+///
+/// Admin edit forms intentionally leave secret inputs blank when the value is
+/// unchanged. The connector contract applies this object-level merge before a
+/// draft connection test, without teaching orchestration code any provider
+/// field names.
+pub(super) fn merge_saved_static_credential(
+    input: StorageConnectorCredentialInput,
+    saved: serde_json::Value,
+) -> Result<StorageConnectorCredentialInput> {
+    let mut current = match input {
+        StorageConnectorCredentialInput::None => {
+            if !saved.is_object() {
+                return Err(AsterError::database_operation(
+                    "stored static connector credential must be a JSON object",
+                ));
+            }
+            return Ok(StorageConnectorCredentialInput::Static(saved));
+        }
+        StorageConnectorCredentialInput::Static(current) => current,
+        other => return Ok(other),
+    };
+    let Some(current_fields) = current.as_object_mut() else {
+        return Ok(StorageConnectorCredentialInput::Static(current));
+    };
+    let saved_fields = saved.as_object().ok_or_else(|| {
+        AsterError::database_operation("stored static connector credential must be a JSON object")
+    })?;
+    for (name, saved_value) in saved_fields {
+        let should_restore = current_fields.get(name).is_none_or(|value| {
+            value.is_null() || value.as_str().is_some_and(|value| value.trim().is_empty())
+        });
+        if should_restore {
+            current_fields.insert(name.clone(), saved_value.clone());
+        }
+    }
+    Ok(StorageConnectorCredentialInput::Static(current))
+}
+
 /// Convert the deprecated `access_key`/`secret_key` policy columns into the
 /// current connector-owned static credential struct.
 ///

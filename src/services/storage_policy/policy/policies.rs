@@ -138,15 +138,16 @@ pub async fn create(
         behavior,
         credential,
     } = connection;
+    let behavior = behavior.normalized();
     let connector_id = connector_config.connector_id.as_str().to_string();
     crate::services::ops::deployment::validate_storage_policy_driver(
         connectors,
         state.config(),
         &connector_config.connector_id,
     )?;
-    let descriptor = connectors
-        .require_connector(&connector_config.connector_id)?
-        .descriptor();
+    let connector = connectors.require_connector(&connector_config.connector_id)?;
+    connector.validate_policy_behavior(&behavior)?;
+    let descriptor = connector.descriptor();
     let setup_state_at_admission =
         crate::services::storage_policy::connector_catalog::validate_connector_for_current_setup_state(
             state.writer_db(),
@@ -407,7 +408,12 @@ pub async fn update(
             credential,
         )?;
     }
-    let behavior = behavior.unwrap_or(existing_storage_config.behavior.values);
+    let behavior = behavior
+        .unwrap_or(existing_storage_config.behavior.values)
+        .normalized();
+    connectors
+        .require_connector(&connector_config.connector_id)?
+        .validate_policy_behavior(&behavior)?;
     let persisted_connector_config = ConnectorConfigEnvelope::new(
         connector_config.connector_id.clone(),
         connector_config.schema_version,

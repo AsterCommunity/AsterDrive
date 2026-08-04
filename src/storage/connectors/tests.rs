@@ -883,3 +883,106 @@ fn upload_transport_boundaries_preserve_chunk_and_direct_semantics() {
     assert!(!remote.supports_streaming_direct_upload(&policy, 0));
     assert!(remote.supports_streaming_direct_upload(&policy, 1));
 }
+
+#[test]
+fn saved_static_credential_merge_restores_only_missing_or_blank_fields() {
+    let merged = super::common::merge_saved_static_credential(
+        StorageConnectorCredentialInput::Static(serde_json::json!({
+            "access_key": "new-access",
+            "secret_key": "  ",
+            "optional": null
+        })),
+        serde_json::json!({
+            "access_key": "saved-access",
+            "secret_key": "saved-secret",
+            "optional": "saved-optional",
+            "missing": "saved-missing"
+        }),
+    )
+    .expect("static credential merge should succeed");
+
+    let StorageConnectorCredentialInput::Static(values) = merged else {
+        panic!("merged credential should stay static");
+    };
+    assert_eq!(values["access_key"], "new-access");
+    assert_eq!(values["secret_key"], "saved-secret");
+    assert_eq!(values["optional"], "saved-optional");
+    assert_eq!(values["missing"], "saved-missing");
+}
+
+#[test]
+fn saved_static_credential_merge_handles_mode_and_payload_boundaries() {
+    let restored = super::common::merge_saved_static_credential(
+        StorageConnectorCredentialInput::None,
+        serde_json::json!({"secret": "saved"}),
+    )
+    .expect("missing edit credential should reuse the saved payload");
+    assert!(matches!(
+        restored,
+        StorageConnectorCredentialInput::Static(_)
+    ));
+
+    let authorization = StorageConnectorCredentialInput::AuthorizationApplication(
+        serde_json::json!({"client_id": "client"}),
+    );
+    let unchanged = super::common::merge_saved_static_credential(
+        authorization,
+        serde_json::json!({"secret": "saved"}),
+    )
+    .expect("non-static credential modes should remain connector-owned");
+    assert!(matches!(
+        unchanged,
+        StorageConnectorCredentialInput::AuthorizationApplication(_)
+    ));
+
+    let error = super::common::merge_saved_static_credential(
+        StorageConnectorCredentialInput::Static(serde_json::json!({"secret": ""})),
+        serde_json::json!(["not", "an", "object"]),
+    )
+    .expect_err("stored static credentials must be an object");
+    assert!(error.message().contains("must be a JSON object"));
+
+    let error = super::common::merge_saved_static_credential(
+        StorageConnectorCredentialInput::None,
+        serde_json::json!(["not", "an", "object"]),
+    )
+    .expect_err("full saved credential reuse must also validate the payload shape");
+    assert!(error.message().contains("must be a JSON object"));
+}
+
+#[test]
+fn connector_capabilities_validate_core_owned_storage_native_behavior() {
+    use aster_drive_model::types::MediaProcessorKind;
+
+    let thumbnail = StoragePolicyBehaviorConfig {
+        thumbnail_processor: Some(MediaProcessorKind::StorageNative),
+        thumbnail_extensions: vec!["jpg".to_string()],
+        media_metadata_extensions: Vec::new(),
+    };
+    let error = connector(LocalConnector::ID)
+        .validate_policy_behavior(&thumbnail)
+        .expect_err("local connector must reject storage-native thumbnails");
+    assert_eq!(
+        error.api_error_code_override(),
+        Some(crate::api::api_error_code::ApiErrorCode::PolicyNativeThumbnailUnsupported)
+    );
+    connector(TencentCosConnector::ID)
+        .validate_policy_behavior(&thumbnail)
+        .expect("Tencent COS advertises storage-native thumbnails");
+
+    let metadata = StoragePolicyBehaviorConfig {
+        thumbnail_processor: None,
+        thumbnail_extensions: Vec::new(),
+        media_metadata_extensions: vec!["mp4".to_string()],
+    };
+    let error = connector(LocalConnector::ID)
+        .validate_policy_behavior(&metadata)
+        .expect_err("local connector must reject storage-native metadata");
+    assert_eq!(
+        error.api_error_code_override(),
+        Some(crate::api::api_error_code::ApiErrorCode::PolicyNativeMediaMetadataUnsupported)
+    );
+    connector(TencentCosConnector::ID)
+        .validate_policy_behavior(&metadata)
+        .expect("Tencent COS advertises storage-native media metadata");
+}
