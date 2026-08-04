@@ -24,7 +24,11 @@ function rgbString(rgb: StorageConnectorBadgeRgb) {
 	return `${channel(rgb.red)} ${channel(rgb.green)} ${channel(rgb.blue)}`;
 }
 
-function mixWith(rgb: StorageConnectorBadgeRgb, target: number, amount: number) {
+function mixWith(
+	rgb: StorageConnectorBadgeRgb,
+	target: number,
+	amount: number,
+) {
 	return `${channel(rgb.red * (1 - amount) + target * amount)} ${channel(
 		rgb.green * (1 - amount) + target * amount,
 	)} ${channel(rgb.blue * (1 - amount) + target * amount)}`;

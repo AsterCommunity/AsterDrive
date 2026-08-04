@@ -29,6 +29,7 @@ import { config } from "@/config/app";
 import { handleApiError } from "@/hooks/useApiError";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { invalidateAdminPolicyLookup } from "@/lib/adminPolicyLookup";
+import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
 import { getStorageConnectorDescriptor } from "@/lib/adminStorageDriverDescriptors";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { adminPolicyService } from "@/services/adminService";
@@ -78,21 +79,21 @@ function consumeStorageAuthorizationSearchParams(
 function storageAuthorizationFailureI18nKey(reason: string | null) {
 	switch (reason) {
 		case "invalid_state":
-			return "onedrive_authorization_failed_invalid_state";
+			return "storage_authorization_failed_invalid_state";
 		case "provider_error":
-			return "onedrive_authorization_failed_provider";
+			return "storage_authorization_failed_provider";
 		case "token_exchange_failed":
-			return "onedrive_authorization_failed_token_exchange";
+			return "storage_authorization_failed_token_exchange";
 		case "drive_resolution_failed":
-			return "onedrive_authorization_failed_drive_resolution";
+			return "storage_authorization_failed_target_resolution";
 		case "unsupported_provider":
-			return "onedrive_authorization_failed_unsupported_provider";
+			return "storage_authorization_failed_unsupported_provider";
 		case "invalid_request":
-			return "onedrive_authorization_failed_invalid_request";
+			return "storage_authorization_failed_invalid_request";
 		case "server_error":
-			return "onedrive_authorization_failed_server";
+			return "storage_authorization_failed_server";
 		default:
-			return "onedrive_authorization_failed";
+			return "storage_authorization_failed";
 	}
 }
 
@@ -175,7 +176,12 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 		descriptorController.currentStorageDriverDescriptor;
 	const endpointValidationMessage = getEndpointValidationMessage(
 		form,
-		t,
+		(key) =>
+			translateStorageConnectorMessage(
+				t,
+				currentStorageDriverDescriptor?.connector_id,
+				key,
+			),
 		currentStorageDriverDescriptor,
 	);
 	const storageAuthorizationRedirectUri = getStorageAuthorizationCallbackUrl();
@@ -370,9 +376,9 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 
 		setSearchParams(callback.nextSearchParams, { replace: true });
 		if (callback.status === "success") {
-			toast.success(t("onedrive_authorization_completed"), {
+			toast.success(t("storage_authorization_completed"), {
 				description: callback.policyId
-					? t("onedrive_authorization_completed_policy", {
+					? t("storage_authorization_completed_policy", {
 							id: callback.policyId,
 						})
 					: undefined,

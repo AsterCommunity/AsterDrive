@@ -13,6 +13,7 @@ mod azure_blob;
 mod common;
 mod contract;
 mod local;
+mod localization;
 mod models;
 mod onedrive;
 mod remote;

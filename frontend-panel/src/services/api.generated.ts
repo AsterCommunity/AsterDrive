@@ -372,6 +372,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/policies/storage-drivers/localizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_storage_driver_localizations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/policies/test": {
         parameters: {
             query?: never;
@@ -5848,11 +5864,6 @@ export interface components {
             upload_id?: string | null;
             upload_scheduling?: null | components["schemas"]["UploadScheduling"];
         };
-        /**
-         * @description Interface display language.
-         * @enum {string}
-         */
-        Language: "en" | "zh";
         /** @description Query parameters for limit/offset pagination. */
         LimitOffsetQuery: {
             /**
@@ -5883,6 +5894,16 @@ export interface components {
             /** Format: int64 */
             offset?: number | null;
         };
+        /**
+         * @description Normalized BCP 47 locale tag used by product preferences and plugin-facing
+         *     localization contracts.
+         *
+         *     The backend validates language tags without fixing the protocol to the
+         *     frontend's currently bundled locale set. Product UI choices remain limited
+         *     by the resources actually shipped by that frontend build.
+         * @example zh-CN
+         */
+        LocaleTag: string;
         /** @description Standard login credentials. */
         LoginReq: {
             identifier: string;
@@ -7663,6 +7684,36 @@ export interface components {
             mode: "authorization_application";
             values: unknown;
         };
+        StorageConnectorCredentialManagementDescriptor: {
+            /** @description Message shown after the authorization window is opened. */
+            authorization_started_key?: string | null;
+            /** @description Message shown after creating a policy that still needs authorization. */
+            created_authorize_next_key?: string | null;
+            /** @description Status text shown while the credential snapshot is loading. */
+            loading_key: string;
+            /** @description Label for an authorization redirect URI exposed by the platform. */
+            redirect_uri_key?: string | null;
+            /** @description Message shown when authorization is requested with unsaved policy data. */
+            save_before_authorize_key?: string | null;
+            /** @description Message shown when credential validation is requested with unsaved data. */
+            save_before_validate_key?: string | null;
+            /**
+             * @description Credential status wire value to connector-owned localization key.
+             *
+             *     The map keeps the UI independent from provider-specific status copy and
+             *     lets future connector credential contracts add status values without a
+             *     frontend provider matrix.
+             */
+            status_keys: {
+                [key: string]: string;
+            };
+            /** @description Credential panel heading. */
+            title_key: string;
+            /** @description Optional success detail rendered with connector-provided parameters. */
+            validation_success_detail_key?: string | null;
+            /** @description Message shown after a credential validates successfully. */
+            validation_success_key?: string | null;
+        };
         /** @enum {string} */
         StorageConnectorCredentialMode: "none" | "static_secret" | "remote_node" | "oauth_delegated";
         /**
@@ -7747,6 +7798,31 @@ export interface components {
          *     admin UI and backend validator share an inspectable schema.
          */
         StorageConnectorFieldValue: boolean | number | string;
+        StorageConnectorLocalizationBundle: {
+            connector_id: components["schemas"]["ConnectorId"];
+            messages: {
+                [key: string]: string;
+            };
+            namespace: string;
+            requested_locale: components["schemas"]["LocaleTag"];
+            resolved_locale: components["schemas"]["LocaleTag"];
+            revision: string;
+        };
+        StorageConnectorLocalizationCatalog: {
+            requested_locale: components["schemas"]["LocaleTag"];
+            resources: components["schemas"]["StorageConnectorLocalizationBundle"][];
+        };
+        /** @description Query for connector-owned admin UI localization resources. */
+        StorageConnectorLocalizationCatalogQuery: {
+            context?: components["schemas"]["StorageConnectorCatalogContext"];
+            locale?: components["schemas"]["LocaleTag"];
+        };
+        StorageConnectorLocalizationManifest: {
+            default_locale: components["schemas"]["LocaleTag"];
+            namespace: string;
+            revision: string;
+            supported_locales: components["schemas"]["LocaleTag"][];
+        };
         StorageConnectorObjectMultipartUploadCapabilities: {
             /** @description 是否支持清理未完成的 provider multipart/block upload。 */
             abort_supported: boolean;
@@ -8527,7 +8603,7 @@ export interface components {
                 [key: string]: unknown;
             };
             display_time_zone?: string | null;
-            language?: null | components["schemas"]["Language"];
+            language?: null | components["schemas"]["LocaleTag"];
             remove_custom_keys?: string[];
             sort_by?: null | components["schemas"]["SortBy"];
             sort_order?: null | components["schemas"]["SortOrder"];
@@ -8680,7 +8756,7 @@ export interface components {
                 [key: string]: unknown;
             };
             display_time_zone?: string | null;
-            language?: null | components["schemas"]["Language"];
+            language?: null | components["schemas"]["LocaleTag"];
             sort_by?: null | components["schemas"]["SortBy"];
             sort_order?: null | components["schemas"]["SortOrder"];
             storage_event_stream_enabled?: boolean | null;
@@ -10675,6 +10751,7 @@ export interface operations {
                             config_schema_version: number;
                             /** @description 持久化到 policy 的稳定 connector/plugin id。 */
                             connector_id: components["schemas"]["ConnectorId"];
+                            credential_management?: null | components["schemas"]["StorageConnectorCredentialManagementDescriptor"];
                             /** @description connector 的主要凭据模式。 */
                             credential_mode: components["schemas"]["StorageConnectorCredentialMode"];
                             /** @description policy 数据相对于多个 Primary 的可见范围。 */
@@ -10709,6 +10786,58 @@ export interface operations {
                         msg: string;
                     };
                 };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_storage_driver_localizations: {
+        parameters: {
+            query?: {
+                context?: components["schemas"]["StorageConnectorCatalogContext"];
+                locale?: components["schemas"]["LocaleTag"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List connector-owned localized UI resources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            requested_locale: components["schemas"]["LocaleTag"];
+                            resources: components["schemas"]["StorageConnectorLocalizationBundle"][];
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Connector localization resources are unchanged */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Unauthorized */
             401: {
@@ -16026,7 +16155,7 @@ export interface operations {
                                 [key: string]: unknown;
                             };
                             display_time_zone?: string | null;
-                            language?: null | components["schemas"]["Language"];
+                            language?: null | components["schemas"]["LocaleTag"];
                             sort_by?: null | components["schemas"]["SortBy"];
                             sort_order?: null | components["schemas"]["SortOrder"];
                             storage_event_stream_enabled?: boolean | null;

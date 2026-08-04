@@ -57,7 +57,7 @@ pub use crate::services::user::account::{
 };
 pub use crate::services::user::profile::{AvatarInfo, UserProfileInfo};
 pub use aster_drive_model::types::{
-    AvatarSource, BrowserOpenMode, ColorPreset, Language, PrefViewMode, ThemeMode,
+    AvatarSource, BrowserOpenMode, ColorPreset, LocaleTag, PrefViewMode, ThemeMode,
 };
 
 const AUTH_MAIL_RESPONSE_FLOOR_MS: u64 = 350;

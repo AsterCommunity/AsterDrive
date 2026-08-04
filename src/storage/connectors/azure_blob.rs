@@ -20,6 +20,8 @@ use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDef
 use super::common::{StorageTransferDirection, transfer_strategy_field};
 use super::{StorageConnector, StorageConnectorCredentialInput, StorageConnectorUploadTransport};
 
+mod localization;
+
 pub struct AzureBlobConnector;
 
 aster_drive_storage::storage_connector_schema! {
@@ -138,6 +140,15 @@ impl AzureBlobConnector {
 impl StorageConnector for AzureBlobConnector {
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
+    }
+
+    fn localization(&self) -> Result<aster_drive_storage::StorageConnectorLocalization> {
+        let descriptor = Self::descriptor_definition();
+        super::localization::builtin_connector_localization(
+            Self::ID,
+            &descriptor,
+            localization::MESSAGES,
+        )
     }
 
     fn validate_connector_config(

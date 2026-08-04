@@ -18,6 +18,8 @@ use aster_drive_storage::connector_descriptor::{
 
 use super::{StorageConnector, StorageConnectorCredentialInput, StorageConnectorUploadTransport};
 
+mod localization;
+
 pub struct SftpConnector;
 
 aster_drive_storage::storage_connector_schema! {
@@ -153,6 +155,7 @@ impl SftpConnector {
             supports_initial_setup: true,
             requires_authorization: false,
             authorization_provider: None,
+            credential_management: None,
             capabilities: StorageConnectorCapabilities {
                 efficient_range: true,
                 capacity: false,
@@ -190,6 +193,15 @@ impl SftpConnector {
 impl StorageConnector for SftpConnector {
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
+    }
+
+    fn localization(&self) -> Result<aster_drive_storage::StorageConnectorLocalization> {
+        let descriptor = Self::descriptor_definition();
+        super::localization::builtin_connector_localization(
+            Self::ID,
+            &descriptor,
+            localization::MESSAGES,
+        )
     }
 
     fn validate_connector_config(

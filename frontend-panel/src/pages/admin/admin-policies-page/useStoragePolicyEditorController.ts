@@ -14,6 +14,7 @@ import {
 import { shouldRunPolicyConnectionSaveTest } from "@/components/admin/storage-policy-dialog/policyActionSelection";
 import { handleApiError } from "@/hooks/useApiError";
 import { invalidateAdminPolicyLookup } from "@/lib/adminPolicyLookup";
+import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
 import { getStorageConnectorDescriptor } from "@/lib/adminStorageDriverDescriptors";
 import { adminPolicyService } from "@/services/adminService";
 import type { StorageConnectorDescriptor, StoragePolicy } from "@/types/api";
@@ -138,7 +139,15 @@ export function useStoragePolicyEditorController({
 					});
 					list.setTotal((current) => current + 1);
 					loadPolicyCapacity(created.id);
-					toast.success(t("policy_onedrive_created_authorize_next"));
+					toast.success(
+						descriptor.credential_management?.created_authorize_next_key
+							? translateStorageConnectorMessage(
+									t,
+									descriptor.connector_id,
+									descriptor.credential_management.created_authorize_next_key,
+								)
+							: t("policy_created"),
+					);
 					return;
 				}
 				const nextTotal = list.total + 1;

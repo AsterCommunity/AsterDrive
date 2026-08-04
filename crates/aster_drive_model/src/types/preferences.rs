@@ -109,14 +109,64 @@ pub enum BrowserOpenMode {
     DoubleClick,
 }
 
-/// Interface display language.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+/// Normalized BCP 47 locale tag used by product preferences and plugin-facing
+/// localization contracts.
+///
+/// The backend validates language tags without fixing the protocol to the
+/// frontend's currently bundled locale set. Product UI choices remain limited
+/// by the resources actually shipped by that frontend build.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum Language {
-    #[default]
-    En,
-    Zh,
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    schema(value_type = String, example = "zh-CN")
+)]
+pub struct LocaleTag(String);
+
+impl LocaleTag {
+    pub fn parse(value: impl AsRef<str>) -> std::result::Result<Self, String> {
+        let value = value.as_ref().trim();
+        if value.is_empty() {
+            return Err("locale tag cannot be empty".to_string());
+        }
+        value
+            .parse::<language_tags::LanguageTag>()
+            .map(|tag| Self(tag.into_string()))
+            .map_err(|error| format!("invalid BCP 47 locale tag '{value}': {error}"))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn primary_language(&self) -> &str {
+        self.0.split('-').next().unwrap_or(self.as_str())
+    }
+}
+
+impl Default for LocaleTag {
+    fn default() -> Self {
+        Self("en".to_string())
+    }
+}
+
+impl Serialize for LocaleTag {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for LocaleTag {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::parse(value).map_err(de::Error::custom)
+    }
 }
 
 /// Stored user preferences (serialized as JSON in `users.config`).
@@ -130,7 +180,7 @@ pub struct UserPreferences {
     pub browser_open_mode: Option<BrowserOpenMode>,
     pub sort_by: Option<super::sort::SortBy>,
     pub sort_order: Option<aster_forge_api::SortOrder>,
-    pub language: Option<Language>,
+    pub language: Option<LocaleTag>,
     pub display_time_zone: Option<String>,
     pub storage_event_stream_enabled: Option<bool>,
 }
@@ -186,5 +236,27 @@ impl From<String> for StoredUserConfig {
 impl From<StoredUserConfig> for String {
     fn from(value: StoredUserConfig) -> Self {
         value.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LocaleTag;
+
+    #[test]
+    fn locale_tag_normalizes_bcp47_case_and_preserves_existing_short_tags() {
+        assert_eq!(LocaleTag::parse(" zh-cn ").unwrap().as_str(), "zh-CN");
+        assert_eq!(LocaleTag::parse("EN-us").unwrap().as_str(), "en-US");
+        assert_eq!(LocaleTag::parse("en").unwrap().as_str(), "en");
+        assert_eq!(LocaleTag::parse("zh").unwrap().as_str(), "zh");
+    }
+
+    #[test]
+    fn locale_tag_serde_rejects_empty_and_malformed_values() {
+        let locale: LocaleTag = serde_json::from_str(r#""zh-Hans-CN""#).unwrap();
+        assert_eq!(locale.primary_language(), "zh");
+        assert_eq!(serde_json::to_string(&locale).unwrap(), r#""zh-Hans-CN""#);
+        assert!(serde_json::from_str::<LocaleTag>(r#""""#).is_err());
+        assert!(serde_json::from_str::<LocaleTag>(r#""not_a_locale""#).is_err());
     }
 }

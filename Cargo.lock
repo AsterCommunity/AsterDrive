@@ -909,6 +909,7 @@ dependencies = [
  "aster_forge_file_classification",
  "aster_forge_tasks",
  "chrono",
+ "language-tags",
  "sea-orm",
  "serde",
  "serde_json",
@@ -926,9 +927,11 @@ dependencies = [
  "async-trait",
  "bytes",
  "chrono",
+ "hex",
  "rand 0.10.2",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "tokio",
  "utoipa",
 ]
@@ -4597,6 +4600,9 @@ name = "language-tags"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4345964bb142484797b161f473a503a434de77149dd8c7427788c6e13379388"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "lazy_static"

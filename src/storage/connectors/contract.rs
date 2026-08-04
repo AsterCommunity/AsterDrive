@@ -9,6 +9,7 @@ use crate::storage::DriverRegistry;
 use crate::storage::remote_protocol::RemoteProtocolRuntime;
 use aster_drive_model::entities::{storage_policy, storage_policy_connector_credential};
 use aster_drive_storage::ConnectorConfigEnvelope;
+use aster_drive_storage::StorageConnectorLocalization;
 use aster_drive_storage::StoragePolicyBehaviorConfig;
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionId,
@@ -119,6 +120,10 @@ impl StorageConnectorDriver {
 /// and invoke this object-safe contract without matching concrete providers.
 pub(crate) trait StorageConnector: Send + Sync {
     fn descriptor(&self) -> StorageConnectorDescriptor;
+
+    /// Connector-owned UI messages. The registry validates this resource
+    /// against every message id referenced by `descriptor()` before startup.
+    fn localization(&self) -> Result<StorageConnectorLocalization>;
 
     fn validate_credential_input(&self, input: &StorageConnectorCredentialInput) -> Result<()> {
         use aster_drive_storage::StorageConnectorCredentialMode;
@@ -484,11 +489,13 @@ pub(crate) trait StorageConnector: Send + Sync {
 pub struct StorageConnectorRegistry {
     ordered: Vec<Arc<dyn StorageConnector>>,
     by_connector_id: HashMap<ConnectorId, Arc<dyn StorageConnector>>,
+    localizations: HashMap<ConnectorId, StorageConnectorLocalization>,
 }
 
 impl StorageConnectorRegistry {
     pub(crate) fn new(connectors: Vec<Arc<dyn StorageConnector>>) -> Result<Self> {
         let mut by_connector_id = HashMap::with_capacity(connectors.len());
+        let mut localizations = HashMap::with_capacity(connectors.len());
         for connector in &connectors {
             let descriptor = connector.descriptor();
             descriptor.validate().map_err(|error| {
@@ -506,10 +513,28 @@ impl StorageConnectorRegistry {
                     descriptor.connector_id
                 )));
             }
+            let localization = connector.localization()?;
+            if localization.connector_id() != &descriptor.connector_id {
+                return Err(AsterError::internal_error(format!(
+                    "storage connector '{}' returned localization for '{}'",
+                    descriptor.connector_id,
+                    localization.connector_id()
+                )));
+            }
+            localization
+                .validate_message_ids(descriptor.localization_message_ids())
+                .map_err(|error| {
+                    AsterError::internal_error(format!(
+                        "storage connector '{}' declares invalid localization: {error}",
+                        descriptor.connector_id
+                    ))
+                })?;
+            localizations.insert(descriptor.connector_id.clone(), localization);
         }
         Ok(Self {
             ordered: connectors,
             by_connector_id,
+            localizations,
         })
     }
 
@@ -555,6 +580,18 @@ impl StorageConnectorRegistry {
             .iter()
             .map(|connector| connector.descriptor())
             .collect()
+    }
+
+    pub(crate) fn require_localization(
+        &self,
+        connector_id: &ConnectorId,
+    ) -> Result<&StorageConnectorLocalization> {
+        self.localizations.get(connector_id).ok_or_else(|| {
+            AsterError::internal_error(format!(
+                "storage connector '{}' has no registered localization",
+                connector_id
+            ))
+        })
     }
 
     /// Resolve connector-owned metadata for a provider policy action.

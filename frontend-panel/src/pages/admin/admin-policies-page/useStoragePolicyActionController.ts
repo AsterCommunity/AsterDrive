@@ -21,6 +21,7 @@ import { policyFormHasUnsavedChanges } from "@/components/admin/storage-policy-d
 import type { StorageConnectorActionValues } from "@/components/admin/storage-policy-dialog/StorageConnectorActionsPanel";
 import { handleApiError } from "@/hooks/useApiError";
 import { usePendingAction } from "@/hooks/usePendingAction";
+import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
 import { getStorageConnectorDescriptor } from "@/lib/adminStorageDriverDescriptors";
 import { adminPolicyService } from "@/services/adminService";
 import type {
@@ -59,6 +60,15 @@ export function useStoragePolicyActionController({
 	syncNormalizedPolicyForm,
 }: StoragePolicyActionControllerInput) {
 	const { t } = useTranslation("admin");
+	const connectorT = (key: string, values?: Record<string, number | string>) =>
+		translateStorageConnectorMessage(
+			t,
+			currentStorageDriverDescriptor?.connector_id,
+			key,
+			values,
+		);
+	const credentialManagement =
+		currentStorageDriverDescriptor?.credential_management;
 	const [connectorActionConfirmId, setConnectorActionConfirmId] = useState<
 		string | null
 	>(null);
@@ -107,7 +117,8 @@ export function useStoragePolicyActionController({
 		}
 		const currentEndpointValidationMessage = getEndpointValidationMessage(
 			currentForm,
-			t,
+			(key) =>
+				translateStorageConnectorMessage(t, descriptor.connector_id, key),
 			descriptor,
 		);
 		if (currentEndpointValidationMessage) {
@@ -192,12 +203,11 @@ export function useStoragePolicyActionController({
 			return value === undefined || value === "";
 		});
 		if (missingField) {
+			const fieldLabel = connectorT(missingField.label_key);
 			toast.error(
-				t(
-					missingField.required_message_key ??
-						"policy_connector_action_field_required",
-					{ field: t(missingField.label_key) },
-				),
+				missingField.required_message_key
+					? connectorT(missingField.required_message_key, { field: fieldLabel })
+					: t("policy_connector_action_field_required", { field: fieldLabel }),
 			);
 			return;
 		}
@@ -230,7 +240,8 @@ export function useStoragePolicyActionController({
 			if (executionMode === "draft") {
 				const currentEndpointValidationMessage = getEndpointValidationMessage(
 					currentForm,
-					t,
+					(key) =>
+						translateStorageConnectorMessage(t, descriptor.connector_id, key),
 					descriptor,
 				);
 				if (currentEndpointValidationMessage) {
@@ -259,7 +270,7 @@ export function useStoragePolicyActionController({
 			setConnectorActionConfirmId(null);
 			toast.success(
 				t("policy_connector_action_success", {
-					action: t(action.label_key),
+					action: connectorT(action.label_key),
 				}),
 			);
 		} catch (error) {
@@ -286,15 +297,12 @@ export function useStoragePolicyActionController({
 	};
 
 	const startStorageAuthorization = () => {
-		if (
-			editingId === null ||
-			!editingPolicy ||
-			!findStorageConnectorAction(
-				currentStorageDriverDescriptor,
-				"start_authorization",
-				"authorization",
-			)
-		) {
+		const action = findStorageConnectorAction(
+			currentStorageDriverDescriptor,
+			"start_authorization",
+			"authorization",
+		);
+		if (editingId === null || !editingPolicy || !action) {
 			return;
 		}
 		if (
@@ -304,14 +312,24 @@ export function useStoragePolicyActionController({
 				currentStorageDriverDescriptor,
 			)
 		) {
-			toast.error(t("onedrive_save_before_authorize"));
+			toast.error(
+				credentialManagement?.save_before_authorize_key
+					? connectorT(credentialManagement.save_before_authorize_key)
+					: t("policy_connector_action_save_first"),
+			);
 			return;
 		}
 		void runWithStorageAuthorization(async () => {
 			try {
 				const result =
 					await adminPolicyService.startStorageAuthorization(editingId);
-				toast.success(t("onedrive_authorization_started"));
+				toast.success(
+					credentialManagement?.authorization_started_key
+						? connectorT(credentialManagement.authorization_started_key)
+						: t("policy_connector_action_success", {
+								action: connectorT(action.label_key),
+							}),
+				);
 				const opened = window.open(result.authorization_url, "_blank");
 				if (opened) {
 					opened.opener = null;
@@ -325,14 +343,12 @@ export function useStoragePolicyActionController({
 	};
 
 	const validateStorageCredential = () => {
-		if (
-			editingId === null ||
-			!findStorageConnectorAction(
-				currentStorageDriverDescriptor,
-				"validate_credential",
-				"credential_validation",
-			)
-		) {
+		const action = findStorageConnectorAction(
+			currentStorageDriverDescriptor,
+			"validate_credential",
+			"credential_validation",
+		);
+		if (editingId === null || !action) {
 			return;
 		}
 		if (
@@ -342,7 +358,11 @@ export function useStoragePolicyActionController({
 				currentStorageDriverDescriptor,
 			)
 		) {
-			toast.error(t("onedrive_save_before_validate"));
+			toast.error(
+				credentialManagement?.save_before_validate_key
+					? connectorT(credentialManagement.save_before_validate_key)
+					: t("policy_connector_action_save_first"),
+			);
 			return;
 		}
 
@@ -377,13 +397,25 @@ export function useStoragePolicyActionController({
 							: [nextCredential, ...prev];
 					});
 					loadPolicyCapacity(policyId);
-					toast.success(t("onedrive_validation_success"), {
-						description: result.root_item_name
-							? t("onedrive_validation_success_root", {
-									name: result.root_item_name,
-								})
-							: undefined,
-					});
+					toast.success(
+						credentialManagement?.validation_success_key
+							? connectorT(credentialManagement.validation_success_key)
+							: t("policy_connector_action_success", {
+									action: connectorT(action.label_key),
+								}),
+						{
+							description: result.root_item_name
+								? credentialManagement?.validation_success_detail_key
+									? connectorT(
+											credentialManagement.validation_success_detail_key,
+											{
+												name: result.root_item_name,
+											},
+										)
+									: undefined
+								: undefined,
+						},
+					);
 				}
 			} catch (error) {
 				if (

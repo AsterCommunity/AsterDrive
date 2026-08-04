@@ -399,10 +399,18 @@ export type StorageConnectorCatalogQuery =
 	OperationQuery<"list_storage_driver_descriptors">;
 export type StorageConnectorCatalogContext =
 	components["schemas"]["StorageConnectorCatalogContext"];
+export type StorageConnectorLocalizationBundle =
+	components["schemas"]["StorageConnectorLocalizationBundle"];
+export type StorageConnectorLocalizationCatalog =
+	OperationData<"list_storage_driver_localizations">;
+export type StorageConnectorLocalizationCatalogQuery =
+	OperationQuery<"list_storage_driver_localizations">;
 export type StorageConnectorDeploymentScope =
 	components["schemas"]["StorageConnectorDeploymentScope"];
 export type StorageConnectorBadgeRgb =
 	components["schemas"]["StorageConnectorBadgeRgb"];
+export type StorageConnectorCredentialManagementDescriptor =
+	components["schemas"]["StorageConnectorCredentialManagementDescriptor"];
 export type StorageConnectorFieldDescriptor =
 	components["schemas"]["StorageConnectorFieldDescriptor"];
 export type StorageConnectorFieldValue =

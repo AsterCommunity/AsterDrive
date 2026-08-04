@@ -2,8 +2,10 @@
 
 use crate::config::Config;
 use crate::errors::{AsterError, Result};
-use aster_drive_storage::StorageConnectorDescriptor;
+use aster_drive_model::types::LocaleTag;
+use aster_drive_storage::{StorageConnectorDescriptor, StorageConnectorLocalizationCatalog};
 use sea_orm::ConnectionTrait;
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageConnectorCatalogContext {
@@ -27,6 +29,52 @@ pub(crate) fn list_storage_connector_catalog(
         .into_iter()
         .filter(|descriptor| connector_visible_in_context(config, descriptor, context))
         .collect()
+}
+
+pub(crate) fn list_storage_connector_localizations(
+    registry: &crate::storage::connectors::StorageConnectorRegistry,
+    config: &Config,
+    context: StorageConnectorCatalogContext,
+    requested_locale: &LocaleTag,
+) -> Result<StorageConnectorLocalizationCatalog> {
+    let resources = list_storage_connector_catalog(registry, config, context)
+        .into_iter()
+        .map(|descriptor| {
+            registry
+                .require_localization(&descriptor.connector_id)
+                .map(|localization| localization.bundle(requested_locale))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(StorageConnectorLocalizationCatalog {
+        requested_locale: requested_locale.clone(),
+        resources,
+    })
+}
+
+/// Build a strong ETag from the catalog selection and connector revisions.
+/// Message bodies are already covered by each plugin's deterministic revision.
+pub(crate) fn storage_connector_localization_etag(
+    context: StorageConnectorCatalogContext,
+    catalog: &StorageConnectorLocalizationCatalog,
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(match context {
+        StorageConnectorCatalogContext::Manage => b"manage".as_slice(),
+        StorageConnectorCatalogContext::Create => b"create".as_slice(),
+        StorageConnectorCatalogContext::InitialSetup => b"setup".as_slice(),
+    });
+    hasher.update([0]);
+    hasher.update(catalog.requested_locale.as_str().as_bytes());
+    hasher.update([0]);
+    for resource in &catalog.resources {
+        hasher.update(resource.connector_id.as_str().as_bytes());
+        hasher.update([0]);
+        hasher.update(resource.resolved_locale.as_str().as_bytes());
+        hasher.update([0]);
+        hasher.update(resource.revision.as_bytes());
+        hasher.update([0]);
+    }
+    format!("\"{}\"", hex::encode(hasher.finalize()))
 }
 
 pub fn connector_compatible_with_deployment(
@@ -71,8 +119,12 @@ fn connector_visible_in_context(
 
 #[cfg(test)]
 mod tests {
-    use super::{StorageConnectorCatalogContext, list_storage_connector_catalog};
+    use super::{
+        StorageConnectorCatalogContext, list_storage_connector_catalog,
+        list_storage_connector_localizations, storage_connector_localization_etag,
+    };
     use crate::config::{Config, DeploymentProfile};
+    use aster_drive_model::types::LocaleTag;
     use aster_drive_storage::ConnectorId;
 
     fn connector_ids(config: &Config, context: StorageConnectorCatalogContext) -> Vec<ConnectorId> {
@@ -133,5 +185,83 @@ mod tests {
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.local")));
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
         assert_eq!(drivers.len(), 7);
+    }
+
+    #[test]
+    fn localization_catalog_uses_the_same_context_filter_and_locale_fallback() {
+        let registry = crate::storage::connectors::builtin_storage_connector_registry()
+            .expect("built-in connector registry");
+        let mut config = Config::default();
+        config.deployment.profile = DeploymentProfile::Cluster;
+        let requested_locale = LocaleTag::parse("zh-CN").unwrap();
+
+        let catalog = list_storage_connector_localizations(
+            &registry,
+            &config,
+            StorageConnectorCatalogContext::Create,
+            &requested_locale,
+        )
+        .unwrap();
+
+        assert_eq!(catalog.requested_locale, requested_locale);
+        assert_eq!(catalog.resources.len(), 6);
+        assert!(catalog.resources.iter().all(|resource| {
+            resource.connector_id.as_str() != "asterdrive.storage.local"
+                && resource.resolved_locale.as_str() == "zh"
+                && resource.namespace == resource.connector_id.as_str()
+                && !resource.messages.is_empty()
+        }));
+        let onedrive = catalog
+            .resources
+            .iter()
+            .find(|resource| resource.connector_id.as_str() == "asterdrive.storage.onedrive")
+            .expect("OneDrive localization resource");
+        assert_eq!(
+            onedrive.messages.get("onedrive_credential_title"),
+            Some(&"Microsoft Graph 凭据".to_string())
+        );
+    }
+
+    #[test]
+    fn localization_etag_is_stable_and_varies_by_context_and_locale() {
+        let registry = crate::storage::connectors::builtin_storage_connector_registry()
+            .expect("built-in connector registry");
+        let config = Config::default();
+        let en = list_storage_connector_localizations(
+            &registry,
+            &config,
+            StorageConnectorCatalogContext::Manage,
+            &LocaleTag::parse("en").unwrap(),
+        )
+        .unwrap();
+        let en_again = list_storage_connector_localizations(
+            &registry,
+            &config,
+            StorageConnectorCatalogContext::Manage,
+            &LocaleTag::parse("en").unwrap(),
+        )
+        .unwrap();
+        let zh = list_storage_connector_localizations(
+            &registry,
+            &config,
+            StorageConnectorCatalogContext::Manage,
+            &LocaleTag::parse("zh").unwrap(),
+        )
+        .unwrap();
+
+        let etag = storage_connector_localization_etag(StorageConnectorCatalogContext::Manage, &en);
+        assert_eq!(
+            etag,
+            storage_connector_localization_etag(StorageConnectorCatalogContext::Manage, &en_again,)
+        );
+        assert_ne!(
+            etag,
+            storage_connector_localization_etag(StorageConnectorCatalogContext::Create, &en)
+        );
+        assert_ne!(
+            etag,
+            storage_connector_localization_etag(StorageConnectorCatalogContext::Manage, &zh)
+        );
+        assert!(etag.starts_with('"') && etag.ends_with('"'));
     }
 }

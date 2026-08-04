@@ -136,7 +136,9 @@ describe("StorageConnectorFieldsPanel", () => {
 	it("lets a single field fill its parent and only splits multiple fields into columns", () => {
 		const single = renderPanel({ fields: [field("base_path", "text")] });
 		expect(single.container.firstElementChild).toHaveClass("grid", "gap-4");
-		expect(single.container.firstElementChild).not.toHaveClass("md:grid-cols-2");
+		expect(single.container.firstElementChild).not.toHaveClass(
+			"md:grid-cols-2",
+		);
 		single.unmount();
 
 		const multiple = renderPanel({

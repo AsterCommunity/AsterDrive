@@ -79,7 +79,7 @@ export function getPolicyConnectionTestKey(
 
 export function getEndpointValidationMessage(
 	form: PolicyFormData,
-	t: (key: string) => string,
+	translate: (key: string) => string,
 	descriptor?: StorageConnectorDescriptor | null,
 ) {
 	const endpointField = descriptor?.fields.find(
@@ -102,20 +102,22 @@ export function getEndpointValidationMessage(
 		endpointField.invalid_protocol_message_key ??
 		"s3_endpoint_protocol_required_error";
 	if (!hasEndpointUrlScheme(endpoint)) {
-		return endpointField.allow_endpoint_without_protocol ? null : t(errorKey);
+		return endpointField.allow_endpoint_without_protocol
+			? null
+			: translate(errorKey);
 	}
 
 	let parsed: URL;
 	try {
 		parsed = new URL(endpoint);
 	} catch {
-		return t(errorKey);
+		return translate(errorKey);
 	}
 	const allowedProtocols = endpointField.allowed_endpoint_protocols ?? [];
 	return allowedProtocols.length === 0 ||
 		allowedProtocols.includes(parsed.protocol)
 		? null
-		: t(errorKey);
+		: translate(errorKey);
 }
 
 export function policyConnectorSelection(

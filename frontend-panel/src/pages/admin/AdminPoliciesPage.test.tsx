@@ -11,12 +11,14 @@ import type { PoliciesTable } from "@/components/admin/admin-policies-page/Polic
 import type { PolicyDialogs } from "@/components/admin/admin-policies-page/PolicyDialogs";
 import type { PolicyFormData } from "@/components/admin/storage-policy-dialog/formTypes";
 import { invalidateAdminRemoteNodeLookup } from "@/lib/adminRemoteNodeLookup";
+import { invalidateAdminStorageConnectorLocalizations } from "@/lib/adminStorageConnectorLocalizations";
 import { invalidateAdminStorageDriverDescriptors } from "@/lib/adminStorageDriverDescriptors";
 import AdminPoliciesPage from "@/pages/admin/AdminPoliciesPage";
 import type {
 	RemoteNodeInfo,
 	RemoteStorageTargetInfo,
 	StorageConnectorActionDescriptor,
+	StorageConnectorCredentialManagementDescriptor,
 	StorageConnectorDescriptor,
 	StorageConnectorFieldDescriptor,
 	StoragePolicy,
@@ -37,6 +39,7 @@ const mockState = vi.hoisted(() => ({
 	listRemoteNodes: vi.fn(),
 	listStorageCredentials: vi.fn(),
 	listStorageDriverDescriptors: vi.fn(),
+	listStorageDriverLocalizations: vi.fn(),
 	listStorageTargetDrivers: vi.fn(),
 	listStorageTargets: vi.fn(),
 	logout: vi.fn(),
@@ -58,9 +61,17 @@ const mockState = vi.hoisted(() => ({
 }));
 
 const translate = vi.hoisted(
-	() => (key: string, values?: Record<string, unknown>) =>
-		values?.field ? `${key}:${String(values.field)}` : key,
+	() => (key: string, values?: Record<string, unknown>) => {
+		if (typeof values?.defaultValue === "string") return values.defaultValue;
+		return values?.field ? `${key}:${String(values.field)}` : key;
+	},
 );
+
+const testI18n = vi.hoisted(() => ({
+	addResourceBundle: vi.fn(),
+	language: "en",
+	resolvedLanguage: "en",
+}));
 
 vi.mock("react-router-dom", () => ({
 	useNavigate: () => vi.fn(),
@@ -68,7 +79,7 @@ vi.mock("react-router-dom", () => ({
 }));
 
 vi.mock("react-i18next", () => ({
-	useTranslation: () => ({ t: translate }),
+	useTranslation: () => ({ i18n: testI18n, t: translate }),
 }));
 
 vi.mock("sonner", () => ({
@@ -201,6 +212,10 @@ vi.mock("@/services/adminService", () => ({
 			mockState.listStorageCredentials(...args),
 		listStorageDriverDescriptors: (query?: { context?: string }) =>
 			mockState.listStorageDriverDescriptors(query),
+		listStorageDriverLocalizations: (query?: {
+			context?: string;
+			locale?: string;
+		}) => mockState.listStorageDriverLocalizations(query),
 		startStorageAuthorization: (...args: unknown[]) =>
 			mockState.startStorageAuthorization(...args),
 		testConnection: (...args: unknown[]) => mockState.testConnection(...args),
@@ -235,6 +250,24 @@ const authorizationAction = action({
 	endpoints: ["start_storage_authorization"],
 	requires_saved_policy: true,
 });
+
+function credentialManagement(): StorageConnectorCredentialManagementDescriptor {
+	return {
+		authorization_started_key: "plugin_authorization_started",
+		created_authorize_next_key: "plugin_created_authorize_next",
+		loading_key: "plugin_credential_loading",
+		redirect_uri_key: "plugin_redirect_uri",
+		save_before_authorize_key: "plugin_save_before_authorize",
+		save_before_validate_key: "plugin_save_before_validate",
+		status_keys: {
+			authorized: "plugin_credential_authorized",
+			missing: "plugin_credential_missing",
+		},
+		title_key: "plugin_credential_title",
+		validation_success_detail_key: "plugin_validation_success_detail",
+		validation_success_key: "plugin_validation_success",
+	};
+}
 
 function action(
 	overrides: Partial<StorageConnectorActionDescriptor> &
@@ -439,7 +472,11 @@ function deferred<T>() {
 describe("AdminPoliciesPage connector orchestration", () => {
 	beforeEach(() => {
 		invalidateAdminRemoteNodeLookup();
+		invalidateAdminStorageConnectorLocalizations();
 		invalidateAdminStorageDriverDescriptors();
+		testI18n.addResourceBundle.mockReset();
+		testI18n.language = "en";
+		testI18n.resolvedLanguage = "en";
 		mockState.create.mockReset();
 		mockState.dialogProps = null;
 		mockState.executeDraftPolicyAction.mockReset();
@@ -450,6 +487,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.listRemoteNodes.mockReset();
 		mockState.listStorageCredentials.mockReset();
 		mockState.listStorageDriverDescriptors.mockReset();
+		mockState.listStorageDriverLocalizations.mockReset();
 		mockState.listStorageTargetDrivers.mockReset();
 		mockState.listStorageTargets.mockReset();
 		mockState.logout.mockReset();
@@ -485,6 +523,10 @@ describe("AdminPoliciesPage connector orchestration", () => {
 				}
 			},
 		);
+		mockState.listStorageDriverLocalizations.mockResolvedValue({
+			requested_locale: "en",
+			resources: [],
+		});
 		mockState.listRemoteNodes.mockImplementation(async () => ({
 			items: mockState.remoteNodes,
 			total: mockState.remoteNodes.length,
@@ -528,6 +570,69 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		expect(mockState.listStorageDriverDescriptors).toHaveBeenCalledWith({
 			context: "create",
 		});
+	});
+
+	it("does not install connector resources from a stale language request", async () => {
+		const enManage = deferred<{
+			requested_locale: string;
+			resources: never[];
+		}>();
+		const enCreate = deferred<{
+			requested_locale: string;
+			resources: never[];
+		}>();
+		mockState.listStorageDriverLocalizations.mockImplementation(
+			(query?: { context?: string; locale?: string }) => {
+				if (query?.locale === "en") {
+					return query.context === "create"
+						? enCreate.promise
+						: enManage.promise;
+				}
+				return Promise.resolve({
+					requested_locale: "zh",
+					resources: [
+						{
+							connector_id: `plugin.${query?.context ?? "manage"}`,
+							messages: { title: "插件" },
+							namespace: `plugin.${query?.context ?? "manage"}`,
+							requested_locale: "zh",
+							resolved_locale: "zh",
+							revision: "zh-revision",
+						},
+					],
+				});
+			},
+		);
+
+		const view = render(<AdminPoliciesPage />);
+		await waitFor(() =>
+			expect(mockState.listStorageDriverLocalizations).toHaveBeenCalledWith({
+				context: "manage",
+				locale: "en",
+			}),
+		);
+
+		testI18n.language = "zh";
+		testI18n.resolvedLanguage = "zh";
+		view.rerender(<AdminPoliciesPage />);
+		await waitFor(() =>
+			expect(testI18n.addResourceBundle).toHaveBeenCalledWith(
+				"zh",
+				expect.stringMatching(/^plugin\./),
+				{ title: "插件" },
+				true,
+				true,
+			),
+		);
+
+		testI18n.addResourceBundle.mockClear();
+		await act(async () => {
+			enManage.resolve({ requested_locale: "en", resources: [] });
+			enCreate.resolve({ requested_locale: "en", resources: [] });
+			await Promise.all([enManage.promise, enCreate.promise]);
+		});
+
+		expect(testI18n.addResourceBundle).not.toHaveBeenCalled();
 	});
 
 	it("switches connectors using only target descriptor defaults", async () => {
@@ -809,6 +914,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		const connector = descriptor("plugin.oauth", {
 			actions: [authorizationAction],
 			authorization_provider: "plugin_oauth",
+			credential_management: credentialManagement(),
 			credential_mode: "oauth_delegated",
 			fields: [field("tenant", { scope: "authorization_application" })],
 			requires_authorization: true,
@@ -834,6 +940,18 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		expect(window.open).toHaveBeenCalledWith(
 			"https://provider.example.com/authorize",
 			"_blank",
+		);
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"plugin_authorization_started",
+		);
+
+		mockState.startStorageAuthorization.mockClear();
+		await setField("name", "Changed policy name");
+		await act(async () => currentDialog().onStartStorageAuthorization());
+
+		expect(mockState.startStorageAuthorization).not.toHaveBeenCalled();
+		expect(mockState.toastError).toHaveBeenCalledWith(
+			"plugin_save_before_authorize",
 		);
 	});
 
@@ -902,6 +1020,34 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		});
 	});
 
+	it("keeps a newly created authorization connector open with connector-owned guidance", async () => {
+		const connector = descriptor("plugin.oauth", {
+			actions: [authorizationAction],
+			authorization_provider: "plugin_oauth",
+			credential_management: credentialManagement(),
+			credential_mode: "oauth_delegated",
+			requires_authorization: true,
+			supports_initial_setup: false,
+		});
+		const created = policy("plugin.oauth", {}, { name: "OAuth policy" });
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		mockState.create.mockResolvedValue(created);
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog("plugin.oauth");
+		openCreateDialog();
+		await setField("name", "OAuth policy");
+		await act(async () => currentDialog().onCreateStepChange(2));
+		await act(async () => currentDialog().onSubmit());
+
+		await waitFor(() => expect(mockState.create).toHaveBeenCalledTimes(1));
+		expect(currentDialog().editMode).toBe(true);
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"plugin_created_authorize_next",
+		);
+	});
+
 	it("offers save-anyway after a draft connection test fails", async () => {
 		const connector = descriptor("plugin.failing-test", {
 			actions: [draftTestAction],
@@ -962,6 +1108,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 	it("consumes an authorization callback, reloads the policy, and opens it", async () => {
 		const connector = descriptor("plugin.oauth", {
 			actions: [authorizationAction],
+			credential_management: credentialManagement(),
 			credential_mode: "oauth_delegated",
 		});
 		const authorized = policy("plugin.oauth", { drive: "authorized" });
@@ -981,7 +1128,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			{ replace: true },
 		);
 		expect(mockState.toastSuccess).toHaveBeenCalledWith(
-			"onedrive_authorization_completed",
+			"storage_authorization_completed",
 			expect.any(Object),
 		);
 		await waitFor(() => {

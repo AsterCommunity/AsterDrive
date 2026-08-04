@@ -33,6 +33,8 @@ use super::{
     StorageConnectorUploadTransport,
 };
 
+mod localization;
+
 pub struct TencentCosConnector;
 
 const CONFIGURE_CORS_ACTION_ID: &str = "configure_tencent_cos_cors";
@@ -248,6 +250,15 @@ fn resolve_cos_cors_allowed_origins(
 impl StorageConnector for TencentCosConnector {
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
+    }
+
+    fn localization(&self) -> Result<aster_drive_storage::StorageConnectorLocalization> {
+        let descriptor = Self::descriptor_definition();
+        super::localization::builtin_connector_localization(
+            Self::ID,
+            &descriptor,
+            localization::MESSAGES,
+        )
     }
 
     fn validate_connector_config(

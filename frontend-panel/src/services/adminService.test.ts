@@ -97,6 +97,7 @@ describe("adminService", () => {
 		adminUserService.listInvitations();
 		adminPolicyService.list();
 		adminPolicyService.listStorageDriverDescriptors();
+		adminPolicyService.listStorageDriverLocalizations();
 		adminRemoteNodeService.list();
 		adminPolicyGroupService.list();
 		adminShareService.list();
@@ -114,11 +115,15 @@ describe("adminService", () => {
 			5,
 			"/admin/policies/storage-drivers",
 		);
-		expect(mockState.get).toHaveBeenNthCalledWith(6, "/admin/remote-nodes");
-		expect(mockState.get).toHaveBeenNthCalledWith(7, "/admin/policy-groups");
-		expect(mockState.get).toHaveBeenNthCalledWith(8, "/admin/shares");
-		expect(mockState.get).toHaveBeenNthCalledWith(9, "/admin/locks");
-		expect(mockState.get).toHaveBeenNthCalledWith(10, "/admin/config");
+		expect(mockState.get).toHaveBeenNthCalledWith(
+			6,
+			"/admin/policies/storage-drivers/localizations",
+		);
+		expect(mockState.get).toHaveBeenNthCalledWith(7, "/admin/remote-nodes");
+		expect(mockState.get).toHaveBeenNthCalledWith(8, "/admin/policy-groups");
+		expect(mockState.get).toHaveBeenNthCalledWith(9, "/admin/shares");
+		expect(mockState.get).toHaveBeenNthCalledWith(10, "/admin/locks");
+		expect(mockState.get).toHaveBeenNthCalledWith(11, "/admin/config");
 	});
 
 	it("passes the backend-owned storage connector catalog context", () => {
@@ -132,6 +137,17 @@ describe("adminService", () => {
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			2,
 			"/admin/policies/storage-drivers?context=setup",
+		);
+	});
+
+	it("passes connector localization context and normalized locale", () => {
+		adminPolicyService.listStorageDriverLocalizations({
+			context: "create",
+			locale: "zh-CN",
+		});
+
+		expect(mockState.get).toHaveBeenCalledWith(
+			"/admin/policies/storage-drivers/localizations?context=create&locale=zh-CN",
 		);
 	});
 

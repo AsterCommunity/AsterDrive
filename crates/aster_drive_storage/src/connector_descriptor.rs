@@ -5,7 +5,7 @@
 //! 它不是 runtime driver，本文件不应该承载实际对象读写逻辑。
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
@@ -1250,6 +1250,128 @@ fn normalize_and_validate_connector_field_value(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StorageConnectorCredentialManagementDescriptor {
+    /// Credential panel heading.
+    pub title_key: String,
+    /// Status text shown while the credential snapshot is loading.
+    pub loading_key: String,
+    /// Credential status wire value to connector-owned localization key.
+    ///
+    /// The map keeps the UI independent from provider-specific status copy and
+    /// lets future connector credential contracts add status values without a
+    /// frontend provider matrix.
+    pub status_keys: BTreeMap<String, String>,
+    /// Label for an authorization redirect URI exposed by the platform.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redirect_uri_key: Option<String>,
+    /// Message shown when authorization is requested with unsaved policy data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_before_authorize_key: Option<String>,
+    /// Message shown after the authorization window is opened.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authorization_started_key: Option<String>,
+    /// Message shown when credential validation is requested with unsaved data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_before_validate_key: Option<String>,
+    /// Message shown after a credential validates successfully.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validation_success_key: Option<String>,
+    /// Optional success detail rendered with connector-provided parameters.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validation_success_detail_key: Option<String>,
+    /// Message shown after creating a policy that still needs authorization.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_authorize_next_key: Option<String>,
+}
+
+impl StorageConnectorCredentialManagementDescriptor {
+    fn validate(&self) -> Result<(), StorageConnectorDescriptorError> {
+        for (name, message_id) in [
+            ("title_key", self.title_key.as_str()),
+            ("loading_key", self.loading_key.as_str()),
+        ] {
+            if message_id.trim().is_empty() {
+                return Err(StorageConnectorDescriptorError(format!(
+                    "credential_management {name} must not be empty"
+                )));
+            }
+        }
+        if self.status_keys.is_empty() {
+            return Err(StorageConnectorDescriptorError(
+                "credential_management status_keys must not be empty".to_string(),
+            ));
+        }
+        if !self.status_keys.contains_key("missing") {
+            return Err(StorageConnectorDescriptorError(
+                "credential_management status_keys must declare 'missing'".to_string(),
+            ));
+        }
+        for (status, message_id) in &self.status_keys {
+            if status.trim().is_empty() || message_id.trim().is_empty() {
+                return Err(StorageConnectorDescriptorError(
+                    "credential_management status keys and message ids must not be empty"
+                        .to_string(),
+                ));
+            }
+        }
+        for (name, message_id) in [
+            ("redirect_uri_key", self.redirect_uri_key.as_deref()),
+            (
+                "save_before_authorize_key",
+                self.save_before_authorize_key.as_deref(),
+            ),
+            (
+                "authorization_started_key",
+                self.authorization_started_key.as_deref(),
+            ),
+            (
+                "save_before_validate_key",
+                self.save_before_validate_key.as_deref(),
+            ),
+            (
+                "validation_success_key",
+                self.validation_success_key.as_deref(),
+            ),
+            (
+                "validation_success_detail_key",
+                self.validation_success_detail_key.as_deref(),
+            ),
+            (
+                "created_authorize_next_key",
+                self.created_authorize_next_key.as_deref(),
+            ),
+        ] {
+            if message_id.is_some_and(|message_id| message_id.trim().is_empty()) {
+                return Err(StorageConnectorDescriptorError(format!(
+                    "credential_management {name} must not be empty when present"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn localization_message_ids<'a>(&'a self, message_ids: &mut BTreeSet<&'a str>) {
+        message_ids.insert(self.title_key.as_str());
+        message_ids.insert(self.loading_key.as_str());
+        message_ids.extend(self.status_keys.values().map(String::as_str));
+        message_ids.extend(
+            [
+                self.redirect_uri_key.as_deref(),
+                self.save_before_authorize_key.as_deref(),
+                self.authorization_started_key.as_deref(),
+                self.save_before_validate_key.as_deref(),
+                self.validation_success_key.as_deref(),
+                self.validation_success_detail_key.as_deref(),
+                self.created_authorize_next_key.as_deref(),
+            ]
+            .into_iter()
+            .flatten(),
+        );
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorDescriptor {
     /// 持久化到 policy 的稳定 connector/plugin id。
     pub connector_id: ConnectorId,
@@ -1275,6 +1397,12 @@ pub struct StorageConnectorDescriptor {
     /// 授权 provider，例如 `microsoft_graph`。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub authorization_provider: Option<String>,
+    /// Connector-owned credential management presentation and lifecycle copy.
+    ///
+    /// Generic admin code consumes these semantic slots without knowing the
+    /// connector id or provider-specific localization keys.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credential_management: Option<StorageConnectorCredentialManagementDescriptor>,
     /// 存储对象能力。
     pub capabilities: StorageConnectorCapabilities,
     /// 上传工作流能力。
@@ -1370,7 +1498,81 @@ impl StorageConnectorDescriptor {
                 )));
             }
         }
+        if let Some(credential_management) = &self.credential_management {
+            credential_management.validate()?;
+        }
+        let has_credential_lifecycle_action = self.actions.iter().any(|action| {
+            matches!(
+                action.kind,
+                StorageConnectorActionKind::Authorization
+                    | StorageConnectorActionKind::CredentialValidation
+            )
+        });
+        if (has_credential_lifecycle_action
+            || self.credential_mode == StorageConnectorCredentialMode::OauthDelegated)
+            && self.credential_management.is_none()
+        {
+            return Err(StorageConnectorDescriptorError(
+                "authorization and credential validation actions require credential_management"
+                    .to_string(),
+            ));
+        }
         Ok(())
+    }
+
+    /// Message ids that must be supplied by this connector's localization
+    /// provider. Generic product fallbacks used only when an optional message
+    /// is absent are deliberately not included.
+    pub fn localization_message_ids(&self) -> BTreeSet<&str> {
+        let mut message_ids = BTreeSet::from([
+            self.ui.label_key.as_str(),
+            self.ui.description_key.as_str(),
+            self.ui.helper_key.as_str(),
+            self.ui.config_step_title_key.as_str(),
+            self.ui.config_step_description_key.as_str(),
+            self.ui.edit_context_key.as_str(),
+        ]);
+        for field in &self.fields {
+            collect_field_localization_message_ids(field, &mut message_ids);
+        }
+        for action in &self.actions {
+            message_ids.insert(action.label_key.as_str());
+            message_ids.insert(action.description_key.as_str());
+            for field in &action.fields {
+                collect_field_localization_message_ids(field, &mut message_ids);
+            }
+        }
+        if let Some(credential_management) = &self.credential_management {
+            credential_management.localization_message_ids(&mut message_ids);
+        }
+        message_ids
+    }
+}
+
+fn collect_field_localization_message_ids<'a>(
+    field: &'a StorageConnectorFieldDescriptor,
+    message_ids: &mut BTreeSet<&'a str>,
+) {
+    message_ids.insert(field.label_key.as_str());
+    if let Some(message_id) = field.help_key.as_deref() {
+        message_ids.insert(message_id);
+    }
+    if let Some(message_id) = field.required_message_key.as_deref() {
+        message_ids.insert(message_id);
+    }
+    if let Some(message_id) = field.invalid_protocol_message_key.as_deref() {
+        message_ids.insert(message_id);
+    }
+    for option in field
+        .select
+        .as_ref()
+        .into_iter()
+        .flat_map(|select| &select.options)
+    {
+        message_ids.insert(option.label_key.as_str());
+        if let Some(message_id) = option.description_key.as_deref() {
+            message_ids.insert(message_id);
+        }
     }
 }
 
@@ -1460,6 +1662,7 @@ pub fn object_storage_connector_descriptor(
         supports_initial_setup: input.supports_initial_setup,
         requires_authorization: false,
         authorization_provider: None,
+        credential_management: None,
         capabilities: StorageConnectorCapabilities {
             efficient_range: true,
             capacity: true,
@@ -1822,7 +2025,8 @@ mod tests {
     use super::{
         ObjectStorageConnectorDescriptorInput, StorageConnectorActionEndpoint,
         StorageConnectorActionId, StorageConnectorActionInvocationError,
-        StorageConnectorActionKind, StorageConnectorBadgeRgb, StorageConnectorCredentialMode,
+        StorageConnectorActionKind, StorageConnectorBadgeRgb,
+        StorageConnectorCredentialManagementDescriptor, StorageConnectorCredentialMode,
         StorageConnectorCustomActionDescriptorInput, StorageConnectorDeploymentScope,
         StorageConnectorFieldDefaultMode, StorageConnectorFieldDefaultValue,
         StorageConnectorFieldDisplayInput, StorageConnectorFieldKind, StorageConnectorFieldScope,
@@ -1833,9 +2037,9 @@ mod tests {
         normalize_storage_connector_action_input, normalize_storage_connector_config,
         normalize_storage_connector_custom_action_invocation,
         normalize_storage_connector_field_values, object_storage_connector_descriptor,
-        storage_connector_dynamic_select_field, storage_connector_field,
-        storage_connector_field_with_display, storage_connector_field_with_options,
-        storage_connector_select_field,
+        start_authorization_action_descriptor, storage_connector_dynamic_select_field,
+        storage_connector_field, storage_connector_field_with_display,
+        storage_connector_field_with_options, storage_connector_select_field,
     };
     use crate::{
         CONNECTOR_CONFIG_FORMAT_VERSION, ConnectorConfigEnvelope, ConnectorId,
@@ -2024,6 +2228,63 @@ mod tests {
         assert_eq!(normalized.values["s3_connect_timeout_secs"], 5);
         assert_eq!(normalized.values["s3_read_timeout_secs"], 30);
         assert_eq!(normalized.values["s3_operation_timeout_secs"], 3_600);
+    }
+
+    #[test]
+    fn credential_lifecycle_actions_require_valid_connector_owned_presentation() {
+        let mut descriptor = s3_descriptor();
+        descriptor.actions = vec![start_authorization_action_descriptor()];
+
+        let error = descriptor
+            .validate()
+            .expect_err("authorization action without credential presentation must fail");
+        assert!(error.to_string().contains("require credential_management"));
+
+        descriptor.credential_management = Some(StorageConnectorCredentialManagementDescriptor {
+            title_key: "credential_title".to_string(),
+            loading_key: "credential_loading".to_string(),
+            status_keys: BTreeMap::new(),
+            redirect_uri_key: None,
+            save_before_authorize_key: None,
+            authorization_started_key: None,
+            save_before_validate_key: None,
+            validation_success_key: None,
+            validation_success_detail_key: None,
+            created_authorize_next_key: None,
+        });
+        let error = descriptor
+            .validate()
+            .expect_err("empty credential status map must fail");
+        assert!(error.to_string().contains("status_keys must not be empty"));
+
+        descriptor
+            .credential_management
+            .as_mut()
+            .expect("credential presentation")
+            .status_keys
+            .insert(
+                "authorized".to_string(),
+                "credential_authorized".to_string(),
+            );
+        let error = descriptor
+            .validate()
+            .expect_err("credential presentation must declare missing status copy");
+        assert!(error.to_string().contains("must declare 'missing'"));
+
+        descriptor
+            .credential_management
+            .as_mut()
+            .expect("credential presentation")
+            .status_keys
+            .insert("missing".to_string(), "credential_missing".to_string());
+        descriptor
+            .validate()
+            .expect("valid credential presentation");
+        assert!(
+            descriptor
+                .localization_message_ids()
+                .contains("credential_authorized")
+        );
     }
 
     #[test]

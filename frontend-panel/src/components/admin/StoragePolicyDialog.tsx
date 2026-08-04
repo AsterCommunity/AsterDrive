@@ -18,6 +18,7 @@ import { Icon, isIconName } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { formatBytes, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,7 @@ import type {
 	RemoteStorageTargetDriverDescriptor,
 	RemoteStorageTargetInfo,
 	StorageConnectorCredentialInfo,
+	StorageConnectorCredentialManagementDescriptor,
 	StorageConnectorDescriptor,
 	StorageConnectorFieldDescriptor,
 	StorageConnectorFieldValue,
@@ -164,6 +166,13 @@ export function StoragePolicyDialog({
 	onSetupLogout,
 }: StoragePolicyDialogProps) {
 	const { t } = useTranslation("admin");
+	const connectorT = (key: string, values?: Record<string, number | string>) =>
+		translateStorageConnectorMessage(
+			t,
+			storageDriverDescriptor?.connector_id,
+			key,
+			values,
+		);
 	const isCreateMode = mode === "create";
 	const isSetupPresentation = presentation === "setup";
 	const customActions =
@@ -203,14 +212,12 @@ export function StoragePolicyDialog({
 			description: t("policy_wizard_step_storage_desc"),
 		},
 		{
-			title: t(
-				storageDriverDescriptor?.ui.config_step_title_key ??
-					"policy_wizard_step_connection_title",
-			),
-			description: t(
-				storageDriverDescriptor?.ui.config_step_description_key ??
-					"policy_wizard_step_connection_desc",
-			),
+			title: storageDriverDescriptor
+				? connectorT(storageDriverDescriptor.ui.config_step_title_key)
+				: t("policy_wizard_step_connection_title"),
+			description: storageDriverDescriptor
+				? connectorT(storageDriverDescriptor.ui.config_step_description_key)
+				: t("policy_wizard_step_connection_desc"),
 		},
 		{
 			title: t("policy_wizard_step_rules_title"),
@@ -405,6 +412,9 @@ export function StoragePolicyDialog({
 														/>
 														<StorageConnectorActionsPanel
 															actions={customActions}
+															connectorId={
+																storageDriverDescriptor?.connector_id
+															}
 															confirmActionId={connectorActionConfirmId}
 															submittingActionId={connectorActionSubmittingId}
 															t={t}
@@ -463,15 +473,21 @@ export function StoragePolicyDialog({
 								{connectionFields.length > 0 || remoteNodeId ? (
 									<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
 										<SectionTitle
-											title={t(
-												storageDriverDescriptor?.ui.config_step_title_key ??
-													"policy_editor_connection_title",
-											)}
-											description={t(
-												storageDriverDescriptor?.ui
-													.config_step_description_key ??
-													"policy_editor_connection_desc",
-											)}
+											title={
+												storageDriverDescriptor
+													? connectorT(
+															storageDriverDescriptor.ui.config_step_title_key,
+														)
+													: t("policy_editor_connection_title")
+											}
+											description={
+												storageDriverDescriptor
+													? connectorT(
+															storageDriverDescriptor.ui
+																.config_step_description_key,
+														)
+													: t("policy_editor_connection_desc")
+											}
 										/>
 										<div className="mt-5 space-y-4">
 											<StorageConnectorFieldsPanel
@@ -508,20 +524,27 @@ export function StoragePolicyDialog({
 												/>
 											) : null}
 											<ConnectorManagement
+												management={
+													storageDriverDescriptor?.credential_management ?? null
+												}
 												authorizationActionLabel={
-													authorizationAction?.label_key ?? null
+													authorizationAction
+														? connectorT(authorizationAction.label_key)
+														: null
 												}
 												credentials={storageCredentials}
 												credentialsLoading={storageCredentialsLoading}
 												redirectUri={storageAuthorizationRedirectUri}
 												validationActionLabel={
-													validationAction?.label_key ?? null
+													validationAction
+														? connectorT(validationAction.label_key)
+														: null
 												}
 												authorizationSubmitting={storageAuthorizationSubmitting}
 												validationSubmitting={
 													storageCredentialValidationSubmitting
 												}
-												t={t}
+												connectorT={connectorT}
 												onAuthorize={onStartStorageAuthorization}
 												onValidate={onValidateStorageCredential}
 											/>
@@ -546,6 +569,7 @@ export function StoragePolicyDialog({
 									<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
 										<StorageConnectorActionsPanel
 											actions={customActions}
+											connectorId={storageDriverDescriptor?.connector_id}
 											confirmActionId={connectorActionConfirmId}
 											submittingActionId={connectorActionSubmittingId}
 											t={t}
@@ -802,10 +826,18 @@ function ConnectorSelection({
 							</div>
 							<div className="min-w-0 flex-1">
 								<p className="text-base font-semibold">
-									{t(descriptor.ui.label_key)}
+									{translateStorageConnectorMessage(
+										t,
+										descriptor.connector_id,
+										descriptor.ui.label_key,
+									)}
 								</p>
 								<p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-									{t(descriptor.ui.description_key)}
+									{translateStorageConnectorMessage(
+										t,
+										descriptor.connector_id,
+										descriptor.ui.description_key,
+									)}
 								</p>
 								{disabled ? (
 									<p className="mt-2 text-xs font-medium leading-5 text-amber-700 dark:text-amber-300">
@@ -883,6 +915,8 @@ function ConnectorHelper({
 	descriptor: StorageConnectorDescriptor | null;
 }) {
 	const { t } = useTranslation("admin");
+	const connectorT = (key: string) =>
+		translateStorageConnectorMessage(t, descriptor?.connector_id, key);
 	return (
 		<div className="rounded-3xl border border-border/70 bg-muted/20 p-5">
 			<div className="flex items-center gap-3">
@@ -891,7 +925,9 @@ function ConnectorHelper({
 				</div>
 				<div>
 					<p className="text-sm font-medium">
-						{descriptor ? t(descriptor.ui.label_key) : t("driver_type")}
+						{descriptor
+							? connectorT(descriptor.ui.label_key)
+							: t("driver_type")}
 					</p>
 					<p className="text-xs text-muted-foreground">
 						{t("policy_wizard_driver_panel_title")}
@@ -900,12 +936,12 @@ function ConnectorHelper({
 			</div>
 			<p className="mt-4 text-sm leading-6 text-muted-foreground">
 				{descriptor
-					? t(descriptor.ui.description_key)
+					? connectorT(descriptor.ui.description_key)
 					: t("policy_wizard_step_storage_desc")}
 			</p>
 			<p className="mt-4 text-xs leading-5 text-muted-foreground">
 				{descriptor
-					? t(descriptor.ui.helper_key)
+					? connectorT(descriptor.ui.helper_key)
 					: t("policy_wizard_step_storage_desc")}
 			</p>
 		</div>
@@ -1074,6 +1110,8 @@ function PolicyEditContextBar({
 	loading: boolean;
 }) {
 	const { t } = useTranslation("admin");
+	const connectorT = (key: string) =>
+		translateStorageConnectorMessage(t, descriptor?.connector_id, key);
 	const basePath = connectorStringValue(form, "base_path");
 	const displayBasePath =
 		basePath || t(descriptor?.ui.base_path_empty_display ?? "core:root");
@@ -1113,13 +1151,12 @@ function PolicyEditContextBar({
 						<Badge
 							variant="outline"
 							data-testid="policy-edit-driver-badge"
-							className={cn(
-								"shadow-sm",
-								badgePresentation.className,
-							)}
+							className={cn("shadow-sm", badgePresentation.className)}
 							style={badgePresentation.style}
 						>
-							{descriptor ? t(descriptor.ui.label_key) : form.connector_id}
+							{descriptor
+								? connectorT(descriptor.ui.label_key)
+								: form.connector_id}
 						</Badge>
 						<span
 							className={cn(
@@ -1135,11 +1172,12 @@ function PolicyEditContextBar({
 						</span>
 					</div>
 					<p className="mt-2 truncate text-sm text-muted-foreground">
-						{t("base_path")}: {displayBasePath}
+						{descriptor ? connectorT("base_path") : t("base_path")}:{" "}
+						{displayBasePath}
 					</p>
 					<p className="mt-1 text-sm leading-6 text-muted-foreground">
 						{descriptor
-							? t(descriptor.ui.edit_context_key)
+							? connectorT(descriptor.ui.edit_context_key)
 							: t("policy_edit_context_local_desc")}
 					</p>
 				</div>
@@ -1176,7 +1214,13 @@ function buildPolicySummaryItems(
 	const items = [
 		{
 			label: t("driver_type"),
-			value: descriptor ? t(descriptor.ui.label_key) : form.connector_id || "—",
+			value: descriptor
+				? translateStorageConnectorMessage(
+						t,
+						descriptor.connector_id,
+						descriptor.ui.label_key,
+					)
+				: form.connector_id || "—",
 		},
 		{
 			label: t("max_file_size"),
@@ -1209,7 +1253,11 @@ function buildPolicySummaryItems(
 				? connectorFormValue(form, field.name)
 				: form.credential_values[field.name];
 		items.push({
-			label: t(field.label_key),
+			label: translateStorageConnectorMessage(
+				t,
+				descriptor.connector_id,
+				field.label_key,
+			),
 			value: connectorFieldDisplayValue(
 				field,
 				value,
@@ -1248,7 +1296,11 @@ function connectorFieldDisplayValue(
 		(candidate) => String(candidate.value) === String(resolved),
 	);
 	if (option) {
-		return t(option.label_key);
+		return translateStorageConnectorMessage(
+			t,
+			descriptor.connector_id,
+			option.label_key,
+		);
 	}
 	if (typeof resolved === "boolean") {
 		return resolved ? t("policy_wizard_enabled") : t("policy_wizard_disabled");
@@ -1332,6 +1384,7 @@ function ExtensionField({
 }
 
 function ConnectorManagement({
+	management,
 	authorizationActionLabel,
 	credentials,
 	credentialsLoading,
@@ -1339,10 +1392,11 @@ function ConnectorManagement({
 	validationActionLabel,
 	authorizationSubmitting,
 	validationSubmitting,
-	t,
+	connectorT,
 	onAuthorize,
 	onValidate,
 }: {
+	management: StorageConnectorCredentialManagementDescriptor | null;
 	authorizationActionLabel: string | null;
 	credentials: StorageConnectorCredentialInfo[];
 	credentialsLoading: boolean;
@@ -1350,14 +1404,15 @@ function ConnectorManagement({
 	validationActionLabel: string | null;
 	authorizationSubmitting: boolean;
 	validationSubmitting: boolean;
-	t: (key: string) => string;
+	connectorT: (key: string) => string;
 	onAuthorize: () => void;
 	onValidate: () => void;
 }) {
 	if (
-		!authorizationActionLabel &&
-		!validationActionLabel &&
-		credentials.length === 0
+		!management ||
+		(!authorizationActionLabel &&
+			!validationActionLabel &&
+			credentials.length === 0)
 	) {
 		return null;
 	}
@@ -1366,18 +1421,24 @@ function ConnectorManagement({
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<div>
 					<h3 className="text-sm font-semibold">
-						{t("onedrive_credential_title")}
+						{connectorT(management.title_key)}
 					</h3>
 					<p className="mt-1 text-xs text-muted-foreground">
 						{credentialsLoading
-							? t("onedrive_credential_loading")
+							? connectorT(management.loading_key)
 							: credentials[0]
-								? `${t(`onedrive_credential_status_${credentials[0].status}`)}${
+								? `${
+										management.status_keys[credentials[0].status]
+											? connectorT(
+													management.status_keys[credentials[0].status],
+												)
+											: credentials[0].status
+									}${
 										credentials[0].last_validated_at
 											? ` · ${formatDateTime(credentials[0].last_validated_at)}`
 											: ""
 									}`
-								: t("onedrive_credential_status_missing")}
+								: connectorT(management.status_keys.missing)}
 					</p>
 				</div>
 				<div className="flex gap-2">
@@ -1391,7 +1452,7 @@ function ConnectorManagement({
 							{authorizationSubmitting ? (
 								<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
 							) : null}
-							{t(authorizationActionLabel)}
+							{authorizationActionLabel}
 						</Button>
 					) : null}
 					{validationActionLabel ? (
@@ -1404,15 +1465,15 @@ function ConnectorManagement({
 							{validationSubmitting ? (
 								<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
 							) : null}
-							{t(validationActionLabel)}
+							{validationActionLabel}
 						</Button>
 					) : null}
 				</div>
 			</div>
-			{authorizationActionLabel ? (
+			{authorizationActionLabel && management.redirect_uri_key ? (
 				<div className="space-y-2">
 					<Label htmlFor="storage-authorization-redirect-uri">
-						{t("onedrive_redirect_uri")}
+						{connectorT(management.redirect_uri_key)}
 					</Label>
 					<Input
 						id="storage-authorization-redirect-uri"

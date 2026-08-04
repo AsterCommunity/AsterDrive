@@ -22,6 +22,46 @@ use super::sftp::SftpConnectorConfigV1;
 use super::tencent_cos::TencentCosConnectorConfigV1;
 use super::*;
 
+struct LocalizationContractConnector {
+    descriptor: StorageConnectorDescriptor,
+    localization: aster_drive_storage::StorageConnectorLocalization,
+}
+
+#[async_trait::async_trait]
+impl StorageConnector for LocalizationContractConnector {
+    fn descriptor(&self) -> StorageConnectorDescriptor {
+        self.descriptor.clone()
+    }
+
+    fn localization(&self) -> Result<aster_drive_storage::StorageConnectorLocalization> {
+        Ok(self.localization.clone())
+    }
+
+    async fn build_draft_driver(
+        &self,
+        _context: &StorageConnectorContext<'_>,
+        _policy: &storage_policy::Model,
+        _credential: &StorageConnectorCredentialInput,
+    ) -> Result<Box<dyn StorageDriver>> {
+        panic!("localization contract tests do not construct drivers")
+    }
+
+    fn build_runtime_driver(
+        &self,
+        _registry: &crate::storage::DriverRegistry,
+        _policy: &storage_policy::Model,
+    ) -> Result<StorageConnectorDriver> {
+        panic!("localization contract tests do not construct drivers")
+    }
+
+    fn upload_transport(
+        &self,
+        _policy: &storage_policy::Model,
+    ) -> Result<StorageConnectorUploadTransport> {
+        panic!("localization contract tests do not resolve upload transport")
+    }
+}
+
 fn registry() -> &'static StorageConnectorRegistry {
     static REGISTRY: std::sync::LazyLock<StorageConnectorRegistry> =
         std::sync::LazyLock::new(|| {
@@ -153,6 +193,69 @@ fn registry_exposes_each_builtin_connector_once_in_stable_order() {
 }
 
 #[test]
+fn builtin_bundles_keep_connector_owned_management_messages() {
+    let locale = aster_drive_model::types::LocaleTag::parse("en").expect("English locale");
+    let onedrive = connector(OneDriveConnector::ID)
+        .localization()
+        .expect("OneDrive localization")
+        .bundle(&locale);
+    assert_eq!(
+        onedrive.messages.get("onedrive_credential_title"),
+        Some(&"Microsoft Graph credential".to_string())
+    );
+    assert_eq!(
+        onedrive
+            .messages
+            .get("policy_connector_created_authorize_next"),
+        Some(&"OneDrive policy created. Authorize Microsoft Graph next.".to_string())
+    );
+
+    let onedrive_descriptor = descriptor(OneDriveConnector::ID);
+    let credential_management = onedrive_descriptor
+        .credential_management
+        .as_ref()
+        .expect("OneDrive credential management descriptor");
+    assert_eq!(
+        credential_management
+            .status_keys
+            .get("authorized")
+            .map(String::as_str),
+        Some("onedrive_credential_status_authorized")
+    );
+    assert_eq!(
+        credential_management.created_authorize_next_key.as_deref(),
+        Some("policy_connector_created_authorize_next")
+    );
+
+    let remote = connector(RemoteConnector::ID)
+        .localization()
+        .expect("remote localization")
+        .bundle(&locale);
+    assert_eq!(
+        remote.messages.get("policy_wizard_remote_node_required"),
+        Some(&"Choose a remote node before continuing.".to_string())
+    );
+
+    let remote_descriptor = descriptor(RemoteConnector::ID);
+    assert_eq!(
+        remote_descriptor
+            .fields
+            .iter()
+            .find(|field| field.name == "remote_node_id")
+            .and_then(|field| field.required_message_key.as_deref()),
+        Some("policy_wizard_remote_node_required")
+    );
+    assert_eq!(
+        remote_descriptor
+            .fields
+            .iter()
+            .find(|field| field.name == "remote_storage_target_key")
+            .and_then(|field| field.required_message_key.as_deref()),
+        Some("policy_wizard_remote_storage_target_required")
+    );
+}
+
+#[test]
 fn registry_rejects_duplicate_and_unknown_connector_ids() {
     let error = match StorageConnectorRegistry::new(vec![
         Arc::new(LocalConnector),
@@ -168,6 +271,56 @@ fn registry_rejects_duplicate_and_unknown_connector_ids() {
         Err(error) => error,
     };
     assert!(error.to_string().contains("is not registered"));
+}
+
+#[test]
+fn registry_rejects_localization_for_another_connector() {
+    let descriptor = descriptor(LocalConnector::ID);
+    let source = connector(LocalConnector::ID)
+        .localization()
+        .expect("local localization");
+    let bundle = source.bundle(&aster_drive_model::types::LocaleTag::parse("en").unwrap());
+    let localization = aster_drive_storage::StorageConnectorLocalization::new(
+        ConnectorId::declared("com.example.other"),
+        bundle.resolved_locale,
+        "test",
+        BTreeMap::from([(bundle.requested_locale, bundle.messages)]),
+    )
+    .expect("valid localization with the wrong connector id");
+
+    let error = match StorageConnectorRegistry::new(vec![Arc::new(LocalizationContractConnector {
+        descriptor,
+        localization,
+    })]) {
+        Ok(_) => panic!("localization connector id mismatch must fail registration"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("returned localization for"));
+}
+
+#[test]
+fn registry_rejects_localization_missing_a_descriptor_message() {
+    let descriptor = descriptor(LocalConnector::ID);
+    let locale = aster_drive_model::types::LocaleTag::parse("en").unwrap();
+    let localization = aster_drive_storage::StorageConnectorLocalization::new(
+        descriptor.connector_id.clone(),
+        locale.clone(),
+        "test",
+        BTreeMap::from([(
+            locale,
+            BTreeMap::from([("driver_type_local".to_string(), "Local".to_string())]),
+        )]),
+    )
+    .expect("partial localization is structurally valid");
+
+    let error = match StorageConnectorRegistry::new(vec![Arc::new(LocalizationContractConnector {
+        descriptor,
+        localization,
+    })]) {
+        Ok(_) => panic!("missing descriptor message id must fail registration"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("missing descriptor message id"));
 }
 
 #[test]

@@ -3,7 +3,8 @@
 use crate::api::dto::admin::{
     AdminPolicyGroupListQuery, AdminPolicyListQuery, CreatePolicyGroupReq, CreatePolicyReq,
     DeletePolicyQuery, MigratePolicyGroupAssignmentsReq, PatchPolicyGroupReq, PatchPolicyReq,
-    PolicyGroupItemReq, StorageConnectorCatalogQuery, TestPolicyParamsReq,
+    PolicyGroupItemReq, StorageConnectorCatalogQuery, StorageConnectorLocalizationCatalogQuery,
+    TestPolicyParamsReq,
 };
 use crate::api::dto::validate_request;
 use crate::api::response::{ApiEmptyData, ApiResponse};
@@ -148,6 +149,65 @@ pub async fn list_storage_driver_descriptors(
             query.context.into(),
         ),
     )))
+}
+
+#[aster_forge_api_docs_macros::path(
+    get,
+    path = "/api/v1/admin/policies/storage-drivers/localizations",
+    tag = "admin",
+    operation_id = "list_storage_driver_localizations",
+    params(StorageConnectorLocalizationCatalogQuery),
+    responses(
+        (status = 200, description = "List connector-owned localized UI resources", body = inline(ApiResponse<aster_drive_storage::StorageConnectorLocalizationCatalog>)),
+        (status = 304, description = "Connector localization resources are unchanged"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn list_storage_driver_localizations(
+    state: web::Data<PrimaryAppState>,
+    req: HttpRequest,
+    query: web::Query<StorageConnectorLocalizationCatalogQuery>,
+) -> Result<HttpResponse> {
+    let context = query.context.into();
+    let catalog =
+        crate::services::storage_policy::connector_catalog::list_storage_connector_localizations(
+            state.driver_registry().connectors(),
+            state.config(),
+            context,
+            &query.locale,
+        )?;
+    let etag =
+        crate::services::storage_policy::connector_catalog::storage_connector_localization_etag(
+            context, &catalog,
+        );
+    let cache_control = "private, no-cache";
+
+    if if_none_match_matches(req.headers().get(header::IF_NONE_MATCH), &etag) {
+        return Ok(HttpResponse::NotModified()
+            .insert_header((header::ETAG, etag))
+            .insert_header((header::CACHE_CONTROL, cache_control))
+            .finish());
+    }
+
+    Ok(HttpResponse::Ok()
+        .insert_header((header::ETAG, etag))
+        .insert_header((header::CACHE_CONTROL, cache_control))
+        .json(ApiResponse::ok(catalog)))
+}
+
+fn if_none_match_matches(value: Option<&header::HeaderValue>, current_etag: &str) -> bool {
+    let Some(value) = value.and_then(|value| value.to_str().ok()) else {
+        return false;
+    };
+    value.split(',').map(str::trim).any(|candidate| {
+        candidate == "*"
+            || candidate == current_etag
+            || candidate
+                .strip_prefix("W/")
+                .is_some_and(|weak| weak == current_etag)
+    })
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -711,5 +771,36 @@ mod tests {
             storage_authorization_redirect_path("error", None, Some("invalid_state")),
             "/admin/policies?storage_authorization=error&reason=invalid_state"
         );
+    }
+
+    #[test]
+    fn connector_localization_if_none_match_supports_lists_weak_tags_and_wildcard() {
+        let current = "\"revision\"";
+        assert!(if_none_match_matches(
+            Some(&header::HeaderValue::from_static("\"old\", \"revision\"")),
+            current,
+        ));
+        assert!(if_none_match_matches(
+            Some(&header::HeaderValue::from_static("W/\"revision\"")),
+            current,
+        ));
+        assert!(if_none_match_matches(
+            Some(&header::HeaderValue::from_static("*")),
+            current,
+        ));
+    }
+
+    #[test]
+    fn connector_localization_if_none_match_ignores_nonmatching_or_invalid_values() {
+        let current = "\"revision\"";
+        assert!(!if_none_match_matches(
+            Some(&header::HeaderValue::from_static("\"old\"")),
+            current,
+        ));
+        assert!(!if_none_match_matches(None, current));
+        assert!(!if_none_match_matches(
+            Some(&header::HeaderValue::from_bytes(&[0xff]).unwrap()),
+            current,
+        ));
     }
 }

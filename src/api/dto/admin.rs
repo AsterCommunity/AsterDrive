@@ -171,6 +171,19 @@ pub struct StorageConnectorCatalogQuery {
     pub context: StorageConnectorCatalogContext,
 }
 
+/// Query for connector-owned admin UI localization resources.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
+pub struct StorageConnectorLocalizationCatalogQuery {
+    #[serde(default)]
+    pub context: StorageConnectorCatalogContext,
+    #[serde(default)]
+    pub locale: aster_drive_model::types::LocaleTag,
+}
+
 impl From<StorageConnectorCatalogContext>
     for crate::services::storage_policy::connector_catalog::StorageConnectorCatalogContext
 {

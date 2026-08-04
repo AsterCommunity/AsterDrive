@@ -11,6 +11,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
 	StorageConnectorActionDescriptor,
@@ -26,6 +27,7 @@ export type StorageConnectorActionValues = Record<
 
 interface StorageConnectorActionsPanelProps {
 	actions: StorageConnectorActionDescriptor[];
+	connectorId?: string | null;
 	confirmActionId: string | null;
 	submittingActionId: string | null;
 	t: Translate;
@@ -42,6 +44,7 @@ interface StorageConnectorActionsPanelProps {
 
 export function StorageConnectorActionsPanel({
 	actions,
+	connectorId,
 	confirmActionId,
 	submittingActionId,
 	t,
@@ -51,6 +54,8 @@ export function StorageConnectorActionsPanel({
 	onRequest,
 	onValueChange,
 }: StorageConnectorActionsPanelProps) {
+	const connectorT: Translate = (key, values) =>
+		translateStorageConnectorMessage(t, connectorId, key, values);
 	if (actions.length === 0) {
 		return null;
 	}
@@ -69,9 +74,11 @@ export function StorageConnectorActionsPanel({
 					>
 						<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 							<div className="min-w-0 space-y-1">
-								<p className="text-sm font-medium">{t(action.label_key)}</p>
+								<p className="text-sm font-medium">
+									{connectorT(action.label_key)}
+								</p>
 								<p className="text-xs leading-5 text-muted-foreground">
-									{t(action.description_key)}
+									{connectorT(action.description_key)}
 								</p>
 							</div>
 							<Button
@@ -84,7 +91,7 @@ export function StorageConnectorActionsPanel({
 								{submitting ? (
 									<Icon name="Spinner" className="mr-1 size-3.5 animate-spin" />
 								) : null}
-								{t(action.label_key)}
+								{connectorT(action.label_key)}
 							</Button>
 						</div>
 
@@ -95,7 +102,7 @@ export function StorageConnectorActionsPanel({
 										key={field.name}
 										actionId={action.action_id}
 										field={field}
-										t={t}
+										t={connectorT}
 										value={actionValues[field.name]}
 										onChange={onValueChange}
 									/>
@@ -109,7 +116,7 @@ export function StorageConnectorActionsPanel({
 									<div>
 										<p className="text-sm font-medium">
 											{t("policy_connector_action_confirm_title", {
-												action: t(action.label_key),
+												action: connectorT(action.label_key),
 											})}
 										</p>
 										<p className="mt-1 text-xs leading-5 text-muted-foreground">

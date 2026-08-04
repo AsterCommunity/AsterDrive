@@ -172,14 +172,14 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
 
     assert_eq!(descriptors.len(), 7);
 
-    let descriptor = |driver_type: &str| {
+    let descriptor = |connector_id: &str| {
         descriptors
             .iter()
-            .find(|item| item["driver_type"] == driver_type)
-            .unwrap_or_else(|| panic!("{driver_type} descriptor should exist"))
+            .find(|item| item["connector_id"] == connector_id)
+            .unwrap_or_else(|| panic!("{connector_id} descriptor should exist"))
     };
 
-    let onedrive = descriptor("one_drive");
+    let onedrive = descriptor("asterdrive.storage.onedrive");
     assert_eq!(onedrive["credential_mode"], "oauth_delegated");
     assert_eq!(
         onedrive["deployment_scope"],
@@ -189,6 +189,14 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     assert_eq!(onedrive["requires_authorization"], true);
     assert_eq!(onedrive["capabilities"]["presigned_download"], true);
     assert_eq!(onedrive["authorization_provider"], "microsoft_graph");
+    assert_eq!(
+        onedrive["credential_management"]["title_key"],
+        "onedrive_credential_title"
+    );
+    assert_eq!(
+        onedrive["credential_management"]["status_keys"]["authorized"],
+        "onedrive_credential_status_authorized"
+    );
     let onedrive_actions = onedrive["actions"].as_array().expect("onedrive actions");
     assert!(!onedrive_actions.iter().any(|action| {
         action["action_id"] == "test_draft_connection" && action["kind"] == "connection_test"
@@ -216,7 +224,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     );
     assert!(onedrive["fields"].as_array().is_some_and(|fields| {
         fields.iter().any(|field| {
-            field["name"] == "provider_download_strategy" && field["scope"] == "policy_options"
+            field["name"] == "provider_download_strategy" && field["scope"] == "connector_config"
         })
     }));
     let onedrive_resumable =
@@ -244,7 +252,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     );
     assert!(onedrive["upload_workflows"]["object_multipart_upload_capabilities"].is_null());
 
-    let s3 = descriptor("s3");
+    let s3 = descriptor("asterdrive.storage.s3");
     assert!(
         s3["actions"]
             .as_array()
@@ -276,7 +284,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     );
     assert_eq!(s3["capabilities"]["storage_native_thumbnail"], false);
 
-    let azure_blob = descriptor("azure_blob");
+    let azure_blob = descriptor("asterdrive.storage.azure_blob");
     assert_eq!(
         azure_blob["upload_workflows"]["object_multipart_upload"],
         true
@@ -286,7 +294,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
         false
     );
 
-    let tencent_cos = descriptor("tencent_cos");
+    let tencent_cos = descriptor("asterdrive.storage.tencent_cos");
     assert_eq!(
         tencent_cos["capabilities"]["storage_native_thumbnail"],
         true
@@ -303,7 +311,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
             .any(|action| {
                 action["action_id"] == "configure_tencent_cos_cors"
                     && action["kind"] == "custom"
-                    && action["fields"] == serde_json::json!([])
+                    && action["fields"].is_null()
                     && action["endpoints"]
                         == serde_json::json!([
                             "execute_draft_storage_policy_action",
@@ -334,15 +342,15 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
         .expect("s3 path style field");
     assert_eq!(s3_path_style["label_key"], "s3_path_style");
     assert_eq!(s3_path_style["help_key"], "s3_path_style_desc");
-    assert_eq!(s3_path_style["visible_when_driver_types"][0], "s3");
+    assert_eq!(s3_path_style["scope"], "connector_config");
 
-    let local = descriptor("local");
+    let local = descriptor("asterdrive.storage.local");
     assert_eq!(local["deployment_scope"], "instance_local");
     assert_eq!(local["supports_initial_setup"], true);
     assert_eq!(local["upload_workflows"]["object_multipart_upload"], false);
     assert_eq!(local["capabilities"]["remote_node_binding"], false);
 
-    let sftp = descriptor("sftp");
+    let sftp = descriptor("asterdrive.storage.sftp");
     assert_eq!(sftp["credential_mode"], "static_secret");
     assert_eq!(sftp["ui"]["label_key"], "driver_type_sftp");
     assert_eq!(sftp["upload_workflows"]["stream_upload"], true);
@@ -350,7 +358,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     assert_eq!(sftp["capabilities"]["efficient_range"], true);
     assert_eq!(sftp["capabilities"]["remote_node_binding"], false);
 
-    let remote = descriptor("remote");
+    let remote = descriptor("asterdrive.storage.remote");
     assert_eq!(remote["upload_workflows"]["object_multipart_upload"], true);
     assert_eq!(remote["capabilities"]["remote_node_binding"], true);
 }
@@ -368,10 +376,14 @@ async fn test_storage_driver_catalog_contexts_are_backend_authoritative_in_singl
     assert_eq!(manage.len(), 7);
     assert_eq!(create.len(), 7);
     assert_eq!(setup.len(), 7);
-    assert!(setup.iter().any(|item| item["driver_type"] == "local"));
+    assert!(
+        setup
+            .iter()
+            .any(|item| item["connector_id"] == "asterdrive.storage.local")
+    );
     let onedrive = setup
         .iter()
-        .find(|item| item["driver_type"] == "one_drive")
+        .find(|item| item["connector_id"] == "asterdrive.storage.onedrive")
         .expect("setup catalog should describe OneDrive");
     assert_eq!(onedrive["supports_initial_setup"], false);
 }
@@ -390,15 +402,31 @@ async fn test_cluster_storage_driver_catalog_hides_local_only_from_new_policy_fl
     let setup = list_storage_driver_descriptors_via_admin(&app, &token, Some("setup")).await;
 
     assert_eq!(manage.len(), 7);
-    assert!(manage.iter().any(|item| item["driver_type"] == "local"));
+    assert!(
+        manage
+            .iter()
+            .any(|item| item["connector_id"] == "asterdrive.storage.local")
+    );
     assert_eq!(create.len(), 6);
-    assert!(!create.iter().any(|item| item["driver_type"] == "local"));
-    assert!(create.iter().any(|item| item["driver_type"] == "one_drive"));
+    assert!(
+        !create
+            .iter()
+            .any(|item| item["connector_id"] == "asterdrive.storage.local")
+    );
+    assert!(
+        create
+            .iter()
+            .any(|item| item["connector_id"] == "asterdrive.storage.onedrive")
+    );
     assert_eq!(setup.len(), 6);
-    assert!(!setup.iter().any(|item| item["driver_type"] == "local"));
+    assert!(
+        !setup
+            .iter()
+            .any(|item| item["connector_id"] == "asterdrive.storage.local")
+    );
     let onedrive = setup
         .iter()
-        .find(|item| item["driver_type"] == "one_drive")
+        .find(|item| item["connector_id"] == "asterdrive.storage.onedrive")
         .expect("cluster setup catalog should describe OneDrive");
     assert_eq!(onedrive["supports_initial_setup"], false);
 }
@@ -416,6 +444,103 @@ async fn test_storage_driver_catalog_rejects_unknown_context() {
     let resp = test::call_service(&app, req).await;
 
     assert_eq!(resp.status(), 400);
+}
+
+#[actix_web::test]
+async fn test_storage_driver_localizations_are_admin_only_and_cacheable() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let uri = "/api/v1/admin/policies/storage-drivers/localizations?context=create&locale=zh-CN";
+
+    let req = test::TestRequest::get().uri(uri).to_request();
+    assert_service_status!(app, req, 401);
+
+    let (admin_token, _) = register_and_login!(app);
+    let req = test::TestRequest::get()
+        .uri(uri)
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers()
+            .get("Cache-Control")
+            .and_then(|value| value.to_str().ok()),
+        Some("private, no-cache")
+    );
+    let etag = resp
+        .headers()
+        .get("ETag")
+        .and_then(|value| value.to_str().ok())
+        .expect("localization response ETag")
+        .to_string();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["requested_locale"], "zh-CN");
+    let resources = body["data"]["resources"]
+        .as_array()
+        .expect("connector localization resources");
+    assert_eq!(resources.len(), 7);
+    let local = resources
+        .iter()
+        .find(|resource| resource["connector_id"] == "asterdrive.storage.local")
+        .expect("local connector localization");
+    assert_eq!(local["namespace"], "asterdrive.storage.local");
+    assert_eq!(local["resolved_locale"], "zh");
+    assert_eq!(local["messages"]["driver_type_local"], "本机");
+
+    let req = test::TestRequest::get()
+        .uri(uri)
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(("If-None-Match", format!("W/{etag}")))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 304);
+    assert_eq!(
+        resp.headers()
+            .get("ETag")
+            .and_then(|value| value.to_str().ok()),
+        Some(etag.as_str())
+    );
+
+    admin_create_user!(
+        app,
+        admin_token,
+        "connector_reader",
+        "connector-reader@example.com",
+        "password123"
+    );
+    let (user_token, _) = login_user!(app, "connector_reader", "password123");
+    let req = test::TestRequest::get()
+        .uri(uri)
+        .insert_header(("Cookie", common::access_cookie_header(&user_token)))
+        .to_request();
+    assert_service_status!(app, req, 403);
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/policies/storage-drivers/localizations?locale=zh-CN")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+}
+
+#[actix_web::test]
+async fn test_storage_driver_localizations_reject_invalid_locale_and_context() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for uri in [
+        "/api/v1/admin/policies/storage-drivers/localizations?locale=not_a_locale",
+        "/api/v1/admin/policies/storage-drivers/localizations?context=unknown&locale=en",
+    ] {
+        let req = test::TestRequest::get()
+            .uri(uri)
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400, "{uri} should reject invalid query");
+    }
 }
 
 #[actix_web::test]

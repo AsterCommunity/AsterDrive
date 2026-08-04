@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
 	StorageConnectorActionDescriptor,
 	StorageConnectorDescriptor,
@@ -12,10 +12,21 @@ import {
 	type PolicyFormData,
 } from "./storage-policy-dialog/formTypes";
 
+const connectorMessages = vi.hoisted(() => new Map<string, string>());
+
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
-		t: (key: string, values?: Record<string, number | string>) =>
-			values ? `${key}:${Object.values(values).map(String).join(":")}` : key,
+		t: (key: string, values?: Record<string, number | string>) => {
+			const namespace = typeof values?.ns === "string" ? values.ns : null;
+			if (namespace) {
+				const translated = connectorMessages.get(`${namespace}:${key}`);
+				if (translated) return translated;
+			}
+			if (typeof values?.defaultValue === "string") return values.defaultValue;
+			return values
+				? `${key}:${Object.values(values).map(String).join(":")}`
+				: key;
+		},
 	}),
 }));
 
@@ -205,6 +216,10 @@ function dialogProps(
 }
 
 describe("StoragePolicyDialog", () => {
+	beforeEach(() => {
+		connectorMessages.clear();
+	});
+
 	it("keeps the previous two-column connector selection and advances directly from a descriptor card", () => {
 		const available = descriptor("plugin.example");
 		const postSetup = descriptor("plugin.post-setup", {
@@ -289,7 +304,10 @@ describe("StoragePolicyDialog", () => {
 			"plugin_label",
 		);
 		expect(screen.getByTestId("policy-edit-driver-badge")).toHaveClass(
-			"border-emerald-500/60",
+			"border-[var(--storage-connector-badge-border)]",
+		);
+		expect(screen.getByTestId("policy-edit-driver-badge")).toHaveStyle(
+			"--storage-connector-badge-border: rgb(16 185 129 / 0.55)",
 		);
 		expect(screen.getByTestId("policy-edit-capacity-summary")).toBeVisible();
 		expect(screen.getByText("plugin_edit_context")).toBeVisible();
@@ -305,5 +323,80 @@ describe("StoragePolicyDialog", () => {
 			"policy_editor_credentials_keep_placeholder",
 		);
 		expect(screen.getByRole("button", { name: "save_changes" })).toBeVisible();
+	});
+
+	it("renders connector-owned credential management messages from the connector namespace", () => {
+		for (const [key, value] of Object.entries({
+			plugin_credential_loading: "Credential loading",
+			plugin_credential_status_authorized: "Credential authorized",
+			plugin_credential_status_missing: "Credential missing",
+			plugin_credential_title: "Connector credential",
+			plugin_redirect_uri: "Connector redirect URI",
+			policy_connector_start_authorization: "Authorize connector",
+			policy_connector_validate_credential: "Validate connector",
+		})) {
+			connectorMessages.set(`plugin.example:${key}`, value);
+		}
+		const plugin = descriptor("plugin.example", {
+			credential_management: {
+				authorization_started_key: "plugin_authorization_started",
+				created_authorize_next_key: "plugin_created_authorize_next",
+				loading_key: "plugin_credential_loading",
+				redirect_uri_key: "plugin_redirect_uri",
+				save_before_authorize_key: "plugin_save_before_authorize",
+				save_before_validate_key: "plugin_save_before_validate",
+				status_keys: {
+					authorized: "plugin_credential_status_authorized",
+					missing: "plugin_credential_status_missing",
+				},
+				title_key: "plugin_credential_title",
+				validation_success_detail_key: "plugin_validation_success_detail",
+				validation_success_key: "plugin_validation_success",
+			},
+			actions: [
+				action({
+					action_id: "start_authorization",
+					kind: "authorization",
+					label_key: "policy_connector_start_authorization",
+				}),
+				action({
+					action_id: "validate_credential",
+					kind: "credential_validation",
+					label_key: "policy_connector_validate_credential",
+				}),
+			],
+		});
+
+		render(
+			<StoragePolicyDialog
+				{...dialogProps({
+					mode: "edit",
+					storageDriverDescriptor: plugin,
+					storageDriverDescriptors: [plugin],
+					storageCredentials: [
+						{
+							created_at: "2026-08-04T00:00:00Z",
+							credential_kind: "authorization",
+							id: 1,
+							policy_id: 7,
+							provider: "microsoft_graph",
+							scopes: [],
+							status: "authorized",
+							updated_at: "2026-08-04T00:00:00Z",
+						},
+					],
+				})}
+			/>,
+		);
+
+		expect(screen.getByText("Connector credential")).toBeVisible();
+		expect(screen.getByText("Credential authorized")).toBeVisible();
+		expect(screen.getByText("Connector redirect URI")).toBeVisible();
+		expect(
+			screen.getByRole("button", { name: "Authorize connector" }),
+		).toBeVisible();
+		expect(
+			screen.getByRole("button", { name: "Validate connector" }),
+		).toBeVisible();
 	});
 });

@@ -73,6 +73,8 @@ import type {
 	StorageConnectorCatalogQuery,
 	StorageConnectorCredentialInfo,
 	StorageConnectorDescriptor,
+	StorageConnectorLocalizationCatalog,
+	StorageConnectorLocalizationCatalogQuery,
 	StoragePolicy,
 	StoragePolicyActionResult,
 	StoragePolicyCapacityInfo,
@@ -319,6 +321,16 @@ export const adminPolicyService = {
 		api.get<StorageConnectorDescriptor[]>(
 			withQuery("/admin/policies/storage-drivers", {
 				context: query?.context,
+			}),
+		),
+
+	listStorageDriverLocalizations: (
+		query?: StorageConnectorLocalizationCatalogQuery,
+	) =>
+		api.get<StorageConnectorLocalizationCatalog>(
+			withQuery("/admin/policies/storage-drivers/localizations", {
+				context: query?.context,
+				locale: query?.locale,
 			}),
 		),
 

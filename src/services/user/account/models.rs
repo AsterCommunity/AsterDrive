@@ -7,7 +7,7 @@ use crate::api::pagination::{AdminUserSortBy, SortBy};
 use crate::services::{auth::local, user::profile};
 use aster_drive_model::entities::user;
 use aster_drive_model::types::{
-    BrowserOpenMode, ColorPreset, Language, PrefViewMode, ThemeMode, UserConfig,
+    BrowserOpenMode, ColorPreset, LocaleTag, PrefViewMode, ThemeMode, UserConfig,
     UserPreferences as StoredUserPreferences, UserRole, UserStatus,
 };
 use aster_forge_api::SortOrder;
@@ -22,7 +22,7 @@ pub struct UserPreferences {
     pub browser_open_mode: Option<BrowserOpenMode>,
     pub sort_by: Option<SortBy>,
     pub sort_order: Option<SortOrder>,
-    pub language: Option<Language>,
+    pub language: Option<LocaleTag>,
     pub display_time_zone: Option<String>,
     pub storage_event_stream_enabled: Option<bool>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -116,7 +116,7 @@ pub struct UpdatePreferencesReq {
     pub browser_open_mode: Option<BrowserOpenMode>,
     pub sort_by: Option<SortBy>,
     pub sort_order: Option<SortOrder>,
-    pub language: Option<Language>,
+    pub language: Option<LocaleTag>,
     pub display_time_zone: Option<String>,
     pub storage_event_stream_enabled: Option<bool>,
     #[serde(default)]

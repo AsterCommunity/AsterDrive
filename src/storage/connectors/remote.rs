@@ -38,6 +38,8 @@ use super::{
     StoragePolicyCleanupSnapshots,
 };
 
+mod localization;
+
 pub struct RemoteConnector;
 
 const CLEANUP_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
@@ -69,19 +71,28 @@ aster_drive_storage::storage_connector_schema! {
             field
         },
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub remote_node_id: Option<i64> => storage_connector_dynamic_select_field(
-            "remote_node_id", StorageConnectorFieldScope::ConnectorConfig, true,
-            StorageConnectorSelectValueKind::Integer,
-            StorageConnectorSelectDataSource::RemoteNodes,
-            None,
-        ),
+        pub remote_node_id: Option<i64> => {
+            let mut field = storage_connector_dynamic_select_field(
+                "remote_node_id", StorageConnectorFieldScope::ConnectorConfig, true,
+                StorageConnectorSelectValueKind::Integer,
+                StorageConnectorSelectDataSource::RemoteNodes,
+                None,
+            );
+            field.required_message_key = Some("policy_wizard_remote_node_required".to_string());
+            field
+        },
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub remote_storage_target_key: Option<String> => storage_connector_dynamic_select_field(
-            "remote_storage_target_key", StorageConnectorFieldScope::ConnectorConfig, true,
-            StorageConnectorSelectValueKind::String,
-            StorageConnectorSelectDataSource::RemoteStorageTargets,
-            Some("remote_node_id"),
-        ),
+        pub remote_storage_target_key: Option<String> => {
+            let mut field = storage_connector_dynamic_select_field(
+                "remote_storage_target_key", StorageConnectorFieldScope::ConnectorConfig, true,
+                StorageConnectorSelectValueKind::String,
+                StorageConnectorSelectDataSource::RemoteStorageTargets,
+                Some("remote_node_id"),
+            );
+            field.required_message_key =
+                Some("policy_wizard_remote_storage_target_required".to_string());
+            field
+        },
         pub remote_download_strategy: RemoteDownloadStrategy => transfer_strategy_field(
             "remote_download_strategy", StorageTransferDirection::Download,
         ),
@@ -137,6 +148,7 @@ impl RemoteConnector {
             supports_initial_setup: true,
             requires_authorization: false,
             authorization_provider: None,
+            credential_management: None,
             capabilities: StorageConnectorCapabilities {
                 efficient_range: true,
                 capacity: true,
@@ -178,6 +190,15 @@ impl RemoteConnector {
 impl StorageConnector for RemoteConnector {
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
+    }
+
+    fn localization(&self) -> Result<aster_drive_storage::StorageConnectorLocalization> {
+        let descriptor = Self::descriptor_definition();
+        super::localization::builtin_connector_localization(
+            Self::ID,
+            &descriptor,
+            localization::MESSAGES,
+        )
     }
 
     async fn validate_config_binding(

@@ -15,6 +15,11 @@ import {
 	readAdminRemoteNodeLookup,
 } from "@/lib/adminRemoteNodeLookup";
 import {
+	installAdminStorageConnectorLocalizations,
+	loadAdminStorageConnectorLocalizations,
+	translateStorageConnectorMessage,
+} from "@/lib/adminStorageConnectorLocalizations";
+import {
 	getStorageConnectorDescriptor,
 	loadAdminStorageDriverDescriptors,
 	readAdminStorageDriverDescriptors,
@@ -42,7 +47,7 @@ export function useStoragePolicyDescriptorController({
 	setForm,
 	setupMode,
 }: StoragePolicyDescriptorControllerInput) {
-	const { t } = useTranslation("admin");
+	const { i18n, t } = useTranslation("admin");
 	const primaryCatalogContext: StorageConnectorCatalogContext = setupMode
 		? "setup"
 		: "manage";
@@ -61,6 +66,7 @@ export function useStoragePolicyDescriptorController({
 		string | null
 	>(null);
 	const remoteStorageTargetsRequestSerial = useRef(0);
+	const storageConnectorLocalizationsRequestSerial = useRef(0);
 	const [
 		remoteStorageTargetDriverDescriptors,
 		setRemoteStorageTargetDriverDescriptors,
@@ -114,6 +120,36 @@ export function useStoragePolicyDescriptorController({
 	);
 	const remoteNodeFieldName = remoteNodeField?.name ?? null;
 	const remoteStorageTargetFieldName = remoteStorageTargetField?.name ?? null;
+	const language = i18n.resolvedLanguage ?? i18n.language ?? "en";
+
+	const loadConnectorLocalizations = useCallback(
+		async ({ force = false }: { force?: boolean } = {}) => {
+			const requestSerial =
+				++storageConnectorLocalizationsRequestSerial.current;
+			const contexts = Array.from(
+				new Set([primaryCatalogContext, creationCatalogContext]),
+			);
+			const catalogs = await Promise.all(
+				contexts.map((context) =>
+					loadAdminStorageConnectorLocalizations({
+						context,
+						force,
+						locale: language,
+					}),
+				),
+			);
+			if (
+				requestSerial !== storageConnectorLocalizationsRequestSerial.current ||
+				(i18n.resolvedLanguage ?? i18n.language ?? "en") !== language
+			) {
+				return;
+			}
+			for (const catalog of catalogs) {
+				installAdminStorageConnectorLocalizations(catalog, language, i18n);
+			}
+		},
+		[creationCatalogContext, i18n, language, primaryCatalogContext],
+	);
 
 	const loadRemoteStorageTargetsForPolicy = useCallback(
 		async (
@@ -363,6 +399,13 @@ export function useStoragePolicyDescriptorController({
 		};
 	}, [creationCatalogContext, t]);
 
+	useEffect(() => {
+		void loadConnectorLocalizations().catch(handleApiError);
+		return () => {
+			storageConnectorLocalizationsRequestSerial.current += 1;
+		};
+	}, [loadConnectorLocalizations]);
+
 	const refreshRemoteNodeLookup = useCallback(
 		async (options?: { force?: boolean }) => {
 			try {
@@ -391,11 +434,16 @@ export function useStoragePolicyDescriptorController({
 				loadAdminRemoteNodeLookup({ force: true }),
 				descriptorPromise,
 				creatableDescriptorPromise,
+				loadConnectorLocalizations({ force: true }),
 			]);
 		setRemoteNodes(remoteNodeLookup);
 		setStorageDriverDescriptors(descriptors);
 		setCreatableStorageDriverDescriptors(creatableDescriptors);
-	}, [creationCatalogContext, primaryCatalogContext]);
+	}, [
+		creationCatalogContext,
+		loadConnectorLocalizations,
+		primaryCatalogContext,
+	]);
 
 	const createRemoteStorageTargetForPolicy = useCallback(
 		async (payload: RemoteCreateStorageTargetRequest) => {
@@ -407,7 +455,22 @@ export function useStoragePolicyDescriptorController({
 				!Number.isSafeInteger(remoteNodeId) ||
 				remoteNodeId <= 0
 			) {
-				const error = new Error(t("policy_wizard_remote_node_required"));
+				const fieldLabel = remoteNodeField
+					? translateStorageConnectorMessage(
+							t,
+							currentStorageDriverDescriptor?.connector_id,
+							remoteNodeField.label_key,
+						)
+					: t("remote_node");
+				const message = remoteNodeField?.required_message_key
+					? translateStorageConnectorMessage(
+							t,
+							currentStorageDriverDescriptor?.connector_id,
+							remoteNodeField.required_message_key,
+							{ field: fieldLabel },
+						)
+					: t("policy_connector_field_required", { field: fieldLabel });
+				const error = new Error(message);
 				toast.error(error.message);
 				throw error;
 			}
@@ -427,7 +490,14 @@ export function useStoragePolicyDescriptorController({
 				throw error;
 			}
 		},
-		[form, loadRemoteStorageTargetsForPolicy, remoteNodeFieldName, t],
+		[
+			currentStorageDriverDescriptor?.connector_id,
+			form,
+			loadRemoteStorageTargetsForPolicy,
+			remoteNodeField,
+			remoteNodeFieldName,
+			t,
+		],
 	);
 
 	return {

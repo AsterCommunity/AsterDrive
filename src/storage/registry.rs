@@ -423,6 +423,24 @@ mod tests {
             self.descriptor.clone()
         }
 
+        fn localization(&self) -> Result<aster_drive_storage::StorageConnectorLocalization> {
+            let locale = aster_drive_model::types::LocaleTag::parse("en")
+                .map_err(AsterError::internal_error)?;
+            let messages = self
+                .descriptor
+                .localization_message_ids()
+                .into_iter()
+                .map(|message_id| (message_id.to_string(), message_id.to_string()))
+                .collect();
+            aster_drive_storage::StorageConnectorLocalization::new(
+                self.descriptor.connector_id.clone(),
+                locale.clone(),
+                "test",
+                std::collections::BTreeMap::from([(locale, messages)]),
+            )
+            .map_err(|error| AsterError::internal_error(error.to_string()))
+        }
+
         async fn build_draft_driver(
             &self,
             _context: &StorageConnectorContext<'_>,

@@ -18,6 +18,108 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use super::StorageConnectorCredentialInput;
 
+/// Messages owned by descriptor helpers shared by multiple connector plugins.
+///
+/// Each connector explicitly composes this slice with its own resource and the
+/// localization builder only keeps ids referenced by that connector's
+/// descriptor, so bundles never expose another connector's private copy.
+pub(super) const LOCALIZATION_MESSAGES:
+    &[aster_drive_storage::StorageConnectorLocalizationMessage<'static>] = &[
+    aster_drive_storage::storage_connector_message!("base_path", "Base Path", "基础路径"),
+    aster_drive_storage::storage_connector_message!("bucket", "Bucket", "存储桶"),
+    aster_drive_storage::storage_connector_message!(
+        "content_dedup",
+        "Content Deduplication",
+        "内容去重",
+    ),
+    aster_drive_storage::storage_connector_message!("endpoint", "Endpoint", "端点"),
+    aster_drive_storage::storage_connector_message!(
+        "download_strategy_presigned",
+        "Presigned Redirect",
+        "Presigned 重定向",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "download_strategy_presigned_desc",
+        "After AsterDrive completes permission checks, it redirects the browser to a short-lived GET URL from the storage backend. This reduces app-node download bandwidth, but the backend serves the final response and cache behavior.",
+        "AsterDrive 完成权限校验后，返回一个短时效的存储后端 GET URL 重定向。这样能减少应用节点的下载带宽压力，但最终响应头和缓存行为会由存储后端承担。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "download_strategy_relay_stream",
+        "Server Relay Download",
+        "服务端中继下载",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "download_strategy_relay_stream_desc",
+        "AsterDrive fetches the object from the storage backend and streams it back to the browser. Use this when you need the app node to fully control response headers, same-origin delivery, or downstream network policy.",
+        "AsterDrive 先从存储后端拉取对象，再把内容流式回传给浏览器。适合需要由应用节点完全控制响应头、同源下载行为或下游网络策略的场景。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "object_storage_download_strategy",
+        "Object Storage Download Strategy",
+        "对象存储下载方式",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "object_storage_upload_strategy",
+        "Object Storage Upload Strategy",
+        "对象存储上传方式",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_edit_context_object_storage_desc",
+        "Test object storage connections before saving. Blank secret fields keep the current credentials.",
+        "对象存储策略保存前建议测试连接；留空密钥字段会保留现有凭证。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_wizard_object_storage_helper",
+        "Connection tests and upload strategy are available after the basic connection is filled in.",
+        "基础连接填好后，可以在下一步测试连接并选择上传策略。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_wizard_step_connection_desc",
+        "Review the connection settings required by this storage backend.",
+        "检查这个存储后端需要的连接配置。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_wizard_step_connection_title",
+        "Configure Connection",
+        "配置连接",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_wizard_step_object_storage_connection_desc",
+        "Set the object-storage endpoint, bucket, and credentials.",
+        "填写对象存储 endpoint、bucket 和访问凭证。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "s3_endpoint_protocol_required_error",
+        "S3 endpoint must include http:// or https://.",
+        "S3 endpoint 必须包含 http:// 或 https://。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "test_connection",
+        "Test Connection",
+        "测试连接",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "upload_strategy_presigned",
+        "Presigned Direct Upload",
+        "Presigned 直传",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "upload_strategy_presigned_desc",
+        "Upload directly to the storage backend via presigned URLs. Files ≤ chunk size use a single PUT; larger files use multipart direct upload with resume support. This path does not perform SHA256 deduplication and requires the backend to expose the `ETag` response header.",
+        "浏览器通过 presigned URL 直接上传到存储后端。文件 ≤ 分片大小时单次 PUT；更大文件自动使用 multipart 直传（支持断点续传）。该路径不做 SHA256 去重，并要求存储后端暴露 `ETag` 响应头。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "upload_strategy_relay_stream",
+        "Server Relay Stream",
+        "服务端流式中继",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "upload_strategy_relay_stream_desc",
+        "The browser uploads to AsterDrive, and the server relays the bytes directly to the storage backend. The normal path does not write local temporary files; only a small fallback path uses temp files. relay_stream does not perform SHA256 deduplication.",
+        "浏览器把文件上传到 AsterDrive，服务端直接中继到存储后端。正常路径不落本机临时文件；只有少数 fallback 场景才会使用临时文件。relay_stream 不做 SHA256 去重。",
+    ),
+];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum StorageTransferDirection {
     Upload,

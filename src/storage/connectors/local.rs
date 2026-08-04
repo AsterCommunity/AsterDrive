@@ -17,6 +17,8 @@ use aster_drive_storage::connector_descriptor::{
 use super::LocalFilesystemPolicyProjection;
 use super::{StorageConnector, StorageConnectorCredentialInput, StorageConnectorUploadTransport};
 
+mod localization;
+
 pub struct LocalConnector;
 
 aster_drive_storage::storage_connector_schema! {
@@ -90,6 +92,7 @@ impl LocalConnector {
             supports_initial_setup: true,
             requires_authorization: false,
             authorization_provider: None,
+            credential_management: None,
             capabilities: StorageConnectorCapabilities {
                 efficient_range: true,
                 capacity: true,
@@ -127,6 +130,15 @@ impl LocalConnector {
 impl StorageConnector for LocalConnector {
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
+    }
+
+    fn localization(&self) -> Result<aster_drive_storage::StorageConnectorLocalization> {
+        let descriptor = Self::descriptor_definition();
+        super::localization::builtin_connector_localization(
+            Self::ID,
+            &descriptor,
+            localization::MESSAGES,
+        )
     }
 
     async fn build_draft_driver(

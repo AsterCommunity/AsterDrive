@@ -19,7 +19,7 @@ pub use super::media_metadata::{
 };
 pub use super::passkey::StoredPasskeyCredential;
 pub use super::preferences::{
-    BrowserOpenMode, ColorPreset, Language, PrefViewMode, StoredUserConfig, ThemeMode, UserConfig,
+    BrowserOpenMode, ColorPreset, LocaleTag, PrefViewMode, StoredUserConfig, ThemeMode, UserConfig,
     UserPreferences,
 };
 pub use super::remote_storage_target::RemoteStorageTargetDriverKind;

@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use sea_orm::ConnectionTrait;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -19,7 +20,8 @@ use aster_drive_model::types::{
 };
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
-    StorageConnectorBadgeRgb, StorageConnectorCapabilities, StorageConnectorDeploymentScope,
+    StorageConnectorBadgeRgb, StorageConnectorCapabilities,
+    StorageConnectorCredentialManagementDescriptor, StorageConnectorDeploymentScope,
     StorageConnectorDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
     StorageConnectorObjectNamingMode, StorageConnectorProviderResumableUploadCapabilities,
     StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
@@ -43,6 +45,7 @@ use super::{
     StoragePolicyCleanupSnapshots,
 };
 
+mod localization;
 mod oauth;
 mod provider;
 
@@ -648,6 +651,45 @@ impl OneDriveConnector {
             supports_initial_setup: false,
             requires_authorization: true,
             authorization_provider: Some("microsoft_graph".to_string()),
+            credential_management: Some(StorageConnectorCredentialManagementDescriptor {
+                title_key: "onedrive_credential_title".to_string(),
+                loading_key: "onedrive_credential_loading".to_string(),
+                status_keys: BTreeMap::from([
+                    (
+                        "authorized".to_string(),
+                        "onedrive_credential_status_authorized".to_string(),
+                    ),
+                    (
+                        "reauth_required".to_string(),
+                        "onedrive_credential_status_reauth_required".to_string(),
+                    ),
+                    (
+                        "permission_denied".to_string(),
+                        "onedrive_credential_status_permission_denied".to_string(),
+                    ),
+                    (
+                        "revoked".to_string(),
+                        "onedrive_credential_status_revoked".to_string(),
+                    ),
+                    (
+                        "invalid".to_string(),
+                        "onedrive_credential_status_invalid".to_string(),
+                    ),
+                    (
+                        "missing".to_string(),
+                        "onedrive_credential_status_missing".to_string(),
+                    ),
+                ]),
+                redirect_uri_key: Some("onedrive_redirect_uri".to_string()),
+                save_before_authorize_key: Some("onedrive_save_before_authorize".to_string()),
+                authorization_started_key: Some("onedrive_authorization_started".to_string()),
+                save_before_validate_key: Some("onedrive_save_before_validate".to_string()),
+                validation_success_key: Some("onedrive_validation_success".to_string()),
+                validation_success_detail_key: Some("onedrive_validation_success_root".to_string()),
+                created_authorize_next_key: Some(
+                    "policy_connector_created_authorize_next".to_string(),
+                ),
+            }),
             capabilities: StorageConnectorCapabilities {
                 efficient_range: true,
                 capacity: true,
@@ -702,6 +744,15 @@ impl OneDriveConnector {
 impl StorageConnector for OneDriveConnector {
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
+    }
+
+    fn localization(&self) -> Result<aster_drive_storage::StorageConnectorLocalization> {
+        let descriptor = Self::descriptor_definition();
+        super::localization::builtin_connector_localization(
+            Self::ID,
+            &descriptor,
+            localization::MESSAGES,
+        )
     }
 
     fn validate_connector_config(

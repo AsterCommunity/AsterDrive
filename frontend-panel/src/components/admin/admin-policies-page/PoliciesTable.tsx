@@ -15,6 +15,7 @@ import { AdminTableList } from "@/components/common/AdminTableList";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
 import {
 	ADMIN_ICON_BUTTON_CLASS,
 	ADMIN_TABLE_ACTIONS_WIDTH_CLASS,
@@ -131,14 +132,17 @@ export function PoliciesTable({
 				const badgePresentation = getStorageConnectorBadgePresentation(
 					descriptor?.ui.badge_rgb,
 				);
+				const connectorT = (key: string) =>
+					translateStorageConnectorMessage(t, descriptor?.connector_id, key);
 				const connectorLabel = descriptor?.ui
-					? t(descriptor.ui.label_key)
+					? connectorT(descriptor.ui.label_key)
 					: policy.connector_id;
 				const configurationSummary = buildConfigurationSummary(
 					descriptor,
 					selection.connector_config_values,
 					remoteNodeNameById,
 					t,
+					connectorT,
 				);
 
 				return (
@@ -236,6 +240,7 @@ function buildConfigurationSummary(
 	values: Record<string, unknown>,
 	remoteNodeNameById: Map<number, string>,
 	t: (key: string) => string,
+	connectorT: (key: string) => string,
 ) {
 	const parts = (descriptor?.fields ?? [])
 		.filter(
@@ -254,12 +259,12 @@ function buildConfigurationSummary(
 				typeof value === "number"
 					? (remoteNodeNameById.get(value) ?? `#${value}`)
 					: field.select?.options?.find((option) => option.value === value)
-						? t(
+						? connectorT(
 								field.select.options.find((option) => option.value === value)
 									?.label_key ?? field.label_key,
 							)
 						: scalarDisplay(value, t);
-			return `${t(field.label_key)}: ${displayed}`;
+			return `${connectorT(field.label_key)}: ${displayed}`;
 		});
 	return parts.length > 0 ? parts.join(" · ") : "-";
 }

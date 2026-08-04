@@ -8,6 +8,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type {
@@ -57,12 +58,7 @@ export function StorageConnectorFieldsPanel({
 	}
 
 	return (
-		<div
-			className={cn(
-				"grid gap-4",
-				fields.length > 1 && "md:grid-cols-2",
-			)}
-		>
+		<div className={cn("grid gap-4", fields.length > 1 && "md:grid-cols-2")}>
 			{fields.map((field) => (
 				<ConnectorField
 					key={`${field.scope}:${field.name}`}
@@ -94,6 +90,8 @@ function ConnectorField({
 }: StorageConnectorFieldsPanelProps & {
 	field: StorageConnectorFieldDescriptor;
 }) {
+	const connectorT: Translate = (key, values) =>
+		translateStorageConnectorMessage(t, descriptor?.connector_id, key, values);
 	const hasDuplicateName =
 		descriptor?.fields.some(
 			(candidate) => candidate !== field && candidate.name === field.name,
@@ -107,16 +105,20 @@ function ConnectorField({
 		field.required &&
 		(value === undefined || value === null || value === "");
 	const errorMessage = missing
-		? t(field.required_message_key ?? "policy_connector_field_required", {
-				field: t(field.label_key),
-			})
+		? field.required_message_key
+			? connectorT(field.required_message_key, {
+					field: connectorT(field.label_key),
+				})
+			: t("policy_connector_field_required", {
+					field: connectorT(field.label_key),
+				})
 		: null;
 
 	if (field.kind === "boolean") {
 		return (
 			<div className="space-y-2 md:col-span-2">
 				<div className="flex min-h-9 items-center justify-between gap-3 rounded-lg border border-border/70 px-3 py-2">
-					<Label htmlFor={inputId}>{t(field.label_key)}</Label>
+					<Label htmlFor={inputId}>{connectorT(field.label_key)}</Label>
 					<Switch
 						id={inputId}
 						checked={(value ?? field.default_value) === true}
@@ -125,12 +127,17 @@ function ConnectorField({
 						}
 					/>
 				</div>
-				<FieldHelp field={field} t={t} />
+				<FieldHelp field={field} t={connectorT} />
 			</div>
 		);
 	}
 
-	const options = fieldOptions(field, remoteNodes, remoteStorageTargets, t);
+	const options = fieldOptions(
+		field,
+		remoteNodes,
+		remoteStorageTargets,
+		connectorT,
+	);
 	if (field.kind === "select") {
 		const dependencyMissing = field.select?.depends_on
 			? fieldValueByName(form, descriptor, field.select.depends_on) == null ||
@@ -142,7 +149,7 @@ function ConnectorField({
 		)?.description;
 		return (
 			<div className="space-y-2">
-				<Label htmlFor={inputId}>{t(field.label_key)}</Label>
+				<Label htmlFor={inputId}>{connectorT(field.label_key)}</Label>
 				<Select
 					items={options}
 					value={selectedValue}
@@ -168,7 +175,11 @@ function ConnectorField({
 						{selectedDescription}
 					</p>
 				) : null}
-				<FieldMessages errorMessage={errorMessage} field={field} t={t} />
+				<FieldMessages
+					errorMessage={errorMessage}
+					field={field}
+					t={connectorT}
+				/>
 			</div>
 		);
 	}
@@ -176,7 +187,7 @@ function ConnectorField({
 	const displayedValue = value ?? field.default_value ?? "";
 	return (
 		<div className="space-y-2">
-			<Label htmlFor={inputId}>{t(field.label_key)}</Label>
+			<Label htmlFor={inputId}>{connectorT(field.label_key)}</Label>
 			<Input
 				id={inputId}
 				type={
@@ -226,7 +237,7 @@ function ConnectorField({
 					}
 				}}
 			/>
-			<FieldMessages errorMessage={errorMessage} field={field} t={t} />
+			<FieldMessages errorMessage={errorMessage} field={field} t={connectorT} />
 		</div>
 	);
 }
