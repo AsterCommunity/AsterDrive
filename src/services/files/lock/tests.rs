@@ -1,13 +1,9 @@
 use super::owner_info::{deserialize_resource_lock_owner_info, serialize_resource_lock_owner_info};
 use super::*;
 
-use std::{
-    collections::BTreeSet,
-    path::Path,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 use aster_drive_migration::Migrator;
@@ -23,6 +19,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::mail::sender;
 use crate::services::workspace::storage::WorkspaceResourceScope;
 use crate::storage::{DriverRegistry, PolicySnapshot};
+use crate::test_support::snapshot_dir_tree;
 use aster_drive_model::entities::{
     file, file_blob, folder, resource_lock, storage_policy, team, user,
 };
@@ -402,33 +399,6 @@ fn apply_webdav_lock_limit(fixture: &LockTestFixture, value: &str) {
             updated_at: Utc::now(),
             updated_by: None,
         });
-}
-
-fn snapshot_file_tree(path: &Path) -> std::io::Result<BTreeSet<String>> {
-    fn walk(root: &Path, current: &Path, entries: &mut BTreeSet<String>) -> std::io::Result<()> {
-        for entry in std::fs::read_dir(current)? {
-            let entry = entry?;
-            let path = entry.path();
-            let relative = path
-                .strip_prefix(root)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            if entry.file_type()?.is_dir() {
-                entries.insert(format!("{relative}/"));
-                walk(root, &path, entries)?;
-            } else {
-                entries.insert(relative);
-            }
-        }
-        Ok(())
-    }
-
-    let mut entries = BTreeSet::new();
-    if path.exists() {
-        walk(path, path, &mut entries)?;
-    }
-    Ok(entries)
 }
 
 #[test]
@@ -1012,7 +982,7 @@ async fn lock_null_quota_failure_cleans_staged_empty_file() {
         .unwrap()
         .unwrap();
     let storage_root = std::path::PathBuf::from(&policy.base_path);
-    let before = snapshot_file_tree(&storage_root).unwrap();
+    let before = snapshot_dir_tree(&storage_root).unwrap();
 
     let result = lock_system
         .lock(DavLockAcquireRequest {
@@ -1049,7 +1019,7 @@ async fn lock_null_quota_failure_cleans_staged_empty_file() {
         1
     );
     assert_eq!(
-        snapshot_file_tree(&storage_root).unwrap(),
+        snapshot_dir_tree(&storage_root).unwrap(),
         before,
         "quota rejection must clean the staged lock-null object"
     );

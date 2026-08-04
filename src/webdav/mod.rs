@@ -306,7 +306,6 @@ pub async fn webdav_handler(
                     lock_system.as_ref(),
                     &webdav.prefix,
                     &system_file_policy,
-                    request_head.method == DavMethod::Move,
                 )
                 .await
             }

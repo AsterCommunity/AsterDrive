@@ -6,6 +6,7 @@ use crate::db::repository::file_repo;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::mail::sender;
 use crate::storage::{DriverRegistry, PolicySnapshot};
+use crate::test_support::snapshot_dir_tree;
 use aster_drive_migration::Migrator;
 use aster_drive_model::entities::{storage_policy, user};
 use aster_drive_model::types::{DriverType, UserRole, UserStatus};
@@ -17,7 +18,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{
     Arc, Mutex,
@@ -146,39 +147,6 @@ impl StreamUploadDriver for MockDirectS3Driver {
             .insert(storage_path.to_string(), data);
         Ok(storage_path.to_string())
     }
-}
-
-fn snapshot_dir_tree(path: &Path) -> std::io::Result<BTreeMap<String, bool>> {
-    fn walk(
-        root: &Path,
-        current: &Path,
-        entries: &mut BTreeMap<String, bool>,
-    ) -> std::io::Result<()> {
-        for entry in std::fs::read_dir(current)? {
-            let entry = entry?;
-            let path = entry.path();
-            let relative = path
-                .strip_prefix(root)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            let file_type = entry.file_type()?;
-            if file_type.is_dir() {
-                entries.insert(format!("{relative}/"), true);
-                walk(root, &path, entries)?;
-            } else {
-                entries.insert(relative, false);
-            }
-        }
-        Ok(())
-    }
-
-    let mut entries = BTreeMap::new();
-    if !path.exists() {
-        return Ok(entries);
-    }
-    walk(path, path, &mut entries)?;
-    Ok(entries)
 }
 
 async fn build_s3_direct_test_state() -> (
@@ -423,9 +391,28 @@ async fn known_size_s3_write_with_precondition_uses_transactional_temp_upload() 
     );
 }
 
-#[tokio::test]
-async fn streaming_direct_eligibility_failure_maps_to_general_failure() {
-    let (_, _, policy, _) = build_s3_direct_test_state().await;
+#[test]
+fn streaming_direct_eligibility_failure_maps_to_general_failure() {
+    let now = Utc::now();
+    let policy = storage_policy::Model {
+        id: 1,
+        name: "Direct S3 Policy".to_string(),
+        driver_type: DriverType::S3,
+        endpoint: String::new(),
+        bucket: String::new(),
+        access_key: String::new(),
+        secret_key: String::new(),
+        base_path: String::new(),
+        remote_node_id: None,
+        remote_storage_target_key: None,
+        max_file_size: 0,
+        allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
+        options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
+        is_default: false,
+        chunk_size: 0,
+        created_at: now,
+        updated_at: now,
+    };
     let error = crate::errors::AsterError::internal_error("test connector registry failure");
 
     assert!(matches!(

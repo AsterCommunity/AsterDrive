@@ -5,6 +5,7 @@ use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::mail::sender;
 use crate::storage::{DriverRegistry, PolicySnapshot};
+use crate::test_support::snapshot_dir_tree;
 use aster_drive_migration::Migrator;
 use aster_drive_model::entities::{file, file_blob, storage_policy, team, user};
 use aster_drive_model::types::{DriverType, UserRole, UserStatus};
@@ -17,7 +18,7 @@ use aster_forge_cache::CacheConfig;
 use async_trait::async_trait;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, Mutex,
@@ -737,41 +738,35 @@ impl LocalPathStorageDriver for CancelAfterLocalPathDriver {
     }
 }
 
-fn snapshot_dir_tree(path: &Path) -> std::io::Result<BTreeSet<String>> {
-    fn walk(root: &Path, current: &Path, entries: &mut BTreeSet<String>) -> std::io::Result<()> {
-        for entry in std::fs::read_dir(current)? {
-            let entry = entry?;
-            let path = entry.path();
-            let relative = path
-                .strip_prefix(root)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            let file_type = entry.file_type()?;
-            if file_type.is_dir() {
-                entries.insert(format!("{relative}/"));
-                walk(root, &path, entries)?;
-            } else {
-                entries.insert(relative);
-            }
-        }
-        Ok(())
-    }
-
-    let mut entries = BTreeSet::new();
-    if !path.exists() {
-        return Ok(entries);
-    }
-    walk(path, path, &mut entries)?;
-    Ok(entries)
+struct StorageTestState {
+    // Field order drops runtime/database handles before directory cleanup.
+    app_state: PrimaryAppState,
+    _temp_dir_guard: aster_forge_utils::raii::TempDirGuard,
 }
 
-async fn build_test_state() -> (PrimaryAppState, PathBuf, storage_policy::Model, user::Model) {
+impl std::ops::Deref for StorageTestState {
+    type Target = PrimaryAppState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.app_state
+    }
+}
+
+async fn build_test_state() -> (
+    StorageTestState,
+    PathBuf,
+    storage_policy::Model,
+    user::Model,
+) {
     let temp_root = std::env::temp_dir().join(format!(
         "asterdrive-workspace-storage-service-{}",
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&temp_root).expect("temp root should be created");
+    let temp_dir_guard = aster_forge_utils::raii::TempDirGuard::new(
+        temp_root.clone(),
+        "workspace storage service test temporary directory",
+    );
     let uploads_root = temp_root.join("uploads");
     std::fs::create_dir_all(&uploads_root).expect("uploads root should be created");
 
@@ -865,12 +860,46 @@ async fn build_test_state() -> (PrimaryAppState, PathBuf, storage_policy::Model,
         remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
     };
 
-    (state, temp_root, policy, user)
+    (
+        StorageTestState {
+            app_state: state,
+            _temp_dir_guard: temp_dir_guard,
+        },
+        temp_root,
+        policy,
+        user,
+    )
+}
+
+#[tokio::test]
+async fn build_test_state_cleans_temp_root_on_drop() {
+    let (state, temp_root, _, _) = build_test_state().await;
+    std::fs::write(temp_root.join("cleanup-marker"), b"marker")
+        .expect("cleanup marker should be written");
+
+    drop(state);
+
+    assert!(!temp_root.exists());
+}
+
+#[tokio::test]
+async fn build_test_state_cleans_temp_root_during_panic_unwind() {
+    let (state, temp_root, _, _) = build_test_state().await;
+    std::fs::write(temp_root.join("panic-cleanup-marker"), b"marker")
+        .expect("panic cleanup marker should be written");
+
+    let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+        let _state = state;
+        panic!("exercise storage test fixture cleanup during unwind");
+    }));
+
+    assert!(panic_result.is_err());
+    assert!(!temp_root.exists());
 }
 
 #[tokio::test]
 async fn persist_preuploaded_blob_keeps_prepared_named_storage_path() {
-    let (state, temp_root, policy, _) = build_test_state().await;
+    let (state, _temp_root, policy, _) = build_test_state().await;
     let prepared = crate::services::workspace::storage::PreparedNonDedupBlobUpload::Opaque {
         upload_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
         hash_prefix: "onedrive",
@@ -888,9 +917,6 @@ async fn persist_preuploaded_blob_keeps_prepared_named_storage_path() {
         blob.storage_path,
         "files/550e8400-e29b-41d4-a716-446655440000/report.txt"
     );
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -962,9 +988,6 @@ async fn exact_name_conflict_cleans_preuploaded_local_blob() {
     let upload_tree_after = snapshot_dir_tree(&uploads_root).unwrap();
     assert_eq!(blob_count_after, blob_count_before);
     assert_eq!(upload_tree_after, upload_tree_before);
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -1038,9 +1061,6 @@ async fn temp_store_silent_exact_name_updates_storage_without_storage_event() {
             .is_err(),
         "silent temp store should not publish a storage event"
     );
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -1094,9 +1114,6 @@ async fn temp_preupload_quota_failure_does_not_write_blob() {
         snapshot_dir_tree(&uploads_root).unwrap(),
         upload_tree_before
     );
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -1153,9 +1170,6 @@ async fn preuploaded_quota_failure_cleans_local_blob() {
         0
     );
     assert!(snapshot_dir_tree(&uploads_root).unwrap().is_empty());
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -1201,7 +1215,7 @@ async fn slow_nondedup_preupload_does_not_block_task_listing() {
 
     let page = tokio::time::timeout(
         Duration::from_millis(250),
-        crate::services::task::list_tasks_paginated_in_scope(&state, scope, 20, 0),
+        crate::services::task::list_tasks_paginated_in_scope(&*state, scope, 20, 0),
     )
     .await
     .expect("task listing should not wait for blocked blob upload")
@@ -1217,9 +1231,6 @@ async fn slow_nondedup_preupload_does_not_block_task_listing() {
         .expect("store task should join")
         .expect("store task should succeed");
     assert_eq!(stored.name, "slow-upload.bin");
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -1313,9 +1324,6 @@ async fn conditional_overwrite_rejects_file_changed_while_body_is_staged() {
     assert_eq!(persisted.blob_id, initial.blob_id);
     assert_eq!(persisted.size, initial.size);
     assert_eq!(persisted.updated_at, concurrent_updated_at);
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -1422,9 +1430,6 @@ async fn conditional_create_rejects_file_appearing_while_body_is_staged() {
             .unwrap(),
         1
     );
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -1565,9 +1570,6 @@ async fn conditional_team_create_rejects_file_appearing_while_body_is_staged() {
         before,
         "failed staged upload must clean its storage object"
     );
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -1654,9 +1656,6 @@ async fn missing_precondition_rejects_overwrite_context() {
         before,
         "failed contradictory write must clean its staged object"
     );
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -1702,7 +1701,7 @@ async fn slow_dedup_blob_publish_does_not_block_task_listing() {
 
     let page = tokio::time::timeout(
         Duration::from_millis(250),
-        crate::services::task::list_tasks_paginated_in_scope(&state, scope, 20, 0),
+        crate::services::task::list_tasks_paginated_in_scope(&*state, scope, 20, 0),
     )
     .await
     .expect("task listing should not wait for blocked dedup blob publish")
@@ -1718,9 +1717,6 @@ async fn slow_dedup_blob_publish_does_not_block_task_listing() {
         .expect("store task should join")
         .expect("store task should succeed");
     assert_eq!(stored.name, "slow-dedup-upload.bin");
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -1759,9 +1755,6 @@ async fn temp_store_cancellation_before_hash_does_not_touch_temp_file() {
             .unwrap(),
         0
     );
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -1842,9 +1835,6 @@ async fn cancelled_before_hash_can_resume_from_same_temp_file() {
             .unwrap(),
         1
     );
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -1892,9 +1882,6 @@ async fn temp_store_cancellation_during_stream_upload_cleans_preuploaded_blob() 
             .unwrap(),
         0
     );
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -1983,9 +1970,6 @@ async fn cancelled_during_stream_upload_can_resume_from_same_temp_file() {
             .unwrap(),
         1
     );
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -2035,9 +2019,6 @@ async fn cancellable_local_temp_store_uses_local_fast_path_without_driver_stream
         payload,
         "stored local blob should contain original payload"
     );
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -2126,9 +2107,6 @@ async fn cancelled_after_local_preupload_staging_can_resume_from_same_temp_file(
             .unwrap(),
         1
     );
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -2183,9 +2161,6 @@ async fn temp_store_cancellation_after_dedup_staging_rolls_back_object() {
             .all(|entry| entry.ends_with('/')),
         "dedup rollback should not leave staged files: {remaining_upload_entries:?}"
     );
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[tokio::test]
@@ -2275,7 +2250,4 @@ async fn cancelled_after_dedup_staging_can_resume_from_same_temp_file() {
             .unwrap(),
         1
     );
-
-    drop(state);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }

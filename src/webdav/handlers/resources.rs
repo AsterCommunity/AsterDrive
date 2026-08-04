@@ -369,8 +369,8 @@ pub(crate) async fn handle_copy_move(
     lock_system: &dyn DavLockSystem,
     prefix: &str,
     system_file_policy: &system_file::SystemFileBlockPolicy,
-    is_move: bool,
 ) -> HttpResponse {
+    let is_move = request_head.method == DavMethod::Move;
     let Some(depth) = request_head.depth else {
         return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
     };
