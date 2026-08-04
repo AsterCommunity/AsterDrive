@@ -38,19 +38,27 @@ pub async fn lock(
     owner_info: Option<ResourceLockOwnerInfo>,
     timeout: Option<Duration>,
 ) -> Result<resource_lock::Model> {
-    let target = resolve_entity_target(state.writer_db(), entity_type, entity_id).await?;
-    let path = resolve_entity_path(state.writer_db(), entity_type, entity_id).await?;
-    acquire(
-        state,
-        target,
-        LockMode::Exclusive,
-        origin_for_owner_info(owner_info.as_ref()),
-        owner_id,
-        owner_info,
-        timeout,
-        Some(path),
+    let txn = transaction::begin(state.writer_db()).await?;
+    let target = resolve_entity_target(&txn, entity_type, entity_id).await?;
+    let namespace = lock_target_namespace(&txn, target.workspace).await?;
+    lock_and_revalidate_target(&txn, target).await?;
+    let path = resolve_entity_path(&txn, entity_type, entity_id).await?;
+    let lock = acquire_after_namespace_lock_on(
+        &txn,
+        namespace,
+        LockAcquireCommand {
+            target,
+            mode: LockMode::Exclusive,
+            origin: origin_for_owner_info(owner_info.as_ref()),
+            holder_user_id: owner_id,
+            owner_info,
+            timeout,
+            presentation_path: Some(path),
+        },
     )
-    .await
+    .await?;
+    transaction::commit(txn).await?;
+    Ok(lock)
 }
 
 #[expect(
@@ -159,7 +167,7 @@ pub(crate) async fn acquire_after_namespace_lock_on<C: sea_orm::ConnectionTrait>
     for existing in lock_repo::find_all_by_namespace_for_update(db, namespace.id).await? {
         if existing
             .timeout_at
-            .is_some_and(|expires_at| expires_at < now)
+            .is_some_and(|expires_at| expires_at <= now)
         {
             lock_repo::delete_by_id(db, existing.id).await?;
             projection_changed = true;
@@ -468,7 +476,14 @@ async fn lock_and_revalidate_target<C: sea_orm::ConnectionTrait>(
     target: LockTarget,
 ) -> Result<()> {
     match target.root {
-        LockRoot::WorkspaceRoot => {}
+        LockRoot::WorkspaceRoot => match target.workspace {
+            LockWorkspace::Personal { user_id } => {
+                user_repo::lock_by_id(db, user_id).await?;
+            }
+            LockWorkspace::Team { team_id } => {
+                team_repo::lock_by_id(db, team_id).await?;
+            }
+        },
         LockRoot::File { file_id } => {
             let file = file_repo::lock_by_id(db, file_id).await?;
             if LockWorkspace::from_file(&file)? != target.workspace {

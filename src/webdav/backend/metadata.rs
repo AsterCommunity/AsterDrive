@@ -6,7 +6,7 @@ use aster_drive_model::entities::{file, file_blob, folder};
 use aster_forge_webdav::{DavMetaData, FsResult};
 
 /// 将 chrono DateTimeUtc 转换为 SystemTime
-fn to_system_time(dt: chrono::DateTime<chrono::Utc>) -> SystemTime {
+pub(crate) fn to_system_time(dt: chrono::DateTime<chrono::Utc>) -> SystemTime {
     let secs = dt.timestamp();
     match u64::try_from(secs) {
         Ok(secs) => SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs),
@@ -22,6 +22,7 @@ pub struct AsterDavMeta {
     created: SystemTime,
     etag: Option<String>,
     content_type: Option<String>,
+    file: Option<file::Model>,
 }
 
 impl AsterDavMeta {
@@ -33,6 +34,7 @@ impl AsterDavMeta {
             created: SystemTime::UNIX_EPOCH,
             etag: None,
             content_type: None,
+            file: None,
         }
     }
 
@@ -44,6 +46,7 @@ impl AsterDavMeta {
             created: to_system_time(folder.created_at),
             etag: Some(format!("dir-{}", folder.updated_at.timestamp())),
             content_type: None,
+            file: None,
         }
     }
 
@@ -55,6 +58,7 @@ impl AsterDavMeta {
             created: to_system_time(file.created_at),
             etag: Some(file_etag(file)),
             content_type: Some(file.mime_type.clone()),
+            file: Some(file.clone()),
         }
     }
 
@@ -66,11 +70,16 @@ impl AsterDavMeta {
             created: to_system_time(file.created_at),
             etag: Some(file_etag(file)),
             content_type: Some(file.mime_type.clone()),
+            file: Some(file.clone()),
         }
+    }
+
+    pub(crate) fn file_model(&self) -> Option<&file::Model> {
+        self.file.as_ref()
     }
 }
 
-fn file_etag(file: &file::Model) -> String {
+pub(crate) fn file_etag(file: &file::Model) -> String {
     // File records are updated together with blob_id, size, and updated_at on
     // content replacement/version restore, so GET/HEAD and PROPFIND can share
     // this file-state validator without loading the blob in directory listings.

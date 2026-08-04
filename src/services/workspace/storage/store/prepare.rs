@@ -36,6 +36,7 @@ pub(super) struct PreparedStoreFromTemp {
     pub now: chrono::DateTime<Utc>,
     pub actor_username: Option<String>,
     pub lock_credentials: crate::services::files::lock::LockMutationCredentials,
+    pub file_precondition: Option<super::FileWritePrecondition>,
 }
 
 #[derive(Clone)]
@@ -65,6 +66,7 @@ pub(super) async fn prepare_store_from_temp(
         size,
         existing_file_id,
         lock_credentials,
+        file_precondition,
     } = params;
     let StoreFromTempHints {
         resolved_policy,
@@ -178,6 +180,7 @@ pub(super) async fn prepare_store_from_temp(
         now: Utc::now(),
         actor_username: actor_username.map(ToOwned::to_owned),
         lock_credentials,
+        file_precondition,
     })
 }
 

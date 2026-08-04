@@ -30,6 +30,7 @@ pub(crate) struct DavWriteOpenContext {
     pub(crate) declared_size: Option<u64>,
     pub(crate) submitted_lock_tokens: Vec<String>,
     pub(crate) audit_ctx: AuditContext,
+    pub(crate) file_precondition: Option<storage::FileWritePrecondition>,
 }
 
 impl std::fmt::Debug for AsterDavWriteHandle {
@@ -69,6 +70,7 @@ enum WriteMode {
         folder_id: Option<i64>,
         filename: String,
         existing_file_id: Option<i64>,
+        file_precondition: Option<storage::FileWritePrecondition>,
         submitted_lock_tokens: Vec<String>,
         audit_ctx: AuditContext,
         declared_size: Option<i64>,
@@ -115,6 +117,7 @@ impl AsterDavWriteHandle {
                 existing_file_id,
                 declared_size,
                 submitted_lock_tokens: Vec::new(),
+                file_precondition: None,
                 audit_ctx: AuditContext {
                     user_id,
                     ip_address: None,
@@ -137,6 +140,7 @@ impl AsterDavWriteHandle {
             declared_size,
             submitted_lock_tokens,
             audit_ctx,
+            file_precondition,
         } = context;
         let declared_size = declared_size.and_then(|size| i64::try_from(size).ok());
         let (file, temp_path, resolved_policy, hasher) = if let Some(size_hint) = declared_size {
@@ -165,17 +169,10 @@ impl AsterDavWriteHandle {
                     Some(policy),
                     hasher,
                 )
-            } else if storage::streaming_direct_upload_eligible(&policy, size_hint).map_err(
-                |error| {
-                    tracing::warn!(
-                        policy_id = policy.id,
-                        driver_type = %policy.driver_type.as_str(),
-                        error = %error,
-                        "failed to resolve WebDAV streaming direct upload eligibility"
-                    );
-                    FsError::GeneralFailure
-                },
-            )? {
+            } else if file_precondition.is_none()
+                && storage::streaming_direct_upload_eligible(&policy, size_hint)
+                    .map_err(|error| streaming_direct_eligibility_error(&policy, &error))?
+            {
                 if policy.max_file_size > 0 && size_hint > policy.max_file_size {
                     return Err(FsError::TooLarge);
                 }
@@ -257,6 +254,7 @@ impl AsterDavWriteHandle {
                 folder_id,
                 filename,
                 existing_file_id,
+                file_precondition,
                 submitted_lock_tokens,
                 audit_ctx,
                 declared_size,
@@ -293,6 +291,19 @@ impl AsterDavWriteHandle {
             aster_forge_utils::fs::cleanup_temp_file(&path).await;
         });
     }
+}
+
+fn streaming_direct_eligibility_error(
+    policy: &aster_drive_model::entities::storage_policy::Model,
+    error: &crate::errors::AsterError,
+) -> FsError {
+    tracing::warn!(
+        policy_id = policy.id,
+        driver_type = %policy.driver_type.as_str(),
+        error = %error,
+        "failed to resolve WebDAV streaming direct upload eligibility"
+    );
+    FsError::GeneralFailure
 }
 
 fn add_written_bytes(written: &mut u64, chunk_len: usize) -> Result<u64, FsError> {
@@ -405,6 +416,7 @@ impl DavWriteHandle for AsterDavWriteHandle {
                 folder_id,
                 filename,
                 existing_file_id,
+                file_precondition,
                 submitted_lock_tokens,
                 audit_ctx,
                 declared_size,
@@ -459,6 +471,7 @@ impl DavWriteHandle for AsterDavWriteHandle {
                             crate::services::files::lock::LockMutationCredentials::SubmittedTokens(
                                 submitted_lock_tokens.clone(),
                             ),
+                        file_precondition: *file_precondition,
                     },
                     storage::StoreFromTempHints {
                         resolved_policy: resolved_policy_hint,

@@ -287,6 +287,7 @@ pub async fn webdav_handler(
                 handlers::resources::handle_delete(
                     &req,
                     &request_head,
+                    &request_headers,
                     &dav_fs,
                     lock_system.as_ref(),
                     &webdav.prefix,
@@ -300,11 +301,11 @@ pub async fn webdav_handler(
                 handlers::resources::handle_copy_move(
                     &req,
                     &request_head,
+                    &request_headers,
                     &dav_fs,
                     lock_system.as_ref(),
                     &webdav.prefix,
                     &system_file_policy,
-                    request_head.method == DavMethod::Move,
                 )
                 .await
             }

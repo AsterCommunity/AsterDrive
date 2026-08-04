@@ -5,14 +5,14 @@ use chrono::Utc;
 use sea_orm::ConnectionTrait;
 
 use crate::db::repository::{
-    file_repo, folder_repo, lock_repo, property_repo, share_repo, team_repo, upload_session_repo,
+    file_repo, folder_repo, property_repo, share_repo, team_repo, upload_session_repo,
 };
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::audit;
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use aster_drive_model::entities::{team, upload_session};
-use aster_drive_model::types::EntityType;
+use aster_drive_model::types::{EntityType, LockWorkspaceType};
 
 const DEFAULT_TEAM_ARCHIVE_RETENTION_DAYS: i64 = 7;
 const TEAM_ARCHIVE_BATCH_SIZE: u64 = 1_000;
@@ -144,8 +144,12 @@ async fn cleanup_team_temp_object(
 }
 
 async fn clear_team_locks<C: ConnectionTrait>(db: &C, team_id: i64) -> Result<()> {
-    let prefix = format!("/teams/{team_id}/");
-    lock_repo::delete_by_path_prefix(db, &prefix).await?;
+    crate::services::files::lock::delete_workspace_namespace_on(
+        db,
+        LockWorkspaceType::Team,
+        team_id,
+    )
+    .await?;
     Ok(())
 }
 
@@ -220,10 +224,10 @@ async fn force_delete_archived_team(state: &PrimaryAppState, team: team::Model) 
     crate::webdav::auth::invalidate_webdav_auth_for_team(state, team_id).await?;
 
     let txn = transaction::begin(state.writer_db()).await?;
+    clear_team_locks(&txn, team_id).await?;
     team_repo::lock_archived_by_id(&txn, team_id).await?;
     upload_session_repo::delete_all_by_team(&txn, team_id).await?;
     crate::db::repository::webdav_account_repo::delete_all_by_team(&txn, team_id).await?;
-    clear_team_locks(&txn, team_id).await?;
     let deleted_shares = share_repo::delete_all_by_team(&txn, team_id).await?;
 
     delete_archived_team_folders(&txn, team_id).await?;

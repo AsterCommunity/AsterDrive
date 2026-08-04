@@ -24,6 +24,7 @@ pub(super) struct WriteFileRecordFromTempParams<'a> {
     pub new_file_mode: NewFileMode,
     pub actor_username: Option<&'a str>,
     pub lock_credentials: &'a crate::services::files::lock::LockMutationCredentials,
+    pub file_precondition: Option<&'a super::FileWritePrecondition>,
 }
 
 pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
@@ -42,6 +43,7 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
         new_file_mode,
         actor_username,
         lock_credentials,
+        file_precondition,
     } = params;
     if overwrite_ctx.is_none() {
         let workspace = match scope {
@@ -59,8 +61,14 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
         .await?;
     }
     let result = if let Some(OverwriteContext { old_file, old_blob }) = overwrite_ctx {
-        let current_file =
-            super::revalidate_overwrite_target(txn, scope, &old_file, lock_credentials).await?;
+        let current_file = super::revalidate_overwrite_target(
+            txn,
+            scope,
+            &old_file,
+            lock_credentials,
+            file_precondition,
+        )
+        .await?;
         let existing_id = current_file.id;
         let current_name = current_file.name.clone();
         let mut active: file::ActiveModel = current_file.into();

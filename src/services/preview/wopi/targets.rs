@@ -377,6 +377,7 @@ pub(crate) async fn store_relative_target_from_stream(
                 size,
                 existing_file_id,
                 lock_credentials: crate::services::files::lock::LockMutationCredentials::None,
+                file_precondition: None,
             },
             storage::StoreFromTempHints {
                 resolved_policy,
@@ -397,6 +398,7 @@ pub(crate) async fn store_relative_target_from_stream(
                 size,
                 existing_file_id,
                 lock_credentials: crate::services::files::lock::LockMutationCredentials::None,
+                file_precondition: None,
             },
             storage::StoreFromTempHints {
                 resolved_policy,

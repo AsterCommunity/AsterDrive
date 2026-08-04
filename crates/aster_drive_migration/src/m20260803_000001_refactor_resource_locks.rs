@@ -356,6 +356,9 @@ async fn replace_resource_locks(manager: &SchemaManager<'_>) -> Result<(), DbErr
             .await?;
 
         let backend = manager.get_database_backend();
+        // The legacy schema used NULL owner_info for both Product locks and WebDAV LOCK requests
+        // without an owner element. The source is unrecoverable, so keep ambiguous rows fail-closed:
+        // treating them as WebDAV requires the lock token instead of allowing holder-id bypass.
         let copy_sql = format!(
             "INSERT INTO {REBUILT_TABLE} \
              (id, token, namespace_id, root_kind, root_folder_id, root_file_id, depth, mode, origin, \
@@ -371,6 +374,7 @@ async fn replace_resource_locks(manager: &SchemaManager<'_>) -> Result<(), DbErr
                     CASE \
                       WHEN rl.owner_info LIKE '%\"kind\":\"webdav\"%' THEN 'webdav' \
                       WHEN rl.owner_info LIKE '%\"kind\":\"wopi\"%' THEN 'wopi' \
+                      WHEN rl.owner_info IS NULL THEN 'webdav' \
                       ELSE 'product' END, \
                     rl.owner_id, rl.owner_info, rl.timeout_at, rl.path, rl.created_at \
              FROM resource_locks rl \

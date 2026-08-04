@@ -196,7 +196,7 @@ async fn enforce_mutation_locks_in_namespace_on<C: ConnectionTrait>(
     let now = Utc::now();
 
     for lock in lock_repo::find_all_by_namespace_for_update(txn, namespace_id).await? {
-        if lock.timeout_at.is_some_and(|expires_at| expires_at < now)
+        if lock.timeout_at.is_some_and(|expires_at| expires_at <= now)
             || !lock_covers_target(&lock, target, &ancestor_ids)
             || lock_is_satisfied(&lock, credentials)
         {

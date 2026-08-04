@@ -262,6 +262,15 @@ function createLock(
 	};
 }
 
+function mockLockItems(items: LockPage["items"]) {
+	mockState.useApiList.mockReturnValue({
+		items,
+		loading: false,
+		reload: mockState.reload,
+		setItems: mockState.setItems,
+	});
+}
+
 function renderPage() {
 	return render(
 		<MemoryRouter initialEntries={["/admin/locks"]}>
@@ -282,21 +291,16 @@ describe("AdminLocksPage", () => {
 
 		mockState.cleanupExpired.mockResolvedValue({ removed: 2 });
 		mockState.forceUnlock.mockResolvedValue(undefined);
-		mockState.useApiList.mockReturnValue({
-			items: [
-				createLock(),
-				createLock({
-					id: 22,
-					lockroot_path: "/docs/expired.pdf",
-					timeout_at: "2020-01-01T00:00:00Z",
-					mode: "shared",
-					depth: "infinity",
-				}),
-			],
-			loading: false,
-			reload: mockState.reload,
-			setItems: mockState.setItems,
-		});
+		mockLockItems([
+			createLock(),
+			createLock({
+				id: 22,
+				lockroot_path: "/docs/expired.pdf",
+				timeout_at: "2020-01-01T00:00:00Z",
+				mode: "shared",
+				depth: "infinity",
+			}),
+		]);
 	});
 
 	it("renders lock rows, statuses, and cleanup action", async () => {
@@ -307,6 +311,7 @@ describe("AdminLocksPage", () => {
 		expect(screen.getByText("/docs/report.pdf")).toBeInTheDocument();
 		expect(screen.getAllByText("user@example.com")).toHaveLength(2);
 		expect(screen.getByText("exclusive")).toBeInTheDocument();
+		expect(screen.getAllByText("lock_root_file")).toHaveLength(2);
 		expect(screen.getByText("shared_lock")).toBeInTheDocument();
 		expect(screen.getByText("deep")).toBeInTheDocument();
 		expect(screen.getByText("status:active")).toBeInTheDocument();
@@ -322,6 +327,38 @@ describe("AdminLocksPage", () => {
 			"expired_locks_cleaned:2",
 		);
 		expect(mockState.reload).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([
+		["file", "lock_root_file"],
+		["folder", "lock_root_folder"],
+		["workspace_root", "lock_root_workspace_root"],
+	] as const)("renders the %s lock root kind", (rootKind, expectedLabel) => {
+		mockLockItems([
+			createLock({
+				root_kind: rootKind,
+				root_file_id: rootKind === "file" ? 42 : null,
+				root_folder_id: rootKind === "folder" ? 42 : null,
+			}),
+		]);
+
+		renderPage();
+
+		expect(screen.getByText(expectedLabel)).toBeInTheDocument();
+	});
+
+	it("uses a stable fallback for an unknown lock root kind", () => {
+		mockLockItems([
+			createLock({
+				root_kind: "future_root" as LockPage["items"][number]["root_kind"],
+				root_file_id: null,
+			}),
+		]);
+
+		renderPage();
+
+		expect(screen.getByText("lock_root_unknown")).toBeInTheDocument();
+		expect(screen.queryByText("lock_root_future_root")).not.toBeInTheDocument();
 	});
 
 	it("force unlocks a lock after confirmation", async () => {

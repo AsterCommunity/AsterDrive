@@ -194,7 +194,7 @@ pub async fn find_active_by_entity<C: ConnectionTrait>(
     Ok(find_all_by_entity(db, entity_type, entity_id)
         .await?
         .into_iter()
-        .find(|lock| lock.timeout_at.is_none_or(|timeout_at| timeout_at >= now)))
+        .find(|lock| lock.timeout_at.is_none_or(|timeout_at| timeout_at > now)))
 }
 
 /// 路径前缀查询（WebDAV deep lock 用）
@@ -363,7 +363,7 @@ pub async fn delete_expired_by_entity_before<C: ConnectionTrait>(
     let res = ResourceLock::delete_many()
         .filter(entity_condition(entity_type, entity_id))
         .filter(resource_lock::Column::TimeoutAt.is_not_null())
-        .filter(resource_lock::Column::TimeoutAt.lt(cutoff))
+        .filter(resource_lock::Column::TimeoutAt.lte(cutoff))
         .exec(db)
         .await
         .map_err(AsterError::from)?;
@@ -386,7 +386,7 @@ pub async fn find_expired_before<C: ConnectionTrait>(
 ) -> Result<Vec<resource_lock::Model>> {
     ResourceLock::find()
         .filter(resource_lock::Column::TimeoutAt.is_not_null())
-        .filter(resource_lock::Column::TimeoutAt.lt(cutoff))
+        .filter(resource_lock::Column::TimeoutAt.lte(cutoff))
         .all(db)
         .await
         .map_err(AsterError::from)
@@ -398,7 +398,7 @@ pub async fn delete_expired_before<C: ConnectionTrait>(
 ) -> Result<u64> {
     let res = ResourceLock::delete_many()
         .filter(resource_lock::Column::TimeoutAt.is_not_null())
-        .filter(resource_lock::Column::TimeoutAt.lt(cutoff))
+        .filter(resource_lock::Column::TimeoutAt.lte(cutoff))
         .exec(db)
         .await
         .map_err(AsterError::from)?;
@@ -413,7 +413,7 @@ pub async fn delete_expired_by_namespace_before<C: ConnectionTrait>(
     let result = ResourceLock::delete_many()
         .filter(resource_lock::Column::NamespaceId.eq(namespace_id))
         .filter(resource_lock::Column::TimeoutAt.is_not_null())
-        .filter(resource_lock::Column::TimeoutAt.lt(cutoff))
+        .filter(resource_lock::Column::TimeoutAt.lte(cutoff))
         .exec(db)
         .await
         .map_err(AsterError::from)?;
@@ -505,7 +505,7 @@ pub async fn count_active_by_owner<C: ConnectionTrait>(
         .filter(
             Condition::any()
                 .add(resource_lock::Column::TimeoutAt.is_null())
-                .add(resource_lock::Column::TimeoutAt.gte(now)),
+                .add(resource_lock::Column::TimeoutAt.gt(now)),
         )
         .count(db)
         .await
@@ -515,6 +515,20 @@ pub async fn count_active_by_owner<C: ConnectionTrait>(
 /// 批量删除用户持有的所有资源锁
 pub async fn delete_all_by_owner<C: ConnectionTrait>(db: &C, owner_id: i64) -> Result<u64> {
     let res = ResourceLock::delete_many()
+        .filter(resource_lock::Column::HolderUserId.eq(owner_id))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(res.rows_affected)
+}
+
+pub async fn delete_by_owner_in_namespace<C: ConnectionTrait>(
+    db: &C,
+    namespace_id: i64,
+    owner_id: i64,
+) -> Result<u64> {
+    let res = ResourceLock::delete_many()
+        .filter(resource_lock::Column::NamespaceId.eq(namespace_id))
         .filter(resource_lock::Column::HolderUserId.eq(owner_id))
         .exec(db)
         .await

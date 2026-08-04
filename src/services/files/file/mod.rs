@@ -188,7 +188,19 @@ pub(crate) async fn update_content_stream_in_scope_with_audit(
         || details.clone(),
     )
     .await;
-    Ok((file.into(), new_hash))
+    let lock_states = crate::services::files::lock::load_for_scope(
+        state,
+        scope.into(),
+        std::slice::from_ref(&file),
+        &[],
+    )
+    .await?;
+    let lock_state = crate::services::files::lock::state_for(
+        &lock_states,
+        aster_drive_model::types::EntityType::File,
+        file.id,
+    );
+    Ok((FileInfo::from(file).with_lock_state(lock_state), new_hash))
 }
 
 pub(crate) async fn set_lock_in_scope_with_audit(

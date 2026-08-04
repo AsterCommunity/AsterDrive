@@ -81,13 +81,28 @@ pub(super) async fn revalidate_overwrite_target<C: ConnectionTrait>(
     scope: WorkspaceStorageScope,
     old_file: &file::Model,
     lock_credentials: &crate::services::files::lock::LockMutationCredentials,
+    file_precondition: Option<&super::FileWritePrecondition>,
 ) -> Result<file::Model> {
     let credentials = lock_credentials.submitted();
     let current_file =
         crate::services::files::lock::enforce_file_mutation_on(txn, old_file, &credentials).await?;
     crate::services::workspace::storage::ensure_active_file_scope(&current_file, scope)?;
 
-    if current_file.blob_id != old_file.blob_id {
+    let expected_changed = match file_precondition {
+        Some(super::FileWritePrecondition::Existing(expected)) => {
+            current_file.id != expected.id
+                || current_file.blob_id != expected.blob_id
+                || current_file.size != expected.size
+                || current_file.updated_at != expected.updated_at
+        }
+        Some(super::FileWritePrecondition::Missing) => true,
+        None => false,
+    };
+    if expected_changed
+        || current_file.blob_id != old_file.blob_id
+        || current_file.size != old_file.size
+        || current_file.updated_at != old_file.updated_at
+    {
         return Err(precondition_failed_with_code(
             ApiErrorCode::FileModifiedDuringWrite,
             "file changed while upload body was being received",

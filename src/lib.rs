@@ -22,4 +22,6 @@ pub(crate) mod ownership;
 pub mod runtime;
 pub mod services;
 pub mod storage;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod webdav;

@@ -255,6 +255,11 @@ export default function AdminLocksPage() {
 						const unlockLabel = isUnlocking
 							? t("lock_releasing")
 							: t("force_unlock");
+						const rootKindKey = ["file", "folder", "workspace_root"].includes(
+							l.root_kind,
+						)
+							? `lock_root_${l.root_kind}`
+							: "lock_root_unknown";
 
 						return (
 							<TableRow key={l.id}>
@@ -266,7 +271,8 @@ export default function AdminLocksPage() {
 									{formatLockOwnerInfo(l) ?? <UserIdentity user={l.owner} />}
 								</TableCell>
 								<TableCell>
-									<div className="flex gap-1">
+									<div className="flex flex-wrap gap-1">
+										<Badge variant="outline">{t(rootKindKey)}</Badge>
 										<Badge variant="outline">
 											{l.mode === "shared" ? t("shared_lock") : t("exclusive")}
 										</Badge>

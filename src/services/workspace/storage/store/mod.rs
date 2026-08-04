@@ -20,6 +20,31 @@ use super::{
     create_new_file_from_blob_with_actor_username, lock_storage_usage, persist_preuploaded_blob,
     update_storage_used, verify_file_access, verify_folder_access,
 };
+
+#[derive(Clone, Copy)]
+pub(crate) enum FileWritePrecondition {
+    Missing,
+    Existing(FileWriteSnapshot),
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct FileWriteSnapshot {
+    id: i64,
+    blob_id: i64,
+    size: i64,
+    updated_at: chrono::DateTime<Utc>,
+}
+
+impl FileWritePrecondition {
+    pub(crate) fn existing(file: &file::Model) -> Self {
+        Self::Existing(FileWriteSnapshot {
+            id: file.id,
+            blob_id: file.blob_id,
+            size: file.size,
+            updated_at: file.updated_at,
+        })
+    }
+}
 pub(crate) use empty::{EmptyFileNameMode, PreparedEmptyFile};
 use preuploaded_contract::{
     VerifiedPreuploadedNondedupStoreBlob, cleanup_verified_preuploaded_nondedup_store_blob,
@@ -34,6 +59,7 @@ pub(crate) struct StoreFromTempParams<'a> {
     pub size: i64,
     pub existing_file_id: Option<i64>,
     pub lock_credentials: crate::services::files::lock::LockMutationCredentials,
+    pub file_precondition: Option<FileWritePrecondition>,
 }
 
 impl<'a> StoreFromTempParams<'a> {
@@ -52,6 +78,7 @@ impl<'a> StoreFromTempParams<'a> {
             size,
             existing_file_id: None,
             lock_credentials: crate::services::files::lock::LockMutationCredentials::None,
+            file_precondition: None,
         }
     }
 

@@ -89,6 +89,20 @@ pub async fn increment_generation<C: ConnectionTrait>(
     active.update(db).await.map_err(AsterError::from)
 }
 
+pub async fn delete_by_workspace<C: ConnectionTrait>(
+    db: &C,
+    workspace_type: LockWorkspaceType,
+    workspace_id: i64,
+) -> Result<u64> {
+    let result = resource_lock_namespace::Entity::delete_many()
+        .filter(resource_lock_namespace::Column::WorkspaceType.eq(workspace_type))
+        .filter(resource_lock_namespace::Column::WorkspaceId.eq(workspace_id))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected)
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::Utc;

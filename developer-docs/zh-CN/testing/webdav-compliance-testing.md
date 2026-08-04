@@ -366,16 +366,22 @@ cargo test --test webdav client_e2e::webdav_cadaver -- \
 
 ## CI 行为
 
-`.github/workflows/webdav-compatibility.yml` 包含两个 job：
+`.github/workflows/webdav-compatibility.yml` 包含三个 job：
 
 ### Litmus baseline
 
 - 在 WebDAV 相关路径的 PR、`master` push、定时任务和手动触发中运行；
 - 从固定 Litmus/neon 提交和 SHA-256 构建 Litmus 0.18；
 - 在 PR 和 push 中串行执行默认五个 ignored Litmus 分组；
-- 在定时和手动触发中额外串行执行 `largefile`、`lockbomb`、`lockbomb-single` 和 `protected` probe；
 - 保存工具版本、测试总日志、分组 `result.json` 和请求日志；
 - 产物默认保留 30 天。
+
+### Litmus 扩展矩阵
+
+- 只在定时任务和 `workflow_dispatch` 中运行；
+- 并行执行 `resource`、`lockbomb` 和 `protected` suite；
+- 各 matrix job 的上限分别为 120、180 和 45 分钟；
+- 保存每个 suite 的 Litmus 结果和请求日志。
 
 ### External clients
 
@@ -384,7 +390,7 @@ cargo test --test webdav client_e2e::webdav_cadaver -- \
 - 执行 `tests/webdav/client_e2e.rs` 中的 ignored 测试；
 - 保存工具版本和完整客户端测试日志。
 
-PR 上 Litmus job 负责快速守住协议基线；定时和手动触发会执行全部 15 个 ignored 兼容性测试，即 9 个 Litmus 套件和 6 个固定版本真实客户端测试。
+PR 上 Litmus baseline 负责快速守住协议基线；定时和手动触发额外运行 Litmus 扩展矩阵和固定版本真实客户端测试。
 
 ## 修改类型与建议矩阵
 

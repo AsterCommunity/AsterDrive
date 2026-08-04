@@ -369,16 +369,22 @@ When local versions differ from the CI-pinned versions, use local results for fa
 
 ## CI behavior
 
-`.github/workflows/webdav-compatibility.yml` contains two jobs.
+`.github/workflows/webdav-compatibility.yml` contains three jobs.
 
 ### Litmus baseline
 
 - runs for WebDAV-related paths on pull requests, `master` pushes, scheduled runs, and manual dispatch;
 - builds Litmus 0.18 from pinned Litmus/neon commits and SHA-256 checksums;
 - runs the five default ignored Litmus groups serially on pull requests and pushes;
-- additionally runs `largefile`, `lockbomb`, `lockbomb-single`, and the `protected` probe serially on scheduled and manual dispatches;
 - preserves tool versions, the combined test log, per-group `result.json`, and request logs;
 - retains artifacts for 30 days by default.
+
+### Extended Litmus matrix
+
+- runs only on the schedule and through `workflow_dispatch`;
+- runs the `resource`, `lockbomb`, and `protected` suites in parallel;
+- limits the matrix jobs to 120, 180, and 45 minutes respectively;
+- preserves the Litmus results and request logs for each suite.
 
 ### External clients
 
@@ -387,7 +393,7 @@ When local versions differ from the CI-pinned versions, use local results for fa
 - runs the ignored tests in `tests/webdav/client_e2e.rs`;
 - preserves tool versions and the complete client-test log.
 
-The Litmus job provides the faster protocol baseline on pull requests. Scheduled and manual dispatches execute all 15 ignored compatibility tests: nine Litmus suites and six pinned real-client tests.
+The Litmus baseline provides the faster protocol gate on pull requests. Scheduled and manual dispatches additionally run the extended Litmus matrix and pinned real-client tests.
 
 ## Recommended matrix by change type
 
