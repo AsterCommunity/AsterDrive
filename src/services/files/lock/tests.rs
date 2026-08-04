@@ -1,15 +1,21 @@
 use super::owner_info::{deserialize_resource_lock_owner_info, serialize_resource_lock_owner_info};
 use super::*;
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    collections::BTreeSet,
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use aster_drive_migration::Migrator;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
-use sea_orm::{ActiveModelTrait, ConnectOptions, ConnectionTrait, Set, SqlxSqliteConnector};
+use sea_orm::{
+    ActiveModelTrait, ConnectOptions, ConnectionTrait, EntityTrait, Set, SqlxSqliteConnector,
+};
 
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::{lock_namespace_repo, lock_repo, team_repo};
@@ -101,6 +107,7 @@ struct LockTestFixture {
     team: team::Model,
     folder: folder::Model,
     file: file::Model,
+    _temp_dir_guard: aster_forge_utils::raii::TempDirGuard,
 }
 
 fn sample_lock(owner_info: Option<StoredLockOwnerInfo>) -> resource_lock::Model {
@@ -130,6 +137,10 @@ async fn build_lock_test_fixture_with_pool_size(pool_size: u32) -> LockTestFixtu
     let temp_root =
         std::env::temp_dir().join(format!("asterdrive-lock-service-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&temp_root).expect("lock service temp root should exist");
+    let temp_dir_guard = aster_forge_utils::raii::TempDirGuard::new(
+        temp_root.clone(),
+        "WebDAV lock service test temporary directory",
+    );
     let database_url = if pool_size == 1 {
         "sqlite::memory:".to_string()
     } else {
@@ -342,6 +353,7 @@ async fn build_lock_test_fixture_with_pool_size(pool_size: u32) -> LockTestFixtu
         team,
         folder,
         file,
+        _temp_dir_guard: temp_dir_guard,
     }
 }
 
@@ -390,6 +402,33 @@ fn apply_webdav_lock_limit(fixture: &LockTestFixture, value: &str) {
             updated_at: Utc::now(),
             updated_by: None,
         });
+}
+
+fn snapshot_file_tree(path: &Path) -> std::io::Result<BTreeSet<String>> {
+    fn walk(root: &Path, current: &Path, entries: &mut BTreeSet<String>) -> std::io::Result<()> {
+        for entry in std::fs::read_dir(current)? {
+            let entry = entry?;
+            let path = entry.path();
+            let relative = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            if entry.file_type()?.is_dir() {
+                entries.insert(format!("{relative}/"));
+                walk(root, &path, entries)?;
+            } else {
+                entries.insert(relative);
+            }
+        }
+        Ok(())
+    }
+
+    let mut entries = BTreeSet::new();
+    if path.exists() {
+        walk(path, path, &mut entries)?;
+    }
+    Ok(entries)
 }
 
 #[test]
@@ -919,6 +958,100 @@ async fn concurrent_webdav_locks_share_one_owner_quota_across_workspaces() {
             .await
             .unwrap(),
         1
+    );
+}
+
+#[tokio::test]
+async fn lock_null_quota_failure_cleans_staged_empty_file() {
+    let fixture = build_lock_test_fixture().await;
+    crate::services::storage_policy::policy::ensure_policy_groups_seeded(fixture.state.writer_db())
+        .await
+        .expect("policy groups should be seeded for lock-null storage");
+    fixture
+        .state
+        .policy_snapshot
+        .reload(fixture.state.writer_db())
+        .await
+        .expect("policy snapshot should include the lock-null storage policy");
+    apply_webdav_lock_limit(&fixture, "1");
+    let lock_system = crate::webdav::backend::lock::DbLockSystem::new(
+        fixture.state.clone(),
+        fixture.user.id,
+        None,
+    );
+    let missing_path = DavPath::new("/quota-race.txt").unwrap();
+    lock_system
+        .prepare_lock(&missing_path)
+        .await
+        .expect("lock-null preflight should pass before another lock consumes the quota");
+
+    acquire(
+        &fixture.state,
+        LockTarget {
+            workspace: LockWorkspace::Personal {
+                user_id: fixture.user.id,
+            },
+            root: LockRoot::File {
+                file_id: fixture.file.id,
+            },
+            depth: LockDepth::Resource,
+        },
+        LockMode::Exclusive,
+        LockOrigin::WebDav,
+        Some(fixture.user.id),
+        None,
+        None,
+        Some("/docs/lock-target.txt".to_string()),
+    )
+    .await
+    .expect("competing lock should consume the single active-lock quota");
+
+    let policy = storage_policy::Entity::find()
+        .one(fixture.state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    let storage_root = std::path::PathBuf::from(&policy.base_path);
+    let before = snapshot_file_tree(&storage_root).unwrap();
+
+    let result = lock_system
+        .lock(DavLockAcquireRequest {
+            path: &missing_path,
+            principal: None,
+            owner: None,
+            timeout: Some(std::time::Duration::from_secs(60)),
+            shared: false,
+            deep: false,
+            credentials: DavMutationCredentials::default(),
+        })
+        .await;
+    assert!(
+        matches!(result, Err(DavLockError::LimitExceeded)),
+        "lock-null quota race should fail with LimitExceeded, got {result:?}"
+    );
+
+    assert!(
+        crate::db::repository::file_repo::find_by_name_in_folder(
+            fixture.state.writer_db(),
+            fixture.user.id,
+            None,
+            "quota-race.txt",
+        )
+        .await
+        .unwrap()
+        .is_none(),
+        "quota rejection must not create the lock-null file"
+    );
+    assert_eq!(
+        lock_repo::count_active_by_owner(fixture.state.writer_db(), fixture.user.id, Utc::now(),)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        snapshot_file_tree(&storage_root).unwrap(),
+        before,
+        "quota rejection must clean the staged lock-null object"
     );
 }
 

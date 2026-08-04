@@ -2502,3 +2502,72 @@ fn map_ancestor_lock_error(error: lock::LockMutationAncestorError) -> AsterDavMu
         lock::LockMutationAncestorError::Backend => AsterDavMutationError::Backend,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::DatabaseConfig;
+
+    async fn test_db() -> sea_orm::DatabaseConnection {
+        crate::db::connect_with_metrics(
+            &DatabaseConfig {
+                url: "sqlite::memory:".into(),
+                pool_size: 1,
+                retry_count: 0,
+            },
+            aster_drive_metrics::NoopMetrics::arc(),
+        )
+        .await
+        .expect("WebDAV backend test database should connect")
+    }
+
+    async fn revalidate_root_with_if_match(
+        value: &'static str,
+    ) -> Result<(), AsterDavMutationError> {
+        let db = test_db().await;
+        let path = DavPath::new("/").unwrap();
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::IF_MATCH,
+            http::HeaderValue::from_static(value),
+        );
+        let conditions = DavMutationConditions {
+            prefix: "/dav",
+            if_header: None,
+            request_scheme: "http",
+            request_host: "localhost",
+            http_headers: &headers,
+            http_method: aster_forge_webdav::DavMethod::Delete,
+            http_target: &path,
+        };
+
+        revalidate_atomic_target(
+            &db,
+            0,
+            WorkspaceStorageScope::Personal { user_id: 1 },
+            None,
+            AtomicTargetRevalidation {
+                path: &path,
+                check_locks: false,
+                deep: false,
+            },
+            &conditions,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn atomic_target_revalidation_rejects_mismatching_condition_on_root() {
+        assert!(matches!(
+            revalidate_root_with_if_match("\"missing-root-etag\"").await,
+            Err(AsterDavMutationError::PreconditionFailed)
+        ));
+    }
+
+    #[tokio::test]
+    async fn atomic_target_revalidation_accepts_if_match_star_on_root() {
+        revalidate_root_with_if_match("*")
+            .await
+            .expect("If-Match star should match the existing WebDAV root");
+    }
+}

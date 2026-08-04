@@ -1,6 +1,6 @@
 //! Tests for WebDAV file write handling.
 
-use super::AsterDavWriteHandle;
+use super::{AsterDavWriteHandle, DavWriteOpenContext, streaming_direct_eligibility_error};
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -19,12 +19,27 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 #[derive(Clone, Default)]
 struct MockDirectS3Driver {
     objects: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+    put_file_calls: Arc<AtomicUsize>,
+    put_reader_calls: Arc<AtomicUsize>,
+}
+
+impl MockDirectS3Driver {
+    fn put_file_calls(&self) -> usize {
+        self.put_file_calls.load(Ordering::SeqCst)
+    }
+
+    fn put_reader_calls(&self) -> usize {
+        self.put_reader_calls.load(Ordering::SeqCst)
+    }
 }
 
 #[async_trait]
@@ -99,6 +114,7 @@ impl StreamUploadDriver for MockDirectS3Driver {
         storage_path: &str,
         local_path: &str,
     ) -> aster_drive_storage::Result<String> {
+        self.put_file_calls.fetch_add(1, Ordering::SeqCst);
         let data = tokio::fs::read(local_path).await.map_err(|error| {
             crate::errors::AsterError::storage_driver_error(format!(
                 "mock direct S3 put_file failed: {error}"
@@ -117,6 +133,7 @@ impl StreamUploadDriver for MockDirectS3Driver {
         mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         _size: i64,
     ) -> aster_drive_storage::Result<String> {
+        self.put_reader_calls.fetch_add(1, Ordering::SeqCst);
         let mut data = Vec::new();
         reader.read_to_end(&mut data).await.map_err(|error| {
             crate::errors::AsterError::storage_driver_error(format!(
@@ -164,7 +181,12 @@ fn snapshot_dir_tree(path: &Path) -> std::io::Result<BTreeMap<String, bool>> {
     Ok(entries)
 }
 
-async fn build_s3_direct_test_state() -> (PrimaryAppState, user::Model, MockDirectS3Driver) {
+async fn build_s3_direct_test_state() -> (
+    PrimaryAppState,
+    user::Model,
+    storage_policy::Model,
+    MockDirectS3Driver,
+) {
     let temp_root = std::env::temp_dir().join(format!(
         "asterdrive-webdav-file-direct-s3-{}",
         uuid::Uuid::new_v4()
@@ -278,12 +300,12 @@ async fn build_s3_direct_test_state() -> (PrimaryAppState, user::Model, MockDire
         remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
     };
 
-    (state, user, mock_driver)
+    (state, user, policy, mock_driver)
 }
 
 #[tokio::test]
 async fn known_size_s3_write_avoids_runtime_temp_files() {
-    let (state, user, driver) = build_s3_direct_test_state().await;
+    let (state, user, _, driver) = build_s3_direct_test_state().await;
     let runtime_temp_dir =
         aster_forge_utils::paths::runtime_temp_dir(&state.config.server.temp_dir);
     let before = snapshot_dir_tree(Path::new(&runtime_temp_dir)).unwrap();
@@ -337,4 +359,77 @@ async fn known_size_s3_write_avoids_runtime_temp_files() {
         objects.values().any(|bytes| bytes.as_slice() == payload),
         "uploaded object should match the WebDAV payload"
     );
+    assert_eq!(driver.put_reader_calls(), 1);
+    assert_eq!(driver.put_file_calls(), 0);
+}
+
+#[tokio::test]
+async fn known_size_s3_write_with_precondition_uses_transactional_temp_upload() {
+    let (state, user, _, driver) = build_s3_direct_test_state().await;
+    let payload = b"conditional s3 upload";
+    let mut write_handle = AsterDavWriteHandle::for_write_with_audit(
+        state.clone(),
+        DavWriteOpenContext {
+            scope: crate::services::workspace::storage::WorkspaceStorageScope::Personal {
+                user_id: user.id,
+            },
+            folder_id: None,
+            filename: "conditional-s3.txt".to_string(),
+            existing_file_id: None,
+            declared_size: Some(
+                u64::try_from(payload.len()).expect("payload length should fit u64"),
+            ),
+            submitted_lock_tokens: vec![],
+            audit_ctx: crate::services::ops::audit::AuditContext {
+                user_id: user.id,
+                ip_address: None,
+                user_agent: None,
+            },
+            file_precondition: Some(
+                crate::services::workspace::storage::FileWritePrecondition::Missing,
+            ),
+        },
+    )
+    .await
+    .expect("conditional S3 WebDAV file should initialize");
+
+    write_handle
+        .write_bytes(Bytes::copy_from_slice(payload))
+        .await
+        .expect("conditional S3 WebDAV write should succeed");
+    write_handle
+        .finish()
+        .await
+        .expect("conditional S3 WebDAV finish should succeed");
+
+    let stored =
+        file_repo::find_by_name_in_folder(state.writer_db(), user.id, None, "conditional-s3.txt")
+            .await
+            .expect("stored file lookup should succeed")
+            .expect("conditional S3 WebDAV finish should create a file");
+    assert_eq!(
+        stored.size,
+        i64::try_from(payload.len()).expect("payload length should fit i64")
+    );
+    assert_eq!(driver.put_reader_calls(), 0);
+    assert_eq!(driver.put_file_calls(), 1);
+    assert!(
+        driver
+            .objects
+            .lock()
+            .expect("mock direct S3 driver lock should succeed")
+            .values()
+            .any(|bytes| bytes.as_slice() == payload)
+    );
+}
+
+#[tokio::test]
+async fn streaming_direct_eligibility_failure_maps_to_general_failure() {
+    let (_, _, policy, _) = build_s3_direct_test_state().await;
+    let error = crate::errors::AsterError::internal_error("test connector registry failure");
+
+    assert!(matches!(
+        streaming_direct_eligibility_error(&policy, &error),
+        aster_forge_webdav::FsError::GeneralFailure
+    ));
 }

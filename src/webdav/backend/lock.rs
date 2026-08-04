@@ -492,6 +492,11 @@ impl DavLockSystem for DbLockSystem {
                         );
                     }
                     Err(LockAcquireTransactionError::LimitExceeded) => {
+                        if let Some(prepared) = &prepared_empty {
+                            prepared
+                                .cleanup_after_db_failure("WebDAV LOCK quota exceeded")
+                                .await;
+                        }
                         return Err(DavLockError::LimitExceeded);
                     }
                     Err(LockAcquireTransactionError::Product(error)) => {
@@ -1416,7 +1421,7 @@ fn lock_owner_xml(lock: &resource_lock::Model) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::serialize_element;
+    use super::{LockAcquireTransactionError, serialize_element};
     use aster_forge_webdav::DavXmlElement;
 
     #[test]
@@ -1424,5 +1429,24 @@ mod tests {
         let element = DavXmlElement::new("invalid element name");
 
         assert!(serialize_element(&element).is_err());
+    }
+
+    #[test]
+    fn lock_acquire_transaction_errors_have_stable_diagnostics() {
+        assert_eq!(
+            LockAcquireTransactionError::TargetBecameMissing.to_string(),
+            "WebDAV LOCK target became missing"
+        );
+        assert_eq!(
+            LockAcquireTransactionError::LimitExceeded.to_string(),
+            "WebDAV active lock limit exceeded"
+        );
+        assert_eq!(
+            LockAcquireTransactionError::Product(crate::errors::AsterError::internal_error(
+                "quota lookup failed"
+            ))
+            .to_string(),
+            "Internal Server Error: quota lookup failed"
+        );
     }
 }

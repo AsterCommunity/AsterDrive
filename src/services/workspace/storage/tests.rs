@@ -6,7 +6,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::mail::sender;
 use crate::storage::{DriverRegistry, PolicySnapshot};
 use aster_drive_migration::Migrator;
-use aster_drive_model::entities::{file, file_blob, storage_policy, user};
+use aster_drive_model::entities::{file, file_blob, storage_policy, team, user};
 use aster_drive_model::types::{DriverType, UserRole, UserStatus};
 use aster_drive_storage::{
     BlobMetadata, ListStorageDriver, LocalPathStorageDriver, StorageDriver, StoragePathVisitor,
@@ -1421,6 +1421,238 @@ async fn conditional_create_rejects_file_appearing_while_body_is_staged() {
             .await
             .unwrap(),
         1
+    );
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[tokio::test]
+async fn conditional_team_create_rejects_file_appearing_while_body_is_staged() {
+    let (state, temp_root, policy, user) = build_test_state().await;
+    let now = Utc::now();
+    let team = team::ActiveModel {
+        name: Set("Conditional Storage Team".to_string()),
+        description: Set("Team conditional write test".to_string()),
+        created_by: Set(user.id),
+        storage_used: Set(0),
+        storage_quota: Set(0),
+        policy_group_id: Set(None),
+        created_at: Set(now),
+        updated_at: Set(now),
+        archived_at: Set(None),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
+    let scope = WorkspaceStorageScope::Team {
+        team_id: team.id,
+        actor_user_id: user.id,
+    };
+    let uploads_root = PathBuf::from(&policy.base_path);
+    let before = snapshot_dir_tree(&uploads_root).unwrap();
+    let (blocking_driver, entered_rx, release_put_file) = BlockingPutFileDriver::new(&policy);
+    state
+        .driver_registry
+        .insert_for_test(policy.id, Arc::new(blocking_driver));
+
+    let conditional_temp = temp_root.join("conditional-team-missing.bin");
+    let conditional_payload = b"conditional team payload";
+    tokio::fs::write(&conditional_temp, conditional_payload)
+        .await
+        .unwrap();
+    let state_for_store = state.clone();
+    let policy_for_store = policy.clone();
+    let conditional_path = conditional_temp.to_string_lossy().into_owned();
+    let store_task = tokio::spawn(async move {
+        let mut params = StoreFromTempParams::new(
+            scope,
+            None,
+            "conditional-team-missing.txt",
+            &conditional_path,
+            conditional_payload.len() as i64,
+        );
+        params.file_precondition = Some(FileWritePrecondition::Missing);
+        store_from_temp_exact_name_with_hints(
+            &state_for_store,
+            params,
+            StoreFromTempHints {
+                resolved_policy: Some(policy_for_store),
+                ..Default::default()
+            },
+        )
+        .await
+    });
+
+    tokio::time::timeout(Duration::from_secs(1), entered_rx)
+        .await
+        .expect("conditional team create should stage its blob")
+        .expect("staging entry signal should be sent");
+
+    let concurrent_blob = file_blob::ActiveModel {
+        hash: Set(format!("conditional-team-race-{}", uuid::Uuid::new_v4())),
+        size: Set(1),
+        policy_id: Set(policy.id),
+        storage_path: Set(format!("files/{}", uuid::Uuid::new_v4())),
+        thumbnail_path: Set(None),
+        thumbnail_processor: Set(None),
+        thumbnail_version: Set(None),
+        ref_count: Set(1),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
+    let concurrent_file = file::ActiveModel {
+        name: Set("conditional-team-missing.txt".to_string()),
+        folder_id: Set(None),
+        team_id: Set(Some(team.id)),
+        blob_id: Set(concurrent_blob.id),
+        size: Set(1),
+        owner_user_id: Set(None),
+        created_by_user_id: Set(Some(user.id)),
+        created_by_username: Set(user.username.clone()),
+        mime_type: Set("text/plain".to_string()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        deleted_at: Set(None),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
+    release_put_file.notify_one();
+
+    let error = tokio::time::timeout(Duration::from_secs(1), store_task)
+        .await
+        .expect("conditional team create should finish")
+        .expect("conditional team create task should join")
+        .expect_err("a team resource appearing after preflight must reject the final write");
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::FileModifiedDuringWrite
+    );
+
+    let persisted = file::Entity::find_by_id(concurrent_file.id)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(persisted.blob_id, concurrent_blob.id);
+    assert_eq!(persisted.size, 1);
+    assert_eq!(
+        file::Entity::find()
+            .filter(file::Column::TeamId.eq(team.id))
+            .filter(file::Column::Name.eq("conditional-team-missing.txt"))
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        file_blob::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        1,
+        "failed staged upload must not leave a blob row"
+    );
+    assert_eq!(
+        snapshot_dir_tree(&uploads_root).unwrap(),
+        before,
+        "failed staged upload must clean its storage object"
+    );
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[tokio::test]
+async fn missing_precondition_rejects_overwrite_context() {
+    let (state, temp_root, policy, user) = build_test_state().await;
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+    let initial_temp = temp_root.join("missing-overwrite-initial.bin");
+    let payload = b"initial missing overwrite payload";
+    tokio::fs::write(&initial_temp, payload).await.unwrap();
+    let initial = store_from_temp_exact_name_with_hints(
+        &state,
+        StoreFromTempParams::new(
+            scope,
+            None,
+            "missing-overwrite.txt",
+            &initial_temp.to_string_lossy(),
+            payload.len() as i64,
+        ),
+        StoreFromTempHints {
+            resolved_policy: Some(policy.clone()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let uploads_root = PathBuf::from(&policy.base_path);
+    let before = snapshot_dir_tree(&uploads_root).unwrap();
+    let replacement_temp = temp_root.join("missing-overwrite-replacement.bin");
+    let replacement_payload = b"replacement must not be persisted";
+    tokio::fs::write(&replacement_temp, replacement_payload)
+        .await
+        .unwrap();
+    let replacement_path = replacement_temp.to_string_lossy().into_owned();
+    let mut params = StoreFromTempParams::new(
+        scope,
+        None,
+        "missing-overwrite-new-name.txt",
+        &replacement_path,
+        replacement_payload.len() as i64,
+    )
+    .overwrite(initial.id);
+    params.file_precondition = Some(FileWritePrecondition::Missing);
+    let error = store_from_temp_exact_name_with_hints(
+        &state,
+        params,
+        StoreFromTempHints {
+            resolved_policy: Some(policy),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect_err("Missing precondition must reject an overwrite target");
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::FileModifiedDuringWrite
+    );
+
+    let persisted = file::Entity::find_by_id(initial.id)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(persisted.blob_id, initial.blob_id);
+    assert_eq!(persisted.size, initial.size);
+    assert_eq!(persisted.updated_at, initial.updated_at);
+    assert!(
+        file::Entity::find()
+            .filter(file::Column::Name.eq("missing-overwrite-new-name.txt"))
+            .one(state.writer_db())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        file_blob::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        1,
+        "failed contradictory write must not leave a blob row"
+    );
+    assert_eq!(
+        snapshot_dir_tree(&uploads_root).unwrap(),
+        before,
+        "failed contradictory write must clean its staged object"
     );
 
     drop(state);

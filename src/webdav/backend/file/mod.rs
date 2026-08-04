@@ -170,17 +170,8 @@ impl AsterDavWriteHandle {
                     hasher,
                 )
             } else if file_precondition.is_none()
-                && storage::streaming_direct_upload_eligible(&policy, size_hint).map_err(
-                    |error| {
-                        tracing::warn!(
-                            policy_id = policy.id,
-                            driver_type = %policy.driver_type.as_str(),
-                            error = %error,
-                            "failed to resolve WebDAV streaming direct upload eligibility"
-                        );
-                        FsError::GeneralFailure
-                    },
-                )?
+                && storage::streaming_direct_upload_eligible(&policy, size_hint)
+                    .map_err(|error| streaming_direct_eligibility_error(&policy, &error))?
             {
                 if policy.max_file_size > 0 && size_hint > policy.max_file_size {
                     return Err(FsError::TooLarge);
@@ -300,6 +291,19 @@ impl AsterDavWriteHandle {
             aster_forge_utils::fs::cleanup_temp_file(&path).await;
         });
     }
+}
+
+fn streaming_direct_eligibility_error(
+    policy: &aster_drive_model::entities::storage_policy::Model,
+    error: &crate::errors::AsterError,
+) -> FsError {
+    tracing::warn!(
+        policy_id = policy.id,
+        driver_type = %policy.driver_type.as_str(),
+        error = %error,
+        "failed to resolve WebDAV streaming direct upload eligibility"
+    );
+    FsError::GeneralFailure
 }
 
 fn add_written_bytes(written: &mut u64, chunk_len: usize) -> Result<u64, FsError> {
