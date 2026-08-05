@@ -760,7 +760,6 @@ dependencies = [
  "actix-web",
  "actix-ws",
  "aes-gcm 0.11.0",
- "aster_drive_http",
  "aster_drive_metrics",
  "aster_drive_migration",
  "aster_drive_model",
@@ -778,6 +777,7 @@ dependencies = [
  "aster_forge_events",
  "aster_forge_external_auth",
  "aster_forge_file_classification",
+ "aster_forge_http",
  "aster_forge_logging",
  "aster_forge_mail",
  "aster_forge_metrics",
@@ -865,15 +865,6 @@ dependencies = [
  "webauthn-rs",
  "webauthn-rs-proto",
  "zip 8.6.0",
-]
-
-[[package]]
-name = "aster_drive_http"
-version = "0.4.0"
-dependencies = [
- "futures",
- "reqwest",
- "tokio",
 ]
 
 [[package]]

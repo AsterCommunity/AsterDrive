@@ -1,18 +1,9 @@
 //! Storage policy credential token encryption and flow token hashing.
 
-use aes_gcm::{
-    Aes256Gcm, Nonce,
-    aead::{Aead, Generate, KeyInit},
-};
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use hkdf::Hkdf;
-use serde::{Deserialize, Serialize};
-use sha2::Sha256;
-
 use crate::errors::{AsterError, MapAsterErr, Result};
 use aster_forge_crypto as hash;
+use serde::{Deserialize, Serialize};
 
-const CIPHERTEXT_VERSION: &str = "v1";
 const STORAGE_CREDENTIAL_INFO: &[u8] = b"asterdrive:storage-credential-token:v1";
 const MIN_MASTER_KEY_LEN: usize = 32;
 const CONNECTOR_CREDENTIAL_FORMAT_VERSION: u32 = 1;
@@ -31,97 +22,42 @@ pub fn token_hash(token: &str) -> String {
     hash::sha256_hex(token.as_bytes())
 }
 
-fn cipher(master_key: &str) -> Result<Aes256Gcm> {
+fn validate_master_key(master_key: &str) -> Result<&str> {
     let master_key = master_key.trim();
     if master_key.len() < MIN_MASTER_KEY_LEN {
         return Err(AsterError::config_error(format!(
             "storage credential encryption master key must be at least {MIN_MASTER_KEY_LEN} characters"
         )));
     }
-    let hk = Hkdf::<Sha256>::new(None, master_key.as_bytes());
-    let mut key = [0_u8; 32];
-    hk.expand(STORAGE_CREDENTIAL_INFO, &mut key)
-        .map_aster_err_ctx(
-            "failed to derive storage credential encryption key",
-            AsterError::config_error,
-        )?;
-    Aes256Gcm::new_from_slice(&key).map_aster_err_ctx(
-        "invalid storage credential encryption key",
-        AsterError::config_error,
-    )
+    Ok(master_key)
 }
 
 pub fn encrypt_token(master_key: &str, aad: &[u8], plaintext: &str) -> Result<String> {
-    let cipher = cipher(master_key)?;
-    let nonce = Nonce::generate();
-    let ciphertext = cipher
-        .encrypt(
-            &nonce,
-            aes_gcm::aead::Payload {
-                msg: plaintext.as_bytes(),
-                aad,
-            },
-        )
-        .map_aster_err_ctx(
-            "failed to encrypt storage credential token",
-            AsterError::internal_error,
-        )?;
-    Ok(format!(
-        "{}:{}:{}",
-        CIPHERTEXT_VERSION,
-        URL_SAFE_NO_PAD.encode(nonce),
-        URL_SAFE_NO_PAD.encode(ciphertext)
-    ))
+    let master_key = validate_master_key(master_key)?;
+    aster_forge_crypto::encrypt_secret(
+        master_key.as_bytes(),
+        STORAGE_CREDENTIAL_INFO,
+        aad,
+        plaintext.as_bytes(),
+    )
+    .map_aster_err_ctx(
+        "failed to encrypt storage credential token",
+        AsterError::internal_error,
+    )
 }
 
 pub fn decrypt_token(master_key: &str, aad: &[u8], ciphertext: &str) -> Result<String> {
-    let mut parts = ciphertext.split(':');
-    let version = parts.next();
-    let nonce = parts.next();
-    let encrypted = parts.next();
-    if version != Some(CIPHERTEXT_VERSION)
-        || nonce.is_none()
-        || encrypted.is_none()
-        || parts.next().is_some()
-    {
-        return Err(AsterError::database_operation(
-            "invalid storage credential token ciphertext format",
-        ));
-    }
-
-    let nonce = nonce.ok_or_else(|| {
-        AsterError::database_operation("invalid storage credential token ciphertext format")
-    })?;
-    let encrypted = encrypted.ok_or_else(|| {
-        AsterError::database_operation("invalid storage credential token ciphertext format")
-    })?;
-
-    let nonce = URL_SAFE_NO_PAD.decode(nonce).map_aster_err_ctx(
-        "invalid storage credential token nonce",
+    let master_key = validate_master_key(master_key)?;
+    let plaintext = aster_forge_crypto::decrypt_secret(
+        master_key.as_bytes(),
+        STORAGE_CREDENTIAL_INFO,
+        aad,
+        ciphertext,
+    )
+    .map_aster_err_ctx(
+        "failed to decrypt storage credential token",
         AsterError::database_operation,
     )?;
-    let nonce: [u8; 12] = nonce.try_into().map_err(|_| {
-        AsterError::database_operation("invalid storage credential token nonce length")
-    })?;
-    let encrypted = URL_SAFE_NO_PAD.decode(encrypted).map_aster_err_ctx(
-        "invalid storage credential token ciphertext",
-        AsterError::database_operation,
-    )?;
-    let nonce = Nonce::try_from(nonce.as_slice()).map_err(|_| {
-        AsterError::database_operation("invalid storage credential token nonce length")
-    })?;
-    let plaintext = cipher(master_key)?
-        .decrypt(
-            &nonce,
-            aes_gcm::aead::Payload {
-                msg: encrypted.as_slice(),
-                aad,
-            },
-        )
-        .map_aster_err_ctx(
-            "failed to decrypt storage credential token",
-            AsterError::database_operation,
-        )?;
     String::from_utf8(plaintext).map_aster_err_ctx(
         "storage credential token plaintext is not UTF-8",
         AsterError::database_operation,
@@ -238,5 +174,17 @@ mod tests {
         assert!(
             decrypt_connector_credential(key, 7, "asterdrive.storage.s3", 2, &encrypted).is_err()
         );
+    }
+
+    #[test]
+    fn existing_storage_v1_fixture_remains_readable_without_migration() {
+        let plaintext = decrypt_token(
+            "forge-secret-envelope-test-master-key",
+            b"storage_policy_credential:9:microsoft_graph:access",
+            "v1:AAECAwQFBgcICQoL:lVf2A9KFG97Bm8ru8l9wF-i_taTNtAbZ-MYT3Kujr95sOUE",
+        )
+        .expect("existing storage credential v1 fixture should decrypt");
+
+        assert_eq!(plaintext, "opaque-access-token");
     }
 }
