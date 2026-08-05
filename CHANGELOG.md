@@ -9,19 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Release Highlights
 
-自 `v0.4.0` 以来，AsterDrive 主线完成了面向生产多 Primary 部署、WebDAV 协议边界、上传数据平面和内部 crate 所有权的一轮大规模演进。新增显式 `single` / `cluster` 部署 profile、Redis 跨实例事件同步、反向隧道 owner lease 与转发、Kubernetes Kustomize / Helm 部署路径；初始化流程统一为 `needs_admin` / `needs_storage` / `ready` 三态，并要求管理员显式创建首个存储策略。
+自 `v0.4.0` 以来，AsterDrive 主线完成了面向生产多 Primary 部署、WebDAV 协议边界、上传数据平面、存储 connector 平台和内部 crate 所有权的一轮大规模演进。新增显式 `single` / `cluster` 部署 profile、Redis 跨实例事件同步、反向隧道 owner lease 与转发、Kubernetes Kustomize / Helm 部署路径；初始化流程统一为 `needs_admin` / `needs_storage` / `ready` 三态，并要求管理员显式创建首个存储策略。
 
 WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、RFC 4331 配额属性、虚拟挂载根锁、目录分页、资源预算与请求级观测；资源锁系统改为数据库权威的 namespace / generation 模型，并补齐条件 PUT / COPY、原子递归 DELETE、跨 workspace 锁配额与并发清理边界。文件与目录 API 由布尔 `is_locked` 升级为结构化 `lock_state`。上传侧新增 OneDrive 服务端 relay resumable 模式，并收紧 0.5.0 session 边界，彻底移除旧的 payload-per-chunk 兼容路径。
+
+存储策略从内建 `DriverType` 分支和前后端平铺字段重构为 connector-owned contract：稳定的反向域名 `ConnectorId`、版本化 `storage_config`、独立凭据 schema、descriptor 驱动字段与 action、connector 自带本地化资源，以及由 registry 动态构造 driver。Local、S3、SFTP、OneDrive、Azure Blob、Tencent COS 和 Remote connector 均接入同一契约；旧凭据在 0.5.x 启动阶段于 migration lock 下转为加密的 connector-owned payload，同时保留旧数据库结构到 0.6.0 再统一移除。
 
 - **多 Primary 集群部署** — 共享 PostgreSQL / MySQL、Redis cache / config sync、跨实例 storage events、任务与调度 fencing、反向隧道 owner 路由
 - **Kubernetes 生产部署** — 提供 Kustomize base / overlays、Helm chart、StatefulSet、PDB、NetworkPolicy、RWX avatar 存储与多 Primary E2E
 - **WebDAV 与资源锁重构** — AsterForge WebDAV 0.2、多 Range、配额属性、条件写入、原子 mutation、虚拟根锁、结构化 `lock_state`、Litmus stress suites
-- **上传与对象存储增强** — OneDrive 服务端 relay resumable、并发 chunk claim、S3 SigV4 签名区域配置
+- **存储 connector 平台化** — plugin-ready registry、版本化 typed config、descriptor / action / capability contract、独立 credential schema、connector-owned 本地化
+- **存储策略与凭据迁移** — current policy schema 收敛为 `connector_id` + `storage_config`，静态凭据和 OAuth 凭据迁入加密的 `storage_policy_connector_credentials`
+- **上传与对象存储增强** — OneDrive 服务端 relay resumable、并发 chunk claim、S3 SigV4 签名区域配置、Tencent COS 原生 Q-Sign
 - **初始化与配置收口** — 三态 setup、首个存储策略显式创建、数据库 / Redis 结构化凭据、Redis 故障不再静默降级
 - **内部所有权收口** — Drive 保留 model、migration、storage、metrics 四个领域 crates；通用 HTTP body limit 与密文封装复用 AsterForge
 
 ### Breaking
 
+- **存储策略 API / schema** — 存储策略不再暴露 `driver_type`、`endpoint`、`bucket`、`base_path`、`access_key`、`secret_key`、`options` 等 provider-specific 平铺字段；响应改用稳定 `connector_id`、`connector_config` 与 `behavior`，创建请求统一提交 `connection = { connector_config, behavior, credential }`，更新请求分别提交 connector config、behavior 和 tagged credential。依赖旧 DTO、`DriverType` 枚举或字段名的客户端需要按 connector descriptor 构造请求。
+- **存储凭据输入** — 静态密钥与授权应用配置改为互斥的 tagged credential channel（`none` / `static` / `authorization_application`），字段名称由 connector schema 定义，例如 S3 与 Tencent COS 使用各自命名空间，不再共享含糊的 `access_key` / `secret_key` 表单字段。
+- **存储 connector action** — 删除 S3-compatible policy promotion 专用 API 和 provider-specific action 枚举；管理端与 API 客户端应从 connector catalog 读取 action ID、endpoint、输入字段、是否要求已保存策略/授权以及远端副作用声明。
 - **上传 session 0.5.0 边界** — `upload_sessions.session_kind` 收紧为 `NOT NULL`，并删除 0.4.x payload-per-chunk `chunk_N`、`assembled` 拼装/relay、kind 推断和 assembly limiter。升级迁移遇到 null 或非法 kind 会停止且保留原行；部署方需要先清理已过期的旧上传 session。
 - **资源锁 API schema** — 文件、目录、搜索、回收站和管理端 DTO 的 `is_locked: boolean` 替换为结构化 `lock_state`，区分 `unlocked`、`direct` 和 `inherited`。依赖旧字段的 API 客户端需要更新。
 - **WebDAV DeltaV 子集移除** — 不再声明或处理 `VERSION-CONTROL` / `REPORT`，请求现在返回 `405 Method Not Allowed`；文件版本历史仍由 AsterDrive REST API 管理。
@@ -41,11 +48,36 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
   - 提供 OrbStack smoke-test overlay、production-example overlay 与 Helm chart；chart 校验敏感配置、selector label、资源名长度和固定共享存储边界
 - **三态系统初始化** — 新增 `SystemSetupState`（`needs_admin` / `needs_storage` / `ready`），并同步到 `/auth/check`、`/health/ready`、路由守卫和前端首次存储配置流程。
 - **结构化连接凭据** — database、cache 和 config-sync endpoint 支持 `{ base_url, username, password }` inline table 与嵌套环境变量，原始保留字符由配置层安全编码。
+- **Plugin-ready storage connector registry**
+  - 新增 object-safe `StorageConnector` contract 与 `StorageConnectorRegistry`，connector 通过动态分发负责 descriptor、配置解码、凭据处理、授权、连接测试、action 和 driver construction；业务编排层不再 match 内建 provider
+  - connector 只接收受控的 `StorageConnectorContext`，不再要求完整应用 state；registry 在启动时一次性注册并校验 Local、S3、SFTP、OneDrive、Azure Blob、Tencent COS 和 Remote connector
+  - 新增反向域名格式的稳定 `ConnectorId`（例如 `asterdrive.storage.s3`），校验长度、字符和 namespace segment；未知 connector 的持久化 envelope 保留原始数据并报告不可用，不会被静默改写或丢弃
+  - descriptor 声明 deployment scope、initial-setup 支持、credential mode、对象与上传能力、配置 schema version、credential schema version、UI badge RGB、字段和 action；多 Primary topology 与 policy capability validation 统一消费 registry contract
+- **版本化存储策略配置**
+  - 新增 `StoragePolicyConfigEnvelope`，把 connector-owned typed config 与 core-owned behavior 放入单一 `storage_config`；connector config 自带 format version、connector ID、schema version 与 typed values
+  - Local、S3、SFTP、OneDrive、Azure Blob、Tencent COS、Remote 均用 Rust typed schema 生成 descriptor、默认值、序列化与反序列化规则，移除手工拼装 JSON 和前后端重复维护的 provider 字段矩阵
+  - descriptor 默认值参与缺失值、空 optional text 和 required 校验；policy create、update、draft connection test 与 action input 使用同一 normalization / validation contract
+  - policy behavior 在 connector capability 下校验；不支持 storage-native thumbnail 或 media metadata 的 connector 会在保存或连接测试前返回明确错误，而不是静默忽略配置
+- **Connector-owned credential lifecycle**
+  - 新增 `storage_policy_connector_credentials`，用 connector ID、独立 credential schema version、revision 与加密 payload 保存静态凭据、OAuth 应用配置和 delegated credential
+  - credential schema 与 config schema 独立演进；加密 AAD 绑定 policy ID、connector ID 与 credential schema version，配置字段升级不会让已有凭据失效
+  - 编辑策略时 secret placeholder 的空值从已保存密文恢复后再验证；跨 connector policy ID 复用会被拒绝，避免把其他 connector 的凭据带入 draft
+  - OneDrive token refresh 使用 revision / CAS 写回当前 payload，避免并发刷新或校验把新 token 覆盖为旧值
+  - 强制删除策略前，S3、SFTP、Azure Blob、Tencent COS 生成只含既有 ciphertext 与非敏感配置的 cleanup snapshot；后台清理无需已删除的 policy row，也不会把明文 secret 写入 task payload
+- **Connector descriptor 驱动的管理端**
+  - 存储策略创建、编辑、连接测试和 action UI 改为统一字段 renderer，按 descriptor 渲染 text、secret、boolean、number、select、默认值、说明、badge、confirmation 和 saved-policy gate
+  - action select 支持 `remote_nodes` 与依赖 node 的 `remote_storage_targets` 动态数据源；父选择变化时级联清空旧 target，依赖未解析时禁用子字段
+  - secret 编辑框保留“不填写即保持原值”的 placeholder 语义；optional number 清空后从 payload 删除，允许 descriptor default 重新生效
+- **Connector-owned 管理端本地化**
+  - 新增 `StorageConnectorLocalization` contract，内建 connector 将字段、action、授权状态和 credential management 文案与 connector 实现放在一起，并在 registry 注册时校验 message ID、locale 和 key coverage
+  - 管理端语言从固定 `en | zh` 枚举迁移为规范化 BCP 47 `LocaleTag`；connector bundle 按请求 locale 解析并回退到自身 default locale
+  - 新增仅管理员可访问的 `/api/v1/admin/policies/storage-drivers/localizations`，按 catalog context 和 locale 返回 namespaced resource，并提供稳定 ETag / `304 Not Modified`
 - **OneDrive server-relay resumable upload**
   - 新增 `ProviderRelayResumable` session kind，服务端按顺序流式转发 Microsoft Graph fragments，无需把整个 fragment 缓冲进内存
   - chunk claim、heartbeat、stale claim 回收和进度 reconciliation 使用数据库原子协调；前端按后端返回的 `upload_scheduling` 调整并发与顺序
   - 并发上传中的 chunk 返回可重试 `202 upload.chunk_pending`，独立 90 秒 fragment timeout 防止 claim 长期占用
 - **S3 SigV4 签名区域** — S3-compatible 策略新增 `s3_region`，默认 `auto`；连接测试与运行时使用同一签名区域，并在模型、descriptor、管理 UI 和 API 层校验。
+- **Tencent COS 原生 AWS SDK auth replacement** — 在 AWS SDK auth scheme 插槽中接入 COS Q-Sign，统一普通 GET / PUT / COPY、presigned GET / PUT / UploadPart 和 multipart lifecycle；签名前规范化 `x-amz-*` header、checksum 与 query，并修复非 ASCII / 保留字符 object key 的 canonical path 双重编码。
 - **WebDAV 0.2 能力**
   - 支持单 Range / 多 Range GET、RFC 4331 `quota-used-bytes` / `quota-available-bytes`、目录 keyset pagination 和 capability snapshot method gating
   - COPY / MOVE / DELETE 对文件数、目录数、深度和 frontier 设置资源预算；超限返回 `507` 与稳定错误码 `operation.resource_limit_exceeded`
@@ -57,6 +89,12 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Changed
 
+- **存储策略持久化模型** — current `storage_policy` entity 收敛为 `id`、`name`、`connector_id`、`storage_config`、文件大小/类型/默认策略/chunk 行为与时间戳；运行时通过 connector projection 读取 endpoint、bucket、base path、远端绑定和 provider 行为，不再直接访问旧平铺列。
+- **存储策略 API 编排** — create、update、draft connection test、saved connection test、authorization 与 custom action 统一按 connector registry 查找和分发；请求中的 malformed / unknown connector 返回输入校验错误，数据库中未知 connector ID 则作为持久化配置损坏处理。
+- **Credential migration ownership** — 0.5.x 启动在 runtime config 和 encryption key 可用后、正式监听服务前，于 database migration lock 下执行幂等 legacy credential import；`database-migrate apply` 在目标数据复制校验完成后复用同一 importer。
+- **存储管理 UI 数据所有权** — 前端不再维护 Local / S3 / SFTP / OneDrive / Azure Blob / Tencent COS / Remote 的硬编码表单、action、account mode 和 provider 文案矩阵；connector catalog 和 localization resource 成为配置管理 UI 的事实源，同时保留既有策略列表、编辑对话框、字段说明和徽标视觉层级。
+- **Local 默认存储路径** — Local connector、driver、首次配置和测试统一使用 `./data/uploads`；缺失或空 base path 由 connector default 补全，不再散落多套 fallback。
+- **S3-compatible driver 复用** — 提取 AWS request vendor normalization，并用 storage / multipart delegation macro 收敛 S3-compatible 与 Tencent COS 重复实现；S3 driver 构造改为显式 options + SDK config hook，供 provider auth 和 signing customization 使用。
 - **资源锁权威模型** — 删除 `files.is_locked` / `folders.is_locked` 持久化布尔值；新增 workspace-scoped `resource_lock_namespaces`、generation counter 和结构化 lock root，写入路径通过同一事务中的 namespace lock 与 `SELECT FOR UPDATE` 重新校验。
 - **WebDAV mutation 原子性** — DELETE / MOVE / COPY 将资源变更、锁清理和锁路径 rebind 纳入同一 writer transaction；递归 DELETE 遇到锁冲突或后端失败时整体回滚并返回请求级 `423` / `500`，不再提交部分结果；UNLOCK / force unlock 同样保证锁行与关联状态一致回滚。
 - **WebDAV 协议所有权** — 协议解析、XML、HTTP conditional / Range、锁 grammar 和 canonical response 迁移到 `aster_forge_webdav` / `aster_forge_xml`；Drive 保留 workspace、权限、持久化、存储、配额、审计和集成层。
@@ -64,7 +102,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - **Workspace crate 拆分**
   - `aster_drive_model`：共享类型与 SeaORM entities
   - `aster_drive_migration`：数据库 migrations
-  - `aster_drive_storage`：driver traits、connector descriptors、object key 与结构化 storage errors
+  - `aster_drive_storage`：driver traits、connector descriptors、typed config / localization contract、object key 与结构化 storage errors
   - `aster_drive_metrics`：Drive 指标 contract、Noop recorder 与 AsterForge adapter
 - **Forge HTTP / crypto 接入** — 删除本地 `aster_drive_http`，WOPI discovery 与 Tencent COS 改用 `aster_forge_http`；MFA secret 与 storage credential token 改用 AsterForge versioned secret envelope，同时保留既有 HKDF context、AAD、master-key 策略和 `v1:nonce:ciphertext` 兼容性。
 - **依赖基线升级** — SeaORM / migration 升级到 `2.0.1`，Arrow 升级到 `58.4.0`，同步更新 Russh、Lettre、AsterForge 与前端构建 / 测试依赖。
@@ -74,6 +112,13 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Fixed
 
+- **存储凭据 schema 与加密绑定** — credential payload、数据库 row、AAD、decode、migration 和 cleanup snapshot 改用独立 `credential_schema_version`，修复其错误绑定 connector config schema、导致普通配置升级可能影响凭据解密的问题。
+- **OneDrive credential refresh 并发覆盖** — refresh / validation 使用 revision CAS 与刷新后的 current payload，避免 token rotation 后又被旧 access / refresh token 回写覆盖。
+- **策略删除后的远端清理** — 静态凭据 connector 在删除前持久化可执行的加密 cleanup snapshot；缺少必需 snapshot 时拒绝创建注定失败的清理任务，策略和 credential row 删除后仍可完成临时对象或 multipart cleanup。
+- **存储策略编辑校验** — required 字段的 descriptor default 现在计入有效值；optional number 的 `null` 不再进入请求；空 secret placeholder 正确复用已有密文；endpoint protocol 错误改用 connector-neutral 文案。
+- **Remote connector action 联动** — action 中选择 remote node 会单独加载其 storage targets，不再意外修改正在编辑的 policy config；切换 node 时清理旧 target，避免提交不匹配的远端绑定。
+- **0.5.x 跨数据库兼容** — MySQL legacy `storage_policies.options = NULL` 复制到 SQLite / PostgreSQL 时规范化为 `{}`；compatibility migration 的 forward / rollback 保留 legacy indexes、约束和数据。
+- **SQLite parent-table migration 协调** — SQLite writer 在 Forge 开启外层 migration transaction 前，于唯一物理连接上暂时关闭 foreign-key enforcement；所有 pending migration 完成后、提交前执行 `PRAGMA foreign_key_check`，commit / rollback 后恢复原状态。修复已有 blob、folder 或 credential 引用 `storage_policies` 时 rebuild parent table 触发 `SQLITE_CONSTRAINT_FOREIGNKEY`（787）的问题，并拒绝不满足单连接不变量的 SQLite migration pool。
 - **WebDAV 锁与 mutation 一致性** — 修复深度集合锁继承、parent/member lock root 混淆、MOVE 后 destination lock rebind、unlock 部分提交和 backend 错误被吞掉等问题。
 - **WebDAV 条件写入与 COPY** — PUT 在接收请求体后于 writer transaction 内重新校验目标文件快照、ETag、Last-Modified 与锁状态，拒绝并发覆盖和创建竞争；COPY 与 MOVE 均执行 DAV `If` state-token / ETag 条件。
 - **WebDAV 锁生命周期** — 锁配额在 acquire transaction 内按 owner 跨 workspace 串行校验；到期时刻立即视为失效；workspace root lock 在提交前验证 user / team 仍存在；namespace 清理按 workspace type / id 原子删除，避免跨 workspace 误删与并发 TOCTOU。
@@ -90,7 +135,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - **WebDAV / archive 资源耗尽防护** — XML control request、目录遍历、归档扫描、Range 数量和响应体均设置明确上限；超限以稳定协议 / API 错误结束。
 - **Argon2 并发限制** — 新增 `auth.password_hash_max_concurrency`，限制单进程同时执行的密码哈希任务及其工作内存占用。
 - **依赖与解析器升级** — 移除 `xmltree`，升级 `base64`、`jsonwebtoken`、`validator` 和前端依赖；前端 audit override 更新并记录 React Router RSC advisory 对 Vite SPA 不适用。
-- **MFA / storage credential AAD 隔离** — 共享密文封装继续把 MFA user / factor method 与 storage policy / provider / token name 绑定进 AAD；错误上下文无法解密，既有 `v1` 密文无需数据迁移即可读取。
+- **MFA / storage credential AAD 隔离** — 共享密文封装继续把 MFA user / factor method 与 storage policy / connector / credential schema 绑定进 AAD；错误 policy ID、connector ID 或 schema version 无法解密。connector cleanup snapshot 只复制原 ciphertext，不写入解密后的 secret；既有 `v1` 密文仍可读取并由 0.5.x importer 转入 connector-owned store。
 
 ### Database Migrations
 
@@ -103,10 +148,24 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - `m20260803_000001_refactor_resource_locks`
   - 校验旧锁的 workspace / root 身份；legacy `owner_info = NULL` 锁按 WebDAV 来源 fail-closed 迁移；存在无法解析或非法的旧锁时停止升级并保留原数据
   - 新增 `resource_lock_namespaces`，重构 `resource_locks` schema，并移除 files / folders 的 `is_locked` 列
+- `m20260803_000002_storage_policy_connector_configs`
+  - 为 `storage_policies` 新增 `connector_id` 与 `storage_config`，按冻结的 0.5.0 mapping 将 Local、S3、SFTP、OneDrive、Azure Blob、Tencent COS 和 Remote 的旧平铺字段转换为版本化 connector / behavior envelope
+  - 在写事务开始前完整解析所有 legacy row；任一 policy 无法转换时停止整个 backfill，不提交部分迁移结果
+- `m20260803_000003_add_storage_policy_connector_credentials`
+  - 新增每个 policy 唯一的 `storage_policy_connector_credentials`，保存 connector ID、credential schema version、revision、ciphertext 与 UTC 时间戳
+  - 旧静态凭据、授权应用配置和 delegated credential 在 runtime encryption key 可用后由 0.5.x startup importer 加密迁入；历史 migration 本身不读取运行时配置或密钥
+- `m20260805_000001_allow_connector_policy_writes_with_legacy_schema`
+  - 为保留到 0.6.0 的 legacy `driver_type` 增加空字符串 compatibility default，并仅在 MySQL 临时允许 deprecated `TEXT options` 为 NULL，使 current slim entity 可在 0.5.x schema 上写入
+  - SQLite rebuild 保留 current + legacy columns、数据和 indexes；生产 migration coordinator 在 Forge transaction 外管理 connection-local foreign-key pragma，在 transaction 内校验引用完整性，并于 commit / rollback 后恢复原状态；PostgreSQL / MySQL forward 与 rollback 显式恢复原约束
 
 ### Notes
 
 - 从 `v0.4.0` 升级前应先清理已过期或异常的 legacy upload sessions；`session_kind` 预检失败时 migration 不会继续。
+- 0.5.x 存储升级分为两段：SeaORM migration 先 backfill `connector_id` / `storage_config` 并创建新 credential store；服务在 config、master encryption key 和 migration lock 可用后再导入并重加密 legacy credential。单个 policy 成功写入新密文后才清空 legacy `access_key` / `secret_key`，并删除 deprecated credential stores 中已转换的行。
+- 0.5.x 刻意保留 `storage_policies` 的九个 legacy columns、相关 indexes / foreign keys，以及 `storage_policy_credentials`、`storage_connector_application_configs` 两张 deprecated table；它们只服务升级兼容，物理删除由 #463 在 0.6.0 执行，并会在发现未迁移凭据时硬失败和回滚。
+- `database-migrate apply` 会先完成目标库 copy verification，再在目标库 migration lock 下执行同一 credential importer；MySQL legacy nullable `options` 在复制到 SQLite / PostgreSQL 时会规范化为 `{}`。
+- 使用存储策略管理 API 的客户端需要先读取 connector catalog，根据 descriptor 的 config / credential / action schema 构造请求，不再依赖内建 driver 枚举或固定 provider 字段。connector localization endpoint 仅面向已认证管理员，并支持 ETag 缓存。
+- Local connector 的默认数据目录现在是 `./data/uploads`；已有策略迁移时保留其显式 base path，只有缺失或空值才应用 connector default。
 - 使用文件 / 目录 REST DTO 的第三方客户端需要从 `is_locked` 迁移到 `lock_state.state`，并处理 inherited lock。
 - 使用 WebDAV `VERSION-CONTROL` / `REPORT` 的客户端需要改用普通 WebDAV 文件操作与 AsterDrive REST 版本历史接口。
 - `single` 仍是默认 deployment profile；启用 `cluster` 前需要准备共享数据库、Redis、共享对象存储和 RWX avatar 存储，并通过 `aster_drive doctor` 检查拓扑。
@@ -115,9 +174,9 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Statistics
 
-- 1167 files changed, 60093 insertions(+), 29979 deletions(-)
-- 30 commits
-- 4 个数据库 migration
+- 1262 files changed, 90837 insertions(+), 61627 deletions(-)
+- 46 commits
+- 7 个数据库 migration
 
 ## [v0.4.0] - 2026-07-23
 

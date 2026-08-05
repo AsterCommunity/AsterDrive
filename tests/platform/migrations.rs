@@ -2,8 +2,10 @@
 
 use crate::common;
 
-use aster_drive_migration::{CurrentMigrator, MigratorTrait};
-use sea_orm::{ConnectionTrait, Database, DatabaseConnection, DbBackend, DbErr, Statement};
+use aster_drive_migration::{CurrentMigrator, Migrator, MigratorTrait};
+use sea_orm::{
+    ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbBackend, DbErr, Statement,
+};
 
 const ALLOW_SHARED_WEBDAV_LOCKS_MIGRATION: &str = "m20260604_000001_allow_shared_webdav_locks";
 const RENAME_UPLOAD_SESSION_OBJECT_FIELDS_MIGRATION: &str =
@@ -35,7 +37,7 @@ const PROVIDER_RELAY_RESUMABLE_UPLOAD_MIGRATION: &str =
     "m20260728_000001_provider_relay_resumable_upload";
 const REFACTOR_RESOURCE_LOCKS_MIGRATION: &str = "m20260803_000001_refactor_resource_locks";
 const STORAGE_POLICY_CONNECTOR_CONFIGS_MIGRATION: &str =
-    "m20260803_000001_storage_policy_connector_configs";
+    "m20260803_000002_storage_policy_connector_configs";
 const ALLOW_CONNECTOR_POLICY_WRITES_WITH_LEGACY_SCHEMA_MIGRATION: &str =
     "m20260805_000001_allow_connector_policy_writes_with_legacy_schema";
 
@@ -968,6 +970,294 @@ async fn storage_policy_compatibility_migration_keeps_legacy_schema_writable_and
     insert_current_storage_policy(&db, "current-after-reapply")
         .await
         .expect("reapplied compatibility migration should restore current writes");
+}
+
+#[tokio::test]
+async fn production_sqlite_migrator_rebuilds_referenced_storage_policy_parent_table() {
+    let (db, _database_guard) =
+        file_backed_sqlite_migration_database("storage-policy-parent-rebuild").await;
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(
+            STORAGE_POLICY_CONNECTOR_CONFIGS_MIGRATION,
+        )),
+    )
+    .await
+    .expect("legacy storage policy schema should apply");
+    insert_legacy_storage_policy(
+        &db,
+        LegacyStoragePolicyFixture {
+            id: 301,
+            driver_type: "s3",
+            endpoint: "https://s3.example.test",
+            bucket: "archive",
+            base_path: "tenant/legacy",
+            remote_node_id: None,
+            remote_storage_target_key: None,
+            options: r#"{"s3_region":"cn-beijing"}"#,
+        },
+    )
+    .await;
+    CurrentMigrator::up(&db, Some(2))
+        .await
+        .expect("connector config and credential schema migrations should apply");
+    db.execute_unprepared(
+        "INSERT INTO file_blobs (id, hash, storage_path, size, policy_id, ref_count, created_at, updated_at) \
+         VALUES (401, 'compatibility-blob', 'compatibility-blob', 1, 301, 1, \
+                 '2026-08-05T00:00:00Z', '2026-08-05T00:00:00Z')",
+    )
+    .await
+    .expect("foreign-key fixture should reference the legacy storage policy");
+
+    Migrator::up(&db, None)
+        .await
+        .expect("production migration coordinator should rebuild the referenced parent table");
+
+    let (_, driver_type_default) =
+        sqlite_column_type_and_default(&db, "storage_policies", "driver_type").await;
+    assert_eq!(driver_type_default.as_deref(), Some("''"));
+    assert_eq!(
+        db.query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT policy_id FROM file_blobs WHERE id = 401",
+        ))
+        .await
+        .expect("referencing blob lookup should succeed")
+        .expect("referencing blob must survive the policy table rebuild")
+        .try_get_by_index::<i64>(0)
+        .expect("policy id should decode"),
+        301,
+        "rebuilding storage_policies must not cascade or detach referencing rows"
+    );
+    assert!(
+        db.query_all_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "PRAGMA foreign_key_check",
+        ))
+        .await
+        .expect("foreign-key check should execute")
+        .is_empty()
+    );
+    assert_eq!(
+        db.query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "PRAGMA foreign_keys",
+        ))
+        .await
+        .expect("foreign-key state should be readable")
+        .expect("foreign-key state should return one row")
+        .try_get_by_index::<i64>(0)
+        .expect("foreign-key state should decode"),
+        1,
+        "migration finalization must restore foreign-key enforcement"
+    );
+}
+
+#[tokio::test]
+async fn production_sqlite_migrator_rolls_back_failed_parent_table_rebuild_and_restores_fk_state() {
+    let (db, _database_guard) =
+        file_backed_sqlite_migration_database("storage-policy-rebuild-rollback").await;
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(
+            ALLOW_CONNECTOR_POLICY_WRITES_WITH_LEGACY_SCHEMA_MIGRATION,
+        )),
+    )
+    .await
+    .expect("pre-compatibility migrations should apply");
+    db.execute_unprepared("DROP INDEX idx_storage_policies_remote_node_id")
+        .await
+        .expect("fixture should release the production index name");
+    db.execute_unprepared("CREATE TABLE migration_index_name_guard (id INTEGER PRIMARY KEY)")
+        .await
+        .expect("fixture should create an unrelated index owner");
+    db.execute_unprepared(
+        "CREATE INDEX idx_storage_policies_remote_node_id ON migration_index_name_guard (id)",
+    )
+    .await
+    .expect("fixture should reserve the production index name");
+
+    let error = Migrator::up(&db, None)
+        .await
+        .expect_err("production migration coordinator should surface the rebuild failure");
+    assert!(
+        error
+            .to_string()
+            .contains("idx_storage_policies_remote_node_id"),
+        "failure should retain the conflicting index context: {error}"
+    );
+    assert!(
+        !sqlite_table_exists(&db, "storage_policies__legacy_driver_default_rebuild").await,
+        "failed rebuild DDL should roll back with the Forge migration transaction"
+    );
+    assert!(
+        !migration_is_applied(
+            &db,
+            ALLOW_CONNECTOR_POLICY_WRITES_WITH_LEGACY_SCHEMA_MIGRATION
+        )
+        .await,
+        "failed migration must not commit its history row"
+    );
+    assert_eq!(
+        sqlite_column_type_and_default(&db, "storage_policies", "driver_type")
+            .await
+            .1,
+        None,
+        "failed migration must not leave the compatibility default behind"
+    );
+    assert!(
+        sqlite_foreign_keys_enabled(&db).await,
+        "migration failure must restore the original foreign-key state"
+    );
+}
+
+#[tokio::test]
+async fn production_sqlite_migrator_rolls_back_when_foreign_key_check_finds_existing_violation() {
+    let (db, _database_guard) =
+        file_backed_sqlite_migration_database("storage-policy-foreign-key-check").await;
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(
+            ALLOW_CONNECTOR_POLICY_WRITES_WITH_LEGACY_SCHEMA_MIGRATION,
+        )),
+    )
+    .await
+    .expect("pre-compatibility migrations should apply");
+    db.execute_unprepared("PRAGMA foreign_keys = OFF")
+        .await
+        .expect("fixture should temporarily disable foreign keys");
+    db.execute_unprepared(
+        "INSERT INTO file_blobs (id, hash, storage_path, size, policy_id, ref_count, created_at, updated_at) \
+         VALUES (402, 'orphaned-blob', 'orphaned-blob', 1, 999, 1, \
+                 '2026-08-05T00:00:00Z', '2026-08-05T00:00:00Z')",
+    )
+    .await
+    .expect("fixture should create an existing foreign-key violation");
+    db.execute_unprepared("PRAGMA foreign_keys = ON")
+        .await
+        .expect("fixture should restore foreign-key enforcement before migration");
+
+    let error = Migrator::up(&db, None)
+        .await
+        .expect_err("foreign-key validation should reject the rebuilt schema");
+    assert!(
+        error.to_string().contains("foreign key violation"),
+        "failure should identify the integrity check: {error}"
+    );
+    assert!(
+        !migration_is_applied(
+            &db,
+            ALLOW_CONNECTOR_POLICY_WRITES_WITH_LEGACY_SCHEMA_MIGRATION
+        )
+        .await,
+        "integrity failure must roll back the migration history row"
+    );
+    assert_eq!(
+        sqlite_column_type_and_default(&db, "storage_policies", "driver_type")
+            .await
+            .1,
+        None,
+        "integrity failure must roll back the rebuilt table"
+    );
+    assert_eq!(
+        db.query_all_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "PRAGMA foreign_key_check",
+        ))
+        .await
+        .expect("foreign-key check should remain readable")
+        .len(),
+        1,
+        "the pre-existing violation should remain, without new migration damage"
+    );
+    assert!(
+        sqlite_foreign_keys_enabled(&db).await,
+        "integrity failure must restore the original foreign-key state"
+    );
+}
+
+#[tokio::test]
+async fn production_sqlite_migrator_rejects_multi_connection_writer_pool() {
+    let (db, _database_guard) = file_backed_sqlite_migration_database_with_max_connections(
+        "multi-connection-migration-pool",
+        2,
+    )
+    .await;
+
+    let error = Migrator::up(&db, None)
+        .await
+        .expect_err("SQLite migration coordinator should require one physical connection");
+    assert!(
+        error.to_string().contains("single-connection writer pool"),
+        "configuration error should explain the invariant: {error}"
+    );
+    assert!(
+        !sqlite_table_exists(&db, "seaql_migrations").await,
+        "rejected pool configuration must not start schema migration"
+    );
+}
+
+async fn file_backed_sqlite_migration_database(
+    name: &str,
+) -> (DatabaseConnection, aster_forge_utils::raii::TempDirGuard) {
+    file_backed_sqlite_migration_database_with_max_connections(name, 1).await
+}
+
+async fn file_backed_sqlite_migration_database_with_max_connections(
+    name: &str,
+    max_connections: u32,
+) -> (DatabaseConnection, aster_forge_utils::raii::TempDirGuard) {
+    let directory = std::env::temp_dir().join(format!(
+        "asterdrive-{name}-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::create_dir_all(&directory)
+        .expect("file-backed SQLite migration directory should be created");
+    let guard = aster_forge_utils::raii::TempDirGuard::new(
+        directory.clone(),
+        "file-backed SQLite migration database",
+    );
+    let mut options = ConnectOptions::new(format!(
+        "sqlite://{}?mode=rwc",
+        directory.join("migration.sqlite").display()
+    ));
+    options.max_connections(max_connections).min_connections(1);
+    let database = Database::connect(options)
+        .await
+        .expect("file-backed SQLite migration database should connect");
+    database
+        .execute_unprepared("PRAGMA foreign_keys = ON")
+        .await
+        .expect("file-backed SQLite migration database should enforce foreign keys");
+    (database, guard)
+}
+
+async fn sqlite_foreign_keys_enabled(db: &DatabaseConnection) -> bool {
+    db.query_one_raw(Statement::from_string(
+        DbBackend::Sqlite,
+        "PRAGMA foreign_keys",
+    ))
+    .await
+    .expect("foreign-key state should be readable")
+    .expect("foreign-key state should return one row")
+    .try_get_by_index::<i64>(0)
+    .expect("foreign-key state should decode")
+        != 0
+}
+
+async fn migration_is_applied(db: &DatabaseConnection, migration_name: &str) -> bool {
+    let statement = Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        "SELECT COUNT(*) FROM seaql_migrations WHERE version = ?",
+        [migration_name.into()],
+    );
+    db.query_one_raw(statement)
+        .await
+        .expect("migration history should be readable")
+        .expect("migration history count should return one row")
+        .try_get_by_index::<i64>(0)
+        .expect("migration history count should decode")
+        != 0
 }
 
 #[tokio::test]

@@ -60,17 +60,17 @@ mod m20260723_000001_require_upload_session_kind;
 mod m20260725_000001_remote_tunnel_owners;
 mod m20260728_000001_provider_relay_resumable_upload;
 mod m20260803_000001_refactor_resource_locks;
-mod m20260803_000001_storage_policy_connector_configs;
-mod m20260803_000002_add_storage_policy_connector_credentials;
+mod m20260803_000002_storage_policy_connector_configs;
+mod m20260803_000003_add_storage_policy_connector_credentials;
 mod m20260805_000001_allow_connector_policy_writes_with_legacy_schema;
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
 const RESOURCE_LOCK_REFACTOR_MIGRATION: &str = "m20260803_000001_refactor_resource_locks";
 const STORAGE_POLICY_CONNECTOR_CONFIGS_MIGRATION: &str =
-    "m20260803_000001_storage_policy_connector_configs";
+    "m20260803_000002_storage_policy_connector_configs";
 const STORAGE_POLICY_CONNECTOR_CREDENTIALS_MIGRATION: &str =
-    "m20260803_000002_add_storage_policy_connector_credentials";
+    "m20260803_000003_add_storage_policy_connector_credentials";
 const POSTGRES_MIGRATION_LOCK_KEY: i64 = 0x4153_5445_5244_5249;
 const MYSQL_MIGRATION_LOCK_NAME: &str = "aster_drive:database_migrations";
 const MYSQL_MIGRATION_LOCK_TIMEOUT_SECONDS: u64 = 300;
@@ -194,8 +194,8 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20260725_000001_remote_tunnel_owners::Migration),
             Box::new(m20260728_000001_provider_relay_resumable_upload::Migration),
             Box::new(m20260803_000001_refactor_resource_locks::Migration),
-            Box::new(m20260803_000001_storage_policy_connector_configs::Migration),
-            Box::new(m20260803_000002_add_storage_policy_connector_credentials::Migration),
+            Box::new(m20260803_000002_storage_policy_connector_configs::Migration),
+            Box::new(m20260803_000003_add_storage_policy_connector_credentials::Migration),
             Box::new(
                 m20260805_000001_allow_connector_policy_writes_with_legacy_schema::Migration,
             ),
@@ -316,10 +316,94 @@ where
 }
 
 pub async fn apply_database_migrations(database: &DatabaseConnection) -> Result<(), DbErr> {
+    if database.get_database_backend() == DbBackend::Sqlite {
+        return apply_sqlite_database_migrations(database).await;
+    }
     with_database_migration_lock(database, |connection| {
         Box::pin(apply_database_migrations_unlocked(connection))
     })
     .await
+}
+
+/// Run SQLite schema migrations with foreign keys disabled before Forge opens
+/// its outer migration transaction.
+///
+/// SQLite ignores `PRAGMA foreign_keys = OFF` after a transaction has begun.
+/// Parent-table rebuilds therefore need the connection-local pragma configured
+/// before `with_database_migration_lock` starts its transaction. AsterDrive's
+/// SQLite writer is deliberately single-connection, so the pragma setup, Forge
+/// transaction, integrity check, and state restoration all use the same
+/// physical connection.
+async fn apply_sqlite_database_migrations(database: &DatabaseConnection) -> Result<(), DbErr> {
+    let pool = database.get_sqlite_connection_pool();
+    let max_connections = pool.options().get_max_connections();
+    if max_connections != 1 {
+        return Err(migration_state_error(format!(
+            "SQLite migrations require a single-connection writer pool; configured maximum is {max_connections}"
+        )));
+    }
+
+    let foreign_keys_enabled = sqlite_foreign_keys_enabled(database).await?;
+    if let Err(configuration_error) = set_sqlite_foreign_keys(database, false).await {
+        let restore_result = set_sqlite_foreign_keys(database, foreign_keys_enabled).await;
+        return match restore_result {
+            Ok(()) => Err(configuration_error),
+            Err(restore_error) => Err(migration_state_error(format!(
+                "{configuration_error}; additionally failed to restore SQLite foreign-key state: {restore_error}"
+            ))),
+        };
+    }
+
+    let operation_result = with_database_migration_lock(database, |connection| {
+        Box::pin(apply_database_migrations_unlocked(connection))
+    })
+    .await;
+
+    let restore_result = set_sqlite_foreign_keys(database, foreign_keys_enabled).await;
+    match (operation_result, restore_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(operation_error), Ok(())) => Err(operation_error),
+        (Ok(()), Err(restore_error)) => Err(restore_error),
+        (Err(operation_error), Err(restore_error)) => Err(migration_state_error(format!(
+            "SQLite migration failed: {operation_error}; additionally failed to restore foreign-key state: {restore_error}"
+        ))),
+    }
+}
+
+async fn set_sqlite_foreign_keys(
+    database: &DatabaseConnection,
+    enabled: bool,
+) -> Result<(), DbErr> {
+    let pragma = if enabled {
+        "PRAGMA foreign_keys = ON"
+    } else {
+        "PRAGMA foreign_keys = OFF"
+    };
+    database.execute_unprepared(pragma).await.map_err(|error| {
+        migration_state_error(format!(
+            "failed to set SQLite foreign-key state to {enabled}: {error}"
+        ))
+    })?;
+    let actual = sqlite_foreign_keys_enabled(database).await?;
+    if actual != enabled {
+        return Err(migration_state_error(format!(
+            "SQLite foreign-key state remained {actual} after requesting {enabled}"
+        )));
+    }
+    Ok(())
+}
+
+async fn sqlite_foreign_keys_enabled(database: &DatabaseConnection) -> Result<bool, DbErr> {
+    let row = database
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "PRAGMA foreign_keys",
+        ))
+        .await?
+        .ok_or_else(|| {
+            migration_state_error("SQLite foreign-key status returned no row".to_string())
+        })?;
+    Ok(row.try_get_by_index::<i64>(0)? != 0)
 }
 
 /// Run schema-sensitive startup work under AsterDrive's database migration lock.
@@ -350,6 +434,7 @@ async fn apply_database_migrations_unlocked(database: DatabaseExecutor<'_>) -> R
             unsupported_migration_versions_label(&history)
         )));
     }
+    let validate_foreign_keys = !history.pending_current.is_empty();
 
     match history.track {
         MigrationTrack::Empty => {
@@ -363,18 +448,57 @@ async fn apply_database_migrations_unlocked(database: DatabaseExecutor<'_>) -> R
                         .to_string(),
                 ));
             }
-            <CurrentMigrator as MigratorTrait>::up(database, None).await?;
-            Ok(())
+            apply_current_migrations(database, validate_foreign_keys).await
         }
-        MigrationTrack::Current => {
-            <CurrentMigrator as MigratorTrait>::up(database, None).await?;
-            Ok(())
-        }
+        MigrationTrack::Current => apply_current_migrations(database, validate_foreign_keys).await,
         MigrationTrack::Unknown => Err(migration_state_error(format!(
             "database contains unsupported migration versions: {}. Upgrade from a supported \
              release line or restore a backup before continuing",
             unsupported_migration_versions_label(&history)
         ))),
+    }
+}
+
+async fn apply_current_migrations(
+    database: DatabaseExecutor<'_>,
+    validate_foreign_keys: bool,
+) -> Result<(), DbErr> {
+    match database {
+        DatabaseExecutor::Connection(connection) => {
+            <CurrentMigrator as MigratorTrait>::up(connection, None).await?;
+            validate_sqlite_foreign_keys(connection, validate_foreign_keys).await
+        }
+        DatabaseExecutor::Transaction(transaction) => {
+            <CurrentMigrator as MigratorTrait>::up(transaction, None).await?;
+            validate_sqlite_foreign_keys(transaction, validate_foreign_keys).await
+        }
+        DatabaseExecutor::OwnedTransaction(transaction) => {
+            <CurrentMigrator as MigratorTrait>::up(&transaction, None).await?;
+            validate_sqlite_foreign_keys(&transaction, validate_foreign_keys).await
+        }
+    }
+}
+
+async fn validate_sqlite_foreign_keys<C>(database: &C, enabled: bool) -> Result<(), DbErr>
+where
+    C: SeaConnectionTrait,
+{
+    if !enabled || database.get_database_backend() != DbBackend::Sqlite {
+        return Ok(());
+    }
+    let violations = database
+        .query_all_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "PRAGMA foreign_key_check",
+        ))
+        .await?;
+    if violations.is_empty() {
+        Ok(())
+    } else {
+        Err(migration_state_error(format!(
+            "SQLite schema migrations introduced {} foreign-key violation(s)",
+            violations.len()
+        )))
     }
 }
 
@@ -533,14 +657,14 @@ mod tests {
 
         let manager = SchemaManager::new(&db);
         if storage_migration_count >= 1 {
-            m20260803_000001_storage_policy_connector_configs::Migration
+            m20260803_000002_storage_policy_connector_configs::Migration
                 .up(&manager)
                 .await
                 .expect("storage connector config migration should apply");
             record_applied_migration(&db, STORAGE_POLICY_CONNECTOR_CONFIGS_MIGRATION).await;
         }
         if storage_migration_count >= 2 {
-            m20260803_000002_add_storage_policy_connector_credentials::Migration
+            m20260803_000003_add_storage_policy_connector_credentials::Migration
                 .up(&manager)
                 .await
                 .expect("storage connector credential migration should apply");
@@ -590,5 +714,25 @@ mod tests {
     #[tokio::test]
     async fn upgrades_branch_history_after_both_storage_migrations() {
         assert_storage_refactor_branch_history_upgrades(2).await;
+    }
+
+    #[tokio::test]
+    async fn sqlite_migrations_preserve_disabled_foreign_key_state() {
+        let db = sea_orm_migration::sea_orm::Database::connect("sqlite::memory:")
+            .await
+            .expect("SQLite migration fixture should connect");
+        db.execute_unprepared("PRAGMA foreign_keys = OFF")
+            .await
+            .expect("fixture should disable foreign keys");
+        assert!(!sqlite_foreign_keys_enabled(&db).await.unwrap());
+
+        apply_database_migrations(&db)
+            .await
+            .expect("fresh SQLite schema should migrate");
+
+        assert!(
+            !sqlite_foreign_keys_enabled(&db).await.unwrap(),
+            "migration finalization should preserve an initially disabled state"
+        );
     }
 }

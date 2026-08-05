@@ -143,7 +143,7 @@ async fn build_lock_test_fixture_with_pool_size(pool_size: u32) -> LockTestFixtu
     };
 
     let db = if pool_size == 1 {
-        crate::db::connect_with_metrics(
+        let db = crate::db::connect_with_metrics(
             &DatabaseConfig {
                 url: database_url.into(),
                 pool_size,
@@ -152,8 +152,29 @@ async fn build_lock_test_fixture_with_pool_size(pool_size: u32) -> LockTestFixtu
             aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
-        .expect("lock service test DB should connect")
+        .expect("lock service test DB should connect");
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
+        db
     } else {
+        let migration_db = crate::db::connect_with_metrics(
+            &DatabaseConfig {
+                url: database_url.clone().into(),
+                pool_size: 1,
+                retry_count: 0,
+            },
+            aster_drive_metrics::NoopMetrics::arc(),
+        )
+        .await
+        .expect("lock service migration DB should connect");
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(
+            &migration_db,
+        )
+        .await;
+        migration_db
+            .close()
+            .await
+            .expect("lock service migration DB should close before the concurrency pool opens");
+
         let mut options = ConnectOptions::new(database_url);
         options
             .max_connections(pool_size)
@@ -195,7 +216,6 @@ async fn build_lock_test_fixture_with_pool_size(pool_size: u32) -> LockTestFixtu
         drop((first, second));
         db
     };
-    crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
 
     let now = Utc::now();
     let mut policy = crate::storage::connectors::test_support::local_policy(
