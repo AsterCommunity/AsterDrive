@@ -11,14 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 自 `v0.4.0` 以来，AsterDrive 主线完成了面向生产多 Primary 部署、WebDAV 协议边界、上传数据平面和内部 crate 所有权的一轮大规模演进。新增显式 `single` / `cluster` 部署 profile、Redis 跨实例事件同步、反向隧道 owner lease 与转发、Kubernetes Kustomize / Helm 部署路径；初始化流程统一为 `needs_admin` / `needs_storage` / `ready` 三态，并要求管理员显式创建首个存储策略。
 
-WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、RFC 4331 配额属性、虚拟挂载根锁、目录分页、资源预算与请求级观测；资源锁系统改为数据库权威的 namespace / generation 模型，文件与目录 API 由布尔 `is_locked` 升级为结构化 `lock_state`。上传侧新增 OneDrive 服务端 relay resumable 模式，并收紧 0.5.0 session 边界，彻底移除旧的 payload-per-chunk 兼容路径。
+WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、RFC 4331 配额属性、虚拟挂载根锁、目录分页、资源预算与请求级观测；资源锁系统改为数据库权威的 namespace / generation 模型，并补齐条件 PUT / COPY、原子递归 DELETE、跨 workspace 锁配额与并发清理边界。文件与目录 API 由布尔 `is_locked` 升级为结构化 `lock_state`。上传侧新增 OneDrive 服务端 relay resumable 模式，并收紧 0.5.0 session 边界，彻底移除旧的 payload-per-chunk 兼容路径。
 
 - **多 Primary 集群部署** — 共享 PostgreSQL / MySQL、Redis cache / config sync、跨实例 storage events、任务与调度 fencing、反向隧道 owner 路由
 - **Kubernetes 生产部署** — 提供 Kustomize base / overlays、Helm chart、StatefulSet、PDB、NetworkPolicy、RWX avatar 存储与多 Primary E2E
-- **WebDAV 与资源锁重构** — AsterForge WebDAV 0.2、多 Range、配额属性、原子 mutation、虚拟根锁、结构化 `lock_state`、Litmus stress suites
+- **WebDAV 与资源锁重构** — AsterForge WebDAV 0.2、多 Range、配额属性、条件写入、原子 mutation、虚拟根锁、结构化 `lock_state`、Litmus stress suites
 - **上传与对象存储增强** — OneDrive 服务端 relay resumable、并发 chunk claim、S3 SigV4 签名区域配置
 - **初始化与配置收口** — 三态 setup、首个存储策略显式创建、数据库 / Redis 结构化凭据、Redis 故障不再静默降级
-- **Workspace 模块化** — 拆出 model、migration、storage、HTTP body limit、metrics 五个独立 workspace crates
+- **内部所有权收口** — Drive 保留 model、migration、storage、metrics 四个领域 crates；通用 HTTP body limit 与密文封装复用 AsterForge
 
 ### Breaking
 
@@ -50,30 +50,34 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
   - 支持单 Range / 多 Range GET、RFC 4331 `quota-used-bytes` / `quota-available-bytes`、目录 keyset pagination 和 capability snapshot method gating
   - COPY / MOVE / DELETE 对文件数、目录数、深度和 frontier 设置资源预算；超限返回 `507` 与稳定错误码 `operation.resource_limit_exceeded`
   - 支持 personal / team 虚拟挂载根锁；锁冲突、继承、刷新、释放、路径 rebind 和 mutation rollback 覆盖数据库边界测试
+  - 管理端锁列表显示文件、目录、workspace root 与未知 root 类型徽标，便于区分锁定范围
   - 新增 WebDAV operation observation，记录传输字节、Range 数、访问资源数、backend call、协议失败与 stream completion / cancellation
   - Litmus CI 拆分 baseline 与定时 stress suites，并扩展 curl、rclone、largefile、lockbomb 等兼容性覆盖
-- **开发与诊断能力** — 新增构建 revision / profile / target / variant 身份并写入启动日志；developer docs 独立为 Starlight 站点并集成 OpenAPI reference。
+- **运行诊断能力** — 新增构建 revision / profile / target / variant 身份并写入启动日志。
 
 ### Changed
 
 - **资源锁权威模型** — 删除 `files.is_locked` / `folders.is_locked` 持久化布尔值；新增 workspace-scoped `resource_lock_namespaces`、generation counter 和结构化 lock root，写入路径通过同一事务中的 namespace lock 与 `SELECT FOR UPDATE` 重新校验。
-- **WebDAV mutation 原子性** — DELETE / MOVE / COPY 将资源变更、锁清理和锁路径 rebind 纳入同一 writer transaction；UNLOCK / force unlock 同样保证锁行与关联状态一致回滚。
+- **WebDAV mutation 原子性** — DELETE / MOVE / COPY 将资源变更、锁清理和锁路径 rebind 纳入同一 writer transaction；递归 DELETE 遇到锁冲突或后端失败时整体回滚并返回请求级 `423` / `500`，不再提交部分结果；UNLOCK / force unlock 同样保证锁行与关联状态一致回滚。
 - **WebDAV 协议所有权** — 协议解析、XML、HTTP conditional / Range、锁 grammar 和 canonical response 迁移到 `aster_forge_webdav` / `aster_forge_xml`；Drive 保留 workspace、权限、持久化、存储、配额、审计和集成层。
 - **上传 session contract** — Chunk PUT、Progress、Complete、Cancel / Cleanup 只接受持久化的显式 `UploadSessionKind`，并继续校验 multipart、temp key 和 provider session metadata 的组合不变量；OffsetStaging、StreamStaging、relay、presigned 与 resumable 主路径保持 connector-owned transport 协商。
 - **Workspace crate 拆分**
   - `aster_drive_model`：共享类型与 SeaORM entities
   - `aster_drive_migration`：数据库 migrations
   - `aster_drive_storage`：driver traits、connector descriptors、object key 与结构化 storage errors
-  - `aster_drive_http`：带响应体大小限制的 HTTP reader
   - `aster_drive_metrics`：Drive 指标 contract、Noop recorder 与 AsterForge adapter
+- **Forge HTTP / crypto 接入** — 删除本地 `aster_drive_http`，WOPI discovery 与 Tencent COS 改用 `aster_forge_http`；MFA secret 与 storage credential token 改用 AsterForge versioned secret envelope，同时保留既有 HKDF context、AAD、master-key 策略和 `v1:nonce:ciphertext` 兼容性。
+- **依赖基线升级** — SeaORM / migration 升级到 `2.0.1`，Arrow 升级到 `58.4.0`，同步更新 Russh、Lettre、AsterForge 与前端构建 / 测试依赖。
 - **XML 与远端响应边界** — WOPI discovery、Tencent COS CORS / media metadata 等 XML 路径统一使用 `aster_forge_xml`，HTTP 响应改为流式有界读取并覆盖大小、深度、元素数量、DTD / entity 注入边界。
 - **Release 可诊断性** — release profile 改为 `strip = "debuginfo"`，保留函数符号用于 panic backtrace；Docker / release workflow 注入 Git revision。
-- **文档信息架构** — 用户文档重组为 start / admin / deploy / ops / using / reference，开发文档重组为 architecture / design / testing / records，并同步 500+ 内部链接。
 - **集成测试结构** — 原有平铺 `tests/test_*.rs` 合并为 auth、files、sharing、storage、operations、platform、multi_primary、wopi 等领域 target。
 
 ### Fixed
 
 - **WebDAV 锁与 mutation 一致性** — 修复深度集合锁继承、parent/member lock root 混淆、MOVE 后 destination lock rebind、unlock 部分提交和 backend 错误被吞掉等问题。
+- **WebDAV 条件写入与 COPY** — PUT 在接收请求体后于 writer transaction 内重新校验目标文件快照、ETag、Last-Modified 与锁状态，拒绝并发覆盖和创建竞争；COPY 与 MOVE 均执行 DAV `If` state-token / ETag 条件。
+- **WebDAV 锁生命周期** — 锁配额在 acquire transaction 内按 owner 跨 workspace 串行校验；到期时刻立即视为失效；workspace root lock 在提交前验证 user / team 仍存在；namespace 清理按 workspace type / id 原子删除，避免跨 workspace 误删与并发 TOCTOU。
+- **WebDAV 锁发现与 lock-null 清理** — `Depth: 0` 锁只匹配实际重叠路径，不再错误出现在子资源 discovery；lock-null 创建因配额或事务失败时清理已暂存的空对象，避免遗留孤立存储数据。
 - **WebDAV 路径与状态码** — PUT / COPY / MOVE 指向缺失父目录时返回 `409 Conflict`；destination root 被锁时返回请求级 `423 Locked`；不支持的方法按 capability 返回 `405`。
 - **WebDAV 流式传输** — 改进 reader 生命周期和错误传播，默认 Range fallback 保持有界成本，本地 driver 使用原生 seek 只读取请求区间。
 - **跨实例通知可靠性** — 配置 / storage topology / policy group 的 post-commit 通知采用有界重试；通知失败不再回滚已经提交的权威写入，Redis 恢复后触发全量 reconcile。
@@ -86,6 +90,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - **WebDAV / archive 资源耗尽防护** — XML control request、目录遍历、归档扫描、Range 数量和响应体均设置明确上限；超限以稳定协议 / API 错误结束。
 - **Argon2 并发限制** — 新增 `auth.password_hash_max_concurrency`，限制单进程同时执行的密码哈希任务及其工作内存占用。
 - **依赖与解析器升级** — 移除 `xmltree`，升级 `base64`、`jsonwebtoken`、`validator` 和前端依赖；前端 audit override 更新并记录 React Router RSC advisory 对 Vite SPA 不适用。
+- **MFA / storage credential AAD 隔离** — 共享密文封装继续把 MFA user / factor method 与 storage policy / provider / token name 绑定进 AAD；错误上下文无法解密，既有 `v1` 密文无需数据迁移即可读取。
 
 ### Database Migrations
 
@@ -96,7 +101,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - `m20260728_000001_provider_relay_resumable_upload`
   - 为 provider relay resumable chunk claim 增加索引，支持跨 Primary 原子领取与恢复
 - `m20260803_000001_refactor_resource_locks`
-  - 校验旧锁的 workspace / root 身份；存在无法解析或非法的旧锁时停止升级并保留原数据
+  - 校验旧锁的 workspace / root 身份；legacy `owner_info = NULL` 锁按 WebDAV 来源 fail-closed 迁移；存在无法解析或非法的旧锁时停止升级并保留原数据
   - 新增 `resource_lock_namespaces`，重构 `resource_locks` schema，并移除 files / folders 的 `is_locked` 列
 
 ### Notes
@@ -106,11 +111,12 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - 使用 WebDAV `VERSION-CONTROL` / `REPORT` 的客户端需要改用普通 WebDAV 文件操作与 AsterDrive REST 版本历史接口。
 - `single` 仍是默认 deployment profile；启用 `cluster` 前需要准备共享数据库、Redis、共享对象存储和 RWX avatar 存储，并通过 `aster_drive doctor` 检查拓扑。
 - 新安装实例创建管理员后会停留在 `needs_storage`，创建首个默认存储策略后才进入 `ready`；已有默认策略的升级实例不需要重复初始化。
+- Forge HTTP / secret envelope 接入不改变数据库 schema、公开 API 或现有密文格式，不需要额外 migration。
 
 ### Statistics
 
-- 1162 files changed, 56940 insertions(+), 29294 deletions(-)
-- 25 commits
+- 1167 files changed, 60093 insertions(+), 29979 deletions(-)
+- 30 commits
 - 4 个数据库 migration
 
 ## [v0.4.0] - 2026-07-23
