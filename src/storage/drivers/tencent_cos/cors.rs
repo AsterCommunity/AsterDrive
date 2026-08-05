@@ -11,8 +11,8 @@ use reqwest::header::CONTENT_TYPE;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{AsterError, MapAsterErr, Result, storage_driver_error_with_code};
-use aster_drive_http::read_reqwest_body_limited;
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
+use aster_forge_http::read_reqwest_body_limited;
 
 use super::{TencentCosDriver, non_empty_xml_text};
 
