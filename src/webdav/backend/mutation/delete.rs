@@ -1,8 +1,6 @@
 use aster_drive_model::entities::file as file_entity;
 use aster_forge_db::transaction;
-use aster_forge_webdav::{
-    DavMutationOperation, DavMutationTargetRole, DavPath, FsError, parent_relative_path,
-};
+use aster_forge_webdav::{DavMutationOperation, DavMutationTargetRole, DavPath, FsError};
 
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
@@ -78,9 +76,7 @@ impl AsterDavFs {
             &conditions,
         )
         .await?;
-        if let Some(parent) = parent_relative_path(path.as_str())
-            && let Ok(parent) = DavPath::new(&parent)
-        {
+        if let Some(parent) = path.parent() {
             revalidate_atomic_target(
                 &txn,
                 lock_mutation.namespace_id(),
