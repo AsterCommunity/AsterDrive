@@ -1385,12 +1385,7 @@ async fn mutation_port_moves_collection_and_refreshes_cached_paths() {
     use crate::webdav::backend::path_resolver::{ResolvedNode, resolve_path};
 
     let driver = CountingDirectUploadDriver::default();
-    let (state, user, _policy, temp_root) = build_webdav_test_state(
-        DriverType::Local,
-        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
-        Arc::new(driver),
-    )
-    .await;
+    let (state, user, _policy, temp_root) = build_webdav_test_state(None, Arc::new(driver)).await;
     let source = create_test_folder(&state, &user, "atomic-folder-source", None).await;
     let child = create_test_folder(&state, &user, "child", Some(source.id)).await;
     let destination_parent = create_test_folder(&state, &user, "atomic-folder-parent", None).await;
@@ -1453,12 +1448,7 @@ async fn mutation_port_copy_file_replaces_collection_tree() {
     use crate::webdav::backend::path_resolver::{ResolvedNode, resolve_path};
 
     let driver = CountingDirectUploadDriver::default();
-    let (state, user, policy, temp_root) = build_webdav_test_state(
-        DriverType::Local,
-        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
-        Arc::new(driver),
-    )
-    .await;
+    let (state, user, policy, temp_root) = build_webdav_test_state(None, Arc::new(driver)).await;
     let (source, _) = create_root_file(
         &state,
         user.id,
@@ -1538,12 +1528,7 @@ async fn mutation_port_move_file_replaces_collection_tree() {
     use crate::webdav::backend::path_resolver::{ResolvedNode, resolve_path};
 
     let driver = CountingDirectUploadDriver::default();
-    let (state, user, policy, temp_root) = build_webdav_test_state(
-        DriverType::Local,
-        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
-        Arc::new(driver),
-    )
-    .await;
+    let (state, user, policy, temp_root) = build_webdav_test_state(None, Arc::new(driver)).await;
     let (source, _) = create_root_file(
         &state,
         user.id,
@@ -1611,12 +1596,7 @@ async fn mutation_port_revalidates_canonical_literal_percent_parents() {
     use crate::webdav::backend::path_resolver::resolve_path;
 
     let driver = CountingDirectUploadDriver::default();
-    let (state, user, policy, temp_root) = build_webdav_test_state(
-        DriverType::Local,
-        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
-        Arc::new(driver),
-    )
-    .await;
+    let (state, user, policy, temp_root) = build_webdav_test_state(None, Arc::new(driver)).await;
 
     let copy_parent = create_test_folder(&state, &user, "literal-%FF-copy", None).await;
     let collection_parent = create_test_folder(&state, &user, "literal-%FF-collection", None).await;
@@ -1821,12 +1801,7 @@ async fn mutation_port_rejects_invalid_resource_shapes_without_writes() {
     use crate::webdav::backend::path_resolver::{ResolvedNode, resolve_path};
 
     let driver = CountingDirectUploadDriver::default();
-    let (state, user, policy, temp_root) = build_webdav_test_state(
-        DriverType::Local,
-        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
-        Arc::new(driver),
-    )
-    .await;
+    let (state, user, policy, temp_root) = build_webdav_test_state(None, Arc::new(driver)).await;
     let source_folder = create_test_folder(&state, &user, "shape-folder", None).await;
     let (source_file, _) = create_root_file(
         &state,
