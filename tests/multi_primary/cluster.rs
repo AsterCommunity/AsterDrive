@@ -448,13 +448,6 @@ impl SharedServices {
             Migrator::up(&database, None)
                 .await
                 .expect("apply migrations to isolated multi-primary database");
-            aster_drive_migration::with_database_migration_lock(&database, |connection| {
-                Box::pin(aster_drive_migration::finalize_storage_policy_upgrade(
-                    connection,
-                ))
-            })
-            .await
-            .expect("finalize isolated multi-primary storage policy schema");
             create_multi_primary_s3_policy(&database, "E2E Shared Object Storage", 0, true).await;
             aster_drive::services::storage_policy::policy::ensure_policy_groups_seeded(&database)
                 .await

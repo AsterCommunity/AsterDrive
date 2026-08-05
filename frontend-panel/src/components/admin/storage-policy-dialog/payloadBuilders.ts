@@ -127,7 +127,11 @@ function connectorConfigValues(
 			continue;
 		}
 		const value = form.connector_config_values[field.name];
-		if (value === undefined || (value === "" && !field.required)) {
+		if (
+			value === undefined ||
+			value === null ||
+			(value === "" && !field.required)
+		) {
 			continue;
 		}
 		values[field.name] = value;

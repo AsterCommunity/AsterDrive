@@ -37,6 +37,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { useSystemSetupStore } from "@/stores/systemSetupStore";
 import type {
 	StorageConnectorCredentialInfo,
+	StorageConnectorFieldValue,
 	StoragePolicy,
 	StoragePolicyCapacityInfo,
 } from "@/types/api";
@@ -224,6 +225,39 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 		storageDriverDescriptors: descriptorController.storageDriverDescriptors,
 		syncNormalizedPolicyForm,
 	});
+	const setConnectorActionValue = useCallback(
+		(
+			actionId: string,
+			fieldName: string,
+			value: StorageConnectorFieldValue | undefined,
+		) => {
+			actionController.setConnectorActionValue(actionId, fieldName, value);
+			const action = currentStorageDriverDescriptor?.actions.find(
+				(candidate) => candidate.action_id === actionId,
+			);
+			const controlsRemoteTargets = action?.fields?.some(
+				(field) =>
+					field.select?.data_source === "remote_storage_targets" &&
+					field.select.depends_on === fieldName,
+			);
+			if (!controlsRemoteTargets) {
+				return;
+			}
+			if (
+				typeof value === "number" &&
+				Number.isSafeInteger(value) &&
+				value > 0
+			) {
+				void descriptorController.loadRemoteStorageTargetsForPolicy(value, {
+					showErrorToast: false,
+					syncPolicySelection: false,
+				});
+			} else {
+				descriptorController.resetRemoteStorageTargets();
+			}
+		},
+		[actionController, currentStorageDriverDescriptor, descriptorController],
+	);
 	const editorController = useStoragePolicyEditorController({
 		allowSaveWithoutConnectionTest: !setupMode,
 		currentStorageDriverDescriptor,
@@ -547,7 +581,7 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 				descriptorController.createRemoteStorageTargetForPolicy
 			}
 			onDialogOpenChange={handleDialogOpenChange}
-			onConnectorActionValueChange={actionController.setConnectorActionValue}
+			onConnectorActionValueChange={setConnectorActionValue}
 			onSubmit={() => editorController.handleSubmit(actionController)}
 			onRequestConnectorAction={(actionId) => {
 				setSaveAnywayConfirmOpen(false);

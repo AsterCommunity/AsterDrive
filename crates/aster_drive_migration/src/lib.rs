@@ -62,10 +62,8 @@ mod m20260728_000001_provider_relay_resumable_upload;
 mod m20260803_000001_refactor_resource_locks;
 mod m20260803_000001_storage_policy_connector_configs;
 mod m20260803_000002_add_storage_policy_connector_credentials;
-mod storage_policy_upgrade;
+mod m20260805_000001_allow_connector_policy_writes_with_legacy_schema;
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
-
-pub use storage_policy_upgrade::finalize_storage_policy_upgrade;
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
 const RESOURCE_LOCK_REFACTOR_MIGRATION: &str = "m20260803_000001_refactor_resource_locks";
@@ -198,6 +196,9 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20260803_000001_refactor_resource_locks::Migration),
             Box::new(m20260803_000001_storage_policy_connector_configs::Migration),
             Box::new(m20260803_000002_add_storage_policy_connector_credentials::Migration),
+            Box::new(
+                m20260805_000001_allow_connector_policy_writes_with_legacy_schema::Migration,
+            ),
         ]
     }
 }
@@ -324,9 +325,10 @@ pub async fn apply_database_migrations(database: &DatabaseConnection) -> Result<
 /// Run schema-sensitive startup work under AsterDrive's database migration lock.
 ///
 /// The 0.5.0 storage-policy credential importer uses this after ordinary SeaORM
-/// migrations have completed. Keeping connector-owned credential conversion and
-/// legacy-column removal under the same lock prevents concurrent instances from
-/// observing a partially finalized storage-policy schema.
+/// migrations have completed. Keeping connector-owned credential conversion
+/// under the same lock prevents concurrent instances from importing the same
+/// legacy rows. The legacy schema remains in place until the 0.6.0 cleanup
+/// migration tracked by issue #463.
 pub async fn with_database_migration_lock<T, F>(
     database: &DatabaseConnection,
     operation: F,

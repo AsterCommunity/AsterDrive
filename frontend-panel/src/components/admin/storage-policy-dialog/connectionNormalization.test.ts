@@ -4,6 +4,7 @@ import type {
 	StorageConnectorFieldDescriptor,
 } from "@/types/api";
 import {
+	getEndpointValidationMessage,
 	normalizeConnectorFieldValue,
 	normalizePolicyForm,
 } from "./connectionNormalization";
@@ -31,6 +32,23 @@ function descriptor(
 }
 
 describe("connector field normalization", () => {
+	it("uses a connector-neutral endpoint protocol fallback for stale descriptors", () => {
+		const schema = descriptor([
+			field("endpoint", {
+				allowed_endpoint_protocols: ["https:"],
+				required: true,
+			}),
+		]);
+		const form = {
+			...emptyForm,
+			connector_config_values: { endpoint: "http://archive.example.test" },
+		};
+
+		expect(getEndpointValidationMessage(form, (key) => key, schema)).toBe(
+			"policy_connector_endpoint_protocol_invalid",
+		);
+	});
+
 	it("applies descriptor defaults to missing fields in both default modes", () => {
 		const schema = descriptor([
 			field("region", { default_value: "auto" }),

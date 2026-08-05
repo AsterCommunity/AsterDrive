@@ -414,19 +414,25 @@ async fn legacy_static_rows(db: &DatabaseConnection) -> Vec<(i64, String, String
         .collect()
 }
 
-async fn assert_legacy_static_columns_removed(db: &DatabaseConnection) {
+async fn assert_legacy_static_columns_retained_and_cleared(db: &DatabaseConnection) {
     let manager = aster_drive_migration::SchemaManager::new(db);
     assert!(
-        !manager
+        manager
             .has_column("storage_policies", "access_key")
             .await
             .unwrap()
     );
     assert!(
-        !manager
+        manager
             .has_column("storage_policies", "secret_key")
             .await
             .unwrap()
+    );
+    assert!(
+        legacy_static_rows(db)
+            .await
+            .iter()
+            .all(|(_, access_key, secret_key)| access_key.is_empty() && secret_key.is_empty())
     );
 }
 
@@ -476,7 +482,7 @@ async fn startup_migrates_all_static_connectors_with_typed_field_names() {
         assert!(payload.get("access_key").is_none());
         assert!(payload.get("secret_key").is_none());
     }
-    assert_legacy_static_columns_removed(&db).await;
+    assert_legacy_static_columns_retained_and_cleared(&db).await;
 }
 
 #[tokio::test]
@@ -589,7 +595,7 @@ async fn startup_is_idempotent_for_matching_target_and_rejects_conflicts() {
         .unwrap()
         .unwrap();
     assert_eq!(record.revision, 1);
-    assert_legacy_static_columns_removed(&db).await;
+    assert_legacy_static_columns_retained_and_cleared(&db).await;
 
     let conflict_db = database().await;
     insert_policy(

@@ -138,7 +138,15 @@ This pipeline currently depends on several constraints that should not be broken
 
 If you add a new file entry point later, the first question is not “where should this endpoint live?” but “can it reuse this unified pipeline?” Only when the business semantics are truly different should you open a new branch.
 
-## 2. Sharing service
+## 2. Storage driver and connector contracts
+
+`StorageDriver` represents runtime object operations on an already configured backend. Connector descriptors and product connector implementations own management fields, configuration normalization, credentials, authorization, connection tests, and driver construction. This keeps provider setup out of the shared driver trait and keeps product services from branching on concrete SDKs.
+
+Connector configuration and credential payloads evolve independently. `config_schema_version` applies only to connector configuration in `storage_config`. Connectors that persist credentials also declare `credential_schema_version`, which binds the credential envelope, encryption AAD, migration, and decoding. Changing endpoint, bucket, or behavior fields must not invalidate existing credentials; a connector raises the credential version only when the credential payload itself changes and supplies an explicit migration path.
+
+A force-deleted policy can leave temporary objects or multipart uploads that must be cleaned after presigned URLs expire. A delayed task cannot depend on the deleted policy or credential row. Connectors that require static credentials therefore create a connector-owned cleanup snapshot before deletion. The snapshot carries the existing ciphertext and only the non-secret configuration needed to reconstruct the driver. Its AAD remains bound to the original policy id, connector id, and credential schema; decrypted secrets never enter the task payload. Task creation validates that every required snapshot is present so the queue cannot accept cleanup work that is already impossible to execute.
+
+## 3. Sharing service
 
 Main code paths:
 
@@ -236,7 +244,7 @@ The advantage is simplicity, low storage cost, and immediate visibility of sourc
 
 If we ever introduce “immutable sharing” or “version-pinned public snapshots,” that will be a different product semantic and should not be forced into the current sharing pipeline.
 
-## 3. Background task system
+## 4. Background task system
 
 Main code paths:
 
@@ -412,7 +420,7 @@ That works because:
 
 So the system behaves more like a persisted state machine snapshot than a full orchestration platform.
 
-## 4. Storage-policy migration tasks
+## 5. Storage-policy migration tasks
 
 Main code paths:
 
@@ -458,7 +466,7 @@ During migration, each blob is reloaded from the latest database state:
 
 The first version does not support `delete_source_after_success = true`. The field is still present in the API, but a `true` value is rejected so the client does not assume old-policy objects will be auto-cleaned.
 
-## 5. Admin file / blob observability
+## 6. Admin file / blob observability
 
 Main code paths:
 
@@ -482,7 +490,7 @@ These use reader connections only and do not cause business side effects. Typica
 
 `hash_kind` is a derived display value, not a stored database field: 64 hex characters means `content_sha256`; everything else is `opaque`.
 
-## 6. `doctor` / consistency audit
+## 7. `doctor` / consistency audit
 
 Main code paths:
 
@@ -591,7 +599,7 @@ That makes it useful for:
 
 It is not meant to replace monitoring, logs, or alerts.
 
-## 7. Cross-database migration CLI
+## 8. Cross-database migration CLI
 
 Main code paths:
 
@@ -680,6 +688,12 @@ Migration is not alphabetical dump order. `COPY_TABLE_ORDER` fixes the sequence 
 
 This order must stay aligned with foreign-key dependencies. When adding a new table, evaluate whether it should be added to `COPY_TABLE_ORDER` and where it belongs.
 
+### Intermediate 0.5 storage-upgrade state
+
+The 0.5 upgrade imports plaintext static credentials from legacy policy columns after runtime configuration and the encryption key are available. A successful import clears the old `access_key` / `secret_key` values and deletes converted rows from the two deprecated credential stores, but the 0.5.x schema retains the legacy columns, tables, and indexes. To keep that compatibility schema writable by the current entity after legacy fields leave the model, a 0.5 migration only adds an empty default to retained `driver_type` and makes the retained MySQL `options` column nullable because its historical TEXT definition has no default; this is not physical cleanup. Issue #463 assigns physical removal to a new 0.6.0 migration while keeping historical migrations immutable.
+
+After copy and verification, `database-migrate` loads runtime configuration and runs the same idempotent importer under the migration lock. A source database that has not started on 0.5.x can therefore finish credential encryption on the target, while an already imported source produces an empty migration report. When copying the MySQL compatibility schema, the CLI normalizes nullable legacy `storage_policies.options` values to the historical empty object `{}` before inserting into SQLite or PostgreSQL targets that still keep the column `NOT NULL`. The CLI retains compatibility columns and tables instead of taking over the 0.6.0 schema-removal responsibility tracked by issue #463.
+
 ### Resumable model
 
 Migration checkpoints are stored in the target database's `aster_cli_database_migrations` table.
@@ -715,7 +729,7 @@ Post-copy validation checks:
 
 It does not decide whether specific historical records should be migrated. The goal is to faithfully copy the current database state, not to clean or redesign it.
 
-## 8. Frontend download coordination and transfer activity area
+## 9. Frontend download coordination and transfer activity area
 
 Main code paths:
 

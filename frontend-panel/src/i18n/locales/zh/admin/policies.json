@@ -106,6 +106,7 @@
 	"policy_connector_action_confirm_desc": "此操作可能修改远端存储状态，请确认后继续。",
 	"policy_connector_action_confirm_title": "执行“{{action}}”？",
 	"policy_connector_action_field_required": "请填写 {{field}}",
+	"policy_connector_endpoint_protocol_invalid": "请输入使用受支持协议的有效端点 URL。",
 	"policy_connector_action_save_first": "此操作需要先保存存储策略。",
 	"policy_connector_action_success": "“{{action}}”执行成功",
 	"policy_s3_driver_suggestion_action": "改用 {{driver}}",

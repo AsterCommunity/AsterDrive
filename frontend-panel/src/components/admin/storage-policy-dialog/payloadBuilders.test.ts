@@ -122,6 +122,22 @@ describe("storage policy payload builders", () => {
 		expect(payload.connector_config.values).toEqual({ endpoint: "" });
 	});
 
+	it("defensively omits null optional connector values", () => {
+		const payload = buildUpdatePolicyPayload(
+			form({
+				connector_config_values: {
+					endpoint: "https://archive.example.test",
+					optional: null,
+				},
+			}),
+			descriptor(),
+		);
+
+		expect(payload.connector_config.values).toEqual({
+			endpoint: "https://archive.example.test",
+		});
+	});
+
 	it("builds draft connection tests and custom action inputs without persisting action values", () => {
 		const schema = descriptor();
 		const testPayload = buildPolicyTestPayload(form(), schema, 7);

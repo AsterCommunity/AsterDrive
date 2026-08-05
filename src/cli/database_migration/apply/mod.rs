@@ -30,13 +30,6 @@ pub(super) async fn execute_apply_mode(ctx: ApplyModeContext<'_>) -> Result<Appl
     Migrator::up(ctx.target_db, None)
         .await
         .map_aster_err(AsterError::database_operation)?;
-    aster_drive_migration::with_database_migration_lock(ctx.target_db, |connection| {
-        Box::pin(aster_drive_migration::finalize_storage_policy_upgrade(
-            connection,
-        ))
-    })
-    .await
-    .map_aster_err(AsterError::database_operation)?;
     let target_backend = ctx.target_db.get_database_backend();
     let target_pending_after = pending_migrations(ctx.target_db).await?;
     if !target_pending_after.is_empty() {
@@ -124,6 +117,19 @@ pub(super) async fn execute_apply_mode(ctx: ApplyModeContext<'_>) -> Result<Appl
         report.copied_rows = report.target_rows;
     }
 
+    if ready_to_cutover {
+        ctx.progress.stage(
+            "storage_credential_import",
+            "importing and encrypting legacy storage credentials",
+        );
+        if let Err(error) = import_copied_storage_credentials(ctx.target_db).await {
+            checkpoint.checkpoint.stage = "storage_credential_import".to_string();
+            mark_checkpoint_failed_best_effort(ctx.target_db, &mut checkpoint.checkpoint, &error)
+                .await;
+            return Err(error);
+        }
+    }
+
     checkpoint.checkpoint.status = if ready_to_cutover {
         "completed".to_string()
     } else {
@@ -192,6 +198,30 @@ pub(super) async fn execute_apply_mode(ctx: ApplyModeContext<'_>) -> Result<Appl
         checkpoint: checkpoint.checkpoint,
         resumed,
     })
+}
+
+async fn import_copied_storage_credentials(target_db: &DatabaseConnection) -> Result<()> {
+    use sea_orm::TransactionTrait;
+
+    let config = crate::config::load_config_read_only()?;
+    let connectors = crate::storage::connectors::builtin_storage_connector_registry()?;
+    aster_drive_migration::with_database_migration_lock(target_db, move |connection| {
+        let config = config.clone();
+        let connectors = connectors.clone();
+        Box::pin(async move {
+            let transaction = connection.begin().await?;
+            crate::services::storage_policy::credential::migrate_legacy_storage_credentials(
+                &transaction,
+                &config,
+                &connectors,
+            )
+            .await
+            .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;
+            transaction.commit().await
+        })
+    })
+    .await
+    .map_aster_err(AsterError::database_operation)
 }
 
 async fn mark_checkpoint_failed_best_effort(

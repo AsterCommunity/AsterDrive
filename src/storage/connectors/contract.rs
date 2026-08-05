@@ -244,7 +244,7 @@ pub(crate) trait StorageConnector: Send + Sync {
             &context.config().auth.storage_credential_secret_key,
             &saved,
             &descriptor.connector_id,
-            descriptor.config_schema_version,
+            super::credential_schema_version(&descriptor)?,
         )?;
         common::merge_saved_static_credential(input, saved)
     }
@@ -265,6 +265,7 @@ pub(crate) trait StorageConnector: Send + Sync {
                     encryption_key,
                     policy_id,
                     connector_config,
+                    super::credential_schema_version(&self.descriptor())?,
                     values,
                 )
                 .await
@@ -382,7 +383,7 @@ pub(crate) trait StorageConnector: Send + Sync {
             &config.auth.storage_credential_secret_key,
             credential,
             &descriptor.connector_id,
-            descriptor.config_schema_version,
+            super::credential_schema_version(&descriptor)?,
         )?;
         Ok(Some(StorageConnectorRuntimeCredential::new(
             descriptor.connector_id,
@@ -543,14 +544,27 @@ pub(crate) trait StorageConnector: Send + Sync {
 
     async fn cleanup_snapshot_for_policy(
         &self,
-        _context: &StorageConnectorContext<'_>,
-        _policy: &storage_policy::Model,
+        context: &StorageConnectorContext<'_>,
+        policy: &storage_policy::Model,
     ) -> Result<Option<StoragePolicyCleanupDriverSnapshot>> {
-        Ok(None)
+        let descriptor = self.descriptor();
+        if descriptor.credential_mode
+            != aster_drive_storage::StorageConnectorCredentialMode::StaticSecret
+        {
+            return Ok(None);
+        }
+        common::static_credential_cleanup_snapshot(
+            context,
+            policy,
+            descriptor.connector_id.as_str(),
+            super::credential_schema_version(&descriptor)?,
+        )
+        .await
     }
 
     fn cleanup_snapshot_required(&self) -> bool {
-        false
+        self.descriptor().credential_mode
+            == aster_drive_storage::StorageConnectorCredentialMode::StaticSecret
     }
 
     async fn build_cleanup_driver(
@@ -637,6 +651,28 @@ impl StorageConnectorRegistry {
             })
     }
 
+    /// Resolve a connector id supplied by an API client.
+    ///
+    /// Registry construction failures are internal errors, while an unknown id
+    /// in a request is a validation error owned by the caller.
+    pub(crate) fn require_input_connector(
+        &self,
+        connector_id: &ConnectorId,
+    ) -> Result<&dyn StorageConnector> {
+        connector_id
+            .validate()
+            .map_err(|error| AsterError::validation_error(error.to_string()))?;
+        self.by_connector_id
+            .get(connector_id)
+            .map(AsRef::as_ref)
+            .ok_or_else(|| {
+                AsterError::validation_error(format!(
+                    "storage connector '{}' is not available",
+                    connector_id
+                ))
+            })
+    }
+
     /// Resolve the runtime factory from the policy's persisted plugin id.
     ///
     /// The policy entity deliberately carries no built-in driver enum. Invalid
@@ -656,7 +692,18 @@ impl StorageConnectorRegistry {
                 ),
             )
         })?;
-        self.require_connector(&connector_id)
+        self.by_connector_id
+            .get(&connector_id)
+            .map(AsRef::as_ref)
+            .ok_or_else(|| {
+                crate::errors::storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    format!(
+                        "storage policy {} references unavailable connector '{}'",
+                        policy.id, connector_id
+                    ),
+                )
+            })
     }
 
     pub(crate) fn descriptors(&self) -> Vec<StorageConnectorDescriptor> {

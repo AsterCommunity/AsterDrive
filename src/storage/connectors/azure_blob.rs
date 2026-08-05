@@ -131,6 +131,7 @@ impl AzureBlobConnector {
             presigned_part_etag_required: false,
             storage_native_processing: false,
             config_schema_version: 1,
+            credential_schema_version: Some(1),
             related_issues: vec![328, 329],
         })
     }
@@ -244,6 +245,27 @@ impl StorageConnector for AzureBlobConnector {
                 Self::driver_credentials(credentials),
             )?),
         ))
+    }
+
+    async fn build_cleanup_driver(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
+        policy: &storage_policy::Model,
+        snapshots: super::StoragePolicyCleanupSnapshots<'_>,
+    ) -> Result<std::sync::Arc<dyn StorageDriver>> {
+        let config = Self::decode_config(policy)?;
+        let credentials: AzureBlobStaticCredentialsV1 =
+            super::common::static_credential_from_cleanup_snapshot(
+                context,
+                policy,
+                snapshots,
+                Self::ID,
+                1,
+            )?;
+        Ok(std::sync::Arc::new(AzureBlobDriver::new(
+            Self::driver_config(policy, config),
+            Self::driver_credentials(credentials),
+        )?))
     }
 
     fn upload_transport(

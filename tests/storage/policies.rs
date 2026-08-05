@@ -241,6 +241,52 @@ fn azure_blob_connection_json(endpoint: impl Into<String>, container: impl Into<
 }
 
 #[actix_web::test]
+async fn test_policy_input_rejects_invalid_and_unavailable_connectors_as_bad_requests() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for connector_id in ["com.example.missing", "INVALID ID"] {
+        let connection = serde_json::json!({
+            "connector_config": {
+                "format_version": 1,
+                "connector_id": connector_id,
+                "schema_version": 1,
+                "values": {}
+            },
+            "behavior": {},
+            "credential": { "mode": "none" }
+        });
+        for (uri, payload) in [
+            (
+                "/api/v1/admin/policies",
+                serde_json::json!({
+                    "name": "Unknown connector",
+                    "connection": connection.clone(),
+                    "max_file_size": 0,
+                    "is_default": false
+                }),
+            ),
+            (
+                "/api/v1/admin/policies/test",
+                serde_json::json!({ "connection": connection }),
+            ),
+        ] {
+            let req = test::TestRequest::post()
+                .uri(uri)
+                .insert_header(("Cookie", common::access_cookie_header(&token)))
+                .insert_header(common::csrf_header_for(&token))
+                .set_json(payload)
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            assert_eq!(resp.status(), 400, "{uri} should reject {connector_id}");
+            let body: Value = test::read_body_json(resp).await;
+            assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
+        }
+    }
+}
+
+#[actix_web::test]
 async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     let state = common::setup().await;
     let app = create_test_app!(state);
@@ -1285,6 +1331,21 @@ async fn test_policy_crud() {
         body["data"]["connector_config"]["values"]["s3_region"],
         "eu-central-1"
     );
+
+    // Editing a non-secret credential field must retain the saved secret.
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "credential": {
+                "mode": "static",
+                "values": { "s3_access_key_id": "updated-access-key" }
+            }
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
 
     // 删除策略
     let req = test::TestRequest::delete()
@@ -4209,7 +4270,7 @@ async fn test_policy_create_rejects_unusable_remote_nodes_with_stable_codes() {
 }
 
 #[actix_web::test]
-async fn test_policy_update_rejects_clearing_existing_s3_secret_with_stable_code() {
+async fn test_policy_update_treats_blank_s3_secret_as_keep_existing() {
     let state = common::setup().await;
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
@@ -4249,15 +4310,7 @@ async fn test_policy_update_rejects_clearing_existing_s3_secret_with_stable_code
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 400);
-    let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
-    assert!(
-        body["msg"]
-            .as_str()
-            .is_some_and(|message| message.contains("s3_secret_access_key")),
-        "unexpected cleared S3 secret response: {body}"
-    );
+    assert_eq!(resp.status(), 200);
 
     let req = test::TestRequest::patch()
         .uri(&format!("/api/v1/admin/policies/{policy_id}"))

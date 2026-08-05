@@ -103,7 +103,10 @@ function ConnectorField({
 	const missing =
 		showRequiredErrors &&
 		field.required &&
-		(value === undefined || value === null || value === "");
+		(() => {
+			const resolved = value ?? field.default_value;
+			return resolved === undefined || resolved === null || resolved === "";
+		})();
 	const errorMessage = missing
 		? field.required_message_key
 			? connectorT(field.required_message_key, {
@@ -220,7 +223,7 @@ function ConnectorField({
 						field.kind === "number"
 							? Number.isFinite(event.target.valueAsNumber)
 								? event.target.valueAsNumber
-								: null
+								: undefined
 							: event.target.value;
 					setFieldValue(form, descriptor, field, nextValue, onFieldChange);
 				}}
@@ -266,12 +269,17 @@ function setFieldValue(
 	form: PolicyFormData,
 	descriptor: StorageConnectorDescriptor | null,
 	field: StorageConnectorFieldDescriptor,
-	value: StorageConnectorFieldValue | null,
+	value: StorageConnectorFieldValue | null | undefined,
 	onFieldChange: StorageConnectorFieldsPanelProps["onFieldChange"],
 ) {
 	const dependentNames = collectDependentFieldNames(descriptor, field);
 	if (field.scope === "connector_config") {
-		const values = { ...form.connector_config_values, [field.name]: value };
+		const values = { ...form.connector_config_values };
+		if (value === undefined) {
+			delete values[field.name];
+		} else {
+			values[field.name] = value;
+		}
 		for (const name of dependentNames) {
 			delete values[name];
 		}

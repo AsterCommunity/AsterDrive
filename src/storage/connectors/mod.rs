@@ -29,7 +29,7 @@ mod tests;
 
 use std::sync::Arc;
 
-use crate::errors::Result;
+use crate::errors::{AsterError, Result};
 use crate::runtime::{RemoteProtocolRuntimeState, StorageConnectorRuntimeState};
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{StorageCredentialKind, StorageCredentialProvider};
@@ -105,7 +105,7 @@ pub(crate) async fn normalize_connector_config(
     db: &sea_orm::DatabaseConnection,
     connector_config: aster_drive_storage::ConnectorConfigEnvelope,
 ) -> Result<aster_drive_storage::ConnectorConfigEnvelope> {
-    let connector = registry.require_connector(&connector_config.connector_id)?;
+    let connector = registry.require_input_connector(&connector_config.connector_id)?;
     let connector_config = connector.validate_connector_config(&connector_config)?;
     connector
         .validate_config_binding(db, &connector_config)
@@ -119,8 +119,19 @@ pub(crate) fn validate_credential_input(
     credential: &StorageConnectorCredentialInput,
 ) -> Result<()> {
     registry
-        .require_connector(connector_id)?
+        .require_input_connector(connector_id)?
         .validate_credential_input(credential)
+}
+
+pub(crate) fn credential_schema_version(
+    descriptor: &aster_drive_storage::StorageConnectorDescriptor,
+) -> Result<u32> {
+    descriptor.credential_schema_version.ok_or_else(|| {
+        AsterError::internal_error(format!(
+            "storage connector '{}' declares credentials without a credential schema version",
+            descriptor.connector_id
+        ))
+    })
 }
 
 pub(crate) fn shared_connector_context<'a>(
@@ -233,17 +244,39 @@ pub(crate) async fn persist_credential(
     connector_config: &aster_drive_storage::ConnectorConfigEnvelope,
     credential: StorageConnectorCredentialInput,
 ) -> Result<()> {
-    if matches!(
-        credential,
-        StorageConnectorCredentialInput::AuthorizationApplication(_)
-    ) {
-        crate::db::repository::storage_policy_connector_credential_repo::delete_by_policy(
-            db, policy_id,
-        )
-        .await?;
-    }
-    registry
-        .require_connector(&connector_config.connector_id)?
+    let connector = registry.require_input_connector(&connector_config.connector_id)?;
+    let credential = if let StorageConnectorCredentialInput::Static(input) = credential {
+        let descriptor = connector.descriptor();
+        if descriptor.credential_mode
+            == aster_drive_storage::StorageConnectorCredentialMode::StaticSecret
+        {
+            if let Some(saved) =
+                crate::db::repository::storage_policy_connector_credential_repo::find_by_policy(
+                    db, policy_id,
+                )
+                .await?
+            {
+                let saved = decode_connector_credential(
+                    encryption_key,
+                    &saved,
+                    &descriptor.connector_id,
+                    credential_schema_version(&descriptor)?,
+                )?;
+                common::merge_saved_static_credential(
+                    StorageConnectorCredentialInput::Static(input),
+                    saved,
+                )?
+            } else {
+                StorageConnectorCredentialInput::Static(input)
+            }
+        } else {
+            StorageConnectorCredentialInput::Static(input)
+        }
+    } else {
+        credential
+    };
+    connector.validate_credential_input(&credential)?;
+    connector
         .persist_credential(db, encryption_key, policy_id, connector_config, credential)
         .await
 }
@@ -253,6 +286,7 @@ pub(crate) async fn persist_static_credential(
     encryption_key: &str,
     policy_id: i64,
     connector_config: &aster_drive_storage::ConnectorConfigEnvelope,
+    credential_schema_version: u32,
     values: serde_json::Value,
 ) -> Result<()> {
     persist_connector_credential_payload(
@@ -260,7 +294,7 @@ pub(crate) async fn persist_static_credential(
         encryption_key,
         policy_id,
         &connector_config.connector_id,
-        connector_config.schema_version,
+        credential_schema_version,
         &values,
     )
     .await
@@ -330,14 +364,31 @@ pub(crate) async fn persist_connector_credential_value<C: sea_orm::ConnectionTra
             schema_version,
             &plaintext,
         )?;
-    crate::db::repository::storage_policy_connector_credential_repo::upsert(
+    let updated =
+        crate::db::repository::storage_policy_connector_credential_repo::update_if_revision(
+            db,
+            record.policy_id,
+            &record.connector_id,
+            record.schema_version,
+            record.revision,
+            ciphertext,
+        )
+        .await?;
+    if !updated {
+        return Err(crate::errors::AsterError::database_operation(
+            "storage connector credential changed concurrently; retry the operation",
+        ));
+    }
+    crate::db::repository::storage_policy_connector_credential_repo::find_by_policy(
         db,
         record.policy_id,
-        record.connector_id.clone(),
-        record.schema_version,
-        ciphertext,
     )
-    .await
+    .await?
+    .ok_or_else(|| {
+        crate::errors::AsterError::record_not_found(
+            "storage policy connector credential after revision update",
+        )
+    })
 }
 
 pub(crate) fn decode_typed_connector_credential<T: serde::de::DeserializeOwned>(
@@ -398,7 +449,7 @@ pub(crate) async fn test_draft_connection<S: RemoteProtocolRuntimeState + Sync>(
     let context = remote_connector_context(state);
     let connector_id = input.connection.connector_config.connector_id.clone();
     registry
-        .require_connector(&connector_id)?
+        .require_input_connector(&connector_id)?
         .test_draft_connection(&context, input)
         .await
 }
@@ -441,7 +492,7 @@ pub(crate) async fn execute_draft_action<S: RemoteProtocolRuntimeState + Sync>(
     input: ExecuteDraftStorageConnectorActionInput,
 ) -> Result<StorageConnectorActionResult> {
     let connector_id = input.connection.connector_config.connector_id.clone();
-    let connector = registry.require_connector(&connector_id)?;
+    let connector = registry.require_input_connector(&connector_id)?;
     let descriptor = connector.descriptor();
     let mut input = input;
     input.values = aster_drive_storage::normalize_storage_connector_custom_action_invocation(

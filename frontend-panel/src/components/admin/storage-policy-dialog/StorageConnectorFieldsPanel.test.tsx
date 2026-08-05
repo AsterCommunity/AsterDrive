@@ -220,6 +220,42 @@ describe("StorageConnectorFieldsPanel", () => {
 		});
 	});
 
+	it("removes a cleared optional number so the descriptor default can be restored", () => {
+		const { onFieldChange } = renderPanel({
+			fields: [field("number_field", "number", { default_value: 30 })],
+			form: {
+				...emptyForm,
+				connector_config_values: { number_field: 15 },
+			},
+		});
+
+		fireEvent.change(screen.getByLabelText("Number field"), {
+			target: { value: "" },
+		});
+
+		expect(onFieldChange).toHaveBeenCalledWith("connector_config_values", {});
+	});
+
+	it("does not report a required field missing when its descriptor supplies a default", () => {
+		renderPanel({
+			fields: [
+				field("number_field", "number", {
+					default_value: 5,
+					required: true,
+				}),
+			],
+			showRequiredErrors: true,
+		});
+
+		expect(screen.getByLabelText("Number field")).not.toHaveAttribute(
+			"aria-invalid",
+			"true",
+		);
+		expect(
+			screen.queryByText("Number field is required"),
+		).not.toBeInTheDocument();
+	});
+
 	it("keeps stable field ids and disambiguates duplicate names across scopes", () => {
 		renderPanel({
 			fields: [

@@ -180,6 +180,7 @@ impl SftpConnector {
             },
             fields: SftpConnectorConfigV1::descriptor_fields(),
             config_schema_version: 1,
+            credential_schema_version: Some(1),
             actions: vec![
                 draft_connection_test_action_descriptor(),
                 saved_connection_test_action_descriptor(false),
@@ -285,6 +286,27 @@ impl StorageConnector for SftpConnector {
                 Self::driver_credentials(credentials),
             )?,
         )))
+    }
+
+    async fn build_cleanup_driver(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
+        policy: &storage_policy::Model,
+        snapshots: super::StoragePolicyCleanupSnapshots<'_>,
+    ) -> Result<std::sync::Arc<dyn StorageDriver>> {
+        let config = Self::decode_config(policy)?;
+        let credentials: SftpStaticCredentialsV1 =
+            super::common::static_credential_from_cleanup_snapshot(
+                context,
+                policy,
+                snapshots,
+                Self::ID,
+                1,
+            )?;
+        Ok(std::sync::Arc::new(SftpDriver::new(
+            Self::driver_config(config),
+            Self::driver_credentials(credentials),
+        )?))
     }
 
     fn upload_transport(

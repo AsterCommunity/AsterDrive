@@ -412,6 +412,8 @@ export function StoragePolicyDialog({
 														/>
 														<StorageConnectorActionsPanel
 															actions={customActions}
+															remoteNodes={remoteNodes}
+															remoteStorageTargets={remoteStorageTargets}
 															connectorId={
 																storageDriverDescriptor?.connector_id
 															}
@@ -569,6 +571,8 @@ export function StoragePolicyDialog({
 									<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
 										<StorageConnectorActionsPanel
 											actions={customActions}
+											remoteNodes={remoteNodes}
+											remoteStorageTargets={remoteStorageTargets}
 											connectorId={storageDriverDescriptor?.connector_id}
 											confirmActionId={connectorActionConfirmId}
 											submittingActionId={connectorActionSubmittingId}

@@ -14,6 +14,8 @@ import { Switch } from "@/components/ui/switch";
 import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
+	RemoteNodeInfo,
+	RemoteStorageTargetInfo,
 	StorageConnectorActionDescriptor,
 	StorageConnectorFieldDescriptor,
 	StorageConnectorFieldValue,
@@ -27,6 +29,8 @@ export type StorageConnectorActionValues = Record<
 
 interface StorageConnectorActionsPanelProps {
 	actions: StorageConnectorActionDescriptor[];
+	remoteNodes?: RemoteNodeInfo[];
+	remoteStorageTargets?: RemoteStorageTargetInfo[];
 	connectorId?: string | null;
 	confirmActionId: string | null;
 	submittingActionId: string | null;
@@ -44,6 +48,8 @@ interface StorageConnectorActionsPanelProps {
 
 export function StorageConnectorActionsPanel({
 	actions,
+	remoteNodes = [],
+	remoteStorageTargets = [],
 	connectorId,
 	confirmActionId,
 	submittingActionId,
@@ -102,6 +108,10 @@ export function StorageConnectorActionsPanel({
 										key={field.name}
 										actionId={action.action_id}
 										field={field}
+										remoteNodes={remoteNodes}
+										remoteStorageTargets={remoteStorageTargets}
+										allValues={actionValues}
+										fields={action.fields ?? []}
 										t={connectorT}
 										value={actionValues[field.name]}
 										onChange={onValueChange}
@@ -161,6 +171,10 @@ export function StorageConnectorActionsPanel({
 function ActionField({
 	actionId,
 	field,
+	remoteNodes,
+	remoteStorageTargets,
+	allValues,
+	fields,
 	t,
 	value,
 	onChange,
@@ -169,6 +183,10 @@ function ActionField({
 	field: StorageConnectorFieldDescriptor;
 	t: Translate;
 	value: StorageConnectorFieldValue | undefined;
+	remoteNodes: RemoteNodeInfo[];
+	remoteStorageTargets: RemoteStorageTargetInfo[];
+	allValues: Record<string, StorageConnectorFieldValue>;
+	fields: StorageConnectorFieldDescriptor[];
 	onChange: StorageConnectorActionsPanelProps["onValueChange"];
 }) {
 	const inputId = `storage-action-${actionId}-${field.name}`;
@@ -188,15 +206,27 @@ function ActionField({
 	}
 
 	if (field.kind === "select") {
-		const options = (field.select?.options ?? []).map((option) => ({
-			label: t(option.label_key),
-			value: String(option.value),
-		}));
+		const options = actionFieldOptions(
+			field,
+			remoteNodes,
+			remoteStorageTargets,
+			t,
+		);
+		const dependencyField = field.select?.depends_on
+			? fields.find((candidate) => candidate.name === field.select?.depends_on)
+			: undefined;
+		const dependencyValue = dependencyField
+			? (allValues[dependencyField.name] ?? dependencyField.default_value)
+			: undefined;
+		const dependencyMissing =
+			field.select?.depends_on != null &&
+			(dependencyValue == null || dependencyValue === "");
 		return (
 			<div className="space-y-2">
 				<Label htmlFor={inputId}>{t(field.label_key)}</Label>
 				<Select
 					items={options}
+					disabled={dependencyMissing}
 					value={
 						typeof resolvedValue === "string" ||
 						typeof resolvedValue === "number"
@@ -211,6 +241,12 @@ function ActionField({
 									? Number(nextValue)
 									: nextValue;
 						onChange(actionId, field.name, normalized);
+						for (const dependent of collectActionDependents(
+							fields,
+							field.name,
+						)) {
+							onChange(actionId, dependent, undefined);
+						}
 					}}
 				>
 					<SelectTrigger id={inputId}>
@@ -272,4 +308,50 @@ function ActionField({
 			) : null}
 		</div>
 	);
+}
+
+function collectActionDependents(
+	fields: StorageConnectorFieldDescriptor[],
+	fieldName: string,
+) {
+	const pending = [fieldName];
+	const dependents = new Set<string>();
+	while (pending.length > 0) {
+		const parent = pending.shift();
+		for (const candidate of fields) {
+			if (
+				candidate.select?.depends_on === parent &&
+				!dependents.has(candidate.name)
+			) {
+				dependents.add(candidate.name);
+				pending.push(candidate.name);
+			}
+		}
+	}
+	return dependents;
+}
+
+function actionFieldOptions(
+	field: StorageConnectorFieldDescriptor,
+	remoteNodes: RemoteNodeInfo[],
+	remoteStorageTargets: RemoteStorageTargetInfo[],
+	t: Translate,
+) {
+	switch (field.select?.data_source) {
+		case "remote_nodes":
+			return remoteNodes.map((node) => ({
+				label: node.name,
+				value: String(node.id),
+			}));
+		case "remote_storage_targets":
+			return remoteStorageTargets.map((target) => ({
+				label: target.name || target.target_key,
+				value: target.target_key,
+			}));
+		default:
+			return (field.select?.options ?? []).map((option) => ({
+				label: t(option.label_key),
+				value: String(option.value),
+			}));
+	}
 }

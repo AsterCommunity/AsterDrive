@@ -193,6 +193,7 @@ impl S3Connector {
             presigned_part_etag_required: true,
             storage_native_processing: false,
             config_schema_version: 1,
+            credential_schema_version: Some(1),
             related_issues: vec![328, 329, 452],
         })
     }
@@ -302,6 +303,29 @@ impl StorageConnector for S3Connector {
                 std::convert::identity,
             )?),
         ))
+    }
+
+    async fn build_cleanup_driver(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
+        policy: &storage_policy::Model,
+        snapshots: super::StoragePolicyCleanupSnapshots<'_>,
+    ) -> Result<std::sync::Arc<dyn StorageDriver>> {
+        let config = Self::decode_config(policy)?;
+        let credentials: S3StaticCredentialsV1 =
+            super::common::static_credential_from_cleanup_snapshot(
+                context,
+                policy,
+                snapshots,
+                Self::ID,
+                1,
+            )?;
+        Ok(std::sync::Arc::new(S3Driver::new(
+            Self::driver_config(config),
+            Self::driver_credentials(credentials),
+            S3DriverOptions::default(),
+            std::convert::identity,
+        )?))
     }
 
     fn upload_transport(

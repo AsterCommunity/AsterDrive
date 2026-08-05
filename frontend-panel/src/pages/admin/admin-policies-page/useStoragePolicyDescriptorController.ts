@@ -157,7 +157,12 @@ export function useStoragePolicyDescriptorController({
 			{
 				selectTargetKey,
 				showErrorToast = true,
-			}: { selectTargetKey?: string; showErrorToast?: boolean } = {},
+				syncPolicySelection = true,
+			}: {
+				selectTargetKey?: string;
+				showErrorToast?: boolean;
+				syncPolicySelection?: boolean;
+			} = {},
 		) => {
 			const requestSerial = ++remoteStorageTargetsRequestSerial.current;
 			setRemoteStorageTargetsLoading(true);
@@ -171,6 +176,9 @@ export function useStoragePolicyDescriptorController({
 				}
 				setRemoteStorageTargets(targets);
 				setRemoteStorageTargetsError(null);
+				if (!syncPolicySelection) {
+					return;
+				}
 				setForm((prev) => {
 					if (
 						remoteNodeFieldName == null ||
@@ -505,6 +513,7 @@ export function useStoragePolicyDescriptorController({
 		creatableStorageDriverDescriptorsError,
 		creatableStorageDriverDescriptorsLoading,
 		createRemoteStorageTargetForPolicy,
+		loadRemoteStorageTargetsForPolicy,
 		currentStorageDriverDescriptor,
 		refreshLookups,
 		refreshRemoteNodeLookup,

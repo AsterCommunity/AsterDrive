@@ -356,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn onedrive_cleanup_task_requires_driver_snapshot() {
+    fn credential_backed_cleanup_tasks_require_driver_snapshots() {
         let registry = registry();
         let onedrive = onedrive_policy(
             OneDriveAccountMode::Personal,
@@ -368,6 +368,20 @@ mod tests {
         let local = local_policy("");
         assert!(!can_create_cleanup_task_with_snapshot(&registry, &onedrive, &None).unwrap());
         assert!(can_create_cleanup_task_with_snapshot(&registry, &local, &None).unwrap());
+
+        for connector_id in [
+            "asterdrive.storage.s3",
+            "asterdrive.storage.sftp",
+            "asterdrive.storage.azure_blob",
+            "asterdrive.storage.tencent_cos",
+        ] {
+            let mut policy = local.clone();
+            policy.connector_id = connector_id.to_string();
+            assert!(
+                !can_create_cleanup_task_with_snapshot(&registry, &policy, &None).unwrap(),
+                "{connector_id} cleanup must not depend on process-local credentials"
+            );
+        }
 
         let snapshot = StoragePolicyCleanupDriverSnapshot::encode(
             ConnectorId::declared("asterdrive.storage.onedrive"),

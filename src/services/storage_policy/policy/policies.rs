@@ -145,7 +145,7 @@ pub async fn create(
         state.config(),
         &connector_config.connector_id,
     )?;
-    let connector = connectors.require_connector(&connector_config.connector_id)?;
+    let connector = connectors.require_input_connector(&connector_config.connector_id)?;
     connector.validate_policy_behavior(&behavior)?;
     let descriptor = connector.descriptor();
     let setup_state_at_admission =
@@ -401,18 +401,11 @@ pub async fn update(
             )?,
         ),
     };
-    if let Some(credential) = credential.as_ref() {
-        crate::storage::connectors::validate_credential_input(
-            connectors,
-            &connector_config.connector_id,
-            credential,
-        )?;
-    }
     let behavior = behavior
         .unwrap_or(existing_storage_config.behavior.values)
         .normalized();
     connectors
-        .require_connector(&connector_config.connector_id)?
+        .require_input_connector(&connector_config.connector_id)?
         .validate_policy_behavior(&behavior)?;
     let persisted_connector_config = ConnectorConfigEnvelope::new(
         connector_config.connector_id.clone(),

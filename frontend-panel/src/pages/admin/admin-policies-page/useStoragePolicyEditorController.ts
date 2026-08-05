@@ -298,7 +298,8 @@ function hasMissingRequiredConnectorField(
 				field.scope === "connector_config"
 					? connectorFormValue(form, field.name)
 					: form.credential_values[field.name];
-			return value === undefined || value === null || value === "";
+			const resolved = value ?? field.default_value;
+			return resolved === undefined || resolved === null || resolved === "";
 		}) ?? true
 	);
 }

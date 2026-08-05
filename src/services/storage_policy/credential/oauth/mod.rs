@@ -297,7 +297,8 @@ pub(crate) async fn finish_authorization_callback(
         &state.config().auth.storage_credential_secret_key,
         policy_id,
         &descriptor.connector_id,
-        descriptor.config_schema_version,
+        crate::storage::connectors::credential_schema_version(&descriptor)
+            .map_err(storage_authorization_callback_server_error)?,
         &callback.credential_payload,
     )
     .await

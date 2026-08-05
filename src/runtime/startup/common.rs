@@ -119,7 +119,7 @@ pub async fn initialize_database_state(
             .await
             .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;
             credential_transaction.commit().await?;
-            aster_drive_migration::finalize_storage_policy_upgrade(connection).await
+            Ok(())
         })
     })
     .await
@@ -293,11 +293,11 @@ mod tests {
                 "options",
             ] {
                 assert!(
-                    !schema
+                    schema
                         .has_column("storage_policies", legacy_column)
                         .await
                         .unwrap(),
-                    "startup should remove legacy storage policy column {legacy_column}"
+                    "0.5 startup should retain legacy storage policy column {legacy_column}"
                 );
             }
             crate::storage::connectors::test_support::insertable_policy(
@@ -305,7 +305,7 @@ mod tests {
             )
             .insert(&db)
             .await
-            .expect("current storage policy entity should insert after startup finalization");
+            .expect("current storage policy entity should ignore retained legacy columns");
         }
     }
 }

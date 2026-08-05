@@ -229,6 +229,7 @@ pub(crate) struct RemotePolicyBindingProjection {
 
 #[derive(Debug, Clone)]
 pub(crate) struct StorageCredentialValidationOutcome {
+    pub credential: aster_drive_model::entities::storage_policy_connector_credential::Model,
     pub credential_payload: serde_json::Value,
     pub root_item_id: String,
     pub root_item_name: Option<String>,

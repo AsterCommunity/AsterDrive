@@ -1483,9 +1483,6 @@ async fn build_mysql_schema_template() -> MySqlSchemaTemplate {
     Migrator::up(&db, None)
         .await
         .expect("mysql schema template migrations should succeed");
-    aster_drive_migration::finalize_storage_policy_upgrade(&db)
-        .await
-        .expect("mysql schema template storage policy finalization should succeed");
 
     let template_database_name = reqwest::Url::parse(&template_database_url)
         .ok()
@@ -1546,12 +1543,6 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
             .await
             .unwrap();
     }
-    if !used_mysql_schema_template {
-        aster_drive_migration::finalize_storage_policy_upgrade(&db)
-            .await
-            .expect("test storage policy schema finalization should succeed");
-    }
-
     // 每个测试用独立临时目录避免并行竞争
     let test_dir = format!("/tmp/asterdrive-test-{}", uuid::Uuid::new_v4());
     let temp_dir = format!("{test_dir}/temp");

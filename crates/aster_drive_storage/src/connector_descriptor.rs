@@ -623,6 +623,17 @@ impl StorageConnectorFieldDescriptor {
                 self.name
             )));
         }
+        if (!self.allowed_endpoint_protocols.is_empty() || self.allow_endpoint_without_protocol)
+            && self
+                .invalid_protocol_message_key
+                .as_deref()
+                .is_none_or(|key| key.trim().is_empty())
+        {
+            return Err(StorageConnectorFieldDescriptorError(format!(
+                "field '{}' declares endpoint protocol rules without invalid_protocol_message_key",
+                self.name
+            )));
+        }
 
         if self.default_mode == StorageConnectorFieldDefaultMode::MissingOrEmptyText {
             if self.default_value.is_none() {
@@ -1411,6 +1422,9 @@ pub struct StorageConnectorDescriptor {
     pub fields: Vec<StorageConnectorFieldDescriptor>,
     /// 当前 connector 能解析并输出的配置 schema 版本。
     pub config_schema_version: u32,
+    /// 凭据 payload 的独立 schema 版本。配置字段演进不应使已保存凭据失效。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_schema_version: Option<u32>,
     /// 管理端/服务端可执行动作声明。
     pub actions: Vec<StorageConnectorActionDescriptor>,
     /// 用于开发追踪的相关 issue 编号，不参与业务逻辑。
@@ -1424,6 +1438,27 @@ impl StorageConnectorDescriptor {
         self.connector_id
             .validate()
             .map_err(|error| StorageConnectorDescriptorError(error.to_string()))?;
+        if self.config_schema_version == 0 {
+            return Err(StorageConnectorDescriptorError(
+                "config_schema_version must be greater than zero".to_string(),
+            ));
+        }
+        match (self.credential_mode, self.credential_schema_version) {
+            (StorageConnectorCredentialMode::None, None) => {}
+            (StorageConnectorCredentialMode::None, Some(_)) => {
+                return Err(StorageConnectorDescriptorError(
+                    "credential_schema_version must be omitted when credentials are disabled"
+                        .to_string(),
+                ));
+            }
+            (_, Some(version)) if version > 0 => {}
+            _ => {
+                return Err(StorageConnectorDescriptorError(
+                    "credential_schema_version must be a positive integer when credentials are enabled"
+                        .to_string(),
+                ));
+            }
+        }
 
         let mut field_names = HashSet::with_capacity(self.fields.len());
         for field in &self.fields {
@@ -1646,6 +1681,7 @@ pub struct ObjectStorageConnectorDescriptorInput {
     pub presigned_part_etag_required: bool,
     pub storage_native_processing: bool,
     pub config_schema_version: u32,
+    pub credential_schema_version: Option<u32>,
     pub related_issues: Vec<u16>,
 }
 
@@ -1691,6 +1727,7 @@ pub fn object_storage_connector_descriptor(
         },
         fields: input.fields,
         config_schema_version: input.config_schema_version,
+        credential_schema_version: input.credential_schema_version,
         actions: vec![
             draft_connection_test_action_descriptor(),
             saved_connection_test_action_descriptor(false),
@@ -2178,6 +2215,7 @@ mod tests {
             presigned_part_etag_required: true,
             storage_native_processing: false,
             config_schema_version: 3,
+            credential_schema_version: Some(1),
             related_issues: Vec::new(),
         })
     }

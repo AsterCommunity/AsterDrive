@@ -36,6 +36,8 @@ const PROVIDER_RELAY_RESUMABLE_UPLOAD_MIGRATION: &str =
 const REFACTOR_RESOURCE_LOCKS_MIGRATION: &str = "m20260803_000001_refactor_resource_locks";
 const STORAGE_POLICY_CONNECTOR_CONFIGS_MIGRATION: &str =
     "m20260803_000001_storage_policy_connector_configs";
+const ALLOW_CONNECTOR_POLICY_WRITES_WITH_LEGACY_SCHEMA_MIGRATION: &str =
+    "m20260805_000001_allow_connector_policy_writes_with_legacy_schema";
 
 #[tokio::test]
 async fn resource_lock_migration_backfills_workspace_and_typed_root() {
@@ -857,6 +859,155 @@ async fn storage_policy_connector_configs_backfill_all_builtin_drivers_and_reapp
 }
 
 #[tokio::test]
+async fn storage_policy_compatibility_migration_keeps_legacy_schema_writable_and_reversible() {
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite memory database should connect");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(
+            STORAGE_POLICY_CONNECTOR_CONFIGS_MIGRATION,
+        )),
+    )
+    .await
+    .expect("legacy storage policy schema should apply");
+    insert_legacy_storage_policy(
+        &db,
+        LegacyStoragePolicyFixture {
+            id: 301,
+            driver_type: "s3",
+            endpoint: "https://s3.example.test",
+            bucket: "archive",
+            base_path: "tenant/legacy",
+            remote_node_id: None,
+            remote_storage_target_key: None,
+            options: r#"{"s3_region":"cn-beijing"}"#,
+        },
+    )
+    .await;
+    CurrentMigrator::up(&db, Some(2))
+        .await
+        .expect("connector config and credential schema migrations should apply");
+
+    let columns_before = sqlite_table_columns(&db, "storage_policies").await;
+    let (_, default_before) =
+        sqlite_column_type_and_default(&db, "storage_policies", "driver_type").await;
+    assert_eq!(default_before, None);
+    let legacy_before = load_storage_policy_compatibility_row(&db, 301).await;
+
+    CurrentMigrator::up(&db, Some(1))
+        .await
+        .expect("storage policy compatibility migration should apply");
+
+    assert!(
+        CurrentMigrator::migrations().iter().any(|migration| {
+            migration.name() == ALLOW_CONNECTOR_POLICY_WRITES_WITH_LEGACY_SCHEMA_MIGRATION
+        }),
+        "storage policy compatibility migration should be registered"
+    );
+    assert_eq!(
+        sqlite_table_columns(&db, "storage_policies").await,
+        columns_before,
+        "0.5.x migration must retain every legacy policy column"
+    );
+    let (_, default_after) =
+        sqlite_column_type_and_default(&db, "storage_policies", "driver_type").await;
+    assert_eq!(default_after.as_deref(), Some("''"));
+    assert_eq!(
+        load_storage_policy_compatibility_row(&db, 301).await,
+        legacy_before,
+        "table rebuild must preserve legacy and connector-owned data"
+    );
+    for index in [
+        "idx_storage_policies_remote_node_id",
+        "idx_storage_policies_remote_target",
+    ] {
+        assert!(
+            sqlite_table_index_exists(&db, "storage_policies", index).await,
+            "0.5.x migration must retain legacy index {index} for #463"
+        );
+    }
+    assert!(
+        db.query_all_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "PRAGMA foreign_key_check",
+        ))
+        .await
+        .expect("SQLite foreign key check should run")
+        .is_empty()
+    );
+
+    insert_current_storage_policy(&db, "current-after-up")
+        .await
+        .expect("current connector policy should omit retained legacy columns");
+    assert_eq!(
+        storage_policy_driver_type(&db, "current-after-up").await,
+        "",
+        "retained driver_type should receive the compatibility default"
+    );
+
+    CurrentMigrator::down(&db, Some(1))
+        .await
+        .expect("storage policy compatibility migration should roll back");
+    let (_, default_after_down) =
+        sqlite_column_type_and_default(&db, "storage_policies", "driver_type").await;
+    assert_eq!(default_after_down, None);
+    assert_eq!(
+        load_storage_policy_compatibility_row(&db, 301).await,
+        legacy_before,
+        "rollback rebuild must preserve existing policy data"
+    );
+    let error = insert_current_storage_policy(&db, "current-after-down")
+        .await
+        .expect_err("historical schema without the compatibility default should reject the current insert shape");
+    assert!(error.to_string().contains("storage_policies.driver_type"));
+
+    CurrentMigrator::up(&db, Some(1))
+        .await
+        .expect("storage policy compatibility migration should reapply");
+    insert_current_storage_policy(&db, "current-after-reapply")
+        .await
+        .expect("reapplied compatibility migration should restore current writes");
+}
+
+#[tokio::test]
+async fn storage_policy_compatibility_migration_tolerates_already_slim_schema() {
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite memory database should connect");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(
+            ALLOW_CONNECTOR_POLICY_WRITES_WITH_LEGACY_SCHEMA_MIGRATION,
+        )),
+    )
+    .await
+    .expect("pre-compatibility migrations should apply");
+    db.execute_unprepared("ALTER TABLE storage_policies DROP COLUMN driver_type")
+        .await
+        .expect("test fixture should emulate an early slim-schema snapshot");
+
+    CurrentMigrator::up(&db, Some(1))
+        .await
+        .expect("compatibility migration should treat an absent legacy column as finalized input");
+    assert!(!has_column(
+        &sqlite_table_columns(&db, "storage_policies").await,
+        "driver_type"
+    ));
+    insert_current_storage_policy(&db, "slim-after-up")
+        .await
+        .expect("slim development snapshot should remain writable");
+
+    CurrentMigrator::down(&db, Some(1))
+        .await
+        .expect("compatibility rollback should also tolerate an absent legacy column");
+    assert!(!has_column(
+        &sqlite_table_columns(&db, "storage_policies").await,
+        "driver_type"
+    ));
+}
+
+#[tokio::test]
 async fn storage_policy_connector_configs_reject_invalid_rows_without_partial_backfill() {
     for invalid in [
         "{",
@@ -1061,6 +1212,78 @@ async fn load_storage_policy_connector_configs(
         storage_config: serde_json::from_str(&row.try_get_by_index::<String>(2).unwrap()).unwrap(),
     })
     .collect()
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct StoragePolicyCompatibilityRow {
+    driver_type: String,
+    endpoint: String,
+    bucket: String,
+    access_key: String,
+    secret_key: String,
+    base_path: String,
+    options: String,
+    connector_id: String,
+    storage_config: String,
+}
+
+async fn load_storage_policy_compatibility_row(
+    db: &DatabaseConnection,
+    policy_id: i64,
+) -> StoragePolicyCompatibilityRow {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "SELECT driver_type, endpoint, bucket, access_key, secret_key, base_path, options, connector_id, storage_config \
+             FROM storage_policies WHERE id = ?",
+            [policy_id.into()],
+        ))
+        .await
+        .expect("storage policy compatibility row should query")
+        .expect("storage policy compatibility row should exist");
+    StoragePolicyCompatibilityRow {
+        driver_type: row.try_get_by_index(0).unwrap(),
+        endpoint: row.try_get_by_index(1).unwrap(),
+        bucket: row.try_get_by_index(2).unwrap(),
+        access_key: row.try_get_by_index(3).unwrap(),
+        secret_key: row.try_get_by_index(4).unwrap(),
+        base_path: row.try_get_by_index(5).unwrap(),
+        options: row.try_get_by_index(6).unwrap(),
+        connector_id: row.try_get_by_index(7).unwrap(),
+        storage_config: row.try_get_by_index(8).unwrap(),
+    }
+}
+
+async fn insert_current_storage_policy(db: &DatabaseConnection, name: &str) -> Result<(), DbErr> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        "INSERT INTO storage_policies (\
+            name, connector_id, storage_config, max_file_size, allowed_types, \
+            is_default, chunk_size, created_at, updated_at\
+         ) VALUES (?, 'asterdrive.storage.local', ?, 0, '[]', 0, 0, ?, ?)",
+        [
+            name.into(),
+            r#"{"format_version":1,"connector":{"format_version":1,"connector_id":"asterdrive.storage.local","schema_version":1,"values":{"base_path":"./data/uploads","content_dedup":false}},"behavior":{"format_version":1,"schema_version":1,"values":{}}}"#
+                .into(),
+            chrono::Utc::now().into(),
+            chrono::Utc::now().into(),
+        ],
+    ))
+    .await
+    .map(|_| ())
+}
+
+async fn storage_policy_driver_type(db: &DatabaseConnection, name: &str) -> String {
+    db.query_one_raw(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        "SELECT driver_type FROM storage_policies WHERE name = ?",
+        [name.into()],
+    ))
+    .await
+    .expect("storage policy driver type should query")
+    .expect("storage policy should exist")
+    .try_get_by_index(0)
+    .expect("storage policy driver type should decode")
 }
 
 fn steps_to_roll_back_migration(migration_name: &str) -> u32 {

@@ -1020,6 +1020,71 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		});
 	});
 
+	it("loads action target options without mutating connector policy config", async () => {
+		const lookupAction = action({
+			action_id: "plugin.inspect_target",
+			endpoints: ["execute_draft_storage_policy_action"],
+			fields: [
+				field("node", {
+					kind: "select",
+					scope: "action_input",
+					select: {
+						data_source: "remote_nodes",
+						value_kind: "integer",
+					},
+				}),
+				field("target", {
+					kind: "select",
+					scope: "action_input",
+					select: {
+						data_source: "remote_storage_targets",
+						depends_on: "node",
+						value_kind: "string",
+					},
+				}),
+			],
+			kind: "custom",
+		});
+		const connector = descriptor("plugin.actions", {
+			actions: [lookupAction],
+			fields: [field("path", { default_value: "policy-data" })],
+		});
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		mockState.remoteNodes = [remoteNode(7, "Node seven")];
+		mockState.listStorageTargets.mockResolvedValue([
+			remoteTarget("action-target"),
+		]);
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog("plugin.actions");
+		openCreateDialog();
+		await waitFor(() =>
+			expect(currentDialog().form.connector_config_values).toEqual({
+				path: "policy-data",
+			}),
+		);
+		await act(async () =>
+			currentDialog().onConnectorActionValueChange(
+				"plugin.inspect_target",
+				"node",
+				7,
+			),
+		);
+
+		await waitFor(() =>
+			expect(mockState.listStorageTargets).toHaveBeenCalledWith(7),
+		);
+		await waitFor(() =>
+			expect(currentDialog().remoteStorageTargets).toEqual([
+				remoteTarget("action-target"),
+			]),
+		);
+		expect(currentDialog().form.connector_config_values).toEqual({
+			path: "policy-data",
+		});
+	});
+
 	it("keeps a newly created authorization connector open with connector-owned guidance", async () => {
 		const connector = descriptor("plugin.oauth", {
 			actions: [authorizationAction],

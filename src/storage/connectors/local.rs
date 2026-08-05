@@ -117,6 +117,7 @@ impl LocalConnector {
             },
             fields: LocalConnectorConfigV1::descriptor_fields(),
             config_schema_version: 1,
+            credential_schema_version: None,
             actions: vec![
                 draft_connection_test_action_descriptor(),
                 saved_connection_test_action_descriptor(false),

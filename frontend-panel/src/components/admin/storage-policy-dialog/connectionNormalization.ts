@@ -100,7 +100,7 @@ export function getEndpointValidationMessage(
 	}
 	const errorKey =
 		endpointField.invalid_protocol_message_key ??
-		"s3_endpoint_protocol_required_error";
+		"policy_connector_endpoint_protocol_invalid";
 	if (!hasEndpointUrlScheme(endpoint)) {
 		return endpointField.allow_endpoint_without_protocol
 			? null

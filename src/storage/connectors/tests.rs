@@ -12,6 +12,7 @@ use aster_drive_storage::connector_descriptor::{
     StorageConnectorSelectValueKind,
 };
 use aster_drive_storage::{ConnectorConfigEnvelope, ConnectorId, StoragePolicyBehaviorConfig};
+use sea_orm::ActiveModelTrait;
 
 use super::azure_blob::AzureBlobConnectorConfigV1;
 use super::local::LocalConnectorConfigV1;
@@ -271,6 +272,18 @@ fn registry_rejects_duplicate_and_unknown_connector_ids() {
         Err(error) => error,
     };
     assert!(error.to_string().contains("is not registered"));
+
+    let input_error = registry()
+        .require_input_connector(&ConnectorId::declared("com.example.missing"))
+        .err()
+        .expect("unknown request connector id must be rejected as input");
+    assert_eq!(input_error.code(), "E005");
+
+    let invalid_input_error = registry()
+        .require_input_connector(&ConnectorId::declared("INVALID ID"))
+        .err()
+        .expect("invalid request connector id must be rejected as input");
+    assert_eq!(invalid_input_error.code(), "E005");
 }
 
 #[test]
@@ -339,7 +352,108 @@ fn policy_lookup_rejects_invalid_and_unregistered_persisted_ids() {
         Ok(_) => panic!("unregistered persisted connector id must fail"),
         Err(error) => error,
     };
-    assert!(error.to_string().contains("is not registered"));
+    assert_eq!(
+        error.storage_error_kind(),
+        Some(aster_drive_storage::StorageErrorKind::Misconfigured)
+    );
+    assert!(error.to_string().contains("unavailable connector"));
+}
+
+#[tokio::test]
+async fn static_credential_cleanup_snapshot_survives_policy_row_deletion_without_plaintext() {
+    const KEY: &str = "storage-cleanup-snapshot-test-key-32bytes";
+    let db = crate::db::connect_with_metrics(
+        &crate::config::DatabaseConfig {
+            url: "sqlite::memory:".into(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive_metrics::NoopMetrics::arc(),
+    )
+    .await
+    .expect("cleanup snapshot test database");
+    super::test_support::migrate_current_storage_test_schema(&db).await;
+    let policy = super::test_support::insertable_policy(super::test_support::s3_policy(
+        "https://s3.example.test",
+        "archive",
+        "cleanup",
+        ObjectStorageUploadStrategy::RelayStream,
+        ObjectStorageDownloadStrategy::RelayStream,
+    ))
+    .insert(&db)
+    .await
+    .expect("insert cleanup snapshot policy");
+    let credential = super::s3::S3StaticCredentialsV1 {
+        s3_access_key_id: "cleanup-access-key".to_string(),
+        s3_secret_access_key: "cleanup-secret-key".to_string(),
+    };
+    super::persist_connector_credential_payload(
+        &db,
+        KEY,
+        policy.id,
+        &ConnectorId::declared(super::s3::S3Connector::ID),
+        1,
+        &credential,
+    )
+    .await
+    .expect("persist encrypted cleanup credential");
+
+    let mut config = crate::config::Config::default();
+    config.auth.storage_credential_secret_key = KEY.to_string();
+    let runtime_config = crate::config::RuntimeConfig::default();
+    let driver_registry =
+        crate::storage::DriverRegistry::noop().expect("built-in storage connector registry");
+    let context =
+        StorageConnectorContext::new(&db, &config, &runtime_config, &driver_registry, None);
+    let snapshot = connector(super::s3::S3Connector::ID)
+        .cleanup_snapshot_for_policy(&context, &policy)
+        .await
+        .expect("create static credential cleanup snapshot")
+        .expect("static connector requires a snapshot");
+    let serialized = serde_json::to_string(&snapshot).expect("serialize cleanup snapshot");
+    assert!(!serialized.contains("cleanup-access-key"));
+    assert!(!serialized.contains("cleanup-secret-key"));
+
+    crate::db::repository::policy_repo::delete(&db, policy.id)
+        .await
+        .expect("delete policy and credential row");
+    assert!(
+        crate::db::repository::storage_policy_connector_credential_repo::find_by_policy(
+            &db, policy.id,
+        )
+        .await
+        .expect("query deleted credential")
+        .is_none()
+    );
+
+    let decoded: super::s3::S3StaticCredentialsV1 =
+        super::common::static_credential_from_cleanup_snapshot(
+            &context,
+            &policy,
+            StoragePolicyCleanupSnapshots {
+                driver_snapshot: Some(&snapshot),
+            },
+            super::s3::S3Connector::ID,
+            1,
+        )
+        .expect("encrypted cleanup snapshot should outlive the database row");
+    assert_eq!(decoded, credential);
+
+    let mut wrong_policy = policy.clone();
+    wrong_policy.id += 1;
+    assert!(
+        super::common::static_credential_from_cleanup_snapshot::<super::s3::S3StaticCredentialsV1>(
+            &context,
+            &wrong_policy,
+            StoragePolicyCleanupSnapshots {
+                driver_snapshot: Some(&snapshot),
+            },
+            super::s3::S3Connector::ID,
+            1,
+        )
+        .is_err(),
+        "credential snapshot must remain bound to the original policy id"
+    );
 }
 
 #[test]
@@ -349,6 +463,16 @@ fn descriptors_are_complete_and_keep_config_credentials_separate() {
         assert!(!descriptor.ui.description_key.trim().is_empty());
         assert!(descriptor.ui.icon_src.is_some() || descriptor.ui.icon_name.is_some());
         assert!(descriptor.config_schema_version > 0);
+        match descriptor.credential_mode {
+            aster_drive_storage::StorageConnectorCredentialMode::None => {
+                assert_eq!(descriptor.credential_schema_version, None);
+            }
+            _ => assert!(
+                descriptor
+                    .credential_schema_version
+                    .is_some_and(|version| version > 0)
+            ),
+        }
 
         let mut names = Vec::new();
         for field in &descriptor.fields {
@@ -431,6 +555,14 @@ fn descriptors_are_complete_and_keep_config_credentials_separate() {
             StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances
         );
     }
+}
+
+#[test]
+fn credential_schema_version_is_independent_from_connector_config_schema() {
+    let mut descriptor = descriptor(S3Connector::ID);
+    assert_eq!(descriptor.credential_schema_version, Some(1));
+    descriptor.config_schema_version = 2;
+    assert_eq!(super::credential_schema_version(&descriptor).unwrap(), 1);
 }
 
 #[test]

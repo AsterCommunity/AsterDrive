@@ -382,16 +382,23 @@ impl OneDriveConnector {
                 .filter(|scopes| !scopes.is_empty())
                 .unwrap_or_else(|| normalize_microsoft_graph_scopes(None, default_scopes)),
         };
+        let tenant = normalized_option(connector_config.tenant.clone())
+            .unwrap_or_else(|| "common".to_string());
+        let application = OneDriveApplicationCredentialV1 {
+            cloud: connector_config.cloud,
+            tenant,
+            client_id,
+            client_secret,
+            scopes,
+        };
+        let preserve_authorization = existing_payload
+            .as_ref()
+            .is_some_and(|payload| same_application_identity(&payload.application, &application));
         let payload = OneDriveCredentialV1 {
-            application: OneDriveApplicationCredentialV1 {
-                cloud: connector_config.cloud,
-                tenant: normalized_option(connector_config.tenant.clone())
-                    .unwrap_or_else(|| "common".to_string()),
-                client_id,
-                client_secret,
-                scopes,
-            },
-            authorization: existing_payload.and_then(|payload| payload.authorization),
+            application,
+            authorization: preserve_authorization
+                .then(|| existing_payload.and_then(|payload| payload.authorization))
+                .flatten(),
         };
         super::persist_connector_credential_payload(
             db,
@@ -443,6 +450,17 @@ impl OneDriveConnector {
         }
         Ok(())
     }
+}
+
+fn same_application_identity(
+    left: &OneDriveApplicationCredentialV1,
+    right: &OneDriveApplicationCredentialV1,
+) -> bool {
+    left.cloud == right.cloud
+        && left.tenant == right.tenant
+        && left.client_id == right.client_id
+        && left.client_secret == right.client_secret
+        && left.scopes == right.scopes
 }
 
 fn normalized_option(value: Option<String>) -> Option<String> {
@@ -730,6 +748,7 @@ impl OneDriveConnector {
             },
             fields: OneDriveConnectorConfigV1::descriptor_fields(),
             config_schema_version: 1,
+            credential_schema_version: Some(1),
             actions: vec![
                 start_authorization_action_descriptor(),
                 validate_credential_action_descriptor(),
@@ -1400,6 +1419,23 @@ impl StorageConnector for OneDriveConnector {
         ))?;
         let location = Self::resolve_location(&client, policy).await?;
         let root_item = location.root_item;
+
+        // Token resolution may rotate access and refresh tokens through a
+        // revision CAS. Re-read the row before updating validation metadata so
+        // this request never writes the pre-rotation payload back over the
+        // provider's newer credential state.
+        let current_credential =
+            storage_policy_connector_credential_repo::find_by_policy(db, policy.id)
+                .await?
+                .ok_or_else(|| {
+                    AsterError::record_not_found("storage policy connector credential")
+                })?;
+        payload = super::decode_typed_connector_credential(
+            &config.auth.storage_credential_secret_key,
+            &current_credential,
+            &aster_drive_storage::ConnectorId::declared(Self::ID),
+            1,
+        )?;
         let authorization = payload.authorization.as_mut().ok_or_else(|| {
             AsterError::validation_error("OneDrive connector credential has not been authorized")
         })?;
@@ -1416,6 +1452,7 @@ impl StorageConnector for OneDriveConnector {
             id_token_present: authorization.metadata.id_token_present,
         };
         Ok(StorageCredentialValidationOutcome {
+            credential: current_credential,
             credential_payload: serde_json::to_value(payload).map_err(|error| {
                 AsterError::internal_error(format!(
                     "serialize validated OneDrive connector credential: {error}"
@@ -1884,8 +1921,46 @@ mod tests {
         );
     }
 
+    #[test]
+    fn application_identity_includes_every_token_issuing_input() {
+        let base = OneDriveApplicationCredentialV1 {
+            cloud: MicrosoftGraphCloud::Global,
+            tenant: "common".to_string(),
+            client_id: "client".to_string(),
+            client_secret: "secret".to_string(),
+            scopes: vec!["offline_access".to_string(), "Files.ReadWrite".to_string()],
+        };
+        assert!(same_application_identity(&base, &base.clone()));
+
+        let variants = [
+            OneDriveApplicationCredentialV1 {
+                cloud: MicrosoftGraphCloud::China,
+                ..base.clone()
+            },
+            OneDriveApplicationCredentialV1 {
+                tenant: "organizations".to_string(),
+                ..base.clone()
+            },
+            OneDriveApplicationCredentialV1 {
+                client_id: "other-client".to_string(),
+                ..base.clone()
+            },
+            OneDriveApplicationCredentialV1 {
+                client_secret: "other-secret".to_string(),
+                ..base.clone()
+            },
+            OneDriveApplicationCredentialV1 {
+                scopes: vec!["offline_access".to_string()],
+                ..base.clone()
+            },
+        ];
+        for changed in variants {
+            assert!(!same_application_identity(&base, &changed));
+        }
+    }
+
     #[tokio::test]
-    async fn application_update_preserves_secret_authorization_and_increments_revision() {
+    async fn application_update_preserves_authorization_only_for_the_same_identity() {
         let db = crate::db::connect_with_metrics(
             &crate::config::DatabaseConfig {
                 url: "sqlite::memory:".into(),
@@ -1968,9 +2043,9 @@ mod tests {
             stored_policy.id,
             &config,
             OneDriveAuthorizationApplicationV1 {
-                client_id: "client-b".to_string(),
+                client_id: "client-a".to_string(),
                 client_secret: "  ".to_string(),
-                scopes: Some("offline_access offline_access Files.ReadWrite.All".to_string()),
+                scopes: None,
             },
         )
         .await
@@ -1983,16 +2058,38 @@ mod tests {
             1,
         )
         .unwrap();
-        assert_eq!(payload.application.client_id, "client-b");
+        assert_eq!(payload.application.client_id, "client-a");
         assert_eq!(payload.application.client_secret, "secret-a");
-        assert_eq!(
-            payload.application.scopes,
-            vec!["offline_access", "Files.ReadWrite.All"]
-        );
+        assert!(!payload.application.scopes.is_empty());
         assert_eq!(
             payload.authorization.unwrap().refresh_token.as_deref(),
             Some("refresh-token")
         );
+
+        let changed = OneDriveConnector::upsert_application_config(
+            &db,
+            KEY,
+            stored_policy.id,
+            &config,
+            OneDriveAuthorizationApplicationV1 {
+                client_id: "client-b".to_string(),
+                client_secret: "  ".to_string(),
+                scopes: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(changed.revision, 4);
+        let payload: OneDriveCredentialV1 = super::super::decode_typed_connector_credential(
+            KEY,
+            &changed,
+            &aster_drive_storage::ConnectorId::declared(OneDriveConnector::ID),
+            1,
+        )
+        .unwrap();
+        assert_eq!(payload.application.client_id, "client-b");
+        assert_eq!(payload.application.client_secret, "secret-a");
+        assert!(payload.authorization.is_none());
     }
 }
 

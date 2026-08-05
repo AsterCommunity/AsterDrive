@@ -2,8 +2,10 @@
 //!
 //! This is intentionally application-level rather than a historical schema
 //! migration: connector code owns payload conversion, while the already-loaded
-//! runtime config supplies the encryption key. The whole import and legacy
-//! cleanup run in one transaction before the server begins listening.
+//! runtime config supplies the encryption key. Credential import, legacy value
+//! clearing, and deprecated-row deletion run in one transaction before the
+//! server begins listening. The compatibility schema itself remains until the
+//! 0.6.0 migration tracked by issue #463.
 //!
 //! This module and both deprecated source tables are scheduled for complete
 //! removal in AsterDrive 0.6.0.
@@ -145,7 +147,7 @@ pub(crate) async fn migrate_legacy_storage_credentials(
                 &config.auth.storage_credential_secret_key,
                 &existing,
                 &descriptor.connector_id,
-                descriptor.config_schema_version,
+                crate::storage::connectors::credential_schema_version(&descriptor)?,
             )?;
             if existing_payload != imported {
                 return Err(AsterError::database_operation(format!(
@@ -162,7 +164,7 @@ pub(crate) async fn migrate_legacy_storage_credentials(
             &config.auth.storage_credential_secret_key,
             policy.id,
             &descriptor.connector_id,
-            descriptor.config_schema_version,
+            crate::storage::connectors::credential_schema_version(&descriptor)?,
             &imported,
         )
         .await?;
@@ -681,19 +683,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn finalized_schema_skips_removed_static_credential_columns_idempotently() {
+    async fn slim_schema_without_static_credential_columns_is_idempotent() {
         let db = database().await;
-        aster_drive_migration::finalize_storage_policy_upgrade(&db)
+        db.execute_unprepared("ALTER TABLE storage_policies DROP COLUMN access_key")
             .await
-            .expect("test storage policy schema should finalize");
+            .expect("test slim schema should drop access_key");
+        db.execute_unprepared("ALTER TABLE storage_policies DROP COLUMN secret_key")
+            .await
+            .expect("test slim schema should drop secret_key");
         let connectors = builtin_storage_connector_registry().unwrap();
 
         let first = run_migration(&db, &config(KEY), &connectors)
             .await
-            .expect("finalized schema should skip legacy static credential scan");
+            .expect("slim schema should skip legacy static credential scan");
         let second = run_migration(&db, &config(KEY), &connectors)
             .await
-            .expect("repeated finalized-schema migration should remain idempotent");
+            .expect("repeated slim-schema migration should remain idempotent");
 
         assert_eq!(first, LegacyStorageCredentialMigrationReport::default());
         assert_eq!(second, LegacyStorageCredentialMigrationReport::default());

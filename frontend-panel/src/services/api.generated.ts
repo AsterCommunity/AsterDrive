@@ -10810,6 +10810,11 @@ export interface operations {
                             credential_management?: null | components["schemas"]["StorageConnectorCredentialManagementDescriptor"];
                             /** @description connector 的主要凭据模式。 */
                             credential_mode: components["schemas"]["StorageConnectorCredentialMode"];
+                            /**
+                             * Format: int32
+                             * @description 凭据 payload 的独立 schema 版本。配置字段演进不应使已保存凭据失效。
+                             */
+                            credential_schema_version?: number | null;
                             /** @description policy 数据相对于多个 Primary 的可见范围。 */
                             deployment_scope: components["schemas"]["StorageConnectorDeploymentScope"];
                             /** @description 人类可读说明。 */

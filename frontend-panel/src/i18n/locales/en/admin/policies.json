@@ -106,6 +106,7 @@
 	"policy_connector_action_confirm_desc": "This action may change remote storage state. Confirm before continuing.",
 	"policy_connector_action_confirm_title": "Run “{{action}}”?",
 	"policy_connector_action_field_required": "Enter {{field}}",
+	"policy_connector_endpoint_protocol_invalid": "Enter a valid endpoint URL with a supported protocol.",
 	"policy_connector_action_save_first": "Save the storage policy before running this action.",
 	"policy_connector_action_success": "“{{action}}” completed successfully",
 	"policy_s3_driver_suggestion_action": "Use {{driver}} instead",

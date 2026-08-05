@@ -117,7 +117,7 @@ pub async fn validate_policy_credential(
     let credential = crate::storage::connectors::persist_connector_credential_value(
         state.writer_db(),
         &state.config().auth.storage_credential_secret_key,
-        &credential,
+        &validation.credential,
         validation.credential_payload,
     )
     .await?;

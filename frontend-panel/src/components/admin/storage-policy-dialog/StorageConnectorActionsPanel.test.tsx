@@ -2,6 +2,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type {
+	RemoteNodeInfo,
+	RemoteStorageTargetInfo,
 	StorageConnectorActionDescriptor,
 	StorageConnectorFieldDescriptor,
 } from "@/types/api";
@@ -14,11 +16,13 @@ import type { Translate } from "./StoragePolicyFieldTypes";
 vi.mock("@/components/ui/select", () => ({
 	Select: ({
 		children,
+		disabled,
 		items = [],
 		value,
 		onValueChange,
 	}: {
 		children: ReactNode;
+		disabled?: boolean;
 		items?: Array<{ label: string; value: string }>;
 		value?: string | null;
 		onValueChange?: (value: string | null) => void;
@@ -27,6 +31,7 @@ vi.mock("@/components/ui/select", () => ({
 			{children}
 			<select
 				aria-label="descriptor-select"
+				disabled={disabled}
 				value={value ?? ""}
 				onChange={(event) => onValueChange?.(event.target.value || null)}
 			>
@@ -110,11 +115,15 @@ function renderPanel({
 	confirmActionId = null,
 	submittingActionId = null,
 	values = {},
+	remoteNodes = [],
+	remoteStorageTargets = [],
 }: {
 	actions: StorageConnectorActionDescriptor[];
 	confirmActionId?: string | null;
 	submittingActionId?: string | null;
 	values?: StorageConnectorActionValues;
+	remoteNodes?: RemoteNodeInfo[];
+	remoteStorageTargets?: RemoteStorageTargetInfo[];
 }) {
 	const callbacks = {
 		onCancel: vi.fn(),
@@ -125,6 +134,8 @@ function renderPanel({
 	const view = render(
 		<StorageConnectorActionsPanel
 			actions={actions}
+			remoteNodes={remoteNodes}
+			remoteStorageTargets={remoteStorageTargets}
 			confirmActionId={confirmActionId}
 			submittingActionId={submittingActionId}
 			t={t}
@@ -133,6 +144,40 @@ function renderPanel({
 		/>,
 	);
 	return { ...callbacks, ...view };
+}
+
+function remoteNode(id: number, name: string): RemoteNodeInfo {
+	return {
+		base_url: `https://node-${id}.example.com`,
+		capabilities: {},
+		created_at: "2026-08-05T00:00:00Z",
+		enrollment_status: "completed",
+		id,
+		is_enabled: true,
+		last_checked_at: null,
+		last_error: "",
+		name,
+		transport_mode: "direct",
+		tunnel: { last_error: "", last_seen_at: null, status: "offline" },
+		updated_at: "2026-08-05T00:00:00Z",
+	};
+}
+
+function remoteTarget(targetKey: string): RemoteStorageTargetInfo {
+	return {
+		applied_revision: 1,
+		base_path: "",
+		bucket: "",
+		created_at: "2026-08-05T00:00:00Z",
+		desired_revision: 1,
+		driver_type: "local",
+		endpoint: "",
+		is_default: true,
+		last_error: "",
+		name: "Archive",
+		target_key: targetKey,
+		updated_at: "2026-08-05T00:00:00Z",
+	};
 }
 
 describe("StorageConnectorActionsPanel", () => {
@@ -265,5 +310,68 @@ describe("StorageConnectorActionsPanel", () => {
 		expect(screen.getByRole("button", { name: "First action" })).toBeDisabled();
 		expect(screen.getByRole("button", { name: "Second action" })).toBeEnabled();
 		expect(screen.getByRole("combobox")).toHaveValue("");
+	});
+
+	it("renders dynamic remote lookups and disables dependent selects until their source is chosen", () => {
+		const { onValueChange } = renderPanel({
+			actions: [
+				action("plugin.first", {
+					fields: [
+						field("node", "select", {
+							select: { data_source: "remote_nodes", value_kind: "integer" },
+						}),
+						field("target", "select", {
+							select: {
+								data_source: "remote_storage_targets",
+								depends_on: "node",
+								value_kind: "string",
+							},
+						}),
+					],
+				}),
+			],
+			remoteNodes: [remoteNode(7, "Node seven")],
+			remoteStorageTargets: [remoteTarget("archive")],
+			values: { "plugin.first": { target: "archive" } },
+		});
+
+		const selects = screen.getAllByRole("combobox");
+		expect(selects[0]).toHaveTextContent("Node seven");
+		expect(selects[1]).toHaveTextContent("Archive");
+		expect(selects[1]).toBeDisabled();
+		fireEvent.change(selects[0], { target: { value: "7" } });
+		expect(onValueChange).toHaveBeenCalledWith("plugin.first", "node", 7);
+		expect(onValueChange).toHaveBeenCalledWith(
+			"plugin.first",
+			"target",
+			undefined,
+		);
+	});
+
+	it("uses a descriptor default when resolving an action select dependency", () => {
+		renderPanel({
+			actions: [
+				action("plugin.first", {
+					fields: [
+						field("node", "select", {
+							default_value: 7,
+							select: { data_source: "remote_nodes", value_kind: "integer" },
+						}),
+						field("target", "select", {
+							select: {
+								data_source: "remote_storage_targets",
+								depends_on: "node",
+								value_kind: "string",
+							},
+						}),
+					],
+				}),
+			],
+			remoteNodes: [remoteNode(7, "Node seven")],
+		});
+
+		const selects = screen.getAllByRole("combobox");
+		expect(selects[0]).toHaveValue("7");
+		expect(selects[1]).toBeEnabled();
 	});
 });

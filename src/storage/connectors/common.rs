@@ -18,6 +18,14 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use super::StorageConnectorCredentialInput;
 
+const STATIC_CREDENTIAL_CLEANUP_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StaticCredentialCleanupSnapshotV1 {
+    ciphertext: String,
+}
+
 /// Messages owned by descriptor helpers shared by multiple connector plugins.
 ///
 /// Each connector explicitly composes this slice with its own resource and the
@@ -197,6 +205,80 @@ pub(super) fn runtime_static_credential<T: DeserializeOwned>(
                 policy.id
             ),
         )
+    })
+}
+
+/// Preserve an encrypted static credential for cleanup work that may run after
+/// the policy and its credential row have been deleted.
+pub(super) async fn static_credential_cleanup_snapshot(
+    context: &super::StorageConnectorContext<'_>,
+    policy: &storage_policy::Model,
+    connector_id: &str,
+    credential_schema_version: u32,
+) -> Result<Option<super::StoragePolicyCleanupDriverSnapshot>> {
+    let Some(credential) =
+        crate::db::repository::storage_policy_connector_credential_repo::find_by_policy(
+            context.writer_db(),
+            policy.id,
+        )
+        .await?
+    else {
+        return Ok(None);
+    };
+    let expected_schema_version = i32::try_from(credential_schema_version).map_err(|_| {
+        AsterError::database_operation("connector schema version exceeds database range")
+    })?;
+    if credential.connector_id != connector_id
+        || credential.schema_version != expected_schema_version
+    {
+        return Err(AsterError::database_operation(format!(
+            "storage policy {} credential does not match connector cleanup schema",
+            policy.id
+        )));
+    }
+    super::StoragePolicyCleanupDriverSnapshot::encode(
+        ConnectorId::declared(connector_id),
+        STATIC_CREDENTIAL_CLEANUP_SNAPSHOT_SCHEMA_VERSION,
+        &StaticCredentialCleanupSnapshotV1 {
+            ciphertext: credential.ciphertext,
+        },
+    )
+    .map(Some)
+}
+
+/// Decode a static credential from the encrypted snapshot stored in a delayed
+/// cleanup task. The original connector-credential AAD remains valid because
+/// the task also preserves the policy id, connector id, and schema version.
+pub(super) fn static_credential_from_cleanup_snapshot<T: DeserializeOwned>(
+    context: &super::StorageConnectorContext<'_>,
+    policy: &storage_policy::Model,
+    snapshots: super::StoragePolicyCleanupSnapshots<'_>,
+    connector_id: &str,
+    credential_schema_version: u32,
+) -> Result<T> {
+    let snapshot = snapshots.driver_snapshot.ok_or_else(|| {
+        AsterError::database_operation(format!(
+            "storage policy {} cleanup task is missing encrypted credentials for connector '{}'",
+            policy.id, connector_id
+        ))
+    })?;
+    let payload: StaticCredentialCleanupSnapshotV1 = snapshot.decode(
+        connector_id,
+        STATIC_CREDENTIAL_CLEANUP_SNAPSHOT_SCHEMA_VERSION,
+    )?;
+    let plaintext =
+        crate::services::storage_policy::credential::crypto::decrypt_connector_credential(
+            &context.config().auth.storage_credential_secret_key,
+            policy.id,
+            connector_id,
+            credential_schema_version,
+            &payload.ciphertext,
+        )?;
+    serde_json::from_str(&plaintext).map_err(|error| {
+        AsterError::database_operation(format!(
+            "storage policy {} cleanup credential for connector '{}' is invalid: {error}",
+            policy.id, connector_id
+        ))
     })
 }
 
