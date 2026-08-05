@@ -549,8 +549,10 @@ async fn test_audit_log_records_admin_folder_policy_change_details() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Folder Policy Audit Target",
-            "driver_type": "local",
-            "base_path": format!("/tmp/asterdrive-folder-policy-audit-{}", uuid::Uuid::new_v4()),
+            "connection": common::local_connection_json(format!(
+                "/tmp/asterdrive-folder-policy-audit-{}",
+                uuid::Uuid::new_v4()
+            )),
             "max_file_size": 0,
             "is_default": false
         }))

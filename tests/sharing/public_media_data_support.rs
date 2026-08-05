@@ -3,14 +3,8 @@
 use crate::common;
 
 use actix_web::test;
+use aster_drive::api::api_error_code::ApiErrorCode;
 use serde_json::{Value, json};
-
-fn extension_values<'a>(kind_support: &'a Value, name: &str) -> &'a [Value] {
-    kind_support[name]
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or_default()
-}
 
 fn available_test_command() -> String {
     std::env::current_exe()
@@ -226,36 +220,35 @@ async fn test_public_media_data_support_includes_storage_native_policy_extension
 }
 
 #[actix_web::test]
-async fn test_public_media_data_support_ignores_storage_native_options_for_unsupported_driver() {
+async fn test_storage_native_media_metadata_rejects_unsupported_connector() {
     let state = common::setup().await;
-    let app = create_test_app!(state.clone());
-    let policy = create_storage_native_media_metadata_policy(
+    let mut connection = common::s3_connection(
+        "https://s3.example.com",
+        "unsupported-native-metadata",
+        "",
+        "AKID",
+        "SECRET",
+    );
+    connection.behavior = aster_drive_storage::StoragePolicyBehaviorConfig {
+        media_metadata_extensions: vec!["zzrawmedia".to_string()],
+        ..Default::default()
+    };
+    let error = aster_drive::services::storage_policy::policy::create(
         &state,
-        common::s3_connection(
-            "https://s3.example.com",
-            "unsupported-native-metadata",
-            "",
-            "AKID",
-            "SECRET",
-        ),
-        "Unsupported Native Metadata",
-        vec!["zzrawmedia".to_string()],
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyInput {
+            name: "Unsupported Native Metadata".to_string(),
+            connection,
+            max_file_size: 0,
+            chunk_size: Some(5_242_880),
+            is_default: false,
+            allowed_types: None,
+        },
     )
-    .await;
+    .await
+    .expect_err("unsupported connector must reject storage-native media metadata");
 
-    let req = test::TestRequest::get()
-        .uri("/api/v1/public/media-data-support")
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
-
-    let body: Value = test::read_body_json(resp).await;
-    let video_extensions = extension_values(&body["data"]["kinds"]["video"], "extensions");
-    let audio_extensions = extension_values(&body["data"]["kinds"]["audio"], "extensions");
-    assert!(!video_extensions.iter().any(|value| value == "zzrawmedia"));
-    assert!(!audio_extensions.iter().any(|value| value == "zzrawmedia"));
-    assert!(
-        !state.driver_registry.has_cached_driver_for_test(policy.id),
-        "unsupported public media policy must not be instantiated just to reject capability"
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::PolicyNativeMediaMetadataUnsupported
     );
 }

@@ -691,10 +691,8 @@ fn system_health_check_interval_for_web_state(state: &web::Data<PrimaryAppState>
 pub(crate) mod test_support {
     use std::sync::Arc;
 
-    use actix_web::web;
-    use aster_drive_migration::Migrator;
-
     use super::PrimaryAppState;
+    use actix_web::web;
 
     pub async fn setup_primary_state() -> web::Data<PrimaryAppState> {
         let db = crate::db::connect_with_metrics(
@@ -707,9 +705,7 @@ pub(crate) mod test_support {
         )
         .await
         .expect("runtime task test database should connect");
-        Migrator::up(&db, None)
-            .await
-            .expect("runtime task test migrations should apply");
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
         crate::db::repository::config_repo::ensure_defaults_with_env(&db, &|_| None)
             .await
             .expect("runtime config defaults should initialize");

@@ -6,6 +6,7 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::storage::DriverRegistry;
 use aster_drive_metrics::SharedMetricsRecorder;
 use aster_drive_migration::Migrator;
+use sea_orm::TransactionTrait;
 use std::sync::Arc;
 
 pub(super) struct CommonRuntimeParts {
@@ -107,16 +108,18 @@ pub async fn initialize_database_state(
     let connector_registry = crate::storage::connectors::builtin_storage_connector_registry()?;
     let upgrade_config = cfg.clone();
     let upgrade_connectors = connector_registry.clone();
-    aster_drive_migration::with_database_migration_lock(database, move |transaction| {
+    aster_drive_migration::with_database_migration_lock(database, move |connection| {
         Box::pin(async move {
+            let credential_transaction = connection.begin().await?;
             crate::services::storage_policy::credential::migrate_legacy_storage_credentials(
-                transaction,
+                &credential_transaction,
                 &upgrade_config,
                 &upgrade_connectors,
             )
             .await
             .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;
-            aster_drive_migration::finalize_storage_policy_upgrade(transaction).await
+            credential_transaction.commit().await?;
+            aster_drive_migration::finalize_storage_policy_upgrade(connection).await
         })
     })
     .await

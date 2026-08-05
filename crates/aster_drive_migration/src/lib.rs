@@ -14,7 +14,7 @@
 pub use sea_orm_migration::prelude::*;
 
 use sea_orm_migration::sea_orm::{
-    ConnectionTrait as SeaConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend,
+    ConnectionTrait as SeaConnectionTrait, DatabaseConnection, DatabaseExecutor, DbBackend,
     Statement,
 };
 
@@ -332,7 +332,7 @@ pub async fn with_database_migration_lock<T, F>(
     operation: F,
 ) -> Result<T, DbErr>
 where
-    F: for<'a> FnOnce(&'a DatabaseTransaction) -> aster_forge_db_migration::MigrationFuture<'a, T>,
+    F: for<'a> FnOnce(DatabaseExecutor<'a>) -> aster_forge_db_migration::MigrationFuture<'a, T>,
 {
     let options = aster_forge_db_migration::MigrationLockOptions::new(MYSQL_MIGRATION_LOCK_NAME)
         .with_postgres_advisory_key(POSTGRES_MIGRATION_LOCK_KEY)
@@ -340,12 +340,8 @@ where
     aster_forge_db_migration::with_migration_lock(database, &options, operation).await
 }
 
-async fn apply_database_migrations_unlocked<'c, C>(database: &'c C) -> Result<(), DbErr>
-where
-    C: SeaConnectionTrait,
-    &'c C: IntoSchemaManagerConnection<'c>,
-{
-    let history = inspect_migration_history(database).await?;
+async fn apply_database_migrations_unlocked(database: DatabaseExecutor<'_>) -> Result<(), DbErr> {
+    let history = inspect_migration_history(&database).await?;
     if history.track == MigrationTrack::Unknown {
         return Err(migration_state_error(format!(
             "database contains unknown migration versions: {}",
@@ -355,8 +351,8 @@ where
 
     match history.track {
         MigrationTrack::Empty => {
-            if migration_table_exists(database).await?
-                || application_schema_exists(database).await?
+            if migration_table_exists(&database).await?
+                || application_schema_exists(&database).await?
             {
                 return Err(migration_state_error(
                     "database contains migration metadata or application tables but migration \
@@ -563,7 +559,7 @@ mod tests {
         );
         assert_eq!(
             history.pending_current.len(),
-            3 - storage_migration_count,
+            current_migration_names().len() - history.applied.len(),
             "resource-lock plus any storage branch tail not yet applied should remain pending"
         );
 

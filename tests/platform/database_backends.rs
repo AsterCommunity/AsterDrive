@@ -145,22 +145,28 @@ async fn assert_mysql_search_objects(db: &DatabaseConnection) {
         .unwrap();
     assert!(team_index.is_some(), "teams fulltext index should exist");
 
-    let timestamp_count = db
-        .query_one_raw(Statement::from_string(
+    let timestamp_columns = db
+        .query_all_raw(Statement::from_string(
             DbBackend::MySql,
-            "SELECT COUNT(*) \
+            "SELECT TABLE_NAME, COLUMN_NAME \
              FROM INFORMATION_SCHEMA.COLUMNS \
              WHERE TABLE_SCHEMA = DATABASE() \
                AND TABLE_NAME <> 'seaql_migrations' \
-               AND DATA_TYPE = 'timestamp'",
+               AND DATA_TYPE = 'timestamp' \
+             ORDER BY TABLE_NAME, ORDINAL_POSITION",
         ))
         .await
         .unwrap()
-        .expect("timestamp count query should return one row");
-    let timestamp_count: i64 = timestamp_count.try_get_by_index(0).unwrap();
-    assert_eq!(
-        timestamp_count, 0,
-        "application tables should not retain MySQL TIMESTAMP columns after the 2038 fix"
+        .into_iter()
+        .map(|row| {
+            let table_name: String = row.try_get_by_index(0).unwrap();
+            let column_name: String = row.try_get_by_index(1).unwrap();
+            format!("{table_name}.{column_name}")
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        timestamp_columns.is_empty(),
+        "application tables should not retain MySQL TIMESTAMP columns after the 2038 fix: {timestamp_columns:?}"
     );
 
     let shares_expires_at = db

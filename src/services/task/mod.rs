@@ -1487,6 +1487,10 @@ mod tests {
     #[test]
     fn task_presentation_does_not_parse_static_status_text_for_business_tasks() {
         let now = Utc::now();
+        let mut policy = crate::storage::connectors::test_support::local_policy("/tmp/storage");
+        policy.id = 7;
+        policy.name = "Deleted policy".to_string();
+        policy.chunk_size = 5_242_880;
         let task = background_task::Model {
             id: 46,
             kind: BackgroundTaskKind::StoragePolicyTempCleanup,
@@ -1499,22 +1503,16 @@ mod tests {
             payload_json: StoredTaskPayload(
                 serde_json::json!({
                     "policy": {
-                        "id": 7,
-                        "name": "Deleted policy",
-                        "driver_type": "local",
-                        "endpoint": "",
-                        "bucket": "",
-                        "access_key": "",
-                        "secret_key": "",
-                        "base_path": "/tmp/storage",
-                        "remote_node_id": null,
-                        "max_file_size": 0,
-                        "allowed_types": "[]",
-                        "options": "{}",
-                        "is_default": false,
-                        "chunk_size": 5242880
+                        "id": policy.id,
+                        "name": policy.name,
+                        "connector_id": policy.connector_id,
+                        "storage_config": policy.storage_config.as_ref(),
+                        "max_file_size": policy.max_file_size,
+                        "allowed_types": policy.allowed_types.as_ref(),
+                        "is_default": policy.is_default,
+                        "chunk_size": policy.chunk_size
                     },
-                    "remote_node": null,
+                    "driver_snapshot": null,
                     "temp_keys": ["uploads/a.tmp"],
                     "multipart_uploads": []
                 })

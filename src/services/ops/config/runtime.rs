@@ -280,7 +280,6 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
 
-    use aster_drive_migration::Migrator;
     use aster_forge_config::ConfigSyncConfig;
     use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 
@@ -420,9 +419,7 @@ mod tests {
         )
         .await
         .expect("config reload test database should connect");
-        Migrator::up(&db, None)
-            .await
-            .expect("config reload test migrations should apply");
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
         crate::db::repository::config_repo::ensure_defaults_with_env(&db, &|_| None)
             .await
             .expect("config reload test defaults should load");

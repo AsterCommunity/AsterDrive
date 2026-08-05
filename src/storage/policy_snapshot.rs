@@ -356,7 +356,6 @@ mod tests {
     use crate::db;
     use crate::db::repository::{managed_follower_repo, policy_group_repo, policy_repo, user_repo};
     use crate::storage::connectors::builtin_storage_connector_registry;
-    use aster_drive_migration::Migrator;
     use aster_drive_model::types::{
         RemoteDownloadStrategy, RemoteUploadStrategy, UserRole, UserStatus,
     };
@@ -374,7 +373,7 @@ mod tests {
         )
         .await
         .unwrap();
-        Migrator::up(&db, None).await.unwrap();
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
         db
     }
 

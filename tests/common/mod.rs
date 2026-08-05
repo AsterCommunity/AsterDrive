@@ -130,6 +130,11 @@ pub fn local_connection(
     }
 }
 
+pub fn local_connection_json(base_path: impl Into<String>) -> serde_json::Value {
+    serde_json::to_value(local_connection(base_path))
+        .expect("local integration connection should serialize")
+}
+
 pub fn s3_connection(
     endpoint: impl Into<String>,
     bucket: impl Into<String>,
@@ -146,6 +151,19 @@ pub fn s3_connection(
         aster_drive_model::types::ObjectStorageUploadStrategy::RelayStream,
         aster_drive_model::types::ObjectStorageDownloadStrategy::RelayStream,
     )
+}
+
+pub fn s3_connection_json(
+    endpoint: impl Into<String>,
+    bucket: impl Into<String>,
+    base_path: impl Into<String>,
+    access_key: impl Into<String>,
+    secret_key: impl Into<String>,
+) -> serde_json::Value {
+    serde_json::to_value(s3_connection(
+        endpoint, bucket, base_path, access_key, secret_key,
+    ))
+    .expect("S3 integration connection should serialize")
 }
 
 pub fn s3_connection_with_strategies(
@@ -1394,7 +1412,6 @@ where
 
 fn should_use_mysql_schema_template(database_url: &str) -> bool {
     database_url.starts_with("mysql://")
-        && configured_test_database_backend() == TestDatabaseBackend::MySql
 }
 
 async fn load_mysql_schema_template(
@@ -1466,6 +1483,9 @@ async fn build_mysql_schema_template() -> MySqlSchemaTemplate {
     Migrator::up(&db, None)
         .await
         .expect("mysql schema template migrations should succeed");
+    aster_drive_migration::finalize_storage_policy_upgrade(&db)
+        .await
+        .expect("mysql schema template storage policy finalization should succeed");
 
     let template_database_name = reqwest::Url::parse(&template_database_url)
         .ok()
@@ -1518,16 +1538,19 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
             .unwrap();
 
     // 跑迁移
-    if should_use_mysql_schema_template(database_url) {
+    let used_mysql_schema_template = should_use_mysql_schema_template(database_url);
+    if used_mysql_schema_template {
         clone_mysql_schema_from_template(&db).await;
     } else {
         aster_drive_migration::Migrator::up(&db, None)
             .await
             .unwrap();
     }
-    aster_drive_migration::finalize_storage_policy_upgrade(&db)
-        .await
-        .expect("test storage policy schema finalization should succeed");
+    if !used_mysql_schema_template {
+        aster_drive_migration::finalize_storage_policy_upgrade(&db)
+            .await
+            .expect("test storage policy schema finalization should succeed");
+    }
 
     // 每个测试用独立临时目录避免并行竞争
     let test_dir = format!("/tmp/asterdrive-test-{}", uuid::Uuid::new_v4());

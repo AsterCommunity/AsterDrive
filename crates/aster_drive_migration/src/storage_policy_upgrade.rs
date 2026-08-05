@@ -34,27 +34,14 @@ const REMOTE_NODE_FOREIGN_KEY: &str = "fk_storage_policies_remote_node_id";
 /// Remove the legacy `storage_policies` columns after the 0.5.0 credential
 /// import has committed. Calling this more than once is safe, which matters if
 /// startup is interrupted after some DDL statements have completed.
-pub async fn finalize_storage_policy_upgrade<'c, C>(database: &'c C) -> Result<(), DbErr>
+pub async fn finalize_storage_policy_upgrade<'c, C>(database: C) -> Result<(), DbErr>
 where
-    C: ConnectionTrait,
-    &'c C: IntoSchemaManagerConnection<'c>,
+    C: IntoSchemaManagerConnection<'c>,
 {
     let manager = SchemaManager::new(database);
+    let database = manager.get_connection();
     if !manager.has_table(STORAGE_POLICIES).await? {
         return Ok(());
-    }
-
-    for index in LEGACY_INDEXES {
-        if manager.has_index(STORAGE_POLICIES, *index).await? {
-            manager
-                .drop_index(
-                    Index::drop()
-                        .name(*index)
-                        .table(Alias::new(STORAGE_POLICIES))
-                        .to_owned(),
-                )
-                .await?;
-        }
     }
 
     if manager
@@ -71,6 +58,20 @@ where
                     .to_owned(),
             )
             .await?;
+    }
+
+    // MySQL requires the foreign key to be removed before its supporting index.
+    for index in LEGACY_INDEXES {
+        if manager.has_index(STORAGE_POLICIES, *index).await? {
+            manager
+                .drop_index(
+                    Index::drop()
+                        .name(*index)
+                        .table(Alias::new(STORAGE_POLICIES))
+                        .to_owned(),
+                )
+                .await?;
+        }
     }
 
     for column in LEGACY_COLUMNS {
@@ -311,9 +312,9 @@ mod tests {
         let database = migrated_database().await;
         let columns_before = storage_policy_columns(&database).await;
 
-        let error = with_database_migration_lock(&database, |transaction| {
+        let error = with_database_migration_lock(&database, |connection| {
             Box::pin(async {
-                finalize_storage_policy_upgrade(transaction).await?;
+                finalize_storage_policy_upgrade(connection).await?;
                 Err::<(), _>(DbErr::Custom(
                     "synthetic post-finalization failure".to_string(),
                 ))

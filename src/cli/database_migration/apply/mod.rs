@@ -30,9 +30,9 @@ pub(super) async fn execute_apply_mode(ctx: ApplyModeContext<'_>) -> Result<Appl
     Migrator::up(ctx.target_db, None)
         .await
         .map_aster_err(AsterError::database_operation)?;
-    aster_drive_migration::with_database_migration_lock(ctx.target_db, |transaction| {
+    aster_drive_migration::with_database_migration_lock(ctx.target_db, |connection| {
         Box::pin(aster_drive_migration::finalize_storage_policy_upgrade(
-            transaction,
+            connection,
         ))
     })
     .await

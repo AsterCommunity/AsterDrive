@@ -3,6 +3,7 @@
 use crate::common;
 
 use actix_web::test;
+use aster_drive::api::api_error_code::ApiErrorCode;
 use serde_json::{Value, json};
 
 fn available_test_command() -> String {
@@ -324,40 +325,36 @@ async fn test_public_thumbnail_support_includes_storage_native_policy_without_ca
 }
 
 #[actix_web::test]
-async fn test_public_thumbnail_support_ignores_storage_native_options_for_unsupported_driver() {
+async fn test_storage_native_thumbnail_rejects_unsupported_connector() {
     let state = common::setup().await;
-    let app = create_test_app!(state.clone());
-    let policy = create_storage_native_thumbnail_policy(
-        &state,
-        common::s3_connection(
-            "https://s3.example.com",
-            "unsupported-native-thumbnail",
-            "",
-            "AKID",
-            "SECRET",
-        ),
-        "Unsupported Native Thumbnail",
-        vec!["zzrawthumb".to_string()],
-    )
-    .await;
-
-    let req = test::TestRequest::get()
-        .uri("/api/v1/public/thumbnail-support")
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
-
-    let body: Value = test::read_body_json(resp).await;
-    let image_thumbnail_extensions = body["data"]["image_thumbnail"]["extensions"]
-        .as_array()
-        .expect("image thumbnail extensions should be an array");
-    assert!(
-        !image_thumbnail_extensions
-            .iter()
-            .any(|value| value == "zzrawthumb")
+    let mut connection = common::s3_connection(
+        "https://s3.example.com",
+        "unsupported-native-thumbnail",
+        "",
+        "AKID",
+        "SECRET",
     );
-    assert!(
-        !state.driver_registry.has_cached_driver_for_test(policy.id),
-        "unsupported public thumbnail policy must not be instantiated just to reject capability"
+    connection.behavior = aster_drive_storage::StoragePolicyBehaviorConfig {
+        thumbnail_processor: Some(aster_drive_model::types::MediaProcessorKind::StorageNative),
+        thumbnail_extensions: vec!["zzrawthumb".to_string()],
+        ..Default::default()
+    };
+    let error = aster_drive::services::storage_policy::policy::create(
+        &state,
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyInput {
+            name: "Unsupported Native Thumbnail".to_string(),
+            connection,
+            max_file_size: 0,
+            chunk_size: Some(5_242_880),
+            is_default: false,
+            allowed_types: None,
+        },
+    )
+    .await
+    .expect_err("unsupported connector must reject storage-native thumbnail processing");
+
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::PolicyNativeThumbnailUnsupported
     );
 }

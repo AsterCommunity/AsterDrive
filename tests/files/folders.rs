@@ -858,8 +858,7 @@ async fn test_folder_copy_preserves_policy_ids() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Folder Copy Policy Root",
-            "driver_type": "local",
-            "base_path": "/tmp/test-folder-copy-policy-root",
+            "connection": common::local_connection_json("/tmp/test-folder-copy-policy-root"),
             "max_file_size": 0,
             "is_default": false
         }))
@@ -875,8 +874,7 @@ async fn test_folder_copy_preserves_policy_ids() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Folder Copy Policy Child",
-            "driver_type": "local",
-            "base_path": "/tmp/test-folder-copy-policy-child",
+            "connection": common::local_connection_json("/tmp/test-folder-copy-policy-child"),
             "max_file_size": 0,
             "is_default": false
         }))

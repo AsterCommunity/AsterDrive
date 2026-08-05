@@ -175,7 +175,6 @@ mod tests {
     use crate::services::mail::sender;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use actix_web::{body, http::StatusCode, web};
-    use aster_drive_migration::Migrator;
     use aster_drive_model::entities::{storage_policy_group, storage_policy_group_item, user};
     use aster_drive_model::types::{UserRole, UserStatus};
     use aster_drive_storage::{BlobMetadata, StorageDriver};
@@ -311,9 +310,7 @@ mod tests {
         )
         .await
         .expect("health test db should connect");
-        Migrator::up(&db, None)
-            .await
-            .expect("health test migrations should apply");
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
 
         let driver_registry =
             Arc::new(DriverRegistry::noop().expect("built-in storage connector registry"));

@@ -596,7 +596,6 @@ mod tests {
     use crate::config::{Config, DatabaseConfig, RuntimeConfig};
     use crate::db;
     use crate::storage::{DriverRegistry, PolicySnapshot};
-    use aster_drive_migration::Migrator;
     use aster_drive_storage::error::storage_driver_error;
     use aster_drive_storage::traits::driver::{BlobMetadata, StorageDriver};
     use aster_drive_storage::traits::extensions::{StorageCapacityInfo, StorageCapacityStatus};
@@ -615,9 +614,7 @@ mod tests {
         )
         .await
         .expect("policy service test DB should connect");
-        Migrator::up(&db, None)
-            .await
-            .expect("policy service migrations should succeed");
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
         let runtime_config = Arc::new(RuntimeConfig::new());
         let cache = aster_forge_cache::create_cache(&CacheConfig {
             backend: "memory".to_string(),
@@ -815,7 +812,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn remote_policy_requires_explicit_target_key() {
+    async fn remote_policy_descriptor_requires_explicit_target_key() {
         let state = setup_state().await;
         let now = Utc::now();
         let remote_node = crate::db::repository::managed_follower_repo::create(
@@ -856,9 +853,11 @@ mod tests {
         )
         .await
         .expect_err("remote target key must be explicit");
-        assert_eq!(
-            error.api_error_code_override(),
-            Some(ApiErrorCode::PolicyRemoteStorageTargetRequired)
+        assert_eq!(error.api_error_code_override(), None);
+        assert!(
+            error
+                .message()
+                .contains("required provider option field 'remote_storage_target_key' is missing")
         );
     }
 }

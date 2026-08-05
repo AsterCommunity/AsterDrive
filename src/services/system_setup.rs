@@ -125,7 +125,6 @@ pub async fn configured_default_policy_group_id<C: ConnectionTrait>(db: &C) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aster_drive_migration::Migrator;
     use chrono::Utc;
     use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 
@@ -145,9 +144,7 @@ mod tests {
         )
         .await
         .expect("setup state test database should connect");
-        Migrator::up(&db, None)
-            .await
-            .expect("setup state test migrations should run");
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
         db
     }
 

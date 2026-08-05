@@ -507,7 +507,6 @@ mod tests {
     use crate::services::workspace::scope::SharedRuntimeState;
     use crate::services::{files::folder, mail::sender};
     use crate::storage::{DriverRegistry, PolicySnapshot};
-    use aster_drive_migration::Migrator;
     use aster_drive_model::entities::{
         storage_policy_group, storage_policy_group_item, team, team_member, user,
     };
@@ -529,9 +528,7 @@ mod tests {
         )
         .await
         .expect("test database should connect");
-        Migrator::up(&db, None)
-            .await
-            .expect("test database should migrate");
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
 
         let cache = cache::create_cache(&CacheConfig {
             backend: "memory".to_string(),
@@ -604,9 +601,12 @@ mod tests {
         policy.chunk_size = 5_242_880;
         policy.created_at = now;
         policy.updated_at = now;
-        let policy = policy_repo::create(state.writer_db(), policy.into_active_model())
-            .await
-            .expect("test policy should insert");
+        let policy = policy_repo::create(
+            state.writer_db(),
+            crate::storage::connectors::test_support::insertable_policy(policy),
+        )
+        .await
+        .expect("test policy should insert");
         let group = policy_group_repo::create_group(
             state.writer_db(),
             storage_policy_group::ActiveModel {

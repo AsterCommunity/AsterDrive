@@ -43,14 +43,18 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(StoragePolicyConnectorCredentials::CreatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
+                        aster_forge_db_migration::utc_date_time_column(
+                            manager,
+                            StoragePolicyConnectorCredentials::CreatedAt,
+                        )
+                        .not_null(),
                     )
                     .col(
-                        ColumnDef::new(StoragePolicyConnectorCredentials::UpdatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
+                        aster_forge_db_migration::utc_date_time_column(
+                            manager,
+                            StoragePolicyConnectorCredentials::UpdatedAt,
+                        )
+                        .not_null(),
                     )
                     .foreign_key(
                         ForeignKey::create()

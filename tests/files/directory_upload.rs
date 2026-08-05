@@ -157,8 +157,7 @@ async fn test_init_upload_with_relative_path_uses_parent_folder_policy() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Tiny Folder Policy",
-            "driver_type": "local",
-            "base_path": policy_base_path,
+            "connection": common::local_connection_json(policy_base_path),
             "max_file_size": 8,
             "is_default": false
         }))

@@ -448,9 +448,9 @@ impl SharedServices {
             Migrator::up(&database, None)
                 .await
                 .expect("apply migrations to isolated multi-primary database");
-            aster_drive_migration::with_database_migration_lock(&database, |transaction| {
+            aster_drive_migration::with_database_migration_lock(&database, |connection| {
                 Box::pin(aster_drive_migration::finalize_storage_policy_upgrade(
-                    transaction,
+                    connection,
                 ))
             })
             .await
@@ -1743,17 +1743,17 @@ async fn fresh_postgres_concurrent_primaries_share_startup_and_setup_state_machi
     assert!(
         setup_connectors
             .iter()
-            .any(|connector| connector["driver_type"] == "s3")
+            .any(|connector| connector["connector_id"] == "asterdrive.storage.s3")
     );
     assert!(
         !setup_connectors
             .iter()
-            .any(|connector| connector["driver_type"] == "local"),
+            .any(|connector| connector["connector_id"] == "asterdrive.storage.local"),
         "cluster setup catalog must not advertise instance-local storage"
     );
     let setup_onedrive = setup_connectors
         .iter()
-        .find(|connector| connector["driver_type"] == "one_drive")
+        .find(|connector| connector["connector_id"] == "asterdrive.storage.onedrive")
         .expect("initial setup catalog should describe OneDrive as unavailable");
     assert_eq!(setup_onedrive["supports_initial_setup"], false);
 
@@ -1776,7 +1776,7 @@ async fn fresh_postgres_concurrent_primaries_share_startup_and_setup_state_machi
             .as_array()
             .expect("cluster management connector list")
             .iter()
-            .any(|connector| connector["driver_type"] == "local"),
+            .any(|connector| connector["connector_id"] == "asterdrive.storage.local"),
         "management catalog must retain Local metadata for existing-policy inspection"
     );
 
@@ -1785,8 +1785,19 @@ async fn fresh_postgres_concurrent_primaries_share_startup_and_setup_state_machi
         .bearer_auth(&access_token)
         .json(&json!({
             "name": "Rejected Pod Local",
-            "driver_type": "local",
-            "base_path": "./data/uploads",
+            "connection": {
+                "connector_config": {
+                    "format_version": 1,
+                    "connector_id": "asterdrive.storage.local",
+                    "schema_version": 1,
+                    "values": {
+                        "base_path": "./data/uploads",
+                        "content_dedup": false
+                    }
+                },
+                "behavior": {},
+                "credential": { "mode": "none" }
+            },
             "max_file_size": 0,
             "chunk_size": 5_242_880,
             "is_default": true
@@ -1815,19 +1826,36 @@ async fn fresh_postgres_concurrent_primaries_share_startup_and_setup_state_machi
             .bearer_auth(&access_token)
             .json(&json!({
                 "name": name,
-                "driver_type": "s3",
-                "endpoint": "http://127.0.0.1:9000",
-                "bucket": "asterdrive-fresh-e2e",
-                "access_key": "e2e-access",
-                "secret_key": "e2e-secret",
-                "base_path": "",
+                "connection": {
+                    "connector_config": {
+                        "format_version": 1,
+                        "connector_id": "asterdrive.storage.s3",
+                        "schema_version": 1,
+                        "values": {
+                            "endpoint": "http://127.0.0.1:9000",
+                            "bucket": "asterdrive-fresh-e2e",
+                            "base_path": "",
+                            "object_storage_upload_strategy": "presigned",
+                            "object_storage_download_strategy": "relay_stream",
+                            "s3_path_style": true,
+                            "s3_region": "us-east-1",
+                            "s3_connect_timeout_secs": 5,
+                            "s3_read_timeout_secs": 30,
+                            "s3_operation_timeout_secs": 3600
+                        }
+                    },
+                    "behavior": {},
+                    "credential": {
+                        "mode": "static",
+                        "values": {
+                            "s3_access_key_id": "e2e-access",
+                            "s3_secret_access_key": "e2e-secret"
+                        }
+                    }
+                },
                 "max_file_size": 0,
                 "chunk_size": 5_242_880,
-                "is_default": true,
-                "options": {
-                    "object_storage_upload_strategy": "presigned",
-                    "s3_path_style": true
-                }
+                "is_default": true
             }))
             .send()
     };
