@@ -303,12 +303,16 @@ fn mutation_conditions<'a>(
 }
 
 fn assert_forbidden_mutation(result: Result<(), crate::webdav::backend::AsterDavMutationError>) {
-    assert!(matches!(
-        result,
+    let is_forbidden = matches!(
+        &result,
         Err(crate::webdav::backend::AsterDavMutationError::FileSystem(
             FsError::Forbidden
         ))
-    ));
+    );
+    assert!(
+        is_forbidden,
+        "expected FileSystem(Forbidden), got {result:?}"
+    );
 }
 
 #[derive(Clone, Default)]
@@ -1549,6 +1553,14 @@ async fn mutation_port_copy_file_replaces_collection_tree() {
     };
     assert_ne!(copied.id, source.id);
     assert_eq!(copied.blob_id, source.blob_id);
+    assert_eq!(
+        file_repo::find_blob_by_id(state.writer_db(), source.blob_id)
+            .await
+            .expect("the shared blob should remain available")
+            .ref_count,
+        2,
+        "copying a file should increment the shared blob reference count"
+    );
     assert!(matches!(
         resolve_path(state.writer_db(), user.id, &source_path, None).await,
         Ok(ResolvedNode::File(file)) if file.id == source.id
