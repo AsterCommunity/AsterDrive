@@ -14,7 +14,7 @@ pub(crate) use purge::{
 };
 pub use purge::{batch_purge, purge};
 pub use soft_delete::delete;
-pub(crate) use soft_delete::delete_in_scope;
+pub(crate) use soft_delete::{delete_in_scope, delete_in_scope_on};
 
 #[cfg(test)]
 mod tests;

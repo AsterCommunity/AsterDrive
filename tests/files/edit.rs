@@ -360,38 +360,20 @@ async fn test_update_content_etag_mismatch() {
 #[actix_web::test]
 async fn test_update_content_locked_by_other() {
     let state = common::setup().await;
-    let db = state.writer_db().clone();
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
     let file_id = upload_test_file!(app, token);
 
-    // 用另一个 owner_id 直接插锁（模拟其他用户）
-    {
-        use sea_orm::{ActiveModelTrait, Set};
-        let now = chrono::Utc::now();
-        let lock = aster_drive_model::entities::resource_lock::ActiveModel {
-            token: Set(format!("urn:uuid:{}", uuid::Uuid::new_v4())),
-            entity_type: Set(aster_drive_model::types::EntityType::File),
-            entity_id: Set(file_id),
-            path: Set("/test.txt".to_string()),
-            owner_id: Set(Some(99999)),
-            owner_info: Set(None),
-            timeout_at: Set(None),
-            shared: Set(false),
-            deep: Set(false),
-            created_at: Set(now),
-            ..Default::default()
-        };
-        lock.insert(&db).await.unwrap();
-        aster_drive::services::files::lock::set_entity_locked(
-            &db,
-            aster_drive_model::types::EntityType::File,
-            file_id,
-            true,
-        )
-        .await
-        .unwrap();
-    }
+    aster_drive::services::files::lock::lock(
+        &state,
+        aster_drive_model::types::EntityType::File,
+        file_id,
+        Some(99999),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
 
     let req = test::TestRequest::put()
         .uri(&format!("/api/v1/files/{file_id}/content"))

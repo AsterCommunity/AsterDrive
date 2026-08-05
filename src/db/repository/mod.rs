@@ -12,6 +12,7 @@ pub mod external_auth_provider_repo;
 pub mod file_repo;
 pub mod folder_repo;
 pub mod follower_enrollment_session_repo;
+pub mod lock_namespace_repo;
 pub mod lock_repo;
 pub mod managed_follower_repo;
 pub mod master_binding_repo;

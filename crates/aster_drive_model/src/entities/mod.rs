@@ -26,6 +26,7 @@ pub mod passkey;
 pub mod remote_storage_target;
 pub mod remote_tunnel_owner;
 pub mod resource_lock;
+pub mod resource_lock_namespace;
 pub mod share;
 pub mod storage_migration_checkpoint;
 pub mod storage_policy;

@@ -14,6 +14,7 @@ pub mod media_metadata;
 pub mod passkey;
 pub mod preferences;
 pub mod remote_storage_target;
+pub mod resource_lock;
 pub mod sort;
 pub mod storage_credential;
 pub mod storage_policy;

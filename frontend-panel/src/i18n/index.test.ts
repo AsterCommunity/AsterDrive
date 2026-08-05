@@ -159,6 +159,7 @@ describe("i18n", () => {
 			await module.ensureI18nNamespaces(["errors"], language);
 
 			const granularCodes = [
+				ApiErrorCode.OperationResourceLimitExceeded,
 				ApiErrorCode.ConfigPublicSiteUrlRequired,
 				ApiErrorCode.ConfigPublicSiteUrlInvalid,
 				ApiErrorCode.ExternalAuthCallbackRedirectUriRequired,

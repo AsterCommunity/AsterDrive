@@ -288,7 +288,9 @@ describe("FileBrowserItemContextMenu", () => {
 	it("maps folder actions to the shared browser callbacks", () => {
 		render(
 			<FileBrowserItemContextMenu
-				item={{ id: 1, name: "Docs", is_locked: false } as never}
+				item={
+					{ id: 1, name: "Docs", lock_state: { state: "unlocked" } } as never
+				}
 				isFolder
 			>
 				<div>folder</div>
@@ -348,7 +350,9 @@ describe("FileBrowserItemContextMenu", () => {
 
 		render(
 			<FileBrowserItemContextMenu
-				item={{ id: 1, name: "Docs", is_locked: false } as never}
+				item={
+					{ id: 1, name: "Docs", lock_state: { state: "unlocked" } } as never
+				}
 				isFolder
 			>
 				<div>folder</div>
@@ -368,7 +372,9 @@ describe("FileBrowserItemContextMenu", () => {
 
 		render(
 			<FileBrowserItemContextMenu
-				item={{ id: 1, name: "Docs", is_locked: false } as never}
+				item={
+					{ id: 1, name: "Docs", lock_state: { state: "unlocked" } } as never
+				}
 				isFolder={false}
 			>
 				<div>file</div>
@@ -382,7 +388,13 @@ describe("FileBrowserItemContextMenu", () => {
 	it("maps file actions to the shared browser callbacks", () => {
 		render(
 			<FileBrowserItemContextMenu
-				item={{ id: 2, name: "bundle.zip", is_locked: true } as never}
+				item={
+					{
+						id: 2,
+						name: "bundle.zip",
+						lock_state: { state: "direct", mode: "exclusive" },
+					} as never
+				}
 				isFolder={false}
 			>
 				<div>file</div>
@@ -458,7 +470,13 @@ describe("FileBrowserItemContextMenu", () => {
 	it("does not expose archive extraction for 7z files", () => {
 		render(
 			<FileBrowserItemContextMenu
-				item={{ id: 3, name: "bundle.7z", is_locked: false } as never}
+				item={
+					{
+						id: 3,
+						name: "bundle.7z",
+						lock_state: { state: "unlocked" },
+					} as never
+				}
 				isFolder={false}
 			>
 				<div>file</div>
@@ -471,7 +489,13 @@ describe("FileBrowserItemContextMenu", () => {
 	it("does not expose archive extraction for unsupported file names", () => {
 		render(
 			<FileBrowserItemContextMenu
-				item={{ id: 4, name: "notes.txt", is_locked: false } as never}
+				item={
+					{
+						id: 4,
+						name: "notes.txt",
+						lock_state: { state: "unlocked" },
+					} as never
+				}
 				isFolder={false}
 			>
 				<div>file</div>
@@ -502,7 +526,13 @@ describe("FileBrowserItemContextMenu", () => {
 
 		render(
 			<FileBrowserItemContextMenu
-				item={{ id: 2, name: "bundle.zip", is_locked: false } as never}
+				item={
+					{
+						id: 2,
+						name: "bundle.zip",
+						lock_state: { state: "unlocked" },
+					} as never
+				}
 				isFolder={false}
 			>
 				<div>file</div>
@@ -543,7 +573,13 @@ describe("FileBrowserItemContextMenu", () => {
 
 		render(
 			<FileBrowserItemContextMenu
-				item={{ id: 2, name: "bundle.zip", is_locked: false } as never}
+				item={
+					{
+						id: 2,
+						name: "bundle.zip",
+						lock_state: { state: "unlocked" },
+					} as never
+				}
 				isFolder={false}
 			>
 				<div>file</div>
@@ -564,7 +600,9 @@ describe("FileBrowserItemContextMenu", () => {
 
 		render(
 			<FileBrowserItemContextMenu
-				item={{ id: 1, name: "Docs", is_locked: false } as never}
+				item={
+					{ id: 1, name: "Docs", lock_state: { state: "unlocked" } } as never
+				}
 				isFolder
 			>
 				<div>folder</div>
@@ -590,7 +628,13 @@ describe("FileBrowserItemContextMenu", () => {
 
 		render(
 			<FileBrowserItemContextMenu
-				item={{ id: 2, name: "bundle.zip", is_locked: true } as never}
+				item={
+					{
+						id: 2,
+						name: "bundle.zip",
+						lock_state: { state: "direct", mode: "exclusive" },
+					} as never
+				}
 				isFolder={false}
 			>
 				<div>file</div>
@@ -630,7 +674,13 @@ describe("FileBrowserItemContextMenu", () => {
 
 		render(
 			<FileBrowserItemContextMenu
-				item={{ id: 2, name: "bundle.zip", is_locked: false } as never}
+				item={
+					{
+						id: 2,
+						name: "bundle.zip",
+						lock_state: { state: "unlocked" },
+					} as never
+				}
 				isFolder={false}
 			>
 				<div>file</div>
@@ -648,7 +698,13 @@ describe("FileBrowserItemContextMenu", () => {
 	it("renders an action menu trigger that stops item row events", () => {
 		render(
 			<FileBrowserItemActionMenu
-				item={{ id: 2, name: "bundle.zip", is_locked: false } as never}
+				item={
+					{
+						id: 2,
+						name: "bundle.zip",
+						lock_state: { state: "unlocked" },
+					} as never
+				}
 				isFolder={false}
 			/>,
 		);

@@ -2,7 +2,8 @@ use crate::db::repository::file_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::workspace::storage::{
-    StorageOperationContext, check_quota, cleanup_preuploaded_blob_upload, persist_preuploaded_blob,
+    StorageOperationContext, WorkspaceStorageScope, check_quota, cleanup_preuploaded_blob_upload,
+    persist_preuploaded_blob,
 };
 use aster_drive_model::entities::{file, file_blob};
 use sea_orm::{ConnectionTrait, DbBackend};
@@ -36,6 +37,8 @@ pub(super) async fn persist_temp_store(
         mime,
         now,
         actor_username,
+        lock_credentials,
+        file_precondition,
     } = prepared;
 
     operation_context.checkpoint()?;
@@ -89,6 +92,8 @@ pub(super) async fn persist_temp_store(
     let transaction_mime = mime.clone();
     let transaction_overwrite_ctx = overwrite_ctx.clone();
     let transaction_actor_username = actor_username.clone();
+    let transaction_lock_credentials = lock_credentials.clone();
+    let transaction_file_precondition = file_precondition;
     let transaction_now = now;
     let create_result = aster_forge_db::transaction::with_transaction_retry(
         state.writer_db(),
@@ -100,8 +105,44 @@ pub(super) async fn persist_temp_store(
             let mime = transaction_mime.clone();
             let overwrite_ctx = transaction_overwrite_ctx.clone();
             let actor_username = transaction_actor_username.clone();
+            let lock_credentials = transaction_lock_credentials.clone();
+            let file_precondition = transaction_file_precondition;
             let now = transaction_now;
             Box::pin(async move {
+                let workspace = match scope {
+                    crate::services::workspace::storage::WorkspaceStorageScope::Personal {
+                        user_id,
+                    } => crate::services::files::lock::LockWorkspace::Personal { user_id },
+                    crate::services::workspace::storage::WorkspaceStorageScope::Team {
+                        team_id,
+                        ..
+                    } => crate::services::files::lock::LockWorkspace::Team { team_id },
+                };
+                crate::services::files::lock::lock_workspace_for_mutation_on(txn, workspace)
+                    .await?;
+                if matches!(
+                    file_precondition,
+                    Some(super::FileWritePrecondition::Missing)
+                ) {
+                    let existing = match scope {
+                        WorkspaceStorageScope::Personal { user_id } => {
+                            file_repo::find_by_name_in_folder(txn, user_id, folder_id, &filename)
+                                .await?
+                        }
+                        WorkspaceStorageScope::Team { team_id, .. } => {
+                            file_repo::find_by_name_in_team_folder(
+                                txn, team_id, folder_id, &filename,
+                            )
+                            .await?
+                        }
+                    };
+                    if existing.is_some() {
+                        return Err(crate::errors::precondition_failed_with_code(
+                            crate::api::api_error_code::ApiErrorCode::FileModifiedDuringWrite,
+                            "file appeared while upload body was being received",
+                        ));
+                    }
+                }
                 crate::services::workspace::storage::lock_storage_usage(txn, scope).await?;
                 operation_context.checkpoint()?;
                 if storage_delta > 0 {
@@ -124,6 +165,8 @@ pub(super) async fn persist_temp_store(
                         storage_delta,
                         new_file_mode,
                         actor_username: actor_username.as_deref(),
+                        lock_credentials: &lock_credentials,
+                        file_precondition: file_precondition.as_ref(),
                     },
                 )
                 .await?;

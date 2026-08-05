@@ -53,12 +53,14 @@ pub(crate) async fn batch_delete_in_scope(
             result.record_failure("file", id, err.to_string());
             continue;
         }
-        if file.is_locked {
-            result.record_failure(
-                "file",
-                id,
-                AsterError::resource_locked("file is locked").to_string(),
-            );
+        if let Err(error) = crate::services::files::lock::enforce_file_mutation(
+            state.writer_db(),
+            file,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await
+        {
+            result.record_failure("file", id, error.to_string());
             continue;
         }
         result.record_success();
@@ -78,12 +80,15 @@ pub(crate) async fn batch_delete_in_scope(
             result.record_failure("folder", id, err.to_string());
             continue;
         }
-        if folder.is_locked {
-            result.record_failure(
-                "folder",
-                id,
-                AsterError::resource_locked("folder is locked").to_string(),
-            );
+        if let Err(error) = crate::services::files::lock::enforce_folder_mutation(
+            state.writer_db(),
+            folder,
+            aster_drive_model::types::LockDepth::Infinity,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await
+        {
+            result.record_failure("folder", id, error.to_string());
             continue;
         }
         result.record_success();
@@ -92,7 +97,6 @@ pub(crate) async fn batch_delete_in_scope(
         }
     }
 
-    let mut folder_ids_to_delete = Vec::new();
     let direct_file_ids_deleted: Vec<i64> = file_ids_to_delete.iter().copied().collect();
     let file_parent_ids: Vec<Option<i64>> = direct_file_ids_deleted
         .iter()
@@ -107,27 +111,59 @@ pub(crate) async fn batch_delete_in_scope(
                 .unwrap_or(None)
         })
         .collect();
-    if !root_folder_ids_to_delete.is_empty() {
-        let (tree_files, tree_folder_ids) = folder::collect_folder_forest_in_scope(
-            state.writer_db(),
-            scope,
-            &root_folder_ids_to_delete,
-            false,
-        )
-        .await?;
-        file_ids_to_delete.extend(tree_files.into_iter().map(|file| file.id));
-        folder_ids_to_delete = tree_folder_ids;
-    }
-
-    if !file_ids_to_delete.is_empty() || !folder_ids_to_delete.is_empty() {
+    if !file_ids_to_delete.is_empty() || !root_folder_ids_to_delete.is_empty() {
         let now = Utc::now();
-        let file_ids_to_delete: Vec<i64> = file_ids_to_delete.into_iter().collect();
         let direct_file_count = direct_file_ids_deleted.len();
         let root_folder_count = root_folder_ids_to_delete.len();
-        let total_file_count = file_ids_to_delete.len();
-        let total_folder_count = folder_ids_to_delete.len();
 
         let txn = transaction::begin(state.writer_db()).await?;
+        let workspace = match scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                crate::services::files::lock::LockWorkspace::Personal { user_id }
+            }
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                crate::services::files::lock::LockWorkspace::Team { team_id }
+            }
+        };
+        crate::services::files::lock::lock_workspace_for_mutation_on(&txn, workspace).await?;
+
+        let mut folder_ids_to_delete = HashSet::new();
+        for folder_id in &root_folder_ids_to_delete {
+            let locked =
+                folder::lock_tree_for_deletion_on(&txn, scope, *folder_id, None, false).await?;
+            file_ids_to_delete.extend(locked.file_ids);
+            folder_ids_to_delete.extend(locked.folder_ids);
+        }
+
+        let mut file_ids_to_delete: Vec<i64> = file_ids_to_delete.into_iter().collect();
+        file_ids_to_delete.sort_unstable();
+        for file_id in &file_ids_to_delete {
+            let snapshot = file_repo::find_by_id(&txn, *file_id).await?;
+            storage::ensure_active_file_scope(&snapshot, scope)?;
+            crate::services::files::lock::enforce_file_mutation_on(
+                &txn,
+                &snapshot,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
+        }
+
+        let mut folder_ids_to_delete: Vec<i64> = folder_ids_to_delete.into_iter().collect();
+        folder_ids_to_delete.sort_unstable();
+        for folder_id in &folder_ids_to_delete {
+            let snapshot = folder_repo::find_by_id(&txn, *folder_id).await?;
+            storage::ensure_active_folder_scope(&snapshot, scope)?;
+            crate::services::files::lock::enforce_folder_mutation_on(
+                &txn,
+                &snapshot,
+                aster_drive_model::types::LockDepth::Resource,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
+        }
+
+        let total_file_count = file_ids_to_delete.len();
+        let total_folder_count = folder_ids_to_delete.len();
         file_repo::soft_delete_many(&txn, &file_ids_to_delete, now).await?;
         folder_repo::soft_delete_many(&txn, &folder_ids_to_delete, now).await?;
         transaction::commit(txn).await?;

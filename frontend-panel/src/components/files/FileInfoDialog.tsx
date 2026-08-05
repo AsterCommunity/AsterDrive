@@ -16,6 +16,7 @@ import { Icon } from "@/components/ui/icon";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { formatBytes, formatDateAbsolute } from "@/lib/format";
+import { isResourceLocked } from "@/lib/resourceLock";
 import { cn } from "@/lib/utils";
 import type {
 	EntityType,
@@ -343,9 +344,9 @@ export function FileInfoDialog({
 		? (activeFile ?? renderedFile).name
 		: ((activeFolder ?? renderedFolder)?.name ?? "");
 	const currentLocked = renderedFile
-		? (renderedFile.is_locked ?? activeFile?.is_locked ?? false)
+		? isResourceLocked((activeFile ?? renderedFile).lock_state)
 		: renderedFolder
-			? (renderedFolder.is_locked ?? activeFolder?.is_locked ?? false)
+			? isResourceLocked((activeFolder ?? renderedFolder).lock_state)
 			: false;
 	const summaryLabel = renderedFile ? t("core:file") : t("core:folder");
 	const summarySubtitle = renderedFile

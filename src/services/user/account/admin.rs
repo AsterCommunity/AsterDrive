@@ -5,8 +5,8 @@ use sea_orm::{ActiveModelTrait, Set};
 use serde::Serialize;
 
 use crate::db::repository::{
-    auth_session_repo, file_repo, folder_repo, lock_repo, share_repo, upload_session_repo,
-    user_repo, webdav_account_repo,
+    auth_session_repo, file_repo, folder_repo, share_repo, upload_session_repo, user_repo,
+    webdav_account_repo,
 };
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -16,7 +16,7 @@ use crate::services::{
     user::profile,
 };
 use aster_drive_model::entities::user;
-use aster_drive_model::types::{UserRole, UserStatus};
+use aster_drive_model::types::{LockWorkspaceType, UserRole, UserStatus};
 
 use super::queries::{get, to_user_info};
 
@@ -463,25 +463,17 @@ pub async fn force_delete(
 
     let upload_session_count = upload_session_repo::delete_all_by_user(db, target_user_id).await?;
 
-    let locks = lock_repo::find_by_owner(db, target_user_id).await?;
-    for lock in &locks {
-        if let Err(error) = crate::services::files::lock::set_entity_locked(
-            db,
-            lock.entity_type,
-            lock.entity_id,
-            false,
-        )
-        .await
-        {
-            tracing::warn!(
-                lock_id = lock.id,
-                "failed to unlock during user cleanup: {error}"
-            );
-        }
-    }
-    let lock_count = lock_repo::delete_all_by_owner(db, target_user_id).await?;
-
-    user_repo::delete(db, target_user_id).await?;
+    let txn = transaction::begin(db).await?;
+    let lock_count =
+        crate::services::files::lock::delete_all_held_by_on(&txn, target_user_id).await?;
+    crate::services::files::lock::delete_workspace_namespace_on(
+        &txn,
+        LockWorkspaceType::Personal,
+        target_user_id,
+    )
+    .await?;
+    user_repo::delete(&txn, target_user_id).await?;
+    transaction::commit(txn).await?;
     state
         .policy_snapshot
         .remove_user_policy_group(target_user_id);

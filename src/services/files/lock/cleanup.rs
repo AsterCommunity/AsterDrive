@@ -1,59 +1,40 @@
 use std::collections::BTreeSet;
 
+use aster_forge_db::transaction;
 use chrono::Utc;
+use sea_orm::ConnectionTrait;
 
-use crate::db::repository::lock_repo;
+use crate::db::repository::{lock_namespace_repo, lock_repo};
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::ops::audit::{self, AuditContext};
-use aster_drive_model::types::EntityType;
-use aster_forge_utils::numbers::usize_to_u64;
+use aster_drive_model::types::LockWorkspaceType;
 
-/// 清理过期锁（后台任务用）
+/// Remove expired locks in short namespace-serialized transactions.
 pub async fn cleanup_expired(state: &impl SharedRuntimeState) -> Result<u64> {
-    let db = state.writer_db();
-
-    // 先查出过期锁的 entity 信息（需要重置 is_locked）
     let now = Utc::now();
-    let expired = lock_repo::find_expired_before(db, now).await?;
-    if expired.is_empty() {
-        return Ok(0);
-    }
+    let namespace_ids = lock_repo::find_expired_before(state.writer_db(), now)
+        .await?
+        .into_iter()
+        .map(|lock| lock.namespace_id)
+        .collect::<BTreeSet<_>>();
+    let mut removed = 0_u64;
 
-    let count = usize_to_u64(expired.len(), "expired lock count")?;
-    let mut file_ids = BTreeSet::new();
-    let mut folder_ids = BTreeSet::new();
-    for lock in &expired {
-        match lock.entity_type {
-            EntityType::File => {
-                file_ids.insert(lock.entity_id);
+    for namespace_id in namespace_ids {
+        let namespace_removed = transaction::with_transaction(state.writer_db(), async |txn| {
+            let namespace = lock_namespace_repo::lock_by_id(txn, namespace_id).await?;
+            let affected =
+                lock_repo::delete_expired_by_namespace_before(txn, namespace_id, now).await?;
+            if affected != 0 {
+                lock_namespace_repo::increment_generation(txn, namespace).await?;
             }
-            EntityType::Folder => {
-                folder_ids.insert(lock.entity_id);
-            }
-        }
+            Ok::<u64, crate::errors::AsterError>(affected)
+        })
+        .await?;
+        removed = removed.saturating_add(namespace_removed);
     }
 
-    // 批量删除
-    lock_repo::delete_expired_before(db, now).await?;
-
-    // 只在确无替代锁时清理 is_locked，避免和并发续锁/重锁打架。
-    let file_ids: Vec<i64> = file_ids.into_iter().collect();
-    if let Err(e) = lock_repo::clear_file_locked_flags_without_locks(db, &file_ids).await {
-        tracing::warn!(
-            expired_file_lock_count = file_ids.len(),
-            "failed to batch-clear expired file locks: {e}"
-        );
-    }
-    let folder_ids: Vec<i64> = folder_ids.into_iter().collect();
-    if let Err(e) = lock_repo::clear_folder_locked_flags_without_locks(db, &folder_ids).await {
-        tracing::warn!(
-            expired_folder_lock_count = folder_ids.len(),
-            "failed to batch-clear expired folder locks: {e}"
-        );
-    }
-
-    Ok(count)
+    Ok(removed)
 }
 
 pub async fn cleanup_expired_with_audit(
@@ -72,4 +53,34 @@ pub async fn cleanup_expired_with_audit(
     )
     .await;
     Ok(count)
+}
+
+pub(crate) async fn delete_all_held_by_on<C: ConnectionTrait>(
+    db: &C,
+    holder_user_id: i64,
+) -> Result<u64> {
+    let namespace_ids = lock_repo::find_by_owner(db, holder_user_id)
+        .await?
+        .into_iter()
+        .map(|lock| lock.namespace_id)
+        .collect::<BTreeSet<_>>();
+    let mut removed = 0_u64;
+    for namespace_id in namespace_ids {
+        let namespace = lock_namespace_repo::lock_by_id(db, namespace_id).await?;
+        let affected =
+            lock_repo::delete_by_owner_in_namespace(db, namespace_id, holder_user_id).await?;
+        if affected != 0 {
+            lock_namespace_repo::increment_generation(db, namespace).await?;
+            removed = removed.saturating_add(affected);
+        }
+    }
+    Ok(removed)
+}
+
+pub(crate) async fn delete_workspace_namespace_on<C: ConnectionTrait>(
+    db: &C,
+    workspace_type: LockWorkspaceType,
+    workspace_id: i64,
+) -> Result<u64> {
+    lock_namespace_repo::delete_by_workspace(db, workspace_type, workspace_id).await
 }

@@ -1,6 +1,7 @@
 //! 集成测试：`errors`。
 
 use actix_web::{App, HttpResponse, ResponseError, body::to_bytes, http::StatusCode, web};
+use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::errors::AsterError;
 use serde::Deserialize;
 use serde_json::Value;
@@ -81,6 +82,21 @@ fn storage_quota_exceeded_logs_warn_for_507() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].level, Level::WARN);
     assert_eq!(events[0].message.as_deref(), Some("request error"));
+}
+
+#[test]
+fn operation_resource_limit_is_distinct_from_storage_quota_and_uses_507() {
+    let err = AsterError::operation_resource_limit_exceeded(
+        "recursive folder tree exceeds the operation resource budget",
+    );
+
+    assert_eq!(err.code(), "E063");
+    assert_eq!(
+        err.api_error_code(),
+        ApiErrorCode::OperationResourceLimitExceeded
+    );
+    assert_eq!(err.http_status(), StatusCode::INSUFFICIENT_STORAGE);
+    assert_ne!(err.api_error_code(), ApiErrorCode::StorageQuotaExceeded);
 }
 
 #[test]

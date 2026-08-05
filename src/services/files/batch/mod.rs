@@ -216,24 +216,39 @@ pub(crate) async fn batch_move_between_scopes_with_audit(
     let selection =
         load_normalized_selection_in_scope(state, source_scope, file_ids, folder_ids).await?;
     let mut preflight = BatchResult::new();
-    let has_locked_resource = file_ids.iter().any(|id| {
-        selection
-            .file_map
-            .get(id)
-            .is_some_and(|file| file.is_locked)
-    }) || folder_ids.iter().any(|id| {
-        selection
-            .folder_map
-            .get(id)
-            .is_some_and(|folder| folder.is_locked)
-    });
+    let mut locked_files = std::collections::HashSet::new();
+    let mut locked_folders = std::collections::HashSet::new();
+    for &id in file_ids {
+        if let Some(file) = selection.file_map.get(&id)
+            && crate::services::files::lock::enforce_file_mutation(
+                state.writer_db(),
+                file,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await
+            .is_err()
+        {
+            locked_files.insert(id);
+        }
+    }
+    for &id in folder_ids {
+        if let Some(folder) = selection.folder_map.get(&id)
+            && crate::services::files::lock::enforce_folder_mutation(
+                state.writer_db(),
+                folder,
+                aster_drive_model::types::LockDepth::Infinity,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await
+            .is_err()
+        {
+            locked_folders.insert(id);
+        }
+    }
+    let has_locked_resource = !locked_files.is_empty() || !locked_folders.is_empty();
     if has_locked_resource {
         for &id in file_ids {
-            let detail = if selection
-                .file_map
-                .get(&id)
-                .is_some_and(|file| file.is_locked)
-            {
+            let detail = if locked_files.contains(&id) {
                 "file is locked"
             } else {
                 "move aborted because the selection contains a locked resource"
@@ -241,11 +256,7 @@ pub(crate) async fn batch_move_between_scopes_with_audit(
             preflight.record_failure("file", id, AsterError::resource_locked(detail).to_string());
         }
         for &id in folder_ids {
-            let detail = if selection
-                .folder_map
-                .get(&id)
-                .is_some_and(|folder| folder.is_locked)
-            {
+            let detail = if locked_folders.contains(&id) {
                 "folder is locked"
             } else {
                 "move aborted because the selection contains a locked resource"

@@ -45,13 +45,13 @@ hex = "0.4"
 language-tags = { version = "0.3.2", features = ["serde"] }
 rand = { version = "0.10.2", default-features = false, features = ["std", "std_rng", "thread_rng"] }
 reqwest = "0.13"
-sea-orm = { version = "2.0.0", default-features = false, features = [
+sea-orm = { version = "2.0.1", default-features = false, features = [
     "macros",
     "runtime-tokio-rustls",
     "with-chrono",
     "with-json",
 ] }
-sea-orm-migration = { version = "2.0.0", default-features = false }
+sea-orm-migration = { version = "2.0.1", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.11"
@@ -239,7 +239,7 @@ mime_guess = "2"
 moka = { version = "0.12.15", features = ["future"] }
 md-5 = "0.11.0"
 num_cpus = "1.17.0"
-nom-exif = "3.6.1"
+nom-exif = "3.6.2"
 parking_lot = "0.12"
 paste = "1.0.15"
 percent-encoding = "2.3"
@@ -253,8 +253,8 @@ serde_json = { workspace = true }
 secrecy = "0.10"
 sha1 = "0.11"
 sha2 = { workspace = true }
-russh = "0.62.4"
-russh-sftp = "2.3.0"
+russh = "0.62.5"
+russh-sftp = "2.4.0"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "fs", "io-util"] }
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
 tokio-util = { workspace = true, features = ["io", "io-util"] }

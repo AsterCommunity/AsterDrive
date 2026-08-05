@@ -691,7 +691,6 @@ mod tests {
                 created_at: Set(now),
                 updated_at: Set(now),
                 deleted_at: Set(None),
-                is_locked: Set(false),
                 ..Default::default()
             },
         )
@@ -768,7 +767,6 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             deleted_at: None,
-            is_locked: false,
         };
 
         assert!(can_browser_render_image(&image));

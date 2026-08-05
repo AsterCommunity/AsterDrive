@@ -33,8 +33,9 @@ pub use hierarchy::{build_folder_paths, build_folder_paths_cached, get_ancestors
 pub use listing::{FolderListParams, list, list_shared};
 pub use models::{
     FileCursor, FileListItem, FolderAncestorItem, FolderContents, FolderListItem,
-    build_file_list_items, build_file_list_items_with_tags, build_folder_list_items,
-    build_folder_list_items_with_tags,
+    build_file_list_items, build_file_list_items_with_tags,
+    build_file_list_items_with_tags_and_lock_states, build_folder_list_items,
+    build_folder_list_items_with_tags, build_folder_list_items_with_tags_and_lock_states,
 };
 pub use mutation::{create, delete, move_folder, set_lock, update};
 
@@ -50,12 +51,14 @@ pub(crate) use hierarchy::{
 };
 pub(crate) use listing::list_in_scope;
 pub(crate) use mutation::{
-    admin_set_policy, create_in_scope, delete_in_scope, get_info_in_scope,
-    get_info_with_storage_used_in_scope, set_lock_in_scope, update_in_scope,
+    FolderTreeDeletion, admin_set_policy, apply_locked_tree_deletion_on, create_in_scope,
+    delete_in_scope, get_info_in_scope, get_info_with_storage_used_in_scope,
+    lock_tree_for_deletion_on, set_lock_in_scope, update_in_scope,
 };
 pub(crate) use tree::{
-    collect_folder_forest_in_resource_scope, collect_folder_forest_in_scope,
-    collect_folder_tree_in_resource_scope, collect_folder_tree_in_scope,
+    FOLDER_TREE_RESOURCE_LIMIT_MESSAGE, FolderTreeTraversalLimits,
+    collect_folder_forest_in_resource_scope, collect_folder_tree_in_resource_scope,
+    collect_folder_tree_in_scope,
 };
 
 // 和其他 service 一样，审计包装留在聚合层，避免核心目录逻辑被日志副作用污染。
@@ -64,9 +67,10 @@ pub(crate) async fn create_in_scope_with_audit(
     scope: WorkspaceStorageScope,
     name: &str,
     parent_id: Option<i64>,
+    lock_credentials: crate::services::files::lock::LockMutationCredentials,
     audit_ctx: &AuditContext,
 ) -> Result<FolderInfo> {
-    let folder = create_in_scope(state, scope, name, parent_id).await?;
+    let folder = create_in_scope(state, scope, name, parent_id, lock_credentials).await?;
     let details = audit_location_details_for_model(state, scope, &folder).await;
     audit::log_with_details(
         state,
@@ -89,7 +93,7 @@ pub(crate) async fn delete_in_scope_with_audit(
 ) -> Result<()> {
     let folder = get_info_in_scope(state, scope, folder_id).await?;
     let details = audit_location_details_for_model(state, scope, &folder).await;
-    delete_in_scope(state, scope, folder_id).await?;
+    delete_in_scope(state, scope, folder_id, None).await?;
     audit::log_with_details(
         state,
         audit_ctx,
@@ -156,7 +160,20 @@ pub(crate) async fn update_in_scope_with_audit(
         || details.clone(),
     )
     .await;
-    Ok(folder.into())
+    let lock_states = crate::services::files::lock::load_for_scope(
+        state,
+        scope.into(),
+        &[],
+        std::slice::from_ref(&folder),
+    )
+    .await?;
+    Ok(
+        FolderInfo::from(folder).with_lock_state(crate::services::files::lock::state_for(
+            &lock_states,
+            aster_drive_model::types::EntityType::Folder,
+            folder_id,
+        )),
+    )
 }
 
 pub async fn admin_set_policy_with_audit(
@@ -207,7 +224,20 @@ pub(crate) async fn set_lock_in_scope_with_audit(
         || details.clone(),
     )
     .await;
-    Ok(folder.into())
+    let lock_states = crate::services::files::lock::load_for_scope(
+        state,
+        scope.into(),
+        &[],
+        std::slice::from_ref(&folder),
+    )
+    .await?;
+    Ok(
+        FolderInfo::from(folder).with_lock_state(crate::services::files::lock::state_for(
+            &lock_states,
+            aster_drive_model::types::EntityType::Folder,
+            folder_id,
+        )),
+    )
 }
 
 pub(crate) async fn copy_folder_in_scope_with_audit(

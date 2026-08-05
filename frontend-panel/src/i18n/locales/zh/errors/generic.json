@@ -1,5 +1,6 @@
 {
 	"rate_limited": "请求过于频繁，请稍后再试。",
+	"operation_resource_limit_exceeded": "本次操作涉及的资源过多，请缩小操作范围后重试。",
 	"mail_not_configured": "邮件系统尚未配置，暂时无法发送验证邮件。",
 	"mail_delivery_failed": "邮件发送失败，请稍后再试",
 	"config_public_site_url_required": "此功能需要先配置公共站点 URL，请到系统设置中补齐",

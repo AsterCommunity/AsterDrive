@@ -11,7 +11,7 @@ title: "WebDAV"
 Regular WebDAV users usually only need to create a dedicated account in the workspace they want to connect, then enter the address in Finder, Windows, or rclone. Personal and team spaces use the same WebDAV address; credentials decide which workspace the client enters.
 :::
 
-For protocol methods, client validation, and filename, same-name resource, property, lock, and DeltaV limits, see [Using WebDAV](/en/using/webdav/).
+For protocol methods, client validation, and filename, same-name resource, property, lock, and versioning limits, see [Using WebDAV](/en/using/webdav/).
 
 ## Static Configuration in `config.toml`
 
@@ -26,7 +26,7 @@ xml_payload_limit = 1048576
 | --- | --- | --- |
 | `prefix` | `"/webdav"` | WebDAV path prefix. Client addresses must change with it. |
 | `payload_limit` | `10737418240` | Hard WebDAV file write body limit. Default is 10 GiB. |
-| `xml_payload_limit` | `1048576` | Hard XML request body limit. Default is 1 MiB; used by `PROPFIND`, `PROPPATCH`, `REPORT`, and `LOCK`. |
+| `xml_payload_limit` | `1048576` | Hard XML request body limit. Default is 1 MiB; used by `PROPFIND`, `PROPPATCH`, and `LOCK`. |
 
 :::caution[Restart the service after changing these static options]
 Unlike the runtime global switch, static configuration is read only once during startup.

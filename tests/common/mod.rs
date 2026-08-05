@@ -35,6 +35,7 @@ fn lock_csrf_registry() -> std::sync::MutexGuard<'static, HashMap<String, String
 
 const TEST_DATABASE_BACKEND_ENV: &str = "ASTER_TEST_DATABASE_BACKEND";
 const SHARED_TEST_CONTAINER_STATE_DIR: &str = "/tmp/asterdrive-testcontainers";
+pub const MYSQL_TEST_TABLE_DEFINITION_CACHE: u64 = 32_768;
 // Keep the year within MySQL TIMESTAMP's supported range.
 pub const TEST_FUTURE_SHARE_EXPIRY_RFC3339: &str = "2099-12-31T23:59:59Z";
 
@@ -712,7 +713,7 @@ async fn drop_stale_test_databases(
     }
 }
 
-async fn ensure_mysql_test_user_access(admin_database_url: &str, username: &str) {
+async fn configure_mysql_test_server(admin_database_url: &str, username: &str) {
     use sea_orm::ConnectionTrait;
 
     let admin_cfg = aster_drive::config::DatabaseConfig {
@@ -724,6 +725,17 @@ async fn ensure_mysql_test_user_access(admin_database_url: &str, username: &str)
         aster_drive::db::connect_with_metrics(&admin_cfg, aster_drive_metrics::NoopMetrics::arc())
             .await
             .expect("mysql test admin connection should succeed");
+
+    // A large integration-test binary creates hundreds of isolated schemas in parallel. Keep
+    // their table definitions resident so unrelated DDL does not repeatedly invalidate active
+    // server-side prepared statements with MySQL error 1615.
+    admin_db
+        .execute_unprepared(&format!(
+            "SET GLOBAL table_definition_cache = {MYSQL_TEST_TABLE_DEFINITION_CACHE}"
+        ))
+        .await
+        .expect("mysql test table definition cache should be configured");
+
     let grant_sql = format!(
         "GRANT ALL PRIVILEGES ON *.* TO {}@'%'",
         quote_mysql_string(username)
@@ -948,7 +960,7 @@ async fn start_mysql_test_container() -> SharedTestDatabaseContainer {
     let admin_database_url = backend.admin_database_url(port);
 
     wait_for_database(&database_url).await;
-    ensure_mysql_test_user_access(&admin_database_url, "aster").await;
+    configure_mysql_test_server(&admin_database_url, "aster").await;
     drop_stale_test_databases(
         sea_orm::DbBackend::MySql,
         &admin_database_url,

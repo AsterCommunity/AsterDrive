@@ -1,4 +1,5 @@
 import { expect, type Page } from "@playwright/test";
+import type { ResourceLockState } from "@/types/api";
 import { type E2eApiResponse, expectApiSuccess } from "./api-response";
 import type { TestFile } from "./fixtures";
 import { apiJsonInPage } from "./network";
@@ -9,7 +10,7 @@ export interface E2eFileListItem {
 	size: number;
 	mime_type: string;
 	updated_at: string;
-	is_locked: boolean;
+	lock_state: ResourceLockState;
 	is_shared: boolean;
 }
 
@@ -17,7 +18,7 @@ export interface E2eFolderListItem {
 	id: number;
 	name: string;
 	updated_at: string;
-	is_locked: boolean;
+	lock_state: ResourceLockState;
 	is_shared: boolean;
 }
 
@@ -29,7 +30,7 @@ export interface E2eFileInfo {
 	size: number;
 	mime_type: string;
 	updated_at: string;
-	is_locked: boolean;
+	lock_state: ResourceLockState;
 }
 
 export interface E2eFolderInfo {
@@ -38,7 +39,7 @@ export interface E2eFolderInfo {
 	parent_id?: number | null;
 	team_id?: number | null;
 	updated_at: string;
-	is_locked: boolean;
+	lock_state: ResourceLockState;
 }
 
 export interface E2eFolderContents {

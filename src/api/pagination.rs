@@ -150,12 +150,12 @@ pub enum AdminTaskSortBy {
 #[serde(rename_all = "snake_case")]
 pub enum AdminLockSortBy {
     Id,
-    Path,
-    EntityType,
-    OwnerId,
+    LockrootPath,
+    RootKind,
+    HolderUserId,
     TimeoutAt,
-    Shared,
-    Deep,
+    Mode,
+    Depth,
     CreatedAt,
 }
 

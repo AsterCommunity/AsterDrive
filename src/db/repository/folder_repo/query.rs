@@ -117,6 +117,66 @@ pub async fn find_team_children<C: ConnectionTrait>(
     find_children_in_scope(db, FolderScope::Team { team_id }, parent_id).await
 }
 
+/// WebDAV directory enumeration keyset page ordered by immutable folder id.
+async fn find_children_after_id_in_scope<C: ConnectionTrait>(
+    db: &C,
+    scope: FolderScope,
+    parent_id: Option<i64>,
+    after_id: Option<i64>,
+    limit: u64,
+) -> Result<Vec<folder::Model>> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let mut query = Folder::find().filter(apply_parent_condition(
+        active_scope_condition(scope),
+        parent_id,
+    ));
+    if let Some(after_id) = after_id {
+        query = query.filter(folder::Column::Id.gt(after_id));
+    }
+    query
+        .order_by_asc(folder::Column::Id)
+        .limit(limit)
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
+pub async fn find_children_after_id<C: ConnectionTrait>(
+    db: &C,
+    user_id: i64,
+    parent_id: Option<i64>,
+    after_id: Option<i64>,
+    limit: u64,
+) -> Result<Vec<folder::Model>> {
+    find_children_after_id_in_scope(
+        db,
+        FolderScope::Personal { user_id },
+        parent_id,
+        after_id,
+        limit,
+    )
+    .await
+}
+
+pub async fn find_team_children_after_id<C: ConnectionTrait>(
+    db: &C,
+    team_id: i64,
+    parent_id: Option<i64>,
+    after_id: Option<i64>,
+    limit: u64,
+) -> Result<Vec<folder::Model>> {
+    find_children_after_id_in_scope(
+        db,
+        FolderScope::Team { team_id },
+        parent_id,
+        after_id,
+        limit,
+    )
+    .await
+}
+
 /// 批量查询多个父文件夹下的未删除子文件夹
 async fn find_children_in_parents_in_scope<C: ConnectionTrait>(
     db: &C,

@@ -50,7 +50,7 @@
 - `total_files`
 - `total_folders`
 
-其中 `files` / `folders` 复用列表接口里的条目结构，因此会带当前的 `is_locked`、`is_shared`、`tags` 等状态。
+其中 `files` / `folders` 复用列表接口里的条目结构，因此会带当前的 `lock_state`、`is_shared`、`tags` 等状态。
 文件条目还会带 `extension`、`compound_extension` 和 `file_category`，这些字段来自 `files` 表上的持久化分类结果。
 
 ## 当前语义

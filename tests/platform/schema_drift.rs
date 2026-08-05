@@ -10,9 +10,9 @@ use aster_drive_model::entities::{
     external_auth_login_flow, external_auth_provider, file, file_blob, file_version, folder,
     follower_enrollment_session, managed_follower, master_binding, mfa_email_code, mfa_factor,
     mfa_login_flow, mfa_recovery_code, mfa_totp_setup_flow, passkey, remote_storage_target,
-    resource_lock, share, storage_migration_checkpoint, storage_policy, storage_policy_group,
-    storage_policy_group_item, tag, team, team_member, upload_session, upload_session_part, user,
-    user_invitation, user_profile, webdav_account, wopi_session,
+    resource_lock, resource_lock_namespace, share, storage_migration_checkpoint, storage_policy,
+    storage_policy_group, storage_policy_group_item, tag, team, team_member, upload_session,
+    upload_session_part, user, user_invitation, user_profile, webdav_account, wopi_session,
 };
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DbBackend, EntityName, EntityTrait, IdenStatic, Iterable,
@@ -69,6 +69,7 @@ fn all_entity_schemas() -> Vec<EntitySchema> {
         entity_schema!(mfa_totp_setup_flow::Entity),
         entity_schema!(passkey::Entity),
         entity_schema!(resource_lock::Entity),
+        entity_schema!(resource_lock_namespace::Entity),
         entity_schema!(share::Entity),
         entity_schema!(storage_migration_checkpoint::Entity),
         entity_schema!(storage_policy::Entity),

@@ -30,7 +30,7 @@ flowchart TB
     Frontend["Frontend Assets"]
     RestApi["REST API<br/>/api/v1"]
     PublicShare["Public Shares / Direct Links<br/>/api/v1/s / /d / /pv"]
-    WebDav["WebDAV / DeltaV"]
+    WebDav["WebDAV"]
     RuntimeConfig["Runtime Config<br/>system_config"]
     Services["Service Layer<br/>auth / file / folder / team / share / task"]
     Tasks["Background Tasks<br/>cleanup / thumbnails / archives / migration"]
@@ -135,7 +135,7 @@ The primary is the user-facing node. It is responsible for:
 - serving the React frontend and static assets
 - registering the `/api/v1/*` REST API
 - handling public share APIs, direct download links, and preview links
-- mounting WebDAV / DeltaV
+- mounting WebDAV
 - loading and updating runtime configuration
 - managing storage policies, policy groups, follower nodes, and background tasks
 - running cleanup, thumbnail, archive, storage migration, and health-check tasks

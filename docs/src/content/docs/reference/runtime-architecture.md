@@ -30,7 +30,7 @@ flowchart TB
     Frontend["前端静态资源"]
     RestApi["REST API<br/>/api/v1"]
     PublicShare["公开分享 / 直链<br/>/api/v1/s / /d / /pv"]
-    WebDav["WebDAV / DeltaV"]
+    WebDav["WebDAV"]
     RuntimeConfig["运行时配置<br/>system_config"]
     Services["业务服务层<br/>auth / file / folder / team / share / task"]
     Tasks["后台任务<br/>清理 / 缩略图 / 归档 / 迁移"]
@@ -135,7 +135,7 @@ primary 是默认面向用户的节点，负责：
 - 服务 React 前端和静态资源
 - 注册 `/api/v1/*` REST API
 - 处理公开分享 API、直链下载和预览直链
-- 挂载 WebDAV / DeltaV
+- 挂载 WebDAV
 - 加载和热更新运行时配置
 - 维护存储策略、策略组、远程节点和后台任务
 - 运行清理、缩略图、归档、存储迁移、健康检查等后台任务

@@ -186,7 +186,7 @@ Useful clusters to read first:
 - team management and team workspaces: [Teams](./teams.md)
 - public shares, preview links, and stream sessions: [Sharing](./shares.md)
 - Office / WOPI preview and callbacks: [WOPI](./wopi.md)
-- WebDAV, accounts, and DeltaV: [WebDAV](./webdav.md)
+- WebDAV, accounts, and versioning boundaries: [WebDAV](./webdav.md)
 - login page, anonymous page, thumbnail / media-data support, and remote enrollment: [Public API](./public.md)
 - internal object protocol and reverse-tunnel control plane: [Internal storage protocol](./internal-storage.md)
 - admin policies, remote nodes, storage migration, file / blob observability, external auth providers, locks, runtime config, and audit: [Admin API](./admin.md)

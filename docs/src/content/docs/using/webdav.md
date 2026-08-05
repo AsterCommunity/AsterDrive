@@ -26,7 +26,7 @@ WebDAV 挂载使用 **Basic Auth 和 WebDAV 专用凭据**。网页登录的 Bea
 
 个人账号只进入对应的个人空间；团队账号只进入对应的团队空间，并继续受团队成员身份、角色和工作空间权限约束。
 
-挂载前的开关、路径前缀、大小上限和系统文件拦截规则，见 [WebDAV 配置](/reference/config/webdav/)；协议层已实现的方法、属性、锁和 DeltaV 边界，见 [WebDAV 协议兼容](/reference/webdav-compat/)。
+挂载前的开关、路径前缀、大小上限和系统文件拦截规则，见 [WebDAV 配置](/reference/config/webdav/)；协议层已实现的方法、属性、锁和版本控制边界，见 [WebDAV 协议兼容](/reference/webdav-compat/)。
 
 ## 文件名必须按 URL 规则编码
 
@@ -90,7 +90,7 @@ WebDAV 写入会尽量保持这个单一命名空间：
 
 WebDAV 不只用 `GET` 和 `PUT`。反向代理必须透传扩展方法和相关请求头，特别是：
 
-- 方法：`PROPFIND`、`PROPPATCH`、`MKCOL`、`COPY`、`MOVE`、`LOCK`、`UNLOCK`、`REPORT`、`VERSION-CONTROL`；
+- 方法：`PROPFIND`、`PROPPATCH`、`MKCOL`、`COPY`、`MOVE`、`LOCK`、`UNLOCK`；
 - 头部：`Authorization`、`Depth`、`Destination`、`Overwrite`、`If`、`Lock-Token`、`Timeout`。
 
 反向代理还可能有自己的请求体上限、超时、缓冲和路径编码规则。遇到“小文件正常，大文件失败”“可以下载，不能创建目录”“特殊文件名变了”时，同时对照直连 AsterDrive 和经过代理的结果。

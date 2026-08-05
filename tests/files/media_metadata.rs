@@ -387,7 +387,6 @@ async fn duplicate_file_for_same_blob(
         created_at: Set(now),
         updated_at: Set(now),
         deleted_at: Set(None),
-        is_locked: Set(false),
         ..Default::default()
     }
     .insert(state.writer_db())
@@ -470,7 +469,6 @@ async fn insert_synthetic_media_file(
         created_at: Set(now),
         updated_at: Set(now),
         deleted_at: Set(None),
-        is_locked: Set(false),
         ..Default::default()
     }
     .insert(state.writer_db())

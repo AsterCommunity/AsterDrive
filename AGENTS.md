@@ -1,253 +1,124 @@
 # AsterDrive
 
-AsterDrive 是面向小团队的 Rust 自托管文件基础设施项目。它关注文件存储控制、可靠大文件上传、个人/团队工作空间、分享、回收站、版本历史、WebDAV/WOPI、远端存储节点和运维可观测性。
+AsterDrive 是面向小团队的 Rust 自托管文件基础设施项目。代码围绕文件、工作空间、上传、分享、存储策略、远端节点、WebDAV、WOPI、后台任务和审计组织，不引入其他产品或早期模板的领域概念。
 
-当前代码来自通用 Rust + React 服务模板长期演进，但已经是 AsterDrive 自己的产品。修改时要围绕云盘/文件基础设施语义组织代码，不要把其他项目的领域概念带进来。
+## 开始工作
 
-## 工作前必须先看
+涉及代码或工程设计的任务按以下顺序建立上下文：
 
-- 先读现有代码模式，再动手。看不清模式就停下问 1547，别凭感觉硬写。
-- 修改前优先从现有入口追链路：`src/api/routes/*` -> `src/services/*` -> `src/db/repository/*` / `src/storage/*` / `src/webdav/*`。
-- 前端改动先看 `frontend-panel/AGENTS.md`，那里有更细的 TypeScript、i18n、UI/UX、Base UI 组件坑位约束。
-- 这个仓库可能有大量未提交改动。不要回滚用户改动；只改任务相关文件，遇到同文件交叉改动先读清楚再动手。
-- code review comments 进来时，先分辨真问题还是误报；真实问题分批修，修完每批都编译/测试。别被机器人牵着鼻子走。
+1. 读 [`developer-docs/zh-CN/architecture/project-contract.md`](developer-docs/zh-CN/architecture/project-contract.md)，确认产品边界和长期不变量。
+2. 读 [`developer-docs/zh-CN/contributing/task-routing.md`](developer-docs/zh-CN/contributing/task-routing.md)，选择本次真正需要的代码、文档和验证入口。
+3. 检查当前 branch、HEAD 和 worktree；issue、PR、review comment 或历史测试结果必须与当前 checkout 对得上。
+4. 沿现有调用链阅读相邻代码和测试，模式明确后再编辑。
+5. 前端任务额外读取 [`frontend-panel/AGENTS.md`](frontend-panel/AGENTS.md)。
 
-## 项目结构
+默认工程流程见 [`developer-docs/zh-CN/contributing/engineering-workflow.md`](developer-docs/zh-CN/contributing/engineering-workflow.md)。小型只读问题不需要机械地读取所有文档，但涉及实现、架构、协议、数据或跨层行为时必须先确认契约和当前代码。
+
+任务开始后默认持续执行到完成标准。中间进度更新只是状态通知，不是审批点；不要在侦察、实现、focused test、修复或扩大验证之间等待用户说“继续”。只有本文件“事实和冲突”及工程工作流列出的高代价歧义才暂停确认。
+
+## 事实和冲突
+
+- 当前用户任务和对应 issue 决定本次范围。
+- 当前 branch、HEAD、代码和测试决定当前实现事实。
+- 项目契约决定长期边界；架构、design 和 testing 文档提供子系统依据。
+- `developer-docs/**/records/` 是草稿或历史背景，不代表当前实现。
+- 当前任务、代码、契约或权威规范存在实质冲突时，继续调查并向 1547 确认，不凭感觉选一个方向。
+- 能从当前 issue、代码、测试和文档确定的路径、命名、实现方式与验证入口自行决定，不把低风险工程选择交还给用户。
+
+## 硬约束
+
+- 仓库可能有大量未提交改动。不要回滚、覆盖或格式化掉用户的无关改动。
+- 只修改任务相关文件；同文件存在交叉修改时先读完整 diff，再做兼容编辑。
+- 不主动扩大 issue 范围，不把未来事项顺手实现。
+- 不手动编辑生成文件。OpenAPI schema 变化后按仓库生成流程更新并审查生成 diff。
+- 优先复用现有 helper、trait、registry、error mapping 和测试支持，不建立平行抽象。
+- 新抽象必须消除真实复杂度或建立明确边界，不能只为少写几行代码增加间接层。
+- 需求和边界明确时直接实现最终合理形态，不把完整需求人为拆成长期共存的半成品阶段。
+- 内部 API 重命名、trait 调整或 Forge 接入默认一次迁移全部调用方，不增加只做转发、改名或 re-export 的兼容函数。
+- 只有公开 API、线上协议、滚动部署或真实产品 adapter 需要时才保留兼容层，并写明测试与删除条件。
+- 不引入全局可变单例、隐藏注册表或无法隔离测试的静态产品状态。
+- 需要破坏数据、修改公开协议、执行不可逆 migration 或改变产品长期边界时，先确认设计和验收标准。
+
+## 所有权速记
+
+AsterForge 拥有产品无关的共享机制；AsterDrive 保留文件产品语义和数据一致性。
+
+- Forge：运行时生命周期、产品无关的数据库/缓存/配置/任务机制、通用协议模型与解析、验证和基础工具。
+- Drive：认证流程、用户/团队/workspace、权限、文件/目录、分享、版本、配额、存储策略、远端节点、产品实体和 migration、事务、审计及产品集成测试。
+- “多个项目可能使用”不是迁入 Forge 的充分条件。抽取前写清 `旧模块 -> Forge API -> Drive 保留职责 -> 必测行为`。
+
+完整边界以[项目契约](developer-docs/zh-CN/architecture/project-contract.md)为准。
+
+## 后端实现速记
+
+默认链路：
 
 ```text
-src/                         Rust 后端
-src/api/                     primary/follower 路由、DTO、OpenAPI、中间件、响应封装
-src/api/routes/              REST API、公开分享、内部存储、远端隧道路由
-src/cache/                   cache trait 以及 memory/Redis 实现
-src/cli/                     doctor、config、database-migrate、node enroll 等运维 CLI
-src/config/                  静态配置、运行时配置定义、配置规范化、模板
-src/db/                      数据库连接、reader/writer 句柄、repository
-src/runtime/                 AppState、primary/follower 启动、关闭、周期任务
-src/services/                Auth、file、folder、upload、share、team、policy、task、audit、WebDAV/WOPI 等业务层
-src/storage/                 存储驱动、连接器、registry、策略快照和远端协议运行时
-src/webdav/                  WebDAV/DeltaV 协议接入、文件系统、锁、属性和传输
-crates/aster_drive_http/     有严格大小限制、错误类型无关的 HTTP 响应体读取工具
-crates/aster_drive_metrics/  Drive 产品指标 contract、Noop recorder 和 AsterForge adapter
-crates/aster_drive_migration/ SeaORM migration crate
-crates/aster_drive_model/    共享类型和 SeaORM Entity
-crates/aster_drive_storage/  存储 trait、能力扩展、connector descriptor、对象 key 和结构化错误
-frontend-panel/              React + Vite 前端，构建产物嵌入后端
-developer-docs/              开发说明和架构文档
-docs/                        用户/部署文档站
-tests/                       集成测试、迁移测试、OpenAPI 导出测试
+src/api/routes/*
+  -> src/services/*
+  -> src/services/<domain>/*
+  -> src/db/repository/* / src/storage/* / src/webdav/*
 ```
 
-## 技术栈
+- Route 只做 transport、guard、参数提取、调用 service 和响应映射。
+- Service 编排完整 use case，不堆 SQL、wire parser、driver registry 或 UI descriptor 矩阵。
+- Domain helper 承载 normalization、validation、capability、target selection 和 finalization 等可测试规则。
+- Repository 只做数据访问和原子 SQL。
+- Storage connector/driver 表达对象内容能力，业务层不直接分支到具体 SDK。
+- WebDAV、WOPI、internal storage 等协议端点遵守各自格式，不套普通 REST envelope。
+- 跨 route/service/domain/repo/storage/protocol 的改动，实施前列出每层各自职责。
 
-- 后端: Rust 2024, actix-web 4, SeaORM 2.0-rc, tokio, jsonwebtoken, argon2
-- 数据库: SQLite 默认，兼容 MySQL/PostgreSQL
-- 缓存: memory/Redis 后端；不再支持 noop cache，也不要新增 `cache.enabled` 这类禁用缓存分支
-- 存储: local filesystem、S3-compatible object storage、Azure Blob、OneDrive、remote AsterDrive follower node
-- 协议: REST API、WebDAV/DeltaV、WOPI、remote internal storage protocol
-- 前端: React 19, Vite, TypeScript 7 native compiler, Tailwind CSS 4, shadcn/ui(Base UI), Biome, Vitest, Playwright
-- OpenAPI: `utoipa` + `api-docs-macros` + `openapi-typescript`
-- 嵌入: `rust-embed` 将 `frontend-panel/dist/` 编译进二进制
+更完整说明见 [`developer-docs/zh-CN/architecture/backend-service-ownership.md`](developer-docs/zh-CN/architecture/backend-service-ownership.md)。
 
-## 开发命令
+## 数据、存储和安全
+
+- writer database 用于事务写入、读后写、配额、token rotation、上传完成和权威状态判断；reader 只用于允许短暂滞后的纯读。
+- migration、entity、repository 和业务状态一起审查；跨数据库逻辑考虑 SQLite、PostgreSQL 和 MySQL。
+- 缓存是可重建投影，不是权限、锁、配额或一致性的权威来源。
+- 存储能力通过 connector、driver、descriptor、capability 和 registry 表达。
+- 上传完成必须保持 metadata、blob/object、version、quota、audit、task/progress 和 session cleanup 的一致性。
+- token、密码、MFA secret、外部认证凭据、存储 secret 和远端节点 secret 不进入日志、错误或审计明文字段。
+- fire-and-forget 操作必须记录失败，不使用静默 `let _ =` 吞错。
+
+## 测试和验证
+
+新增或修改行为必须有测试。验证范围跟随风险，不能用编译通过或一个 focused test 代替完整验收。
+
+Rust 测试优先缩小 target：
 
 ```bash
-# 后端
-cargo run
-cargo check
-cargo test
-cargo test --lib <test_filter>
-cargo test --test <test_name> <test_filter>
-cargo test --features openapi --test generate_openapi
-cargo test --features metrics
-
-# 指定集成测试数据库后端
-ASTER_TEST_DATABASE_BACKEND=sqlite cargo test --test platform database_backends::
-ASTER_TEST_DATABASE_BACKEND=postgres cargo test --test platform database_backends::
-ASTER_TEST_DATABASE_BACKEND=mysql cargo test --test platform database_backends::
-
-# 前端
-cd frontend-panel
-bun install
-bun run dev
-bun run build
-bun run check
-bun run test
-bun run test:e2e
+cargo test --lib <filter>
+cargo test --test <target> <module_or_test_filter>
 ```
 
-跑 Rust 单元/集成测试时必须优先缩小范围，使用 `cargo test --lib <filter>` 或 `cargo test --test <test_name> <filter>`，不要直接跑无目标的大范围 `cargo test <filter>` 把全包编译时间炸开。批量修复后再跑 `cargo check` 和相关测试。改动 OpenAPI schema 后先跑 `cargo test --features openapi --test generate_openapi`，再到 `frontend-panel/` 跑 `bun run generate-api`。
+- API/schema 改动：导出 OpenAPI，重新生成前端 API，并检查生成 diff。
+- migration/repository/SQL：至少跑 SQLite；涉及跨库语义时补 PostgreSQL/MySQL。
+- 上传、配额、版本、锁、引用计数、认证和公开访问：覆盖成功、失败/回滚和边界。
+- connector/driver：覆盖 validation、descriptor/payload、连接测试和实际请求契约；普通请求与 presigned 行为分别证明。
+- WebDAV/WOPI/internal storage：覆盖协议状态码、header、token/lock、资源边界和兼容性；规范性结论查权威文档。
+- 前端 service 或关键交互：运行 focused Vitest；用户流程变化时补/跑 Playwright。
+- 公共 trait、runtime state 或跨模块契约变化：先跑编译检查点，再扩大相关测试矩阵。
 
-## 当前核心能力
+结束前运行 `git diff --check`，并在结果中准确列出实际运行和未运行的验证。被中断、仍在运行或来自旧 checkout 的命令不算当前通过证据。
 
-- 本地认证: setup/register/login/refresh/logout/me/sessions、用户偏好、头像、SSE 事件
-- 外部认证/MFA: provider 配置、外部登录流程、WebAuthn/Passkey 基础能力
-- 文件工作流: folder/file CRUD、上传、下载、移动、复制、删除、恢复、永久删除、版本历史
-- 工作空间: personal workspace 和 team workspace 共用核心链路，通过 scope 切换作用域
-- 分享: 公开分享页、密码、过期、下载次数、直链、预览直链
-- 上传: direct、chunked resumable、presigned、multipart、remote relay/presigned 等策略
-- 存储策略: local、S3-compatible、Azure Blob、OneDrive、remote follower node、policy group 路由
-- WebDAV/WOPI: 独立 WebDAV 账号、锁、DeltaV 子集、Office 预览/编辑启动会话
-- 远端节点: primary/follower 模式、internal storage API、direct/reverse tunnel/auto 传输
-- 运维: runtime config、audit logs、background tasks、health、metrics、doctor、migration CLI
+实质性任务结束时检查是否存在可复用的工程摩擦。重复搜索、错误路由、无价值 facade、手工重复步骤或缺失 test support 能小范围验证时，直接改进对应文档、脚本或测试基础设施；一次性现象和未经证明的猜测不写入长期规则。
 
-## 产品域边界
+## Code Review Fixes
 
-新增功能要围绕 AsterDrive 的文件基础设施组织，命名直接表达业务含义：
+用户粘贴 Greptile、CodeRabbit、Gemini 或人工 review comments 时：
 
-- 文件与目录: `file`, `folder`, `file_blob`, `file_version`, `workspace`, `trash`
-- 工作空间与权限: `personal`, `team`, `member`, `role`, `quota`, `scope`
-- 分享与公开访问: `share`, `public_link`, `download_token`, `preview`
-- 上传链路: `upload_session`, `chunk`, `multipart`, `presigned`, `complete`, `cancel`
-- 存储与路由: `storage_policy`, `policy_group`, `connector`, `driver`, `object_key`, `blob`
-- 远端节点: `remote_node`, `follower`, `internal_storage`, `reverse_tunnel`, `managed_ingress`
-- 协议能力: `webdav`, `wopi`, `lock`, `delta_v`
-- 运维能力: `task`, `audit`, `runtime_config`, `doctor`, `health`
+1. 对照当前代码和 revision 逐条判断真实问题或误报。
+2. 只修仍成立的真实问题，保持修改最小。
+3. 按相关性分批修复，每批完成后编译或测试。
+4. 最终列出已修、误报、跳过原因和验证命令。
 
-不要引入和当前产品无关的领域词来伪装功能。需要处理外部对象存储时，从 AsterDrive 的存储策略、连接器、驱动和上传策略建模，不要另起一套平行抽象。
+## 文档入口
 
-## API 约定
-
-项目 REST API 使用统一响应体：
-
-```json
-{ "code": "success", "msg": "", "data": { } }
-```
-
-失败使用稳定字符串错误码，定义在 `src/api/api_error_code.rs` 的 `AsterErrorCode`。内部错误类型是 `src/errors.rs` 的 `AsterError`，通过 `ResponseError` 统一转 HTTP 响应和日志。
-
-新增项目 API 应继续使用这套 envelope 和错误码体系。例外包括：
-
-- 文件下载、缩略图、预览、公开直链等直接返回流或二进制响应的接口
-- SSE，例如 storage events
-- Prometheus metrics text exposition
-- WebDAV/DeltaV 协议响应
-- WOPI 协议端点需要满足 WOPI host 的字段、状态码和错误行为
-- follower internal storage protocol 和 reverse tunnel 内部传输需要满足内部协议签名/预签名约定
-
-协议端点不能为了项目内部 envelope 破坏客户端兼容性。如果协议错误格式与 `AsterError` 不一致，单独建协议错误映射层，不要污染全局错误系统。
-
-## 后端代码约定
-
-- 路由模块放在 `src/api/routes/`，按现有 primary/follower 注册方式接入 `src/api/primary.rs`、`src/api/follower.rs` 或对应 `routes/mod.rs`。
-- DTO 放在 `src/api/dto/`，领域共享类型放在 `crates/aster_drive_model/src/types/`，不要在 handler 里散落匿名 JSON 拼装。
-- 业务逻辑放 `src/services/`，数据库访问放 `src/db/repository/`，对象内容能力放 `src/storage/`，handler 只做认证、参数提取、调用 service、返回响应。
-- WebDAV 不走普通 REST 路由；WebDAV 相关协议行为放在 `src/webdav/`，只在需要复用业务语义时调用 service/repo。
-- 新表必须有 SeaORM entity 和 migration，测试覆盖 SQLite；涉及数据库差异时同时考虑 MySQL/PostgreSQL。
-- 配置项统一定义在 `src/config/definitions.rs`，由运行时配置初始化逻辑写入默认值。不要在业务代码里写散落默认值。
-- 运行时共享状态走现有 `AppState`/runtime startup 初始化路径，不要引入全局可变单例。
-- 需要后台异步处理的用户可见任务，优先复用 `task_service` 的 task record/dispatch/retry/presentation 结构。
-- fire-and-forget 操作用 `if let Err(error) = ... { tracing::warn!(...) }`，不要静默 `let _ =`。
-- 数据库事务失败不用手写多余 `rollback()`；SeaORM transaction drop 会自动回滚。
-- 不要把下载、上传完成、配额扣减、版本写入、审计写入拆成互相看不见的散逻辑；跨表一致性要在 service/repo 边界清楚表达。
-
-### Service 边界约束
-
-AI 很容易把能跑的代码堆到一个 service 里，后面就没人敢改。改后端 service 前必须先判断本次逻辑属于哪一层，并按层放置：
-
-- `src/api/routes/*`：只做协议适配、鉴权/权限 guard、参数提取、调用 service、响应映射；不要做业务规则、driver 分支、复杂 DTO 拼装。
-- `src/services/*`：只做 use case 编排，例如加载上下文、调用领域校验/解析器、调用 repo、触发必要 side effects；不要把 normalize、capability 判断、descriptor 拼装、协议转发、driver 构造全塞在一个函数里。
-- `src/services/<domain>/*` 内部模块：承载可测试的领域规则，例如 normalization、target selection、capability resolver、descriptor builder、finalization contract；能写成纯函数就不要依赖 `AppState`。
-- `src/db/repository/*`：只做数据访问和原子 SQL，不写 transport、driver、UI descriptor、产品流程判断。
-- `src/storage/remote_protocol/*`：只处理 wire protocol、签名、path encoding、HTTP/tunnel transport、capability wire model 和 response parsing；不要决定 UI 展示、policy target 选择、default target 这类产品语义。
-- `crates/aster_drive_storage/*`：表达 driver trait、能力扩展、connector descriptor、对象 key 和结构化存储错误；根包通过 `src/storage/connectors/*` / `src/storage/drivers/*` 实现产品配置与具体后端，业务层不要绕过这些抽象直接分支到具体 SDK。
-
-触发以下信号时先拆模块，不要继续往当前函数里堆：
-
-- 一个 service 函数同时出现 `AppState`、repo 写入、remote protocol client、driver 构造、descriptor 拼装、audit/registry reload。
-- 大量 `match driver_type` 出现在业务 service 中，而不是 driver/connector/target registry 或 capability resolver 中。
-- 同一个函数既做输入 normalize，又做远端能力判断，又做 DB side effect。
-- 为了 UI 表单展示在 service use case 里拼字段矩阵。
-- 函数超过约 80-120 行且没有清晰的“编排步骤”，需要说明为什么不拆。
-
-推荐的 service 函数形状：
-
-```rust
-pub async fn create_xxx(state, input) -> Result<Output> {
-    let input = normalize(input)?;
-    let context = load_context(state, &input).await?;
-    validate(&context, &input)?;
-    let result = repo::create(...).await?;
-    run_required_side_effects(state, &result).await?;
-    Ok(present(result))
-}
-```
-
-如果新功能需要跨 route/service/domain/repo/storage/protocol 多层，先在实现说明里列出每层各改什么。边界说不清就停下问 1547，别硬写。
-
-## 数据库和类型约定
-
-- 运行态通过 `DbHandles` 保存 writer 和 reader。写入、事务、读后写、配额权威判断、登录签发 session、refresh token rotation、上传 init/chunk/complete/cancel 继续走 writer。
-- `reader_db()` 只能用于列表、详情、搜索、上传进度、recoverable sessions、presign 查询阶段、auth snapshot cache miss、public runtime snapshot、admin overview 统计这类允许短暂滞后的纯读路径。
-- 不要把通用校验 helper 偷偷改成 reader，除非确认所有调用方都是纯读；更推荐在 service 入口显式选择 reader/writer。
-- 枚举字段优先使用 `DeriveActiveEnum` 或明确的强类型 wrapper，禁止魔法字符串在 service/repo 间传来传去。
-- 数据库列不要为了省事直接上 JSON。除非确实需要数据库侧 JSON 查询、索引或约束，否则结构化内容用 `TEXT` 存储，并在代码层用强类型 DTO + serde 校验。
-- 禁止跨层裸写 `as i32` / `as usize` / `as i64` 做静默截断；使用 `src/utils/numbers.rs` 的 checked conversion helper。
-- 多数据库 SQL 要保守：
-  - 不用 SQLite-only 标量 `MAX(a, b)`，改用 `CASE WHEN ...`
-  - 多表 join 下 `COUNT`/`GROUP BY` 必须显式限定列来源
-  - 原子计数优先封装在 repo 函数里
-- UUID、token、share password、session secret、object key、credential id 等敏感或易混字段要用专门类型或清晰命名，避免 `String` 到处裸传导致用错。
-
-## 存储和上传约定
-
-- 存储能力优先通过 `crates/aster_drive_storage/src/traits/` 和根包 connector/driver registry 表达，不要在业务层直接分支到具体 SDK。
-- 新增存储后端时，要同时考虑 policy descriptor、连接测试、credential 管理、上传/下载策略、admin 前端配置、OpenAPI 类型和文档最小更新。
-- 上传路径必须尊重策略协商结果：direct、chunked、presigned、multipart、remote relay/presigned 不要互相绕过。
-- 上传完成要保持元数据、blob/object、version、quota、audit、task/progress 的一致性；失败路径要能清理 session 或留下可恢复状态。
-- object key、upload id、multipart part、remote node request id 等不要写进普通日志的高噪声字段；需要排查时用受控 tracing 字段并避免泄露凭据。
-- 本地 blob 去重、引用计数、孤儿清理属于文件安全链路，改动时必须补测试。
-- 公开下载/预览/缩略图要设置合理 cache header，但不能让私有、过期、撤销或未授权资源被缓存泄露。
-
-## 安全约定
-
-- access token、refresh token、WebDAV 密码、MFA secret、外部 OAuth credential、对象存储 secret、remote node secret 只能存哈希或加密后的必要形式；日志、审计、错误消息不得泄露明文。
-- 登录、注册、分享访问、公开下载、上传 init/complete、WebDAV、WOPI、internal storage 都要接入对应鉴权、限流、安全头、CORS/CSRF 策略；协议兼容需要豁免时必须写清楚理由并加测试。
-- 用户名、邮箱、URL、MIME、文件名、路径片段、文件大小、分片大小、分享密码、WebDAV 路径都要在 DTO/service 边界校验。
-- 路径处理必须防 traversal、双重编码、Unicode/大小写边界和平台差异；优先复用现有 path 工具。
-- 公开分享和 WOPI 回调尤其要检查权限快照、过期时间、锁状态、版本状态和下载次数扣减。
-- 管理接口必须检查 admin 权限，不要只靠前端隐藏入口。
-
-## 前端约定
-
-`frontend-panel/` 是 AsterDrive 的产品前端，具体规则以 `frontend-panel/AGENTS.md` 为准。根目录只列必须遵守的总约束：
-
-- 使用 Vite + React + TypeScript 7 native compiler + Tailwind CSS 4 + shadcn/ui(Base UI) + Biome。
-- `erasableSyntaxOnly` 思路：禁止 TS enum，用 `as const` 对象；类型导入使用 `import type`。
-- 后端 schema 类型从生成 SDK 和 `@/types/api.ts` 导入，禁止手写重复接口类型。
-- `src/services/api.generated.ts` 是生成文件，不要手动修改。
-- API 调用统一通过 `src/services/http.ts` 和现有 service 层，不要在组件里裸写 axios/fetch。
-- 存储策略 UI 不能用前端 `driver_type` 白名单/矩阵推断连接测试、字段、上传、授权、远端绑定、S3 传输、原生处理等能力；优先使用后端 storage connector descriptor/capabilities/fields/actions。descriptor 缺失时只能做保守兜底，不能重新引入 S3/Azure/COS/Remote/OneDrive 这类硬编码能力表。
-- 图标优先用 `src/components/common/Icon` 或项目已有封装，不要手写 SVG。
-- 新页面和新组件优先复用 `src/components/common/`、`src/components/ui/`、`src/hooks/`、`src/lib/` 的公共模块。
-- 新增翻译按 namespace 分层放到 `src/i18n/locales/{zh,en}/`，不要把文案硬编码在组件里。
-- 管理界面要信息密度适中、可扫描、可重复操作；不要做营销落地页当首屏。
-- ScrollArea / `overflow-auto` 要保持从视口根到滚动容器的 flex 链完整：中间层通常需要 `flex flex-col min-h-0 flex-1`。
-- Base UI Select 要给 `items={[{ label, value }]}`，不要让 trigger 回显 raw value。
-- `DropdownMenuItem` 的 SVG hover 变色有坑；需要图标跟随 hover 变色时用原生 `<button>` + CSS `:hover`。
-
-## 测试要求
-
-- 新增后端行为至少补对应单元测试或集成测试。鉴权、安全、上传、分享、WebDAV/WOPI、数据库迁移、存储驱动必须有测试。
-- 修改 migration、entity、repo 或 SQL 时，至少跑 SQLite 相关测试；跨数据库逻辑要考虑 `ASTER_TEST_DATABASE_BACKEND=postgres|mysql`。
-- 修改上传完成、配额、版本、删除/恢复、引用计数、后台清理时，要覆盖成功路径和失败/回滚边界。
-- 修改存储策略或 connector 时，补连接测试、descriptor/payload 测试和前端表单测试。
-- 修改 OpenAPI schema 后，跑 OpenAPI 导出并重新生成前端 SDK。
-- 修改前端 service 层、关键 UI 流程或 i18n 时，跑 `bun run test`；涉及页面流程时补/跑 Playwright。
-- code review fixes 要按批次验证：修一批真实问题，跑能覆盖该批的最小编译/测试，再继续。
-
-## 文档和命名
-
-- 文档可以更新，但不要主动写长篇使用说明，除非任务明确要求。
-- README/docs 里若有过期描述，修改相关功能时顺手纠正直接相关部分，不做无关大清洗。
-- 命名要面向 AsterDrive 领域：`workspace`, `file`, `folder`, `share`, `trash`, `storage_policy`, `policy_group`, `connector`, `driver`, `upload_session`, `blob`, `webdav`, `wopi`, `remote_node`, `task`, `audit`。
-- 不要为了“通用化”把清楚的业务名改成含糊的 manager/helper/data/object。
-- 保留 MIT 许可证约束。可参考其他项目的产品概念，但不得复制不兼容许可证代码。
-
-## 参考资料
-
-- 架构概览: `developer-docs/zh-CN/architecture/index.md`
-- 模块设计: `developer-docs/zh-CN/architecture/module-designs.md`
-- 前端约束: `frontend-panel/AGENTS.md`
-- 用户文档: `docs/index.md`
-- 配置示例: `config.example.toml`
-- OpenAPI 导出: `frontend-panel/generated/openapi.json`（以当前生成流程为准）
+- [项目契约](developer-docs/zh-CN/architecture/project-contract.md)
+- [架构概览](developer-docs/zh-CN/architecture/index.md)
+- [关键模块设计](developer-docs/zh-CN/architecture/module-designs.md)
+- [后端服务所有权](developer-docs/zh-CN/architecture/backend-service-ownership.md)
+- [工程工作流](developer-docs/zh-CN/contributing/engineering-workflow.md)
+- [开发任务路由](developer-docs/zh-CN/contributing/task-routing.md)
+- [测试与数据库后端](developer-docs/zh-CN/testing/index.md)
+- [文档贡献指南](developer-docs/zh-CN/contributing/documentation.md)

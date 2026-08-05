@@ -1,5 +1,5 @@
 ---
-description: "AsterDrive WebDAV 协议兼容参考：已实现的方法与能力、PROPFIND / COPY / MOVE 边界、锁与 DeltaV 限制、客户端验收口径和限制速查表。"
+description: "AsterDrive WebDAV 协议兼容参考：已实现的方法与能力、PROPFIND / COPY / MOVE 边界、锁与版本控制边界、客户端验收口径和限制速查表。"
 title: "WebDAV 协议兼容"
 ---
 
@@ -17,7 +17,6 @@ title: "WebDAV 协议兼容"
 | 资源管理 | `MKCOL`, `DELETE`, `COPY`, `MOVE` | 创建目录、删除、复制和移动，支持 `Destination`、`Overwrite` 和相关条件检查 |
 | 属性 | `PROPFIND`, `PROPPATCH` | 读取 live properties，并在具体文件或文件夹上保存 dead properties |
 | 锁 | `LOCK`, `UNLOCK` | 数据库持久化的 exclusive/shared write lock，支持 `If` 和 `Lock-Token` |
-| 最小 DeltaV | `VERSION-CONTROL`, `REPORT` | 支持文件的 `DAV:version-tree`，从 AsterDrive 文件版本生成版本树 |
 
 `GET` 直接从文件所属存储驱动流式读取。WebDAV 不绕过存储策略：实际数据仍可以位于本地磁盘、S3-compatible 对象存储、Azure Blob、OneDrive 或远程 follower 节点，具体取决于当前工作空间的存储策略。
 
@@ -48,16 +47,13 @@ title: "WebDAV 协议兼容"
 - 对文件夹使用 `COPY Depth: 0` 只复制文件夹本身和 dead properties，不复制子项。
 - 请求会检查 ETag 条件、`If` / `Lock-Token` 以及 `Overwrite`。
 
-## 锁和 DeltaV 限制
+## 锁和版本控制边界
 
 AsterDrive 支持持久化的 exclusive/shared write lock，也会在移动、复制、删除和覆盖前检查相关锁条件。过期锁会清理，管理员也可在后台清理异常残留锁。
 
 对文件夹创建 `Depth: infinity` 锁后，这个锁会覆盖它的后代资源。客户端操作后代文件或文件夹时，只要按 WebDAV 规则在 `If` 头里提交同一个锁 token，AsterDrive 会用父文件夹锁自己的 href 校验 token，不会把有效 token 当成无权限操作。
 
-当前已知边界：
-
-- DeltaV 只实现最小子集：`VERSION-CONTROL` 和文件的 `REPORT DAV:version-tree`。AsterDrive 自身的版本历史不等于完整 RFC 3253 版本控制服务器。
-- `REPORT version-tree` 只支持文件，不支持文件夹。
+AsterDrive 的文件版本历史是产品能力，不构成 RFC 3253 core versioning resource model。当前 WebDAV capability snapshot 不声明 `version-control`，`REPORT` 和 `VERSION-CONTROL` 对已认证资源返回带资源级 `Allow` 的 `405 Method Not Allowed`。
 
 ## 客户端兼容性怎么理解
 
@@ -79,4 +75,4 @@ AsterDrive 支持持久化的 exclusive/shared write lock，也会在移动、�
 | 挂载根 `PROPPATCH` | `403` | 只对具体文件/文件夹写自定义属性 |
 | 跨服务器 `COPY` / `MOVE` | 目标被拒绝 | 先下载再上传，或用客户端同步 |
 | 目录级递归锁 | `Depth: infinity` 锁覆盖后代，后代操作可提交父文件夹锁 token | 确认客户端会在 `If` 头里继续携带锁 token |
-| 完整 DeltaV | 只支持最小文件版本树子集 | 将完整版本管理放在 AsterDrive 网页/API 中 |
+| RFC 3253 DeltaV | 当前不声明 `version-control`，不开放标准 `REPORT` / `VERSION-CONTROL` | 使用 AsterDrive 网页/API 管理版本历史 |

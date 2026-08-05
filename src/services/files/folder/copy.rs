@@ -13,9 +13,11 @@ use crate::services::{
     workspace::models::FolderInfo,
     workspace::storage::{self, WorkspaceStorageScope, load_scope_actor_username},
 };
-use aster_drive_model::entities::folder;
+use aster_drive_model::entities::{file, folder};
 
-use super::ensure_folder_model_in_scope;
+use super::{
+    FolderTreeTraversalLimits, collect_folder_tree_in_scope, ensure_folder_model_in_scope,
+};
 
 const MAX_COPY_NAME_RETRIES: usize = 32;
 
@@ -32,11 +34,17 @@ struct PlannedChildFolderCopy {
     policy_id: Option<i64>,
 }
 
+struct FolderTreeCopySnapshot {
+    files_by_parent: HashMap<i64, Vec<file::Model>>,
+    folders_by_parent: HashMap<i64, Vec<folder::Model>>,
+}
+
 async fn copy_frontier_files_between_scopes(
     state: &PrimaryAppState,
     source_scope: WorkspaceStorageScope,
     dest_scope: WorkspaceStorageScope,
     frontier: &[FrontierFolderCopy],
+    snapshot: Option<&FolderTreeCopySnapshot>,
 ) -> Result<i64> {
     if frontier.is_empty() {
         return Ok(0);
@@ -49,13 +57,26 @@ async fn copy_frontier_files_between_scopes(
         .map(|item| (item.src_folder_id, item.dest_folder_id))
         .collect();
 
-    let files = match source_scope {
-        WorkspaceStorageScope::Personal { user_id } => {
-            file_repo::find_by_folders(db, user_id, &src_folder_ids).await?
-        }
-        WorkspaceStorageScope::Team { team_id, .. } => {
-            file_repo::find_by_team_folders(db, team_id, &src_folder_ids).await?
-        }
+    let files = match snapshot {
+        Some(snapshot) => src_folder_ids
+            .iter()
+            .flat_map(|folder_id| {
+                snapshot
+                    .files_by_parent
+                    .get(folder_id)
+                    .into_iter()
+                    .flatten()
+                    .cloned()
+            })
+            .collect(),
+        None => match source_scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                file_repo::find_by_folders(db, user_id, &src_folder_ids).await?
+            }
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                file_repo::find_by_team_folders(db, team_id, &src_folder_ids).await?
+            }
+        },
     };
     let copy_specs: Vec<crate::services::files::file::BatchDuplicateFileRecordTargetSpec<'_>> =
         files
@@ -95,6 +116,7 @@ async fn load_frontier_child_plans_between_scopes(
     source_scope: WorkspaceStorageScope,
     preserve_policy_id: bool,
     frontier: &[FrontierFolderCopy],
+    snapshot: Option<&FolderTreeCopySnapshot>,
 ) -> Result<Vec<PlannedChildFolderCopy>> {
     if frontier.is_empty() {
         return Ok(vec![]);
@@ -107,13 +129,26 @@ async fn load_frontier_child_plans_between_scopes(
         .map(|item| (item.src_folder_id, item.dest_folder_id))
         .collect();
 
-    let children = match source_scope {
-        WorkspaceStorageScope::Personal { user_id } => {
-            folder_repo::find_children_in_parents(db, user_id, &src_folder_ids).await?
-        }
-        WorkspaceStorageScope::Team { team_id, .. } => {
-            folder_repo::find_team_children_in_parents(db, team_id, &src_folder_ids).await?
-        }
+    let children = match snapshot {
+        Some(snapshot) => src_folder_ids
+            .iter()
+            .flat_map(|folder_id| {
+                snapshot
+                    .folders_by_parent
+                    .get(folder_id)
+                    .into_iter()
+                    .flatten()
+                    .cloned()
+            })
+            .collect(),
+        None => match source_scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                folder_repo::find_children_in_parents(db, user_id, &src_folder_ids).await?
+            }
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                folder_repo::find_team_children_in_parents(db, team_id, &src_folder_ids).await?
+            }
+        },
     };
     if children.is_empty() {
         return Ok(vec![]);
@@ -222,6 +257,7 @@ pub(crate) async fn copy_folder_tree_in_scope(
     src_folder_id: i64,
     dest_parent_id: Option<i64>,
     dest_name: &str,
+    traversal_limits: Option<FolderTreeTraversalLimits>,
 ) -> Result<(folder::Model, i64)> {
     copy_folder_tree_between_scopes(
         state,
@@ -230,6 +266,7 @@ pub(crate) async fn copy_folder_tree_in_scope(
         src_folder_id,
         dest_parent_id,
         dest_name,
+        traversal_limits,
     )
     .await
 }
@@ -241,11 +278,50 @@ pub(crate) async fn copy_folder_tree_between_scopes(
     src_folder_id: i64,
     dest_parent_id: Option<i64>,
     dest_name: &str,
+    traversal_limits: Option<FolderTreeTraversalLimits>,
 ) -> Result<(folder::Model, i64)> {
     let db = state.writer_db();
     let now = Utc::now();
     let src_folder = folder_repo::find_by_id(db, src_folder_id).await?;
     ensure_folder_model_in_scope(&src_folder, source_scope)?;
+    let snapshot = if let Some(limits) = traversal_limits {
+        let (files, folder_ids) =
+            collect_folder_tree_in_scope(db, source_scope, src_folder_id, false, Some(limits))
+                .await?;
+        let folders = folder_repo::find_by_ids(db, &folder_ids).await?;
+        if folders.len() != folder_ids.len() {
+            return Err(AsterError::internal_error(
+                "folder tree changed while preparing bounded copy snapshot",
+            ));
+        }
+        let mut files_by_parent = HashMap::<i64, Vec<file::Model>>::new();
+        for file in files {
+            let parent_id = file.folder_id.ok_or_else(|| {
+                AsterError::internal_error(
+                    "bounded folder copy snapshot contains a root-level file",
+                )
+            })?;
+            files_by_parent.entry(parent_id).or_default().push(file);
+        }
+        let mut folders_by_parent = HashMap::<i64, Vec<folder::Model>>::new();
+        for folder in folders {
+            if folder.id == src_folder_id {
+                continue;
+            }
+            let parent_id = folder.parent_id.ok_or_else(|| {
+                AsterError::internal_error(
+                    "bounded folder copy snapshot contains a detached child folder",
+                )
+            })?;
+            folders_by_parent.entry(parent_id).or_default().push(folder);
+        }
+        Some(FolderTreeCopySnapshot {
+            files_by_parent,
+            folders_by_parent,
+        })
+    } else {
+        None
+    };
     let created_by_username = load_scope_actor_username(db, dest_scope).await?;
     let preserve_policy_id = same_workspace_resource(source_scope, dest_scope);
 
@@ -275,12 +351,19 @@ pub(crate) async fn copy_folder_tree_between_scopes(
         // 先并发完成当前层的“文件批量复制”和“下一层子目录读取”，
         // 但把子目录真正写库放在文件复制成功之后，避免扩大失败时的半成品范围。
         let (frontier_storage_delta, child_plans) = tokio::try_join!(
-            copy_frontier_files_between_scopes(state, source_scope, dest_scope, &frontier),
+            copy_frontier_files_between_scopes(
+                state,
+                source_scope,
+                dest_scope,
+                &frontier,
+                snapshot.as_ref(),
+            ),
             load_frontier_child_plans_between_scopes(
                 state,
                 source_scope,
                 preserve_policy_id,
-                &frontier
+                &frontier,
+                snapshot.as_ref(),
             ),
         )?;
         storage_delta = storage_delta
@@ -364,6 +447,7 @@ pub(crate) async fn copy_folder_between_scopes(
             src_id,
             dest_parent_id,
             &dest_name,
+            None,
         )
         .await
         {

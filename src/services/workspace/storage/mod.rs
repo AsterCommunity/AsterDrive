@@ -18,7 +18,7 @@ pub(crate) use crate::services::workspace::scope::{
     ensure_active_folder_scope, ensure_file_resource_scope, ensure_file_scope,
     ensure_folder_resource_scope, ensure_folder_scope, ensure_personal_file_scope,
     invalidate_team_access_cache_for_member, invalidate_team_access_cache_for_team,
-    list_files_in_folder, list_folders_in_parent, load_scope_actor_username, load_team_member_role,
+    list_files_in_folder, load_scope_actor_username, load_team_member_role, lock_folder_access_on,
     require_scope_access, require_scope_access_with_db, require_team_access,
     require_team_access_with_db, require_team_management_access, require_team_policy_group_id,
     verify_file_access, verify_file_access_for_read, verify_folder_access,
@@ -51,7 +51,8 @@ pub(crate) use multipart::{WorkspaceUploadHints, upload_with_hints};
 pub(crate) use operation_context::{StorageCancellationCheck, StorageOperationContext};
 pub(crate) use store::from_temp::store_from_temp_internal;
 pub(crate) use store::{
-    StoreFromTempHints, StoreFromTempParams, StorePreuploadedNondedupParams, create_empty,
+    EmptyFileNameMode, FileWritePrecondition, PreparedEmptyFile, StoreFromTempHints,
+    StoreFromTempParams, StorePreuploadedNondedupParams, create_empty,
     store_from_temp_exact_name_silent_with_hints, store_from_temp_exact_name_with_hints,
     store_from_temp_with_hints, store_preuploaded_nondedup,
 };

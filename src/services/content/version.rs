@@ -70,10 +70,6 @@ async fn restore_version_inner(
     version: file_version::Model,
 ) -> Result<aster_drive_model::entities::file::Model> {
     let db = state.writer_db();
-    if file.is_locked {
-        return Err(AsterError::resource_locked("file is locked"));
-    }
-
     let now = Utc::now();
     let current_blob = file_repo::find_blob_by_id(db, file.blob_id).await?;
     if let Err(e) = crate::services::media::processing::delete_thumbnail(state, &current_blob).await
@@ -85,12 +81,24 @@ async fn restore_version_inner(
     }
 
     let txn = transaction::begin(state.writer_db()).await?;
+    let current = crate::services::files::lock::enforce_file_mutation_on(
+        &txn,
+        &file,
+        &crate::services::files::lock::SubmittedLockCredentials::none(),
+    )
+    .await?;
+    if current.blob_id != file.blob_id {
+        return Err(crate::errors::precondition_failed_with_code(
+            crate::api::api_error_code::ApiErrorCode::FileModifiedDuringWrite,
+            "file changed while the version restore was being prepared",
+        ));
+    }
     storage::lock_storage_usage(&txn, scope).await?;
 
     let previous_blob_id = current_blob.id;
     let target_blob_id = version.blob_id;
 
-    let mut active: aster_drive_model::entities::file::ActiveModel = file.into();
+    let mut active: aster_drive_model::entities::file::ActiveModel = current.into();
     active.blob_id = Set(target_blob_id);
     active.size = Set(version.size);
     active.updated_at = Set(now);

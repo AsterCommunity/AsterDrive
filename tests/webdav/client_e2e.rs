@@ -377,6 +377,26 @@ async fn run_curl(netrc_path: &Path, args: Vec<String>) -> ClientCommandOutput {
     run_client_command("curl", full_args, None).await
 }
 
+async fn run_curl_http_status(netrc_path: &Path, args: Vec<String>) -> u16 {
+    let mut full_args = vec![
+        "--silent".to_string(),
+        "--show-error".to_string(),
+        "--netrc-file".to_string(),
+        path_arg(netrc_path),
+        "--output".to_string(),
+        "/dev/null".to_string(),
+        "--write-out".to_string(),
+        "%{http_code}".to_string(),
+    ];
+    full_args.extend(args);
+    let output = run_client_command("curl", full_args, None).await;
+    output
+        .stdout
+        .trim()
+        .parse()
+        .expect("curl should print a numeric HTTP status")
+}
+
 fn header_value(headers: &str, name: &str) -> Option<String> {
     headers.lines().find_map(|line| {
         let (header_name, value) = line.split_once(':')?;
@@ -384,6 +404,17 @@ fn header_value(headers: &str, name: &str) -> Option<String> {
             .eq_ignore_ascii_case(name)
             .then(|| value.trim().to_string())
     })
+}
+
+fn response_status_code(headers: &str) -> Option<u16> {
+    headers
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            parts.next()?.starts_with("HTTP/").then_some(())?;
+            parts.next()?.parse().ok()
+        })
+        .next_back()
 }
 
 #[actix_web::test]
@@ -675,16 +706,37 @@ async fn test_webdav_curl_client_methods_ranges_and_locks() {
     let upload_path = work_dir.join("curl-upload.txt");
     let range_headers_path = work_dir.join("range.headers");
     let range_body_path = work_dir.join("range.body");
+    let multi_range_headers_path = work_dir.join("multi-range.headers");
+    let multi_range_body_path = work_dir.join("multi-range.body");
+    let etag_headers_path = work_dir.join("etag.headers");
     let lock_body_path = work_dir.join("lock.xml");
     let lock_headers_path = work_dir.join("lock.headers");
+    let refresh_headers_path = work_dir.join("refresh.headers");
     let dir_name = unique_name("curl-dir");
     let dir_url = format!("{}/webdav/{dir_name}", server.base_url);
     let source_url = format!("{dir_url}/source.txt");
     let copied_url = format!("{dir_url}/copied.txt");
     let moved_url = format!("{dir_url}/moved.txt");
-    let content = "curl WebDAV compatibility payload\nsecond line\nthird line\n";
+    let empty_url = format!("{dir_url}/empty%20file.txt");
+    let chunked_url = format!("{dir_url}/chunked-put.txt");
+    let failed_url = format!("{dir_url}/failed-conditional-put.txt");
+    // Keep the requested ranges beyond Forge's 80-byte coalescing gap.
+    let content = concat!(
+        "curl WebDAV compatibility payload\n",
+        "second line keeps the multipart fixture deliberately wide\n",
+        "third line extends beyond one hundred bytes for disjoint ranges\n",
+    );
+    let chunked_content = "curl chunked PUT payload\nwith a second line\n";
+    let empty_path = work_dir.join("empty");
+    let chunked_path = work_dir.join("chunked.txt");
+    let failed_path = work_dir.join("failed.txt");
 
     std::fs::write(&upload_path, content).expect("curl upload file should be written");
+    std::fs::write(&empty_path, b"").expect("curl empty upload file should be written");
+    std::fs::write(&chunked_path, chunked_content)
+        .expect("curl chunked upload file should be written");
+    std::fs::write(&failed_path, "this body must not create a resource")
+        .expect("curl failed upload file should be written");
     std::fs::write(
         &lock_body_path,
         r#"<?xml version="1.0" encoding="utf-8" ?>
@@ -714,6 +766,50 @@ async fn test_webdav_curl_client_methods_ranges_and_locks() {
     run_curl(
         &netrc_path,
         vec![
+            "--upload-file".to_string(),
+            path_arg(&empty_path),
+            empty_url.clone(),
+        ],
+    )
+    .await;
+    let empty_headers_path = work_dir.join("empty.headers");
+    run_curl(
+        &netrc_path,
+        vec![
+            "-I".to_string(),
+            "-D".to_string(),
+            path_arg(&empty_headers_path),
+            empty_url.clone(),
+        ],
+    )
+    .await;
+    let empty_headers =
+        std::fs::read_to_string(&empty_headers_path).expect("empty HEAD headers should read");
+    assert_eq!(
+        header_value(&empty_headers, "Content-Length").as_deref(),
+        Some("0")
+    );
+
+    run_curl(
+        &netrc_path,
+        vec![
+            "--http1.1".to_string(),
+            "-X".to_string(),
+            "PUT".to_string(),
+            "-H".to_string(),
+            "Transfer-Encoding: chunked".to_string(),
+            "--data-binary".to_string(),
+            format!("@{}", path_arg(&chunked_path)),
+            chunked_url.clone(),
+        ],
+    )
+    .await;
+    let chunked = run_curl(&netrc_path, vec![chunked_url.clone()]).await;
+    assert_eq!(chunked.stdout, chunked_content);
+
+    run_curl(
+        &netrc_path,
+        vec![
             "-H".to_string(),
             "Range: bytes=5-18".to_string(),
             "-D".to_string(),
@@ -738,6 +834,94 @@ async fn test_webdav_curl_client_methods_ranges_and_locks() {
     let range_body =
         std::fs::read_to_string(&range_body_path).expect("curl range response body should read");
     assert_eq!(range_body, &content[5..=18]);
+
+    run_curl(
+        &netrc_path,
+        vec![
+            "-H".to_string(),
+            "Range: bytes=0-4,100-104".to_string(),
+            "-D".to_string(),
+            path_arg(&multi_range_headers_path),
+            "-o".to_string(),
+            path_arg(&multi_range_body_path),
+            source_url.clone(),
+        ],
+    )
+    .await;
+    let multi_range_headers = std::fs::read_to_string(&multi_range_headers_path)
+        .expect("curl multi-range headers should read");
+    assert!(multi_range_headers.contains("206"));
+    assert!(
+        header_value(&multi_range_headers, "Content-Type")
+            .as_deref()
+            .is_some_and(|value| value.starts_with("multipart/byteranges;")),
+        "multi-range response should use multipart/byteranges: {multi_range_headers}"
+    );
+    let multi_range_body =
+        std::fs::read_to_string(&multi_range_body_path).expect("curl multi-range body should read");
+    assert!(multi_range_body.contains("Content-Range: bytes 0-4/"));
+    assert!(multi_range_body.contains("Content-Range: bytes 100-104/"));
+
+    run_curl(
+        &netrc_path,
+        vec![
+            "-D".to_string(),
+            path_arg(&etag_headers_path),
+            "-o".to_string(),
+            "/dev/null".to_string(),
+            source_url.clone(),
+        ],
+    )
+    .await;
+    let etag_headers =
+        std::fs::read_to_string(&etag_headers_path).expect("ETag headers should read");
+    let etag = header_value(&etag_headers, "ETag").expect("GET should return an ETag");
+    let failed_status = run_curl_http_status(
+        &netrc_path,
+        vec![
+            "-X".to_string(),
+            "PUT".to_string(),
+            "-H".to_string(),
+            "If-Match: \"definitely-not-current\"".to_string(),
+            "--data-binary".to_string(),
+            format!("@{}", path_arg(&failed_path)),
+            source_url.clone(),
+        ],
+    )
+    .await;
+    assert_eq!(failed_status, 412, "a stale If-Match must be rejected");
+    let matching_status = run_curl_http_status(
+        &netrc_path,
+        vec![
+            "-X".to_string(),
+            "PUT".to_string(),
+            "-H".to_string(),
+            format!("If-Match: {etag}"),
+            "--data-binary".to_string(),
+            format!("@{}", path_arg(&upload_path)),
+            source_url.clone(),
+        ],
+    )
+    .await;
+    assert!(matching_status == 200 || matching_status == 204);
+    let failed_create_status = run_curl_http_status(
+        &netrc_path,
+        vec![
+            "-X".to_string(),
+            "PUT".to_string(),
+            "-H".to_string(),
+            "If-Match: *".to_string(),
+            "--data-binary".to_string(),
+            format!("@{}", path_arg(&failed_path)),
+            failed_url.clone(),
+        ],
+    )
+    .await;
+    assert_eq!(failed_create_status, 412);
+    assert_eq!(
+        run_curl_http_status(&netrc_path, vec![failed_url.clone()]).await,
+        404
+    );
 
     run_curl(
         &netrc_path,
@@ -797,6 +981,31 @@ async fn test_webdav_curl_client_methods_ranges_and_locks() {
         &netrc_path,
         vec![
             "-X".to_string(),
+            "LOCK".to_string(),
+            "-H".to_string(),
+            format!("If: ({lock_token})"),
+            "-H".to_string(),
+            "Timeout: Second-7200".to_string(),
+            "--data-raw".to_string(),
+            String::new(),
+            "-D".to_string(),
+            path_arg(&refresh_headers_path),
+            moved_url.clone(),
+        ],
+    )
+    .await;
+    let refresh_headers =
+        std::fs::read_to_string(&refresh_headers_path).expect("LOCK refresh headers should read");
+    assert_eq!(response_status_code(&refresh_headers), Some(200));
+    assert!(
+        header_value(&refresh_headers, "Lock-Token").is_none(),
+        "a LOCK refresh must not issue a new token"
+    );
+
+    run_curl(
+        &netrc_path,
+        vec![
+            "-X".to_string(),
             "UNLOCK".to_string(),
             "-H".to_string(),
             format!("Lock-Token: {lock_token}"),
@@ -812,6 +1021,16 @@ async fn test_webdav_curl_client_methods_ranges_and_locks() {
     run_curl(
         &netrc_path,
         vec!["-X".to_string(), "DELETE".to_string(), source_url],
+    )
+    .await;
+    run_curl(
+        &netrc_path,
+        vec!["-X".to_string(), "DELETE".to_string(), empty_url],
+    )
+    .await;
+    run_curl(
+        &netrc_path,
+        vec!["-X".to_string(), "DELETE".to_string(), chunked_url],
     )
     .await;
     run_curl(

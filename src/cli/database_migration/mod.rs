@@ -84,6 +84,7 @@ const COPY_TABLE_ORDER: &[&str] = &[
     aster_forge_db::SCHEDULED_TASKS_TABLE,
     "storage_migration_checkpoints",
     "entity_properties",
+    "resource_lock_namespaces",
     "resource_locks",
     "wopi_sessions",
 ];

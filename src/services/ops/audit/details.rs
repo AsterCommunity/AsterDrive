@@ -500,8 +500,9 @@ pub struct InvitationAuditDetails<'a> {
 
 #[derive(Serialize)]
 pub struct LockAuditDetails {
-    pub entity_type: EntityType,
-    pub entity_id: i64,
+    pub entity_type: aster_drive_model::types::LockRootKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_id: Option<i64>,
 }
 
 #[derive(Serialize)]

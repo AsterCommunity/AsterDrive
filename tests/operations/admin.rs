@@ -12,12 +12,13 @@ use std::io::Cursor;
 use std::os::unix::fs::PermissionsExt;
 
 use aster_drive::db::repository::{
-    audit_log_repo, background_task_repo, lock_repo, policy_repo, team_repo, user_repo,
+    audit_log_repo, background_task_repo, lock_namespace_repo, lock_repo, policy_repo, team_repo,
+    user_repo,
 };
 use aster_drive_model::entities::{background_task, file, file_blob, file_version, resource_lock};
 use aster_drive_model::types::{
-    AuditAction, BackgroundTaskKind, BackgroundTaskStatus, EntityType, StoredLockOwnerInfo,
-    StoredTaskPayload, StoredTaskResult,
+    AuditAction, BackgroundTaskKind, BackgroundTaskStatus, LockDepth, LockMode, LockOrigin,
+    LockRootKind, LockWorkspaceType, StoredLockOwnerInfo, StoredTaskPayload, StoredTaskResult,
 };
 
 fn admin_get_request(token: &str, uri: &str) -> actix_web::test::TestRequest {
@@ -2377,29 +2378,33 @@ async fn test_admin_locks_support_explicit_sorting() {
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
     let now = Utc::now();
+    let namespace =
+        lock_namespace_repo::ensure_and_lock(state.writer_db(), LockWorkspaceType::Personal, 1)
+            .await
+            .expect("personal lock namespace should exist");
 
-    for (idx, (path, shared, deep)) in [
-        ("/sort/zeta.txt", false, false),
-        ("/sort/alpha.txt", true, true),
-        ("/sort/beta.txt", false, true),
-    ]
-    .into_iter()
-    .enumerate()
-    {
+    for (path, mode, depth) in [
+        ("/sort/zeta.txt", LockMode::Exclusive, LockDepth::Resource),
+        ("/sort/alpha.txt", LockMode::Shared, LockDepth::Infinity),
+        ("/sort/beta.txt", LockMode::Exclusive, LockDepth::Infinity),
+    ] {
         lock_repo::create(
             state.writer_db(),
             resource_lock::ActiveModel {
                 token: Set(format!("urn:uuid:{}", uuid::Uuid::new_v4())),
-                entity_type: Set(EntityType::File),
-                entity_id: Set(10_000 + idx as i64),
-                path: Set(path.to_string()),
-                owner_id: Set(Some(1)),
+                namespace_id: Set(namespace.id),
+                root_kind: Set(LockRootKind::WorkspaceRoot),
+                root_folder_id: Set(None),
+                root_file_id: Set(None),
+                depth: Set(depth),
+                mode: Set(mode),
+                origin: Set(LockOrigin::Product),
+                holder_user_id: Set(Some(1)),
                 owner_info: Set(Some(StoredLockOwnerInfo(
                     r#"{"kind":"text","value":"sort-test"}"#.to_string(),
                 ))),
                 timeout_at: Set(Some(now + Duration::hours(1))),
-                shared: Set(shared),
-                deep: Set(deep),
+                lockroot_path: Set(Some(path.to_string())),
                 created_at: Set(now),
                 ..Default::default()
             },
@@ -2411,22 +2416,22 @@ async fn test_admin_locks_support_explicit_sorting() {
     let body: Value = admin_get_json!(
         app,
         token,
-        "/api/v1/admin/locks?sort_by=path&sort_order=asc&limit=10"
+        "/api/v1/admin/locks?sort_by=lockroot_path&sort_order=asc&limit=10"
     );
     let locks = body["data"]["items"].as_array().unwrap();
     assert_eq!(
-        json_string_values(locks, "path"),
+        json_string_values(locks, "lockroot_path"),
         vec!["/sort/alpha.txt", "/sort/beta.txt", "/sort/zeta.txt"]
     );
 
     let body: Value = admin_get_json!(
         app,
         token,
-        "/api/v1/admin/locks?sort_by=shared&sort_order=desc&limit=10"
+        "/api/v1/admin/locks?sort_by=mode&sort_order=desc&limit=10"
     );
     let locks = body["data"]["items"].as_array().unwrap();
-    assert_eq!(locks[0]["path"], "/sort/alpha.txt");
-    assert_eq!(locks[0]["shared"], true);
+    assert_eq!(locks[0]["lockroot_path"], "/sort/alpha.txt");
+    assert_eq!(locks[0]["mode"], "shared");
 }
 
 #[actix_web::test]

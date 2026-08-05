@@ -21,6 +21,7 @@ use crate::services::{
     workspace::storage::{self, WorkspaceStorageScope, load_scope_actor_username},
 };
 use aster_drive_model::entities::{file, folder};
+use aster_drive_model::types::EntityType;
 use aster_forge_api::NullablePatch;
 use aster_forge_utils::numbers::u64_to_usize;
 
@@ -161,6 +162,7 @@ pub(crate) async fn create_in_scope(
     scope: WorkspaceStorageScope,
     name: &str,
     parent_id: Option<i64>,
+    lock_credentials: crate::services::files::lock::LockMutationCredentials,
 ) -> Result<folder::Model> {
     tracing::debug!(
         scope = ?scope,
@@ -179,9 +181,26 @@ pub(crate) async fn create_in_scope(
 
     let name = aster_forge_validation::filename::normalize_validate_name(name)?;
     let created_by_username = load_scope_actor_username(state.writer_db(), scope).await?;
+    if let Some(parent_id) = parent_id {
+        let parent = folder_repo::find_by_id(state.writer_db(), parent_id).await?;
+        ensure_folder_model_in_scope(&parent, scope)?;
+    }
 
     let now = Utc::now();
     let created = transaction::with_transaction(state.writer_db(), async |txn| {
+        let workspace = match scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                crate::services::files::lock::LockWorkspace::Personal { user_id }
+            }
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                crate::services::files::lock::LockWorkspace::Team { team_id }
+            }
+        };
+        let submitted = lock_credentials.submitted();
+        crate::services::files::lock::enforce_collection_membership_mutation_on(
+            txn, workspace, parent_id, &submitted,
+        )
+        .await?;
         if let Some(pid) = parent_id {
             let parent = folder_repo::lock_by_id(txn, pid).await?;
             ensure_folder_model_in_scope(&parent, scope)?;
@@ -243,6 +262,7 @@ pub async fn create(
         WorkspaceStorageScope::Personal { user_id },
         name,
         parent_id,
+        crate::services::files::lock::LockMutationCredentials::None,
     )
     .await
     .map(Into::into)
@@ -252,30 +272,22 @@ pub(crate) async fn delete_in_scope(
     state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
     folder_id: i64,
+    traversal_limits: Option<super::FolderTreeTraversalLimits>,
 ) -> Result<()> {
     tracing::debug!(scope = ?scope, folder_id, "soft deleting folder tree");
     let now = Utc::now();
 
     // 删除整棵树时先锁目录树，再确认树结构没有变化；否则并发移动/创建子目录
     // 可能导致只删除到遍历时看到的一部分节点。
-    let (folder, file_count, folder_count) =
-        transaction::with_transaction(state.writer_db(), async |txn| {
-            let folder = folder_repo::lock_by_id(txn, folder_id).await?;
-            ensure_folder_model_in_scope(&folder, scope)?;
-            if folder.is_locked {
-                return Err(AsterError::resource_locked("folder is locked"));
-            }
-
-            let (files, folder_ids) =
-                collect_locked_folder_tree_in_scope(txn, scope, folder_id).await?;
-            let file_count = files.len();
-            let folder_count = folder_ids.len();
-            let file_ids: Vec<i64> = files.into_iter().map(|f| f.id).collect();
-            file_repo::soft_delete_many(txn, &file_ids, now).await?;
-            folder_repo::soft_delete_many(txn, &folder_ids, now).await?;
-            Ok((folder, file_count, folder_count))
-        })
-        .await?;
+    let outcome = transaction::with_transaction(state.writer_db(), async |txn| {
+        delete_tree_in_scope_on(txn, scope, folder_id, traversal_limits, now, false).await
+    })
+    .await?;
+    let FolderTreeDeletion {
+        folder,
+        file_count,
+        folder_count,
+    } = outcome;
     storage_change::publish(
         state,
         storage_change::StorageChangeEvent::new(
@@ -298,9 +310,107 @@ pub(crate) async fn delete_in_scope(
     Ok(())
 }
 
+/// Authoritative result of a folder-tree soft deletion.
+pub(crate) struct FolderTreeDeletion {
+    pub(crate) folder: folder::Model,
+    pub(crate) file_count: usize,
+    pub(crate) folder_count: usize,
+}
+
+/// Locked folder-tree snapshot used by protocol adapters that must validate another persistence
+/// invariant before applying the deletion on the same transaction.
+pub(crate) struct LockedFolderTreeDeletion {
+    pub(crate) folder: folder::Model,
+    pub(crate) file_ids: Vec<i64>,
+    pub(crate) folder_ids: Vec<i64>,
+}
+
+pub(crate) async fn lock_tree_for_deletion_on<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceStorageScope,
+    folder_id: i64,
+    traversal_limits: Option<super::FolderTreeTraversalLimits>,
+    allow_locked_root: bool,
+) -> Result<LockedFolderTreeDeletion> {
+    let snapshot = folder_repo::find_by_id(db, folder_id).await?;
+    ensure_folder_model_in_scope(&snapshot, scope)?;
+    let folder = if allow_locked_root {
+        folder_repo::lock_by_id(db, folder_id).await?
+    } else {
+        crate::services::files::lock::enforce_folder_mutation_on(
+            db,
+            &snapshot,
+            aster_drive_model::types::LockDepth::Infinity,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await?
+    };
+    let (files, folder_ids) =
+        collect_locked_folder_tree_in_scope(db, scope, folder_id, traversal_limits).await?;
+    if !allow_locked_root {
+        for file in &files {
+            crate::services::files::lock::enforce_file_mutation_on(
+                db,
+                file,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
+        }
+        for descendant_id in folder_ids.iter().copied().filter(|id| *id != folder_id) {
+            let descendant = folder_repo::find_by_id(db, descendant_id).await?;
+            crate::services::files::lock::enforce_folder_mutation_on(
+                db,
+                &descendant,
+                aster_drive_model::types::LockDepth::Resource,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
+        }
+    }
+    Ok(LockedFolderTreeDeletion {
+        folder,
+        file_ids: files.into_iter().map(|file| file.id).collect(),
+        folder_ids,
+    })
+}
+
+pub(crate) async fn apply_locked_tree_deletion_on<C: ConnectionTrait>(
+    db: &C,
+    locked: LockedFolderTreeDeletion,
+    now: chrono::DateTime<Utc>,
+) -> Result<FolderTreeDeletion> {
+    let file_count = locked.file_ids.len();
+    let folder_count = locked.folder_ids.len();
+    file_repo::soft_delete_many(db, &locked.file_ids, now).await?;
+    folder_repo::soft_delete_many(db, &locked.folder_ids, now).await?;
+    Ok(FolderTreeDeletion {
+        folder: locked.folder,
+        file_count,
+        folder_count,
+    })
+}
+
+/// Soft-deletes a locked folder snapshot on the caller's transaction.
+///
+/// `allow_locked_root` is reserved for protocol adapters that revalidate the current lock rows in
+/// the same transaction. Ordinary product flows use the authoritative lock evaluator.
+pub(crate) async fn delete_tree_in_scope_on<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceStorageScope,
+    folder_id: i64,
+    traversal_limits: Option<super::FolderTreeTraversalLimits>,
+    now: chrono::DateTime<Utc>,
+    allow_locked_root: bool,
+) -> Result<FolderTreeDeletion> {
+    let locked =
+        lock_tree_for_deletion_on(db, scope, folder_id, traversal_limits, allow_locked_root)
+            .await?;
+    apply_locked_tree_deletion_on(db, locked, now).await
+}
+
 /// 删除文件夹（软删除 → 回收站，递归标记子项）
 pub async fn delete(state: &impl StorageChangeRuntimeState, id: i64, user_id: i64) -> Result<()> {
-    delete_in_scope(state, WorkspaceStorageScope::Personal { user_id }, id).await
+    delete_in_scope(state, WorkspaceStorageScope::Personal { user_id }, id, None).await
 }
 
 pub(crate) async fn get_info_in_scope(
@@ -324,7 +434,23 @@ pub(crate) async fn get_info_with_storage_used_in_scope(
             .await?
             .remove(&(aster_drive_model::types::EntityType::Folder, folder.id))
             .unwrap_or_default();
-    Ok(FolderInfo::from_model_with_storage_used(folder, storage_used).with_tags(tags))
+    let lock_states = crate::services::files::lock::load_for_scope(
+        state,
+        scope.into(),
+        &[],
+        std::slice::from_ref(&folder),
+    )
+    .await?;
+    let lock_state = crate::services::files::lock::state_for(
+        &lock_states,
+        aster_drive_model::types::EntityType::Folder,
+        folder.id,
+    );
+    Ok(
+        FolderInfo::from_model_with_storage_used(folder, storage_used)
+            .with_tags(tags)
+            .with_lock_state(lock_state),
+    )
 }
 
 pub(crate) async fn update_in_scope(
@@ -368,6 +494,11 @@ pub(crate) async fn update_in_scope(
     let (updated, previous_parent_id) = transaction::with_transaction(db, async |txn| {
         let preview = folder_repo::find_by_id(txn, id).await?;
         ensure_folder_model_in_scope(&preview, scope)?;
+        crate::services::files::lock::lock_workspace_for_mutation_on(
+            txn,
+            crate::services::files::lock::LockWorkspace::from_folder(&preview)?,
+        )
+        .await?;
         let preview_target_parent = match parent_id {
             NullablePatch::Absent => preview.parent_id,
             NullablePatch::Null => None,
@@ -380,11 +511,14 @@ pub(crate) async fn update_in_scope(
         lock_ids.extend(initial_target_chain.iter().map(|folder| folder.id));
         lock_folder_ids_in_order(txn, &lock_ids).await?;
 
-        let current = folder_repo::lock_by_id(txn, id).await?;
+        let current = crate::services::files::lock::enforce_folder_mutation_on(
+            txn,
+            &preview,
+            aster_drive_model::types::LockDepth::Infinity,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await?;
         ensure_folder_model_in_scope(&current, scope)?;
-        if current.is_locked {
-            return Err(AsterError::resource_locked("folder is locked"));
-        }
 
         let target_parent = match parent_id {
             NullablePatch::Absent => current.parent_id,
@@ -467,10 +601,14 @@ pub(crate) async fn admin_set_policy(
     );
 
     let (updated, previous_policy_id) = transaction::with_transaction(db, async |txn| {
-        let current = folder_repo::lock_by_id(txn, folder_id).await?;
-        if current.is_locked {
-            return Err(AsterError::resource_locked("folder is locked"));
-        }
+        let snapshot = folder_repo::find_by_id(txn, folder_id).await?;
+        let current = crate::services::files::lock::enforce_folder_mutation_on(
+            txn,
+            &snapshot,
+            aster_drive_model::types::LockDepth::Resource,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await?;
         if current.deleted_at.is_some() {
             return Err(AsterError::file_not_found(format!(
                 "folder #{} is in trash",
@@ -529,6 +667,7 @@ async fn collect_locked_folder_tree_in_scope<C: ConnectionTrait>(
     db: &C,
     scope: WorkspaceStorageScope,
     folder_id: i64,
+    traversal_limits: Option<super::FolderTreeTraversalLimits>,
 ) -> Result<(Vec<file::Model>, Vec<i64>)> {
     const MAX_STABILIZATION_ATTEMPTS: usize = 8;
 
@@ -536,11 +675,11 @@ async fn collect_locked_folder_tree_in_scope<C: ConnectionTrait>(
     // 重新来一轮。这样软删除不会漏掉并发插入/移动进来的子目录。
     for _ in 0..MAX_STABILIZATION_ATTEMPTS {
         let (_files, folder_ids) =
-            collect_folder_tree_in_scope(db, scope, folder_id, false).await?;
+            collect_folder_tree_in_scope(db, scope, folder_id, false, traversal_limits).await?;
         lock_folder_ids_in_order(db, &folder_ids).await?;
 
         let (confirmed_files, confirmed_folder_ids) =
-            collect_folder_tree_in_scope(db, scope, folder_id, false).await?;
+            collect_folder_tree_in_scope(db, scope, folder_id, false, traversal_limits).await?;
         let locked_ids: BTreeSet<i64> = folder_ids.iter().copied().collect();
         let confirmed_ids: BTreeSet<i64> = confirmed_folder_ids.iter().copied().collect();
         if locked_ids == confirmed_ids {
@@ -639,8 +778,6 @@ pub(crate) async fn set_lock_in_scope(
     locked: bool,
 ) -> Result<folder::Model> {
     use crate::services::files::lock;
-    use aster_drive_model::types::EntityType;
-
     tracing::debug!(
         scope = ?scope,
         folder_id,
@@ -668,7 +805,7 @@ pub(crate) async fn set_lock_in_scope(
     tracing::debug!(
         scope = ?scope,
         folder_id = folder.id,
-        locked = folder.is_locked,
+        locked,
         "updated folder lock state"
     );
     Ok(folder)
@@ -681,14 +818,22 @@ pub async fn set_lock(
     user_id: i64,
     locked: bool,
 ) -> Result<FolderInfo> {
-    set_lock_in_scope(
+    let scope = WorkspaceStorageScope::Personal { user_id };
+    let folder = set_lock_in_scope(state, scope, folder_id, locked).await?;
+    let lock_states = crate::services::files::lock::load_for_scope(
         state,
-        WorkspaceStorageScope::Personal { user_id },
-        folder_id,
-        locked,
+        scope.into(),
+        &[],
+        std::slice::from_ref(&folder),
     )
-    .await
-    .map(Into::into)
+    .await?;
+    Ok(
+        FolderInfo::from(folder).with_lock_state(crate::services::files::lock::state_for(
+            &lock_states,
+            EntityType::Folder,
+            folder_id,
+        )),
+    )
 }
 
 fn publish_folder_lock_change(

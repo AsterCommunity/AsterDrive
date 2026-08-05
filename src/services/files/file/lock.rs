@@ -43,7 +43,7 @@ pub(crate) async fn set_lock_in_scope(
     tracing::debug!(
         scope = ?scope,
         file_id = file.id,
-        locked = file.is_locked,
+        locked,
         "updated file lock state"
     );
     Ok(file)
@@ -56,14 +56,15 @@ pub async fn set_lock(
     user_id: i64,
     locked: bool,
 ) -> Result<FileInfo> {
-    set_lock_in_scope(
-        state,
-        WorkspaceStorageScope::Personal { user_id },
+    let scope = WorkspaceStorageScope::Personal { user_id };
+    let file = set_lock_in_scope(state, scope, file_id, locked).await?;
+    let lock_states =
+        lock::load_for_scope(state, scope.into(), std::slice::from_ref(&file), &[]).await?;
+    Ok(FileInfo::from(file).with_lock_state(lock::state_for(
+        &lock_states,
+        EntityType::File,
         file_id,
-        locked,
-    )
-    .await
-    .map(Into::into)
+    )))
 }
 
 async fn publish_file_lock_change(

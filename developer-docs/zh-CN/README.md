@@ -7,6 +7,8 @@
 | 你的目标 | 建议入口 |
 | --- | --- |
 | 第一次接触仓库，想建立整体心智模型 | [架构概览](./architecture/index.md) → [关键模块设计](./architecture/module-designs.md) |
+| 开始开发任务，先确认长期边界和完成标准 | [项目契约](./architecture/project-contract.md) → [工程工作流](./contributing/engineering-workflow.md) |
+| 想快速定位代码入口、相关文档和最低验证 | [开发任务路由](./contributing/task-routing.md) |
 | 判断一段后端逻辑应该放在哪一层 | [后端服务所有权边界](./architecture/backend-service-ownership.md) |
 | 查找 REST、WebDAV、WOPI 或内部协议 | [API 概览](./api/index.md) |
 | 修改存储、上传或远端节点链路 | [领域设计与契约](./design/README.md) |
@@ -19,6 +21,7 @@
 ### 架构与边界
 
 - [架构概览](./architecture/index.md)：节点模式、分层、启动链路、配置和数据流。
+- [项目契约](./architecture/project-contract.md)：产品身份、Forge 边界、数据与协议不变量和完成标准。
 - [关键模块设计](./architecture/module-designs.md)：文件、上传、任务、存储和协议模块的内部形状。
 - [后端服务所有权边界](./architecture/backend-service-ownership.md)：route、service、domain、repository、storage 和 protocol 的职责边界。
 
@@ -50,6 +53,8 @@
 
 ### 贡献
 
+- [工程工作流](./contributing/engineering-workflow.md)：从固定任务边界、读取最小上下文到分批验证和交付。
+- [开发任务路由](./contributing/task-routing.md)：按任务类型定位代码入口、权威文档和最低验证。
 - [文档贡献指南](./contributing/documentation.md)：用户文档和开发者文档的分层归属、写法规则、中英同步策略和验证命令。
 
 ## 文档状态

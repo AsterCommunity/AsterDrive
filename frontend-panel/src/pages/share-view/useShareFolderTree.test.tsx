@@ -19,7 +19,7 @@ vi.mock("@/services/shareService", () => ({
 function folder(id: number, name: string): FolderListItem {
 	return {
 		id,
-		is_locked: false,
+		lock_state: { state: "unlocked" },
 		is_shared: false,
 		name,
 		tags: [],

@@ -163,7 +163,7 @@ pub(super) async fn upload_streaming_direct(
                     filename: &filename,
                     size: actual_size,
                     existing_file_id: None,
-                    skip_lock_check: false,
+                    lock_credentials: crate::services::files::lock::LockMutationCredentials::None,
                     policy,
                     preuploaded_blob: prepared_upload,
                     actor_username,

@@ -120,7 +120,7 @@ function createFolder(id: number, name: string) {
 	return {
 		created_at: "2026-03-28T00:00:00Z",
 		id,
-		is_locked: false,
+		lock_state: { state: "unlocked" },
 		name,
 		updated_at: "2026-03-28T00:00:00Z",
 	};

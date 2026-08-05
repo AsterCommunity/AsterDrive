@@ -1200,7 +1200,7 @@ function createFolder(overrides: Record<string, unknown> = {}) {
 	return {
 		created_at: "2026-03-28T00:00:00Z",
 		id: 5,
-		is_locked: false,
+		lock_state: { state: "unlocked" },
 		name: "Docs",
 		updated_at: "2026-03-28T00:00:00Z",
 		...overrides,
@@ -1211,7 +1211,7 @@ function createFile(overrides: Record<string, unknown> = {}) {
 	return {
 		created_at: "2026-03-28T00:00:00Z",
 		id: 3,
-		is_locked: false,
+		lock_state: { state: "unlocked" },
 		mime_type: "text/plain",
 		name: "notes.txt",
 		size: 10,

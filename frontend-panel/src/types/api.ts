@@ -146,6 +146,7 @@ export type FolderContents = components["schemas"]["FolderContents"];
 export type FolderInfo = components["schemas"]["FolderInfo"];
 export type FolderListParams = OperationQuery<"list_root">;
 export type FolderListItem = components["schemas"]["FolderListItem"];
+export type ResourceLockState = components["schemas"]["ResourceLockState"];
 export type ArchivePreviewEntry = components["schemas"]["ArchivePreviewEntry"];
 export type ArchivePreviewEntryKind =
 	components["schemas"]["ArchivePreviewEntryKind"];

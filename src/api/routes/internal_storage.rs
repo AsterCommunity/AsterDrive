@@ -731,7 +731,10 @@ async fn get_object(
         }
         None => ctx.ingress_driver.get_stream(&storage_path).await?,
     };
-    let body = ReaderStream::with_capacity(stream, 64 * 1024);
+    let body = ReaderStream::with_capacity(
+        stream,
+        crate::storage::io_limits::DOWNLOAD_READER_BUFFER_BYTES,
+    );
 
     let mut response = if partial_range.is_some() {
         HttpResponse::build(StatusCode::PARTIAL_CONTENT)

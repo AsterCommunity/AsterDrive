@@ -120,7 +120,6 @@ pub struct FileSearchItem {
     pub created_at: DateTimeUtc,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: DateTimeUtc,
-    pub is_locked: bool,
 }
 
 fn name_search_condition(
@@ -338,8 +337,7 @@ async fn search_files_in_scope<C: ConnectionTrait>(
         .column(file::Column::FileCategory)
         .column_as(file_blob::Column::Size, "size")
         .column(file::Column::CreatedAt)
-        .column(file::Column::UpdatedAt)
-        .column(file::Column::IsLocked);
+        .column(file::Column::UpdatedAt);
 
     let items = apply_file_search_order(query, filters.sort_by, filters.sort_order)
         .limit(filters.limit)

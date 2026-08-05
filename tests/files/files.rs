@@ -839,7 +839,7 @@ async fn test_file_lock_unlock() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["is_locked"], true);
+    assert_eq!(body["data"]["lock_state"]["state"], "direct");
     let event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
         .await
         .expect("file lock should publish storage change event")
@@ -849,6 +849,25 @@ async fn test_file_lock_unlock() {
     assert!(event.folder_ids.is_empty());
     assert!(event.affected_parent_ids.is_empty());
     assert!(event.root_affected);
+
+    // 产品锁持有者可以更新内容，但响应必须保留权威锁状态。
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/{file_id}/content"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload("updated while locked")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["lock_state"]["state"], "direct");
+    let event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("locked content update should publish storage change event")
+        .expect("storage change channel should stay open");
+    assert_eq!(event.kind, StorageChangeKind::FileUpdated);
+    assert_eq!(event.file_ids, vec![file_id]);
 
     // 删除应失败
     let req = test::TestRequest::delete()
@@ -1604,7 +1623,6 @@ async fn test_folder_detail_storage_used_handles_paginated_file_batches() {
                 created_at: Set(now),
                 updated_at: Set(now),
                 deleted_at: Set(None),
-                is_locked: Set(false),
                 ..Default::default()
             }
         })

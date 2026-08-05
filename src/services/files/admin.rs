@@ -12,7 +12,7 @@ use crate::api::pagination::load_offset_page;
 use crate::db::repository::{file_repo, version_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::services::{user::account, user::profile};
+use crate::services::{files::lock, user::account, user::profile};
 use aster_drive_model::entities::{file, file_blob, file_version};
 use aster_forge_api::OffsetPage;
 
@@ -46,10 +46,22 @@ pub async fn list_files(
         let creators =
             account::user_summaries_by_ids(state, &creator_ids, profile::AvatarAudience::AdminUser)
                 .await?;
+        let lock_files = items
+            .iter()
+            .map(|(file, _)| file.clone())
+            .collect::<Vec<_>>();
+        let lock_states = lock::load_for_resources(state, &lock_files, &[]).await?;
         Ok((
             items
                 .into_iter()
-                .map(|item| to_admin_file_info(item, &creators))
+                .map(|item| {
+                    let lock_state = lock::state_for(
+                        &lock_states,
+                        aster_drive_model::types::EntityType::File,
+                        item.0.id,
+                    );
+                    to_admin_file_info(item, &creators, lock_state)
+                })
                 .collect(),
             total,
         ))
@@ -89,9 +101,15 @@ pub async fn get_file(state: &impl SharedRuntimeState, file_id: i64) -> Result<A
         profile::AvatarAudience::AdminUser,
     )
     .await?;
+    let lock_states = lock::load_for_resources(state, std::slice::from_ref(&file), &[]).await?;
+    let lock_state = lock::state_for(
+        &lock_states,
+        aster_drive_model::types::EntityType::File,
+        file.id,
+    );
 
     Ok(AdminFileDetail {
-        file: to_admin_file_info((file, blob), &creators),
+        file: to_admin_file_info((file, blob), &creators, lock_state),
         versions,
     })
 }
@@ -167,6 +185,7 @@ pub async fn get_blob(
 fn to_admin_file_info(
     (file, blob): (file::Model, file_blob::Model),
     creators: &HashMap<i64, account::UserSummary>,
+    lock_state: crate::services::files::lock::ResourceLockState,
 ) -> AdminFileInfo {
     let created_by = file
         .created_by_user_id
@@ -189,7 +208,7 @@ fn to_admin_file_info(
         created_at: file.created_at,
         updated_at: file.updated_at,
         deleted_at: file.deleted_at,
-        is_locked: file.is_locked,
+        lock_state,
         blob: to_blob_summary(blob),
     }
 }

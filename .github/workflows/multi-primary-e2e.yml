@@ -46,9 +46,9 @@ jobs:
       matrix:
         include:
           - name: Cluster fault injection
-            filter: cluster::
+            filter: 'cluster::'
           - name: Cross-primary storage events
-            filter: storage_events::
+            filter: 'storage_events::'
     steps:
       - uses: actions/checkout@v6
 

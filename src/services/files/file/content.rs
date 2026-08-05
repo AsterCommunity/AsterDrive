@@ -169,14 +169,13 @@ pub(crate) async fn stream_request_body_to_temp_upload(
 /// `existing_file_id`: Some 时覆盖现有文件，None 时新建
 ///
 /// 返回创建/更新的文件记录。临时文件可能被 put_file rename 走，调用方不要依赖它存在。
-/// `skip_lock_check`: WebDAV 持锁者写入时为 true（WebDAV handler 已验证 lock token）
 pub struct StoreFromTempRequest<'a> {
     pub folder_id: Option<i64>,
     pub filename: &'a str,
     pub temp_path: &'a str,
     pub size: i64,
     pub existing_file_id: Option<i64>,
-    pub skip_lock_check: bool,
+    pub lock_credentials: crate::services::files::lock::LockMutationCredentials,
 }
 
 impl<'a> StoreFromTempRequest<'a> {
@@ -187,7 +186,7 @@ impl<'a> StoreFromTempRequest<'a> {
             temp_path,
             size,
             existing_file_id: None,
-            skip_lock_check: false,
+            lock_credentials: crate::services::files::lock::LockMutationCredentials::None,
         }
     }
 
@@ -196,8 +195,9 @@ impl<'a> StoreFromTempRequest<'a> {
         self
     }
 
-    pub fn skip_lock_check(mut self) -> Self {
-        self.skip_lock_check = true;
+    pub fn with_lock_holder(mut self, user_id: i64) -> Self {
+        self.lock_credentials =
+            crate::services::files::lock::LockMutationCredentials::HolderUser(user_id);
         self
     }
 }
@@ -216,7 +216,8 @@ pub async fn store_from_temp(
             temp_path: request.temp_path,
             size: request.size,
             existing_file_id: request.existing_file_id,
-            skip_lock_check: request.skip_lock_check,
+            lock_credentials: request.lock_credentials,
+            file_precondition: None,
         },
         StoreFromTempHints::default(),
         NewFileMode::ResolveUnique,
@@ -254,6 +255,7 @@ pub(crate) async fn update_content_in_scope(
     file_id: i64,
     body: Bytes,
     if_match: Option<&str>,
+    lock_credentials: crate::services::files::lock::LockMutationCredentials,
 ) -> Result<(aster_drive_model::entities::file::Model, String)> {
     let db = state.writer_db();
     tracing::debug!(
@@ -265,21 +267,8 @@ pub(crate) async fn update_content_in_scope(
     );
     let f = storage::verify_file_access(state, scope, file_id).await?;
 
-    if f.is_locked {
-        let lock = crate::db::repository::lock_repo::find_by_entity(
-            db,
-            aster_drive_model::types::EntityType::File,
-            file_id,
-        )
-        .await?;
-        if let Some(lock) = lock
-            && lock.owner_id != Some(scope.actor_user_id())
-        {
-            return Err(AsterError::resource_locked(
-                "file is locked by another user",
-            ));
-        }
-    }
+    let submitted = lock_credentials.submitted();
+    crate::services::files::lock::enforce_file_mutation(db, &f, &submitted).await?;
 
     let current_blob = crate::db::repository::file_repo::find_blob_by_id(db, f.blob_id).await?;
     if let Some(etag) = if_match {
@@ -326,7 +315,7 @@ pub(crate) async fn update_content_in_scope(
             state,
             StoreFromTempParams::new(scope, f.folder_id, &f.name, &staging_path, size)
                 .overwrite(file_id)
-                .skip_lock_check(),
+                .with_lock_credentials(lock_credentials.clone()),
             StoreFromTempHints {
                 resolved_policy: Some(resolved_policy),
                 precomputed_hash: precomputed_hash.as_deref(),
@@ -355,7 +344,7 @@ pub(crate) async fn update_content_in_scope(
             state,
             StoreFromTempParams::new(scope, f.folder_id, &f.name, &temp_path, size)
                 .overwrite(file_id)
-                .skip_lock_check(),
+                .with_lock_credentials(lock_credentials),
             StoreFromTempHints::default(),
             NewFileMode::ResolveUnique,
             true,
@@ -384,6 +373,7 @@ pub(crate) async fn update_content_stream_in_scope(
     payload: &mut Payload,
     declared_size: Option<i64>,
     if_match: Option<&str>,
+    lock_credentials: crate::services::files::lock::LockMutationCredentials,
 ) -> Result<(aster_drive_model::entities::file::Model, String)> {
     let db = state.writer_db();
     tracing::debug!(
@@ -395,21 +385,8 @@ pub(crate) async fn update_content_stream_in_scope(
     );
     let f = storage::verify_file_access(state, scope, file_id).await?;
 
-    if f.is_locked {
-        let lock = crate::db::repository::lock_repo::find_by_entity(
-            db,
-            aster_drive_model::types::EntityType::File,
-            file_id,
-        )
-        .await?;
-        if let Some(lock) = lock
-            && lock.owner_id != Some(scope.actor_user_id())
-        {
-            return Err(AsterError::resource_locked(
-                "file is locked by another user",
-            ));
-        }
-    }
+    let submitted = lock_credentials.submitted();
+    crate::services::files::lock::enforce_file_mutation(db, &f, &submitted).await?;
 
     let current_blob = crate::db::repository::file_repo::find_blob_by_id(db, f.blob_id).await?;
     if let Some(etag) = if_match {
@@ -442,7 +419,7 @@ pub(crate) async fn update_content_stream_in_scope(
         state,
         StoreFromTempParams::new(scope, f.folder_id, &f.name, &temp_path, size)
             .overwrite(file_id)
-            .skip_lock_check(),
+            .with_lock_credentials(lock_credentials),
         StoreFromTempHints {
             resolved_policy,
             precomputed_hash: precomputed_hash.as_deref(),
@@ -467,7 +444,7 @@ pub(crate) async fn update_content_stream_in_scope(
 
 /// 覆盖文件内容（REST API 编辑入口）
 ///
-/// 支持 ETag 乐观锁（If-Match）+ 悲观锁检查（is_locked）。
+/// 支持 ETag 乐观锁（If-Match）和权威资源锁校验。
 /// 自动创建版本历史。返回 (更新后的 file, 新 blob hash)。
 pub async fn update_content(
     state: &PrimaryAppState,
@@ -482,6 +459,7 @@ pub async fn update_content(
         file_id,
         body,
         if_match,
+        crate::services::files::lock::LockMutationCredentials::HolderUser(user_id),
     )
     .await
     .map(|(file, hash)| (file.into(), hash))

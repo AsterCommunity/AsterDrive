@@ -1,5 +1,5 @@
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
-use crate::db::repository::file_repo;
+use crate::db::repository::{file_repo, folder_repo};
 use crate::runtime::PrimaryAppState;
 use crate::services::{mail::sender, storage_policy::policy};
 use crate::storage::{DriverRegistry, PolicySnapshot};
@@ -9,14 +9,16 @@ use crate::webdav::handlers::transfer::{handle_get_head, handle_put};
 use actix_web::body::to_bytes;
 use actix_web::http::{StatusCode, header};
 use actix_web::{FromRequest, HttpRequest, web};
-use aster_drive_model::entities::{file, file_blob, storage_policy, user};
+use aster_drive_model::entities::{file, file_blob, folder as folder_entity, storage_policy, user};
 use aster_drive_model::types::{
     ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy, UserRole, UserStatus,
 };
 use aster_drive_storage::{BlobMetadata, StorageDriver, StreamUploadDriver};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
-use aster_forge_webdav::{DavLock, DavLockError, DavLockSystem, LsFuture};
+use aster_forge_webdav::{
+    DavBackendError, DavEvent, DavEventSink, DavLock, DavLockError, DavLockSystem, LsFuture,
+};
 use aster_forge_webdav::{DavXmlElement as Element, DavXmlNode as XMLNode};
 use async_trait::async_trait;
 use chrono::Utc;
@@ -27,16 +29,38 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::task::{Context, Poll};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
 
 fn parsed_request_head(req: &HttpRequest) -> aster_forge_webdav::DavRequestHead {
     aster_forge_webdav::actix::request_head(req, "/webdav")
         .expect("test request head should parse")
         .expect("test method should be supported")
+}
+
+fn capability_snapshot(
+    resource: aster_forge_webdav::DavResourceState,
+) -> aster_forge_webdav::DavCapabilitySnapshot {
+    crate::webdav::capability::DriveDavCapabilityProvider::snapshot_for(resource)
+        .expect("test capability declaration should be valid")
+}
+
+#[derive(Default)]
+struct CapturingDavEventSink {
+    events: Mutex<Vec<DavEvent>>,
+}
+
+impl DavEventSink for CapturingDavEventSink {
+    fn publish(&self, event: &DavEvent) -> Result<(), aster_forge_webdav::DavObservationError> {
+        self.events
+            .lock()
+            .expect("event sink should lock")
+            .push(event.clone());
+        Ok(())
+    }
 }
 
 async fn build_webdav_test_state(
@@ -188,7 +212,6 @@ async fn create_root_file(
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
-            is_locked: Set(false),
             ..Default::default()
         },
     )
@@ -198,18 +221,51 @@ async fn create_root_file(
     (file, blob)
 }
 
-struct NoopLockSystem;
+async fn create_test_folder(
+    state: &PrimaryAppState,
+    user: &user::Model,
+    name: &str,
+    parent_id: Option<i64>,
+) -> folder_entity::Model {
+    let now = Utc::now();
+    folder_entity::ActiveModel {
+        name: Set(name.to_string()),
+        parent_id: Set(parent_id),
+        team_id: Set(None),
+        owner_user_id: Set(Some(user.id)),
+        created_by_user_id: Set(Some(user.id)),
+        created_by_username: Set(user.username.clone()),
+        policy_id: Set(None),
+        created_at: Set(now),
+        updated_at: Set(now),
+        deleted_at: Set(None),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("test folder should insert")
+}
+
+#[derive(Clone, Default)]
+struct NoopLockSystem {
+    discover_many_calls: Arc<AtomicUsize>,
+    delay_from_discover_many_call: Option<(usize, Duration)>,
+}
+
+impl NoopLockSystem {
+    fn delaying_from(call: usize, delay: Duration) -> Self {
+        Self {
+            discover_many_calls: Arc::new(AtomicUsize::new(0)),
+            delay_from_discover_many_call: Some((call, delay)),
+        }
+    }
+}
 
 impl DavLockSystem for NoopLockSystem {
     fn lock(
         &self,
-        _path: &aster_forge_webdav::DavPath,
-        _principal: Option<&str>,
-        _owner: Option<&Element>,
-        _timeout: Option<Duration>,
-        _shared: bool,
-        _deep: bool,
-    ) -> LsFuture<'_, Result<DavLock, DavLockError>> {
+        _request: aster_forge_webdav::DavLockAcquireRequest<'_>,
+    ) -> LsFuture<'_, Result<aster_forge_webdav::DavLockAcquireResult, DavLockError>> {
         Box::pin(async { panic!("lock should not be called in these WebDAV handler tests") })
     }
 
@@ -237,20 +293,43 @@ impl DavLockSystem for NoopLockSystem {
         _ignore_principal: bool,
         _deep: bool,
         _submitted_tokens: &[String],
-    ) -> LsFuture<'_, Result<(), DavLock>> {
+    ) -> LsFuture<'_, Result<(), DavLockError>> {
         Box::pin(async { Ok(()) })
     }
 
-    fn discover(&self, _path: &aster_forge_webdav::DavPath) -> LsFuture<'_, Vec<DavLock>> {
-        Box::pin(async { Vec::new() })
+    fn discover(
+        &self,
+        _path: &aster_forge_webdav::DavPath,
+    ) -> LsFuture<'_, Result<Vec<DavLock>, DavBackendError>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn discover_many<'a>(
+        &'a self,
+        paths: &'a [aster_forge_webdav::DavPath],
+    ) -> LsFuture<'a, Result<HashMap<aster_forge_webdav::DavPath, Vec<DavLock>>, DavBackendError>>
+    {
+        Box::pin(async move {
+            let call = self.discover_many_calls.fetch_add(1, Ordering::SeqCst) + 1;
+            if let Some((delay_from, delay)) = self.delay_from_discover_many_call
+                && call >= delay_from
+            {
+                tokio::time::sleep(delay).await;
+            }
+            Ok(paths
+                .iter()
+                .cloned()
+                .map(|path| (path, Vec::new()))
+                .collect())
+        })
     }
 
     fn conflicting_locks(
         &self,
         _path: &aster_forge_webdav::DavPath,
         _deep: bool,
-    ) -> LsFuture<'_, Vec<DavLock>> {
-        Box::pin(async { Vec::new() })
+    ) -> LsFuture<'_, Result<Vec<DavLock>, DavBackendError>> {
+        Box::pin(async { Ok(Vec::new()) })
     }
 
     fn delete(
@@ -263,6 +342,8 @@ impl DavLockSystem for NoopLockSystem {
 
 struct OneChunkThenErrorReader {
     yielded_first_chunk: bool,
+    end_with_error: bool,
+    dropped: Arc<AtomicBool>,
 }
 
 impl AsyncRead for OneChunkThenErrorReader {
@@ -276,16 +357,48 @@ impl AsyncRead for OneChunkThenErrorReader {
             buf.put_slice(b"abc");
             return Poll::Ready(Ok(()));
         }
-        Poll::Ready(Err(io::Error::other(
-            "intentional trailing read failure for direct-stream regression test",
-        )))
+        if self.end_with_error {
+            Poll::Ready(Err(io::Error::other(
+                "intentional trailing read failure for direct-stream regression test",
+            )))
+        } else {
+            Poll::Ready(Ok(()))
+        }
     }
 }
 
-#[derive(Clone, Default)]
+impl Drop for OneChunkThenErrorReader {
+    fn drop(&mut self) {
+        self.dropped.store(true, Ordering::SeqCst);
+    }
+}
+
+#[derive(Clone)]
 struct TrailingErrorStreamDriver {
     get_stream_calls: Arc<AtomicUsize>,
     get_range_calls: Arc<AtomicUsize>,
+    reader_dropped: Arc<AtomicBool>,
+    end_with_error: bool,
+}
+
+impl Default for TrailingErrorStreamDriver {
+    fn default() -> Self {
+        Self {
+            get_stream_calls: Arc::new(AtomicUsize::new(0)),
+            get_range_calls: Arc::new(AtomicUsize::new(0)),
+            reader_dropped: Arc::new(AtomicBool::new(false)),
+            end_with_error: true,
+        }
+    }
+}
+
+impl TrailingErrorStreamDriver {
+    fn ending_with_eof() -> Self {
+        Self {
+            end_with_error: false,
+            ..Self::default()
+        }
+    }
 }
 
 #[async_trait]
@@ -308,6 +421,8 @@ impl StorageDriver for TrailingErrorStreamDriver {
         self.get_stream_calls.fetch_add(1, Ordering::SeqCst);
         Ok(Box::new(OneChunkThenErrorReader {
             yielded_first_chunk: false,
+            end_with_error: self.end_with_error,
+            dropped: self.reader_dropped.clone(),
         }))
     }
 
@@ -470,6 +585,7 @@ impl StreamUploadDriver for CountingDirectUploadDriver {
 async fn handle_get_returns_response_before_consuming_the_storage_stream() {
     let driver = TrailingErrorStreamDriver::default();
     let get_stream_calls = driver.get_stream_calls.clone();
+    let reader_dropped = driver.reader_dropped.clone();
     let (state, user, policy, temp_root) = build_webdav_test_state(None, Arc::new(driver)).await;
     create_root_file(
         &state,
@@ -485,10 +601,19 @@ async fn handle_get_returns_response_before_consuming_the_storage_stream() {
     let req = actix_web::test::TestRequest::get()
         .uri("/webdav/streamed.txt")
         .to_http_request();
-    let lock_system = NoopLockSystem;
+    let lock_system = NoopLockSystem::default();
     let request_head = parsed_request_head(&req);
-    let response =
-        handle_get_head(&req, &request_head, &dav_fs, &lock_system, "/webdav", false).await;
+    let capabilities = capability_snapshot(aster_forge_webdav::DavResourceState::File);
+    let response = handle_get_head(
+        &req,
+        &request_head,
+        &dav_fs,
+        &lock_system,
+        "/webdav",
+        false,
+        &capabilities,
+    )
+    .await;
 
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
@@ -496,6 +621,11 @@ async fn handle_get_returns_response_before_consuming_the_storage_stream() {
         1,
         "GET should open exactly one streaming reader from storage"
     );
+    let body = to_bytes(response.into_body())
+        .await
+        .expect("the exact three-byte body must finish before the trailing driver error");
+    assert_eq!(body.as_ref(), b"abc");
+    assert!(reader_dropped.load(Ordering::SeqCst));
 
     drop(state);
     let _ = std::fs::remove_dir_all(temp_root);
@@ -522,10 +652,29 @@ async fn handle_get_range_uses_driver_range_without_opening_full_stream() {
         .uri("/webdav/range.txt")
         .insert_header((header::RANGE, "bytes=1-2"))
         .to_http_request();
-    let lock_system = NoopLockSystem;
+    let lock_system = NoopLockSystem::default();
     let request_head = parsed_request_head(&req);
-    let response =
-        handle_get_head(&req, &request_head, &dav_fs, &lock_system, "/webdav", false).await;
+    let capabilities = capability_snapshot(aster_forge_webdav::DavResourceState::File);
+    let event_sink = Arc::new(CapturingDavEventSink::default());
+    let observation = crate::webdav::observation::DavObservation::new(
+        request_head.clone(),
+        Instant::now(),
+        event_sink.clone(),
+    );
+    let response = crate::webdav::observation::scope(observation.clone(), async {
+        handle_get_head(
+            &req,
+            &request_head,
+            &dav_fs,
+            &lock_system,
+            "/webdav",
+            false,
+            &capabilities,
+        )
+        .await
+    })
+    .await;
+    let response = crate::webdav::observation::observe_response(response, observation);
 
     assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
     assert_eq!(
@@ -538,6 +687,151 @@ async fn handle_get_range_uses_driver_range_without_opening_full_stream() {
         0,
         "range GET must not open a full-object stream"
     );
+    let body = to_bytes(response.into_body())
+        .await
+        .expect("the exact range body should be readable");
+    assert_eq!(body.as_ref(), b"bc");
+    let events = event_sink.events.lock().expect("event sink should lock");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].outcome.status(), 206);
+    assert_eq!(events[0].observations.bytes_sent, Some(2));
+    assert_eq!(events[0].observations.requested_ranges, Some(1));
+    assert_eq!(events[0].observations.served_ranges, Some(1));
+    assert_eq!(events[0].observations.resources, Some(1));
+    assert_eq!(events[0].observations.backend_open_count, Some(1));
+    assert_eq!(events[0].observations.backend_call_count, Some(2));
+    assert_eq!(
+        events[0].observations.stream,
+        Some(aster_forge_webdav::DavStreamOutcome::Completed)
+    );
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[actix_web::test]
+async fn handle_get_fails_transfer_on_driver_error_or_early_eof() {
+    for (label, driver) in [
+        ("reader error", TrailingErrorStreamDriver::default()),
+        ("early EOF", TrailingErrorStreamDriver::ending_with_eof()),
+    ] {
+        let (state, user, policy, temp_root) =
+            build_webdav_test_state(None, Arc::new(driver)).await;
+        create_root_file(
+            &state,
+            user.id,
+            policy.id,
+            "short.txt",
+            4,
+            "files/short.txt",
+        )
+        .await;
+
+        let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
+        let req = actix_web::test::TestRequest::get()
+            .uri("/webdav/short.txt")
+            .to_http_request();
+        let request_head = parsed_request_head(&req);
+        let response = handle_get_head(
+            &req,
+            &request_head,
+            &dav_fs,
+            &NoopLockSystem::default(),
+            "/webdav",
+            false,
+            &capability_snapshot(aster_forge_webdav::DavResourceState::File),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(
+            to_bytes(response.into_body()).await.is_err(),
+            "{label} before the declared length must fail the response body"
+        );
+
+        drop(state);
+        let _ = std::fs::remove_dir_all(temp_root);
+    }
+}
+
+#[actix_web::test]
+async fn dropping_get_body_drops_the_unread_storage_reader() {
+    let driver = TrailingErrorStreamDriver::default();
+    let reader_dropped = driver.reader_dropped.clone();
+    let (state, user, policy, temp_root) = build_webdav_test_state(None, Arc::new(driver)).await;
+    create_root_file(
+        &state,
+        user.id,
+        policy.id,
+        "cancelled.txt",
+        4,
+        "files/cancelled.txt",
+    )
+    .await;
+
+    let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
+    let req = actix_web::test::TestRequest::get()
+        .uri("/webdav/cancelled.txt")
+        .to_http_request();
+    let request_head = parsed_request_head(&req);
+    let response = handle_get_head(
+        &req,
+        &request_head,
+        &dav_fs,
+        &NoopLockSystem::default(),
+        "/webdav",
+        false,
+        &capability_snapshot(aster_forge_webdav::DavResourceState::File),
+    )
+    .await;
+
+    assert!(!reader_dropped.load(Ordering::SeqCst));
+    drop(response);
+    assert!(reader_dropped.load(Ordering::SeqCst));
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[actix_web::test]
+async fn handle_get_multi_range_opens_each_final_range_once() {
+    let driver = TrailingErrorStreamDriver::default();
+    let get_stream_calls = driver.get_stream_calls.clone();
+    let get_range_calls = driver.get_range_calls.clone();
+    let (state, user, policy, temp_root) = build_webdav_test_state(None, Arc::new(driver)).await;
+    create_root_file(
+        &state,
+        user.id,
+        policy.id,
+        "multi-range.txt",
+        200,
+        "files/multi-range.txt",
+    )
+    .await;
+
+    let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
+    let req = actix_web::test::TestRequest::get()
+        .uri("/webdav/multi-range.txt")
+        .insert_header((header::RANGE, "bytes=0-1,100-101"))
+        .to_http_request();
+    let request_head = parsed_request_head(&req);
+    let response = handle_get_head(
+        &req,
+        &request_head,
+        &dav_fs,
+        &NoopLockSystem::default(),
+        "/webdav",
+        false,
+        &capability_snapshot(aster_forge_webdav::DavResourceState::File),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(get_range_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(get_stream_calls.load(Ordering::SeqCst), 0);
+    to_bytes(response.into_body())
+        .await
+        .expect("both exact multipart range bodies should be readable");
 
     drop(state);
     let _ = std::fs::remove_dir_all(temp_root);
@@ -560,7 +854,7 @@ async fn propfind_href_is_percent_encoded_and_xml_parseable() {
     .await;
 
     let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
-    let lock_system = NoopLockSystem;
+    let lock_system = NoopLockSystem::default();
     let encoded_uri = format!("/webdav{}", super::encode_href(&format!("/{filename}")));
     let req = actix_web::test::TestRequest::default()
         .method(actix_web::http::Method::from_bytes(b"PROPFIND").expect("valid method"))
@@ -569,7 +863,17 @@ async fn propfind_href_is_percent_encoded_and_xml_parseable() {
         .to_http_request();
 
     let request_head = parsed_request_head(&req);
-    let response = handle_propfind(&request_head, &dav_fs, &lock_system, "/webdav", &[]).await;
+    let capabilities = capability_snapshot(aster_forge_webdav::DavResourceState::File);
+    let response = handle_propfind(
+        &request_head,
+        &dav_fs,
+        &lock_system,
+        "/webdav",
+        &[],
+        &capabilities,
+        crate::webdav::handlers::properties::PROPFIND_MAXIMUM_DURATION,
+    )
+    .await;
 
     assert_eq!(response.status(), StatusCode::from_u16(207).unwrap());
     let body = to_bytes(response.into_body())
@@ -607,7 +911,7 @@ async fn propfind_declares_requested_dav_prefix_for_rclone_size_check() {
     .await;
 
     let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
-    let lock_system = NoopLockSystem;
+    let lock_system = NoopLockSystem::default();
     let req = actix_web::test::TestRequest::default()
         .method(actix_web::http::Method::from_bytes(b"PROPFIND").expect("valid method"))
         .uri("/webdav/rclone-size.txt")
@@ -625,7 +929,17 @@ async fn propfind_declares_requested_dav_prefix_for_rclone_size_check() {
 </d:propfind>"#;
 
     let request_head = parsed_request_head(&req);
-    let response = handle_propfind(&request_head, &dav_fs, &lock_system, "/webdav", body).await;
+    let capabilities = capability_snapshot(aster_forge_webdav::DavResourceState::File);
+    let response = handle_propfind(
+        &request_head,
+        &dav_fs,
+        &lock_system,
+        "/webdav",
+        body,
+        &capabilities,
+        crate::webdav::handlers::properties::PROPFIND_MAXIMUM_DURATION,
+    )
+    .await;
 
     assert_eq!(response.status(), StatusCode::from_u16(207).unwrap());
     let body = to_bytes(response.into_body())
@@ -667,7 +981,7 @@ async fn propfind_allprop_keeps_default_dav_prefix_xml_parseable() {
     .await;
 
     let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
-    let lock_system = NoopLockSystem;
+    let lock_system = NoopLockSystem::default();
     let req = actix_web::test::TestRequest::default()
         .method(actix_web::http::Method::from_bytes(b"PROPFIND").expect("valid method"))
         .uri("/webdav/allprop.txt")
@@ -675,7 +989,17 @@ async fn propfind_allprop_keeps_default_dav_prefix_xml_parseable() {
         .to_http_request();
 
     let request_head = parsed_request_head(&req);
-    let response = handle_propfind(&request_head, &dav_fs, &lock_system, "/webdav", &[]).await;
+    let capabilities = capability_snapshot(aster_forge_webdav::DavResourceState::File);
+    let response = handle_propfind(
+        &request_head,
+        &dav_fs,
+        &lock_system,
+        "/webdav",
+        &[],
+        &capabilities,
+        crate::webdav::handlers::properties::PROPFIND_MAXIMUM_DURATION,
+    )
+    .await;
 
     assert_eq!(response.status(), StatusCode::from_u16(207).unwrap());
     let body = to_bytes(response.into_body())
@@ -696,6 +1020,288 @@ async fn propfind_allprop_keeps_default_dav_prefix_xml_parseable() {
     );
     Element::parse_reader(Cursor::new(body_text.as_bytes()))
         .expect("PROPFIND XML should parse cleanly");
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[actix_web::test]
+async fn propfind_zero_duration_returns_503_before_streaming_with_no_store() {
+    let driver = CountingDirectUploadDriver::default();
+    let (state, user, _policy, temp_root) = build_webdav_test_state(None, Arc::new(driver)).await;
+    let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
+    let req = actix_web::test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").expect("valid method"))
+        .uri("/webdav/")
+        .insert_header((header::HeaderName::from_static("depth"), "0"))
+        .to_http_request();
+    let request_head = parsed_request_head(&req);
+    let capabilities = capability_snapshot(aster_forge_webdav::DavResourceState::Collection);
+
+    let response = handle_propfind(
+        &request_head,
+        &dav_fs,
+        &NoopLockSystem::default(),
+        "/webdav",
+        &[],
+        &capabilities,
+        Duration::ZERO,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok()),
+        Some("no-store")
+    );
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[actix_web::test]
+async fn propfind_child_lock_preload_timeout_ends_started_stream_with_error() {
+    let driver = CountingDirectUploadDriver::default();
+    let (state, user, _policy, temp_root) = build_webdav_test_state(None, Arc::new(driver)).await;
+    let now = Utc::now();
+    folder_entity::ActiveModel {
+        name: Set("deadline-child".to_string()),
+        parent_id: Set(None),
+        team_id: Set(None),
+        owner_user_id: Set(Some(user.id)),
+        created_by_user_id: Set(Some(user.id)),
+        created_by_username: Set(user.username.clone()),
+        policy_id: Set(None),
+        created_at: Set(now),
+        updated_at: Set(now),
+        deleted_at: Set(None),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("deadline child should insert");
+
+    let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
+    let lock_system = NoopLockSystem::delaying_from(2, Duration::from_secs(1));
+    let req = actix_web::test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").expect("valid method"))
+        .uri("/webdav/")
+        .insert_header((header::HeaderName::from_static("depth"), "1"))
+        .to_http_request();
+    let request_head = parsed_request_head(&req);
+    let capabilities = capability_snapshot(aster_forge_webdav::DavResourceState::Collection);
+    let body = br#"<D:propfind xmlns:D="DAV:"><D:prop><D:lockdiscovery/></D:prop></D:propfind>"#;
+
+    let response = handle_propfind(
+        &request_head,
+        &dav_fs,
+        &lock_system,
+        "/webdav",
+        body,
+        &capabilities,
+        Duration::from_millis(500),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::MULTI_STATUS);
+    let error = to_bytes(response.into_body())
+        .await
+        .expect_err("child preload timeout must terminate an already-started stream");
+    assert!(
+        error.to_string().contains("WebDAV response stream failed"),
+        "unexpected stream error: {error}"
+    );
+    assert_eq!(lock_system.discover_many_calls.load(Ordering::SeqCst), 2);
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[actix_web::test]
+async fn folder_tree_limits_enforce_exact_resource_frontier_and_depth_boundaries() {
+    use crate::services::files::folder::{FolderTreeTraversalLimits, collect_folder_tree_in_scope};
+    use crate::services::workspace::storage::WorkspaceStorageScope;
+
+    let driver = CountingDirectUploadDriver::default();
+    let (state, user, policy, temp_root) = build_webdav_test_state(None, Arc::new(driver)).await;
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+    let root = create_test_folder(&state, &user, "budget-root", None).await;
+    let child_a = create_test_folder(&state, &user, "child-a", Some(root.id)).await;
+    let child_b = create_test_folder(&state, &user, "child-b", Some(root.id)).await;
+    let _grandchild = create_test_folder(&state, &user, "grandchild", Some(child_a.id)).await;
+    create_root_file(
+        &state,
+        user.id,
+        policy.id,
+        "budget-file.txt",
+        1,
+        "files/budget-file.txt",
+    )
+    .await;
+    file::ActiveModel {
+        id: Set(file_repo::find_by_name_in_folder(
+            state.writer_db(),
+            user.id,
+            None,
+            "budget-file.txt",
+        )
+        .await
+        .expect("budget file lookup")
+        .expect("budget file")
+        .id),
+        folder_id: Set(Some(child_b.id)),
+        ..Default::default()
+    }
+    .update(state.writer_db())
+    .await
+    .expect("budget file should move under child");
+
+    let exact = FolderTreeTraversalLimits::new(5, 2, 2);
+    let (files, folders) =
+        collect_folder_tree_in_scope(state.writer_db(), scope, root.id, false, Some(exact))
+            .await
+            .expect("exact resource, frontier and depth limits should succeed");
+    assert_eq!(files.len(), 1);
+    assert_eq!(folders.len(), 4);
+
+    for limits in [
+        FolderTreeTraversalLimits::new(4, 2, 2),
+        FolderTreeTraversalLimits::new(5, 1, 2),
+        FolderTreeTraversalLimits::new(5, 2, 1),
+    ] {
+        let error =
+            collect_folder_tree_in_scope(state.writer_db(), scope, root.id, false, Some(limits))
+                .await
+                .expect_err("limit plus one should fail");
+        assert!(matches!(
+            error,
+            crate::errors::AsterError::OperationResourceLimitExceeded(_)
+        ));
+    }
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[actix_web::test]
+async fn folder_tree_limits_bound_deleted_file_loading_before_collection() {
+    use crate::services::files::folder::{FolderTreeTraversalLimits, collect_folder_tree_in_scope};
+    use crate::services::workspace::storage::WorkspaceStorageScope;
+
+    let driver = CountingDirectUploadDriver::default();
+    let (state, user, policy, temp_root) = build_webdav_test_state(None, Arc::new(driver)).await;
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+    let root = create_test_folder(&state, &user, "deleted-budget-root", None).await;
+    let (active, _) = create_root_file(
+        &state,
+        user.id,
+        policy.id,
+        "active-budget.txt",
+        1,
+        "files/active-budget.txt",
+    )
+    .await;
+    let (deleted, _) = create_root_file(
+        &state,
+        user.id,
+        policy.id,
+        "deleted-budget.txt",
+        1,
+        "files/deleted-budget.txt",
+    )
+    .await;
+    file::ActiveModel {
+        id: Set(active.id),
+        folder_id: Set(Some(root.id)),
+        ..Default::default()
+    }
+    .update(state.writer_db())
+    .await
+    .expect("active file should move under test folder");
+    file::ActiveModel {
+        id: Set(deleted.id),
+        folder_id: Set(Some(root.id)),
+        deleted_at: Set(Some(Utc::now())),
+        ..Default::default()
+    }
+    .update(state.writer_db())
+    .await
+    .expect("deleted file should move under test folder");
+
+    let exact = FolderTreeTraversalLimits::new(2, 1, 1);
+    let (files, folders) =
+        collect_folder_tree_in_scope(state.writer_db(), scope, root.id, false, Some(exact))
+            .await
+            .expect("active-only traversal should fit the exact budget");
+    assert_eq!(files.len(), 1);
+    assert_eq!(folders, [root.id]);
+
+    let error = collect_folder_tree_in_scope(state.writer_db(), scope, root.id, true, Some(exact))
+        .await
+        .expect_err("deleted file at remaining limit plus one should fail during loading");
+    assert!(matches!(
+        error,
+        crate::errors::AsterError::OperationResourceLimitExceeded(_)
+    ));
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[actix_web::test]
+async fn bounded_delete_and_copy_fail_before_any_tree_write() {
+    use crate::services::files::folder::{self, FolderTreeTraversalLimits};
+    use crate::services::workspace::storage::WorkspaceStorageScope;
+
+    let driver = CountingDirectUploadDriver::default();
+    let (state, user, _policy, temp_root) = build_webdav_test_state(None, Arc::new(driver)).await;
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+    let root = create_test_folder(&state, &user, "write-boundary-root", None).await;
+    let child = create_test_folder(&state, &user, "child", Some(root.id)).await;
+    let one_resource = Some(FolderTreeTraversalLimits::new(1, 1, 8));
+
+    let copy_error = folder::copy_folder_tree_in_scope(
+        &state,
+        scope,
+        root.id,
+        None,
+        "copy-must-not-exist",
+        one_resource,
+    )
+    .await
+    .expect_err("bounded copy should reject source tree before creating destination");
+    assert!(matches!(
+        copy_error,
+        crate::errors::AsterError::OperationResourceLimitExceeded(_)
+    ));
+    assert!(
+        folder_repo::find_by_name_in_parent(
+            state.writer_db(),
+            user.id,
+            None,
+            "copy-must-not-exist",
+        )
+        .await
+        .expect("destination lookup")
+        .is_none()
+    );
+
+    let delete_error = folder::delete_in_scope(&state, scope, root.id, one_resource)
+        .await
+        .expect_err("bounded delete should reject tree before soft-delete writes");
+    assert!(matches!(
+        delete_error,
+        crate::errors::AsterError::OperationResourceLimitExceeded(_)
+    ));
+    for id in [root.id, child.id] {
+        let current = folder_repo::find_by_id(state.writer_db(), id)
+            .await
+            .expect("folder should remain");
+        assert!(current.deleted_at.is_none());
+    }
 
     drop(state);
     let _ = std::fs::remove_dir_all(temp_root);
@@ -727,10 +1333,19 @@ async fn handle_head_does_not_open_the_storage_stream() {
         .method(actix_web::http::Method::HEAD)
         .uri("/webdav/head.txt")
         .to_http_request();
-    let lock_system = NoopLockSystem;
+    let lock_system = NoopLockSystem::default();
     let request_head = parsed_request_head(&req);
-    let response =
-        handle_get_head(&req, &request_head, &dav_fs, &lock_system, "/webdav", true).await;
+    let capabilities = capability_snapshot(aster_forge_webdav::DavResourceState::File);
+    let response = handle_get_head(
+        &req,
+        &request_head,
+        &dav_fs,
+        &lock_system,
+        "/webdav",
+        true,
+        &capabilities,
+    )
+    .await;
 
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
@@ -759,7 +1374,7 @@ async fn handle_put_with_content_length_uses_direct_s3_stream_upload() {
         build_webdav_test_state(Some(policy), Arc::new(driver.clone())).await;
 
     let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
-    let lock_system = NoopLockSystem;
+    let lock_system = NoopLockSystem::default();
     let system_file_policy = crate::webdav::system_file::SystemFileBlockPolicy::from_runtime_config(
         &state.runtime_config,
     );
@@ -773,6 +1388,7 @@ async fn handle_put_with_content_length_uses_direct_s3_stream_upload() {
         .await
         .expect("webdav test payload should extract");
     let request_head = parsed_request_head(&req);
+    let capabilities = capability_snapshot(aster_forge_webdav::DavResourceState::Unmapped);
     let response = handle_put(
         &req,
         &request_head,
@@ -781,6 +1397,7 @@ async fn handle_put_with_content_length_uses_direct_s3_stream_upload() {
         "/webdav",
         &system_file_policy,
         &mut payload,
+        &capabilities,
     )
     .await;
 
