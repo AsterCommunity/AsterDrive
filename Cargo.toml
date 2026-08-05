@@ -26,16 +26,16 @@ aster_drive_metrics = { path = "crates/aster_drive_metrics" }
 aster_drive_migration = { path = "crates/aster_drive_migration" }
 aster_drive_model = { path = "crates/aster_drive_model" }
 aster_drive_storage = { path = "crates/aster_drive_storage" }
-aster_forge_api = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_api" }
-aster_forge_db = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_db" }
-aster_forge_db_migration = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_db_migration" }
-aster_forge_external_auth = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_external_auth" }
-aster_forge_file_classification = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_file_classification" }
-aster_forge_http = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_http" }
-aster_forge_metrics = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_metrics" }
-aster_forge_runtime = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_runtime" }
-aster_forge_tasks = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_tasks" }
-aster_forge_utils = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_utils" }
+aster_forge_api = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_api" }
+aster_forge_db = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_db" }
+aster_forge_db_migration = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_db_migration" }
+aster_forge_external_auth = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_external_auth" }
+aster_forge_file_classification = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_file_classification" }
+aster_forge_http = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_http" }
+aster_forge_metrics = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_metrics" }
+aster_forge_runtime = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_runtime" }
+aster_forge_tasks = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_tasks" }
+aster_forge_utils = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_utils" }
 async-trait = "0.1"
 bytes = "1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde"] }
@@ -171,28 +171,28 @@ actix-multipart = "0.8"
 actix-web = { version = "4.14.0", features = ["compress-brotli", "compress-gzip"] }
 actix-ws = "0.4"
 aster_forge_api = { workspace = true }
-aster_forge_api_docs_macros = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_api_docs_macros" }
-aster_forge_audit = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_audit", features = ["db-writer", "mail-outbox-dependency"] }
-aster_forge_actix_middleware = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_actix_middleware", features = ["metrics"] }
-aster_forge_actix_observability = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_actix_observability" }
-aster_forge_alloc = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_alloc" }
-aster_forge_cache = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_cache", features = ["memory", "redis", "runtime-component"] }
-aster_forge_config = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_config", features = ["redis-pubsub", "sea-orm"] }
-aster_forge_crypto = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_crypto" }
+aster_forge_api_docs_macros = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_api_docs_macros" }
+aster_forge_audit = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_audit", features = ["db-writer", "mail-outbox-dependency"] }
+aster_forge_actix_middleware = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_actix_middleware", features = ["metrics"] }
+aster_forge_actix_observability = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_actix_observability" }
+aster_forge_alloc = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_alloc" }
+aster_forge_cache = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_cache", features = ["memory", "redis", "runtime-component"] }
+aster_forge_config = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_config", features = ["redis-pubsub", "sea-orm"] }
+aster_forge_crypto = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_crypto" }
 aster_forge_db = { workspace = true, features = ["audit-log", "mail-outbox", "runtime-component", "runtime-lease", "scheduled-task", "system-config"] }
 aster_forge_external_auth = { workspace = true, features = ["github", "google", "microsoft", "qq", "sea-orm"] }
-aster_forge_events = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_events", features = ["redis"] }
+aster_forge_events = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_events", features = ["redis"] }
 aster_forge_file_classification = { workspace = true, features = ["sea-orm"] }
-aster_forge_logging = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_logging" }
-aster_forge_mail = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_mail", features = ["persistence", "runtime-component"] }
+aster_forge_logging = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_logging" }
+aster_forge_mail = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_mail", features = ["persistence", "runtime-component"] }
 aster_forge_metrics = { workspace = true }
 aster_forge_tasks = { workspace = true, features = ["runtime-component"] }
-aster_forge_panic = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_panic" }
+aster_forge_panic = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_panic" }
 aster_forge_runtime = { workspace = true }
 aster_forge_utils = { workspace = true }
-aster_forge_validation = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_validation" }
-aster_forge_webdav = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_webdav", features = ["actix"] }
-aster_forge_xml = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", package = "aster_forge_xml" }
+aster_forge_validation = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_validation" }
+aster_forge_webdav = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_webdav", features = ["actix"] }
+aster_forge_xml = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_xml" }
 aster_forge_http = { workspace = true }
 aster_drive_metrics = { workspace = true }
 aster_drive_migration = { workspace = true }
@@ -268,7 +268,7 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 lofty = "0.24.0"
 
 [dev-dependencies]
-aster_forge_test = { git = "https://github.com/AsterCommunity/AsterForge", rev = "b03dd2b", features = ["postgres", "process", "redis", "smtp"] }
+aster_forge_test = { git = "https://github.com/AsterCommunity/AsterForge", features = ["postgres", "process", "redis", "smtp"] }
 aws-smithy-http-client = { version = "1.2.0", features = ["test-util"] }
 aws-smithy-types = "1.6.1"
 rsa = "0.10.0-rc.18"
