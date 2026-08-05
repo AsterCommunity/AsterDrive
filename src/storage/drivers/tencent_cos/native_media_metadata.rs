@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use chrono::Utc;
 
 use crate::errors::{AsterError, MapAsterErr};
-use aster_drive_http::read_reqwest_body_limited;
 use aster_drive_model::types::{
     AudioMediaMetadata, MediaMetadataKind, MediaMetadataPayload, VideoMediaMetadata,
 };
@@ -14,6 +13,7 @@ use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 use aster_drive_storage::traits::extensions::{
     NativeMediaMetadataRequest, NativeMediaMetadataResult, NativeMediaMetadataStorageDriver,
 };
+use aster_forge_http::read_reqwest_body_limited;
 
 use super::{MAX_COS_THUMBNAIL_TTL, TencentCosDriver, non_empty_xml_text};
 

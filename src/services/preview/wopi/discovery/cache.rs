@@ -8,7 +8,7 @@ use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::config::wopi;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
-use aster_drive_http::read_reqwest_body_limited;
+use aster_forge_http::read_reqwest_body_limited;
 
 use super::parser::{WOPI_DISCOVERY_XML_MAX_BYTES, parse_discovery_xml};
 use super::types::{CachedWopiDiscovery, WopiDiscovery};

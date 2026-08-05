@@ -1,7 +1,6 @@
 [workspace]
 members = [
     ".",
-    "crates/aster_drive_http",
     "crates/aster_drive_metrics",
     "crates/aster_drive_migration",
     "crates/aster_drive_model",
@@ -23,7 +22,6 @@ repository = "https://github.com/AsterCommunity/AsterDrive"
 publish = false
 
 [workspace.dependencies]
-aster_drive_http = { path = "crates/aster_drive_http" }
 aster_drive_metrics = { path = "crates/aster_drive_metrics" }
 aster_drive_migration = { path = "crates/aster_drive_migration" }
 aster_drive_model = { path = "crates/aster_drive_model" }
@@ -33,6 +31,7 @@ aster_forge_db = { git = "https://github.com/AsterCommunity/AsterForge", package
 aster_forge_db_migration = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_db_migration" }
 aster_forge_external_auth = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_external_auth" }
 aster_forge_file_classification = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_file_classification" }
+aster_forge_http = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_http" }
 aster_forge_metrics = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_metrics" }
 aster_forge_runtime = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_runtime" }
 aster_forge_tasks = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_tasks" }
@@ -171,7 +170,6 @@ actix-http = "3"
 actix-multipart = "0.8"
 actix-web = { version = "4.14.0", features = ["compress-brotli", "compress-gzip"] }
 actix-ws = "0.4"
-aes-gcm = "0.11"
 aster_forge_api = { workspace = true }
 aster_forge_api_docs_macros = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_api_docs_macros" }
 aster_forge_audit = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_audit", features = ["db-writer", "mail-outbox-dependency"] }
@@ -195,7 +193,7 @@ aster_forge_utils = { workspace = true }
 aster_forge_validation = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_validation" }
 aster_forge_webdav = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_webdav", features = ["actix"] }
 aster_forge_xml = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_xml" }
-aster_drive_http = { workspace = true }
+aster_forge_http = { workspace = true }
 aster_drive_metrics = { workspace = true }
 aster_drive_migration = { workspace = true }
 aster_drive_model = { workspace = true }
@@ -222,7 +220,6 @@ oem_cp = "2"
 futures = { workspace = true }
 fs2 = "0.4"
 hex = "0.4"
-hkdf = "0.13"
 hmac = "0.13"
 http = "1"
 http-body = "1"

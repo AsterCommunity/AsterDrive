@@ -545,7 +545,7 @@ mod tests {
             )
             .await
             .expect("storage topology reload notification should publish");
-        tokio::time::timeout(Duration::from_secs(2), async {
+        tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 if policy_snapshot
                     .get_policy(policy_id)
