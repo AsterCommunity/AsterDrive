@@ -32,18 +32,52 @@ pub fn setup_flow_aad(user_id: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{MFA_SECRET_INFO, decrypt_secret};
+    use super::{MFA_SECRET_INFO, decrypt_secret, encrypt_secret, factor_aad};
+
+    const TEST_MASTER_KEY: &str = "forge-secret-envelope-test-master-key";
+    const TEST_SECRET: &[u8] = b"JBSWY3DPEHPK3PXP";
+
+    #[test]
+    fn mfa_secret_round_trips_only_with_matching_factor_aad() {
+        let aad = factor_aad(7, "totp");
+        let ciphertext = encrypt_secret(TEST_MASTER_KEY, aad.as_bytes(), TEST_SECRET)
+            .expect("MFA secret should encrypt");
+
+        assert_eq!(
+            decrypt_secret(TEST_MASTER_KEY, aad.as_bytes(), &ciphertext)
+                .expect("matching MFA factor AAD should decrypt"),
+            TEST_SECRET
+        );
+        assert!(
+            decrypt_secret(
+                TEST_MASTER_KEY,
+                factor_aad(8, "totp").as_bytes(),
+                &ciphertext,
+            )
+            .is_err(),
+            "another user's factor AAD must not decrypt the secret"
+        );
+        assert!(
+            decrypt_secret(
+                TEST_MASTER_KEY,
+                factor_aad(7, "recovery_code").as_bytes(),
+                &ciphertext,
+            )
+            .is_err(),
+            "another factor method's AAD must not decrypt the secret"
+        );
+    }
 
     #[test]
     fn existing_mfa_v1_fixture_remains_readable_without_migration() {
         let plaintext = decrypt_secret(
-            "forge-secret-envelope-test-master-key",
+            TEST_MASTER_KEY,
             b"mfa_factor:7:totp",
             "v1:AAECAwQFBgcICQoL:pt1VIrNAcBeWaV0OT5oopWy1VJSEeAF3WeFu3yRJ_EE",
         )
         .expect("existing MFA v1 fixture should decrypt");
 
         assert_eq!(MFA_SECRET_INFO, b"asterdrive:mfa-secret:v1");
-        assert_eq!(plaintext, b"JBSWY3DPEHPK3PXP");
+        assert_eq!(plaintext, TEST_SECRET);
     }
 }

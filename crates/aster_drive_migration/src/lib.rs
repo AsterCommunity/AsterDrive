@@ -14,7 +14,8 @@
 pub use sea_orm_migration::prelude::*;
 
 use sea_orm_migration::sea_orm::{
-    ConnectionTrait as SeaConnectionTrait, DatabaseConnection, DbBackend, Statement,
+    ConnectionTrait as SeaConnectionTrait, DatabaseConnection, DatabaseExecutor, DbBackend,
+    Statement,
 };
 
 mod m20260512_000001_baseline_schema;
@@ -270,12 +271,8 @@ pub async fn apply_database_migrations(database: &DatabaseConnection) -> Result<
     .await
 }
 
-async fn apply_database_migrations_unlocked<'c, C>(database: &'c C) -> Result<(), DbErr>
-where
-    C: SeaConnectionTrait,
-    &'c C: IntoSchemaManagerConnection<'c>,
-{
-    let history = inspect_migration_history(database).await?;
+async fn apply_database_migrations_unlocked(database: DatabaseExecutor<'_>) -> Result<(), DbErr> {
+    let history = inspect_migration_history(&database).await?;
     if history.track == MigrationTrack::Unknown {
         return Err(migration_state_error(format!(
             "database contains unknown migration versions: {}",
@@ -285,8 +282,8 @@ where
 
     match history.track {
         MigrationTrack::Empty => {
-            if migration_table_exists(database).await?
-                || application_schema_exists(database).await?
+            if migration_table_exists(&database).await?
+                || application_schema_exists(&database).await?
             {
                 return Err(migration_state_error(
                     "database contains migration metadata or application tables but migration \
