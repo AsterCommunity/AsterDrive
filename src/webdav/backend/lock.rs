@@ -28,8 +28,8 @@ use aster_drive_model::types::{
 };
 use aster_forge_webdav::{
     DavBackendError, DavBackendErrorKind, DavLock, DavLockAcquireRequest, DavLockAcquireResult,
-    DavLockError, DavLockPreflightError, DavLockSystem, DavPath, FsError, LsFuture,
-    href_for_dav_path, submitted_lock_tokens,
+    DavLockError, DavLockPreflightError, DavLockSystem, DavPath, FsError, LsFuture, encode_href,
+    href_for_relative, submitted_lock_tokens,
 };
 
 const DISCOVER_MANY_ANCESTOR_CHUNK_SIZE: usize = 500;
@@ -300,7 +300,7 @@ impl DavLockSystem for DbLockSystem {
                 self.state.writer_db(),
                 self.scope,
                 self.root_folder_id,
-                &path_str,
+                &path_owned,
             )
             .await
             .map_err(|error| {
@@ -378,7 +378,7 @@ impl DavLockSystem for DbLockSystem {
                             }
                         })?;
                     let resolved =
-                        resolve_path_to_entity(txn, self.scope, self.root_folder_id, &path_str)
+                        resolve_path_to_entity(txn, self.scope, self.root_folder_id, &path_owned)
                             .await
                             .map_err(|error| {
                                 crate::errors::AsterError::internal_error(format!(
@@ -960,6 +960,17 @@ fn path_ancestors(path: &str) -> Vec<String> {
     ancestors
 }
 
+fn dav_path_ancestors(path: &DavPath) -> Vec<DavPath> {
+    let mut ancestors = Vec::new();
+    let mut current = Some(path.clone());
+    while let Some(path) = current {
+        current = path.parent();
+        ancestors.push(path);
+    }
+    ancestors.reverse();
+    ancestors
+}
+
 fn lock_workspace(scope: WorkspaceStorageScope) -> LockWorkspace {
     match scope {
         WorkspaceStorageScope::Personal { user_id } => LockWorkspace::Personal { user_id },
@@ -1026,10 +1037,9 @@ async fn resolve_path_to_entity<C: ConnectionTrait>(
     db: &C,
     scope: WorkspaceStorageScope,
     root_folder_id: Option<i64>,
-    path: &str,
+    path: &DavPath,
 ) -> Result<LockPathTarget, FsError> {
-    let dav_path = DavPath::new(path).map_err(|_| FsError::GeneralFailure)?;
-    match path_resolver::resolve_path_in_scope(db, scope, &dav_path, root_folder_id).await {
+    match path_resolver::resolve_path_in_scope(db, scope, path, root_folder_id).await {
         Ok(ResolvedNode::File(f)) => Ok(LockPathTarget::Entity(EntityType::File, f.id)),
         Ok(ResolvedNode::Folder(f)) => Ok(LockPathTarget::Entity(EntityType::Folder, f.id)),
         Ok(ResolvedNode::Root) => Ok(LockPathTarget::Root),
@@ -1123,10 +1133,7 @@ pub(crate) async fn revalidate_mutation_locks<C: ConnectionTrait>(
         {
             continue;
         }
-        let lock_href = href_for_dav_path(conditions.prefix, &DavPath::new(lock.path()).map_err(|_| {
-            tracing::warn!(lock_id = lock.id, path = %lock.path(), "stored WebDAV lock path is invalid");
-            DavLockError::Backend
-        })?);
+        let lock_href = href_for_relative(conditions.prefix, lock.path());
         let submitted = conditions.if_header.map_or_else(Vec::new, |header| {
             submitted_lock_tokens(
                 header,
@@ -1192,14 +1199,14 @@ impl<'a, C: ConnectionTrait> WebDavLockMutation<'a, C> {
         root_folder_id: Option<i64>,
         path: &DavPath,
     ) -> Result<(), LockMutationAncestorError> {
-        let target = normalize_path(path);
-        for ancestor in path_ancestors(&target) {
+        let target = path.as_str();
+        for ancestor in dav_path_ancestors(path) {
             match resolve_path_to_entity(self.db, scope, root_folder_id, &ancestor).await {
                 Ok(LockPathTarget::Entity(entity_type, entity_id)) => {
                     lock_target_entity(self.db, entity_type.into(), entity_id)
                         .await
                         .map_err(|error| {
-                            tracing::warn!(error = %error, path = %ancestor, "failed to lock WebDAV mutation ancestor");
+                            tracing::warn!(error = %error, path = %ancestor.as_str(), "failed to lock WebDAV mutation ancestor");
                             LockMutationAncestorError::Backend
                         })?;
                 }
@@ -1208,18 +1215,18 @@ impl<'a, C: ConnectionTrait> WebDavLockMutation<'a, C> {
                     lock_target_entity(self.db, entity_type, entity_id)
                         .await
                         .map_err(|error| {
-                            tracing::warn!(error = %error, path = %ancestor, "failed to lock WebDAV mutation root");
+                            tracing::warn!(error = %error, path = %ancestor.as_str(), "failed to lock WebDAV mutation root");
                             LockMutationAncestorError::Backend
                         })?;
                 }
                 Ok(LockPathTarget::Missing)
-                    if ancestor.trim_end_matches('/') == target.trim_end_matches('/') => {}
+                    if ancestor.as_str().trim_end_matches('/') == target.trim_end_matches('/') => {}
                 Ok(LockPathTarget::Missing) => {
-                    tracing::warn!(path = %ancestor, "WebDAV mutation ancestor is missing");
+                    tracing::warn!(path = %ancestor.as_str(), "WebDAV mutation ancestor is missing");
                     return Err(LockMutationAncestorError::Conflict);
                 }
                 Err(error) => {
-                    tracing::warn!(error = %error, path = %ancestor, "failed to resolve WebDAV mutation ancestor");
+                    tracing::warn!(error = %error, path = %ancestor.as_str(), "failed to resolve WebDAV mutation ancestor");
                     return Err(LockMutationAncestorError::Backend);
                 }
             }
@@ -1379,7 +1386,7 @@ fn lock_timeout_at(
 }
 
 fn model_to_dav_lock(lock: &resource_lock::Model) -> DavLock {
-    let dav_path = DavPath::new(lock.path()).unwrap_or_else(|_| DavPath::root());
+    let dav_path = DavPath::new(&encode_href(lock.path())).unwrap_or_else(|_| DavPath::root());
 
     DavLock {
         token: lock.token.clone(),

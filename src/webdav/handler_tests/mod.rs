@@ -17,7 +17,9 @@ use aster_drive_storage::{BlobMetadata, StorageDriver, StreamUploadDriver};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
 use aster_forge_webdav::{
-    DavBackendError, DavEvent, DavEventSink, DavLock, DavLockError, DavLockSystem, LsFuture,
+    DavBackendError, DavEvent, DavEventSink, DavLock, DavLockAcquireRequest, DavLockError,
+    DavLockSystem, DavMethod, DavMutationCredentials, DavMutationOperation, DavMutationTargetRole,
+    DavPath, FsError, LsFuture,
 };
 use aster_forge_webdav::{DavXmlElement as Element, DavXmlNode as XMLNode};
 use async_trait::async_trait;
@@ -244,6 +246,76 @@ async fn create_test_folder(
     .insert(state.writer_db())
     .await
     .expect("test folder should insert")
+}
+
+async fn create_file_in_folder(
+    state: &PrimaryAppState,
+    user_id: i64,
+    policy_id: i64,
+    folder_id: i64,
+    filename: &str,
+) -> file::Model {
+    let (created, _) = create_root_file(
+        state,
+        user_id,
+        policy_id,
+        filename,
+        1,
+        &format!("files/{}", uuid::Uuid::new_v4()),
+    )
+    .await;
+    file::ActiveModel {
+        id: Set(created.id),
+        folder_id: Set(Some(folder_id)),
+        ..Default::default()
+    }
+    .update(state.writer_db())
+    .await
+    .expect("test file should move into its folder")
+}
+
+fn mutation_conditions<'a>(
+    headers: &'a http::HeaderMap,
+    method: DavMethod,
+    target: &'a DavPath,
+) -> crate::webdav::backend::DavMutationConditions<'a> {
+    crate::webdav::backend::DavMutationConditions {
+        prefix: "/webdav",
+        if_header: None,
+        request_scheme: "http",
+        request_host: "localhost",
+        http_headers: headers,
+        http_method: method,
+        http_target: target,
+    }
+}
+
+fn assert_forbidden_mutation(result: Result<(), crate::webdav::backend::AsterDavMutationError>) {
+    let is_forbidden = matches!(
+        &result,
+        Err(crate::webdav::backend::AsterDavMutationError::FileSystem(
+            FsError::Forbidden
+        ))
+    );
+    assert!(
+        is_forbidden,
+        "expected FileSystem(Forbidden), got {result:?}"
+    );
+}
+
+fn assert_locked_mutation(
+    result: Result<(), crate::webdav::backend::AsterDavMutationError>,
+    expected_lock_root: &DavPath,
+) {
+    let is_expected_lock = matches!(
+        &result,
+        Err(crate::webdav::backend::AsterDavMutationError::Locked(lock_root))
+            if lock_root == expected_lock_root
+    );
+    assert!(
+        is_expected_lock,
+        "expected lock conflict at {expected_lock_root:?}, got {result:?}"
+    );
 }
 
 #[derive(Clone, Default)]
@@ -1302,6 +1374,588 @@ async fn bounded_delete_and_copy_fail_before_any_tree_write() {
             .expect("folder should remain");
         assert!(current.deleted_at.is_none());
     }
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[actix_web::test]
+async fn mutation_port_moves_collection_and_refreshes_cached_paths() {
+    use crate::services::events::storage_change::StorageChangeKind;
+    use crate::webdav::backend::path_resolver::{ResolvedNode, resolve_path};
+
+    let driver = CountingDirectUploadDriver::default();
+    let (state, user, _policy, temp_root) = build_webdav_test_state(
+        DriverType::Local,
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
+        Arc::new(driver),
+    )
+    .await;
+    let source = create_test_folder(&state, &user, "atomic-folder-source", None).await;
+    let child = create_test_folder(&state, &user, "child", Some(source.id)).await;
+    let destination_parent = create_test_folder(&state, &user, "atomic-folder-parent", None).await;
+    let source_path = DavPath::new("/atomic-folder-source/").unwrap();
+    let source_child_path = DavPath::new("/atomic-folder-source/child/").unwrap();
+    let destination_path = DavPath::new("/atomic-folder-parent/moved/").unwrap();
+    let destination_child_path = DavPath::new("/atomic-folder-parent/moved/child/").unwrap();
+    let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
+
+    dav_fs
+        .metadata_for_write(&source_child_path)
+        .await
+        .expect("source child path should be cached before the move");
+    let mut events = state.storage_change_bus.subscribe();
+    let headers = http::HeaderMap::new();
+    dav_fs
+        .move_with_locks(
+            &source_path,
+            &destination_path,
+            mutation_conditions(&headers, DavMethod::Move, &source_path),
+        )
+        .await
+        .expect("the backend mutation port should move a collection atomically");
+
+    let event = tokio::time::timeout(Duration::from_secs(1), events.recv())
+        .await
+        .expect("folder move storage event should arrive")
+        .expect("folder move storage event channel should remain open");
+    assert_eq!(event.kind, StorageChangeKind::FolderUpdated);
+    assert_eq!(event.folder_ids, vec![source.id]);
+    assert_eq!(event.affected_parent_ids, vec![destination_parent.id]);
+
+    assert!(matches!(
+        resolve_path(state.writer_db(), user.id, &source_path, None).await,
+        Err(FsError::NotFound)
+    ));
+    assert!(matches!(
+        resolve_path(state.writer_db(), user.id, &destination_path, None).await,
+        Ok(ResolvedNode::Folder(folder)) if folder.id == source.id
+    ));
+    assert!(matches!(
+        resolve_path(state.writer_db(), user.id, &destination_child_path, None).await,
+        Ok(ResolvedNode::Folder(folder)) if folder.id == child.id
+    ));
+    assert!(matches!(
+        dav_fs.metadata_for_write(&source_child_path).await,
+        Err(FsError::NotFound)
+    ));
+    dav_fs
+        .metadata_for_write(&destination_child_path)
+        .await
+        .expect("the moved descendant should resolve through the refreshed cache path");
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[actix_web::test]
+async fn mutation_port_copy_file_replaces_collection_tree() {
+    use crate::webdav::backend::path_resolver::{ResolvedNode, resolve_path};
+
+    let driver = CountingDirectUploadDriver::default();
+    let (state, user, policy, temp_root) = build_webdav_test_state(
+        DriverType::Local,
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
+        Arc::new(driver),
+    )
+    .await;
+    let (source, _) = create_root_file(
+        &state,
+        user.id,
+        policy.id,
+        "atomic-copy-source.txt",
+        4,
+        "files/atomic-copy-source.txt",
+    )
+    .await;
+    let overwritten = create_test_folder(&state, &user, "atomic-copy-target", None).await;
+    let overwritten_child = create_test_folder(&state, &user, "nested", Some(overwritten.id)).await;
+    let overwritten_file =
+        create_file_in_folder(&state, user.id, policy.id, overwritten_child.id, "old.txt").await;
+    let source_path = DavPath::new("/atomic-copy-source.txt").unwrap();
+    let destination_path = DavPath::new("/atomic-copy-target").unwrap();
+    let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
+    let headers = http::HeaderMap::new();
+
+    dav_fs
+        .copy_file_with_locks(
+            &source_path,
+            &destination_path,
+            mutation_conditions(&headers, DavMethod::Copy, &source_path),
+        )
+        .await
+        .expect("copying a file should replace an unlocked destination collection tree");
+
+    let copied = match resolve_path(state.writer_db(), user.id, &destination_path, None)
+        .await
+        .expect("the replacement destination should resolve")
+    {
+        ResolvedNode::File(file) => file,
+        other => panic!("expected a replacement file, got {other:?}"),
+    };
+    assert_ne!(copied.id, source.id);
+    assert_eq!(copied.blob_id, source.blob_id);
+    assert_eq!(
+        file_repo::find_blob_by_id(state.writer_db(), source.blob_id)
+            .await
+            .expect("the shared blob should remain available")
+            .ref_count,
+        2,
+        "copying a file should increment the shared blob reference count"
+    );
+    assert!(matches!(
+        resolve_path(state.writer_db(), user.id, &source_path, None).await,
+        Ok(ResolvedNode::File(file)) if file.id == source.id
+    ));
+    assert!(
+        folder_repo::find_by_id(state.writer_db(), overwritten.id)
+            .await
+            .expect("overwritten folder row should remain available for trash history")
+            .deleted_at
+            .is_some()
+    );
+    assert!(
+        folder_repo::find_by_id(state.writer_db(), overwritten_child.id)
+            .await
+            .expect("overwritten child folder should remain available for trash history")
+            .deleted_at
+            .is_some()
+    );
+    assert!(
+        file_repo::find_by_id(state.writer_db(), overwritten_file.id)
+            .await
+            .expect("overwritten descendant file should remain available for trash history")
+            .deleted_at
+            .is_some()
+    );
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[actix_web::test]
+async fn mutation_port_move_file_replaces_collection_tree() {
+    use crate::webdav::backend::path_resolver::{ResolvedNode, resolve_path};
+
+    let driver = CountingDirectUploadDriver::default();
+    let (state, user, policy, temp_root) = build_webdav_test_state(
+        DriverType::Local,
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
+        Arc::new(driver),
+    )
+    .await;
+    let (source, _) = create_root_file(
+        &state,
+        user.id,
+        policy.id,
+        "atomic-move-source.txt",
+        4,
+        "files/atomic-move-source.txt",
+    )
+    .await;
+    let overwritten = create_test_folder(&state, &user, "atomic-move-target", None).await;
+    let overwritten_child = create_test_folder(&state, &user, "nested", Some(overwritten.id)).await;
+    let overwritten_file =
+        create_file_in_folder(&state, user.id, policy.id, overwritten_child.id, "old.txt").await;
+    let source_path = DavPath::new("/atomic-move-source.txt").unwrap();
+    let destination_path = DavPath::new("/atomic-move-target").unwrap();
+    let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
+    let headers = http::HeaderMap::new();
+
+    dav_fs
+        .move_with_locks(
+            &source_path,
+            &destination_path,
+            mutation_conditions(&headers, DavMethod::Move, &source_path),
+        )
+        .await
+        .expect("moving a file should replace an unlocked destination collection tree");
+
+    assert!(matches!(
+        resolve_path(state.writer_db(), user.id, &source_path, None).await,
+        Err(FsError::NotFound)
+    ));
+    assert!(matches!(
+        resolve_path(state.writer_db(), user.id, &destination_path, None).await,
+        Ok(ResolvedNode::File(file)) if file.id == source.id
+    ));
+    assert!(
+        folder_repo::find_by_id(state.writer_db(), overwritten.id)
+            .await
+            .expect("overwritten folder row should remain available for trash history")
+            .deleted_at
+            .is_some()
+    );
+    assert!(
+        folder_repo::find_by_id(state.writer_db(), overwritten_child.id)
+            .await
+            .expect("overwritten child folder should remain available for trash history")
+            .deleted_at
+            .is_some()
+    );
+    assert!(
+        file_repo::find_by_id(state.writer_db(), overwritten_file.id)
+            .await
+            .expect("overwritten descendant file should remain available for trash history")
+            .deleted_at
+            .is_some()
+    );
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[actix_web::test]
+async fn mutation_port_revalidates_canonical_literal_percent_parents() {
+    use crate::webdav::backend::lock::DbLockSystem;
+    use crate::webdav::backend::path_resolver::resolve_path;
+
+    let driver = CountingDirectUploadDriver::default();
+    let (state, user, policy, temp_root) = build_webdav_test_state(
+        DriverType::Local,
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
+        Arc::new(driver),
+    )
+    .await;
+
+    let copy_parent = create_test_folder(&state, &user, "literal-%FF-copy", None).await;
+    let collection_parent = create_test_folder(&state, &user, "literal-%FF-collection", None).await;
+    let delete_parent = create_test_folder(&state, &user, "literal-%FF-delete", None).await;
+    let move_source_parent =
+        create_test_folder(&state, &user, "literal-%FF-move-source", None).await;
+    let move_destination_parent =
+        create_test_folder(&state, &user, "literal-%FF-move-destination", None).await;
+    let collection_source =
+        create_test_folder(&state, &user, "literal-parent-collection-source", None).await;
+
+    let (copy_source, _) = create_root_file(
+        &state,
+        user.id,
+        policy.id,
+        "literal-parent-copy-source.txt",
+        1,
+        "files/literal-parent-copy-source.txt",
+    )
+    .await;
+    let delete_source = create_file_in_folder(
+        &state,
+        user.id,
+        policy.id,
+        delete_parent.id,
+        "delete-source.txt",
+    )
+    .await;
+    let move_source = create_file_in_folder(
+        &state,
+        user.id,
+        policy.id,
+        move_source_parent.id,
+        "move-source.txt",
+    )
+    .await;
+    let (move_destination_source, _) = create_root_file(
+        &state,
+        user.id,
+        policy.id,
+        "literal-parent-move-destination-source.txt",
+        1,
+        "files/literal-parent-move-destination-source.txt",
+    )
+    .await;
+
+    let copy_parent_path = DavPath::new("/literal-%25FF-copy/").unwrap();
+    let collection_parent_path = DavPath::new("/literal-%25FF-collection/").unwrap();
+    let delete_parent_path = DavPath::new("/literal-%25FF-delete/").unwrap();
+    let move_source_parent_path = DavPath::new("/literal-%25FF-move-source/").unwrap();
+    let move_destination_parent_path = DavPath::new("/literal-%25FF-move-destination/").unwrap();
+    for (path, expected_id) in [
+        (&copy_parent_path, copy_parent.id),
+        (&collection_parent_path, collection_parent.id),
+        (&delete_parent_path, delete_parent.id),
+        (&move_source_parent_path, move_source_parent.id),
+        (&move_destination_parent_path, move_destination_parent.id),
+    ] {
+        assert!(path.as_str().contains("%FF"));
+        assert!(matches!(
+            resolve_path(state.writer_db(), user.id, path, None).await,
+            Ok(crate::webdav::backend::path_resolver::ResolvedNode::Folder(folder))
+                if folder.id == expected_id
+        ));
+    }
+
+    let lock_system = DbLockSystem::new(state.clone(), user.id, None);
+    for path in [
+        &copy_parent_path,
+        &collection_parent_path,
+        &delete_parent_path,
+        &move_source_parent_path,
+        &move_destination_parent_path,
+    ] {
+        let created = lock_system
+            .lock(DavLockAcquireRequest {
+                path,
+                principal: None,
+                owner: None,
+                timeout: Some(Duration::from_secs(120)),
+                shared: false,
+                deep: false,
+                credentials: DavMutationCredentials::default(),
+            })
+            .await
+            .expect("literal-percent parent lock should be created");
+        assert_eq!(created.lock.path.as_ref(), path);
+    }
+
+    let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
+    let headers = http::HeaderMap::new();
+
+    let copy_source_path = DavPath::new("/literal-parent-copy-source.txt").unwrap();
+    let copy_destination_path = DavPath::new("/literal-%25FF-copy/copied.txt").unwrap();
+    assert_locked_mutation(
+        dav_fs
+            .copy_file_with_locks(
+                &copy_source_path,
+                &copy_destination_path,
+                mutation_conditions(&headers, DavMethod::Copy, &copy_source_path),
+            )
+            .await,
+        &copy_parent_path,
+    );
+
+    let collection_source_path = DavPath::new("/literal-parent-collection-source/").unwrap();
+    let collection_destination_path = DavPath::new("/literal-%25FF-collection/prepared/").unwrap();
+    assert_locked_mutation(
+        dav_fs
+            .prepare_collection_with_locks(
+                &collection_source_path,
+                &collection_destination_path,
+                DavMutationOperation::Copy,
+                mutation_conditions(&headers, DavMethod::Copy, &collection_source_path),
+            )
+            .await,
+        &collection_parent_path,
+    );
+
+    let delete_source_path = DavPath::new("/literal-%25FF-delete/delete-source.txt").unwrap();
+    assert_locked_mutation(
+        dav_fs
+            .delete_with_locks(
+                &delete_source_path,
+                false,
+                DavMutationOperation::Delete,
+                DavMutationTargetRole::Source,
+                mutation_conditions(&headers, DavMethod::Delete, &delete_source_path),
+            )
+            .await,
+        &delete_parent_path,
+    );
+
+    let move_source_path = DavPath::new("/literal-%25FF-move-source/move-source.txt").unwrap();
+    let move_source_destination_path = DavPath::new("/moved-from-literal-parent.txt").unwrap();
+    assert_locked_mutation(
+        dav_fs
+            .move_with_locks(
+                &move_source_path,
+                &move_source_destination_path,
+                mutation_conditions(&headers, DavMethod::Move, &move_source_path),
+            )
+            .await,
+        &move_source_parent_path,
+    );
+
+    let move_destination_source_path =
+        DavPath::new("/literal-parent-move-destination-source.txt").unwrap();
+    let move_destination_path = DavPath::new("/literal-%25FF-move-destination/moved.txt").unwrap();
+    assert_locked_mutation(
+        dav_fs
+            .move_with_locks(
+                &move_destination_source_path,
+                &move_destination_path,
+                mutation_conditions(&headers, DavMethod::Move, &move_destination_source_path),
+            )
+            .await,
+        &move_destination_parent_path,
+    );
+
+    for (path, expected_id) in [
+        (&copy_source_path, copy_source.id),
+        (&delete_source_path, delete_source.id),
+        (&move_source_path, move_source.id),
+        (&move_destination_source_path, move_destination_source.id),
+    ] {
+        assert!(matches!(
+            resolve_path(state.writer_db(), user.id, path, None).await,
+            Ok(crate::webdav::backend::path_resolver::ResolvedNode::File(file))
+                if file.id == expected_id
+        ));
+    }
+    assert!(matches!(
+        resolve_path(
+            state.writer_db(),
+            user.id,
+            &collection_source_path,
+            None
+        )
+        .await,
+        Ok(crate::webdav::backend::path_resolver::ResolvedNode::Folder(folder))
+            if folder.id == collection_source.id
+    ));
+    for destination in [
+        &copy_destination_path,
+        &collection_destination_path,
+        &move_source_destination_path,
+        &move_destination_path,
+    ] {
+        assert!(matches!(
+            resolve_path(state.writer_db(), user.id, destination, None).await,
+            Err(FsError::NotFound)
+        ));
+    }
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[actix_web::test]
+async fn mutation_port_rejects_invalid_resource_shapes_without_writes() {
+    use crate::webdav::backend::path_resolver::{ResolvedNode, resolve_path};
+
+    let driver = CountingDirectUploadDriver::default();
+    let (state, user, policy, temp_root) = build_webdav_test_state(
+        DriverType::Local,
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
+        Arc::new(driver),
+    )
+    .await;
+    let source_folder = create_test_folder(&state, &user, "shape-folder", None).await;
+    let (source_file, _) = create_root_file(
+        &state,
+        user.id,
+        policy.id,
+        "shape-file.txt",
+        1,
+        "files/shape-file.txt",
+    )
+    .await;
+    let (_deletable_file, _) = create_root_file(
+        &state,
+        user.id,
+        policy.id,
+        "source-cleanup.txt",
+        1,
+        "files/source-cleanup.txt",
+    )
+    .await;
+    let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
+    let folder_path = DavPath::new("/shape-folder/").unwrap();
+    let file_path = DavPath::new("/shape-file.txt").unwrap();
+    let cleanup_path = DavPath::new("/source-cleanup.txt").unwrap();
+    let missing_path = DavPath::new("/shape-destination").unwrap();
+    let root_path = DavPath::new("/").unwrap();
+    let headers = http::HeaderMap::new();
+
+    assert_forbidden_mutation(
+        dav_fs
+            .copy_file_with_locks(
+                &folder_path,
+                &missing_path,
+                mutation_conditions(&headers, DavMethod::Copy, &folder_path),
+            )
+            .await,
+    );
+    assert_forbidden_mutation(
+        dav_fs
+            .prepare_collection_with_locks(
+                &file_path,
+                &missing_path,
+                DavMutationOperation::Copy,
+                mutation_conditions(&headers, DavMethod::Copy, &file_path),
+            )
+            .await,
+    );
+    assert_forbidden_mutation(
+        dav_fs
+            .delete_with_locks(
+                &file_path,
+                true,
+                DavMutationOperation::Delete,
+                DavMutationTargetRole::Source,
+                mutation_conditions(&headers, DavMethod::Delete, &file_path),
+            )
+            .await,
+    );
+    assert_forbidden_mutation(
+        dav_fs
+            .delete_with_locks(
+                &folder_path,
+                false,
+                DavMutationOperation::Delete,
+                DavMutationTargetRole::Source,
+                mutation_conditions(&headers, DavMethod::Delete, &folder_path),
+            )
+            .await,
+    );
+    assert_forbidden_mutation(
+        dav_fs
+            .move_with_locks(
+                &root_path,
+                &missing_path,
+                mutation_conditions(&headers, DavMethod::Move, &root_path),
+            )
+            .await,
+    );
+    assert_forbidden_mutation(
+        dav_fs
+            .copy_file_with_locks(
+                &file_path,
+                &root_path,
+                mutation_conditions(&headers, DavMethod::Copy, &file_path),
+            )
+            .await,
+    );
+    assert_forbidden_mutation(
+        dav_fs
+            .move_with_locks(
+                &file_path,
+                &root_path,
+                mutation_conditions(&headers, DavMethod::Move, &file_path),
+            )
+            .await,
+    );
+    assert_forbidden_mutation(
+        dav_fs
+            .prepare_collection_with_locks(
+                &folder_path,
+                &root_path,
+                DavMutationOperation::Move,
+                mutation_conditions(&headers, DavMethod::Move, &folder_path),
+            )
+            .await,
+    );
+
+    dav_fs
+        .delete_with_locks(
+            &cleanup_path,
+            false,
+            DavMutationOperation::Move,
+            DavMutationTargetRole::Source,
+            mutation_conditions(&headers, DavMethod::Move, &cleanup_path),
+        )
+        .await
+        .expect("source cleanup should delete a file without destination-delete audit semantics");
+
+    assert!(matches!(
+        resolve_path(state.writer_db(), user.id, &folder_path, None).await,
+        Ok(ResolvedNode::Folder(folder)) if folder.id == source_folder.id
+    ));
+    assert!(matches!(
+        resolve_path(state.writer_db(), user.id, &file_path, None).await,
+        Ok(ResolvedNode::File(file)) if file.id == source_file.id
+    ));
+    assert!(matches!(
+        resolve_path(state.writer_db(), user.id, &cleanup_path, None).await,
+        Err(FsError::NotFound)
+    ));
 
     drop(state);
     let _ = std::fs::remove_dir_all(temp_root);

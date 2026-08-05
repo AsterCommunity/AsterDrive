@@ -19,4 +19,11 @@ ignore = [
     # 仅通过 sea-bae -> sea-orm-macros 的 proc-macro 编译期路径引入
     # RustSec 标记为 unmaintained，非已知漏洞；不进入服务运行时攻击面
     "RUSTSEC-2026-0173",
+
+    # rkyv 0.7.46 archive validation issue
+    # 仅作为 rust_decimal 的 optional dependency 出现在 Cargo.lock；AsterDrive、SeaORM、
+    # SQLx 和所有 workspace feature 均未启用 rust_decimal/rkyv 集成。
+    # `cargo tree --workspace --all-features --target all -i rkyv@0.7.46` 无运行或构建路径。
+    # 上游 rust_decimal 仍声明 rkyv 0.7；待其迁移到 rkyv >= 0.8.17 后删除本项。
+    "RUSTSEC-2026-0235",
 ]
