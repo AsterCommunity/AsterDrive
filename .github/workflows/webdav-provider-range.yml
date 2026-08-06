@@ -1,0 +1,111 @@
+name: WebDAV Provider Range Baselines
+
+on:
+  schedule:
+    - cron: "23 3 * * 2"
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: Storage provider fixture to benchmark
+        required: true
+        type: choice
+        default: local
+        options:
+          - local
+          - s3
+          - onedrive
+          - sftp
+          - remote
+      payload_bytes:
+        description: Fixture payload size in bytes
+        required: true
+        default: "5242880"
+      range_bytes:
+        description: Selected bytes for each single-range sample
+        required: true
+        default: "262144"
+      warmups:
+        description: Warmup samples discarded before reporting
+        required: true
+        default: "3"
+      samples:
+        description: Repeated samples used for percentiles
+        required: true
+        default: "20"
+      baseline_profile:
+        description: Versioned machine/provider baseline profile
+        required: true
+        default: github-actions-ubuntu-local-v1
+      require_provider:
+        description: Fail after writing a skip artifact when fixture credentials are missing
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: webdav-provider-range-${{ github.workflow }}-${{ github.ref }}-${{ inputs.provider || 'local' }}
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ASTER_BENCH_RANGE_PROVIDER: ${{ inputs.provider || 'local' }}
+      ASTER_BENCH_RANGE_PROVIDER_REQUIRED: ${{ github.event_name == 'schedule' || inputs.require_provider }}
+      ASTER_BENCH_RANGE_PAYLOAD_BYTES: ${{ inputs.payload_bytes || '5242880' }}
+      ASTER_BENCH_RANGE_BYTES: ${{ inputs.range_bytes || '262144' }}
+      ASTER_BENCH_RANGE_WARMUPS: ${{ inputs.warmups || '3' }}
+      ASTER_BENCH_RANGE_SAMPLES: ${{ inputs.samples || '20' }}
+      ASTER_BENCH_RANGE_BASELINE_PROFILE: ${{ inputs.baseline_profile || 'github-actions-ubuntu-local-v1' }}
+      ASTER_BENCH_RANGE_BASELINE: tests/performance/baselines/webdav-provider-range-v1.json
+      ASTER_BENCH_RANGE_OUTPUT: tests/performance/results/webdav-provider-range/artifact.json
+      ASTER_BENCH_RANGE_FAIL_ON_REGRESSION: "false"
+      ASTER_BENCH_S3_ENDPOINT: ${{ secrets.ASTER_BENCH_S3_ENDPOINT }}
+      ASTER_BENCH_S3_BUCKET: ${{ secrets.ASTER_BENCH_S3_BUCKET }}
+      ASTER_BENCH_S3_REGION: ${{ secrets.ASTER_BENCH_S3_REGION }}
+      ASTER_BENCH_S3_BASE_PATH: ${{ secrets.ASTER_BENCH_S3_BASE_PATH }}
+      ASTER_BENCH_S3_ACCESS_KEY: ${{ secrets.ASTER_BENCH_S3_ACCESS_KEY }}
+      ASTER_BENCH_S3_SECRET_KEY: ${{ secrets.ASTER_BENCH_S3_SECRET_KEY }}
+      ASTER_BENCH_ONEDRIVE_GRAPH_BASE_URL: ${{ secrets.ASTER_BENCH_ONEDRIVE_GRAPH_BASE_URL }}
+      ASTER_BENCH_ONEDRIVE_ACCESS_TOKEN: ${{ secrets.ASTER_BENCH_ONEDRIVE_ACCESS_TOKEN }}
+      ASTER_BENCH_ONEDRIVE_DRIVE_ID: ${{ secrets.ASTER_BENCH_ONEDRIVE_DRIVE_ID }}
+      ASTER_BENCH_ONEDRIVE_ROOT_ITEM_ID: ${{ secrets.ASTER_BENCH_ONEDRIVE_ROOT_ITEM_ID }}
+      ASTER_BENCH_ONEDRIVE_BASE_PATH: ${{ secrets.ASTER_BENCH_ONEDRIVE_BASE_PATH }}
+      ASTER_BENCH_SFTP_ENDPOINT: ${{ secrets.ASTER_BENCH_SFTP_ENDPOINT }}
+      ASTER_BENCH_SFTP_USERNAME: ${{ secrets.ASTER_BENCH_SFTP_USERNAME }}
+      ASTER_BENCH_SFTP_PASSWORD: ${{ secrets.ASTER_BENCH_SFTP_PASSWORD }}
+      ASTER_BENCH_SFTP_HOST_KEY_FINGERPRINT: ${{ secrets.ASTER_BENCH_SFTP_HOST_KEY_FINGERPRINT }}
+      ASTER_BENCH_SFTP_BASE_PATH: ${{ secrets.ASTER_BENCH_SFTP_BASE_PATH }}
+      ASTER_BENCH_REMOTE_BASE_URL: ${{ secrets.ASTER_BENCH_REMOTE_BASE_URL }}
+      ASTER_BENCH_REMOTE_ACCESS_KEY: ${{ secrets.ASTER_BENCH_REMOTE_ACCESS_KEY }}
+      ASTER_BENCH_REMOTE_SECRET_KEY: ${{ secrets.ASTER_BENCH_REMOTE_SECRET_KEY }}
+      ASTER_BENCH_REMOTE_BASE_PATH: ${{ secrets.ASTER_BENCH_REMOTE_BASE_PATH }}
+      ASTER_BENCH_REMOTE_STORAGE_TARGET_KEY: ${{ secrets.ASTER_BENCH_REMOTE_STORAGE_TARGET_KEY }}
+      ASTER_BENCH_REMOTE_CAPABILITIES_JSON: ${{ secrets.ASTER_BENCH_REMOTE_CAPABILITIES_JSON }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run provider Range benchmark
+        run: |
+          mkdir -p tests/performance/results/webdav-provider-range
+          set -o pipefail
+          cargo bench --bench webdav_provider_range --features benchmarks 2>&1 \
+            | tee tests/performance/results/webdav-provider-range/runner.log
+
+      - name: Upload provider artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: webdav-provider-range-${{ inputs.provider || 'local' }}-${{ github.run_id }}
+          if-no-files-found: error
+          path: tests/performance/results/webdav-provider-range
