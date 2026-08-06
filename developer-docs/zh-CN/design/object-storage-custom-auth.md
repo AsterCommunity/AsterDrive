@@ -88,9 +88,9 @@ COS signer 还必须处理 AWS operation serializer 与 COS 原生字段之间�
 这些转换属于 COS driver/signing 模块，不进入 service、connector common 或共享
 `aster_drive_storage` trait。
 
-## OSS 后续实现边界
+## OSS 实现边界
 
-OSS 可以沿用 COS 验证后的结构，但 signer、endpoint/addressing 和字段转换必须独立：
+OSS 沿用 COS 验证后的 auth-scheme 结构，但 signer、endpoint/addressing 和字段转换保持独立：
 
 - backend I/O 使用 server-side endpoint（未配置时回退 public endpoint）；
 - 浏览器 presigned URL 使用 public endpoint；
@@ -99,8 +99,13 @@ OSS 可以沿用 COS 验证后的结构，但 signer、endpoint/addressing 和�
   provider-specific 分支；
 - header signing 和 query presigning 都使用 OSS V4，而不是 AWS SigV4。
 
-建议为 backend operation 和 browser presign 构造两个共享 signer 的 client，避免在
-单次请求里临时改 endpoint 后破坏 Host/canonical URI 一致性。
+`AlibabaOssDriver` 为 browser presign 保留 public client；配置 server-side endpoint
+时再构造独立 backend client。没有 server-side endpoint 时两条路径复用同一 client。
+这种结构避免在单次请求里临时改 endpoint 后破坏 Host/canonical URI 一致性。
+
+OSS signer 位于 `src/storage/drivers/alibaba_oss/signing.rs`，当前覆盖官方 Go SDK
+固定向量、普通捕获请求、generated presign、CNAME wire path、CopyObject header 转换
+和 public/server endpoint 分流。真实 provider 集成仍是发布前的外部验收边界。
 
 ## 与 provider option 插件化的边界
 

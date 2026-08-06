@@ -218,6 +218,7 @@ mod tests {
         assert!(error.contains("instance_local"));
         for connector_id in [
             "asterdrive.storage.s3",
+            "asterdrive.storage.alibaba_oss",
             "asterdrive.storage.sftp",
             "asterdrive.storage.azure_blob",
             "asterdrive.storage.tencent_cos",
