@@ -32,6 +32,7 @@ title: "存储策略与策略组"
 | `s3` | 文件存到 S3 或兼容对象存储（MinIO / R2 / B2 / OSS 等） | [S3 / MinIO / R2](/admin/storage-backends/s3/) |
 | `azure_blob` | 文件存到 Azure Blob Storage container，使用 Azure Blob SDK 和 SAS URL | [Azure Blob Storage](/admin/storage-backends/azure-blob/) |
 | `tencent_cos` | 文件存到腾讯云 COS；基础对象读写复用 S3 兼容能力，并额外暴露 COS 数据万象等腾讯云原生能力 | [腾讯云 COS](/admin/storage-backends/tencent-cos/) |
+| `asterdrive.storage.huawei_obs` | 文件存到华为云 OBS；使用原生 `SignatureObs`，支持区域 endpoint、自定义域名、Range、multipart 和预签名 | [华为云 OBS](/admin/storage-backends/huawei-obs/) |
 | `one_drive` | 文件写到 Microsoft Graph 可访问的 OneDrive、SharePoint 或 Microsoft 365 group drive | [OneDrive](/admin/storage-backends/onedrive/) |
 | `sftp` | 文件通过 AsterDrive 服务端流式读写到 SSH/SFTP 文件服务器 | [SFTP](/admin/storage-backends/sftp/) |
 | `remote` | 文件通过内部远程存储协议写到另一台 AsterDrive 从节点 | [远程节点存储策略](/admin/storage-backends/remote-follower/) |
@@ -63,13 +64,13 @@ title: "存储策略与策略组"
 | 项目 | 作用 |
 | --- | --- |
 | 名称 | 后台显示名 |
-| 驱动类型 | `local`、`s3`、`azure_blob`、`tencent_cos`、`one_drive`、`sftp` 或 `remote` |
-| 连接信息 | 本地目录 / S3 endpoint、bucket、密钥 / Azure Blob endpoint、container、账号密钥 / COS endpoint、bucket、密钥 / OneDrive Microsoft Graph 目标与授权配置 / SFTP endpoint、SSH 凭据、主机密钥指纹 / 绑定的远程节点 |
+| 驱动类型 | 内置 connector 以 namespaced ID 持久化，例如 `asterdrive.storage.huawei_obs`；旧类型仍按兼容输入接受 |
+| 连接信息 | 本地目录 / S3 endpoint、bucket、密钥 / Azure Blob endpoint、container、账号密钥 / COS endpoint、bucket、密钥 / OBS endpoint、bucket、region、访问模式、签名模式和密钥 / OneDrive Microsoft Graph 目标与授权配置 / SFTP endpoint、SSH 凭据、主机密钥指纹 / 绑定的远程节点 |
 | 基础路径 | 写入该策略时使用的目录、prefix 或远程落点相对路径 |
 | 单文件大小上限 | 允许上传的最大文件；`0` = 不限 |
 | 分片大小 | 大文件上传时每一片的大小 |
 | 默认策略 | 新建默认组或默认分流规则会优先使用 |
-| 附加选项 | 本地内容去重、S3 / Azure Blob / COS 上传下载方式、S3 path-style 访问、OneDrive 目标 drive 定位、SFTP 主机密钥指纹、远程上传下载方式、存储原生处理开关等 |
+| 附加选项 | 本地内容去重、S3 / Azure Blob / COS / OBS 上传下载方式、S3 path-style 访问、OBS region / addressing / signing mode、OneDrive 目标 drive 定位、SFTP 主机密钥指纹、远程上传下载方式、存储原生处理开关等 |
 
 后台的存储策略表单不是靠前端硬编码各个厂商字段。AsterDrive 会从后端的 `StorageConnector` descriptor 读取当前 driver 支持的字段、能力、上传工作流和管理动作，所以新增或调整存储后端时，管理界面会尽量跟着后端能力显示。
 
@@ -78,7 +79,7 @@ title: "存储策略与策略组"
 存储策略有两类连接测试：
 
 - **测试已保存策略**：对数据库里已经保存的策略做读写探测。
-- **测试草稿配置**：在保存前用当前表单参数做探测；S3、Azure Blob 和 Tencent COS 这类静态凭据后端，在密钥字段留空时可以复用已保存凭据。
+- **测试草稿配置**：在保存前用当前表单参数做探测；S3、Azure Blob、Tencent COS 和 Huawei OBS 这类静态凭据后端，在密钥字段留空时可以复用已保存凭据。
 
 连接测试成功时只表示 AsterDrive 服务端能访问后端，并且凭据、bucket / container / drive / follower 远程存储目标等基础读写路径可用。它不代表浏览器一定能直连对象存储或 follower。只要用了 `presigned`，还要继续检查浏览器网络、HTTPS 证书、CORS 和暴露响应头。
 
@@ -113,7 +114,7 @@ AsterDrive 会缓存缩略图和媒体信息等派生结果，避免每次查看
 | 策略类型 | 容量观测行为 |
 | --- | --- |
 | `local` | 读取策略基础目录所在文件系统的总量、可用量和已用量 |
-| `s3` / `tencent_cos` | 返回"不支持"；标准 S3 兼容 API 没有统一可靠的 bucket 剩余容量接口 |
+| `s3` / `tencent_cos` / `asterdrive.storage.huawei_obs` | 返回"不支持"；对象存储数据 API 没有统一可靠的 bucket 剩余容量接口 |
 | `azure_blob` | 返回"不支持"；Blob data API 不提供统一的 storage account 容量观测 |
 | `one_drive` | 读取 Microsoft Graph drive quota；如果 Graph 未返回 quota，则显示"不可用" |
 | `sftp` | 返回"不支持"；SFTP 协议没有统一可靠的远端文件系统容量接口 |

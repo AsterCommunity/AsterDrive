@@ -56,16 +56,16 @@ bootstrap_insecure_cookies = false
 
 这是 OneDrive 存储策略的 Microsoft Graph 凭据（Client Secret、access token、refresh token）的服务端加密主密钥。首次生成配置时，服务会自动写入一段随机值；派生出的密钥用 AES-256-GCM 把凭据加密后落库，API 与审计只暴露 `client_secret_configured` 这类布尔状态。
 
-:::tip[这把密钥目前只覆盖 OneDrive]
-它保护的是 `storage_connector_application_configs.client_secret_ciphertext` 和 `storage_policy_credentials` 表里的 access / refresh token 密文。
+:::tip[这把密钥也覆盖 namespaced connector 凭据]
+它保护的是 `storage_connector_application_configs.client_secret_ciphertext`、OneDrive access / refresh token 密文，以及新 connector-owned static credentials（包括 Huawei OBS）在 `storage_policy_credentials` 表中的密文。
 
-S3、Azure Blob、腾讯云 COS 的 `access_key` / `secret_key`，以及远程节点（follower）凭据，**目前是明文落库**，不依赖这把密钥——换掉它不会影响这些驱动。
+旧版兼容迁移留下的 S3、Azure Blob、腾讯云 COS `access_key` / `secret_key` 和远程节点（follower）凭据仍可能是明文落库；新 namespaced connector 不走这些旧字段。迁移或恢复时必须保留这把密钥，否则 Huawei OBS 等 connector-owned 凭据无法解密。
 :::
 
 :::caution[备份和迁移时必须保留]
-只要有一条 OneDrive 策略完成过 Microsoft Graph 授权，就不要在迁移、恢复或重建 `config.toml` 时换掉它。
+只要有一条 OneDrive 策略完成过 Microsoft Graph 授权，或已经保存 Huawei OBS 等 namespaced connector 凭据，就不要在迁移、恢复或重建 `config.toml` 时换掉它。
 
-一旦修改或丢失，已加密落库的 Client Secret 和 OAuth token 都无法解密，所有 OneDrive 策略会进入需要重新授权状态。旧 refresh token 无法恢复，管理员只能逐条回到 `管理 -> 存储策略 -> 目标 OneDrive 策略 -> 授权` 重新走一遍授权流程。
+一旦修改或丢失，已加密落库的 Client Secret、OAuth token 和 connector-owned static credentials 都无法解密。OneDrive 需要重新授权；Huawei OBS 等静态凭据 connector 需要重新填写并保存凭据。
 
 升级或换机前，把整个 `[auth]` 段连同这把密钥一起备份。
 :::

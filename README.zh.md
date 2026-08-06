@@ -39,7 +39,7 @@ AsterDrive 适用于：
 
 - 前端资源内嵌、单服务运行的自托管文件系统
 - 默认用 SQLite 起步，后续按需要切到 PostgreSQL / MySQL
-- 文件可以落到本地文件系统、S3 兼容对象存储、Azure Blob Storage、腾讯云 COS、OneDrive / SharePoint、SFTP，或是远程的 AsterDrive 从节点
+- 文件可以落到本地文件系统、S3 兼容对象存储、Azure Blob Storage、腾讯云 COS、华为云 OBS、OneDrive / SharePoint、SFTP，或是远程的 AsterDrive 从节点
 - 小文件和大文件都要有合适上传路径：普通直传、可恢复分片、对象存储预签名直传、对象存储 multipart
 - 个人空间和团队空间需要配额、分享、回收站、任务、审计和存储策略组
 - 需带独立账号、独立密码和根目录限制的 WebDAV
@@ -57,7 +57,7 @@ AsterDrive 目前不适用于：
 ## 设计重点
 
 - **文件安全优先** - 回收站、历史版本、锁、配额检查和清理任务都是核心流程，不是装饰功能。
-- **存储可控** - 存储策略可以按用户、团队和文件大小，把上传路由到本地、S3 兼容对象存储、Azure Blob、腾讯云 COS、OneDrive、SFTP 或远程从节点。
+- **存储可控** - 存储策略可以按用户、团队和文件大小，把上传路由到本地、S3 兼容对象存储、Azure Blob、腾讯云 COS、华为云 OBS、OneDrive、SFTP 或远程从节点。
 - **大文件友好** - 后端会根据策略和对象大小协商普通直传、分片上传、对象存储预签名上传和对象存储 multipart 上传。
 - **互操作但不膨胀** - WebDAV 和 WOPI 覆盖实际客户端与 Office 工作流，但项目不会因此变成全家桶云套件。
 - **运维内建** - 健康检查、运行时配置、审计日志、后台任务、存储测试、`doctor` 和迁移命令都是一等能力。
@@ -161,7 +161,7 @@ AsterDrive首次启动时会自动：
 
 ### 存储与传输
 
-- 本地存储、S3 兼容存储、Azure Blob Storage、腾讯云 COS、OneDrive / SharePoint、SFTP 和远程 AsterDrive 从节点存储策略
+- 本地存储、S3 兼容存储、Azure Blob Storage、腾讯云 COS、华为云 OBS、OneDrive / SharePoint、SFTP 和远程 AsterDrive 从节点存储策略
 - 策略组可按用户、团队和文件大小决定上传路线
 - 本地策略可选开启基于 SHA-256 + 引用计数的 Blob 去重
 - 对象存储上传/下载策略：`relay_stream`、`presigned` 和 multipart 上传

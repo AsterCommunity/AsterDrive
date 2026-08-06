@@ -1,5 +1,5 @@
 ---
-description: "AsterDrive storage backend selection guide: when to pick each of the seven backends, the onboarding flow shared by all backends, and how to validate before switching production traffic."
+description: "AsterDrive storage backend selection guide: when to pick each of the eight backends, the onboarding flow shared by all backends, and how to validate before switching production traffic."
 title: "Storage Backends"
 ---
 
@@ -16,6 +16,7 @@ The two-layer concept of storage policies and policy groups itself lives in [Sto
 | S3 / MinIO / R2 | Object storage, large files, external buckets, cloud storage | [S3 / MinIO / R2](/en/admin/storage-backends/s3/) |
 | Azure Blob Storage | Azure Storage accounts, Blob containers, Azure-managed object storage | [Azure Blob Storage](/en/admin/storage-backends/azure-blob/) |
 | Tencent Cloud COS | Tencent Cloud object storage, COS CI, per-policy native processing | [Tencent Cloud COS](/en/admin/storage-backends/tencent-cos/) |
+| Huawei Cloud OBS | Native `SignatureObs`, regional endpoints, custom domains, OBS multipart, and presigned URLs | [Huawei Cloud OBS](/en/admin/storage-backends/huawei-obs/) |
 | OneDrive | Microsoft 365, OneDrive, SharePoint / group drives, Microsoft Graph authorization | [OneDrive](/en/admin/storage-backends/onedrive/) |
 | SFTP | SSH/SFTP file servers, NAS, traditional server directories, server-side streaming | [SFTP](/en/admin/storage-backends/sftp/) |
 | Remote Node | Control plane on the primary, real objects written to another AsterDrive | [Follower Node Storage Policy](/en/admin/storage-backends/remote-follower/) |

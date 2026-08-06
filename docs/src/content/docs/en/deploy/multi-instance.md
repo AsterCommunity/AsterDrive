@@ -46,7 +46,7 @@ Cluster mode rejects creating or retaining `local` storage policies. Even if eve
 
 | Storage path | Cluster behavior |
 | --- | --- |
-| S3-compatible, Tencent COS, Azure Blob | Connector-native multipart, presigned, and browser-direct uploads are available |
+| S3-compatible, Tencent COS, Huawei Cloud OBS, Azure Blob | Connector-native multipart, presigned, and browser-direct uploads are available |
 | OneDrive | Provider-resumable server relay and browser-direct uploads are available |
 | Remote Follower | Relay and presigned uploads are available; reverse tunnels also require internal proxy configuration |
 | SFTP | Single-request direct uploads work when every Primary can reach the same SFTP service; resumable uploads that require stream staging are rejected |

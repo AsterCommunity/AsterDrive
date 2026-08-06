@@ -56,16 +56,16 @@ Once changed, existing authenticator secrets can no longer be decrypted, and use
 
 This is the server-side encryption master key for the Microsoft Graph credentials (Client Secret, access token, refresh token) used by OneDrive storage policies. When the configuration is generated for the first time, the service automatically writes a random value; a key derived from it encrypts the credentials at rest with AES-256-GCM, and API responses and audit logs expose only boolean state such as `client_secret_configured`.
 
-:::tip[This key currently only covers OneDrive]
-It protects `storage_connector_application_configs.client_secret_ciphertext` and the access / refresh token ciphertext in the `storage_policy_credentials` table.
+:::tip[This key also covers namespaced connector credentials]
+It protects `storage_connector_application_configs.client_secret_ciphertext`, OneDrive access / refresh token ciphertext, and new connector-owned static credentials such as Huawei OBS credentials in the `storage_policy_credentials` table.
 
-The `access_key` / `secret_key` for S3, Azure Blob, and Tencent COS, as well as remote node (follower) credentials, **are currently stored in plaintext** and do not depend on this key — rotating it does not affect those drivers.
+Legacy S3, Azure Blob, Tencent COS `access_key` / `secret_key` and remote-node (follower) credentials may still be plaintext after compatibility migration; new namespaced connectors do not use those legacy fields. Preserve this key during migration or restore, otherwise Huawei OBS and other connector-owned credentials cannot be decrypted.
 :::
 
 :::caution[Preserve it during backup and migration]
-As long as any OneDrive policy has completed Microsoft Graph authorization, do not casually replace it while migrating, restoring, or rebuilding `config.toml`.
+As long as any OneDrive policy has completed Microsoft Graph authorization, or any namespaced connector such as Huawei OBS has saved credentials, do not casually replace it while migrating, restoring, or rebuilding `config.toml`.
 
-Once changed or lost, the encrypted Client Secret and OAuth tokens can no longer be decrypted, and every OneDrive policy enters a requires-reauthorization state. Old refresh tokens cannot be recovered; an administrator must re-run the authorization flow for each policy from `Admin -> Storage Policies -> target OneDrive policy -> Authorize`.
+Once changed or lost, encrypted Client Secrets, OAuth tokens, and connector-owned static credentials can no longer be decrypted. OneDrive must be authorized again; static-credential connectors such as Huawei OBS require their credentials to be entered and saved again.
 
 Back up the entire `[auth]` section together with this key before upgrading or moving hosts.
 :::

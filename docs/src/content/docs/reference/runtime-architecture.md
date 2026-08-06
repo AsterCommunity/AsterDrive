@@ -44,7 +44,7 @@ flowchart TB
 
   subgraph Storage["存储策略后端"]
     Local["本地磁盘"]
-    ObjectStorage["对象存储<br/>S3 / Azure Blob / 腾讯云 COS"]
+    ObjectStorage["对象存储<br/>S3 / Azure Blob / 腾讯云 COS / 华为云 OBS"]
     Graph["Microsoft Graph<br/>OneDrive / SharePoint"]
     Sftp["SFTP 文件服务器"]
     RemoteDriver["远程节点驱动"]
@@ -165,7 +165,7 @@ flowchart LR
   Repo --> DB["数据库元数据"]
   Service --> StorageDecision["存储策略选择"]
   StorageDecision --> Driver["StorageDriver"]
-  Driver --> ObjectStore["本地 / S3 / Azure Blob / COS / OneDrive / SFTP / follower"]
+  Driver --> ObjectStore["本地 / S3 / Azure Blob / COS / OBS / OneDrive / SFTP / follower"]
   Service --> Response["统一 JSON / 文件流 / SSE / Prometheus / WebDAV 响应"]
   Response --> Client
 ```

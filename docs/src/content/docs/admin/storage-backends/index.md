@@ -1,5 +1,5 @@
 ---
-description: "AsterDrive 存储后端选择指南：七种后端的适用场景、所有后端共用的接入流程，以及切生产流量前的验证顺序。"
+description: "AsterDrive 存储后端选择指南：八种后端的适用场景、所有后端共用的接入流程，以及切生产流量前的验证顺序。"
 title: "存储后端"
 ---
 
@@ -16,6 +16,7 @@ title: "存储后端"
 | S3 / MinIO / R2 | 对象存储、大文件、外部 bucket、云存储 | [S3 / MinIO / R2](/admin/storage-backends/s3/) |
 | Azure Blob Storage | Azure Storage account、Blob container、Azure 托管对象存储 | [Azure Blob Storage](/admin/storage-backends/azure-blob/) |
 | 腾讯云 COS | 腾讯云对象存储、COS 数据万象、按策略启用原生处理 | [腾讯云 COS](/admin/storage-backends/tencent-cos/) |
+| 华为云 OBS | 原生 `SignatureObs`、区域 endpoint、自定义域名、OBS multipart 和预签名 | [华为云 OBS](/admin/storage-backends/huawei-obs/) |
 | OneDrive | Microsoft 365、OneDrive、SharePoint / group drive、Microsoft Graph 授权 | [OneDrive](/admin/storage-backends/onedrive/) |
 | SFTP | SSH/SFTP 文件服务器、NAS、传统服务器目录、服务端流式读写 | [SFTP](/admin/storage-backends/sftp/) |
 | 远程节点 | 控制面在主控，真实对象写到另一台 AsterDrive | [远程节点存储策略](/admin/storage-backends/remote-follower/) |

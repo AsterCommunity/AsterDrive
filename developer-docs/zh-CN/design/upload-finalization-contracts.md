@@ -107,7 +107,7 @@ Complete 必须同时校验：
 - `.offset-staging-v1` 是普通文件；
 - staging file 长度等于 `session.total_size`。
 
-Local completion 直接消费这份 staging file：开启 `content_dedup` 时会先流式计算 SHA-256，再按 content-addressed key promote；关闭 dedup 时把同一 staging file 写入预分配的独立 Blob。两种情况都不会再完整写一份 assembled 文件。需要 generic stream upload 的 connector 从 staging file 串流到目标 driver。S3-compatible、Azure Blob、Tencent COS 等已经协商到 provider relay multipart 的 session 不走这条本地 staging 路径。
+Local completion 直接消费这份 staging file：开启 `content_dedup` 时会先流式计算 SHA-256，再按 content-addressed key promote；关闭 dedup 时把同一 staging file 写入预分配的独立 Blob。两种情况都不会再完整写一份 assembled 文件。需要 generic stream upload 的 connector 从 staging file 串流到目标 driver。S3-compatible、Azure Blob、Tencent COS、Huawei OBS 等已经协商到 provider relay multipart 的 session 不走这条本地 staging 路径。
 
 0.5.0 不读取或迁移 0.4.x 的 payload-per-chunk session，也不创建或复用 `assembled`。升级迁移会在发现 null/非法 `session_kind` 时停止，旧 session 的清理责任属于部署方。
 

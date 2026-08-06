@@ -150,7 +150,7 @@ WebDAV does not go through `src/api/routes/**`. Instead:
 │  - SeaORM + migration                       │
 │  - StorageConnector descriptor / action     │
 │  - StorageDriver(Local/S3/SFTP/Azure)       │
-│  - StorageDriver(Tencent COS/OneDrive)      │
+│  - StorageDriver(COS/OBS/OneDrive)          │
 │  - StorageDriver(Remote)                    │
 │  - CacheBackend(Memory / Redis)             │
 ├─────────────────────────────────────────────┤
@@ -193,7 +193,7 @@ The practical rule of thumb in this repository remains:
 | AsterForge `aster_forge_http` | Product-neutral bounded reqwest response-body reading; Drive callers own product error-code and context mapping |
 | `crates/aster_drive_storage/` | Storage traits, capability extensions, connector descriptors, object keys, and structured errors; the root package does not expose legacy compatibility paths |
 | `src/storage/connectors/` | Storage connectors: descriptors, fields, actions, connection tests, upload workflows, and credential requirements |
-| `src/storage/drivers/` | Local, S3-compatible, SFTP, Azure Blob, Tencent COS, OneDrive, and remote drivers |
+| `src/storage/drivers/` | Local, S3-compatible, SFTP, Azure Blob, Tencent COS, Huawei OBS, OneDrive, and remote drivers |
 | `src/storage/remote_protocol/tunnel/` | Reverse tunnel transport runtime, auth, registry, and streaming responses |
 | `src/webdav/` | WebDAV product adapters, auth, lock persistence, and filesystem integration |
 | `frontend-panel/` | React 19 + Vite frontend; build artifacts are served by the backend |

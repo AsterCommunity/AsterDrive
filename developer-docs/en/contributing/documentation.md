@@ -11,7 +11,7 @@ The user documentation is layered by reader task:
 | First use, quick start, deployment choices | `start/` | Quick start, common workflows, first admin |
 | Daily operations, regular-user tasks | `using/` | Files, upload and download, sharing, using WebDAV, account security |
 | Administrator scenario workflows | `admin/` | Users and teams, registration and SSO, mail, storage policies and policy groups, preview processing, offline download, custom frontend |
-| Specific storage backend tutorials | `admin/storage-backends/` | Local disk, S3 / MinIO / R2, Azure Blob Storage, Tencent COS, OneDrive, SFTP, follower node storage policy |
+| Specific storage backend tutorials | `admin/storage-backends/` | Local disk, S3 / MinIO / R2, Azure Blob Storage, Tencent COS, Huawei Cloud OBS, OneDrive, SFTP, follower node storage policy |
 | Deployment, launch, upgrade, backup, troubleshooting, monitoring | `deploy/` + `ops/` | Docker, systemd, reverse proxy, multi-instance, troubleshooting, operations CLI |
 | `config.toml` fields, admin-console system settings | `reference/config/` | Server, database, deployment profile, each system-settings group |
 | Concept explanations, capability matrices, protocol compatibility, indexes, problem routing | `reference/` | Runtime architecture, storage capability matrix, WebDAV protocol compatibility, glossary, error codes |

@@ -35,7 +35,7 @@ AsterDrive 的第一个 alpha 版本，其实只是一个 file browser。
 
 这个中转站首先要让文件安心停靠。文件进来以后，有目录，有权限，有回收站，有版本，有锁，有后台清理。出错时要能看见发生了什么，能追日志，能跑检查，能把该找回的东西找回来。
 
-然后它还要能调度流向。文件不一定永远留在这台机器上。它可能落在本地磁盘，可能去 S3 / MinIO / 腾讯云 COS 这类对象存储，可能被写到另一台 AsterDrive 节点上。浏览器、WebDAV 客户端、Office 编辑器、分享页和后台任务都可能成为入口。AsterDrive 要做的，是把这些入口、去向、权限和生命周期整理清楚。
+然后它还要能调度流向。文件不一定永远留在这台机器上。它可能落在本地磁盘，可能去 S3 / MinIO / 腾讯云 COS / 华为云 OBS 这类对象存储，可能被写到另一台 AsterDrive 节点上。浏览器、WebDAV 客户端、Office 编辑器、分享页和后台任务都可能成为入口。AsterDrive 要做的，是把这些入口、去向、权限和生命周期整理清楚。
 
 最后，它应该尽量让我自己掌控。文件在哪里，谁能访问，能不能分享，删了以后还能留多久，大文件该走哪条上传路径，这些事情我不想完全交给一个黑盒。
 
@@ -49,7 +49,7 @@ AsterDrive 的第一个 alpha 版本，其实只是一个 file browser。
 
 > 文件进来以后，应该怎么可靠地走到它该去的地方？
 
-现在 AsterDrive 可以从默认 SQLite + 本地存储起步，也可以接 PostgreSQL / MySQL、S3 兼容对象存储、Azure Blob Storage、腾讯云 COS、Microsoft Graph 支持的 OneDrive / SharePoint drive、SFTP 文件服务器和远程节点（follower）。它能处理普通直传、可恢复分片上传、对象存储预签名上传和 multipart 上传；像 SFTP 这类后端则由服务端流式传输。听起来已经不像最初那个 file browser 了，但它还是从那三件事长出来的：上传、下载、回收站。
+现在 AsterDrive 可以从默认 SQLite + 本地存储起步，也可以接 PostgreSQL / MySQL、S3 兼容对象存储、Azure Blob Storage、腾讯云 COS、华为云 OBS、Microsoft Graph 支持的 OneDrive / SharePoint drive、SFTP 文件服务器和远程节点（follower）。它能处理普通直传、可恢复分片上传、对象存储预签名上传和 multipart 上传；像 SFTP 这类后端则由服务端流式传输。听起来已经不像最初那个 file browser 了，但它还是从那三件事长出来的：上传、下载、回收站。
 
 ## 我想把它做成什么样
 

@@ -11,7 +11,7 @@
 - [远端存储目标与策略归属](./remote-storage-target-policy-ownership.md)：remote node、storage target 和 remote policy 的产品与工程边界。
 - [存储 descriptor 与字段规范化契约](./storage-descriptor-normalization-contract.md)：后端权威字段、能力和 normalization 规则。
 - [对象命名与 OneDrive 直接下载](./storage-object-naming-and-onedrive-direct-download.md)：object key、provider path 和直接下载边界。
-- [对象存储自定义认证与 AWS SDK 复用边界](./object-storage-custom-auth.md)：COS/OSS 原生 signer、presigned 和 S3 operation 复用约束。
+- [对象存储自定义认证与 AWS SDK 复用边界](./object-storage-custom-auth.md)：COS/OBS/OSS 原生 signer、presigned 和 S3 operation 复用约束。
 
 ## 上传完成
 

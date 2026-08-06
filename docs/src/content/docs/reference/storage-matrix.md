@@ -1,5 +1,5 @@
 ---
-description: "七种存储后端的能力矩阵：浏览器直传 / 直连下载、容量观测、存储原生处理、凭据落库方式，以及 relay_stream 与 presigned 的权威对比。"
+description: "八种存储后端的能力矩阵：浏览器直传 / 直连下载、容量观测、存储原生处理、凭据落库方式，以及 relay_stream 与 presigned 的权威对比。"
 title: "存储能力矩阵"
 ---
 
@@ -15,6 +15,7 @@ title: "存储能力矩阵"
 | `s3` | `presigned` 上传 + 下载 | 不支持 | 不支持 | 明文 |
 | `azure_blob` | `presigned`（SAS URL）上传 + 下载 | 不支持 | 不支持 | 明文 |
 | `tencent_cos` | `presigned` 上传 + 下载 | 不支持 | COS 数据万象（按策略开关） | 明文 |
+| `asterdrive.storage.huawei_obs` | `presigned` 上传 + 下载（需 OBS CORS） | 不支持 | 不支持 | AES-256-GCM 加密 |
 | `one_drive` | `frontend_direct` 上传、Graph 直接下载 | 支持（Graph quota） | 不支持 | AES-256-GCM 加密 |
 | `sftp` | 不支持，服务端流式读写 | 不支持 | 不支持 | 明文 |
 | `remote` | `presigned` 需直连 + 浏览器可达的 follower `base_url` | 跟随远程存储目标 | 不支持 | 明文 |

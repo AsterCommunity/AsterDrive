@@ -44,7 +44,7 @@ flowchart TB
 
   subgraph Storage["Storage Policy Backends"]
     Local["Local Disk"]
-    ObjectStorage["Object Storage<br/>S3 / Azure Blob / Tencent COS"]
+    ObjectStorage["Object Storage<br/>S3 / Azure Blob / Tencent COS / Huawei OBS"]
     Graph["Microsoft Graph<br/>OneDrive / SharePoint"]
     Sftp["SFTP File Server"]
     RemoteDriver["Remote Node Driver"]
@@ -165,7 +165,7 @@ flowchart LR
   Repo --> DB["Database Metadata"]
   Service --> StorageDecision["Storage Policy Selection"]
   StorageDecision --> Driver["StorageDriver"]
-  Driver --> ObjectStore["Local / S3 / Azure Blob / COS / OneDrive / SFTP / Follower"]
+  Driver --> ObjectStore["Local / S3 / Azure Blob / COS / OBS / OneDrive / SFTP / Follower"]
   Service --> Response["Unified JSON / File Stream / SSE / Prometheus / WebDAV Response"]
   Response --> Client
 ```

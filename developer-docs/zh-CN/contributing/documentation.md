@@ -11,7 +11,7 @@
 | 第一次使用、快速开始、部署方式选择 | `start/` | 快速开始、常用流程、第一个管理员 |
 | 日常操作、普通用户任务 | `using/` | 文件整理、上传下载、分享、WebDAV 使用、账号安全 |
 | 管理员场景流程 | `admin/` | 用户与团队、注册登录 SSO、邮件、存储策略与策略组、预览处理、离线下载、自定义前端 |
-| 具体存储后端接入教程 | `admin/storage-backends/` | 本地磁盘、S3 / MinIO / R2、Azure Blob Storage、腾讯云 COS、OneDrive、SFTP、远程节点存储策略 |
+| 具体存储后端接入教程 | `admin/storage-backends/` | 本地磁盘、S3 / MinIO / R2、Azure Blob Storage、腾讯云 COS、华为云 OBS、OneDrive、SFTP、远程节点存储策略 |
 | 部署、上线、升级、备份、排障、监控 | `deploy/` + `ops/` | Docker、systemd、反向代理、多实例、故障排查、运维 CLI |
 | `config.toml` 字段、后台系统设置选项 | `reference/config/` | 服务器、数据库、部署模式、系统设置各分组 |
 | 概念解释、能力矩阵、协议兼容、索引、问题分流 | `reference/` | 运行架构、存储能力矩阵、WebDAV 协议兼容、术语表、错误码 |

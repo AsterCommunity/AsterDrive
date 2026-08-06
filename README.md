@@ -39,7 +39,7 @@ AsterDrive is a good fit when you want:
 
 - a single self-hosted service with embedded frontend assets
 - SQLite out of the box, with optional PostgreSQL / MySQL later
-- local filesystem, S3-compatible object storage, Azure Blob Storage, Tencent COS, OneDrive / SharePoint, SFTP, or remote AsterDrive follower-node storage
+- local filesystem, S3-compatible object storage, Azure Blob Storage, Tencent COS, Huawei Cloud OBS, OneDrive / SharePoint, SFTP, or remote AsterDrive follower-node storage
 - upload strategies for both small files and large objects: direct, resumable chunked, object-storage presigned, and object-storage multipart
 - personal and team workspaces with quotas, shares, trash, tasks, audit logs, and storage policy groups
 - WebDAV access with independent accounts and scoped root folders
@@ -57,7 +57,7 @@ AsterDrive is probably not the right first choice when you need:
 ## Design focus
 
 - **File safety first** - trash, version history, locks, quota checks, and cleanup tasks are part of the core workflow, not decorative extras.
-- **Storage control** - policies can route uploads to local storage, S3-compatible storage, Azure Blob, Tencent COS, OneDrive, SFTP, or remote follower nodes by user, team, and file size.
+- **Storage control** - policies can route uploads to local storage, S3-compatible storage, Azure Blob, Tencent COS, Huawei Cloud OBS, OneDrive, SFTP, or remote follower nodes by user, team, and file size.
 - **Large-file paths** - the backend negotiates direct uploads, chunked uploads, object-storage presigned uploads, and object-storage multipart uploads based on policy and object size.
 - **Interoperability without sprawl** - WebDAV and WOPI cover practical client and Office workflows without turning the project into an all-in-one cloud suite.
 - **Operations built in** - health checks, runtime configuration, audit logs, background tasks, storage tests, `doctor`, and migration commands are first-class features.
@@ -162,7 +162,7 @@ On first startup, AsterDrive will automatically:
 
 ### Storage and delivery
 
-- local storage, S3-compatible storage, Azure Blob Storage, Tencent COS, OneDrive / SharePoint, SFTP, and remote follower-node storage policies
+- local storage, S3-compatible storage, Azure Blob Storage, Tencent COS, Huawei Cloud OBS, OneDrive / SharePoint, SFTP, and remote follower-node storage policies
 - policy groups that route uploads by user, team, and file size
 - optional local-only blob deduplication using SHA-256 and reference counting
 - object-storage upload/download strategies: `relay_stream`, `presigned`, and multipart uploads

@@ -22,7 +22,7 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 ## 先认识它
 
-AsterDrive 是一个基于 Rust 和 React 的轻量自托管云盘。你可以从默认 SQLite + 本地存储的单机部署开始，之后按需要接入 PostgreSQL / MySQL、S3 兼容对象存储、Azure Blob Storage、腾讯云 COS、Microsoft Graph 支持的 OneDrive / SharePoint drive、SFTP 文件服务器、团队空间、WebDAV、WOPI 在线预览编辑，以及远程从节点存储。
+AsterDrive 是一个基于 Rust 和 React 的轻量自托管云盘。你可以从默认 SQLite + 本地存储的单机部署开始，之后按需要接入 PostgreSQL / MySQL、S3 兼容对象存储、Azure Blob Storage、腾讯云 COS、华为云 OBS、Microsoft Graph 支持的 OneDrive / SharePoint drive、SFTP 文件服务器、团队空间、WebDAV、WOPI 在线预览编辑，以及远程从节点存储。
 
 它不是完整协作套件，当前重点是把个人和小团队的文件管理、分享、上传、预览、存储策略和日常运维路径做清楚。多实例部署已经支持在共享 PostgreSQL / MySQL、Redis 和共享存储之上运行多个 Primary，但它仍不是一套替你管理数据库、Redis、对象存储和跨区域复制的完整集群编排系统，准确边界见 [关于 AsterDrive](/reference/about/)。
 
@@ -71,4 +71,3 @@ AsterDrive 是一个基于 Rust 和 React 的轻量自托管云盘。你可以�
 	<LinkCard title="管理员配置" href="/reference/config/" description="分清 config.toml、后台系统设置、存储策略、策略组、存储后端、邮件、远程节点各自负责什么。" />
 	<LinkCard title="运维维护" href="/ops/" description="首次启动检查、上线验收、监控、备份、升级、故障排查和运维 CLI 放在同一条维护路径里。" />
 </CardGrid>
-

@@ -15,6 +15,7 @@ use aster_drive_storage::{ConnectorConfigEnvelope, ConnectorId, StoragePolicyBeh
 use sea_orm::ActiveModelTrait;
 
 use super::azure_blob::AzureBlobConnectorConfigV1;
+use super::huawei_obs::HuaweiObsConnectorConfigV1;
 use super::local::LocalConnectorConfigV1;
 use super::onedrive::{OneDriveAccountMode, OneDriveConnectorConfigV1};
 use super::remote::RemoteConnectorConfigV1;
@@ -22,6 +23,7 @@ use super::s3::S3ConnectorConfigV1;
 use super::sftp::SftpConnectorConfigV1;
 use super::tencent_cos::TencentCosConnectorConfigV1;
 use super::*;
+use crate::storage::drivers::huawei_obs::{HuaweiObsAddressingMode, HuaweiObsSigningMode};
 
 struct LocalizationContractConnector {
     descriptor: StorageConnectorDescriptor,
@@ -133,6 +135,19 @@ fn cos_config(upload: ObjectStorageUploadStrategy) -> TencentCosConnectorConfigV
     }
 }
 
+fn obs_config(upload: ObjectStorageUploadStrategy) -> HuaweiObsConnectorConfigV1 {
+    HuaweiObsConnectorConfigV1 {
+        endpoint: "https://obs.cn-north-4.myhuaweicloud.com".to_string(),
+        bucket: "archive-bucket".to_string(),
+        obs_region: "cn-north-4".to_string(),
+        obs_addressing_mode: HuaweiObsAddressingMode::VirtualHosted,
+        obs_signing_mode: HuaweiObsSigningMode::Obs,
+        base_path: "tenant-a".to_string(),
+        object_storage_upload_strategy: upload,
+        object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
+    }
+}
+
 fn remote_config(upload: RemoteUploadStrategy) -> RemoteConnectorConfigV1 {
     RemoteConnectorConfigV1 {
         base_path: "tenant-a".to_string(),
@@ -185,12 +200,13 @@ fn registry_exposes_each_builtin_connector_once_in_stable_order() {
             S3Connector::ID,
             SftpConnector::ID,
             AzureBlobConnector::ID,
+            HuaweiObsConnector::ID,
             TencentCosConnector::ID,
             RemoteConnector::ID,
             OneDriveConnector::ID,
         ]
     );
-    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 7);
+    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 8);
 }
 
 #[test]
@@ -527,6 +543,10 @@ fn descriptors_are_complete_and_keep_config_credentials_separate() {
             StorageConnectorBadgeRgb::new(139, 92, 246),
         ),
         (
+            HuaweiObsConnector::ID,
+            StorageConnectorBadgeRgb::new(239, 68, 68),
+        ),
+        (
             TencentCosConnector::ID,
             StorageConnectorBadgeRgb::new(6, 182, 212),
         ),
@@ -546,6 +566,7 @@ fn descriptors_are_complete_and_keep_config_credentials_separate() {
         S3Connector::ID,
         SftpConnector::ID,
         AzureBlobConnector::ID,
+        HuaweiObsConnector::ID,
         TencentCosConnector::ID,
         RemoteConnector::ID,
         OneDriveConnector::ID,
@@ -570,6 +591,7 @@ fn transfer_strategy_descriptors_keep_upload_and_download_copy_distinct() {
     for connector_id in [
         S3Connector::ID,
         AzureBlobConnector::ID,
+        HuaweiObsConnector::ID,
         TencentCosConnector::ID,
     ] {
         assert_transfer_strategy_copy(
@@ -647,6 +669,7 @@ fn object_naming_and_local_default_path_are_connector_owned() {
         S3Connector::ID,
         SftpConnector::ID,
         AzureBlobConnector::ID,
+        HuaweiObsConnector::ID,
         TencentCosConnector::ID,
         RemoteConnector::ID,
     ] {
@@ -744,6 +767,7 @@ fn credential_channels_are_mutually_exclusive_by_connector_contract() {
         S3Connector::ID,
         SftpConnector::ID,
         AzureBlobConnector::ID,
+        HuaweiObsConnector::ID,
         TencentCosConnector::ID,
     ] {
         let connector = connector(id);
@@ -846,6 +870,10 @@ fn optional_empty_base_paths_decode_without_weakening_required_fields() {
     cos.base_path.clear();
     assert_empty_base_path_normalizes(TencentCosConnector::ID, cos, "");
 
+    let mut obs = obs_config(ObjectStorageUploadStrategy::RelayStream);
+    obs.base_path.clear();
+    assert_empty_base_path_normalizes(HuaweiObsConnector::ID, obs, "");
+
     let mut remote = remote_config(RemoteUploadStrategy::RelayStream);
     remote.base_path.clear();
     assert_empty_base_path_normalizes(RemoteConnector::ID, remote, "");
@@ -925,6 +953,54 @@ fn onedrive_semantics_are_validated_inside_the_connector() {
 }
 
 #[test]
+fn huawei_obs_connector_enforces_endpoint_addressing_contract() {
+    let connector = connector(HuaweiObsConnector::ID);
+    let normalized = connector
+        .validate_connector_config(&super::test_support::connection_config(
+            HuaweiObsConnector::ID,
+            1,
+            HuaweiObsConnectorConfigV1 {
+                endpoint: "https://archive-bucket.obs.cn-north-4.myhuaweicloud.com/".to_string(),
+                obs_region: " CN-NORTH-4 ".to_string(),
+                ..obs_config(ObjectStorageUploadStrategy::RelayStream)
+            },
+        ))
+        .expect("official OBS endpoint should normalize");
+    let normalized: HuaweiObsConnectorConfigV1 =
+        serde_json::from_value(serde_json::to_value(normalized.values).unwrap()).unwrap();
+    assert_eq!(
+        normalized.endpoint,
+        "https://obs.cn-north-4.myhuaweicloud.com"
+    );
+    assert_eq!(normalized.obs_region, "cn-north-4");
+
+    let error = connector
+        .validate_connector_config(&super::test_support::connection_config(
+            HuaweiObsConnector::ID,
+            1,
+            HuaweiObsConnectorConfigV1 {
+                endpoint: "https://s3.example.test".to_string(),
+                ..obs_config(ObjectStorageUploadStrategy::RelayStream)
+            },
+        ))
+        .expect_err("generic S3 endpoint must be rejected");
+    assert!(error.to_string().contains("virtual-hosted endpoint"));
+
+    connector
+        .validate_connector_config(&super::test_support::connection_config(
+            HuaweiObsConnector::ID,
+            1,
+            HuaweiObsConnectorConfigV1 {
+                endpoint: "https://files.example.test".to_string(),
+                obs_region: String::new(),
+                obs_addressing_mode: HuaweiObsAddressingMode::CustomDomain,
+                ..obs_config(ObjectStorageUploadStrategy::RelayStream)
+            },
+        ))
+        .expect("custom-domain OBS config should allow an omitted region");
+}
+
+#[test]
 fn upload_transport_is_resolved_by_connector_owned_typed_config() {
     let cases = [
         (
@@ -954,6 +1030,14 @@ fn upload_transport_is_resolved_by_connector_owned_typed_config() {
             StorageConnectorUploadTransport::ObjectStorage(
                 ObjectStorageUploadStrategy::RelayStream,
             ),
+        ),
+        (
+            HuaweiObsConnector::ID,
+            policy(
+                HuaweiObsConnector::ID,
+                obs_config(ObjectStorageUploadStrategy::Presigned),
+            ),
+            StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
         ),
         (
             TencentCosConnector::ID,

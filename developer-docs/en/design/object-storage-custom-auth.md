@@ -2,7 +2,7 @@
 
 This document records the boundaries AsterDrive must preserve when reusing the
 `aws-sdk-s3` operation/runtime for object storage providers such as Tencent
-Cloud COS and Alibaba Cloud OSS while replacing the SDK's authentication with
+Cloud COS, Huawei Cloud OBS, and Alibaba Cloud OSS while replacing the SDK's authentication with
 the provider-native signing protocol.
 
 This is a driver implementation contract. It does not change the product
@@ -21,6 +21,7 @@ Some providers expose HTTP operations and XML responses that resemble S3, but
 use different authentication protocols:
 
 - Tencent Cloud COS uses COS Q-Sign.
+- Huawei Cloud OBS uses `SignatureObs`, with `Authorization: OBS AccessKeyID:Signature` and `Base64(HMAC-SHA1(SK, UTF-8(StringToSign)))`.
 - Alibaba Cloud OSS V4 uses `OSS4-HMAC-SHA256`, `x-oss-*` fields, the
   `date/region/oss/aliyun_v4_request` scope, and the `aliyun_v4` signing-key
   derivation prefix.
@@ -112,6 +113,26 @@ SDK-default checksum headers, and query parameters added by the S3 endpoint.
 These transformations belong in the COS driver/signing module. They do not
 belong in services, connector common code, or the shared
 `aster_drive_storage` trait.
+
+## Huawei OBS Reuse Boundary
+
+Huawei OBS reuses the AWS SDK operation/runtime chain with an independent OBS signer:
+
+```text
+HuaweiObsDriver -> S3CompatibleDriver -> S3Driver -> aws_sdk_s3::Client
+```
+
+The driver registers a `SignatureObs` hook under the existing SigV4 scheme ID. The AWS SDK continues to own request serialization, bodies, timeouts, retries, and XML response parsing; the signing hook converts AWS header/query residue to OBS fields and generates either `Authorization: OBS ...` or OBS presigned query parameters.
+
+OBS addressing and listing must not inherit generic S3 blindly:
+
+- virtual-hosted mode requires an official regional OBS endpoint and matching region;
+- custom-domain mode removes the bucket host prefix added by the AWS SDK and uses the official OBS SDK CNAME canonical resource;
+- the official OBS SDK and API use marker-based `ListObjects`, so the driver does not send S3 `list-type=2` or continuation tokens;
+- `x-amz-meta-*`, copy-source, storage-class, ACL, grant, and security-token fields are converted to their `x-obs-*` equivalents; and
+- ordinary S3, COS, and OBS clients keep separate signer configuration.
+
+The implementation is pinned against Huawei's official Go OBS SDK `v3.26.6`, commit `fd2b44881f0cd9bd41ffff2fabeb94c783ccc321`, especially `obs/auth.go`, `obs/authV2.go`, `obs/conf.go`, `obs/trait_object.go`, `obs/trait_part.go`, `obs/convert.go`, and `obs/client_object.go`.
 
 ## Boundary for a Future OSS Implementation
 

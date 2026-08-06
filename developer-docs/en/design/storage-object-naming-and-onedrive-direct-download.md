@@ -31,6 +31,7 @@ pub enum StorageConnectorObjectNamingMode {
 | S3-compatible | `opaque_uuid` | `files/{upload_uuid}` |
 | Azure Blob | `opaque_uuid` | `files/{upload_uuid}` |
 | Tencent COS | `opaque_uuid` | `files/{upload_uuid}` |
+| Huawei OBS | `opaque_uuid` | `files/{upload_uuid}` |
 | Remote | `opaque_uuid` | `files/{upload_uuid}` |
 | SFTP | `opaque_uuid` | `files/{upload_uuid}` |
 

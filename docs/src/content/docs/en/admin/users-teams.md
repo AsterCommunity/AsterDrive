@@ -85,7 +85,7 @@ flowchart TD
 Common patterns:
 
 - Small teams use the default policy group directly
-- Teams with many large files get their own S3 / MinIO / Tencent COS policy group
+- Teams with many large files get their own S3 / MinIO / Tencent COS / Huawei Cloud OBS policy group
 - Geo-distributed teams get their own remote-node policy group
 - Temporary project teams get a smaller quota and a dedicated policy group
 

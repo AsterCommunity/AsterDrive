@@ -49,7 +49,7 @@ This is why AsterDrive later grew storage policies, policy groups, S3, remote fo
 
 > After a file comes in, how should it reliably reach where it belongs?
 
-Today AsterDrive can start from default SQLite + local storage, and it can also connect to PostgreSQL / MySQL, S3-compatible object storage, Azure Blob Storage, Tencent COS, Microsoft Graph-backed OneDrive / SharePoint drives, SFTP file servers, and remote follower nodes. It can handle regular direct uploads, resumable chunked uploads, object-storage presigned uploads, and multipart uploads; backends such as SFTP use server-side streaming instead. It no longer sounds like the original file browser, but it still grew from those same three things: upload, download, and trash.
+Today AsterDrive can start from default SQLite + local storage, and it can also connect to PostgreSQL / MySQL, S3-compatible object storage, Azure Blob Storage, Tencent COS, Huawei Cloud OBS, Microsoft Graph-backed OneDrive / SharePoint drives, SFTP file servers, and remote follower nodes. It can handle regular direct uploads, resumable chunked uploads, object-storage presigned uploads, and multipart uploads; backends such as SFTP use server-side streaming instead. It no longer sounds like the original file browser, but it still grew from those same three things: upload, download, and trash.
 
 ## What I Want It to Become
 

@@ -46,7 +46,7 @@ cluster 模式会直接拒绝创建或保留 `local` 存储策略。即使每个
 
 | 存储路径 | cluster 行为 |
 | --- | --- |
-| S3-compatible、腾讯云 COS、Azure Blob | connector-native multipart、预签名和浏览器直传可用 |
+| S3-compatible、腾讯云 COS、华为云 OBS、Azure Blob | connector-native multipart、预签名和浏览器直传可用 |
 | OneDrive | provider resumable 的服务端中继或浏览器直传可用 |
 | 远程 Follower | relay / presigned 可用；reverse tunnel 还需要内部代理配置 |
 | SFTP | 所有 Primary 都能访问同一 SFTP 服务时可用于单请求直传；需要 stream staging 的可恢复分片上传会被拒绝 |

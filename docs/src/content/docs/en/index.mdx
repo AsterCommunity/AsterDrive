@@ -22,7 +22,7 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 ## First, Know What It Is
 
-AsterDrive is a lightweight self-hosted cloud drive built with Rust and React. You can start with the default single-node deployment using SQLite and local storage, then connect PostgreSQL / MySQL, S3-compatible object storage, Azure Blob Storage, Tencent COS, Microsoft Graph-backed OneDrive / SharePoint drives, SFTP file servers, team spaces, WebDAV, WOPI online preview and editing, and follower node storage as needed.
+AsterDrive is a lightweight self-hosted cloud drive built with Rust and React. You can start with the default single-node deployment using SQLite and local storage, then connect PostgreSQL / MySQL, S3-compatible object storage, Azure Blob Storage, Tencent COS, Huawei Cloud OBS, Microsoft Graph-backed OneDrive / SharePoint drives, SFTP file servers, team spaces, WebDAV, WOPI online preview and editing, and follower node storage as needed.
 
 It is not a full collaboration suite. The current focus is making file management, sharing, uploads, previews, storage policies, and routine operations clear for individuals and small teams. Multi-instance deployments can already run multiple Primaries over shared PostgreSQL / MySQL, Redis, and shared storage, but it is still not a complete cluster orchestration system that manages the database, Redis, object storage, and cross-region replication for you. See [About AsterDrive](/en/reference/about/) for the exact boundary.
 
@@ -42,7 +42,7 @@ Start from [User Guides](/en/start/). Regular users should first read the [User 
 
 Read [Admin Console](/en/admin/) first, then [Configuration Overview](/en/reference/config/). AsterDrive configuration is split into startup configuration, admin-console runtime settings, storage policies, policy groups, storage policy backends, and the external network environment. It is much clearer when viewed by layer.
 
-If you are connecting S3 / MinIO / R2 / Azure Blob Storage / Tencent COS / OneDrive / SFTP, see [Storage Policy Backends](/en/admin/storage-backends/).
+If you are connecting S3 / MinIO / R2 / Azure Blob Storage / Tencent COS / Huawei Cloud OBS / OneDrive / SFTP, see [Storage Policy Backends](/en/admin/storage-backends/).
 
 ### I Want to Find Documentation by Backend Module
 

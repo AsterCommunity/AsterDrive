@@ -1,6 +1,6 @@
 # 对象存储自定义认证与 AWS SDK 复用边界
 
-本文记录 AsterDrive 为腾讯云 COS、阿里云 OSS 等对象存储复用
+本文记录 AsterDrive 为腾讯云 COS、华为云 OBS、阿里云 OSS 等对象存储复用
 `aws-sdk-s3` operation/runtime，同时替换厂商原生签名协议时必须遵守的边界。
 
 这里讨论的是 driver 内部实现，不改变 `StorageDriver`、上传策略或 connector
@@ -15,6 +15,7 @@ descriptor 的产品契约。
 部分厂商提供与 S3 相近的 HTTP operation 和 XML 响应，但认证协议不同：
 
 - 腾讯云 COS 使用 COS Q-Sign；
+- 华为云 OBS 使用 `SignatureObs`，格式为 `Authorization: OBS AccessKeyID:Signature`，签名是 `Base64(HMAC-SHA1(SK, UTF-8(StringToSign)))`；
 - 阿里云 OSS V4 使用 `OSS4-HMAC-SHA256`、`x-oss-*` 字段、
   `date/region/oss/aliyun_v4_request` scope 和 `aliyun_v4` 密钥派生前缀。
 
@@ -87,6 +88,26 @@ COS signer 还必须处理 AWS operation serializer 与 COS 原生字段之间�
 例如 copy-source header、SDK 默认 checksum header 和 S3 endpoint 附加 query。
 这些转换属于 COS driver/signing 模块，不进入 service、connector common 或共享
 `aster_drive_storage` trait。
+
+## Huawei OBS 复用边界
+
+Huawei OBS 复用同一条 AWS SDK operation/runtime 链路，但使用独立的 OBS signer：
+
+```text
+HuaweiObsDriver -> S3CompatibleDriver -> S3Driver -> aws_sdk_s3::Client
+```
+
+driver 会在现有 SigV4 scheme ID 上注册 `SignatureObs` hook，让 AWS SDK继续负责请求序列化、body、timeout、重试和 XML response parsing；签名 hook 负责把 AWS header/query 残留转换成 OBS 原生字段并计算 `Authorization: OBS ...` 或 OBS presigned query。
+
+OBS 的地址和列举协议不能按 generic S3 直接继承：
+
+- virtual-hosted 模式要求区域 OBS endpoint 和匹配的 region；
+- custom-domain 模式移除 AWS SDK 自动添加的 bucket host 前缀，并使用官方 OBS SDK 的 CNAME canonical resource；
+- 官方 OBS SDK 和 API 使用 marker-based `ListObjects`，不发送 S3 `list-type=2` 或 continuation token；
+- `x-amz-meta-*`、copy-source、storage-class、ACL、grant 和 security-token 等请求字段要转换成对应的 `x-obs-*` 字段；
+- 普通 S3 client、COS client 和 OBS client 必须保持独立的 signer 配置。
+
+实现固定对照华为官方 Go SDK `v3.26.6` commit `fd2b44881f0cd9bd41ffff2fabeb94c783ccc321`，重点文件是 `obs/auth.go`、`obs/authV2.go`、`obs/conf.go`、`obs/trait_object.go`、`obs/trait_part.go`、`obs/convert.go` 和 `obs/client_object.go`。
 
 ## OSS 后续实现边界
 

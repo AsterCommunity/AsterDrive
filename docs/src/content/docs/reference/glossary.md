@@ -19,12 +19,12 @@ title: "术语表"
 
 | 术语 | 解释 | 相关文档 |
 | --- | --- | --- |
-| 存储策略 | 定义文件真实落点和上传方式。比如本地目录、S3 / MinIO / Azure Blob / 腾讯云 COS / OneDrive / SFTP、远程节点。 | [存储策略](/admin/storage-policies/) |
+| 存储策略 | 定义文件真实落点和上传方式。比如本地目录、S3 / MinIO / Azure Blob / 腾讯云 COS / 华为云 OBS / OneDrive / SFTP、远程节点。 | [存储策略](/admin/storage-policies/) |
 | 策略组 | 决定用户或团队上传时命中哪条存储策略，可以按文件大小分流。 | [存储策略](/admin/storage-policies/) |
 | Blob | 底层文件对象。多个文件记录可以引用同一个 Blob，用于内容去重和版本引用。 | [关于 AsterDrive](/reference/about/) |
 | 分片上传 | 大文件拆成多个片段上传，失败后尽量续传。 | [上传与大文件](/using/upload-download/) |
-| 对象存储直传 | 浏览器直接把文件传到 S3 / MinIO / 腾讯云 COS，服务端只负责签名和完成确认。 | [上传与大文件](/using/upload-download/) |
-| 服务端转发 | 浏览器先把文件传给 AsterDrive，再由服务端写到 S3 / MinIO / 腾讯云 COS。 | [上传与大文件](/using/upload-download/) |
+| 对象存储直传 | 浏览器直接把文件传到 S3 / MinIO / 腾讯云 COS / 华为云 OBS，服务端只负责签名和完成确认。 | [上传与大文件](/using/upload-download/) |
+| 服务端转发 | 浏览器先把文件传给 AsterDrive，再由服务端写到 S3 / MinIO / 腾讯云 COS / 华为云 OBS。 | [上传与大文件](/using/upload-download/) |
 
 ## 配置
 

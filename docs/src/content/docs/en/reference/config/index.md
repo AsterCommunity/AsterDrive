@@ -16,7 +16,7 @@ First identify which layer you need to change, then open the corresponding page.
 - **`Admin -> Storage Policies`** - Where files are actually stored, and which upload method is used
 - **`Admin -> Policy Groups`** - Which storage route different users, teams, or file sizes use
 - **`Admin -> Follower Nodes`** - How the primary connects to followers, and where the follower receives objects by default
-- **Reverse proxy / object storage configuration** - HTTPS, large uploads, WebDAV passthrough, and direct S3 / Azure Blob / COS uploads
+- **Reverse proxy / object storage configuration** - HTTPS, large uploads, WebDAV passthrough, and direct S3 / Azure Blob / COS / OBS uploads
 
 The earlier layers are managed by AsterDrive itself. The last layer belongs to the reverse proxy, object storage, and external network environment.
 
@@ -46,7 +46,7 @@ Anything the service must know before startup usually belongs in `config.toml`. 
 | Configure SMTP, send test mail, or edit mail templates | [Mail](/en/admin/mail/) |
 | Configure link import, the built-in downloader, or aria2 offline download | [Offline Download](/en/admin/offline-download/) |
 | Decide where files are stored and how uploads/downloads work | [Storage Policies](/en/admin/storage-policies/) |
-| Follow a tutorial for S3 / MinIO / R2 / Azure Blob / Tencent COS / OneDrive / SFTP backends | [Storage Policy Backends](/en/admin/storage-backends/) |
+| Follow a tutorial for S3 / MinIO / R2 / Azure Blob / Tencent COS / Huawei Cloud OBS / OneDrive / SFTP backends | [Storage Policy Backends](/en/admin/storage-backends/) |
 | Decide which storage route different users/teams use | [Storage Policies](/en/admin/storage-policies/) |
 | Connect a follower node and configure the default remote storage target | [Follower Nodes](/en/admin/follower-nodes/) |
 | Change the WebDAV path or hard WebDAV upload limit | [WebDAV](/en/reference/config/webdav/) |

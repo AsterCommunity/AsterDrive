@@ -1,5 +1,5 @@
 ---
-description: "Storage capability matrix for the seven backends: browser direct upload / download, capacity observation, storage-native processing, credentials at rest, and the authoritative relay_stream vs presigned comparison."
+description: "Storage capability matrix for the eight backends: browser direct upload / download, capacity observation, storage-native processing, credentials at rest, and the authoritative relay_stream vs presigned comparison."
 title: "Storage Capability Matrix"
 ---
 
@@ -15,6 +15,7 @@ Per-backend onboarding steps live in the [Storage Backends](/en/admin/storage-ba
 | `s3` | `presigned` upload + download | Not supported | Not supported | Plaintext |
 | `azure_blob` | `presigned` (SAS URL) upload + download | Not supported | Not supported | Plaintext |
 | `tencent_cos` | `presigned` upload + download | Not supported | COS CI (per-policy switch) | Plaintext |
+| `asterdrive.storage.huawei_obs` | `presigned` upload + download (requires OBS CORS) | Not supported | Not supported | AES-256-GCM encrypted |
 | `one_drive` | `frontend_direct` upload, Graph direct download | Supported (Graph quota) | Not supported | AES-256-GCM encrypted |
 | `sftp` | Not supported; server-side streaming | Not supported | Not supported | Plaintext |
 | `remote` | `presigned` requires direct mode plus a browser-reachable follower `base_url` | Follows the remote storage target | Not supported | Plaintext |

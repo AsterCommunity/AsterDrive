@@ -150,7 +150,7 @@ WebDAV 不走 `src/api/routes/**`，而是：
 │  - SeaORM + migration                       │
 │  - StorageConnector descriptor / action     │
 │  - StorageDriver(Local/S3/SFTP/Azure)       │
-│  - StorageDriver(Tencent COS/OneDrive)      │
+│  - StorageDriver(COS/OBS/OneDrive)          │
 │  - StorageDriver(Remote)                    │
 │  - CacheBackend(Memory / Redis)             │
 ├─────────────────────────────────────────────┤
@@ -195,7 +195,7 @@ WebDAV 不走 `src/api/routes/**`，而是：
 | AsterForge `aster_forge_http` | 产品无关、严格限制大小的 reqwest 响应体读取；Drive 调用方负责产品错误码和上下文映射 |
 | `crates/aster_drive_storage/` | 存储 trait、能力扩展、connector descriptor、对象 key 与结构化错误；根包不提供旧路径兼容导出 |
 | `src/storage/connectors/` | 存储 connector：descriptor、字段、action、连接测试、上传工作流和凭据需求 |
-| `src/storage/drivers/` | 本地、S3-compatible、SFTP、Azure Blob、Tencent COS、OneDrive 和远端驱动 |
+| `src/storage/drivers/` | 本地、S3-compatible、SFTP、Azure Blob、Tencent COS、Huawei OBS、OneDrive 和远端驱动 |
 | `src/storage/remote_protocol/tunnel/` | reverse tunnel 传输运行时、鉴权、注册表和流式响应 |
 | `src/webdav/` | WebDAV 产品适配、认证、锁持久化与文件系统接入 |
 | `frontend-panel/` | React 19 + Vite 前端，构建产物由后端服务 |

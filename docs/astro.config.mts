@@ -110,6 +110,7 @@ const sidebar = assertUniqueSidebarLinks([
             link: '/admin/storage-backends/azure-blob/'
           },
           { label: '腾讯云 COS', translations: { en: 'Tencent COS' }, link: '/admin/storage-backends/tencent-cos/' },
+          { label: '华为云 OBS', translations: { en: 'Huawei Cloud OBS' }, link: '/admin/storage-backends/huawei-obs/' },
           { label: 'OneDrive', translations: { en: 'OneDrive' }, link: '/admin/storage-backends/onedrive/' },
           { label: 'SFTP', translations: { en: 'SFTP' }, link: '/admin/storage-backends/sftp/' },
           {
