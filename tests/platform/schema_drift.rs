@@ -4,7 +4,6 @@ use crate::common;
 
 use std::collections::BTreeSet;
 
-use aster_drive::runtime::SharedRuntimeState;
 use aster_drive_model::entities::{
     audit_log, auth_session, background_task, blob_media_metadata, contact_verification_token,
     entity_property, external_auth_email_verification_flow, external_auth_identity,
@@ -161,6 +160,30 @@ where
         .join(", ")
 }
 
+fn expected_database_only_compatibility_columns(table_name: &str) -> BTreeSet<&'static str> {
+    match table_name {
+        // AsterDrive 0.5.x keeps these columns so the startup credential
+        // importer can read pre-refactor policies. They remain required in the
+        // 0.5 schema but deliberately stay out of the current SeaORM entity.
+        // Issue #463 removes both the physical columns and this exact exception
+        // in 0.6.0.
+        "storage_policies" => [
+            "driver_type",
+            "endpoint",
+            "bucket",
+            "access_key",
+            "secret_key",
+            "base_path",
+            "remote_node_id",
+            "remote_storage_target_key",
+            "options",
+        ]
+        .into_iter()
+        .collect(),
+        _ => BTreeSet::new(),
+    }
+}
+
 #[actix_web::test]
 async fn test_entity_columns_match_migrated_database_schema() {
     let state = common::setup().await;
@@ -171,11 +194,16 @@ async fn test_entity_columns_match_migrated_database_schema() {
         let actual = database_columns(db, entity.table_name)
             .await
             .unwrap_or_else(|err| panic!("failed to inspect table {}: {err}", entity.table_name));
-        let expected = entity
+        let mut expected = entity
             .columns
             .iter()
             .map(|column| (*column).to_string())
             .collect::<BTreeSet<_>>();
+        expected.extend(
+            expected_database_only_compatibility_columns(entity.table_name)
+                .into_iter()
+                .map(str::to_string),
+        );
 
         if actual != expected {
             let missing = expected.difference(&actual).collect::<Vec<_>>();

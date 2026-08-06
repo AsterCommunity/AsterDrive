@@ -3,7 +3,7 @@ use sea_orm::Set;
 
 use crate::db::repository::upload_session_repo;
 use crate::errors::{AsterError, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::files::upload::responses::InitUploadResponse;
 use crate::services::files::upload::shared::{
     UniqueUuidAttempt, abort_created_multipart_upload_after_init_error, with_unique_upload_id,
@@ -64,7 +64,7 @@ pub(super) struct MultipartSessionInitParams {
 
 /// Resolves the persisted data plane from connector-owned transport semantics.
 ///
-/// This is intentionally expressed in terms of `PolicyUploadTransport`, not `DriverType`: a
+/// This is intentionally expressed in terms of `PolicyUploadTransport`, not a provider enum: a
 /// connector may expose the same driver through different upload strategies, and the strategy is
 /// what determines the session lifecycle and cleanup contract.
 pub(super) fn session_kind_for_transport(
@@ -138,7 +138,7 @@ pub(super) async fn resolve_init_upload_context(
     tracing::debug!(
         scope = ?scope,
         policy_id = policy.id,
-        driver_type = ?policy.driver_type,
+        connector_id = %policy.connector_id,
         chunk_size = policy.chunk_size,
         total_size,
         "resolved upload storage policy"

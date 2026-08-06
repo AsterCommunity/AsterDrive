@@ -1,6 +1,8 @@
 //! S3 存储驱动集成测试（使用 testcontainers + rustfs）
 
-use aster_drive::storage::drivers::s3::S3Driver;
+use aster_drive::storage::drivers::s3::{
+    S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials,
+};
 use aster_drive_storage::{
     PresignedDownloadOptions, PresignedStorageDriver, StorageDriver, StreamUploadDriver,
 };
@@ -8,28 +10,26 @@ use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 
 const RUSTFS_TEST_IMAGE_TAG: &str = "1.0.0-alpha.90";
 
-/// 创建 S3 测试用的 storage_policy model
-fn s3_policy(endpoint: &str, bucket: &str) -> aster_drive_model::entities::storage_policy::Model {
-    use chrono::Utc;
-    aster_drive_model::entities::storage_policy::Model {
-        id: 999,
-        name: "Test S3".to_string(),
-        driver_type: aster_drive_model::types::DriverType::S3,
-        endpoint: endpoint.to_string(),
-        bucket: bucket.to_string(),
-        access_key: "rustfsadmin".to_string(),
-        secret_key: "rustfsadmin123".to_string(),
-        base_path: "test-prefix".to_string(),
-        remote_node_id: None,
-        remote_storage_target_key: None,
-        max_file_size: 0,
-        allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
-        options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
-        is_default: false,
-        chunk_size: 5_242_880,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-    }
+fn s3_driver(endpoint: &str, bucket: &str) -> S3Driver {
+    S3Driver::new(
+        S3DriverConfig {
+            endpoint: endpoint.to_string(),
+            bucket: bucket.to_string(),
+            base_path: "test-prefix".to_string(),
+            region: "us-east-1".to_string(),
+            path_style: true,
+            connect_timeout: std::time::Duration::from_secs(5),
+            read_timeout: std::time::Duration::from_secs(30),
+            operation_timeout: std::time::Duration::from_secs(3_600),
+        },
+        S3StaticCredentials {
+            access_key: "rustfsadmin".to_string(),
+            secret_key: "rustfsadmin123".to_string(),
+        },
+        S3DriverOptions::default(),
+        std::convert::identity,
+    )
+    .expect("failed to create S3Driver")
 }
 
 fn s3_test_client(endpoint: &str) -> aws_sdk_s3::Client {
@@ -110,8 +110,7 @@ async fn test_s3_put_get_delete() {
 
     wait_for_s3_bucket(&endpoint, bucket).await;
 
-    let policy = s3_policy(&endpoint, bucket);
-    let driver = S3Driver::new(&policy).expect("failed to create S3Driver");
+    let driver = s3_driver(&endpoint, bucket);
 
     // PUT
     let data = b"hello s3 world";

@@ -5,7 +5,6 @@ use super::{
 };
 use crate::api::pagination::AdminTaskSortBy;
 use crate::config::DatabaseConfig;
-use aster_drive_migration::Migrator;
 use aster_drive_model::entities::background_task;
 use aster_drive_model::types::{
     BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload, StoredTaskSteps,
@@ -25,9 +24,7 @@ async fn build_test_db() -> sea_orm::DatabaseConnection {
     )
     .await
     .expect("background task repo test DB should connect");
-    Migrator::up(&db, None)
-        .await
-        .expect("background task repo test migrations should succeed");
+    crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
     db
 }
 
@@ -53,6 +50,8 @@ async fn insert_task(
         BackgroundTaskKind::OfflineDownload => "offline-download",
         BackgroundTaskKind::SystemRuntime => "task-cleanup",
     };
+    let cleanup_policy =
+        crate::storage::connectors::test_support::local_policy("/tmp/asterdrive-deleted-policy");
     let payload_json = match kind {
         BackgroundTaskKind::ArchiveCompress => serde_json::json!({
             "file_ids": [],
@@ -99,21 +98,14 @@ async fn insert_task(
             "policy": {
                 "id": 1,
                 "name": "Deleted policy",
-                "driver_type": "local",
-                "endpoint": "",
-                "bucket": "",
-                "access_key": "",
-                "secret_key": "",
-                "base_path": "/tmp/asterdrive-deleted-policy",
-                "remote_node_id": null,
-                "max_file_size": 0,
-                "allowed_types": "[]",
-                "options": "{}",
-                "is_default": false,
-                "chunk_size": 5_242_880,
+                "connector_id": cleanup_policy.connector_id,
+                "storage_config": cleanup_policy.storage_config.as_ref(),
+                "max_file_size": cleanup_policy.max_file_size,
+                "allowed_types": cleanup_policy.allowed_types.as_ref(),
+                "is_default": cleanup_policy.is_default,
+                "chunk_size": 5_242_880
             },
             "driver_snapshot": null,
-            "remote_node": null,
             "temp_keys": ["files/temp-object"],
             "multipart_uploads": [],
         }),

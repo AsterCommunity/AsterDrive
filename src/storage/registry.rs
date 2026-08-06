@@ -1,24 +1,17 @@
 //! 存储子模块：`registry`。
 
-use super::drivers::azure_blob::AzureBlobDriver;
-use super::drivers::local::LocalDriver;
-use super::drivers::remote::RemoteDriver;
+#[cfg(any(test, debug_assertions))]
 use super::drivers::s3::S3Driver;
-use super::drivers::sftp::SftpDriver;
-use super::drivers::tencent_cos::TencentCosDriver;
 use super::metrics_driver::{MetricsMultipartStorageDriver, MetricsStorageDriver};
-use crate::api::api_error_code::ApiErrorCode;
 use crate::config::Config;
-use crate::db::repository::{
-    managed_follower_repo, master_binding_repo, policy_repo, storage_policy_credential_repo,
+use crate::db::repository::{managed_follower_repo, master_binding_repo, policy_repo};
+use crate::errors::{AsterError, Result};
+use crate::storage::connectors::{
+    StorageConnectorRegistry, StorageConnectorRuntimeCredential, builtin_storage_connector_registry,
 };
-use crate::errors::{AsterError, Result, precondition_failed_with_code};
-use crate::services::remote::capability::RemoteCapabilityResolver;
-use crate::storage::connectors::StorageConnectorRuntimeCredential;
 use crate::storage::remote_protocol::RemoteProtocolRuntime;
 use aster_drive_metrics::SharedMetricsRecorder;
 use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::{DriverType, StorageCredentialStatus, parse_storage_policy_options};
 use aster_drive_storage::{
     MultipartStorageDriver, StorageDriver, StorageErrorKind, storage_driver_error,
 };
@@ -58,25 +51,54 @@ pub struct DriverRegistry {
     master_bindings_by_access_key:
         RwLock<HashMap<String, aster_drive_model::entities::master_binding::Model>>,
     runtime_credentials_by_policy_id: RwLock<HashMap<i64, StorageConnectorRuntimeCredential>>,
+    // Configuration descriptors and runtime factories must come from one
+    // registry; otherwise the admin surface can advertise a connector that the
+    // runtime cache cannot construct (or construct one the UI cannot describe).
+    connectors: Arc<StorageConnectorRegistry>,
     metrics: SharedMetricsRecorder,
     remote_protocol: RwLock<Option<Arc<RemoteProtocolRuntime>>>,
 }
 
+const STORAGE_CONNECTOR_METRIC_LABEL: &str = "storage_connector";
+
 impl DriverRegistry {
-    pub fn new(metrics: SharedMetricsRecorder) -> Self {
+    pub fn new(metrics: SharedMetricsRecorder) -> Result<Self> {
+        let connectors = Arc::new(builtin_storage_connector_registry()?);
+        Ok(Self::with_connectors(metrics, connectors))
+    }
+
+    pub(crate) fn with_connectors(
+        metrics: SharedMetricsRecorder,
+        connectors: Arc<StorageConnectorRegistry>,
+    ) -> Self {
         Self {
             drivers: DashMap::new(),
             driver_init_lock: parking_lot::Mutex::new(()),
             managed_followers_by_id: RwLock::new(HashMap::new()),
             master_bindings_by_access_key: RwLock::new(HashMap::new()),
             runtime_credentials_by_policy_id: RwLock::new(HashMap::new()),
+            connectors,
             metrics,
             remote_protocol: RwLock::new(None),
         }
     }
 
-    pub fn noop() -> Self {
+    pub fn noop() -> Result<Self> {
         Self::new(aster_drive_metrics::NoopMetrics::arc())
+    }
+
+    pub(crate) fn connectors(&self) -> &StorageConnectorRegistry {
+        &self.connectors
+    }
+
+    /// Reload the policy routing snapshot through the same connector registry
+    /// that constructs runtime drivers.
+    pub async fn reload_policy_snapshot(
+        &self,
+        snapshot: &crate::storage::PolicySnapshot,
+        db: &sea_orm::DatabaseConnection,
+    ) -> Result<()> {
+        snapshot.reload(db, self.connectors()).await
     }
 
     /// 根据 StoragePolicy 获取或创建 driver（惰性实例化）
@@ -101,8 +123,8 @@ impl DriverRegistry {
             AsterError::from(storage_driver_error(
                 StorageErrorKind::Unsupported,
                 format!(
-                    "storage policy {} (driver: {:?}) does not support multipart upload",
-                    policy.id, policy.driver_type
+                    "storage policy {} (connector: {}) does not support multipart upload",
+                    policy.id, policy.connector_id
                 ),
             ))
         })
@@ -174,49 +196,41 @@ impl DriverRegistry {
         db: &sea_orm::DatabaseConnection,
         config: &Config,
     ) -> Result<()> {
-        let credentials = storage_policy_credential_repo::find_all(db).await?;
         let mut by_policy_id = HashMap::new();
-        for credential in credentials {
+
+        let connector_credentials =
+            crate::db::repository::storage_policy_connector_credential_repo::find_all(db).await?;
+        for credential in connector_credentials {
             let policy = match policy_repo::find_by_id(db, credential.policy_id).await {
                 Ok(policy) => policy,
                 Err(error) => {
                     tracing::warn!(
                         policy_id = credential.policy_id,
                         error = %error,
-                        "skipping storage credential reload because policy lookup failed"
+                        "skipping connector credential reload because policy lookup failed"
                     );
                     continue;
                 }
             };
-            let requirement = match crate::storage::connectors::runtime_credential_requirement(
-                policy.driver_type,
-            ) {
-                Ok(Some(requirement)) => requirement,
-                Ok(None) => continue,
-                Err(error) => {
-                    tracing::warn!(
-                        policy_id = policy.id,
-                        driver_type = %policy.driver_type.as_str(),
-                        error = %error,
-                        "skipping storage credential reload because connector lookup failed"
-                    );
-                    continue;
-                }
-            };
-            if credential.provider != requirement.provider
-                || credential.credential_kind != requirement.credential_kind
-                || (requirement.requires_authorization
-                    && credential.status != StorageCredentialStatus::Authorized)
-            {
+            if policy.connector_id != credential.connector_id {
+                tracing::warn!(
+                    policy_id = policy.id,
+                    policy_connector_id = %policy.connector_id,
+                    credential_connector_id = %credential.connector_id,
+                    "skipping connector credential with mismatched connector id"
+                );
                 continue;
             }
-            let runtime_credential = match crate::storage::connectors::load_runtime_credential(
-                db,
-                config,
-                &policy,
-                &credential,
-            )
-            .await
+            let connector = match self.connectors().require_policy(&policy) {
+                Ok(connector) => connector,
+                Err(error) => {
+                    tracing::warn!(policy_id = policy.id, error = %error, "skipping connector credential reload because connector lookup failed");
+                    continue;
+                }
+            };
+            let runtime_credential = match connector
+                .load_runtime_credential(db, config, &policy, &credential)
+                .await
             {
                 Ok(Some(runtime_credential)) => runtime_credential,
                 Ok(None) => continue,
@@ -230,7 +244,7 @@ impl DriverRegistry {
                     continue;
                 }
             };
-            by_policy_id.insert(credential.policy_id, runtime_credential);
+            by_policy_id.insert(policy.id, runtime_credential);
         }
         *self.runtime_credentials_by_policy_id.write() = by_policy_id;
         self.invalidate_all();
@@ -257,11 +271,18 @@ impl DriverRegistry {
             .cloned()
     }
 
-    fn get_runtime_credential(&self, policy_id: i64) -> Option<StorageConnectorRuntimeCredential> {
+    pub(crate) fn get_runtime_credential(
+        &self,
+        policy_id: i64,
+    ) -> Option<StorageConnectorRuntimeCredential> {
         self.runtime_credentials_by_policy_id
             .read()
             .get(&policy_id)
             .cloned()
+    }
+
+    pub(crate) fn remote_protocol(&self) -> Option<Arc<RemoteProtocolRuntime>> {
+        self.remote_protocol.read().clone()
     }
 
     #[cfg(any(test, debug_assertions))]
@@ -311,100 +332,20 @@ impl DriverRegistry {
     }
 
     fn create_entry(&self, policy: &storage_policy::Model) -> Result<DriverEntry> {
-        // Runtime driver construction still lives in the registry because the
-        // built drivers borrow process state, caches, and protocol clients. #328
-        // moved admin/configuration decisions into connectors; #212 can replace
-        // this built-in match with plugin-provided runtime factories.
-        match policy.driver_type {
-            DriverType::Local => {
-                let driver: Arc<dyn StorageDriver> = Arc::new(LocalDriver::new(policy)?);
-                Ok(self.build_entry(policy.driver_type, driver, None))
-            }
-            DriverType::Remote => {
-                let remote_node_id = policy.remote_node_id.ok_or_else(|| {
-                    AsterError::from(storage_driver_error(
-                        StorageErrorKind::Misconfigured,
-                        "remote storage policy missing remote_node_id",
-                    ))
-                })?;
-                let remote_node = self.get_managed_follower(remote_node_id).ok_or_else(|| {
-                    AsterError::from(storage_driver_error(
-                        StorageErrorKind::Misconfigured,
-                        format!("remote node #{remote_node_id} not loaded in registry"),
-                    ))
-                })?;
-                if !remote_node.is_enabled {
-                    return Err(precondition_failed_with_code(
-                        ApiErrorCode::RemoteNodeDisabled,
-                        format!("remote node #{remote_node_id} is disabled"),
-                    ));
-                }
-                let capabilities = RemoteCapabilityResolver::from_remote_node(&remote_node);
-                let options = parse_storage_policy_options(policy.options.as_ref());
-                if let Err(error) =
-                    capabilities.ensure_remote_policy_options_supported(policy.id, &options)
-                {
-                    tracing::warn!(
-                        remote_node_id,
-                        policy_id = policy.id,
-                        protocol_version = %capabilities.capabilities().protocol_version,
-                        min_supported_protocol_version = %capabilities.capabilities().min_supported_protocol_version,
-                        "remote storage policy protocol compatibility check failed: {error}"
-                    );
-                    return Err(error);
-                }
-                let remote_protocol = self.remote_protocol.read().clone();
-                let driver = if let Some(remote_protocol) = remote_protocol {
-                    Arc::new(remote_protocol.driver_for_policy(policy, &remote_node)?)
-                } else {
-                    Arc::new(RemoteDriver::new(policy, &remote_node)?)
-                };
-                let storage: Arc<dyn StorageDriver> = driver.clone();
-                let multipart: Arc<dyn MultipartStorageDriver> = driver;
-                Ok(self.build_entry(policy.driver_type, storage, Some(multipart)))
-            }
-            DriverType::S3 => {
-                let driver = Arc::new(S3Driver::new(policy)?);
-                let storage: Arc<dyn StorageDriver> = driver.clone();
-                let multipart: Arc<dyn MultipartStorageDriver> = driver;
-                Ok(self.build_entry(policy.driver_type, storage, Some(multipart)))
-            }
-            DriverType::Sftp => {
-                let driver: Arc<dyn StorageDriver> = Arc::new(SftpDriver::new(policy)?);
-                Ok(self.build_entry(policy.driver_type, driver, None))
-            }
-            DriverType::AzureBlob => {
-                let driver = Arc::new(AzureBlobDriver::new(policy)?);
-                let storage: Arc<dyn StorageDriver> = driver.clone();
-                let multipart: Arc<dyn MultipartStorageDriver> = driver;
-                Ok(self.build_entry(policy.driver_type, storage, Some(multipart)))
-            }
-            DriverType::TencentCos => {
-                let driver = Arc::new(TencentCosDriver::new(policy)?);
-                let storage: Arc<dyn StorageDriver> = driver.clone();
-                let multipart: Arc<dyn MultipartStorageDriver> = driver;
-                Ok(self.build_entry(policy.driver_type, storage, Some(multipart)))
-            }
-            DriverType::OneDrive => {
-                let credential = self.get_runtime_credential(policy.id).ok_or_else(|| {
-                    AsterError::from(storage_driver_error(
-                        StorageErrorKind::Auth,
-                        format!(
-                            "OneDrive storage policy {} is missing authorized Microsoft Graph credentials",
-                            policy.id
-                        ),
-                    ))
-                })?;
-                let storage =
-                    crate::storage::connectors::build_authorized_driver(policy, credential)?;
-                Ok(self.build_entry(policy.driver_type, storage, None))
-            }
-        }
+        let driver = self
+            .connectors
+            .require_policy(policy)?
+            .build_runtime_driver(self, policy)?;
+        Ok(self.build_entry(
+            STORAGE_CONNECTOR_METRIC_LABEL,
+            driver.storage,
+            driver.multipart,
+        ))
     }
 
     fn build_entry(
         &self,
-        driver_type: DriverType,
+        metric_label: &'static str,
         storage: Arc<dyn StorageDriver>,
         multipart: Option<Arc<dyn MultipartStorageDriver>>,
     ) -> DriverEntry {
@@ -412,13 +353,13 @@ impl DriverRegistry {
             let multipart = multipart.map(|driver| {
                 Arc::new(MetricsMultipartStorageDriver::new(
                     driver,
-                    driver_type,
+                    metric_label,
                     self.metrics.clone(),
                 )) as Arc<dyn MultipartStorageDriver>
             });
             let storage = Arc::new(MetricsStorageDriver::new(
                 storage,
-                driver_type,
+                metric_label,
                 self.metrics.clone(),
                 multipart.clone(),
             )) as Arc<dyn StorageDriver>;
@@ -430,21 +371,21 @@ impl DriverRegistry {
     }
 }
 
-impl Default for DriverRegistry {
-    fn default() -> Self {
-        Self::noop()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::api_error_code::ApiErrorCode;
+    use crate::storage::connectors::{
+        StorageConnector, StorageConnectorContext, StorageConnectorCredentialInput,
+        StorageConnectorDriver, StorageConnectorUploadTransport,
+    };
     use aster_drive_metrics::MetricsRecorder;
-    use aster_drive_model::types::{StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
+    use aster_drive_model::types::{RemoteDownloadStrategy, RemoteUploadStrategy};
     use aster_drive_storage::error::{
         Result as StorageResult, StorageErrorKind, storage_driver_error,
     };
     use parking_lot::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
     #[derive(Default)]
@@ -470,6 +411,63 @@ mod tests {
     }
 
     struct TestMultipartDriver;
+
+    struct CapturingConnector {
+        descriptor: aster_drive_storage::StorageConnectorDescriptor,
+        runtime_builds: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl StorageConnector for CapturingConnector {
+        fn descriptor(&self) -> aster_drive_storage::StorageConnectorDescriptor {
+            self.descriptor.clone()
+        }
+
+        fn localization(&self) -> Result<aster_drive_storage::StorageConnectorLocalization> {
+            let locale = aster_drive_model::types::LocaleTag::parse("en")
+                .map_err(AsterError::internal_error)?;
+            let messages = self
+                .descriptor
+                .localization_message_ids()
+                .into_iter()
+                .map(|message_id| (message_id.to_string(), message_id.to_string()))
+                .collect();
+            aster_drive_storage::StorageConnectorLocalization::new(
+                self.descriptor.connector_id.clone(),
+                locale.clone(),
+                "test",
+                std::collections::BTreeMap::from([(locale, messages)]),
+            )
+            .map_err(|error| AsterError::internal_error(error.to_string()))
+        }
+
+        async fn build_draft_driver(
+            &self,
+            _context: &StorageConnectorContext<'_>,
+            _policy: &storage_policy::Model,
+            _credential: &StorageConnectorCredentialInput,
+        ) -> Result<Box<dyn StorageDriver>> {
+            Ok(Box::new(TestMultipartDriver))
+        }
+
+        fn build_runtime_driver(
+            &self,
+            _registry: &DriverRegistry,
+            _policy: &storage_policy::Model,
+        ) -> Result<StorageConnectorDriver> {
+            self.runtime_builds.fetch_add(1, Ordering::SeqCst);
+            Ok(StorageConnectorDriver::storage(Arc::new(
+                TestMultipartDriver,
+            )))
+        }
+
+        fn upload_transport(
+            &self,
+            _policy: &storage_policy::Model,
+        ) -> Result<StorageConnectorUploadTransport> {
+            Ok(StorageConnectorUploadTransport::Local)
+        }
+    }
 
     #[async_trait::async_trait]
     impl StorageDriver for TestMultipartDriver {
@@ -563,34 +561,25 @@ mod tests {
     }
 
     fn local_policy() -> storage_policy::Model {
-        let mut policy = remote_policy(None);
-        policy.driver_type = DriverType::Local;
-        policy.remote_node_id = None;
-        policy.base_path = "data/test-local-driver".to_string();
+        let mut policy =
+            crate::storage::connectors::test_support::local_policy("data/test-local-driver");
+        policy.id = 42;
+        policy.name = "local policy".to_string();
+        policy.chunk_size = 5_242_880;
         policy
     }
 
     fn remote_policy(remote_node_id: Option<i64>) -> storage_policy::Model {
-        let now = chrono::Utc::now();
-        storage_policy::Model {
-            id: 42,
-            name: "remote policy".to_string(),
-            driver_type: DriverType::Remote,
-            endpoint: String::new(),
-            bucket: String::new(),
-            access_key: String::new(),
-            secret_key: String::new(),
-            base_path: "base".to_string(),
+        let mut policy = crate::storage::connectors::test_support::remote_policy(
+            "base",
             remote_node_id,
-            remote_storage_target_key: None,
-            max_file_size: 0,
-            allowed_types: StoredStoragePolicyAllowedTypes::empty(),
-            options: StoredStoragePolicyOptions::empty(),
-            is_default: false,
-            chunk_size: 5_242_880,
-            created_at: now,
-            updated_at: now,
-        }
+            RemoteDownloadStrategy::RelayStream,
+            RemoteUploadStrategy::RelayStream,
+        );
+        policy.id = 42;
+        policy.name = "remote policy".to_string();
+        policy.chunk_size = 5_242_880;
+        policy
     }
 
     fn managed_follower(is_enabled: bool) -> aster_drive_model::entities::managed_follower::Model {
@@ -619,7 +608,7 @@ mod tests {
     fn registry_with_follower(
         follower: aster_drive_model::entities::managed_follower::Model,
     ) -> DriverRegistry {
-        let registry = DriverRegistry::noop();
+        let registry = DriverRegistry::noop().expect("built-in storage connector registry");
         registry
             .managed_followers_by_id
             .write()
@@ -628,8 +617,202 @@ mod tests {
     }
 
     #[test]
+    fn runtime_driver_construction_dispatches_through_injected_connector_registry() {
+        let descriptor = builtin_storage_connector_registry()
+            .expect("built-in connector registry")
+            .require_connector(&aster_drive_storage::ConnectorId::declared(
+                "asterdrive.storage.local",
+            ))
+            .expect("local connector")
+            .descriptor();
+        let runtime_builds = Arc::new(AtomicUsize::new(0));
+        let connectors = Arc::new(
+            StorageConnectorRegistry::new(vec![Arc::new(CapturingConnector {
+                descriptor,
+                runtime_builds: runtime_builds.clone(),
+            })])
+            .expect("capturing connector registry"),
+        );
+        let registry =
+            DriverRegistry::with_connectors(aster_drive_metrics::NoopMetrics::arc(), connectors);
+        let policy = local_policy();
+
+        let first = registry
+            .get_driver(&policy)
+            .expect("injected connector should construct the runtime driver");
+        let second = registry
+            .get_driver(&policy)
+            .expect("cached runtime driver should resolve");
+
+        assert_eq!(runtime_builds.load(Ordering::SeqCst), 1);
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(
+            registry.get_multipart_driver(&policy).is_err(),
+            "storage-only connector bundles must not expose multipart support"
+        );
+    }
+
+    #[test]
+    fn connector_registry_accepts_non_builtin_plugin_id_without_a_parallel_path() {
+        let mut descriptor = builtin_storage_connector_registry()
+            .expect("built-in connector registry")
+            .require_connector(&aster_drive_storage::ConnectorId::declared(
+                "asterdrive.storage.local",
+            ))
+            .expect("local connector")
+            .descriptor();
+        let plugin_id = aster_drive_storage::ConnectorId::declared("com.example.storage");
+        descriptor.connector_id = plugin_id.clone();
+
+        let registry = StorageConnectorRegistry::new(vec![Arc::new(CapturingConnector {
+            descriptor,
+            runtime_builds: Arc::new(AtomicUsize::new(0)),
+        })])
+        .expect("third-party plugin should use the same connector registry");
+
+        assert_eq!(
+            registry
+                .require_connector(&plugin_id)
+                .expect("third-party plugin id should resolve")
+                .descriptor()
+                .connector_id,
+            plugin_id
+        );
+    }
+
+    #[test]
+    fn connector_registry_rejects_invalid_and_duplicate_action_ids() {
+        let mut descriptor = builtin_storage_connector_registry()
+            .expect("built-in connector registry")
+            .require_connector(&aster_drive_storage::ConnectorId::declared(
+                "asterdrive.storage.local",
+            ))
+            .expect("local connector")
+            .descriptor();
+        descriptor.actions[0].action_id =
+            aster_drive_storage::StorageConnectorActionId::declared("Invalid Action");
+        let invalid = match StorageConnectorRegistry::new(vec![Arc::new(CapturingConnector {
+            descriptor,
+            runtime_builds: Arc::new(AtomicUsize::new(0)),
+        })]) {
+            Ok(_) => panic!("invalid action ids must fail connector registration"),
+            Err(error) => error,
+        };
+        let invalid = invalid.to_string();
+        assert!(invalid.contains("declares an invalid descriptor"));
+        assert!(invalid.contains("action 'Invalid Action' is invalid"));
+        assert!(invalid.contains("action id must be 3-128 lowercase ASCII"));
+
+        let mut descriptor = builtin_storage_connector_registry()
+            .expect("built-in connector registry")
+            .require_connector(&aster_drive_storage::ConnectorId::declared(
+                "asterdrive.storage.local",
+            ))
+            .expect("local connector")
+            .descriptor();
+        descriptor.actions.push(descriptor.actions[0].clone());
+        let duplicate = match StorageConnectorRegistry::new(vec![Arc::new(CapturingConnector {
+            descriptor,
+            runtime_builds: Arc::new(AtomicUsize::new(0)),
+        })]) {
+            Ok(_) => panic!("duplicate action ids must fail connector registration"),
+            Err(error) => error,
+        };
+        let duplicate = duplicate.to_string();
+        assert!(duplicate.contains("declares an invalid descriptor"));
+        assert!(duplicate.contains("action 'test_draft_connection' is declared more than once"));
+    }
+
+    #[test]
+    fn action_descriptor_lookup_is_namespaced_by_connector_id() {
+        let base = builtin_storage_connector_registry()
+            .expect("built-in connector registry")
+            .require_connector(&aster_drive_storage::ConnectorId::declared(
+                "asterdrive.storage.local",
+            ))
+            .expect("local connector")
+            .descriptor();
+        let shared_action_id =
+            aster_drive_storage::StorageConnectorActionId::declared("plugin.verify_path");
+
+        let mut first = base.clone();
+        first.connector_id = aster_drive_storage::ConnectorId::declared("com.example.first");
+        first.actions = vec![aster_drive_storage::custom_action_descriptor(
+            aster_drive_storage::StorageConnectorCustomActionDescriptorInput {
+                action_id: shared_action_id.clone(),
+                label_key: "first.verify_path",
+                description_key: "first.verify_path_desc",
+                fields: Vec::new(),
+                supports_draft: true,
+                supports_saved: false,
+                requires_authorization: false,
+                mutates_remote_state: false,
+                requires_confirmation: false,
+            },
+        )];
+
+        let mut second = base;
+        second.connector_id = aster_drive_storage::ConnectorId::declared("com.example.second");
+        second.actions = vec![aster_drive_storage::custom_action_descriptor(
+            aster_drive_storage::StorageConnectorCustomActionDescriptorInput {
+                action_id: shared_action_id.clone(),
+                label_key: "second.verify_path",
+                description_key: "second.verify_path_desc",
+                fields: Vec::new(),
+                supports_draft: false,
+                supports_saved: true,
+                requires_authorization: true,
+                mutates_remote_state: true,
+                requires_confirmation: true,
+            },
+        )];
+
+        let registry = StorageConnectorRegistry::new(vec![
+            Arc::new(CapturingConnector {
+                descriptor: first,
+                runtime_builds: Arc::new(AtomicUsize::new(0)),
+            }),
+            Arc::new(CapturingConnector {
+                descriptor: second,
+                runtime_builds: Arc::new(AtomicUsize::new(0)),
+            }),
+        ])
+        .expect("the same action id may be declared by different connectors");
+
+        let first = registry
+            .action_descriptor(
+                &aster_drive_storage::ConnectorId::declared("com.example.first"),
+                &shared_action_id,
+            )
+            .expect("first connector lookup")
+            .expect("first action");
+        let second = registry
+            .action_descriptor(
+                &aster_drive_storage::ConnectorId::declared("com.example.second"),
+                &shared_action_id,
+            )
+            .expect("second connector lookup")
+            .expect("second action");
+
+        assert_eq!(first.label_key, "first.verify_path");
+        assert!(!first.mutates_remote_state);
+        assert_eq!(second.label_key, "second.verify_path");
+        assert!(second.mutates_remote_state);
+        assert!(
+            registry
+                .action_descriptor(
+                    &aster_drive_storage::ConnectorId::declared("com.example.first"),
+                    &aster_drive_storage::StorageConnectorActionId::declared("plugin.missing"),
+                )
+                .expect("known connector lookup")
+                .is_none()
+        );
+    }
+
+    #[test]
     fn metrics_enabled_driver_is_wrapped_once_and_cached() {
-        let registry = DriverRegistry::new(Arc::new(CapturingMetrics::default()));
+        let registry = DriverRegistry::new(Arc::new(CapturingMetrics::default()))
+            .expect("built-in storage connector registry");
         let policy = local_policy();
 
         let driver1 = registry
@@ -647,7 +830,8 @@ mod tests {
 
     #[test]
     fn uncached_driver_build_does_not_populate_shared_cache() {
-        let registry = DriverRegistry::new(Arc::new(CapturingMetrics::default()));
+        let registry = DriverRegistry::new(Arc::new(CapturingMetrics::default()))
+            .expect("built-in storage connector registry");
         let policy = local_policy();
 
         let uncached = registry
@@ -674,7 +858,8 @@ mod tests {
 
     #[test]
     fn cached_driver_lookup_is_read_only() {
-        let registry = DriverRegistry::new(Arc::new(CapturingMetrics::default()));
+        let registry = DriverRegistry::new(Arc::new(CapturingMetrics::default()))
+            .expect("built-in storage connector registry");
         let policy = local_policy();
 
         assert!(
@@ -698,7 +883,8 @@ mod tests {
     #[tokio::test]
     async fn metrics_enabled_multipart_driver_records_operations() {
         let metrics = Arc::new(CapturingMetrics::default());
-        let registry = DriverRegistry::new(metrics.clone());
+        let registry =
+            DriverRegistry::new(metrics.clone()).expect("built-in storage connector registry");
         let policy = remote_policy(Some(7));
         let driver = Arc::new(TestMultipartDriver);
         let storage: Arc<dyn StorageDriver> = driver.clone();
@@ -706,7 +892,7 @@ mod tests {
 
         registry.drivers.insert(
             policy.id,
-            registry.build_entry(DriverType::Remote, storage, Some(multipart)),
+            registry.build_entry(STORAGE_CONNECTOR_METRIC_LABEL, storage, Some(multipart)),
         );
 
         let multipart_driver = registry
@@ -730,7 +916,7 @@ mod tests {
 
     #[test]
     fn remote_policy_requires_remote_node_id() {
-        let registry = DriverRegistry::noop();
+        let registry = DriverRegistry::noop().expect("built-in storage connector registry");
 
         let error = match registry.get_driver(&remote_policy(None)) {
             Ok(_) => panic!("remote policy without node id should fail"),
@@ -747,7 +933,7 @@ mod tests {
 
     #[test]
     fn remote_policy_requires_loaded_follower() {
-        let registry = DriverRegistry::noop();
+        let registry = DriverRegistry::noop().expect("built-in storage connector registry");
 
         let error = match registry.get_driver(&remote_policy(Some(7))) {
             Ok(_) => panic!("remote policy without loaded follower should fail"),
@@ -857,15 +1043,13 @@ mod tests {
             serde_json::to_string(&capabilities).expect("test capabilities should serialize");
         let registry = registry_with_follower(follower);
         let mut policy = remote_policy(Some(7));
-        policy.options = aster_drive_model::types::serialize_storage_policy_options(
-            &aster_drive_model::types::StoragePolicyOptions {
-                remote_download_strategy: Some(
-                    aster_drive_model::types::RemoteDownloadStrategy::Presigned,
-                ),
-                ..Default::default()
-            },
+        policy.storage_config = crate::storage::connectors::test_support::remote_policy(
+            "base",
+            Some(7),
+            RemoteDownloadStrategy::Presigned,
+            RemoteUploadStrategy::RelayStream,
         )
-        .expect("policy options should serialize");
+        .storage_config;
 
         let error = match registry.get_driver(&policy) {
             Ok(_) => panic!("incomplete browser CORS should block remote presigned download"),

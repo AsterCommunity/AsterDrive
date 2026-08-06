@@ -13,7 +13,9 @@ use crate::storage::remote_protocol::{
     normalize_remote_base_url,
 };
 use aster_drive_model::entities::{follower_enrollment_session, managed_follower};
-use aster_drive_model::types::{RemoteNodeTransportMode, parse_storage_policy_options};
+use aster_drive_model::types::{
+    RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteUploadStrategy,
+};
 use aster_drive_storage::StorageErrorKind;
 use aster_forge_api::{OffsetPage, SortOrder};
 use chrono::Utc;
@@ -281,7 +283,7 @@ pub async fn update<S: RemoteProtocolRuntimeState>(
 
 pub async fn delete<S: RemoteProtocolRuntimeState>(state: &S, id: i64) -> Result<()> {
     tracing::debug!(remote_node_id = id, "deleting remote node");
-    let policy_refs = policy_repo::count_by_remote_node_id(state.writer_db(), id).await?;
+    let policy_refs = policy_requirements_for_node(state, id).await?.len();
     if policy_refs > 0 {
         return Err(AsterError::validation_error(format!(
             "cannot delete remote node: {policy_refs} storage policy(s) still reference it"
@@ -483,17 +485,26 @@ pub(crate) fn remote_storage_client_for_node<S: RemoteProtocolRuntimeState>(
 async fn policy_requirements_for_node<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
-) -> Result<Vec<(i64, aster_drive_model::types::StoragePolicyOptions)>> {
-    let policies = policy_repo::find_by_remote_node_id(state.writer_db(), remote_node_id).await?;
-    Ok(policies
-        .into_iter()
-        .map(|policy| {
-            (
+) -> Result<Vec<(i64, RemoteDownloadStrategy, RemoteUploadStrategy)>> {
+    let policies = policy_repo::find_all(state.writer_db()).await?;
+    let mut requirements = Vec::new();
+    for policy in policies {
+        let Some(binding) = crate::storage::connectors::resolve_remote_policy_binding(
+            state.driver_registry().connectors(),
+            &policy,
+        )?
+        else {
+            continue;
+        };
+        if binding.remote_node_id == Some(remote_node_id) {
+            requirements.push((
                 policy.id,
-                parse_storage_policy_options(policy.options.as_ref()),
-            )
-        })
-        .collect())
+                binding.download_strategy,
+                binding.upload_strategy,
+            ));
+        }
+    }
+    Ok(requirements)
 }
 
 async fn ensure_transport_change_keeps_referencing_policies_valid<S: RemoteProtocolRuntimeState>(
@@ -506,8 +517,13 @@ async fn ensure_transport_change_keeps_referencing_policies_valid<S: RemoteProto
         return Ok(());
     }
 
-    for (policy_id, options) in policy_requirements_for_node(state, remote_node_id).await? {
-        if RemoteCapabilityResolver::requires_direct_transport_for_presigned(&options) {
+    for (policy_id, download_strategy, upload_strategy) in
+        policy_requirements_for_node(state, remote_node_id).await?
+    {
+        if RemoteCapabilityResolver::requires_direct_transport_for_presigned(
+            download_strategy,
+            upload_strategy,
+        ) {
             return Err(AsterError::validation_error(format!(
                 "cannot switch remote node #{remote_node_id} to reverse tunnel while storage policy #{policy_id} uses presigned browser transfer strategies",
             )));
@@ -527,13 +543,9 @@ async fn probe_and_persist_node<S: RemoteProtocolRuntimeState>(
     let (last_capabilities, last_error, probe_error) = match capabilities {
         Ok(capabilities) => {
             let policy_requirements = policy_requirements_for_node(state, node.id).await?;
-            let policy_requirements = policy_requirements
-                .iter()
-                .map(|(policy_id, options)| (*policy_id, options))
-                .collect::<Vec<_>>();
             let resolver = RemoteCapabilityResolver::from_capabilities(node.id, capabilities);
             match resolver
-                .ensure_binding_policy_options_supported(&node.name, policy_requirements.as_slice())
+                .ensure_binding_policy_configs_supported(&node.name, policy_requirements.as_slice())
             {
                 Ok(()) => (
                     serialize_capabilities(resolver.capabilities()),
@@ -682,7 +694,10 @@ fn normalize_non_blank(field: &str, value: &str) -> Result<String> {
 }
 
 async fn refresh_registry<S: RemoteProtocolRuntimeState>(state: &S) -> Result<()> {
-    state.policy_snapshot().reload(state.writer_db()).await?;
+    state
+        .driver_registry()
+        .reload_policy_snapshot(state.policy_snapshot(), state.writer_db())
+        .await?;
     state
         .driver_registry()
         .reload_managed_followers(state.writer_db())
@@ -745,7 +760,6 @@ mod tests {
     };
     use crate::config::{Config, DatabaseConfig, RuntimeConfig};
     use crate::db;
-    use crate::runtime::SharedRuntimeState;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use aster_drive_migration::Migrator;
     use aster_drive_model::types::RemoteNodeTransportMode;
@@ -812,7 +826,9 @@ mod tests {
 
         crate::runtime::PrimaryAppState {
             db_handles: aster_forge_db::DbHandles::single(database),
-            driver_registry: Arc::new(DriverRegistry::noop()),
+            driver_registry: Arc::new(
+                DriverRegistry::noop().expect("built-in storage connector registry"),
+            ),
             runtime_config: runtime_config.clone(),
             policy_snapshot: Arc::new(PolicySnapshot::new()),
             config: Arc::new(Config::default()),

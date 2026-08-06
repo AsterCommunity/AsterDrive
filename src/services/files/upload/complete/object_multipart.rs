@@ -67,7 +67,7 @@ pub(super) async fn complete_presigned_upload(
                 actual_size,
                 policy.id,
                 final_key,
-                opaque_upload_file_hash(&policy, &session)?,
+                opaque_upload_file_hash(state.driver_registry().connectors(), &policy, &session)?,
             )?;
             let file = finalize_verified_opaque_upload_session(
                 state,
@@ -248,25 +248,29 @@ pub(super) async fn finalize_verified_opaque_upload_session(
 }
 
 pub(super) fn opaque_upload_file_hash(
+    registry: &crate::storage::connectors::StorageConnectorRegistry,
     policy: &storage_policy::Model,
     session: &upload_session::Model,
 ) -> Result<String> {
     Ok(format!(
         "{}-{}",
-        opaque_blob_hash_prefix(policy)?,
+        opaque_blob_hash_prefix(registry, policy)?,
         session.id
     ))
 }
 
-fn opaque_blob_hash_prefix(policy: &storage_policy::Model) -> Result<&'static str> {
-    storage::resolve_policy_upload_transport(policy)?
+fn opaque_blob_hash_prefix(
+    registry: &crate::storage::connectors::StorageConnectorRegistry,
+    policy: &storage_policy::Model,
+) -> Result<&'static str> {
+    storage::resolve_policy_upload_transport(registry, policy)?
         .opaque_blob_hash_prefix()
         .ok_or_else(|| {
             upload_assembly_error_with_code(
                 ApiErrorCode::UploadSessionCorrupted,
                 format!(
                     "storage policy driver '{}' cannot finalize opaque upload sessions without an opaque hash prefix",
-                    policy.driver_type.as_str()
+                    policy.connector_id
                 ),
             )
         })
@@ -413,7 +417,11 @@ async fn complete_object_multipart_upload_session(
                         actual_size,
                         policy.id,
                         temp_key.to_string(),
-                        opaque_upload_file_hash(&policy, &session)?,
+                        opaque_upload_file_hash(
+                            state.driver_registry().connectors(),
+                            &policy,
+                            &session,
+                        )?,
                     )?;
                     return finalize_verified_opaque_upload_session(
                         state,
@@ -439,7 +447,7 @@ async fn complete_object_multipart_upload_session(
                 actual_size,
                 policy.id,
                 temp_key.to_string(),
-                opaque_upload_file_hash(&policy, &session)?,
+                opaque_upload_file_hash(state.driver_registry().connectors(), &policy, &session)?,
             )?;
             finalize_verified_opaque_upload_session(
                 state,

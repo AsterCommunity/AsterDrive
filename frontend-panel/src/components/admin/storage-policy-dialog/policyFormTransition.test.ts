@@ -1,58 +1,66 @@
 import { describe, expect, it } from "vitest";
 import type {
-	DriverType,
 	StorageConnectorDescriptor,
 	StorageConnectorFieldDescriptor,
 } from "@/types/api";
 import { emptyForm } from "./formTypes";
 import {
-	applyPolicyDriverTransition,
+	applyPolicyConnectorTransition,
 	applyPolicyFormFieldChange,
 } from "./policyFormTransition";
 
 function field(
 	name: string,
-	scope: StorageConnectorFieldDescriptor["scope"],
+	overrides: Partial<StorageConnectorFieldDescriptor> = {},
 ): StorageConnectorFieldDescriptor {
 	return {
 		kind: "text",
+		label_key: name,
 		name,
 		required: false,
-		scope,
+		scope: "connector_config",
 		secret: false,
+		...overrides,
 	};
 }
 
 function descriptor(
-	driverType: DriverType,
-	overrides: Partial<StorageConnectorDescriptor> = {},
+	connectorId: string,
+	fields: StorageConnectorFieldDescriptor[] = [],
 ): StorageConnectorDescriptor {
 	return {
 		actions: [],
-		authorization_provider: null,
 		capabilities: {
-			capacity: true,
+			capacity: false,
 			efficient_range: true,
 			list: true,
+			object_naming: "opaque_uuid",
 			object_storage_transfer_strategy: false,
 			presigned_download: false,
 			remote_node_binding: false,
 			storage_native_media_metadata: false,
 			storage_native_thumbnail: false,
 		},
+		config_schema_version: 1,
+		connector_id: connectorId,
 		credential_mode: "none",
-		description: `${driverType} descriptor`,
-		driver_recommendations: [],
-		driver_type: driverType,
-		enabled: true,
-		fields: [],
-		label: driverType,
-		related_issues: [],
+		deployment_scope: "shared_across_primary_instances",
+		description: `${connectorId} descriptor`,
+		fields,
+		label: connectorId,
 		requires_authorization: false,
+		supports_initial_setup: true,
 		ui: {
-			description_key: `${driverType}_description`,
-			icon: null,
-			label_key: driverType,
+			badge_rgb: { red: 113, green: 113, blue: 122 },
+			base_path_empty_display: "root",
+			base_path_placeholder: "prefix",
+			config_step_description_key: "config_desc",
+			config_step_title_key: "config_title",
+			description_key: "connector_desc",
+			edit_context_key: "edit_context",
+			helper_key: "helper",
+			icon_name: "hard-drive",
+			label_key: "connector_label",
 		},
 		upload_workflows: {
 			frontend_direct_provider_resumable_upload: false,
@@ -60,190 +68,96 @@ function descriptor(
 			presigned_upload: false,
 			provider_resumable_upload: false,
 			simple_upload: true,
+			simple_upload_capabilities: {
+				policy_limited: true,
+				server_side_relay: true,
+			},
 			stream_upload: true,
 		},
-		...overrides,
 	};
 }
 
-function objectStorageDescriptor(
-	driverType: DriverType,
-	overrides: Partial<StorageConnectorDescriptor> = {},
-) {
-	const base = descriptor(driverType);
-	return descriptor(driverType, {
-		...overrides,
-		capabilities: {
-			...base.capabilities,
-			object_storage_transfer_strategy: true,
-			...overrides.capabilities,
-		},
-		fields: [
-			field("endpoint", "connection"),
-			field("bucket", "connection"),
-			field("access_key", "connection"),
-			field("secret_key", "connection"),
-			...(overrides.fields ?? []),
-		],
-		upload_workflows: {
-			...base.upload_workflows,
-			object_multipart_upload: true,
-			...overrides.upload_workflows,
-		},
-	});
-}
-
 describe("policy form transitions", () => {
-	it("resets remote binding and preserves object-storage strategy defaults when switching to object storage", () => {
+	it("starts a clean connector-owned envelope and applies only target defaults", () => {
 		const form = {
 			...emptyForm,
-			driver_type: "remote" as const,
-			remote_node_id: "7",
-			remote_storage_target_key: "target-a",
-			s3_path_style: false,
-		};
-
-		const next = applyPolicyDriverTransition(
-			form,
-			"s3",
-			objectStorageDescriptor("s3"),
-		);
-
-		expect(next.driver_type).toBe("s3");
-		expect(next.remote_node_id).toBe("");
-		expect(next.remote_storage_target_key).toBe("");
-		expect(next.s3_path_style).toBe(false);
-	});
-
-	it("clears object-storage credentials when switching to remote storage", () => {
-		const next = applyPolicyDriverTransition(
-			{
-				...emptyForm,
-				driver_type: "s3",
-				endpoint: "https://s3.example.com",
-				bucket: "files",
-				access_key: "access",
-				secret_key: "secret",
-				content_dedup: true,
-				s3_path_style: false,
-			},
-			"remote",
-			descriptor("remote", {
-				capabilities: {
-					...descriptor("remote").capabilities,
-					remote_node_binding: true,
-				},
-			}),
-		);
-
-		expect(next).toMatchObject({
-			driver_type: "remote",
-			endpoint: "",
-			bucket: "",
-			access_key: "",
-			secret_key: "",
-			content_dedup: false,
-			remote_storage_target_key: "",
-		});
-		expect(next).not.toHaveProperty("s3_path_style");
-	});
-
-	it("seeds OneDrive defaults and clears application secrets on OneDrive transition", () => {
-		const next = applyPolicyDriverTransition(
-			{
-				...emptyForm,
-				driver_type: "s3",
-				endpoint: "https://s3.example.com",
-				bucket: "files",
-				onedrive_cloud: "china",
-				onedrive_tenant: "tenant-a",
-			},
-			"one_drive",
-			descriptor("one_drive", {
-				fields: [field("account_mode", "policy_options")],
-			}),
-		);
-
-		expect(next).toMatchObject({
-			driver_type: "one_drive",
-			endpoint: "",
-			bucket: "",
-			content_dedup: false,
-			onedrive_cloud: "china",
-			onedrive_tenant: "tenant-a",
-			object_storage_upload_strategy: "relay_stream",
-			provider_download_strategy: "frontend_direct",
-			provider_resumable_upload_strategy: "server_relay",
-		});
-		expect(next.application_credentials.microsoft_graph).toMatchObject({
-			cloud: "china",
-			tenant: "tenant-a",
-			client_id: "",
-			client_secret: "",
-			scopes: "",
-		});
-		expect(next).not.toHaveProperty("s3_path_style");
-	});
-
-	it("preserves storage-native extension choices only when the target descriptor supports them", () => {
-		const form = {
-			...emptyForm,
-			storage_native_processing_enabled: true,
+			connector_id: "plugin.old",
+			connector_config_values: { endpoint: "old", opaque: true },
+			credential_values: { token: "secret" },
 			thumbnail_processor: "storage_native" as const,
-			thumbnail_extensions: ["png"],
-			storage_native_media_metadata_enabled: true,
+			thumbnail_extensions: ["jpg"],
 			media_metadata_extensions: ["mp4"],
 		};
-
-		const supported = applyPolicyDriverTransition(
-			form,
-			"tencent_cos",
-			objectStorageDescriptor("tencent_cos", {
-				capabilities: {
-					...descriptor("tencent_cos").capabilities,
-					object_storage_transfer_strategy: true,
-					storage_native_media_metadata: true,
-					storage_native_thumbnail: true,
-				},
+		const target = descriptor("plugin.new", [
+			field("region", { default_value: "auto" }),
+			field("enabled", { kind: "boolean", default_value: false }),
+			field("credential", {
+				default_value: "must-not-leak",
+				scope: "static_credential",
 			}),
-		);
-		const unsupported = applyPolicyDriverTransition(
-			form,
-			"s3",
-			objectStorageDescriptor("s3"),
-		);
-
-		expect(supported.thumbnail_extensions).toEqual(["png"]);
-		expect(supported.media_metadata_extensions).toEqual(["mp4"]);
-		expect(unsupported.storage_native_processing_enabled).toBe(false);
-		expect(unsupported.thumbnail_extensions).toEqual([]);
-		expect(unsupported.media_metadata_extensions).toEqual([]);
-	});
-
-	it("updates dependent fields for storage native processing and remote node changes", () => {
-		const enabled = applyPolicyFormFieldChange(
-			emptyForm,
-			"storage_native_processing_enabled",
-			true,
-		);
-		expect(enabled.thumbnail_processor).toBe("storage_native");
-		expect(enabled.thumbnail_extensions).toEqual([
-			"jpg",
-			"jpeg",
-			"png",
-			"webp",
-			"gif",
 		]);
 
-		const remoteNodeChanged = applyPolicyFormFieldChange(
-			{
-				...emptyForm,
-				remote_storage_target_key: "old-target",
-			},
-			"remote_node_id",
-			"12",
+		expect(
+			applyPolicyConnectorTransition(form, target.connector_id, target),
+		).toEqual({
+			...form,
+			connector_id: "plugin.new",
+			connector_config_values: { region: "auto", enabled: false },
+			credential_values: {},
+			thumbnail_processor: null,
+			thumbnail_extensions: [],
+			media_metadata_extensions: [],
+		});
+	});
+
+	it("uses an empty config when the descriptor is missing or declares no defaults", () => {
+		const form = {
+			...emptyForm,
+			connector_config_values: { stale: "value" },
+			credential_values: { stale_secret: "value" },
+		};
+
+		expect(
+			applyPolicyConnectorTransition(form, "plugin.missing", null),
+		).toMatchObject({
+			connector_id: "plugin.missing",
+			connector_config_values: {},
+			credential_values: {},
+		});
+		expect(
+			applyPolicyConnectorTransition(
+				form,
+				"plugin.empty",
+				descriptor("plugin.empty"),
+			).connector_config_values,
+		).toEqual({});
+	});
+
+	it("does not mutate the original form or share default value maps", () => {
+		const form = { ...emptyForm };
+		const target = descriptor("plugin.new", [
+			field("region", { default_value: "auto" }),
+		]);
+		const first = applyPolicyConnectorTransition(
+			form,
+			target.connector_id,
+			target,
 		);
-		expect(remoteNodeChanged.remote_node_id).toBe("12");
-		expect(remoteNodeChanged.remote_storage_target_key).toBe("");
+		first.connector_config_values.region = "changed";
+		const second = applyPolicyConnectorTransition(
+			form,
+			target.connector_id,
+			target,
+		);
+
+		expect(form).toEqual(emptyForm);
+		expect(second.connector_config_values).toEqual({ region: "auto" });
+	});
+
+	it("applies ordinary policy-level field changes without connector knowledge", () => {
+		const changed = applyPolicyFormFieldChange(emptyForm, "name", "Archive");
+
+		expect(changed.name).toBe("Archive");
+		expect(emptyForm.name).toBe("");
 	});
 });

@@ -230,8 +230,11 @@ fn storage_native_media_metadata_matches_file(
     }
 
     let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
-    let options = aster_drive_model::types::parse_storage_policy_options(policy.options.as_ref());
-    if !options.storage_native_media_metadata_matches_file_name(source_file_name) {
+    let behavior = crate::storage::connectors::resolve_policy_behavior(
+        state.driver_registry().connectors(),
+        &policy,
+    )?;
+    if !behavior.storage_native_media_metadata_matches_file_name(source_file_name) {
         return Ok(false);
     }
 
@@ -255,8 +258,11 @@ async fn try_extract_storage_native_metadata(
     }
 
     let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
-    let options = aster_drive_model::types::parse_storage_policy_options(policy.options.as_ref());
-    if !options.storage_native_media_metadata_matches_file_name(source_file_name) {
+    let behavior = crate::storage::connectors::resolve_policy_behavior(
+        state.driver_registry().connectors(),
+        &policy,
+    )?;
+    if !behavior.storage_native_media_metadata_matches_file_name(source_file_name) {
         return Ok(None);
     }
 

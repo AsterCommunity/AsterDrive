@@ -1,10 +1,9 @@
 //! 集成测试：`public_thumbnail_support`。
 
 use crate::common;
-use aster_drive::runtime::SharedRuntimeState;
 
 use actix_web::test;
-use sea_orm::Set;
+use aster_drive::api::api_error_code::ApiErrorCode;
 use serde_json::{Value, json};
 
 fn available_test_command() -> String {
@@ -16,48 +15,31 @@ fn available_test_command() -> String {
 
 async fn create_storage_native_thumbnail_policy(
     state: &aster_drive::runtime::PrimaryAppState,
-    driver_type: aster_drive_model::types::DriverType,
+    mut connection: aster_drive::storage::StorageConnectorConnectionInput,
     name: &str,
     extensions: Vec<String>,
 ) -> aster_drive_model::entities::storage_policy::Model {
-    let now = chrono::Utc::now();
-    let options = aster_drive_model::types::serialize_storage_policy_options(
-        &aster_drive_model::types::StoragePolicyOptions {
-            storage_native_processing_enabled: Some(true),
-            thumbnail_processor: Some(aster_drive_model::types::MediaProcessorKind::StorageNative),
-            thumbnail_extensions: extensions,
-            ..Default::default()
-        },
-    )
-    .expect("storage policy options should serialize");
-    let policy = aster_drive::db::repository::policy_repo::create(
-        state.writer_db(),
-        aster_drive_model::entities::storage_policy::ActiveModel {
-            name: Set(name.to_string()),
-            driver_type: Set(driver_type),
-            endpoint: Set("https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com".to_string()),
-            bucket: Set("bucket-1250000000".to_string()),
-            access_key: Set("AKID".to_string()),
-            secret_key: Set("SECRET".to_string()),
-            base_path: Set(String::new()),
-            max_file_size: Set(0),
-            allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(options),
-            is_default: Set(false),
-            chunk_size: Set(5_242_880),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
+    connection.behavior = aster_drive_storage::StoragePolicyBehaviorConfig {
+        thumbnail_processor: Some(aster_drive_model::types::MediaProcessorKind::StorageNative),
+        thumbnail_extensions: extensions,
+        ..Default::default()
+    };
+    let created = aster_drive::services::storage_policy::policy::create(
+        state,
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyInput {
+            name: name.to_string(),
+            connection,
+            max_file_size: 0,
+            chunk_size: Some(5_242_880),
+            is_default: false,
+            allowed_types: None,
         },
     )
     .await
-    .expect("policy should be created");
-    state
-        .policy_snapshot
-        .reload(state.reader_db())
+    .expect("storage-native policy should be created through the connector service");
+    aster_drive::db::repository::policy_repo::find_by_id(state.writer_db(), created.id)
         .await
-        .expect("policy snapshot should reload");
-    policy
+        .expect("created storage-native policy should be queryable")
 }
 
 #[actix_web::test]
@@ -309,7 +291,13 @@ async fn test_public_thumbnail_support_includes_storage_native_policy_without_ca
     let app = create_test_app!(state.clone());
     let policy = create_storage_native_thumbnail_policy(
         &state,
-        aster_drive_model::types::DriverType::TencentCos,
+        common::tencent_cos_connection(
+            "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com",
+            "bucket-1250000000",
+            "",
+            "AKID",
+            "SECRET",
+        ),
         "Native Thumbnail",
         vec![" .HEIF ".to_string(), ".heif".to_string()],
     )
@@ -337,34 +325,36 @@ async fn test_public_thumbnail_support_includes_storage_native_policy_without_ca
 }
 
 #[actix_web::test]
-async fn test_public_thumbnail_support_ignores_storage_native_options_for_unsupported_driver() {
+async fn test_storage_native_thumbnail_rejects_unsupported_connector() {
     let state = common::setup().await;
-    let app = create_test_app!(state.clone());
-    let policy = create_storage_native_thumbnail_policy(
-        &state,
-        aster_drive_model::types::DriverType::S3,
-        "Unsupported Native Thumbnail",
-        vec!["zzrawthumb".to_string()],
-    )
-    .await;
-
-    let req = test::TestRequest::get()
-        .uri("/api/v1/public/thumbnail-support")
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
-
-    let body: Value = test::read_body_json(resp).await;
-    let image_thumbnail_extensions = body["data"]["image_thumbnail"]["extensions"]
-        .as_array()
-        .expect("image thumbnail extensions should be an array");
-    assert!(
-        !image_thumbnail_extensions
-            .iter()
-            .any(|value| value == "zzrawthumb")
+    let mut connection = common::s3_connection(
+        "https://s3.example.com",
+        "unsupported-native-thumbnail",
+        "",
+        "AKID",
+        "SECRET",
     );
-    assert!(
-        !state.driver_registry.has_cached_driver_for_test(policy.id),
-        "unsupported public thumbnail policy must not be instantiated just to reject capability"
+    connection.behavior = aster_drive_storage::StoragePolicyBehaviorConfig {
+        thumbnail_processor: Some(aster_drive_model::types::MediaProcessorKind::StorageNative),
+        thumbnail_extensions: vec!["zzrawthumb".to_string()],
+        ..Default::default()
+    };
+    let error = aster_drive::services::storage_policy::policy::create(
+        &state,
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyInput {
+            name: "Unsupported Native Thumbnail".to_string(),
+            connection,
+            max_file_size: 0,
+            chunk_size: Some(5_242_880),
+            is_default: false,
+            allowed_types: None,
+        },
+    )
+    .await
+    .expect_err("unsupported connector must reject storage-native thumbnail processing");
+
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::PolicyNativeThumbnailUnsupported
     );
 }

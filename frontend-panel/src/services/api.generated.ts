@@ -356,22 +356,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/policies/storage-credential-providers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["list_storage_credential_providers"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/admin/policies/storage-drivers": {
         parameters: {
             query?: never;
@@ -380,6 +364,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["list_storage_driver_descriptors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/policies/storage-drivers/localizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_storage_driver_localizations"];
         put?: never;
         post?: never;
         delete?: never;
@@ -452,22 +452,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/policies/{id}/promote-s3-driver": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["promote_s3_compatible_policy_driver"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/admin/policies/{id}/storage-authorization/start": {
         parameters: {
             query?: never;
@@ -500,7 +484,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/policies/{id}/storage-credentials/{provider}/validate": {
+    "/api/v1/admin/policies/{id}/storage-credentials/validate": {
         parameters: {
             query?: never;
             header?: never;
@@ -4487,7 +4471,7 @@ export interface components {
             sort_order?: null | components["schemas"]["SortOrder"];
         };
         /** @enum {string} */
-        AdminPolicySortBy: "id" | "name" | "driver_type" | "endpoint" | "bucket" | "is_default" | "created_at" | "updated_at";
+        AdminPolicySortBy: "id" | "name" | "connector_id" | "is_default" | "created_at" | "updated_at";
         AdminRemoteNodeListQuery: {
             sort_by?: null | components["schemas"]["AdminRemoteNodeSortBy"];
             sort_order?: null | components["schemas"]["SortOrder"];
@@ -4590,7 +4574,7 @@ export interface components {
         AdminUserSortBy: "id" | "username" | "email" | "role" | "status" | "storage_used" | "storage_quota" | "created_at" | "updated_at";
         ApiEmptyData: Record<string, never>;
         /** @enum {string} */
-        ApiErrorCode: "success" | "bad_request" | "not_found" | "internal_server_error" | "database.error" | "config.error" | "endpoint.not_found" | "rate_limited" | "operation.resource_limit_exceeded" | "mail.not_configured" | "mail.delivery_failed" | "conflict" | "config.public_site_url_required" | "config.public_site_url_invalid" | "auth.failed" | "auth.token_expired" | "auth.token_invalid" | "forbidden" | "auth.pending_activation" | "auth.contact_verification_invalid" | "auth.contact_verification_expired" | "auth.token_missing" | "auth.credentials_failed" | "auth.mfa_failed" | "auth.refresh_token_stale" | "auth.refresh_token_reuse_detected" | "file.not_found" | "file.too_large" | "file.type_not_allowed" | "file.upload_failed" | "upload.session_not_found" | "upload.session_expired" | "upload.chunk_failed" | "upload.assembly_failed" | "thumbnail.failed" | "resource.locked" | "precondition_failed" | "upload.assembling" | "storage.policy_not_found" | "storage.driver_error" | "storage.quota_exceeded" | "storage.unsupported_driver" | "storage.auth_failed" | "storage.permission_denied" | "storage.misconfigured" | "storage.object_not_found" | "storage.rate_limited" | "storage.transient_failure" | "storage.precondition_failed" | "storage.operation_unsupported" | "folder.not_found" | "share.not_found" | "share.expired" | "share.password_required" | "share.download_limit_reached" | "archive_preview.disabled" | "archive_preview.user_disabled" | "archive_preview.share_disabled" | "archive_preview.source_too_large" | "archive_preview.invalid_archive" | "archive_preview.manifest_too_large" | "archive_preview.unsupported_type" | "archive_preview.rejected" | "archive_preview.source_size_mismatch" | "archive_compress.disabled" | "archive_download.user_disabled" | "archive_download.share_disabled" | "auth.username_exists" | "auth.email_exists" | "auth.identifier_exists" | "auth.admin_required" | "auth.account_disabled" | "auth.request_source_untrusted" | "auth.request_origin_untrusted" | "auth.request_referer_untrusted" | "auth.request_source_missing" | "auth.session_user_mismatch" | "auth.csrf_cookie_missing" | "auth.csrf_header_missing" | "auth.csrf_token_invalid" | "auth.passkey_login_disabled" | "auth.registration_disabled" | "auth.email_blocked" | "auth.email_not_allowlisted" | "auth.mfa_flow_invalid" | "auth.mfa_flow_expired" | "auth.mfa_code_invalid" | "auth.mfa_attempts_exceeded" | "auth.mfa_factor_required" | "auth.mfa_factor_already_exists" | "auth.mfa_recovery_code_used" | "auth.mfa_email_code_required" | "auth.mfa_email_code_expired" | "auth.invitation_invalid" | "auth.invitation_expired" | "auth.invitation_revoked" | "auth.invitation_accepted" | "auth.password_change_required" | "avatar.file_required" | "avatar.upload_read_failed" | "avatar.processor_unavailable" | "avatar.empty_image" | "avatar.render_failed" | "avatar.output_invalid" | "file.name_conflict" | "file.etag_mismatch" | "file.modified_during_write" | "folder.name_conflict" | "lock.not_owner" | "share.scope_denied" | "managed_ingress.binding_mismatch" | "managed_ingress.default_delete_requires_replacement" | "managed_ingress.default_error" | "managed_ingress.default_missing" | "managed_ingress.default_not_applied" | "managed_ingress.default_update_requires_replacement" | "managed_ingress.driver_unsupported" | "managed_ingress.local_path_invalid" | "managed_ingress.required" | "managed_ingress.single_primary_required" | "remote_storage_target.not_found" | "master_binding.disabled" | "passkey.name_invalid" | "passkey.name_too_long" | "passkey.not_discoverable" | "team.not_member" | "team.owner_required" | "team.admin_or_owner_required" | "policy.upload_sessions_exist" | "policy.storage_access_key_required" | "policy.storage_secret_key_required" | "policy.storage_bucket_required" | "policy.storage_endpoint_invalid" | "policy.remote_node_required" | "policy.remote_node_unexpected" | "policy.remote_storage_target_required" | "policy.remote_node_disabled" | "policy.remote_node_base_url_required" | "policy.remote_node_transfer_strategy_unsupported" | "policy.onedrive_options_unsupported" | "policy.sftp_options_unsupported" | "policy.onedrive_account_mode_required" | "policy.onedrive_personal_china_cloud_unsupported" | "policy.onedrive_sharepoint_site_required" | "policy.onedrive_group_required" | "policy.native_thumbnail_unsupported" | "policy.native_media_metadata_unsupported" | "policy.promotion_source_unsupported" | "policy.promotion_target_unsupported" | "policy.promotion_bucket_change_denied" | "policy.action_unsupported" | "policy.action_parameter_required" | "policy.action_parameter_invalid" | "workspace.scope_denied" | "external_auth.provider_disabled" | "external_auth.policy_denied" | "external_auth.callback_redirect_uri_required" | "offline_download.aria2_rpc_auth_failed" | "offline_download.aria2_rpc_probe_failed" | "remote_node.disabled" | "remote_node.enrollment_required" | "remote_node.unique_conflict" | "storage.auth" | "storage.not_found" | "storage.permission" | "storage.precondition" | "storage.transient" | "storage.unsupported" | "storage.unknown" | "task.lease_lost" | "task.lease_renewal_timed_out" | "task.worker_shutdown_requested" | "task.retry_status_conflict" | "task.retry_not_allowed" | "team.member_exists" | "thumbnail.format_guess_failed" | "thumbnail.decode_failed" | "thumbnail.encode_failed" | "thumbnail.source_open_failed" | "thumbnail.source_stream_failed" | "thumbnail.task_panicked" | "thumbnail.source_too_large" | "thumbnail.processor_unavailable" | "thumbnail.render_failed" | "thumbnail.output_invalid" | "thumbnail.source_temp_create_failed" | "thumbnail.source_temp_flush_failed" | "thumbnail.source_temp_copy_failed" | "wopi.public_site_url_required" | "wopi.app_disabled" | "wopi.request_origin_untrusted" | "wopi.request_referer_untrusted" | "upload.temp_dir_create_failed" | "upload.temp_file_create_failed" | "upload.temp_file_write_failed" | "upload.temp_file_flush_failed" | "upload.request_body_read_failed" | "upload.request_body_size_overflow" | "upload.request_size_mismatch" | "upload.hash_temp_open_failed" | "upload.hash_temp_read_failed" | "upload.field_read_failed" | "upload.local_staging_path_resolve_failed" | "upload.local_staging_dir_create_failed" | "upload.local_staging_file_create_failed" | "upload.local_staging_write_failed" | "upload.local_staging_flush_failed" | "upload.direct_relay_write_failed" | "upload.direct_relay_shutdown_failed" | "upload.direct_relay_task_failed" | "upload.body_size_overflow" | "upload.declared_size_invalid" | "upload.empty_file" | "upload.chunk_persist_failed" | "upload.chunk_relay_failed" | "upload.chunk_pending" | "upload.chunk_transport_mismatch" | "upload.chunk_session_invalid" | "upload.chunk_number_out_of_range" | "upload.chunk_size_mismatch" | "upload.chunk_too_large" | "upload.chunk_size_overflow" | "upload.status_conflict" | "upload.completed_file_missing" | "upload.previous_failure" | "upload.parts_required" | "upload.incomplete_chunks" | "upload.incomplete_parts" | "upload.missing_part" | "upload.temp_object_missing" | "upload.temp_object_size_mismatch" | "upload.final_object_size_mismatch" | "upload.session_corrupted" | "upload.part_numbers_empty" | "upload.part_numbers_too_many" | "upload.part_number_out_of_range" | "upload.assembly_io_failed" | "upload.assembly_size_overflow" | "webdav.username_exists" | "wopi.max_expected_size_exceeded" | "validation.request_origin_invalid" | "validation.request_referer_invalid" | "validation.request_host_invalid" | "validation.request_scheme_invalid" | "validation.request_header_value_invalid" | "validation.system_already_initialized" | "validation.system_not_initialized" | "search.query_empty" | "search.type_invalid" | "search.tag_match_invalid" | "search.size_range_invalid" | "search.file_filter_type_conflict" | "search.mime_type_empty" | "search.category_invalid" | "search.extensions_invalid" | "search.tag_ids_invalid" | "search.date_invalid" | "search.date_range_invalid" | "internal_storage.range_length_invalid" | "internal_storage.range_empty_object" | "internal_storage.range_offset_out_of_bounds" | "internal_storage.range_header_invalid" | "internal_storage.range_multiple_unsupported" | "internal_storage.range_bounds_invalid" | "internal_storage.content_length_required" | "internal_storage.content_length_invalid" | "internal_storage.compose_parts_required" | "internal_storage.compose_expected_size_invalid";
+        ApiErrorCode: "success" | "bad_request" | "not_found" | "internal_server_error" | "database.error" | "config.error" | "endpoint.not_found" | "rate_limited" | "operation.resource_limit_exceeded" | "mail.not_configured" | "mail.delivery_failed" | "conflict" | "config.public_site_url_required" | "config.public_site_url_invalid" | "auth.failed" | "auth.token_expired" | "auth.token_invalid" | "forbidden" | "auth.pending_activation" | "auth.contact_verification_invalid" | "auth.contact_verification_expired" | "auth.token_missing" | "auth.credentials_failed" | "auth.mfa_failed" | "auth.refresh_token_stale" | "auth.refresh_token_reuse_detected" | "file.not_found" | "file.too_large" | "file.type_not_allowed" | "file.upload_failed" | "upload.session_not_found" | "upload.session_expired" | "upload.chunk_failed" | "upload.assembly_failed" | "thumbnail.failed" | "resource.locked" | "precondition_failed" | "upload.assembling" | "storage.policy_not_found" | "storage.driver_error" | "storage.quota_exceeded" | "storage.unsupported_driver" | "storage.auth_failed" | "storage.permission_denied" | "storage.misconfigured" | "storage.object_not_found" | "storage.rate_limited" | "storage.transient_failure" | "storage.precondition_failed" | "storage.operation_unsupported" | "folder.not_found" | "share.not_found" | "share.expired" | "share.password_required" | "share.download_limit_reached" | "archive_preview.disabled" | "archive_preview.user_disabled" | "archive_preview.share_disabled" | "archive_preview.source_too_large" | "archive_preview.invalid_archive" | "archive_preview.manifest_too_large" | "archive_preview.unsupported_type" | "archive_preview.rejected" | "archive_preview.source_size_mismatch" | "archive_compress.disabled" | "archive_download.user_disabled" | "archive_download.share_disabled" | "auth.username_exists" | "auth.email_exists" | "auth.identifier_exists" | "auth.admin_required" | "auth.account_disabled" | "auth.request_source_untrusted" | "auth.request_origin_untrusted" | "auth.request_referer_untrusted" | "auth.request_source_missing" | "auth.session_user_mismatch" | "auth.csrf_cookie_missing" | "auth.csrf_header_missing" | "auth.csrf_token_invalid" | "auth.passkey_login_disabled" | "auth.registration_disabled" | "auth.email_blocked" | "auth.email_not_allowlisted" | "auth.mfa_flow_invalid" | "auth.mfa_flow_expired" | "auth.mfa_code_invalid" | "auth.mfa_attempts_exceeded" | "auth.mfa_factor_required" | "auth.mfa_factor_already_exists" | "auth.mfa_recovery_code_used" | "auth.mfa_email_code_required" | "auth.mfa_email_code_expired" | "auth.invitation_invalid" | "auth.invitation_expired" | "auth.invitation_revoked" | "auth.invitation_accepted" | "auth.password_change_required" | "avatar.file_required" | "avatar.upload_read_failed" | "avatar.processor_unavailable" | "avatar.empty_image" | "avatar.render_failed" | "avatar.output_invalid" | "file.name_conflict" | "file.etag_mismatch" | "file.modified_during_write" | "folder.name_conflict" | "lock.not_owner" | "share.scope_denied" | "managed_ingress.binding_mismatch" | "managed_ingress.default_delete_requires_replacement" | "managed_ingress.default_error" | "managed_ingress.default_missing" | "managed_ingress.default_not_applied" | "managed_ingress.default_update_requires_replacement" | "managed_ingress.driver_unsupported" | "managed_ingress.local_path_invalid" | "managed_ingress.required" | "managed_ingress.single_primary_required" | "remote_storage_target.not_found" | "master_binding.disabled" | "passkey.name_invalid" | "passkey.name_too_long" | "passkey.not_discoverable" | "team.not_member" | "team.owner_required" | "team.admin_or_owner_required" | "policy.upload_sessions_exist" | "policy.storage_access_key_required" | "policy.storage_secret_key_required" | "policy.storage_bucket_required" | "policy.storage_endpoint_invalid" | "policy.remote_node_required" | "policy.remote_node_unexpected" | "policy.remote_storage_target_required" | "policy.remote_node_disabled" | "policy.remote_node_base_url_required" | "policy.remote_node_transfer_strategy_unsupported" | "policy.onedrive_options_unsupported" | "policy.sftp_options_unsupported" | "policy.onedrive_account_mode_required" | "policy.onedrive_personal_china_cloud_unsupported" | "policy.onedrive_sharepoint_site_required" | "policy.onedrive_group_required" | "policy.native_thumbnail_unsupported" | "policy.native_media_metadata_unsupported" | "policy.action_unsupported" | "policy.action_parameter_required" | "policy.action_parameter_invalid" | "workspace.scope_denied" | "external_auth.provider_disabled" | "external_auth.policy_denied" | "external_auth.callback_redirect_uri_required" | "offline_download.aria2_rpc_auth_failed" | "offline_download.aria2_rpc_probe_failed" | "remote_node.disabled" | "remote_node.enrollment_required" | "remote_node.unique_conflict" | "storage.auth" | "storage.not_found" | "storage.permission" | "storage.precondition" | "storage.transient" | "storage.unsupported" | "storage.unknown" | "task.lease_lost" | "task.lease_renewal_timed_out" | "task.worker_shutdown_requested" | "task.retry_status_conflict" | "task.retry_not_allowed" | "team.member_exists" | "thumbnail.format_guess_failed" | "thumbnail.decode_failed" | "thumbnail.encode_failed" | "thumbnail.source_open_failed" | "thumbnail.source_stream_failed" | "thumbnail.task_panicked" | "thumbnail.source_too_large" | "thumbnail.processor_unavailable" | "thumbnail.render_failed" | "thumbnail.output_invalid" | "thumbnail.source_temp_create_failed" | "thumbnail.source_temp_flush_failed" | "thumbnail.source_temp_copy_failed" | "wopi.public_site_url_required" | "wopi.app_disabled" | "wopi.request_origin_untrusted" | "wopi.request_referer_untrusted" | "upload.temp_dir_create_failed" | "upload.temp_file_create_failed" | "upload.temp_file_write_failed" | "upload.temp_file_flush_failed" | "upload.request_body_read_failed" | "upload.request_body_size_overflow" | "upload.request_size_mismatch" | "upload.hash_temp_open_failed" | "upload.hash_temp_read_failed" | "upload.field_read_failed" | "upload.local_staging_path_resolve_failed" | "upload.local_staging_dir_create_failed" | "upload.local_staging_file_create_failed" | "upload.local_staging_write_failed" | "upload.local_staging_flush_failed" | "upload.direct_relay_write_failed" | "upload.direct_relay_shutdown_failed" | "upload.direct_relay_task_failed" | "upload.body_size_overflow" | "upload.declared_size_invalid" | "upload.empty_file" | "upload.chunk_persist_failed" | "upload.chunk_relay_failed" | "upload.chunk_pending" | "upload.chunk_transport_mismatch" | "upload.chunk_session_invalid" | "upload.chunk_number_out_of_range" | "upload.chunk_size_mismatch" | "upload.chunk_too_large" | "upload.chunk_size_overflow" | "upload.status_conflict" | "upload.completed_file_missing" | "upload.previous_failure" | "upload.parts_required" | "upload.incomplete_chunks" | "upload.incomplete_parts" | "upload.missing_part" | "upload.temp_object_missing" | "upload.temp_object_size_mismatch" | "upload.final_object_size_mismatch" | "upload.session_corrupted" | "upload.part_numbers_empty" | "upload.part_numbers_too_many" | "upload.part_number_out_of_range" | "upload.assembly_io_failed" | "upload.assembly_size_overflow" | "webdav.username_exists" | "wopi.max_expected_size_exceeded" | "validation.request_origin_invalid" | "validation.request_referer_invalid" | "validation.request_host_invalid" | "validation.request_scheme_invalid" | "validation.request_header_value_invalid" | "validation.system_already_initialized" | "validation.system_not_initialized" | "search.query_empty" | "search.type_invalid" | "search.tag_match_invalid" | "search.size_range_invalid" | "search.file_filter_type_conflict" | "search.mime_type_empty" | "search.category_invalid" | "search.extensions_invalid" | "search.tag_ids_invalid" | "search.date_invalid" | "search.date_range_invalid" | "internal_storage.range_length_invalid" | "internal_storage.range_empty_object" | "internal_storage.range_offset_out_of_bounds" | "internal_storage.range_header_invalid" | "internal_storage.range_multiple_unsupported" | "internal_storage.range_bounds_invalid" | "internal_storage.content_length_required" | "internal_storage.content_length_invalid" | "internal_storage.compose_parts_required" | "internal_storage.compose_expected_size_invalid";
         ApiErrorDiagnostic: {
             kind: string;
             message: string;
@@ -5102,6 +5086,31 @@ export interface components {
          * @enum {string}
          */
         ConfigVisibility: "private" | "public" | "authenticated";
+        /**
+         * @description Persisted configuration for exactly one connector.
+         *
+         *     A storage policy currently has one active connector, so a map of historical
+         *     namespaces would only create ambiguous ownership. If the connector is
+         *     temporarily unavailable, this entire envelope is preserved byte-for-byte.
+         */
+        ConnectorConfigEnvelope: {
+            connector_id: components["schemas"]["ConnectorId"];
+            /** Format: int32 */
+            format_version: number;
+            /** Format: int32 */
+            schema_version: number;
+            values: {
+                [key: string]: components["schemas"]["StorageConnectorFieldValue"];
+            };
+        };
+        /**
+         * @description Stable connector/plugin identifier.
+         *
+         *     Built-in connectors use reverse-DNS-style identifiers such as
+         *     `asterdrive.storage.local`. Dynamically loaded plugins use the same type and
+         *     registry path, so core code never needs a built-in connector enum.
+         */
+        ConnectorId: string;
         /** @description Query parameters for email contact verification confirmation. */
         ContactVerificationConfirmQuery: {
             token?: string | null;
@@ -5198,24 +5207,14 @@ export interface components {
         };
         /** @description Create a storage policy. */
         CreatePolicyReq: {
-            access_key?: string | null;
             allowed_types?: string[] | null;
-            application_config?: null | components["schemas"]["StorageConnectorApplicationConfigInput"];
-            base_path?: string | null;
-            bucket?: string | null;
             /** Format: int64 */
             chunk_size?: number | null;
-            driver_type: components["schemas"]["DriverType"];
-            endpoint?: string | null;
+            connection: components["schemas"]["StorageConnectorConnectionInput"];
             is_default?: boolean | null;
             /** Format: int64 */
             max_file_size?: number | null;
             name: string;
-            options?: null | components["schemas"]["StoragePolicyOptions"];
-            /** Format: int64 */
-            remote_node_id?: number | null;
-            remote_storage_target_key?: string | null;
-            secret_key?: string | null;
         };
         /** @description Create a remote node. */
         CreateRemoteNodeReq: {
@@ -5281,11 +5280,6 @@ export interface components {
         DirectLinkTokenInfo: {
             token: string;
         };
-        /**
-         * @description 存储驱动类型
-         * @enum {string}
-         */
-        DriverType: "local" | "s3" | "sftp" | "azure_blob" | "tencent_cos" | "remote" | "one_drive";
         /** @description Check a storage policy migration plan without creating a task. */
         DryRunStoragePolicyMigrationReq: {
             delete_source_after_success?: boolean;
@@ -5333,25 +5327,20 @@ export interface components {
             message: string;
             value?: string | null;
         };
-        /** @description Execute a storage policy action by draft policy parameters. */
-        ExecuteDraftStoragePolicyActionReq: {
-            access_key?: string | null;
-            action: components["schemas"]["StoragePolicyExecutableAction"];
-            base_path?: string | null;
-            bucket?: string | null;
-            driver_type: components["schemas"]["DriverType"];
-            endpoint?: string | null;
-            options?: null | components["schemas"]["StoragePolicyOptions"];
+        ExecuteDraftStorageConnectorActionInput: {
+            action_id: components["schemas"]["StorageConnectorActionId"];
+            connection: components["schemas"]["StorageConnectorConnectionInput"];
             /** Format: int64 */
             policy_id?: number | null;
-            /** Format: int64 */
-            remote_node_id?: number | null;
-            remote_storage_target_key?: string | null;
-            secret_key?: string | null;
+            values?: {
+                [key: string]: components["schemas"]["StorageConnectorFieldValue"];
+            };
         };
-        /** @description Execute a storage policy action for a saved policy. */
-        ExecuteSavedStoragePolicyActionReq: {
-            action: components["schemas"]["StoragePolicyExecutableAction"];
+        ExecuteSavedStorageConnectorActionInput: {
+            action_id: components["schemas"]["StorageConnectorActionId"];
+            values?: {
+                [key: string]: components["schemas"]["StorageConnectorFieldValue"];
+            };
         };
         ExternalAuthCallbackQuery: {
             code?: string | null;
@@ -5872,11 +5861,6 @@ export interface components {
             upload_id?: string | null;
             upload_scheduling?: null | components["schemas"]["UploadScheduling"];
         };
-        /**
-         * @description Interface display language.
-         * @enum {string}
-         */
-        Language: "en" | "zh";
         /** @description Query parameters for limit/offset pagination. */
         LimitOffsetQuery: {
             /**
@@ -5907,6 +5891,16 @@ export interface components {
             /** Format: int64 */
             offset?: number | null;
         };
+        /**
+         * @description Normalized BCP 47 locale tag used by product preferences and plugin-facing
+         *     localization contracts.
+         *
+         *     The backend validates language tags without fixing the protocol to the
+         *     frontend's currently bundled locale set. Product UI choices remain limited
+         *     by the resources actually shipped by that frontend build.
+         * @example zh-CN
+         */
+        LocaleTag: string;
         /**
          * @description Hierarchy depth covered by a resource lock.
          * @enum {string}
@@ -6132,32 +6126,6 @@ export interface components {
             /** @description Tenant selector: `common`, `organizations`, `consumers`, or a tenant UUID. */
             tenant: string;
         };
-        MicrosoftGraphApplicationConfigInput: {
-            client_id?: string | null;
-            client_secret?: string | null;
-            cloud?: null | components["schemas"]["MicrosoftGraphCloud"];
-            scopes?: string[] | null;
-            tenant?: string | null;
-        };
-        MicrosoftGraphAuthorizationContext: {
-            client_id: string;
-            client_secret_configured: boolean;
-            cloud: components["schemas"]["MicrosoftGraphCloud"];
-            scopes: string[];
-            tenant: string;
-        };
-        MicrosoftGraphAuthorizationInput: {
-            client_id?: string | null;
-            client_secret?: string | null;
-            cloud?: null | components["schemas"]["MicrosoftGraphCloud"];
-            scopes?: string[] | null;
-            tenant?: string | null;
-        };
-        /**
-         * @description Microsoft Graph cloud deployment for OneDrive / SharePoint storage backends.
-         * @enum {string}
-         */
-        MicrosoftGraphCloud: "global" | "china";
         /** @description Migrate all user and team assignments from one policy group to another. */
         MigratePolicyGroupAssignmentsReq: {
             /** Format: int64 */
@@ -6646,23 +6614,18 @@ export interface components {
             /** @description Items in the current page. */
             items: {
                 allowed_types: string[];
-                base_path: string;
-                bucket: string;
+                behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
                 /** Format: int64 */
                 chunk_size: number;
+                connector_config: components["schemas"]["ConnectorConfigEnvelope"];
+                connector_id: string;
                 created_at: string;
-                driver_type: components["schemas"]["DriverType"];
-                endpoint: string;
                 /** Format: int64 */
                 id: number;
                 is_default: boolean;
                 /** Format: int64 */
                 max_file_size: number;
                 name: string;
-                options: components["schemas"]["StoragePolicyOptions"];
-                /** Format: int64 */
-                remote_node_id?: number | null;
-                remote_storage_target_key?: string | null;
                 updated_at: string;
             }[];
             /**
@@ -6944,11 +6907,6 @@ export interface components {
              */
             total: number;
         };
-        /**
-         * @description Microsoft Graph Drive location mode for OneDrive storage policies.
-         * @enum {string}
-         */
-        OneDriveAccountMode: "personal" | "work_or_school" | "sharepoint_site" | "group_drive";
         /** @description WOPI open file request. */
         OpenWopiRequest: {
             app_key: string;
@@ -7008,23 +6966,16 @@ export interface components {
         };
         /** @description Patch a storage policy. */
         PatchPolicyReq: {
-            access_key?: string | null;
             allowed_types?: string[] | null;
-            application_config?: null | components["schemas"]["StorageConnectorApplicationConfigInput"];
-            base_path?: string | null;
-            bucket?: string | null;
+            behavior?: null | components["schemas"]["StoragePolicyBehaviorConfig"];
             /** Format: int64 */
             chunk_size?: number | null;
-            endpoint?: string | null;
+            connector_config?: null | components["schemas"]["ConnectorConfigEnvelope"];
+            credential?: null | components["schemas"]["StorageConnectorCredentialInput"];
             is_default?: boolean | null;
             /** Format: int64 */
             max_file_size?: number | null;
             name?: string | null;
-            options?: null | components["schemas"]["StoragePolicyOptions"];
-            /** Format: int64 */
-            remote_node_id?: number | null;
-            remote_storage_target_key?: string | null;
-            secret_key?: string | null;
         };
         /** @description Patch a remote node. */
         PatchRemoteNodeReq: {
@@ -7102,12 +7053,6 @@ export interface components {
         };
         /** @enum {string} */
         PreviewOpenMode: "iframe" | "new_tab";
-        /** @description Promote an S3-compatible storage policy to a specialized S3-compatible driver. */
-        PromoteS3CompatiblePolicyDriverReq: {
-            bucket: string;
-            endpoint: string;
-            target_driver_type: components["schemas"]["DriverType"];
-        };
         /**
          * @description Provider-native download filename policy.
          * @enum {string}
@@ -7370,6 +7315,8 @@ export interface components {
         RemoteStorageTargetDriverFieldValidation: {
             relative_local_path: boolean;
         };
+        /** @enum {string} */
+        RemoteStorageTargetDriverKind: "local" | "s3";
         RemoteStorageTargetDriverType: string;
         RemoteStorageTargetInfo: {
             /** Format: int64 */
@@ -7379,7 +7326,7 @@ export interface components {
             created_at: string;
             /** Format: int64 */
             desired_revision: number;
-            driver_type: components["schemas"]["DriverType"];
+            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
             endpoint: string;
             is_default: boolean;
             last_error: string;
@@ -7398,17 +7345,12 @@ export interface components {
             access_key?: string | null;
             base_path?: string | null;
             bucket?: string | null;
-            driver_type?: null | components["schemas"]["DriverType"];
+            driver_type?: null | components["schemas"]["RemoteStorageTargetDriverKind"];
             endpoint?: string | null;
             is_default?: boolean | null;
             name?: string | null;
             secret_key?: string | null;
         };
-        /**
-         * @description Remote 上传传输策略（存储策略 options JSON）
-         * @enum {string}
-         */
-        RemoteUploadStrategy: "relay_stream" | "presigned";
         RemovedCountResponse: {
             /** Format: int64 */
             removed: number;
@@ -7631,13 +7573,8 @@ export interface components {
          * @enum {string}
          */
         SortOrder: "asc" | "desc";
-        /** @description Start an OAuth authorization flow for an administrator-managed storage policy credential. */
-        StartStorageAuthorizationReq: {
-            microsoft_graph?: null | components["schemas"]["MicrosoftGraphAuthorizationInput"];
-            provider: components["schemas"]["StorageCredentialProvider"];
-        };
         StorageAuthorizationCallbackOutcome: {
-            credential: components["schemas"]["StoragePolicyCredentialInfo"];
+            credential: components["schemas"]["StorageConnectorCredentialInfo"];
         };
         StorageAuthorizationCallbackQuery: {
             code?: string | null;
@@ -7649,8 +7586,6 @@ export interface components {
             authorization_url: string;
             /** Format: int64 */
             expires_in: number;
-            microsoft_graph?: null | components["schemas"]["MicrosoftGraphAuthorizationContext"];
-            provider: components["schemas"]["StorageCredentialProvider"];
         };
         StorageCapacityInfo: {
             /** Format: int64 */
@@ -7689,27 +7624,49 @@ export interface components {
             team_id: number;
         };
         StorageConnectorActionDescriptor: {
-            affordance_action?: null | components["schemas"]["StorageConnectorAffordanceAction"];
+            /** @description Connector 内唯一且稳定的 action ID。 */
+            action_id: components["schemas"]["StorageConnectorActionId"];
+            /** @description 前端本地化说明 key。 */
+            description_key: string;
             /** @description 该 action 可通过哪些后端 endpoint 执行。 */
             endpoints?: components["schemas"]["StorageConnectorActionEndpoint"][];
+            /** @description Action-owned input schema. Values are never persisted into the policy. */
+            fields?: components["schemas"]["StorageConnectorFieldDescriptor"][];
             /** @description 用于把 action 归类到授权、连接测试、policy action 等入口。 */
             kind: components["schemas"]["StorageConnectorActionKind"];
+            /** @description 前端本地化 label key。 */
+            label_key: string;
             /** @description true 表示该动作会修改 provider 远端状态。 */
             mutates_remote_state: boolean;
-            policy_action?: null | components["schemas"]["StoragePolicyExecutableAction"];
             /** @description true 表示执行前必须存在可用授权凭据。 */
             requires_authorization: boolean;
+            /** @description true 表示 UI 在执行前应展示明确确认步骤。 */
+            requires_confirmation: boolean;
             /** @description true 表示必须先保存 policy，draft 参数不能执行。 */
             requires_saved_policy: boolean;
         };
         /** @enum {string} */
         StorageConnectorActionEndpoint: "execute_draft_storage_policy_action" | "execute_saved_storage_policy_action" | "start_storage_authorization" | "validate_storage_policy_credential" | "test_policy_params" | "test_policy_connection";
+        /**
+         * @description Stable action identity owned by one connector.
+         *
+         *     The descriptor carries the action's fields and execution contract. This
+         *     newtype only prevents action IDs from being mixed with connector IDs and
+         *     arbitrary field names while crossing registry, API, and audit boundaries.
+         */
+        StorageConnectorActionId: string;
         /** @enum {string} */
-        StorageConnectorActionKind: "policy_action" | "authorization" | "credential_validation" | "connection_test";
-        /** @enum {string} */
-        StorageConnectorAffordanceAction: "start_authorization" | "validate_credential" | "test_draft_connection" | "test_saved_connection";
-        StorageConnectorApplicationConfigInput: {
-            microsoft_graph?: null | components["schemas"]["MicrosoftGraphApplicationConfigInput"];
+        StorageConnectorActionKind: "custom" | "authorization" | "credential_validation" | "connection_test";
+        StorageConnectorActionOutput: {
+            [key: string]: unknown;
+        };
+        StorageConnectorBadgeRgb: {
+            /** Format: int32 */
+            blue: number;
+            /** Format: int32 */
+            green: number;
+            /** Format: int32 */
+            red: number;
         };
         StorageConnectorCapabilities: {
             /** @description 是否支持容量观测。 */
@@ -7733,6 +7690,81 @@ export interface components {
         };
         /** @enum {string} */
         StorageConnectorCatalogContext: "manage" | "create" | "setup";
+        StorageConnectorConnectionInput: {
+            behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
+            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
+            credential: components["schemas"]["StorageConnectorCredentialInput"];
+        };
+        StorageConnectorCredentialInfo: {
+            account_label?: string | null;
+            authorized_at?: string | null;
+            created_at: string;
+            credential_kind: components["schemas"]["StorageCredentialKind"];
+            expires_at?: string | null;
+            /** Format: int64 */
+            id: number;
+            last_refreshed_at?: string | null;
+            last_validated_at?: string | null;
+            /** Format: int64 */
+            policy_id: number;
+            provider: components["schemas"]["StorageCredentialProvider"];
+            scopes: string[];
+            status: components["schemas"]["StorageCredentialStatus"];
+            status_reason?: string | null;
+            subject?: string | null;
+            tenant_id?: string | null;
+            updated_at: string;
+        };
+        /**
+         * @description Exactly one connector credential channel supplied by an API caller.
+         *
+         *     The tagged representation makes static credentials and authorization
+         *     application credentials structurally mutually exclusive. Each connector
+         *     deserializes `values` into the typed credential struct generated by its
+         *     schema declaration.
+         */
+        StorageConnectorCredentialInput: {
+            /** @enum {string} */
+            mode: "none";
+        } | {
+            /** @enum {string} */
+            mode: "static";
+            values: unknown;
+        } | {
+            /** @enum {string} */
+            mode: "authorization_application";
+            values: unknown;
+        };
+        StorageConnectorCredentialManagementDescriptor: {
+            /** @description Message shown after the authorization window is opened. */
+            authorization_started_key?: string | null;
+            /** @description Message shown after creating a policy that still needs authorization. */
+            created_authorize_next_key?: string | null;
+            /** @description Status text shown while the credential snapshot is loading. */
+            loading_key: string;
+            /** @description Label for an authorization redirect URI exposed by the platform. */
+            redirect_uri_key?: string | null;
+            /** @description Message shown when authorization is requested with unsaved policy data. */
+            save_before_authorize_key?: string | null;
+            /** @description Message shown when credential validation is requested with unsaved data. */
+            save_before_validate_key?: string | null;
+            /**
+             * @description Credential status wire value to connector-owned localization key.
+             *
+             *     The map keeps the UI independent from provider-specific status copy and
+             *     lets future connector credential contracts add status values without a
+             *     frontend provider matrix.
+             */
+            status_keys: {
+                [key: string]: string;
+            };
+            /** @description Credential panel heading. */
+            title_key: string;
+            /** @description Optional success detail rendered with connector-provided parameters. */
+            validation_success_detail_key?: string | null;
+            /** @description Message shown after a credential validates successfully. */
+            validation_success_key?: string | null;
+        };
         /** @enum {string} */
         StorageConnectorCredentialMode: "none" | "static_secret" | "remote_node" | "oauth_delegated";
         /**
@@ -7740,32 +7772,38 @@ export interface components {
          *
          *     This is a static connector capability. Deployment-specific filtering and
          *     write guards must consume this field instead of maintaining a separate
-         *     `DriverType` allow/deny list.
+         *     core-owned provider allow/deny list.
          * @enum {string}
          */
         StorageConnectorDeploymentScope: "instance_local" | "shared_across_primary_instances";
-        StorageConnectorDriverRecommendation: {
-            /**
-             * @description Host rules owned by the source connector.
-             *
-             *     This keeps provider-detection rules in connector metadata instead of in
-             *     the admin UI. Frontend code only performs generic URL host matching.
-             */
-            endpoint_host_rules: components["schemas"]["StorageConnectorEndpointHostRule"][];
-            /** @description Candidate driver that should be suggested for matching endpoint hosts. */
-            target_driver_type: components["schemas"]["DriverType"];
-        };
-        StorageConnectorEndpointHostRule: {
-            /** @description Suffix hostname match after URL parsing and lower-casing. */
-            ends_with?: string | null;
-            /** @description Exact hostname match after URL parsing and lower-casing. */
-            equals?: string | null;
-        };
+        /**
+         * @description Controls when a connector-declared field default is applied.
+         *
+         *     Missing values use the descriptor default in both modes. Empty text is
+         *     distinct because some connector fields model an omitted optional value,
+         *     while others use an empty form value to request a connector-owned root or
+         *     local default path.
+         * @enum {string}
+         */
+        StorageConnectorFieldDefaultMode: "missing_only" | "missing_or_empty_text";
+        /**
+         * @description Descriptor 可声明的 JSON 标量默认值。
+         *
+         *     Provider option 只允许标量配置；credential secret 使用独立 credential/application
+         *     config 通道，复杂对象也应拆成有明确字段 contract 的标量集合。
+         */
+        StorageConnectorFieldDefaultValue: boolean | number | string;
         StorageConnectorFieldDescriptor: {
             /** @description true 表示 endpoint 可以省略 URL scheme，由 connector 在后端补齐或解释。 */
             allow_endpoint_without_protocol?: boolean;
             /** @description endpoint 允许的 URL protocol，取值与浏览器 `URL.protocol` 一致，例如 `https:`。 */
             allowed_endpoint_protocols?: string[];
+            /**
+             * @description Connector-owned rule deciding whether an empty optional text field also
+             *     resolves to `default_value`.
+             */
+            default_mode?: components["schemas"]["StorageConnectorFieldDefaultMode"];
+            default_value?: null | components["schemas"]["StorageConnectorFieldDefaultValue"];
             /** @description 可选 help 文案 key。 */
             help_key?: string | null;
             /** @description endpoint 协议不合法时的前端文案 key。 */
@@ -7776,8 +7814,6 @@ export interface components {
             label_key: string;
             /** @description 提交 payload 中的字段名。 */
             name: string;
-            /** @description select/radio 等枚举控件的稳定取值。 */
-            options?: string[];
             /** @description 可选 placeholder，本地化策略由前端决定。 */
             placeholder?: string | null;
             /** @description 是否必填。复杂条件校验仍由 connector/service 做最终裁决。 */
@@ -7788,15 +7824,56 @@ export interface components {
             scope: components["schemas"]["StorageConnectorFieldScope"];
             /** @description 是否是敏感字段，前端应按 secret input 处理，后端不应明文回显。 */
             secret: boolean;
+            select?: null | components["schemas"]["StorageConnectorSelectDescriptor"];
             /** @description true 表示该字段失焦时前端可以安全 trim。 */
             trim_on_blur?: boolean;
-            /** @description 同一字段只对部分 driver 可见时使用。为空表示不额外限制。 */
-            visible_when_driver_types?: components["schemas"]["DriverType"][];
+            /** @description 可被前端用于即时反馈、且必须由后端再次执行的基础约束。 */
+            validation?: components["schemas"]["StorageConnectorFieldValidation"];
         };
         /** @enum {string} */
         StorageConnectorFieldKind: "text" | "secret" | "select" | "boolean" | "number";
         /** @enum {string} */
-        StorageConnectorFieldScope: "connection" | "policy_options" | "application_credential" | "remote_node_binding";
+        StorageConnectorFieldScope: "connector_config" | "static_credential" | "authorization_application" | "action_input";
+        StorageConnectorFieldValidation: {
+            /** Format: int64 */
+            max_integer?: number | null;
+            /** Format: int32 */
+            max_length?: number | null;
+            /** Format: int64 */
+            min_integer?: number | null;
+        };
+        /**
+         * @description Scalar value accepted by connector config and action field contracts.
+         *
+         *     Complex values must be decomposed into named descriptor fields so the
+         *     admin UI and backend validator share an inspectable schema.
+         */
+        StorageConnectorFieldValue: boolean | number | string;
+        StorageConnectorLocalizationBundle: {
+            connector_id: components["schemas"]["ConnectorId"];
+            messages: {
+                [key: string]: string;
+            };
+            namespace: string;
+            requested_locale: components["schemas"]["LocaleTag"];
+            resolved_locale: components["schemas"]["LocaleTag"];
+            revision: string;
+        };
+        StorageConnectorLocalizationCatalog: {
+            requested_locale: components["schemas"]["LocaleTag"];
+            resources: components["schemas"]["StorageConnectorLocalizationBundle"][];
+        };
+        /** @description Query for connector-owned admin UI localization resources. */
+        StorageConnectorLocalizationCatalogQuery: {
+            context?: components["schemas"]["StorageConnectorCatalogContext"];
+            locale?: components["schemas"]["LocaleTag"];
+        };
+        StorageConnectorLocalizationManifest: {
+            default_locale: components["schemas"]["LocaleTag"];
+            namespace: string;
+            revision: string;
+            supported_locales: components["schemas"]["LocaleTag"][];
+        };
         StorageConnectorObjectMultipartUploadCapabilities: {
             /** @description 是否支持清理未完成的 provider multipart/block upload。 */
             abort_supported: boolean;
@@ -7852,6 +7929,40 @@ export interface components {
             /** @description 当前实现是否向上层暴露 provider-native status/query。 */
             status_query_supported: boolean;
         };
+        /**
+         * @description Platform-provided option catalogs that a connector field can consume.
+         *
+         *     The platform owns loading these catalogs. The connector only opts into one
+         *     and declares field dependencies, so the UI never infers behavior from a
+         *     provider id or field name.
+         * @enum {string}
+         */
+        StorageConnectorSelectDataSource: "remote_nodes" | "remote_storage_targets";
+        StorageConnectorSelectDescriptor: {
+            data_source?: null | components["schemas"]["StorageConnectorSelectDataSource"];
+            /** @description Field whose current value scopes the dynamic catalog. */
+            depends_on?: string | null;
+            /** @description Connector-owned fixed choices. Mutually exclusive with `data_source`. */
+            options?: components["schemas"]["StorageConnectorSelectOption"][];
+            value_kind: components["schemas"]["StorageConnectorSelectValueKind"];
+        };
+        StorageConnectorSelectOption: {
+            /** @description Optional connector-owned explanation for richer selectors. */
+            description_key?: string | null;
+            /** @description Connector-owned frontend localization key. */
+            label_key: string;
+            /** @description Stable value submitted in the connector payload. */
+            value: components["schemas"]["StorageConnectorSelectOptionValue"];
+        };
+        StorageConnectorSelectOptionValue: number | string;
+        /**
+         * @description Scalar type submitted by a select field.
+         *
+         *     Select is a UI control, not a wire type. Keeping the value type explicit is
+         *     required for dynamic choices such as a numeric remote node id.
+         * @enum {string}
+         */
+        StorageConnectorSelectValueKind: "string" | "integer";
         StorageConnectorSimpleUploadCapabilities: {
             /**
              * Format: int64
@@ -7864,6 +7975,14 @@ export interface components {
             server_side_relay: boolean;
         };
         StorageConnectorUiDescriptor: {
+            /**
+             * @description Connector-owned badge accent color.
+             *
+             *     Keeping the color as structured RGB data lets external connectors pick
+             *     their own presentation without extending a core-owned color enum or
+             *     sending executable CSS through the descriptor API.
+             */
+            badge_rgb: components["schemas"]["StorageConnectorBadgeRgb"];
             /** @description base_path 为空时展示的 fallback 文案。 */
             base_path_empty_display: string;
             /** @description base_path input placeholder。 */
@@ -7913,12 +8032,6 @@ export interface components {
          * @enum {string}
          */
         StorageCredentialProvider: "microsoft_graph" | "google_drive";
-        StorageCredentialProviderInfo: {
-            default_scopes: string[];
-            display_name: string;
-            provider: components["schemas"]["StorageCredentialProvider"];
-            supported: boolean;
-        };
         /**
          * @description Current usability state of a stored storage policy credential.
          * @enum {string}
@@ -7926,53 +8039,33 @@ export interface components {
         StorageCredentialStatus: "authorized" | "reauth_required" | "permission_denied" | "revoked" | "invalid";
         StoragePolicy: {
             allowed_types: string[];
-            base_path: string;
-            bucket: string;
+            behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
             /** Format: int64 */
             chunk_size: number;
+            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
+            connector_id: string;
             created_at: string;
-            driver_type: components["schemas"]["DriverType"];
-            endpoint: string;
             /** Format: int64 */
             id: number;
             is_default: boolean;
             /** Format: int64 */
             max_file_size: number;
             name: string;
-            options: components["schemas"]["StoragePolicyOptions"];
-            /** Format: int64 */
-            remote_node_id?: number | null;
-            remote_storage_target_key?: string | null;
             updated_at: string;
         };
         StoragePolicyActionResult: {
-            action: components["schemas"]["StoragePolicyExecutableAction"];
+            action_id: components["schemas"]["StorageConnectorActionId"];
             diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
             ok: boolean;
-            tencent_cos_cors?: null | components["schemas"]["TencentCosCorsConfigResult"];
+            output?: null | components["schemas"]["StorageConnectorActionOutput"];
         };
-        StoragePolicyCredentialInfo: {
-            account_label?: string | null;
-            authorized_at?: string | null;
-            created_at: string;
-            credential_kind: components["schemas"]["StorageCredentialKind"];
-            expires_at?: string | null;
-            /** Format: int64 */
-            id: number;
-            last_refreshed_at?: string | null;
-            last_validated_at?: string | null;
-            /** Format: int64 */
-            policy_id: number;
-            provider: components["schemas"]["StorageCredentialProvider"];
-            scopes: string[];
-            status: components["schemas"]["StorageCredentialStatus"];
-            status_reason?: string | null;
-            subject?: string | null;
-            tenant_id?: string | null;
-            updated_at: string;
+        StoragePolicyBehaviorConfig: {
+            media_metadata_extensions?: string[];
+            thumbnail_extensions?: string[];
+            thumbnail_processor?: null | components["schemas"]["MediaProcessorKind"];
         };
         StoragePolicyCredentialValidationResult: {
-            credential: components["schemas"]["StoragePolicyCredentialInfo"];
+            credential: components["schemas"]["StorageConnectorCredentialInfo"];
             root_item_id: string;
             root_item_name?: string | null;
         };
@@ -7982,8 +8075,6 @@ export interface components {
             message: string;
             retryable: boolean;
         };
-        /** @enum {string} */
-        StoragePolicyExecutableAction: "configure_tencent_cos_cors";
         StoragePolicyGroup: {
             created_at: string;
             description: string;
@@ -8077,45 +8168,14 @@ export interface components {
             /** Format: int64 */
             target_policy_id: number;
         };
-        StoragePolicyOptions: {
-            content_dedup?: boolean | null;
-            media_metadata_extensions?: string[];
-            object_storage_download_strategy?: null | components["schemas"]["ObjectStorageDownloadStrategy"];
-            object_storage_upload_strategy?: null | components["schemas"]["ObjectStorageUploadStrategy"];
-            onedrive_account_mode?: null | components["schemas"]["OneDriveAccountMode"];
-            onedrive_cloud?: null | components["schemas"]["MicrosoftGraphCloud"];
-            onedrive_drive_id?: string | null;
-            onedrive_group_id?: string | null;
-            onedrive_root_item_id?: string | null;
-            onedrive_site_id?: string | null;
-            onedrive_tenant?: string | null;
-            provider_download_filename_mode?: null | components["schemas"]["ProviderDownloadFilenameMode"];
-            provider_download_strategy?: null | components["schemas"]["ProviderDownloadStrategy"];
-            provider_resumable_upload_strategy?: null | components["schemas"]["ProviderResumableUploadStrategy"];
-            remote_download_strategy?: null | components["schemas"]["RemoteDownloadStrategy"];
-            remote_upload_strategy?: null | components["schemas"]["RemoteUploadStrategy"];
-            /** Format: int64 */
-            s3_connect_timeout_secs?: number | null;
-            /** Format: int64 */
-            s3_operation_timeout_secs?: number | null;
-            s3_path_style?: boolean | null;
-            /** Format: int64 */
-            s3_read_timeout_secs?: number | null;
-            s3_region?: string | null;
-            sftp_host_key_fingerprint?: string | null;
-            storage_native_media_metadata_enabled?: boolean | null;
-            storage_native_processing_enabled?: boolean | null;
-            thumbnail_extensions?: string[];
-            thumbnail_processor?: null | components["schemas"]["MediaProcessorKind"];
-        };
         StoragePolicySummaryInfo: {
-            driver_type: components["schemas"]["DriverType"];
+            connector_id: string;
             /** Format: int64 */
             id: number;
             name: string;
         };
         StoragePolicyTempCleanupTaskPayloadInfo: {
-            driver_type: components["schemas"]["DriverType"];
+            connector_id: string;
             multipart_upload_count: number;
             /** Format: int64 */
             policy_id: number;
@@ -8421,14 +8481,6 @@ export interface components {
             /** @description Placeholder token displayed in UI, such as `{{username}}`. */
             token: string;
         };
-        TencentCosCorsConfigResult: {
-            allowed_origins: string[];
-            preserved_rule_count: number;
-            replaced_existing_rule: boolean;
-            request_id?: string | null;
-            response_vary: boolean;
-            rule_id: string;
-        };
         /** @description Test WebDAV credentials. */
         TestConnectionReq: {
             password: string;
@@ -8436,18 +8488,9 @@ export interface components {
         };
         /** @description Test a storage policy connection by parameters (without saving). */
         TestPolicyParamsReq: {
-            access_key?: string | null;
-            base_path?: string | null;
-            bucket?: string | null;
-            driver_type: components["schemas"]["DriverType"];
-            endpoint?: string | null;
-            options?: null | components["schemas"]["StoragePolicyOptions"];
+            connection: components["schemas"]["StorageConnectorConnectionInput"];
             /** Format: int64 */
             policy_id?: number | null;
-            /** Format: int64 */
-            remote_node_id?: number | null;
-            remote_storage_target_key?: string | null;
-            secret_key?: string | null;
         };
         /** @description Test remote node connection without saving. */
         TestRemoteNodeParamsReq: {
@@ -8611,7 +8654,7 @@ export interface components {
                 [key: string]: unknown;
             };
             display_time_zone?: string | null;
-            language?: null | components["schemas"]["Language"];
+            language?: null | components["schemas"]["LocaleTag"];
             remove_custom_keys?: string[];
             sort_by?: null | components["schemas"]["SortBy"];
             sort_order?: null | components["schemas"]["SortOrder"];
@@ -8764,7 +8807,7 @@ export interface components {
                 [key: string]: unknown;
             };
             display_time_zone?: string | null;
-            language?: null | components["schemas"]["Language"];
+            language?: null | components["schemas"]["LocaleTag"];
             sort_by?: null | components["schemas"]["SortBy"];
             sort_order?: null | components["schemas"]["SortOrder"];
             storage_event_stream_enabled?: boolean | null;
@@ -10544,23 +10587,18 @@ export interface operations {
                             /** @description Items in the current page. */
                             items: {
                                 allowed_types: string[];
-                                base_path: string;
-                                bucket: string;
+                                behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
                                 /** Format: int64 */
                                 chunk_size: number;
+                                connector_config: components["schemas"]["ConnectorConfigEnvelope"];
+                                connector_id: string;
                                 created_at: string;
-                                driver_type: components["schemas"]["DriverType"];
-                                endpoint: string;
                                 /** Format: int64 */
                                 id: number;
                                 is_default: boolean;
                                 /** Format: int64 */
                                 max_file_size: number;
                                 name: string;
-                                options: components["schemas"]["StoragePolicyOptions"];
-                                /** Format: int64 */
-                                remote_node_id?: number | null;
-                                remote_storage_target_key?: string | null;
                                 updated_at: string;
                             }[];
                             /**
@@ -10623,23 +10661,18 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             allowed_types: string[];
-                            base_path: string;
-                            bucket: string;
+                            behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
                             /** Format: int64 */
                             chunk_size: number;
+                            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
+                            connector_id: string;
                             created_at: string;
-                            driver_type: components["schemas"]["DriverType"];
-                            endpoint: string;
                             /** Format: int64 */
                             id: number;
                             is_default: boolean;
                             /** Format: int64 */
                             max_file_size: number;
                             name: string;
-                            options: components["schemas"]["StoragePolicyOptions"];
-                            /** Format: int64 */
-                            remote_node_id?: number | null;
-                            remote_storage_target_key?: string | null;
                             updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -10672,7 +10705,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ExecuteDraftStoragePolicyActionReq"];
+                "application/json": components["schemas"]["ExecuteDraftStorageConnectorActionInput"];
             };
         };
         responses: {
@@ -10685,10 +10718,10 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
-                            action: components["schemas"]["StoragePolicyExecutableAction"];
+                            action_id: components["schemas"]["StorageConnectorActionId"];
                             diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
                             ok: boolean;
-                            tencent_cos_cors?: null | components["schemas"]["TencentCosCorsConfigResult"];
+                            output?: null | components["schemas"]["StorageConnectorActionOutput"];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -10741,50 +10774,6 @@ export interface operations {
             };
         };
     };
-    list_storage_credential_providers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Supported storage credential providers */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        code: components["schemas"]["ApiErrorCode"];
-                        data?: {
-                            default_scopes: string[];
-                            display_name: string;
-                            provider: components["schemas"]["StorageCredentialProvider"];
-                            supported: boolean;
-                        }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
-                        msg: string;
-                    };
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     list_storage_driver_descriptors: {
         parameters: {
             query?: {
@@ -10811,18 +10800,25 @@ export interface operations {
                             authorization_provider?: string | null;
                             /** @description 存储对象能力。 */
                             capabilities: components["schemas"]["StorageConnectorCapabilities"];
+                            /**
+                             * Format: int32
+                             * @description 当前 connector 能解析并输出的配置 schema 版本。
+                             */
+                            config_schema_version: number;
+                            /** @description 持久化到 policy 的稳定 connector/plugin id。 */
+                            connector_id: components["schemas"]["ConnectorId"];
+                            credential_management?: null | components["schemas"]["StorageConnectorCredentialManagementDescriptor"];
                             /** @description connector 的主要凭据模式。 */
                             credential_mode: components["schemas"]["StorageConnectorCredentialMode"];
+                            /**
+                             * Format: int32
+                             * @description 凭据 payload 的独立 schema 版本。配置字段演进不应使已保存凭据失效。
+                             */
+                            credential_schema_version?: number | null;
                             /** @description policy 数据相对于多个 Primary 的可见范围。 */
                             deployment_scope: components["schemas"]["StorageConnectorDeploymentScope"];
                             /** @description 人类可读说明。 */
                             description: string;
-                            /** @description Connector-owned recommendations for moving a policy to a more specific driver. */
-                            driver_recommendations?: components["schemas"]["StorageConnectorDriverRecommendation"][];
-                            /** @description 持久化到 policy 的 driver type。 */
-                            driver_type: components["schemas"]["DriverType"];
-                            /** @description 当前部署是否启用该 connector。 */
-                            enabled: boolean;
                             /** @description 管理端配置字段声明。 */
                             fields: components["schemas"]["StorageConnectorFieldDescriptor"][];
                             /** @description 人类可读名称。 */
@@ -10851,6 +10847,58 @@ export interface operations {
                         msg: string;
                     };
                 };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_storage_driver_localizations: {
+        parameters: {
+            query?: {
+                context?: components["schemas"]["StorageConnectorCatalogContext"];
+                locale?: components["schemas"]["LocaleTag"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List connector-owned localized UI resources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            requested_locale: components["schemas"]["LocaleTag"];
+                            resources: components["schemas"]["StorageConnectorLocalizationBundle"][];
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Connector localization resources are unchanged */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Unauthorized */
             401: {
@@ -10933,23 +10981,18 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             allowed_types: string[];
-                            base_path: string;
-                            bucket: string;
+                            behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
                             /** Format: int64 */
                             chunk_size: number;
+                            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
+                            connector_id: string;
                             created_at: string;
-                            driver_type: components["schemas"]["DriverType"];
-                            endpoint: string;
                             /** Format: int64 */
                             id: number;
                             is_default: boolean;
                             /** Format: int64 */
                             max_file_size: number;
                             name: string;
-                            options: components["schemas"]["StoragePolicyOptions"];
-                            /** Format: int64 */
-                            remote_node_id?: number | null;
-                            remote_storage_target_key?: string | null;
                             updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -11050,23 +11093,18 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             allowed_types: string[];
-                            base_path: string;
-                            bucket: string;
+                            behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
                             /** Format: int64 */
                             chunk_size: number;
+                            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
+                            connector_id: string;
                             created_at: string;
-                            driver_type: components["schemas"]["DriverType"];
-                            endpoint: string;
                             /** Format: int64 */
                             id: number;
                             is_default: boolean;
                             /** Format: int64 */
                             max_file_size: number;
                             name: string;
-                            options: components["schemas"]["StoragePolicyOptions"];
-                            /** Format: int64 */
-                            remote_node_id?: number | null;
-                            remote_storage_target_key?: string | null;
                             updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -11109,7 +11147,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ExecuteSavedStoragePolicyActionReq"];
+                "application/json": components["schemas"]["ExecuteSavedStorageConnectorActionInput"];
             };
         };
         responses: {
@@ -11122,10 +11160,10 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
-                            action: components["schemas"]["StoragePolicyExecutableAction"];
+                            action_id: components["schemas"]["StorageConnectorActionId"];
                             diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
                             ok: boolean;
-                            tencent_cos_cors?: null | components["schemas"]["TencentCosCorsConfigResult"];
+                            output?: null | components["schemas"]["StorageConnectorActionOutput"];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -11188,8 +11226,8 @@ export interface operations {
                             /** Format: int64 */
                             blob_total_bytes: number;
                             capacity: components["schemas"]["StorageCapacityInfo"];
+                            connector_id: string;
                             diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
-                            driver_type: components["schemas"]["DriverType"];
                             /** Format: int64 */
                             policy_id: number;
                         };
@@ -11197,86 +11235,6 @@ export interface operations {
                         msg: string;
                     };
                 };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Policy not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    promote_s3_compatible_policy_driver: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Policy ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PromoteS3CompatiblePolicyDriverReq"];
-            };
-        };
-        responses: {
-            /** @description Policy driver promoted */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        code: components["schemas"]["ApiErrorCode"];
-                        data?: {
-                            allowed_types: string[];
-                            base_path: string;
-                            bucket: string;
-                            /** Format: int64 */
-                            chunk_size: number;
-                            created_at: string;
-                            driver_type: components["schemas"]["DriverType"];
-                            endpoint: string;
-                            /** Format: int64 */
-                            id: number;
-                            is_default: boolean;
-                            /** Format: int64 */
-                            max_file_size: number;
-                            name: string;
-                            options: components["schemas"]["StoragePolicyOptions"];
-                            /** Format: int64 */
-                            remote_node_id?: number | null;
-                            remote_storage_target_key?: string | null;
-                            updated_at: string;
-                        };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
-                        msg: string;
-                    };
-                };
-            };
-            /** @description Promotion rejected */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description Unauthorized */
             401: {
@@ -11311,11 +11269,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StartStorageAuthorizationReq"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Storage credential authorization URL */
             200: {
@@ -11329,8 +11283,6 @@ export interface operations {
                             authorization_url: string;
                             /** Format: int64 */
                             expires_in: number;
-                            microsoft_graph?: null | components["schemas"]["MicrosoftGraphAuthorizationContext"];
-                            provider: components["schemas"]["StorageCredentialProvider"];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -11442,8 +11394,6 @@ export interface operations {
             path: {
                 /** @description Policy ID */
                 id: number;
-                /** @description Storage credential provider */
-                provider: string;
             };
             cookie?: never;
         };
@@ -11458,7 +11408,7 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
-                            credential: components["schemas"]["StoragePolicyCredentialInfo"];
+                            credential: components["schemas"]["StorageConnectorCredentialInfo"];
                             root_item_id: string;
                             root_item_name?: string | null;
                         };
@@ -12363,7 +12313,7 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             description_key: string;
-                            driver_type: components["schemas"]["DriverType"];
+                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
                             fields: components["schemas"]["RemoteStorageTargetDriverFieldDescriptor"][];
                             label_key: string;
                         }[];
@@ -12423,7 +12373,7 @@ export interface operations {
                             created_at: string;
                             /** Format: int64 */
                             desired_revision: number;
-                            driver_type: components["schemas"]["DriverType"];
+                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
                             endpoint: string;
                             is_default: boolean;
                             last_error: string;
@@ -12498,7 +12448,7 @@ export interface operations {
                             created_at: string;
                             /** Format: int64 */
                             desired_revision: number;
-                            driver_type: components["schemas"]["DriverType"];
+                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
                             endpoint: string;
                             is_default: boolean;
                             last_error: string;
@@ -12626,7 +12576,7 @@ export interface operations {
                             created_at: string;
                             /** Format: int64 */
                             desired_revision: number;
-                            driver_type: components["schemas"]["DriverType"];
+                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
                             endpoint: string;
                             is_default: boolean;
                             last_error: string;
@@ -16266,7 +16216,7 @@ export interface operations {
                                 [key: string]: unknown;
                             };
                             display_time_zone?: string | null;
-                            language?: null | components["schemas"]["Language"];
+                            language?: null | components["schemas"]["LocaleTag"];
                             sort_by?: null | components["schemas"]["SortBy"];
                             sort_order?: null | components["schemas"]["SortOrder"];
                             storage_event_stream_enabled?: boolean | null;

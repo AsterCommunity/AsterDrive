@@ -172,7 +172,10 @@ async fn presigned_original_url(
     }
 
     let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
-    if !crate::storage::connectors::presigned_download_enabled(&policy)? {
+    if !crate::storage::connectors::presigned_download_enabled(
+        state.driver_registry().connectors(),
+        &policy,
+    )? {
         return Ok(None);
     }
 
@@ -189,6 +192,7 @@ async fn presigned_original_url(
                 download_name: Some(file.name.clone()),
                 require_download_name_match:
                     crate::storage::connectors::presigned_download_requires_filename_match(
+                        state.driver_registry().connectors(),
                         &policy,
                     )?,
                 response_cache_control: Some("private, max-age=0, must-revalidate".to_string()),
@@ -369,7 +373,6 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use aster_drive_migration::Migrator;
     use async_trait::async_trait;
     use chrono::Utc;
     use sea_orm::{ActiveModelTrait, Set};
@@ -387,8 +390,8 @@ mod tests {
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use aster_drive_model::entities::{file, file_blob, storage_policy, user};
     use aster_drive_model::types::{
-        DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole,
-        UserStatus,
+        ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy, ProviderDownloadFilenameMode,
+        ProviderDownloadStrategy, UserRole, UserStatus,
     };
     use aster_drive_storage::traits::driver::PresignedDownloadOptions;
     use aster_drive_storage::traits::extensions::PresignedStorageDriver;
@@ -521,10 +524,31 @@ mod tests {
         }
     }
 
+    fn s3_presigned_download_policy() -> storage_policy::Model {
+        crate::storage::connectors::test_support::s3_policy(
+            "https://s3.example.test",
+            "test-bucket",
+            "",
+            ObjectStorageUploadStrategy::RelayStream,
+            ObjectStorageDownloadStrategy::Presigned,
+        )
+    }
+
+    fn onedrive_download_policy(strategy: ProviderDownloadStrategy) -> storage_policy::Model {
+        crate::storage::connectors::test_support::onedrive_policy_with_download(
+            crate::storage::connectors::OneDriveAccountMode::Personal,
+            None,
+            None,
+            None,
+            strategy,
+            ProviderDownloadFilenameMode::ProviderNative,
+            aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+        )
+    }
+
     async fn build_resource_handle_state<D>(
         driver: D,
-        driver_type: DriverType,
-        options: StoredStoragePolicyOptions,
+        policy: Option<storage_policy::Model>,
         file_name: &str,
         mime_type: &str,
     ) -> (PrimaryAppState, file::Model, file_blob::Model)
@@ -547,31 +571,21 @@ mod tests {
         )
         .await
         .expect("resource handle database should connect");
-        Migrator::up(&db, None)
-            .await
-            .expect("resource handle migrations should succeed");
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
 
         let now = Utc::now();
-        let policy = storage_policy::ActiveModel {
-            name: Set("Resource Handle Policy".to_string()),
-            driver_type: Set(driver_type),
-            endpoint: Set(String::new()),
-            bucket: Set(String::new()),
-            access_key: Set(String::new()),
-            secret_key: Set(String::new()),
-            base_path: Set(temp_root.to_string_lossy().into_owned()),
-            max_file_size: Set(0),
-            allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(options),
-            is_default: Set(true),
-            chunk_size: Set(5_242_880),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
-        }
-        .insert(&db)
-        .await
-        .expect("resource handle policy should be inserted");
+        let mut policy = policy.unwrap_or_else(|| {
+            crate::storage::connectors::test_support::local_policy(
+                temp_root.to_string_lossy().into_owned(),
+            )
+        });
+        policy.name = "Resource Handle Policy".to_string();
+        policy.is_default = true;
+        policy.chunk_size = 5_242_880;
+        let policy = crate::storage::connectors::test_support::insertable_policy(policy)
+            .insert(&db)
+            .await
+            .expect("resource handle policy should be inserted");
 
         let test_user = user::ActiveModel {
             username: Set("resource-handle".to_string()),
@@ -598,14 +612,14 @@ mod tests {
             .await
             .expect("resource handle policy groups should be seeded");
 
+        let driver_registry =
+            Arc::new(DriverRegistry::noop().expect("built-in storage connector registry"));
+        driver_registry.insert_for_test(policy.id, Arc::new(driver));
         let policy_snapshot = Arc::new(PolicySnapshot::new());
-        policy_snapshot
-            .reload(&db)
+        driver_registry
+            .reload_policy_snapshot(&policy_snapshot, &db)
             .await
             .expect("resource handle policy snapshot should reload");
-
-        let driver_registry = Arc::new(DriverRegistry::noop());
-        driver_registry.insert_for_test(policy.id, Arc::new(driver));
 
         let runtime_config = Arc::new(RuntimeConfig::new());
         let cache = cache::create_cache(&CacheConfig {
@@ -783,14 +797,8 @@ mod tests {
 
     #[actix_web::test]
     async fn original_handle_uses_same_origin_when_presigned_download_is_disabled() {
-        let (state, file, blob) = build_resource_handle_state(
-            TestDriver,
-            DriverType::Local,
-            StoredStoragePolicyOptions::empty(),
-            "report.txt",
-            "text/plain",
-        )
-        .await;
+        let (state, file, blob) =
+            build_resource_handle_state(TestDriver, None, "report.txt", "text/plain").await;
 
         let handle = resolve_file_resource_handle_for_file(
             &state,
@@ -837,10 +845,7 @@ mod tests {
     async fn original_handle_uses_presigned_url_without_credentials_or_conditional_headers() {
         let (state, file, blob) = build_resource_handle_state(
             PresignedTestDriver,
-            DriverType::S3,
-            StoredStoragePolicyOptions::from(
-                r#"{"object_storage_download_strategy":"presigned"}"#.to_string(),
-            ),
+            Some(s3_presigned_download_policy()),
             "space name.png",
             "image/png",
         )
@@ -911,10 +916,9 @@ mod tests {
     async fn onedrive_direct_original_handle_uses_cross_origin_resource_contract() {
         let (state, file, blob) = build_resource_handle_state(
             PresignedTestDriver,
-            DriverType::OneDrive,
-            StoredStoragePolicyOptions::from(
-                r#"{"provider_download_strategy":"frontend_direct"}"#.to_string(),
-            ),
+            Some(onedrive_download_policy(
+                ProviderDownloadStrategy::FrontendDirect,
+            )),
             "video.mp4",
             "video/mp4",
         )
@@ -957,8 +961,9 @@ mod tests {
     async fn onedrive_default_original_handle_stays_same_origin() {
         let (state, file, blob) = build_resource_handle_state(
             PresignedTestDriver,
-            DriverType::OneDrive,
-            StoredStoragePolicyOptions::empty(),
+            Some(onedrive_download_policy(
+                ProviderDownloadStrategy::ServerRelay,
+            )),
             "video.mp4",
             "video/mp4",
         )
@@ -998,10 +1003,7 @@ mod tests {
     async fn sandboxed_original_handle_does_not_use_presigned_url() {
         let (state, file, blob) = build_resource_handle_state(
             PresignedTestDriver,
-            DriverType::S3,
-            StoredStoragePolicyOptions::from(
-                r#"{"object_storage_download_strategy":"presigned"}"#.to_string(),
-            ),
+            Some(s3_presigned_download_policy()),
             "preview.html",
             "text/html; charset=utf-8",
         )
@@ -1039,14 +1041,8 @@ mod tests {
 
     #[actix_web::test]
     async fn auto_preview_for_non_browser_renderable_image_uses_image_preview_representation() {
-        let (state, file, blob) = build_resource_handle_state(
-            TestDriver,
-            DriverType::Local,
-            StoredStoragePolicyOptions::empty(),
-            "scan.tiff",
-            "image/tiff",
-        )
-        .await;
+        let (state, file, blob) =
+            build_resource_handle_state(TestDriver, None, "scan.tiff", "image/tiff").await;
 
         let handle = resolve_file_resource_handle_for_file(
             &state,
@@ -1090,14 +1086,8 @@ mod tests {
 
     #[actix_web::test]
     async fn auto_preview_keeps_browser_renderable_images_on_original_representation() {
-        let (state, file, blob) = build_resource_handle_state(
-            TestDriver,
-            DriverType::Local,
-            StoredStoragePolicyOptions::empty(),
-            "photo.jpg",
-            "image/jpeg",
-        )
-        .await;
+        let (state, file, blob) =
+            build_resource_handle_state(TestDriver, None, "photo.jpg", "image/jpeg").await;
 
         let handle = resolve_file_resource_handle_for_file(
             &state,
@@ -1127,14 +1117,8 @@ mod tests {
 
     #[actix_web::test]
     async fn auto_preview_only_converts_for_blob_url_preview_requests() {
-        let (state, file, blob) = build_resource_handle_state(
-            TestDriver,
-            DriverType::Local,
-            StoredStoragePolicyOptions::empty(),
-            "capture.heic",
-            "image/heic",
-        )
-        .await;
+        let (state, file, blob) =
+            build_resource_handle_state(TestDriver, None, "capture.heic", "image/heic").await;
 
         for (purpose, delivery_mode) in [
             (
@@ -1176,14 +1160,8 @@ mod tests {
 
     #[actix_web::test]
     async fn explicit_thumbnail_representation_uses_thumbnail_identity_and_webp_delivery() {
-        let (state, file, blob) = build_resource_handle_state(
-            TestDriver,
-            DriverType::Local,
-            StoredStoragePolicyOptions::empty(),
-            "photo.png",
-            "image/png",
-        )
-        .await;
+        let (state, file, blob) =
+            build_resource_handle_state(TestDriver, None, "photo.png", "image/png").await;
 
         let handle = resolve_file_resource_handle_for_file(
             &state,
@@ -1226,14 +1204,8 @@ mod tests {
 
     #[actix_web::test]
     async fn derived_image_representations_return_validation_error_when_no_processor_matches() {
-        let (state, file, blob) = build_resource_handle_state(
-            TestDriver,
-            DriverType::Local,
-            StoredStoragePolicyOptions::empty(),
-            "notes.txt",
-            "text/plain",
-        )
-        .await;
+        let (state, file, blob) =
+            build_resource_handle_state(TestDriver, None, "notes.txt", "text/plain").await;
 
         let error = resolve_file_resource_handle_for_file(
             &state,

@@ -148,11 +148,18 @@ impl AsterDavWriteHandle {
                 .await
                 .map_err(|_| FsError::GeneralFailure)?;
 
-            if policy.driver_type == aster_drive_model::types::DriverType::Local {
+            if let Some(local) = crate::storage::connectors::resolve_local_filesystem_projection(
+                state.driver_registry().connectors(),
+                &policy,
+            )
+            .map_err(|_| FsError::GeneralFailure)?
+            {
                 let staging_token = format!("{}.upload", aster_forge_utils::id::new_uuid());
-                let staging_path =
-                    crate::storage::drivers::local::upload_staging_path(&policy, &staging_token)
-                        .map_err(|_| FsError::GeneralFailure)?;
+                let staging_path = crate::storage::drivers::local::upload_staging_path(
+                    &local.base_path,
+                    &staging_token,
+                )
+                .map_err(|_| FsError::GeneralFailure)?;
                 if let Some(parent) = staging_path.parent() {
                     tokio::fs::create_dir_all(parent)
                         .await
@@ -161,7 +168,7 @@ impl AsterDavWriteHandle {
                 let file = tokio::fs::File::create(&staging_path)
                     .await
                     .map_err(|_| FsError::GeneralFailure)?;
-                let hasher = storage::local_content_dedup_enabled(&policy).then(Sha256::new);
+                let hasher = local.content_dedup.then(Sha256::new);
 
                 (
                     file,
@@ -170,8 +177,12 @@ impl AsterDavWriteHandle {
                     hasher,
                 )
             } else if file_precondition.is_none()
-                && storage::streaming_direct_upload_eligible(&policy, size_hint)
-                    .map_err(|error| streaming_direct_eligibility_error(&policy, &error))?
+                && storage::streaming_direct_upload_eligible(
+                    state.driver_registry().connectors(),
+                    &policy,
+                    size_hint,
+                )
+                .map_err(|error| streaming_direct_eligibility_error(&policy, &error))?
             {
                 if policy.max_file_size > 0 && size_hint > policy.max_file_size {
                     return Err(FsError::TooLarge);
@@ -193,16 +204,20 @@ impl AsterDavWriteHandle {
                     .extensions()
                     .stream_upload
                     .ok_or(FsError::GeneralFailure)?;
-                let prepared_upload =
-                    storage::prepare_non_dedup_blob_upload(&policy, size_hint, Some(&filename))
-                        .map_err(|error| {
-                            tracing::warn!(
-                                policy_id = policy.id,
-                                driver_type = %policy.driver_type.as_str(),
-                                "failed to prepare WebDAV direct blob upload: {error}"
-                            );
-                            FsError::GeneralFailure
-                        })?;
+                let prepared_upload = storage::prepare_non_dedup_blob_upload(
+                    state.driver_registry().connectors(),
+                    &policy,
+                    size_hint,
+                    Some(&filename),
+                )
+                .map_err(|error| {
+                    tracing::warn!(
+                        policy_id = policy.id,
+                        connector_id = %policy.connector_id,
+                        "failed to prepare WebDAV direct blob upload: {error}"
+                    );
+                    FsError::GeneralFailure
+                })?;
                 let storage_path = prepared_upload.storage_path().to_string();
                 let (writer, reader) = tokio::io::duplex(RELAY_DIRECT_BUFFER_SIZE);
                 let driver_for_task = driver.clone();
@@ -299,7 +314,7 @@ fn streaming_direct_eligibility_error(
 ) -> FsError {
     tracing::warn!(
         policy_id = policy.id,
-        driver_type = %policy.driver_type.as_str(),
+        connector_id = %policy.connector_id,
         error = %error,
         "failed to resolve WebDAV streaming direct upload eligibility"
     );

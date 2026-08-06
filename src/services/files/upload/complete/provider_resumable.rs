@@ -43,7 +43,7 @@ pub(super) async fn complete_provider_resumable_upload(
                 actual_size,
                 policy.id,
                 temp_key.to_string(),
-                opaque_upload_file_hash(&policy, &session)?,
+                opaque_upload_file_hash(state.driver_registry().connectors(), &policy, &session)?,
             )?;
             finalize_verified_opaque_upload_session(
                 state,

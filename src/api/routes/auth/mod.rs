@@ -13,7 +13,7 @@ use crate::api::middleware::rate_limit;
 use crate::api::request_auth::access_token;
 use crate::config::site_url;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local, events::storage_change};
 use actix_governor::Governor;
 use actix_web::http::header;
@@ -57,7 +57,7 @@ pub use crate::services::user::account::{
 };
 pub use crate::services::user::profile::{AvatarInfo, UserProfileInfo};
 pub use aster_drive_model::types::{
-    AvatarSource, BrowserOpenMode, ColorPreset, Language, PrefViewMode, ThemeMode,
+    AvatarSource, BrowserOpenMode, ColorPreset, LocaleTag, PrefViewMode, ThemeMode,
 };
 
 const AUTH_MAIL_RESPONSE_FLOOR_MS: u64 = 350;

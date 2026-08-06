@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::config::operations;
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use aster_drive_model::entities::file_blob;
 use aster_drive_model::types::MediaProcessorKind;
 use aster_drive_storage::StorageDriver;

@@ -4,7 +4,7 @@ use sea_orm::DatabaseConnection;
 
 use crate::errors::Result;
 use crate::storage::drivers::remote::RemoteDriver;
-use aster_drive_model::entities::{managed_follower, storage_policy};
+use aster_drive_model::entities::managed_follower;
 use aster_drive_model::types::RemoteNodeTransportMode;
 
 use super::RemoteStorageClient;
@@ -78,12 +78,12 @@ impl RemoteProtocolRuntime {
         }
     }
 
-    pub(crate) fn driver_for_policy(
+    pub(crate) fn driver_for_config(
         &self,
-        policy: &storage_policy::Model,
+        config: &crate::storage::drivers::remote::RemoteDriverConfig,
         follower: &managed_follower::Model,
     ) -> Result<RemoteDriver> {
-        RemoteDriver::new_with_client(policy, follower, self.client_for_node(follower)?)
+        RemoteDriver::new_with_client(config, follower, self.client_for_node(follower)?)
     }
 }
 

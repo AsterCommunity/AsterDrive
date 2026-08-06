@@ -5,7 +5,6 @@ use crate::db::repository::config_repo;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::preview::apps;
-use aster_drive_model::types::parse_storage_policy_options;
 use moka::future::Cache;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -184,17 +183,21 @@ fn build_public_thumbnail_support(
         .collect::<BTreeSet<_>>();
 
     for policy in state.policy_snapshot().all_policies() {
-        let options = parse_storage_policy_options(policy.options.as_ref());
-        if !options.uses_storage_native_thumbnail() || options.thumbnail_extensions.is_empty() {
+        let behavior = crate::storage::connectors::resolve_policy_behavior(
+            state.driver_registry().connectors(),
+            &policy,
+        )?;
+        if !behavior.uses_storage_native_thumbnail() || behavior.thumbnail_extensions.is_empty() {
             continue;
         }
 
         // Public capability aggregation must stay descriptor-based: this endpoint
         // may scan every policy, and constructing drivers would warm remote clients.
-        if crate::storage::connectors::storage_connector_supports_native_thumbnail(
-            policy.driver_type,
+        if crate::storage::connectors::storage_policy_supports_native_thumbnail(
+            state.driver_registry().connectors(),
+            &policy,
         )? {
-            image_thumbnail_extensions.extend(options.thumbnail_extensions);
+            image_thumbnail_extensions.extend(behavior.thumbnail_extensions);
         }
     }
 
@@ -214,19 +217,23 @@ fn build_public_media_data_support(
 
     let mut storage_native_extensions = BTreeSet::new();
     for policy in state.policy_snapshot().all_policies() {
-        let options = parse_storage_policy_options(policy.options.as_ref());
-        if !options.uses_storage_native_media_metadata()
-            || options.media_metadata_extensions.is_empty()
+        let behavior = crate::storage::connectors::resolve_policy_behavior(
+            state.driver_registry().connectors(),
+            &policy,
+        )?;
+        if !behavior.uses_storage_native_media_metadata()
+            || behavior.media_metadata_extensions.is_empty()
         {
             continue;
         }
 
         // Same boundary as thumbnails: descriptor capabilities are the source of
         // truth for static support without instantiating policy drivers.
-        if crate::storage::connectors::storage_connector_supports_native_media_metadata(
-            policy.driver_type,
+        if crate::storage::connectors::storage_policy_supports_native_media_metadata(
+            state.driver_registry().connectors(),
+            &policy,
         )? {
-            storage_native_extensions.extend(options.media_metadata_extensions);
+            storage_native_extensions.extend(behavior.media_metadata_extensions);
         }
     }
 
@@ -309,12 +316,9 @@ fn hash_policy_snapshot_for_public_support(
     policies.sort_by_key(|policy| policy.id);
     for policy in policies {
         policy.id.hash(hasher);
-        policy.driver_type.as_str().hash(hasher);
-        policy.endpoint.hash(hasher);
-        policy.bucket.hash(hasher);
-        policy.base_path.hash(hasher);
-        policy.remote_node_id.hash(hasher);
-        policy.options.as_ref().hash(hasher);
+        policy.connector_id.hash(hasher);
+        policy.storage_config.as_ref().hash(hasher);
+        policy.updated_at.hash(hasher);
     }
 }
 

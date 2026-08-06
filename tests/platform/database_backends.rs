@@ -3,15 +3,18 @@
 use crate::common;
 
 use actix_web::test;
-use sea_orm::{ActiveValue::Set, ConnectionTrait, DatabaseConnection, DbBackend, Statement};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue::Set, ConnectionTrait, DatabaseConnection, DbBackend, Statement,
+};
 use serde_json::Value;
 use tokio::time::{Duration, timeout};
 
 use aster_drive::db::repository::background_task_repo;
-use aster_drive::runtime::SharedRuntimeState;
-use aster_drive_model::entities::background_task;
+use aster_drive_migration::{CurrentMigrator, MigratorTrait};
+use aster_drive_model::entities::{background_task, storage_policy};
 use aster_drive_model::types::{
-    BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload, StoredTaskResult,
+    BackgroundTaskKind, BackgroundTaskStatus, StoredStoragePolicyAllowedTypes,
+    StoredStoragePolicyConfig, StoredTaskPayload, StoredTaskResult,
 };
 
 const OLD_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 255;
@@ -146,22 +149,28 @@ async fn assert_mysql_search_objects(db: &DatabaseConnection) {
         .unwrap();
     assert!(team_index.is_some(), "teams fulltext index should exist");
 
-    let timestamp_count = db
-        .query_one_raw(Statement::from_string(
+    let timestamp_columns = db
+        .query_all_raw(Statement::from_string(
             DbBackend::MySql,
-            "SELECT COUNT(*) \
+            "SELECT TABLE_NAME, COLUMN_NAME \
              FROM INFORMATION_SCHEMA.COLUMNS \
              WHERE TABLE_SCHEMA = DATABASE() \
                AND TABLE_NAME <> 'seaql_migrations' \
-               AND DATA_TYPE = 'timestamp'",
+               AND DATA_TYPE = 'timestamp' \
+             ORDER BY TABLE_NAME, ORDINAL_POSITION",
         ))
         .await
         .unwrap()
-        .expect("timestamp count query should return one row");
-    let timestamp_count: i64 = timestamp_count.try_get_by_index(0).unwrap();
-    assert_eq!(
-        timestamp_count, 0,
-        "application tables should not retain MySQL TIMESTAMP columns after the 2038 fix"
+        .into_iter()
+        .map(|row| {
+            let table_name: String = row.try_get_by_index(0).unwrap();
+            let column_name: String = row.try_get_by_index(1).unwrap();
+            format!("{table_name}.{column_name}")
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        timestamp_columns.is_empty(),
+        "application tables should not retain MySQL TIMESTAMP columns after the 2038 fix: {timestamp_columns:?}"
     );
 
     let shares_expires_at = db
@@ -293,6 +302,104 @@ async fn assert_background_task_display_name_accepts_expanded_len(db: &DatabaseC
     assert_eq!(task.display_name, display_name);
 }
 
+async fn assert_current_storage_policy_ignores_retained_legacy_columns(
+    db: &DatabaseConnection,
+    backend: DbBackend,
+) {
+    async fn insert_current_policy(
+        db: &DatabaseConnection,
+        name: String,
+    ) -> Result<storage_policy::Model, sea_orm::DbErr> {
+        let now = chrono::Utc::now();
+        storage_policy::ActiveModel {
+            name: Set(name),
+            connector_id: Set("asterdrive.storage.local".to_string()),
+            storage_config: Set(StoredStoragePolicyConfig::from(
+                r#"{"format_version":1,"connector":{"format_version":1,"connector_id":"asterdrive.storage.local","schema_version":1,"values":{"base_path":"./data/uploads","content_dedup":false}},"behavior":{"format_version":1,"schema_version":1,"values":{}}}"#
+                    .to_string(),
+            )),
+            max_file_size: Set(0),
+            allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
+            is_default: Set(false),
+            chunk_size: Set(0),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+    }
+
+    let now = chrono::Utc::now();
+    let policy = insert_current_policy(db, format!("connector-policy-{backend:?}-{now}"))
+        .await
+        .expect("current storage policy entity should omit retained 0.5.x legacy columns");
+
+    let row = db
+        .query_one_raw(Statement::from_string(
+            backend,
+            format!(
+                "SELECT driver_type FROM storage_policies WHERE id = {}",
+                policy.id
+            ),
+        ))
+        .await
+        .expect("retained storage policy driver_type should query")
+        .expect("inserted current storage policy should exist");
+    assert_eq!(
+        row.try_get_by_index::<String>(0)
+            .expect("retained driver_type should decode"),
+        "",
+        "0.5.x compatibility migration should supply the legacy driver_type default"
+    );
+
+    CurrentMigrator::down(db, Some(1))
+        .await
+        .expect("storage policy compatibility migration should roll back on production backend");
+    insert_current_policy(db, format!("connector-policy-down-{backend:?}-{now}"))
+        .await
+        .expect_err("historical retained schema should reject the current policy insert shape");
+    if backend == DbBackend::MySql {
+        let row = db
+            .query_one_raw(Statement::from_string(
+                backend,
+                format!(
+                    "SELECT options FROM storage_policies WHERE id = {}",
+                    policy.id
+                ),
+            ))
+            .await
+            .expect("rolled-back MySQL legacy options should query")
+            .expect("inserted MySQL storage policy should remain");
+        assert_eq!(
+            row.try_get_by_index::<String>(0)
+                .expect("rolled-back MySQL legacy options should decode"),
+            "{}",
+            "rollback should backfill nullable 0.5.x compatibility values before restoring NOT NULL"
+        );
+    }
+
+    CurrentMigrator::up(db, Some(1))
+        .await
+        .expect("storage policy compatibility migration should reapply on production backend");
+    let reapplied =
+        insert_current_policy(db, format!("connector-policy-reapplied-{backend:?}-{now}"))
+            .await
+            .expect("reapplied compatibility migration should restore current policy writes");
+    let row = db
+        .query_one_raw(Statement::from_string(
+            backend,
+            format!(
+                "SELECT driver_type FROM storage_policies WHERE id = {}",
+                reapplied.id
+            ),
+        ))
+        .await
+        .expect("reapplied retained driver_type should query")
+        .expect("reapplied current storage policy should exist");
+    assert_eq!(row.try_get_by_index::<String>(0).unwrap(), "");
+}
+
 #[actix_web::test]
 async fn test_sqlite_transactions_are_serialized_by_single_connection_pool() {
     use sea_orm::TransactionTrait;
@@ -338,6 +445,7 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     assert_background_task_display_name_column_len(state.writer_db(), backend).await;
     assert_background_task_display_name_accepts_expanded_len(state.writer_db()).await;
     assert_upload_session_kind_column(state.writer_db(), backend).await;
+    assert_current_storage_policy_ignores_retained_legacy_columns(state.writer_db(), backend).await;
 
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);

@@ -1,38 +1,198 @@
 use async_trait::async_trait;
+use serde::Serialize;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::site_url;
-use crate::errors::{Result, validation_error_with_code};
-use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
-use crate::storage::drivers::tencent_cos::TencentCosDriver;
-use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::{
-    DriverType, ObjectStorageDownloadStrategy, parse_storage_policy_options,
+use crate::errors::{AsterError, Result, validation_error_with_code};
+use crate::storage::drivers::tencent_cos::{
+    TencentCosDriver, TencentCosDriverConfig, TencentCosStaticCredentials,
 };
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy};
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
-    ObjectStorageConnectorDescriptorInput, ObjectStorageFieldDescriptorInput,
-    StorageConnectorDeploymentScope, StorageConnectorDescriptor,
-    StorageConnectorDescriptorProvider, StorageConnectorUiDescriptorInput,
-    StoragePolicyExecutableAction, object_storage_connector_descriptor, policy_action_descriptor,
+    ObjectStorageConnectorDescriptorInput, StorageConnectorActionId, StorageConnectorBadgeRgb,
+    StorageConnectorCustomActionDescriptorInput, StorageConnectorDeploymentScope,
+    StorageConnectorDescriptor, StorageConnectorFieldDisplayInput, StorageConnectorFieldKind,
+    StorageConnectorFieldScope, StorageConnectorUiDescriptorInput, custom_action_descriptor,
+    object_storage_connector_descriptor, storage_connector_field,
+    storage_connector_field_with_display,
+};
+use aster_drive_storage::{
+    StorageConnectorActionSchema, StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue,
 };
 
 use super::common::{
-    build_connection_test_policy, ensure_policy_action_supported, normalize_s3_connection_fields,
-    validate_static_secret_credentials,
+    StorageTransferDirection, build_connection_test_policy,
+    decode_normalized_connector_action_input, transfer_strategy_field,
+    unsupported_connector_action_error,
 };
 use super::{
-    ExecuteDraftStorageConnectorActionInput, StorageConnector, StorageConnectorActionResult,
-    StorageConnectorConnectionInput, StorageConnectorUploadTransport, TencentCosCorsConfigResult,
+    ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
+    StorageConnector, StorageConnectorActionResult, StorageConnectorCredentialInput,
+    StorageConnectorUploadTransport,
 };
+
+mod localization;
 
 pub struct TencentCosConnector;
 
-impl StorageConnectorDescriptorProvider for TencentCosConnector {
-    fn storage_connector_descriptor() -> StorageConnectorDescriptor {
+const CONFIGURE_CORS_ACTION_ID: &str = "configure_tencent_cos_cors";
+
+aster_drive_storage::storage_connector_action_schema! {
+    struct ConfigureTencentCosCorsActionInput {}
+}
+
+fn configure_cors_action_descriptor() -> aster_drive_storage::StorageConnectorActionDescriptor {
+    custom_action_descriptor(StorageConnectorCustomActionDescriptorInput {
+        action_id: StorageConnectorActionId::declared(CONFIGURE_CORS_ACTION_ID),
+        label_key: "policy_cos_cors_action",
+        description_key: "policy_cos_cors_desc",
+        fields: ConfigureTencentCosCorsActionInput::action_fields(),
+        supports_draft: true,
+        supports_saved: true,
+        requires_authorization: false,
+        mutates_remote_state: true,
+        requires_confirmation: true,
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct TencentCosCorsActionOutput {
+    rule_id: String,
+    allowed_origins: Vec<String>,
+    request_id: Option<String>,
+    preserved_rule_count: usize,
+    replaced_existing_rule: bool,
+    response_vary: bool,
+}
+
+impl From<crate::storage::drivers::tencent_cos::cors::TencentCosCorsApplyResult>
+    for TencentCosCorsActionOutput
+{
+    fn from(value: crate::storage::drivers::tencent_cos::cors::TencentCosCorsApplyResult) -> Self {
+        Self {
+            rule_id: value.rule_id,
+            allowed_origins: value.allowed_origins,
+            request_id: value.request_id,
+            preserved_rule_count: value.preserved_rule_count,
+            replaced_existing_rule: value.replaced_existing_rule,
+            response_vary: value.response_vary,
+        }
+    }
+}
+
+aster_drive_storage::storage_connector_schema! {
+    pub struct TencentCosConnectorConfigV1 {
+        config {
+        pub endpoint: String => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+            name: "endpoint", scope: StorageConnectorFieldScope::ConnectorConfig,
+            kind: StorageConnectorFieldKind::Text, required: true, secret: false,
+            label_key: "endpoint", placeholder: Some("https://<bucket-appid>.cos.<region>.myqcloud.com"),
+            help_key: Some("cos_endpoint_hint"), required_message_key: None,
+            invalid_protocol_message_key: Some("s3_endpoint_protocol_required_error"),
+            allowed_endpoint_protocols: vec!["http:", "https:"],
+            allow_endpoint_without_protocol: false, trim_on_blur: false,
+        }),
+        pub bucket: String => {
+            let mut field = storage_connector_field(
+                "bucket", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Text, true, false,
+            );
+            field.required_message_key = Some("policy_wizard_bucket_required".to_string());
+            field
+        },
+        pub base_path: String => {
+            let mut field = storage_connector_field(
+                "base_path", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Text, false, false,
+            );
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String(String::new()));
+            field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
+            field
+        },
+        pub object_storage_upload_strategy: ObjectStorageUploadStrategy => transfer_strategy_field(
+            "object_storage_upload_strategy", StorageTransferDirection::Upload,
+        ),
+        pub object_storage_download_strategy: ObjectStorageDownloadStrategy => transfer_strategy_field(
+            "object_storage_download_strategy", StorageTransferDirection::Download,
+        ),
+        pub storage_native_processing_enabled: bool => {
+            let mut field = storage_connector_field(
+                "storage_native_processing_enabled", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Boolean, false, false,
+            );
+            field.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(false));
+            field
+        },
+        pub storage_native_media_metadata_enabled: bool => {
+            let mut field = storage_connector_field(
+                "storage_native_media_metadata_enabled", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Boolean, false, false,
+            );
+            field.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(false));
+            field
+        },
+        }
+        credentials static TencentCosStaticCredentialsV1 {
+            pub tencent_cos_secret_id: String => storage_connector_field(
+                "tencent_cos_secret_id", StorageConnectorFieldScope::StaticCredential,
+                StorageConnectorFieldKind::Text, true, false,
+            ),
+            pub tencent_cos_secret_key: String => storage_connector_field(
+                "tencent_cos_secret_key", StorageConnectorFieldScope::StaticCredential,
+                StorageConnectorFieldKind::Secret, true, true,
+            ),
+        }
+    }
+}
+
+impl TencentCosConnector {
+    pub const ID: &'static str = "asterdrive.storage.tencent_cos";
+
+    fn decode_config(policy: &storage_policy::Model) -> Result<TencentCosConnectorConfigV1> {
+        super::common::decode_typed_policy_config(policy, Self::ID, 1).map(|(config, _)| config)
+    }
+
+    fn driver_config(config: TencentCosConnectorConfigV1) -> TencentCosDriverConfig {
+        TencentCosDriverConfig {
+            endpoint: config.endpoint,
+            bucket: config.bucket,
+            base_path: config.base_path,
+            connect_timeout: std::time::Duration::from_secs(5),
+            read_timeout: std::time::Duration::from_secs(30),
+            operation_timeout: std::time::Duration::from_secs(3_600),
+        }
+    }
+
+    fn driver_credentials(
+        credentials: TencentCosStaticCredentialsV1,
+    ) -> TencentCosStaticCredentials {
+        TencentCosStaticCredentials {
+            access_key: credentials.tencent_cos_secret_id,
+            secret_key: credentials.tencent_cos_secret_key,
+        }
+    }
+
+    fn runtime_driver(
+        registry: &crate::storage::DriverRegistry,
+        policy: &storage_policy::Model,
+    ) -> Result<TencentCosDriver> {
+        let config = Self::decode_config(policy)?;
+        let credentials: TencentCosStaticCredentialsV1 =
+            super::common::runtime_static_credential(registry, policy, Self::ID)?;
+        Ok(TencentCosDriver::new(
+            Self::driver_config(config),
+            Self::driver_credentials(credentials),
+        )?)
+    }
+}
+
+impl TencentCosConnector {
+    fn descriptor_definition() -> StorageConnectorDescriptor {
         let mut descriptor =
             object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
-                driver_type: DriverType::TencentCos,
+                connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
                 label: "Tencent COS",
                 description: "Tencent Cloud COS object storage policy",
                 ui: StorageConnectorUiDescriptorInput {
@@ -40,6 +200,7 @@ impl StorageConnectorDescriptorProvider for TencentCosConnector {
                     description_key: "policy_wizard_tencent_cos_storage_desc",
                     icon_src: Some("/static/storage/tencent-cloud-cos.webp"),
                     icon_name: None,
+                    badge_rgb: StorageConnectorBadgeRgb::new(6, 182, 212),
                     helper_key: "policy_wizard_tencent_cos_helper",
                     config_step_title_key: "policy_wizard_step_connection_title",
                     config_step_description_key: "policy_wizard_step_tencent_cos_connection_desc",
@@ -49,64 +210,34 @@ impl StorageConnectorDescriptorProvider for TencentCosConnector {
                 },
                 deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
                 supports_initial_setup: true,
-                fields: ObjectStorageFieldDescriptorInput {
-                    endpoint_placeholder: "https://<bucket-appid>.cos.<region>.myqcloud.com",
-                    endpoint_help_key: "cos_endpoint_hint",
-                    endpoint_protocol_error_key: "s3_endpoint_protocol_required_error",
-                    bucket_required_message_key: "policy_wizard_bucket_required",
-                    access_key_label_key: "access_key",
-                    secret_key_label_key: "secret_key",
-                    access_key_trim_on_blur: false,
-                },
-                include_s3_path_style: false,
-                include_s3_region: false,
+                credential_mode: TencentCosConnectorConfigV1::credential_mode(),
+                fields: TencentCosConnectorConfigV1::descriptor_fields(),
                 presigned_part_etag_required: true,
                 storage_native_processing: true,
+                config_schema_version: 1,
+                credential_schema_version: Some(1),
                 related_issues: vec![328, 329],
             });
-        descriptor.actions.push(policy_action_descriptor(
-            StoragePolicyExecutableAction::ConfigureTencentCosCors,
-        ));
+        descriptor.actions.push(configure_cors_action_descriptor());
         descriptor
     }
 }
 
-impl TencentCosConnector {
-    pub(super) fn validate_promotion_candidate(policy: &storage_policy::Model) -> Result<()> {
-        Ok(TencentCosDriver::validate_policy(policy)?)
-    }
-}
-
-async fn configure_tencent_cos_cors_for_policy<S: SharedRuntimeState + ?Sized>(
-    state: &S,
-    policy: &storage_policy::Model,
-) -> Result<TencentCosCorsConfigResult> {
-    let origins = resolve_cos_cors_allowed_origins(state)?;
-    let driver = TencentCosDriver::new(policy)?;
+async fn configure_tencent_cos_cors_for_policy(
+    runtime_config: &crate::config::RuntimeConfig,
+    driver: TencentCosDriver,
+) -> Result<TencentCosCorsActionOutput> {
+    let origins = resolve_cos_cors_allowed_origins(runtime_config)?;
     driver
         .configure_asterdrive_cors(&origins)
         .await
         .map(Into::into)
 }
 
-async fn merge_draft_action_saved_credentials<S: SharedRuntimeState + ?Sized>(
-    state: &S,
-    policy_id: Option<i64>,
-    connection: StorageConnectorConnectionInput,
-) -> Result<StorageConnectorConnectionInput> {
-    super::common::merge_saved_static_credentials_for_draft(
-        state.writer_db(),
-        policy_id,
-        connection,
-        "draft storage policy action",
-    )
-    .await
-}
-
 fn resolve_cos_cors_allowed_origins(
-    state: &(impl SharedRuntimeState + ?Sized),
+    runtime_config: &crate::config::RuntimeConfig,
 ) -> Result<Vec<String>> {
-    let origins = site_url::public_site_urls(state.runtime_config());
+    let origins = site_url::public_site_urls(runtime_config);
     if origins.is_empty() {
         return Err(validation_error_with_code(
             ApiErrorCode::PolicyActionParameterRequired,
@@ -118,78 +249,197 @@ fn resolve_cos_cors_allowed_origins(
 
 #[async_trait]
 impl StorageConnector for TencentCosConnector {
-    fn driver_type() -> DriverType {
-        DriverType::TencentCos
+    fn descriptor(&self) -> StorageConnectorDescriptor {
+        Self::descriptor_definition()
     }
 
-    fn normalize_connection_fields(endpoint: &str, bucket: &str) -> Result<(String, String)> {
-        normalize_s3_connection_fields(endpoint, bucket)
-    }
-
-    fn validate_connection_credentials(input: &StorageConnectorConnectionInput) -> Result<()> {
-        validate_static_secret_credentials(input, "tencent_cos")
-    }
-
-    fn supports_saved_draft_credentials() -> bool {
-        true
-    }
-
-    async fn build_draft_driver<S: RemoteProtocolRuntimeState + Sync + ?Sized>(
-        state: &S,
-        policy: &storage_policy::Model,
-    ) -> Result<Box<dyn StorageDriver>> {
-        let _ = state;
-        Ok(Box::new(TencentCosDriver::new(policy)?))
-    }
-
-    async fn execute_saved_action<S: SharedRuntimeState + Sync + ?Sized>(
-        state: &S,
-        policy: &storage_policy::Model,
-        action: StoragePolicyExecutableAction,
-    ) -> Result<StorageConnectorActionResult> {
-        ensure_policy_action_supported(Self::storage_connector_descriptor(), action)?;
-        match action {
-            StoragePolicyExecutableAction::ConfigureTencentCosCors => {
-                let result = configure_tencent_cos_cors_for_policy(state, policy).await?;
-                Ok(StorageConnectorActionResult {
-                    action,
-                    tencent_cos_cors: Some(result),
-                })
-            }
-        }
-    }
-
-    async fn execute_draft_action<S: RemoteProtocolRuntimeState + Sync + ?Sized>(
-        state: &S,
-        input: ExecuteDraftStorageConnectorActionInput,
-    ) -> Result<StorageConnectorActionResult> {
-        ensure_policy_action_supported(Self::storage_connector_descriptor(), input.action)?;
-        match input.action {
-            StoragePolicyExecutableAction::ConfigureTencentCosCors => {
-                let connection =
-                    merge_draft_action_saved_credentials(state, input.policy_id, input.connection)
-                        .await?;
-                let policy =
-                    build_connection_test_policy::<Self, _>(state.writer_db(), connection).await?;
-                let result = configure_tencent_cos_cors_for_policy(state, &policy).await?;
-                Ok(StorageConnectorActionResult {
-                    action: input.action,
-                    tencent_cos_cors: Some(result),
-                })
-            }
-        }
-    }
-
-    fn upload_transport(policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
-        let options = parse_storage_policy_options(policy.options.as_ref());
-        StorageConnectorUploadTransport::ObjectStorage(
-            options.effective_object_storage_upload_strategy(),
+    fn localization(&self) -> Result<aster_drive_storage::StorageConnectorLocalization> {
+        let descriptor = Self::descriptor_definition();
+        super::localization::builtin_connector_localization(
+            Self::ID,
+            &descriptor,
+            localization::MESSAGES,
         )
     }
 
-    fn presigned_download_enabled(policy: &storage_policy::Model) -> bool {
-        let options = parse_storage_policy_options(policy.options.as_ref());
-        options.effective_object_storage_download_strategy()
-            == ObjectStorageDownloadStrategy::Presigned
+    fn validate_connector_config(
+        &self,
+        input: &aster_drive_storage::ConnectorConfigEnvelope,
+    ) -> Result<aster_drive_storage::ConnectorConfigEnvelope> {
+        let normalized =
+            aster_drive_storage::connector_descriptor::normalize_storage_connector_config(
+                &self.descriptor(),
+                input,
+            )
+            .map_err(|error| AsterError::validation_error(error.to_string()))?;
+        let mut config: TencentCosConnectorConfigV1 =
+            super::common::decode_normalized_connector_config(&normalized)?;
+        let connection = crate::storage::drivers::s3_config::normalize_s3_endpoint_and_bucket(
+            &config.endpoint,
+            &config.bucket,
+        )
+        .map_err(|error| error.into_aster_error())?;
+        config.endpoint = connection.endpoint;
+        config.bucket = connection.bucket;
+        let endpoint = url::Url::parse(&config.endpoint)
+            .map_err(|error| AsterError::validation_error(error.to_string()))?;
+        if !endpoint
+            .host_str()
+            .is_some_and(|host| host.ends_with(".myqcloud.com"))
+        {
+            return Err(AsterError::validation_error(
+                "COS endpoint must use a Tencent COS myqcloud.com host",
+            ));
+        }
+        super::common::encode_normalized_connector_config(
+            normalized.connector_id,
+            normalized.schema_version,
+            config,
+        )
+    }
+
+    fn validate_credential_input(&self, input: &StorageConnectorCredentialInput) -> Result<()> {
+        let credential: TencentCosStaticCredentialsV1 =
+            super::common::decode_static_credential(input, Self::ID)?;
+        super::common::validate_required_credential_field(
+            &credential.tencent_cos_secret_id,
+            "tencent_cos_secret_id",
+            Self::ID,
+        )?;
+        super::common::validate_required_credential_field(
+            &credential.tencent_cos_secret_key,
+            "tencent_cos_secret_key",
+            Self::ID,
+        )
+    }
+
+    fn import_legacy_credential(
+        &self,
+        _encryption_key: &str,
+        _policy: &storage_policy::Model,
+        input: super::LegacyStorageConnectorCredentialInput,
+    ) -> Result<Option<serde_json::Value>> {
+        super::common::import_legacy_static_credential(Self::ID, input, |legacy| {
+            TencentCosStaticCredentialsV1 {
+                tencent_cos_secret_id: legacy.access_key,
+                tencent_cos_secret_key: legacy.secret_key,
+            }
+        })
+    }
+
+    async fn build_draft_driver(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
+        policy: &storage_policy::Model,
+        credential: &StorageConnectorCredentialInput,
+    ) -> Result<Box<dyn StorageDriver>> {
+        let _ = context;
+        let config = Self::decode_config(policy)?;
+        let credentials = super::common::decode_static_credential(credential, Self::ID)?;
+        Ok(Box::new(TencentCosDriver::new(
+            Self::driver_config(config),
+            Self::driver_credentials(credentials),
+        )?))
+    }
+
+    fn build_runtime_driver(
+        &self,
+        registry: &crate::storage::DriverRegistry,
+        policy: &storage_policy::Model,
+    ) -> Result<super::StorageConnectorDriver> {
+        Ok(super::StorageConnectorDriver::multipart(
+            std::sync::Arc::new(Self::runtime_driver(registry, policy)?),
+        ))
+    }
+
+    async fn build_cleanup_driver(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
+        policy: &storage_policy::Model,
+        snapshots: super::StoragePolicyCleanupSnapshots<'_>,
+    ) -> Result<std::sync::Arc<dyn StorageDriver>> {
+        let config = Self::decode_config(policy)?;
+        let credentials: TencentCosStaticCredentialsV1 =
+            super::common::static_credential_from_cleanup_snapshot(
+                context,
+                policy,
+                snapshots,
+                Self::ID,
+                1,
+            )?;
+        Ok(std::sync::Arc::new(TencentCosDriver::new(
+            Self::driver_config(config),
+            Self::driver_credentials(credentials),
+        )?))
+    }
+
+    async fn execute_saved_action(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
+        policy: &storage_policy::Model,
+        input: ExecuteSavedStorageConnectorActionInput,
+    ) -> Result<StorageConnectorActionResult> {
+        let descriptor = self.descriptor();
+        if input.action_id.as_str() != CONFIGURE_CORS_ACTION_ID {
+            return Err(unsupported_connector_action_error(
+                &descriptor,
+                &input.action_id,
+            ));
+        }
+        let _: ConfigureTencentCosCorsActionInput = decode_normalized_connector_action_input(
+            &configure_cors_action_descriptor(),
+            &input.values,
+        )?;
+        let driver = Self::runtime_driver(context.driver_registry(), policy)?;
+        let result =
+            configure_tencent_cos_cors_for_policy(context.runtime_config(), driver).await?;
+        StorageConnectorActionResult::with_output(input.action_id, result)
+    }
+
+    async fn execute_draft_action(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
+        input: ExecuteDraftStorageConnectorActionInput,
+    ) -> Result<StorageConnectorActionResult> {
+        let descriptor = self.descriptor();
+        if input.action_id.as_str() != CONFIGURE_CORS_ACTION_ID {
+            return Err(unsupported_connector_action_error(
+                &descriptor,
+                &input.action_id,
+            ));
+        }
+        let _: ConfigureTencentCosCorsActionInput = decode_normalized_connector_action_input(
+            &configure_cors_action_descriptor(),
+            &input.values,
+        )?;
+        let connection = input.connection;
+        self.validate_credential_input(&connection.credential)?;
+        let connector_config = self.validate_connector_config(&connection.connector_config)?;
+        let policy = build_connection_test_policy(connector_config, connection.behavior)?;
+        let config = Self::decode_config(&policy)?;
+        let credentials =
+            super::common::decode_static_credential(&connection.credential, Self::ID)?;
+        let driver = TencentCosDriver::new(
+            Self::driver_config(config),
+            Self::driver_credentials(credentials),
+        )?;
+        let result =
+            configure_tencent_cos_cors_for_policy(context.runtime_config(), driver).await?;
+        StorageConnectorActionResult::with_output(input.action_id, result)
+    }
+
+    fn upload_transport(
+        &self,
+        policy: &storage_policy::Model,
+    ) -> Result<StorageConnectorUploadTransport> {
+        let config = Self::decode_config(policy)?;
+        Ok(StorageConnectorUploadTransport::ObjectStorage(
+            config.object_storage_upload_strategy,
+        ))
+    }
+
+    fn presigned_download_enabled(&self, policy: &storage_policy::Model) -> Result<bool> {
+        let config = Self::decode_config(policy)?;
+        Ok(config.object_storage_download_strategy == ObjectStorageDownloadStrategy::Presigned)
     }
 }

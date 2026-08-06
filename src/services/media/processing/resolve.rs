@@ -5,7 +5,7 @@ use crate::errors::{
 };
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use aster_drive_model::entities::{file_blob, storage_policy};
-use aster_drive_model::types::{MediaProcessorKind, parse_storage_policy_options};
+use aster_drive_model::types::MediaProcessorKind;
 
 use super::shared::{MediaOperation, ResolvedMediaProcessor, ThumbnailContext};
 
@@ -106,11 +106,12 @@ fn resolve_thumbnail_processor_for_policy(
     source_mime_type: &str,
 ) -> Result<ResolvedMediaProcessor> {
     let candidates = collect_thumbnail_processor_candidates(
+        state.driver_registry().connectors(),
         state.runtime_config(),
         policy,
         file_name,
         source_mime_type,
-    );
+    )?;
     resolve_media_processor_from_candidates(
         MediaOperation::Thumbnail,
         file_name,
@@ -276,17 +277,18 @@ fn collect_thumbnail_audio_processor_candidates(
 }
 
 fn collect_thumbnail_processor_candidates(
+    connectors: &crate::storage::connectors::StorageConnectorRegistry,
     runtime_config: &crate::config::RuntimeConfig,
     policy: &storage_policy::Model,
     file_name: &str,
     source_mime_type: &str,
-) -> Vec<media_processing_config::MatchedMediaProcessor> {
+) -> Result<Vec<media_processing_config::MatchedMediaProcessor>> {
     let source_extension = media_processing_config::file_extension(file_name);
-    let policy_options = parse_storage_policy_options(policy.options.as_ref());
+    let behavior = crate::storage::connectors::resolve_policy_behavior(connectors, policy)?;
     let mut candidates = Vec::new();
 
-    if policy_options.thumbnail_processor == Some(MediaProcessorKind::StorageNative) {
-        if !policy_options.storage_native_thumbnail_matches_file_name(file_name) {
+    if behavior.thumbnail_processor == Some(MediaProcessorKind::StorageNative) {
+        if !behavior.storage_native_thumbnail_matches_file_name(file_name) {
             tracing::debug!(
                 operation = MediaOperation::Thumbnail.as_str(),
                 policy_id = policy.id,
@@ -318,7 +320,7 @@ fn collect_thumbnail_processor_candidates(
             file_name,
         ));
     }
-    candidates
+    Ok(candidates)
 }
 
 fn is_audio_thumbnail_source(file_name: &str, source_mime_type: &str) -> bool {

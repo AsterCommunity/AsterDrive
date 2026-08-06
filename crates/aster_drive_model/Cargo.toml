@@ -23,6 +23,7 @@ aster_forge_api = { workspace = true }
 aster_forge_external_auth = { workspace = true, features = ["sea-orm"] }
 aster_forge_file_classification = { workspace = true, features = ["sea-orm"] }
 aster_forge_tasks = { workspace = true }
+language-tags = { workspace = true }
 sea-orm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

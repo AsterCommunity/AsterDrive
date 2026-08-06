@@ -1,30 +1,77 @@
 use async_trait::async_trait;
 
 use crate::errors::Result;
-use crate::runtime::RemoteProtocolRuntimeState;
-use crate::storage::drivers::local::LocalDriver;
+use crate::storage::drivers::local::{DEFAULT_LOCAL_STORAGE_PATH, LocalDriver};
 use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::DriverType;
+use aster_drive_storage::StorageConnectorConfigSchema;
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
-    StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDeploymentScope,
-    StorageConnectorDescriptor, StorageConnectorDescriptorProvider, StorageConnectorFieldKind,
-    StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
-    StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
-    draft_connection_test_action_descriptor, saved_connection_test_action_descriptor,
-    server_relay_simple_upload_capabilities, storage_connector_field,
-    storage_connector_ui_descriptor,
+    StorageConnectorBadgeRgb, StorageConnectorCapabilities, StorageConnectorDeploymentScope,
+    StorageConnectorDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
+    StorageConnectorObjectNamingMode, StorageConnectorUiDescriptorInput,
+    StorageConnectorUploadWorkflows, draft_connection_test_action_descriptor,
+    saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
+    storage_connector_field, storage_connector_ui_descriptor,
 };
 
-use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorUploadTransport};
+use super::LocalFilesystemPolicyProjection;
+use super::{StorageConnector, StorageConnectorCredentialInput, StorageConnectorUploadTransport};
+
+mod localization;
 
 pub struct LocalConnector;
 
-impl StorageConnectorDescriptorProvider for LocalConnector {
-    fn storage_connector_descriptor() -> StorageConnectorDescriptor {
+aster_drive_storage::storage_connector_schema! {
+    pub struct LocalConnectorConfigV1 {
+        config {
+            pub base_path: String => {
+                let mut field = storage_connector_field(
+                    "base_path",
+                    StorageConnectorFieldScope::ConnectorConfig,
+                    StorageConnectorFieldKind::Text,
+                    false,
+                    false,
+                );
+                field.default_value = Some(
+                    aster_drive_storage::StorageConnectorFieldDefaultValue::String(
+                        DEFAULT_LOCAL_STORAGE_PATH.to_string(),
+                    ),
+                );
+                field.default_mode =
+                    aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
+                field
+            },
+            pub content_dedup: bool => {
+                let mut field = storage_connector_field(
+                    "content_dedup",
+                    StorageConnectorFieldScope::ConnectorConfig,
+                    StorageConnectorFieldKind::Boolean,
+                    false,
+                    false,
+                );
+                field.default_value = Some(
+                    aster_drive_storage::StorageConnectorFieldDefaultValue::Boolean(false),
+                );
+                field
+            },
+        }
+        credentials none
+    }
+}
+
+impl LocalConnector {
+    pub const ID: &'static str = "asterdrive.storage.local";
+
+    fn decode_config(policy: &storage_policy::Model) -> Result<LocalConnectorConfigV1> {
+        super::common::decode_typed_policy_config(policy, Self::ID, 1)
+            .map(|(config, _behavior)| config)
+    }
+}
+
+impl LocalConnector {
+    fn descriptor_definition() -> StorageConnectorDescriptor {
         StorageConnectorDescriptor {
-            driver_type: DriverType::Local,
-            enabled: true,
+            connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
             label: "Local filesystem".to_string(),
             description: "Server-local filesystem storage policy".to_string(),
             ui: storage_connector_ui_descriptor(StorageConnectorUiDescriptorInput {
@@ -32,18 +79,20 @@ impl StorageConnectorDescriptorProvider for LocalConnector {
                 description_key: "policy_wizard_local_storage_desc",
                 icon_src: Some("/static/asterdrive/asterdrive-dark.svg"),
                 icon_name: None,
+                badge_rgb: StorageConnectorBadgeRgb::new(16, 185, 129),
                 helper_key: "policy_wizard_local_helper",
                 config_step_title_key: "policy_wizard_step_local_title",
                 config_step_description_key: "policy_wizard_step_local_desc",
                 edit_context_key: "policy_edit_context_local_desc",
-                base_path_empty_display: "./data",
-                base_path_placeholder: "./data",
+                base_path_empty_display: DEFAULT_LOCAL_STORAGE_PATH,
+                base_path_placeholder: DEFAULT_LOCAL_STORAGE_PATH,
             }),
-            credential_mode: StorageConnectorCredentialMode::None,
+            credential_mode: LocalConnectorConfigV1::credential_mode(),
             deployment_scope: StorageConnectorDeploymentScope::InstanceLocal,
             supports_initial_setup: true,
             requires_authorization: false,
             authorization_provider: None,
+            credential_management: None,
             capabilities: StorageConnectorCapabilities {
                 efficient_range: true,
                 capacity: true,
@@ -66,27 +115,13 @@ impl StorageConnectorDescriptorProvider for LocalConnector {
                 frontend_direct_provider_resumable_upload: false,
                 provider_resumable_upload_capabilities: None,
             },
-            fields: vec![
-                storage_connector_field(
-                    "base_path",
-                    StorageConnectorFieldScope::Connection,
-                    StorageConnectorFieldKind::Text,
-                    false,
-                    false,
-                ),
-                storage_connector_field(
-                    "content_dedup",
-                    StorageConnectorFieldScope::PolicyOptions,
-                    StorageConnectorFieldKind::Boolean,
-                    false,
-                    false,
-                ),
-            ],
+            fields: LocalConnectorConfigV1::descriptor_fields(),
+            config_schema_version: 1,
+            credential_schema_version: None,
             actions: vec![
                 draft_connection_test_action_descriptor(),
                 saved_connection_test_action_descriptor(false),
             ],
-            driver_recommendations: Vec::new(),
             related_issues: vec![328],
         }
     }
@@ -94,29 +129,57 @@ impl StorageConnectorDescriptorProvider for LocalConnector {
 
 #[async_trait]
 impl StorageConnector for LocalConnector {
-    fn driver_type() -> DriverType {
-        DriverType::Local
+    fn descriptor(&self) -> StorageConnectorDescriptor {
+        Self::descriptor_definition()
     }
 
-    fn normalize_connection_fields(endpoint: &str, bucket: &str) -> Result<(String, String)> {
-        Ok((endpoint.trim().to_string(), bucket.trim().to_string()))
+    fn localization(&self) -> Result<aster_drive_storage::StorageConnectorLocalization> {
+        let descriptor = Self::descriptor_definition();
+        super::localization::builtin_connector_localization(
+            Self::ID,
+            &descriptor,
+            localization::MESSAGES,
+        )
     }
 
-    fn validate_connection_credentials(input: &StorageConnectorConnectionInput) -> Result<()> {
-        let _ = input;
-        Ok(())
-    }
-
-    async fn build_draft_driver<S: RemoteProtocolRuntimeState + Sync + ?Sized>(
-        state: &S,
+    async fn build_draft_driver(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
+        credential: &StorageConnectorCredentialInput,
     ) -> Result<Box<dyn StorageDriver>> {
-        let _ = state;
-        Ok(Box::new(LocalDriver::new(policy)?))
+        let _ = (context, credential);
+        let config = Self::decode_config(policy)?;
+        Ok(Box::new(LocalDriver::new(&config.base_path)?))
     }
 
-    fn upload_transport(policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
+    fn build_runtime_driver(
+        &self,
+        _registry: &crate::storage::DriverRegistry,
+        policy: &storage_policy::Model,
+    ) -> Result<super::StorageConnectorDriver> {
+        let config = Self::decode_config(policy)?;
+        Ok(super::StorageConnectorDriver::storage(std::sync::Arc::new(
+            LocalDriver::new(&config.base_path)?,
+        )))
+    }
+
+    fn upload_transport(
+        &self,
+        policy: &storage_policy::Model,
+    ) -> Result<StorageConnectorUploadTransport> {
         let _ = policy;
-        StorageConnectorUploadTransport::Local
+        Ok(StorageConnectorUploadTransport::Local)
+    }
+
+    fn local_filesystem_projection(
+        &self,
+        policy: &storage_policy::Model,
+    ) -> Result<Option<LocalFilesystemPolicyProjection>> {
+        let config = Self::decode_config(policy)?;
+        Ok(Some(LocalFilesystemPolicyProjection {
+            base_path: config.base_path,
+            content_dedup: config.content_dedup,
+        }))
     }
 }

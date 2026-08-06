@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use lofty::config::WriteOptions;
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::tag::{Accessor, Tag, TagExt, TagType};
-use sea_orm::{ActiveModelTrait, Set};
+use sea_orm::ActiveModelTrait;
 use tokio::io::AsyncRead;
 
 use super::audio::parse_audio_metadata_from_reader;
@@ -423,9 +423,7 @@ async fn storage_native_media_metadata_extracts_when_policy_suffix_matches() {
     )));
     let state = test_state_with_driver_and_options(
         driver.clone(),
-        aster_drive_model::types::StoragePolicyOptions {
-            storage_native_processing_enabled: Some(true),
-            storage_native_media_metadata_enabled: Some(true),
+        aster_drive_storage::StoragePolicyBehaviorConfig {
             media_metadata_extensions: vec!["mp4".to_string()],
             ..Default::default()
         },
@@ -465,9 +463,7 @@ async fn storage_native_media_metadata_does_not_run_for_unmatched_suffix_or_imag
     )));
     let state = test_state_with_driver_and_options(
         driver.clone(),
-        aster_drive_model::types::StoragePolicyOptions {
-            storage_native_processing_enabled: Some(true),
-            storage_native_media_metadata_enabled: Some(true),
+        aster_drive_storage::StoragePolicyBehaviorConfig {
             media_metadata_extensions: vec!["mov".to_string(), "png".to_string()],
             ..Default::default()
         },
@@ -517,14 +513,14 @@ fn audio_metadata_does_not_read_embedded_cover_art() {
 async fn test_state_with_driver(driver: Arc<dyn StorageDriver>) -> PrimaryAppState {
     test_state_with_driver_and_options(
         driver,
-        aster_drive_model::types::StoragePolicyOptions::default(),
+        aster_drive_storage::StoragePolicyBehaviorConfig::default(),
     )
     .await
 }
 
 async fn test_state_with_driver_and_options(
     driver: Arc<dyn StorageDriver>,
-    options: aster_drive_model::types::StoragePolicyOptions,
+    behavior: aster_drive_storage::StoragePolicyBehaviorConfig,
 ) -> PrimaryAppState {
     let db = crate::db::connect_with_metrics(
         &crate::config::DatabaseConfig {
@@ -536,44 +532,27 @@ async fn test_state_with_driver_and_options(
     )
     .await
     .expect("test database should connect");
-    aster_drive_migration::Migrator::up(&db, None)
+    crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
+
+    let mut policy =
+        crate::storage::connectors::test_support::local_policy_with_behavior("", behavior);
+    policy.name = "Range metadata policy".to_string();
+    policy.is_default = true;
+    policy.chunk_size = 5_242_880;
+    let policy = crate::storage::connectors::test_support::insertable_policy(policy)
+        .insert(&db)
         .await
-        .expect("test migrations should run");
+        .expect("test policy should insert");
 
-    let now = Utc::now();
-    let policy = aster_drive_model::entities::storage_policy::ActiveModel {
-        id: Set(1),
-        name: Set("Range metadata policy".to_string()),
-        driver_type: Set(aster_drive_model::types::DriverType::Local),
-        endpoint: Set(String::new()),
-        bucket: Set(String::new()),
-        access_key: Set(String::new()),
-        secret_key: Set(String::new()),
-        base_path: Set(String::new()),
-        remote_node_id: Set(None),
-        remote_storage_target_key: Set(None),
-        max_file_size: Set(0),
-        allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
-        options: Set(
-            aster_drive_model::types::serialize_storage_policy_options(&options)
-                .expect("test storage policy options should serialize"),
-        ),
-        is_default: Set(true),
-        chunk_size: Set(5_242_880),
-        created_at: Set(now),
-        updated_at: Set(now),
-    }
-    .insert(&db)
-    .await
-    .expect("test policy should insert");
-
+    let driver_registry = Arc::new(
+        crate::storage::DriverRegistry::noop().expect("built-in storage connector registry"),
+    );
+    driver_registry.insert_for_test(policy.id, driver);
     let policy_snapshot = Arc::new(crate::storage::PolicySnapshot::new());
-    policy_snapshot
-        .reload(&db)
+    driver_registry
+        .reload_policy_snapshot(&policy_snapshot, &db)
         .await
         .expect("policy snapshot should reload");
-    let driver_registry = Arc::new(crate::storage::DriverRegistry::noop());
-    driver_registry.insert_for_test(policy.id, driver);
     let runtime_config = Arc::new(crate::config::RuntimeConfig::new());
     let cache = aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig {
         ..Default::default()

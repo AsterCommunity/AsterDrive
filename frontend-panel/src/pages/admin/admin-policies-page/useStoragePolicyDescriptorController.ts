@@ -2,15 +2,25 @@ import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { supportsRemoteNodeBinding } from "@/components/admin/storage-policy-dialog/descriptorPredicates";
-import type { PolicyFormData } from "@/components/admin/storage-policy-dialog/formTypes";
+import { findConnectorFieldByDataSource } from "@/components/admin/storage-policy-dialog/descriptorPredicates";
+import {
+	connectorNumberValue,
+	connectorStringValue,
+	type PolicyFormData,
+	updatedConnectorConfigValues,
+} from "@/components/admin/storage-policy-dialog/formTypes";
 import { handleApiError } from "@/hooks/useApiError";
 import {
 	loadAdminRemoteNodeLookup,
 	readAdminRemoteNodeLookup,
 } from "@/lib/adminRemoteNodeLookup";
 import {
-	getStorageDriverDescriptor,
+	installAdminStorageConnectorLocalizations,
+	loadAdminStorageConnectorLocalizations,
+	translateStorageConnectorMessage,
+} from "@/lib/adminStorageConnectorLocalizations";
+import {
+	getStorageConnectorDescriptor,
 	loadAdminStorageDriverDescriptors,
 	readAdminStorageDriverDescriptors,
 } from "@/lib/adminStorageDriverDescriptors";
@@ -37,7 +47,7 @@ export function useStoragePolicyDescriptorController({
 	setForm,
 	setupMode,
 }: StoragePolicyDescriptorControllerInput) {
-	const { t } = useTranslation("admin");
+	const { i18n, t } = useTranslation("admin");
 	const primaryCatalogContext: StorageConnectorCatalogContext = setupMode
 		? "setup"
 		: "manage";
@@ -56,6 +66,7 @@ export function useStoragePolicyDescriptorController({
 		string | null
 	>(null);
 	const remoteStorageTargetsRequestSerial = useRef(0);
+	const storageConnectorLocalizationsRequestSerial = useRef(0);
 	const [
 		remoteStorageTargetDriverDescriptors,
 		setRemoteStorageTargetDriverDescriptors,
@@ -95,9 +106,49 @@ export function useStoragePolicyDescriptorController({
 		setCreatableStorageDriverDescriptorsError,
 	] = useState<string | null>(null);
 
-	const currentStorageDriverDescriptor = getStorageDriverDescriptor(
+	const currentStorageDriverDescriptor = getStorageConnectorDescriptor(
 		storageDriverDescriptors,
-		form.driver_type,
+		form.connector_id,
+	);
+	const remoteNodeField = findConnectorFieldByDataSource(
+		currentStorageDriverDescriptor,
+		"remote_nodes",
+	);
+	const remoteStorageTargetField = findConnectorFieldByDataSource(
+		currentStorageDriverDescriptor,
+		"remote_storage_targets",
+	);
+	const remoteNodeFieldName = remoteNodeField?.name ?? null;
+	const remoteStorageTargetFieldName = remoteStorageTargetField?.name ?? null;
+	const language = i18n.resolvedLanguage ?? i18n.language ?? "en";
+
+	const loadConnectorLocalizations = useCallback(
+		async ({ force = false }: { force?: boolean } = {}) => {
+			const requestSerial =
+				++storageConnectorLocalizationsRequestSerial.current;
+			const contexts = Array.from(
+				new Set([primaryCatalogContext, creationCatalogContext]),
+			);
+			const catalogs = await Promise.all(
+				contexts.map((context) =>
+					loadAdminStorageConnectorLocalizations({
+						context,
+						force,
+						locale: language,
+					}),
+				),
+			);
+			if (
+				requestSerial !== storageConnectorLocalizationsRequestSerial.current ||
+				(i18n.resolvedLanguage ?? i18n.language ?? "en") !== language
+			) {
+				return;
+			}
+			for (const catalog of catalogs) {
+				installAdminStorageConnectorLocalizations(catalog, language, i18n);
+			}
+		},
+		[creationCatalogContext, i18n, language, primaryCatalogContext],
 	);
 
 	const loadRemoteStorageTargetsForPolicy = useCallback(
@@ -106,7 +157,12 @@ export function useStoragePolicyDescriptorController({
 			{
 				selectTargetKey,
 				showErrorToast = true,
-			}: { selectTargetKey?: string; showErrorToast?: boolean } = {},
+				syncPolicySelection = true,
+			}: {
+				selectTargetKey?: string;
+				showErrorToast?: boolean;
+				syncPolicySelection?: boolean;
+			} = {},
 		) => {
 			const requestSerial = ++remoteStorageTargetsRequestSerial.current;
 			setRemoteStorageTargetsLoading(true);
@@ -120,8 +176,15 @@ export function useStoragePolicyDescriptorController({
 				}
 				setRemoteStorageTargets(targets);
 				setRemoteStorageTargetsError(null);
+				if (!syncPolicySelection) {
+					return;
+				}
 				setForm((prev) => {
-					if (prev.remote_node_id !== String(remoteNodeId)) {
+					if (
+						remoteNodeFieldName == null ||
+						remoteStorageTargetFieldName == null ||
+						connectorNumberValue(prev, remoteNodeFieldName) !== remoteNodeId
+					) {
 						return prev;
 					}
 					if (
@@ -130,14 +193,20 @@ export function useStoragePolicyDescriptorController({
 					) {
 						return {
 							...prev,
-							remote_storage_target_key: selectTargetKey,
+							connector_config_values: updatedConnectorConfigValues(
+								prev,
+								remoteStorageTargetFieldName,
+								selectTargetKey,
+							),
 						};
 					}
+					const currentTargetKey = connectorStringValue(
+						prev,
+						remoteStorageTargetFieldName,
+					);
 					if (
-						prev.remote_storage_target_key &&
-						targets.some(
-							(target) => target.target_key === prev.remote_storage_target_key,
-						)
+						currentTargetKey &&
+						targets.some((target) => target.target_key === currentTargetKey)
 					) {
 						return prev;
 					}
@@ -145,7 +214,11 @@ export function useStoragePolicyDescriptorController({
 						targets.find((target) => target.is_default) ?? targets[0];
 					return {
 						...prev,
-						remote_storage_target_key: fallbackTarget?.target_key ?? "",
+						connector_config_values: updatedConnectorConfigValues(
+							prev,
+							remoteStorageTargetFieldName,
+							fallbackTarget?.target_key ?? "",
+						),
 					};
 				});
 			} catch (error) {
@@ -163,7 +236,7 @@ export function useStoragePolicyDescriptorController({
 				}
 			}
 		},
-		[setForm, t],
+		[remoteNodeFieldName, remoteStorageTargetFieldName, setForm, t],
 	);
 
 	const loadRemoteStorageTargetDriverDescriptorsForPolicy = useCallback(
@@ -224,27 +297,32 @@ export function useStoragePolicyDescriptorController({
 		setRemoteStorageTargetDriverDescriptorsError(null);
 	}, []);
 
+	const selectedRemoteNodeId = remoteNodeFieldName
+		? connectorNumberValue(form, remoteNodeFieldName)
+		: null;
 	useEffect(() => {
-		const remoteNodeId = Number(form.remote_node_id);
 		const canLoadTargets =
 			dialogOpen &&
-			supportsRemoteNodeBinding(currentStorageDriverDescriptor) &&
-			Number.isSafeInteger(remoteNodeId) &&
-			remoteNodeId > 0;
+			remoteStorageTargetFieldName != null &&
+			selectedRemoteNodeId != null &&
+			Number.isSafeInteger(selectedRemoteNodeId) &&
+			selectedRemoteNodeId > 0;
 		if (!canLoadTargets) {
 			resetRemoteStorageTargets();
 			return;
 		}
 
-		void loadRemoteStorageTargetsForPolicy(remoteNodeId);
-		void loadRemoteStorageTargetDriverDescriptorsForPolicy(remoteNodeId);
+		void loadRemoteStorageTargetsForPolicy(selectedRemoteNodeId);
+		void loadRemoteStorageTargetDriverDescriptorsForPolicy(
+			selectedRemoteNodeId,
+		);
 	}, [
-		currentStorageDriverDescriptor,
 		dialogOpen,
-		form.remote_node_id,
 		loadRemoteStorageTargetDriverDescriptorsForPolicy,
 		loadRemoteStorageTargetsForPolicy,
 		resetRemoteStorageTargets,
+		remoteStorageTargetFieldName,
+		selectedRemoteNodeId,
 	]);
 
 	useEffect(() => {
@@ -329,6 +407,13 @@ export function useStoragePolicyDescriptorController({
 		};
 	}, [creationCatalogContext, t]);
 
+	useEffect(() => {
+		void loadConnectorLocalizations().catch(handleApiError);
+		return () => {
+			storageConnectorLocalizationsRequestSerial.current += 1;
+		};
+	}, [loadConnectorLocalizations]);
+
 	const refreshRemoteNodeLookup = useCallback(
 		async (options?: { force?: boolean }) => {
 			try {
@@ -357,17 +442,43 @@ export function useStoragePolicyDescriptorController({
 				loadAdminRemoteNodeLookup({ force: true }),
 				descriptorPromise,
 				creatableDescriptorPromise,
+				loadConnectorLocalizations({ force: true }),
 			]);
 		setRemoteNodes(remoteNodeLookup);
 		setStorageDriverDescriptors(descriptors);
 		setCreatableStorageDriverDescriptors(creatableDescriptors);
-	}, [creationCatalogContext, primaryCatalogContext]);
+	}, [
+		creationCatalogContext,
+		loadConnectorLocalizations,
+		primaryCatalogContext,
+	]);
 
 	const createRemoteStorageTargetForPolicy = useCallback(
 		async (payload: RemoteCreateStorageTargetRequest) => {
-			const remoteNodeId = Number(form.remote_node_id);
-			if (!Number.isSafeInteger(remoteNodeId) || remoteNodeId <= 0) {
-				const error = new Error(t("policy_wizard_remote_node_required"));
+			const remoteNodeId = remoteNodeFieldName
+				? connectorNumberValue(form, remoteNodeFieldName)
+				: null;
+			if (
+				remoteNodeId == null ||
+				!Number.isSafeInteger(remoteNodeId) ||
+				remoteNodeId <= 0
+			) {
+				const fieldLabel = remoteNodeField
+					? translateStorageConnectorMessage(
+							t,
+							currentStorageDriverDescriptor?.connector_id,
+							remoteNodeField.label_key,
+						)
+					: t("remote_node");
+				const message = remoteNodeField?.required_message_key
+					? translateStorageConnectorMessage(
+							t,
+							currentStorageDriverDescriptor?.connector_id,
+							remoteNodeField.required_message_key,
+							{ field: fieldLabel },
+						)
+					: t("policy_connector_field_required", { field: fieldLabel });
+				const error = new Error(message);
 				toast.error(error.message);
 				throw error;
 			}
@@ -387,7 +498,14 @@ export function useStoragePolicyDescriptorController({
 				throw error;
 			}
 		},
-		[form.remote_node_id, loadRemoteStorageTargetsForPolicy, t],
+		[
+			currentStorageDriverDescriptor?.connector_id,
+			form,
+			loadRemoteStorageTargetsForPolicy,
+			remoteNodeField,
+			remoteNodeFieldName,
+			t,
+		],
 	);
 
 	return {
@@ -395,6 +513,7 @@ export function useStoragePolicyDescriptorController({
 		creatableStorageDriverDescriptorsError,
 		creatableStorageDriverDescriptorsLoading,
 		createRemoteStorageTargetForPolicy,
+		loadRemoteStorageTargetsForPolicy,
 		currentStorageDriverDescriptor,
 		refreshLookups,
 		refreshRemoteNodeLookup,

@@ -32,6 +32,7 @@
 - [远端存储目标与策略归属](./design/remote-storage-target-policy-ownership.md)
 - [存储 descriptor 与字段规范化契约](./design/storage-descriptor-normalization-contract.md)
 - [对象命名与 OneDrive 直接下载](./design/storage-object-naming-and-onedrive-direct-download.md)
+- [对象存储自定义认证与 AWS SDK 复用边界](./design/object-storage-custom-auth.md)
 - [上传完成契约矩阵](./design/upload-finalization-contracts.md)
 
 ### API 与协议

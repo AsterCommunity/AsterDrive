@@ -17,6 +17,11 @@ function requiredEnvironment(name: string) {
 }
 
 test.describe("Cluster storage setup E2E", () => {
+	// Initial setup mutates the shared database before storage configuration is
+	// complete. Playwright retries reuse that database and therefore no longer
+	// start from the no-user boundary this test is intended to prove.
+	test.describe.configure({ retries: 0 });
+
 	test("hides Local, explains disabled OneDrive, and binds RustFS through S3", async ({
 		page,
 		request,
@@ -29,8 +34,8 @@ test.describe("Cluster storage setup E2E", () => {
 			kind: "cluster-s3",
 			endpoint: requiredEnvironment("ASTER_E2E_S3_ENDPOINT"),
 			bucket: requiredEnvironment("ASTER_E2E_S3_BUCKET"),
-			accessKey: requiredEnvironment("ASTER_E2E_S3_ACCESS_KEY"),
-			secretKey: requiredEnvironment("ASTER_E2E_S3_SECRET_KEY"),
+			s3AccessKeyId: requiredEnvironment("ASTER_E2E_S3_ACCESS_KEY"),
+			s3SecretAccessKey: requiredEnvironment("ASTER_E2E_S3_SECRET_KEY"),
 			basePath: "cluster-setup",
 		};
 

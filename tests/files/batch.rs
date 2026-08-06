@@ -3,7 +3,6 @@
 use crate::common;
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::db::repository::folder_repo;
-use aster_drive::runtime::SharedRuntimeState;
 use aster_drive_model::entities::{file, folder};
 
 use actix_web::test;
@@ -106,8 +105,7 @@ macro_rules! create_local_policy {
             .insert_header(common::csrf_header_for(&$token))
             .set_json(serde_json::json!({
                 "name": $name,
-                "driver_type": "local",
-                "base_path": $base_path,
+                "connection": common::local_connection_json($base_path),
                 "max_file_size": 0,
                 "is_default": false
             }))

@@ -5,6 +5,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
+use serde::Serialize;
 use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
 
 use crate::db::repository::{
@@ -97,7 +98,7 @@ pub(crate) async fn create_storage_policy_migration_task(
         input.delete_source_after_success,
         &source_policy,
         &target_policy,
-    );
+    )?;
     let payload = StoragePolicyMigrationTaskPayload {
         source_policy_id: input.source_policy_id,
         target_policy_id: input.target_policy_id,
@@ -173,13 +174,6 @@ async fn build_storage_policy_migration_preflight(
     ensure_no_active_storage_policy_migration(state.writer_db(), input).await?;
     let source_policy = policy_repo::find_by_id(state.writer_db(), input.source_policy_id).await?;
     let target_policy = policy_repo::find_by_id(state.writer_db(), input.target_policy_id).await?;
-    let _plan_hash = migration_plan_hash(
-        input.source_policy_id,
-        input.target_policy_id,
-        input.delete_source_after_success,
-        &source_policy,
-        &target_policy,
-    );
     let target_driver = state.driver_registry().get_driver(&target_policy)?;
     let target_supports_stream_upload = target_driver.extensions().stream_upload.is_some();
     if !target_supports_stream_upload {
@@ -210,7 +204,7 @@ async fn build_storage_policy_migration_preflight(
     let (target_capacity, _target_capacity_diagnostic) =
         crate::services::storage_policy::policy::capacity_info_or_status(
             target_driver.as_ref(),
-            target_policy.driver_type,
+            &target_policy.connector_id,
         )
         .await;
     let target_capacity_check =
@@ -1222,7 +1216,7 @@ fn validate_migration_plan(
         payload.delete_source_after_success,
         source_policy,
         target_policy,
-    );
+    )?;
     if current_hash != payload.plan_hash {
         return Err(AsterError::validation_error(
             "storage migration plan no longer matches current policies",
@@ -1237,29 +1231,48 @@ fn migration_plan_hash(
     delete_source_after_success: bool,
     source_policy: &storage_policy::Model,
     target_policy: &storage_policy::Model,
-) -> String {
-    let plan = serde_json::json!({
-        "source_policy_id": source_policy_id,
-        "target_policy_id": target_policy_id,
-        "delete_source_after_success": delete_source_after_success,
-        "source": policy_identity(source_policy),
-        "target": policy_identity(target_policy),
-    });
-    sha256_hex(plan.to_string().as_bytes())
+) -> Result<String> {
+    let plan = StorageMigrationPlanIdentity {
+        source_policy_id,
+        target_policy_id,
+        delete_source_after_success,
+        source: policy_identity(source_policy),
+        target: policy_identity(target_policy),
+    };
+    let encoded = serde_json::to_vec(&plan).map_err(|error| {
+        AsterError::internal_error(format!(
+            "serialize storage migration plan identity: {error}"
+        ))
+    })?;
+    Ok(sha256_hex(&encoded))
 }
 
-fn policy_identity(policy: &storage_policy::Model) -> serde_json::Value {
-    serde_json::json!({
-        "id": policy.id,
-        "driver_type": policy.driver_type,
-        "endpoint": policy.endpoint,
-        "bucket": policy.bucket,
-        "base_path": policy.base_path,
-        "remote_node_id": policy.remote_node_id,
-        "options": policy.options.as_ref(),
-        "chunk_size": policy.chunk_size,
-        "updated_at": policy.updated_at,
-    })
+#[derive(Serialize)]
+struct StorageMigrationPlanIdentity<'a> {
+    source_policy_id: i64,
+    target_policy_id: i64,
+    delete_source_after_success: bool,
+    source: StorageMigrationPolicyIdentity<'a>,
+    target: StorageMigrationPolicyIdentity<'a>,
+}
+
+#[derive(Serialize)]
+struct StorageMigrationPolicyIdentity<'a> {
+    id: i64,
+    connector_id: &'a str,
+    storage_config: &'a str,
+    chunk_size: i64,
+    updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+fn policy_identity(policy: &storage_policy::Model) -> StorageMigrationPolicyIdentity<'_> {
+    StorageMigrationPolicyIdentity {
+        id: policy.id,
+        connector_id: &policy.connector_id,
+        storage_config: policy.storage_config.as_ref(),
+        chunk_size: policy.chunk_size,
+        updated_at: policy.updated_at,
+    }
 }
 
 struct HashingReader {

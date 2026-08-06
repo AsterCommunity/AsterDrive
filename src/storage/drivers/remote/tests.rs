@@ -29,26 +29,11 @@ impl TestHttpServer {
     }
 }
 
-fn build_policy(base_path: &str) -> storage_policy::Model {
-    let now = chrono::Utc::now();
-    storage_policy::Model {
-        id: 1,
-        name: "remote".to_string(),
-        driver_type: aster_drive_model::types::DriverType::Remote,
-        endpoint: String::new(),
-        bucket: String::new(),
-        access_key: String::new(),
-        secret_key: String::new(),
+fn build_config(base_path: &str) -> RemoteDriverConfig {
+    RemoteDriverConfig {
         base_path: base_path.to_string(),
-        remote_node_id: Some(7),
         remote_storage_target_key: None,
         max_file_size: 0,
-        allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
-        options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
-        is_default: false,
-        chunk_size: 5_242_880,
-        created_at: now,
-        updated_at: now,
     }
 }
 
@@ -90,14 +75,14 @@ fn build_reverse_follower_with_capabilities(last_capabilities: &str) -> managed_
 }
 
 fn build_driver(base_url: &str, base_path: &str) -> RemoteDriver {
-    RemoteDriver::new(&build_policy(base_path), &build_follower(base_url))
+    RemoteDriver::new(&build_config(base_path), &build_follower(base_url))
         .expect("remote driver should build")
 }
 
 fn build_target_scoped_driver(base_url: &str, base_path: &str, target_key: &str) -> RemoteDriver {
-    let mut policy = build_policy(base_path);
-    policy.remote_storage_target_key = Some(target_key.to_string());
-    RemoteDriver::new(&policy, &build_follower(base_url)).expect("remote driver should build")
+    let mut config = build_config(base_path);
+    config.remote_storage_target_key = Some(target_key.to_string());
+    RemoteDriver::new(&config, &build_follower(base_url)).expect("remote driver should build")
 }
 
 fn build_driver_with_capabilities_err(
@@ -106,7 +91,7 @@ fn build_driver_with_capabilities_err(
     last_capabilities: &str,
 ) -> AsterError {
     match RemoteDriver::new(
-        &build_policy(base_path),
+        &build_config(base_path),
         &build_follower_with_capabilities(base_url, last_capabilities),
     ) {
         Ok(_) => panic!("remote driver should reject capabilities"),
@@ -320,7 +305,7 @@ async fn reverse_tunnel_driver_rejects_presigned_browser_urls() {
         }"#,
     );
     let driver = remote_protocol
-        .driver_for_policy(&build_policy("base"), &follower)
+        .driver_for_config(&build_config("base"), &follower)
         .expect("reverse tunnel driver should build");
 
     let download_error = driver

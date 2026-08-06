@@ -11,7 +11,6 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{Result, validation_error_with_code};
 use crate::runtime::PrimaryAppState;
 use aster_drive_model::entities::file;
-use aster_drive_model::types::DriverType;
 
 use super::{
     WorkspaceStorageScope, ensure_upload_parent_path, parse_relative_upload_path,
@@ -94,13 +93,17 @@ pub(crate) async fn upload_with_hints(
             declared_size,
         )
         .await?;
-        if streaming_direct_upload_eligible(&policy, declared_size)? {
+        if streaming_direct_upload_eligible(
+            state.driver_registry().connectors(),
+            &policy,
+            declared_size,
+        )? {
             tracing::debug!(
                 scope = ?scope,
                 folder_id = effective_folder_id,
                 resolved_filename = %resolved_filename,
                 policy_id = policy.id,
-                driver_type = ?policy.driver_type,
+                connector_id = %policy.connector_id,
                 declared_size,
                 "using streaming direct upload fast path"
             );
@@ -130,13 +133,18 @@ pub(crate) async fn upload_with_hints(
             }
             return result;
         }
-        if policy.driver_type == DriverType::Local {
+        if crate::storage::connectors::resolve_local_filesystem_projection(
+            state.driver_registry().connectors(),
+            &policy,
+        )?
+        .is_some()
+        {
             tracing::debug!(
                 scope = ?scope,
                 folder_id = effective_folder_id,
                 resolved_filename = %resolved_filename,
                 policy_id = policy.id,
-                driver_type = ?policy.driver_type,
+                connector_id = %policy.connector_id,
                 declared_size,
                 "using local direct upload fast path"
             );

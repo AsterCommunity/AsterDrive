@@ -14,7 +14,7 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::db::repository::master_binding_repo;
 use crate::errors::{AsterError, Result};
-use crate::runtime::{FollowerAppState, SharedRuntimeState};
+use crate::runtime::FollowerAppState;
 use crate::storage::remote_protocol::transport::read_reqwest_response_body_limited;
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER,

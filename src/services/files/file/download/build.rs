@@ -150,8 +150,11 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
     let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
     let requires_sandbox =
         disposition == DownloadDisposition::Inline && requires_inline_sandbox(&file.mime_type);
-    let should_presign =
-        !requires_sandbox && crate::storage::connectors::presigned_download_enabled(&policy)?;
+    let should_presign = !requires_sandbox
+        && crate::storage::connectors::presigned_download_enabled(
+            state.driver_registry().connectors(),
+            &policy,
+        )?;
 
     if should_presign {
         // Inline previews may redirect to provider storage only for types that
@@ -186,7 +189,10 @@ async fn build_presigned_redirect_outcome(
             PresignedDownloadOptions {
                 download_name: Some(file.name.clone()),
                 require_download_name_match:
-                    crate::storage::connectors::presigned_download_requires_filename_match(policy)?,
+                    crate::storage::connectors::presigned_download_requires_filename_match(
+                        state.driver_registry().connectors(),
+                        policy,
+                    )?,
                 response_cache_control: Some("private, max-age=0, must-revalidate".to_string()),
                 response_content_disposition: Some(disposition.header_value(&file.name)),
                 response_content_type: Some(file.mime_type.clone()),
@@ -203,7 +209,7 @@ async fn build_presigned_redirect_outcome(
         blob_id = blob.id,
         policy_id = blob.policy_id,
         ttl_secs = PRESIGNED_DOWNLOAD_TTL_SECS,
-        driver_type = ?policy.driver_type,
+        connector_id = %policy.connector_id,
         "redirecting file download to provider storage URL"
     );
 

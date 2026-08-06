@@ -254,7 +254,7 @@ mod tests {
         invalidate_webdav_auth_for_username,
     };
     use crate::config::{Config, DatabaseConfig, RateLimitTier, RuntimeConfig};
-    use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+    use crate::runtime::PrimaryAppState;
     use crate::services::mail::sender;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use actix_web::http::header::{self, HeaderValue};
@@ -313,7 +313,9 @@ mod tests {
 
         PrimaryAppState {
             db_handles: aster_forge_db::DbHandles::single(db),
-            driver_registry: Arc::new(DriverRegistry::noop()),
+            driver_registry: Arc::new(
+                DriverRegistry::noop().expect("built-in storage connector registry"),
+            ),
             runtime_config: runtime_config.clone(),
             policy_snapshot: Arc::new(PolicySnapshot::new()),
             config: Arc::new(Config::default()),

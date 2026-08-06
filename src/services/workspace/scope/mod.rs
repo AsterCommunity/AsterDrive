@@ -507,14 +507,10 @@ mod tests {
     use crate::services::workspace::scope::SharedRuntimeState;
     use crate::services::{files::folder, mail::sender};
     use crate::storage::{DriverRegistry, PolicySnapshot};
-    use aster_drive_migration::Migrator;
     use aster_drive_model::entities::{
-        storage_policy, storage_policy_group, storage_policy_group_item, team, team_member, user,
+        storage_policy_group, storage_policy_group_item, team, team_member, user,
     };
-    use aster_drive_model::types::{
-        DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, TeamMemberRole,
-        UserRole, UserStatus,
-    };
+    use aster_drive_model::types::{TeamMemberRole, UserRole, UserStatus};
     use aster_forge_cache as cache;
     use aster_forge_cache::CacheConfig;
     use chrono::Utc;
@@ -532,9 +528,7 @@ mod tests {
         )
         .await
         .expect("test database should connect");
-        Migrator::up(&db, None)
-            .await
-            .expect("test database should migrate");
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
 
         let cache = cache::create_cache(&CacheConfig {
             backend: "memory".to_string(),
@@ -553,7 +547,9 @@ mod tests {
 
         PrimaryAppState {
             db_handles: aster_forge_db::DbHandles::single(db),
-            driver_registry: Arc::new(DriverRegistry::noop()),
+            driver_registry: Arc::new(
+                DriverRegistry::noop().expect("built-in storage connector registry"),
+            ),
             runtime_config: runtime_config.clone(),
             policy_snapshot: Arc::new(PolicySnapshot::new()),
             config: Arc::new(Config::default()),
@@ -598,26 +594,16 @@ mod tests {
         name: &str,
     ) -> storage_policy_group::Model {
         let now = Utc::now();
+        let mut policy = crate::storage::connectors::test_support::local_policy(format!(
+            "/tmp/asterdrive-{name}"
+        ));
+        policy.name = format!("{name} Policy");
+        policy.chunk_size = 5_242_880;
+        policy.created_at = now;
+        policy.updated_at = now;
         let policy = policy_repo::create(
             state.writer_db(),
-            storage_policy::ActiveModel {
-                name: Set(format!("{name} Policy")),
-                driver_type: Set(DriverType::Local),
-                endpoint: Set(String::new()),
-                bucket: Set(String::new()),
-                access_key: Set(String::new()),
-                secret_key: Set(String::new()),
-                base_path: Set(format!("/tmp/asterdrive-{name}")),
-                remote_node_id: Set(None),
-                max_file_size: Set(0),
-                allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-                options: Set(StoredStoragePolicyOptions::empty()),
-                is_default: Set(false),
-                chunk_size: Set(5_242_880),
-                created_at: Set(now),
-                updated_at: Set(now),
-                ..Default::default()
-            },
+            crate::storage::connectors::test_support::insertable_policy(policy),
         )
         .await
         .expect("test policy should insert");
@@ -651,7 +637,7 @@ mod tests {
         .expect("test policy group item should insert");
         state
             .policy_snapshot()
-            .reload(state.writer_db())
+            .reload(state.writer_db(), state.driver_registry().connectors())
             .await
             .expect("policy snapshot should reload");
         group

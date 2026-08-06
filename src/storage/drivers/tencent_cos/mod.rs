@@ -10,24 +10,17 @@ mod signing;
 #[cfg(test)]
 mod tests;
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
-use async_trait::async_trait;
-use bytes::Bytes;
-use tokio::io::AsyncRead;
 use url::Url;
 
-use super::s3::{S3Driver, S3DriverOptions};
+use super::s3::{S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials};
 use super::s3_compatible::S3CompatibleDriver;
 use super::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
-use aster_drive_model::entities::storage_policy;
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 use aster_drive_storage::object_key;
-use aster_drive_storage::{
-    BlobMetadata, MapStorageErr, MultipartStorageDriver, Result, StorageDriver,
-    UploadedMultipartPart,
-};
+use aster_drive_storage::{MapStorageErr, Result};
 
 pub(super) const COS_NATIVE_PROCESSING_PROVIDER: &str = "tencent_cos_ci";
 pub(super) const MAX_COS_THUMBNAIL_TTL: Duration = Duration::from_secs(5 * 60);
@@ -47,10 +40,28 @@ pub struct TencentCosDriver {
     base_path: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TencentCosDriverConfig {
+    pub endpoint: String,
+    pub bucket: String,
+    pub base_path: String,
+    pub connect_timeout: Duration,
+    pub read_timeout: Duration,
+    pub operation_timeout: Duration,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TencentCosStaticCredentials {
+    pub access_key: String,
+    pub secret_key: String,
+}
+
 impl TencentCosDriver {
-    pub fn validate_policy(policy: &storage_policy::Model) -> Result<()> {
-        S3Driver::validate_policy(policy)?;
-        let normalized = normalize_s3_endpoint_and_bucket(&policy.endpoint, &policy.bucket)
+    pub fn validate_config(
+        config: &TencentCosDriverConfig,
+        credentials: &TencentCosStaticCredentials,
+    ) -> Result<()> {
+        let normalized = normalize_s3_endpoint_and_bucket(&config.endpoint, &config.bucket)
             .map_err(Self::rewrap_s3_config_error)?;
         if normalized.endpoint.trim().is_empty() {
             return Err(storage_driver_error(
@@ -69,31 +80,67 @@ impl TencentCosDriver {
                 "COS endpoint must use a Tencent COS myqcloud.com host",
             ));
         }
+        S3Driver::validate_config(
+            &S3DriverConfig {
+                endpoint: signing::cos_virtual_hosted_s3_endpoint(
+                    &normalized.endpoint,
+                    &normalized.bucket,
+                )?,
+                bucket: normalized.bucket,
+                base_path: config.base_path.clone(),
+                region: "auto".to_string(),
+                path_style: false,
+                connect_timeout: config.connect_timeout,
+                read_timeout: config.read_timeout,
+                operation_timeout: config.operation_timeout,
+            },
+            &S3StaticCredentials {
+                access_key: credentials.access_key.clone(),
+                secret_key: credentials.secret_key.clone(),
+            },
+        )?;
         Ok(())
     }
 
-    pub fn new(policy: &storage_policy::Model) -> Result<Self> {
-        Self::validate_policy(policy)?;
-        let normalized = normalize_s3_endpoint_and_bucket(&policy.endpoint, &policy.bucket)
+    pub fn new(
+        config: TencentCosDriverConfig,
+        credentials: TencentCosStaticCredentials,
+    ) -> Result<Self> {
+        Self::validate_config(&config, &credentials)?;
+        let normalized = normalize_s3_endpoint_and_bucket(&config.endpoint, &config.bucket)
             .map_err(Self::rewrap_s3_config_error)?;
-        let mut storage_policy = policy.clone();
-        storage_policy.endpoint =
-            signing::cos_virtual_hosted_s3_endpoint(&normalized.endpoint, &normalized.bucket)?;
-        storage_policy.bucket = normalized.bucket.clone();
-        let storage = S3CompatibleDriver::new_with_s3_options(
-            &storage_policy,
+        let s3_driver = S3Driver::new(
+            S3DriverConfig {
+                endpoint: signing::cos_virtual_hosted_s3_endpoint(
+                    &normalized.endpoint,
+                    &normalized.bucket,
+                )?,
+                bucket: normalized.bucket.clone(),
+                base_path: config.base_path.clone(),
+                region: "auto".to_string(),
+                path_style: false,
+                connect_timeout: config.connect_timeout,
+                read_timeout: config.read_timeout,
+                operation_timeout: config.operation_timeout,
+            },
+            S3StaticCredentials {
+                access_key: credentials.access_key.clone(),
+                secret_key: credentials.secret_key.clone(),
+            },
             S3DriverOptions::virtual_hosted_style(),
+            signing::configure_cos_auth,
         )?;
-        let client = cos_ci_http_client(policy)?;
+        let storage = S3CompatibleDriver::from_s3_driver(Arc::new(s3_driver));
+        let client = cos_ci_http_client(&config)?;
 
         Ok(Self {
             storage,
             client,
             endpoint: normalized.endpoint,
             bucket: normalized.bucket,
-            access_key: policy.access_key.clone(),
-            secret_key: policy.secret_key.clone(),
-            base_path: policy.base_path.clone(),
+            access_key: credentials.access_key,
+            secret_key: credentials.secret_key,
+            base_path: config.base_path,
         })
     }
 
@@ -116,173 +163,21 @@ impl TencentCosDriver {
     }
 }
 
-fn cos_ci_http_client(policy: &storage_policy::Model) -> Result<reqwest::Client> {
-    let options = aster_drive_model::types::parse_storage_policy_options(policy.options.as_ref());
+fn cos_ci_http_client(config: &TencentCosDriverConfig) -> Result<reqwest::Client> {
     reqwest::Client::builder()
-        .connect_timeout(options.effective_s3_connect_timeout())
-        .read_timeout(options.effective_s3_read_timeout())
-        .timeout(options.effective_s3_operation_timeout())
+        .connect_timeout(config.connect_timeout)
+        .read_timeout(config.read_timeout)
+        .timeout(config.operation_timeout)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(OUTBOUND_HTTP_USER_AGENT)
         .build()
         .map_storage_err_ctx(StorageErrorKind::Misconfigured, "build COS CI HTTP client")
 }
 
-#[async_trait]
-impl StorageDriver for TencentCosDriver {
-    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
-        self.storage.put(path, data).await
-    }
-
-    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
-        self.storage.get(path).await
-    }
-
-    async fn get_stream(
-        &self,
-        path: &str,
-    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
-        self.storage.get_stream(path).await
-    }
-
-    async fn get_range(
-        &self,
-        path: &str,
-        offset: u64,
-        length: Option<u64>,
-    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
-        self.storage.get_range(path, offset, length).await
-    }
-
-    fn supports_efficient_range(&self) -> bool {
-        self.storage.supports_efficient_range()
-    }
-
-    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
-        self.storage.delete(path).await
-    }
-
-    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
-        self.storage.exists(path).await
-    }
-
-    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
-        self.storage.metadata(path).await
-    }
-
-    async fn readiness_check(&self) -> aster_drive_storage::Result<()> {
-        self.storage.readiness_check().await
-    }
-
-    async fn copy_object(
-        &self,
-        src_path: &str,
-        dest_path: &str,
-    ) -> aster_drive_storage::Result<String> {
-        self.storage.copy_object(src_path, dest_path).await
-    }
-
-    fn extensions(&self) -> aster_drive_storage::StorageDriverExtensions<'_> {
-        let base = self.storage.extensions();
-        aster_drive_storage::StorageDriverExtensions {
-            presigned: base.presigned,
-            list: base.list,
-            stream_upload: base.stream_upload,
-            native_thumbnail: Some(self),
-            native_media_metadata: Some(self),
-            multipart: Some(self),
-            ..Default::default()
-        }
-    }
-
-    async fn capacity_info(
-        &self,
-    ) -> aster_drive_storage::Result<aster_drive_storage::StorageCapacityInfo> {
-        self.storage.capacity_info().await
-    }
-}
-
-#[async_trait]
-impl MultipartStorageDriver for TencentCosDriver {
-    async fn create_multipart_upload(&self, path: &str) -> aster_drive_storage::Result<String> {
-        self.storage.create_multipart_upload(path).await
-    }
-
-    async fn presigned_upload_part_url(
-        &self,
-        path: &str,
-        upload_id: &str,
-        part_number: i32,
-        expires: Duration,
-    ) -> aster_drive_storage::Result<String> {
-        self.storage
-            .presigned_upload_part_url(path, upload_id, part_number, expires)
-            .await
-    }
-
-    async fn complete_multipart_upload(
-        &self,
-        path: &str,
-        upload_id: &str,
-        parts: Vec<(i32, String)>,
-    ) -> aster_drive_storage::Result<()> {
-        self.storage
-            .complete_multipart_upload(path, upload_id, parts)
-            .await
-    }
-
-    async fn upload_multipart_part(
-        &self,
-        path: &str,
-        upload_id: &str,
-        part_number: i32,
-        data: &[u8],
-    ) -> aster_drive_storage::Result<String> {
-        self.storage
-            .upload_multipart_part(path, upload_id, part_number, data)
-            .await
-    }
-
-    async fn upload_multipart_part_bytes(
-        &self,
-        path: &str,
-        upload_id: &str,
-        part_number: i32,
-        data: Bytes,
-    ) -> aster_drive_storage::Result<String> {
-        self.storage
-            .upload_multipart_part_bytes(path, upload_id, part_number, data)
-            .await
-    }
-
-    async fn upload_multipart_part_reader(
-        &self,
-        path: &str,
-        upload_id: &str,
-        part_number: i32,
-        reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
-        size: i64,
-    ) -> aster_drive_storage::Result<String> {
-        self.storage
-            .upload_multipart_part_reader(path, upload_id, part_number, reader, size)
-            .await
-    }
-
-    async fn abort_multipart_upload(
-        &self,
-        path: &str,
-        upload_id: &str,
-    ) -> aster_drive_storage::Result<()> {
-        self.storage.abort_multipart_upload(path, upload_id).await
-    }
-
-    async fn list_uploaded_part_details(
-        &self,
-        path: &str,
-        upload_id: &str,
-    ) -> aster_drive_storage::Result<Vec<UploadedMultipartPart>> {
-        self.storage
-            .list_uploaded_part_details(path, upload_id)
-            .await
-    }
-}
+super::s3_compatible::delegate_s3_compatible_storage_driver!(
+    TencentCosDriver,
+    storage,
+    native_thumbnail,
+    native_media_metadata
+);
+super::s3_compatible::delegate_s3_compatible_multipart_driver!(TencentCosDriver, storage);

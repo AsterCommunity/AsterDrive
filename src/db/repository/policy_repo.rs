@@ -3,13 +3,12 @@
 use crate::api::pagination::AdminPolicySortBy;
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::storage_policy::{self, Entity as StoragePolicy};
-use aster_drive_model::types::DriverType;
 use aster_forge_api::SortOrder;
 use aster_forge_db::pagination::fetch_offset_page;
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
-    ExprTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select, Set, sea_query::Expr,
+    ExprTrait, QueryFilter, QueryOrder, QuerySelect, Select, Set, sea_query::Expr,
 };
 
 pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<storage_policy::Model> {
@@ -79,21 +78,9 @@ fn apply_admin_policy_sort(
             sort_order,
             storage_policy::Column::Id,
         ),
-        AdminPolicySortBy::DriverType => order_by_column_with_id(
+        AdminPolicySortBy::ConnectorId => order_by_column_with_id(
             query,
-            storage_policy::Column::DriverType,
-            sort_order,
-            storage_policy::Column::Id,
-        ),
-        AdminPolicySortBy::Endpoint => order_by_column_with_id(
-            query,
-            storage_policy::Column::Endpoint,
-            sort_order,
-            storage_policy::Column::Id,
-        ),
-        AdminPolicySortBy::Bucket => order_by_column_with_id(
-            query,
-            storage_policy::Column::Bucket,
+            storage_policy::Column::ConnectorId,
             sort_order,
             storage_policy::Column::Id,
         ),
@@ -116,26 +103,6 @@ fn apply_admin_policy_sort(
             storage_policy::Column::Id,
         ),
     }
-}
-
-pub async fn count_by_remote_node_id(db: &DatabaseConnection, remote_node_id: i64) -> Result<u64> {
-    StoragePolicy::find()
-        .filter(storage_policy::Column::RemoteNodeId.eq(remote_node_id))
-        .count(db)
-        .await
-        .map_err(AsterError::from)
-}
-
-pub async fn find_by_remote_node_id(
-    db: &DatabaseConnection,
-    remote_node_id: i64,
-) -> Result<Vec<storage_policy::Model>> {
-    StoragePolicy::find()
-        .filter(storage_policy::Column::RemoteNodeId.eq(remote_node_id))
-        .order_by_asc(storage_policy::Column::Id)
-        .all(db)
-        .await
-        .map_err(AsterError::from)
 }
 
 pub async fn create<C: ConnectionTrait>(
@@ -173,29 +140,6 @@ pub async fn set_only_default<C: ConnectionTrait>(db: &C, id: i64) -> Result<()>
         .exec(db)
         .await
         .map_err(AsterError::from)?;
-    Ok(())
-}
-
-pub async fn promote_s3_compatible_driver<C: ConnectionTrait>(
-    db: &C,
-    id: i64,
-    source_driver_type: DriverType,
-    target_driver_type: DriverType,
-    endpoint: String,
-) -> Result<()> {
-    let policy = lock_by_id(db, id).await?;
-    if policy.driver_type != source_driver_type {
-        return Err(AsterError::validation_error(format!(
-            "storage policy #{id} is not a {} policy",
-            source_driver_type.as_str()
-        )));
-    }
-
-    let mut active: storage_policy::ActiveModel = policy.into();
-    active.driver_type = Set(target_driver_type);
-    active.endpoint = Set(endpoint);
-    active.updated_at = Set(chrono::Utc::now());
-    active.update(db).await.map_err(AsterError::from)?;
     Ok(())
 }
 

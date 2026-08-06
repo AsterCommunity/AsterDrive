@@ -1,7 +1,6 @@
 //! Team and membership management tests
 
 use crate::common;
-use aster_drive::runtime::SharedRuntimeState;
 
 use actix_web::test;
 use serde_json::Value;

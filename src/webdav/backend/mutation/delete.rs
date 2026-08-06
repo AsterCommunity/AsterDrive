@@ -2,7 +2,6 @@ use aster_drive_model::entities::file as file_entity;
 use aster_forge_db::transaction;
 use aster_forge_webdav::{DavMutationOperation, DavMutationTargetRole, DavPath, FsError};
 
-use crate::runtime::SharedRuntimeState;
 use crate::services::{
     events::storage_change,
     files::{file as file_ops, folder},

@@ -2,7 +2,7 @@
 
 use crate::db::repository::background_task_repo;
 use crate::errors::{AsterError, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
+use crate::runtime::{PrimaryAppState, TaskRuntimeState};
 use crate::services::media::processing;
 use aster_drive_model::entities::{background_task, file_blob};
 use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus};

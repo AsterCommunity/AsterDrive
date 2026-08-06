@@ -168,7 +168,7 @@ pub async fn update_preferences(
     prefs.browser_open_mode = browser_open_mode.or(prefs.browser_open_mode);
     prefs.sort_by = sort_by.or(prefs.sort_by);
     prefs.sort_order = sort_order.or(prefs.sort_order);
-    prefs.language = language.or(prefs.language);
+    prefs.language = language.or_else(|| prefs.language.clone());
     prefs.display_time_zone = display_time_zone.or(prefs.display_time_zone.clone());
     prefs.storage_event_stream_enabled =
         storage_event_stream_enabled.or(prefs.storage_event_stream_enabled);

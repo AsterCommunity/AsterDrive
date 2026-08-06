@@ -145,9 +145,9 @@ dependencies = [
 
 [[package]]
 name = "actix-server"
-version = "2.6.0"
+version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a65064ea4a457eaf07f2fba30b4c695bf43b721790e9530d26cb6f9019ff7502"
+checksum = "3716aae056e2f869b7b5cfd8a08fcf98890f8455bec61d69c7dff5d8576f9d2b"
 dependencies = [
  "actix-rt",
  "actix-service",
@@ -155,7 +155,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "mio",
- "socket2 0.5.10",
+ "socket2",
  "tokio",
  "tracing",
 ]
@@ -217,7 +217,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "smallvec",
- "socket2 0.6.5",
+ "socket2",
  "time",
  "tracing",
  "url",
@@ -410,9 +410,9 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "android_system_properties"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "819e7219dbd41043ac279b19830f2efc897156490d7fd6ea916720117ee66311"
+checksum = "ae221649c9976a6f6c56ae1facf410f3ddb33cc661c4b7b61020a912d4237fbc"
 dependencies = [
  "libc",
 ]
@@ -759,6 +759,7 @@ dependencies = [
  "actix-multipart",
  "actix-web",
  "actix-ws",
+ "aes-gcm 0.11.0",
  "aster_drive_metrics",
  "aster_drive_migration",
  "aster_drive_model",
@@ -791,13 +792,15 @@ dependencies = [
  "async-stream",
  "async-trait",
  "aws-credential-types",
+ "aws-runtime",
  "aws-sdk-s3",
  "aws-smithy-http",
  "aws-smithy-http-client",
+ "aws-smithy-runtime-api",
  "aws-smithy-types",
  "azure_core",
  "azure_storage_blob",
- "base64 0.23.0",
+ "base64 0.23.1",
  "bytes",
  "chrono",
  "chrono-tz",
@@ -812,6 +815,7 @@ dependencies = [
  "futures",
  "governor",
  "hex",
+ "hkdf 0.13.0",
  "hmac 0.13.0",
  "http 1.5.0",
  "http-body 1.1.0",
@@ -881,6 +885,7 @@ dependencies = [
  "aster_forge_db_migration",
  "aster_forge_file_classification",
  "sea-orm-migration",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",
@@ -895,6 +900,7 @@ dependencies = [
  "aster_forge_file_classification",
  "aster_forge_tasks",
  "chrono",
+ "language-tags",
  "sea-orm",
  "serde",
  "serde_json",
@@ -912,8 +918,11 @@ dependencies = [
  "async-trait",
  "bytes",
  "chrono",
+ "hex",
  "rand 0.10.2",
  "serde",
+ "serde_json",
+ "sha2 0.11.0",
  "tokio",
  "utoipa",
 ]
@@ -927,7 +936,7 @@ dependencies = [
  "actix-web",
  "aster_forge_metrics",
  "aster_forge_utils",
- "base64 0.23.0",
+ "base64 0.23.1",
  "futures",
  "governor",
  "ipnet",
@@ -1035,7 +1044,7 @@ source = "git+https://github.com/AsterCommunity/AsterForge#1fc991fe852f1adf32963
 dependencies = [
  "aes-gcm 0.11.0",
  "argon2 0.5.3",
- "base64 0.23.0",
+ "base64 0.23.1",
  "hkdf 0.13.0",
  "hmac 0.13.0",
  "rand_core 0.6.4",
@@ -1098,7 +1107,7 @@ dependencies = [
  "aster_forge_utils",
  "aster_forge_validation",
  "async-trait",
- "base64 0.23.0",
+ "base64 0.23.1",
  "openidconnect",
  "rand 0.10.2",
  "reqwest",
@@ -1887,9 +1896,9 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64"
-version = "0.23.0"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b25655df2c3cdd83c5e5b293b88acd880332b2ddadd7c30ac43144fdc0033da9"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "base64-simd"
@@ -3320,7 +3329,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "420b9da095f052ea597503e39073b5b3c522f7db933fbac202d91d24492693fd"
 dependencies = [
- "base64 0.23.0",
+ "base64 0.23.1",
  "memchr",
 ]
 
@@ -4179,7 +4188,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.5",
+ "socket2",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -4590,9 +4599,9 @@ dependencies = [
 
 [[package]]
 name = "keccak"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e24a010dd405bd7ed803e5253182815b41bf2e6a80cc3bfc066658e03a198aa"
+checksum = "ffd9697dc4a9a62e2da93389f34400b77a28f0287711263cabb203b3ccb9c0e4"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
@@ -4613,6 +4622,9 @@ name = "language-tags"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4345964bb142484797b161f473a503a434de77149dd8c7427788c6e13379388"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "lazy_static"
@@ -4636,7 +4648,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2c646bd5cc763b1087b15493e29a64be6147ba8f19342004fa52048ee596eae"
 dependencies = [
  "async-trait",
- "base64 0.23.0",
+ "base64 0.23.1",
  "email-encoding",
  "email_address",
  "fastrand",
@@ -4649,7 +4661,7 @@ dependencies = [
  "percent-encoding",
  "quoted_printable",
  "rustls",
- "socket2 0.6.5",
+ "socket2",
  "tokio",
  "tokio-rustls",
  "url",
@@ -6030,7 +6042,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -6147,7 +6159,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2 0.6.5",
+ "socket2",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
@@ -6186,7 +6198,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.5",
+ "socket2",
  "tracing",
  "windows-sys 0.61.2",
 ]
@@ -6367,7 +6379,7 @@ dependencies = [
  "rustls-native-certs",
  "ryu",
  "sha1_smol",
- "socket2 0.6.5",
+ "socket2",
  "tokio",
  "tokio-rustls",
  "tokio-util",
@@ -6429,9 +6441,9 @@ dependencies = [
 
 [[package]]
 name = "regex-automata"
-version = "0.4.16"
+version = "0.4.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fcfdb36bda0c880c5931cdc7a2bcdc8ba4556847b9d912bca70bc94708711ad"
+checksum = "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -7603,16 +7615,6 @@ dependencies = [
 
 [[package]]
 name = "socket2"
-version = "0.5.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e22376abed350d73dd1cd119b57ffccad95b4e585a7cda43e286245ce23c0678"
-dependencies = [
- "libc",
- "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "socket2"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
@@ -8332,7 +8334,7 @@ dependencies = [
  "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
- "socket2 0.6.5",
+ "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",
 ]
@@ -8472,7 +8474,7 @@ dependencies = [
  "hyper-util",
  "percent-encoding",
  "pin-project",
- "socket2 0.6.5",
+ "socket2",
  "sync_wrapper",
  "tokio",
  "tokio-stream",

@@ -1,211 +1,45 @@
-import { normalizeObjectStorageConnectionFields } from "@/lib/objectStorageConnectionFields";
 import type {
-	DriverType,
 	StorageConnectorDescriptor,
+	StorageConnectorFieldDescriptor,
 	StoragePolicy,
-	StoragePolicyOptions,
 } from "@/types/api";
-import {
-	microsoftGraphCredentials,
-	updateMicrosoftGraphCredentials,
-} from "./applicationCredentials";
-import {
-	descriptorHasConnectionField,
-	supportsMicrosoftGraphApplicationConfig,
-	supportsObjectStorageConnection,
-	supportsOneDrivePolicyOptions,
-	supportsRemoteNodeBinding,
-	supportsStaticSecretConnection,
-} from "./descriptorPredicates";
-import type { PolicyFormData } from "./formTypes";
-import { getPolicyForm } from "./formTypes";
-import { buildPolicyOptions } from "./storagePolicyOptions";
+import type { ConnectorFormValue, PolicyFormData } from "./formTypes";
 
-export interface S3CompatibleDriverPromotionTarget {
-	driverLabel: string;
-	driverType: DriverType;
-}
-
-export function parseRemoteNodeId(value: string): number | undefined {
-	if (!value) {
-		return undefined;
-	}
-
-	const parsed = Number(value);
-	return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
-}
-
-function endpointHostMatchesRule(
-	host: string,
-	rule: NonNullable<
-		StorageConnectorDescriptor["driver_recommendations"]
-	>[number]["endpoint_host_rules"][number],
-) {
-	const equals = rule.equals?.trim().toLowerCase();
-	if (equals && host === equals) {
-		return true;
-	}
-
-	const endsWith = rule.ends_with?.trim().toLowerCase();
-	return Boolean(endsWith && host.endsWith(endsWith));
-}
-
-function parseEndpointHost(endpoint: string) {
-	const trimmedEndpoint = endpoint.trim();
-	if (!trimmedEndpoint) {
-		return null;
-	}
-
-	try {
-		return new URL(trimmedEndpoint).hostname.toLowerCase();
-	} catch {
-		return null;
-	}
-}
-
-export function getS3CompatibleDriverPromotionTarget(
-	policy: {
-		driver_type: DriverType;
-		endpoint: string;
-	} | null,
-	sourceDescriptor: StorageConnectorDescriptor | null | undefined,
-	getDriverLabel: (driverType: DriverType) => string,
-): S3CompatibleDriverPromotionTarget | null {
-	if (policy == null || sourceDescriptor?.driver_type !== policy.driver_type) {
-		return null;
-	}
-
-	const host = parseEndpointHost(policy.endpoint);
-	if (host == null) {
-		return null;
-	}
-
-	for (const recommendation of sourceDescriptor.driver_recommendations ?? []) {
-		if (
-			recommendation.endpoint_host_rules.some((rule) =>
-				endpointHostMatchesRule(host, rule),
-			)
-		) {
-			const driverType = recommendation.target_driver_type;
-			return {
-				driverLabel: getDriverLabel(driverType),
-				driverType,
-			};
-		}
-	}
-
-	return null;
+interface ConnectorSelection {
+	connector_id: string;
+	connector_config_values: Record<string, ConnectorFormValue>;
 }
 
 export function normalizePolicyForm(
 	form: PolicyFormData,
 	descriptor?: StorageConnectorDescriptor | null,
 ): PolicyFormData {
-	const shouldNormalizeConnection = supportsStaticSecretConnection(descriptor);
-	const shouldNormalizeMicrosoftGraph = shouldUseMicrosoftGraphConfig(
-		form,
-		descriptor,
-	);
-
-	if (!shouldNormalizeConnection && !shouldNormalizeMicrosoftGraph) {
+	if (!descriptor) {
 		return form;
 	}
 
-	if (shouldNormalizeMicrosoftGraph) {
-		const microsoftGraph = microsoftGraphCredentials(form);
-		const normalizedCredentials = updateMicrosoftGraphCredentials(form, {
-			cloud: form.onedrive_cloud,
-			tenant: form.onedrive_tenant.trim(),
-			client_id: microsoftGraph.client_id.trim(),
-			client_secret: microsoftGraph.client_secret.trim(),
-			scopes: microsoftGraph.scopes.trim(),
-		});
-		const normalized = {
-			...form,
-			onedrive_tenant: form.onedrive_tenant.trim(),
-			onedrive_drive_id: form.onedrive_drive_id.trim(),
-			onedrive_root_item_id: form.onedrive_root_item_id.trim(),
-			onedrive_site_id: form.onedrive_site_id.trim(),
-			onedrive_group_id: form.onedrive_group_id.trim(),
-			application_credentials: normalizedCredentials,
-		};
-		return normalized.onedrive_tenant === form.onedrive_tenant &&
-			normalized.onedrive_drive_id === form.onedrive_drive_id &&
-			normalized.onedrive_root_item_id === form.onedrive_root_item_id &&
-			normalized.onedrive_site_id === form.onedrive_site_id &&
-			normalized.onedrive_group_id === form.onedrive_group_id &&
-			normalized.application_credentials === form.application_credentials
-			? form
-			: normalized;
-	}
+	const connectorConfigValues = normalizeFieldValues(
+		form.connector_config_values,
+		descriptor,
+		"connector_config",
+	);
+	const credentialValues = normalizeCredentialValues(
+		form.credential_values,
+		descriptor,
+	);
 
-	const usesObjectStorageConnection =
-		supportsObjectStorageConnection(descriptor);
-	const normalized = usesObjectStorageConnection
-		? normalizeObjectStorageConnectionFields(form.endpoint, form.bucket)
-		: {
-				endpoint: form.endpoint.trim(),
-				bucket:
-					descriptor == null ||
-					descriptorHasConnectionField(descriptor, "bucket")
-						? form.bucket.trim()
-						: "",
-			};
-	const normalizedAccessKey =
-		usesObjectStorageConnection ||
-		shouldTrimConnectionField(descriptor, "access_key")
-			? form.access_key.trim()
-			: form.access_key;
-	const normalizedSecretKey = usesObjectStorageConnection
-		? form.secret_key.trim()
-		: form.secret_key;
 	if (
-		normalized.endpoint === form.endpoint &&
-		normalized.bucket === form.bucket &&
-		normalizedAccessKey === form.access_key &&
-		normalizedSecretKey === form.secret_key
+		recordsEqual(connectorConfigValues, form.connector_config_values) &&
+		recordsEqual(credentialValues, form.credential_values)
 	) {
 		return form;
 	}
 
 	return {
 		...form,
-		endpoint: normalized.endpoint,
-		bucket: normalized.bucket,
-		access_key: normalizedAccessKey,
-		secret_key: normalizedSecretKey,
+		connector_config_values: connectorConfigValues,
+		credential_values: credentialValues,
 	};
-}
-
-function getComparableOneDrivePolicyOptions(
-	policy: StoragePolicy,
-): StoragePolicyOptions {
-	return buildPolicyOptions(getPolicyForm(policy));
-}
-
-function hasStaticSecretPolicyOptionConnectionChanges(
-	form: PolicyFormData,
-	editingPolicy: StoragePolicy,
-	descriptor?: StorageConnectorDescriptor | null,
-) {
-	const optionFields =
-		descriptor?.fields.filter(
-			(field) =>
-				field.scope === "policy_options" &&
-				(field.kind === "text" || field.kind === "secret"),
-		) ?? [];
-	if (optionFields.length === 0) {
-		return false;
-	}
-
-	const policyOptions = editingPolicy.options as Record<string, unknown>;
-	return optionFields.some((field) => {
-		const formValue = String(
-			form.policy_option_values?.[field.name] ?? "",
-		).trim();
-		const savedValue = String(policyOptions[field.name] ?? "").trim();
-		return formValue !== savedValue;
-	});
 }
 
 export function hasConnectionFieldChanges(
@@ -213,48 +47,22 @@ export function hasConnectionFieldChanges(
 	editingPolicy: StoragePolicy | null,
 	descriptor?: StorageConnectorDescriptor | null,
 ) {
-	const normalizedForm = normalizePolicyForm(form, descriptor);
-
 	if (!editingPolicy) {
 		return true;
 	}
 
-	if (supportsStaticSecretConnection(descriptor)) {
-		return (
-			normalizedForm.endpoint !== editingPolicy.endpoint ||
-			normalizedForm.bucket !== editingPolicy.bucket ||
-			normalizedForm.base_path !== editingPolicy.base_path ||
-			normalizedForm.access_key !== "" ||
-			normalizedForm.secret_key !== "" ||
-			hasStaticSecretPolicyOptionConnectionChanges(
-				normalizedForm,
-				editingPolicy,
-				descriptor,
-			)
-		);
-	}
-
-	if (supportsRemoteNodeBinding(descriptor)) {
-		return (
-			parseRemoteNodeId(normalizedForm.remote_node_id) !==
-				editingPolicy.remote_node_id ||
-			normalizedForm.remote_storage_target_key !==
-				(editingPolicy.remote_storage_target_key ?? "") ||
-			normalizedForm.base_path !== editingPolicy.base_path
-		);
-	}
-
-	if (
-		shouldUseMicrosoftGraphConfig(normalizedForm, descriptor, editingPolicy)
-	) {
-		return (
-			normalizedForm.base_path !== editingPolicy.base_path ||
-			JSON.stringify(buildPolicyOptions(normalizedForm, descriptor)) !==
-				JSON.stringify(getComparableOneDrivePolicyOptions(editingPolicy))
-		);
-	}
-
-	return normalizedForm.base_path !== editingPolicy.base_path;
+	const normalizedForm = normalizePolicyForm(form, descriptor);
+	const saved = policyConnectorSelection(editingPolicy);
+	return (
+		normalizedForm.connector_id !== saved.connector_id ||
+		!recordsEqual(
+			normalizedForm.connector_config_values,
+			saved.connector_config_values,
+		) ||
+		Object.values(normalizedForm.credential_values).some(
+			(value) => value !== "",
+		)
+	);
 }
 
 export function getPolicyConnectionTestKey(
@@ -262,125 +70,160 @@ export function getPolicyConnectionTestKey(
 	descriptor?: StorageConnectorDescriptor | null,
 ) {
 	const normalizedForm = normalizePolicyForm(form, descriptor);
-
 	return JSON.stringify({
-		driver_type: normalizedForm.driver_type,
-		endpoint: normalizedForm.endpoint,
-		bucket: normalizedForm.bucket,
-		access_key: normalizedForm.access_key,
-		secret_key: normalizedForm.secret_key,
-		base_path: normalizedForm.base_path,
-		remote_node_id: parseRemoteNodeId(normalizedForm.remote_node_id),
-		remote_storage_target_key: normalizedForm.remote_storage_target_key,
-		options: buildPolicyOptions(normalizedForm, descriptor),
+		connector_id: normalizedForm.connector_id,
+		connector_config_values: normalizedForm.connector_config_values,
+		credential_values: normalizedForm.credential_values,
 	});
 }
 
 export function getEndpointValidationMessage(
 	form: PolicyFormData,
-	t: (key: string) => string,
+	translate: (key: string) => string,
 	descriptor?: StorageConnectorDescriptor | null,
 ) {
-	if (!supportsStaticSecretConnection(descriptor)) {
-		return null;
-	}
-
-	const trimmedEndpoint = form.endpoint.trim();
-	if (!trimmedEndpoint) {
-		return null;
-	}
 	const endpointField = descriptor?.fields.find(
-		(field) => field.scope === "connection" && field.name === "endpoint",
+		(field) =>
+			field.scope === "connector_config" &&
+			((field.allowed_endpoint_protocols?.length ?? 0) > 0 ||
+				field.allow_endpoint_without_protocol === true ||
+				field.invalid_protocol_message_key != null),
 	);
-	const endpointProtocolMessage =
-		endpointField?.invalid_protocol_message_key ??
-		"s3_endpoint_protocol_required_error";
-	const allowedProtocols =
-		endpointField?.allowed_endpoint_protocols?.length === 0
-			? ["http:", "https:"]
-			: (endpointField?.allowed_endpoint_protocols ?? ["http:", "https:"]);
+	if (!endpointField) {
+		return null;
+	}
 
-	if (!hasEndpointUrlScheme(trimmedEndpoint)) {
-		return endpointField?.allow_endpoint_without_protocol
+	const rawEndpoint = form.connector_config_values[endpointField.name];
+	const endpoint = typeof rawEndpoint === "string" ? rawEndpoint.trim() : "";
+	if (!endpoint) {
+		return null;
+	}
+	const errorKey =
+		endpointField.invalid_protocol_message_key ??
+		"policy_connector_endpoint_protocol_invalid";
+	if (!hasEndpointUrlScheme(endpoint)) {
+		return endpointField.allow_endpoint_without_protocol
 			? null
-			: t(endpointProtocolMessage);
+			: translate(errorKey);
 	}
 
-	let endpointUrl: URL;
+	let parsed: URL;
 	try {
-		endpointUrl = new URL(trimmedEndpoint);
+		parsed = new URL(endpoint);
 	} catch {
-		return t(endpointProtocolMessage);
+		return translate(errorKey);
 	}
+	const allowedProtocols = endpointField.allowed_endpoint_protocols ?? [];
+	return allowedProtocols.length === 0 ||
+		allowedProtocols.includes(parsed.protocol)
+		? null
+		: translate(errorKey);
+}
 
-	if (!allowedProtocols.includes(endpointUrl.protocol)) {
-		return t(endpointProtocolMessage);
+export function policyConnectorSelection(
+	policy: StoragePolicy,
+): ConnectorSelection {
+	const envelope: Record<string, unknown> = isRecord(policy.connector_config)
+		? policy.connector_config
+		: {};
+	const values = isRecord(envelope.values) ? envelope.values : {};
+	const connectorConfigValues: Record<string, ConnectorFormValue> = {};
+	for (const [key, value] of Object.entries(values)) {
+		if (
+			typeof value === "string" ||
+			typeof value === "number" ||
+			typeof value === "boolean" ||
+			value === null
+		) {
+			connectorConfigValues[key] = value;
+		}
 	}
-
-	return null;
+	return {
+		connector_id: policy.connector_id,
+		connector_config_values: connectorConfigValues,
+	};
 }
 
-function shouldUseMicrosoftGraphConfig(
-	form: PolicyFormData,
-	descriptor?: StorageConnectorDescriptor | null,
-	editingPolicy?: StoragePolicy | null,
+function normalizeFieldValues(
+	values: Record<string, ConnectorFormValue>,
+	descriptor: StorageConnectorDescriptor,
+	scope: "connector_config",
 ) {
-	return descriptor
-		? supportsOneDrivePolicyOptions(descriptor) ||
-				supportsMicrosoftGraphApplicationConfig(descriptor)
-		: hasExplicitMicrosoftGraphFields(form) ||
-				hasMicrosoftGraphPolicyOptions(editingPolicy);
+	const normalized: Record<string, ConnectorFormValue> = {};
+	for (const field of descriptor.fields) {
+		if (field.scope !== scope) {
+			continue;
+		}
+		const value = normalizeConnectorFieldValue(field, values[field.name]);
+		if (value === undefined) {
+			continue;
+		}
+		normalized[field.name] = value;
+	}
+	return normalized;
 }
 
-function hasEndpointUrlScheme(endpoint?: string | null) {
-	return /^[a-z][a-z0-9+.-]*:\/\//i.test(endpoint?.trim() ?? "");
+/** Mirror backend descriptor default and text-normalization semantics. */
+export function normalizeConnectorFieldValue(
+	field: StorageConnectorFieldDescriptor,
+	value: ConnectorFormValue | undefined,
+): ConnectorFormValue | undefined {
+	let normalized =
+		value === undefined ? (field.default_value ?? undefined) : value;
+	if (field.trim_on_blur === true && typeof normalized === "string") {
+		normalized = normalized.trim();
+	}
+	if (
+		normalized === "" &&
+		!field.required &&
+		field.default_mode === "missing_or_empty_text" &&
+		field.default_value != null
+	) {
+		normalized = field.default_value;
+		if (field.trim_on_blur === true && typeof normalized === "string") {
+			normalized = normalized.trim();
+		}
+	}
+	return normalized;
 }
 
-function shouldTrimConnectionField(
-	descriptor: StorageConnectorDescriptor | null | undefined,
-	fieldName: string,
+function normalizeCredentialValues(
+	values: Record<string, string>,
+	descriptor: StorageConnectorDescriptor,
 ) {
+	const normalized: Record<string, string> = {};
+	for (const field of descriptor.fields) {
+		if (
+			field.scope !== "static_credential" &&
+			field.scope !== "authorization_application"
+		) {
+			continue;
+		}
+		const value = values[field.name];
+		if (value === undefined) {
+			continue;
+		}
+		normalized[field.name] = field.trim_on_blur === true ? value.trim() : value;
+	}
+	return normalized;
+}
+
+function hasEndpointUrlScheme(endpoint: string) {
+	return /^[a-z][a-z0-9+.-]*:\/\//i.test(endpoint);
+}
+
+function recordsEqual(
+	left: Record<string, ConnectorFormValue> | Record<string, string>,
+	right: Record<string, ConnectorFormValue> | Record<string, string>,
+) {
+	const leftKeys = Object.keys(left);
+	const rightKeys = Object.keys(right);
 	return (
-		descriptor?.fields.some(
-			(field) =>
-				field.scope === "connection" &&
-				field.name === fieldName &&
-				field.trim_on_blur === true,
-		) ?? false
+		leftKeys.length === rightKeys.length &&
+		leftKeys.every((key) => left[key] === right[key])
 	);
 }
 
-function hasExplicitMicrosoftGraphFields(form: PolicyFormData) {
-	const microsoftGraph = microsoftGraphCredentials(form);
-	const tenant = form.onedrive_tenant?.trim();
-	return Boolean(
-		(form.onedrive_account_mode != null &&
-			form.onedrive_account_mode !== "work_or_school") ||
-			(form.onedrive_cloud != null && form.onedrive_cloud !== "global") ||
-			(tenant != null && tenant !== "" && tenant !== "common") ||
-			hasText(form.onedrive_drive_id) ||
-			hasText(form.onedrive_root_item_id) ||
-			hasText(form.onedrive_site_id) ||
-			hasText(form.onedrive_group_id) ||
-			hasText(microsoftGraph.client_id) ||
-			hasText(microsoftGraph.client_secret) ||
-			hasText(microsoftGraph.scopes),
-	);
-}
-
-function hasMicrosoftGraphPolicyOptions(policy?: StoragePolicy | null) {
-	const options = policy?.options;
-	return Boolean(
-		options?.onedrive_account_mode ||
-			options?.onedrive_cloud ||
-			options?.onedrive_tenant ||
-			options?.onedrive_drive_id ||
-			options?.onedrive_root_item_id ||
-			options?.onedrive_site_id ||
-			options?.onedrive_group_id,
-	);
-}
-
-function hasText(value: string | null | undefined) {
-	return Boolean(value?.trim());
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

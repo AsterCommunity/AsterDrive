@@ -1,21 +1,52 @@
-import type { DriverType } from "@/types/api";
+import type { CSSProperties } from "react";
+import type { StorageConnectorBadgeRgb } from "@/types/api";
 
 export const PROTECTED_POLICY_ID = 1;
 
-const POLICY_DRIVER_BADGE_CLASSES = {
-	azure_blob: "border-sky-500/60 bg-sky-500/10 text-sky-700 dark:text-sky-300",
-	local:
-		"border-emerald-500/60 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300",
-	one_drive:
-		"border-blue-500/60 bg-blue-500/10 text-blue-700 dark:text-blue-300",
-	remote:
-		"border-amber-500/60 bg-amber-500/10 text-amber-600 dark:text-amber-300",
-	s3: "border-blue-500/60 bg-blue-500/10 text-blue-600 dark:text-blue-300",
-	sftp: "border-violet-500/60 bg-violet-500/10 text-violet-700 dark:text-violet-300",
-	tencent_cos:
-		"border-cyan-500/60 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
-} satisfies Record<DriverType, string>;
+const DEFAULT_BADGE_RGB: StorageConnectorBadgeRgb = {
+	red: 113,
+	green: 113,
+	blue: 122,
+};
 
-export function getPolicyDriverBadgeClass(driverType: DriverType): string {
-	return POLICY_DRIVER_BADGE_CLASSES[driverType];
+type BadgeStyle = CSSProperties & {
+	"--storage-connector-badge-border": string;
+	"--storage-connector-badge-background": string;
+	"--storage-connector-badge-foreground": string;
+	"--storage-connector-badge-foreground-dark": string;
+};
+
+function channel(value: number) {
+	return Math.min(255, Math.max(0, Math.round(value)));
+}
+
+function rgbString(rgb: StorageConnectorBadgeRgb) {
+	return `${channel(rgb.red)} ${channel(rgb.green)} ${channel(rgb.blue)}`;
+}
+
+function mixWith(
+	rgb: StorageConnectorBadgeRgb,
+	target: number,
+	amount: number,
+) {
+	return `${channel(rgb.red * (1 - amount) + target * amount)} ${channel(
+		rgb.green * (1 - amount) + target * amount,
+	)} ${channel(rgb.blue * (1 - amount) + target * amount)}`;
+}
+
+export function getStorageConnectorBadgePresentation(
+	rgb: StorageConnectorBadgeRgb | null | undefined,
+) {
+	const color = rgb ?? DEFAULT_BADGE_RGB;
+	const style: BadgeStyle = {
+		"--storage-connector-badge-border": `rgb(${rgbString(color)} / 0.55)`,
+		"--storage-connector-badge-background": `rgb(${rgbString(color)} / 0.12)`,
+		"--storage-connector-badge-foreground": `rgb(${mixWith(color, 0, 0.35)})`,
+		"--storage-connector-badge-foreground-dark": `rgb(${mixWith(color, 255, 0.35)})`,
+	};
+	return {
+		className:
+			"border-[var(--storage-connector-badge-border)] bg-[var(--storage-connector-badge-background)] text-[var(--storage-connector-badge-foreground)] dark:text-[var(--storage-connector-badge-foreground-dark)]",
+		style,
+	};
 }

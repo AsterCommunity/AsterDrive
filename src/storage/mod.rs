@@ -13,9 +13,9 @@ pub mod registry;
 pub mod remote_protocol;
 pub use connectors::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
-    MicrosoftGraphApplicationConfigInput, StorageConnectorActionResult,
-    StorageConnectorApplicationConfigInput, StorageConnectorConnectionInput,
-    TencentCosCorsConfigResult, TestDraftStorageConnectorConnectionInput,
+    StorageConnectorActionOutput, StorageConnectorActionResult, StorageConnectorConnectionInput,
+    StorageConnectorCredentialInfo, StorageConnectorCredentialInput,
+    TestDraftStorageConnectorConnectionInput,
 };
 pub use policy_snapshot::PolicySnapshot;
 pub use registry::DriverRegistry;

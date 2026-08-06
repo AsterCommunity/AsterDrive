@@ -319,8 +319,6 @@ export type AdminFileBlobListQuery = OperationQuery<"admin_list_file_blobs">;
 export type AdminFilePage = components["schemas"]["OffsetPage_AdminFileInfo"];
 export type AdminFileBlobPage =
 	components["schemas"]["OffsetPage_AdminFileBlobInfo"];
-export type DriverType = components["schemas"]["DriverType"];
-export type MicrosoftGraphCloud = components["schemas"]["MicrosoftGraphCloud"];
 export type MediaProcessorKind = components["schemas"]["MediaProcessorKind"];
 export type LockPage = components["schemas"]["OffsetPage_ResourceLock"];
 export type RemoteCreateStorageTargetRequest =
@@ -346,8 +344,6 @@ export type RemoteUpdateStorageTargetRequest =
 	components["schemas"]["RemoteUpdateStorageTargetRequest"];
 export type RemoteDownloadStrategy =
 	components["schemas"]["RemoteDownloadStrategy"];
-export type RemoteUploadStrategy =
-	components["schemas"]["RemoteUploadStrategy"];
 export type ResourceLockOwnerInfo =
 	components["schemas"]["ResourceLockOwnerInfo"];
 export type ObjectStorageUploadStrategy =
@@ -358,19 +354,12 @@ export type ProviderDownloadStrategy =
 	components["schemas"]["ProviderDownloadStrategy"];
 export type ProviderDownloadFilenameMode =
 	components["schemas"]["ProviderDownloadFilenameMode"];
-export type StoragePolicyOptions =
-	components["schemas"]["StoragePolicyOptions"];
-export type OneDriveAccountMode = components["schemas"]["OneDriveAccountMode"];
-export type StartStorageAuthorizationRequest =
-	components["schemas"]["StartStorageAuthorizationReq"];
 export type StorageAuthorizationStartResponse =
 	components["schemas"]["StorageAuthorizationStartResponse"];
 export type StorageCredentialProvider =
 	components["schemas"]["StorageCredentialProvider"];
-export type StorageCredentialProviderInfo =
-	components["schemas"]["StorageCredentialProviderInfo"];
-export type StoragePolicyCredentialInfo =
-	components["schemas"]["StoragePolicyCredentialInfo"];
+export type StorageConnectorCredentialInfo =
+	components["schemas"]["StorageConnectorCredentialInfo"];
 export type StoragePolicyCredentialValidationResult =
 	components["schemas"]["StoragePolicyCredentialValidationResult"];
 export type MigratePolicyGroupAssignmentsRequest =
@@ -385,17 +374,15 @@ export type PatchRemoteNodeReq = components["schemas"]["PatchRemoteNodeReq"];
 export type TestPolicyParamsRequest =
 	components["schemas"]["TestPolicyParamsReq"];
 export type ExecuteDraftStoragePolicyActionRequest =
-	components["schemas"]["ExecuteDraftStoragePolicyActionReq"];
+	components["schemas"]["ExecuteDraftStorageConnectorActionInput"];
 export type ExecuteSavedStoragePolicyActionRequest =
-	components["schemas"]["ExecuteSavedStoragePolicyActionReq"];
+	components["schemas"]["ExecuteSavedStorageConnectorActionInput"];
 export type StoragePolicyActionResult =
 	OperationData<"execute_draft_storage_policy_action">;
 export type StoragePolicyConnectionTestResult =
 	OperationData<"test_policy_params">;
-export type StoragePolicyExecutableAction =
-	components["schemas"]["StoragePolicyExecutableAction"];
-export type PromoteS3CompatiblePolicyDriverRequest =
-	components["schemas"]["PromoteS3CompatiblePolicyDriverReq"];
+export type StorageConnectorActionId =
+	components["schemas"]["StorageConnectorActionId"];
 export type TestRemoteNodeParamsReq =
 	components["schemas"]["TestRemoteNodeParamsReq"];
 export type UpdateRemoteNodeRequest =
@@ -413,14 +400,26 @@ export type StorageConnectorCatalogQuery =
 	OperationQuery<"list_storage_driver_descriptors">;
 export type StorageConnectorCatalogContext =
 	components["schemas"]["StorageConnectorCatalogContext"];
+export type StorageConnectorLocalizationBundle =
+	components["schemas"]["StorageConnectorLocalizationBundle"];
+export type StorageConnectorLocalizationCatalog =
+	OperationData<"list_storage_driver_localizations">;
+export type StorageConnectorLocalizationCatalogQuery =
+	OperationQuery<"list_storage_driver_localizations">;
 export type StorageConnectorDeploymentScope =
 	components["schemas"]["StorageConnectorDeploymentScope"];
+export type StorageConnectorBadgeRgb =
+	components["schemas"]["StorageConnectorBadgeRgb"];
+export type StorageConnectorCredentialManagementDescriptor =
+	components["schemas"]["StorageConnectorCredentialManagementDescriptor"];
 export type StorageConnectorFieldDescriptor =
 	components["schemas"]["StorageConnectorFieldDescriptor"];
+export type StorageConnectorFieldValue =
+	components["schemas"]["StorageConnectorFieldValue"];
 export type StorageConnectorUiDescriptor =
 	components["schemas"]["StorageConnectorUiDescriptor"];
-export type StorageConnectorAffordanceAction =
-	components["schemas"]["StorageConnectorAffordanceAction"];
+export type StorageConnectorActionDescriptor =
+	components["schemas"]["StorageConnectorActionDescriptor"];
 export type StorageConnectorActionKind =
 	components["schemas"]["StorageConnectorActionKind"];
 export type StoragePolicyPage =

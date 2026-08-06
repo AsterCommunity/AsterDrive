@@ -508,7 +508,7 @@ function createPolicy(overrides: Record<string, unknown> = {}) {
 		bucket: "",
 		chunk_size: 5 * MB,
 		created_at: "2026-03-28T00:00:00Z",
-		driver_type: "local",
+		connector_id: "asterdrive.storage.local",
 		endpoint: "",
 		id: 1,
 		is_default: false,
@@ -847,7 +847,11 @@ describe("AdminPolicyGroupsPage", () => {
 	it("filters policy options with the dialog search input while keeping the selected policy visible", async () => {
 		mockState.policies = [
 			createPolicy({ id: 1, name: "Hot Storage" }),
-			createPolicy({ id: 2, name: "Archive Storage", driver_type: "s3" }),
+			createPolicy({
+				id: 2,
+				name: "Archive Storage",
+				connector_id: "asterdrive.storage.s3",
+			}),
 			createPolicy({ id: 3, name: "Cold Storage" }),
 		];
 

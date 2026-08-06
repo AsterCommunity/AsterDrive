@@ -21,6 +21,8 @@ import {
 
 test.describe
 	.serial("Auth E2E", () => {
+		test.describe.configure({ retries: 0 });
+
 		test("creates the initial admin, requires storage setup, and synchronizes completion across tabs", async ({
 			context,
 			page,
@@ -102,11 +104,21 @@ test.describe
 
 			const identifier = page.getByLabel("Email or username");
 			await identifier.fill("esap");
+			await identifier.focus();
 			await identifier.evaluate((input) => {
 				if (!(input instanceof HTMLInputElement)) return;
 				input.setSelectionRange(2, 2);
 			});
-			await identifier.pressSequentially("X");
+			await expect
+				.poll(() =>
+					identifier.evaluate((input) =>
+						input instanceof HTMLInputElement
+							? [input.selectionStart, input.selectionEnd]
+							: [null, null],
+					),
+				)
+				.toEqual([2, 2]);
+			await page.keyboard.type("X");
 			await expect(identifier).toHaveValue("esXap");
 			await expect
 				.poll(() =>
@@ -120,11 +132,21 @@ test.describe
 
 			const password = page.locator("#password");
 			await password.fill("secret");
+			await password.focus();
 			await password.evaluate((input) => {
 				if (!(input instanceof HTMLInputElement)) return;
 				input.setSelectionRange(3, 3);
 			});
-			await password.pressSequentially("X");
+			await expect
+				.poll(() =>
+					password.evaluate((input) =>
+						input instanceof HTMLInputElement
+							? [input.selectionStart, input.selectionEnd]
+							: [null, null],
+					),
+				)
+				.toEqual([3, 3]);
+			await page.keyboard.type("X");
 			await expect(password).toHaveValue("secXret");
 			await expect
 				.poll(() =>

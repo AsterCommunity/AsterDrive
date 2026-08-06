@@ -5,7 +5,6 @@ use crate::common;
 use actix_web::test;
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::db::repository::policy_repo;
-use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::auth::local;
 use aster_drive_model::types::UploadSessionKind;
 use aster_forge_utils::numbers::{i32_to_usize, i64_to_usize, usize_to_i32};
@@ -18,6 +17,27 @@ const TEST_CHUNK_SIZE: usize = 5_242_880;
 const PERSONAL_FINALIZATION_CONCURRENCY: usize = 8;
 const TEAM_FINALIZATION_CONCURRENCY: usize = 4;
 const RUSTFS_TEST_IMAGE_TAG: &str = "1.0.0-alpha.90";
+
+#[derive(Clone, Copy)]
+struct S3TestTransferStrategies {
+    upload: aster_drive_model::types::ObjectStorageUploadStrategy,
+    download: aster_drive_model::types::ObjectStorageDownloadStrategy,
+}
+
+impl S3TestTransferStrategies {
+    const RELAY: Self = Self {
+        upload: aster_drive_model::types::ObjectStorageUploadStrategy::RelayStream,
+        download: aster_drive_model::types::ObjectStorageDownloadStrategy::RelayStream,
+    };
+    const PRESIGNED_UPLOAD: Self = Self {
+        upload: aster_drive_model::types::ObjectStorageUploadStrategy::Presigned,
+        download: aster_drive_model::types::ObjectStorageDownloadStrategy::RelayStream,
+    };
+    const PRESIGNED_DOWNLOAD: Self = Self {
+        upload: aster_drive_model::types::ObjectStorageUploadStrategy::RelayStream,
+        download: aster_drive_model::types::ObjectStorageDownloadStrategy::Presigned,
+    };
+}
 
 async fn hold_personal_quota_row(
     state: &aster_drive::runtime::PrimaryAppState,
@@ -71,8 +91,8 @@ fn new_test_upload_id() -> String {
 
 async fn reload_policy_snapshot(state: &aster_drive::runtime::PrimaryAppState) {
     state
-        .policy_snapshot
-        .reload(state.writer_db())
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
         .await
         .unwrap();
 }
@@ -88,15 +108,9 @@ async fn set_default_local_content_dedup(
         .await
         .unwrap()
         .expect("default policy should exist in test setup");
-    let mut active: aster_drive_model::entities::storage_policy::ActiveModel = policy.into();
-    active.options = Set(aster_drive_model::types::StoredStoragePolicyOptions::from(
-        if enabled {
-            r#"{"content_dedup":true}"#
-        } else {
-            "{}"
-        }
-        .to_string(),
-    ));
+    let mut active: aster_drive_model::entities::storage_policy::ActiveModel =
+        policy.clone().into();
+    active.storage_config = Set(common::with_local_content_dedup(&policy, enabled));
     active.update(state.writer_db()).await.unwrap();
     reload_policy_snapshot(state).await;
 }
@@ -521,10 +535,7 @@ async fn create_dead_remote_policy(
     state: &aster_drive::runtime::PrimaryAppState,
 ) -> aster_drive_model::entities::storage_policy::Model {
     use aster_drive::db::repository::managed_follower_repo;
-    use aster_drive_model::entities::{managed_follower, storage_policy};
-    use aster_drive_model::types::{
-        DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
-    };
+    use aster_drive_model::entities::managed_follower;
     use sea_orm::Set;
 
     let now = chrono::Utc::now();
@@ -550,35 +561,28 @@ async fn create_dead_remote_policy(
     .await
     .unwrap();
 
-    let policy = policy_repo::create(
-        state.writer_db(),
-        storage_policy::ActiveModel {
-            name: Set(format!("dead-remote-policy-{}", uuid::Uuid::new_v4())),
-            driver_type: Set(DriverType::Remote),
-            endpoint: Set(String::new()),
-            bucket: Set(String::new()),
-            access_key: Set(String::new()),
-            secret_key: Set(String::new()),
-            base_path: Set("dead-remote".to_string()),
-            remote_node_id: Set(Some(remote_node.id)),
-            max_file_size: Set(0),
-            allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(StoredStoragePolicyOptions::empty()),
-            is_default: Set(false),
-            chunk_size: Set(5),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
+    let created = aster_drive::services::storage_policy::policy::create(
+        state,
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyInput {
+            name: format!("dead-remote-policy-{}", uuid::Uuid::new_v4()),
+            connection: common::remote_connection(
+                "dead-remote",
+                Some(remote_node.id),
+                Some("dead-target".to_string()),
+                aster_drive_model::types::RemoteDownloadStrategy::RelayStream,
+                aster_drive_model::types::RemoteUploadStrategy::RelayStream,
+            ),
+            max_file_size: 0,
+            chunk_size: Some(5),
+            is_default: false,
+            allowed_types: None,
         },
     )
     .await
     .unwrap();
-
-    state
-        .policy_snapshot
-        .reload(state.writer_db())
+    let policy = policy_repo::find_by_id(state.writer_db(), created.id)
         .await
-        .expect("policy snapshot should reload after creating dead remote policy");
+        .expect("created dead remote policy should be queryable");
     state
         .driver_registry
         .reload_managed_followers(state.writer_db())
@@ -776,44 +780,34 @@ async fn create_s3_policy(
     name: &str,
     endpoint: &str,
     bucket: &str,
-    options: &str,
+    strategies: S3TestTransferStrategies,
     chunk_size: i64,
 ) -> aster_drive_model::entities::storage_policy::Model {
-    use chrono::Utc;
-    use sea_orm::Set;
-
-    let now = Utc::now();
-    let policy = aster_drive::db::repository::policy_repo::create(
-        state.writer_db(),
-        aster_drive_model::entities::storage_policy::ActiveModel {
-            name: Set(name.to_string()),
-            driver_type: Set(aster_drive_model::types::DriverType::S3),
-            endpoint: Set(endpoint.to_string()),
-            bucket: Set(bucket.to_string()),
-            access_key: Set("rustfsadmin".to_string()),
-            secret_key: Set("rustfsadmin123".to_string()),
-            base_path: Set("uploads".to_string()),
-            max_file_size: Set(0),
-            allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(aster_drive_model::types::StoredStoragePolicyOptions::from(
-                options.to_string(),
-            )),
-            is_default: Set(false),
-            chunk_size: Set(chunk_size),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
+    let created = aster_drive::services::storage_policy::policy::create(
+        state,
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyInput {
+            name: name.to_string(),
+            connection: common::s3_connection_with_strategies(
+                endpoint,
+                bucket,
+                "uploads",
+                "rustfsadmin",
+                "rustfsadmin123",
+                strategies.upload,
+                strategies.download,
+            ),
+            max_file_size: 0,
+            chunk_size: Some(chunk_size),
+            is_default: false,
+            allowed_types: None,
         },
     )
     .await
     .unwrap();
-    state
-        .policy_snapshot
-        .reload(state.writer_db())
+    state.driver_registry.invalidate(created.id);
+    policy_repo::find_by_id(state.writer_db(), created.id)
         .await
-        .unwrap();
-    state.driver_registry.invalidate(policy.id);
-    policy
+        .expect("created S3 policy should be queryable")
 }
 
 async fn create_s3_default_policy(
@@ -822,10 +816,10 @@ async fn create_s3_default_policy(
     name: &str,
     endpoint: &str,
     bucket: &str,
-    options: &str,
+    strategies: S3TestTransferStrategies,
     chunk_size: i64,
 ) -> aster_drive_model::entities::storage_policy::Model {
-    let policy = create_s3_policy(state, name, endpoint, bucket, options, chunk_size).await;
+    let policy = create_s3_policy(state, name, endpoint, bucket, strategies, chunk_size).await;
 
     let group = aster_drive::services::storage_policy::policy::create_group(
         state,
@@ -1773,7 +1767,7 @@ async fn test_s3_relay_stream_download_e2e() {
         "S3 Relay Download",
         &endpoint,
         bucket,
-        r#"{"object_storage_download_strategy":"relay_stream"}"#,
+        S3TestTransferStrategies::RELAY,
         TEST_CHUNK_SIZE as i64,
     )
     .await;
@@ -1840,7 +1834,7 @@ async fn test_s3_presigned_download_redirects_and_share_counts() {
         "S3 Presigned Download",
         &endpoint,
         bucket,
-        r#"{"object_storage_download_strategy":"presigned"}"#,
+        S3TestTransferStrategies::PRESIGNED_DOWNLOAD,
         TEST_CHUNK_SIZE as i64,
     )
     .await;
@@ -4239,7 +4233,7 @@ async fn test_file_upload_get_progress_uses_db_parts_for_terminal_relay_multipar
         "Test S3 Relay Progress",
         "http://127.0.0.1:9000",
         "unused-progress-bucket",
-        r#"{"object_storage_upload_strategy":"relay_stream"}"#,
+        S3TestTransferStrategies::RELAY,
         5_242_880,
     )
     .await;
@@ -4636,7 +4630,7 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
         "Cancel Multipart RustFS Policy",
         &endpoint,
         bucket,
-        r#"{"object_storage_upload_strategy":"presigned"}"#,
+        S3TestTransferStrategies::PRESIGNED_UPLOAD,
         TEST_CHUNK_SIZE as i64,
     )
     .await;
@@ -4671,7 +4665,10 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
         .object_multipart_id
         .clone()
         .expect("multipart session should store multipart id");
-    let object_key = aster_drive_storage::object_key::join_key_prefix(&policy.base_path, &temp_key);
+    let object_key = aster_drive_storage::object_key::join_key_prefix(
+        &common::s3_policy_base_path(&policy),
+        &temp_key,
+    );
 
     let urls = upload::presign_parts(&state, &upload_id, user.id, vec![1])
         .await
@@ -4880,7 +4877,7 @@ async fn test_presigned_upload_s3_e2e() {
         "Test S3 Presigned",
         &endpoint,
         bucket,
-        r#"{"object_storage_upload_strategy":"presigned"}"#,
+        S3TestTransferStrategies::PRESIGNED_UPLOAD,
         5_242_880,
     )
     .await;
@@ -5014,7 +5011,7 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
         "Late S3 Presigned Cleanup",
         &endpoint,
         bucket,
-        r#"{"object_storage_upload_strategy":"presigned"}"#,
+        S3TestTransferStrategies::PRESIGNED_UPLOAD,
         5_242_880,
     )
     .await;
@@ -5144,7 +5141,7 @@ async fn test_presigned_multipart_upload_s3_e2e() {
         "Test S3 Multipart",
         &endpoint,
         bucket,
-        r#"{"object_storage_upload_strategy":"presigned"}"#,
+        S3TestTransferStrategies::PRESIGNED_UPLOAD,
         5_242_880,
     )
     .await;
@@ -5268,7 +5265,7 @@ async fn test_create_empty_file_s3_no_dedup() {
         "Test S3 Empty File",
         &endpoint,
         bucket,
-        r#"{"object_storage_upload_strategy":"presigned"}"#,
+        S3TestTransferStrategies::PRESIGNED_UPLOAD,
         5_242_880,
     )
     .await;
@@ -5363,7 +5360,7 @@ async fn test_relay_stream_direct_upload_s3_e2e() {
         "Test S3 Relay Direct",
         &endpoint,
         bucket,
-        r#"{"object_storage_upload_strategy":"relay_stream"}"#,
+        S3TestTransferStrategies::RELAY,
         5_242_880,
     )
     .await;
@@ -5490,7 +5487,7 @@ async fn test_relay_stream_direct_upload_s3_exact_part_size_e2e() {
         "Test S3 Relay Direct Exact Part",
         &endpoint,
         bucket,
-        r#"{"object_storage_upload_strategy":"relay_stream"}"#,
+        S3TestTransferStrategies::RELAY,
         5_242_880,
     )
     .await;
@@ -5632,7 +5629,7 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
         "Test S3 Relay Chunked",
         &endpoint,
         bucket,
-        r#"{"object_storage_upload_strategy":"relay_stream"}"#,
+        S3TestTransferStrategies::RELAY,
         1_048_576,
     )
     .await;

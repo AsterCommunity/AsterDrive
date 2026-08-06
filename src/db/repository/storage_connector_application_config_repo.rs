@@ -1,10 +1,17 @@
-//! Repository helpers for `storage_connector_application_configs`.
+//! Deprecated repository helpers for `storage_connector_application_configs`.
+//!
+//! This repository is exclusive to the AsterDrive 0.5.0 upgrade path and will
+//! be completely removed with the legacy table in AsterDrive 0.6.0.
+#![expect(
+    deprecated,
+    reason = "AsterDrive 0.5.0-only repository is removed with the legacy table in 0.6.0"
+)]
 
 use chrono::Utc;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set, sea_query::OnConflict};
 
 use crate::errors::{AsterError, Result};
-use aster_drive_model::entities::storage_connector_application_config::{
+use aster_drive_model::deprecated::storage_connector_application_config::{
     self, Entity as StorageConnectorApplicationConfig,
 };
 use aster_drive_model::types::StorageCredentialProvider;

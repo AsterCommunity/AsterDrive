@@ -5,7 +5,7 @@ use sea_orm::DatabaseConnection;
 use crate::config::Config;
 use crate::db::repository::{managed_follower_repo, policy_repo};
 use crate::errors::{AsterError, Result};
-use aster_drive_model::types::{DriverType, RemoteNodeTransportMode, UploadSessionKind};
+use aster_drive_model::types::{RemoteNodeTransportMode, UploadSessionKind};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DeploymentTopologyReport {
@@ -46,15 +46,19 @@ impl DeploymentTopologyReport {
     }
 }
 
-pub fn validate_storage_policy_driver(config: &Config, driver_type: DriverType) -> Result<()> {
-    let descriptor = crate::storage::connectors::storage_driver_descriptor(driver_type)?;
+pub(crate) fn validate_storage_policy_driver(
+    registry: &crate::storage::connectors::StorageConnectorRegistry,
+    config: &Config,
+    connector_id: &aster_drive_storage::ConnectorId,
+) -> Result<()> {
+    let descriptor = registry.require_connector(connector_id)?.descriptor();
     if !crate::services::storage_policy::connector_catalog::connector_compatible_with_deployment(
         config,
         &descriptor,
     ) {
         return Err(AsterError::validation_error(format!(
             "this deployment profile requires storage shared by every primary; connector '{}' has deployment scope '{}'",
-            driver_type.as_str(),
+            connector_id.as_str(),
             descriptor.deployment_scope.as_str()
         )));
     }
@@ -94,7 +98,8 @@ pub fn validate_remote_node_transport(
     Ok(())
 }
 
-pub async fn inspect_primary_topology(
+pub(crate) async fn inspect_primary_topology(
+    registry: &crate::storage::connectors::StorageConnectorRegistry,
     db: &DatabaseConnection,
     config: &Config,
 ) -> Result<DeploymentTopologyReport> {
@@ -120,7 +125,7 @@ pub async fn inspect_primary_topology(
 
     let mut instance_local_storage_policies = Vec::new();
     for policy in policy_repo::find_all(db).await? {
-        let descriptor = crate::storage::connectors::storage_driver_descriptor(policy.driver_type)?;
+        let descriptor = registry.require_policy(&policy)?.descriptor();
         if !crate::services::storage_policy::connector_catalog::connector_compatible_with_deployment(
             config,
             &descriptor,
@@ -135,8 +140,12 @@ pub async fn inspect_primary_topology(
     })
 }
 
-pub async fn validate_primary_topology(db: &DatabaseConnection, config: &Config) -> Result<()> {
-    let report = inspect_primary_topology(db, config).await?;
+pub(crate) async fn validate_primary_topology(
+    registry: &crate::storage::connectors::StorageConnectorRegistry,
+    db: &DatabaseConnection,
+    config: &Config,
+) -> Result<()> {
+    let report = inspect_primary_topology(registry, db, config).await?;
     if !report.has_issues() {
         return Ok(());
     }
@@ -195,24 +204,30 @@ mod tests {
     fn cluster_write_guards_reject_local_storage_and_enabled_reverse_tunnel() {
         let mut config = Config::default();
         config.deployment.profile = DeploymentProfile::Cluster;
+        let connectors = crate::storage::connectors::builtin_storage_connector_registry()
+            .expect("built-in connector registry");
 
-        let error =
-            validate_storage_policy_driver(&config, aster_drive_model::types::DriverType::Local)
-                .expect_err("cluster profile must reject instance-local connectors")
-                .to_string();
+        let error = validate_storage_policy_driver(
+            &connectors,
+            &config,
+            &aster_drive_storage::ConnectorId::declared("asterdrive.storage.local"),
+        )
+        .expect_err("cluster profile must reject instance-local connectors")
+        .to_string();
         assert!(error.contains("local"));
         assert!(error.contains("instance_local"));
-        for driver_type in [
-            aster_drive_model::types::DriverType::S3,
-            aster_drive_model::types::DriverType::Sftp,
-            aster_drive_model::types::DriverType::AzureBlob,
-            aster_drive_model::types::DriverType::TencentCos,
-            aster_drive_model::types::DriverType::Remote,
-            aster_drive_model::types::DriverType::OneDrive,
+        for connector_id in [
+            "asterdrive.storage.s3",
+            "asterdrive.storage.sftp",
+            "asterdrive.storage.azure_blob",
+            "asterdrive.storage.tencent_cos",
+            "asterdrive.storage.remote",
+            "asterdrive.storage.onedrive",
         ] {
-            validate_storage_policy_driver(&config, driver_type).unwrap_or_else(|error| {
-                panic!("cluster profile rejected shared connector {driver_type:?}: {error}")
-            });
+            let connector_id = aster_drive_storage::ConnectorId::declared(connector_id);
+            validate_storage_policy_driver(&connectors, &config, &connector_id).unwrap_or_else(
+                |error| panic!("cluster profile rejected shared connector {connector_id}: {error}"),
+            );
         }
         assert!(
             validate_remote_node_transport(
@@ -307,27 +322,35 @@ mod tests {
 
         let mut config = Config::default();
         config.deployment.profile = DeploymentProfile::Cluster;
+        let connectors = crate::storage::connectors::builtin_storage_connector_registry()
+            .expect("built-in connector registry");
 
-        let report = inspect_primary_topology(&db, &config)
+        let report = inspect_primary_topology(&connectors, &db, &config)
             .await
             .expect("cluster topology should be inspectable");
         assert_eq!(
             report.reverse_tunnel_nodes,
             vec![(1, "follower-a".to_string())]
         );
-        assert!(validate_primary_topology(&db, &config).await.is_err());
+        assert!(
+            validate_primary_topology(&connectors, &db, &config)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
     async fn single_profile_skips_cluster_topology_restrictions() {
         let db = setup_db().await;
         let config = Config::default();
+        let connectors = crate::storage::connectors::builtin_storage_connector_registry()
+            .expect("built-in connector registry");
 
-        let report = inspect_primary_topology(&db, &config)
+        let report = inspect_primary_topology(&connectors, &db, &config)
             .await
             .expect("single profile topology should be inspectable");
         assert!(!report.has_issues());
-        validate_primary_topology(&db, &config)
+        validate_primary_topology(&connectors, &db, &config)
             .await
             .expect("single profile should retain current topology support");
     }

@@ -6,6 +6,7 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::storage::DriverRegistry;
 use aster_drive_metrics::SharedMetricsRecorder;
 use aster_drive_migration::Migrator;
+use sea_orm::TransactionTrait;
 use std::sync::Arc;
 
 pub(super) struct CommonRuntimeParts {
@@ -24,12 +25,16 @@ pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntim
     crate::config::deployment::validate_static(cfg.as_ref())?;
     crate::services::mail::template::validate_template_registry()?;
     let metrics = aster_drive_metrics::create_metrics_recorder();
-
     let database = db::connect_with_metrics(&cfg.database, metrics.clone()).await?;
-    initialize_database_state(&database, cfg.as_ref(), mode).await?;
+    let connector_registry =
+        Arc::new(initialize_database_state(&database, cfg.as_ref(), mode).await?);
     if matches!(mode, NodeRuntimeMode::Primary) {
-        crate::services::ops::deployment::validate_primary_topology(&database, cfg.as_ref())
-            .await?;
+        crate::services::ops::deployment::validate_primary_topology(
+            &connector_registry,
+            &database,
+            cfg.as_ref(),
+        )
+        .await?;
     }
     let db_handles = db::connect_reader_for_writer_with_metrics(
         &cfg.database,
@@ -38,10 +43,14 @@ pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntim
     )
     .await?;
 
+    let driver_registry = Arc::new(DriverRegistry::with_connectors(
+        metrics.clone(),
+        connector_registry,
+    ));
     let policy_snapshot = Arc::new(crate::storage::PolicySnapshot::new());
-    policy_snapshot.reload(&database).await?;
-
-    let driver_registry = Arc::new(DriverRegistry::new(metrics.clone()));
+    driver_registry
+        .reload_policy_snapshot(&policy_snapshot, &database)
+        .await?;
     match mode {
         NodeRuntimeMode::Primary => {
             driver_registry
@@ -92,10 +101,29 @@ pub async fn initialize_database_state(
     database: &sea_orm::DatabaseConnection,
     cfg: &crate::config::Config,
     mode: NodeRuntimeMode,
-) -> Result<()> {
+) -> Result<crate::storage::connectors::StorageConnectorRegistry> {
     Migrator::up(database, None)
         .await
         .map_aster_err(AsterError::database_operation)?;
+    let connector_registry = crate::storage::connectors::builtin_storage_connector_registry()?;
+    let upgrade_config = cfg.clone();
+    let upgrade_connectors = connector_registry.clone();
+    aster_drive_migration::with_database_migration_lock(database, move |connection| {
+        Box::pin(async move {
+            let credential_transaction = connection.begin().await?;
+            crate::services::storage_policy::credential::migrate_legacy_storage_credentials(
+                &credential_transaction,
+                &upgrade_config,
+                &upgrade_connectors,
+            )
+            .await
+            .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;
+            credential_transaction.commit().await?;
+            Ok(())
+        })
+    })
+    .await
+    .map_err(|error| AsterError::database_operation(error.to_string()))?;
 
     if let Some(sqlite_search) = db::sqlite_search::ensure_sqlite_search_ready(database).await? {
         tracing::info!(
@@ -125,7 +153,7 @@ pub async fn initialize_database_state(
                 .await,
         );
     }
-    Ok(())
+    Ok(connector_registry)
 }
 
 fn handle_optional_follower_bootstrap<T>(result: Result<T>) {
@@ -143,7 +171,7 @@ fn handle_optional_follower_bootstrap<T>(result: Result<T>) {
 mod tests {
     use super::*;
     use aster_forge_config::ConfigSource;
-    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+    use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter};
     use std::net::TcpListener;
 
     #[test]
@@ -251,6 +279,33 @@ mod tests {
                 .await
                 .unwrap();
             assert!(obsolete.is_empty());
+
+            let schema = aster_drive_migration::SchemaManager::new(&db);
+            for legacy_column in [
+                "driver_type",
+                "endpoint",
+                "bucket",
+                "access_key",
+                "secret_key",
+                "base_path",
+                "remote_node_id",
+                "remote_storage_target_key",
+                "options",
+            ] {
+                assert!(
+                    schema
+                        .has_column("storage_policies", legacy_column)
+                        .await
+                        .unwrap(),
+                    "0.5 startup should retain legacy storage policy column {legacy_column}"
+                );
+            }
+            crate::storage::connectors::test_support::insertable_policy(
+                crate::storage::connectors::test_support::local_policy("./data/uploads"),
+            )
+            .insert(&db)
+            .await
+            .expect("current storage policy entity should ignore retained legacy columns");
         }
     }
 }

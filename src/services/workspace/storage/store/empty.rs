@@ -5,7 +5,7 @@ use sea_orm::ConnectionTrait;
 
 use crate::db::repository::file_repo;
 use crate::errors::Result;
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::events::storage_change;
 use crate::services::workspace::storage::{
     PreparedNonDedupBlobUpload, WorkspaceStorageScope, cleanup_preuploaded_blob_upload,
@@ -52,7 +52,7 @@ impl PreparedEmptyFile {
         let filename = aster_forge_validation::filename::normalize_validate_name(filename)?;
         let policy = resolve_policy_for_size(state, scope, folder_id, EMPTY_SIZE).await?;
         let driver = state.driver_registry().get_driver(&policy)?;
-        let blob = if local_content_dedup_enabled(&policy) {
+        let blob = if local_content_dedup_enabled(state.driver_registry().connectors(), &policy)? {
             let storage_path =
                 aster_forge_validation::filename::storage_path_from_blob_key(EMPTY_SHA256)?;
             if !driver.exists(&storage_path).await? {
@@ -60,7 +60,12 @@ impl PreparedEmptyFile {
             }
             PreparedEmptyBlob::SharedDedup { storage_path }
         } else {
-            let prepared = prepare_non_dedup_blob_upload(&policy, EMPTY_SIZE, Some(&filename))?;
+            let prepared = prepare_non_dedup_blob_upload(
+                state.driver_registry().connectors(),
+                &policy,
+                EMPTY_SIZE,
+                Some(&filename),
+            )?;
             if let Err(error) = driver.put(prepared.storage_path(), &[]).await {
                 cleanup_preuploaded_blob_upload(
                     driver.as_ref(),

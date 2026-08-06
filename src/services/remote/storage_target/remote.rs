@@ -6,7 +6,7 @@ use crate::storage::remote_protocol::{
     RemoteCreateStorageTargetRequest, RemoteStorageTargetInfo, RemoteUpdateStorageTargetRequest,
 };
 use aster_drive_model::entities::managed_follower;
-use aster_drive_model::types::DriverType;
+use aster_drive_model::types::RemoteStorageTargetDriverKind;
 
 use super::driver::RemoteStorageTargetDriverDescriptor;
 
@@ -94,7 +94,7 @@ async fn remote_node_for_storage_target_write<S: RemoteProtocolRuntimeState>(
 
 fn ensure_remote_storage_target_driver_supported(
     node: &managed_follower::Model,
-    driver_type: DriverType,
+    driver_type: RemoteStorageTargetDriverKind,
 ) -> Result<()> {
     remote_capability_resolver(node).ensure_remote_storage_target_driver_supported(driver_type)
 }

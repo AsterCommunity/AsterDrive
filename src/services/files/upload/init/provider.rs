@@ -1,7 +1,7 @@
 use chrono::{Duration, Utc};
 
 use crate::errors::{AsterError, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::files::upload::provider_session::{
     ProviderSessionSecret, encrypt_provider_session,
 };
@@ -24,8 +24,10 @@ pub(super) async fn init_provider_resumable_upload(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
 ) -> Result<Option<InitUploadResponse>> {
-    let transport =
-        crate::services::workspace::storage::resolve_policy_upload_transport(&ctx.policy)?;
+    let transport = crate::services::workspace::storage::resolve_policy_upload_transport(
+        state.driver_registry().connectors(),
+        &ctx.policy,
+    )?;
     let strategy = match transport {
         PolicyUploadTransport::ProviderResumable(strategy) => strategy,
         _ => return Ok(None),
@@ -66,6 +68,7 @@ pub(super) async fn init_provider_resumable_upload(
 
     let response = with_unique_upload_id(|upload_id| async {
         let temp_key = crate::services::workspace::storage::nondedup_storage_path_for_policy(
+            state.driver_registry().connectors(),
             &ctx.policy,
             &upload_id,
             Some(&ctx.target.filename),

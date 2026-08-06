@@ -85,9 +85,7 @@ pub enum AdminTeamMemberSortBy {
 pub enum AdminPolicySortBy {
     Id,
     Name,
-    DriverType,
-    Endpoint,
-    Bucket,
+    ConnectorId,
     IsDefault,
     CreatedAt,
     UpdatedAt,

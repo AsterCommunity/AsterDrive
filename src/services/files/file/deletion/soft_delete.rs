@@ -1,6 +1,6 @@
 use crate::db::repository::file_repo;
 use crate::errors::Result;
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::{events::storage_change, workspace::storage::WorkspaceStorageScope};
 use aster_drive_model::entities::file;
 use aster_forge_db::transaction;

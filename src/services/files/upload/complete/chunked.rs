@@ -90,13 +90,21 @@ async fn finalize_chunked_upload_session(
     }
 
     let prepare_started_at = Instant::now();
-    let should_dedup = storage::local_content_dedup_enabled(policy);
+    let should_dedup =
+        storage::local_content_dedup_enabled(state.driver_registry().connectors(), policy)?;
     let chunked_temp = load_offset_staging_file(state, session, should_dedup).await?;
     let prepare_elapsed_ms = prepare_started_at.elapsed().as_millis();
 
     let stage_started_at = Instant::now();
     let staged_size = chunked_temp.size;
-    let verified = stage_chunked_temp_file(driver, policy, &session.filename, chunked_temp).await?;
+    let verified = stage_chunked_temp_file(
+        state.driver_registry().connectors(),
+        driver,
+        policy,
+        &session.filename,
+        chunked_temp,
+    )
+    .await?;
     let stage_elapsed_ms = stage_started_at.elapsed().as_millis();
 
     let persist_started_at = Instant::now();
@@ -224,6 +232,7 @@ async fn finalize_offset_staging_stream_relay(
             upload_assembly_error_with_code(ApiErrorCode::UploadAssemblyIoFailed, message)
         })?;
     let prepared = storage::prepare_non_dedup_blob_upload(
+        state.driver_registry().connectors(),
         policy,
         session.total_size,
         Some(&session.filename),
@@ -264,6 +273,7 @@ async fn finalize_offset_staging_stream_relay(
 }
 
 async fn stage_chunked_temp_file(
+    registry: &crate::storage::connectors::StorageConnectorRegistry,
     driver: &dyn StorageDriver,
     policy: &storage_policy::Model,
     filename: &str,
@@ -295,7 +305,8 @@ async fn stage_chunked_temp_file(
 
     // 不做 dedup 的情况下，先为 blob 预分配最终 key，再把 staging 文件传上去。
     // DB finalize 失败后的清理归属由 VerifiedUploadedBlob 的 cleanup plan 表达。
-    let preuploaded = storage::prepare_non_dedup_blob_upload(policy, size, Some(filename))?;
+    let preuploaded =
+        storage::prepare_non_dedup_blob_upload(registry, policy, size, Some(filename))?;
     storage::upload_temp_file_to_prepared_blob(driver, &preuploaded, &path).await?;
     VerifiedUploadedBlob::preuploaded_non_dedup(preuploaded)
 }

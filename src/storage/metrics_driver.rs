@@ -1,7 +1,6 @@
 //! StorageDriver metrics decorator.
 
 use aster_drive_metrics::SharedMetricsRecorder;
-use aster_drive_model::types::DriverType;
 use aster_drive_storage::traits::extensions;
 use aster_drive_storage::{BlobMetadata, MultipartStorageDriver, Result, StorageDriver};
 use async_trait::async_trait;
@@ -38,14 +37,14 @@ struct TimingReader {
 impl MetricsStorageDriver {
     pub(crate) fn new(
         inner: Arc<dyn StorageDriver>,
-        driver_type: DriverType,
+        driver: &'static str,
         metrics: SharedMetricsRecorder,
         multipart: Option<Arc<dyn MultipartStorageDriver>>,
     ) -> Self {
         Self {
             inner,
             multipart,
-            driver: driver_type.as_str(),
+            driver,
             metrics,
         }
     }
@@ -58,12 +57,12 @@ impl MetricsStorageDriver {
 impl MetricsMultipartStorageDriver {
     pub(crate) fn new(
         inner: Arc<dyn MultipartStorageDriver>,
-        driver_type: DriverType,
+        driver: &'static str,
         metrics: SharedMetricsRecorder,
     ) -> Self {
         Self {
             inner,
-            driver: driver_type.as_str(),
+            driver,
             metrics,
         }
     }
@@ -626,7 +625,7 @@ mod tests {
         let metrics = Arc::new(CapturingMetrics::default());
         let driver = MetricsStorageDriver::new(
             Arc::new(MemoryDriver),
-            DriverType::Local,
+            "asterdrive.storage.local",
             metrics.clone(),
             None,
         );
@@ -655,7 +654,7 @@ mod tests {
         let metrics = Arc::new(CapturingMetrics::default());
         let driver = MetricsStorageDriver::new(
             Arc::new(MemoryDriver),
-            DriverType::Local,
+            "asterdrive.storage.local",
             metrics.clone(),
             None,
         );
@@ -682,7 +681,7 @@ mod tests {
         let metrics = Arc::new(CapturingMetrics::default());
         let driver = MetricsStorageDriver::new(
             Arc::new(MemoryDriver),
-            DriverType::Local,
+            "asterdrive.storage.local",
             metrics.clone(),
             None,
         );
@@ -705,7 +704,7 @@ mod tests {
         let metrics = Arc::new(CapturingMetrics::default());
         let driver = MetricsStorageDriver::new(
             Arc::new(MemoryDriver),
-            DriverType::Local,
+            "asterdrive.storage.local",
             metrics.clone(),
             None,
         );
@@ -725,7 +724,7 @@ mod tests {
     fn metrics_wrapper_preserves_provider_resumable_extension() {
         let driver = MetricsStorageDriver::new(
             Arc::new(ProviderResumableDriver),
-            DriverType::OneDrive,
+            "asterdrive.storage.onedrive",
             Arc::new(CapturingMetrics::default()),
             None,
         );

@@ -1,7 +1,6 @@
 //! 集成测试：`maintenance`。
 
 use crate::common;
-use aster_drive::runtime::SharedRuntimeState;
 
 use chrono::{Duration, Utc};
 use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, Set};
@@ -360,7 +359,7 @@ async fn test_cleanup_expired_completed_upload_sessions_keeps_session_when_temp_
     )
     .await;
 
-    let object_parent = std::path::Path::new(&policy.base_path)
+    let object_parent = std::path::Path::new(&common::local_policy_base_path(&policy))
         .join(temp_key)
         .parent()
         .unwrap()
@@ -850,7 +849,7 @@ async fn test_purge_keeps_blob_row_when_storage_delete_fails_then_maintenance_re
         .await
         .unwrap();
 
-    let object_parent = std::path::Path::new(&policy.base_path)
+    let object_parent = std::path::Path::new(&common::local_policy_base_path(&policy))
         .join(&blob.storage_path)
         .parent()
         .unwrap()

@@ -14,8 +14,6 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, ReadBuf};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::parse_storage_policy_options;
 use aster_drive_storage::error::{
     Result, StorageError, StorageErrorContext, StorageErrorKind, storage_driver_error,
     storage_driver_error_with_context,
@@ -44,6 +42,19 @@ pub struct SftpDriver {
     base_path: String,
     host_key_fingerprint: Option<String>,
     pool: Arc<SftpConnectionPool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SftpDriverConfig {
+    pub endpoint: String,
+    pub base_path: String,
+    pub host_key_fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SftpStaticCredentials {
+    pub username: String,
+    pub password: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -280,25 +291,17 @@ impl Drop for SftpConnectionLease {
 }
 
 impl SftpDriver {
-    pub fn validate_policy(policy: &storage_policy::Model) -> Result<()> {
-        Self::validate_connection_parts(
-            &policy.endpoint,
-            &policy.access_key,
-            &policy.secret_key,
-            &policy.base_path,
-        )
-    }
-
-    pub(crate) fn validate_connection_parts(
-        endpoint: &str,
-        username: &str,
-        password: &str,
-        base_path: &str,
+    pub fn validate_config(
+        config: &SftpDriverConfig,
+        credentials: &SftpStaticCredentials,
     ) -> Result<()> {
-        parse_sftp_endpoint(endpoint)?;
-        validate_connection_secret(username, "username")?;
-        validate_connection_secret(password, "password")?;
-        normalize_remote_base_path(base_path)?;
+        parse_sftp_endpoint(&config.endpoint)?;
+        validate_connection_secret(&credentials.username, "username")?;
+        validate_connection_secret(&credentials.password, "password")?;
+        normalize_remote_base_path(&config.base_path)?;
+        if let Some(fingerprint) = config.host_key_fingerprint.as_deref() {
+            Self::validate_host_key_fingerprint(fingerprint)?;
+        }
         Ok(())
     }
 
@@ -308,15 +311,16 @@ impl SftpDriver {
         Ok(endpoint.to_string())
     }
 
-    pub fn new(policy: &storage_policy::Model) -> Result<Self> {
-        Self::validate_policy(policy)?;
+    pub fn new(config: SftpDriverConfig, credentials: SftpStaticCredentials) -> Result<Self> {
+        Self::validate_config(&config, &credentials)?;
         Ok(Self {
-            endpoint: parse_sftp_endpoint(&policy.endpoint)?,
-            username: policy.access_key.clone(),
-            password: policy.secret_key.clone(),
-            base_path: normalize_remote_base_path(&policy.base_path)?,
-            host_key_fingerprint: parse_storage_policy_options(policy.options.as_ref())
-                .sftp_host_key_fingerprint,
+            endpoint: parse_sftp_endpoint(&config.endpoint)?,
+            username: credentials.username,
+            password: credentials.password,
+            base_path: normalize_remote_base_path(&config.base_path)?,
+            host_key_fingerprint: config
+                .host_key_fingerprint
+                .map(|value| normalize_host_key_fingerprint(&value)),
             pool: Arc::new(SftpConnectionPool::new(DEFAULT_POOL_SIZE)),
         })
     }
@@ -1016,15 +1020,14 @@ fn is_sftp_not_found(error: &SftpError) -> bool {
 mod tests {
     use super::{
         CONNECT_TIMEOUT, DEFAULT_POOL_SIZE, IO_TIMEOUT, POOL_ACQUIRE_TIMEOUT,
-        POOLED_CONNECTION_IDLE_TTL, SSH_KEEPALIVE_INTERVAL, SftpConnectionPool,
-        classify_sftp_error, host_key_fingerprint_matches, is_sftp_connection_reusable_after_error,
-        is_valid_host_key_fingerprint, join_remote_path, normalize_host_key_fingerprint,
-        normalize_remote_base_path, parse_sftp_endpoint, sanitize_relative_storage_path,
+        POOLED_CONNECTION_IDLE_TTL, SSH_KEEPALIVE_INTERVAL, SftpConnectionPool, SftpDriverConfig,
+        SftpStaticCredentials, classify_sftp_error, host_key_fingerprint_matches,
+        is_sftp_connection_reusable_after_error, is_valid_host_key_fingerprint, join_remote_path,
+        normalize_host_key_fingerprint, normalize_remote_base_path, parse_sftp_endpoint,
+        sanitize_relative_storage_path,
     };
-    use aster_drive_model::types::{DriverType, StoredStoragePolicyAllowedTypes};
     use aster_drive_storage::error::StorageErrorKind;
     use aster_drive_storage::{StorageDriver, StreamUploadDriver};
-    use chrono::Utc;
     use russh_sftp::client::error::Error as SftpError;
     use russh_sftp::protocol::{Status, StatusCode};
     use tokio::io::AsyncReadExt;
@@ -1206,47 +1209,30 @@ mod tests {
         ));
     }
 
-    fn env_policy() -> Option<aster_drive_model::entities::storage_policy::Model> {
+    fn env_config() -> Option<(SftpDriverConfig, SftpStaticCredentials)> {
         let endpoint = std::env::var("ASTER_SFTP_TEST_ENDPOINT").ok()?;
         let username = std::env::var("ASTER_SFTP_TEST_USERNAME").ok()?;
         let password = std::env::var("ASTER_SFTP_TEST_PASSWORD").ok()?;
         let base_path = std::env::var("ASTER_SFTP_TEST_BASE_PATH").ok()?;
         let host_key_fingerprint = std::env::var("ASTER_SFTP_TEST_HOST_KEY_FINGERPRINT").ok()?;
-        Some(aster_drive_model::entities::storage_policy::Model {
-            id: 1,
-            name: "sftp acceptance".to_string(),
-            driver_type: DriverType::Sftp,
-            endpoint,
-            bucket: String::new(),
-            access_key: username,
-            secret_key: password,
-            base_path,
-            remote_node_id: None,
-            remote_storage_target_key: None,
-            max_file_size: 0,
-            allowed_types: StoredStoragePolicyAllowedTypes::empty(),
-            options: aster_drive_model::types::serialize_storage_policy_options(
-                &aster_drive_model::types::StoragePolicyOptions {
-                    sftp_host_key_fingerprint: Some(host_key_fingerprint),
-                    ..Default::default()
-                },
-            )
-            .expect("serialize SFTP host key options"),
-            is_default: false,
-            chunk_size: 1024,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        })
+        Some((
+            SftpDriverConfig {
+                endpoint,
+                base_path,
+                host_key_fingerprint: Some(host_key_fingerprint),
+            },
+            SftpStaticCredentials { username, password },
+        ))
     }
 
     #[tokio::test]
     #[ignore = "requires ASTER_SFTP_TEST_* environment variables and a reachable SFTP server"]
     async fn real_sftp_driver_round_trip_uses_streaming_upload() {
-        let Some(policy) = env_policy() else {
+        let Some((config, credentials)) = env_config() else {
             eprintln!("skipping real SFTP test because ASTER_SFTP_TEST_* is not set");
             return;
         };
-        let driver = super::SftpDriver::new(&policy).unwrap();
+        let driver = super::SftpDriver::new(config, credentials).unwrap();
         let test_root = format!("codex-acceptance/{}", uuid::Uuid::new_v4());
         let object_path = format!("{test_root}/streamed.bin");
         let copy_path = format!("{test_root}/copied.bin");

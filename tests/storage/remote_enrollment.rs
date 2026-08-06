@@ -6,7 +6,7 @@ use actix_web::{body::to_bytes, test};
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::config::site_url::PUBLIC_SITE_URL_KEY;
 use aster_drive::db::repository::follower_enrollment_session_repo;
-use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
+use aster_drive::runtime::PrimaryAppState;
 use aster_drive::services::{ops::config, remote::enrollment, remote::remote_node};
 use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 use std::sync::Arc;

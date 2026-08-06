@@ -4,7 +4,7 @@
     reason = "shared integration-test support exposes helpers used by different test binaries"
 )]
 
-use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
+use aster_drive::runtime::PrimaryAppState;
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -38,6 +38,340 @@ const SHARED_TEST_CONTAINER_STATE_DIR: &str = "/tmp/asterdrive-testcontainers";
 pub const MYSQL_TEST_TABLE_DEFINITION_CACHE: u64 = 32_768;
 // Keep the year within MySQL TIMESTAMP's supported range.
 pub const TEST_FUTURE_SHARE_EXPIRY_RFC3339: &str = "2099-12-31T23:59:59Z";
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TestLocalConnectorConfigV1 {
+    pub base_path: String,
+    pub content_dedup: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TestRemoteConnectorConfigV1 {
+    pub base_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_node_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_storage_target_key: Option<String>,
+    pub remote_download_strategy: aster_drive_model::types::RemoteDownloadStrategy,
+    pub remote_upload_strategy: aster_drive_model::types::RemoteUploadStrategy,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TestS3ConnectorConfigV1 {
+    pub endpoint: String,
+    pub bucket: String,
+    pub base_path: String,
+    pub object_storage_upload_strategy: aster_drive_model::types::ObjectStorageUploadStrategy,
+    pub object_storage_download_strategy: aster_drive_model::types::ObjectStorageDownloadStrategy,
+    pub s3_path_style: bool,
+    pub s3_region: String,
+    pub s3_connect_timeout_secs: u64,
+    pub s3_read_timeout_secs: u64,
+    pub s3_operation_timeout_secs: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TestTencentCosConnectorConfigV1 {
+    pub endpoint: String,
+    pub bucket: String,
+    pub base_path: String,
+    pub object_storage_upload_strategy: aster_drive_model::types::ObjectStorageUploadStrategy,
+    pub object_storage_download_strategy: aster_drive_model::types::ObjectStorageDownloadStrategy,
+    pub storage_native_processing_enabled: bool,
+    pub storage_native_media_metadata_enabled: bool,
+}
+
+pub fn connector_envelope<T: Serialize>(
+    connector_id: &'static str,
+    values: T,
+) -> aster_drive_storage::ConnectorConfigEnvelope {
+    let values = serde_json::to_value(values)
+        .and_then(serde_json::from_value)
+        .expect("typed integration connector config should serialize as a field map");
+    aster_drive_storage::ConnectorConfigEnvelope::new(
+        aster_drive_storage::ConnectorId::declared(connector_id),
+        1,
+        values,
+    )
+}
+
+pub fn encoded_policy_config<T: Serialize>(
+    connector_id: &'static str,
+    values: T,
+    behavior: aster_drive_storage::StoragePolicyBehaviorConfig,
+) -> aster_drive_model::types::StoredStoragePolicyConfig {
+    aster_drive_model::types::StoredStoragePolicyConfig(
+        aster_drive_storage::encode_storage_policy_config(
+            aster_drive_storage::ConnectorConfigEnvelope::new(
+                aster_drive_storage::ConnectorId::declared(connector_id),
+                1,
+                serde_json::to_value(values)
+                    .expect("typed integration connector config should serialize"),
+            ),
+            behavior,
+        )
+        .expect("typed integration storage policy config should encode"),
+    )
+}
+
+pub fn local_connection(
+    base_path: impl Into<String>,
+) -> aster_drive::storage::StorageConnectorConnectionInput {
+    aster_drive::storage::StorageConnectorConnectionInput {
+        connector_config: connector_envelope(
+            "asterdrive.storage.local",
+            TestLocalConnectorConfigV1 {
+                base_path: base_path.into(),
+                content_dedup: false,
+            },
+        ),
+        behavior: aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+        credential: aster_drive::storage::StorageConnectorCredentialInput::None,
+    }
+}
+
+pub fn local_connection_json(base_path: impl Into<String>) -> serde_json::Value {
+    serde_json::to_value(local_connection(base_path))
+        .expect("local integration connection should serialize")
+}
+
+pub fn s3_connection(
+    endpoint: impl Into<String>,
+    bucket: impl Into<String>,
+    base_path: impl Into<String>,
+    access_key: impl Into<String>,
+    secret_key: impl Into<String>,
+) -> aster_drive::storage::StorageConnectorConnectionInput {
+    s3_connection_with_strategies(
+        endpoint,
+        bucket,
+        base_path,
+        access_key,
+        secret_key,
+        aster_drive_model::types::ObjectStorageUploadStrategy::RelayStream,
+        aster_drive_model::types::ObjectStorageDownloadStrategy::RelayStream,
+    )
+}
+
+pub fn s3_connection_json(
+    endpoint: impl Into<String>,
+    bucket: impl Into<String>,
+    base_path: impl Into<String>,
+    access_key: impl Into<String>,
+    secret_key: impl Into<String>,
+) -> serde_json::Value {
+    serde_json::to_value(s3_connection(
+        endpoint, bucket, base_path, access_key, secret_key,
+    ))
+    .expect("S3 integration connection should serialize")
+}
+
+pub fn s3_connection_with_strategies(
+    endpoint: impl Into<String>,
+    bucket: impl Into<String>,
+    base_path: impl Into<String>,
+    access_key: impl Into<String>,
+    secret_key: impl Into<String>,
+    upload_strategy: aster_drive_model::types::ObjectStorageUploadStrategy,
+    download_strategy: aster_drive_model::types::ObjectStorageDownloadStrategy,
+) -> aster_drive::storage::StorageConnectorConnectionInput {
+    aster_drive::storage::StorageConnectorConnectionInput {
+        connector_config: connector_envelope(
+            "asterdrive.storage.s3",
+            TestS3ConnectorConfigV1 {
+                endpoint: endpoint.into(),
+                bucket: bucket.into(),
+                base_path: base_path.into(),
+                object_storage_upload_strategy: upload_strategy,
+                object_storage_download_strategy: download_strategy,
+                s3_path_style: true,
+                s3_region: "us-east-1".to_string(),
+                s3_connect_timeout_secs: 5,
+                s3_read_timeout_secs: 30,
+                s3_operation_timeout_secs: 3_600,
+            },
+        ),
+        behavior: aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+        credential: aster_drive::storage::StorageConnectorCredentialInput::Static(
+            serde_json::to_value(TestS3StaticCredentialsV1 {
+                s3_access_key_id: access_key.into(),
+                s3_secret_access_key: secret_key.into(),
+            })
+            .expect("typed S3 integration credentials should serialize"),
+        ),
+    }
+}
+
+pub fn tencent_cos_connection(
+    endpoint: impl Into<String>,
+    bucket: impl Into<String>,
+    base_path: impl Into<String>,
+    secret_id: impl Into<String>,
+    secret_key: impl Into<String>,
+) -> aster_drive::storage::StorageConnectorConnectionInput {
+    aster_drive::storage::StorageConnectorConnectionInput {
+        connector_config: connector_envelope(
+            "asterdrive.storage.tencent_cos",
+            TestTencentCosConnectorConfigV1 {
+                endpoint: endpoint.into(),
+                bucket: bucket.into(),
+                base_path: base_path.into(),
+                object_storage_upload_strategy:
+                    aster_drive_model::types::ObjectStorageUploadStrategy::RelayStream,
+                object_storage_download_strategy:
+                    aster_drive_model::types::ObjectStorageDownloadStrategy::RelayStream,
+                storage_native_processing_enabled: true,
+                storage_native_media_metadata_enabled: true,
+            },
+        ),
+        behavior: aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+        credential: aster_drive::storage::StorageConnectorCredentialInput::Static(
+            serde_json::to_value(TestTencentCosStaticCredentialsV1 {
+                tencent_cos_secret_id: secret_id.into(),
+                tencent_cos_secret_key: secret_key.into(),
+            })
+            .expect("typed Tencent COS integration credentials should serialize"),
+        ),
+    }
+}
+
+pub fn remote_connection(
+    base_path: impl Into<String>,
+    remote_node_id: Option<i64>,
+    remote_storage_target_key: Option<String>,
+    remote_download_strategy: aster_drive_model::types::RemoteDownloadStrategy,
+    remote_upload_strategy: aster_drive_model::types::RemoteUploadStrategy,
+) -> aster_drive::storage::StorageConnectorConnectionInput {
+    aster_drive::storage::StorageConnectorConnectionInput {
+        connector_config: connector_envelope(
+            "asterdrive.storage.remote",
+            TestRemoteConnectorConfigV1 {
+                base_path: base_path.into(),
+                remote_node_id,
+                remote_storage_target_key,
+                remote_download_strategy,
+                remote_upload_strategy,
+            },
+        ),
+        behavior: aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+        credential: aster_drive::storage::StorageConnectorCredentialInput::None,
+    }
+}
+
+pub fn remote_connector_config(
+    base_path: impl Into<String>,
+    remote_node_id: Option<i64>,
+    remote_storage_target_key: Option<String>,
+    remote_download_strategy: aster_drive_model::types::RemoteDownloadStrategy,
+    remote_upload_strategy: aster_drive_model::types::RemoteUploadStrategy,
+) -> aster_drive_storage::ConnectorConfigEnvelope {
+    connector_envelope(
+        "asterdrive.storage.remote",
+        TestRemoteConnectorConfigV1 {
+            base_path: base_path.into(),
+            remote_node_id,
+            remote_storage_target_key,
+            remote_download_strategy,
+            remote_upload_strategy,
+        },
+    )
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TestS3StaticCredentialsV1 {
+    pub s3_access_key_id: String,
+    pub s3_secret_access_key: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TestTencentCosStaticCredentialsV1 {
+    pub tencent_cos_secret_id: String,
+    pub tencent_cos_secret_key: String,
+}
+
+pub fn local_policy_base_path(
+    policy: &aster_drive_model::entities::storage_policy::Model,
+) -> String {
+    local_policy_config(policy).base_path
+}
+
+pub fn local_policy_config(
+    policy: &aster_drive_model::entities::storage_policy::Model,
+) -> TestLocalConnectorConfigV1 {
+    aster_drive_storage::decode_storage_policy_config::<TestLocalConnectorConfigV1>(
+        policy.storage_config.as_ref(),
+        &aster_drive_storage::ConnectorId::declared("asterdrive.storage.local"),
+        1,
+    )
+    .expect("typed local integration policy should decode")
+    .0
+}
+
+pub fn with_local_policy_base_path(
+    policy: &aster_drive_model::entities::storage_policy::Model,
+    base_path: impl Into<String>,
+) -> aster_drive_model::types::StoredStoragePolicyConfig {
+    let (mut config, behavior) =
+        aster_drive_storage::decode_storage_policy_config::<TestLocalConnectorConfigV1>(
+            policy.storage_config.as_ref(),
+            &aster_drive_storage::ConnectorId::declared("asterdrive.storage.local"),
+            1,
+        )
+        .expect("typed local integration policy should decode");
+    config.base_path = base_path.into();
+    encoded_policy_config("asterdrive.storage.local", config, behavior)
+}
+
+pub fn with_local_content_dedup(
+    policy: &aster_drive_model::entities::storage_policy::Model,
+    enabled: bool,
+) -> aster_drive_model::types::StoredStoragePolicyConfig {
+    let (mut config, behavior) =
+        aster_drive_storage::decode_storage_policy_config::<TestLocalConnectorConfigV1>(
+            policy.storage_config.as_ref(),
+            &aster_drive_storage::ConnectorId::declared("asterdrive.storage.local"),
+            1,
+        )
+        .expect("typed local integration policy should decode");
+    config.content_dedup = enabled;
+    encoded_policy_config("asterdrive.storage.local", config, behavior)
+}
+
+pub fn with_storage_policy_behavior(
+    policy: &aster_drive_model::entities::storage_policy::Model,
+    behavior: aster_drive_storage::StoragePolicyBehaviorConfig,
+) -> aster_drive_model::types::StoredStoragePolicyConfig {
+    let envelope: aster_drive_storage::StoragePolicyConfigEnvelope =
+        serde_json::from_str(policy.storage_config.as_ref())
+            .expect("typed integration storage policy envelope should decode");
+    aster_drive_model::types::StoredStoragePolicyConfig(
+        aster_drive_storage::encode_storage_policy_config(envelope.connector, behavior)
+            .expect("typed integration storage policy config should encode"),
+    )
+}
+
+pub fn s3_policy_base_path(policy: &aster_drive_model::entities::storage_policy::Model) -> String {
+    aster_drive_storage::decode_storage_policy_config::<TestS3ConnectorConfigV1>(
+        policy.storage_config.as_ref(),
+        &aster_drive_storage::ConnectorId::declared("asterdrive.storage.s3"),
+        1,
+    )
+    .expect("typed S3 integration policy should decode")
+    .0
+    .base_path
+}
+
+pub fn remote_policy_config(
+    policy: &aster_drive_model::entities::storage_policy::Model,
+) -> TestRemoteConnectorConfigV1 {
+    aster_drive_storage::decode_storage_policy_config::<TestRemoteConnectorConfigV1>(
+        policy.storage_config.as_ref(),
+        &aster_drive_storage::ConnectorId::declared("asterdrive.storage.remote"),
+        1,
+    )
+    .expect("typed remote integration policy should decode")
+    .0
+}
 
 fn init_test_process_state() {
     static INIT: OnceLock<()> = OnceLock::new();
@@ -1078,7 +1412,6 @@ where
 
 fn should_use_mysql_schema_template(database_url: &str) -> bool {
     database_url.starts_with("mysql://")
-        && configured_test_database_backend() == TestDatabaseBackend::MySql
 }
 
 async fn load_mysql_schema_template(
@@ -1202,13 +1535,14 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
             .unwrap();
 
     // 跑迁移
-    use aster_drive_migration::Migrator;
-    if should_use_mysql_schema_template(database_url) {
+    let used_mysql_schema_template = should_use_mysql_schema_template(database_url);
+    if used_mysql_schema_template {
         clone_mysql_schema_from_template(&db).await;
     } else {
-        Migrator::up(&db, None).await.unwrap();
+        aster_drive_migration::Migrator::up(&db, None)
+            .await
+            .unwrap();
     }
-
     // 每个测试用独立临时目录避免并行竞争
     let test_dir = format!("/tmp/asterdrive-test-{}", uuid::Uuid::new_v4());
     let temp_dir = format!("{test_dir}/temp");
@@ -1241,22 +1575,34 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
     });
 
     // 测试夹具显式创建默认本地存储策略；生产启动流程不会自动创建策略。
+    use aster_drive_model::types::StoredStoragePolicyConfig;
+    use aster_drive_storage::{
+        ConnectorConfigEnvelope, ConnectorId, StoragePolicyBehaviorConfig,
+        encode_storage_policy_config,
+    };
     use chrono::Utc;
     use sea_orm::Set;
     let now = Utc::now();
+    let storage_config = encode_storage_policy_config(
+        ConnectorConfigEnvelope::new(
+            ConnectorId::declared("asterdrive.storage.local"),
+            1,
+            serde_json::json!({
+                "base_path": test_dir.clone(),
+                "content_dedup": false
+            }),
+        ),
+        StoragePolicyBehaviorConfig::default(),
+    )
+    .expect("default local policy config should serialize");
     let _ = aster_drive::db::repository::policy_repo::create(
         &db,
         aster_drive_model::entities::storage_policy::ActiveModel {
             name: Set("Test Local".to_string()),
-            driver_type: Set(aster_drive_model::types::DriverType::Local),
-            endpoint: Set(String::new()),
-            bucket: Set(String::new()),
-            access_key: Set(String::new()),
-            secret_key: Set(String::new()),
-            base_path: Set(test_dir),
+            connector_id: Set("asterdrive.storage.local".to_string()),
+            storage_config: Set(StoredStoragePolicyConfig(storage_config)),
             max_file_size: Set(0),
             allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
             is_default: Set(true),
             chunk_size: Set(5_242_880),
             created_at: Set(now),
@@ -1306,8 +1652,14 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
     );
     runtime_config.reload(&db).await.unwrap();
 
+    let driver_registry = std::sync::Arc::new(
+        aster_drive::storage::DriverRegistry::noop().expect("built-in storage connector registry"),
+    );
     let policy_snapshot = std::sync::Arc::new(aster_drive::storage::PolicySnapshot::new());
-    policy_snapshot.reload(&db).await.unwrap();
+    driver_registry
+        .reload_policy_snapshot(&policy_snapshot, &db)
+        .await
+        .unwrap();
     let mail_sender = aster_forge_mail::memory_sender();
 
     let storage_change_bus = aster_drive::services::events::storage_change::StorageChangeBus::new(
@@ -1321,7 +1673,6 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
             ),
         );
 
-    let driver_registry = std::sync::Arc::new(aster_drive::storage::DriverRegistry::noop());
     let remote_protocol = aster_drive::runtime::PrimaryAppState::new_remote_protocol();
     remote_protocol.set_persistence_db(db.clone());
     driver_registry.set_remote_protocol(remote_protocol.clone());
@@ -1486,8 +1837,6 @@ pub fn system_config_model(key: &str, value: &str) -> aster_forge_db::system_con
 macro_rules! create_test_app {
     ($state:expr) => {{
         use actix_web::{App, test, web};
-        use aster_drive::runtime::SharedRuntimeState;
-
         let state = $state;
         let db = state.writer_db().clone();
         test::init_service(
@@ -1748,8 +2097,6 @@ macro_rules! upload_test_file_to_folder {
 macro_rules! setup_with_webdav {
     () => {{
         use actix_web::{App, test, web};
-        use aster_drive::runtime::SharedRuntimeState;
-
         let state = common::setup().await;
         let db1 = state.writer_db().clone();
         let db2 = state.writer_db().clone();

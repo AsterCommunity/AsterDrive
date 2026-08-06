@@ -5,7 +5,6 @@
 //! - Fix 4: 恶意查询参数不能触发 SQL 注入或原始排序拼接
 
 use crate::common;
-use aster_drive::runtime::SharedRuntimeState;
 
 use actix_web::test;
 use serde_json::Value;

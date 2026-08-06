@@ -3,13 +3,14 @@ import { initReactI18next } from "react-i18next";
 
 const i18n = createInstance();
 
-type SupportedLanguage = "en" | "zh";
+export const BUNDLED_LOCALES = ["en", "zh"] as const;
+type BundledLocale = (typeof BUNDLED_LOCALES)[number];
 
-function normalizeLanguage(language?: string | null): SupportedLanguage {
+function normalizeLanguage(language?: string | null): BundledLocale {
 	return language?.startsWith("zh") ? "zh" : "en";
 }
 
-function detectLanguage(): SupportedLanguage {
+function detectLanguage(): BundledLocale {
 	try {
 		const stored = localStorage.getItem("aster-language");
 		if (stored === "en" || stored === "zh") return stored;
@@ -184,11 +185,11 @@ function normalizeLocaleRequest(
 	return typeof request === "string" ? { namespace: request } : request;
 }
 
-function loadedPartsKey(lang: SupportedLanguage, namespace: LocaleNamespace) {
+function loadedPartsKey(lang: BundledLocale, namespace: LocaleNamespace) {
 	return `${lang}:${namespace}`;
 }
 
-function getLoadedParts(lang: SupportedLanguage, namespace: LocaleNamespace) {
+function getLoadedParts(lang: BundledLocale, namespace: LocaleNamespace) {
 	const key = loadedPartsKey(lang, namespace);
 	let loaded = loadedLocaleParts.get(key);
 	if (!loaded) {
@@ -199,7 +200,7 @@ function getLoadedParts(lang: SupportedLanguage, namespace: LocaleNamespace) {
 }
 
 function rememberLoadedParts(
-	lang: SupportedLanguage,
+	lang: BundledLocale,
 	namespace: LocaleNamespace,
 	parts?: readonly string[],
 ) {
@@ -216,7 +217,7 @@ function rememberLoadedParts(
 }
 
 function getMissingParts(
-	lang: SupportedLanguage,
+	lang: BundledLocale,
 	namespace: LocaleNamespace,
 	parts?: readonly string[],
 ) {
@@ -244,7 +245,7 @@ async function loadJsonModule(
 }
 
 async function loadNamespace(
-	lang: SupportedLanguage,
+	lang: BundledLocale,
 	namespace: LocaleNamespace,
 	parts?: readonly string[],
 ) {
@@ -280,7 +281,7 @@ async function loadNamespace(
 }
 
 async function loadLocale(
-	lang: SupportedLanguage,
+	lang: BundledLocale,
 	requests: readonly LocaleLoadRequest[] = ALL_NAMESPACES,
 ) {
 	const loadedRequests = requests.map(normalizeLocaleRequest);
@@ -350,7 +351,7 @@ export async function ensureAuthenticatedShellI18nNamespaces(
 	);
 }
 
-const allNamespaceLoadPromises = new Map<SupportedLanguage, Promise<void>>();
+const allNamespaceLoadPromises = new Map<BundledLocale, Promise<void>>();
 
 export function ensureAllI18nNamespaces(language: string = i18n.language) {
 	const lang = normalizeLanguage(language);

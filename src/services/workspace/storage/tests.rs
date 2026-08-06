@@ -2,13 +2,14 @@
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::mail::sender;
 use crate::storage::{DriverRegistry, PolicySnapshot};
 use crate::test_support::snapshot_dir_tree;
-use aster_drive_migration::Migrator;
 use aster_drive_model::entities::{file, file_blob, storage_policy, team, user};
-use aster_drive_model::types::{DriverType, UserRole, UserStatus};
+use aster_drive_model::types::{
+    ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy, UserRole, UserStatus,
+};
 use aster_drive_storage::{
     BlobMetadata, ListStorageDriver, LocalPathStorageDriver, StorageDriver, StoragePathVisitor,
     StreamUploadDriver,
@@ -103,8 +104,10 @@ struct CountingUploadDriver {
 impl CountingUploadDriver {
     fn new(policy: &storage_policy::Model) -> Self {
         Self {
-            inner: crate::storage::drivers::local::LocalDriver::new(policy)
-                .expect("counting test driver should initialize"),
+            inner: crate::storage::drivers::local::LocalDriver::new(
+                &crate::storage::connectors::test_support::local_base_path(policy),
+            )
+            .expect("counting test driver should initialize"),
             put_file_count: AtomicUsize::new(0),
             put_reader_count: AtomicUsize::new(0),
         }
@@ -195,11 +198,7 @@ impl StreamUploadDriver for CountingUploadDriver {
 }
 
 fn enable_content_dedup(policy: &storage_policy::Model) -> storage_policy::Model {
-    let mut policy = policy.clone();
-    policy.options = aster_drive_model::types::StoredStoragePolicyOptions(
-        r#"{"content_dedup":true}"#.to_string(),
-    );
-    policy
+    crate::storage::connectors::test_support::with_local_content_dedup(policy, true)
 }
 
 struct BlockingPutFileDriver {
@@ -214,8 +213,10 @@ impl BlockingPutFileDriver {
         let release_put_file = Arc::new(Notify::new());
         (
             Self {
-                inner: crate::storage::drivers::local::LocalDriver::new(policy)
-                    .expect("blocking test driver should initialize"),
+                inner: crate::storage::drivers::local::LocalDriver::new(
+                    &crate::storage::connectors::test_support::local_base_path(policy),
+                )
+                .expect("blocking test driver should initialize"),
                 put_file_entered: Mutex::new(Some(entered_tx)),
                 release_put_file: release_put_file.clone(),
             },
@@ -328,8 +329,10 @@ impl BlockingLocalPathDriver {
         let (release_tx, release_rx) = mpsc::channel();
         (
             Self {
-                inner: crate::storage::drivers::local::LocalDriver::new(policy)
-                    .expect("blocking local path test driver should initialize"),
+                inner: crate::storage::drivers::local::LocalDriver::new(
+                    &crate::storage::connectors::test_support::local_base_path(policy),
+                )
+                .expect("blocking local path test driver should initialize"),
                 target_entered: Mutex::new(Some(entered_tx)),
                 release_target: Mutex::new(Some(release_rx)),
             },
@@ -681,8 +684,10 @@ struct CancelAfterLocalPathDriver {
 impl CancelAfterLocalPathDriver {
     fn new(policy: &storage_policy::Model, cancelled: Arc<AtomicBool>) -> Self {
         Self {
-            inner: crate::storage::drivers::local::LocalDriver::new(policy)
-                .expect("cancel after local path test driver should initialize"),
+            inner: crate::storage::drivers::local::LocalDriver::new(
+                &crate::storage::connectors::test_support::local_base_path(policy),
+            )
+            .expect("cancel after local path test driver should initialize"),
             cancelled,
         }
     }
@@ -780,29 +785,19 @@ async fn build_test_state() -> (
     )
     .await
     .unwrap();
-    Migrator::up(&db, None).await.unwrap();
+    crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
 
     let now = Utc::now();
-    let policy = storage_policy::ActiveModel {
-        name: Set("Test Local Policy".to_string()),
-        driver_type: Set(DriverType::Local),
-        endpoint: Set(String::new()),
-        bucket: Set(String::new()),
-        access_key: Set(String::new()),
-        secret_key: Set(String::new()),
-        base_path: Set(uploads_root.to_string_lossy().into_owned()),
-        max_file_size: Set(0),
-        allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
-        options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
-        is_default: Set(true),
-        chunk_size: Set(5_242_880),
-        created_at: Set(now),
-        updated_at: Set(now),
-        ..Default::default()
-    }
-    .insert(&db)
-    .await
-    .unwrap();
+    let mut policy = crate::storage::connectors::test_support::local_policy(
+        uploads_root.to_string_lossy().into_owned(),
+    );
+    policy.name = "Test Local Policy".to_string();
+    policy.is_default = true;
+    policy.chunk_size = 5_242_880;
+    let policy = crate::storage::connectors::test_support::insertable_policy(policy)
+        .insert(&db)
+        .await
+        .unwrap();
 
     let user = user::ActiveModel {
         username: Set("storage-conflict-user".to_string()),
@@ -845,7 +840,9 @@ async fn build_test_state() -> (
 
     let state = PrimaryAppState {
         db_handles: aster_forge_db::DbHandles::single(db),
-        driver_registry: Arc::new(DriverRegistry::noop()),
+        driver_registry: Arc::new(
+            DriverRegistry::noop().expect("built-in storage connector registry"),
+        ),
         runtime_config: runtime_config.clone(),
         policy_snapshot: Arc::new(PolicySnapshot::new()),
         config: Arc::new(config),
@@ -1130,7 +1127,13 @@ async fn preuploaded_quota_failure_cleans_local_blob() {
     let temp_file = temp_root.join("quota-fail-preuploaded.bin");
     tokio::fs::write(&temp_file, payload).await.unwrap();
 
-    let prepared = prepare_non_dedup_blob_upload(&policy, payload.len() as i64, None).unwrap();
+    let prepared = prepare_non_dedup_blob_upload(
+        state.driver_registry.connectors(),
+        &policy,
+        payload.len() as i64,
+        None,
+    )
+    .unwrap();
     upload_temp_file_to_prepared_blob(driver.as_ref(), &prepared, &temp_file.to_string_lossy())
         .await
         .unwrap();
@@ -1455,7 +1458,13 @@ async fn conditional_team_create_rejects_file_appearing_while_body_is_staged() {
         team_id: team.id,
         actor_user_id: user.id,
     };
-    let uploads_root = PathBuf::from(&policy.base_path);
+    let local = crate::storage::connectors::resolve_local_filesystem_projection(
+        state.driver_registry.connectors(),
+        &policy,
+    )
+    .unwrap()
+    .expect("conditional team policy should use the local connector");
+    let uploads_root = PathBuf::from(local.base_path);
     let before = snapshot_dir_tree(&uploads_root).unwrap();
     let (blocking_driver, entered_rx, release_put_file) = BlockingPutFileDriver::new(&policy);
     state
@@ -1595,7 +1604,13 @@ async fn missing_precondition_rejects_overwrite_context() {
     )
     .await
     .unwrap();
-    let uploads_root = PathBuf::from(&policy.base_path);
+    let local = crate::storage::connectors::resolve_local_filesystem_projection(
+        state.driver_registry.connectors(),
+        &policy,
+    )
+    .unwrap()
+    .expect("missing-precondition policy should use the local connector");
+    let uploads_root = PathBuf::from(local.base_path);
     let before = snapshot_dir_tree(&uploads_root).unwrap();
     let replacement_temp = temp_root.join("missing-overwrite-replacement.bin");
     let replacement_payload = b"replacement must not be persisted";
@@ -1839,8 +1854,15 @@ async fn cancelled_before_hash_can_resume_from_same_temp_file() {
 
 #[tokio::test]
 async fn temp_store_cancellation_during_stream_upload_cleans_preuploaded_blob() {
-    let (state, temp_root, mut policy, user) = build_test_state().await;
-    policy.driver_type = DriverType::S3;
+    let (state, temp_root, local_policy, user) = build_test_state().await;
+    let mut policy = crate::storage::connectors::test_support::s3_policy(
+        "https://s3.example.test",
+        "test-bucket",
+        "",
+        ObjectStorageUploadStrategy::RelayStream,
+        ObjectStorageDownloadStrategy::RelayStream,
+    );
+    policy.id = local_policy.id;
     let scope = WorkspaceStorageScope::Personal { user_id: user.id };
     let cancelled = Arc::new(AtomicBool::new(false));
     let driver = Arc::new(CancelAfterFirstReadDriver::new(cancelled.clone()));
@@ -1886,8 +1908,15 @@ async fn temp_store_cancellation_during_stream_upload_cleans_preuploaded_blob() 
 
 #[tokio::test]
 async fn cancelled_during_stream_upload_can_resume_from_same_temp_file() {
-    let (state, temp_root, mut policy, user) = build_test_state().await;
-    policy.driver_type = DriverType::S3;
+    let (state, temp_root, local_policy, user) = build_test_state().await;
+    let mut policy = crate::storage::connectors::test_support::s3_policy(
+        "https://s3.example.test",
+        "test-bucket",
+        "",
+        ObjectStorageUploadStrategy::RelayStream,
+        ObjectStorageDownloadStrategy::RelayStream,
+    );
+    policy.id = local_policy.id;
     let scope = WorkspaceStorageScope::Personal { user_id: user.id };
     let cancelled = Arc::new(AtomicBool::new(false));
     let driver = Arc::new(RecoverableStreamDriver::new(cancelled.clone()));

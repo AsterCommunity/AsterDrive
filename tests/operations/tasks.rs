@@ -10,7 +10,7 @@ use sea_orm::{
 };
 use serde_json::Value;
 use std::io::{Cursor, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -29,7 +29,6 @@ use aster_drive::config::operations::{
     OFFLINE_DOWNLOAD_TEMP_DIR_KEY,
 };
 use aster_drive::db::repository::{background_task_repo, file_repo, policy_repo};
-use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::task::{
     self, RuntimeTaskRunOutcome, SystemRuntimeTaskKind,
     types::{
@@ -37,7 +36,7 @@ use aster_drive::services::task::{
         RuntimeTaskName, RuntimeTaskPayload,
     },
 };
-use aster_drive_model::entities::{background_task, file_blob, storage_policy};
+use aster_drive_model::entities::{background_task, file_blob};
 use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
 use aster_drive_storage::{BlobMetadata, StorageDriver};
 
@@ -279,11 +278,18 @@ async fn start_aria2_context(temp_dir: &str) -> Aria2TestContext {
 
     let host_temp_dir = std::fs::canonicalize(temp_dir).unwrap_or_else(|_| temp_dir.into());
     let rpc_secret = format!("asterdrive-{}", uuid::Uuid::new_v4().simple());
+    let config_dir = prepare_aria2_test_config(&host_temp_dir, &rpc_secret)
+        .expect("aria2 test config should be created");
     let container = GenericImage::new("p3terx/aria2-pro", ARIA2_TEST_IMAGE_TAG)
         .with_exposed_port(IntoContainerPort::tcp(6800))
         .with_env_var("PUID", "0")
         .with_env_var("PGID", "0")
         .with_env_var("RPC_SECRET", rpc_secret.as_str())
+        .with_env_var("UPDATE_TRACKERS", "false")
+        .with_mount(Mount::bind_mount(
+            config_dir.to_string_lossy().to_string(),
+            "/config",
+        ))
         .with_mount(Mount::bind_mount(
             host_temp_dir.to_string_lossy().to_string(),
             temp_dir.to_string(),
@@ -297,7 +303,15 @@ async fn start_aria2_context(temp_dir: &str) -> Aria2TestContext {
         .await
         .expect("aria2 RPC port should resolve");
     let rpc_url = format!("http://127.0.0.1:{port}/jsonrpc");
-    wait_for_aria2_rpc(&rpc_url, &rpc_secret).await;
+    if let Err(last_error) = wait_for_aria2_rpc(&rpc_url, &rpc_secret).await {
+        let stdout = container.stdout_to_vec().await.unwrap_or_default();
+        let stderr = container.stderr_to_vec().await.unwrap_or_default();
+        panic!(
+            "aria2 RPC did not become ready at {rpc_url}: {last_error}; stdout={}; stderr={}",
+            String::from_utf8_lossy(&stdout),
+            String::from_utf8_lossy(&stderr)
+        );
+    }
 
     Aria2TestContext {
         _container: container,
@@ -306,11 +320,41 @@ async fn start_aria2_context(temp_dir: &str) -> Aria2TestContext {
     }
 }
 
-async fn wait_for_aria2_rpc(rpc_url: &str, rpc_secret: &str) {
+fn prepare_aria2_test_config(temp_dir: &Path, rpc_secret: &str) -> std::io::Result<PathBuf> {
+    let config_dir = temp_dir.join("aria2-test-config");
+    let script_dir = config_dir.join("script");
+    std::fs::create_dir_all(&script_dir)?;
+    std::fs::write(
+        config_dir.join("aria2.conf"),
+        format!(
+            "dir=/downloads\nenable-rpc=true\nrpc-listen-all=true\nrpc-listen-port=6800\nrpc-secret={rpc_secret}\nfile-allocation=none\nconsole-log-level=warn\nlog-level=warn\n"
+        ),
+    )?;
+
+    // The image downloads every missing profile during startup. Supplying the
+    // unused profiles keeps this fixture independent from its public CDNs.
+    for path in [
+        config_dir.join("script.conf"),
+        config_dir.join("aria2.session"),
+        config_dir.join("dht.dat"),
+        config_dir.join("dht6.dat"),
+        config_dir.join("LICENSE"),
+        script_dir.join("core"),
+        script_dir.join("delete.sh"),
+        script_dir.join("clean.sh"),
+    ] {
+        std::fs::write(path, [])?;
+    }
+
+    Ok(config_dir)
+}
+
+async fn wait_for_aria2_rpc(rpc_url: &str, rpc_secret: &str) -> Result<(), String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
         .build()
         .expect("aria2 wait client should build");
+    let mut last_error = "RPC probe was not attempted".to_string();
 
     for _ in 0..60 {
         let response = client
@@ -324,18 +368,69 @@ async fn wait_for_aria2_rpc(rpc_url: &str, rpc_secret: &str) {
             .send()
             .await;
 
-        if let Ok(response) = response
-            && response.status().is_success()
-            && let Ok(body) = response.json::<Value>().await
-            && body.get("result").is_some()
-        {
-            return;
+        match response {
+            Ok(response) => {
+                let status = response.status();
+                match response.text().await {
+                    Ok(raw_body) => match serde_json::from_str::<Value>(&raw_body) {
+                        Ok(body) if status.is_success() && body.get("result").is_some() => {
+                            return Ok(());
+                        }
+                        Ok(_) => {
+                            last_error = format!("HTTP {status} returned {raw_body}");
+                        }
+                        Err(error) => {
+                            last_error = format!(
+                                "HTTP {status} returned invalid JSON: {error}; body={raw_body}"
+                            );
+                        }
+                    },
+                    Err(error) => {
+                        last_error = format!("HTTP {status} body read failed: {error}");
+                    }
+                }
+            }
+            Err(error) => {
+                last_error = error.to_string();
+            }
         }
 
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
 
-    panic!("aria2 RPC did not become ready at {rpc_url}");
+    Err(last_error)
+}
+
+#[actix_web::test]
+async fn aria2_test_config_is_self_contained_and_scopes_rpc_secret() {
+    let temp_dir = std::env::temp_dir().join(format!(
+        "asterdrive-aria2-config-test-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let config_dir = prepare_aria2_test_config(&temp_dir, "fixture-secret")
+        .expect("aria2 test config should be created");
+    let config =
+        std::fs::read_to_string(config_dir.join("aria2.conf")).expect("config should be readable");
+
+    assert!(config.contains("rpc-secret=fixture-secret\n"));
+    assert!(!config.contains("rpc-secret=another-secret"));
+    for relative_path in [
+        "script.conf",
+        "aria2.session",
+        "dht.dat",
+        "dht6.dat",
+        "LICENSE",
+        "script/core",
+        "script/delete.sh",
+        "script/clean.sh",
+    ] {
+        assert!(
+            config_dir.join(relative_path).is_file(),
+            "missing self-contained aria2 profile {relative_path}"
+        );
+    }
+
+    std::fs::remove_dir_all(temp_dir).expect("aria2 test config should be removable");
 }
 
 async fn drain_storage_change_events(
@@ -1737,28 +1832,24 @@ async fn test_blob_maintenance_keeps_cached_policy_drivers_stable() {
     ));
     std::fs::create_dir_all(&untouched_policy_root)
         .expect("untouched policy root should be created");
-    let now = Utc::now();
-    let untouched_policy = storage_policy::ActiveModel {
-        name: Set("Untouched maintenance policy".to_string()),
-        driver_type: Set(aster_drive_model::types::DriverType::Local),
-        endpoint: Set(String::new()),
-        bucket: Set(String::new()),
-        access_key: Set(String::new()),
-        secret_key: Set(String::new()),
-        base_path: Set(untouched_policy_root.to_string_lossy().into_owned()),
-        remote_node_id: Set(None),
-        max_file_size: Set(0),
-        allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
-        options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
-        is_default: Set(false),
-        chunk_size: Set(0),
-        created_at: Set(now),
-        updated_at: Set(now),
-        ..Default::default()
-    }
-    .insert(state.writer_db())
+    let untouched_policy = aster_drive::services::storage_policy::policy::create(
+        &state,
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyInput {
+            name: "Untouched maintenance policy".to_string(),
+            connection: common::local_connection(
+                untouched_policy_root.to_string_lossy().into_owned(),
+            ),
+            max_file_size: 0,
+            chunk_size: Some(0),
+            is_default: false,
+            allowed_types: None,
+        },
+    )
     .await
-    .expect("untouched policy should insert");
+    .expect("untouched policy should be created through connector service");
+    let untouched_policy = policy_repo::find_by_id(state.writer_db(), untouched_policy.id)
+        .await
+        .expect("untouched policy should be queryable");
 
     let touched_driver_before = state
         .driver_registry

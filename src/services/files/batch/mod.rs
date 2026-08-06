@@ -10,7 +10,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::errors::{AsterError, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::storage::WorkspaceStorageScope;
 

@@ -1062,7 +1062,7 @@ mod tests {
     };
     use crate::config::{Config, DatabaseConfig, RateLimitConfig, RuntimeConfig};
     use crate::db::repository::{background_task_repo, file_repo};
-    use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+    use crate::runtime::PrimaryAppState;
     use crate::services::files::file::{ImagePreviewResult, ThumbnailResult};
     use crate::services::{auth::local, mail::sender, media::processing};
     use crate::storage::drivers::local::LocalDriver;
@@ -1070,11 +1070,9 @@ mod tests {
     use actix_web::body;
     use actix_web::http::{StatusCode, header};
     use actix_web::{App, test, web};
-    use aster_drive_migration::Migrator;
-    use aster_drive_model::entities::{file, file_blob, storage_policy, team, team_member, user};
+    use aster_drive_model::entities::{file, file_blob, team, team_member, user};
     use aster_drive_model::types::{
-        BackgroundTaskKind, BackgroundTaskStatus, DriverType, StoredStoragePolicyAllowedTypes,
-        StoredStoragePolicyOptions, TeamMemberRole, UserRole, UserStatus,
+        BackgroundTaskKind, BackgroundTaskStatus, TeamMemberRole, UserRole, UserStatus,
     };
     use aster_drive_storage::StorageDriver;
     use aster_forge_cache as cache;
@@ -1119,35 +1117,23 @@ mod tests {
         )
         .await
         .expect("image preview route database should connect");
-        Migrator::up(&db, None)
-            .await
-            .expect("image preview route migrations should succeed");
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
 
         let now = Utc::now();
         let storage_root = temp_root.join("storage");
         tokio::fs::create_dir_all(&storage_root)
             .await
             .expect("image preview route storage root should exist");
-        let policy = storage_policy::ActiveModel {
-            name: Set("Image Preview Route Policy".to_string()),
-            driver_type: Set(DriverType::Local),
-            endpoint: Set(String::new()),
-            bucket: Set(String::new()),
-            access_key: Set(String::new()),
-            secret_key: Set(String::new()),
-            base_path: Set(storage_root.to_string_lossy().into_owned()),
-            max_file_size: Set(0),
-            allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(StoredStoragePolicyOptions::empty()),
-            is_default: Set(true),
-            chunk_size: Set(5_242_880),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
-        }
-        .insert(&db)
-        .await
-        .expect("image preview route policy should insert");
+        let mut policy = crate::storage::connectors::test_support::local_policy(
+            storage_root.to_string_lossy().into_owned(),
+        );
+        policy.name = "Image Preview Route Policy".to_string();
+        policy.is_default = true;
+        policy.chunk_size = 5_242_880;
+        let policy = crate::storage::connectors::test_support::insertable_policy(policy)
+            .insert(&db)
+            .await
+            .expect("image preview route policy should insert");
 
         let user = user::ActiveModel {
             username: Set("preview-route-user".to_string()),
@@ -1173,7 +1159,8 @@ mod tests {
         let source_bytes = tiny_png();
         let source_hash = aster_forge_crypto::sha256_hex(&source_bytes);
         let driver = Arc::new(
-            LocalDriver::new(&policy).expect("image preview route local driver should build"),
+            LocalDriver::new(&storage_root.to_string_lossy())
+                .expect("image preview route local driver should build"),
         );
         let source_path = "objects/source.png";
         driver
@@ -1221,13 +1208,14 @@ mod tests {
         .await
         .expect("image preview route file should insert");
 
+        let driver_registry =
+            Arc::new(DriverRegistry::noop().expect("built-in storage connector registry"));
+        driver_registry.insert_for_test(policy.id, driver);
         let policy_snapshot = Arc::new(PolicySnapshot::new());
-        policy_snapshot
-            .reload(&db)
+        driver_registry
+            .reload_policy_snapshot(&policy_snapshot, &db)
             .await
             .expect("image preview route policy snapshot should reload");
-        let driver_registry = Arc::new(DriverRegistry::noop());
-        driver_registry.insert_for_test(policy.id, driver);
 
         let runtime_config = Arc::new(RuntimeConfig::new());
         let cache = cache::create_cache(&CacheConfig {

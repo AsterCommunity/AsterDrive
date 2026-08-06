@@ -881,7 +881,23 @@ async fn doctor_storage_policy_check(db: &sea_orm::DatabaseConnection) -> Doctor
     };
 
     let snapshot = crate::storage::PolicySnapshot::new();
-    if let Err(err) = snapshot.reload(db).await {
+    let driver_registry = match crate::storage::DriverRegistry::noop() {
+        Ok(registry) => registry,
+        Err(err) => {
+            return DoctorCheck {
+                name: "storage_policies",
+                label: "Storage policies",
+                status: DoctorStatus::Fail,
+                summary: "failed to initialize storage connector registry".to_string(),
+                details: vec![err.message().to_string()],
+                suggestion: Some(
+                    "Check the built-in storage connector descriptor registry for duplicate or invalid contracts."
+                        .to_string(),
+                ),
+            };
+        }
+    };
+    if let Err(err) = driver_registry.reload_policy_snapshot(&snapshot, db).await {
         return DoctorCheck {
             name: "storage_policies",
             label: "Storage policies",

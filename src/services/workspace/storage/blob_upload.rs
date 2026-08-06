@@ -70,15 +70,25 @@ impl PreparedNonDedupBlobUpload {
 }
 
 pub(crate) fn prepare_non_dedup_blob_upload(
+    registry: &crate::storage::connectors::StorageConnectorRegistry,
     policy: &aster_drive_model::entities::storage_policy::Model,
     size: i64,
     filename: Option<&str>,
 ) -> Result<PreparedNonDedupBlobUpload> {
-    match crate::storage::connectors::resolve_policy_upload_transport(policy)? {
+    match crate::storage::connectors::resolve_policy_upload_transport(registry, policy)? {
         StorageConnectorUploadTransport::Local => {
+            let local = crate::storage::connectors::resolve_local_filesystem_projection(
+                registry, policy,
+            )?
+            .ok_or_else(|| {
+                AsterError::internal_error(format!(
+                    "storage connector '{}' selected local upload transport without a local filesystem projection",
+                    policy.connector_id
+                ))
+            })?;
             let blob_key = aster_forge_utils::id::new_short_token();
             Ok(PreparedNonDedupBlobUpload::Local {
-                base_path: crate::storage::drivers::local::effective_base_path(policy),
+                base_path: crate::storage::drivers::local::effective_base_path(&local.base_path),
                 storage_path: aster_forge_validation::filename::storage_path_from_blob_key(
                     &blob_key,
                 )?,
@@ -91,11 +101,12 @@ pub(crate) fn prepare_non_dedup_blob_upload(
             let upload_id = aster_forge_utils::id::new_uuid();
             let hash_prefix = transport.opaque_blob_hash_prefix().ok_or_else(|| {
                 AsterError::validation_error(format!(
-                    "storage policy driver '{}' cannot prepare opaque blob uploads without an opaque hash prefix",
-                    policy.driver_type.as_str()
+                    "storage connector '{}' cannot prepare opaque blob uploads without an opaque hash prefix",
+                    policy.connector_id
                 ))
             })?;
-            let storage_path = nondedup_storage_path_for_policy(policy, &upload_id, filename)?;
+            let storage_path =
+                nondedup_storage_path_for_policy(registry, policy, &upload_id, filename)?;
             Ok(PreparedNonDedupBlobUpload::Opaque {
                 storage_path,
                 upload_id,
@@ -108,11 +119,12 @@ pub(crate) fn prepare_non_dedup_blob_upload(
 }
 
 pub(crate) fn nondedup_storage_path_for_policy(
+    registry: &crate::storage::connectors::StorageConnectorRegistry,
     policy: &aster_drive_model::entities::storage_policy::Model,
     upload_id: &str,
     filename: Option<&str>,
 ) -> Result<String> {
-    match resolve_policy_object_naming(policy)? {
+    match resolve_policy_object_naming(registry, policy)? {
         StorageConnectorObjectNamingMode::OpaqueUuid => {
             let upload_id = uuid::Uuid::parse_str(upload_id)
                 .map_err(|_| AsterError::validation_error("upload id must be a UUID"))?;
@@ -524,31 +536,29 @@ pub(crate) async fn persist_preuploaded_blob<C: ConnectionTrait>(
 #[cfg(test)]
 mod storage_path_tests {
     use super::{nondedup_storage_path_for_policy, original_filename_storage_path};
-    use aster_drive_model::types::DriverType;
+    use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy};
+    use aster_drive_storage::StoragePolicyBehaviorConfig;
 
     const UPLOAD_ID: &str = "550e8400-e29b-41d4-a716-446655440000";
 
-    fn policy(driver_type: DriverType) -> aster_drive_model::entities::storage_policy::Model {
-        let now = chrono::Utc::now();
-        aster_drive_model::entities::storage_policy::Model {
-            id: 1,
-            name: "test".to_string(),
-            driver_type,
-            endpoint: String::new(),
-            bucket: String::new(),
-            access_key: String::new(),
-            secret_key: String::new(),
-            base_path: String::new(),
-            remote_node_id: None,
-            remote_storage_target_key: None,
-            max_file_size: 0,
-            allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
-            options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
-            is_default: false,
-            chunk_size: 5_242_880,
-            created_at: now,
-            updated_at: now,
-        }
+    fn s3_policy() -> aster_drive_model::entities::storage_policy::Model {
+        crate::storage::connectors::test_support::s3_policy(
+            "https://s3.example.test",
+            "test-bucket",
+            "",
+            ObjectStorageUploadStrategy::RelayStream,
+            ObjectStorageDownloadStrategy::RelayStream,
+        )
+    }
+
+    fn onedrive_policy() -> aster_drive_model::entities::storage_policy::Model {
+        crate::storage::connectors::test_support::onedrive_policy(
+            crate::storage::connectors::OneDriveAccountMode::Personal,
+            None,
+            None,
+            None,
+            StoragePolicyBehaviorConfig::default(),
+        )
     }
 
     #[test]
@@ -595,9 +605,11 @@ mod storage_path_tests {
 
     #[test]
     fn opaque_uuid_path_ignores_provider_filename_layout() {
+        let registry = crate::storage::connectors::builtin_storage_connector_registry().unwrap();
         assert_eq!(
             nondedup_storage_path_for_policy(
-                &policy(DriverType::S3),
+                &registry,
+                &s3_policy(),
                 UPLOAD_ID,
                 Some("../../ignored.txt"),
             )
@@ -606,7 +618,8 @@ mod storage_path_tests {
         );
         assert!(
             nondedup_storage_path_for_policy(
-                &policy(DriverType::S3),
+                &registry,
+                &s3_policy(),
                 "not-a-uuid",
                 Some("ignored.txt"),
             )
@@ -616,9 +629,11 @@ mod storage_path_tests {
 
     #[test]
     fn policy_object_naming_capability_selects_path_layout_explicitly() {
+        let registry = crate::storage::connectors::builtin_storage_connector_registry().unwrap();
         assert_eq!(
             nondedup_storage_path_for_policy(
-                &policy(DriverType::OneDrive),
+                &registry,
+                &onedrive_policy(),
                 UPLOAD_ID,
                 Some("video.mp4"),
             )
@@ -627,7 +642,8 @@ mod storage_path_tests {
         );
         assert_eq!(
             nondedup_storage_path_for_policy(
-                &policy(DriverType::S3),
+                &registry,
+                &s3_policy(),
                 UPLOAD_ID,
                 Some("video.mp4"),
             )

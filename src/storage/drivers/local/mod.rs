@@ -11,21 +11,27 @@ mod tests;
 
 use std::path::PathBuf;
 
-use aster_drive_model::entities::storage_policy;
 use aster_drive_storage::Result;
 
 pub(crate) use copy::copy_file_with_checkpoint;
 pub use paths::{effective_base_path, resolved_base_path, upload_staging_path};
 pub use promote::{promote_local_file_if_absent, promote_local_file_if_absent_with_check};
 
+pub(crate) const DEFAULT_LOCAL_STORAGE_PATH: &str = "./data/uploads";
+
 pub struct LocalDriver {
     pub(super) base_path: PathBuf,
 }
 
 impl LocalDriver {
-    pub fn new(policy: &storage_policy::Model) -> Result<Self> {
+    /// Builds a local runtime driver from the connector-resolved storage root.
+    ///
+    /// Database entities deliberately stay outside the driver boundary. The
+    /// local connector owns policy/config decoding and passes only the runtime
+    /// value needed for filesystem I/O.
+    pub fn new(base_path: &str) -> Result<Self> {
         Ok(Self {
-            base_path: resolved_base_path(policy)?,
+            base_path: resolved_base_path(base_path)?,
         })
     }
 

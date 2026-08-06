@@ -2,77 +2,33 @@
 
 use crate::api::dto::admin::{
     AdminPolicyGroupListQuery, AdminPolicyListQuery, CreatePolicyGroupReq, CreatePolicyReq,
-    DeletePolicyQuery, ExecuteDraftStoragePolicyActionReq, ExecuteSavedStoragePolicyActionReq,
-    MigratePolicyGroupAssignmentsReq, PatchPolicyGroupReq, PatchPolicyReq, PolicyGroupItemReq,
-    PromoteS3CompatiblePolicyDriverReq, StartStorageAuthorizationReq, StorageConnectorCatalogQuery,
+    DeletePolicyQuery, MigratePolicyGroupAssignmentsReq, PatchPolicyGroupReq, PatchPolicyReq,
+    PolicyGroupItemReq, StorageConnectorCatalogQuery, StorageConnectorLocalizationCatalogQuery,
     TestPolicyParamsReq,
 };
 use crate::api::dto::validate_request;
 use crate::api::response::{ApiEmptyData, ApiResponse};
 use crate::config::site_url;
 use crate::errors::Result;
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::storage_policy::credential;
 use crate::services::{auth::local::Claims, ops::audit, storage_policy::policy};
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
-use aster_drive_model::types::DriverType;
 use aster_forge_api::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use aster_forge_api::OffsetPage;
 
 // ── Conversion helpers (must stay here because they use storage_policy::policy types) ──────────
 
-struct PolicyConnectionInputParts {
-    driver_type: DriverType,
-    endpoint: Option<String>,
-    bucket: Option<String>,
-    access_key: Option<String>,
-    secret_key: Option<String>,
-    base_path: Option<String>,
-    remote_node_id: Option<i64>,
-    remote_storage_target_key: Option<String>,
-    options: aster_drive_model::types::StoragePolicyOptions,
-}
-
-impl From<PolicyConnectionInputParts> for policy::StoragePolicyConnectionInput {
-    fn from(value: PolicyConnectionInputParts) -> Self {
-        Self {
-            driver_type: value.driver_type,
-            endpoint: value.endpoint.unwrap_or_default(),
-            bucket: value.bucket.unwrap_or_default(),
-            access_key: value.access_key.unwrap_or_default(),
-            secret_key: value.secret_key.unwrap_or_default(),
-            base_path: value.base_path.unwrap_or_default(),
-            remote_node_id: value.remote_node_id,
-            remote_storage_target_key: value.remote_storage_target_key,
-            options: value.options,
-        }
-    }
-}
-
 impl From<CreatePolicyReq> for policy::CreateStoragePolicyInput {
     fn from(value: CreatePolicyReq) -> Self {
         Self {
             name: value.name,
-            connection: PolicyConnectionInputParts {
-                driver_type: value.driver_type,
-                endpoint: value.endpoint,
-                bucket: value.bucket,
-                access_key: value.access_key,
-                secret_key: value.secret_key,
-                base_path: value.base_path,
-                remote_node_id: value.remote_node_id,
-                remote_storage_target_key: value.remote_storage_target_key.clone(),
-                options: aster_drive_model::types::StoragePolicyOptions::default(),
-            }
-            .into(),
+            connection: value.connection,
             max_file_size: value.max_file_size.unwrap_or(0),
             chunk_size: value.chunk_size,
             is_default: value.is_default.unwrap_or(false),
             allowed_types: value.allowed_types,
-            options: value.options,
-            remote_storage_target_key: value.remote_storage_target_key,
-            application_config: value.application_config.unwrap_or_default(),
         }
     }
 }
@@ -81,87 +37,22 @@ impl From<PatchPolicyReq> for policy::UpdateStoragePolicyInput {
     fn from(value: PatchPolicyReq) -> Self {
         Self {
             name: value.name,
-            endpoint: value.endpoint,
-            bucket: value.bucket,
-            access_key: value.access_key,
-            secret_key: value.secret_key,
-            base_path: value.base_path,
-            remote_node_id: value.remote_node_id,
-            remote_storage_target_key: value.remote_storage_target_key,
+            connector_config: value.connector_config,
+            behavior: value.behavior,
+            credential: value.credential,
             max_file_size: value.max_file_size,
             chunk_size: value.chunk_size,
             is_default: value.is_default,
             allowed_types: value.allowed_types,
-            options: value.options,
-            application_config: value.application_config.unwrap_or_default(),
         }
     }
 }
 
-impl From<TestPolicyParamsReq> for policy::TestDraftStoragePolicyConnectionInput {
+impl From<TestPolicyParamsReq> for policy::TestDraftStorageConnectorConnectionInput {
     fn from(value: TestPolicyParamsReq) -> Self {
         Self {
             policy_id: value.policy_id,
-            connection: PolicyConnectionInputParts {
-                driver_type: value.driver_type,
-                endpoint: value.endpoint,
-                bucket: value.bucket,
-                access_key: value.access_key,
-                secret_key: value.secret_key,
-                base_path: value.base_path,
-                remote_node_id: value.remote_node_id,
-                remote_storage_target_key: value.remote_storage_target_key,
-                options: value.options.unwrap_or_default(),
-            }
-            .into(),
-        }
-    }
-}
-
-impl From<ExecuteDraftStoragePolicyActionReq> for policy::ExecuteDraftStoragePolicyActionInput {
-    fn from(value: ExecuteDraftStoragePolicyActionReq) -> Self {
-        Self {
-            action: value.action,
-            policy_id: value.policy_id,
-            connection: PolicyConnectionInputParts {
-                driver_type: value.driver_type,
-                endpoint: value.endpoint,
-                bucket: value.bucket,
-                access_key: value.access_key,
-                secret_key: value.secret_key,
-                base_path: value.base_path,
-                remote_node_id: value.remote_node_id,
-                remote_storage_target_key: value.remote_storage_target_key,
-                options: value.options.unwrap_or_default(),
-            }
-            .into(),
-        }
-    }
-}
-
-impl From<ExecuteSavedStoragePolicyActionReq> for policy::ExecuteSavedStoragePolicyActionInput {
-    fn from(value: ExecuteSavedStoragePolicyActionReq) -> Self {
-        Self {
-            action: value.action,
-        }
-    }
-}
-
-impl From<PromoteS3CompatiblePolicyDriverReq> for policy::PromoteS3CompatiblePolicyDriverInput {
-    fn from(value: PromoteS3CompatiblePolicyDriverReq) -> Self {
-        Self {
-            target_driver_type: value.target_driver_type,
-            endpoint: value.endpoint,
-            bucket: value.bucket,
-        }
-    }
-}
-
-impl From<StartStorageAuthorizationReq> for credential::StorageAuthorizationStartInput {
-    fn from(value: StartStorageAuthorizationReq) -> Self {
-        Self {
-            provider: value.provider,
-            microsoft_graph: value.microsoft_graph,
+            connection: value.connection,
         }
     }
 }
@@ -253,10 +144,70 @@ pub async fn list_storage_driver_descriptors(
 ) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().json(ApiResponse::ok(
         crate::services::storage_policy::connector_catalog::list_storage_connector_catalog(
+            state.driver_registry().connectors(),
             state.config(),
             query.context.into(),
         ),
     )))
+}
+
+#[aster_forge_api_docs_macros::path(
+    get,
+    path = "/api/v1/admin/policies/storage-drivers/localizations",
+    tag = "admin",
+    operation_id = "list_storage_driver_localizations",
+    params(StorageConnectorLocalizationCatalogQuery),
+    responses(
+        (status = 200, description = "List connector-owned localized UI resources", body = inline(ApiResponse<aster_drive_storage::StorageConnectorLocalizationCatalog>)),
+        (status = 304, description = "Connector localization resources are unchanged"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn list_storage_driver_localizations(
+    state: web::Data<PrimaryAppState>,
+    req: HttpRequest,
+    query: web::Query<StorageConnectorLocalizationCatalogQuery>,
+) -> Result<HttpResponse> {
+    let context = query.context.into();
+    let catalog =
+        crate::services::storage_policy::connector_catalog::list_storage_connector_localizations(
+            state.driver_registry().connectors(),
+            state.config(),
+            context,
+            &query.locale,
+        )?;
+    let etag =
+        crate::services::storage_policy::connector_catalog::storage_connector_localization_etag(
+            context, &catalog,
+        );
+    let cache_control = "private, no-cache";
+
+    if if_none_match_matches(req.headers().get(header::IF_NONE_MATCH), &etag) {
+        return Ok(HttpResponse::NotModified()
+            .insert_header((header::ETAG, etag))
+            .insert_header((header::CACHE_CONTROL, cache_control))
+            .finish());
+    }
+
+    Ok(HttpResponse::Ok()
+        .insert_header((header::ETAG, etag))
+        .insert_header((header::CACHE_CONTROL, cache_control))
+        .json(ApiResponse::ok(catalog)))
+}
+
+fn if_none_match_matches(value: Option<&header::HeaderValue>, current_etag: &str) -> bool {
+    let Some(value) = value.and_then(|value| value.to_str().ok()) else {
+        return false;
+    };
+    value.split(',').map(str::trim).any(|candidate| {
+        candidate == "*"
+            || candidate == current_etag
+            || candidate
+                .strip_prefix("W/")
+                .is_some_and(|weak| weak == current_etag)
+    })
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -362,41 +313,6 @@ pub async fn update_policy(
 }
 
 #[aster_forge_api_docs_macros::path(
-    post,
-    path = "/api/v1/admin/policies/{id}/promote-s3-driver",
-    tag = "admin",
-    operation_id = "promote_s3_compatible_policy_driver",
-    params(("id" = i64, Path, description = "Policy ID")),
-    request_body = PromoteS3CompatiblePolicyDriverReq,
-    responses(
-        (status = 200, description = "Policy driver promoted", body = inline(ApiResponse<policy::StoragePolicy>)),
-        (status = 400, description = "Promotion rejected"),
-        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
-        (status = 403, description = "Forbidden"),
-        (status = 404, description = "Policy not found"),
-    ),
-    security(("bearer" = [])),
-)]
-pub async fn promote_s3_compatible_policy_driver(
-    state: web::Data<PrimaryAppState>,
-    claims: web::ReqData<Claims>,
-    req: HttpRequest,
-    path: web::Path<i64>,
-    body: web::Json<PromoteS3CompatiblePolicyDriverReq>,
-) -> Result<HttpResponse> {
-    validate_request(&*body)?;
-    let ctx = audit::AuditContext::from_request(&req, &claims);
-    let policy = policy::promote_s3_compatible_driver_with_audit(
-        state.get_ref(),
-        *path,
-        body.into_inner().into(),
-        &ctx,
-    )
-    .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(policy)))
-}
-
-#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/policies/{id}",
     tag = "admin",
@@ -471,7 +387,7 @@ pub async fn test_policy_params(
     tag = "admin",
     operation_id = "execute_saved_storage_policy_action",
     params(("id" = i64, Path, description = "Policy ID")),
-    request_body = ExecuteSavedStoragePolicyActionReq,
+    request_body = policy::ExecuteSavedStorageConnectorActionInput,
     responses(
         (status = 200, description = "Storage policy action executed", body = inline(ApiResponse<policy::StoragePolicyActionResult>)),
         (status = 400, description = "Action rejected"),
@@ -486,17 +402,13 @@ pub async fn execute_saved_storage_policy_action(
     claims: web::ReqData<Claims>,
     path: web::Path<i64>,
     req: HttpRequest,
-    body: web::Json<ExecuteSavedStoragePolicyActionReq>,
+    body: web::Json<policy::ExecuteSavedStorageConnectorActionInput>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
-    let result = policy::execute_saved_action_with_audit(
-        state.get_ref(),
-        *path,
-        body.into_inner().into(),
-        &ctx,
-    )
-    .await?;
+    let result =
+        policy::execute_saved_action_with_audit(state.get_ref(), *path, body.into_inner(), &ctx)
+            .await?;
     Ok(storage_policy_action_response(result))
 }
 
@@ -505,7 +417,7 @@ pub async fn execute_saved_storage_policy_action(
     path = "/api/v1/admin/policies/action",
     tag = "admin",
     operation_id = "execute_draft_storage_policy_action",
-    request_body = ExecuteDraftStoragePolicyActionReq,
+    request_body = policy::ExecuteDraftStorageConnectorActionInput,
     responses(
         (status = 200, description = "Storage policy action executed", body = inline(ApiResponse<policy::StoragePolicyActionResult>)),
         (status = 400, description = "Action rejected"),
@@ -518,30 +430,13 @@ pub async fn execute_draft_storage_policy_action(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
     req: HttpRequest,
-    body: web::Json<ExecuteDraftStoragePolicyActionReq>,
+    body: web::Json<policy::ExecuteDraftStorageConnectorActionInput>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     let result =
-        policy::execute_draft_action_with_audit(state.get_ref(), body.into_inner().into(), &ctx)
-            .await?;
+        policy::execute_draft_action_with_audit(state.get_ref(), body.into_inner(), &ctx).await?;
     Ok(storage_policy_action_response(result))
-}
-
-#[aster_forge_api_docs_macros::path(
-    get,
-    path = "/api/v1/admin/policies/storage-credential-providers",
-    tag = "admin",
-    operation_id = "list_storage_credential_providers",
-    responses(
-        (status = 200, description = "Supported storage credential providers", body = inline(ApiResponse<Vec<credential::StorageCredentialProviderInfo>>)),
-        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
-        (status = 403, description = "Forbidden"),
-    ),
-    security(("bearer" = [])),
-)]
-pub async fn list_storage_credential_providers() -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(credential::list_supported_providers())))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -550,7 +445,6 @@ pub async fn list_storage_credential_providers() -> Result<HttpResponse> {
     tag = "admin",
     operation_id = "start_storage_authorization",
     params(("id" = i64, Path, description = "Policy ID")),
-    request_body = StartStorageAuthorizationReq,
     responses(
         (status = 200, description = "Storage credential authorization URL", body = inline(ApiResponse<credential::StorageAuthorizationStartResponse>)),
         (status = 400, description = "Invalid authorization configuration"),
@@ -565,17 +459,9 @@ pub async fn start_storage_authorization(
     claims: web::ReqData<Claims>,
     req: HttpRequest,
     path: web::Path<i64>,
-    body: web::Json<StartStorageAuthorizationReq>,
 ) -> Result<HttpResponse> {
-    validate_request(&*body)?;
-    let response = credential::start_authorization(
-        state.get_ref(),
-        &req,
-        *path,
-        claims.user_id,
-        body.into_inner().into(),
-    )
-    .await?;
+    let response =
+        credential::start_authorization(state.get_ref(), &req, *path, claims.user_id).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(response)))
 }
 
@@ -586,7 +472,7 @@ pub async fn start_storage_authorization(
     operation_id = "list_storage_policy_credentials",
     params(("id" = i64, Path, description = "Policy ID")),
     responses(
-        (status = 200, description = "Storage policy credentials", body = inline(ApiResponse<Vec<credential::StoragePolicyCredentialInfo>>)),
+        (status = 200, description = "Storage policy credentials", body = inline(ApiResponse<Vec<crate::storage::StorageConnectorCredentialInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Policy not found"),
@@ -603,12 +489,11 @@ pub async fn list_storage_policy_credentials(
 
 #[aster_forge_api_docs_macros::path(
     post,
-    path = "/api/v1/admin/policies/{id}/storage-credentials/{provider}/validate",
+    path = "/api/v1/admin/policies/{id}/storage-credentials/validate",
     tag = "admin",
     operation_id = "validate_storage_policy_credential",
     params(
         ("id" = i64, Path, description = "Policy ID"),
-        ("provider" = String, Path, description = "Storage credential provider"),
     ),
     responses(
         (status = 200, description = "Storage policy credential validation result", body = inline(ApiResponse<credential::StoragePolicyCredentialValidationResult>)),
@@ -621,14 +506,9 @@ pub async fn list_storage_policy_credentials(
 )]
 pub async fn validate_storage_policy_credential(
     state: web::Data<PrimaryAppState>,
-    path: web::Path<(i64, String)>,
+    path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let (policy_id, provider) = path.into_inner();
-    let provider = provider.parse().map_err(|()| {
-        crate::errors::AsterError::validation_error("unsupported storage credential provider")
-    })?;
-    let result =
-        credential::validate_policy_credential(state.get_ref(), policy_id, provider).await?;
+    let result = credential::validate_policy_credential(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
 }
 
@@ -891,5 +771,36 @@ mod tests {
             storage_authorization_redirect_path("error", None, Some("invalid_state")),
             "/admin/policies?storage_authorization=error&reason=invalid_state"
         );
+    }
+
+    #[test]
+    fn connector_localization_if_none_match_supports_lists_weak_tags_and_wildcard() {
+        let current = "\"revision\"";
+        assert!(if_none_match_matches(
+            Some(&header::HeaderValue::from_static("\"old\", \"revision\"")),
+            current,
+        ));
+        assert!(if_none_match_matches(
+            Some(&header::HeaderValue::from_static("W/\"revision\"")),
+            current,
+        ));
+        assert!(if_none_match_matches(
+            Some(&header::HeaderValue::from_static("*")),
+            current,
+        ));
+    }
+
+    #[test]
+    fn connector_localization_if_none_match_ignores_nonmatching_or_invalid_values() {
+        let current = "\"revision\"";
+        assert!(!if_none_match_matches(
+            Some(&header::HeaderValue::from_static("\"old\"")),
+            current,
+        ));
+        assert!(!if_none_match_matches(None, current));
+        assert!(!if_none_match_matches(
+            Some(&header::HeaderValue::from_bytes(&[0xff]).unwrap()),
+            current,
+        ));
     }
 }

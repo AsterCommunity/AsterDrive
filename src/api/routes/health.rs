@@ -175,20 +175,14 @@ mod tests {
     use crate::services::mail::sender;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use actix_web::{body, http::StatusCode, web};
-    use aster_drive_migration::Migrator;
-    use aster_drive_model::entities::{
-        storage_policy, storage_policy_group, storage_policy_group_item, user,
-    };
-    use aster_drive_model::types::{
-        DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole,
-        UserStatus,
-    };
+    use aster_drive_model::entities::{storage_policy_group, storage_policy_group_item, user};
+    use aster_drive_model::types::{UserRole, UserStatus};
     use aster_drive_storage::{BlobMetadata, StorageDriver};
     use aster_forge_cache as cache;
     use aster_forge_cache::{CacheBackend, CacheConfig, CacheError};
     use async_trait::async_trait;
     use chrono::Utc;
-    use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+    use sea_orm::{ActiveModelTrait, EntityTrait, IntoActiveModel, Set};
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -316,33 +310,23 @@ mod tests {
         )
         .await
         .expect("health test db should connect");
-        Migrator::up(&db, None)
-            .await
-            .expect("health test migrations should apply");
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
 
-        let driver_registry = Arc::new(DriverRegistry::noop());
+        let driver_registry =
+            Arc::new(DriverRegistry::noop().expect("built-in storage connector registry"));
         let now = Utc::now();
         let policy_group_id = if let Some(driver) = driver.clone() {
-            let policy = storage_policy::ActiveModel {
-                name: Set("Default Policy".to_string()),
-                driver_type: Set(DriverType::Local),
-                endpoint: Set(String::new()),
-                bucket: Set(String::new()),
-                access_key: Set(String::new()),
-                secret_key: Set(String::new()),
-                base_path: Set(String::new()),
-                max_file_size: Set(0),
-                allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-                options: Set(StoredStoragePolicyOptions::empty()),
-                is_default: Set(true),
-                chunk_size: Set(5_242_880),
-                created_at: Set(now),
-                updated_at: Set(now),
-                ..Default::default()
-            }
-            .insert(&db)
-            .await
-            .expect("health test policy should insert");
+            let mut policy = crate::storage::connectors::test_support::local_policy("");
+            policy.name = "Default Policy".to_string();
+            policy.is_default = true;
+            policy.chunk_size = 5_242_880;
+            policy.created_at = now;
+            policy.updated_at = now;
+            let policy = policy
+                .into_active_model()
+                .insert(&db)
+                .await
+                .expect("health test policy should insert");
             driver_registry.insert_for_test(policy.id, Arc::new(driver));
             let group = storage_policy_group::ActiveModel {
                 name: Set("Default Policy Group".to_string()),
@@ -396,7 +380,7 @@ mod tests {
 
         let policy_snapshot = Arc::new(PolicySnapshot::new());
         policy_snapshot
-            .reload(&db)
+            .reload(&db, driver_registry.connectors())
             .await
             .expect("health test policy snapshot should reload");
 

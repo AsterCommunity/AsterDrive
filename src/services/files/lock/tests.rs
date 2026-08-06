@@ -6,7 +6,6 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use aster_drive_migration::Migrator;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use sea_orm::{
@@ -24,9 +23,8 @@ use aster_drive_model::entities::{
     file, file_blob, folder, resource_lock, storage_policy, team, user,
 };
 use aster_drive_model::types::{
-    DriverType, EntityType, LockDepth, LockMode, LockOrigin, LockRootKind, LockWorkspaceType,
-    StoredLockOwnerInfo, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole,
-    UserStatus,
+    EntityType, LockDepth, LockMode, LockOrigin, LockRootKind, LockWorkspaceType,
+    StoredLockOwnerInfo, UserRole, UserStatus,
 };
 use aster_forge_cache as cache;
 use aster_forge_cache::{CacheBackend, CacheConfig, CacheExt, MemoryCache};
@@ -145,7 +143,7 @@ async fn build_lock_test_fixture_with_pool_size(pool_size: u32) -> LockTestFixtu
     };
 
     let db = if pool_size == 1 {
-        crate::db::connect_with_metrics(
+        let db = crate::db::connect_with_metrics(
             &DatabaseConfig {
                 url: database_url.into(),
                 pool_size,
@@ -154,8 +152,29 @@ async fn build_lock_test_fixture_with_pool_size(pool_size: u32) -> LockTestFixtu
             aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
-        .expect("lock service test DB should connect")
+        .expect("lock service test DB should connect");
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
+        db
     } else {
+        let migration_db = crate::db::connect_with_metrics(
+            &DatabaseConfig {
+                url: database_url.clone().into(),
+                pool_size: 1,
+                retry_count: 0,
+            },
+            aster_drive_metrics::NoopMetrics::arc(),
+        )
+        .await
+        .expect("lock service migration DB should connect");
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(
+            &migration_db,
+        )
+        .await;
+        migration_db
+            .close()
+            .await
+            .expect("lock service migration DB should close before the concurrency pool opens");
+
         let mut options = ConnectOptions::new(database_url);
         options
             .max_connections(pool_size)
@@ -197,31 +216,17 @@ async fn build_lock_test_fixture_with_pool_size(pool_size: u32) -> LockTestFixtu
         drop((first, second));
         db
     };
-    Migrator::up(&db, None)
-        .await
-        .expect("lock service migrations should succeed");
 
     let now = Utc::now();
-    let policy = storage_policy::ActiveModel {
-        name: Set("Lock Test Policy".to_string()),
-        driver_type: Set(DriverType::Local),
-        endpoint: Set(String::new()),
-        bucket: Set(String::new()),
-        access_key: Set(String::new()),
-        secret_key: Set(String::new()),
-        base_path: Set(temp_root.join("uploads").to_string_lossy().into_owned()),
-        max_file_size: Set(0),
-        allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-        options: Set(StoredStoragePolicyOptions::empty()),
-        is_default: Set(true),
-        chunk_size: Set(0),
-        created_at: Set(now),
-        updated_at: Set(now),
-        ..Default::default()
-    }
-    .insert(&db)
-    .await
-    .expect("lock test policy should insert");
+    let mut policy = crate::storage::connectors::test_support::local_policy(
+        temp_root.join("uploads").to_string_lossy().into_owned(),
+    );
+    policy.name = "Lock Test Policy".to_string();
+    policy.is_default = true;
+    let policy = crate::storage::connectors::test_support::insertable_policy(policy)
+        .insert(&db)
+        .await
+        .expect("lock test policy should insert");
 
     let user = user::ActiveModel {
         username: Set(format!("lock-user-{}", uuid::Uuid::new_v4())),
@@ -329,7 +334,9 @@ async fn build_lock_test_fixture_with_pool_size(pool_size: u32) -> LockTestFixtu
 
     let state = PrimaryAppState {
         db_handles: aster_forge_db::DbHandles::single(db),
-        driver_registry: Arc::new(DriverRegistry::noop()),
+        driver_registry: Arc::new(
+            DriverRegistry::noop().expect("built-in storage connector registry"),
+        ),
         runtime_config: runtime_config.clone(),
         policy_snapshot: Arc::new(PolicySnapshot::new()),
         config: Arc::new(config),
@@ -940,7 +947,10 @@ async fn lock_null_quota_failure_cleans_staged_empty_file() {
     fixture
         .state
         .policy_snapshot
-        .reload(fixture.state.writer_db())
+        .reload(
+            fixture.state.writer_db(),
+            fixture.state.driver_registry.connectors(),
+        )
         .await
         .expect("policy snapshot should include the lock-null storage policy");
     apply_webdav_lock_limit(&fixture, "1");
@@ -981,7 +991,13 @@ async fn lock_null_quota_failure_cleans_staged_empty_file() {
         .await
         .unwrap()
         .unwrap();
-    let storage_root = std::path::PathBuf::from(&policy.base_path);
+    let local = crate::storage::connectors::resolve_local_filesystem_projection(
+        fixture.state.driver_registry.connectors(),
+        &policy,
+    )
+    .unwrap()
+    .expect("lock test policy should use the local connector");
+    let storage_root = std::path::PathBuf::from(local.base_path);
     let before = snapshot_dir_tree(&storage_root).unwrap();
 
     let result = lock_system

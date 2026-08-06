@@ -1,7 +1,7 @@
 //! API 路由：`frontend`。
 
 use crate::config::branding;
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use actix_web::{HttpRequest, HttpResponse, web};
 use rust_embed::Embed;
 use std::path::PathBuf;
@@ -311,7 +311,9 @@ mod tests {
 
         PrimaryAppState {
             db_handles: aster_forge_db::DbHandles::single(db),
-            driver_registry: Arc::new(DriverRegistry::noop()),
+            driver_registry: Arc::new(
+                DriverRegistry::noop().expect("built-in storage connector registry"),
+            ),
             runtime_config,
             policy_snapshot: Arc::new(PolicySnapshot::new()),
             config: Arc::new(Config::default()),

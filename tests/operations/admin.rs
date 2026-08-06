@@ -1996,9 +1996,21 @@ async fn test_admin_policies_support_explicit_sorting() {
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    for (name, bucket) in [
-        ("Policy Sort Zeta", "zeta-bucket"),
-        ("Policy Sort Alpha", "alpha-bucket"),
+    for (name, connection) in [
+        (
+            "Policy Sort Zeta",
+            common::s3_connection_json(
+                "https://s3.example.com",
+                "zeta-bucket",
+                "sort-tests",
+                "ak",
+                "sk",
+            ),
+        ),
+        (
+            "Policy Sort Alpha",
+            common::local_connection_json("/tmp/asterdrive-policy-sort-alpha"),
+        ),
     ] {
         let req = test::TestRequest::post()
             .uri("/api/v1/admin/policies")
@@ -2006,12 +2018,7 @@ async fn test_admin_policies_support_explicit_sorting() {
             .insert_header(common::csrf_header_for(&token))
             .set_json(serde_json::json!({
                 "name": name,
-                "driver_type": "s3",
-                "endpoint": "https://s3.example.com",
-                "bucket": bucket,
-                "access_key": "ak",
-                "secret_key": "sk",
-                "base_path": "sort-tests"
+                "connection": connection
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -2031,18 +2038,18 @@ async fn test_admin_policies_support_explicit_sorting() {
     let body: Value = admin_get_json!(
         app,
         token,
-        "/api/v1/admin/policies?sort_by=bucket&sort_order=desc&limit=10"
+        "/api/v1/admin/policies?sort_by=connector_id&sort_order=desc&limit=10"
     );
     let policies = body["data"]["items"].as_array().unwrap();
-    let buckets = json_string_values(policies, "bucket");
+    let connector_ids = json_string_values(policies, "connector_id");
     assert!(
-        buckets
+        connector_ids
             .iter()
-            .position(|bucket| bucket == "zeta-bucket")
+            .position(|connector_id| connector_id == "asterdrive.storage.s3")
             .unwrap()
-            < buckets
+            < connector_ids
                 .iter()
-                .position(|bucket| bucket == "alpha-bucket")
+                .position(|connector_id| connector_id == "asterdrive.storage.local")
                 .unwrap()
     );
 }
@@ -3123,10 +3130,34 @@ async fn test_admin_tasks_cleanup_uses_explicit_finished_before() {
                 r#"{"blob_id":1,"blob_hash":"hash","source_file_name":"image.png","source_mime_type":"image/png","media_kind":"image"}"#
                     .to_string(),
             ),
-            BackgroundTaskKind::StoragePolicyTempCleanup => StoredTaskPayload(
-                r#"{"policy":{"id":1,"name":"Deleted policy","driver_type":"local","endpoint":"","bucket":"","access_key":"","secret_key":"","base_path":"/tmp/asterdrive-deleted-policy","remote_node_id":null,"max_file_size":0,"allowed_types":"[]","options":"{}","is_default":false,"chunk_size":5242880},"remote_node":null,"temp_keys":["files/temp-object"],"multipart_uploads":[]}"#
+            BackgroundTaskKind::StoragePolicyTempCleanup => {
+                let storage_config = common::encoded_policy_config(
+                    "asterdrive.storage.local",
+                    common::TestLocalConnectorConfigV1 {
+                        base_path: "/tmp/asterdrive-deleted-policy".to_string(),
+                        content_dedup: false,
+                    },
+                    aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+                );
+                StoredTaskPayload(
+                    serde_json::json!({
+                        "policy": {
+                            "id": 1,
+                            "name": "Deleted policy",
+                            "connector_id": "asterdrive.storage.local",
+                            "storage_config": storage_config.as_ref(),
+                            "max_file_size": 0,
+                            "allowed_types": "[]",
+                            "is_default": false,
+                            "chunk_size": 5_242_880
+                        },
+                        "driver_snapshot": null,
+                        "temp_keys": ["files/temp-object"],
+                        "multipart_uploads": []
+                    })
                     .to_string(),
-            ),
+                )
+            }
             BackgroundTaskKind::StoragePolicyMigration => StoredTaskPayload(
                 r#"{"source_policy_id":1,"target_policy_id":2,"delete_source_after_success":false,"plan_hash":"hash","source_policy_updated_at":"2026-01-01T00:00:00Z","target_policy_updated_at":"2026-01-01T00:00:00Z"}"#
                     .to_string(),
@@ -3812,12 +3843,13 @@ async fn test_admin_policies() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Archive S3",
-            "driver_type": "s3",
-            "endpoint": "https://s3.example.com",
-            "bucket": "archive",
-            "access_key": "ak",
-            "secret_key": "sk",
-            "base_path": "backups"
+            "connection": common::s3_connection_json(
+                "https://s3.example.com",
+                "archive",
+                "backups",
+                "ak",
+                "sk"
+            )
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;

@@ -10,7 +10,7 @@ use aster_forge_runtime::{
 };
 use tokio_util::sync::CancellationToken;
 
-use super::{FollowerAppState, PrimaryAppState, SharedRuntimeState};
+use super::{FollowerAppState, PrimaryAppState};
 use aster_forge_mail::MailSender;
 
 const HTTP_SHUTDOWN_TIMEOUT_SECS: u64 = 8;
@@ -172,7 +172,7 @@ mod tests {
     use aster_forge_runtime::RuntimeComponentBundle;
 
     use super::{MailOutboxRuntimeResources, drain_mail_outbox_on_shutdown};
-    use crate::runtime::{FollowerAppState, SharedRuntimeState};
+    use crate::runtime::FollowerAppState;
 
     fn register_background_tasks(registry: &mut aster_forge_runtime::RuntimeComponentRegistry) {
         registry
@@ -204,7 +204,10 @@ mod tests {
 
         FollowerAppState {
             db_handles: aster_forge_db::DbHandles::single(db),
-            driver_registry: Arc::new(crate::storage::DriverRegistry::noop()),
+            driver_registry: Arc::new(
+                crate::storage::DriverRegistry::noop()
+                    .expect("built-in storage connector registry"),
+            ),
             runtime_config,
             policy_snapshot: Arc::new(crate::storage::PolicySnapshot::new()),
             config: Arc::new(crate::config::Config::default()),

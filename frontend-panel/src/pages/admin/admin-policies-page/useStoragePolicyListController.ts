@@ -30,9 +30,7 @@ const DEFAULT_POLICY_PAGE_SIZE = 20 as const;
 const POLICY_SORT_BY_OPTIONS = [
 	"id",
 	"name",
-	"driver_type",
-	"endpoint",
-	"bucket",
+	"connector_id",
 	"is_default",
 	"created_at",
 	"updated_at",

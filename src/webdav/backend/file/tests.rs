@@ -3,13 +3,14 @@
 use super::{AsterDavWriteHandle, DavWriteOpenContext, streaming_direct_eligibility_error};
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::mail::sender;
 use crate::storage::{DriverRegistry, PolicySnapshot};
 use crate::test_support::snapshot_dir_tree;
-use aster_drive_migration::Migrator;
 use aster_drive_model::entities::{storage_policy, user};
-use aster_drive_model::types::{DriverType, UserRole, UserStatus};
+use aster_drive_model::types::{
+    ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy, UserRole, UserStatus,
+};
 use aster_drive_storage::{BlobMetadata, StorageDriver, StreamUploadDriver};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
@@ -171,31 +172,23 @@ async fn build_s3_direct_test_state() -> (
     )
     .await
     .expect("test database connection should succeed");
-    Migrator::up(&db, None)
-        .await
-        .expect("test migrations should succeed");
+    crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
 
     let now = Utc::now();
-    let policy = storage_policy::ActiveModel {
-        name: Set("Direct S3 Policy".to_string()),
-        driver_type: Set(DriverType::S3),
-        endpoint: Set("https://mock-s3.example".to_string()),
-        bucket: Set("mock-bucket".to_string()),
-        access_key: Set("mock-access".to_string()),
-        secret_key: Set("mock-secret".to_string()),
-        base_path: Set(String::new()),
-        max_file_size: Set(0),
-        allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
-        options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
-        is_default: Set(true),
-        chunk_size: Set(5_242_880),
-        created_at: Set(now),
-        updated_at: Set(now),
-        ..Default::default()
-    }
-    .insert(&db)
-    .await
-    .expect("test S3 policy should be inserted");
+    let mut policy = crate::storage::connectors::test_support::s3_policy(
+        "https://mock-s3.example",
+        "mock-bucket",
+        "",
+        ObjectStorageUploadStrategy::RelayStream,
+        ObjectStorageDownloadStrategy::RelayStream,
+    );
+    policy.name = "Direct S3 Policy".to_string();
+    policy.is_default = true;
+    policy.chunk_size = 5_242_880;
+    let policy = crate::storage::connectors::test_support::insertable_policy(policy)
+        .insert(&db)
+        .await
+        .expect("test S3 policy should be inserted");
 
     let user = user::ActiveModel {
         username: Set("webdavs3writer".to_string()),
@@ -232,15 +225,15 @@ async fn build_s3_direct_test_state() -> (
     config.server.temp_dir = temp_root.join(".tmp").to_string_lossy().into_owned();
     config.server.upload_temp_dir = temp_root.join(".uploads").to_string_lossy().into_owned();
 
-    let policy_snapshot = Arc::new(PolicySnapshot::new());
-    policy_snapshot
-        .reload(&db)
-        .await
-        .expect("policy snapshot should reload");
-
-    let driver_registry = Arc::new(DriverRegistry::noop());
+    let driver_registry =
+        Arc::new(DriverRegistry::noop().expect("built-in storage connector registry"));
     let mock_driver = MockDirectS3Driver::default();
     driver_registry.insert_for_test(policy.id, Arc::new(mock_driver.clone()));
+    let policy_snapshot = Arc::new(PolicySnapshot::new());
+    driver_registry
+        .reload_policy_snapshot(&policy_snapshot, &db)
+        .await
+        .expect("policy snapshot should reload");
 
     let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
         crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
@@ -393,26 +386,13 @@ async fn known_size_s3_write_with_precondition_uses_transactional_temp_upload() 
 
 #[test]
 fn streaming_direct_eligibility_failure_maps_to_general_failure() {
-    let now = Utc::now();
-    let policy = storage_policy::Model {
-        id: 1,
-        name: "Direct S3 Policy".to_string(),
-        driver_type: DriverType::S3,
-        endpoint: String::new(),
-        bucket: String::new(),
-        access_key: String::new(),
-        secret_key: String::new(),
-        base_path: String::new(),
-        remote_node_id: None,
-        remote_storage_target_key: None,
-        max_file_size: 0,
-        allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
-        options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
-        is_default: false,
-        chunk_size: 0,
-        created_at: now,
-        updated_at: now,
-    };
+    let policy = crate::storage::connectors::test_support::s3_policy(
+        "https://mock-s3.example",
+        "mock-bucket",
+        "",
+        ObjectStorageUploadStrategy::RelayStream,
+        ObjectStorageDownloadStrategy::RelayStream,
+    );
     let error = crate::errors::AsterError::internal_error("test connector registry failure");
 
     assert!(matches!(

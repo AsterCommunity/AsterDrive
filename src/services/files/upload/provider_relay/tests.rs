@@ -16,11 +16,8 @@ use crate::db::repository::{upload_session_part_repo, upload_session_repo};
 use crate::services::files::upload::provider_session::{
     ProviderSessionSecret, encrypt_provider_session,
 };
-use aster_drive_model::entities::{storage_policy, upload_session, upload_session_part, user};
-use aster_drive_model::types::{
-    DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UploadSessionKind,
-    UserRole, UserStatus,
-};
+use aster_drive_model::entities::{upload_session, upload_session_part, user};
+use aster_drive_model::types::{UploadSessionKind, UserRole, UserStatus};
 use aster_drive_storage::error::storage_driver_error;
 use aster_drive_storage::{
     BlobMetadata, ProviderResumableUploadCapabilities, ProviderResumableUploadSession,
@@ -388,28 +385,20 @@ impl Fixture {
         .insert(state.writer_db())
         .await
         .expect("test user should insert");
-        let policy = storage_policy::ActiveModel {
-            name: Set(format!("relay-policy-{}", uuid::Uuid::new_v4())),
-            driver_type: Set(DriverType::OneDrive),
-            endpoint: Set(String::new()),
-            bucket: Set(String::new()),
-            access_key: Set(String::new()),
-            secret_key: Set(String::new()),
-            base_path: Set(String::new()),
-            remote_node_id: Set(None),
-            remote_storage_target_key: Set(None),
-            max_file_size: Set(0),
-            allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(StoredStoragePolicyOptions::empty()),
-            is_default: Set(true),
-            chunk_size: Set(5),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
-        }
-        .insert(state.writer_db())
-        .await
-        .expect("test policy should insert");
+        let mut policy = crate::storage::connectors::test_support::onedrive_policy(
+            crate::storage::connectors::OneDriveAccountMode::Personal,
+            None,
+            None,
+            None,
+            aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+        );
+        policy.name = format!("relay-policy-{}", uuid::Uuid::new_v4());
+        policy.is_default = true;
+        policy.chunk_size = 5;
+        let policy = crate::storage::connectors::test_support::insertable_policy(policy)
+            .insert(state.writer_db())
+            .await
+            .expect("test policy should insert");
 
         let upload_id = uuid::Uuid::new_v4().to_string();
         let upload_url = "https://mock.invalid/upload?secret=redacted".to_string();

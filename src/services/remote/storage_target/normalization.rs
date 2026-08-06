@@ -4,7 +4,7 @@ use crate::storage::remote_protocol::{
     RemoteCreateStorageTargetRequest, RemoteUpdateStorageTargetRequest,
 };
 use aster_drive_model::entities::remote_storage_target;
-use aster_drive_model::types::DriverType;
+use aster_drive_model::types::RemoteStorageTargetDriverKind;
 use aster_drive_storage::field_contract::{
     normalize_required_storage_field, preserve_secret_when_omitted,
 };
@@ -13,7 +13,7 @@ use super::driver::{RemoteStorageTargetDriverFields, normalize_driver_fields};
 
 pub(in crate::services::remote::storage_target) struct NormalizedStorageTargetInput {
     pub name: String,
-    pub driver_type: DriverType,
+    pub driver_type: RemoteStorageTargetDriverKind,
     pub endpoint: String,
     pub bucket: String,
     pub access_key: String,
@@ -24,7 +24,7 @@ pub(in crate::services::remote::storage_target) struct NormalizedStorageTargetIn
 
 struct StorageTargetFields {
     name: String,
-    driver_type: DriverType,
+    driver_type: RemoteStorageTargetDriverKind,
     endpoint: String,
     bucket: String,
     access_key: String,
@@ -43,7 +43,7 @@ pub(in crate::services::remote::storage_target) fn normalize_create_input(
             is_default,
         }) => normalize_target_fields(StorageTargetFields {
             name: normalize_required_storage_field("name", &name)?,
-            driver_type: DriverType::Local,
+            driver_type: RemoteStorageTargetDriverKind::Local,
             endpoint: String::new(),
             bucket: String::new(),
             access_key: String::new(),
@@ -61,7 +61,7 @@ pub(in crate::services::remote::storage_target) fn normalize_create_input(
             is_default,
         }) => normalize_target_fields(StorageTargetFields {
             name: normalize_required_storage_field("name", &name)?,
-            driver_type: DriverType::S3,
+            driver_type: RemoteStorageTargetDriverKind::S3,
             endpoint,
             bucket,
             access_key,

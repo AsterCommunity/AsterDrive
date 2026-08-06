@@ -8,7 +8,7 @@ use crate::api::response::ApiResponse;
 use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::config::site_url;
 use crate::errors::{AsterError, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::auth::external::{
     self as external, ExternalAuthCallbackOutcome, ExternalAuthCallbackQuery,
     ExternalAuthEmailVerificationConfirmQuery, ExternalAuthEmailVerificationStartRequest,

@@ -1,48 +1,6 @@
 import type { StorageConnectorDescriptor, StoragePolicy } from "@/types/api";
-import { microsoftGraphCredentials } from "./applicationCredentials";
 import { normalizePolicyForm } from "./connectionNormalization";
-import {
-	supportsMicrosoftGraphApplicationConfig,
-	supportsOneDrivePolicyOptions,
-} from "./descriptorPredicates";
 import { getPolicyForm, type PolicyFormData } from "./formTypes";
-import { buildPolicyOptions } from "./storagePolicyOptions";
-
-function policyFormValueEquals(left: unknown, right: unknown): boolean {
-	if (Object.is(left, right)) {
-		return true;
-	}
-	if (Array.isArray(left) || Array.isArray(right)) {
-		if (!Array.isArray(left) || !Array.isArray(right)) {
-			return false;
-		}
-		return (
-			left.length === right.length &&
-			left.every((item, index) => policyFormValueEquals(item, right[index]))
-		);
-	}
-	if (
-		left === null ||
-		right === null ||
-		typeof left !== "object" ||
-		typeof right !== "object"
-	) {
-		return false;
-	}
-
-	const leftRecord = left as Record<string, unknown>;
-	const rightRecord = right as Record<string, unknown>;
-	const leftKeys = Object.keys(leftRecord);
-	if (leftKeys.length !== Object.keys(rightRecord).length) {
-		return false;
-	}
-
-	return leftKeys.every(
-		(key) =>
-			Object.hasOwn(rightRecord, key) &&
-			policyFormValueEquals(leftRecord[key], rightRecord[key]),
-	);
-}
 
 export function policyFormHasUnsavedChanges(
 	form: PolicyFormData,
@@ -53,75 +11,51 @@ export function policyFormHasUnsavedChanges(
 		return false;
 	}
 
-	const comparableForm = normalizePolicyComparableForm(form, descriptor);
-	const comparablePolicyForm = normalizePolicyComparableForm(
-		getPolicyForm(policy),
-		descriptor,
+	const current = comparableForm(normalizePolicyForm(form, descriptor));
+	const saved = comparableForm(
+		normalizePolicyForm(getPolicyForm(policy), descriptor),
 	);
-
-	return !policyFormValueEquals(comparableForm, comparablePolicyForm);
+	return !valuesEqual(current, saved);
 }
 
-function normalizePolicyComparableForm(
-	form: PolicyFormData,
-	descriptor?: StorageConnectorDescriptor | null,
-) {
-	const normalized = normalizePolicyForm(form, descriptor);
-	const comparableBase = descriptor
-		? withComparableDescriptorOptions(normalized, descriptor)
-		: normalized;
-	const usesMicrosoftGraph =
-		descriptor != null
-			? supportsOneDrivePolicyOptions(descriptor) ||
-				supportsMicrosoftGraphApplicationConfig(descriptor)
-			: hasMicrosoftGraphFormFields(comparableBase);
-
-	if (!usesMicrosoftGraph) {
-		const {
-			onedrive_account_mode: _accountMode,
-			onedrive_cloud: _cloud,
-			onedrive_drive_id: _driveId,
-			onedrive_group_id: _groupId,
-			onedrive_root_item_id: _rootItemId,
-			onedrive_site_id: _siteId,
-			onedrive_tenant: _tenant,
-			application_credentials: _applicationCredentials,
-			...comparable
-		} = comparableBase;
-		return comparable;
-	}
-
-	const microsoftGraph = microsoftGraphCredentials(comparableBase);
-	if (microsoftGraph.client_id.trim() || microsoftGraph.client_secret.trim()) {
-		return comparableBase;
-	}
-
-	const { application_credentials: _applicationCredentials, ...comparable } =
-		comparableBase;
-	return comparable;
-}
-
-function withComparableDescriptorOptions(
-	form: PolicyFormData,
-	descriptor: StorageConnectorDescriptor,
-) {
-	const { policy_option_values: _policyOptionValues, ...comparable } = form;
+function comparableForm(form: PolicyFormData) {
 	return {
-		...comparable,
-		policy_options: buildPolicyOptions(form, descriptor),
+		...form,
+		// Persisted secrets are intentionally never returned to the form. Empty
+		// credential inputs therefore mean "keep saved credential", not a change.
+		credential_values: Object.fromEntries(
+			Object.entries(form.credential_values).filter(
+				([, value]) => value !== "",
+			),
+		),
 	};
 }
 
-function hasMicrosoftGraphFormFields(form: PolicyFormData) {
-	const microsoftGraph = microsoftGraphCredentials(form);
+function valuesEqual(left: unknown, right: unknown): boolean {
+	if (Object.is(left, right)) {
+		return true;
+	}
+	if (Array.isArray(left) || Array.isArray(right)) {
+		return (
+			Array.isArray(left) &&
+			Array.isArray(right) &&
+			left.length === right.length &&
+			left.every((item, index) => valuesEqual(item, right[index]))
+		);
+	}
+	if (!isRecord(left) || !isRecord(right)) {
+		return false;
+	}
+	const leftKeys = Object.keys(left);
+	const rightKeys = Object.keys(right);
 	return (
-		Boolean(form.onedrive_account_mode) ||
-		Boolean(form.onedrive_cloud) ||
-		Boolean(form.onedrive_tenant.trim()) ||
-		Boolean(form.onedrive_drive_id.trim()) ||
-		Boolean(form.onedrive_root_item_id.trim()) ||
-		Boolean(microsoftGraph.client_id.trim()) ||
-		Boolean(microsoftGraph.client_secret.trim()) ||
-		Boolean(microsoftGraph.scopes.trim())
+		leftKeys.length === rightKeys.length &&
+		leftKeys.every(
+			(key) => Object.hasOwn(right, key) && valuesEqual(left[key], right[key]),
+		)
 	);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

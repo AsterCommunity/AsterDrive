@@ -8,13 +8,8 @@ use utoipa::ToSchema;
 
 use crate::config::operations;
 use crate::services::user::account;
-use crate::storage::connectors::{
-    StoragePolicyCleanupDriverSnapshot, StoragePolicyCleanupOneDriveCredentialSnapshot,
-    StoragePolicyCleanupRemoteNodeSnapshot,
-};
-use aster_drive_model::types::{
-    ArchiveFilenameEncoding, BackgroundTaskKind, BackgroundTaskStatus, DriverType,
-};
+use crate::storage::connectors::StoragePolicyCleanupDriverSnapshot;
+use aster_drive_model::types::{ArchiveFilenameEncoding, BackgroundTaskKind, BackgroundTaskStatus};
 
 use super::runtime::SystemRuntimeTaskKind;
 
@@ -359,17 +354,10 @@ pub struct TrashPurgeAllTaskResult {
 pub(crate) struct StoragePolicyCleanupPolicySnapshot {
     pub id: i64,
     pub name: String,
-    pub driver_type: DriverType,
-    pub endpoint: String,
-    pub bucket: String,
-    pub access_key: String,
-    pub secret_key: String,
-    pub base_path: String,
-    pub remote_node_id: Option<i64>,
-    pub remote_storage_target_key: Option<String>,
+    pub connector_id: String,
+    pub storage_config: String,
     pub max_file_size: i64,
     pub allowed_types: String,
-    pub options: String,
     pub is_default: bool,
     pub chunk_size: i64,
 }
@@ -386,14 +374,6 @@ pub(crate) struct StoragePolicyTempCleanupTaskPayload {
     pub policy: StoragePolicyCleanupPolicySnapshot,
     #[serde(default)]
     pub driver_snapshot: Option<StoragePolicyCleanupDriverSnapshot>,
-    /// Deprecated legacy OneDrive cleanup snapshot. New tasks store this under
-    /// `driver_snapshot`; keep this field so queued pre-migration tasks decode.
-    #[serde(default)]
-    pub onedrive_credential: Option<StoragePolicyCleanupOneDriveCredentialSnapshot>,
-    /// Deprecated legacy remote cleanup snapshot. New tasks store this under
-    /// `driver_snapshot`; keep this field so queued pre-migration tasks decode.
-    #[serde(default)]
-    pub remote_node: Option<StoragePolicyCleanupRemoteNodeSnapshot>,
     pub temp_keys: Vec<String>,
     pub multipart_uploads: Vec<StoragePolicyTempCleanupTarget>,
 }
@@ -403,7 +383,7 @@ pub(crate) struct StoragePolicyTempCleanupTaskPayload {
 pub struct StoragePolicyTempCleanupTaskPayloadInfo {
     pub policy_id: i64,
     pub policy_name: String,
-    pub driver_type: DriverType,
+    pub connector_id: String,
     pub temp_key_count: usize,
     pub multipart_upload_count: usize,
 }
@@ -413,7 +393,7 @@ impl From<StoragePolicyTempCleanupTaskPayload> for StoragePolicyTempCleanupTaskP
         Self {
             policy_id: value.policy.id,
             policy_name: value.policy.name,
-            driver_type: value.policy.driver_type,
+            connector_id: value.policy.connector_id,
             temp_key_count: value.temp_keys.len(),
             multipart_upload_count: value.multipart_uploads.len(),
         }
@@ -423,53 +403,43 @@ impl From<StoragePolicyTempCleanupTaskPayload> for StoragePolicyTempCleanupTaskP
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aster_drive_storage::ConnectorId;
 
-    #[test]
-    fn legacy_onedrive_cleanup_snapshot_decodes_without_refresh_fields() {
-        let value = serde_json::json!({
-            "cloud": "global",
-            "drive_id": "drive",
-            "root_item_id": "root",
-            "access_token_ciphertext": "access",
-        });
-
-        let snapshot: StoragePolicyCleanupOneDriveCredentialSnapshot =
-            serde_json::from_value(value).expect("legacy snapshot should decode");
-
-        assert_eq!(snapshot.tenant_id, None);
-        assert_eq!(snapshot.client_id, None);
-        assert_eq!(snapshot.client_secret_ciphertext, None);
-        assert_eq!(snapshot.refresh_token_ciphertext, None);
-        assert_eq!(snapshot.expires_at, None);
+    #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+    struct TestCleanupSnapshot {
+        token: String,
     }
 
     #[test]
-    fn onedrive_cleanup_snapshot_serializes_refresh_fields_for_new_tasks() {
-        let expires_at = chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
-            .unwrap()
-            .with_timezone(&chrono::Utc);
-        let snapshot = StoragePolicyCleanupOneDriveCredentialSnapshot {
-            cloud: aster_drive_model::types::MicrosoftGraphCloud::Global,
-            tenant_id: Some("tenant".to_string()),
-            client_id: Some("client-id".to_string()),
-            client_secret_ciphertext: Some("client-secret-ciphertext".to_string()),
-            drive_id: "drive".to_string(),
-            root_item_id: "root".to_string(),
-            access_token_ciphertext: "access".to_string(),
-            refresh_token_ciphertext: Some("refresh".to_string()),
-            expires_at: Some(expires_at),
-        };
-
-        let value = serde_json::to_value(snapshot).expect("snapshot should serialize");
-
-        assert_eq!(value["tenant_id"], "tenant");
-        assert_eq!(value["client_id"], "client-id");
+    fn cleanup_snapshot_envelope_round_trips_typed_payload() {
+        let connector_id = ConnectorId::declared("plugin.cleanup");
+        let snapshot = StoragePolicyCleanupDriverSnapshot::encode(
+            connector_id.clone(),
+            2,
+            &TestCleanupSnapshot {
+                token: "ciphertext".to_string(),
+            },
+        )
+        .expect("cleanup snapshot should encode");
+        let decoded: TestCleanupSnapshot = snapshot
+            .decode(connector_id.as_str(), 2)
+            .expect("cleanup snapshot should decode");
         assert_eq!(
-            value["client_secret_ciphertext"],
-            "client-secret-ciphertext"
+            decoded,
+            TestCleanupSnapshot {
+                token: "ciphertext".to_string()
+            }
         );
-        assert_eq!(value["refresh_token_ciphertext"], "refresh");
-        assert!(value.get("expires_at").is_some());
+        assert!(
+            snapshot
+                .decode::<TestCleanupSnapshot>("plugin.other", 2)
+                .is_err()
+        );
+        assert!(
+            snapshot
+                .decode::<TestCleanupSnapshot>(connector_id.as_str(), 3)
+                .is_err()
+        );
     }
 }
 

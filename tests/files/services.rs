@@ -2,7 +2,6 @@
 
 use crate::common;
 
-use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::files::file::StoreFromTempRequest;
 use std::collections::BTreeSet;
 #[cfg(unix)]
@@ -1811,7 +1810,8 @@ async fn test_share_download_failure_rolls_back_download_quota() {
         .policy_snapshot
         .get_policy_or_err(blob.policy_id)
         .unwrap();
-    let stored_path = std::path::Path::new(&policy.base_path).join(&blob.storage_path);
+    let stored_path =
+        std::path::Path::new(&common::local_policy_base_path(&policy)).join(&blob.storage_path);
     std::fs::remove_file(&stored_path).unwrap();
 
     let err = aster_drive::services::share::download_shared_file_with_range(
@@ -2088,8 +2088,8 @@ async fn test_team_service_rejects_create_without_default_policy_group() {
         .await
         .unwrap();
     state
-        .policy_snapshot
-        .reload(state.writer_db())
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
         .await
         .unwrap();
 
@@ -2842,7 +2842,7 @@ async fn test_team_archive_cleanup_keeps_team_when_upload_temp_delete_fails() {
         .await
         .unwrap();
 
-    let object_parent = std::path::Path::new(&policy.base_path)
+    let object_parent = std::path::Path::new(&common::local_policy_base_path(&policy))
         .join(&temp_key)
         .parent()
         .unwrap()

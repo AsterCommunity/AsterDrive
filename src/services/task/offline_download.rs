@@ -8,7 +8,7 @@ use aster_forge_tasks::{TaskRetryClass, set_task_step_active, set_task_step_succ
 
 use crate::config::operations;
 use crate::errors::{AsterError, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::{
     files::folder,
     task::{

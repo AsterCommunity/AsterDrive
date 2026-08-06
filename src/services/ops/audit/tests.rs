@@ -379,7 +379,9 @@ async fn log_writes_synchronously_without_global_manager() {
         );
     let state = crate::runtime::PrimaryAppState {
         db_handles: aster_forge_db::DbHandles::single(db.clone()),
-        driver_registry: std::sync::Arc::new(crate::storage::DriverRegistry::noop()),
+        driver_registry: std::sync::Arc::new(
+            crate::storage::DriverRegistry::noop().expect("built-in storage connector registry"),
+        ),
         runtime_config,
         policy_snapshot: std::sync::Arc::new(crate::storage::PolicySnapshot::new()),
         config: std::sync::Arc::new(crate::config::Config::default()),
@@ -432,7 +434,9 @@ async fn follower_state_can_record_allowed_audit_log() {
     .await;
     let state = crate::runtime::FollowerAppState {
         db_handles: aster_forge_db::DbHandles::single(db.clone()),
-        driver_registry: std::sync::Arc::new(crate::storage::DriverRegistry::noop()),
+        driver_registry: std::sync::Arc::new(
+            crate::storage::DriverRegistry::noop().expect("built-in storage connector registry"),
+        ),
         runtime_config,
         policy_snapshot: std::sync::Arc::new(crate::storage::PolicySnapshot::new()),
         config: std::sync::Arc::new(crate::config::Config::default()),
@@ -494,7 +498,9 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
         );
     let state = crate::runtime::PrimaryAppState {
         db_handles: aster_forge_db::DbHandles::single(db.clone()),
-        driver_registry: std::sync::Arc::new(crate::storage::DriverRegistry::noop()),
+        driver_registry: std::sync::Arc::new(
+            crate::storage::DriverRegistry::noop().expect("built-in storage connector registry"),
+        ),
         runtime_config,
         policy_snapshot: std::sync::Arc::new(crate::storage::PolicySnapshot::new()),
         config: std::sync::Arc::new(crate::config::Config::default()),

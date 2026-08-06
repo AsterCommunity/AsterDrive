@@ -2,92 +2,298 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+use std::any::Any;
+use std::collections::BTreeMap;
 use std::sync::Arc;
+use validator::Validate;
 
-use crate::storage::drivers::onedrive::MicrosoftGraphAccessTokenProvider;
-use aster_drive_model::types::{
-    DriverType, MicrosoftGraphCloud, RemoteNodeTransportMode, StorageCredentialKind,
-    StorageCredentialProvider,
+use aster_drive_model::types::{StorageCredentialKind, StorageCredentialProvider};
+use aster_drive_storage::{
+    ConnectorConfigEnvelope, StorageConnectorActionId, StoragePolicyBehaviorConfig,
 };
-use aster_drive_storage::StoragePolicyExecutableAction;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct MicrosoftGraphApplicationConfigInput {
-    pub cloud: Option<MicrosoftGraphCloud>,
-    pub tenant: Option<String>,
-    pub client_id: Option<String>,
-    pub client_secret: Option<String>,
-    pub scopes: Option<Vec<String>>,
+/// Failure stages exposed by connector-owned authorization workflows.
+///
+/// The orchestration layer uses this small vocabulary to map connector errors
+/// to the callback redirect contract. Provider-specific diagnostics remain in
+/// the inner [`AsterError`] and are never encoded in the flow row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StorageAuthorizationFailureReason {
+    InvalidState,
+    ProviderError,
+    TokenExchangeFailed,
+    DriveResolutionFailed,
+    InvalidRequest,
+    ServerError,
+    UnsupportedProvider,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct StorageConnectorApplicationConfigInput {
-    pub microsoft_graph: Option<MicrosoftGraphApplicationConfigInput>,
-}
-
-impl StorageConnectorApplicationConfigInput {
-    pub fn is_empty(&self) -> bool {
-        self.microsoft_graph.is_none()
+impl StorageAuthorizationFailureReason {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::InvalidState => "invalid_state",
+            Self::ProviderError => "provider_error",
+            Self::TokenExchangeFailed => "token_exchange_failed",
+            Self::DriveResolutionFailed => "drive_resolution_failed",
+            Self::InvalidRequest => "invalid_request",
+            Self::ServerError => "server_error",
+            Self::UnsupportedProvider => "unsupported_provider",
+        }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
+pub(crate) struct StorageConnectorAuthorizationError {
+    reason: StorageAuthorizationFailureReason,
+    source: crate::errors::AsterError,
+}
+
+impl StorageConnectorAuthorizationError {
+    pub(crate) fn new(
+        reason: StorageAuthorizationFailureReason,
+        source: crate::errors::AsterError,
+    ) -> Self {
+        Self { reason, source }
+    }
+
+    pub(crate) const fn reason(&self) -> StorageAuthorizationFailureReason {
+        self.reason
+    }
+
+    pub(crate) fn into_source(self) -> crate::errors::AsterError {
+        self.source
+    }
+}
+
+impl std::fmt::Display for StorageConnectorAuthorizationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.reason.as_str(), self.source)
+    }
+}
+
+impl std::error::Error for StorageConnectorAuthorizationError {}
+
+/// Opaque authorization state returned by a connector before the flow row is
+/// persisted. The connector owns the protocol context; core only hashes the
+/// state and stores these strings without interpreting their payload.
+#[derive(Clone, Debug)]
+pub(crate) struct StorageConnectorAuthorizationStart {
+    pub(crate) provider: StorageCredentialProvider,
+    pub(crate) authorization_url: String,
+    pub(crate) expires_in: u64,
+    pub(crate) state: String,
+    pub(crate) pkce_verifier: Option<String>,
+    pub(crate) scopes: Vec<String>,
+    pub(crate) context: String,
+    pub(crate) audit: StorageConnectorAuthorizationAudit,
+}
+
+/// Connector-neutral audit metadata. Values are connector-owned and treated as
+/// opaque structured fields by the generic OAuth audit writer.
+#[derive(Clone, Debug)]
+pub(crate) struct StorageConnectorAuthorizationAudit {
+    pub(crate) provider: StorageCredentialProvider,
+    pub(crate) fields: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct StorageConnectorAuthorizationCallback {
+    pub(crate) credential_payload: serde_json::Value,
+    pub(crate) audit: StorageConnectorAuthorizationAudit,
+}
+
+/// Exactly one connector credential channel supplied by an API caller.
+///
+/// The tagged representation makes static credentials and authorization
+/// application credentials structurally mutually exclusive. Each connector
+/// deserializes `values` into the typed credential struct generated by its
+/// schema declaration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(tag = "mode", content = "values", rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum StorageConnectorCredentialInput {
+    #[default]
+    None,
+    Static(serde_json::Value),
+    AuthorizationApplication(serde_json::Value),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorConnectionInput {
-    pub driver_type: DriverType,
-    pub endpoint: String,
-    pub bucket: String,
+    pub connector_config: ConnectorConfigEnvelope,
+    pub behavior: StoragePolicyBehaviorConfig,
+    pub credential: StorageConnectorCredentialInput,
+}
+
+/// Strongly typed legacy credential rows used only by AsterDrive 0.5.0.
+///
+/// The deprecated table models stay outside the normal entity namespace. Core
+/// migration code loads them, while each connector owns conversion into its
+/// current credential payload. This type and the legacy tables will be
+/// completely removed in AsterDrive 0.6.0.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct LegacyStorageConnectorCredentialInput {
+    pub static_credential: Option<LegacyStoragePolicyStaticCredential>,
+    #[expect(
+        deprecated,
+        reason = "AsterDrive 0.5.0 migration input is removed with legacy application credentials in 0.6.0"
+    )]
+    pub application_config:
+        Option<aster_drive_model::deprecated::storage_connector_application_config::Model>,
+    #[expect(
+        deprecated,
+        reason = "AsterDrive 0.5.0 migration input is removed with legacy authorization credentials in 0.6.0"
+    )]
+    pub authorization: Option<aster_drive_model::deprecated::storage_policy_credential::Model>,
+}
+
+impl LegacyStorageConnectorCredentialInput {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.static_credential.is_none()
+            && self.application_config.is_none()
+            && self.authorization.is_none()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LegacyStoragePolicyStaticCredential {
     pub access_key: String,
     pub secret_key: String,
+}
+
+#[derive(Clone)]
+pub(crate) struct StorageConnectorRuntimeCredential {
+    connector_id: aster_drive_storage::ConnectorId,
+    value: Arc<dyn Any + Send + Sync>,
+}
+
+impl StorageConnectorRuntimeCredential {
+    pub(crate) fn new<T>(connector_id: aster_drive_storage::ConnectorId, value: T) -> Self
+    where
+        T: Send + Sync + 'static,
+    {
+        Self {
+            connector_id,
+            value: Arc::new(value),
+        }
+    }
+
+    pub(crate) fn require<T>(&self, connector_id: &str) -> crate::errors::Result<&T>
+    where
+        T: Send + Sync + 'static,
+    {
+        if self.connector_id.as_str() != connector_id {
+            return Err(crate::errors::AsterError::internal_error(format!(
+                "runtime credential for connector '{}' was supplied to connector '{}'",
+                self.connector_id.as_str(),
+                connector_id
+            )));
+        }
+        self.value.downcast_ref::<T>().ok_or_else(|| {
+            crate::errors::AsterError::internal_error(format!(
+                "runtime credential payload type does not match connector '{connector_id}'"
+            ))
+        })
+    }
+}
+
+impl std::fmt::Debug for StorageConnectorRuntimeCredential {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("StorageConnectorRuntimeCredential")
+            .field("connector_id", &self.connector_id)
+            .field("value", &"***REDACTED***")
+            .finish()
+    }
+}
+
+/// Minimal local-filesystem behavior exposed to product workflows.
+///
+/// The concrete local connector owns its persisted schema. Callers receive
+/// only the runtime facts needed for staging and content deduplication.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LocalFilesystemPolicyProjection {
     pub base_path: String,
+    pub content_dedup: bool,
+}
+
+/// Connector-owned remote binding facts used by routing and topology checks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RemotePolicyBindingProjection {
     pub remote_node_id: Option<i64>,
-    pub remote_storage_target_key: Option<String>,
-    pub options: aster_drive_model::types::StoragePolicyOptions,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct StorageConnectorCredentialRequirement {
-    pub provider: StorageCredentialProvider,
-    pub credential_kind: StorageCredentialKind,
-    pub requires_application_config: bool,
-    pub requires_authorization: bool,
-}
-
-#[derive(Clone)]
-pub(crate) struct OneDriveCredentialRuntime {
-    pub token_provider: Arc<dyn MicrosoftGraphAccessTokenProvider>,
-    pub drive_id: Option<String>,
-    pub root_item_id: Option<String>,
-}
-
-#[derive(Clone)]
-pub(crate) enum StorageConnectorRuntimeCredential {
-    MicrosoftGraph(OneDriveCredentialRuntime),
+    pub download_strategy: aster_drive_model::types::RemoteDownloadStrategy,
+    pub upload_strategy: aster_drive_model::types::RemoteUploadStrategy,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct StorageCredentialValidationOutcome {
-    pub account_label: Option<String>,
-    pub subject: Option<String>,
-    pub metadata: String,
+    pub credential: aster_drive_model::entities::storage_policy_connector_credential::Model,
+    pub credential_payload: serde_json::Value,
     pub root_item_id: String,
     pub root_item_name: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-pub struct ExecuteSavedStorageConnectorActionInput {
-    pub action: StoragePolicyExecutableAction,
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StorageConnectorCredentialInfo {
+    pub id: i64,
+    pub policy_id: i64,
+    pub provider: StorageCredentialProvider,
+    pub credential_kind: StorageCredentialKind,
+    pub account_label: Option<String>,
+    pub subject: Option<String>,
+    pub tenant_id: Option<String>,
+    pub scopes: Vec<String>,
+    pub status: aster_drive_model::types::StorageCredentialStatus,
+    pub status_reason: Option<String>,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
+    pub authorized_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
+    pub last_refreshed_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
+    pub last_validated_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct ExecuteSavedStorageConnectorActionInput {
+    pub action_id: StorageConnectorActionId,
+    #[serde(default)]
+    #[cfg_attr(
+        all(debug_assertions, feature = "openapi"),
+        schema(value_type = BTreeMap<String, aster_drive_storage::StorageConnectorFieldValue>)
+    )]
+    pub values: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ExecuteDraftStorageConnectorActionInput {
-    pub action: StoragePolicyExecutableAction,
+    pub action_id: StorageConnectorActionId,
+    #[serde(default)]
+    #[cfg_attr(
+        all(debug_assertions, feature = "openapi"),
+        schema(value_type = BTreeMap<String, aster_drive_storage::StorageConnectorFieldValue>)
+    )]
+    pub values: BTreeMap<String, serde_json::Value>,
+    #[validate(range(min = 1, message = "policy_id must be greater than 0"))]
     pub policy_id: Option<i64>,
     pub connection: StorageConnectorConnectionInput,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct TestDraftStorageConnectorConnectionInput {
     pub policy_id: Option<i64>,
     pub connection: StorageConnectorConnectionInput,
@@ -95,79 +301,106 @@ pub struct TestDraftStorageConnectorConnectionInput {
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct TencentCosCorsConfigResult {
-    pub rule_id: String,
-    pub allowed_origins: Vec<String>,
-    pub request_id: Option<String>,
-    pub preserved_rule_count: usize,
-    pub replaced_existing_rule: bool,
-    pub response_vary: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorActionResult {
-    pub action: StoragePolicyExecutableAction,
+    pub action_id: StorageConnectorActionId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tencent_cos_cors: Option<TencentCosCorsConfigResult>,
+    pub output: Option<StorageConnectorActionOutput>,
+}
+
+/// Connector-owned structured action output.
+///
+/// Core orchestration treats output as opaque. Connectors may return nested
+/// provider details while OpenAPI still exposes a truthful free-form object.
+#[derive(Debug, Clone, Serialize)]
+#[serde(transparent)]
+pub struct StorageConnectorActionOutput(BTreeMap<String, serde_json::Value>);
+
+#[cfg(all(debug_assertions, feature = "openapi"))]
+impl utoipa::PartialSchema for StorageConnectorActionOutput {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        utoipa::openapi::ObjectBuilder::new()
+            .additional_properties(Some(
+                utoipa::openapi::schema::AdditionalProperties::FreeForm(true),
+            ))
+            .into()
+    }
+}
+
+#[cfg(all(debug_assertions, feature = "openapi"))]
+impl utoipa::ToSchema for StorageConnectorActionOutput {}
+
+impl StorageConnectorActionResult {
+    pub(crate) fn with_output<T: Serialize>(
+        action_id: StorageConnectorActionId,
+        output: T,
+    ) -> crate::errors::Result<Self> {
+        let output = serde_json::to_value(output)
+            .and_then(serde_json::from_value)
+            .map_err(|error| {
+                crate::errors::AsterError::internal_error(format!(
+                    "serialize storage connector action output: {error}"
+                ))
+            })?;
+        Ok(Self {
+            action_id,
+            output: Some(StorageConnectorActionOutput(output)),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct StoragePolicyCleanupRemoteNodeSnapshot {
-    pub id: i64,
-    pub name: String,
-    pub base_url: String,
-    #[serde(default)]
-    pub transport_mode: RemoteNodeTransportMode,
-    pub access_key_ciphertext: String,
-    pub secret_key_ciphertext: String,
-    #[serde(default)]
-    pub last_capabilities: String,
+#[serde(deny_unknown_fields)]
+pub(crate) struct StoragePolicyCleanupDriverSnapshot {
+    connector_id: aster_drive_storage::ConnectorId,
+    schema_version: u32,
+    payload: serde_json::Value,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct StoragePolicyCleanupOneDriveCredentialSnapshot {
-    pub cloud: aster_drive_model::types::MicrosoftGraphCloud,
-    #[serde(default)]
-    pub tenant_id: Option<String>,
-    #[serde(default)]
-    pub client_id: Option<String>,
-    #[serde(default)]
-    pub client_secret_ciphertext: Option<String>,
-    pub drive_id: String,
-    pub root_item_id: String,
-    pub access_token_ciphertext: String,
-    #[serde(default)]
-    pub refresh_token_ciphertext: Option<String>,
-    #[serde(default)]
-    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
-}
+impl StoragePolicyCleanupDriverSnapshot {
+    pub(crate) fn encode<T: Serialize>(
+        connector_id: aster_drive_storage::ConnectorId,
+        schema_version: u32,
+        payload: &T,
+    ) -> crate::errors::Result<Self> {
+        let payload = serde_json::to_value(payload).map_err(|error| {
+            crate::errors::AsterError::internal_error(format!(
+                "serialize cleanup snapshot for connector '{connector_id}': {error}"
+            ))
+        })?;
+        Ok(Self {
+            connector_id,
+            schema_version,
+            payload,
+        })
+    }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub(crate) enum StoragePolicyCleanupDriverSnapshot {
-    RemoteNode(StoragePolicyCleanupRemoteNodeSnapshot),
-    MicrosoftGraph(StoragePolicyCleanupOneDriveCredentialSnapshot),
+    pub(crate) fn decode<T: serde::de::DeserializeOwned>(
+        &self,
+        connector_id: &str,
+        schema_version: u32,
+    ) -> crate::errors::Result<T> {
+        if self.connector_id.as_str() != connector_id {
+            return Err(crate::errors::AsterError::validation_error(format!(
+                "cleanup snapshot for connector '{}' was supplied to connector '{}'",
+                self.connector_id.as_str(),
+                connector_id
+            )));
+        }
+        if self.schema_version != schema_version {
+            return Err(crate::errors::AsterError::validation_error(format!(
+                "cleanup snapshot for connector '{}' has unsupported schema version {}",
+                connector_id, self.schema_version
+            )));
+        }
+        serde_json::from_value(self.payload.clone()).map_err(|error| {
+            crate::errors::AsterError::validation_error(format!(
+                "cleanup snapshot for connector '{connector_id}' is invalid: {error}"
+            ))
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct StoragePolicyCleanupSnapshots<'a> {
     pub driver_snapshot: Option<&'a StoragePolicyCleanupDriverSnapshot>,
-    pub legacy_onedrive_credential: Option<&'a StoragePolicyCleanupOneDriveCredentialSnapshot>,
-    pub legacy_remote_node: Option<&'a StoragePolicyCleanupRemoteNodeSnapshot>,
-}
-
-impl From<crate::storage::drivers::tencent_cos::cors::TencentCosCorsApplyResult>
-    for TencentCosCorsConfigResult
-{
-    fn from(value: crate::storage::drivers::tencent_cos::cors::TencentCosCorsApplyResult) -> Self {
-        Self {
-            rule_id: value.rule_id,
-            allowed_origins: value.allowed_origins,
-            request_id: value.request_id,
-            preserved_rule_count: value.preserved_rule_count,
-            replaced_existing_rule: value.replaced_existing_rule,
-            response_vary: value.response_vary,
-        }
-    }
 }

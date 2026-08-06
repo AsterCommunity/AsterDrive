@@ -7,7 +7,6 @@ use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::db::repository::{
     external_auth_identity_repo, external_auth_login_flow_repo, external_auth_provider_repo,
 };
-use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::auth::{external, mfa::totp};
 use aster_drive_model::entities::{
     audit_log, external_auth_email_verification_flow, external_auth_identity,

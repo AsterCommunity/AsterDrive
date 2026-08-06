@@ -10,7 +10,7 @@ use sea_orm::{ActiveModelTrait, DbBackend, Set};
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::file_repo;
 use crate::errors::{AsterError, Result, precondition_failed_with_code};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::events::storage_change;
 use aster_drive_model::entities::file;
 

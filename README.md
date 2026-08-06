@@ -240,7 +240,6 @@ bun run check
 
 ```text
 src/                             Rust application, services, API, and runtime
-crates/aster_drive_http/         Bounded HTTP response-body utilities
 crates/aster_drive_metrics/      Product metrics contracts and AsterForge adapters
 crates/aster_drive_migration/    SeaORM migrations
 crates/aster_drive_model/        Shared product models and SeaORM entities

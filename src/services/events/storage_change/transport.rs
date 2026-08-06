@@ -7,7 +7,7 @@ use super::{
     STORAGE_CHANGE_CHANNEL_CAPACITY, StorageChangeAudience, StorageChangeBus, StorageChangeEvent,
 };
 use crate::errors::{AsterError, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState, StorageChangeRuntimeState};
+use crate::runtime::{PrimaryAppState, StorageChangeRuntimeState};
 
 const STORAGE_CHANGE_TOPIC_SUFFIX: &str = "storage_events";
 

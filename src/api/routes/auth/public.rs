@@ -9,7 +9,7 @@ use super::{
 use crate::api::response::ApiResponse;
 use crate::config::{auth_runtime::RuntimeAuthPolicy, cors, site_url};
 use crate::errors::{AsterError, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::ops::audit::AuditRequestInfo;
 use crate::services::{auth::local, ops::config, user::account, user::invitation};
 use actix_web::{HttpRequest, HttpResponse, http::header, web};

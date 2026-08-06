@@ -4,7 +4,7 @@ use crate::common;
 
 use aster_drive::db::repository::config_repo;
 use aster_drive::db::repository::user_repo;
-use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
+use aster_drive::runtime::PrimaryAppState;
 use aster_drive::services::user::profile;
 use aster_drive_model::entities::user;
 use aster_drive_model::types::AvatarSource;

@@ -6,7 +6,6 @@ use actix_web::test;
 use aster_drive::db::repository::{
     background_task_repo, config_repo, file_repo, media_metadata_repo,
 };
-use aster_drive::runtime::SharedRuntimeState;
 use aster_drive_model::entities::{file, file_blob};
 use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus};
 use aster_forge_config::{ConfigSource, ConfigValueType};

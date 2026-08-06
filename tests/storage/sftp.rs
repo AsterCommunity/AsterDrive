@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use aster_drive::storage::drivers::sftp::SftpDriver;
+use aster_drive::storage::drivers::sftp::{SftpDriver, SftpDriverConfig, SftpStaticCredentials};
 use aster_drive_storage::{StorageDriver, StorageErrorKind, StreamUploadDriver};
 use testcontainers::{GenericImage, ImageExt, core::IntoContainerPort, runners::AsyncRunner};
 use tokio::io::AsyncReadExt as _;
@@ -14,44 +14,19 @@ const SFTP_USERNAME: &str = "aster";
 const SFTP_PASSWORD: &str = "asterpass";
 const SFTP_PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 
-fn sftp_policy(
-    endpoint: &str,
-    base_path: &str,
-    host_key_fingerprint: Option<&str>,
-) -> aster_drive_model::entities::storage_policy::Model {
-    use chrono::Utc;
-
-    let options = host_key_fingerprint
-        .map(|fingerprint| {
-            aster_drive_model::types::serialize_storage_policy_options(
-                &aster_drive_model::types::StoragePolicyOptions {
-                    sftp_host_key_fingerprint: Some(fingerprint.to_string()),
-                    ..Default::default()
-                },
-            )
-            .expect("serialize SFTP host key options")
-        })
-        .unwrap_or_else(aster_drive_model::types::StoredStoragePolicyOptions::empty);
-
-    aster_drive_model::entities::storage_policy::Model {
-        id: 997,
-        name: "Test SFTP".to_string(),
-        driver_type: aster_drive_model::types::DriverType::Sftp,
-        endpoint: endpoint.to_string(),
-        bucket: String::new(),
-        access_key: SFTP_USERNAME.to_string(),
-        secret_key: SFTP_PASSWORD.to_string(),
-        base_path: base_path.to_string(),
-        remote_node_id: None,
-        remote_storage_target_key: None,
-        max_file_size: 0,
-        allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
-        options,
-        is_default: false,
-        chunk_size: 1024 * 1024,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-    }
+fn sftp_driver(endpoint: &str, base_path: &str, host_key_fingerprint: Option<&str>) -> SftpDriver {
+    SftpDriver::new(
+        SftpDriverConfig {
+            endpoint: endpoint.to_string(),
+            base_path: base_path.to_string(),
+            host_key_fingerprint: host_key_fingerprint.map(str::to_string),
+        },
+        SftpStaticCredentials {
+            username: SFTP_USERNAME.to_string(),
+            password: SFTP_PASSWORD.to_string(),
+        },
+    )
+    .expect("create SftpDriver")
 }
 
 fn docker_sftp_test_enabled() -> bool {
@@ -153,18 +128,12 @@ async fn test_sftp_driver_upload_download_round_trip() {
         .expect("resolve mapped sftp port");
     let endpoint = format!("sftp://127.0.0.1:{port}");
     let base_path = format!("asterdrive-itest-{}", uuid::Uuid::new_v4());
-    let untrusted_driver =
-        SftpDriver::new(&sftp_policy(&endpoint, &base_path, None)).expect("create SftpDriver");
+    let untrusted_driver = sftp_driver(&endpoint, &base_path, None);
     let host_key_fingerprint = wait_for_sftp_host_key_fingerprint(&untrusted_driver).await;
     SftpDriver::validate_host_key_fingerprint(&host_key_fingerprint)
         .expect("reported host key fingerprint should be valid");
 
-    let driver = SftpDriver::new(&sftp_policy(
-        &endpoint,
-        &base_path,
-        Some(&host_key_fingerprint),
-    ))
-    .expect("create SftpDriver");
+    let driver = sftp_driver(&endpoint, &base_path, Some(&host_key_fingerprint));
     wait_for_sftp(&driver).await;
 
     let data = b"hello sftp world";

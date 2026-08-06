@@ -12,7 +12,7 @@ use crate::config::webdav;
 use crate::db::repository::{
     file_repo, folder_repo, lock_namespace_repo, lock_repo, team_repo, user_repo,
 };
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::files::lock::{
     LockAcquireCommand, LockMutationCredentials, LockRoot, LockTarget, LockWorkspace,
     acquire_after_namespace_lock_on,

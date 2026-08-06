@@ -1,23 +1,10 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { getPolicyDriverBadgeClass } from "@/components/admin/admin-policies-page/policyPresentation";
-import type { StoragePolicyDriverOption } from "@/components/admin/StoragePolicyDialogFields";
-import { microsoftGraphCredentials } from "@/components/admin/storage-policy-dialog/applicationCredentials";
-import {
-	supportsApplicationCredentials,
-	supportsContentDedupPolicyOption,
-	supportsDraftConnectionTest,
-	supportsObjectStorageConnection,
-	supportsObjectStorageTransferStrategy,
-	supportsOneDrivePolicyOptions,
-	supportsRemoteNodeBinding,
-	supportsSavedConnectionTest,
-	supportsStaticSecretConnection,
-	supportsStorageNativeProcessing,
-} from "@/components/admin/storage-policy-dialog/descriptorPredicates";
-import type { PolicyFormData } from "@/components/admin/storage-policy-dialog/formTypes";
+import { getStorageConnectorBadgePresentation } from "@/components/admin/admin-policies-page/policyPresentation";
+import { RemoteNodeRemoteStorageTargetSection } from "@/components/admin/admin-remote-nodes-page/RemoteNodeRemoteStorageTargetSection";
 import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
 import { InlineConfirm } from "@/components/common/ManagerDialogShell";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -27,22 +14,41 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { Icon } from "@/components/ui/icon";
+import { Icon, isIconName } from "@/components/ui/icon";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
+import { formatBytes, formatDateTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import type {
-	DriverType,
 	RemoteCreateStorageTargetRequest,
 	RemoteNodeInfo,
 	RemoteStorageTargetDriverDescriptor,
 	RemoteStorageTargetInfo,
+	StorageConnectorCredentialInfo,
+	StorageConnectorCredentialManagementDescriptor,
 	StorageConnectorDescriptor,
-	StorageConnectorUiDescriptor,
+	StorageConnectorFieldDescriptor,
+	StorageConnectorFieldValue,
 	StoragePolicyCapacityInfo,
-	StoragePolicyCredentialInfo,
 } from "@/types/api";
-import { StoragePolicyCreateWizard } from "./storage-policy-dialog/StoragePolicyCreateWizard";
-import type { StoragePolicyDialogStep } from "./storage-policy-dialog/StoragePolicyDialogTypes";
-import { StoragePolicyEditForm } from "./storage-policy-dialog/StoragePolicyEditForm";
+import {
+	findConnectorFieldByDataSource,
+	supportsDraftConnectionTest,
+	supportsSavedConnectionTest,
+} from "./storage-policy-dialog/descriptorPredicates";
+import {
+	connectorBooleanValue,
+	connectorFormValue,
+	connectorNumberValue,
+	connectorStringValue,
+	type PolicyFormData,
+} from "./storage-policy-dialog/formTypes";
+import type { StorageConnectorActionValues } from "./storage-policy-dialog/StorageConnectorActionsPanel";
+import { StorageConnectorActionsPanel } from "./storage-policy-dialog/StorageConnectorActionsPanel";
+import { StorageConnectorFieldsPanel } from "./storage-policy-dialog/StorageConnectorFieldsPanel";
 import { StoragePolicyTestConnectionButton } from "./storage-policy-dialog/StoragePolicyTestConnectionButton";
 
 interface StoragePolicyDialogProps {
@@ -55,16 +61,11 @@ interface StoragePolicyDialogProps {
 	storageDriverDescriptorsLoading: boolean;
 	policyCapacity: StoragePolicyCapacityInfo | null;
 	policyCapacityLoading: boolean;
-	storageCredentials: StoragePolicyCredentialInfo[];
+	storageCredentials: StorageConnectorCredentialInfo[];
 	storageCredentialsLoading: boolean;
 	storageAuthorizationSubmitting: boolean;
 	storageCredentialValidationSubmitting: boolean;
 	storageAuthorizationRedirectUri: string;
-	s3CompatibleDriverSuggestionTargetLabel: string | null;
-	s3DriverPromotionBlocked: boolean;
-	s3DriverPromotionConfirmOpen: boolean;
-	s3DriverPromotionSubmitting: boolean;
-	s3DriverPromotionTargetLabel: string | null;
 	remoteNodes: RemoteNodeInfo[];
 	remoteStorageTargetDriverDescriptors: RemoteStorageTargetDriverDescriptor[];
 	remoteStorageTargetDriverDescriptorsError: string | null;
@@ -76,63 +77,43 @@ interface StoragePolicyDialogProps {
 	createStep: number;
 	createStepTouched: boolean;
 	endpointValidationMessage: string | null;
-	cosCorsConfirmOpen: boolean;
-	cosCorsSubmitting: boolean;
-	cosCorsUsesDraftValues: boolean;
-	canConfigureTencentCosCors: boolean;
+	connectorActionConfirmId: string | null;
+	connectorActionSubmittingId: string | null;
+	connectorActionValues: StorageConnectorActionValues;
 	saveAnywayConfirmOpen: boolean;
-	onApplyS3CompatibleDriverSuggestion: () => void;
-	onCancelCosCorsConfigure: () => void;
+	onCancelConnectorAction: () => void;
 	onOpenChange: (open: boolean) => void;
 	onCancelSaveAnyway: () => void;
-	onCancelS3DriverPromotion: () => void;
 	onConfirmSaveAnyway: () => void;
-	onConfirmCosCorsConfigure: () => void;
-	onConfirmS3DriverPromotion: () => void;
+	onConfirmConnectorAction: (actionId: string) => void;
 	onStartStorageAuthorization: () => void;
 	onValidateStorageCredential: () => void;
 	onCreateRemoteStorageTarget: (
 		payload: RemoteCreateStorageTargetRequest,
 	) => Promise<void>;
 	onSubmit: () => void;
-	onRequestS3DriverPromotion: () => void;
 	onRunConnectionTest: () => Promise<boolean>;
 	onFieldChange: <K extends keyof PolicyFormData>(
 		key: K,
 		value: PolicyFormData[K],
 	) => void;
-	onDriverTypeChange: (driverType: DriverType) => void;
+	onConnectorActionValueChange: (
+		actionId: string,
+		fieldName: string,
+		value: StorageConnectorFieldValue | undefined,
+	) => void;
+	onRequestConnectorAction: (actionId: string) => void;
+	onConnectorIdChange: (connectorId: string) => void;
 	onCreateBack: () => void;
 	onCreateStepChange: (step: number) => void;
 	onCreateNext: () => void;
-	onSyncNormalizedObjectStorageForm: () => void;
 	showCloseButton?: boolean;
 	forceDefaultPolicy?: boolean;
 	presentation?: "dialog" | "setup";
 	onSetupLogout?: () => void;
 }
 
-interface StorageNativeLabelOptions {
-	enabled: boolean;
-	extensions: string[];
-	disabledLabel: string;
-}
-
-function getStorageNativeLabel({
-	enabled,
-	extensions,
-	disabledLabel,
-}: StorageNativeLabelOptions) {
-	return enabled && extensions.length > 0
-		? extensions.join(", ")
-		: disabledLabel;
-}
-
-export function StoragePolicyDialog(props: StoragePolicyDialogProps) {
-	return useStoragePolicyDialogContent(props);
-}
-
-function useStoragePolicyDialogContent({
+export function StoragePolicyDialog({
 	open,
 	mode,
 	form,
@@ -147,11 +128,6 @@ function useStoragePolicyDialogContent({
 	storageAuthorizationSubmitting,
 	storageCredentialValidationSubmitting,
 	storageAuthorizationRedirectUri,
-	s3CompatibleDriverSuggestionTargetLabel,
-	s3DriverPromotionBlocked,
-	s3DriverPromotionConfirmOpen,
-	s3DriverPromotionSubmitting,
-	s3DriverPromotionTargetLabel,
 	remoteNodes,
 	remoteStorageTargetDriverDescriptors,
 	remoteStorageTargetDriverDescriptorsError,
@@ -163,79 +139,85 @@ function useStoragePolicyDialogContent({
 	createStep,
 	createStepTouched,
 	endpointValidationMessage,
-	cosCorsConfirmOpen,
-	cosCorsSubmitting,
-	cosCorsUsesDraftValues,
-	canConfigureTencentCosCors,
+	connectorActionConfirmId,
+	connectorActionSubmittingId,
+	connectorActionValues,
 	saveAnywayConfirmOpen,
-	onApplyS3CompatibleDriverSuggestion,
-	onCancelCosCorsConfigure,
+	onCancelConnectorAction,
 	onOpenChange,
 	onCancelSaveAnyway,
-	onCancelS3DriverPromotion,
 	onConfirmSaveAnyway,
-	onConfirmCosCorsConfigure,
-	onConfirmS3DriverPromotion,
+	onConfirmConnectorAction,
 	onStartStorageAuthorization,
 	onValidateStorageCredential,
 	onCreateRemoteStorageTarget,
 	onSubmit,
-	onRequestS3DriverPromotion,
 	onRunConnectionTest,
 	onFieldChange,
-	onDriverTypeChange,
+	onConnectorActionValueChange,
+	onRequestConnectorAction,
+	onConnectorIdChange,
 	onCreateBack,
 	onCreateStepChange,
 	onCreateNext,
-	onSyncNormalizedObjectStorageForm,
 	showCloseButton = true,
 	forceDefaultPolicy = false,
 	presentation = "dialog",
 	onSetupLogout,
 }: StoragePolicyDialogProps) {
 	const { t } = useTranslation("admin");
+	const connectorT = (key: string, values?: Record<string, number | string>) =>
+		translateStorageConnectorMessage(
+			t,
+			storageDriverDescriptor?.connector_id,
+			key,
+			values,
+		);
 	const isCreateMode = mode === "create";
 	const isSetupPresentation = presentation === "setup";
-	const storageOptions = buildStoragePolicyDriverOptions(
-		storageDriverDescriptors,
-		t,
-		isSetupPresentation,
+	const customActions =
+		storageDriverDescriptor?.actions.filter(
+			(action) => action.kind === "custom",
+		) ?? [];
+	const authorizationAction = storageDriverDescriptor?.actions.find(
+		(action) => action.kind === "authorization",
 	);
-	const canUseObjectStorageConnection = supportsObjectStorageConnection(
+	const validationAction = storageDriverDescriptor?.actions.find(
+		(action) => action.kind === "credential_validation",
+	);
+	const remoteNodeField = findConnectorFieldByDataSource(
 		storageDriverDescriptor,
+		"remote_nodes",
 	);
-	const canUseStaticSecretConnection = supportsStaticSecretConnection(
-		storageDriverDescriptor,
+	const remoteNodeId = remoteNodeField
+		? connectorNumberValue(form, remoteNodeField.name)
+		: null;
+	const nativeProcessingEnabled = connectorBooleanValue(
+		form,
+		"storage_native_processing_enabled",
 	);
-	const canUseRemoteNodeBinding = supportsRemoteNodeBinding(
-		storageDriverDescriptor,
+	const descriptorFields =
+		storageDriverDescriptor?.fields.filter(
+			(field) => field.scope !== "action_input",
+		) ?? [];
+	const basePathField = descriptorFields.find(
+		(field) => field.scope === "connector_config" && field.name === "base_path",
 	);
-	const canUseApplicationCredentials = supportsApplicationCredentials(
-		storageDriverDescriptor,
+	const connectionFields = descriptorFields.filter(
+		(field) => field !== basePathField,
 	);
-	const canUseOneDrivePolicyOptions = supportsOneDrivePolicyOptions(
-		storageDriverDescriptor,
-	);
-	const canUseOneDriveConnection =
-		canUseApplicationCredentials || canUseOneDrivePolicyOptions;
-	const canUseObjectStorageTransferStrategy =
-		supportsObjectStorageTransferStrategy(storageDriverDescriptor);
-	const canUseContentDedupPolicyOption = supportsContentDedupPolicyOption(
-		storageDriverDescriptor,
-	);
-	const supportsStorageNative = supportsStorageNativeProcessing(
-		storageDriverDescriptor,
-	);
-	const currentStorageUi =
-		storageDriverDescriptor?.ui ?? fallbackStorageConnectorUi();
-	const createSteps: StoragePolicyDialogStep[] = [
+	const createSteps = [
 		{
 			title: t("policy_wizard_step_storage_title"),
 			description: t("policy_wizard_step_storage_desc"),
 		},
 		{
-			title: t(currentStorageUi.config_step_title_key),
-			description: t(currentStorageUi.config_step_description_key),
+			title: storageDriverDescriptor
+				? connectorT(storageDriverDescriptor.ui.config_step_title_key)
+				: t("policy_wizard_step_connection_title"),
+			description: storageDriverDescriptor
+				? connectorT(storageDriverDescriptor.ui.config_step_description_key)
+				: t("policy_wizard_step_connection_desc"),
 		},
 		{
 			title: t("policy_wizard_step_rules_title"),
@@ -243,295 +225,39 @@ function useStoragePolicyDialogContent({
 		},
 	];
 	const createLastStep = createSteps.length - 1;
+	const canRunDraftConnectionTest = supportsDraftConnectionTest(
+		storageDriverDescriptor,
+	);
+	const canRunConnectionTest = isCreateMode
+		? canRunDraftConnectionTest
+		: canRunDraftConnectionTest ||
+			supportsSavedConnectionTest(storageDriverDescriptor);
 	const previousCreateStepRef = useRef(createStep);
 	const stepAnimationRef = useRef<{
 		direction: "idle" | "forward" | "backward";
 		step: number;
-	}>({
-		direction: "idle",
-		step: createStep,
-	});
+	}>({ direction: "idle", step: createStep });
 	if (createStep !== previousCreateStepRef.current) {
 		stepAnimationRef.current = {
 			direction:
 				createStep > previousCreateStepRef.current ? "forward" : "backward",
 			step: createStep,
 		};
+		previousCreateStepRef.current = createStep;
 	}
-	const createStepDirection = stepAnimationRef.current.direction;
-	const stepAnimationKey = `${stepAnimationRef.current.step}-${stepAnimationRef.current.direction}`;
-	const currentStorageOption =
-		storageOptions.find((option) => option.type === form.driver_type) ??
-		storagePolicyDriverOptionFromUi(
-			form.driver_type,
-			fallbackStorageConnectorUi(),
-			t,
-		);
-	const currentDriverBadgeClass = getPolicyDriverBadgeClass(form.driver_type);
-	const createNameError =
-		isCreateMode && createStep === 1 && createStepTouched && !form.name.trim()
-			? t("policy_wizard_name_required")
-			: null;
-	const createBucketError =
-		isCreateMode &&
-		createStep === 1 &&
-		createStepTouched &&
-		canUseObjectStorageConnection &&
-		!form.bucket.trim()
-			? t(
-					storageDriverDescriptor?.fields.find(
-						(field) => field.scope === "connection" && field.name === "bucket",
-					)?.required_message_key ?? "policy_wizard_bucket_required",
-				)
-			: null;
-	const createOneDriveClientIdError =
-		isCreateMode &&
-		createStep === 1 &&
-		createStepTouched &&
-		canUseApplicationCredentials &&
-		!microsoftGraphCredentials(form).client_id.trim()
-			? t("onedrive_client_id_required")
-			: null;
-	const createOneDriveClientSecretError =
-		isCreateMode &&
-		createStep === 1 &&
-		createStepTouched &&
-		canUseApplicationCredentials &&
-		!microsoftGraphCredentials(form).client_secret.trim()
-			? t("onedrive_client_secret_required")
-			: null;
-	const createEndpointError =
-		canUseStaticSecretConnection && !form.endpoint.trim()
-			? isCreateMode
-				? createStep === 1 && createStepTouched
-					? t("policy_wizard_endpoint_required")
-					: null
-				: t("policy_wizard_endpoint_required")
-			: endpointValidationMessage;
-	const showRemoteBindingValidation =
-		canUseRemoteNodeBinding &&
-		createStepTouched &&
-		(!isCreateMode || createStep === 1);
-	const createRemoteNodeError =
-		showRemoteBindingValidation && !form.remote_node_id
-			? t("policy_wizard_remote_node_required")
-			: null;
-	const createRemoteTargetError =
-		showRemoteBindingValidation &&
-		form.remote_node_id &&
-		!form.remote_storage_target_key
-			? t("policy_wizard_remote_storage_target_required")
-			: null;
-	const createRemoteBindingError =
-		createRemoteNodeError ?? createRemoteTargetError;
-	const selectedRemoteNode =
-		remoteNodes.find((node) => String(node.id) === form.remote_node_id) ?? null;
-	const s3UploadStrategyLabel =
-		form.object_storage_upload_strategy === "relay_stream"
-			? t("upload_strategy_relay_stream")
-			: t("upload_strategy_presigned");
-	const s3DownloadStrategyLabel =
-		form.object_storage_download_strategy === "relay_stream"
-			? t("download_strategy_relay_stream")
-			: t("download_strategy_presigned");
-	const remoteUploadStrategyLabel =
-		form.remote_upload_strategy === "relay_stream"
-			? t("upload_strategy_relay_stream")
-			: t("upload_strategy_presigned");
-	const remoteDownloadStrategyLabel =
-		form.remote_download_strategy === "relay_stream"
-			? t("download_strategy_relay_stream")
-			: t("download_strategy_presigned");
-	const contentDedupLabel = form.content_dedup
-		? t("policy_wizard_enabled")
-		: t("policy_wizard_disabled");
-	const storageNativeThumbnailExtensionsLabel = getStorageNativeLabel({
-		enabled:
-			form.storage_native_processing_enabled &&
-			form.thumbnail_processor === "storage_native",
-		extensions: form.thumbnail_extensions,
-		disabledLabel: t("policy_wizard_disabled"),
-	});
-	const storageNativeMediaMetadataExtensionsLabel = getStorageNativeLabel({
-		enabled:
-			form.storage_native_processing_enabled &&
-			form.storage_native_media_metadata_enabled === true,
-		extensions: form.media_metadata_extensions ?? [],
-		disabledLabel: t("policy_wizard_disabled"),
-	});
-	const showTencentCosCorsAction = canConfigureTencentCosCors;
-	const showCreateTencentCosCorsConfirm =
-		isCreateMode && showTencentCosCorsAction && cosCorsConfirmOpen;
-	const canRunDraftConnectionTest = supportsDraftConnectionTest(
-		storageDriverDescriptor,
-	);
-	const canRunSavedConnectionTest = supportsSavedConnectionTest(
-		storageDriverDescriptor,
-	);
-	const canRunConnectionTest = isCreateMode
-		? canRunDraftConnectionTest
-		: canRunDraftConnectionTest || canRunSavedConnectionTest;
-	const cosNativeSummaryItems = supportsStorageNative
-		? [
-				{
-					label: t("storage_native_processing_enabled"),
-					value: form.storage_native_processing_enabled
-						? t("policy_wizard_enabled")
-						: t("policy_wizard_disabled"),
-				},
-				{
-					label: t("storage_native_thumbnail_extensions"),
-					value: storageNativeThumbnailExtensionsLabel,
-				},
-				{
-					label: t("storage_native_media_metadata_extensions"),
-					value: storageNativeMediaMetadataExtensionsLabel,
-				},
-			]
-		: [];
-	const createSummaryItems = [
-		{ label: t("driver_type"), value: currentStorageOption.title },
-		{
-			label: t("base_path"),
-			value:
-				form.base_path ||
-				translateStorageConnectorUiValue(
-					currentStorageUi.base_path_empty_display,
-					t,
-				),
-		},
-		{
-			label: t("max_file_size"),
-			value:
-				form.max_file_size === "" || Number(form.max_file_size) === 0
-					? t("core:unlimited")
-					: `${form.max_file_size} bytes`,
-		},
-		{
-			label: t("chunk_size"),
-			value: `${form.chunk_size || "0"} MB`,
-		},
-		{
-			label: t("set_as_default"),
-			value: form.is_default
-				? t("policy_wizard_enabled")
-				: t("policy_wizard_disabled"),
-		},
-		...(canUseContentDedupPolicyOption
-			? [
-					{
-						label: t("content_dedup"),
-						value: contentDedupLabel,
-					},
-				]
-			: []),
-		...(canUseStaticSecretConnection
-			? [
-					{
-						label: t("endpoint"),
-						value: form.endpoint || t("policy_wizard_default_endpoint"),
-					},
-					...(canUseObjectStorageConnection
-						? [{ label: t("bucket"), value: form.bucket || "—" }]
-						: []),
-					...(canUseObjectStorageTransferStrategy
-						? [
-								{
-									label: t("object_storage_upload_strategy"),
-									value: s3UploadStrategyLabel,
-								},
-								{
-									label: t("object_storage_download_strategy"),
-									value: s3DownloadStrategyLabel,
-								},
-							]
-						: []),
-					...cosNativeSummaryItems,
-				]
-			: []),
-		...(canUseRemoteNodeBinding
-			? [
-					{
-						label: t("remote_node"),
-						value:
-							selectedRemoteNode?.name ??
-							t("policy_wizard_remote_node_unselected"),
-					},
-					{
-						label: t("remote_download_strategy"),
-						value: remoteDownloadStrategyLabel,
-					},
-					{
-						label: t("remote_upload_strategy"),
-						value: remoteUploadStrategyLabel,
-					},
-				]
-			: []),
-		...(canUseOneDriveConnection
-			? [
-					...(canUseOneDrivePolicyOptions
-						? [
-								{
-									label: t("onedrive_cloud"),
-									value: t(`onedrive_cloud_${form.onedrive_cloud}`),
-								},
-								{
-									label: isCreateMode
-										? t("onedrive_target_summary")
-										: t("onedrive_account_mode"),
-									value: isCreateMode
-										? t("onedrive_target_summary_auto")
-										: t(`onedrive_account_mode_${form.onedrive_account_mode}`),
-								},
-								...(!isCreateMode
-									? [
-											{
-												label: t("onedrive_drive_id"),
-												value:
-													form.onedrive_drive_id ||
-													t("policy_wizard_default_drive"),
-											},
-											{
-												label: t("onedrive_root_item_id"),
-												value: form.onedrive_root_item_id || "root",
-											},
-											...(form.onedrive_account_mode === "sharepoint_site"
-												? [
-														{
-															label: t("onedrive_site_id"),
-															value: form.onedrive_site_id || "—",
-														},
-													]
-												: []),
-											...(form.onedrive_account_mode === "group_drive"
-												? [
-														{
-															label: t("onedrive_group_id"),
-															value: form.onedrive_group_id || "—",
-														},
-													]
-												: []),
-										]
-									: []),
-							]
-						: []),
-				]
-			: []),
-	];
-	const driverOptionsError =
-		storageOptions.length === 0 ? storageDriverDescriptorsError : null;
 	useEffect(() => {
 		if (!open || !isCreateMode) {
 			previousCreateStepRef.current = 0;
-			stepAnimationRef.current = {
-				direction: "idle",
-				step: 0,
-			};
-			return;
+			stepAnimationRef.current = { direction: "idle", step: 0 };
 		}
-
-		previousCreateStepRef.current = createStep;
-	}, [createStep, isCreateMode, open]);
+	}, [isCreateMode, open]);
+	const summaryItems = buildPolicySummaryItems(
+		form,
+		storageDriverDescriptor,
+		remoteNodes,
+		remoteStorageTargets,
+		t,
+	);
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -542,9 +268,10 @@ function useStoragePolicyDialogContent({
 						? "bg-background backdrop-blur-none dark:bg-background"
 						: undefined
 				}
-				className={`flex max-h-[min(90vh,calc(100vh-2rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-[calc(100%-2rem)] lg:max-w-4xl ${
-					isSetupPresentation ? "shadow-xl" : ""
-				}`}
+				className={cn(
+					"flex max-h-[min(90vh,calc(100vh-2rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-[calc(100%-2rem)] lg:max-w-4xl",
+					isSetupPresentation && "shadow-xl",
+				)}
 			>
 				{isSetupPresentation ? (
 					<div className="flex shrink-0 items-center justify-between gap-4 border-b border-border/70 px-6 py-4">
@@ -552,20 +279,23 @@ function useStoragePolicyDialogContent({
 							alt="AsterDrive"
 							className="h-8 w-auto max-w-44"
 						/>
-						<Button
-							type="button"
-							variant="outline"
-							size="sm"
-							onClick={onSetupLogout}
-						>
-							{t("core:logout")}
-						</Button>
+						{onSetupLogout ? (
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								onClick={onSetupLogout}
+							>
+								{t("core:logout")}
+							</Button>
+						) : null}
 					</div>
 				) : null}
 				<DialogHeader
-					className={`shrink-0 px-6 pt-5 pb-0 ${
-						showCloseButton ? "pr-14" : "pr-6"
-					}`}
+					className={cn(
+						"shrink-0 px-6 pt-5 pb-0",
+						showCloseButton ? "pr-14" : "pr-6",
+					)}
 				>
 					{isSetupPresentation ? (
 						<p className="text-xs font-semibold tracking-[0.18em] text-primary uppercase">
@@ -588,188 +318,292 @@ function useStoragePolicyDialogContent({
 					)}
 				</DialogHeader>
 				<form
-					onSubmit={(e) => e.preventDefault()}
+					onSubmit={(event) => event.preventDefault()}
 					autoComplete="off"
 					className="flex min-h-0 flex-1 flex-col overflow-hidden"
 				>
 					<div className="min-h-0 flex-1 overflow-y-auto px-6 pt-6 pb-5">
 						{isCreateMode ? (
-							<StoragePolicyCreateWizard
-								createBucketError={createBucketError}
-								createNameError={createNameError}
-								createOneDriveClientIdError={createOneDriveClientIdError}
-								createOneDriveClientSecretError={
-									createOneDriveClientSecretError
-								}
-								createRemoteTargetError={createRemoteBindingError}
-								createStep={createStep}
-								createStepDirection={createStepDirection}
-								createSteps={createSteps}
-								currentStorageOption={currentStorageOption}
-								endpointValidationMessage={createEndpointError}
-								form={form}
-								forceDefaultPolicy={forceDefaultPolicy}
-								storageDriverDescriptorsError={driverOptionsError}
-								storageDriverDescriptorsLoading={
-									storageDriverDescriptorsLoading && storageOptions.length === 0
-								}
-								storageDriverDescriptor={storageDriverDescriptor}
-								onCreateStepChange={onCreateStepChange}
-								onDriverTypeChange={onDriverTypeChange}
-								onFieldChange={onFieldChange}
-								onCreateRemoteStorageTarget={onCreateRemoteStorageTarget}
-								onApplyS3CompatibleDriverSuggestion={
-									onApplyS3CompatibleDriverSuggestion
-								}
-								onSyncNormalizedObjectStorageForm={
-									onSyncNormalizedObjectStorageForm
-								}
-								remoteNodes={remoteNodes}
-								remoteStorageTargetDriverDescriptors={
-									remoteStorageTargetDriverDescriptors
-								}
-								remoteStorageTargetDriverDescriptorsError={
-									remoteStorageTargetDriverDescriptorsError
-								}
-								remoteStorageTargetDriverDescriptorsLoading={
-									remoteStorageTargetDriverDescriptorsLoading
-								}
-								remoteStorageTargets={remoteStorageTargets}
-								remoteStorageTargetsError={remoteStorageTargetsError}
-								remoteStorageTargetsLoading={remoteStorageTargetsLoading}
-								s3CompatibleDriverSuggestionTargetLabel={
-									s3CompatibleDriverSuggestionTargetLabel
-								}
-								stepAnimationKey={stepAnimationKey}
-								storageOptions={storageOptions}
-								summaryItems={createSummaryItems}
-							/>
-						) : (
-							<StoragePolicyEditForm
-								createBucketError={createBucketError}
-								createNameError={createNameError}
-								createRemoteTargetError={createRemoteBindingError}
-								currentDriverBadgeClass={currentDriverBadgeClass}
-								currentStorageOption={currentStorageOption}
-								endpointValidationMessage={endpointValidationMessage}
-								form={form}
-								storageDriverDescriptor={storageDriverDescriptor}
-								policyCapacity={policyCapacity}
-								policyCapacityLoading={policyCapacityLoading}
-								storageCredentials={storageCredentials}
-								storageCredentialsLoading={storageCredentialsLoading}
-								storageAuthorizationSubmitting={storageAuthorizationSubmitting}
-								storageCredentialValidationSubmitting={
-									storageCredentialValidationSubmitting
-								}
-								storageAuthorizationRedirectUri={
-									storageAuthorizationRedirectUri
-								}
-								s3DriverPromotionBlocked={s3DriverPromotionBlocked}
-								s3DriverPromotionConfirmOpen={s3DriverPromotionConfirmOpen}
-								s3DriverPromotionSubmitting={s3DriverPromotionSubmitting}
-								s3DriverPromotionTargetLabel={s3DriverPromotionTargetLabel}
-								onFieldChange={onFieldChange}
-								onCancelS3DriverPromotion={onCancelS3DriverPromotion}
-								onCancelCosCorsConfigure={onCancelCosCorsConfigure}
-								onConfirmCosCorsConfigure={onConfirmCosCorsConfigure}
-								onConfirmS3DriverPromotion={onConfirmS3DriverPromotion}
-								onStartStorageAuthorization={onStartStorageAuthorization}
-								onValidateStorageCredential={onValidateStorageCredential}
-								onCreateRemoteStorageTarget={onCreateRemoteStorageTarget}
-								onRequestS3DriverPromotion={onRequestS3DriverPromotion}
-								onSyncNormalizedObjectStorageForm={
-									onSyncNormalizedObjectStorageForm
-								}
-								cosCorsConfirmOpen={cosCorsConfirmOpen}
-								canConfigureTencentCosCors={canConfigureTencentCosCors}
-								cosCorsSubmitting={cosCorsSubmitting}
-								cosCorsUsesDraftValues={cosCorsUsesDraftValues}
-								remoteNodes={remoteNodes}
-								remoteStorageTargetDriverDescriptors={
-									remoteStorageTargetDriverDescriptors
-								}
-								remoteStorageTargetDriverDescriptorsError={
-									remoteStorageTargetDriverDescriptorsError
-								}
-								remoteStorageTargetDriverDescriptorsLoading={
-									remoteStorageTargetDriverDescriptorsLoading
-								}
-								remoteStorageTargets={remoteStorageTargets}
-								remoteStorageTargetsError={remoteStorageTargetsError}
-								remoteStorageTargetsLoading={remoteStorageTargetsLoading}
-							/>
-						)}
-					</div>
-					{showCreateTencentCosCorsConfirm ? (
-						<div className="shrink-0 border-t px-6 py-3">
-							<InlineConfirm>
-								<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-									<div>
-										<p className="text-sm font-medium">
-											{t("policy_cos_cors_confirm_title")}
-										</p>
-										<p className="mt-1 text-xs leading-5 text-muted-foreground">
-											{t("policy_cos_cors_confirm_desc")}
-										</p>
-									</div>
-									<div className="flex shrink-0 items-center gap-2">
-										<Button
-											type="button"
-											variant="outline"
-											className={ADMIN_CONTROL_HEIGHT_CLASS}
-											onClick={onCancelCosCorsConfigure}
-											disabled={cosCorsSubmitting}
+							<div className="space-y-6">
+								<WizardProgress
+									createStep={createStep}
+									steps={createSteps}
+									onStepChange={onCreateStepChange}
+								/>
+								<div className="rounded-2xl border border-border/70 bg-background/70 p-5">
+									<div className="relative overflow-hidden">
+										<div
+											key={`${stepAnimationRef.current.step}-${stepAnimationRef.current.direction}`}
+											data-testid="policy-step-panel"
+											className={cn(
+												stepAnimationRef.current.direction !== "idle" &&
+													"animate-in fade-in duration-[360ms] motion-reduce:animate-none",
+												stepAnimationRef.current.direction === "forward" &&
+													"slide-in-from-right-6",
+												stepAnimationRef.current.direction === "backward" &&
+													"slide-in-from-left-6",
+											)}
 										>
-											{t("core:cancel")}
-										</Button>
-										<Button
-											type="button"
-											className={ADMIN_CONTROL_HEIGHT_CLASS}
-											onClick={onConfirmCosCorsConfigure}
-											disabled={cosCorsSubmitting}
-										>
-											{cosCorsSubmitting ? (
-												<Icon
-													name="Spinner"
-													className="mr-1 size-3.5 animate-spin"
+											{createStep === 0 ? (
+												<ConnectorSelection
+													descriptors={storageDriverDescriptors}
+													error={storageDriverDescriptorsError}
+													loading={storageDriverDescriptorsLoading}
+													selectedId={form.connector_id}
+													setup={isSetupPresentation}
+													onSelect={(connectorId) => {
+														onConnectorIdChange(connectorId);
+														onCreateStepChange(1);
+													}}
 												/>
-											) : null}
-											{t("policy_cos_cors_confirm")}
-										</Button>
+											) : createStep === 1 ? (
+												<div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+													<div className="space-y-4">
+														<PolicyNameField
+															form={form}
+															showError={createStepTouched}
+															onChange={(value) => onFieldChange("name", value)}
+														/>
+														<StorageConnectorFieldsPanel
+															descriptor={storageDriverDescriptor}
+															form={form}
+															mode="create"
+															remoteNodes={remoteNodes}
+															remoteStorageTargets={remoteStorageTargets}
+															showRequiredErrors={createStepTouched}
+															t={t}
+															onFieldChange={onFieldChange}
+														/>
+														{endpointValidationMessage ? (
+															<p className="text-xs text-destructive">
+																{endpointValidationMessage}
+															</p>
+														) : null}
+														{remoteNodeId ? (
+															<RemoteTargets
+																driverDescriptors={
+																	remoteStorageTargetDriverDescriptors
+																}
+																driverError={
+																	remoteStorageTargetDriverDescriptorsError
+																}
+																driverLoading={
+																	remoteStorageTargetDriverDescriptorsLoading
+																}
+																targets={remoteStorageTargets}
+																targetsError={remoteStorageTargetsError}
+																targetsLoading={remoteStorageTargetsLoading}
+																onCreate={onCreateRemoteStorageTarget}
+															/>
+														) : null}
+													</div>
+													<ConnectorHelper
+														descriptor={storageDriverDescriptor}
+													/>
+												</div>
+											) : (
+												<div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+													<div className="space-y-4">
+														<PolicyRules
+															form={form}
+															forceDefault={forceDefaultPolicy}
+															nativeProcessingEnabled={nativeProcessingEnabled}
+															onFieldChange={onFieldChange}
+														/>
+														<StorageConnectorActionsPanel
+															actions={customActions}
+															remoteNodes={remoteNodes}
+															remoteStorageTargets={remoteStorageTargets}
+															connectorId={
+																storageDriverDescriptor?.connector_id
+															}
+															confirmActionId={connectorActionConfirmId}
+															submittingActionId={connectorActionSubmittingId}
+															t={t}
+															values={connectorActionValues}
+															onCancel={onCancelConnectorAction}
+															onConfirm={onConfirmConnectorAction}
+															onRequest={onRequestConnectorAction}
+															onValueChange={onConnectorActionValueChange}
+														/>
+													</div>
+													<PolicySummary
+														descriptor={storageDriverDescriptor}
+														name={form.name}
+														items={summaryItems}
+													/>
+												</div>
+											)}
+										</div>
 									</div>
 								</div>
-							</InlineConfirm>
-						</div>
-					) : null}
-					{saveAnywayConfirmOpen ? (
-						<div className="shrink-0 border-t px-6 py-3">
-							<InlineConfirm>
-								<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-									<div>
-										<p className="text-sm font-medium">
-											{t("connection_test_failed")}
-										</p>
-										<p className="mt-1 text-xs text-muted-foreground">
-											{t("policy_test_failed_confirm_desc")}
-										</p>
+							</div>
+						) : (
+							<div data-testid="policy-edit-shell" className="space-y-4">
+								<PolicyEditContextBar
+									capacity={policyCapacity}
+									descriptor={storageDriverDescriptor}
+									form={form}
+									loading={policyCapacityLoading}
+								/>
+								<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
+									<SectionTitle
+										title={t("policy_editor_overview_title")}
+										description={t("policy_editor_overview_desc")}
+									/>
+									<div className="mt-5 grid gap-5 md:grid-cols-2">
+										<PolicyNameField
+											form={form}
+											showError={false}
+											onChange={(value) => onFieldChange("name", value)}
+										/>
+										{basePathField ? (
+											<StorageConnectorFieldsPanel
+												descriptor={storageDriverDescriptor}
+												fields={[basePathField]}
+												form={form}
+												mode="edit"
+												remoteNodes={remoteNodes}
+												remoteStorageTargets={remoteStorageTargets}
+												showRequiredErrors={false}
+												t={t}
+												onFieldChange={onFieldChange}
+											/>
+										) : null}
 									</div>
-									<div className="flex shrink-0 items-center gap-2">
+								</section>
+								{connectionFields.length > 0 || remoteNodeId ? (
+									<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
+										<SectionTitle
+											title={
+												storageDriverDescriptor
+													? connectorT(
+															storageDriverDescriptor.ui.config_step_title_key,
+														)
+													: t("policy_editor_connection_title")
+											}
+											description={
+												storageDriverDescriptor
+													? connectorT(
+															storageDriverDescriptor.ui
+																.config_step_description_key,
+														)
+													: t("policy_editor_connection_desc")
+											}
+										/>
+										<div className="mt-5 space-y-4">
+											<StorageConnectorFieldsPanel
+												descriptor={storageDriverDescriptor}
+												fields={connectionFields}
+												form={form}
+												mode="edit"
+												remoteNodes={remoteNodes}
+												remoteStorageTargets={remoteStorageTargets}
+												showRequiredErrors={false}
+												t={t}
+												onFieldChange={onFieldChange}
+											/>
+											{endpointValidationMessage ? (
+												<p className="text-xs text-destructive">
+													{endpointValidationMessage}
+												</p>
+											) : null}
+											{remoteNodeId ? (
+												<RemoteTargets
+													driverDescriptors={
+														remoteStorageTargetDriverDescriptors
+													}
+													driverError={
+														remoteStorageTargetDriverDescriptorsError
+													}
+													driverLoading={
+														remoteStorageTargetDriverDescriptorsLoading
+													}
+													targets={remoteStorageTargets}
+													targetsError={remoteStorageTargetsError}
+													targetsLoading={remoteStorageTargetsLoading}
+													onCreate={onCreateRemoteStorageTarget}
+												/>
+											) : null}
+											<ConnectorManagement
+												management={
+													storageDriverDescriptor?.credential_management ?? null
+												}
+												authorizationActionLabel={
+													authorizationAction
+														? connectorT(authorizationAction.label_key)
+														: null
+												}
+												credentials={storageCredentials}
+												credentialsLoading={storageCredentialsLoading}
+												redirectUri={storageAuthorizationRedirectUri}
+												validationActionLabel={
+													validationAction
+														? connectorT(validationAction.label_key)
+														: null
+												}
+												authorizationSubmitting={storageAuthorizationSubmitting}
+												validationSubmitting={
+													storageCredentialValidationSubmitting
+												}
+												connectorT={connectorT}
+												onAuthorize={onStartStorageAuthorization}
+												onValidate={onValidateStorageCredential}
+											/>
+										</div>
+									</section>
+								) : null}
+								<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
+									<SectionTitle
+										title={t("policy_editor_rules_title")}
+										description={t("policy_editor_rules_desc")}
+									/>
+									<div className="mt-5">
+										<PolicyRules
+											form={form}
+											forceDefault={forceDefaultPolicy}
+											nativeProcessingEnabled={nativeProcessingEnabled}
+											onFieldChange={onFieldChange}
+										/>
+									</div>
+								</section>
+								{customActions.length > 0 ? (
+									<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
+										<StorageConnectorActionsPanel
+											actions={customActions}
+											remoteNodes={remoteNodes}
+											remoteStorageTargets={remoteStorageTargets}
+											connectorId={storageDriverDescriptor?.connector_id}
+											confirmActionId={connectorActionConfirmId}
+											submittingActionId={connectorActionSubmittingId}
+											t={t}
+											values={connectorActionValues}
+											onCancel={onCancelConnectorAction}
+											onConfirm={onConfirmConnectorAction}
+											onRequest={onRequestConnectorAction}
+											onValueChange={onConnectorActionValueChange}
+										/>
+									</section>
+								) : null}
+							</div>
+						)}
+					</div>
+					{saveAnywayConfirmOpen ? (
+						<div className="shrink-0 px-6 pb-3">
+							<InlineConfirm>
+								<div className="flex items-center justify-between gap-3">
+									<p className="text-sm text-muted-foreground">
+										{t("connection_test_failed_save_prompt")}
+									</p>
+									<div className="flex gap-2">
 										<Button
 											type="button"
 											variant="outline"
-											className={ADMIN_CONTROL_HEIGHT_CLASS}
 											onClick={onCancelSaveAnyway}
-											disabled={submitting}
 										>
 											{t("core:cancel")}
 										</Button>
-										<Button
-											type="button"
-											className={ADMIN_CONTROL_HEIGHT_CLASS}
-											onClick={onConfirmSaveAnyway}
-											disabled={submitting}
-										>
+										<Button type="button" onClick={onConfirmSaveAnyway}>
 											{t("save_anyway")}
 										</Button>
 									</div>
@@ -784,29 +618,17 @@ function useStoragePolicyDialogContent({
 									type="button"
 									variant="outline"
 									className={ADMIN_CONTROL_HEIGHT_CLASS}
-									onClick={onCreateBack}
 									disabled={submitting}
+									onClick={onCreateBack}
 								>
 									{t("core:back")}
 								</Button>
 							) : null}
 						</div>
-
 						<div className="ml-auto flex shrink-0 flex-nowrap items-center justify-end gap-2">
 							{isCreateMode ? (
 								createStep === 0 ? null : createStep === createLastStep ? (
 									<>
-										{showTencentCosCorsAction ? (
-											<TencentCosCorsButton
-												disabled={
-													submitting ||
-													cosCorsSubmitting ||
-													showCreateTencentCosCorsConfirm
-												}
-												onClick={onConfirmCosCorsConfigure}
-												t={t}
-											/>
-										) : null}
 										{canRunConnectionTest ? (
 											<StoragePolicyTestConnectionButton
 												onTest={onRunConnectionTest}
@@ -816,9 +638,15 @@ function useStoragePolicyDialogContent({
 										<Button
 											type="button"
 											className={ADMIN_CONTROL_HEIGHT_CLASS}
-											disabled={submitting}
+											disabled={submitting || !storageDriverDescriptor}
 											onClick={onSubmit}
 										>
+											{submitting ? (
+												<Icon
+													name="Spinner"
+													className="mr-1 size-4 animate-spin"
+												/>
+											) : null}
 											{t("core:create")}
 										</Button>
 									</>
@@ -833,8 +661,8 @@ function useStoragePolicyDialogContent({
 										<Button
 											type="button"
 											className={ADMIN_CONTROL_HEIGHT_CLASS}
+											disabled={submitting || !storageDriverDescriptor}
 											onClick={onCreateNext}
-											disabled={submitting}
 										>
 											{createStep === createLastStep - 1
 												? t("policy_wizard_review")
@@ -853,9 +681,15 @@ function useStoragePolicyDialogContent({
 									<Button
 										type="button"
 										className={ADMIN_CONTROL_HEIGHT_CLASS}
-										disabled={submitting}
+										disabled={submitting || !storageDriverDescriptor}
 										onClick={onSubmit}
 									>
+										{submitting ? (
+											<Icon
+												name="Spinner"
+												className="mr-1 size-4 animate-spin"
+											/>
+										) : null}
 										{t("save_changes")}
 									</Button>
 								</>
@@ -868,89 +702,791 @@ function useStoragePolicyDialogContent({
 	);
 }
 
-function TencentCosCorsButton({
-	disabled,
-	onClick,
-	t,
+function WizardProgress({
+	createStep,
+	steps,
+	onStepChange,
 }: {
-	disabled: boolean;
-	onClick: () => void;
-	t: (key: string) => string;
+	createStep: number;
+	steps: Array<{ title: string; description: string }>;
+	onStepChange: (step: number) => void;
 }) {
+	const { t } = useTranslation("admin");
+	const currentStep = steps[Math.min(createStep, steps.length - 1)];
 	return (
-		<Button
-			type="button"
-			variant="outline"
-			className={ADMIN_CONTROL_HEIGHT_CLASS}
-			disabled={disabled}
-			onClick={onClick}
-		>
-			{t("policy_cos_cors_action_short")}
-		</Button>
+		<div className="space-y-3">
+			<div className="rounded-2xl border border-border/70 bg-muted/20 p-3 sm:p-4">
+				<div className="flex items-start justify-between gap-3">
+					<div className="space-y-1">
+						<p className="text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
+							{t("policy_wizard_progress", {
+								current: createStep + 1,
+								total: steps.length,
+							})}
+						</p>
+						<h3 className="text-sm font-semibold sm:text-base">
+							{currentStep.title}
+						</h3>
+						<p className="hidden text-sm text-muted-foreground sm:block">
+							{currentStep.description}
+						</p>
+					</div>
+					<div className="hidden text-3xl leading-none font-semibold text-foreground/15 md:block">
+						{String(createStep + 1).padStart(2, "0")}
+					</div>
+				</div>
+				<div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
+					<div
+						className="h-full rounded-full bg-primary transition-all"
+						style={{ width: `${((createStep + 1) / steps.length) * 100}%` }}
+					/>
+				</div>
+			</div>
+			<div className="hidden gap-2 md:grid md:grid-cols-3">
+				{steps.map((step, index) => (
+					<button
+						type="button"
+						key={step.title}
+						disabled={index > createStep}
+						onClick={() => onStepChange(index)}
+						className={cn(
+							"rounded-xl border px-3 py-2.5 text-left transition",
+							index === createStep
+								? "border-primary bg-primary/5 shadow-sm"
+								: index < createStep
+									? "border-border bg-background hover:border-primary/40"
+									: "border-border/60 bg-muted/20 text-muted-foreground",
+						)}
+					>
+						<div className="flex items-center gap-2">
+							<span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background/80 text-[10px] font-semibold tracking-[0.16em] text-muted-foreground">
+								{index + 1}
+							</span>
+							<span className="text-sm font-medium leading-5">
+								{step.title}
+							</span>
+						</div>
+					</button>
+				))}
+			</div>
+		</div>
 	);
 }
 
-function buildStoragePolicyDriverOptions(
-	descriptors: StorageConnectorDescriptor[],
-	t: (key: string) => string,
-	disableUnsupportedInitialSetup: boolean,
-): StoragePolicyDriverOption[] {
-	if (descriptors.length > 0) {
-		return descriptors.map((descriptor) => {
-			const option = storagePolicyDriverOptionFromUi(
-				descriptor.driver_type,
-				descriptor.ui ?? fallbackStorageConnectorUi(),
+function ConnectorSelection({
+	descriptors,
+	error,
+	loading,
+	selectedId,
+	setup,
+	onSelect,
+}: {
+	descriptors: StorageConnectorDescriptor[];
+	error: string | null;
+	loading: boolean;
+	selectedId: string;
+	setup: boolean;
+	onSelect: (connectorId: string) => void;
+}) {
+	const { t } = useTranslation("admin");
+	if (loading && descriptors.length === 0) {
+		return (
+			<div className="flex min-h-32 items-center justify-center gap-2 rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+				<Icon name="Spinner" className="size-4 animate-spin" />
+				<span>{t("core:loading")}</span>
+			</div>
+		);
+	}
+	if (error && descriptors.length === 0) {
+		return (
+			<div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
+				{error}
+			</div>
+		);
+	}
+	return (
+		<div
+			data-testid="storage-driver-options"
+			className="grid gap-3 md:grid-cols-2"
+		>
+			{descriptors.map((descriptor) => {
+				const selected = descriptor.connector_id === selectedId;
+				const disabled = setup && !descriptor.supports_initial_setup;
+				return (
+					<button
+						type="button"
+						key={descriptor.connector_id}
+						aria-pressed={selected}
+						disabled={disabled}
+						onClick={() => onSelect(descriptor.connector_id)}
+						className={cn(
+							"rounded-2xl border border-border p-4 text-left transition hover:border-primary/40 hover:bg-muted/20 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-border disabled:hover:bg-background",
+							selected ? "bg-muted/15" : "bg-background",
+						)}
+					>
+						<div className="flex items-start gap-4">
+							<div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
+								<ConnectorVisual descriptor={descriptor} />
+							</div>
+							<div className="min-w-0 flex-1">
+								<p className="text-base font-semibold">
+									{translateStorageConnectorMessage(
+										t,
+										descriptor.connector_id,
+										descriptor.ui.label_key,
+									)}
+								</p>
+								<p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+									{translateStorageConnectorMessage(
+										t,
+										descriptor.connector_id,
+										descriptor.ui.description_key,
+									)}
+								</p>
+								{disabled ? (
+									<p className="mt-2 text-xs font-medium leading-5 text-amber-700 dark:text-amber-300">
+										{t("auth:storage_setup_connector_post_setup_only")}
+									</p>
+								) : null}
+							</div>
+						</div>
+					</button>
+				);
+			})}
+		</div>
+	);
+}
+
+function ConnectorVisual({
+	descriptor,
+	className,
+}: {
+	descriptor: StorageConnectorDescriptor | null;
+	className?: string;
+}) {
+	if (descriptor?.ui.icon_src) {
+		return (
+			<img
+				src={descriptor.ui.icon_src}
+				alt=""
+				className={cn("max-h-9 w-auto object-contain", className)}
+			/>
+		);
+	}
+	const iconName = descriptor?.ui.icon_name;
+	return (
+		<Icon
+			name={iconName && isIconName(iconName) ? iconName : "Globe"}
+			className={cn("size-8 text-amber-600 dark:text-amber-300", className)}
+		/>
+	);
+}
+
+function PolicyNameField({
+	form,
+	showError,
+	onChange,
+}: {
+	form: PolicyFormData;
+	showError: boolean;
+	onChange: (value: string) => void;
+}) {
+	const { t } = useTranslation("admin");
+	const invalid = showError && !form.name.trim();
+	return (
+		<div className="space-y-2">
+			<Label htmlFor="name">{t("core:name")}</Label>
+			<Input
+				id="name"
+				value={form.name}
+				required
+				aria-invalid={invalid || undefined}
+				className={ADMIN_CONTROL_HEIGHT_CLASS}
+				onChange={(event) => onChange(event.target.value)}
+			/>
+			{invalid ? (
+				<p className="text-xs text-destructive">
+					{t("policy_wizard_name_required")}
+				</p>
+			) : null}
+		</div>
+	);
+}
+
+function ConnectorHelper({
+	descriptor,
+}: {
+	descriptor: StorageConnectorDescriptor | null;
+}) {
+	const { t } = useTranslation("admin");
+	const connectorT = (key: string) =>
+		translateStorageConnectorMessage(t, descriptor?.connector_id, key);
+	return (
+		<div className="rounded-3xl border border-border/70 bg-muted/20 p-5">
+			<div className="flex items-center gap-3">
+				<div className="flex size-14 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
+					<ConnectorVisual descriptor={descriptor} />
+				</div>
+				<div>
+					<p className="text-sm font-medium">
+						{descriptor
+							? connectorT(descriptor.ui.label_key)
+							: t("driver_type")}
+					</p>
+					<p className="text-xs text-muted-foreground">
+						{t("policy_wizard_driver_panel_title")}
+					</p>
+				</div>
+			</div>
+			<p className="mt-4 text-sm leading-6 text-muted-foreground">
+				{descriptor
+					? connectorT(descriptor.ui.description_key)
+					: t("policy_wizard_step_storage_desc")}
+			</p>
+			<p className="mt-4 text-xs leading-5 text-muted-foreground">
+				{descriptor
+					? connectorT(descriptor.ui.helper_key)
+					: t("policy_wizard_step_storage_desc")}
+			</p>
+		</div>
+	);
+}
+
+function RemoteTargets({
+	driverDescriptors,
+	driverError,
+	driverLoading,
+	targets,
+	targetsError,
+	targetsLoading,
+	onCreate,
+}: {
+	driverDescriptors: RemoteStorageTargetDriverDescriptor[];
+	driverError: string | null;
+	driverLoading: boolean;
+	targets: RemoteStorageTargetInfo[];
+	targetsError: string | null;
+	targetsLoading: boolean;
+	onCreate: (payload: RemoteCreateStorageTargetRequest) => Promise<void>;
+}) {
+	return (
+		<RemoteNodeRemoteStorageTargetSection
+			allowCreate
+			createLabelKey="policy_remote_storage_targets_quick_create"
+			descriptionKey="policy_remote_storage_targets_view_desc"
+			driverDescriptors={driverDescriptors}
+			errorMessage={targetsError ?? driverError}
+			loading={targetsLoading || driverLoading}
+			onCreateTarget={onCreate}
+			readOnly
+			surface="plain"
+			targets={targets}
+			titleKey="policy_remote_storage_targets_view_title"
+		/>
+	);
+}
+
+function PolicyRules({
+	form,
+	forceDefault,
+	nativeProcessingEnabled,
+	onFieldChange,
+}: {
+	form: PolicyFormData;
+	forceDefault: boolean;
+	nativeProcessingEnabled: boolean;
+	onFieldChange: StoragePolicyDialogProps["onFieldChange"];
+}) {
+	const { t } = useTranslation("admin");
+	return (
+		<div className="space-y-4">
+			<div className="grid gap-4 md:grid-cols-2">
+				<NumberTextField
+					id="max-file-size"
+					label={t("max_file_size")}
+					value={form.max_file_size}
+					onChange={(value) => onFieldChange("max_file_size", value)}
+				/>
+				<NumberTextField
+					id="chunk-size"
+					label={t("chunk_size")}
+					value={form.chunk_size}
+					onChange={(value) => onFieldChange("chunk_size", value)}
+				/>
+			</div>
+			{forceDefault ? null : (
+				<div className="flex items-center justify-between rounded-lg border border-border/70 px-3 py-2">
+					<Label htmlFor="default-policy">{t("set_as_default")}</Label>
+					<Switch
+						id="default-policy"
+						checked={form.is_default}
+						onCheckedChange={(checked) => onFieldChange("is_default", checked)}
+					/>
+				</div>
+			)}
+			{nativeProcessingEnabled ? (
+				<div className="space-y-4 border-t border-border/70 pt-4">
+					<SectionTitle
+						title={t("policy_storage_native_section_title")}
+						description={t("policy_storage_native_section_desc")}
+					/>
+					<ExtensionField
+						id="thumbnail-extensions"
+						label={t("storage_native_thumbnail_extensions")}
+						values={form.thumbnail_extensions}
+						onChange={(values) => onFieldChange("thumbnail_extensions", values)}
+					/>
+					<ExtensionField
+						id="media-extensions"
+						label={t("storage_native_media_metadata_extensions")}
+						values={form.media_metadata_extensions}
+						onChange={(values) =>
+							onFieldChange("media_metadata_extensions", values)
+						}
+					/>
+				</div>
+			) : null}
+		</div>
+	);
+}
+
+function PolicySummary({
+	descriptor,
+	name,
+	items,
+}: {
+	descriptor: StorageConnectorDescriptor | null;
+	name: string;
+	items: Array<{ label: string; value: string }>;
+}) {
+	const { t } = useTranslation("admin");
+	return (
+		<div
+			data-testid="policy-summary-card"
+			className="rounded-3xl border border-border/70 bg-muted/20 p-5 lg:sticky lg:top-0 lg:self-start"
+		>
+			<div className="flex items-center gap-3">
+				<div className="flex size-14 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
+					<ConnectorVisual descriptor={descriptor} />
+				</div>
+				<div>
+					<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+						{t("policy_wizard_summary_title")}
+					</p>
+					<h3 className="mt-1 text-base font-semibold">
+						{name || t("new_policy")}
+					</h3>
+				</div>
+			</div>
+			<p className="mt-4 text-sm leading-6 text-muted-foreground">
+				{t("policy_wizard_summary_desc")}
+			</p>
+			<div className="mt-4 overflow-hidden rounded-2xl border border-border/70 bg-background/85">
+				<dl className="divide-y divide-border/70">
+					{items.map((item) => (
+						<div
+							key={item.label}
+							className="grid grid-cols-[96px_minmax(0,1fr)] items-start gap-3 px-4 py-3"
+						>
+							<dt className="pt-0.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+								{item.label}
+							</dt>
+							<dd className="min-w-0 break-all text-sm font-medium leading-5 text-foreground">
+								{item.value}
+							</dd>
+						</div>
+					))}
+				</dl>
+			</div>
+		</div>
+	);
+}
+
+function PolicyEditContextBar({
+	capacity,
+	descriptor,
+	form,
+	loading,
+}: {
+	capacity: StoragePolicyCapacityInfo | null;
+	descriptor: StorageConnectorDescriptor | null;
+	form: PolicyFormData;
+	loading: boolean;
+}) {
+	const { t } = useTranslation("admin");
+	const connectorT = (key: string) =>
+		translateStorageConnectorMessage(t, descriptor?.connector_id, key);
+	const basePath = connectorStringValue(form, "base_path");
+	const displayBasePath =
+		basePath || t(descriptor?.ui.base_path_empty_display ?? "core:root");
+	const badgePresentation = getStorageConnectorBadgePresentation(
+		descriptor?.ui.badge_rgb,
+	);
+	const capacityStatus = loading
+		? t("policy_capacity_checking")
+		: capacity
+			? t(`policy_capacity_status_${capacity.capacity.status}`)
+			: t("policy_capacity_status_unavailable");
+	const capacityDescription = loading
+		? t("policy_capacity_loading")
+		: capacity
+			? t("policy_edit_usage_summary", {
+					size: formatBytes(capacity.blob_total_bytes),
+					count: capacity.blob_count,
+				})
+			: t("policy_capacity_unavailable_desc");
+	return (
+		<section
+			data-testid="policy-edit-context-bar"
+			className="rounded-2xl border border-border/70 bg-muted/20 p-4"
+		>
+			<div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.85fr)]">
+				<div className="min-w-0">
+					<p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+						{t("policy_edit_context_title")}
+					</p>
+					<h3
+						data-testid="policy-edit-context-name"
+						className="mt-1 truncate text-lg font-semibold text-foreground"
+					>
+						{form.name.trim() || t("new_policy")}
+					</h3>
+					<div className="mt-2 flex flex-wrap items-center gap-2">
+						<Badge
+							variant="outline"
+							data-testid="policy-edit-driver-badge"
+							className={cn("shadow-sm", badgePresentation.className)}
+							style={badgePresentation.style}
+						>
+							{descriptor
+								? connectorT(descriptor.ui.label_key)
+								: form.connector_id}
+						</Badge>
+						<span
+							className={cn(
+								"rounded-full border px-2 py-0.5 text-xs font-medium",
+								form.is_default
+									? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+									: "border-border bg-background/80 text-muted-foreground",
+							)}
+						>
+							{form.is_default
+								? t("policy_edit_default_enabled")
+								: t("policy_edit_default_disabled")}
+						</span>
+					</div>
+					<p className="mt-2 truncate text-sm text-muted-foreground">
+						{descriptor ? connectorT("base_path") : t("base_path")}:{" "}
+						{displayBasePath}
+					</p>
+					<p className="mt-1 text-sm leading-6 text-muted-foreground">
+						{descriptor
+							? connectorT(descriptor.ui.edit_context_key)
+							: t("policy_edit_context_local_desc")}
+					</p>
+				</div>
+				<div
+					data-testid="policy-edit-capacity-summary"
+					className="min-w-0 border-border/70 md:border-l md:pl-4"
+				>
+					<div className="flex items-start justify-between gap-3">
+						<div className="min-w-0">
+							<p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+								{t("policy_capacity_title")}
+							</p>
+							<p className="mt-1 text-sm font-medium text-foreground">
+								{capacityDescription}
+							</p>
+						</div>
+						<span className="shrink-0 rounded-full border border-border bg-background/80 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+							{capacityStatus}
+						</span>
+					</div>
+				</div>
+			</div>
+		</section>
+	);
+}
+
+function buildPolicySummaryItems(
+	form: PolicyFormData,
+	descriptor: StorageConnectorDescriptor | null,
+	remoteNodes: RemoteNodeInfo[],
+	remoteStorageTargets: RemoteStorageTargetInfo[],
+	t: (key: string, values?: Record<string, number | string>) => string,
+) {
+	const items = [
+		{
+			label: t("driver_type"),
+			value: descriptor
+				? translateStorageConnectorMessage(
+						t,
+						descriptor.connector_id,
+						descriptor.ui.label_key,
+					)
+				: form.connector_id || "—",
+		},
+		{
+			label: t("max_file_size"),
+			value:
+				!form.max_file_size || Number(form.max_file_size) === 0
+					? t("core:unlimited")
+					: `${form.max_file_size} bytes`,
+		},
+		{ label: t("chunk_size"), value: `${form.chunk_size || "0"} MB` },
+		{
+			label: t("set_as_default"),
+			value: form.is_default
+				? t("policy_wizard_enabled")
+				: t("policy_wizard_disabled"),
+		},
+	];
+	if (!descriptor) {
+		return items;
+	}
+	for (const field of descriptor.fields) {
+		if (
+			field.scope === "action_input" ||
+			field.secret ||
+			field.kind === "secret"
+		) {
+			continue;
+		}
+		const value =
+			field.scope === "connector_config"
+				? connectorFormValue(form, field.name)
+				: form.credential_values[field.name];
+		items.push({
+			label: translateStorageConnectorMessage(
 				t,
-			);
-			if (
-				disableUnsupportedInitialSetup &&
-				!descriptor.supports_initial_setup
-			) {
-				return {
-					...option,
-					disabled: true,
-					disabledReason: t("auth:storage_setup_connector_post_setup_only"),
-				};
-			}
-			return option;
+				descriptor.connector_id,
+				field.label_key,
+			),
+			value: connectorFieldDisplayValue(
+				field,
+				value,
+				descriptor,
+				remoteNodes,
+				remoteStorageTargets,
+				t,
+			),
 		});
 	}
-
-	return [];
+	return items;
 }
 
-function storagePolicyDriverOptionFromUi(
-	driverType: DriverType,
-	ui: StorageConnectorUiDescriptor,
-	t: (key: string) => string,
-): StoragePolicyDriverOption {
-	return {
-		type: driverType,
-		title: t(ui.label_key),
-		description: t(ui.description_key),
-		iconSrc: ui.icon_src ?? undefined,
-		iconName:
-			(ui.icon_name as StoragePolicyDriverOption["iconName"] | null) ??
-			undefined,
-	};
-}
-
-function fallbackStorageConnectorUi(): StorageConnectorUiDescriptor {
-	return {
-		label_key: "driver_type",
-		description_key: "policy_wizard_step_storage_desc",
-		helper_key: "policy_wizard_step_storage_desc",
-		config_step_title_key: "policy_wizard_step_connection_title",
-		config_step_description_key: "policy_wizard_step_connection_desc",
-		edit_context_key: "policy_edit_context_local_desc",
-		base_path_empty_display: "core:root",
-		base_path_placeholder: "tenant/prefix",
-	};
-}
-
-export function translateStorageConnectorUiValue(
-	value: string,
+function connectorFieldDisplayValue(
+	field: StorageConnectorFieldDescriptor,
+	value: StorageConnectorFieldValue | string | null | undefined,
+	descriptor: StorageConnectorDescriptor,
+	remoteNodes: RemoteNodeInfo[],
+	remoteStorageTargets: RemoteStorageTargetInfo[],
 	t: (key: string) => string,
 ) {
-	return t(value);
+	const resolved = value ?? field.default_value;
+	if (field.select?.data_source === "remote_nodes") {
+		return (
+			remoteNodes.find((node) => node.id === Number(resolved))?.name ??
+			String(resolved ?? "—")
+		);
+	}
+	if (field.select?.data_source === "remote_storage_targets") {
+		const target = remoteStorageTargets.find(
+			(candidate) => candidate.target_key === String(resolved),
+		);
+		return target?.name || target?.target_key || String(resolved ?? "—");
+	}
+	const option = field.select?.options?.find(
+		(candidate) => String(candidate.value) === String(resolved),
+	);
+	if (option) {
+		return translateStorageConnectorMessage(
+			t,
+			descriptor.connector_id,
+			option.label_key,
+		);
+	}
+	if (typeof resolved === "boolean") {
+		return resolved ? t("policy_wizard_enabled") : t("policy_wizard_disabled");
+	}
+	if ((resolved === "" || resolved == null) && field.name === "base_path") {
+		return t(descriptor.ui.base_path_empty_display);
+	}
+	return resolved == null || resolved === "" ? "—" : String(resolved);
+}
+
+function SectionTitle({
+	title,
+	description,
+}: {
+	title: string;
+	description: string;
+}) {
+	return (
+		<div>
+			<h3 className="text-sm font-semibold">{title}</h3>
+			<p className="mt-1 text-sm leading-6 text-muted-foreground">
+				{description}
+			</p>
+		</div>
+	);
+}
+
+function NumberTextField({
+	id,
+	label,
+	value,
+	onChange,
+}: {
+	id: string;
+	label: string;
+	value: string;
+	onChange: (value: string) => void;
+}) {
+	return (
+		<div className="space-y-2">
+			<Label htmlFor={id}>{label}</Label>
+			<Input
+				id={id}
+				type="number"
+				min={0}
+				value={value}
+				onChange={(event) => onChange(event.target.value)}
+			/>
+		</div>
+	);
+}
+
+function ExtensionField({
+	id,
+	label,
+	values,
+	onChange,
+}: {
+	id: string;
+	label: string;
+	values: string[];
+	onChange: (values: string[]) => void;
+}) {
+	return (
+		<div className="space-y-2">
+			<Label htmlFor={id}>{label}</Label>
+			<Input
+				id={id}
+				value={values.join(", ")}
+				onChange={(event) =>
+					onChange(
+						event.target.value
+							.split(",")
+							.map((value) => value.trim())
+							.filter(Boolean),
+					)
+				}
+			/>
+		</div>
+	);
+}
+
+function ConnectorManagement({
+	management,
+	authorizationActionLabel,
+	credentials,
+	credentialsLoading,
+	redirectUri,
+	validationActionLabel,
+	authorizationSubmitting,
+	validationSubmitting,
+	connectorT,
+	onAuthorize,
+	onValidate,
+}: {
+	management: StorageConnectorCredentialManagementDescriptor | null;
+	authorizationActionLabel: string | null;
+	credentials: StorageConnectorCredentialInfo[];
+	credentialsLoading: boolean;
+	redirectUri: string;
+	validationActionLabel: string | null;
+	authorizationSubmitting: boolean;
+	validationSubmitting: boolean;
+	connectorT: (key: string) => string;
+	onAuthorize: () => void;
+	onValidate: () => void;
+}) {
+	if (
+		!management ||
+		(!authorizationActionLabel &&
+			!validationActionLabel &&
+			credentials.length === 0)
+	) {
+		return null;
+	}
+	return (
+		<section className="space-y-3 border-t pt-5">
+			<div className="flex flex-wrap items-center justify-between gap-3">
+				<div>
+					<h3 className="text-sm font-semibold">
+						{connectorT(management.title_key)}
+					</h3>
+					<p className="mt-1 text-xs text-muted-foreground">
+						{credentialsLoading
+							? connectorT(management.loading_key)
+							: credentials[0]
+								? `${
+										management.status_keys[credentials[0].status]
+											? connectorT(
+													management.status_keys[credentials[0].status],
+												)
+											: credentials[0].status
+									}${
+										credentials[0].last_validated_at
+											? ` · ${formatDateTime(credentials[0].last_validated_at)}`
+											: ""
+									}`
+								: connectorT(management.status_keys.missing)}
+					</p>
+				</div>
+				<div className="flex gap-2">
+					{authorizationActionLabel ? (
+						<Button
+							type="button"
+							variant="outline"
+							disabled={authorizationSubmitting}
+							onClick={onAuthorize}
+						>
+							{authorizationSubmitting ? (
+								<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
+							) : null}
+							{authorizationActionLabel}
+						</Button>
+					) : null}
+					{validationActionLabel ? (
+						<Button
+							type="button"
+							variant="outline"
+							disabled={validationSubmitting || credentials.length === 0}
+							onClick={onValidate}
+						>
+							{validationSubmitting ? (
+								<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
+							) : null}
+							{validationActionLabel}
+						</Button>
+					) : null}
+				</div>
+			</div>
+			{authorizationActionLabel && management.redirect_uri_key ? (
+				<div className="space-y-2">
+					<Label htmlFor="storage-authorization-redirect-uri">
+						{connectorT(management.redirect_uri_key)}
+					</Label>
+					<Input
+						id="storage-authorization-redirect-uri"
+						readOnly
+						value={redirectUri}
+						className="font-mono text-xs"
+					/>
+				</div>
+			) : null}
+		</section>
+	);
 }

@@ -7,7 +7,7 @@ use crate::services::remote::storage_target::{
 use crate::storage::remote_protocol::{RemoteStorageCapabilities, RemoteStorageTargetCapabilities};
 use aster_drive_model::entities::managed_follower;
 use aster_drive_model::types::{
-    DriverType, RemoteDownloadStrategy, RemoteUploadStrategy, StoragePolicyOptions,
+    RemoteDownloadStrategy, RemoteStorageTargetDriverKind, RemoteUploadStrategy,
 };
 use aster_drive_storage::StorageErrorKind;
 
@@ -46,10 +46,11 @@ impl RemoteCapabilityResolver {
         self.capabilities.validate_protocol(context)
     }
 
-    pub fn ensure_remote_policy_options_supported(
+    pub fn ensure_remote_policy_config_supported(
         &self,
         policy_id: i64,
-        options: &StoragePolicyOptions,
+        download_strategy: RemoteDownloadStrategy,
+        upload_strategy: RemoteUploadStrategy,
     ) -> Result<()> {
         let context = format!(
             "remote storage policy #{policy_id} on remote node #{}",
@@ -57,15 +58,20 @@ impl RemoteCapabilityResolver {
         );
         self.ensure_protocol_compatible(&context)?;
         self.ensure_features(&context, &self.base_policy_required_features())?;
-        self.ensure_presigned_cors_for_options(options, &context, &context)?;
+        self.ensure_presigned_cors_for_strategies(
+            download_strategy,
+            upload_strategy,
+            &context,
+            &context,
+        )?;
 
         Ok(())
     }
 
-    pub fn ensure_binding_policy_options_supported(
+    pub fn ensure_binding_policy_configs_supported(
         &self,
         remote_node_name: &str,
-        policy_requirements: &[(i64, &StoragePolicyOptions)],
+        policy_requirements: &[(i64, RemoteDownloadStrategy, RemoteUploadStrategy)],
     ) -> Result<()> {
         let context = format!(
             "remote node #{} ('{remote_node_name}') binding reload",
@@ -77,12 +83,17 @@ impl RemoteCapabilityResolver {
         }
 
         self.ensure_features(&context, &self.base_policy_required_features())?;
-        for (policy_id, options) in policy_requirements {
+        for (policy_id, download_strategy, upload_strategy) in policy_requirements {
             let download_context =
                 format!("{context}; policy #{policy_id} requires remote presigned download");
             let upload_context =
                 format!("{context}; policy #{policy_id} requires remote presigned upload");
-            self.ensure_presigned_cors_for_options(options, &download_context, &upload_context)?;
+            self.ensure_presigned_cors_for_strategies(
+                *download_strategy,
+                *upload_strategy,
+                &download_context,
+                &upload_context,
+            )?;
         }
 
         Ok(())
@@ -99,7 +110,7 @@ impl RemoteCapabilityResolver {
 
     pub fn ensure_remote_storage_target_driver_supported(
         &self,
-        driver_type: DriverType,
+        driver_type: RemoteStorageTargetDriverKind,
     ) -> Result<()> {
         if self.supports_remote_storage_target_driver(driver_type) {
             return Ok(());
@@ -115,15 +126,21 @@ impl RemoteCapabilityResolver {
         ))
     }
 
-    pub fn supports_remote_storage_target_driver(&self, driver_type: DriverType) -> bool {
+    pub fn supports_remote_storage_target_driver(
+        &self,
+        driver_type: RemoteStorageTargetDriverKind,
+    ) -> bool {
         self.effective_remote_storage_target_capabilities()
             .supports_known_driver(driver_type)
             && remote_storage_target_driver_descriptor(driver_type).is_ok()
     }
 
-    pub fn requires_direct_transport_for_presigned(options: &StoragePolicyOptions) -> bool {
-        options.effective_remote_download_strategy() == RemoteDownloadStrategy::Presigned
-            || options.effective_remote_upload_strategy() == RemoteUploadStrategy::Presigned
+    pub fn requires_direct_transport_for_presigned(
+        download_strategy: RemoteDownloadStrategy,
+        upload_strategy: RemoteUploadStrategy,
+    ) -> bool {
+        download_strategy == RemoteDownloadStrategy::Presigned
+            || upload_strategy == RemoteUploadStrategy::Presigned
     }
 
     fn effective_remote_storage_target_capabilities(&self) -> RemoteStorageTargetCapabilities {
@@ -135,15 +152,17 @@ impl RemoteCapabilityResolver {
             == Some(LEGACY_MANAGED_INGRESS_IMPLICIT_PROTOCOL_VERSION)
         {
             return RemoteStorageTargetCapabilities::from_known_driver_types(vec![
-                DriverType::Local,
-                DriverType::S3,
+                RemoteStorageTargetDriverKind::Local,
+                RemoteStorageTargetDriverKind::S3,
             ]);
         }
 
         RemoteStorageTargetCapabilities::default()
     }
 
-    fn supported_registered_remote_storage_target_driver_types(&self) -> Vec<DriverType> {
+    fn supported_registered_remote_storage_target_driver_types(
+        &self,
+    ) -> Vec<RemoteStorageTargetDriverKind> {
         let remote_storage_target = self.effective_remote_storage_target_capabilities();
         if !remote_storage_target.enabled {
             return Vec::new();
@@ -250,13 +269,14 @@ impl RemoteCapabilityResolver {
         ))
     }
 
-    fn ensure_presigned_cors_for_options(
+    fn ensure_presigned_cors_for_strategies(
         &self,
-        options: &StoragePolicyOptions,
+        download_strategy: RemoteDownloadStrategy,
+        upload_strategy: RemoteUploadStrategy,
         download_context: &str,
         upload_context: &str,
     ) -> Result<()> {
-        if options.effective_remote_download_strategy() == RemoteDownloadStrategy::Presigned {
+        if download_strategy == RemoteDownloadStrategy::Presigned {
             self.ensure_browser_presigned_cors(
                 download_context,
                 &["range"],
@@ -264,7 +284,7 @@ impl RemoteCapabilityResolver {
             )?;
         }
 
-        if options.effective_remote_upload_strategy() == RemoteUploadStrategy::Presigned {
+        if upload_strategy == RemoteUploadStrategy::Presigned {
             self.ensure_browser_presigned_cors(upload_context, &["content-type"], &["ETag"])?;
         }
 
@@ -302,7 +322,7 @@ mod tests {
                 .is_empty()
         );
         let error = resolver
-            .ensure_remote_storage_target_driver_supported(DriverType::Local)
+            .ensure_remote_storage_target_driver_supported(RemoteStorageTargetDriverKind::Local)
             .unwrap_err();
         assert_eq!(
             error.api_error_code_override(),
@@ -320,7 +340,7 @@ mod tests {
                 .is_empty()
         );
         let error = resolver
-            .ensure_remote_storage_target_driver_supported(DriverType::Local)
+            .ensure_remote_storage_target_driver_supported(RemoteStorageTargetDriverKind::Local)
             .unwrap_err();
         assert_eq!(
             error.api_error_code_override(),
@@ -348,7 +368,10 @@ mod tests {
                 .iter()
                 .map(|descriptor| descriptor.driver_type)
                 .collect::<Vec<_>>(),
-            vec![DriverType::Local, DriverType::S3]
+            vec![
+                RemoteStorageTargetDriverKind::Local,
+                RemoteStorageTargetDriverKind::S3,
+            ]
         );
     }
 
@@ -372,7 +395,10 @@ mod tests {
                 .iter()
                 .map(|descriptor| descriptor.driver_type)
                 .collect::<Vec<_>>(),
-            vec![DriverType::Local, DriverType::S3]
+            vec![
+                RemoteStorageTargetDriverKind::Local,
+                RemoteStorageTargetDriverKind::S3,
+            ]
         );
     }
 
@@ -389,7 +415,7 @@ mod tests {
         .to_string();
 
         let error = RemoteCapabilityResolver::from_last_capabilities(42, &last_capabilities)
-            .ensure_remote_storage_target_driver_supported(DriverType::S3)
+            .ensure_remote_storage_target_driver_supported(RemoteStorageTargetDriverKind::S3)
             .unwrap_err();
 
         assert_eq!(
@@ -417,7 +443,10 @@ mod tests {
                 .iter()
                 .map(|descriptor| descriptor.driver_type)
                 .collect::<Vec<_>>(),
-            vec![DriverType::Local, DriverType::S3]
+            vec![
+                RemoteStorageTargetDriverKind::Local,
+                RemoteStorageTargetDriverKind::S3,
+            ]
         );
     }
 
@@ -436,8 +465,10 @@ mod tests {
                 .remote_storage_target_driver_descriptors()
                 .is_empty()
         );
-        assert!(!resolver.supports_remote_storage_target_driver(DriverType::Local));
-        assert!(!resolver.supports_remote_storage_target_driver(DriverType::S3));
+        assert!(
+            !resolver.supports_remote_storage_target_driver(RemoteStorageTargetDriverKind::Local)
+        );
+        assert!(!resolver.supports_remote_storage_target_driver(RemoteStorageTargetDriverKind::S3));
     }
 
     #[test]
@@ -459,7 +490,9 @@ mod tests {
                 .remote_storage_target_driver_descriptors()
                 .is_empty()
         );
-        assert!(!resolver.supports_remote_storage_target_driver(DriverType::Local));
+        assert!(
+            !resolver.supports_remote_storage_target_driver(RemoteStorageTargetDriverKind::Local)
+        );
     }
 
     #[test]
@@ -481,11 +514,13 @@ mod tests {
                 .remote_storage_target_driver_descriptors()
                 .is_empty()
         );
-        assert!(!resolver.supports_remote_storage_target_driver(DriverType::Local));
+        assert!(
+            !resolver.supports_remote_storage_target_driver(RemoteStorageTargetDriverKind::Local)
+        );
     }
 
     #[test]
-    fn resolver_accepts_current_v5_protocol_and_default_policy_options() {
+    fn resolver_accepts_current_v5_protocol_and_relay_policy_config() {
         let capabilities = RemoteStorageCapabilities::current();
         let resolver = RemoteCapabilityResolver::from_capabilities(42, capabilities);
 
@@ -493,14 +528,21 @@ mod tests {
             .ensure_protocol_compatible("current v5 remote node")
             .expect("current capabilities should be protocol-compatible");
         resolver
-            .ensure_remote_policy_options_supported(7, &StoragePolicyOptions::default())
-            .expect("current capabilities should support default remote policy options");
+            .ensure_remote_policy_config_supported(
+                7,
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::RelayStream,
+            )
+            .expect("current capabilities should support relay remote policy config");
     }
 
     #[test]
     fn resolver_exposes_current_v5_remote_storage_target_driver_descriptors() {
         let capabilities = RemoteStorageCapabilities::current()
-            .with_remote_storage_target_driver_types(vec![DriverType::Local, DriverType::S3]);
+            .with_remote_storage_target_driver_types(vec![
+                RemoteStorageTargetDriverKind::Local,
+                RemoteStorageTargetDriverKind::S3,
+            ]);
         let resolver = RemoteCapabilityResolver::from_capabilities(42, capabilities);
 
         assert_eq!(
@@ -509,7 +551,10 @@ mod tests {
                 .iter()
                 .map(|descriptor| descriptor.driver_type)
                 .collect::<Vec<_>>(),
-            vec![DriverType::Local, DriverType::S3]
+            vec![
+                RemoteStorageTargetDriverKind::Local,
+                RemoteStorageTargetDriverKind::S3,
+            ]
         );
     }
 
@@ -520,13 +565,12 @@ mod tests {
         capabilities.browser_cors.exposed_headers =
             vec!["Accept-Ranges".to_string(), "Content-Length".to_string()];
         let resolver = RemoteCapabilityResolver::from_capabilities(7, capabilities);
-        let options = StoragePolicyOptions {
-            remote_download_strategy: Some(RemoteDownloadStrategy::Presigned),
-            ..Default::default()
-        };
-
         let error = resolver
-            .ensure_remote_policy_options_supported(42, &options)
+            .ensure_remote_policy_config_supported(
+                42,
+                RemoteDownloadStrategy::Presigned,
+                RemoteUploadStrategy::RelayStream,
+            )
             .expect_err("missing Range/CORS headers should block presigned remote download");
 
         assert_eq!(
@@ -554,13 +598,12 @@ mod tests {
         capabilities.browser_cors.allowed_headers = vec!["range".to_string()];
         capabilities.browser_cors.exposed_headers = vec!["Accept-Ranges".to_string()];
         let resolver = RemoteCapabilityResolver::from_capabilities(7, capabilities);
-        let options = StoragePolicyOptions {
-            remote_upload_strategy: Some(RemoteUploadStrategy::Presigned),
-            ..Default::default()
-        };
-
         let error = resolver
-            .ensure_remote_policy_options_supported(42, &options)
+            .ensure_remote_policy_config_supported(
+                42,
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::Presigned,
+            )
             .expect_err("missing content-type/ETag CORS headers should block presigned upload");
 
         assert_eq!(
@@ -582,7 +625,11 @@ mod tests {
         let resolver = RemoteCapabilityResolver::from_capabilities(7, capabilities);
 
         let error = resolver
-            .ensure_remote_policy_options_supported(42, &StoragePolicyOptions::default())
+            .ensure_remote_policy_config_supported(
+                42,
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::RelayStream,
+            )
             .expect_err("missing metadata feature should block remote policy use");
 
         assert_eq!(
@@ -607,7 +654,11 @@ mod tests {
         let resolver = RemoteCapabilityResolver::from_capabilities(7, capabilities);
 
         let error = resolver
-            .ensure_remote_policy_options_supported(42, &StoragePolicyOptions::default())
+            .ensure_remote_policy_config_supported(
+                42,
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::RelayStream,
+            )
             .expect_err("incompatible protocol should block remote policy use");
 
         assert_eq!(
@@ -625,15 +676,21 @@ mod tests {
         capabilities.browser_cors.exposed_headers =
             vec!["Accept-Ranges".to_string(), "Content-Length".to_string()];
         let resolver = RemoteCapabilityResolver::from_capabilities(7, capabilities);
-        let relay = StoragePolicyOptions::default();
-        let presigned_download = StoragePolicyOptions {
-            remote_download_strategy: Some(RemoteDownloadStrategy::Presigned),
-            ..Default::default()
-        };
-        let requirements = [(41, &relay), (42, &presigned_download)];
+        let requirements = [
+            (
+                41,
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::RelayStream,
+            ),
+            (
+                42,
+                RemoteDownloadStrategy::Presigned,
+                RemoteUploadStrategy::RelayStream,
+            ),
+        ];
 
         let error = resolver
-            .ensure_binding_policy_options_supported("edge-a", &requirements)
+            .ensure_binding_policy_configs_supported("edge-a", &requirements)
             .expect_err("binding validation should include the failing policy context");
 
         assert_eq!(
@@ -652,23 +709,20 @@ mod tests {
     fn resolver_requires_direct_transport_for_any_presigned_strategy() {
         assert!(
             !RemoteCapabilityResolver::requires_direct_transport_for_presigned(
-                &StoragePolicyOptions::default()
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::RelayStream,
             )
         );
         assert!(
             RemoteCapabilityResolver::requires_direct_transport_for_presigned(
-                &StoragePolicyOptions {
-                    remote_download_strategy: Some(RemoteDownloadStrategy::Presigned),
-                    ..Default::default()
-                }
+                RemoteDownloadStrategy::Presigned,
+                RemoteUploadStrategy::RelayStream,
             )
         );
         assert!(
             RemoteCapabilityResolver::requires_direct_transport_for_presigned(
-                &StoragePolicyOptions {
-                    remote_upload_strategy: Some(RemoteUploadStrategy::Presigned),
-                    ..Default::default()
-                }
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::Presigned,
             )
         );
     }

@@ -10,7 +10,7 @@ use aster_forge_actix_middleware::cors::{
 
 use self::constants::{ALLOWED_HEADERS, ALLOWED_METHODS, EXPOSE_HEADERS};
 use crate::errors::AsterError;
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 
 pub fn runtime_cors() -> ForgeRuntimeCors {
     ForgeRuntimeCors::new(

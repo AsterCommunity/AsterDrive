@@ -8,40 +8,36 @@ mod shared;
 use crate::errors::Result;
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::ops::audit::{self, AuditContext};
-use aster_drive_model::types::DriverType;
 
+pub use crate::storage::{
+    ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
+    StorageConnectorConnectionInput, TestDraftStorageConnectorConnectionInput,
+};
 pub use aster_drive_storage::{
-    StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionKind,
-    StorageConnectorAffordanceAction, StorageConnectorCapabilities, StorageConnectorCredentialMode,
+    StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionId,
+    StorageConnectorActionKind, StorageConnectorCapabilities, StorageConnectorCredentialMode,
     StorageConnectorFieldDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
     StorageConnectorObjectNamingMode, StorageConnectorUploadWorkflows,
-    StoragePolicyExecutableAction,
 };
 pub use groups::{
     create_group, delete_group, ensure_policy_groups_seeded, get_group, list_groups_paginated,
     migrate_group_assignments, update_group,
 };
 pub use models::{
-    ConfigureTencentCosCorsInput, CreateStoragePolicyGroupInput, CreateStoragePolicyInput,
-    ExecuteDraftStoragePolicyActionInput, ExecuteSavedStoragePolicyActionInput,
-    PolicyGroupAssignmentMigrationResult, PromoteS3CompatiblePolicyDriverInput, StoragePolicy,
-    StoragePolicyActionResult, StoragePolicyActionType, StoragePolicyCapacityInfo,
-    StoragePolicyConnectionInput, StoragePolicyDiagnostic, StoragePolicyGroupInfo,
-    StoragePolicyGroupItemInfo, StoragePolicyGroupItemInput, StoragePolicySummaryInfo,
-    TencentCosCorsConfigResult, TestDraftStoragePolicyConnectionInput,
-    UpdateStoragePolicyGroupInput, UpdateStoragePolicyInput,
+    CreateStoragePolicyGroupInput, CreateStoragePolicyInput, PolicyGroupAssignmentMigrationResult,
+    StoragePolicy, StoragePolicyActionResult, StoragePolicyCapacityInfo, StoragePolicyDiagnostic,
+    StoragePolicyGroupInfo, StoragePolicyGroupItemInfo, StoragePolicyGroupItemInput,
+    StoragePolicySummaryInfo, UpdateStoragePolicyGroupInput, UpdateStoragePolicyInput,
 };
 pub(crate) use policies::capacity_info_or_status;
 pub use policies::{
     capacity_info, create, delete, execute_draft_action, execute_saved_action, get, list_paginated,
-    promote_s3_compatible_driver, test_connection, test_connection_params, test_default_connection,
-    update,
+    test_connection, test_connection_params, test_default_connection, update,
 };
 
 fn policy_audit_details(policy: &StoragePolicy) -> Option<serde_json::Value> {
     audit::details(audit::StoragePolicyAuditDetails {
-        driver_type: policy.driver_type.as_str(),
-        remote_node_id: policy.remote_node_id,
+        connector_id: policy.connector_id.as_str(),
         max_file_size: policy.max_file_size,
         chunk_size: policy.chunk_size,
         is_default: policy.is_default,
@@ -49,20 +45,45 @@ fn policy_audit_details(policy: &StoragePolicy) -> Option<serde_json::Value> {
 }
 
 fn policy_action_audit_details(
-    action: StoragePolicyActionType,
-    driver_type: DriverType,
+    action_id: &StorageConnectorActionId,
+    connector_id: &str,
     used_draft_values: bool,
+    mutates_remote_state: bool,
     diagnostic: Option<&StoragePolicyDiagnostic>,
 ) -> Option<serde_json::Value> {
     audit::details(audit::StoragePolicyActionAuditDetails {
-        action: action.as_str(),
-        driver_type: driver_type.as_str(),
+        action: action_id.as_str(),
+        connector_id,
         used_draft_values,
-        mutates_remote_state: action.mutates_remote_state(),
+        mutates_remote_state,
         diagnostic_kind: diagnostic.map(|diagnostic| diagnostic.kind.as_str()),
         diagnostic_api_code: diagnostic.map(|diagnostic| diagnostic.api_code.as_str()),
         diagnostic_retryable: diagnostic.map(|diagnostic| diagnostic.retryable),
     })
+}
+
+fn connector_action_mutates_remote_state(
+    state: &impl crate::runtime::StorageConnectorRuntimeState,
+    connector_id: &aster_drive_storage::ConnectorId,
+    action_id: &StorageConnectorActionId,
+) -> bool {
+    match state
+        .driver_registry()
+        .connectors()
+        .action_descriptor(connector_id, action_id)
+    {
+        Ok(Some(descriptor)) => descriptor.mutates_remote_state,
+        Ok(None) => false,
+        Err(error) => {
+            tracing::warn!(
+                connector_id = connector_id.as_str(),
+                action = action_id.as_str(),
+                %error,
+                "failed to resolve storage connector action metadata for audit"
+            );
+            false
+        }
+    }
 }
 
 pub async fn create_with_audit(
@@ -104,26 +125,6 @@ pub async fn update_with_audit(
     Ok(policy)
 }
 
-pub async fn promote_s3_compatible_driver_with_audit(
-    state: &impl SharedRuntimeState,
-    id: i64,
-    input: PromoteS3CompatiblePolicyDriverInput,
-    audit_ctx: &AuditContext,
-) -> Result<StoragePolicy> {
-    let policy = promote_s3_compatible_driver(state, id, input).await?;
-    audit::log_with_details(
-        state,
-        audit_ctx,
-        audit::AuditAction::AdminUpdatePolicy,
-        crate::services::ops::audit::AuditEntityType::StoragePolicy,
-        Some(policy.id),
-        Some(&policy.name),
-        || policy_audit_details(&policy),
-    )
-    .await;
-    Ok(policy)
-}
-
 pub async fn delete_with_audit(
     state: &(impl TaskRuntimeState + Sync),
     id: i64,
@@ -148,11 +149,14 @@ pub async fn delete_with_audit(
 pub async fn execute_saved_action_with_audit(
     state: &(impl SharedRuntimeState + Sync),
     id: i64,
-    input: ExecuteSavedStoragePolicyActionInput,
+    input: ExecuteSavedStorageConnectorActionInput,
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicyActionResult> {
     let policy = get(state, id).await?;
-    let action = input.action;
+    let action_id = input.action_id.clone();
+    let connector_id = aster_drive_storage::ConnectorId::declared(policy.connector_id.clone());
+    let mutates_remote_state =
+        connector_action_mutates_remote_state(state, &connector_id, &action_id);
     let result = execute_saved_action(state, id, input).await;
     let error_diagnostic;
     let diagnostic = match &result {
@@ -169,7 +173,15 @@ pub async fn execute_saved_action_with_audit(
         crate::services::ops::audit::AuditEntityType::StoragePolicy,
         Some(policy.id),
         Some(&policy.name),
-        || policy_action_audit_details(action, policy.driver_type, false, diagnostic),
+        || {
+            policy_action_audit_details(
+                &action_id,
+                &policy.connector_id,
+                false,
+                mutates_remote_state,
+                diagnostic,
+            )
+        },
     )
     .await;
     result
@@ -177,11 +189,13 @@ pub async fn execute_saved_action_with_audit(
 
 pub async fn execute_draft_action_with_audit(
     state: &(impl RemoteProtocolRuntimeState + Sync),
-    input: ExecuteDraftStoragePolicyActionInput,
+    input: ExecuteDraftStorageConnectorActionInput,
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicyActionResult> {
-    let action = input.action;
-    let driver_type = input.connection.driver_type;
+    let action_id = input.action_id.clone();
+    let connector_id = input.connection.connector_config.connector_id.clone();
+    let mutates_remote_state =
+        connector_action_mutates_remote_state(state, &connector_id, &action_id);
     let result = execute_draft_action(state, input).await;
     let error_diagnostic;
     let diagnostic = match &result {
@@ -198,7 +212,15 @@ pub async fn execute_draft_action_with_audit(
         crate::services::ops::audit::AuditEntityType::StoragePolicy,
         None,
         None,
-        || policy_action_audit_details(action, driver_type, true, diagnostic),
+        || {
+            policy_action_audit_details(
+                &action_id,
+                connector_id.as_str(),
+                true,
+                mutates_remote_state,
+                diagnostic,
+            )
+        },
     )
     .await;
     result

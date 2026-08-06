@@ -1,19 +1,14 @@
 import type {
 	CreatePolicyRequest,
 	ExecuteDraftStoragePolicyActionRequest,
+	StorageConnectorActionId,
 	StorageConnectorDescriptor,
+	StorageConnectorFieldValue,
+	TestPolicyParamsRequest,
 	UpdatePolicyRequest,
 } from "@/types/api";
-import {
-	normalizePolicyForm,
-	parseRemoteNodeId,
-} from "./connectionNormalization";
+import { normalizePolicyForm } from "./connectionNormalization";
 import type { PolicyFormData } from "./formTypes";
-import {
-	buildStorageApplicationConfig,
-	parseMicrosoftGraphScopes,
-} from "./storagePolicyApplicationConfig";
-import { buildPolicyOptions } from "./storagePolicyOptions";
 
 function parseOptionalFiniteNumber(value: string): number | undefined {
 	const trimmed = value.trim();
@@ -32,117 +27,169 @@ function parseOptionalChunkSizeBytes(value: string): number {
 
 export function buildPolicyTestPayload(
 	form: PolicyFormData,
-	descriptor?: StorageConnectorDescriptor | null,
+	descriptor: StorageConnectorDescriptor,
 	policyId?: number | null,
-) {
-	const normalizedForm = normalizePolicyForm(form, descriptor);
-
+): TestPolicyParamsRequest {
 	return {
 		...(policyId != null ? { policy_id: policyId } : {}),
-		driver_type: normalizedForm.driver_type,
-		endpoint: normalizedForm.endpoint || undefined,
-		bucket: normalizedForm.bucket || undefined,
-		access_key: normalizedForm.access_key || undefined,
-		secret_key: normalizedForm.secret_key || undefined,
-		base_path: normalizedForm.base_path || undefined,
-		remote_node_id: parseRemoteNodeId(normalizedForm.remote_node_id),
-		remote_storage_target_key:
-			normalizedForm.remote_storage_target_key || undefined,
-		options: buildPolicyOptions(normalizedForm, descriptor),
+		connection: buildStorageConnectorConnection(form, descriptor, true),
 	};
 }
 
-export function buildTencentCosCorsPayload(
+export function buildStorageConnectorActionPayload(
 	form: PolicyFormData,
-	policyId?: number | null,
-	descriptor?: StorageConnectorDescriptor | null,
+	policyId: number | null | undefined,
+	descriptor: StorageConnectorDescriptor,
+	actionId: StorageConnectorActionId,
+	values: Record<string, StorageConnectorFieldValue>,
 ): ExecuteDraftStoragePolicyActionRequest {
-	const normalizedForm = normalizePolicyForm(form, descriptor);
-
 	return {
-		action: "configure_tencent_cos_cors",
+		action_id: actionId,
+		values,
 		policy_id: policyId ?? undefined,
-		driver_type: normalizedForm.driver_type,
-		endpoint: normalizedForm.endpoint || undefined,
-		bucket: normalizedForm.bucket || undefined,
-		access_key: normalizedForm.access_key || undefined,
-		secret_key: normalizedForm.secret_key || undefined,
-		base_path: normalizedForm.base_path || undefined,
-		remote_node_id: parseRemoteNodeId(normalizedForm.remote_node_id),
-		remote_storage_target_key:
-			normalizedForm.remote_storage_target_key || undefined,
-		options: buildPolicyOptions(normalizedForm, descriptor),
+		connection: buildStorageConnectorConnection(form, descriptor, true),
 	};
 }
 
 export function buildCreatePolicyPayload(
 	form: PolicyFormData,
-	descriptor?: StorageConnectorDescriptor | null,
+	descriptor: StorageConnectorDescriptor,
 ): CreatePolicyRequest {
 	const normalizedForm = normalizePolicyForm(form, descriptor);
-	const applicationConfig = buildStorageApplicationConfig(
-		normalizedForm,
-		descriptor,
-	);
-	const usesApplicationConfig = applicationConfig !== undefined;
-
-	const payload: CreatePolicyRequest = {
+	return {
 		name: normalizedForm.name,
-		driver_type: normalizedForm.driver_type,
-		endpoint: normalizedForm.endpoint,
-		bucket: normalizedForm.bucket,
-		access_key: usesApplicationConfig ? "" : normalizedForm.access_key,
-		secret_key: usesApplicationConfig ? "" : normalizedForm.secret_key,
-		base_path: normalizedForm.base_path,
-		remote_node_id: parseRemoteNodeId(normalizedForm.remote_node_id),
-		remote_storage_target_key:
-			normalizedForm.remote_storage_target_key || undefined,
+		connection: buildStorageConnectorConnection(
+			normalizedForm,
+			descriptor,
+			true,
+		),
 		max_file_size: parseOptionalFiniteNumber(normalizedForm.max_file_size),
 		chunk_size: parseOptionalChunkSizeBytes(normalizedForm.chunk_size),
 		is_default: normalizedForm.is_default,
-		options: buildPolicyOptions(normalizedForm, descriptor),
 	};
-	if (applicationConfig) {
-		payload.application_config = applicationConfig;
-	}
-	return payload;
 }
 
 export function buildUpdatePolicyPayload(
 	form: PolicyFormData,
-	descriptor?: StorageConnectorDescriptor | null,
+	descriptor: StorageConnectorDescriptor,
 ): UpdatePolicyRequest {
 	const normalizedForm = normalizePolicyForm(form, descriptor);
-	const applicationConfig = buildStorageApplicationConfig(
-		normalizedForm,
-		descriptor,
-	);
-	const payload: UpdatePolicyRequest = {
+	const credential = buildCredential(normalizedForm, descriptor, false);
+	return {
 		name: normalizedForm.name,
-		endpoint: normalizedForm.endpoint,
-		bucket: normalizedForm.bucket,
-		base_path: normalizedForm.base_path,
-		remote_node_id: parseRemoteNodeId(normalizedForm.remote_node_id),
-		remote_storage_target_key:
-			normalizedForm.remote_storage_target_key || undefined,
+		connector_config: buildConnectorConfig(normalizedForm, descriptor),
+		behavior: buildBehavior(normalizedForm),
+		...(credential ? { credential } : {}),
 		max_file_size: parseOptionalFiniteNumber(normalizedForm.max_file_size),
 		chunk_size: parseOptionalChunkSizeBytes(normalizedForm.chunk_size),
 		is_default: normalizedForm.is_default,
-		options: buildPolicyOptions(normalizedForm, descriptor),
 	};
-
-	if (applicationConfig) {
-		payload.application_config = applicationConfig;
-	} else {
-		if (normalizedForm.access_key) {
-			payload.access_key = normalizedForm.access_key;
-		}
-		if (normalizedForm.secret_key) {
-			payload.secret_key = normalizedForm.secret_key;
-		}
-	}
-
-	return payload;
 }
 
-export { parseMicrosoftGraphScopes };
+export function buildStorageConnectorConnection(
+	form: PolicyFormData,
+	descriptor: StorageConnectorDescriptor,
+	requireCredential: boolean,
+) {
+	const normalizedForm = normalizePolicyForm(form, descriptor);
+	return {
+		connector_config: buildConnectorConfig(normalizedForm, descriptor),
+		behavior: buildBehavior(normalizedForm),
+		credential: buildCredential(
+			normalizedForm,
+			descriptor,
+			requireCredential,
+		) ?? {
+			mode: "none" as const,
+		},
+	};
+}
+
+function buildConnectorConfig(
+	form: PolicyFormData,
+	descriptor: StorageConnectorDescriptor,
+) {
+	return {
+		format_version: 1,
+		connector_id: descriptor.connector_id,
+		schema_version: descriptor.config_schema_version,
+		values: connectorConfigValues(form, descriptor),
+	} as never;
+}
+
+function connectorConfigValues(
+	form: PolicyFormData,
+	descriptor: StorageConnectorDescriptor,
+) {
+	const values: Record<string, unknown> = {};
+	for (const field of descriptor.fields) {
+		if (field.scope !== "connector_config") {
+			continue;
+		}
+		const value = form.connector_config_values[field.name];
+		if (
+			value === undefined ||
+			value === null ||
+			(value === "" && !field.required)
+		) {
+			continue;
+		}
+		values[field.name] = value;
+	}
+	return values;
+}
+
+function buildCredential(
+	form: PolicyFormData,
+	descriptor: StorageConnectorDescriptor,
+	required: boolean,
+) {
+	const values = credentialValues(form, descriptor);
+	const hasValues = Object.keys(values).length > 0;
+
+	if (descriptor.credential_mode === "static_secret") {
+		return hasValues || required
+			? { mode: "static" as const, values }
+			: undefined;
+	}
+	if (descriptor.credential_mode === "oauth_delegated") {
+		return hasValues || required
+			? { mode: "authorization_application" as const, values }
+			: undefined;
+	}
+	return required ? { mode: "none" as const } : undefined;
+}
+
+function credentialValues(
+	form: PolicyFormData,
+	descriptor: StorageConnectorDescriptor,
+) {
+	const expectedScope =
+		descriptor.credential_mode === "static_secret"
+			? "static_credential"
+			: descriptor.credential_mode === "oauth_delegated"
+				? "authorization_application"
+				: null;
+	if (expectedScope == null) {
+		return {};
+	}
+	const values: Record<string, string> = {};
+	for (const field of descriptor.fields) {
+		if (field.scope !== expectedScope) {
+			continue;
+		}
+		const value = form.credential_values[field.name] ?? "";
+		if (value !== "") {
+			values[field.name] = value;
+		}
+	}
+	return values;
+}
+
+function buildBehavior(form: PolicyFormData) {
+	return {
+		thumbnail_processor: form.thumbnail_processor ?? undefined,
+		thumbnail_extensions: form.thumbnail_extensions,
+		media_metadata_extensions: form.media_metadata_extensions,
+	};
+}

@@ -8,7 +8,7 @@ use chrono::Utc;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
-use super::{FollowerAppState, PrimaryAppState, SharedRuntimeState};
+use super::{FollowerAppState, PrimaryAppState};
 use crate::services::share::ShareDownloadRollbackWorker;
 use crate::services::task::SystemRuntimeTaskKind;
 use aster_forge_tasks::BackgroundTasks;
@@ -691,10 +691,8 @@ fn system_health_check_interval_for_web_state(state: &web::Data<PrimaryAppState>
 pub(crate) mod test_support {
     use std::sync::Arc;
 
-    use actix_web::web;
-    use aster_drive_migration::Migrator;
-
     use super::PrimaryAppState;
+    use actix_web::web;
 
     pub async fn setup_primary_state() -> web::Data<PrimaryAppState> {
         let db = crate::db::connect_with_metrics(
@@ -707,9 +705,7 @@ pub(crate) mod test_support {
         )
         .await
         .expect("runtime task test database should connect");
-        Migrator::up(&db, None)
-            .await
-            .expect("runtime task test migrations should apply");
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
         crate::db::repository::config_repo::ensure_defaults_with_env(&db, &|_| None)
             .await
             .expect("runtime config defaults should initialize");
@@ -733,7 +729,10 @@ pub(crate) mod test_support {
 
         web::Data::new(PrimaryAppState {
             db_handles: aster_forge_db::DbHandles::single(db),
-            driver_registry: Arc::new(crate::storage::DriverRegistry::noop()),
+            driver_registry: Arc::new(
+                crate::storage::DriverRegistry::noop()
+                    .expect("built-in storage connector registry"),
+            ),
             runtime_config,
             policy_snapshot: Arc::new(crate::storage::PolicySnapshot::new()),
             config: Arc::new(crate::config::Config::default()),

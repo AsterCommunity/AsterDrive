@@ -156,6 +156,12 @@
 
 判断一项能力放哪儿时，先问一句：它是不是“已配置存储上的运行期对象能力”？是，才放 driver 扩展；否则放 connector / descriptor。这个边界避免了 driver trait 被管理端需求慢慢撑成万能接口。
 
+### Connector 配置与凭据生命周期
+
+Connector 同时拥有策略配置和凭据格式，但二者不是同一个 schema。`config_schema_version` 只描述 `storage_config` 中的 connector 配置；需要持久化凭据的 connector 另外声明 `credential_schema_version`，用于凭据 envelope、加密 AAD、迁移和解码。只升级 endpoint、bucket 或行为选项等配置字段时，不应让已有凭据失效；只有凭据 payload 本身变化时才提升凭据版本，并由 connector 负责显式迁移。
+
+强制删除策略后，临时对象或 multipart upload 可能要等 presigned URL 过期后再清理。此时后台任务不能依赖已经删除的 policy 或 credential row。需要静态凭据的 connector 会在删除事务前生成 connector-owned cleanup snapshot：snapshot 只携带原有 ciphertext 和恢复 driver 所需的非敏感配置，仍使用原 policy id、connector id 和凭据 schema 绑定 AAD，不把解密后的 secret 写进任务 payload。任务创建前必须验证所需 snapshot 存在，防止持久化一个注定无法执行的清理任务。
+
 ### 核心 trait 保持最小
 
 `StorageDriver` 的必实现方法只有 `put` / `get` / `get_stream` / `delete` / `exists` / `metadata` 这组基础对象操作。其余都是带默认实现的可覆盖项：
@@ -772,6 +778,12 @@ archive 和 thumbnail lane 会在单轮 dispatch 里快速继续捞下一批，�
 这个顺序必须和外键关系一起维护。新增表时，别只加 migration 和 entity，还要评估它是否应该进入 `COPY_TABLE_ORDER`，以及应该插在哪个位置。
 
 `runtime_leases` 和 `scheduled_tasks` 都参与复制。旧 runtime 不会在目标数据库续租，复制过来的 lease 最多保留到原 `expires_at`，随后由目标 runtime 正常接管；这段短暂 fence 还能避免切库窗口中源、目标 scheduler 同时取得所有权。将两张表纳入复制计划也意味着目标 migration history 即使被错误标记为完整，只要物理表或列缺失，迁移就会明确失败而不是假报可切换。
+
+### 0.5 存储升级中间态
+
+0.5 升级在运行配置和加密密钥可用后，把旧策略列中的明文静态凭据导入独立凭据表。导入成功后会清空 `access_key` / `secret_key` 的旧值，并删除两个 deprecated credential store 中已经转换的行，但 0.5.x 保留旧列、旧表和相关索引。为了让已经不再包含 legacy 字段的 current entity 仍能写入这套兼容 schema，0.5 migration 只给遗留 `driver_type` 增加空默认值，并将 MySQL 上没有 TEXT 默认值的遗留 `options` 放宽为 nullable；这不是物理清理。物理 schema 清理由 issue #463 的 0.6.0 新 migration 负责，历史 migration 保持不变。
+
+`database-migrate` 在目标完成复制和校验后加载运行配置，并在 migration lock 下执行同一个幂等 importer。这样尚未启动过 0.5.x runtime 的源数据库也能在目标端完成重加密；已经完成 importer 的数据库会得到空迁移报告。复制 MySQL 兼容 schema 时，CLI 会把 nullable 的遗留 `storage_policies.options` 规范化为历史空对象 `{}`，以便写入仍保持 `NOT NULL` 的 SQLite/PostgreSQL 目标。CLI 不删除兼容列或兼容表，避免提前执行 #463 的 0.6.0 schema 职责。
 
 ### 断点续传模型
 

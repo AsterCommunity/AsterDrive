@@ -2,10 +2,9 @@
 //!
 //! `crate::types` is the compatibility facade for cross-domain enums and stored
 //! wrappers used by entities, repositories, services, API DTOs, and tests. New
-//! lower-level code can import from concrete submodules such as
-//! `crate::types::storage_policy::DriverType` when that makes the domain source
-//! clearer; add new root exports only for types that are intentionally shared
-//! across module boundaries.
+//! lower-level code can import from concrete submodules when that makes the
+//! domain source clearer; add new root exports only for types that are
+//! intentionally shared across module boundaries.
 
 pub use super::archive::ArchiveFilenameEncoding;
 pub use super::audit::{AuditAction, AuditEntityType};
@@ -20,9 +19,10 @@ pub use super::media_metadata::{
 };
 pub use super::passkey::StoredPasskeyCredential;
 pub use super::preferences::{
-    BrowserOpenMode, ColorPreset, Language, PrefViewMode, StoredUserConfig, ThemeMode, UserConfig,
+    BrowserOpenMode, ColorPreset, LocaleTag, PrefViewMode, StoredUserConfig, ThemeMode, UserConfig,
     UserPreferences,
 };
+pub use super::remote_storage_target::RemoteStorageTargetDriverKind;
 pub use super::resource_lock::{LockDepth, LockMode, LockOrigin, LockRootKind, LockWorkspaceType};
 pub use super::sort::SortBy;
 pub use super::storage_credential::{
@@ -30,14 +30,12 @@ pub use super::storage_credential::{
     StorageCredentialProvider, StorageCredentialStatus,
 };
 pub use super::storage_policy::{
-    DriverType, MediaProcessorKind, OBJECT_MULTIPART_MIN_PART_SIZE, ObjectStorageDownloadStrategy,
-    ObjectStorageUploadStrategy, OneDriveAccountMode, ProviderDownloadFilenameMode,
-    ProviderDownloadStrategy, ProviderResumableUploadStrategy, RemoteDownloadStrategy,
-    RemoteNodeTransportMode, RemoteUploadStrategy, StoragePolicyOptions,
-    StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UploadMode, UploadSessionStatus,
-    effective_object_multipart_chunk_size, parse_storage_policy_allowed_types,
-    parse_storage_policy_options, serialize_storage_policy_allowed_types,
-    serialize_storage_policy_options,
+    MediaProcessorKind, OBJECT_MULTIPART_MIN_PART_SIZE, ObjectStorageDownloadStrategy,
+    ObjectStorageUploadStrategy, ProviderDownloadFilenameMode, ProviderDownloadStrategy,
+    ProviderResumableUploadStrategy, RemoteDownloadStrategy, RemoteNodeTransportMode,
+    RemoteUploadStrategy, StoredStoragePolicyAllowedTypes, StoredStoragePolicyConfig, UploadMode,
+    UploadSessionStatus, effective_object_multipart_chunk_size, parse_storage_policy_allowed_types,
+    serialize_storage_policy_allowed_types,
 };
 pub use super::tag::TagScopeType;
 pub use super::task::{

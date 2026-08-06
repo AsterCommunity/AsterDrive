@@ -352,8 +352,16 @@ describe("PolicyGroupDialog", () => {
 				{...createProps({
 					hasMorePolicies: true,
 					policies: [
-						{ driver_type: "local", id: 1, name: "Alpha Policy" },
-						{ driver_type: "s3", id: 2, name: "Beta Policy" },
+						{
+							connector_id: "asterdrive.storage.local",
+							id: 1,
+							name: "Alpha Policy",
+						},
+						{
+							connector_id: "asterdrive.storage.s3",
+							id: 2,
+							name: "Beta Policy",
+						},
 					],
 					policiesTotal: 2,
 				})}
@@ -405,8 +413,16 @@ describe("PolicyGroupDialog", () => {
 						],
 					}),
 					policies: [
-						{ driver_type: "local", id: 1, name: "Alpha Policy" },
-						{ driver_type: "s3", id: 2, name: "Beta Policy" },
+						{
+							connector_id: "asterdrive.storage.local",
+							id: 1,
+							name: "Alpha Policy",
+						},
+						{
+							connector_id: "asterdrive.storage.s3",
+							id: 2,
+							name: "Beta Policy",
+						},
 					],
 					policiesTotal: 2,
 				})}

@@ -4,7 +4,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{AsterError, MapAsterErr, Result, file_upload_error_with_code};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::workspace::storage::{
     StorePreuploadedNondedupParams, check_quota, cleanup_preuploaded_blob_upload,
     prepare_non_dedup_blob_upload, store_preuploaded_nondedup,
@@ -53,8 +53,12 @@ pub(super) async fn upload_streaming_direct(
         if let Some(name) = is_file {
             let filename =
                 resolve_streaming_direct_filename(relative_path, resolved_filename, &name)?;
-            let prepared_upload =
-                prepare_non_dedup_blob_upload(policy, declared_size, Some(&filename))?;
+            let prepared_upload = prepare_non_dedup_blob_upload(
+                state.driver_registry().connectors(),
+                policy,
+                declared_size,
+                Some(&filename),
+            )?;
             let storage_path = prepared_upload.storage_path().to_string();
 
             let (writer, reader) = tokio::io::duplex(RELAY_DIRECT_BUFFER_SIZE);
@@ -211,26 +215,17 @@ mod tests {
     fn policy_with_max_file_size(
         max_file_size: i64,
     ) -> aster_drive_model::entities::storage_policy::Model {
-        let now = chrono::Utc::now();
-        aster_drive_model::entities::storage_policy::Model {
-            id: 1,
-            name: "test".to_string(),
-            driver_type: aster_drive_model::types::DriverType::S3,
-            endpoint: String::new(),
-            bucket: String::new(),
-            access_key: String::new(),
-            secret_key: String::new(),
-            base_path: String::new(),
-            remote_node_id: None,
-            remote_storage_target_key: None,
-            max_file_size,
-            allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
-            options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
-            is_default: true,
-            chunk_size: 5_242_880,
-            created_at: now,
-            updated_at: now,
-        }
+        let mut policy = crate::storage::connectors::test_support::s3_policy(
+            "https://s3.example.test",
+            "test-bucket",
+            "",
+            aster_drive_model::types::ObjectStorageUploadStrategy::Presigned,
+            aster_drive_model::types::ObjectStorageDownloadStrategy::RelayStream,
+        );
+        policy.max_file_size = max_file_size;
+        policy.is_default = true;
+        policy.chunk_size = 5_242_880;
+        policy
     }
 
     #[test]

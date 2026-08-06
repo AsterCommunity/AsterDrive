@@ -11,6 +11,7 @@ These documents explain domain boundaries that cross routes, services, repositor
 - [Remote storage target and policy ownership](../../zh-CN/design/remote-storage-target-policy-ownership.md): remote node, storage target, and remote policy ownership. **Chinese source; translation pending.**
 - [Storage descriptor and field normalization](./storage-descriptor-normalization-contract.md): backend-authoritative fields, capabilities, and normalization rules.
 - [Object naming and OneDrive direct downloads](./storage-object-naming-and-onedrive-direct-download.md): object keys, provider paths, and direct-download boundaries.
+- [Object storage custom authentication and AWS SDK reuse boundaries](./object-storage-custom-auth.md): native COS/OSS signers, presigning, and S3 operation reuse constraints.
 
 ## Upload finalization
 

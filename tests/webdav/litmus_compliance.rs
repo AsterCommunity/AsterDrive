@@ -9,7 +9,7 @@ use crate::common;
 use actix_web::dev::Service;
 use actix_web::{App, HttpServer, web};
 use aster_drive::config::WebDavConfig;
-use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
+use aster_drive::runtime::PrimaryAppState;
 use aster_drive_model::entities::{user, webdav_account};
 use aster_drive_model::types::{UserRole, UserStatus};
 use base64::Engine;

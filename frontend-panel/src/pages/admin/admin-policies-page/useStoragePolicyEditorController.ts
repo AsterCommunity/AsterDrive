@@ -1,14 +1,9 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { microsoftGraphCredentials } from "@/components/admin/storage-policy-dialog/applicationCredentials";
+import { supportsStorageCredentialLifecycle } from "@/components/admin/storage-policy-dialog/descriptorPredicates";
 import {
-	supportsApplicationCredentials,
-	supportsObjectStorageConnection,
-	supportsRemoteNodeBinding,
-	supportsStorageCredentialLifecycle,
-} from "@/components/admin/storage-policy-dialog/descriptorPredicates";
-import {
+	connectorFormValue,
 	getPolicyForm,
 	type PolicyFormData,
 } from "@/components/admin/storage-policy-dialog/formTypes";
@@ -19,7 +14,8 @@ import {
 import { shouldRunPolicyConnectionSaveTest } from "@/components/admin/storage-policy-dialog/policyActionSelection";
 import { handleApiError } from "@/hooks/useApiError";
 import { invalidateAdminPolicyLookup } from "@/lib/adminPolicyLookup";
-import { getStorageDriverDescriptor } from "@/lib/adminStorageDriverDescriptors";
+import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
+import { getStorageConnectorDescriptor } from "@/lib/adminStorageDriverDescriptors";
 import { adminPolicyService } from "@/services/adminService";
 import type { StorageConnectorDescriptor, StoragePolicy } from "@/types/api";
 
@@ -98,10 +94,13 @@ export function useStoragePolicyEditorController({
 	) => {
 		try {
 			const currentForm = syncNormalizedPolicyForm();
-			const descriptor = getStorageDriverDescriptor(
+			const descriptor = getStorageConnectorDescriptor(
 				storageDriverDescriptors,
-				currentForm.driver_type,
+				currentForm.connector_id,
 			);
+			if (!descriptor) {
+				return;
+			}
 			if (editingId) {
 				const updated = await adminPolicyService.update(
 					editingId,
@@ -140,7 +139,15 @@ export function useStoragePolicyEditorController({
 					});
 					list.setTotal((current) => current + 1);
 					loadPolicyCapacity(created.id);
-					toast.success(t("policy_onedrive_created_authorize_next"));
+					toast.success(
+						descriptor.credential_management?.created_authorize_next_key
+							? translateStorageConnectorMessage(
+									t,
+									descriptor.connector_id,
+									descriptor.credential_management.created_authorize_next_key,
+								)
+							: t("policy_created"),
+					);
 					return;
 				}
 				const nextTotal = list.total + 1;
@@ -229,44 +236,7 @@ export function useStoragePolicyEditorController({
 		}
 
 		if (
-			supportsObjectStorageConnection(currentStorageDriverDescriptor) &&
-			!form.bucket.trim()
-		) {
-			return;
-		}
-
-		if (
-			supportsObjectStorageConnection(currentStorageDriverDescriptor) &&
-			!form.endpoint.trim()
-		) {
-			return;
-		}
-
-		if (
-			supportsRemoteNodeBinding(currentStorageDriverDescriptor) &&
-			!form.remote_node_id
-		) {
-			return;
-		}
-
-		if (
-			supportsRemoteNodeBinding(currentStorageDriverDescriptor) &&
-			form.remote_node_id &&
-			!form.remote_storage_target_key
-		) {
-			return;
-		}
-
-		if (
-			supportsApplicationCredentials(currentStorageDriverDescriptor) &&
-			!microsoftGraphCredentials(form).client_id.trim()
-		) {
-			return;
-		}
-
-		if (
-			supportsApplicationCredentials(currentStorageDriverDescriptor) &&
-			!microsoftGraphCredentials(form).client_secret.trim()
+			hasMissingRequiredConnectorField(form, currentStorageDriverDescriptor)
 		) {
 			return;
 		}
@@ -287,22 +257,10 @@ export function useStoragePolicyEditorController({
 		}
 		if (
 			editingId === null &&
-			supportsApplicationCredentials(currentStorageDriverDescriptor) &&
-			(!microsoftGraphCredentials(form).client_id.trim() ||
-				!microsoftGraphCredentials(form).client_secret.trim())
+			hasMissingRequiredConnectorField(form, currentStorageDriverDescriptor)
 		) {
 			setCreateStepTouched(true);
 			setCreateStep(1);
-			return;
-		}
-		if (
-			supportsRemoteNodeBinding(currentStorageDriverDescriptor) &&
-			(!form.remote_node_id || !form.remote_storage_target_key)
-		) {
-			setCreateStepTouched(true);
-			if (editingId === null) {
-				setCreateStep(1);
-			}
 			return;
 		}
 		void submitPolicy(actionBridge);
@@ -325,4 +283,23 @@ export function useStoragePolicyEditorController({
 		handleCreateStepChange,
 		handleSubmit,
 	};
+}
+
+function hasMissingRequiredConnectorField(
+	form: PolicyFormData,
+	descriptor: StorageConnectorDescriptor | null | undefined,
+) {
+	return (
+		descriptor?.fields.some((field) => {
+			if (!field.required || field.scope === "action_input") {
+				return false;
+			}
+			const value =
+				field.scope === "connector_config"
+					? connectorFormValue(form, field.name)
+					: form.credential_values[field.name];
+			const resolved = value ?? field.default_value;
+			return resolved === undefined || resolved === null || resolved === "";
+		}) ?? true
+	);
 }

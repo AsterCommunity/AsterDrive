@@ -10,10 +10,9 @@ use aster_drive::db;
 use aster_drive::db::repository::{
     contact_verification_token_repo, file_repo, follower_enrollment_session_repo,
     managed_follower_repo, master_binding_repo, mfa_factor_repo, mfa_login_flow_repo,
-    mfa_recovery_code_repo, mfa_totp_setup_flow_repo, policy_repo, property_repo, tag_repo,
-    user_repo,
+    mfa_recovery_code_repo, mfa_totp_setup_flow_repo, policy_repo, property_repo,
+    storage_policy_connector_credential_repo, tag_repo, user_repo,
 };
-use aster_drive::runtime::SharedRuntimeState;
 use aster_drive_migration::{CurrentMigrator, Migrator, MigratorTrait};
 use aster_drive_model::entities::{
     contact_verification_token, follower_enrollment_session, managed_follower, master_binding,
@@ -21,8 +20,8 @@ use aster_drive_model::entities::{
     user_invitation,
 };
 use aster_drive_model::types::{
-    DriverType, EntityType, MfaFirstFactor, MfaPersistentFactorMethod, StoredPasskeyCredential,
-    StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, TagScopeType,
+    EntityType, MfaFirstFactor, MfaPersistentFactorMethod, RemoteDownloadStrategy,
+    RemoteUploadStrategy, StoredPasskeyCredential, StoredStoragePolicyAllowedTypes, TagScopeType,
     UserInvitationStatus, VerificationChannel, VerificationPurpose,
 };
 use chrono::{Duration, Utc};
@@ -37,6 +36,7 @@ fn aster_drive_bin() -> &'static str {
 
 const MIGRATION_REMOTE_NODE_NAME: &str = "MigratedRemoteNode";
 const MIGRATION_REMOTE_POLICY_NAME: &str = "MigratedRemotePolicy";
+const MIGRATION_REMOTE_POLICY_CIPHERTEXT: &str = "encrypted-migration-credential";
 const MIGRATION_MASTER_BINDING_NAME: &str = "MigratedMasterBinding";
 const MIGRATION_MASTER_STORAGE_NAMESPACE: &str = "mb_migrate_remote_space";
 const MIGRATION_TAG_NAME: &str = "Migrated Tag";
@@ -75,6 +75,74 @@ async fn setup_empty_database_url(prefix: &str) -> String {
         },
         aster_drive_metrics::NoopMetrics::arc(),
     )
+    .await
+    .unwrap();
+    db.close().await.unwrap();
+    url
+}
+
+async fn setup_legacy_storage_upgrade_database_url() -> String {
+    let url = setup_database_url().await;
+    let db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: url.clone().into(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive_metrics::NoopMetrics::arc(),
+    )
+    .await
+    .unwrap();
+    let now = Utc::now().to_rfc3339();
+    let storage_config = serde_json::json!({
+        "format_version": 1,
+        "connector": {
+            "format_version": 1,
+            "connector_id": "asterdrive.storage.s3",
+            "schema_version": 1,
+            "values": {
+                "endpoint": "https://s3.example.test",
+                "bucket": "archive",
+                "base_path": "legacy",
+                "object_storage_upload_strategy": "relay_stream",
+                "object_storage_download_strategy": "relay_stream",
+                "s3_path_style": true,
+                "s3_region": "auto",
+                "s3_connect_timeout_secs": 5,
+                "s3_read_timeout_secs": 30,
+                "s3_operation_timeout_secs": 3600
+            }
+        },
+        "behavior": { "format_version": 1, "schema_version": 1, "values": {} }
+    })
+    .to_string();
+    db.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        "INSERT INTO storage_policies \
+         (id, name, driver_type, endpoint, bucket, access_key, secret_key, base_path, \
+          max_file_size, allowed_types, options, is_default, chunk_size, created_at, updated_at, \
+          connector_id, storage_config) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        vec![
+            91_i64.into(),
+            "Legacy S3".into(),
+            "s3".into(),
+            "https://s3.example.test".into(),
+            "archive".into(),
+            "legacy-access".into(),
+            "legacy-secret".into(),
+            "legacy".into(),
+            0_i64.into(),
+            "[]".into(),
+            "{}".into(),
+            false.into(),
+            5_242_880_i64.into(),
+            now.clone().into(),
+            now.into(),
+            "asterdrive.storage.s3".into(),
+            storage_config.into(),
+        ],
+    ))
     .await
     .unwrap();
     db.close().await.unwrap();
@@ -421,20 +489,24 @@ async fn seed_remote_node_fixture(db: &DatabaseConnection) {
     .await
     .unwrap();
 
-    policy_repo::create(
+    let remote_policy = policy_repo::create(
         db,
         storage_policy::ActiveModel {
             name: Set(MIGRATION_REMOTE_POLICY_NAME.to_string()),
-            driver_type: Set(DriverType::Remote),
-            endpoint: Set(String::new()),
-            bucket: Set(String::new()),
-            access_key: Set(String::new()),
-            secret_key: Set(String::new()),
-            base_path: Set("remote-ingress".to_string()),
-            remote_node_id: Set(Some(remote_node.id)),
+            connector_id: Set("asterdrive.storage.remote".to_string()),
+            storage_config: Set(common::encoded_policy_config(
+                "asterdrive.storage.remote",
+                common::TestRemoteConnectorConfigV1 {
+                    base_path: "remote-ingress".to_string(),
+                    remote_node_id: Some(remote_node.id),
+                    remote_storage_target_key: Some("migration-target".to_string()),
+                    remote_download_strategy: RemoteDownloadStrategy::RelayStream,
+                    remote_upload_strategy: RemoteUploadStrategy::RelayStream,
+                },
+                aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+            )),
             max_file_size: Set(0),
             allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(StoredStoragePolicyOptions::empty()),
             is_default: Set(false),
             chunk_size: Set(5_242_880),
             created_at: Set(now),
@@ -444,6 +516,15 @@ async fn seed_remote_node_fixture(db: &DatabaseConnection) {
     )
     .await
     .unwrap();
+    storage_policy_connector_credential_repo::upsert(
+        db,
+        remote_policy.id,
+        "asterdrive.storage.remote".to_string(),
+        1,
+        MIGRATION_REMOTE_POLICY_CIPHERTEXT.to_string(),
+    )
+    .await
+    .expect("connector credential migration fixture should be stored");
 
     follower_enrollment_session_repo::create(
         db,
@@ -689,15 +770,18 @@ async fn assert_migrated_fixture(
         ),
     )
     .await;
-    let remote_policies = scalar_i64(
-        &target_db,
-        target_backend,
-        &format!(
-            "SELECT COUNT(*) FROM storage_policies \
-             WHERE name = '{MIGRATION_REMOTE_POLICY_NAME}' AND remote_node_id IS NOT NULL"
-        ),
-    )
-    .await;
+    let remote_policy = policy_repo::find_all(&target_db)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|policy| policy.name == MIGRATION_REMOTE_POLICY_NAME)
+        .expect("migrated remote policy should exist");
+    let remote_policy_config = common::remote_policy_config(&remote_policy);
+    let remote_policy_credential =
+        storage_policy_connector_credential_repo::find_by_policy(&target_db, remote_policy.id)
+            .await
+            .unwrap()
+            .expect("migrated connector credential should exist");
     let file_name = scalar_string(
         &target_db,
         target_backend,
@@ -763,7 +847,22 @@ async fn assert_migrated_fixture(
     assert_eq!(user_invitations, 1);
     assert_eq!(tags, 1);
     assert_eq!(migrated_file_tag_bindings, 1);
-    assert_eq!(remote_policies, 1);
+    assert_eq!(remote_policy.connector_id, "asterdrive.storage.remote");
+    assert_eq!(remote_policy_config.remote_node_id, Some(1));
+    assert_eq!(
+        remote_policy_config.remote_storage_target_key.as_deref(),
+        Some("migration-target")
+    );
+    assert_eq!(
+        remote_policy_credential.connector_id,
+        "asterdrive.storage.remote"
+    );
+    assert_eq!(remote_policy_credential.schema_version, 1);
+    assert_eq!(remote_policy_credential.revision, 1);
+    assert_eq!(
+        remote_policy_credential.ciphertext,
+        MIGRATION_REMOTE_POLICY_CIPHERTEXT
+    );
     assert_eq!(file_name, "test-in-folder.txt");
     assert_eq!(passkey.name, "Migrated Passkey");
     let credential = passkey
@@ -2157,6 +2256,133 @@ async fn test_root_binary_database_migrate_sqlite_urls_without_mode_default_to_r
         file_id,
     )
     .await;
+}
+
+#[tokio::test]
+async fn test_root_binary_database_migrate_imports_legacy_storage_credentials_on_sqlite() {
+    let source_database_url = setup_legacy_storage_upgrade_database_url().await;
+    let target_database_url =
+        setup_empty_database_url("asterdrive-cli-legacy-storage-target").await;
+
+    assert_imported_legacy_storage_credentials(
+        &source_database_url,
+        &target_database_url,
+        DbBackend::Sqlite,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_root_binary_database_migrate_imports_legacy_storage_credentials_on_postgres() {
+    let source_database_url = setup_legacy_storage_upgrade_database_url().await;
+    let target_database_url = common::postgres_test_database_url().await;
+
+    assert_imported_legacy_storage_credentials(
+        &source_database_url,
+        &target_database_url,
+        DbBackend::Postgres,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_root_binary_database_migrate_imports_legacy_storage_credentials_on_mysql() {
+    let source_database_url = setup_legacy_storage_upgrade_database_url().await;
+    let target_database_url = common::mysql_test_database_url().await;
+
+    assert_imported_legacy_storage_credentials(
+        &source_database_url,
+        &target_database_url,
+        DbBackend::MySql,
+    )
+    .await;
+}
+
+async fn assert_imported_legacy_storage_credentials(
+    source_database_url: &str,
+    target_database_url: &str,
+    target_backend: DbBackend,
+) {
+    let output = run_aster_drive(&[
+        "database-migrate",
+        "--source-database-url",
+        source_database_url,
+        "--target-database-url",
+        target_database_url,
+    ]);
+    assert!(
+        output.status.success(),
+        "database-migrate stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let target_db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: target_database_url.to_string().into(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive_metrics::NoopMetrics::arc(),
+    )
+    .await
+    .unwrap();
+    assert!(column_exists(&target_db, target_backend, "storage_policies", "access_key").await);
+    assert!(column_exists(&target_db, target_backend, "storage_policies", "secret_key").await);
+    assert_eq!(
+        scalar_string(
+            &target_db,
+            target_backend,
+            "SELECT access_key FROM storage_policies WHERE id = 91",
+        )
+        .await,
+        ""
+    );
+    assert_eq!(
+        scalar_string(
+            &target_db,
+            target_backend,
+            "SELECT secret_key FROM storage_policies WHERE id = 91",
+        )
+        .await,
+        ""
+    );
+    assert_eq!(
+        scalar_i64(
+            &target_db,
+            target_backend,
+            "SELECT COUNT(*) FROM storage_connector_application_configs",
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        scalar_i64(
+            &target_db,
+            target_backend,
+            "SELECT COUNT(*) FROM storage_policy_credentials",
+        )
+        .await,
+        0
+    );
+    let credential = storage_policy_connector_credential_repo::find_by_policy(&target_db, 91)
+        .await
+        .unwrap()
+        .expect("legacy static credential should be imported after copy");
+    let config = aster_drive::config::load_config_read_only().unwrap();
+    let envelope: Value = serde_json::from_str(&credential.ciphertext).unwrap();
+    let aad = "storage_policy_connector_credential:91:asterdrive.storage.s3:1";
+    let plaintext = aster_forge_crypto::decrypt_secret(
+        config.auth.storage_credential_secret_key.as_bytes(),
+        b"asterdrive:storage-credential-token:v1",
+        aad.as_bytes(),
+        envelope["ciphertext"].as_str().unwrap(),
+    )
+    .unwrap();
+    let plaintext = String::from_utf8(plaintext).unwrap();
+    let payload: Value = serde_json::from_str(&plaintext).unwrap();
+    assert_eq!(payload["s3_access_key_id"], "legacy-access");
+    assert_eq!(payload["s3_secret_access_key"], "legacy-secret");
+    target_db.close().await.unwrap();
 }
 
 #[tokio::test]

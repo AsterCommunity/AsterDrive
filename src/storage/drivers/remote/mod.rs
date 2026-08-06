@@ -11,8 +11,15 @@ mod tests;
 use crate::errors::{AsterError, Result};
 use crate::services::remote::capability::RemoteCapabilityResolver;
 use crate::storage::remote_protocol::RemoteStorageClient;
-use aster_drive_model::entities::{managed_follower, storage_policy};
+use aster_drive_model::entities::managed_follower;
 use aster_drive_storage::object_key;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteDriverConfig {
+    pub base_path: String,
+    pub remote_storage_target_key: Option<String>,
+    pub max_file_size: i64,
+}
 
 pub struct RemoteDriver {
     client: RemoteStorageClient,
@@ -24,9 +31,9 @@ pub struct RemoteDriver {
 impl RemoteDriver {
     const MULTIPART_UPLOADS_PREFIX: &str = "uploads";
 
-    pub fn new(policy: &storage_policy::Model, follower: &managed_follower::Model) -> Result<Self> {
+    pub fn new(config: &RemoteDriverConfig, follower: &managed_follower::Model) -> Result<Self> {
         Self::from_client(
-            policy,
+            config,
             follower,
             RemoteStorageClient::new(
                 &follower.base_url,
@@ -37,27 +44,27 @@ impl RemoteDriver {
     }
 
     pub(crate) fn new_with_client(
-        policy: &storage_policy::Model,
+        config: &RemoteDriverConfig,
         follower: &managed_follower::Model,
         client: RemoteStorageClient,
     ) -> Result<Self> {
-        Self::from_client(policy, follower, client)
+        Self::from_client(config, follower, client)
     }
 
     fn from_client(
-        policy: &storage_policy::Model,
+        config: &RemoteDriverConfig,
         follower: &managed_follower::Model,
         client: RemoteStorageClient,
     ) -> Result<Self> {
         let resolver = RemoteCapabilityResolver::from_remote_node(follower);
         resolver.ensure_protocol_compatible("remote storage driver")?;
         let client = client.with_policy_context(
-            policy.remote_storage_target_key.as_deref(),
-            policy.max_file_size,
+            config.remote_storage_target_key.as_deref(),
+            config.max_file_size,
         );
         Ok(Self {
             client,
-            base_path: policy.base_path.trim_matches('/').to_string(),
+            base_path: config.base_path.trim_matches('/').to_string(),
             supports_capacity: resolver.capabilities().supports_capacity,
             uses_reverse_tunnel: follower
                 .transport_mode

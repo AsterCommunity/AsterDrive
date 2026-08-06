@@ -3,7 +3,6 @@
 use crate::common;
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::config::site_url;
-use aster_drive::runtime::SharedRuntimeState;
 
 use actix_web::test;
 use chrono::{Duration, Utc};
@@ -48,12 +47,22 @@ where
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/policies")
         .insert_header(("Cookie", common::access_cookie_header(token)))
-        .insert_header(common::csrf_header_for(token))
-        .set_json(serde_json::json!({
-            "name": name,
-            "driver_type": "local",
-            "base_path": format!("/tmp/asterdrive-{}-{}", name.to_ascii_lowercase().replace(' ', "-"), uuid::Uuid::new_v4()),
-            "max_file_size": 0,
+		.insert_header(common::csrf_header_for(token))
+		.set_json(serde_json::json!({
+			"name": name,
+			"connection": {
+				"connector_config": {
+					"format_version": 1,
+					"connector_id": "asterdrive.storage.local",
+					"schema_version": 1,
+					"values": {
+						"base_path": format!("/tmp/asterdrive-{}-{}", name.to_ascii_lowercase().replace(' ', "-"), uuid::Uuid::new_v4())
+					}
+				},
+				"behavior": {},
+				"credential": { "mode": "none" }
+			},
+			"max_file_size": 0,
             "is_default": false
         }))
         .to_request();
@@ -78,11 +87,26 @@ where
         .insert_header(common::csrf_header_for(token))
         .set_json(serde_json::json!({
             "name": name,
-            "driver_type": "tencent_cos",
-            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
-            "bucket": "media-1250000000",
-            "access_key": "AKIDEXAMPLE",
-            "secret_key": "SECRETEXAMPLE",
+            "connection": {
+                "connector_config": {
+                    "format_version": 1,
+                    "connector_id": "asterdrive.storage.tencent_cos",
+                    "schema_version": 1,
+                    "values": {
+                        "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
+                        "bucket": "media-1250000000",
+                        "base_path": ""
+                    }
+                },
+                "behavior": {},
+                "credential": {
+                    "mode": "static",
+                    "values": {
+                        "tencent_cos_secret_id": "AKIDEXAMPLE",
+                        "tencent_cos_secret_key": "SECRETEXAMPLE"
+                    }
+                }
+            },
             "max_file_size": 0,
             "is_default": false
         }))
@@ -91,6 +115,175 @@ where
     assert_eq!(resp.status(), 201);
     let body: Value = test::read_body_json(resp).await;
     body["data"]["id"].as_i64().unwrap()
+}
+
+fn local_action_connection() -> Value {
+    serde_json::json!({
+        "connector_config": {
+            "format_version": 1,
+            "connector_id": "asterdrive.storage.local",
+            "schema_version": 1,
+            "values": {
+                "base_path": format!("/tmp/asterdrive-action-local-{}", uuid::Uuid::new_v4())
+            }
+        },
+        "behavior": {},
+        "credential": { "mode": "none" }
+    })
+}
+
+fn tencent_cos_action_connection() -> Value {
+    serde_json::json!({
+        "connector_config": {
+            "format_version": 1,
+            "connector_id": "asterdrive.storage.tencent_cos",
+            "schema_version": 1,
+            "values": {
+                "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
+                "bucket": "media-1250000000",
+                "base_path": ""
+            }
+        },
+        "behavior": {},
+        "credential": {
+            "mode": "static",
+            "values": {
+                "tencent_cos_secret_id": "AKIDEXAMPLE",
+                "tencent_cos_secret_key": "SECRETEXAMPLE"
+            }
+        }
+    })
+}
+
+fn connection_json(connection: aster_drive::storage::StorageConnectorConnectionInput) -> Value {
+    serde_json::to_value(connection).expect("typed storage connector connection should serialize")
+}
+
+fn local_connection_json(base_path: impl Into<String>) -> Value {
+    connection_json(common::local_connection(base_path))
+}
+
+fn s3_connection_json(
+    endpoint: impl Into<String>,
+    bucket: impl Into<String>,
+    base_path: impl Into<String>,
+    access_key: impl Into<String>,
+    secret_key: impl Into<String>,
+) -> Value {
+    connection_json(common::s3_connection(
+        endpoint, bucket, base_path, access_key, secret_key,
+    ))
+}
+
+fn remote_connection_json(
+    base_path: impl Into<String>,
+    remote_node_id: Option<i64>,
+    remote_storage_target_key: Option<String>,
+    remote_download_strategy: aster_drive_model::types::RemoteDownloadStrategy,
+    remote_upload_strategy: aster_drive_model::types::RemoteUploadStrategy,
+) -> Value {
+    connection_json(common::remote_connection(
+        base_path,
+        remote_node_id,
+        remote_storage_target_key,
+        remote_download_strategy,
+        remote_upload_strategy,
+    ))
+}
+
+fn onedrive_connection_json(base_path: impl Into<String>) -> Value {
+    serde_json::json!({
+        "connector_config": {
+            "format_version": 1,
+            "connector_id": "asterdrive.storage.onedrive",
+            "schema_version": 1,
+            "values": {
+                "base_path": base_path.into(),
+                "provider_resumable_upload_strategy": "server_relay",
+                "provider_download_strategy": "server_relay",
+                "provider_download_filename_mode": "provider_native"
+            }
+        },
+        "behavior": {},
+        "credential": {
+            "mode": "authorization_application",
+            "values": {
+                "client_id": "test-client-id",
+                "client_secret": "test-client-secret"
+            }
+        }
+    })
+}
+
+fn azure_blob_connection_json(endpoint: impl Into<String>, container: impl Into<String>) -> Value {
+    serde_json::json!({
+        "connector_config": {
+            "format_version": 1,
+            "connector_id": "asterdrive.storage.azure_blob",
+            "schema_version": 1,
+            "values": {
+                "endpoint": endpoint.into(),
+                "bucket": container.into(),
+                "base_path": "",
+                "object_storage_upload_strategy": "relay_stream",
+                "object_storage_download_strategy": "relay_stream"
+            }
+        },
+        "behavior": {},
+        "credential": {
+            "mode": "static",
+            "values": {
+                "azure_blob_account_name": "test-account",
+                "azure_blob_account_key": "test-account-key"
+            }
+        }
+    })
+}
+
+#[actix_web::test]
+async fn test_policy_input_rejects_invalid_and_unavailable_connectors_as_bad_requests() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for connector_id in ["com.example.missing", "INVALID ID"] {
+        let connection = serde_json::json!({
+            "connector_config": {
+                "format_version": 1,
+                "connector_id": connector_id,
+                "schema_version": 1,
+                "values": {}
+            },
+            "behavior": {},
+            "credential": { "mode": "none" }
+        });
+        for (uri, payload) in [
+            (
+                "/api/v1/admin/policies",
+                serde_json::json!({
+                    "name": "Unknown connector",
+                    "connection": connection.clone(),
+                    "max_file_size": 0,
+                    "is_default": false
+                }),
+            ),
+            (
+                "/api/v1/admin/policies/test",
+                serde_json::json!({ "connection": connection }),
+            ),
+        ] {
+            let req = test::TestRequest::post()
+                .uri(uri)
+                .insert_header(("Cookie", common::access_cookie_header(&token)))
+                .insert_header(common::csrf_header_for(&token))
+                .set_json(payload)
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            assert_eq!(resp.status(), 400, "{uri} should reject {connector_id}");
+            let body: Value = test::read_body_json(resp).await;
+            assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
+        }
+    }
 }
 
 #[actix_web::test]
@@ -110,14 +303,14 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
 
     assert_eq!(descriptors.len(), 7);
 
-    let descriptor = |driver_type: &str| {
+    let descriptor = |connector_id: &str| {
         descriptors
             .iter()
-            .find(|item| item["driver_type"] == driver_type)
-            .unwrap_or_else(|| panic!("{driver_type} descriptor should exist"))
+            .find(|item| item["connector_id"] == connector_id)
+            .unwrap_or_else(|| panic!("{connector_id} descriptor should exist"))
     };
 
-    let onedrive = descriptor("one_drive");
+    let onedrive = descriptor("asterdrive.storage.onedrive");
     assert_eq!(onedrive["credential_mode"], "oauth_delegated");
     assert_eq!(
         onedrive["deployment_scope"],
@@ -127,16 +320,22 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     assert_eq!(onedrive["requires_authorization"], true);
     assert_eq!(onedrive["capabilities"]["presigned_download"], true);
     assert_eq!(onedrive["authorization_provider"], "microsoft_graph");
+    assert_eq!(
+        onedrive["credential_management"]["title_key"],
+        "onedrive_credential_title"
+    );
+    assert_eq!(
+        onedrive["credential_management"]["status_keys"]["authorized"],
+        "onedrive_credential_status_authorized"
+    );
     let onedrive_actions = onedrive["actions"].as_array().expect("onedrive actions");
     assert!(!onedrive_actions.iter().any(|action| {
-        action["affordance_action"] == "test_draft_connection"
-            && action["kind"] == "connection_test"
+        action["action_id"] == "test_draft_connection" && action["kind"] == "connection_test"
     }));
     let saved_onedrive_test = onedrive_actions
         .iter()
         .find(|action| {
-            action["affordance_action"] == "test_saved_connection"
-                && action["kind"] == "connection_test"
+            action["action_id"] == "test_saved_connection" && action["kind"] == "connection_test"
         })
         .expect("onedrive saved connection test action");
     assert_eq!(saved_onedrive_test["requires_saved_policy"], true);
@@ -156,7 +355,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     );
     assert!(onedrive["fields"].as_array().is_some_and(|fields| {
         fields.iter().any(|field| {
-            field["name"] == "provider_download_strategy" && field["scope"] == "policy_options"
+            field["name"] == "provider_download_strategy" && field["scope"] == "connector_config"
         })
     }));
     let onedrive_resumable =
@@ -184,11 +383,15 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     );
     assert!(onedrive["upload_workflows"]["object_multipart_upload_capabilities"].is_null());
 
-    let s3 = descriptor("s3");
-    assert!(s3["actions"].as_array().expect("s3 actions").iter().any(
-        |action| action["affordance_action"] == "test_draft_connection"
-            && action["kind"] == "connection_test"
-    ));
+    let s3 = descriptor("asterdrive.storage.s3");
+    assert!(
+        s3["actions"]
+            .as_array()
+            .expect("s3 actions")
+            .iter()
+            .any(|action| action["action_id"] == "test_draft_connection"
+                && action["kind"] == "connection_test")
+    );
     assert_eq!(s3["upload_workflows"]["object_multipart_upload"], true);
     assert_eq!(
         s3["upload_workflows"]["object_multipart_upload_capabilities"]["min_part_size"],
@@ -212,7 +415,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     );
     assert_eq!(s3["capabilities"]["storage_native_thumbnail"], false);
 
-    let azure_blob = descriptor("azure_blob");
+    let azure_blob = descriptor("asterdrive.storage.azure_blob");
     assert_eq!(
         azure_blob["upload_workflows"]["object_multipart_upload"],
         true
@@ -222,7 +425,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
         false
     );
 
-    let tencent_cos = descriptor("tencent_cos");
+    let tencent_cos = descriptor("asterdrive.storage.tencent_cos");
     assert_eq!(
         tencent_cos["capabilities"]["storage_native_thumbnail"],
         true
@@ -236,11 +439,19 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
             .as_array()
             .expect("cos actions")
             .iter()
-            .any(
-                |action| action["policy_action"] == "configure_tencent_cos_cors"
-                    && action["kind"] == "policy_action"
+            .any(|action| {
+                action["action_id"] == "configure_tencent_cos_cors"
+                    && action["kind"] == "custom"
+                    && action["fields"].is_null()
+                    && action["endpoints"]
+                        == serde_json::json!([
+                            "execute_draft_storage_policy_action",
+                            "execute_saved_storage_policy_action"
+                        ])
+                    && action["requires_saved_policy"] == false
                     && action["mutates_remote_state"] == true
-            )
+                    && action["requires_confirmation"] == true
+            })
     );
     let cos_endpoint = tencent_cos["fields"]
         .as_array()
@@ -262,15 +473,15 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
         .expect("s3 path style field");
     assert_eq!(s3_path_style["label_key"], "s3_path_style");
     assert_eq!(s3_path_style["help_key"], "s3_path_style_desc");
-    assert_eq!(s3_path_style["visible_when_driver_types"][0], "s3");
+    assert_eq!(s3_path_style["scope"], "connector_config");
 
-    let local = descriptor("local");
+    let local = descriptor("asterdrive.storage.local");
     assert_eq!(local["deployment_scope"], "instance_local");
     assert_eq!(local["supports_initial_setup"], true);
     assert_eq!(local["upload_workflows"]["object_multipart_upload"], false);
     assert_eq!(local["capabilities"]["remote_node_binding"], false);
 
-    let sftp = descriptor("sftp");
+    let sftp = descriptor("asterdrive.storage.sftp");
     assert_eq!(sftp["credential_mode"], "static_secret");
     assert_eq!(sftp["ui"]["label_key"], "driver_type_sftp");
     assert_eq!(sftp["upload_workflows"]["stream_upload"], true);
@@ -278,7 +489,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     assert_eq!(sftp["capabilities"]["efficient_range"], true);
     assert_eq!(sftp["capabilities"]["remote_node_binding"], false);
 
-    let remote = descriptor("remote");
+    let remote = descriptor("asterdrive.storage.remote");
     assert_eq!(remote["upload_workflows"]["object_multipart_upload"], true);
     assert_eq!(remote["capabilities"]["remote_node_binding"], true);
 }
@@ -296,10 +507,14 @@ async fn test_storage_driver_catalog_contexts_are_backend_authoritative_in_singl
     assert_eq!(manage.len(), 7);
     assert_eq!(create.len(), 7);
     assert_eq!(setup.len(), 7);
-    assert!(setup.iter().any(|item| item["driver_type"] == "local"));
+    assert!(
+        setup
+            .iter()
+            .any(|item| item["connector_id"] == "asterdrive.storage.local")
+    );
     let onedrive = setup
         .iter()
-        .find(|item| item["driver_type"] == "one_drive")
+        .find(|item| item["connector_id"] == "asterdrive.storage.onedrive")
         .expect("setup catalog should describe OneDrive");
     assert_eq!(onedrive["supports_initial_setup"], false);
 }
@@ -318,15 +533,31 @@ async fn test_cluster_storage_driver_catalog_hides_local_only_from_new_policy_fl
     let setup = list_storage_driver_descriptors_via_admin(&app, &token, Some("setup")).await;
 
     assert_eq!(manage.len(), 7);
-    assert!(manage.iter().any(|item| item["driver_type"] == "local"));
+    assert!(
+        manage
+            .iter()
+            .any(|item| item["connector_id"] == "asterdrive.storage.local")
+    );
     assert_eq!(create.len(), 6);
-    assert!(!create.iter().any(|item| item["driver_type"] == "local"));
-    assert!(create.iter().any(|item| item["driver_type"] == "one_drive"));
+    assert!(
+        !create
+            .iter()
+            .any(|item| item["connector_id"] == "asterdrive.storage.local")
+    );
+    assert!(
+        create
+            .iter()
+            .any(|item| item["connector_id"] == "asterdrive.storage.onedrive")
+    );
     assert_eq!(setup.len(), 6);
-    assert!(!setup.iter().any(|item| item["driver_type"] == "local"));
+    assert!(
+        !setup
+            .iter()
+            .any(|item| item["connector_id"] == "asterdrive.storage.local")
+    );
     let onedrive = setup
         .iter()
-        .find(|item| item["driver_type"] == "one_drive")
+        .find(|item| item["connector_id"] == "asterdrive.storage.onedrive")
         .expect("cluster setup catalog should describe OneDrive");
     assert_eq!(onedrive["supports_initial_setup"], false);
 }
@@ -344,6 +575,103 @@ async fn test_storage_driver_catalog_rejects_unknown_context() {
     let resp = test::call_service(&app, req).await;
 
     assert_eq!(resp.status(), 400);
+}
+
+#[actix_web::test]
+async fn test_storage_driver_localizations_are_admin_only_and_cacheable() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let uri = "/api/v1/admin/policies/storage-drivers/localizations?context=create&locale=zh-CN";
+
+    let req = test::TestRequest::get().uri(uri).to_request();
+    assert_service_status!(app, req, 401);
+
+    let (admin_token, _) = register_and_login!(app);
+    let req = test::TestRequest::get()
+        .uri(uri)
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers()
+            .get("Cache-Control")
+            .and_then(|value| value.to_str().ok()),
+        Some("private, no-cache")
+    );
+    let etag = resp
+        .headers()
+        .get("ETag")
+        .and_then(|value| value.to_str().ok())
+        .expect("localization response ETag")
+        .to_string();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["requested_locale"], "zh-CN");
+    let resources = body["data"]["resources"]
+        .as_array()
+        .expect("connector localization resources");
+    assert_eq!(resources.len(), 7);
+    let local = resources
+        .iter()
+        .find(|resource| resource["connector_id"] == "asterdrive.storage.local")
+        .expect("local connector localization");
+    assert_eq!(local["namespace"], "asterdrive.storage.local");
+    assert_eq!(local["resolved_locale"], "zh");
+    assert_eq!(local["messages"]["driver_type_local"], "本机");
+
+    let req = test::TestRequest::get()
+        .uri(uri)
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(("If-None-Match", format!("W/{etag}")))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 304);
+    assert_eq!(
+        resp.headers()
+            .get("ETag")
+            .and_then(|value| value.to_str().ok()),
+        Some(etag.as_str())
+    );
+
+    admin_create_user!(
+        app,
+        admin_token,
+        "connector_reader",
+        "connector-reader@example.com",
+        "password123"
+    );
+    let (user_token, _) = login_user!(app, "connector_reader", "password123");
+    let req = test::TestRequest::get()
+        .uri(uri)
+        .insert_header(("Cookie", common::access_cookie_header(&user_token)))
+        .to_request();
+    assert_service_status!(app, req, 403);
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/policies/storage-drivers/localizations?locale=zh-CN")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+}
+
+#[actix_web::test]
+async fn test_storage_driver_localizations_reject_invalid_locale_and_context() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for uri in [
+        "/api/v1/admin/policies/storage-drivers/localizations?locale=not_a_locale",
+        "/api/v1/admin/policies/storage-drivers/localizations?context=unknown&locale=en",
+    ] {
+        let req = test::TestRequest::get()
+            .uri(uri)
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400, "{uri} should reject invalid query");
+    }
 }
 
 #[actix_web::test]
@@ -365,8 +693,7 @@ async fn test_cluster_rejects_direct_local_policy_creation_without_side_effects(
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Unsafe local policy",
-            "driver_type": "local",
-            "base_path": "/tmp/unsafe-cluster-local",
+            "connection": local_connection_json("/tmp/unsafe-cluster-local"),
             "max_file_size": 0,
             "is_default": false
         }))
@@ -419,8 +746,27 @@ async fn test_initial_storage_setup_rejects_connectors_requiring_post_setup_conf
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Premature OneDrive",
-            "driver_type": "one_drive",
-            "base_path": "files",
+            "connection": {
+                "connector_config": {
+                    "format_version": 1,
+                    "connector_id": "asterdrive.storage.onedrive",
+                    "schema_version": 1,
+                    "values": {
+                        "base_path": "files",
+                        "provider_resumable_upload_strategy": "server_relay",
+                        "provider_download_strategy": "server_relay",
+                        "provider_download_filename_mode": "provider_native"
+                    }
+                },
+                "behavior": {},
+                "credential": {
+                    "mode": "authorization_application",
+                    "values": {
+                        "client_id": "setup-client",
+                        "client_secret": "setup-secret"
+                    }
+                }
+            },
             "max_file_size": 0,
             "is_default": true
         }))
@@ -446,98 +792,6 @@ async fn test_initial_storage_setup_rejects_connectors_requiring_post_setup_conf
             .expect("list policies after rejected setup connector")
             .iter()
             .any(|policy| policy.name == "Premature OneDrive")
-    );
-}
-
-#[actix_web::test]
-async fn test_onedrive_provider_download_strategy_create_update_and_driver_isolation() {
-    let state = common::setup().await;
-    let app = create_test_app!(state.clone());
-    let (token, _) = register_and_login!(app);
-
-    let create = test::TestRequest::post()
-        .uri("/api/v1/admin/policies")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({
-            "name": "OneDrive Direct Download",
-            "driver_type": "one_drive",
-            "base_path": "files",
-            "max_file_size": 0,
-            "is_default": false,
-            "options": {
-                "onedrive_cloud": "global",
-                "onedrive_account_mode": "work_or_school",
-                "onedrive_root_item_id": "root",
-                "provider_download_strategy": "frontend_direct"
-            }
-        }))
-        .to_request();
-    let response = test::call_service(&app, create).await;
-    assert_eq!(response.status(), 201);
-    let body: Value = test::read_body_json(response).await;
-    let policy_id = body["data"]["id"].as_i64().expect("policy id");
-    assert_eq!(
-        body["data"]["options"]["provider_download_strategy"],
-        "frontend_direct"
-    );
-
-    let stored = aster_drive::db::repository::policy_repo::find_by_id(state.writer_db(), policy_id)
-        .await
-        .expect("created OneDrive policy should be stored");
-    assert!(
-        aster_drive::storage::connectors::presigned_download_enabled(&stored)
-            .expect("OneDrive direct download should resolve")
-    );
-
-    let update = test::TestRequest::patch()
-        .uri(&format!("/api/v1/admin/policies/{policy_id}"))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({
-            "options": {
-                "onedrive_cloud": "global",
-                "onedrive_account_mode": "work_or_school",
-                "onedrive_root_item_id": "root",
-                "provider_download_strategy": "server_relay"
-            }
-        }))
-        .to_request();
-    let response = test::call_service(&app, update).await;
-    assert_eq!(response.status(), 200);
-    let body: Value = test::read_body_json(response).await;
-    assert_eq!(
-        body["data"]["options"]["provider_download_strategy"],
-        "server_relay"
-    );
-
-    let stored = aster_drive::db::repository::policy_repo::find_by_id(state.writer_db(), policy_id)
-        .await
-        .expect("updated OneDrive policy should be stored");
-    assert!(
-        !aster_drive::storage::connectors::presigned_download_enabled(&stored)
-            .expect("OneDrive relay download should resolve")
-    );
-
-    let invalid = test::TestRequest::post()
-        .uri("/api/v1/admin/policies")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({
-            "name": "Invalid Local Provider Download",
-            "driver_type": "local",
-            "base_path": format!("/tmp/invalid-provider-download-{}", uuid::Uuid::new_v4()),
-            "options": {
-                "provider_download_strategy": "frontend_direct"
-            }
-        }))
-        .to_request();
-    let response = test::call_service(&app, invalid).await;
-    assert_eq!(response.status(), 400);
-    let body: Value = test::read_body_json(response).await;
-    assert_eq!(
-        body["code"],
-        ApiErrorCode::PolicyOneDriveOptionsUnsupported.as_str()
     );
 }
 
@@ -694,7 +948,6 @@ async fn create_policy_upload_session(
 #[actix_web::test]
 async fn test_user_default_policy_switch_updates_snapshot_immediately() {
     use aster_drive::services::{files::file, storage_policy::policy, user::account};
-    use aster_drive_model::types::DriverType;
 
     let state = common::setup().await;
     let user = common::create_test_account(
@@ -716,24 +969,11 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
         &state,
         policy::CreateStoragePolicyInput {
             name: "Alternate Local".to_string(),
-            connection: policy::StoragePolicyConnectionInput {
-                driver_type: DriverType::Local,
-                endpoint: String::new(),
-                bucket: String::new(),
-                access_key: String::new(),
-                secret_key: String::new(),
-                base_path: alternate_base_path.clone(),
-                remote_node_id: None,
-                remote_storage_target_key: None,
-                options: Default::default(),
-            },
+            connection: common::local_connection(alternate_base_path.clone()),
             max_file_size: 0,
             chunk_size: None,
             is_default: false,
             allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
-            application_config: Default::default(),
         },
     )
     .await
@@ -839,7 +1079,6 @@ async fn test_seed_policy_groups_backfills_missing_users_to_default_group() {
 async fn test_creating_first_default_policy_backfills_bootstrap_admin() {
     use aster_drive::db::repository::user_repo;
     use aster_drive::services::storage_policy::policy;
-    use aster_drive_model::types::DriverType;
     use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 
     let state = common::setup().await;
@@ -865,8 +1104,8 @@ async fn test_creating_first_default_policy_backfills_bootstrap_admin() {
         .await
         .unwrap();
     state
-        .policy_snapshot
-        .reload(state.writer_db())
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
         .await
         .unwrap();
     assert_eq!(
@@ -882,24 +1121,11 @@ async fn test_creating_first_default_policy_backfills_bootstrap_admin() {
         &state,
         policy::CreateStoragePolicyInput {
             name: "First Setup Default".to_string(),
-            connection: policy::StoragePolicyConnectionInput {
-                driver_type: DriverType::Local,
-                endpoint: String::new(),
-                bucket: String::new(),
-                access_key: String::new(),
-                secret_key: String::new(),
-                base_path,
-                remote_node_id: None,
-                remote_storage_target_key: None,
-                options: Default::default(),
-            },
+            connection: common::local_connection(base_path),
             max_file_size: 0,
             chunk_size: None,
             is_default: true,
             allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
-            application_config: Default::default(),
         },
     )
     .await
@@ -936,7 +1162,6 @@ async fn test_creating_first_default_policy_backfills_bootstrap_admin() {
 async fn test_promoting_policy_backfills_unassigned_users() {
     use aster_drive::db::repository::user_repo;
     use aster_drive::services::storage_policy::policy;
-    use aster_drive_model::types::DriverType;
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
@@ -958,24 +1183,11 @@ async fn test_promoting_policy_backfills_unassigned_users() {
         &state,
         policy::CreateStoragePolicyInput {
             name: "Promoted Default".to_string(),
-            connection: policy::StoragePolicyConnectionInput {
-                driver_type: DriverType::Local,
-                endpoint: String::new(),
-                bucket: String::new(),
-                access_key: String::new(),
-                secret_key: String::new(),
-                base_path,
-                remote_node_id: None,
-                remote_storage_target_key: None,
-                options: Default::default(),
-            },
+            connection: common::local_connection(base_path),
             max_file_size: 0,
             chunk_size: None,
             is_default: false,
             allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
-            application_config: Default::default(),
         },
     )
     .await
@@ -1022,25 +1234,26 @@ async fn test_policy_crud() {
     assert_eq!(body["data"]["total"], 1);
 
     // 创建新策略
+    let mut create_connection = s3_connection_json(
+        "http://localhost:9000",
+        "test-bucket",
+        "",
+        "minioadmin",
+        "minioadmin",
+    );
+    create_connection["connector_config"]["values"]["object_storage_upload_strategy"] =
+        serde_json::json!("presigned");
+    create_connection["connector_config"]["values"]["s3_path_style"] = serde_json::json!(false);
+    create_connection["connector_config"]["values"]["s3_region"] = serde_json::json!(" us-east-1 ");
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/policies")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Test S3",
-            "driver_type": "s3",
-            "endpoint": "http://localhost:9000",
-            "bucket": "test-bucket",
-            "access_key": "minioadmin",
-            "secret_key": "minioadmin",
-            "base_path": "",
+            "connection": create_connection,
             "max_file_size": 104857600,
-            "chunk_size": 8388608,
-            "options": serde_json::json!({
-                "object_storage_upload_strategy": "presigned",
-                "s3_path_style": false,
-                "s3_region": " us-east-1 "
-            })
+            "chunk_size": 8388608
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -1049,11 +1262,17 @@ async fn test_policy_crud() {
     assert_eq!(body["data"]["name"], "Test S3");
     assert_eq!(body["data"]["chunk_size"], 8_388_608);
     assert_eq!(
-        body["data"]["options"]["object_storage_upload_strategy"],
+        body["data"]["connector_config"]["values"]["object_storage_upload_strategy"],
         "presigned"
     );
-    assert_eq!(body["data"]["options"]["s3_path_style"], false);
-    assert_eq!(body["data"]["options"]["s3_region"], "us-east-1");
+    assert_eq!(
+        body["data"]["connector_config"]["values"]["s3_path_style"],
+        false
+    );
+    assert_eq!(
+        body["data"]["connector_config"]["values"]["s3_region"],
+        "us-east-1"
+    );
     let policy_id = body["data"]["id"].as_i64().unwrap();
 
     // 获取单个
@@ -1065,21 +1284,35 @@ async fn test_policy_crud() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["options"]["s3_path_style"], false);
-    assert_eq!(body["data"]["options"]["s3_region"], "us-east-1");
+    assert_eq!(
+        body["data"]["connector_config"]["values"]["s3_path_style"],
+        false
+    );
+    assert_eq!(
+        body["data"]["connector_config"]["values"]["s3_region"],
+        "us-east-1"
+    );
 
     // 更新策略
+    let mut update_connection = s3_connection_json(
+        "http://localhost:9000",
+        "test-bucket",
+        "",
+        "minioadmin",
+        "minioadmin",
+    );
+    update_connection["connector_config"]["values"]["object_storage_upload_strategy"] =
+        serde_json::json!("presigned");
+    update_connection["connector_config"]["values"]["s3_path_style"] = serde_json::json!(false);
+    update_connection["connector_config"]["values"]["s3_region"] =
+        serde_json::json!("eu-central-1");
     let req = test::TestRequest::patch()
         .uri(&format!("/api/v1/admin/policies/{policy_id}"))
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Renamed S3",
-            "options": {
-                "object_storage_upload_strategy": "presigned",
-                "s3_path_style": false,
-                "s3_region": "eu-central-1"
-            }
+            "connector_config": update_connection["connector_config"].clone()
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -1087,11 +1320,32 @@ async fn test_policy_crud() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["name"], "Renamed S3");
     assert_eq!(
-        body["data"]["options"]["object_storage_upload_strategy"],
+        body["data"]["connector_config"]["values"]["object_storage_upload_strategy"],
         "presigned"
     );
-    assert_eq!(body["data"]["options"]["s3_path_style"], false);
-    assert_eq!(body["data"]["options"]["s3_region"], "eu-central-1");
+    assert_eq!(
+        body["data"]["connector_config"]["values"]["s3_path_style"],
+        false
+    );
+    assert_eq!(
+        body["data"]["connector_config"]["values"]["s3_region"],
+        "eu-central-1"
+    );
+
+    // Editing a non-secret credential field must retain the saved secret.
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "credential": {
+                "mode": "static",
+                "values": { "s3_access_key_id": "updated-access-key" }
+            }
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
 
     // 删除策略
     let req = test::TestRequest::delete()
@@ -1115,454 +1369,6 @@ async fn test_policy_crud() {
 }
 
 #[actix_web::test]
-async fn test_policy_promotes_generic_s3_policy_to_tencent_cos() {
-    use aster_drive::services::storage_policy::policy;
-    use aster_drive_model::types::{
-        DriverType, ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy,
-        StoragePolicyOptions, parse_storage_policy_options,
-    };
-
-    let state = common::setup().await;
-    let db = state.writer_db().clone();
-    let app = create_test_app!(state.clone());
-    let (token, _) = register_and_login!(app);
-
-    let policy = policy::create(
-        &state,
-        policy::CreateStoragePolicyInput {
-            name: "COS via S3".to_string(),
-            connection: policy::StoragePolicyConnectionInput {
-                driver_type: DriverType::S3,
-                endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_string(),
-                bucket: "bucket-1250000000".to_string(),
-                access_key: "ak".to_string(),
-                secret_key: "sk".to_string(),
-                base_path: "tenant/prefix".to_string(),
-                remote_node_id: None,
-                remote_storage_target_key: None,
-                options: Default::default(),
-            },
-            max_file_size: 0,
-            chunk_size: None,
-            is_default: false,
-            allowed_types: None,
-            options: Some(StoragePolicyOptions {
-                object_storage_upload_strategy: Some(ObjectStorageUploadStrategy::Presigned),
-                object_storage_download_strategy: Some(ObjectStorageDownloadStrategy::Presigned),
-                s3_path_style: Some(false),
-                ..Default::default()
-            }),
-            remote_storage_target_key: None,
-            application_config: Default::default(),
-        },
-    )
-    .await
-    .unwrap();
-
-    let req = test::TestRequest::post()
-        .uri(&format!(
-            "/api/v1/admin/policies/{}/promote-s3-driver",
-            policy.id
-        ))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({
-            "target_driver_type": "tencent_cos",
-            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
-            "bucket": "bucket-1250000000"
-        }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
-    let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["driver_type"], "tencent_cos");
-    assert_eq!(body["data"]["bucket"], "bucket-1250000000");
-    assert_eq!(body["data"]["base_path"], "tenant/prefix");
-    assert_eq!(
-        body["data"]["options"]["object_storage_upload_strategy"],
-        "presigned"
-    );
-    assert_eq!(
-        body["data"]["options"]["object_storage_download_strategy"],
-        "presigned"
-    );
-    assert_eq!(body["data"]["options"]["s3_path_style"], false);
-
-    let stored = aster_drive::db::repository::policy_repo::find_by_id(&db, policy.id)
-        .await
-        .unwrap();
-    assert_eq!(stored.driver_type, DriverType::TencentCos);
-    assert_eq!(stored.bucket, "bucket-1250000000");
-    assert_eq!(stored.base_path, "tenant/prefix");
-    let stored_options = parse_storage_policy_options(stored.options.as_ref());
-    assert_eq!(
-        stored_options.effective_object_storage_upload_strategy(),
-        ObjectStorageUploadStrategy::Presigned
-    );
-    assert_eq!(
-        stored_options.effective_object_storage_download_strategy(),
-        ObjectStorageDownloadStrategy::Presigned
-    );
-    assert!(!stored_options.effective_s3_path_style());
-}
-
-#[actix_web::test]
-async fn test_policy_promote_s3_driver_rejects_bucket_change() {
-    use aster_drive::services::storage_policy::policy;
-    use aster_drive_model::types::DriverType;
-
-    let state = common::setup().await;
-    let app = create_test_app!(state.clone());
-    let (token, _) = register_and_login!(app);
-
-    let policy = policy::create(
-        &state,
-        policy::CreateStoragePolicyInput {
-            name: "Bucket Guard S3".to_string(),
-            connection: policy::StoragePolicyConnectionInput {
-                driver_type: DriverType::S3,
-                endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_string(),
-                bucket: "bucket-1250000000".to_string(),
-                access_key: "ak".to_string(),
-                secret_key: "sk".to_string(),
-                base_path: "tenant/prefix".to_string(),
-                remote_node_id: None,
-                remote_storage_target_key: None,
-                options: Default::default(),
-            },
-            max_file_size: 0,
-            chunk_size: None,
-            is_default: false,
-            allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
-            application_config: Default::default(),
-        },
-    )
-    .await
-    .unwrap();
-
-    let req = test::TestRequest::post()
-        .uri(&format!(
-            "/api/v1/admin/policies/{}/promote-s3-driver",
-            policy.id
-        ))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({
-            "target_driver_type": "tencent_cos",
-            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
-            "bucket": "other-bucket-1250000000"
-        }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 400);
-    let body: Value = test::read_body_json(resp).await;
-    assert_eq!(
-        body["code"],
-        ApiErrorCode::PolicyPromotionBucketChangeDenied.as_str()
-    );
-    assert_eq!(
-        body["msg"],
-        "bucket cannot be changed by S3-compatible driver promotion"
-    );
-}
-
-#[actix_web::test]
-async fn test_policy_promote_s3_driver_rejects_non_generic_s3_source() {
-    use aster_drive::services::storage_policy::policy;
-    use aster_drive_model::types::DriverType;
-
-    let state = common::setup().await;
-    let app = create_test_app!(state.clone());
-    let (token, _) = register_and_login!(app);
-
-    let base_path = format!(
-        "/tmp/asterdrive-policy-promote-non-s3-{}",
-        uuid::Uuid::new_v4()
-    );
-    std::fs::create_dir_all(&base_path).unwrap();
-    let policy = policy::create(
-        &state,
-        policy::CreateStoragePolicyInput {
-            name: "Local Source".to_string(),
-            connection: policy::StoragePolicyConnectionInput {
-                driver_type: DriverType::Local,
-                endpoint: String::new(),
-                bucket: String::new(),
-                access_key: String::new(),
-                secret_key: String::new(),
-                base_path,
-                remote_node_id: None,
-                remote_storage_target_key: None,
-                options: Default::default(),
-            },
-            max_file_size: 0,
-            chunk_size: None,
-            is_default: false,
-            allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
-            application_config: Default::default(),
-        },
-    )
-    .await
-    .unwrap();
-
-    let req = test::TestRequest::post()
-        .uri(&format!(
-            "/api/v1/admin/policies/{}/promote-s3-driver",
-            policy.id
-        ))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({
-            "target_driver_type": "tencent_cos",
-            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
-            "bucket": "bucket-1250000000"
-        }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 400);
-    let body: Value = test::read_body_json(resp).await;
-    assert_eq!(
-        body["code"],
-        ApiErrorCode::PolicyPromotionSourceUnsupported.as_str()
-    );
-    assert_eq!(
-        body["msg"],
-        "only generic S3-compatible policies can be promoted"
-    );
-}
-
-#[actix_web::test]
-async fn test_policy_promote_s3_driver_rejects_unsupported_target() {
-    use aster_drive::services::storage_policy::policy;
-    use aster_drive_model::types::DriverType;
-
-    let state = common::setup().await;
-    let db = state.writer_db().clone();
-    let app = create_test_app!(state.clone());
-    let (token, _) = register_and_login!(app);
-
-    let policy = policy::create(
-        &state,
-        policy::CreateStoragePolicyInput {
-            name: "Unsupported Target S3".to_string(),
-            connection: policy::StoragePolicyConnectionInput {
-                driver_type: DriverType::S3,
-                endpoint: "https://s3.amazonaws.com".to_string(),
-                bucket: "bucket-a".to_string(),
-                access_key: "ak".to_string(),
-                secret_key: "sk".to_string(),
-                base_path: "tenant/prefix".to_string(),
-                remote_node_id: None,
-                remote_storage_target_key: None,
-                options: Default::default(),
-            },
-            max_file_size: 0,
-            chunk_size: None,
-            is_default: false,
-            allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
-            application_config: Default::default(),
-        },
-    )
-    .await
-    .unwrap();
-
-    let req = test::TestRequest::post()
-        .uri(&format!(
-            "/api/v1/admin/policies/{}/promote-s3-driver",
-            policy.id
-        ))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({
-            "target_driver_type": "s3",
-            "endpoint": "https://s3.amazonaws.com",
-            "bucket": "bucket-a"
-        }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 400);
-    let body: Value = test::read_body_json(resp).await;
-    assert_eq!(
-        body["code"],
-        ApiErrorCode::PolicyPromotionTargetUnsupported.as_str()
-    );
-    assert_eq!(
-        body["msg"],
-        "promoting S3-compatible policy to 's3' is not supported"
-    );
-
-    let stored = aster_drive::db::repository::policy_repo::find_by_id(&db, policy.id)
-        .await
-        .unwrap();
-    assert_eq!(stored.driver_type, DriverType::S3);
-}
-
-#[actix_web::test]
-async fn test_policy_promote_s3_driver_rejects_active_upload_sessions() {
-    use aster_drive::services::storage_policy::policy;
-    use aster_drive_model::types::DriverType;
-
-    let state = common::setup().await;
-    let db = state.writer_db().clone();
-    let app = create_test_app!(state.clone());
-    let (token, _) = register_and_login!(app);
-
-    let policy = policy::create(
-        &state,
-        policy::CreateStoragePolicyInput {
-            name: "Active Session S3".to_string(),
-            connection: policy::StoragePolicyConnectionInput {
-                driver_type: DriverType::S3,
-                endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_string(),
-                bucket: "bucket-1250000000".to_string(),
-                access_key: "ak".to_string(),
-                secret_key: "sk".to_string(),
-                base_path: "tenant/prefix".to_string(),
-                remote_node_id: None,
-                remote_storage_target_key: None,
-                options: Default::default(),
-            },
-            max_file_size: 0,
-            chunk_size: None,
-            is_default: false,
-            allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
-            application_config: Default::default(),
-        },
-    )
-    .await
-    .unwrap();
-
-    let user = aster_drive::db::repository::user_repo::find_by_username(&db, "testuser")
-        .await
-        .unwrap()
-        .expect("registered user should exist");
-    let upload_id = uuid::Uuid::new_v4().to_string();
-    create_policy_upload_session(
-        &state,
-        PolicyUploadSessionSpec {
-            upload_id: &upload_id,
-            policy_id: policy.id,
-            user_id: user.id,
-            object_temp_key: None,
-            status: None,
-            expires_at: None,
-        },
-    )
-    .await;
-
-    let req = test::TestRequest::post()
-        .uri(&format!(
-            "/api/v1/admin/policies/{}/promote-s3-driver",
-            policy.id
-        ))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({
-            "target_driver_type": "tencent_cos",
-            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
-            "bucket": "bucket-1250000000"
-        }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 400);
-    let body: Value = test::read_body_json(resp).await;
-    assert_eq!(
-        body["msg"],
-        "cannot promote policy: 1 active upload session(s) still reference it"
-    );
-
-    let stored = aster_drive::db::repository::policy_repo::find_by_id(&db, policy.id)
-        .await
-        .unwrap();
-    assert_eq!(stored.driver_type, DriverType::S3);
-}
-
-#[actix_web::test]
-async fn test_policy_promote_s3_driver_ignores_expired_upload_sessions() {
-    use aster_drive::services::storage_policy::policy;
-    use aster_drive_model::types::DriverType;
-
-    let state = common::setup().await;
-    let db = state.writer_db().clone();
-    let app = create_test_app!(state.clone());
-    let (token, _) = register_and_login!(app);
-
-    let policy = policy::create(
-        &state,
-        policy::CreateStoragePolicyInput {
-            name: "Expired Session S3".to_string(),
-            connection: policy::StoragePolicyConnectionInput {
-                driver_type: DriverType::S3,
-                endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_string(),
-                bucket: "bucket-1250000000".to_string(),
-                access_key: "ak".to_string(),
-                secret_key: "sk".to_string(),
-                base_path: "tenant/prefix".to_string(),
-                remote_node_id: None,
-                remote_storage_target_key: None,
-                options: Default::default(),
-            },
-            max_file_size: 0,
-            chunk_size: None,
-            is_default: false,
-            allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
-            application_config: Default::default(),
-        },
-    )
-    .await
-    .unwrap();
-
-    let user = aster_drive::db::repository::user_repo::find_by_username(&db, "testuser")
-        .await
-        .unwrap()
-        .expect("registered user should exist");
-    let upload_id = uuid::Uuid::new_v4().to_string();
-    create_policy_upload_session(
-        &state,
-        PolicyUploadSessionSpec {
-            upload_id: &upload_id,
-            policy_id: policy.id,
-            user_id: user.id,
-            object_temp_key: None,
-            status: None,
-            expires_at: Some(Utc::now() - Duration::hours(1)),
-        },
-    )
-    .await;
-
-    let req = test::TestRequest::post()
-        .uri(&format!(
-            "/api/v1/admin/policies/{}/promote-s3-driver",
-            policy.id
-        ))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({
-            "target_driver_type": "tencent_cos",
-            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
-            "bucket": "bucket-1250000000"
-        }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
-
-    let stored = aster_drive::db::repository::policy_repo::find_by_id(&db, policy.id)
-        .await
-        .unwrap();
-    assert_eq!(stored.driver_type, DriverType::TencentCos);
-}
-
-#[actix_web::test]
 async fn test_policy_delete_rejects_upload_sessions_unless_forced() {
     use aster_drive::db::repository::{policy_repo, upload_session_repo};
 
@@ -1583,8 +1389,7 @@ async fn test_policy_delete_rejects_upload_sessions_unless_forced() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Session Guard Policy",
-            "driver_type": "local",
-            "base_path": base_path,
+            "connection": local_connection_json(&base_path),
             "chunk_size": 5_242_880,
             "max_file_size": 0
         }))
@@ -1698,8 +1503,7 @@ async fn test_policy_force_delete_schedules_late_temp_object_cleanup() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Late Temp Cleanup Policy",
-            "driver_type": "local",
-            "base_path": base_path,
+            "connection": local_connection_json(&base_path),
             "chunk_size": 5_242_880,
             "max_file_size": 0
         }))
@@ -1815,8 +1619,7 @@ async fn test_policy_force_delete_removes_corrupted_session_without_temp_object(
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Corrupted Upload Cleanup Policy",
-            "driver_type": "local",
-            "base_path": base_path,
+            "connection": local_connection_json(&base_path),
             "chunk_size": 5_242_880,
             "max_file_size": 0
         }))
@@ -1869,7 +1672,6 @@ async fn test_policy_force_delete_removes_corrupted_session_without_temp_object(
 async fn test_policy_force_delete_still_rejects_blob_references() {
     use aster_drive::db::repository::{file_repo, policy_group_repo, policy_repo};
     use aster_drive::services::{files::file, storage_policy::policy, user::account};
-    use aster_drive_model::types::DriverType;
 
     let state = common::setup().await;
     let db = state.writer_db().clone();
@@ -1886,24 +1688,11 @@ async fn test_policy_force_delete_still_rejects_blob_references() {
         &state,
         policy::CreateStoragePolicyInput {
             name: "Blob Guard Policy".to_string(),
-            connection: policy::StoragePolicyConnectionInput {
-                driver_type: DriverType::Local,
-                endpoint: String::new(),
-                bucket: String::new(),
-                access_key: String::new(),
-                secret_key: String::new(),
-                base_path,
-                remote_node_id: None,
-                remote_storage_target_key: None,
-                options: Default::default(),
-            },
+            connection: common::local_connection(base_path),
             max_file_size: 0,
             chunk_size: None,
             is_default: false,
             allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
-            application_config: Default::default(),
         },
     )
     .await
@@ -2011,6 +1800,11 @@ async fn test_policy_rejects_storage_native_thumbnail_for_unsupported_driver() {
     let state = common::setup().await;
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
+    let mut connection = local_connection_json("/tmp/test-native-thumbnail-local");
+    connection["behavior"] = serde_json::json!({
+        "thumbnail_processor": "storage_native",
+        "thumbnail_extensions": ["png", ".jpg"]
+    });
 
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/policies")
@@ -2018,14 +1812,9 @@ async fn test_policy_rejects_storage_native_thumbnail_for_unsupported_driver() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Native Thumbnail Local",
-            "driver_type": "local",
-            "base_path": "/tmp/test-native-thumbnail-local",
+            "connection": connection,
             "max_file_size": 0,
-            "is_default": false,
-            "options": {
-                "thumbnail_processor": "storage_native",
-                "thumbnail_extensions": ["png", ".jpg"]
-            }
+            "is_default": false
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -2042,6 +1831,45 @@ async fn test_policy_rejects_storage_native_thumbnail_for_unsupported_driver() {
             .unwrap_or_default()
             .contains("does not expose storage-native thumbnail processing")
     );
+
+    let policy_id = create_local_policy_via_admin(&app, &token, "Native Thumbnail Patch").await;
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "behavior": {
+                "thumbnail_processor": "storage_native",
+                "thumbnail_extensions": ["jpg"]
+            }
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyNativeThumbnailUnsupported.as_str()
+    );
+
+    let mut draft_connection = local_connection_json("/tmp/test-native-thumbnail-draft");
+    draft_connection["behavior"] = serde_json::json!({
+        "thumbnail_processor": "storage_native",
+        "thumbnail_extensions": ["jpg"]
+    });
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies/test")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "connection": draft_connection }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyNativeThumbnailUnsupported.as_str()
+    );
 }
 
 #[actix_web::test]
@@ -2049,6 +1877,10 @@ async fn test_policy_rejects_storage_native_media_metadata_for_unsupported_drive
     let state = common::setup().await;
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
+    let mut connection = local_connection_json("/tmp/test-native-metadata-local");
+    connection["behavior"] = serde_json::json!({
+        "media_metadata_extensions": ["mp4"]
+    });
 
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/policies")
@@ -2056,15 +1888,9 @@ async fn test_policy_rejects_storage_native_media_metadata_for_unsupported_drive
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Native Metadata Local",
-            "driver_type": "local",
-            "base_path": "/tmp/test-native-metadata-local",
+            "connection": connection,
             "max_file_size": 0,
-            "is_default": false,
-            "options": {
-                "storage_native_processing_enabled": true,
-                "storage_native_media_metadata_enabled": true,
-                "media_metadata_extensions": ["mp4"]
-            }
+            "is_default": false
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -2080,6 +1906,43 @@ async fn test_policy_rejects_storage_native_media_metadata_for_unsupported_drive
             .as_str()
             .unwrap_or_default()
             .contains("does not expose storage-native media metadata processing")
+    );
+
+    let policy_id = create_local_policy_via_admin(&app, &token, "Native Metadata Patch").await;
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "behavior": {
+                "media_metadata_extensions": ["mp4"]
+            }
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyNativeMediaMetadataUnsupported.as_str()
+    );
+
+    let mut draft_connection = local_connection_json("/tmp/test-native-metadata-draft");
+    draft_connection["behavior"] = serde_json::json!({
+        "media_metadata_extensions": ["mp4"]
+    });
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies/test")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "connection": draft_connection }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyNativeMediaMetadataUnsupported.as_str()
     );
 }
 
@@ -2186,8 +2049,7 @@ async fn test_system_policy_default_uniqueness() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "New Default",
-            "driver_type": "local",
-            "base_path": "/tmp/test-new-default",
+            "connection": local_connection_json("/tmp/test-new-default"),
             "max_file_size": 0,
             "is_default": true
         }))
@@ -2238,8 +2100,7 @@ async fn test_patch_policy_promotes_existing_policy_to_default() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Patch To Default",
-            "driver_type": "local",
-            "base_path": "/tmp/test-patch-default",
+            "connection": local_connection_json("/tmp/test-patch-default"),
             "max_file_size": 0,
             "is_default": false
         }))
@@ -2971,8 +2832,7 @@ async fn test_cannot_delete_builtin_system_policy_even_after_switching_default()
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Replacement Default",
-            "driver_type": "local",
-            "base_path": format!("/tmp/test-replacement-default-{}", uuid::Uuid::new_v4()),
+            "connection": local_connection_json(format!("/tmp/test-replacement-default-{}", uuid::Uuid::new_v4())),
             "max_file_size": 0,
             "is_default": true
         }))
@@ -3070,8 +2930,8 @@ async fn test_resolve_policy_fails_without_user_policy_group() {
     active.updated_at = Set(chrono::Utc::now());
     active.update(state.writer_db()).await.unwrap();
     state
-        .policy_snapshot
-        .reload(state.writer_db())
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
         .await
         .unwrap();
 
@@ -3150,8 +3010,8 @@ async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
     group_active.update(state.writer_db()).await.unwrap();
 
     state
-        .policy_snapshot
-        .reload(state.writer_db())
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
         .await
         .unwrap();
 
@@ -3166,7 +3026,6 @@ async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
 async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
     use aster_drive::db::repository::{policy_group_repo, policy_repo, user_repo};
     use aster_drive::services::{files::file, storage_policy::policy};
-    use aster_drive_model::types::DriverType;
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
@@ -3189,24 +3048,11 @@ async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
         &state,
         policy::CreateStoragePolicyInput {
             name: "Gap Overflow Policy".to_string(),
-            connection: policy::StoragePolicyConnectionInput {
-                driver_type: DriverType::Local,
-                endpoint: String::new(),
-                bucket: String::new(),
-                access_key: String::new(),
-                secret_key: String::new(),
-                base_path: overflow_path.clone(),
-                remote_node_id: None,
-                remote_storage_target_key: None,
-                options: Default::default(),
-            },
+            connection: common::local_connection(overflow_path.clone()),
             max_file_size: 0,
             chunk_size: None,
             is_default: false,
             allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
-            application_config: Default::default(),
         },
     )
     .await
@@ -3255,8 +3101,8 @@ async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
     user_active.updated_at = Set(now);
     user_active.update(state.writer_db()).await.unwrap();
     state
-        .policy_snapshot
-        .reload(state.writer_db())
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
         .await
         .unwrap();
 
@@ -3591,8 +3437,7 @@ async fn test_policy_connection_endpoints_for_local_driver() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Connection Test Policy",
-            "driver_type": "local",
-            "base_path": stored_base_path,
+            "connection": local_connection_json(&stored_base_path),
             "max_file_size": 0,
             "is_default": false
         }))
@@ -3620,8 +3465,7 @@ async fn test_policy_connection_endpoints_for_local_driver() {
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "driver_type": "local",
-            "base_path": temp_base_path
+            "connection": local_connection_json(&temp_base_path)
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -3648,8 +3492,7 @@ async fn test_policy_connection_failures_return_admin_diagnostic_payload() {
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "driver_type": "local",
-            "base_path": blocked_base_path
+            "connection": local_connection_json(&blocked_base_path)
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -3674,8 +3517,7 @@ async fn test_policy_connection_failures_return_admin_diagnostic_payload() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Saved Probe Failure Policy",
-            "driver_type": "local",
-            "base_path": blocked_base_path,
+            "connection": local_connection_json(&blocked_base_path),
             "max_file_size": 0,
             "is_default": false
         }))
@@ -3717,13 +3559,7 @@ async fn test_policy_params_rejects_onedrive_draft_connection_test() {
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "driver_type": "one_drive",
-            "base_path": "draft-root",
-            "options": {
-                "onedrive_cloud": "global",
-                "onedrive_account_mode": "work_or_school",
-                "onedrive_root_item_id": "root"
-            }
+            "connection": onedrive_connection_json("draft-root")
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -3732,19 +3568,15 @@ async fn test_policy_params_rejects_onedrive_draft_connection_test() {
     assert_eq!(body["code"], ApiErrorCode::PolicyActionUnsupported.as_str());
     assert_eq!(
         body["msg"],
-        "storage policy driver 'onedrive' requires a saved storage policy with completed authorization; use the saved policy connection test after authorization"
+        "storage policy driver 'asterdrive.storage.onedrive' requires a saved storage policy with completed authorization; use the saved policy connection test after authorization"
     );
     assert!(body.get("data").is_none());
     assert_eq!(body["error"]["retryable"], false);
 }
 
 #[actix_web::test]
-async fn test_tencent_cos_cors_config_rejects_invalid_inputs_with_stable_codes() {
+async fn test_connector_action_endpoints_reject_unknown_actions_with_stable_code() {
     let state = common::setup().await;
-    assert!(
-        site_url::public_site_urls(state.runtime_config()).is_empty(),
-        "this test expects missing public_site_url to drive the COS CORS parameter-required branch"
-    );
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
@@ -3753,58 +3585,57 @@ async fn test_tencent_cos_cors_config_rejects_invalid_inputs_with_stable_codes()
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "action": "configure_tencent_cos_cors",
-            "driver_type": "local",
-            "base_path": format!("/tmp/test-policy-cos-cors-local-{}", uuid::Uuid::new_v4())
+            "action_id": "plugin.missing",
+            "values": {},
+            "connection": local_action_connection()
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["code"], ApiErrorCode::PolicyActionUnsupported.as_str());
+    assert!(body["msg"].as_str().unwrap().contains("plugin.missing"));
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap()
+            .contains("asterdrive.storage.local")
+    );
 
-    let local_policy_id = create_local_policy_via_admin(&app, &token, "COS CORS Local").await;
+    let local_policy_id = create_local_policy_via_admin(&app, &token, "Missing Saved Action").await;
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/admin/policies/{local_policy_id}/action"))
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "action": "configure_tencent_cos_cors"
+            "action_id": "plugin.missing",
+            "values": {}
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["code"], ApiErrorCode::PolicyActionUnsupported.as_str());
+}
 
-    let req = test::TestRequest::post()
-        .uri("/api/v1/admin/policies/action")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({
-            "action": "configure_tencent_cos_cors",
-            "driver_type": "one_drive",
-            "base_path": "draft-root"
-        }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 400);
-    let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["code"], ApiErrorCode::PolicyActionUnsupported.as_str());
-    assert_eq!(
-        body["msg"],
-        "storage policy action 'configure_tencent_cos_cors' is not supported for onedrive storage policies"
+#[actix_web::test]
+async fn test_tencent_cos_action_validates_typed_values_before_draft_and_saved_execution() {
+    let state = common::setup().await;
+    assert!(
+        site_url::public_site_urls(state.runtime_config()).is_empty(),
+        "valid typed action input should stop at the missing public_site_url boundary"
     );
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
 
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/policies/action")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "action": "configure_tencent_cos_cors",
-            "driver_type": "tencent_cos",
-            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
-            "bucket": "media-1250000000"
+            "action_id": "configure_tencent_cos_cors",
+            "values": { "undeclared": true },
+            "connection": tencent_cos_action_connection()
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -3812,20 +3643,18 @@ async fn test_tencent_cos_cors_config_rejects_invalid_inputs_with_stable_codes()
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(
         body["code"],
-        ApiErrorCode::PolicyStorageAccessKeyRequired.as_str()
+        ApiErrorCode::PolicyActionParameterInvalid.as_str()
     );
+    assert!(body["msg"].as_str().unwrap().contains("undeclared"));
 
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/policies/action")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "action": "configure_tencent_cos_cors",
-            "driver_type": "tencent_cos",
-            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
-            "bucket": "media-1250000000",
-            "access_key": "AKIDEXAMPLE",
-            "secret_key": "SECRETEXAMPLE"
+            "action_id": "configure_tencent_cos_cors",
+            "values": {},
+            "connection": tencent_cos_action_connection()
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -3836,13 +3665,14 @@ async fn test_tencent_cos_cors_config_rejects_invalid_inputs_with_stable_codes()
         ApiErrorCode::PolicyActionParameterRequired.as_str()
     );
 
-    let cos_policy_id = create_tencent_cos_policy_via_admin(&app, &token, "COS CORS Saved").await;
+    let cos_policy_id = create_tencent_cos_policy_via_admin(&app, &token, "COS Saved Action").await;
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/admin/policies/{cos_policy_id}/action"))
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "action": "configure_tencent_cos_cors"
+            "action_id": "configure_tencent_cos_cors",
+            "values": {}
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -3855,44 +3685,21 @@ async fn test_tencent_cos_cors_config_rejects_invalid_inputs_with_stable_codes()
 }
 
 #[actix_web::test]
-async fn test_tencent_cos_cors_draft_action_reuses_saved_credentials_when_blank() {
-    let state = common::setup().await;
-    let app = create_test_app!(state);
-    let (token, _) = register_and_login!(app);
-    let cos_policy_id =
-        create_tencent_cos_policy_via_admin(&app, &token, "COS CORS Draft Reuse").await;
-
-    let req = test::TestRequest::post()
-        .uri("/api/v1/admin/policies/action")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({
-            "action": "configure_tencent_cos_cors",
-            "policy_id": cos_policy_id,
-            "driver_type": "tencent_cos",
-            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
-            "bucket": "media-draft-1250000000",
-            "access_key": "",
-            "secret_key": ""
-        }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 400);
-    let body: Value = test::read_body_json(resp).await;
-    assert_eq!(
-        body["code"],
-        ApiErrorCode::PolicyActionParameterRequired.as_str(),
-        "blank draft credentials should be filled from saved policy before action-specific validation"
-    );
-}
-
-#[actix_web::test]
-async fn test_policy_params_reuses_saved_credentials_when_blank() {
+async fn test_policy_params_reuses_saved_credentials_before_connector_config_validation() {
     let state = common::setup().await;
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
     let cos_policy_id =
         create_tencent_cos_policy_via_admin(&app, &token, "COS Draft Test Reuse").await;
+    let mut connection = connection_json(common::tencent_cos_connection(
+        "https://cos.ap-guangzhou.myqcloud.com",
+        "media-draft-1250000000",
+        "",
+        "",
+        "",
+    ));
+    connection["connector_config"]["values"]["onedrive_account_mode"] =
+        serde_json::json!("work_or_school");
 
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/policies/test")
@@ -3900,14 +3707,7 @@ async fn test_policy_params_reuses_saved_credentials_when_blank() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "policy_id": cos_policy_id,
-            "driver_type": "tencent_cos",
-            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
-            "bucket": "media-draft-1250000000",
-            "access_key": "",
-            "secret_key": "",
-            "options": {
-                "onedrive_account_mode": "work_or_school"
-            }
+            "connection": connection
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -3915,8 +3715,14 @@ async fn test_policy_params_reuses_saved_credentials_when_blank() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(
         body["code"],
-        ApiErrorCode::PolicyOneDriveOptionsUnsupported.as_str(),
+        ApiErrorCode::BadRequest.as_str(),
         "blank draft credentials should be filled from the saved policy before connector option validation"
+    );
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|message| message.contains("onedrive_account_mode")),
+        "connector config validation should run after saved credentials are restored: {body}"
     );
     assert_ne!(
         body["code"],
@@ -3928,36 +3734,34 @@ async fn test_policy_params_reuses_saved_credentials_when_blank() {
         ApiErrorCode::PolicyStorageSecretKeyRequired.as_str(),
         "blank draft secret_key should be filled from the saved policy before connector option validation"
     );
-}
 
-#[actix_web::test]
-async fn test_tencent_cos_cors_draft_action_rejects_saved_credential_driver_mismatch() {
-    let state = common::setup().await;
-    let app = create_test_app!(state);
-    let (token, _) = register_and_login!(app);
     let local_policy_id =
-        create_local_policy_via_admin(&app, &token, "COS CORS Credential Mismatch").await;
-
+        create_local_policy_via_admin(&app, &token, "Cross Connector Draft Reuse").await;
     let req = test::TestRequest::post()
-        .uri("/api/v1/admin/policies/action")
+        .uri("/api/v1/admin/policies/test")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "action": "configure_tencent_cos_cors",
             "policy_id": local_policy_id,
-            "driver_type": "tencent_cos",
-            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
-            "bucket": "media-draft-1250000000",
-            "access_key": "",
-            "secret_key": ""
+            "connection": connection_json(common::tencent_cos_connection(
+                "https://cos.ap-guangzhou.myqcloud.com",
+                "media-draft-1250000000",
+                "",
+                "",
+                "",
+            ))
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(
-        body["code"],
-        ApiErrorCode::PolicyActionParameterInvalid.as_str()
+    assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|message| message.contains("asterdrive.storage.local")
+                && message.contains("asterdrive.storage.tencent_cos")),
+        "draft credential reuse must reject cross-connector policy ids: {body}"
     );
 }
 
@@ -3977,7 +3781,8 @@ async fn test_tencent_cos_cors_dedicated_routes_are_not_exposed() {
             .insert_header(("Cookie", common::access_cookie_header(&token)))
             .insert_header(common::csrf_header_for(&token))
             .set_json(serde_json::json!({
-                "action": "configure_tencent_cos_cors"
+                "action_id": "configure_tencent_cos_cors",
+                "values": {}
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -3994,6 +3799,8 @@ async fn test_policy_create_and_params_reject_incomplete_s3_credentials_with_sta
     let state = common::setup().await;
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
+    let mut connection = s3_connection_json("https://s3.example.com", "archive", "", "", "");
+    connection["credential"]["values"] = serde_json::json!({});
 
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/policies")
@@ -4001,21 +3808,18 @@ async fn test_policy_create_and_params_reject_incomplete_s3_credentials_with_sta
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Incomplete S3",
-            "driver_type": "s3",
-            "endpoint": "https://s3.example.com",
-            "bucket": "archive"
+            "connection": connection.clone()
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(
-        body["code"],
-        ApiErrorCode::PolicyStorageAccessKeyRequired.as_str()
-    );
-    assert_eq!(
-        body["msg"],
-        "access_key is required for S3-compatible storage policies"
+    assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|message| message.contains("s3_access_key_id")),
+        "unexpected missing S3 access key response: {body}"
     );
 
     let req = test::TestRequest::post()
@@ -4023,21 +3827,18 @@ async fn test_policy_create_and_params_reject_incomplete_s3_credentials_with_sta
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "driver_type": "s3",
-            "endpoint": "https://s3.example.com",
-            "bucket": "archive"
+            "connection": connection
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(
-        body["code"],
-        ApiErrorCode::PolicyStorageAccessKeyRequired.as_str()
-    );
-    assert_eq!(
-        body["msg"],
-        "access_key is required for S3-compatible storage policies"
+    assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|message| message.contains("s3_access_key_id")),
+        "unexpected draft missing S3 access key response: {body}"
     );
 }
 
@@ -4053,18 +3854,18 @@ async fn test_policy_create_rejects_invalid_s3_storage_fields_with_stable_codes(
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Missing Bucket S3",
-            "driver_type": "s3",
-            "endpoint": "https://s3.example.com",
-            "access_key": "AKIA",
-            "secret_key": "SECRET"
+            "connection": s3_connection_json("https://s3.example.com", "", "", "AKIA", "SECRET")
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(
-        body["code"],
-        ApiErrorCode::PolicyStorageBucketRequired.as_str()
+    assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|message| message.contains("bucket")),
+        "unexpected missing S3 bucket response: {body}"
     );
 
     let req = test::TestRequest::post()
@@ -4073,19 +3874,18 @@ async fn test_policy_create_rejects_invalid_s3_storage_fields_with_stable_codes(
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Invalid Endpoint S3",
-            "driver_type": "s3",
-            "endpoint": "s3.example.com",
-            "bucket": "archive",
-            "access_key": "AKIA",
-            "secret_key": "SECRET"
+            "connection": s3_connection_json("s3.example.com", "archive", "", "AKIA", "SECRET")
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(
-        body["code"],
-        ApiErrorCode::PolicyStorageEndpointInvalid.as_str()
+    assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|message| message.contains("endpoint")),
+        "unexpected invalid S3 endpoint response: {body}"
     );
 }
 
@@ -4099,15 +3899,12 @@ async fn test_policy_create_and_draft_test_reject_invalid_s3_region_before_stora
         ("/api/v1/admin/policies", true),
         ("/api/v1/admin/policies/test", false),
     ] {
+        let mut connection =
+            s3_connection_json("https://s3.example.com", "archive", "", "AKIA", "SECRET");
+        connection["connector_config"]["values"]["s3_region"] =
+            serde_json::json!("us-east-1/invalid");
         let mut payload = serde_json::json!({
-            "driver_type": "s3",
-            "endpoint": "https://s3.example.com",
-            "bucket": "archive",
-            "access_key": "AKIA",
-            "secret_key": "SECRET",
-            "options": {
-                "s3_region": "us-east-1/invalid"
-            }
+            "connection": connection
         });
         if include_name {
             payload["name"] = serde_json::json!("Invalid Region S3");
@@ -4138,45 +3935,47 @@ async fn test_non_s3_object_storage_rejects_s3_region_for_create_update_and_draf
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    for (driver_type, endpoint, bucket) in [
+    for (connector_name, valid_connection) in [
         (
             "azure_blob",
-            "https://acct.blob.core.windows.net",
-            "archive",
+            azure_blob_connection_json("https://acct.blob.core.windows.net", "archive"),
         ),
         (
             "tencent_cos",
-            "https://cos.ap-guangzhou.myqcloud.com",
-            "archive-1250000000",
+            connection_json(common::tencent_cos_connection(
+                "https://cos.ap-guangzhou.myqcloud.com",
+                "archive-1250000000",
+                "",
+                "ACCESS",
+                "SECRET",
+            )),
         ),
     ] {
+        let mut invalid_connection = valid_connection.clone();
+        invalid_connection["connector_config"]["values"]["s3_region"] =
+            serde_json::json!("us-east-1");
         let req = test::TestRequest::post()
             .uri("/api/v1/admin/policies")
             .insert_header(("Cookie", common::access_cookie_header(&token)))
             .insert_header(common::csrf_header_for(&token))
             .set_json(serde_json::json!({
-                "name": format!("Invalid Region {driver_type}"),
-                "driver_type": driver_type,
-                "endpoint": endpoint,
-                "bucket": bucket,
-                "access_key": "ACCESS",
-                "secret_key": "SECRET",
-                "options": {
-                    "s3_region": "us-east-1"
-                }
+                "name": format!("Invalid Region {connector_name}"),
+                "connection": invalid_connection.clone()
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(
             resp.status(),
             400,
-            "{driver_type} create should reject s3_region"
+            "{connector_name} create should reject s3_region"
         );
         let body: Value = test::read_body_json(resp).await;
         assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
-        assert_eq!(
-            body["msg"],
-            "s3_region is only valid for s3 storage policies"
+        assert!(
+            body["msg"]
+                .as_str()
+                .is_some_and(|message| message.contains("s3_region")),
+            "unexpected create validation body: {body}"
         );
 
         let req = test::TestRequest::post()
@@ -4184,19 +3983,15 @@ async fn test_non_s3_object_storage_rejects_s3_region_for_create_update_and_draf
             .insert_header(("Cookie", common::access_cookie_header(&token)))
             .insert_header(common::csrf_header_for(&token))
             .set_json(serde_json::json!({
-                "name": format!("Valid {driver_type}"),
-                "driver_type": driver_type,
-                "endpoint": endpoint,
-                "bucket": bucket,
-                "access_key": "ACCESS",
-                "secret_key": "SECRET"
+                "name": format!("Valid {connector_name}"),
+                "connection": valid_connection.clone()
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(
             resp.status(),
             201,
-            "{driver_type} setup create should succeed"
+            "{connector_name} setup create should succeed"
         );
         let body: Value = test::read_body_json(resp).await;
         let policy_id = body["data"]["id"].as_i64().expect("policy id");
@@ -4206,22 +4001,22 @@ async fn test_non_s3_object_storage_rejects_s3_region_for_create_update_and_draf
             .insert_header(("Cookie", common::access_cookie_header(&token)))
             .insert_header(common::csrf_header_for(&token))
             .set_json(serde_json::json!({
-                "options": {
-                    "s3_region": "us-east-1"
-                }
+                "connector_config": invalid_connection["connector_config"].clone()
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(
             resp.status(),
             400,
-            "{driver_type} update should reject s3_region"
+            "{connector_name} update should reject s3_region"
         );
         let body: Value = test::read_body_json(resp).await;
         assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
-        assert_eq!(
-            body["msg"],
-            "s3_region is only valid for s3 storage policies"
+        assert!(
+            body["msg"]
+                .as_str()
+                .is_some_and(|message| message.contains("s3_region")),
+            "unexpected update validation body: {body}"
         );
 
         let req = test::TestRequest::post()
@@ -4229,33 +4024,30 @@ async fn test_non_s3_object_storage_rejects_s3_region_for_create_update_and_draf
             .insert_header(("Cookie", common::access_cookie_header(&token)))
             .insert_header(common::csrf_header_for(&token))
             .set_json(serde_json::json!({
-                "driver_type": driver_type,
-                "endpoint": endpoint,
-                "bucket": bucket,
-                "access_key": "ACCESS",
-                "secret_key": "SECRET",
-                "options": {
-                    "s3_region": "us-east-1"
-                }
+                "connection": invalid_connection
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(
             resp.status(),
             400,
-            "{driver_type} draft should reject s3_region"
+            "{connector_name} draft should reject s3_region"
         );
         let body: Value = test::read_body_json(resp).await;
         assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
-        assert_eq!(
-            body["msg"],
-            "s3_region is only valid for s3 storage policies"
+        assert!(
+            body["msg"]
+                .as_str()
+                .is_some_and(|message| message.contains("s3_region")),
+            "unexpected draft validation body: {body}"
         );
     }
 }
 
 #[actix_web::test]
 async fn test_policy_create_rejects_remote_without_node_with_stable_code() {
+    use aster_drive_model::types::{RemoteDownloadStrategy, RemoteUploadStrategy};
+
     let state = common::setup().await;
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
@@ -4266,16 +4058,23 @@ async fn test_policy_create_rejects_remote_without_node_with_stable_code() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Remote Missing Node",
-            "driver_type": "remote",
-            "base_path": "remote-missing-node"
+            "connection": remote_connection_json(
+                "remote-missing-node",
+                None,
+                Some("test-target".to_string()),
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::RelayStream,
+            )
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(
-        body["code"],
-        ApiErrorCode::PolicyRemoteNodeRequired.as_str()
+    assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|message| message.contains("remote_node_id"))
     );
 
     let req = test::TestRequest::post()
@@ -4283,25 +4082,34 @@ async fn test_policy_create_rejects_remote_without_node_with_stable_code() {
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "driver_type": "remote",
-            "base_path": "remote-missing-node"
+            "connection": remote_connection_json(
+                "remote-missing-node",
+                None,
+                Some("test-target".to_string()),
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::RelayStream,
+            )
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(
-        body["code"],
-        ApiErrorCode::PolicyRemoteNodeRequired.as_str()
+    assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|message| message.contains("remote_node_id"))
     );
 }
 
 #[actix_web::test]
-async fn test_policy_create_rejects_remote_node_for_non_remote_policy_with_stable_code() {
+async fn test_policy_create_rejects_remote_field_for_non_remote_connector() {
     let state = common::setup().await;
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
     let base_path = format!("/tmp/test-policy-unexpected-node-{}", uuid::Uuid::new_v4());
+    let mut create_connection = local_connection_json(&base_path);
+    create_connection["connector_config"]["values"]["remote_node_id"] = serde_json::json!(42);
 
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/policies")
@@ -4309,42 +4117,50 @@ async fn test_policy_create_rejects_remote_node_for_non_remote_policy_with_stabl
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Local Unexpected Node",
-            "driver_type": "local",
-            "base_path": base_path,
-            "remote_node_id": 42
+            "connection": create_connection
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(
-        body["code"],
-        ApiErrorCode::PolicyRemoteNodeUnexpected.as_str()
+    assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|message| message.contains("remote_node_id"))
     );
+
+    let mut draft_connection = local_connection_json(format!(
+        "/tmp/test-policy-unexpected-node-{}",
+        uuid::Uuid::new_v4()
+    ));
+    draft_connection["connector_config"]["values"]["remote_node_id"] = serde_json::json!(42);
 
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/policies/test")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "driver_type": "local",
-            "base_path": format!("/tmp/test-policy-unexpected-node-{}", uuid::Uuid::new_v4()),
-            "remote_node_id": 42
+            "connection": draft_connection
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(
-        body["code"],
-        ApiErrorCode::PolicyRemoteNodeUnexpected.as_str()
+    assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|message| message.contains("remote_node_id"))
     );
 }
 
 #[actix_web::test]
 async fn test_policy_create_rejects_unusable_remote_nodes_with_stable_codes() {
     use aster_drive::services::remote::remote_node;
-    use aster_drive_model::types::RemoteNodeTransportMode;
+    use aster_drive_model::types::{
+        RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteUploadStrategy,
+    };
 
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
@@ -4367,9 +4183,13 @@ async fn test_policy_create_rejects_unusable_remote_nodes_with_stable_codes() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Disabled Remote Policy",
-            "driver_type": "remote",
-            "base_path": "disabled-remote",
-            "remote_node_id": disabled_node.id
+            "connection": remote_connection_json(
+                "disabled-remote",
+                Some(disabled_node.id),
+                Some("disabled-target".to_string()),
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::RelayStream,
+            )
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -4397,9 +4217,13 @@ async fn test_policy_create_rejects_unusable_remote_nodes_with_stable_codes() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Direct Missing URL Policy",
-            "driver_type": "remote",
-            "base_path": "direct-missing-url",
-            "remote_node_id": direct_node_without_url.id
+            "connection": remote_connection_json(
+                "direct-missing-url",
+                Some(direct_node_without_url.id),
+                Some("direct-target".to_string()),
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::RelayStream,
+            )
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -4427,12 +4251,13 @@ async fn test_policy_create_rejects_unusable_remote_nodes_with_stable_codes() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Reverse Presigned Policy",
-            "driver_type": "remote",
-            "base_path": "reverse-presigned",
-            "remote_node_id": reverse_node.id,
-            "options": {
-                "remote_upload_strategy": "presigned"
-            }
+            "connection": remote_connection_json(
+                "reverse-presigned",
+                Some(reverse_node.id),
+                Some("reverse-target".to_string()),
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::Presigned,
+            )
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -4445,7 +4270,7 @@ async fn test_policy_create_rejects_unusable_remote_nodes_with_stable_codes() {
 }
 
 #[actix_web::test]
-async fn test_policy_update_rejects_clearing_existing_s3_secret_with_stable_code() {
+async fn test_policy_update_treats_blank_s3_secret_as_keep_existing() {
     let state = common::setup().await;
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
@@ -4456,11 +4281,13 @@ async fn test_policy_update_rejects_clearing_existing_s3_secret_with_stable_code
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "name": "Valid S3",
-            "driver_type": "s3",
-            "endpoint": "https://s3.example.com",
-            "bucket": "archive",
-            "access_key": "AKIA",
-            "secret_key": "SECRET"
+            "connection": s3_connection_json(
+                "https://s3.example.com",
+                "archive",
+                "",
+                "AKIA",
+                "SECRET",
+            )
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -4473,20 +4300,17 @@ async fn test_policy_update_rejects_clearing_existing_s3_secret_with_stable_code
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "secret_key": ""
+            "credential": {
+                "mode": "static",
+                "values": {
+                    "s3_access_key_id": "AKIA",
+                    "s3_secret_access_key": ""
+                }
+            }
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 400);
-    let body: Value = test::read_body_json(resp).await;
-    assert_eq!(
-        body["code"],
-        ApiErrorCode::PolicyStorageSecretKeyRequired.as_str()
-    );
-    assert_eq!(
-        body["msg"],
-        "secret_key is required for S3-compatible storage policies"
-    );
+    assert_eq!(resp.status(), 200);
 
     let req = test::TestRequest::patch()
         .uri(&format!("/api/v1/admin/policies/{policy_id}"))

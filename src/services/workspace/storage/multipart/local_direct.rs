@@ -6,8 +6,7 @@ use tokio::io::{AsyncWriteExt, BufWriter};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::workspace::storage::{
-    StoreFromTempHints, StoreFromTempParams, create_empty, local_content_dedup_enabled,
-    store_from_temp_with_hints,
+    StoreFromTempHints, StoreFromTempParams, create_empty, store_from_temp_with_hints,
 };
 use aster_drive_model::entities::file;
 use aster_forge_utils::numbers::usize_to_i64;
@@ -34,7 +33,17 @@ pub(super) async fn upload_local_direct(
         declared_size,
         actor_username,
     } = params;
-    let should_dedup = local_content_dedup_enabled(policy);
+    let local = crate::storage::connectors::resolve_local_filesystem_projection(
+        state.driver_registry().connectors(),
+        policy,
+    )?
+    .ok_or_else(|| {
+        AsterError::internal_error(format!(
+            "storage connector '{}' entered local direct upload without a local filesystem projection",
+            policy.connector_id
+        ))
+    })?;
+    let should_dedup = local.content_dedup;
 
     while let Some(field) = payload.next().await {
         let mut field = field.map_aster_err(upload_field_read_failed)?;
@@ -51,12 +60,14 @@ pub(super) async fn upload_local_direct(
             let filename = aster_forge_validation::filename::normalize_validate_name(&filename)?;
 
             let staging_token = format!("{}.upload", aster_forge_utils::id::new_uuid());
-            let staging_path =
-                crate::storage::drivers::local::upload_staging_path(policy, &staging_token)
-                    .map_aster_err_ctx(
-                        "resolve local staging path",
-                        upload_local_staging_path_resolve_failed,
-                    )?;
+            let staging_path = crate::storage::drivers::local::upload_staging_path(
+                &local.base_path,
+                &staging_token,
+            )
+            .map_aster_err_ctx(
+                "resolve local staging path",
+                upload_local_staging_path_resolve_failed,
+            )?;
             if let Some(parent) = staging_path.parent() {
                 tokio::fs::create_dir_all(parent).await.map_aster_err_ctx(
                     "create local staging dir",
