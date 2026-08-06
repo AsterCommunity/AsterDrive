@@ -1,5 +1,9 @@
+import { execFile } from "node:child_process";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 function requireRecord(value, name) {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -96,10 +100,45 @@ export function validateArtifact(artifact) {
 	return artifact;
 }
 
-async function updateBaseline(artifactPath, baselinePath, profile) {
+async function assertCleanBaselineWorktree(baselinePath) {
+	const baselineDirectory = dirname(resolve(baselinePath));
+	let worktreeRoot;
+	try {
+		({ stdout: worktreeRoot } = await execFileAsync(
+			"git",
+			["-C", baselineDirectory, "rev-parse", "--show-toplevel"],
+			{ encoding: "utf8" },
+		));
+	} catch (error) {
+		throw new Error(
+			`baseline path must belong to a Git worktree: ${baselinePath}`,
+			{ cause: error },
+		);
+	}
+
+	const { stdout: status } = await execFileAsync(
+		"git",
+		[
+			"-C",
+			worktreeRoot.trim(),
+			"status",
+			"--porcelain",
+			"--untracked-files=normal",
+		],
+		{ encoding: "utf8" },
+	);
+	if (status !== "") {
+		throw new Error(
+			`baseline target worktree must be clean before update: ${worktreeRoot.trim()}`,
+		);
+	}
+}
+
+export async function updateBaseline(artifactPath, baselinePath, profile) {
 	const artifact = validateArtifact(
 		JSON.parse(await readFile(artifactPath, "utf8")),
 	);
+	await assertCleanBaselineWorktree(baselinePath);
 
 	let baseline;
 	try {

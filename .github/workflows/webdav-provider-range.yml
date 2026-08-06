@@ -140,10 +140,33 @@ jobs:
           cargo bench --bench webdav_provider_range --features benchmarks 2>&1 \
             | tee tests/performance/results/webdav-provider-range/runner.log
 
-      - name: Upload provider artifact
+      - name: Verify structured provider artifact
+        id: structured-artifact
         if: always()
+        run: |
+          artifact=tests/performance/results/webdav-provider-range/artifact.json
+          if test -s "$artifact"; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::error file=$artifact::Provider benchmark did not produce a non-empty structured artifact"
+            exit 1
+          fi
+
+      - name: Upload provider artifact
+        if: always() && steps.structured-artifact.outputs.available == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: webdav-provider-range-${{ inputs.provider || 'local' }}-${{ github.run_id }}
           if-no-files-found: error
-          path: tests/performance/results/webdav-provider-range
+          path: |
+            tests/performance/results/webdav-provider-range/artifact.json
+            tests/performance/results/webdav-provider-range/runner.log
+
+      - name: Upload provider diagnostics
+        if: always() && steps.structured-artifact.outputs.available != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: webdav-provider-range-diagnostics-${{ inputs.provider || 'local' }}-${{ github.run_id }}
+          if-no-files-found: warn
+          path: tests/performance/results/webdav-provider-range/runner.log

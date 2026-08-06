@@ -129,7 +129,7 @@ impl BenchConfig {
                     },
                     ByteWindow {
                         offset: self.payload_bytes - self.range_bytes.saturating_mul(3),
-                        length: half,
+                        length: self.range_bytes - half,
                     },
                 ],
             },
@@ -370,78 +370,122 @@ async fn main() -> BenchResult<()> {
         }
     };
 
-    let payload = deterministic_payload(config.payload_bytes)?;
-    provider_fixture
-        .driver
-        .put(&config.object_path, &payload)
-        .await?;
-
-    let scenario_specs = config.scenario_specs();
-    let mut scenarios = BTreeMap::new();
-    for (name, scenario) in &scenario_specs {
-        for _ in 0..config.warmups {
-            let _ = run_provider_scenario(
-                provider_fixture.driver.as_ref(),
-                provider_fixture.requests_per_backend_call,
-                &config.object_path,
-                scenario,
-            )
+    let benchmark_result = async {
+        let payload = deterministic_payload(config.payload_bytes)?;
+        provider_fixture
+            .driver
+            .put(&config.object_path, &payload)
             .await?;
-        }
-        let mut samples = Vec::with_capacity(config.samples);
-        for _ in 0..config.samples {
-            samples.push(
-                run_provider_scenario(
+
+        let scenario_specs = config.scenario_specs();
+        let mut scenarios = BTreeMap::new();
+        for (name, scenario) in &scenario_specs {
+            for _ in 0..config.warmups {
+                let _ = run_provider_scenario(
                     provider_fixture.driver.as_ref(),
                     provider_fixture.requests_per_backend_call,
                     &config.object_path,
                     scenario,
                 )
-                .await?,
+                .await?;
+            }
+            let mut samples = Vec::with_capacity(config.samples);
+            for _ in 0..config.samples {
+                samples.push(
+                    run_provider_scenario(
+                        provider_fixture.driver.as_ref(),
+                        provider_fixture.requests_per_backend_call,
+                        &config.object_path,
+                        scenario,
+                    )
+                    .await?,
+                );
+            }
+            scenarios.insert(name.clone(), report_for_scenario(scenario, samples));
+        }
+
+        let fallback = run_fallback_benchmark(&config, Arc::<[u8]>::from(payload)).await?;
+        let baseline = compare_baseline(&config, &scenarios).await?;
+        let baseline_regressed = baseline
+            .scenarios
+            .values()
+            .any(|scenario| scenario.regressed);
+
+        let artifact = BenchmarkArtifact {
+            schema_version: ARTIFACT_SCHEMA_VERSION,
+            generated_at: chrono::Utc::now().to_rfc3339(),
+            git_revision: command_output("git", &["rev-parse", "HEAD"]),
+            git_dirty: git_dirty(),
+            status: "completed",
+            provider: provider_fixture.provider.clone(),
+            skip_reason: None,
+            prerequisites: Vec::new(),
+            fixture: fixture_summary,
+            sampling,
+            machine,
+            provider_config: provider_fixture.config_summary.clone(),
+            scenarios,
+            fallback: Some(fallback),
+            baseline,
+        };
+        write_artifact(&config.output_path, &artifact).await?;
+
+        if config.fail_on_regression && baseline_regressed {
+            return Err(
+                "provider Range benchmark exceeded the selected versioned baseline policy".into(),
             );
         }
-        scenarios.insert(name.clone(), report_for_scenario(scenario, samples));
+        Ok(())
+    }
+    .await;
+
+    let cleanup_result = if config.cleanup_fixture {
+        cleanup_provider_fixture(&provider_fixture, &config.object_path).await
+    } else {
+        Ok(())
+    };
+    finish_benchmark(benchmark_result, cleanup_result)
+}
+
+async fn cleanup_provider_fixture(
+    provider_fixture: &ProviderFixture,
+    object_path: &str,
+) -> BenchResult<()> {
+    let mut cleanup_errors = Vec::new();
+    if let Err(error) = provider_fixture.driver.delete(object_path).await {
+        cleanup_errors.push(format!(
+            "failed to delete provider fixture '{object_path}': {error}"
+        ));
+    }
+    if let Some(root) = &provider_fixture.cleanup_root
+        && let Err(error) = tokio::fs::remove_dir_all(root).await
+    {
+        cleanup_errors.push(format!(
+            "failed to remove local provider fixture root '{}': {error}",
+            root.display()
+        ));
     }
 
-    let fallback = run_fallback_benchmark(&config, Arc::<[u8]>::from(payload)).await?;
-    let baseline = compare_baseline(&config, &scenarios).await?;
-    let baseline_regressed = baseline
-        .scenarios
-        .values()
-        .any(|scenario| scenario.regressed);
+    if cleanup_errors.is_empty() {
+        Ok(())
+    } else {
+        Err(cleanup_errors.join("; ").into())
+    }
+}
 
-    let artifact = BenchmarkArtifact {
-        schema_version: ARTIFACT_SCHEMA_VERSION,
-        generated_at: chrono::Utc::now().to_rfc3339(),
-        git_revision: command_output("git", &["rev-parse", "HEAD"]),
-        git_dirty: git_dirty(),
-        status: "completed",
-        provider: provider_fixture.provider.clone(),
-        skip_reason: None,
-        prerequisites: Vec::new(),
-        fixture: fixture_summary,
-        sampling,
-        machine,
-        provider_config: provider_fixture.config_summary.clone(),
-        scenarios,
-        fallback: Some(fallback),
-        baseline,
-    };
-    write_artifact(&config.output_path, &artifact).await?;
-
-    if config.cleanup_fixture {
-        provider_fixture.driver.delete(&config.object_path).await?;
-        if let Some(root) = provider_fixture.cleanup_root {
-            tokio::fs::remove_dir_all(root).await?;
+fn finish_benchmark<T>(
+    benchmark_result: BenchResult<T>,
+    cleanup_result: BenchResult<()>,
+) -> BenchResult<T> {
+    match (benchmark_result, cleanup_result) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Ok(_), Err(cleanup_error)) => Err(cleanup_error),
+        (Err(benchmark_error), Ok(())) => Err(benchmark_error),
+        (Err(benchmark_error), Err(cleanup_error)) => {
+            eprintln!("WebDAV provider Range fixture cleanup failed: {cleanup_error}");
+            Err(benchmark_error)
         }
     }
-
-    if config.fail_on_regression && baseline_regressed {
-        return Err(
-            "provider Range benchmark exceeded the selected versioned baseline policy".into(),
-        );
-    }
-    Ok(())
 }
 
 async fn build_provider(config: &BenchConfig) -> BenchResult<ProviderBuild> {
@@ -1022,15 +1066,70 @@ pub async fn contract_multi_range_accounting() {
         },
     ];
 
-    let sample = run_provider_scenario(&driver, 1, "contract.bin", &ScenarioSpec::Multi { ranges })
+    let sample = run_provider_scenario(&driver, 3, "contract.bin", &ScenarioSpec::Multi { ranges })
         .await
         .unwrap();
 
     assert_eq!(sample.backend_call_count, 2);
-    assert_eq!(sample.backend_request_count, 2);
+    assert_eq!(sample.backend_request_count, 6);
     assert_eq!(sample.actual_read_bytes, 16);
     driver.delete("contract.bin").await.unwrap();
     tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[cfg(test)]
+pub fn contract_odd_multi_range_accounting() {
+    let config = BenchConfig {
+        provider: "local".to_string(),
+        provider_required: false,
+        payload_bytes: 18,
+        range_bytes: 3,
+        warmups: 0,
+        samples: 1,
+        object_path: "contract.bin".to_string(),
+        output_path: PathBuf::from("artifact.json"),
+        cleanup_fixture: true,
+        baseline_path: None,
+        baseline_profile: None,
+        fail_on_regression: false,
+    };
+    let ScenarioSpec::Multi { ranges } = config
+        .scenario_specs()
+        .remove("multi_range_disjoint")
+        .unwrap()
+    else {
+        panic!("multi_range_disjoint must remain a multi-range scenario");
+    };
+
+    assert!(ranges.iter().all(|range| range.length > 0));
+    assert_eq!(ranges[0].length + ranges[1].length, config.range_bytes);
+}
+
+#[cfg(test)]
+pub async fn contract_failed_benchmark_cleans_fixture() {
+    let root = std::env::temp_dir().join(format!(
+        "asterdrive-webdav-provider-range-cleanup-contract-{}",
+        uuid::Uuid::new_v4()
+    ));
+    tokio::fs::create_dir_all(&root).await.unwrap();
+    let root_string = root.to_string_lossy().into_owned();
+    let driver = LocalDriver::new(&root_string).unwrap();
+    let payload = deterministic_payload(32).unwrap();
+    driver.put("contract.bin", &payload).await.unwrap();
+    let provider_fixture = ProviderFixture {
+        provider: "local".to_string(),
+        driver: Box::new(driver),
+        requests_per_backend_call: 1,
+        config_summary: json!({}),
+        cleanup_root: Some(root.clone()),
+    };
+    let benchmark_result: BenchResult<()> = Err("synthetic benchmark failure".into());
+    let cleanup_result = cleanup_provider_fixture(&provider_fixture, "contract.bin").await;
+
+    let error = finish_benchmark(benchmark_result, cleanup_result).unwrap_err();
+
+    assert_eq!(error.to_string(), "synthetic benchmark failure");
+    assert!(!root.exists());
 }
 
 #[cfg(test)]

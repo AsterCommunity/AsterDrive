@@ -1,6 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { execFile } from "node:child_process";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 
-import { validateArtifact } from "./update-webdav-provider-range-baseline.mjs";
+import {
+	updateBaseline,
+	validateArtifact,
+} from "./update-webdav-provider-range-baseline.mjs";
+
+const execFileAsync = promisify(execFile);
 
 function validArtifact() {
 	return {
@@ -77,5 +87,96 @@ describe("validateArtifact", () => {
 		expect(() => validateArtifact(artifact)).toThrow(
 			"baseline input must come from a clean Git worktree",
 		);
+	});
+});
+
+async function createBaselineRepository() {
+	const root = await mkdtemp(join(tmpdir(), "asterdrive-range-baseline-test-"));
+	const repository = join(root, "repository");
+	const baselinePath = join(
+		repository,
+		"tests/performance/baselines/webdav-provider-range-v1.json",
+	);
+	const artifactPath = join(root, "artifact.json");
+	await mkdir(join(repository, "tests/performance/baselines"), {
+		recursive: true,
+	});
+	const originalBaseline = `${JSON.stringify(
+		{
+			schema_version: 1,
+			baseline_version: "webdav-provider-range-v1",
+			regression_policy: {
+				ttfb_p95_max_ratio: 1.5,
+				throughput_p50_min_ratio: 0.7,
+			},
+			profiles: [],
+		},
+		null,
+		2,
+	)}\n`;
+	await writeFile(baselinePath, originalBaseline);
+	await writeFile(artifactPath, `${JSON.stringify(validArtifact())}\n`);
+	await execFileAsync("git", ["init", "--quiet", repository]);
+	await execFileAsync("git", [
+		"-C",
+		repository,
+		"config",
+		"user.email",
+		"benchmark-test@asterdrive.invalid",
+	]);
+	await execFileAsync("git", [
+		"-C",
+		repository,
+		"config",
+		"user.name",
+		"AsterDrive Benchmark Test",
+	]);
+	await execFileAsync("git", ["-C", repository, "add", "."]);
+	await execFileAsync("git", [
+		"-C",
+		repository,
+		"commit",
+		"--quiet",
+		"-m",
+		"test baseline fixture",
+	]);
+	return { root, repository, artifactPath, baselinePath, originalBaseline };
+}
+
+describe("updateBaseline", () => {
+	test("updates a baseline in a clean target worktree", async () => {
+		const fixture = await createBaselineRepository();
+		try {
+			await updateBaseline(
+				fixture.artifactPath,
+				fixture.baselinePath,
+				"test-profile",
+			);
+			const baseline = JSON.parse(await readFile(fixture.baselinePath, "utf8"));
+			expect(baseline.profiles).toHaveLength(1);
+			expect(baseline.profiles[0].profile).toBe("test-profile");
+		} finally {
+			await rm(fixture.root, { recursive: true, force: true });
+		}
+	});
+
+	test("rejects a dirty target worktree without changing the baseline", async () => {
+		const fixture = await createBaselineRepository();
+		try {
+			await writeFile(join(fixture.repository, "uncommitted.txt"), "dirty\n");
+
+			await expect(
+				updateBaseline(
+					fixture.artifactPath,
+					fixture.baselinePath,
+					"test-profile",
+				),
+			).rejects.toThrow("baseline target worktree must be clean before update");
+			expect(await readFile(fixture.baselinePath, "utf8")).toBe(
+				fixture.originalBaseline,
+			);
+		} finally {
+			await rm(fixture.root, { recursive: true, force: true });
+		}
 	});
 });
