@@ -5,8 +5,10 @@ import type {
 } from "@/types/api";
 import {
 	getEndpointValidationMessage,
+	hasConnectionFieldChanges,
 	normalizeConnectorFieldValue,
 	normalizePolicyForm,
+	policyConnectorSelection,
 } from "./connectionNormalization";
 import { emptyForm } from "./formTypes";
 
@@ -119,5 +121,86 @@ describe("connector field normalization", () => {
 		const normalized = normalizePolicyForm(form, schema);
 		expect(normalized.connector_config_values.base_path).toBe("./data/uploads");
 		expect(form.connector_config_values.base_path).toBe("");
+	});
+
+	it("treats supplied credentials as a connection change", () => {
+		const editingPolicy = {
+			connector_config: {
+				connector_id: "plugin.archive",
+				format_version: 1,
+				schema_version: 1,
+				values: { endpoint: "https://archive.example.test" },
+			},
+			connector_id: "plugin.archive",
+		} as never;
+		const form = {
+			...emptyForm,
+			connector_id: "plugin.archive",
+			connector_config_values: {
+				endpoint: "https://archive.example.test",
+			},
+			credential_values: { token: "new-token" },
+		};
+
+		expect(hasConnectionFieldChanges(form, editingPolicy)).toBe(true);
+	});
+
+	it("accepts bare hosts only when declared and rejects malformed URLs", () => {
+		const bareHost = descriptor([
+			field("endpoint", {
+				allow_endpoint_without_protocol: true,
+				required: true,
+			}),
+		]);
+		const malformed = descriptor([
+			field("endpoint", {
+				allowed_endpoint_protocols: ["https:"],
+				required: true,
+			}),
+		]);
+
+		expect(
+			getEndpointValidationMessage(
+				{
+					...emptyForm,
+					connector_config_values: { endpoint: "archive.internal" },
+				},
+				(key) => key,
+				bareHost,
+			),
+		).toBeNull();
+		expect(
+			getEndpointValidationMessage(
+				{
+					...emptyForm,
+					connector_config_values: { endpoint: "https://[invalid" },
+				},
+				(key) => key,
+				malformed,
+			),
+		).toBe("policy_connector_endpoint_protocol_invalid");
+	});
+
+	it("filters unsupported values from persisted connector envelopes", () => {
+		const selection = policyConnectorSelection({
+			connector_config: {
+				values: {
+					enabled: true,
+					nested: { ignored: true },
+					port: 443,
+					prefix: null,
+				},
+			},
+			connector_id: "plugin.archive",
+		} as never);
+
+		expect(selection).toEqual({
+			connector_id: "plugin.archive",
+			connector_config_values: {
+				enabled: true,
+				port: 443,
+				prefix: null,
+			},
+		});
 	});
 });

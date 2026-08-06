@@ -32,7 +32,21 @@ vi.mock("react-i18next", () => ({
 
 vi.mock(
 	"@/components/admin/admin-remote-nodes-page/RemoteNodeRemoteStorageTargetSection",
-	() => ({ RemoteNodeRemoteStorageTargetSection: () => null }),
+	() => ({
+		RemoteNodeRemoteStorageTargetSection: (props: {
+			errorMessage?: string | null;
+			loading?: boolean;
+			onCreateTarget?: () => void;
+		}) => (
+			<div data-testid="remote-targets">
+				<span>{props.errorMessage}</span>
+				<span>{String(props.loading)}</span>
+				<button type="button" onClick={props.onCreateTarget}>
+					create-target
+				</button>
+			</div>
+		),
+	}),
 );
 
 function field(
@@ -221,7 +235,13 @@ describe("StoragePolicyDialog", () => {
 	});
 
 	it("keeps the previous two-column connector selection and advances directly from a descriptor card", () => {
-		const available = descriptor("plugin.example");
+		const available = descriptor("plugin.example", {
+			ui: {
+				...descriptor("plugin.example").ui,
+				icon_name: "not-an-icon",
+				icon_src: null,
+			},
+		});
 		const postSetup = descriptor("plugin.post-setup", {
 			supports_initial_setup: false,
 			ui: {
@@ -398,5 +418,222 @@ describe("StoragePolicyDialog", () => {
 		expect(
 			screen.getByRole("button", { name: "Validate connector" }),
 		).toBeVisible();
+	});
+
+	it("covers connector loading and error states before selection", () => {
+		const loading = render(
+			<StoragePolicyDialog
+				{...dialogProps({
+					form: policyForm({ connector_id: "" }),
+					storageDriverDescriptor: null,
+					storageDriverDescriptors: [],
+					storageDriverDescriptorsLoading: true,
+				})}
+			/>,
+		);
+		expect(screen.getByText("core:loading")).toBeVisible();
+		loading.unmount();
+
+		render(
+			<StoragePolicyDialog
+				{...dialogProps({
+					form: policyForm({ connector_id: "" }),
+					storageDriverDescriptor: null,
+					storageDriverDescriptors: [],
+					storageDriverDescriptorsError: "catalog failed",
+				})}
+			/>,
+		);
+		expect(screen.getByText("catalog failed")).toBeVisible();
+	});
+
+	it("handles wizard navigation, validation, rules, confirmation, and submission callbacks", () => {
+		const plugin = descriptor("plugin.example", {
+			capabilities: {
+				...descriptor("plugin.example").capabilities,
+				storage_native_media_metadata: true,
+				storage_native_thumbnail: true,
+			},
+			fields: [
+				...descriptor("plugin.example").fields,
+				field("storage_native_processing_enabled", { kind: "boolean" }),
+			],
+		});
+		const props = dialogProps({
+			createStep: 1,
+			createStepTouched: true,
+			endpointValidationMessage: "endpoint invalid",
+			form: policyForm({
+				name: "",
+				connector_config_values: {
+					base_path: "plugin-root",
+					plugin_endpoint: "https://plugin.example.test",
+					storage_native_processing_enabled: true,
+				},
+				media_metadata_extensions: ["mp4"],
+				thumbnail_extensions: ["jpg"],
+			}),
+			saveAnywayConfirmOpen: true,
+			storageDriverDescriptor: plugin,
+			storageDriverDescriptors: [plugin],
+		});
+		const view = render(<StoragePolicyDialog {...props} />);
+
+		const formElement = screen.getByTestId("policy-step-panel").closest("form");
+		expect(formElement).not.toBeNull();
+		if (formElement) fireEvent.submit(formElement);
+		expect(screen.getByText("policy_wizard_name_required")).toBeVisible();
+		expect(screen.getByText("endpoint invalid")).toBeVisible();
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Renamed" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_wizard_review" }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "core:back" }));
+		fireEvent.click(screen.getByRole("button", { name: "core:cancel" }));
+		fireEvent.click(screen.getByRole("button", { name: "save_anyway" }));
+		expect(props.onFieldChange).toHaveBeenCalledWith("name", "Renamed");
+		expect(props.onCreateNext).toHaveBeenCalledOnce();
+		expect(props.onCreateBack).toHaveBeenCalledOnce();
+		expect(props.onCancelSaveAnyway).toHaveBeenCalledOnce();
+		expect(props.onConfirmSaveAnyway).toHaveBeenCalledOnce();
+
+		view.rerender(
+			<StoragePolicyDialog
+				{...props}
+				createStep={2}
+				form={policyForm({
+					connector_config_values: {
+						base_path: "plugin-root",
+						plugin_endpoint: "https://plugin.example.test",
+						storage_native_processing_enabled: true,
+					},
+					media_metadata_extensions: ["mp4"],
+					thumbnail_extensions: ["jpg"],
+				})}
+			/>,
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: /policy_wizard_step_storage_title/ }),
+		);
+		fireEvent.change(screen.getByLabelText("max_file_size"), {
+			target: { value: "2048" },
+		});
+		fireEvent.change(screen.getByLabelText("chunk_size"), {
+			target: { value: "16" },
+		});
+		fireEvent.click(screen.getByRole("switch", { name: "set_as_default" }));
+		fireEvent.change(
+			screen.getByLabelText("storage_native_thumbnail_extensions"),
+			{
+				target: { value: "jpg, webp" },
+			},
+		);
+		fireEvent.change(
+			screen.getByLabelText("storage_native_media_metadata_extensions"),
+			{ target: { value: "mp4, mov" } },
+		);
+		fireEvent.click(screen.getByRole("button", { name: "core:create" }));
+		expect(props.onFieldChange).toHaveBeenCalledWith("max_file_size", "2048");
+		expect(props.onFieldChange).toHaveBeenCalledWith("chunk_size", "16");
+		expect(props.onFieldChange).toHaveBeenCalledWith("is_default", true);
+		expect(props.onFieldChange).toHaveBeenCalledWith("thumbnail_extensions", [
+			"jpg",
+			"webp",
+		]);
+		expect(props.onFieldChange).toHaveBeenCalledWith(
+			"media_metadata_extensions",
+			["mp4", "mov"],
+		);
+		expect(props.onSubmit).toHaveBeenCalledOnce();
+	});
+
+	it("renders descriptor fallbacks, remote summaries, capacity, actions, and submitting states", () => {
+		const plugin = descriptor("plugin.example", {
+			actions: [
+				action({
+					action_id: "test_saved_connection",
+					kind: "connection_test",
+					endpoints: ["test_policy_connection"],
+				}),
+				action({
+					action_id: "plugin.repair",
+					kind: "custom",
+					requires_confirmation: true,
+				}),
+			],
+			fields: [
+				field("base_path", { default_value: "" }),
+				field("remote_node_id", {
+					kind: "select",
+					select: { data_source: "remote_nodes", value_kind: "integer" },
+				}),
+				field("remote_storage_target_key", {
+					kind: "select",
+					select: {
+						data_source: "remote_storage_targets",
+						value_kind: "string",
+					},
+				}),
+				field("mode", {
+					kind: "select",
+					select: {
+						options: [{ label_key: "mode_relay", value: "relay" }],
+						value_kind: "string",
+					},
+				}),
+				field("enabled", { kind: "boolean" }),
+			],
+			ui: {
+				...descriptor("plugin.example").ui,
+				icon_name: "not-an-icon",
+				icon_src: null,
+			},
+		});
+		const props = dialogProps({
+			connectorActionConfirmId: "plugin.repair",
+			connectorActionSubmittingId: "plugin.repair",
+			form: policyForm({
+				connector_config_values: {
+					base_path: "",
+					enabled: false,
+					mode: "relay",
+					remote_node_id: 7,
+					remote_storage_target_key: "archive",
+				},
+				is_default: false,
+			}),
+			mode: "edit",
+			policyCapacity: {
+				blob_count: 3,
+				blob_total_bytes: 2048,
+				capacity: { status: "available" },
+			} as never,
+			remoteNodes: [{ id: 7, name: "Node seven" } as never],
+			remoteStorageTargets: [
+				{ name: "Archive", target_key: "archive" } as never,
+			],
+			remoteStorageTargetsError: "targets failed",
+			remoteStorageTargetsLoading: true,
+			storageDriverDescriptor: plugin,
+			storageDriverDescriptors: [plugin],
+			submitting: true,
+		});
+		render(<StoragePolicyDialog {...props} />);
+
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Edited policy" },
+		});
+		expect(screen.getByTestId("remote-targets")).toHaveTextContent(
+			"targets failed",
+		);
+		expect(screen.getByTestId("remote-targets")).toHaveTextContent("true");
+		expect(screen.getByText("policy_capacity_status_available")).toBeVisible();
+		expect(
+			screen.getByRole("button", { name: "plugin.repair" }),
+		).toBeDisabled();
+		expect(screen.getByRole("button", { name: "save_changes" })).toBeDisabled();
+		expect(props.onFieldChange).toHaveBeenCalledWith("name", "Edited policy");
 	});
 });

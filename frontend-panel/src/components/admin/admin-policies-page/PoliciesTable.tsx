@@ -24,6 +24,7 @@ import type { SortOrder } from "@/lib/pagination";
 import type { AdminPolicySortBy } from "@/types/adminSort";
 import type { StorageConnectorDescriptor, StoragePolicy } from "@/types/api";
 import { policyConnectorSelection } from "../storage-policy-dialog/connectionNormalization";
+import type { ConnectorFormValue } from "../storage-policy-dialog/formTypes";
 import {
 	getStorageConnectorBadgePresentation,
 	PROTECTED_POLICY_ID,
@@ -237,7 +238,7 @@ export function PoliciesTable({
 
 function buildConfigurationSummary(
 	descriptor: StorageConnectorDescriptor | undefined,
-	values: Record<string, unknown>,
+	values: Record<string, ConnectorFormValue>,
 	remoteNodeNameById: Map<number, string>,
 	t: (key: string) => string,
 	connectorT: (key: string) => string,
@@ -269,11 +270,9 @@ function buildConfigurationSummary(
 	return parts.length > 0 ? parts.join(" · ") : "-";
 }
 
-function scalarDisplay(value: unknown, t: (key: string) => string) {
+function scalarDisplay(value: ConnectorFormValue, t: (key: string) => string) {
 	if (typeof value === "boolean") {
 		return value ? t("core:yes") : t("core:no");
 	}
-	return typeof value === "string" || typeof value === "number"
-		? String(value)
-		: "-";
+	return value == null ? "-" : String(value);
 }

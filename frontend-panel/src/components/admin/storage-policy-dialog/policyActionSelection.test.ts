@@ -270,6 +270,13 @@ describe("policy action selection", () => {
 		).toBe("unsupported");
 		expect(
 			selectStorageConnectorCustomActionExecutionMode(
+				{ ...customAction, endpoints: [] },
+				"draft",
+				7,
+			),
+		).toBe("unsupported");
+		expect(
+			selectStorageConnectorCustomActionExecutionMode(
 				{
 					...customAction,
 					endpoints: ["execute_saved_storage_policy_action"],

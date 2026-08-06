@@ -133,6 +133,11 @@ function renderPanel({
 }
 
 describe("StorageConnectorFieldsPanel", () => {
+	it("renders nothing when the descriptor has no visible fields", () => {
+		const { container } = renderPanel({ fields: [] });
+		expect(container).toBeEmptyDOMElement();
+	});
+
 	it("lets a single field fill its parent and only splits multiple fields into columns", () => {
 		const single = renderPanel({ fields: [field("base_path", "text")] });
 		expect(single.container.firstElementChild).toHaveClass("grid", "gap-4");
@@ -217,6 +222,39 @@ describe("StorageConnectorFieldsPanel", () => {
 		expect(onFieldChange).toHaveBeenCalledWith("credential_values", {
 			existing_secret: "keep",
 			secret_field: "TOKEN",
+		});
+	});
+
+	it("updates booleans and recursively clears credential dependencies", () => {
+		const fields = [
+			field("boolean_field", "boolean"),
+			field("secret_field", "secret", { scope: "static_credential" }),
+			field("dependent_secret", "secret", {
+				scope: "static_credential",
+				select: { depends_on: "secret_field", value_kind: "string" },
+			}),
+		];
+		const { onFieldChange } = renderPanel({
+			fields,
+			form: {
+				...emptyForm,
+				credential_values: {
+					dependent_secret: "stale",
+					secret_field: "old",
+				},
+			},
+		});
+
+		fireEvent.click(screen.getByRole("switch"));
+		fireEvent.change(screen.getByLabelText("Secret field"), {
+			target: { value: "new" },
+		});
+
+		expect(onFieldChange).toHaveBeenCalledWith("connector_config_values", {
+			boolean_field: true,
+		});
+		expect(onFieldChange).toHaveBeenCalledWith("credential_values", {
+			secret_field: "new",
 		});
 	});
 
@@ -420,5 +458,12 @@ describe("StorageConnectorFieldsPanel", () => {
 		expect(
 			screen.getAllByRole("combobox")[2].querySelectorAll("option"),
 		).toHaveLength(1);
+
+		fireEvent.change(screen.getAllByRole("combobox")[0], {
+			target: { value: "" },
+		});
+		expect(onFieldChange).toHaveBeenCalledWith("connector_config_values", {
+			remote_node_id: null,
+		});
 	});
 });

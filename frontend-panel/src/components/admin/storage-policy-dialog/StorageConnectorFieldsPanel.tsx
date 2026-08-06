@@ -233,9 +233,6 @@ function ConnectorField({
 							field,
 							event.target.value,
 						);
-						if (normalized === undefined) {
-							return;
-						}
 						setFieldValue(form, descriptor, field, normalized, onFieldChange);
 					}
 				}}
