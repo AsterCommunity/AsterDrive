@@ -104,6 +104,7 @@ const sidebar = assertUniqueSidebarLinks([
           { label: '后端总览', translations: { en: 'Backend Overview' }, link: '/admin/storage-backends/' },
           { label: '本地磁盘', translations: { en: 'Local Disk' }, link: '/admin/storage-backends/local/' },
           { label: 'S3 / MinIO / R2', translations: { en: 'S3 / MinIO / R2' }, link: '/admin/storage-backends/s3/' },
+          { label: '阿里云 OSS', translations: { en: 'Alibaba Cloud OSS' }, link: '/admin/storage-backends/alibaba-oss/' },
           {
             label: 'Azure Blob Storage',
             translations: { en: 'Azure Blob Storage' },

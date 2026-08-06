@@ -29,7 +29,8 @@ When a system administrator creates a new team without specifying a policy group
 | Type | Description | Full tutorial |
 | --- | --- | --- |
 | `local` | Files on a local directory | [Local Disk](/en/admin/storage-backends/local/) |
-| `s3` | Files on S3 or compatible object storage (MinIO / R2 / B2 / OSS, etc.) | [S3 / MinIO / R2](/en/admin/storage-backends/s3/) |
+| `s3` | Files on S3 or object storage with an explicit S3-compatible API (MinIO / R2 / B2, etc.) | [S3 / MinIO / R2](/en/admin/storage-backends/s3/) |
+| `alibaba_oss` | Files on Alibaba Cloud OSS with native OSS V4 signing, public/server endpoint separation, and CNAME support | [Alibaba Cloud OSS](/en/admin/storage-backends/alibaba-oss/) |
 | `azure_blob` | Files in an Azure Blob Storage container via the Azure Blob SDK and SAS URLs | [Azure Blob Storage](/en/admin/storage-backends/azure-blob/) |
 | `tencent_cos` | Files on Tencent Cloud COS; basic object I/O reuses S3-compatible logic and additionally exposes Tencent-native capabilities like COS CI | [Tencent Cloud COS](/en/admin/storage-backends/tencent-cos/) |
 | `one_drive` | Files written to OneDrive, SharePoint, or Microsoft 365 group drives reachable via Microsoft Graph | [OneDrive](/en/admin/storage-backends/onedrive/) |
@@ -63,13 +64,13 @@ When migrating existing data, do not edit the old policy's path, bucket, endpoin
 | Item | Purpose |
 | --- | --- |
 | Name | Display name in the console |
-| Driver type | `local`, `s3`, `azure_blob`, `tencent_cos`, `one_drive`, `sftp`, or `remote` |
-| Connection info | Local directory / S3 endpoint, bucket, keys / Azure Blob endpoint, container, account keys / COS endpoint, bucket, keys / OneDrive Microsoft Graph target and authorization / SFTP endpoint, SSH credentials, host key fingerprint / bound remote node |
+| Driver type | `local`, `s3`, `alibaba_oss`, `azure_blob`, `tencent_cos`, `one_drive`, `sftp`, or `remote` |
+| Connection info | Local directory / S3 endpoint, bucket, keys / OSS public endpoint, optional server-side endpoint, region, bucket, CNAME, keys / Azure Blob endpoint, container, account keys / COS endpoint, bucket, keys / OneDrive Microsoft Graph target and authorization / SFTP endpoint, SSH credentials, host key fingerprint / bound remote node |
 | Base path | Directory, prefix, or remote relative path used when writing through this policy |
 | Max single-file size | Largest allowed upload; `0` = unlimited |
 | Chunk size | Size of each part for large-file uploads |
 | Default policy | Preferred by new default groups or default routing rules |
-| Additional options | Local content dedup, S3 / Azure Blob / COS upload and download modes, S3 path-style access, OneDrive drive targeting, SFTP host key fingerprint, remote upload/download modes, storage-native processing switch, etc. |
+| Additional options | Local content dedup, S3 / OSS / Azure Blob / COS upload and download modes, S3 path-style access, OSS CNAME, OneDrive drive targeting, SFTP host key fingerprint, remote upload/download modes, storage-native processing switch, etc. |
 
 The console's storage policy form is not hardcoded per vendor on the frontend. AsterDrive reads the fields, capabilities, upload workflows, and management actions supported by the current driver from the backend `StorageConnector` descriptor, so when storage backends are added or adjusted, the admin UI follows backend capabilities as much as possible.
 
@@ -78,7 +79,7 @@ The console's storage policy form is not hardcoded per vendor on the frontend. A
 Storage policies have two kinds of connection tests:
 
 - **Test a saved policy**: read-write probe against a policy already saved in the database.
-- **Test a draft config**: probe with current form values before saving; for static-credential backends like S3, Azure Blob, and Tencent COS, leaving the secret field empty reuses the saved credential.
+- **Test a draft config**: probe with current form values before saving; for static-credential backends like S3, Alibaba Cloud OSS, Azure Blob, and Tencent COS, leaving the secret field empty reuses the saved credential.
 
 A successful connection test only means the AsterDrive server can reach the backend and the basic read-write paths — credentials, bucket / container / drive / follower remote storage target — work. It does not mean a browser can reach the object storage or follower directly. Whenever `presigned` is used, you still need to check browser networking, HTTPS certificates, CORS, and exposed response headers.
 

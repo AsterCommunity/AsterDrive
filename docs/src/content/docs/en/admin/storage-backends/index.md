@@ -1,5 +1,5 @@
 ---
-description: "AsterDrive storage backend selection guide: when to pick each of the seven backends, the onboarding flow shared by all backends, and how to validate before switching production traffic."
+description: "AsterDrive storage backend selection guide: when to pick each of the eight backends, the onboarding flow shared by all backends, and how to validate before switching production traffic."
 title: "Storage Backends"
 ---
 
@@ -14,6 +14,7 @@ The two-layer concept of storage policies and policy groups itself lives in [Sto
 | --- | --- | --- |
 | Local Disk | Single machine, NAS, small teams, minimal dependencies | [Local Disk](/en/admin/storage-backends/local/) |
 | S3 / MinIO / R2 | Object storage, large files, external buckets, cloud storage | [S3 / MinIO / R2](/en/admin/storage-backends/s3/) |
+| Alibaba Cloud OSS | Native Alibaba OSS buckets, OSS V4 signing, public/internal endpoint split, or CNAME | [Alibaba Cloud OSS](/en/admin/storage-backends/alibaba-oss/) |
 | Azure Blob Storage | Azure Storage accounts, Blob containers, Azure-managed object storage | [Azure Blob Storage](/en/admin/storage-backends/azure-blob/) |
 | Tencent Cloud COS | Tencent Cloud object storage, COS CI, per-policy native processing | [Tencent Cloud COS](/en/admin/storage-backends/tencent-cos/) |
 | OneDrive | Microsoft 365, OneDrive, SharePoint / group drives, Microsoft Graph authorization | [OneDrive](/en/admin/storage-backends/onedrive/) |
@@ -48,5 +49,5 @@ Recommended approach:
 5. Only then migrate real users or teams to the new policy group
 
 :::caution[Do not edit the real landing location of a policy that already has files]
-The `local` directory, S3 bucket / endpoint / prefix, Azure Blob endpoint / container / base path, OneDrive drive / root item / site / group targeting fields, SFTP endpoint / base path, and the bound remote node all decide where old files live. Change them in place and old files may become unfindable. For the correct move procedure, see [Storage Policies and Policy Groups](/en/admin/storage-policies/#migrating-existing-policy-data).
+The `local` directory, S3 / OSS bucket / endpoint / prefix, Azure Blob endpoint / container / base path, OneDrive drive / root item / site / group targeting fields, SFTP endpoint / base path, and the bound remote node all decide where old files live. Change them in place and old files may become unfindable. For the correct move procedure, see [Storage Policies and Policy Groups](/en/admin/storage-policies/#migrating-existing-policy-data).
 :::
