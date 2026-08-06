@@ -64,28 +64,6 @@ jobs:
       ASTER_BENCH_RANGE_BASELINE: tests/performance/baselines/webdav-provider-range-v1.json
       ASTER_BENCH_RANGE_OUTPUT: tests/performance/results/webdav-provider-range/artifact.json
       ASTER_BENCH_RANGE_FAIL_ON_REGRESSION: "false"
-      ASTER_BENCH_S3_ENDPOINT: ${{ secrets.ASTER_BENCH_S3_ENDPOINT }}
-      ASTER_BENCH_S3_BUCKET: ${{ secrets.ASTER_BENCH_S3_BUCKET }}
-      ASTER_BENCH_S3_REGION: ${{ secrets.ASTER_BENCH_S3_REGION }}
-      ASTER_BENCH_S3_BASE_PATH: ${{ secrets.ASTER_BENCH_S3_BASE_PATH }}
-      ASTER_BENCH_S3_ACCESS_KEY: ${{ secrets.ASTER_BENCH_S3_ACCESS_KEY }}
-      ASTER_BENCH_S3_SECRET_KEY: ${{ secrets.ASTER_BENCH_S3_SECRET_KEY }}
-      ASTER_BENCH_ONEDRIVE_GRAPH_BASE_URL: ${{ secrets.ASTER_BENCH_ONEDRIVE_GRAPH_BASE_URL }}
-      ASTER_BENCH_ONEDRIVE_ACCESS_TOKEN: ${{ secrets.ASTER_BENCH_ONEDRIVE_ACCESS_TOKEN }}
-      ASTER_BENCH_ONEDRIVE_DRIVE_ID: ${{ secrets.ASTER_BENCH_ONEDRIVE_DRIVE_ID }}
-      ASTER_BENCH_ONEDRIVE_ROOT_ITEM_ID: ${{ secrets.ASTER_BENCH_ONEDRIVE_ROOT_ITEM_ID }}
-      ASTER_BENCH_ONEDRIVE_BASE_PATH: ${{ secrets.ASTER_BENCH_ONEDRIVE_BASE_PATH }}
-      ASTER_BENCH_SFTP_ENDPOINT: ${{ secrets.ASTER_BENCH_SFTP_ENDPOINT }}
-      ASTER_BENCH_SFTP_USERNAME: ${{ secrets.ASTER_BENCH_SFTP_USERNAME }}
-      ASTER_BENCH_SFTP_PASSWORD: ${{ secrets.ASTER_BENCH_SFTP_PASSWORD }}
-      ASTER_BENCH_SFTP_HOST_KEY_FINGERPRINT: ${{ secrets.ASTER_BENCH_SFTP_HOST_KEY_FINGERPRINT }}
-      ASTER_BENCH_SFTP_BASE_PATH: ${{ secrets.ASTER_BENCH_SFTP_BASE_PATH }}
-      ASTER_BENCH_REMOTE_BASE_URL: ${{ secrets.ASTER_BENCH_REMOTE_BASE_URL }}
-      ASTER_BENCH_REMOTE_ACCESS_KEY: ${{ secrets.ASTER_BENCH_REMOTE_ACCESS_KEY }}
-      ASTER_BENCH_REMOTE_SECRET_KEY: ${{ secrets.ASTER_BENCH_REMOTE_SECRET_KEY }}
-      ASTER_BENCH_REMOTE_BASE_PATH: ${{ secrets.ASTER_BENCH_REMOTE_BASE_PATH }}
-      ASTER_BENCH_REMOTE_STORAGE_TARGET_KEY: ${{ secrets.ASTER_BENCH_REMOTE_STORAGE_TARGET_KEY }}
-      ASTER_BENCH_REMOTE_CAPABILITIES_JSON: ${{ secrets.ASTER_BENCH_REMOTE_CAPABILITIES_JSON }}
     steps:
       - uses: actions/checkout@v6
 
@@ -95,7 +73,67 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Run provider Range benchmark
+      - name: Run local provider Range benchmark
+        if: env.ASTER_BENCH_RANGE_PROVIDER == 'local'
+        run: |
+          mkdir -p tests/performance/results/webdav-provider-range
+          set -o pipefail
+          cargo bench --bench webdav_provider_range --features benchmarks 2>&1 \
+            | tee tests/performance/results/webdav-provider-range/runner.log
+
+      - name: Run S3 provider Range benchmark
+        if: env.ASTER_BENCH_RANGE_PROVIDER == 's3'
+        env:
+          ASTER_BENCH_S3_ENDPOINT: ${{ secrets.ASTER_BENCH_S3_ENDPOINT }}
+          ASTER_BENCH_S3_BUCKET: ${{ secrets.ASTER_BENCH_S3_BUCKET }}
+          ASTER_BENCH_S3_REGION: ${{ secrets.ASTER_BENCH_S3_REGION }}
+          ASTER_BENCH_S3_BASE_PATH: ${{ secrets.ASTER_BENCH_S3_BASE_PATH }}
+          ASTER_BENCH_S3_PATH_STYLE: ${{ secrets.ASTER_BENCH_S3_PATH_STYLE }}
+          ASTER_BENCH_S3_ACCESS_KEY: ${{ secrets.ASTER_BENCH_S3_ACCESS_KEY }}
+          ASTER_BENCH_S3_SECRET_KEY: ${{ secrets.ASTER_BENCH_S3_SECRET_KEY }}
+        run: |
+          mkdir -p tests/performance/results/webdav-provider-range
+          set -o pipefail
+          cargo bench --bench webdav_provider_range --features benchmarks 2>&1 \
+            | tee tests/performance/results/webdav-provider-range/runner.log
+
+      - name: Run OneDrive provider Range benchmark
+        if: env.ASTER_BENCH_RANGE_PROVIDER == 'onedrive'
+        env:
+          ASTER_BENCH_ONEDRIVE_GRAPH_BASE_URL: ${{ secrets.ASTER_BENCH_ONEDRIVE_GRAPH_BASE_URL }}
+          ASTER_BENCH_ONEDRIVE_ACCESS_TOKEN: ${{ secrets.ASTER_BENCH_ONEDRIVE_ACCESS_TOKEN }}
+          ASTER_BENCH_ONEDRIVE_DRIVE_ID: ${{ secrets.ASTER_BENCH_ONEDRIVE_DRIVE_ID }}
+          ASTER_BENCH_ONEDRIVE_ROOT_ITEM_ID: ${{ secrets.ASTER_BENCH_ONEDRIVE_ROOT_ITEM_ID }}
+          ASTER_BENCH_ONEDRIVE_BASE_PATH: ${{ secrets.ASTER_BENCH_ONEDRIVE_BASE_PATH }}
+        run: |
+          mkdir -p tests/performance/results/webdav-provider-range
+          set -o pipefail
+          cargo bench --bench webdav_provider_range --features benchmarks 2>&1 \
+            | tee tests/performance/results/webdav-provider-range/runner.log
+
+      - name: Run SFTP provider Range benchmark
+        if: env.ASTER_BENCH_RANGE_PROVIDER == 'sftp'
+        env:
+          ASTER_BENCH_SFTP_ENDPOINT: ${{ secrets.ASTER_BENCH_SFTP_ENDPOINT }}
+          ASTER_BENCH_SFTP_USERNAME: ${{ secrets.ASTER_BENCH_SFTP_USERNAME }}
+          ASTER_BENCH_SFTP_PASSWORD: ${{ secrets.ASTER_BENCH_SFTP_PASSWORD }}
+          ASTER_BENCH_SFTP_HOST_KEY_FINGERPRINT: ${{ secrets.ASTER_BENCH_SFTP_HOST_KEY_FINGERPRINT }}
+          ASTER_BENCH_SFTP_BASE_PATH: ${{ secrets.ASTER_BENCH_SFTP_BASE_PATH }}
+        run: |
+          mkdir -p tests/performance/results/webdav-provider-range
+          set -o pipefail
+          cargo bench --bench webdav_provider_range --features benchmarks 2>&1 \
+            | tee tests/performance/results/webdav-provider-range/runner.log
+
+      - name: Run remote provider Range benchmark
+        if: env.ASTER_BENCH_RANGE_PROVIDER == 'remote'
+        env:
+          ASTER_BENCH_REMOTE_BASE_URL: ${{ secrets.ASTER_BENCH_REMOTE_BASE_URL }}
+          ASTER_BENCH_REMOTE_ACCESS_KEY: ${{ secrets.ASTER_BENCH_REMOTE_ACCESS_KEY }}
+          ASTER_BENCH_REMOTE_SECRET_KEY: ${{ secrets.ASTER_BENCH_REMOTE_SECRET_KEY }}
+          ASTER_BENCH_REMOTE_BASE_PATH: ${{ secrets.ASTER_BENCH_REMOTE_BASE_PATH }}
+          ASTER_BENCH_REMOTE_STORAGE_TARGET_KEY: ${{ secrets.ASTER_BENCH_REMOTE_STORAGE_TARGET_KEY }}
+          ASTER_BENCH_REMOTE_CAPABILITIES_JSON: ${{ secrets.ASTER_BENCH_REMOTE_CAPABILITIES_JSON }}
         run: |
           mkdir -p tests/performance/results/webdav-provider-range
           set -o pipefail

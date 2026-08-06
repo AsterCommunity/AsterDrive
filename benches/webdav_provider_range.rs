@@ -58,8 +58,11 @@ impl BenchConfig {
     fn from_env() -> BenchResult<Self> {
         let payload_bytes = env_u64("ASTER_BENCH_RANGE_PAYLOAD_BYTES", DEFAULT_PAYLOAD_BYTES)?;
         let range_bytes = env_u64("ASTER_BENCH_RANGE_BYTES", DEFAULT_RANGE_BYTES)?;
-        if range_bytes == 0 {
-            return Err("ASTER_BENCH_RANGE_BYTES must be positive".into());
+        if range_bytes < 2 {
+            return Err(
+                "ASTER_BENCH_RANGE_BYTES must be at least 2 so multi-range windows stay non-empty"
+                    .into(),
+            );
         }
         if payload_bytes > MAX_PAYLOAD_BYTES {
             return Err(format!(
@@ -400,7 +403,7 @@ async fn main() -> BenchResult<()> {
         scenarios.insert(name.clone(), report_for_scenario(scenario, samples));
     }
 
-    let fallback = run_fallback_benchmark(&config, &payload).await?;
+    let fallback = run_fallback_benchmark(&config, Arc::<[u8]>::from(payload)).await?;
     let baseline = compare_baseline(&config, &scenarios).await?;
     let baseline_regressed = baseline
         .scenarios
@@ -877,7 +880,7 @@ fn report_for_scenario(scenario: &ScenarioSpec, samples: Vec<Sample>) -> Scenari
 
 async fn run_fallback_benchmark(
     config: &BenchConfig,
-    payload: &[u8],
+    payload: Arc<[u8]>,
 ) -> BenchResult<ScenarioReport> {
     let offset = config.payload_bytes - config.range_bytes;
     let driver = FallbackDriver::new(payload);
@@ -924,7 +927,7 @@ async fn run_fallback_sample(
 }
 
 struct CountingReader {
-    inner: std::io::Cursor<Vec<u8>>,
+    inner: std::io::Cursor<Arc<[u8]>>,
     bytes_read: Arc<AtomicU64>,
 }
 
@@ -945,15 +948,15 @@ impl AsyncRead for CountingReader {
 }
 
 struct FallbackDriver {
-    data: Vec<u8>,
+    data: Arc<[u8]>,
     stream_opens: AtomicUsize,
     bytes_read: Arc<AtomicU64>,
 }
 
 impl FallbackDriver {
-    fn new(data: &[u8]) -> Self {
+    fn new(data: Arc<[u8]>) -> Self {
         Self {
-            data: data.to_vec(),
+            data,
             stream_opens: AtomicUsize::new(0),
             bytes_read: Arc::new(AtomicU64::new(0)),
         }
@@ -967,7 +970,7 @@ impl StorageDriver for FallbackDriver {
     }
 
     async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
-        Ok(self.data.clone())
+        Ok(self.data.as_ref().to_vec())
     }
 
     async fn get_stream(
@@ -976,7 +979,7 @@ impl StorageDriver for FallbackDriver {
     ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         self.stream_opens.fetch_add(1, Ordering::SeqCst);
         Ok(Box::new(CountingReader {
-            inner: std::io::Cursor::new(self.data.clone()),
+            inner: std::io::Cursor::new(Arc::clone(&self.data)),
             bytes_read: Arc::clone(&self.bytes_read),
         }))
     }
@@ -995,6 +998,54 @@ impl StorageDriver for FallbackDriver {
             content_type: Some("application/octet-stream".to_string()),
         })
     }
+}
+
+#[cfg(test)]
+pub async fn contract_multi_range_accounting() {
+    let root = std::env::temp_dir().join(format!(
+        "asterdrive-webdav-provider-range-contract-{}",
+        uuid::Uuid::new_v4()
+    ));
+    tokio::fs::create_dir_all(&root).await.unwrap();
+    let root_string = root.to_string_lossy().into_owned();
+    let driver = LocalDriver::new(&root_string).unwrap();
+    let payload = deterministic_payload(1024).unwrap();
+    driver.put("contract.bin", &payload).await.unwrap();
+    let ranges = [
+        ByteWindow {
+            offset: 10,
+            length: 8,
+        },
+        ByteWindow {
+            offset: 900,
+            length: 8,
+        },
+    ];
+
+    let sample = run_provider_scenario(&driver, 1, "contract.bin", &ScenarioSpec::Multi { ranges })
+        .await
+        .unwrap();
+
+    assert_eq!(sample.backend_call_count, 2);
+    assert_eq!(sample.backend_request_count, 2);
+    assert_eq!(sample.actual_read_bytes, 16);
+    driver.delete("contract.bin").await.unwrap();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[cfg(test)]
+pub async fn contract_fallback_read_accounting() {
+    let payload = Arc::<[u8]>::from(deterministic_payload(1024).unwrap());
+    let driver = FallbackDriver::new(payload);
+    let offset = 900;
+    let length = 16;
+
+    let sample = run_fallback_sample(&driver, offset, length).await.unwrap();
+
+    assert_eq!(sample.backend_call_count, 1);
+    assert_eq!(sample.backend_request_count, 1);
+    assert_eq!(sample.actual_read_bytes, offset + length);
+    assert_eq!(sample.prefix_skip_bytes, offset);
 }
 
 fn summarize_samples(samples: &[Sample]) -> ScenarioStatistics {

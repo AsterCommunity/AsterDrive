@@ -342,8 +342,9 @@ policy reports a regression when p95 TTFB exceeds `1.5x` or p50 throughput
 drops below `0.7x`; scheduled runs report the comparison in the artifact and do
 not turn network variance into a protocol-test failure.
 
-Update a profile only from a reviewed artifact captured on the same machine and
-provider fixture:
+Update a profile only from a reviewed artifact captured from a clean Git
+worktree on the same machine and provider fixture. The updater rejects dirty,
+incomplete, empty, or non-finite artifacts before touching the baseline file:
 
 ```bash
 bun tests/performance/update-webdav-provider-range-baseline.mjs \
