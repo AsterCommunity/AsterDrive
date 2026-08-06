@@ -165,7 +165,10 @@ export async function configureInitialStorage(
 		await page.getByLabel("Base Path").fill("./data");
 	}
 	await page.getByRole("button", { name: "Test Connection" }).click();
-	await expect(page.getByText("Connection successful")).toBeVisible();
+	const connectionSuccessToast = page.getByText("Connection successful");
+	await expect(connectionSuccessToast).toBeVisible();
+	await page.mouse.move(0, 0);
+	await expect(connectionSuccessToast).toBeHidden();
 	await page.getByRole("button", { name: "Review", exact: true }).click();
 	await expect(
 		page.getByText("Set as default policy", { exact: true }),
