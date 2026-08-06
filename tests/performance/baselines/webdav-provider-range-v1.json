@@ -26,25 +26,25 @@
         "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
         "kernel": "Linux 6.12.85+deb13-amd64 x86_64 GNU/Linux"
       },
-      "generated_at": "2026-08-06T14:01:58.641544227+00:00",
-      "git_revision": "24956a066214a11a9aac18500f718b08fa046ade",
-      "git_dirty": true,
+      "generated_at": "2026-08-06T17:34:07.503493741+00:00",
+      "git_revision": "aaa2b5a641c2d7e688b15d718c6672390b13c3be",
+      "git_dirty": false,
       "scenarios": {
         "full_get": {
-          "ttfb_p95_ms": 0.14698414999999998,
-          "throughput_p50_bytes_per_second": 344646281.3163978
+          "ttfb_p95_ms": 0.13965960000000002,
+          "throughput_p50_bytes_per_second": 373698030.4126808
         },
         "multi_range_disjoint": {
-          "ttfb_p95_ms": 0.17379370000000002,
-          "throughput_p50_bytes_per_second": 384897521.5236765
+          "ttfb_p95_ms": 0.17509150000000007,
+          "throughput_p50_bytes_per_second": 388062253.79542506
         },
         "single_range_early": {
-          "ttfb_p95_ms": 0.12170115000000001,
-          "throughput_p50_bytes_per_second": 379712515.58565885
+          "ttfb_p95_ms": 0.12910165000000026,
+          "throughput_p50_bytes_per_second": 390046383.03697467
         },
         "single_range_late": {
-          "ttfb_p95_ms": 0.22887285000000013,
-          "throughput_p50_bytes_per_second": 381381585.1004468
+          "ttfb_p95_ms": 0.9772120500000002,
+          "throughput_p50_bytes_per_second": 376915149.4909163
         }
       }
     }
