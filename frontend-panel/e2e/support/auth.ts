@@ -12,12 +12,12 @@ export type InitialStorageSetup =
 			kind: "local";
 	  }
 	| {
-			accessKey: string;
 			basePath?: string;
 			bucket: string;
 			endpoint: string;
 			kind: "cluster-s3";
-			secretKey: string;
+			s3AccessKeyId: string;
+			s3SecretAccessKey: string;
 	  };
 
 const DEFAULT_INITIAL_STORAGE: InitialStorageSetup = { kind: "local" };
@@ -158,8 +158,8 @@ export async function configureInitialStorage(
 	if (storage.kind === "cluster-s3") {
 		await page.getByLabel("Endpoint").fill(storage.endpoint);
 		await page.getByLabel("Bucket").fill(storage.bucket);
-		await page.getByLabel("Access Key").fill(storage.accessKey);
-		await page.getByLabel("Secret Key").fill(storage.secretKey);
+		await page.locator("#s3_access_key_id").fill(storage.s3AccessKeyId);
+		await page.locator("#s3_secret_access_key").fill(storage.s3SecretAccessKey);
 		await page.getByLabel("Base Path").fill(storage.basePath ?? "e2e");
 	} else {
 		await page.getByLabel("Base Path").fill("./data");
