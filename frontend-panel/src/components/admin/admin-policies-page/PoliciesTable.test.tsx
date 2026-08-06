@@ -194,6 +194,29 @@ describe("PoliciesTable", () => {
 		).toBeVisible();
 	});
 
+	it("falls back for unresolved remote nodes and missing option labels", () => {
+		const fallbackDescriptor = descriptor();
+		fallbackDescriptor.fields = [
+			fallbackDescriptor.fields[2],
+			{
+				...fallbackDescriptor.fields[1],
+				select: {
+					options: [{ value: "relay" } as never],
+					value_kind: "string",
+				},
+			},
+		];
+
+		renderTable({
+			policies: [policy(1)],
+			remoteNodeNameById: new Map(),
+			storageDriverDescriptors: [fallbackDescriptor],
+		});
+
+		expect(screen.getByText(/node: #7/)).toBeVisible();
+		expect(screen.getByText(/mode: mode/)).toBeVisible();
+	});
+
 	it("supports row keyboard/edit/delete behavior and protected/deleting states", () => {
 		const { props } = renderTable({ deletingPolicyId: 2 });
 		const rows = screen.getAllByRole("row");

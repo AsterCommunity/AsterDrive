@@ -8,6 +8,7 @@ import {
 	buildCreatePolicyPayload,
 	buildPolicyTestPayload,
 	buildStorageConnectorActionPayload,
+	buildStorageConnectorConnection,
 	buildUpdatePolicyPayload,
 } from "./payloadBuilders";
 
@@ -106,6 +107,22 @@ describe("storage policy payload builders", () => {
 			mode: "authorization_application",
 			values: { client_id: "CLIENT" },
 		});
+	});
+
+	it("uses the none credential fallback when optional credentials are absent", () => {
+		const staticSchema = descriptor();
+		const oauthSchema = descriptor("oauth_delegated");
+		const input = form({ credential_values: {} });
+
+		expect(
+			buildStorageConnectorConnection(input, staticSchema, false).credential,
+		).toEqual({ mode: "none" });
+		expect(buildUpdatePolicyPayload(input, oauthSchema)).not.toHaveProperty(
+			"credential",
+		);
+		expect(
+			buildCreatePolicyPayload(input, staticSchema).connection.credential,
+		).toEqual({ mode: "static", values: {} });
 	});
 
 	it("omits blank update credentials and keeps required empty connector values", () => {

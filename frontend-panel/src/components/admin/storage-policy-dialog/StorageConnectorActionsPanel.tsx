@@ -72,6 +72,7 @@ export function StorageConnectorActionsPanel({
 				const confirmOpen = confirmActionId === action.action_id;
 				const submitting = submittingActionId === action.action_id;
 				const actionValues = values[action.action_id] ?? {};
+				const actionFields = action.fields ?? [];
 
 				return (
 					<div
@@ -101,9 +102,9 @@ export function StorageConnectorActionsPanel({
 							</Button>
 						</div>
 
-						{action.fields && action.fields.length > 0 ? (
+						{actionFields.length > 0 ? (
 							<div className="grid gap-3 md:grid-cols-2">
-								{action.fields.map((field) => (
+								{actionFields.map((field) => (
 									<ActionField
 										key={field.name}
 										actionId={action.action_id}
@@ -111,7 +112,7 @@ export function StorageConnectorActionsPanel({
 										remoteNodes={remoteNodes}
 										remoteStorageTargets={remoteStorageTargets}
 										allValues={actionValues}
-										fields={action.fields ?? []}
+										fields={actionFields}
 										t={connectorT}
 										value={actionValues[field.name]}
 										onChange={onValueChange}

@@ -274,5 +274,5 @@ function scalarDisplay(value: ConnectorFormValue, t: (key: string) => string) {
 	if (typeof value === "boolean") {
 		return value ? t("core:yes") : t("core:no");
 	}
-	return value == null ? "-" : String(value);
+	return String(value);
 }

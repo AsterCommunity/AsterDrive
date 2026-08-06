@@ -223,7 +223,7 @@ describe("StorageConnectorActionsPanel", () => {
 				action("plugin.first", {
 					fields: [
 						field("path", "text", { trim_on_blur: true }),
-						field("token", "secret"),
+						field("token", "secret", { help_key: "field.token.help" }),
 						field("enabled", "boolean", { default_value: true }),
 						field("retries", "number", { default_value: 3 }),
 						field("mode", "select", {
@@ -257,6 +257,9 @@ describe("StorageConnectorActionsPanel", () => {
 		fireEvent.change(screen.getByRole("combobox"), {
 			target: { value: "mode.repair" },
 		});
+		fireEvent.blur(token, { target: { value: "TOKEN" } });
+		fireEvent.blur(retries, { target: { value: "5" } });
+		fireEvent.change(retries, { target: { value: "" } });
 
 		expect(onValueChange).toHaveBeenCalledWith(
 			"plugin.first",
@@ -279,6 +282,12 @@ describe("StorageConnectorActionsPanel", () => {
 			"mode",
 			"mode.repair",
 		);
+		expect(onValueChange).toHaveBeenCalledWith(
+			"plugin.first",
+			"retries",
+			undefined,
+		);
+		expect(screen.getByText("field.token.help")).toBeVisible();
 	});
 
 	it("shows confirmation only for the selected action and routes confirm and cancel", () => {
@@ -331,19 +340,25 @@ describe("StorageConnectorActionsPanel", () => {
 				}),
 			],
 			remoteNodes: [remoteNode(7, "Node seven")],
-			remoteStorageTargets: [remoteTarget("archive")],
+			remoteStorageTargets: [{ ...remoteTarget("archive"), name: "" }],
 			values: { "plugin.first": { target: "archive" } },
 		});
 
 		const selects = screen.getAllByRole("combobox");
 		expect(selects[0]).toHaveTextContent("Node seven");
-		expect(selects[1]).toHaveTextContent("Archive");
+		expect(selects[1]).toHaveTextContent("archive");
 		expect(selects[1]).toBeDisabled();
 		fireEvent.change(selects[0], { target: { value: "7" } });
+		fireEvent.change(selects[0], { target: { value: "" } });
 		expect(onValueChange).toHaveBeenCalledWith("plugin.first", "node", 7);
 		expect(onValueChange).toHaveBeenCalledWith(
 			"plugin.first",
 			"target",
+			undefined,
+		);
+		expect(onValueChange).toHaveBeenCalledWith(
+			"plugin.first",
+			"node",
 			undefined,
 		);
 	});

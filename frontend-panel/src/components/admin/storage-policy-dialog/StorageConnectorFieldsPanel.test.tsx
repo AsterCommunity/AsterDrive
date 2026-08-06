@@ -61,6 +61,8 @@ const labels: Record<string, string> = {
 	remote_storage_target_key: "Remote target",
 	secret_field: "Secret field",
 	text_field: "Text field",
+	text_field_help: "Text field help",
+	text_field_required: "Text field is connector-required",
 };
 
 const t: Translate = (key, values) =>
@@ -94,16 +96,21 @@ function renderPanel({
 	form = emptyForm,
 	mode = "create",
 	showRequiredErrors = false,
+	descriptorValue = descriptor(fields),
+	declaredFields,
 }: {
 	fields: StorageConnectorFieldDescriptor[];
 	form?: PolicyFormData;
 	mode?: "create" | "edit";
 	showRequiredErrors?: boolean;
+	descriptorValue?: StorageConnectorDescriptor | null;
+	declaredFields?: StorageConnectorFieldDescriptor[];
 }) {
 	const onFieldChange = vi.fn();
 	const view = render(
 		<StorageConnectorFieldsPanel
-			descriptor={descriptor(fields)}
+			descriptor={descriptorValue}
+			fields={declaredFields}
 			form={form}
 			mode={mode}
 			onFieldChange={onFieldChange}
@@ -122,9 +129,7 @@ function renderPanel({
 					},
 				] as never
 			}
-			remoteStorageTargets={
-				[{ name: "Archive", target_key: "archive" }] as never
-			}
+			remoteStorageTargets={[{ name: "", target_key: "archive" }] as never}
 			showRequiredErrors={showRequiredErrors}
 			t={t}
 		/>,
@@ -136,6 +141,25 @@ describe("StorageConnectorFieldsPanel", () => {
 	it("renders nothing when the descriptor has no visible fields", () => {
 		const { container } = renderPanel({ fields: [] });
 		expect(container).toBeEmptyDOMElement();
+
+		const descriptorless = renderPanel({ fields: [], descriptorValue: null });
+		expect(descriptorless.container).toBeEmptyDOMElement();
+	});
+
+	it("renders explicitly declared fields without a descriptor", () => {
+		const explicitField = field("text_field", "text");
+		const { onFieldChange } = renderPanel({
+			fields: [],
+			declaredFields: [explicitField],
+			descriptorValue: null,
+		});
+
+		fireEvent.change(screen.getByLabelText("Text field"), {
+			target: { value: "standalone" },
+		});
+		expect(onFieldChange).toHaveBeenCalledWith("connector_config_values", {
+			text_field: "standalone",
+		});
 	});
 
 	it("lets a single field fill its parent and only splits multiple fields into columns", () => {
@@ -156,10 +180,13 @@ describe("StorageConnectorFieldsPanel", () => {
 		renderPanel({
 			fields: [
 				field("text_field", "text", {
+					help_key: "text_field_help",
 					required: true,
+					required_message_key: "text_field_required",
 					trim_on_blur: true,
 					validation: { max_length: 12 },
 				}),
+				field("base_path", "text", { required: true }),
 				field("secret_field", "secret", { scope: "static_credential" }),
 				field("number_field", "number", {
 					default_value: 5,
@@ -174,7 +201,9 @@ describe("StorageConnectorFieldsPanel", () => {
 			"maxlength",
 			"12",
 		);
-		expect(screen.getByText("Text field is required")).toBeVisible();
+		expect(screen.getByText("Text field is connector-required")).toBeVisible();
+		expect(screen.getByText("Base path is required")).toBeVisible();
+		expect(screen.getByText("Text field help")).toBeVisible();
 		expect(screen.getByLabelText("Secret field")).toHaveAttribute(
 			"type",
 			"password",
@@ -270,8 +299,45 @@ describe("StorageConnectorFieldsPanel", () => {
 		fireEvent.change(screen.getByLabelText("Number field"), {
 			target: { value: "" },
 		});
+		fireEvent.blur(screen.getByLabelText("Number field"));
 
 		expect(onFieldChange).toHaveBeenCalledWith("connector_config_values", {});
+	});
+
+	it("renders defensive scalar fallbacks and stringifies credential booleans", () => {
+		const textView = renderPanel({
+			fields: [field("text_field", "text")],
+			form: {
+				...emptyForm,
+				connector_config_values: { text_field: true },
+			},
+		});
+		expect(screen.getByLabelText("Text field")).toHaveValue("");
+		textView.unmount();
+
+		const credentialBoolean = field("credential_boolean", "boolean", {
+			scope: "static_credential",
+		});
+		const credentialSelect = field("credential_select", "select", {
+			scope: "static_credential",
+			select: { options: [], value_kind: "string" },
+		});
+		const { onFieldChange } = renderPanel({
+			fields: [credentialBoolean, credentialSelect],
+			form: {
+				...emptyForm,
+				credential_values: { credential_select: "old" },
+			},
+		});
+		fireEvent.click(screen.getByRole("switch"));
+		fireEvent.change(screen.getByRole("combobox"), { target: { value: "" } });
+		expect(onFieldChange).toHaveBeenCalledWith("credential_values", {
+			credential_boolean: "true",
+			credential_select: "old",
+		});
+		expect(onFieldChange).toHaveBeenCalledWith("credential_values", {
+			credential_select: "",
+		});
 	});
 
 	it("does not report a required field missing when its descriptor supplies a default", () => {
@@ -389,11 +455,28 @@ describe("StorageConnectorFieldsPanel", () => {
 		expect(screen.getByRole("option", { name: "Direct" })).toBeVisible();
 		expect(screen.getByRole("option", { name: "Node seven" })).toBeVisible();
 		expect(selects[2]).toBeDisabled();
+		fireEvent.change(selects[0], { target: { value: "direct" } });
 		fireEvent.change(selects[1], { target: { value: "7" } });
 
 		expect(onFieldChange).toHaveBeenCalledWith("connector_config_values", {
+			mode: "direct",
+			remote_storage_target_key: "archive",
+		});
+		expect(onFieldChange).toHaveBeenCalledWith("connector_config_values", {
 			remote_node_id: 7,
 		});
+	});
+
+	it("disables a select whose declared dependency is absent", () => {
+		renderPanel({
+			fields: [
+				field("mode", "select", {
+					select: { depends_on: "missing", value_kind: "string" },
+				}),
+			],
+		});
+
+		expect(screen.getByRole("combobox")).toBeDisabled();
 	});
 
 	it("uses the connector placeholder on create and the keep-existing hint for edit credentials", () => {

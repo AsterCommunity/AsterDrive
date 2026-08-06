@@ -314,6 +314,50 @@ describe("StoragePolicyDialog", () => {
 		expect(screen.getByRole("button", { name: "core:create" })).toBeVisible();
 	});
 
+	it("falls back to the persisted id for an unavailable remote node", () => {
+		const remotePlugin = descriptor("plugin.example", {
+			fields: [
+				field("remote_node_id", {
+					kind: "select",
+					select: { data_source: "remote_nodes", value_kind: "integer" },
+				}),
+			],
+		});
+
+		const view = render(
+			<StoragePolicyDialog
+				{...dialogProps({
+					createStep: 2,
+					form: policyForm({
+						connector_config_values: { remote_node_id: 404 },
+					}),
+					remoteNodes: [],
+					storageDriverDescriptor: remotePlugin,
+					storageDriverDescriptors: [remotePlugin],
+				})}
+			/>,
+		);
+
+		expect(
+			within(screen.getByTestId("policy-summary-card")).getByText("404"),
+		).toBeVisible();
+
+		view.rerender(
+			<StoragePolicyDialog
+				{...dialogProps({
+					createStep: 2,
+					form: policyForm({ connector_config_values: {} }),
+					remoteNodes: [],
+					storageDriverDescriptor: remotePlugin,
+					storageDriverDescriptors: [remotePlugin],
+				})}
+			/>,
+		);
+		expect(
+			within(screen.getByTestId("policy-summary-card")).getByText("—"),
+		).toBeVisible();
+	});
+
 	it("restores the edit context, capacity summary, and separate overview, connection, and rules sections", () => {
 		const props = dialogProps({ mode: "edit" });
 		render(<StoragePolicyDialog {...props} />);

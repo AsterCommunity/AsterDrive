@@ -4,6 +4,7 @@ import {
 	connectorNumberValue,
 	connectorStringValue,
 	emptyForm,
+	getPolicyForm,
 	updatedConnectorConfigValues,
 	updatedCredentialValues,
 	withConnectorFormValue,
@@ -47,5 +48,29 @@ describe("storage policy form values", () => {
 		});
 		expect(form.connector_config_values.endpoint).toBe("old");
 		expect(form.credential_values.token).toBe("old-token");
+	});
+
+	it("falls back from malformed persisted connector envelope members", () => {
+		const form = getPolicyForm({
+			behavior: {},
+			connector_config: { connector_id: 42, values: [] },
+			connector_id: "plugin.archive",
+			name: "Archive",
+		} as never);
+
+		expect(form.connector_id).toBe("plugin.archive");
+		expect(form.connector_config_values).toEqual({});
+
+		const valid = getPolicyForm({
+			behavior: {},
+			connector_config: {
+				connector_id: "plugin.persisted",
+				values: { enabled: true },
+			},
+			connector_id: "plugin.archive",
+			name: "Archive",
+		} as never);
+		expect(valid.connector_id).toBe("plugin.persisted");
+		expect(valid.connector_config_values).toEqual({ enabled: true });
 	});
 });

@@ -181,6 +181,66 @@ describe("connector field normalization", () => {
 		).toBe("policy_connector_endpoint_protocol_invalid");
 	});
 
+	it("covers empty, scheme-required, and allowed endpoint protocol branches", () => {
+		const requiresScheme = descriptor([
+			field("endpoint", {
+				allowed_endpoint_protocols: ["https:"],
+				required: true,
+			}),
+		]);
+		const anyUrlOrBareHost = descriptor([
+			field("endpoint", {
+				allow_endpoint_without_protocol: true,
+				required: true,
+			}),
+		]);
+
+		expect(
+			getEndpointValidationMessage(
+				{
+					...emptyForm,
+					connector_config_values: { endpoint: 443 },
+				},
+				(key) => key,
+				requiresScheme,
+			),
+		).toBeNull();
+		expect(
+			getEndpointValidationMessage(
+				{
+					...emptyForm,
+					connector_config_values: { endpoint: "archive.internal" },
+				},
+				(key) => key,
+				requiresScheme,
+			),
+		).toBe("policy_connector_endpoint_protocol_invalid");
+		expect(
+			getEndpointValidationMessage(
+				{
+					...emptyForm,
+					connector_config_values: {
+						endpoint: "https://archive.example.test",
+					},
+				},
+				(key) => key,
+				anyUrlOrBareHost,
+			),
+		).toBeNull();
+		expect(
+			getEndpointValidationMessage(
+				{
+					...emptyForm,
+					connector_config_values: {
+						endpoint: "https://archive.example.test",
+					},
+				},
+				(key) => key,
+				requiresScheme,
+			),
+		).toBeNull();
+	});
+
 	it("filters unsupported values from persisted connector envelopes", () => {
 		const selection = policyConnectorSelection({
 			connector_config: {
@@ -201,6 +261,27 @@ describe("connector field normalization", () => {
 				port: 443,
 				prefix: null,
 			},
+		});
+	});
+
+	it("tolerates malformed persisted connector envelopes", () => {
+		expect(
+			policyConnectorSelection({
+				connector_config: null,
+				connector_id: "plugin.archive",
+			} as never),
+		).toEqual({
+			connector_id: "plugin.archive",
+			connector_config_values: {},
+		});
+		expect(
+			policyConnectorSelection({
+				connector_config: { values: [] },
+				connector_id: "plugin.archive",
+			} as never),
+		).toEqual({
+			connector_id: "plugin.archive",
+			connector_config_values: {},
 		});
 	});
 });
