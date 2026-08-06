@@ -132,13 +132,12 @@ export function createResumableUploadRunners({
 				});
 				return;
 			}
-			const message = getApiErrorMessage(error);
 			if (!task.file) {
 				if (shouldRemovePersistedSession(error)) {
 					removeSession(uploadId);
 					patchTask(task.id, {
 						status: "pending_file",
-						error: message,
+						error: getApiErrorMessage(error),
 						progress: 0,
 						uploadedBytes: 0,
 						speedBps: undefined,
@@ -149,10 +148,10 @@ export function createResumableUploadRunners({
 					});
 					return;
 				}
-				markTaskFailed(task.id, message);
+				markTaskFailed(task.id, error);
 				return;
 			}
-			markTaskFailed(task.id, message);
+			markTaskFailed(task.id, error);
 		} finally {
 			abortFlagsRef.current.delete(task.id);
 		}

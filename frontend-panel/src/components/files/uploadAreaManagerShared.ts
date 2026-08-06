@@ -28,6 +28,7 @@ export interface UploadTask {
 	uploadedBytes?: number;
 	speedBps?: number;
 	error: string | null;
+	retryable?: boolean;
 	uploadId: string | null;
 	completedChunks?: number;
 	totalChunks?: number;
@@ -47,6 +48,12 @@ export const ACTIVE_QUEUE_STATUSES: UploadStatus[] = [
 export const ACTIVE_QUEUE_STATUS_SET = new Set<UploadStatus>(
 	ACTIVE_QUEUE_STATUSES,
 );
+
+export const TERMINAL_UPLOAD_STATUS_SET = new Set<UploadStatus>([
+	"completed",
+	"failed",
+	"cancelled",
+]);
 
 export const CONCURRENCY_ACTIVE_STATUSES: UploadStatus[] = [
 	"initializing",

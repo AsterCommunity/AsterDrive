@@ -1,6 +1,5 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { getResumePlan } from "@/components/files/uploadResume";
-import { getApiErrorMessage } from "@/hooks/useApiError";
 import {
 	loadSessions,
 	removeSession,
@@ -13,6 +12,7 @@ import {
 } from "@/services/uploadService";
 import {
 	shouldRemovePersistedSession,
+	TERMINAL_UPLOAD_STATUS_SET,
 	type UploadAreaManagerTranslationFn,
 	type UploadTask,
 } from "./uploadAreaManagerShared";
@@ -25,7 +25,7 @@ import {
 export interface UploadTaskActionsContext extends UploadModeRunners {
 	abortFlagsRef: MutableRefObject<Map<string, boolean>>;
 	directAbortRef: MutableRefObject<Map<string, AbortController>>;
-	markTaskFailed: (taskId: string, message: string) => void;
+	markTaskFailed: (taskId: string, error: unknown) => void;
 	patchTask: (taskId: string, patch: Partial<UploadTask>) => void;
 	setTasks: Dispatch<SetStateAction<UploadTask[]>>;
 	setUploadPanelOpen: Dispatch<SetStateAction<boolean>>;
@@ -33,6 +33,11 @@ export interface UploadTaskActionsContext extends UploadModeRunners {
 	tasksRef: MutableRefObject<UploadTask[]>;
 	uploadRequestRef: UploadRequestRef;
 	workspace: Workspace;
+}
+
+interface ClearTerminalUploadTasksContext {
+	setTasks: Dispatch<SetStateAction<UploadTask[]>>;
+	tasksRef: MutableRefObject<UploadTask[]>;
 }
 
 function createSavedSession(
@@ -179,8 +184,7 @@ export async function runQueuedUploadTask(
 						mode: null,
 					});
 				} else {
-					const message = getApiErrorMessage(error);
-					markTaskFailed(taskId, message);
+					markTaskFailed(taskId, error);
 					return;
 				}
 			}
@@ -220,8 +224,7 @@ export async function runQueuedUploadTask(
 		}
 		await runDirectUpload(task);
 	} catch (error) {
-		const message = getApiErrorMessage(error);
-		markTaskFailed(taskId, message);
+		markTaskFailed(taskId, error);
 	}
 }
 
@@ -288,6 +291,32 @@ export async function cancelUploadTask(
 	patchTask(taskId, { status: "cancelled", error: null });
 }
 
+export async function clearTerminalUploadTasks(
+	taskIds: readonly string[],
+	{ setTasks, tasksRef }: ClearTerminalUploadTasksContext,
+) {
+	const requestedIds = new Set(taskIds);
+	const tasksToClear = tasksRef.current.filter(
+		(task) =>
+			requestedIds.has(task.id) && TERMINAL_UPLOAD_STATUS_SET.has(task.status),
+	);
+	if (tasksToClear.length === 0) return;
+
+	await Promise.allSettled(
+		tasksToClear.map(async (task) => {
+			if (task.status === "failed" && task.uploadId) {
+				await uploadService.cancelUpload(task.uploadId);
+			}
+		}),
+	);
+
+	for (const task of tasksToClear) {
+		if (task.uploadId) removeSession(task.uploadId);
+	}
+	const clearedIds = new Set(tasksToClear.map((task) => task.id));
+	setTasks((prev) => prev.filter((task) => !clearedIds.has(task.id)));
+}
+
 export async function retryUploadTask(
 	taskId: string,
 	{
@@ -335,6 +364,7 @@ export async function retryUploadTask(
 		uploadedBytes: 0,
 		speedBps: undefined,
 		error: null,
+		retryable: undefined,
 		uploadId: null,
 		completedChunks: 0,
 		totalChunks: 0,

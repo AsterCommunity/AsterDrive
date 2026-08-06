@@ -1,4 +1,4 @@
-import { type ReactNode, Suspense, useEffect } from "react";
+import { type ReactNode, Suspense, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -8,14 +8,21 @@ import { useSystemSetupStore } from "@/stores/systemSetupStore";
 import { Loading } from "./Loading";
 
 const STORAGE_SETUP_POLL_MS = 2_000;
+const FOREGROUND_REFRESH_DEDUPE_MS = 1_000;
 
-function useSetupStateRefresh(pollWhileStorageSetup = false) {
+function useSetupStateRefresh({
+	pollWhileStorageSetup = false,
+}: {
+	pollWhileStorageSetup?: boolean;
+} = {}) {
 	const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 	const mustChangePassword = useAuthStore(
 		(state) => state.user?.must_change_password ?? false,
 	);
 	const refresh = useSystemSetupStore((state) => state.refresh);
 	const setupState = useSystemSetupStore((state) => state.setupState);
+	const setupError = useSystemSetupStore((state) => state.error);
+	const lastForegroundRefreshAtRef = useRef<number | null>(null);
 
 	useEffect(() => {
 		if (!isAuthenticated || mustChangePassword) return;
@@ -46,12 +53,31 @@ function useSetupStateRefresh(pollWhileStorageSetup = false) {
 	]);
 
 	useEffect(() => {
-		if (!isAuthenticated || mustChangePassword) return;
+		if (
+			!isAuthenticated ||
+			mustChangePassword ||
+			(setupState === "ready" && setupError === null)
+		) {
+			return;
+		}
 
 		const refreshWhenVisible = () => {
-			if (document.visibilityState === "visible") {
-				void refresh().catch(() => undefined);
+			if (document.visibilityState !== "visible") {
+				// A later visible/focus pair is a new foreground transition even when
+				// the previous one happened inside the dedupe interval.
+				lastForegroundRefreshAtRef.current = null;
+				return;
 			}
+
+			const now = Date.now();
+			if (
+				lastForegroundRefreshAtRef.current !== null &&
+				now - lastForegroundRefreshAtRef.current < FOREGROUND_REFRESH_DEDUPE_MS
+			) {
+				return;
+			}
+			lastForegroundRefreshAtRef.current = now;
+			void refresh().catch(() => undefined);
 		};
 		window.addEventListener("focus", refreshWhenVisible);
 		document.addEventListener("visibilitychange", refreshWhenVisible);
@@ -59,7 +85,7 @@ function useSetupStateRefresh(pollWhileStorageSetup = false) {
 			window.removeEventListener("focus", refreshWhenVisible);
 			document.removeEventListener("visibilitychange", refreshWhenVisible);
 		};
-	}, [isAuthenticated, mustChangePassword, refresh]);
+	}, [isAuthenticated, mustChangePassword, refresh, setupError, setupState]);
 }
 
 function SetupStateUnavailable() {
@@ -146,7 +172,7 @@ export function ReadySystemSetupRoute() {
 }
 
 export function StorageSystemSetupRoute() {
-	useSetupStateRefresh(true);
+	useSetupStateRefresh({ pollWhileStorageSetup: true });
 	const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 	const isChecking = useAuthStore((state) => state.isChecking);
 	const mustChangePassword = useAuthStore(
@@ -179,7 +205,7 @@ export function StorageSystemSetupRoute() {
 }
 
 export function PendingSystemSetupRoute() {
-	useSetupStateRefresh(true);
+	useSetupStateRefresh({ pollWhileStorageSetup: true });
 	const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 	const isChecking = useAuthStore((state) => state.isChecking);
 	const mustChangePassword = useAuthStore(

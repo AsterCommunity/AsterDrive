@@ -13,6 +13,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::upload::kind::{
     mode_for_kind, resolve_upload_session_kind, scheduling_for_kind,
 };
+use crate::services::files::upload::lifecycle::run_upload_stage_operation;
 use crate::services::files::upload::provider_session::decrypt_provider_session;
 use crate::services::files::upload::responses::{
     ProviderResumableUploadResponse, RecoverableUploadPartResponse,
@@ -464,7 +465,12 @@ pub async fn presign_parts(
     part_numbers: Vec<i32>,
 ) -> Result<HashMap<i32, String>> {
     let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
-    presign_parts_impl(state, session, part_numbers).await
+    run_upload_stage_operation(
+        state,
+        &session,
+        presign_parts_impl(state, session.clone(), part_numbers),
+    )
+    .await
 }
 
 pub async fn presign_parts_for_team(
@@ -475,7 +481,12 @@ pub async fn presign_parts_for_team(
     part_numbers: Vec<i32>,
 ) -> Result<HashMap<i32, String>> {
     let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
-    presign_parts_impl(state, session, part_numbers).await
+    run_upload_stage_operation(
+        state,
+        &session,
+        presign_parts_impl(state, session.clone(), part_numbers),
+    )
+    .await
 }
 
 #[cfg(test)]

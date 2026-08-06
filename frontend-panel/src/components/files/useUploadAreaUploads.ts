@@ -9,6 +9,7 @@ import { createUploadModeRunners } from "./uploadAreaUploadModeRunners";
 import type { UploadRequestRef } from "./uploadAreaUploadRunnerShared";
 import {
 	cancelUploadTask,
+	clearTerminalUploadTasks,
 	retryUploadTask,
 	runQueuedUploadTask,
 } from "./uploadAreaUploadTaskActions";
@@ -18,7 +19,7 @@ interface UseUploadAreaUploadsOptions {
 	directAbortRef: MutableRefObject<Map<string, AbortController>>;
 	flushProgress: () => void;
 	markFolderForRefresh: (task: UploadTask) => void;
-	markTaskFailed: (taskId: string, message: string) => void;
+	markTaskFailed: (taskId: string, error: unknown) => void;
 	multipartInFlightRef: MutableRefObject<Map<string, number>>;
 	patchTask: (taskId: string, patch: Partial<UploadTask>) => void;
 	patchTaskThrottled: (taskId: string, patch: Partial<UploadTask>) => void;
@@ -139,6 +140,16 @@ export function useUploadAreaUploads({
 		],
 	);
 
+	const clearTasks = useCallback(
+		async (taskIds: readonly string[]) => {
+			await clearTerminalUploadTasks(taskIds, {
+				setTasks,
+				tasksRef,
+			});
+		},
+		[setTasks, tasksRef],
+	);
+
 	const retryTask = useCallback(
 		async (taskId: string) => {
 			if (retryingTaskIdsRef.current.has(taskId)) return;
@@ -178,6 +189,7 @@ export function useUploadAreaUploads({
 
 	return {
 		cancelTask,
+		clearTasks,
 		resumeCompletionTask: modeRunners.resumeCompletionTask,
 		retryTask,
 		runTask,

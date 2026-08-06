@@ -12,6 +12,53 @@ use aster_drive_storage::{
     ProviderResumableUploadStatus, StorageDriverExtensions, StorageErrorKind,
 };
 
+#[test]
+fn upload_stage_error_disposition_preserves_retryable_and_correctable_failures() {
+    let retryable = crate::errors::storage_driver_error(
+        StorageErrorKind::Transient,
+        "temporary storage failure",
+    );
+    assert!(retryable.api_error_info().retryable);
+    assert_eq!(
+        upload_stage_error_disposition(&retryable),
+        UploadStageErrorDisposition::PreserveSession
+    );
+
+    for code in [
+        ApiErrorCode::UploadChunkNumberOutOfRange,
+        ApiErrorCode::UploadChunkTransportMismatch,
+        ApiErrorCode::UploadStatusConflict,
+        ApiErrorCode::UploadPartNumbersEmpty,
+        ApiErrorCode::UploadPartNumbersTooMany,
+        ApiErrorCode::UploadPartNumberOutOfRange,
+    ] {
+        let error = crate::errors::validation_error_with_code(code, "correctable request");
+        assert_eq!(
+            upload_stage_error_disposition(&error),
+            UploadStageErrorDisposition::PreserveSession,
+            "{code:?} should preserve the session"
+        );
+    }
+}
+
+#[test]
+fn upload_stage_error_disposition_terminates_non_retryable_session_failures() {
+    for code in [
+        ApiErrorCode::UploadChunkSizeMismatch,
+        ApiErrorCode::UploadChunkTooLarge,
+        ApiErrorCode::UploadChunkSessionInvalid,
+        ApiErrorCode::UploadSessionCorrupted,
+    ] {
+        let error = crate::errors::chunk_upload_error_with_code(code, "terminal upload failure");
+        assert!(!error.api_error_info().retryable);
+        assert_eq!(
+            upload_stage_error_disposition(&error),
+            UploadStageErrorDisposition::TerminateSession,
+            "{code:?} should terminate the session"
+        );
+    }
+}
+
 #[derive(Clone, Copy)]
 enum MockResult {
     Ok,
