@@ -1,4 +1,5 @@
 import { config } from "@/config/app";
+import { logger } from "@/lib/logger";
 import { getUploadFrontendClientId } from "@/lib/uploadClientId";
 import {
 	buildWorkspacePath,
@@ -69,6 +70,20 @@ type ProviderResumableUploadOptions = {
 
 function isRetryableHttpStatus(status: number): boolean {
 	return status === 408 || status === 429 || status >= 500;
+}
+
+function buildPresignedUploadHeaders(
+	providerHeaders: Record<string, string> | undefined,
+): Record<string, string> {
+	// XHR appends repeated header values. Merge case-insensitively first so a
+	// provider-signed Content-Type is sent once and still matches its signature.
+	const headers = new Map<string, [name: string, value: string]>([
+		["content-type", ["Content-Type", "application/octet-stream"]],
+	]);
+	for (const [name, value] of Object.entries(providerHeaders ?? {})) {
+		headers.set(name.toLowerCase(), [name, value]);
+	}
+	return Object.fromEntries(headers.values());
 }
 
 function parseApiMessage(responseText: string): string | null {
@@ -303,10 +318,24 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 				const xhr = new XMLHttpRequest();
 				const blockId = new URL(presignedUrl).searchParams.get("blockid");
 				const requireEtag = options.requireEtag ?? true;
+				const requestHeaders = buildPresignedUploadHeaders(options.headers);
+				const logFailure = (event: "http-error" | "network-error") => {
+					logger.debug("presigned upload failed", {
+						event,
+						method: "PUT",
+						url: presignedUrl,
+						requestHeaders,
+						bodySize: file.size,
+						status: xhr.status,
+						statusText: xhr.statusText,
+						responseUrl: xhr.responseURL,
+						responseHeaders: xhr.getAllResponseHeaders(),
+						responseText: xhr.responseText,
+					});
+				};
 				options.onCreateXhr?.(xhr);
 				xhr.open("PUT", presignedUrl);
-				xhr.setRequestHeader("Content-Type", "application/octet-stream");
-				for (const [name, value] of Object.entries(options.headers ?? {})) {
+				for (const [name, value] of Object.entries(requestHeaders)) {
 					xhr.setRequestHeader(name, value);
 				}
 
@@ -338,6 +367,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 						}
 						resolve(etag);
 					} else {
+						logFailure("http-error");
 						reject(
 							new UploadRequestError(
 								parseApiMessage(xhr.responseText) ??
@@ -350,12 +380,14 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 						);
 					}
 				};
-				xhr.onerror = () =>
+				xhr.onerror = () => {
+					logFailure("network-error");
 					reject(
 						new UploadRequestError("network error", {
 							retryable: true,
 						}),
 					);
+				};
 				xhr.onabort = () =>
 					reject(
 						new UploadRequestError("upload aborted", {

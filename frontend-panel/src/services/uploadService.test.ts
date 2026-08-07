@@ -16,6 +16,7 @@ const mockState = vi.hoisted(() => {
 		clientPost: vi.fn(),
 		delete: vi.fn(),
 		get: vi.fn(),
+		loggerDebug: vi.fn(),
 		post: vi.fn(),
 		uploadFrontendClientId: "11111111-1111-4111-8111-111111111111",
 	};
@@ -37,6 +38,12 @@ vi.mock("@/lib/uploadClientId", () => ({
 	getUploadFrontendClientId: () => mockState.uploadFrontendClientId,
 }));
 
+vi.mock("@/lib/logger", () => ({
+	logger: {
+		debug: mockState.loggerDebug,
+	},
+}));
+
 function setTestCookie(cookie: string) {
 	// biome-ignore lint/suspicious/noDocumentCookie: jsdom tests need direct cookie mutation.
 	document.cookie = cookie;
@@ -52,8 +59,11 @@ class MockXMLHttpRequest {
 	onload?: () => void;
 	responseHeaders: Record<string, string> = {};
 	responseText = "";
+	responseURL = "";
+	requestHeaderCalls: Array<[name: string, value: string]> = [];
 	sentBody?: Blob | File;
 	status = 0;
+	statusText = "";
 	upload: {
 		onprogress?: (event: {
 			lengthComputable: boolean;
@@ -74,6 +84,7 @@ class MockXMLHttpRequest {
 	}
 
 	setRequestHeader(name: string, value: string) {
+		this.requestHeaderCalls.push([name, value]);
 		this.headers[name] = value;
 	}
 
@@ -88,6 +99,12 @@ class MockXMLHttpRequest {
 	getResponseHeader(name: string) {
 		return this.responseHeaders[name] ?? null;
 	}
+
+	getAllResponseHeaders() {
+		return Object.entries(this.responseHeaders)
+			.map(([name, value]) => `${name}: ${value}`)
+			.join("\r\n");
+	}
 }
 
 describe("uploadService", () => {
@@ -95,6 +112,7 @@ describe("uploadService", () => {
 		mockState.clientPost.mockReset();
 		mockState.delete.mockReset();
 		mockState.get.mockReset();
+		mockState.loggerDebug.mockReset();
 		mockState.post.mockReset();
 		MockXMLHttpRequest.instances = [];
 		Object.defineProperty(window, "XMLHttpRequest", {
@@ -631,6 +649,30 @@ describe("uploadService", () => {
 		expect(xhr.headers["x-ms-blob-type"]).toBe("BlockBlob");
 	});
 
+	it("sets a provider-signed Content-Type exactly once", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+
+		const promise = uploadService.presignedUpload(
+			"https://oss.example/upload",
+			new Blob(["hello"]),
+			undefined,
+			{
+				requireEtag: false,
+				headers: { "content-type": "application/octet-stream" },
+			},
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+		xhr.status = 200;
+		xhr.onload?.();
+
+		await expect(promise).resolves.toBe("");
+		expect(
+			xhr.requestHeaderCalls.filter(
+				([name]) => name.toLowerCase() === "content-type",
+			),
+		).toEqual([["content-type", "application/octet-stream"]]);
+	});
+
 	it("does not read ETag when the provider does not require it", async () => {
 		const { uploadService } = await import("@/services/uploadService");
 		const promise = uploadService.presignedUpload(
@@ -697,9 +739,30 @@ describe("uploadService", () => {
 		);
 		const xhr = MockXMLHttpRequest.instances[0];
 		xhr.status = 409;
+		xhr.statusText = "Conflict";
+		xhr.responseURL = "https://blob.example/upload";
+		xhr.responseHeaders = { "x-oss-request-id": "request-id" };
+		xhr.responseText = "<Error><Code>SignatureDoesNotMatch</Code></Error>";
 		xhr.onload?.();
 
 		await expect(promise).rejects.toThrow("Presigned upload failed: 409");
+		expect(mockState.loggerDebug).toHaveBeenCalledWith(
+			"presigned upload failed",
+			{
+				event: "http-error",
+				method: "PUT",
+				url: "https://blob.example/upload",
+				requestHeaders: {
+					"Content-Type": "application/octet-stream",
+				},
+				bodySize: 5,
+				status: 409,
+				statusText: "Conflict",
+				responseUrl: "https://blob.example/upload",
+				responseHeaders: "x-oss-request-id: request-id",
+				responseText: "<Error><Code>SignatureDoesNotMatch</Code></Error>",
+			},
+		);
 	});
 
 	it("uses Azure block IDs as presigned multipart completion markers", async () => {

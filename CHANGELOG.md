@@ -21,6 +21,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - **存储 connector 平台化** — plugin-ready registry、版本化 typed config、descriptor / action / capability contract、独立 credential schema、connector-owned 本地化
 - **存储策略与凭据迁移** — current policy schema 收敛为 `connector_id` + `storage_config`，静态凭据和 OAuth 凭据迁入加密的 `storage_policy_connector_credentials`
 - **上传与对象存储增强** — OneDrive 服务端 relay resumable、并发 chunk claim、S3 SigV4 签名区域配置、Tencent COS 原生 Q-Sign
+- **Alibaba Cloud OSS 原生支持** — OSS V4 签名、公共/服务端 endpoint、CNAME、presigned PUT、multipart 和完整 connector 接入
 - **初始化与配置收口** — 三态 setup、首个存储策略显式创建、数据库 / Redis 结构化凭据、Redis 故障不再静默降级
 - **内部所有权收口** — Drive 保留 model、migration、storage、metrics 四个领域 crates；通用 HTTP body limit 与密文封装复用 AsterForge
 
@@ -78,6 +79,11 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
   - 并发上传中的 chunk 返回可重试 `202 upload.chunk_pending`，独立 90 秒 fragment timeout 防止 claim 长期占用
 - **S3 SigV4 签名区域** — S3-compatible 策略新增 `s3_region`，默认 `auto`；连接测试与运行时使用同一签名区域，并在模型、descriptor、管理 UI 和 API 层校验。
 - **Tencent COS 原生 AWS SDK auth replacement** — 在 AWS SDK auth scheme 插槽中接入 COS Q-Sign，统一普通 GET / PUT / COPY、presigned GET / PUT / UploadPart 和 multipart lifecycle；签名前规范化 `x-amz-*` header、checksum 与 query，并修复非 ASCII / 保留字符 object key 的 canonical path 双重编码。
+- **Alibaba Cloud OSS connector**
+  - 新增 `asterdrive.storage.alibaba_oss` connector、独立配置/凭据 schema、descriptor、本地化资源和连接测试入口，并同步中英文管理/开发文档与 E2E 验证
+  - 后端 I/O 支持可选服务端 endpoint，浏览器 presigned URL 固定使用公共 endpoint；支持标准 OSS endpoint 与 CNAME addressing
+  - 复用 AWS S3 operation/runtime，同时通过 OSS 原生 `OSS4-HMAC-SHA256` auth scheme 实现普通请求、presigned GET/PUT、UploadPart 和 multipart lifecycle
+- **上传生命周期测试覆盖** — 补齐 terminal cleanup race、retry eligibility、lock handoff、multipart completion retry、bulk retry、auto-clear 和原始错误传播等边界测试。
 - **WebDAV 0.2 能力**
   - 支持单 Range / 多 Range GET、RFC 4331 `quota-used-bytes` / `quota-available-bytes`、目录 keyset pagination 和 capability snapshot method gating
   - COPY / MOVE / DELETE 对文件数、目录数、深度和 frontier 设置资源预算；超限返回 `507` 与稳定错误码 `operation.resource_limit_exceeded`
@@ -99,6 +105,9 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - **WebDAV mutation 原子性** — DELETE / MOVE / COPY 将资源变更、锁清理和锁路径 rebind 纳入同一 writer transaction；递归 DELETE 遇到锁冲突或后端失败时整体回滚并返回请求级 `423` / `500`，不再提交部分结果；UNLOCK / force unlock 同样保证锁行与关联状态一致回滚。
 - **WebDAV 协议所有权** — 协议解析、XML、HTTP conditional / Range、锁 grammar 和 canonical response 迁移到 `aster_forge_webdav` / `aster_forge_xml`；Drive 保留 workspace、权限、持久化、存储、配额、审计和集成层。
 - **上传 session contract** — Chunk PUT、Progress、Complete、Cancel / Cleanup 只接受持久化的显式 `UploadSessionKind`，并继续校验 multipart、temp key 和 provider session metadata 的组合不变量；OffsetStaging、StreamStaging、relay、presigned 与 resumable 主路径保持 connector-owned transport 协商。
+- **上传失败与重试编排** — 非 retryable 的 upload-stage failure 会终止并清理 session；可修正、认证、数据库和可重试错误保留 session 供恢复，前端按 retryability 分离单项/批量重试与 terminal task 清理，并串行化 cleanup/retry 操作。
+- **Presigned PUT 完成契约** — OSS 与 Tencent COS 的单对象 presigned PUT 由服务端校验对象 metadata 和 size，不再要求浏览器读取 ETag；multipart part 仍必须保留 ETag。`presigned_put_requires_etag` 重命名为 `presigned_single_put_requires_etag` 以表达边界。
+- **Setup 状态刷新** — 系统进入 `ready` 后停止前台轮询，仅在 `pending` 或已有错误时保留恢复性刷新，并对前台 refresh 做短窗口去重。
 - **Workspace crate 拆分**
   - `aster_drive_model`：共享类型与 SeaORM entities
   - `aster_drive_migration`：数据库 migrations
@@ -128,6 +137,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - **跨实例通知可靠性** — 配置 / storage topology / policy group 的 post-commit 通知采用有界重试；通知失败不再回滚已经提交的权威写入，Redis 恢复后触发全量 reconcile。
 - **反向隧道 owner 生命周期** — stream 断开后及时释放 owner，数据库 I/O 取消期间保留可重试状态，并以 fencing token 阻止旧 Primary 恢复后重新夺回已失效 owner 身份。
 - **首次存储并发创建** — setup lock 内重新校验状态，两个 Primary 同时创建首个默认策略时只有一个提交成功，另一个返回稳定初始化冲突错误。
+- **上传临时对象校验** — multipart 完成阶段明确报告缺失的临时对象，避免把 provider 端对象不存在误报为无关的完成失败。
 
 ### Security
 
@@ -171,6 +181,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - `single` 仍是默认 deployment profile；启用 `cluster` 前需要准备共享数据库、Redis、共享对象存储和 RWX avatar 存储，并通过 `aster_drive doctor` 检查拓扑。
 - 新安装实例创建管理员后会停留在 `needs_storage`，创建首个默认存储策略后才进入 `ready`；已有默认策略的升级实例不需要重复初始化。
 - Forge HTTP / secret envelope 接入不改变数据库 schema、公开 API 或现有密文格式，不需要额外 migration。
+- 自上次 `CHANGELOG.md` 更新（`24956a06`, 2026-08-06 18:56:42 +08:00）以来，新增 3 个提交，涉及 71 个文件，净 diff 为 4607 行新增、268 行删除；其中包含 #482 上传生命周期修复、上传边界测试和 #483 OSS / ETag 变更。
 
 ### Statistics
 
