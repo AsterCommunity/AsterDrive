@@ -1263,9 +1263,17 @@ async fn collect_download_body(
     }
 }
 
-async fn put_presigned_bytes(url: &str, data: Vec<u8>) -> reqwest::Response {
-    reqwest::Client::new()
-        .put(url)
+async fn put_presigned_bytes(
+    request: &aster_drive_storage::PresignedUploadRequest,
+    data: Vec<u8>,
+) -> reqwest::Response {
+    let client = reqwest::Client::new();
+    request
+        .headers
+        .iter()
+        .fold(client.put(&request.url), |builder, (name, value)| {
+            builder.header(name.as_str(), value.as_str())
+        })
         .body(data)
         .send()
         .await
@@ -1603,8 +1611,9 @@ async fn setup_browser_presigned_cors_fixture(
         provider_state,
         presigned_path: path_and_query_from_url(
             &init
-                .presigned_url
-                .expect("presigned mode should return presigned_url"),
+                .presigned_request
+                .expect("presigned mode should return presigned_request")
+                .url,
         ),
     }
 }
@@ -5566,11 +5575,11 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
     let upload_id = init
         .upload_id
         .expect("presigned mode should return upload id");
-    let presigned_url = init
-        .presigned_url
+    let presigned_request = init
+        .presigned_request
         .clone()
-        .expect("presigned mode should return presigned_url");
-    let response = put_presigned_bytes(&presigned_url, body.clone()).await;
+        .expect("presigned mode should return presigned_request");
+    let response = put_presigned_bytes(&presigned_request, body.clone()).await;
     assert_eq!(response.status(), reqwest::StatusCode::OK);
     assert!(
         response.headers().get(reqwest::header::ETAG).is_some(),
@@ -5756,10 +5765,10 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
     let upload_id = init
         .upload_id
         .expect("presigned mode should return upload id");
-    let presigned_url = init
-        .presigned_url
+    let presigned_request = init
+        .presigned_request
         .clone()
-        .expect("presigned mode should return presigned_url");
+        .expect("presigned mode should return presigned_request");
     let session = upload_session_repo::find_by_id(consumer_state.writer_db(), &upload_id)
         .await
         .expect("upload session should exist");
@@ -5803,7 +5812,7 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
         "force delete should remove the remote upload session before the old URL expires"
     );
 
-    let response = put_presigned_bytes(&presigned_url, body.clone()).await;
+    let response = put_presigned_bytes(&presigned_request, body.clone()).await;
     assert_eq!(
         response.status(),
         reqwest::StatusCode::OK,
@@ -6083,10 +6092,10 @@ async fn test_remote_presigned_upload_browser_cors_follows_bound_master_origin()
     )
     .await
     .expect("remote presigned upload should initialize");
-    let presigned_url = init
-        .presigned_url
-        .expect("presigned mode should return presigned_url");
-    let presigned_path = path_and_query_from_url(&presigned_url);
+    let presigned_request = init
+        .presigned_request
+        .expect("presigned mode should return presigned_request");
+    let presigned_path = path_and_query_from_url(&presigned_request.url);
 
     let follower_app = test::init_service(
         App::new()
@@ -6690,10 +6699,25 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
             .is_empty(),
         "oversized remote relay chunk must release the claimed part row"
     );
-    let oversized_progress = upload::get_progress(&consumer_state, &oversized_upload_id, user.id)
-        .await
-        .expect("remote relay oversized progress should be queryable");
-    assert!(oversized_progress.chunks_on_disk.is_empty());
+    let lookup_error =
+        upload_session_repo::find_by_id(consumer_state.writer_db(), &oversized_upload_id)
+            .await
+            .expect_err("oversized remote relay chunk must remove its upload session");
+    assert!(
+        matches!(
+            lookup_error,
+            aster_drive::errors::AsterError::UploadSessionNotFound(_)
+        ),
+        "oversized remote relay chunk returned the wrong lookup error: {lookup_error:?}"
+    );
+    assert!(
+        upload::list_recoverable_sessions(&consumer_state, user.id, None)
+            .await
+            .expect("recoverable remote relay sessions should be queryable")
+            .iter()
+            .all(|session| session.upload_id != oversized_upload_id),
+        "oversized remote relay chunk must not remain recoverable"
+    );
 
     let first_chunk_end = std::cmp::min(chunk_size, body.len());
     let first_chunk = body[..first_chunk_end].to_vec();
@@ -6899,8 +6923,9 @@ async fn test_remote_presigned_upload_browser_cors_accepts_master_url_with_path_
     .expect("remote presigned upload should initialize");
     let presigned_path = path_and_query_from_url(
         &init
-            .presigned_url
-            .expect("presigned mode should return presigned_url"),
+            .presigned_request
+            .expect("presigned mode should return presigned_request")
+            .url,
     );
 
     let follower_app = test::init_service(
@@ -7023,8 +7048,9 @@ async fn test_remote_presigned_upload_browser_cors_rejects_disabled_binding() {
     .expect("remote presigned upload should initialize");
     let presigned_path = path_and_query_from_url(
         &init
-            .presigned_url
-            .expect("presigned mode should return presigned_url"),
+            .presigned_request
+            .expect("presigned mode should return presigned_request")
+            .url,
     );
 
     let follower_state = provider_state.follower_view();

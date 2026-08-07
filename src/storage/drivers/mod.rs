@@ -2,6 +2,7 @@
 //!
 //! 存放具体存储后端驱动，不参与 trait 定义。
 
+pub mod alibaba_oss;
 pub mod azure_blob;
 pub mod huawei_obs;
 pub mod local;

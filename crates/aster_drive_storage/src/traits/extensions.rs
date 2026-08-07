@@ -7,12 +7,11 @@
 //! OAuth、连接测试、策略动作或前端可见能力声明，应该放到 connector/descriptor。
 
 use crate::error::Result;
-use crate::traits::driver::{PresignedDownloadOptions, StoragePathVisitor};
+use crate::traits::driver::{PresignedDownloadOptions, PresignedUploadRequest, StoragePathVisitor};
 use aster_drive_model::types::{MediaMetadataKind, MediaMetadataPayload};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::io::AsyncRead;
@@ -164,24 +163,22 @@ pub trait PresignedStorageDriver: Send + Sync {
         options: PresignedDownloadOptions,
     ) -> Result<Option<String>>;
 
-    /// 生成 presigned PUT URL 供客户端直传
-    async fn presigned_put_url(&self, path: &str, expires: Duration) -> Result<Option<String>>;
-
-    /// Extra request headers required by a presigned PUT URL.
+    /// 生成供客户端直传的完整 presigned PUT 请求。
     ///
-    /// S3-compatible providers usually require none. Azure Blob single PUT
-    /// requires `x-ms-blob-type: BlockBlob`; the upload init response forwards
-    /// these headers to browser clients.
-    fn presigned_put_headers(&self) -> BTreeMap<String, String> {
-        BTreeMap::new()
-    }
+    /// URL 和请求头必须由同一个 provider signer 一起产生；调用方不得
+    /// 自行补充 provider-specific headers。
+    async fn presigned_put_request(
+        &self,
+        path: &str,
+        expires: Duration,
+    ) -> Result<Option<PresignedUploadRequest>>;
 
     /// Whether browser clients must receive an ETag from a single presigned PUT.
     ///
-    /// S3-compatible providers expose ETag by default when CORS is configured
-    /// correctly. Azure Blob does not reliably provide a usable ETag to the
-    /// browser in this flow, so Azure overrides this to false.
-    fn presigned_put_requires_etag(&self) -> bool {
+    /// Providers default to requiring ETag. A driver may opt out when the
+    /// single-object completion path verifies the final object server-side;
+    /// multipart part ETags remain a separate protocol requirement.
+    fn presigned_single_put_requires_etag(&self) -> bool {
         true
     }
 }

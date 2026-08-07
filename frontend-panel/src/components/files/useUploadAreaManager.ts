@@ -13,6 +13,7 @@ import {
 	useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { getApiErrorMessage } from "@/hooks/useApiError";
 import { formatBytes } from "@/lib/format";
 import { decideUploadQueueSettledRefresh } from "@/lib/storageMutationCoordinator";
 import {
@@ -41,6 +42,7 @@ import {
 	CONCURRENCY_ACTIVE_STATUSES,
 	createQueuedUploadTask,
 	PROGRESS_FLUSH_INTERVAL,
+	TERMINAL_UPLOAD_STATUS_SET,
 	type UploadStatus,
 	type UploadTask,
 } from "./uploadAreaManagerShared";
@@ -136,10 +138,13 @@ export function useUploadAreaManager({
 	const patchTask = useCallback(
 		(taskId: string, patch: Partial<UploadTask>) => {
 			const terminalStatuses: UploadStatus[] = ["completed", "cancelled"];
-			const normalizedPatch =
-				patch.status && patch.status !== "uploading"
-					? { ...patch, speedBps: undefined }
-					: patch;
+			const normalizedPatch = patch.status
+				? {
+						...patch,
+						...(patch.status === "uploading" ? {} : { speedBps: undefined }),
+						...(patch.status === "failed" ? {} : { retryable: undefined }),
+					}
+				: patch;
 			if (patch.status && patch.status !== "uploading") {
 				progressBufferRef.current.delete(taskId);
 			}
@@ -239,7 +244,7 @@ export function useUploadAreaManager({
 		}
 	}, [refresh, refreshUser, storageEventStreamEnabled, tasks]);
 
-	const clearCompletedTasks = useCallback(() => {
+	const removeCompletedTasks = useCallback(() => {
 		setTasks((prev) => prev.filter((task) => task.status !== "completed"));
 	}, []);
 
@@ -262,10 +267,10 @@ export function useUploadAreaManager({
 				autoClearCompleted: value,
 			}));
 			if (value) {
-				clearCompletedTasks();
+				removeCompletedTasks();
 			}
 		},
-		[clearCompletedTasks],
+		[removeCompletedTasks],
 	);
 
 	const attachFileToTask = useCallback(
@@ -330,17 +335,24 @@ export function useUploadAreaManager({
 	);
 
 	const markTaskFailed = useCallback(
-		(taskId: string, message: string) => {
+		(taskId: string, error: unknown) => {
+			const retryable = !(
+				typeof error === "object" &&
+				error !== null &&
+				"retryable" in error &&
+				(error as { retryable?: boolean }).retryable === false
+			);
 			patchTask(taskId, {
 				status: "failed",
-				error: message,
+				error: getApiErrorMessage(error),
+				retryable,
 				speedBps: undefined,
 			});
 		},
 		[patchTask],
 	);
 
-	const { cancelTask, resumeCompletionTask, retryTask, runTask } =
+	const { cancelTask, clearTasks, resumeCompletionTask, retryTask, runTask } =
 		useUploadAreaUploads({
 			abortFlagsRef,
 			directAbortRef,
@@ -385,12 +397,26 @@ export function useUploadAreaManager({
 
 	const retryFailedTasks = useCallback(() => {
 		const failedTaskIds = tasksRef.current.flatMap((task) =>
-			task.status === "failed" ? [task.id] : [],
+			task.status === "failed" && task.retryable !== false ? [task.id] : [],
 		);
 		for (const taskId of failedTaskIds) {
 			void retryTask(taskId);
 		}
 	}, [retryTask]);
+
+	const clearFinishedTasks = useCallback(() => {
+		const terminalTaskIds = tasksRef.current.flatMap((task) =>
+			TERMINAL_UPLOAD_STATUS_SET.has(task.status) ? [task.id] : [],
+		);
+		void clearTasks(terminalTaskIds);
+	}, [clearTasks]);
+
+	const clearTask = useCallback(
+		(taskId: string) => {
+			void clearTasks([taskId]);
+		},
+		[clearTasks],
+	);
 
 	const addFilesWithPath = useCallback(
 		(files: FileWithPath[]) => {
@@ -498,6 +524,7 @@ export function useUploadAreaManager({
 	} = summarizeUploadTasks(tasks);
 	const uploadTasks = buildUploadTaskViews({
 		cancelTask,
+		clearTask,
 		requestResumeFilePicker,
 		retryTask,
 		t,
@@ -506,7 +533,7 @@ export function useUploadAreaManager({
 
 	return {
 		activeCount,
-		clearCompletedTasks,
+		clearFinishedTasks,
 		failedCount,
 		hasUploadActivity,
 		handleDragEnter,

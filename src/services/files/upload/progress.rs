@@ -13,6 +13,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::upload::kind::{
     mode_for_kind, resolve_upload_session_kind, scheduling_for_kind,
 };
+use crate::services::files::upload::lifecycle::run_upload_stage_operation;
 use crate::services::files::upload::provider_session::decrypt_provider_session;
 use crate::services::files::upload::responses::{
     ProviderResumableUploadResponse, RecoverableUploadPartResponse,
@@ -26,6 +27,7 @@ use crate::services::files::upload::staging;
 use crate::services::workspace::storage;
 use aster_drive_model::entities::upload_session;
 use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
+use aster_drive_storage::PresignedUploadRequest;
 use aster_drive_storage::StorageErrorKind;
 use futures::{StreamExt, stream};
 
@@ -373,7 +375,7 @@ async fn presign_parts_impl(
     state: &PrimaryAppState,
     session: upload_session::Model,
     part_numbers: Vec<i32>,
-) -> Result<HashMap<i32, String>> {
+) -> Result<HashMap<i32, PresignedUploadRequest>> {
     tracing::debug!(
         upload_id = %session.id,
         status = ?session.status,
@@ -410,19 +412,19 @@ async fn presign_parts_impl(
     let multipart = state.driver_registry().get_multipart_driver(&policy)?;
 
     let expires = std::time::Duration::from_secs(HOUR_SECS);
-    let mut urls = HashMap::new();
+    let mut requests = HashMap::new();
     for part_num in part_numbers {
-        let url = multipart
-            .presigned_upload_part_url(temp_key, multipart_id, part_num, expires)
+        let request = multipart
+            .presigned_upload_part_request(temp_key, multipart_id, part_num, expires)
             .await?;
-        urls.insert(part_num, url);
+        requests.insert(part_num, request);
     }
     tracing::debug!(
         upload_id = %session.id,
-        url_count = urls.len(),
+        request_count = requests.len(),
         "presigned multipart upload parts"
     );
-    Ok(urls)
+    Ok(requests)
 }
 
 fn validate_presign_part_numbers(
@@ -462,9 +464,14 @@ pub async fn presign_parts(
     upload_id: &str,
     user_id: i64,
     part_numbers: Vec<i32>,
-) -> Result<HashMap<i32, String>> {
+) -> Result<HashMap<i32, PresignedUploadRequest>> {
     let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
-    presign_parts_impl(state, session, part_numbers).await
+    run_upload_stage_operation(
+        state,
+        &session,
+        presign_parts_impl(state, session.clone(), part_numbers),
+    )
+    .await
 }
 
 pub async fn presign_parts_for_team(
@@ -473,9 +480,14 @@ pub async fn presign_parts_for_team(
     upload_id: &str,
     user_id: i64,
     part_numbers: Vec<i32>,
-) -> Result<HashMap<i32, String>> {
+) -> Result<HashMap<i32, PresignedUploadRequest>> {
     let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
-    presign_parts_impl(state, session, part_numbers).await
+    run_upload_stage_operation(
+        state,
+        &session,
+        presign_parts_impl(state, session.clone(), part_numbers),
+    )
+    .await
 }
 
 #[cfg(test)]

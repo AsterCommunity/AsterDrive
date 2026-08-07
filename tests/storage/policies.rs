@@ -301,7 +301,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     let body: Value = test::read_body_json(resp).await;
     let descriptors = body["data"].as_array().expect("descriptor list");
 
-    assert_eq!(descriptors.len(), 7);
+    assert_eq!(descriptors.len(), 9);
 
     let descriptor = |connector_id: &str| {
         descriptors
@@ -415,6 +415,47 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     );
     assert_eq!(s3["capabilities"]["storage_native_thumbnail"], false);
 
+    let alibaba_oss = descriptor("asterdrive.storage.alibaba_oss");
+    assert_eq!(alibaba_oss["credential_mode"], "static_secret");
+    assert_eq!(alibaba_oss["ui"]["label_key"], "driver_type_alibaba_oss");
+    assert_eq!(
+        alibaba_oss["ui"]["icon_src"],
+        "/static/storage/aliyun-oss.svg"
+    );
+    assert_eq!(
+        alibaba_oss["upload_workflows"]["object_multipart_upload"],
+        true
+    );
+    assert_eq!(
+        alibaba_oss["upload_workflows"]["object_multipart_upload_capabilities"]["presigned_part_upload"],
+        true
+    );
+    assert_eq!(
+        alibaba_oss["upload_workflows"]["object_multipart_upload_capabilities"]["presigned_part_etag_required"],
+        true
+    );
+    for field in [
+        "endpoint",
+        "oss_server_side_endpoint",
+        "oss_region",
+        "bucket",
+        "base_path",
+        "oss_use_cname",
+        "object_storage_upload_strategy",
+        "object_storage_download_strategy",
+        "aliyun_oss_access_key_id",
+        "aliyun_oss_access_key_secret",
+    ] {
+        assert!(
+            alibaba_oss["fields"]
+                .as_array()
+                .expect("OSS fields")
+                .iter()
+                .any(|candidate| candidate["name"] == field),
+            "missing OSS descriptor field {field}"
+        );
+    }
+
     let azure_blob = descriptor("asterdrive.storage.azure_blob");
     assert_eq!(
         azure_blob["upload_workflows"]["object_multipart_upload"],
@@ -504,9 +545,9 @@ async fn test_storage_driver_catalog_contexts_are_backend_authoritative_in_singl
     let create = list_storage_driver_descriptors_via_admin(&app, &token, Some("create")).await;
     let setup = list_storage_driver_descriptors_via_admin(&app, &token, Some("setup")).await;
 
-    assert_eq!(manage.len(), 7);
-    assert_eq!(create.len(), 7);
-    assert_eq!(setup.len(), 7);
+    assert_eq!(manage.len(), 9);
+    assert_eq!(create.len(), 9);
+    assert_eq!(setup.len(), 9);
     assert!(
         setup
             .iter()
@@ -532,13 +573,13 @@ async fn test_cluster_storage_driver_catalog_hides_local_only_from_new_policy_fl
     let create = list_storage_driver_descriptors_via_admin(&app, &token, Some("create")).await;
     let setup = list_storage_driver_descriptors_via_admin(&app, &token, Some("setup")).await;
 
-    assert_eq!(manage.len(), 7);
+    assert_eq!(manage.len(), 9);
     assert!(
         manage
             .iter()
             .any(|item| item["connector_id"] == "asterdrive.storage.local")
     );
-    assert_eq!(create.len(), 6);
+    assert_eq!(create.len(), 8);
     assert!(
         !create
             .iter()
@@ -549,7 +590,7 @@ async fn test_cluster_storage_driver_catalog_hides_local_only_from_new_policy_fl
             .iter()
             .any(|item| item["connector_id"] == "asterdrive.storage.onedrive")
     );
-    assert_eq!(setup.len(), 6);
+    assert_eq!(setup.len(), 8);
     assert!(
         !setup
             .iter()
@@ -610,7 +651,7 @@ async fn test_storage_driver_localizations_are_admin_only_and_cacheable() {
     let resources = body["data"]["resources"]
         .as_array()
         .expect("connector localization resources");
-    assert_eq!(resources.len(), 7);
+    assert_eq!(resources.len(), 9);
     let local = resources
         .iter()
         .find(|resource| resource["connector_id"] == "asterdrive.storage.local")
@@ -618,6 +659,12 @@ async fn test_storage_driver_localizations_are_admin_only_and_cacheable() {
     assert_eq!(local["namespace"], "asterdrive.storage.local");
     assert_eq!(local["resolved_locale"], "zh");
     assert_eq!(local["messages"]["driver_type_local"], "本机");
+    let oss = resources
+        .iter()
+        .find(|resource| resource["connector_id"] == "asterdrive.storage.alibaba_oss")
+        .expect("Alibaba OSS connector localization");
+    assert_eq!(oss["resolved_locale"], "zh");
+    assert_eq!(oss["messages"]["driver_type_alibaba_oss"], "阿里云 OSS");
 
     let req = test::TestRequest::get()
         .uri(uri)

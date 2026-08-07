@@ -560,6 +560,8 @@ export type ChunkUploadResponse = components["schemas"]["ChunkUploadResponse"];
 export type CompletedPart = components["schemas"]["CompletedPartReq"];
 export type FileQuery = components["schemas"]["FileQuery"];
 export type InitUploadResponse = components["schemas"]["InitUploadResponse"];
+export type PresignedUploadRequest =
+	components["schemas"]["PresignedUploadRequest"];
 export type ProviderResumableUploadResponse =
 	components["schemas"]["ProviderResumableUploadResponse"];
 export type RecoverableUploadPart =

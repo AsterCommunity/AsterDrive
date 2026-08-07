@@ -515,13 +515,13 @@ mod tests {
             Ok("upload-1".to_string())
         }
 
-        async fn presigned_upload_part_url(
+        async fn presigned_upload_part_request(
             &self,
             _path: &str,
             _upload_id: &str,
             _part_number: i32,
             _expires: Duration,
-        ) -> StorageResult<String> {
+        ) -> StorageResult<aster_drive_storage::PresignedUploadRequest> {
             panic!("not used")
         }
 
@@ -993,11 +993,12 @@ mod tests {
             .extensions()
             .presigned
             .expect("remote driver should support presigned URLs")
-            .presigned_put_url("files/object.bin", Duration::from_secs(60))
+            .presigned_put_request("files/object.bin", Duration::from_secs(60))
             .await
             .expect("presigned URL should build")
             .expect("remote driver should return URL");
-        let parsed = reqwest::Url::parse(&presigned).expect("presigned URL should parse");
+        let parsed = reqwest::Url::parse(&presigned.url).expect("presigned URL should parse");
+        assert!(presigned.headers.is_empty());
 
         assert_eq!(
             parsed.path(),
@@ -1007,7 +1008,8 @@ mod tests {
             parsed
                 .query_pairs()
                 .any(|(key, value)| key == "aster_access_key" && value == "follower-ak"),
-            "expected follower access key in '{presigned}'"
+            "expected follower access key in '{}'",
+            presigned.url
         );
     }
 

@@ -1,6 +1,5 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { getResumePlan } from "@/components/files/uploadResume";
-import { getApiErrorMessage } from "@/hooks/useApiError";
 import {
 	loadSessions,
 	removeSession,
@@ -13,6 +12,7 @@ import {
 } from "@/services/uploadService";
 import {
 	shouldRemovePersistedSession,
+	TERMINAL_UPLOAD_STATUS_SET,
 	type UploadAreaManagerTranslationFn,
 	type UploadTask,
 } from "./uploadAreaManagerShared";
@@ -22,17 +22,37 @@ import {
 	type UploadRequestRef,
 } from "./uploadAreaUploadRunnerShared";
 
+export type UploadTaskOperation = "clear" | "retry";
+export type UploadTaskOperationLocks = Map<string, UploadTaskOperation>;
+
+function tryAcquireTaskOperation(
+	locks: UploadTaskOperationLocks,
+	taskId: string,
+	operation: UploadTaskOperation,
+) {
+	if (locks.has(taskId)) return false;
+	locks.set(taskId, operation);
+	return true;
+}
+
 export interface UploadTaskActionsContext extends UploadModeRunners {
 	abortFlagsRef: MutableRefObject<Map<string, boolean>>;
 	directAbortRef: MutableRefObject<Map<string, AbortController>>;
-	markTaskFailed: (taskId: string, message: string) => void;
+	markTaskFailed: (taskId: string, error: unknown) => void;
 	patchTask: (taskId: string, patch: Partial<UploadTask>) => void;
 	setTasks: Dispatch<SetStateAction<UploadTask[]>>;
 	setUploadPanelOpen: Dispatch<SetStateAction<boolean>>;
+	taskOperationLocks: UploadTaskOperationLocks;
 	t: UploadAreaManagerTranslationFn;
 	tasksRef: MutableRefObject<UploadTask[]>;
 	uploadRequestRef: UploadRequestRef;
 	workspace: Workspace;
+}
+
+interface ClearTerminalUploadTasksContext {
+	setTasks: Dispatch<SetStateAction<UploadTask[]>>;
+	taskOperationLocks: UploadTaskOperationLocks;
+	tasksRef: MutableRefObject<UploadTask[]>;
 }
 
 function createSavedSession(
@@ -179,8 +199,7 @@ export async function runQueuedUploadTask(
 						mode: null,
 					});
 				} else {
-					const message = getApiErrorMessage(error);
-					markTaskFailed(taskId, message);
+					markTaskFailed(taskId, error);
 					return;
 				}
 			}
@@ -220,8 +239,7 @@ export async function runQueuedUploadTask(
 		}
 		await runDirectUpload(task);
 	} catch (error) {
-		const message = getApiErrorMessage(error);
-		markTaskFailed(taskId, message);
+		markTaskFailed(taskId, error);
 	}
 }
 
@@ -288,6 +306,58 @@ export async function cancelUploadTask(
 	patchTask(taskId, { status: "cancelled", error: null });
 }
 
+export async function clearTerminalUploadTasks(
+	taskIds: readonly string[],
+	{ setTasks, taskOperationLocks, tasksRef }: ClearTerminalUploadTasksContext,
+) {
+	const requestedIds = new Set(taskIds);
+	const tasksToClear = tasksRef.current.filter(
+		(task) =>
+			requestedIds.has(task.id) &&
+			TERMINAL_UPLOAD_STATUS_SET.has(task.status) &&
+			tryAcquireTaskOperation(taskOperationLocks, task.id, "clear"),
+	);
+	if (tasksToClear.length === 0) return;
+
+	const clearedIds = new Set<string>();
+	try {
+		await Promise.allSettled(
+			tasksToClear.map(async (task) => {
+				if (task.status === "failed" && task.uploadId) {
+					try {
+						await uploadService.cancelUpload(task.uploadId);
+					} catch {}
+				}
+				const currentTask = tasksRef.current.find(
+					(item) => item.id === task.id,
+				);
+				if (
+					taskOperationLocks.get(task.id) === "clear" &&
+					currentTask?.status === task.status &&
+					currentTask.uploadId === task.uploadId
+				) {
+					clearedIds.add(task.id);
+				}
+			}),
+		);
+
+		for (const task of tasksToClear) {
+			if (clearedIds.has(task.id) && task.uploadId) {
+				removeSession(task.uploadId);
+			}
+		}
+		if (clearedIds.size > 0) {
+			setTasks((prev) => prev.filter((task) => !clearedIds.has(task.id)));
+		}
+	} finally {
+		for (const task of tasksToClear) {
+			if (taskOperationLocks.get(task.id) === "clear") {
+				taskOperationLocks.delete(task.id);
+			}
+		}
+	}
+}
+
 export async function retryUploadTask(
 	taskId: string,
 	{
@@ -296,49 +366,58 @@ export async function retryUploadTask(
 		resumeCompletionTask,
 		setUploadPanelOpen,
 		tasksRef,
+		taskOperationLocks,
 		workspace,
 	}: UploadTaskActionsContext,
 ) {
-	const task = tasksRef.current.find((item) => item.id === taskId);
-	if (!task) return;
+	if (!tryAcquireTaskOperation(taskOperationLocks, taskId, "retry")) return;
+	try {
+		const task = tasksRef.current.find((item) => item.id === taskId);
+		if (!task || (task.status === "failed" && task.retryable === false)) return;
 
-	if (!task.file && task.uploadId) {
-		const saved = loadSessions(workspace).find(
-			(session) => session.uploadId === task.uploadId,
-		);
-		void resumeCompletionTask(
-			task,
-			task.mode === "presigned_multipart"
-				? (saved?.completedParts ?? [])
-				: undefined,
-		);
+		if (!task.file && task.uploadId) {
+			const saved = loadSessions(workspace).find(
+				(session) => session.uploadId === task.uploadId,
+			);
+			await resumeCompletionTask(
+				task,
+				task.mode === "presigned_multipart"
+					? (saved?.completedParts ?? [])
+					: undefined,
+			);
+			setUploadPanelOpen(true);
+			return;
+		}
+
+		if (task.uploadId) {
+			if (
+				task.mode === "chunked" ||
+				task.mode === "presigned_multipart" ||
+				task.mode === "provider_resumable"
+			) {
+				await cancelMultipartSession(task);
+			} else {
+				void uploadService.cancelUpload(task.uploadId).catch(() => undefined);
+				removeSession(task.uploadId);
+			}
+		}
+
+		patchTask(taskId, {
+			status: "queued",
+			progress: 0,
+			uploadedBytes: 0,
+			speedBps: undefined,
+			error: null,
+			retryable: undefined,
+			uploadId: null,
+			completedChunks: 0,
+			totalChunks: 0,
+			mode: null,
+		});
 		setUploadPanelOpen(true);
-		return;
-	}
-
-	if (task.uploadId) {
-		if (
-			task.mode === "chunked" ||
-			task.mode === "presigned_multipart" ||
-			task.mode === "provider_resumable"
-		) {
-			await cancelMultipartSession(task);
-		} else {
-			void uploadService.cancelUpload(task.uploadId).catch(() => undefined);
-			removeSession(task.uploadId);
+	} finally {
+		if (taskOperationLocks.get(taskId) === "retry") {
+			taskOperationLocks.delete(taskId);
 		}
 	}
-
-	patchTask(taskId, {
-		status: "queued",
-		progress: 0,
-		uploadedBytes: 0,
-		speedBps: undefined,
-		error: null,
-		uploadId: null,
-		completedChunks: 0,
-		totalChunks: 0,
-		mode: null,
-	});
-	setUploadPanelOpen(true);
 }

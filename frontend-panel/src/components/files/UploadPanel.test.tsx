@@ -41,7 +41,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 function renderPanel(tasks: UploadTaskView[]) {
-	const onClearCompleted = vi.fn();
+	const onClearFinished = vi.fn();
 	const onRetryFailed = vi.fn();
 	const onToggle = vi.fn();
 
@@ -60,12 +60,12 @@ function renderPanel(tasks: UploadTaskView[]) {
 			overallProgress={67}
 			onRetryFailed={onRetryFailed}
 			retryFailedLabel="Retry failed"
-			onClearCompleted={onClearCompleted}
-			clearCompletedLabel="Clear completed"
+			onClearFinished={onClearFinished}
+			clearFinishedLabel="Clear finished"
 		/>,
 	);
 
-	return { onClearCompleted, onRetryFailed, onToggle };
+	return { onClearFinished, onRetryFailed, onToggle };
 }
 
 describe("UploadPanel", () => {
@@ -112,6 +112,8 @@ describe("UploadPanel", () => {
 				progress: 30,
 				group: "Folder B",
 				targetLabel: "Projects",
+				failed: true,
+				retryable: true,
 				actions: [
 					{
 						label: "Retry",
@@ -122,7 +124,7 @@ describe("UploadPanel", () => {
 			},
 		];
 
-		const { onClearCompleted, onRetryFailed, onToggle } = renderPanel(tasks);
+		const { onClearFinished, onRetryFailed, onToggle } = renderPanel(tasks);
 
 		expect(screen.getByText("3 tasks")).toBeInTheDocument();
 		expect(screen.getByText("67%")).toBeInTheDocument();
@@ -136,14 +138,52 @@ describe("UploadPanel", () => {
 		expect(screen.getAllByText("1 item(s)")).toHaveLength(3);
 
 		fireEvent.click(screen.getByText("Retry failed"));
-		fireEvent.click(screen.getByText("Clear completed"));
+		fireEvent.click(screen.getByText("Clear finished"));
 		fireEvent.click(
 			screen.getByRole("button", { name: "upload_panel_collapse" }),
 		);
 
 		expect(onRetryFailed).toHaveBeenCalledTimes(1);
-		expect(onClearCompleted).toHaveBeenCalledTimes(1);
+		expect(onClearFinished).toHaveBeenCalledTimes(1);
 		expect(onToggle).toHaveBeenCalledTimes(1);
+	});
+
+	it("hides bulk retry when every failed task is explicitly non-retryable", () => {
+		const { onClearFinished, onRetryFailed } = renderPanel([
+			{
+				id: "terminal-failure",
+				title: "terminal.bin",
+				status: "Failed",
+				mode: "Chunked",
+				progress: 25,
+				failed: true,
+				retryable: false,
+			},
+		]);
+
+		expect(screen.queryByText("Retry failed")).not.toBeInTheDocument();
+		fireEvent.click(screen.getByText("Clear finished"));
+		expect(onRetryFailed).not.toHaveBeenCalled();
+		expect(onClearFinished).toHaveBeenCalledTimes(1);
+		expect(screen.queryByText("25%")).not.toBeInTheDocument();
+	});
+
+	it("allows bulk clearing when the only terminal task is cancelled", () => {
+		const { onClearFinished, onRetryFailed } = renderPanel([
+			{
+				id: "cancelled-only",
+				title: "cancelled.bin",
+				status: "Cancelled",
+				mode: "Direct",
+				progress: 40,
+				cancelled: true,
+			},
+		]);
+
+		expect(screen.queryByText("Retry failed")).not.toBeInTheDocument();
+		fireEvent.click(screen.getByText("Clear finished"));
+		expect(onRetryFailed).not.toHaveBeenCalled();
+		expect(onClearFinished).toHaveBeenCalledTimes(1);
 	});
 
 	it("exposes upload settings controls", () => {

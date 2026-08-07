@@ -268,7 +268,7 @@ pub async fn cancel_upload(
     params(("upload_id" = String, Path, description = "Upload session ID")),
     request_body = PresignPartsReq,
     responses(
-        (status = 200, description = "Presigned URLs for each part", body = inline(ApiResponse<std::collections::HashMap<i32, String>>)),
+        (status = 200, description = "Presigned requests for each part", body = inline(ApiResponse<std::collections::HashMap<i32, aster_drive_storage::PresignedUploadRequest>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "Session not found"),
     ),
@@ -566,7 +566,7 @@ pub(crate) async fn team_cancel_upload(
     ),
     request_body = PresignPartsReq,
     responses(
-        (status = 200, description = "Presigned URLs", body = inline(ApiResponse<std::collections::HashMap<i32, String>>)),
+        (status = 200, description = "Presigned requests", body = inline(ApiResponse<std::collections::HashMap<i32, aster_drive_storage::PresignedUploadRequest>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Session not found"),

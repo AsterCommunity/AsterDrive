@@ -34,6 +34,7 @@ describe("buildUploadTaskViews", () => {
 	it("formats upload speed only while uploading", () => {
 		const views = buildUploadTaskViews({
 			cancelTask: vi.fn(),
+			clearTask: vi.fn(),
 			requestResumeFilePicker: vi.fn(),
 			retryTask: vi.fn(),
 			t,
@@ -106,6 +107,74 @@ describe("buildUploadTaskViews", () => {
 			detail: "files:upload_cancelled",
 			speed: undefined,
 		});
+	});
+
+	it("only exposes retry for failed tasks that are not explicitly non-retryable", () => {
+		const clearTask = vi.fn();
+		const retryTask = vi.fn();
+		const views = buildUploadTaskViews({
+			cancelTask: vi.fn(),
+			clearTask,
+			requestResumeFilePicker: vi.fn(),
+			retryTask,
+			t,
+			tasks: [
+				createTask({
+					id: "retryable",
+					status: "failed",
+					retryable: true,
+				}),
+				createTask({
+					id: "terminal",
+					status: "failed",
+					retryable: false,
+				}),
+				createTask({ id: "completed", status: "completed" }),
+				createTask({ id: "cancelled", status: "cancelled" }),
+				createTask({ id: "active", status: "uploading" }),
+			],
+		});
+
+		expect(views[0]).toMatchObject({ failed: true, retryable: true });
+		expect(views[0]?.actions?.map((action) => action.icon)).toEqual([
+			"ArrowsClockwise",
+			"Trash",
+		]);
+		expect(views[1]).toMatchObject({ failed: true, retryable: false });
+		expect(views[1]?.actions?.map((action) => action.icon)).toEqual(["Trash"]);
+		expect(views[2]?.actions?.map((action) => action.icon)).toEqual(["Trash"]);
+		expect(views[3]?.actions?.map((action) => action.icon)).toEqual(["Trash"]);
+		expect(views[4]?.actions?.map((action) => action.icon)).toEqual(["X"]);
+
+		views[0]?.actions?.[0]?.onClick();
+		views[1]?.actions?.[0]?.onClick();
+		expect(retryTask).toHaveBeenCalledWith("retryable");
+		expect(clearTask).toHaveBeenCalledWith("terminal");
+	});
+
+	it("treats omitted retryability as retryable", () => {
+		const retryTask = vi.fn();
+		const [view] = buildUploadTaskViews({
+			cancelTask: vi.fn(),
+			clearTask: vi.fn(),
+			requestResumeFilePicker: vi.fn(),
+			retryTask,
+			t,
+			tasks: [
+				createTask({
+					status: "failed",
+					retryable: undefined,
+				}),
+			],
+		});
+
+		expect(view).toMatchObject({ failed: true, retryable: true });
+		expect(view?.actions?.map((action) => action.icon)).toEqual([
+			"ArrowsClockwise",
+			"Trash",
+		]);
+		view?.actions?.[0]?.onClick();
+		expect(retryTask).toHaveBeenCalledWith("task-1");
 	});
 });
 

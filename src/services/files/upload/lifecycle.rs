@@ -1,7 +1,10 @@
 //! 上传服务子模块：`lifecycle`。
 
+use std::future::Future;
+
 use chrono::{Duration, Utc};
 
+use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::upload_session_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -18,6 +21,12 @@ use aster_drive_storage::{StorageDriver, StorageError};
 use aster_forge_utils::numbers::usize_to_u32;
 
 const DEFERRED_UPLOAD_SESSION_CLEANUP_GRACE_SECS: i64 = 15;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UploadStageErrorDisposition {
+    PreserveSession,
+    TerminateSession,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UploadRemoteCleanupOutcome {
@@ -47,6 +56,47 @@ fn cleanup_outcome_for_class(class: UploadStorageErrorClass) -> UploadRemoteClea
         }
         UploadStorageErrorClass::NotFound => UploadRemoteCleanupOutcome::Complete,
     }
+}
+
+fn upload_stage_error_disposition(error: &AsterError) -> UploadStageErrorDisposition {
+    if error.api_error_info().retryable {
+        return UploadStageErrorDisposition::PreserveSession;
+    }
+
+    // Database/auth failures do not prove that the owned upload data plane is broken. A later
+    // retry or recovery request can still reconcile the same session, while destructive cleanup
+    // during an uncertain infrastructure failure would discard valid receipts or provider state.
+    if matches!(
+        error,
+        AsterError::DatabaseConnection(_)
+            | AsterError::DatabaseOperation(_)
+            | AsterError::AuthInvalidCredentials(_)
+            | AsterError::AuthTokenExpired(_)
+            | AsterError::AuthTokenInvalid(_)
+            | AsterError::AuthForbidden(_)
+            | AsterError::AuthTokenMissing(_)
+            | AsterError::UploadSessionNotFound(_)
+            | AsterError::UploadAssembling(_)
+    ) {
+        return UploadStageErrorDisposition::PreserveSession;
+    }
+
+    // These errors describe a correctable request shape or use of the wrong operation. They do
+    // not corrupt an otherwise valid session, so API retry hints and lifecycle disposition stay
+    // deliberately separate.
+    if matches!(
+        error.api_error_code(),
+        ApiErrorCode::UploadChunkNumberOutOfRange
+            | ApiErrorCode::UploadChunkTransportMismatch
+            | ApiErrorCode::UploadStatusConflict
+            | ApiErrorCode::UploadPartNumbersEmpty
+            | ApiErrorCode::UploadPartNumbersTooMany
+            | ApiErrorCode::UploadPartNumberOutOfRange
+    ) {
+        return UploadStageErrorDisposition::PreserveSession;
+    }
+
+    UploadStageErrorDisposition::TerminateSession
 }
 
 fn log_blocked_remote_cleanup(
@@ -289,6 +339,92 @@ async fn defer_upload_session_cleanup(
         "deferred upload session cleanup"
     );
     Ok(())
+}
+
+async fn terminate_upload_stage_session(
+    state: &PrimaryAppState,
+    session: &upload_session::Model,
+    error: &AsterError,
+) {
+    if upload_stage_error_disposition(error) == UploadStageErrorDisposition::PreserveSession
+        || !matches!(
+            session.status,
+            UploadSessionStatus::Uploading | UploadSessionStatus::Presigned
+        )
+    {
+        return;
+    }
+
+    let upload_id = session.id.as_str();
+    let expires_at = Utc::now() + Duration::seconds(DEFERRED_UPLOAD_SESSION_CLEANUP_GRACE_SECS);
+    match upload_session_repo::try_fail_with_expiration(
+        state.writer_db(),
+        upload_id,
+        session.status,
+        expires_at,
+    )
+    .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
+            tracing::debug!(
+                upload_id,
+                expected_status = ?session.status,
+                error_code = %error.api_error_code().as_str(),
+                "upload session changed state before terminal upload-stage cleanup"
+            );
+            return;
+        }
+        Err(transition_error) => {
+            tracing::warn!(
+                upload_id,
+                expected_status = ?session.status,
+                error_code = %error.api_error_code().as_str(),
+                "failed to atomically terminate upload session after upload-stage error: {transition_error}"
+            );
+            return;
+        }
+    }
+
+    let cleanup_outcome = cleanup_remote_upload_state(state, session, false).await;
+    cleanup_upload_temp_dir(state, upload_id).await;
+    if cleanup_outcome.is_complete() {
+        if let Err(cleanup_error) = upload_session_repo::delete(state.writer_db(), upload_id).await
+        {
+            tracing::warn!(
+                upload_id,
+                expires_at = %expires_at,
+                error_code = %error.api_error_code().as_str(),
+                "terminal upload-stage cleanup removed temporary state but failed to delete the session row: {cleanup_error}"
+            );
+        }
+        return;
+    }
+
+    tracing::warn!(
+        upload_id,
+        expires_at = %expires_at,
+        cleanup_outcome = ?cleanup_outcome,
+        error_code = %error.api_error_code().as_str(),
+        "terminal upload-stage cleanup is deferred; failed session is hidden from recovery"
+    );
+}
+
+pub(super) async fn run_upload_stage_operation<T, Fut>(
+    state: &PrimaryAppState,
+    session: &upload_session::Model,
+    operation: Fut,
+) -> Result<T>
+where
+    Fut: Future<Output = Result<T>>,
+{
+    match operation.await {
+        Ok(value) => Ok(value),
+        Err(error) => {
+            terminate_upload_stage_session(state, session, &error).await;
+            Err(error)
+        }
+    }
 }
 
 /// 取消上传

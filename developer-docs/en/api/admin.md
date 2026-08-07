@@ -79,11 +79,12 @@ Create example:
 
 Current notes:
 
-- `driver_type` currently supports `local`, `s3`, `sftp`, `azure_blob`, `tencent_cos`, `remote`, and `one_drive`
+- `driver_type` currently supports `local`, `s3`, `alibaba_oss`, `sftp`, `azure_blob`, `tencent_cos`, `remote`, and `one_drive`
 - `GET /admin/policies/storage-drivers` returns `StorageConnectorDescriptor` entries. The frontend should use descriptor `capabilities`, `fields`, `upload_workflows`, `actions`, and `credential_mode` to decide forms, connection tests, upload/download strategies, and action affordances instead of maintaining a hard-coded driver capability matrix.
 - create and update both honor request `chunk_size`
 - `options` carries policy-level behavior:
-  - S3-compatible / Azure Blob / Tencent COS / Huawei OBS object-storage connectors use `object_storage_upload_strategy` / `object_storage_download_strategy` for transfer strategy. Legacy `s3_upload_strategy` / `s3_download_strategy` JSON remains accepted as a compatibility alias.
+  - S3-compatible / Alibaba OSS / Azure Blob / Tencent COS / Huawei OBS object-storage connectors use `object_storage_upload_strategy` / `object_storage_download_strategy` for transfer strategy. Legacy `s3_upload_strategy` / `s3_download_strategy` JSON remains accepted as a compatibility alias.
+  - Native Alibaba OSS fields: public `endpoint`, optional `oss_server_side_endpoint`, `oss_region`, and `oss_use_cname`. Backend I/O prefers the server-side endpoint, while presigned URLs always use the public endpoint. CNAME mode accepts a custom domain; normal mode accepts an `aliyuncs.com` OSS endpoint.
   - Remote upload and download strategies through `remote_upload_strategy` / `remote_download_strategy`
   - local `content_dedup`
   - generic S3 path-style addressing through `s3_path_style` (defaults to `true`)
@@ -102,7 +103,8 @@ Current notes:
 - `driver_type = "sftp"` uses SSH username / password credentials to connect to an SFTP server. Endpoint supports `sftp://host:port`, bare `host`, and `host:port`; the remote root belongs in `base_path`. Unknown or mismatched SSH host keys are rejected as `StorageErrorKind::Precondition` with diagnostics that include actual / expected fingerprints; the confirmed fingerprint is stored in `options.sftp_host_key_fingerprint`.
 - `driver_type = "tencent_cos"` uses the S3-compatible object path for normal reads and writes, validates Tencent COS endpoint shape, and can expose COS CI storage-native thumbnail / image-preview / media-metadata capabilities when the policy opts in
 - `connector_id = "asterdrive.storage.huawei_obs"` uses native Huawei Cloud OBS `SignatureObs`; it supports regional virtual-hosted endpoints, bound custom domains, Range reads, marker-based object listing, multipart, and presigned operations. It does not inherit generic S3 AWS SigV4 or `list-type=2` listing.
-- built-in Local, S3-compatible, SFTP, Azure Blob, Huawei OBS, OneDrive, and Remote drivers do not expose storage-native thumbnail, image-preview, or media-metadata capabilities
+- `driver_type = "alibaba_oss"` reuses AWS S3 SDK object, streaming, and multipart orchestration but applies native `OSS4-HMAC-SHA256` header/query signing; normal requests and generated presigning are validated separately
+- built-in Local, S3-compatible, Alibaba OSS, SFTP, Azure Blob, Huawei OBS, OneDrive, and Remote drivers do not expose storage-native thumbnail, image-preview, or media-metadata capabilities
 - legacy `{"presigned_upload":true}` remains compatible with object-storage presigned upload
 - `allowed_types` can be managed through REST
 - Creating a `driver_type = "remote"` policy requires both `remote_node_id` and `remote_storage_target_key`. The target must belong to that node's current binding, have no `last_error`, and satisfy `applied_revision >= desired_revision`.
@@ -111,7 +113,7 @@ Current notes:
 - `PATCH` cannot change `driver_type`
 - `POST /admin/policies/{id}/promote-s3-driver` currently supports promoting a generic `s3` policy to `tencent_cos`. The body must include the target driver and current endpoint / bucket, for example `{ "target_driver_type": "tencent_cos", "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com", "bucket": "bucket-1250000000" }`. Promotion is rejected unless the bucket stays unchanged, there are no active upload sessions for the policy, and the target driver validates the endpoint / bucket combination.
 - `GET /admin/policies` supports `limit`, `offset`, `sort_by`, `sort_order`
-- `GET /admin/policies/{id}/capacity` returns `StoragePolicyCapacityInfo`; local returns filesystem capacity, S3-compatible, Tencent COS, Huawei OBS, and Azure Blob are explicitly unsupported, OneDrive reads Microsoft Graph drive quota, and remote forwards follower capacity status
+- `GET /admin/policies/{id}/capacity` returns `StoragePolicyCapacityInfo`; local returns filesystem capacity, S3-compatible, Alibaba OSS, Tencent COS, Huawei OBS, and Azure Blob are explicitly unsupported, OneDrive reads Microsoft Graph drive quota, and remote forwards follower capacity status
 - `DELETE /admin/policies/{id}?force=true` only cleans upload sessions that still reference the policy. Existing blobs or policy-group references still block deletion. If temp objects or multipart uploads need delayed cleanup, a `storage_policy_temp_cleanup` task is created.
 
 ### Storage connection tests

@@ -14,6 +14,7 @@ use aster_drive_storage::connector_descriptor::{
 use aster_drive_storage::{ConnectorConfigEnvelope, ConnectorId, StoragePolicyBehaviorConfig};
 use sea_orm::ActiveModelTrait;
 
+use super::alibaba_oss::AlibabaOssConnectorConfigV1;
 use super::azure_blob::AzureBlobConnectorConfigV1;
 use super::huawei_obs::HuaweiObsConnectorConfigV1;
 use super::local::LocalConnectorConfigV1;
@@ -102,6 +103,19 @@ fn s3_config(upload: ObjectStorageUploadStrategy) -> S3ConnectorConfigV1 {
         s3_connect_timeout_secs: 5,
         s3_read_timeout_secs: 30,
         s3_operation_timeout_secs: 3_600,
+    }
+}
+
+fn oss_config(upload: ObjectStorageUploadStrategy) -> AlibabaOssConnectorConfigV1 {
+    AlibabaOssConnectorConfigV1 {
+        endpoint: "https://oss-cn-hangzhou.aliyuncs.com".to_string(),
+        oss_server_side_endpoint: String::new(),
+        oss_region: "cn-hangzhou".to_string(),
+        bucket: "archive-bucket".to_string(),
+        base_path: "tenant-a".to_string(),
+        oss_use_cname: false,
+        object_storage_upload_strategy: upload,
+        object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
     }
 }
 
@@ -198,6 +212,7 @@ fn registry_exposes_each_builtin_connector_once_in_stable_order() {
         vec![
             LocalConnector::ID,
             S3Connector::ID,
+            AlibabaOssConnector::ID,
             SftpConnector::ID,
             AzureBlobConnector::ID,
             HuaweiObsConnector::ID,
@@ -206,7 +221,7 @@ fn registry_exposes_each_builtin_connector_once_in_stable_order() {
             OneDriveConnector::ID,
         ]
     );
-    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 8);
+    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 9);
 }
 
 #[test]
@@ -531,6 +546,10 @@ fn descriptors_are_complete_and_keep_config_credentials_separate() {
         ),
         (S3Connector::ID, StorageConnectorBadgeRgb::new(59, 130, 246)),
         (
+            AlibabaOssConnector::ID,
+            StorageConnectorBadgeRgb::new(255, 106, 0),
+        ),
+        (
             OneDriveConnector::ID,
             StorageConnectorBadgeRgb::new(59, 130, 246),
         ),
@@ -564,6 +583,7 @@ fn descriptors_are_complete_and_keep_config_credentials_separate() {
     );
     for id in [
         S3Connector::ID,
+        AlibabaOssConnector::ID,
         SftpConnector::ID,
         AzureBlobConnector::ID,
         HuaweiObsConnector::ID,
@@ -590,6 +610,7 @@ fn credential_schema_version_is_independent_from_connector_config_schema() {
 fn transfer_strategy_descriptors_keep_upload_and_download_copy_distinct() {
     for connector_id in [
         S3Connector::ID,
+        AlibabaOssConnector::ID,
         AzureBlobConnector::ID,
         HuaweiObsConnector::ID,
         TencentCosConnector::ID,
@@ -667,6 +688,7 @@ fn object_naming_and_local_default_path_are_connector_owned() {
     for id in [
         LocalConnector::ID,
         S3Connector::ID,
+        AlibabaOssConnector::ID,
         SftpConnector::ID,
         AzureBlobConnector::ID,
         HuaweiObsConnector::ID,
@@ -765,6 +787,7 @@ fn credential_channels_are_mutually_exclusive_by_connector_contract() {
     }
     for id in [
         S3Connector::ID,
+        AlibabaOssConnector::ID,
         SftpConnector::ID,
         AzureBlobConnector::ID,
         HuaweiObsConnector::ID,
@@ -831,6 +854,68 @@ fn typed_connector_config_round_trips_and_rejects_unknown_fields() {
     assert!(error.to_string().contains("unknown"));
 }
 
+#[test]
+fn alibaba_oss_connector_validates_endpoint_region_and_cname_contract() {
+    let connector = connector(AlibabaOssConnector::ID);
+    let descriptor = connector.descriptor();
+    for field_name in [
+        "endpoint",
+        "oss_server_side_endpoint",
+        "oss_region",
+        "bucket",
+        "base_path",
+        "oss_use_cname",
+        "object_storage_upload_strategy",
+        "object_storage_download_strategy",
+        "aliyun_oss_access_key_id",
+        "aliyun_oss_access_key_secret",
+    ] {
+        assert!(
+            descriptor
+                .fields
+                .iter()
+                .any(|field| field.name == field_name),
+            "missing OSS descriptor field {field_name}"
+        );
+    }
+    assert!(
+        descriptor
+            .fields
+            .iter()
+            .find(|field| field.name == "aliyun_oss_access_key_secret")
+            .is_some_and(|field| field.secret)
+    );
+
+    let mut config = oss_config(ObjectStorageUploadStrategy::Presigned);
+    config.oss_server_side_endpoint = "https://oss-cn-hangzhou-internal.aliyuncs.com".to_string();
+    connector
+        .validate_connector_config(&super::test_support::connection_config(
+            AlibabaOssConnector::ID,
+            1,
+            config.clone(),
+        ))
+        .expect("valid OSS public/internal endpoint pair");
+
+    config.endpoint = "https://files.example.test".to_string();
+    let error = connector
+        .validate_connector_config(&super::test_support::connection_config(
+            AlibabaOssConnector::ID,
+            1,
+            config.clone(),
+        ))
+        .expect_err("custom domain requires CNAME mode");
+    assert!(error.to_string().contains("CNAME"));
+
+    config.oss_use_cname = true;
+    connector
+        .validate_connector_config(&super::test_support::connection_config(
+            AlibabaOssConnector::ID,
+            1,
+            config,
+        ))
+        .expect("custom domain with CNAME mode");
+}
+
 fn assert_empty_base_path_normalizes<T>(
     connector_id: &'static str,
     config: T,
@@ -857,6 +942,10 @@ fn optional_empty_base_paths_decode_without_weakening_required_fields() {
     let mut s3 = s3_config(ObjectStorageUploadStrategy::RelayStream);
     s3.base_path.clear();
     assert_empty_base_path_normalizes(S3Connector::ID, s3.clone(), "");
+
+    let mut oss = oss_config(ObjectStorageUploadStrategy::RelayStream);
+    oss.base_path.clear();
+    assert_empty_base_path_normalizes(AlibabaOssConnector::ID, oss, "");
 
     let mut sftp = sftp_config();
     sftp.base_path.clear();
@@ -1013,6 +1102,14 @@ fn upload_transport_is_resolved_by_connector_owned_typed_config() {
             policy(
                 S3Connector::ID,
                 s3_config(ObjectStorageUploadStrategy::Presigned),
+            ),
+            StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
+        ),
+        (
+            AlibabaOssConnector::ID,
+            policy(
+                AlibabaOssConnector::ID,
+                oss_config(ObjectStorageUploadStrategy::Presigned),
             ),
             StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
         ),

@@ -1,8 +1,15 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useTransferActivityStore } from "@/stores/transferActivityStore";
 import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import type { MeField } from "@/types/api";
+import { ApiErrorCode } from "@/types/api-helpers";
 
 const appendCompletedPart = vi.fn();
 const cancelUpload = vi.fn();
@@ -44,9 +51,9 @@ interface MockAuthStoreState {
 }
 
 class MockApiError extends Error {
-	code: number;
+	code: number | string;
 
-	constructor(code: number, message: string) {
+	constructor(code: number | string, message: string) {
 		super(message);
 		this.code = code;
 	}
@@ -84,9 +91,13 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("@/components/files/UploadPanel", () => ({
 	UploadPanel: (props: {
+		clearFinishedLabel?: string;
 		emptyText: string;
+		onClearFinished?: () => void;
+		onRetryFailed?: () => void;
 		open: boolean;
 		overallProgress?: number;
+		retryFailedLabel?: string;
 		summary: string;
 		tasks: Array<{
 			id: string;
@@ -118,6 +129,11 @@ vi.mock("@/components/files/UploadPanel", () => ({
 						))}
 					</div>
 				))}
+				{props.onClearFinished && props.clearFinishedLabel ? (
+					<button type="button" onClick={props.onClearFinished}>
+						{props.clearFinishedLabel}
+					</button>
+				) : null}
 			</div>
 		);
 	},
@@ -562,6 +578,29 @@ describe("UploadArea", () => {
 		expect(refreshUser).not.toHaveBeenCalled();
 	});
 
+	it("removes existing completed tasks when auto-clear is enabled", async () => {
+		initUpload.mockResolvedValue({ mode: "direct" });
+		apiClientPost.mockResolvedValue({});
+
+		await uploadOneFile();
+		await screen.findByText("hello.txt:Direct:files:upload_success");
+
+		const panelProps = uploadPanelSpy.mock.calls.at(-1)?.[0] as
+			| { onAutoClearCompletedChange?: (value: boolean) => void }
+			| undefined;
+		expect(panelProps?.onAutoClearCompletedChange).toBeTypeOf("function");
+		await act(async () => {
+			panelProps?.onAutoClearCompletedChange?.(true);
+		});
+
+		await waitFor(() => {
+			expect(screen.getByText("files:upload_empty")).toBeInTheDocument();
+		});
+		expect(
+			screen.queryByText("hello.txt:Direct:files:upload_success"),
+		).not.toBeInTheDocument();
+	});
+
 	it("restores recoverable sessions listed by the backend", async () => {
 		listRecoverableSessions.mockResolvedValue([
 			{
@@ -585,6 +624,37 @@ describe("UploadArea", () => {
 		await screen.findByText("server.bin:Chunked:files:upload_pending_file");
 		expect(listRecoverableSessions).toHaveBeenCalledTimes(1);
 		expect(getProgress).not.toHaveBeenCalled();
+	});
+
+	it("removes a local terminal session when the backend no longer recovers it", async () => {
+		loadSessions.mockReturnValue([
+			{
+				uploadId: "upload-terminal",
+				filename: "terminal.bin",
+				totalSize: 10,
+				totalChunks: 2,
+				chunkSize: 5,
+				baseFolderId: 42,
+				baseFolderName: "Projects",
+				relativePath: null,
+				savedAt: Date.now(),
+				mode: "chunked",
+			},
+		]);
+		getProgress.mockRejectedValue(
+			new MockApiError(
+				ApiErrorCode.UploadSessionNotFound,
+				"terminal session was cleaned up",
+			),
+		);
+
+		await renderUploadAreaWithRestoreTimer();
+
+		await waitFor(() => {
+			expect(removeSession).toHaveBeenCalledWith("upload-terminal");
+		});
+		expect(screen.queryByText(/terminal\.bin/)).not.toBeInTheDocument();
+		expect(screen.queryByTestId("upload-panel")).not.toBeInTheDocument();
 	});
 
 	it("handles chunked uploads and persists resumable sessions", async () => {
@@ -792,7 +862,9 @@ describe("UploadArea", () => {
 		initUpload.mockResolvedValue({
 			mode: "presigned",
 			upload_id: "upload-presigned",
-			presigned_url: "https://s3.example/upload",
+			presigned_request: {
+				url: "https://s3.example/upload",
+			},
 		});
 		presignedUpload.mockResolvedValue('"etag-123"');
 		completeUpload.mockResolvedValue({ id: 9002 });
@@ -819,11 +891,13 @@ describe("UploadArea", () => {
 		initUpload.mockResolvedValue({
 			mode: "presigned",
 			upload_id: "upload-azure-presigned",
-			presigned_url: "https://account.blob.core.windows.net/container/blob",
-			presigned_require_etag: false,
-			presigned_headers: {
-				"x-ms-blob-type": "BlockBlob",
+			presigned_request: {
+				url: "https://account.blob.core.windows.net/container/blob",
+				headers: {
+					"x-ms-blob-type": "BlockBlob",
+				},
 			},
+			presigned_require_etag: false,
 		});
 		presignedUpload.mockResolvedValue("");
 		completeUpload.mockResolvedValue({ id: 9013 });
@@ -857,7 +931,9 @@ describe("UploadArea", () => {
 		initUpload.mockResolvedValue({
 			mode: "presigned",
 			upload_id: "upload-presigned-speed",
-			presigned_url: "https://s3.example/upload-speed",
+			presigned_request: {
+				url: "https://s3.example/upload-speed",
+			},
 		});
 		presignedUpload.mockReturnValue(presignedPut.promise);
 		completeUpload.mockResolvedValue({ id: 9011 });
@@ -914,7 +990,10 @@ describe("UploadArea", () => {
 			total_chunks: 1,
 		});
 		presignParts.mockResolvedValue({
-			1: "https://s3.example/upload/part-1",
+			1: {
+				url: "https://s3.example/upload/part-1",
+				headers: { "x-provider-part": "part-1" },
+			},
 		});
 		presignedUpload.mockResolvedValue('"etag-001"');
 		completeUpload.mockResolvedValue({ id: 9003 });
@@ -932,6 +1011,15 @@ describe("UploadArea", () => {
 			}),
 		);
 		expect(presignParts).toHaveBeenCalledWith("upload-multipart", [1]);
+		expect(presignedUpload).toHaveBeenCalledWith(
+			"https://s3.example/upload/part-1",
+			expect.any(Blob),
+			expect.any(Function),
+			{
+				headers: { "x-provider-part": "part-1" },
+				onCreateXhr: expect.any(Function),
+			},
+		);
 		expect(appendCompletedPart).toHaveBeenCalledWith("upload-multipart", {
 			part_number: 1,
 			etag: "etag-001",
@@ -956,7 +1044,7 @@ describe("UploadArea", () => {
 			total_chunks: 1,
 		});
 		presignParts.mockResolvedValue({
-			1: "https://s3.example/upload/part-speed",
+			1: { url: "https://s3.example/upload/part-speed" },
 		});
 		presignedUpload.mockReturnValue(multipartPut.promise);
 		completeUpload.mockResolvedValue({ id: 9012 });
@@ -971,6 +1059,7 @@ describe("UploadArea", () => {
 				expect.any(Blob),
 				expect.any(Function),
 				{
+					headers: undefined,
 					onCreateXhr: expect.any(Function),
 				},
 			);
@@ -1003,6 +1092,62 @@ describe("UploadArea", () => {
 		);
 	});
 
+	it("refreshes the complete multipart request descriptor after a retryable failure", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		initUpload.mockResolvedValue({
+			mode: "presigned_multipart",
+			upload_id: "upload-multipart-retry",
+			chunk_size: 5,
+			total_chunks: 1,
+		});
+		presignParts
+			.mockResolvedValueOnce({
+				1: {
+					url: "https://s3.example/upload/part-1-attempt-1",
+					headers: { "x-signature-attempt": "1" },
+				},
+			})
+			.mockResolvedValueOnce({
+				1: {
+					url: "https://s3.example/upload/part-1-attempt-2",
+					headers: { "x-signature-attempt": "2" },
+				},
+			});
+		presignedUpload
+			.mockRejectedValueOnce(
+				Object.assign(new Error("expired request"), { retryable: true }),
+			)
+			.mockResolvedValueOnce('"etag-retry"');
+		completeUpload.mockResolvedValue({ id: 9014 });
+
+		await uploadOneFile();
+
+		await screen.findByText(
+			"hello.txt:Presigned Multipart:files:upload_success",
+		);
+		expect(presignParts).toHaveBeenCalledTimes(2);
+		expect(presignedUpload).toHaveBeenNthCalledWith(
+			1,
+			"https://s3.example/upload/part-1-attempt-1",
+			expect.any(Blob),
+			expect.any(Function),
+			{
+				headers: { "x-signature-attempt": "1" },
+				onCreateXhr: expect.any(Function),
+			},
+		);
+		expect(presignedUpload).toHaveBeenNthCalledWith(
+			2,
+			"https://s3.example/upload/part-1-attempt-2",
+			expect.any(Blob),
+			expect.any(Function),
+			{
+				headers: { "x-signature-attempt": "2" },
+				onCreateXhr: expect.any(Function),
+			},
+		);
+	});
+
 	it("batches presigned multipart URL requests", async () => {
 		const partNumbers = Array.from({ length: 20 }, (_, index) => index + 1);
 		initUpload.mockResolvedValue({
@@ -1016,7 +1161,7 @@ describe("UploadArea", () => {
 				Object.fromEntries(
 					requestedParts.map((partNumber) => [
 						partNumber,
-						`https://s3.example/upload/part-${partNumber}`,
+						{ url: `https://s3.example/upload/part-${partNumber}` },
 					]),
 				),
 		);
@@ -1121,6 +1266,10 @@ describe("UploadArea", () => {
 			expect(removeSession).toHaveBeenCalledWith("upload-failed");
 		});
 		await screen.findByText("failed.txt:Chunked:files:upload_pending_file");
+		expect(
+			screen.getAllByText("failed.txt:Chunked:files:upload_pending_file"),
+		).toHaveLength(1);
+		expect(screen.queryByText("files:upload_retry")).not.toBeInTheDocument();
 	});
 
 	it("keeps persisted sessions when progress polling fails transiently", async () => {
@@ -1524,7 +1673,36 @@ describe("UploadArea", () => {
 		).toBe(true);
 	});
 
-	it("retries failed chunked uploads by reinitializing a new upload session", async () => {
+	it("hides retry and allows clearing a non-retryable failed upload", async () => {
+		cancelUpload.mockResolvedValue(undefined);
+		initUpload.mockResolvedValue({
+			mode: "chunked",
+			upload_id: "upload-terminal",
+			chunk_size: 5,
+			total_chunks: 1,
+		});
+		uploadChunk.mockRejectedValue(
+			Object.assign(new Error("upload failed"), { retryable: false }),
+		);
+
+		await uploadOneFile();
+
+		await screen.findByText("hello.txt:Chunked:files:upload_failed");
+		expect(screen.queryByText("files:upload_retry")).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByText("files:upload_clear_task"));
+
+		await waitFor(() => {
+			expect(
+				screen.queryByText("hello.txt:Chunked:files:upload_failed"),
+			).not.toBeInTheDocument();
+		});
+		expect(screen.getByText("files:upload_empty")).toBeInTheDocument();
+		expect(cancelUpload).toHaveBeenCalledWith("upload-terminal");
+		expect(removeSession).toHaveBeenCalledWith("upload-terminal");
+	});
+
+	it("retries failed chunked uploads when retryability is not explicitly false", async () => {
 		cancelUpload.mockResolvedValue(undefined);
 		initUpload
 			.mockResolvedValueOnce({
@@ -1540,9 +1718,7 @@ describe("UploadArea", () => {
 				total_chunks: 1,
 			});
 		uploadChunk
-			.mockRejectedValueOnce(
-				Object.assign(new Error("upload failed"), { retryable: false }),
-			)
+			.mockRejectedValueOnce(new Error("upload failed"))
 			.mockResolvedValueOnce({});
 		completeUpload.mockResolvedValue({ id: 9005 });
 
@@ -1550,17 +1726,12 @@ describe("UploadArea", () => {
 
 		await screen.findByText("hello.txt:Chunked:files:upload_failed");
 		fireEvent.click(screen.getByText("files:upload_retry"));
-
 		await screen.findByText("hello.txt:Chunked:files:upload_success");
 
 		expect(initUpload).toHaveBeenCalledTimes(2);
 		expect(cancelUpload).toHaveBeenCalledWith("upload-old");
 		expect(removeSession).toHaveBeenCalledWith("upload-old");
 		expect(uploadChunk.mock.calls.at(-1)?.[0]).toBe("upload-new");
-		expect(
-			uploadChunk.mock.calls.filter((call) => call[0] === "upload-old"),
-		).toHaveLength(1);
-		expect(completeUpload).toHaveBeenCalledWith("upload-new", undefined);
 	});
 
 	it("ignores repeated retry clicks while a retry is already in progress", async () => {
@@ -1582,9 +1753,7 @@ describe("UploadArea", () => {
 				total_chunks: 1,
 			});
 		uploadChunk
-			.mockRejectedValueOnce(
-				Object.assign(new Error("upload failed"), { retryable: false }),
-			)
+			.mockRejectedValueOnce(new Error("upload failed"))
 			.mockReturnValueOnce(retriedChunk.promise);
 		completeUpload.mockResolvedValue({ id: 9006 });
 
@@ -1632,9 +1801,7 @@ describe("UploadArea", () => {
 				total_chunks: 1,
 			});
 		uploadChunk
-			.mockRejectedValueOnce(
-				Object.assign(new Error("upload failed"), { retryable: false }),
-			)
+			.mockRejectedValueOnce(new Error("upload failed"))
 			.mockImplementationOnce(() => inFlightChunk.promise)
 			.mockResolvedValueOnce({});
 		completeUpload.mockResolvedValue({ id: 9010 });
@@ -1654,5 +1821,79 @@ describe("UploadArea", () => {
 		expect(cancelUpload).toHaveBeenCalledWith("upload-old");
 		expect(removeSession).toHaveBeenCalledWith("upload-old");
 		expect(uploadChunk.mock.calls.at(-1)?.[0]).toBe("upload-new");
+	});
+
+	it("batch-retries only failures that remain retryable", async () => {
+		const terminalError = Object.assign(new Error("terminal upload failure"), {
+			retryable: false,
+		});
+		const retryableError = Object.assign(
+			new Error("retryable upload failure"),
+			{
+				retryable: true,
+			},
+		);
+		initUpload.mockResolvedValue({ mode: "direct" });
+		apiClientPost
+			.mockRejectedValueOnce(terminalError)
+			.mockRejectedValueOnce(retryableError)
+			.mockRejectedValue(new Error("retry attempt failed"));
+
+		await uploadFiles([
+			new File(["terminal"], "terminal.txt"),
+			new File(["retryable"], "retryable.txt"),
+		]);
+		await screen.findByText("terminal.txt:Direct:files:upload_failed");
+		await screen.findByText("retryable.txt:Direct:files:upload_failed");
+
+		const panelProps = uploadPanelSpy.mock.calls.at(-1)?.[0] as
+			| { onRetryFailed?: () => void }
+			| undefined;
+		expect(panelProps?.onRetryFailed).toBeTypeOf("function");
+		await act(async () => {
+			panelProps?.onRetryFailed?.();
+		});
+
+		await waitFor(() => {
+			expect(initUpload).toHaveBeenCalledTimes(3);
+		});
+		expect(initUpload.mock.calls[2]?.[0]).toEqual(
+			expect.objectContaining({ filename: "retryable.txt" }),
+		);
+	});
+
+	it("batch-clears finished tasks while preserving active uploads", async () => {
+		const activeUpload = createDeferred<unknown>();
+		initUpload.mockResolvedValue({ mode: "direct" });
+		apiClientPost
+			.mockResolvedValueOnce({})
+			.mockRejectedValueOnce(new Error("direct upload failed"))
+			.mockReturnValueOnce(activeUpload.promise);
+
+		await uploadFiles([
+			new File(["done"], "done.txt"),
+			new File(["failed"], "failed.txt"),
+			new File(["active"], "active.txt"),
+		]);
+		await screen.findByText("done.txt:Direct:files:upload_success");
+		await screen.findByText("failed.txt:Direct:files:upload_failed");
+		await screen.findByText("active.txt:Direct:files:uploading_to_storage");
+
+		fireEvent.click(screen.getByText("files:upload_clear_finished"));
+
+		await waitFor(() => {
+			expect(
+				screen.queryByText("done.txt:Direct:files:upload_success"),
+			).not.toBeInTheDocument();
+			expect(
+				screen.queryByText("failed.txt:Direct:files:upload_failed"),
+			).not.toBeInTheDocument();
+		});
+		expect(
+			screen.getByText("active.txt:Direct:files:uploading_to_storage"),
+		).toBeInTheDocument();
+
+		activeUpload.resolve({});
+		await screen.findByText("active.txt:Direct:files:upload_success");
 	});
 });

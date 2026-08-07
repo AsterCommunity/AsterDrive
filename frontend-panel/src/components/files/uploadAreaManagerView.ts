@@ -17,6 +17,7 @@ interface UploadTaskSummary {
 
 interface BuildUploadTaskViewsOptions {
 	cancelTask: (taskId: string) => Promise<void>;
+	clearTask: (taskId: string) => void;
 	requestResumeFilePicker: (taskId: string) => void;
 	retryTask: (taskId: string) => Promise<void>;
 	t: UploadAreaManagerTranslationFn;
@@ -100,6 +101,7 @@ export function summarizeUploadTasks(tasks: UploadTask[]): UploadTaskSummary {
 
 export function buildUploadTaskViews({
 	cancelTask,
+	clearTask,
 	requestResumeFilePicker,
 	retryTask,
 	t,
@@ -126,6 +128,11 @@ export function buildUploadTaskViews({
 						})
 					: task.relativePath || statusLabel;
 
+		const clearAction = {
+			label: t("files:upload_clear_task"),
+			icon: "Trash" as const,
+			onClick: () => clearTask(task.id),
+		};
 		const actions = isPendingFile
 			? [
 					{
@@ -144,14 +151,19 @@ export function buildUploadTaskViews({
 				]
 			: task.status === "failed"
 				? [
-						{
-							label: t("files:upload_retry"),
-							icon: "ArrowsClockwise" as const,
-							onClick: () => {
-								void retryTask(task.id);
-							},
-							variant: "outline" as const,
-						},
+						...(task.retryable !== false
+							? [
+									{
+										label: t("files:upload_retry"),
+										icon: "ArrowsClockwise" as const,
+										onClick: () => {
+											void retryTask(task.id);
+										},
+										variant: "outline" as const,
+									},
+								]
+							: []),
+						clearAction,
 					]
 				: ACTIVE_QUEUE_STATUSES.includes(task.status)
 					? [
@@ -163,7 +175,9 @@ export function buildUploadTaskViews({
 								},
 							},
 						]
-					: [];
+					: task.status === "completed" || task.status === "cancelled"
+						? [clearAction]
+						: [];
 
 		const group = task.relativePath
 			? task.relativePath.split("/").slice(0, -1).join("/")
@@ -180,7 +194,9 @@ export function buildUploadTaskViews({
 			detail,
 			speed: getSpeedLabel(task),
 			completed: task.status === "completed",
+			failed: task.status === "failed",
 			cancelled: task.status === "cancelled",
+			retryable: task.retryable !== false,
 			actions,
 		};
 	});

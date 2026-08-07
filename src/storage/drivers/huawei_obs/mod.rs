@@ -21,6 +21,8 @@ use super::s3_compatible::S3CompatibleDriver;
 use super::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
 use aster_drive_storage::Result;
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_storage::traits::driver::PresignedDownloadOptions;
+use aster_drive_storage::traits::extensions::PresignedStorageDriver;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -288,6 +290,26 @@ fn is_any_official_obs_endpoint(host: &str) -> bool {
         return false;
     };
     rest.ends_with(".myhuaweicloud.com") || rest.ends_with(".myhuaweicloud.eu")
+}
+
+#[async_trait::async_trait]
+impl PresignedStorageDriver for HuaweiObsDriver {
+    async fn presigned_url(
+        &self,
+        path: &str,
+        expires: Duration,
+        options: PresignedDownloadOptions,
+    ) -> Result<Option<String>> {
+        self.storage.presigned_url(path, expires, options).await
+    }
+
+    async fn presigned_put_request(
+        &self,
+        path: &str,
+        expires: Duration,
+    ) -> Result<Option<aster_drive_storage::PresignedUploadRequest>> {
+        self.storage.presigned_put_request(path, expires).await
+    }
 }
 
 #[async_trait::async_trait]

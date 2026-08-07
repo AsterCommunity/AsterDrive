@@ -144,20 +144,20 @@ impl MultipartStorageDriver for AzureBlobDriver {
         Ok(format!("azure-block:{}", self.full_key(path)))
     }
 
-    async fn presigned_upload_part_url(
+    async fn presigned_upload_part_request(
         &self,
         path: &str,
         _upload_id: &str,
         part_number: i32,
         expires: Duration,
-    ) -> aster_drive_storage::Result<String> {
+    ) -> aster_drive_storage::Result<aster_drive_storage::PresignedUploadRequest> {
         let mut url = self.block_blob_url(path, "cw", expires)?;
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("comp", "block");
             query.append_pair("blockid", &Self::block_id_marker(part_number)?);
         }
-        Ok(url.to_string())
+        Ok(aster_drive_storage::PresignedUploadRequest::without_headers(url.to_string()))
     }
 
     async fn complete_multipart_upload(

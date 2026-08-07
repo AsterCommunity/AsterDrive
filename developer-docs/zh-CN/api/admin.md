@@ -94,11 +94,12 @@
 
 当前实现注意点：
 
-- `driver_type` 当前支持 `local`、`s3`、`sftp`、`azure_blob`、`tencent_cos`、`remote` 和 `one_drive`
+- `driver_type` 当前支持 `local`、`s3`、`alibaba_oss`、`sftp`、`azure_blob`、`tencent_cos`、`remote` 和 `one_drive`
 - `GET /admin/policies/storage-drivers` 返回 `StorageConnectorDescriptor` 列表，前端应以 descriptor 的 `capabilities`、`fields`、`upload_workflows`、`actions` 和 `credential_mode` 决定表单、连接测试、上传/下载策略和操作入口，不要在前端维护一份 driver-type 能力矩阵
 - 创建和更新都会采用请求里的 `chunk_size`
 - `options` 当前承载策略级行为：
-  - S3-compatible / Azure Blob / Tencent COS / Huawei OBS 这类对象存储 connector 使用 `object_storage_upload_strategy` / `object_storage_download_strategy` 表达传输策略，例如 `{"object_storage_upload_strategy":"presigned","object_storage_download_strategy":"presigned"}`；旧 `s3_upload_strategy` / `s3_download_strategy` JSON 字段仍作为兼容 alias 接受
+  - S3-compatible / Alibaba OSS / Azure Blob / Tencent COS / Huawei OBS 这类对象存储 connector 使用 `object_storage_upload_strategy` / `object_storage_download_strategy` 表达传输策略，例如 `{"object_storage_upload_strategy":"presigned","object_storage_download_strategy":"presigned"}`；旧 `s3_upload_strategy` / `s3_download_strategy` JSON 字段仍作为兼容 alias 接受
+  - Alibaba OSS 原生字段：公网 `endpoint`、可选 `oss_server_side_endpoint`、`oss_region`、`oss_use_cname`。后端 I/O 优先使用服务端 endpoint；presigned URL 固定使用公网 endpoint。CNAME 模式只接受自定义域名，普通模式只接受 `aliyuncs.com` OSS endpoint
   - Remote 上传下载策略，例如 `{"remote_upload_strategy":"presigned","remote_download_strategy":"presigned"}`
   - 本地策略的内容去重开关 `content_dedup`
   - 通用 S3 path-style 访问开关：`s3_path_style`，默认 `true`
@@ -117,7 +118,8 @@
 - `driver_type = "sftp"` 使用 SSH 用户名 / 密码连接 SFTP 服务器；Endpoint 支持 `sftp://host:port`、裸 `host` 和 `host:port`，远程根目录放在 `base_path`。未知或不匹配的 SSH 主机密钥会以 `StorageErrorKind::Precondition` 拒绝，并通过诊断提示 actual / expected 指纹；确认后的指纹保存在 `options.sftp_host_key_fingerprint`。
 - `driver_type = "tencent_cos"` 普通读写复用 S3-compatible 对象存储路径，会校验 Tencent COS endpoint 形态；策略启用后可通过 COS CI 暴露原生缩略图、图片预览和媒体元数据能力
 - `connector_id = "asterdrive.storage.huawei_obs"` 使用 Huawei Cloud OBS 原生 `SignatureObs`；支持区域 virtual-hosted endpoint、绑定的 custom domain、Range、marker-based object listing、multipart 和 presigned operation。它不继承 generic S3 的 AWS SigV4 或 `list-type=2` 列举协议
-- 内置 Local、S3-compatible、SFTP、Azure Blob、Huawei OBS、OneDrive 和 Remote 驱动不暴露存储原生缩略图、图片预览或媒体元数据能力
+- `driver_type = "alibaba_oss"` 复用 AWS S3 SDK 的对象、流式和 multipart 编排，但使用原生 `OSS4-HMAC-SHA256` header/query 签名；普通请求和 generated presign 分别验证
+- 内置 Local、S3-compatible、Alibaba OSS、SFTP、Azure Blob、Huawei OBS、OneDrive 和 Remote 驱动不暴露存储原生缩略图、图片预览或媒体元数据能力
 - 旧配置 `{"presigned_upload":true}` 仍兼容，等价于 S3 预签名上传策略
 - `POST /admin/policies/{id}/promote-s3-driver` 当前支持把通用 `s3` 策略提升为 `tencent_cos`。请求体必须包含目标驱动和当前 endpoint / bucket，例如 `{ "target_driver_type": "tencent_cos", "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com", "bucket": "bucket-1250000000" }`。提升时不允许改变 bucket；若该策略还有活动上传 session，或目标驱动不能接受当前 endpoint / bucket 组合，会直接拒绝。
 - REST 已经可以通过 `allowed_types` 管理策略允许的 MIME / 类型列表；不传时创建会使用空列表，更新会保持原值
@@ -128,7 +130,7 @@
 - `GET /admin/policies` 支持 `limit`、`offset`、`sort_by`、`sort_order`
 - `GET /admin/policies/{id}/capacity` 返回 `StoragePolicyCapacityInfo`，其中 `capacity.status` 为 `supported` / `unsupported` / `unavailable`：
   - Local 驱动通过文件系统容量接口返回 `total_bytes`、`available_bytes`、`used_bytes`
-  - S3-compatible、Tencent COS、Huawei OBS 和 Azure Blob 驱动明确返回 `StorageErrorKind::Unsupported`，服务层转换成 `unsupported` 状态，不伪造 bucket / account 容量
+  - S3-compatible、Alibaba OSS、Tencent COS、Huawei OBS 和 Azure Blob 驱动明确返回 `StorageErrorKind::Unsupported`，服务层转换成 `unsupported` 状态，不伪造 bucket / account 容量
   - OneDrive 驱动通过 Microsoft Graph drive quota 返回容量信息
   - Remote 驱动通过 follower 内部协议 `/internal/storage/capacity` 转发当前远端存储目标的容量能力
 - `DELETE /admin/policies/{id}` 支持 `?force=true`；这只会强制清理仍引用该策略的上传 session，仍有 blob 或策略组项引用时照样拒绝删除。若清理后还有临时对象或 multipart upload 需要延后处理，会创建 `storage_policy_temp_cleanup` 后台任务

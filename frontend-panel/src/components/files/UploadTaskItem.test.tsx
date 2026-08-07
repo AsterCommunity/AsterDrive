@@ -62,7 +62,7 @@ describe("UploadTaskItem", () => {
 				mode="Presigned"
 				progress={100}
 				detail="Retry required"
-				completed
+				failed
 				actions={[
 					{ icon: "ArrowsClockwise", label: "Retry", onClick: onRetry },
 					{ icon: "X", label: "Cancel", onClick: onCancel },
@@ -73,10 +73,10 @@ describe("UploadTaskItem", () => {
 		expect(screen.getByText(/Presigned · Retry required/)).toBeInTheDocument();
 		expect(screen.queryByText("100%")).not.toBeInTheDocument();
 		expect(screen.queryByTestId("progress")).not.toBeInTheDocument();
-		expect(container.firstChild).toHaveClass("bg-card/45", "border-b");
+		expect(container.firstChild).toHaveClass("bg-destructive/5", "border-b");
 		expect(screen.getAllByTestId("icon")[0]).toHaveAttribute(
 			"data-name",
-			"Check",
+			"CircleAlert",
 		);
 		expect(screen.getAllByTestId("icon")[1]).toHaveAttribute(
 			"data-name",
@@ -89,6 +89,27 @@ describe("UploadTaskItem", () => {
 
 		expect(onRetry).toHaveBeenCalledTimes(1);
 		expect(onCancel).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps a failed row in error state when its only action is clear", () => {
+		render(
+			<UploadTaskItem
+				title="terminal.bin"
+				status="Failed"
+				mode="Chunked"
+				progress={61}
+				failed
+				actions={[{ icon: "Trash", label: "Clear", onClick: vi.fn() }]}
+			/>,
+		);
+
+		expect(screen.getAllByTestId("icon")[0]).toHaveAttribute(
+			"data-name",
+			"CircleAlert",
+		);
+		expect(screen.queryByText("61%")).not.toBeInTheDocument();
+		expect(screen.queryByTestId("progress")).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
 	});
 
 	it("renders cancelled uploads with a destructive X instead of progress spinner", () => {

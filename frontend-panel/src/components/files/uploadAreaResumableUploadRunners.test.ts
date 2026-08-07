@@ -1,6 +1,35 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { InitUploadResponse } from "@/services/uploadService";
-import { resolveChunkConcurrency } from "./uploadAreaResumableUploadRunners";
+import type { UploadTask } from "./uploadAreaManagerShared";
+import type { UploadModeRunnerContext } from "./uploadAreaUploadRunnerShared";
+
+const { completeUpload, removeSession } = vi.hoisted(() => ({
+	completeUpload: vi.fn(),
+	removeSession: vi.fn(),
+}));
+
+vi.mock("@/services/uploadService", () => ({
+	UploadRequestError: class UploadRequestError extends Error {
+		isAborted = false;
+	},
+	uploadService: {
+		cancelUpload: vi.fn(),
+		completeUpload,
+		presignParts: vi.fn(),
+		presignedUpload: vi.fn(),
+		uploadChunk: vi.fn(),
+	},
+}));
+
+vi.mock("@/lib/uploadPersistence", () => ({
+	appendCompletedPart: vi.fn(),
+	removeSession,
+}));
+
+import {
+	createResumableUploadRunners,
+	resolveChunkConcurrency,
+} from "./uploadAreaResumableUploadRunners";
 
 function initWithMax(
 	max?: number,
@@ -59,5 +88,53 @@ describe("resolveChunkConcurrency", () => {
 				Number.POSITIVE_INFINITY,
 			),
 		).toBe(1);
+	});
+});
+
+describe("resumeCompletionTask", () => {
+	it("passes the original completion error to file-backed task failure handling", async () => {
+		const error = Object.assign(new Error("complete failed"), {
+			retryable: false,
+		});
+		completeUpload.mockReset();
+		completeUpload.mockRejectedValue(error);
+		removeSession.mockReset();
+		const markTaskFailed = vi.fn();
+		const patchTask = vi.fn();
+		const abortFlagsRef = { current: new Map<string, boolean>() };
+		const context: UploadModeRunnerContext = {
+			abortFlagsRef,
+			directAbortRef: { current: new Map() },
+			flushProgress: vi.fn(),
+			markFolderForRefresh: vi.fn(),
+			markTaskFailed,
+			multipartInFlightRef: { current: new Map() },
+			patchTask,
+			patchTaskThrottled: vi.fn(),
+			uploadRequestRef: { current: new Map() },
+			t: (key) => key,
+			workspace: { kind: "personal" },
+		};
+		const task: UploadTask = {
+			id: "file-backed",
+			file: new File(["content"], "file-backed.bin"),
+			filename: "file-backed.bin",
+			relativePath: null,
+			baseFolderId: null,
+			baseFolderName: "Root",
+			totalBytes: 7,
+			mode: "chunked",
+			status: "processing",
+			progress: 95,
+			error: null,
+			uploadId: "upload-file-backed",
+		};
+
+		const { resumeCompletionTask } = createResumableUploadRunners(context);
+		await resumeCompletionTask(task);
+
+		expect(markTaskFailed).toHaveBeenCalledWith("file-backed", error);
+		expect(removeSession).not.toHaveBeenCalled();
+		expect(abortFlagsRef.current.has("file-backed")).toBe(false);
 	});
 });

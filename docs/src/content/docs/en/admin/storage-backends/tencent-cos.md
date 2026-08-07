@@ -144,7 +144,9 @@ If you use `presigned` upload, the COS bucket must allow browser cross-origin up
 - `AllowedOrigin`: your public AsterDrive site URL
 - `AllowedMethod`: includes `PUT`
 - `AllowedHeader`: allows the headers used by upload requests
-- `ExposeHeader`: includes `ETag`
+- `ExposeHeader`: includes `ETag` when using presigned multipart uploads
+
+After a single presigned PUT completes, AsterDrive verifies the object's metadata and size on the server and does not depend on the browser reading `ETag`. Presigned multipart completion still needs each part's `ETag`, so CORS must continue to expose `ETag` when large-file direct uploads are enabled.
 
 If you use `presigned` download, also confirm that browsers can access the returned COS download URL and that you accept response headers and cache behavior being controlled more by COS.
 

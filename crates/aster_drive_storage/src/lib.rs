@@ -67,7 +67,8 @@ pub use storage_policy_config::{
     StoragePolicyConfigEnvelope, decode_storage_policy_config, encode_storage_policy_config,
 };
 pub use traits::driver::{
-    BlobMetadata, PresignedDownloadOptions, StorageDriver, StoragePathVisitor,
+    BlobMetadata, PresignedDownloadOptions, PresignedUploadRequest, StorageDriver,
+    StoragePathVisitor,
 };
 pub use traits::{
     ListStorageDriver, LocalPathStorageDriver, MultipartStorageDriver, NativeMediaMetadataRequest,

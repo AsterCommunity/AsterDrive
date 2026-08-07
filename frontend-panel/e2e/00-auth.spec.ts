@@ -105,10 +105,9 @@ test.describe
 			const identifier = page.getByLabel("Email or username");
 			await identifier.fill("esap");
 			await identifier.focus();
-			await identifier.evaluate((input) => {
-				if (!(input instanceof HTMLInputElement)) return;
-				input.setSelectionRange(2, 2);
-			});
+			await identifier.press("Home");
+			await identifier.press("ArrowRight");
+			await identifier.press("ArrowRight");
 			await expect
 				.poll(() =>
 					identifier.evaluate((input) =>
@@ -133,10 +132,10 @@ test.describe
 			const password = page.locator("#password");
 			await password.fill("secret");
 			await password.focus();
-			await password.evaluate((input) => {
-				if (!(input instanceof HTMLInputElement)) return;
-				input.setSelectionRange(3, 3);
-			});
+			await password.press("Home");
+			await password.press("ArrowRight");
+			await password.press("ArrowRight");
+			await password.press("ArrowRight");
 			await expect
 				.poll(() =>
 					password.evaluate((input) =>

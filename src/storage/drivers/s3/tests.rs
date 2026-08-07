@@ -230,7 +230,7 @@ fn new_defaults_signing_region_to_auto() {
 }
 
 #[tokio::test]
-async fn presigned_put_url_uses_configured_addressing_style() {
+async fn presigned_put_request_uses_configured_addressing_style() {
     let path_style_driver = S3Driver::new(
         sample_config("https://s3.example.test", "bucket"),
         sample_credentials(),
@@ -256,25 +256,28 @@ async fn presigned_put_url_uses_configured_addressing_style() {
     .expect("virtual-hosted driver");
 
     let path_style = path_style_driver
-        .presigned_put_url("folder/file.txt", Duration::from_secs(60))
+        .presigned_put_request("folder/file.txt", Duration::from_secs(60))
         .await
         .expect("path-style presign")
         .expect("path-style URL");
     let virtual_hosted = virtual_hosted_driver
-        .presigned_put_url("folder/file.txt", Duration::from_secs(60))
+        .presigned_put_request("folder/file.txt", Duration::from_secs(60))
         .await
         .expect("virtual-hosted presign")
         .expect("virtual-hosted URL");
     let override_virtual_hosted = override_virtual_hosted_driver
-        .presigned_put_url("folder/file.txt", Duration::from_secs(60))
+        .presigned_put_request("folder/file.txt", Duration::from_secs(60))
         .await
         .expect("override virtual-hosted presign")
         .expect("override virtual-hosted URL");
 
-    let path_style = url::Url::parse(&path_style).expect("path-style URL parse");
-    let virtual_hosted = url::Url::parse(&virtual_hosted).expect("virtual-hosted URL parse");
+    assert!(path_style.headers.is_empty());
+    assert!(virtual_hosted.headers.is_empty());
+    assert!(override_virtual_hosted.headers.is_empty());
+    let path_style = url::Url::parse(&path_style.url).expect("path-style URL parse");
+    let virtual_hosted = url::Url::parse(&virtual_hosted.url).expect("virtual-hosted URL parse");
     let override_virtual_hosted =
-        url::Url::parse(&override_virtual_hosted).expect("override virtual-hosted URL parse");
+        url::Url::parse(&override_virtual_hosted.url).expect("override virtual-hosted URL parse");
 
     assert_eq!(path_style.host_str(), Some("s3.example.test"));
     assert_eq!(path_style.path(), "/bucket/folder/file.txt");
@@ -666,7 +669,7 @@ async fn presigned_url_includes_download_response_overrides() {
 }
 
 #[tokio::test]
-async fn presigned_put_url_includes_base_path() {
+async fn presigned_put_request_includes_base_path() {
     let response = http::Response::builder()
         .status(200)
         .body(SdkBody::empty())
@@ -674,12 +677,13 @@ async fn presigned_put_url_includes_base_path() {
     let (mut driver, _request) = mocked_driver(response);
     driver.base_path = "base".to_string();
 
-    let url = driver
-        .presigned_put_url("upload.bin", Duration::from_secs(60))
+    let request = driver
+        .presigned_put_request("upload.bin", Duration::from_secs(60))
         .await
         .expect("presigned PUT URL should build")
         .expect("S3 should return a URL");
-    let parsed = reqwest::Url::parse(&url).expect("presigned URL should parse");
+    let parsed = reqwest::Url::parse(&request.url).expect("presigned URL should parse");
+    assert!(request.headers.is_empty());
 
     assert!(
         parsed.path().contains("/base/upload.bin"),
@@ -690,7 +694,8 @@ async fn presigned_put_url_includes_base_path() {
         parsed
             .query_pairs()
             .any(|(key, value)| key == "X-Amz-Algorithm" && value == "AWS4-HMAC-SHA256"),
-        "expected SigV4 query parameters in '{url}'"
+        "expected SigV4 query parameters in '{}'",
+        request.url
     );
 }
 
@@ -753,7 +758,7 @@ async fn create_multipart_upload_rejects_missing_upload_id() {
 }
 
 #[tokio::test]
-async fn presigned_upload_part_url_includes_upload_context() {
+async fn presigned_upload_part_request_includes_upload_context() {
     let response = http::Response::builder()
         .status(200)
         .body(SdkBody::empty())
@@ -761,11 +766,12 @@ async fn presigned_upload_part_url_includes_upload_context() {
     let (mut driver, _request) = mocked_driver(response);
     driver.base_path = "base".to_string();
 
-    let url = driver
-        .presigned_upload_part_url("object.bin", "upload-123", 7, Duration::from_secs(60))
+    let request = driver
+        .presigned_upload_part_request("object.bin", "upload-123", 7, Duration::from_secs(60))
         .await
         .expect("presigned part URL should build");
-    let parsed = reqwest::Url::parse(&url).expect("presigned URL should parse");
+    let parsed = reqwest::Url::parse(&request.url).expect("presigned URL should parse");
+    assert!(request.headers.is_empty());
     let query = parsed
         .query_pairs()
         .into_owned()

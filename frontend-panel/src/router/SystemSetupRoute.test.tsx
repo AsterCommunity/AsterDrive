@@ -104,6 +104,7 @@ describe("system setup route guards", () => {
 
 	afterEach(() => {
 		vi.useRealTimers();
+		vi.restoreAllMocks();
 	});
 
 	it("redirects normal routes to storage setup while initialization is open", async () => {
@@ -197,7 +198,7 @@ describe("system setup route guards", () => {
 		expect(mockState.refresh).toHaveBeenCalledTimes(callsAfterReady);
 	});
 
-	it("refreshes on focus and visible-page transitions, then removes listeners", async () => {
+	it("refreshes once for a visible plus focus foreground transition", async () => {
 		const visibilityDescriptor = Object.getOwnPropertyDescriptor(
 			document,
 			"visibilityState",
@@ -212,15 +213,21 @@ describe("system setup route guards", () => {
 		const { unmount } = render(<StorageSystemSetupRoute />);
 		await waitFor(() => expect(mockState.refresh).toHaveBeenCalled());
 		mockState.refresh.mockClear();
+		vi.spyOn(Date, "now").mockReturnValue(0);
 
+		setVisibility("hidden");
+		fireEvent(document, new Event("visibilitychange"));
+		expect(mockState.refresh).not.toHaveBeenCalled();
+
+		setVisibility("visible");
+		fireEvent(document, new Event("visibilitychange"));
 		fireEvent.focus(window);
 		expect(mockState.refresh).toHaveBeenCalledTimes(1);
 
 		setVisibility("hidden");
 		fireEvent(document, new Event("visibilitychange"));
-		expect(mockState.refresh).toHaveBeenCalledTimes(1);
-
 		setVisibility("visible");
+		fireEvent.focus(window);
 		fireEvent(document, new Event("visibilitychange"));
 		expect(mockState.refresh).toHaveBeenCalledTimes(2);
 
@@ -233,6 +240,54 @@ describe("system setup route guards", () => {
 		if (visibilityDescriptor) {
 			Object.defineProperty(document, "visibilityState", visibilityDescriptor);
 		}
+	});
+
+	it("does not refresh ready routes on focus or visible transitions", async () => {
+		const visibilityDescriptor = Object.getOwnPropertyDescriptor(
+			document,
+			"visibilityState",
+		);
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			value: "visible",
+		});
+		mockState.setupState = "ready";
+
+		render(<ReadySystemSetupRoute />);
+		await waitFor(() => expect(mockState.refresh).toHaveBeenCalledTimes(1));
+		mockState.refresh.mockClear();
+
+		fireEvent.focus(window);
+		fireEvent(document, new Event("visibilitychange"));
+		expect(mockState.refresh).not.toHaveBeenCalled();
+
+		if (visibilityDescriptor) {
+			Object.defineProperty(document, "visibilityState", visibilityDescriptor);
+		}
+	});
+
+	it("keeps foreground recovery active after a setup refresh error", async () => {
+		mockState.setupState = "ready";
+		mockState.error = new Error("temporary failure");
+
+		render(<ReadySystemSetupRoute />);
+		await waitFor(() => expect(mockState.refresh).toHaveBeenCalledTimes(1));
+		mockState.refresh.mockClear();
+
+		fireEvent.focus(window);
+		expect(mockState.refresh).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps pending setup routes refreshable when they regain focus", async () => {
+		mockState.setupState = "needs_storage";
+		mockState.userRole = "user";
+
+		render(<PendingSystemSetupRoute />);
+		await waitFor(() => expect(mockState.refresh).toHaveBeenCalledTimes(1));
+		mockState.refresh.mockClear();
+
+		fireEvent.focus(window);
+		expect(mockState.refresh).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not query or poll setup state before authentication is usable", async () => {

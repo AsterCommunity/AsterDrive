@@ -116,7 +116,7 @@ async fn init_presigned_object_storage_single_upload(
             return Ok(UniqueUuidAttempt::Collision);
         }
 
-        let (presigned_url, presigned_headers, presigned_require_etag) =
+        let (presigned_request, presigned_require_etag) =
             match presigned_put_request(driver, &temp_key).await {
                 Ok(request) => request,
                 Err(error) => {
@@ -144,8 +144,7 @@ async fn init_presigned_object_storage_single_upload(
             upload_id: Some(upload_id),
             chunk_size: None,
             total_chunks: None,
-            presigned_url: Some(presigned_url),
-            presigned_headers,
+            presigned_request: Some(presigned_request),
             presigned_require_etag: Some(presigned_require_etag),
             provider_resumable: None,
             upload_scheduling: None,
@@ -202,18 +201,17 @@ async fn init_relay_stream_object_storage_upload(
 async fn presigned_put_request(
     driver: &dyn aster_drive_storage::StorageDriver,
     temp_key: &str,
-) -> Result<(String, std::collections::BTreeMap<String, String>, bool)> {
+) -> Result<(aster_drive_storage::PresignedUploadRequest, bool)> {
     let presigned_driver = driver
         .extensions()
         .presigned
         .ok_or_else(|| AsterError::storage_driver_error("presigned PUT not supported by driver"))?;
-    let url = presigned_driver
-        .presigned_put_url(temp_key, std::time::Duration::from_secs(HOUR_SECS))
+    let request = presigned_driver
+        .presigned_put_request(temp_key, std::time::Duration::from_secs(HOUR_SECS))
         .await?
         .ok_or_else(|| AsterError::storage_driver_error("presigned PUT not supported by driver"))?;
     Ok((
-        url,
-        presigned_driver.presigned_put_headers(),
-        presigned_driver.presigned_put_requires_etag(),
+        request,
+        presigned_driver.presigned_single_put_requires_etag(),
     ))
 }

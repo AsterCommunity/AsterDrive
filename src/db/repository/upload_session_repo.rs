@@ -188,6 +188,39 @@ pub async fn try_transition_status<C: ConnectionTrait>(
     Ok(result.rows_affected > 0)
 }
 
+/// 原子终止仍处于指定 active 状态的 session，并把 expiry 缩短到 cleanup 重试窗口。
+///
+/// upload-stage 请求可能并发执行；状态条件保证已经进入 assembling/completed/failed
+/// 的 session 不会被较晚返回的错误反向覆盖。
+pub async fn try_fail_with_expiration<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+    expected: UploadSessionStatus,
+    expires_at: chrono::DateTime<chrono::Utc>,
+) -> Result<bool> {
+    use sea_orm::ActiveEnum;
+    let now = chrono::Utc::now();
+    let result = UploadSession::update_many()
+        .col_expr(
+            upload_session::Column::Status,
+            sea_orm::sea_query::Expr::value(UploadSessionStatus::Failed.to_value()),
+        )
+        .col_expr(
+            upload_session::Column::ExpiresAt,
+            sea_orm::sea_query::Expr::value(expires_at),
+        )
+        .col_expr(
+            upload_session::Column::UpdatedAt,
+            sea_orm::sea_query::Expr::value(now),
+        )
+        .filter(upload_session::Column::Id.eq(id))
+        .filter(upload_session::Column::Status.eq(expected))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected > 0)
+}
+
 /// 原子状态转换：只有状态匹配且 session 尚未过期时才更新。
 pub async fn try_transition_status_before_expiry<C: ConnectionTrait>(
     db: &C,
@@ -358,4 +391,140 @@ pub async fn find_expired_completed_paginated<C: ConnectionTrait>(
         query = query.filter(upload_session::Column::Id.gt(last_id.to_string()));
     }
     query.all(db).await.map_err(AsterError::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Duration, Utc};
+    use sea_orm::{ActiveModelTrait, ConnectOptions, Database, DbBackend, IntoActiveModel, Schema};
+
+    async fn build_test_db() -> sea_orm::DatabaseConnection {
+        let mut options = ConnectOptions::new("sqlite::memory:");
+        options.max_connections(1);
+        let db = Database::connect(options)
+            .await
+            .expect("upload session repo test DB should connect");
+        db.execute_unprepared("PRAGMA foreign_keys = OFF")
+            .await
+            .expect("upload session repo test DB should disable unrelated foreign keys");
+        let schema = Schema::new(DbBackend::Sqlite);
+        db.execute(&schema.create_table_from_entity(upload_session::Entity))
+            .await
+            .expect("upload session test table should be created");
+        db
+    }
+
+    fn session(id: &str, status: UploadSessionStatus) -> upload_session::Model {
+        let now = Utc::now();
+        upload_session::Model {
+            id: id.to_string(),
+            user_id: 7,
+            team_id: None,
+            frontend_client_id: Some("frontend-1".to_string()),
+            filename: format!("{id}.bin"),
+            total_size: 10,
+            chunk_size: 5,
+            total_chunks: 2,
+            received_count: 0,
+            folder_id: None,
+            policy_id: 1,
+            status,
+            session_kind: UploadSessionKind::OffsetStaging,
+            object_temp_key: None,
+            object_multipart_id: None,
+            provider_session_ciphertext: None,
+            file_id: None,
+            created_at: now,
+            expires_at: now + Duration::hours(1),
+            updated_at: now,
+        }
+    }
+
+    #[tokio::test]
+    async fn fail_with_expiration_hides_active_session_and_blocks_late_receipts() {
+        for initial_status in [
+            UploadSessionStatus::Uploading,
+            UploadSessionStatus::Presigned,
+        ] {
+            let db = build_test_db().await;
+            let model = session("terminal", initial_status);
+            model
+                .clone()
+                .into_active_model()
+                .insert(&db)
+                .await
+                .expect("active upload session should insert");
+
+            let recoverable = find_recoverable_by_owner(
+                &db,
+                model.user_id,
+                None,
+                model.frontend_client_id.as_deref(),
+                10,
+            )
+            .await
+            .expect("active session lookup should succeed");
+            assert_eq!(recoverable.len(), 1);
+
+            let short_expiry = Utc::now() + Duration::seconds(15);
+            assert!(
+                try_fail_with_expiration(&db, &model.id, initial_status, short_expiry)
+                    .await
+                    .expect("terminal transition should execute")
+            );
+
+            let failed = find_by_id(&db, &model.id)
+                .await
+                .expect("failed session should remain available for cleanup");
+            assert_eq!(failed.status, UploadSessionStatus::Failed);
+            assert_eq!(failed.expires_at, short_expiry);
+            assert!(
+                find_recoverable_by_owner(
+                    &db,
+                    model.user_id,
+                    None,
+                    model.frontend_client_id.as_deref(),
+                    10,
+                )
+                .await
+                .expect("recoverable lookup should succeed")
+                .is_empty()
+            );
+            assert!(
+                !increment_received_count_if_uploading(&db, &model.id)
+                    .await
+                    .expect("late receipt guard should execute")
+            );
+            assert_eq!(find_by_id(&db, &model.id).await.unwrap().received_count, 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn fail_with_expiration_does_not_overwrite_a_concurrent_state_change() {
+        let db = build_test_db().await;
+        let model = session("assembling", UploadSessionStatus::Assembling);
+        model
+            .clone()
+            .into_active_model()
+            .insert(&db)
+            .await
+            .expect("assembling session should insert");
+        let original_expiry = model.expires_at;
+
+        assert!(
+            !try_fail_with_expiration(
+                &db,
+                &model.id,
+                UploadSessionStatus::Uploading,
+                Utc::now() + Duration::seconds(15),
+            )
+            .await
+            .expect("stale terminal transition should execute")
+        );
+
+        let unchanged = find_by_id(&db, &model.id).await.unwrap();
+        assert_eq!(unchanged.status, UploadSessionStatus::Assembling);
+        assert_eq!(unchanged.expires_at, original_expiry);
+    }
 }

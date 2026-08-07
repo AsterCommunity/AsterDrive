@@ -48,7 +48,7 @@ export function UploadAreaHost({ workspace }: UploadAreaHostProps) {
 	);
 	const {
 		activeCount,
-		clearCompletedTasks,
+		clearFinishedTasks,
 		failedCount,
 		hasUploadActivity,
 		handleDragEnter,
@@ -193,8 +193,8 @@ export function UploadAreaHost({ workspace }: UploadAreaHostProps) {
 						onAutoClearCompletedChange={setUploadAutoClearCompleted}
 						onRetryFailed={retryFailedTasks}
 						retryFailedLabel={t("files:upload_retry")}
-						onClearCompleted={clearCompletedTasks}
-						clearCompletedLabel={t("files:upload_clear_completed")}
+						onClearFinished={clearFinishedTasks}
+						clearFinishedLabel={t("files:upload_clear_finished")}
 					/>
 				</BottomRightActivityPortal>
 			)}

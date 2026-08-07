@@ -134,9 +134,9 @@ OBS addressing and listing must not inherit generic S3 blindly:
 
 The implementation is pinned against Huawei's official Go OBS SDK `v3.26.6`, commit `fd2b44881f0cd9bd41ffff2fabeb94c783ccc321`, especially `obs/auth.go`, `obs/authV2.go`, `obs/conf.go`, `obs/trait_object.go`, `obs/trait_part.go`, `obs/convert.go`, and `obs/client_object.go`.
 
-## Boundary for a Future OSS Implementation
+## OSS Implementation Boundary
 
-OSS can follow the structure verified for COS, but its signer,
+OSS follows the auth-scheme structure verified for COS, but its signer,
 endpoint/addressing behavior, and field transformations must remain
 independent:
 
@@ -149,9 +149,17 @@ independent:
   layer.
 - Header signing and query presigning both use OSS V4 rather than AWS SigV4.
 
-Prefer two clients that share a signer, one for backend operations and one for
-browser presigning. Temporarily changing the endpoint for a single request can
-break consistency between the Host and canonical URI.
+`AlibabaOssDriver` keeps a public client for browser presigning and constructs
+a separate backend client when a server-side endpoint is configured. Without
+a server-side endpoint, both paths share one client. This avoids changing an
+endpoint on a single request and breaking consistency between the Host and
+canonical URI.
+
+The OSS signer lives in `src/storage/drivers/alibaba_oss/signing.rs`. Current
+coverage includes an official Go SDK vector, captured normal requests,
+generated presigning, the CNAME wire path, CopyObject header conversion, and
+public/server endpoint separation. Real-provider integration remains an
+external release-validation boundary.
 
 ## Boundary with Provider Option Plugins
 

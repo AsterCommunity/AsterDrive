@@ -9,6 +9,7 @@ import { createUploadModeRunners } from "./uploadAreaUploadModeRunners";
 import type { UploadRequestRef } from "./uploadAreaUploadRunnerShared";
 import {
 	cancelUploadTask,
+	clearTerminalUploadTasks,
 	retryUploadTask,
 	runQueuedUploadTask,
 } from "./uploadAreaUploadTaskActions";
@@ -18,7 +19,7 @@ interface UseUploadAreaUploadsOptions {
 	directAbortRef: MutableRefObject<Map<string, AbortController>>;
 	flushProgress: () => void;
 	markFolderForRefresh: (task: UploadTask) => void;
-	markTaskFailed: (taskId: string, message: string) => void;
+	markTaskFailed: (taskId: string, error: unknown) => void;
 	multipartInFlightRef: MutableRefObject<Map<string, number>>;
 	patchTask: (taskId: string, patch: Partial<UploadTask>) => void;
 	patchTaskThrottled: (taskId: string, patch: Partial<UploadTask>) => void;
@@ -46,7 +47,7 @@ export function useUploadAreaUploads({
 	uploadRequestRef,
 	workspace,
 }: UseUploadAreaUploadsOptions) {
-	const retryingTaskIdsRef = useRef(new Set<string>());
+	const taskOperationLocksRef = useRef(new Map<string, "clear" | "retry">());
 	const modeRunners = useMemo(
 		() =>
 			createUploadModeRunners({
@@ -87,6 +88,7 @@ export function useUploadAreaUploads({
 				patchTask,
 				setTasks,
 				setUploadPanelOpen,
+				taskOperationLocks: taskOperationLocksRef.current,
 				t,
 				tasksRef,
 				uploadRequestRef,
@@ -118,6 +120,7 @@ export function useUploadAreaUploads({
 				patchTask,
 				setTasks,
 				setUploadPanelOpen,
+				taskOperationLocks: taskOperationLocksRef.current,
 				t,
 				tasksRef,
 				uploadRequestRef,
@@ -139,27 +142,33 @@ export function useUploadAreaUploads({
 		],
 	);
 
+	const clearTasks = useCallback(
+		async (taskIds: readonly string[]) => {
+			await clearTerminalUploadTasks(taskIds, {
+				setTasks,
+				taskOperationLocks: taskOperationLocksRef.current,
+				tasksRef,
+			});
+		},
+		[setTasks, tasksRef],
+	);
+
 	const retryTask = useCallback(
 		async (taskId: string) => {
-			if (retryingTaskIdsRef.current.has(taskId)) return;
-			retryingTaskIdsRef.current.add(taskId);
-			try {
-				await retryUploadTask(taskId, {
-					...modeRunners,
-					abortFlagsRef,
-					directAbortRef,
-					markTaskFailed,
-					patchTask,
-					setTasks,
-					setUploadPanelOpen,
-					t,
-					tasksRef,
-					uploadRequestRef,
-					workspace,
-				});
-			} finally {
-				retryingTaskIdsRef.current.delete(taskId);
-			}
+			await retryUploadTask(taskId, {
+				...modeRunners,
+				abortFlagsRef,
+				directAbortRef,
+				markTaskFailed,
+				patchTask,
+				setTasks,
+				setUploadPanelOpen,
+				t,
+				taskOperationLocks: taskOperationLocksRef.current,
+				tasksRef,
+				uploadRequestRef,
+				workspace,
+			});
 		},
 		[
 			modeRunners,
@@ -178,6 +187,7 @@ export function useUploadAreaUploads({
 
 	return {
 		cancelTask,
+		clearTasks,
 		resumeCompletionTask: modeRunners.resumeCompletionTask,
 		retryTask,
 		runTask,

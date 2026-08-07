@@ -4,7 +4,7 @@ import { Icon } from "@/components/ui/icon";
 
 interface UploadTaskAction {
 	label: string;
-	icon: "X" | "ArrowsClockwise" | "Upload";
+	icon: "X" | "ArrowsClockwise" | "Trash" | "Upload";
 	onClick: () => void;
 	variant?: "outline" | "ghost";
 }
@@ -17,6 +17,7 @@ interface UploadTaskItemProps {
 	detail?: string;
 	speed?: string;
 	completed?: boolean;
+	failed?: boolean;
 	cancelled?: boolean;
 	actions?: UploadTaskAction[];
 }
@@ -31,13 +32,10 @@ export function UploadTaskItem({
 	detail,
 	speed,
 	completed = false,
+	failed = false,
 	cancelled = false,
 	actions = EMPTY_UPLOAD_TASK_ACTIONS,
 }: UploadTaskItemProps) {
-	const failed =
-		!completed &&
-		!cancelled &&
-		actions.some((action) => action.icon === "ArrowsClockwise");
 	const waitingForFile =
 		!completed &&
 		!cancelled &&

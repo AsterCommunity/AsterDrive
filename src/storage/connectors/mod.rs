@@ -9,6 +9,7 @@
 //! `StorageDriver` 管“policy 已经配好后怎么读写对象”。如果一段逻辑需要数据库、
 //! OAuth、表单字段、连接测试或策略动作，它通常属于 connector，而不是 driver。
 
+mod alibaba_oss;
 mod azure_blob;
 mod common;
 mod contract;
@@ -41,6 +42,7 @@ use aster_drive_storage::connector_descriptor::{
     StorageConnectorObjectNamingMode,
 };
 
+use alibaba_oss::AlibabaOssConnector;
 use azure_blob::AzureBlobConnector;
 pub use common::unsupported_multipart_error;
 use huawei_obs::HuaweiObsConnector;
@@ -79,6 +81,7 @@ pub(crate) fn builtin_storage_connector_registry() -> Result<StorageConnectorReg
     StorageConnectorRegistry::new(vec![
         Arc::new(LocalConnector),
         Arc::new(S3Connector),
+        Arc::new(AlibabaOssConnector),
         Arc::new(SftpConnector),
         Arc::new(AzureBlobConnector),
         Arc::new(HuaweiObsConnector),

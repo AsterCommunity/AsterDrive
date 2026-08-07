@@ -94,6 +94,41 @@ fn exposes_s3_shaped_runtime_capabilities_under_obs_signing() {
     assert!(driver.extensions().multipart.is_some());
 }
 
+#[tokio::test]
+async fn presigned_put_request_uses_obs_signature_and_driver_owned_contract() {
+    let driver = HuaweiObsDriver::new(
+        config(
+            "https://obs.cn-north-4.myhuaweicloud.com",
+            HuaweiObsAddressingMode::VirtualHosted,
+        ),
+        credentials(),
+    )
+    .expect("valid OBS driver");
+
+    let presigned = driver
+        .extensions()
+        .presigned
+        .expect("OBS presigned capability");
+    assert!(presigned.presigned_single_put_requires_etag());
+    let request = presigned
+        .presigned_put_request("docs/report.txt", Duration::from_secs(60))
+        .await
+        .expect("OBS presigned PUT should build")
+        .expect("OBS should expose presigned PUT");
+
+    let url = url::Url::parse(&request.url).expect("OBS presigned PUT URL");
+    let query = url
+        .query_pairs()
+        .collect::<std::collections::HashMap<_, _>>();
+    assert_eq!(
+        query.get("AccessKeyId").map(|value| value.as_ref()),
+        Some("access-key")
+    );
+    assert!(query.contains_key("Expires"));
+    assert!(query.contains_key("Signature"));
+    assert!(!query.contains_key("X-Amz-Signature"));
+}
+
 #[test]
 fn custom_domain_allows_region_to_be_omitted() {
     let mut config = config(

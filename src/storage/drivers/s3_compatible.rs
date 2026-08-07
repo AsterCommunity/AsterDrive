@@ -5,7 +5,30 @@
 //! 抽出来，厂商 driver 只需要实现自己的能力扩展。
 
 use super::s3::S3Driver;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
+
+use aster_drive_storage::traits::driver::PresignedDownloadOptions;
+use aster_drive_storage::traits::extensions::PresignedStorageDriver;
+
+#[async_trait::async_trait]
+impl PresignedStorageDriver for S3CompatibleDriver {
+    async fn presigned_url(
+        &self,
+        path: &str,
+        expires: Duration,
+        options: PresignedDownloadOptions,
+    ) -> aster_drive_storage::Result<Option<String>> {
+        self.inner.presigned_url(path, expires, options).await
+    }
+
+    async fn presigned_put_request(
+        &self,
+        path: &str,
+        expires: Duration,
+    ) -> aster_drive_storage::Result<Option<aster_drive_storage::PresignedUploadRequest>> {
+        self.inner.presigned_put_request(path, expires).await
+    }
+}
 
 pub struct S3CompatibleDriver {
     inner: Arc<S3Driver>,
@@ -94,7 +117,7 @@ macro_rules! delegate_s3_compatible_storage_driver {
                 let this = self;
                 let base = this.$field.extensions();
                 aster_drive_storage::StorageDriverExtensions {
-                    presigned: base.presigned,
+                    presigned: Some(this),
                     list: $crate::storage::drivers::s3_compatible::delegate_s3_compatible_storage_driver!(@list $list_mode, base, this),
                     stream_upload: base.stream_upload,
                     multipart: Some(this),
@@ -130,15 +153,15 @@ macro_rules! delegate_s3_compatible_multipart_driver {
                 self.$field.create_multipart_upload(path).await
             }
 
-            async fn presigned_upload_part_url(
+            async fn presigned_upload_part_request(
                 &self,
                 path: &str,
                 upload_id: &str,
                 part_number: i32,
                 expires: std::time::Duration,
-            ) -> aster_drive_storage::Result<String> {
+            ) -> aster_drive_storage::Result<aster_drive_storage::PresignedUploadRequest> {
                 self.$field
-                    .presigned_upload_part_url(path, upload_id, part_number, expires)
+                    .presigned_upload_part_request(path, upload_id, part_number, expires)
                     .await
             }
 
@@ -256,7 +279,8 @@ mod tests {
         let driver = build_driver().expect("driver should build");
 
         assert!(driver.supports_efficient_range());
-        assert!(driver.extensions().presigned.is_some());
+        let presigned = driver.extensions().presigned.expect("presigned capability");
+        assert!(presigned.presigned_single_put_requires_etag());
         assert!(driver.extensions().list.is_some());
         assert!(driver.extensions().stream_upload.is_some());
         assert!(driver.extensions().multipart.is_some());
@@ -270,19 +294,24 @@ mod tests {
             .extensions()
             .presigned
             .expect("presigned capability")
-            .presigned_put_url("docs/report.txt", Duration::from_secs(60))
+            .presigned_put_request("docs/report.txt", Duration::from_secs(60))
             .await
             .expect("presigned URL should build")
             .expect("S3-compatible driver should return URL");
 
         assert!(
-            presigned.starts_with("https://s3.example.test/bucket/tenant-a/docs/report.txt"),
-            "unexpected presigned URL: {presigned}"
+            presigned
+                .url
+                .starts_with("https://s3.example.test/bucket/tenant-a/docs/report.txt"),
+            "unexpected presigned URL: {}",
+            presigned.url
         );
         assert!(
-            presigned.contains("X-Amz-Signature="),
-            "expected AWS query signature in {presigned}"
+            presigned.url.contains("X-Amz-Signature="),
+            "expected AWS query signature in {}",
+            presigned.url
         );
+        assert!(presigned.headers.is_empty());
     }
 
     #[test]

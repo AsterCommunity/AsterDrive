@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
+use aster_drive_storage::PresignedUploadRequest;
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 use aster_drive_storage::traits::driver::PresignedDownloadOptions;
 use aster_drive_storage::traits::extensions::PresignedStorageDriver;
@@ -28,11 +29,11 @@ impl PresignedStorageDriver for RemoteDriver {
             .map_err(Into::into)
     }
 
-    async fn presigned_put_url(
+    async fn presigned_put_request(
         &self,
         path: &str,
         expires: Duration,
-    ) -> aster_drive_storage::Result<Option<String>> {
+    ) -> aster_drive_storage::Result<Option<PresignedUploadRequest>> {
         if self.uses_reverse_tunnel {
             return Err(storage_driver_error(
                 StorageErrorKind::Unsupported,
@@ -41,6 +42,7 @@ impl PresignedStorageDriver for RemoteDriver {
         }
         self.client
             .presigned_put_url(&self.object_key(path), expires)
+            .map(PresignedUploadRequest::without_headers)
             .map(Some)
             .map_err(Into::into)
     }
