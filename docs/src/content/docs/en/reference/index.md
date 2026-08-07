@@ -9,7 +9,7 @@ This section is not an operations manual. It is for looking things up and learni
 | --- | --- |
 | Look up a `config.toml` field | [Configuration Overview](./config/) |
 | Look up an admin-console system setting and when it takes effect | [System Settings](./config/runtime/) |
-| Compare the seven storage backends and their credentials at rest | [Storage Capability Matrix](./storage-matrix/) |
+| Compare the eight storage backends and their credentials at rest | [Storage Capability Matrix](./storage-matrix/) |
 | Check WebDAV protocol methods, property, lock, and versioning boundaries | [WebDAV Protocol Compatibility](./webdav-compat/) |
 | Understand primary / follower and the upload-download data flow | [Runtime Architecture](./runtime-architecture/) |
 | Look up a term | [Glossary](./glossary/) |

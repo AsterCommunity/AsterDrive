@@ -615,7 +615,9 @@ mod tests {
     use crate::errors::{AsterError, upload_assembly_error_with_code};
     use aster_drive_model::entities::upload_session;
     use aster_drive_storage::traits::UploadedMultipartPart;
-    use aster_drive_storage::{BlobMetadata, MultipartStorageDriver, StorageDriver};
+    use aster_drive_storage::{
+        BlobMetadata, MultipartStorageDriver, StorageDriver, StorageErrorKind, storage_driver_error,
+    };
     use async_trait::async_trait;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -630,6 +632,8 @@ mod tests {
         size: u64,
         deleted_paths: Mutex<Vec<String>>,
     }
+
+    struct MissingObjectDriver;
 
     #[async_trait]
     impl StorageDriver for CountingCopyDriver {
@@ -718,6 +722,39 @@ mod tests {
             _dest_path: &str,
         ) -> aster_drive_storage::Result<String> {
             unreachable!()
+        }
+    }
+
+    #[async_trait]
+    impl StorageDriver for MissingObjectDriver {
+        async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
+            unreachable!()
+        }
+
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
+            unreachable!()
+        }
+
+        async fn get_stream(
+            &self,
+            _path: &str,
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
+            unreachable!()
+        }
+
+        async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
+            unreachable!()
+        }
+
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
+            Ok(false)
+        }
+
+        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
+            Err(storage_driver_error(
+                StorageErrorKind::NotFound,
+                "uploaded object does not exist",
+            ))
         }
     }
 
@@ -824,6 +861,24 @@ mod tests {
             .expect("deleted paths lock should not be poisoned")
             .clone();
         assert_eq!(deleted_paths, vec!["temp/object"]);
+    }
+
+    #[tokio::test]
+    async fn ensure_uploaded_object_size_reports_missing_temp_object() {
+        let error = ensure_uploaded_object_size(
+            &MissingObjectDriver,
+            "temp/missing",
+            12,
+            "uploaded object missing",
+        )
+        .await
+        .expect_err("missing temp object should fail completion");
+
+        assert_eq!(
+            error.api_error_code_override(),
+            Some(ApiErrorCode::UploadTempObjectMissing)
+        );
+        assert!(error.message().contains("uploaded object missing"));
     }
 
     fn test_session(total_size: i64, total_chunks: i32) -> upload_session::Model {

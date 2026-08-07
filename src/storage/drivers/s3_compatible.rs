@@ -5,7 +5,30 @@
 //! 抽出来，厂商 driver 只需要实现自己的能力扩展。
 
 use super::s3::S3Driver;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
+
+use aster_drive_storage::traits::driver::PresignedDownloadOptions;
+use aster_drive_storage::traits::extensions::PresignedStorageDriver;
+
+#[async_trait::async_trait]
+impl PresignedStorageDriver for S3CompatibleDriver {
+    async fn presigned_url(
+        &self,
+        path: &str,
+        expires: Duration,
+        options: PresignedDownloadOptions,
+    ) -> aster_drive_storage::Result<Option<String>> {
+        self.inner.presigned_url(path, expires, options).await
+    }
+
+    async fn presigned_put_url(
+        &self,
+        path: &str,
+        expires: Duration,
+    ) -> aster_drive_storage::Result<Option<String>> {
+        self.inner.presigned_put_url(path, expires).await
+    }
+}
 
 pub struct S3CompatibleDriver {
     inner: Arc<S3Driver>,
@@ -83,7 +106,7 @@ macro_rules! delegate_s3_compatible_storage_driver {
             fn extensions(&self) -> aster_drive_storage::StorageDriverExtensions<'_> {
                 let base = self.$field.extensions();
                 aster_drive_storage::StorageDriverExtensions {
-                    presigned: base.presigned,
+                    presigned: Some(self),
                     list: base.list,
                     stream_upload: base.stream_upload,
                     multipart: Some(self),
@@ -238,7 +261,8 @@ mod tests {
         let driver = build_driver().expect("driver should build");
 
         assert!(driver.supports_efficient_range());
-        assert!(driver.extensions().presigned.is_some());
+        let presigned = driver.extensions().presigned.expect("presigned capability");
+        assert!(presigned.presigned_single_put_requires_etag());
         assert!(driver.extensions().list.is_some());
         assert!(driver.extensions().stream_upload.is_some());
         assert!(driver.extensions().multipart.is_some());

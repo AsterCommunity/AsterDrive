@@ -168,6 +168,13 @@ fn s3_compatible_capabilities_are_available_on_cos_driver() {
     let driver = sample_driver("https://cos.ap-guangzhou.myqcloud.com", "bucket-1250000000");
 
     assert!(driver.extensions().presigned.is_some());
+    assert!(
+        !driver
+            .extensions()
+            .presigned
+            .expect("presigned capability")
+            .presigned_single_put_requires_etag()
+    );
     assert!(driver.extensions().list.is_some());
     assert!(driver.extensions().stream_upload.is_some());
     assert!(driver.extensions().multipart.is_some());

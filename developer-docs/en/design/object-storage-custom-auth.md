@@ -113,9 +113,9 @@ These transformations belong in the COS driver/signing module. They do not
 belong in services, connector common code, or the shared
 `aster_drive_storage` trait.
 
-## Boundary for a Future OSS Implementation
+## OSS Implementation Boundary
 
-OSS can follow the structure verified for COS, but its signer,
+OSS follows the auth-scheme structure verified for COS, but its signer,
 endpoint/addressing behavior, and field transformations must remain
 independent:
 
@@ -128,9 +128,17 @@ independent:
   layer.
 - Header signing and query presigning both use OSS V4 rather than AWS SigV4.
 
-Prefer two clients that share a signer, one for backend operations and one for
-browser presigning. Temporarily changing the endpoint for a single request can
-break consistency between the Host and canonical URI.
+`AlibabaOssDriver` keeps a public client for browser presigning and constructs
+a separate backend client when a server-side endpoint is configured. Without
+a server-side endpoint, both paths share one client. This avoids changing an
+endpoint on a single request and breaking consistency between the Host and
+canonical URI.
+
+The OSS signer lives in `src/storage/drivers/alibaba_oss/signing.rs`. Current
+coverage includes an official Go SDK vector, captured normal requests,
+generated presigning, the CNAME wire path, CopyObject header conversion, and
+public/server endpoint separation. Real-provider integration remains an
+external release-validation boundary.
 
 ## Boundary with Provider Option Plugins
 

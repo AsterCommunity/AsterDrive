@@ -20,6 +20,8 @@ use super::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 use aster_drive_storage::object_key;
+use aster_drive_storage::traits::driver::PresignedDownloadOptions;
+use aster_drive_storage::traits::extensions::PresignedStorageDriver;
 use aster_drive_storage::{MapStorageErr, Result};
 
 pub(super) const COS_NATIVE_PROCESSING_PROVIDER: &str = "tencent_cos_ci";
@@ -172,6 +174,34 @@ fn cos_ci_http_client(config: &TencentCosDriverConfig) -> Result<reqwest::Client
         .user_agent(OUTBOUND_HTTP_USER_AGENT)
         .build()
         .map_storage_err_ctx(StorageErrorKind::Misconfigured, "build COS CI HTTP client")
+}
+
+#[async_trait::async_trait]
+impl PresignedStorageDriver for TencentCosDriver {
+    async fn presigned_url(
+        &self,
+        path: &str,
+        expires: Duration,
+        options: PresignedDownloadOptions,
+    ) -> Result<Option<String>> {
+        self.storage
+            .s3_driver()
+            .presigned_url(path, expires, options)
+            .await
+    }
+
+    async fn presigned_put_url(&self, path: &str, expires: Duration) -> Result<Option<String>> {
+        self.storage
+            .s3_driver()
+            .presigned_put_url(path, expires)
+            .await
+    }
+
+    fn presigned_single_put_requires_etag(&self) -> bool {
+        // Single-object completion verifies the uploaded object's metadata and
+        // size server-side. ETag remains required for presigned multipart parts.
+        false
+    }
 }
 
 super::s3_compatible::delegate_s3_compatible_storage_driver!(

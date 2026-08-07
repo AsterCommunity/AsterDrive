@@ -134,9 +134,9 @@ export async function configureInitialStorage(
 		}),
 	).toBeVisible();
 	const storageDriverOptions = page.getByTestId("storage-driver-options");
-	await expect(storageDriverOptions.getByRole("button")).toHaveCount(
-		storage.kind === "cluster-s3" ? 6 : 7,
-	);
+	await expect(
+		storageDriverOptions.getByRole("button", { name: /Alibaba Cloud OSS/ }),
+	).toBeVisible();
 	await expect(
 		storageDriverOptions.getByRole("button", { name: /OneDrive/ }),
 	).toBeDisabled();
@@ -152,7 +152,11 @@ export async function configureInitialStorage(
 		).toHaveCount(0);
 		await storageDriverOptions.getByRole("button", { name: /^S3\b/ }).click();
 	} else {
-		await page.getByRole("button", { name: /^Local\b/ }).click();
+		const localOption = storageDriverOptions.getByRole("button", {
+			name: /^Local\b/,
+		});
+		await expect(localOption).toBeVisible();
+		await localOption.click();
 	}
 	await page.getByLabel("Name").fill("System Storage");
 	if (storage.kind === "cluster-s3") {

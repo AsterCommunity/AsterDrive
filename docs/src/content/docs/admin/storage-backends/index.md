@@ -1,5 +1,5 @@
 ---
-description: "AsterDrive 存储后端选择指南：七种后端的适用场景、所有后端共用的接入流程，以及切生产流量前的验证顺序。"
+description: "AsterDrive 存储后端选择指南：八种后端的适用场景、所有后端共用的接入流程，以及切生产流量前的验证顺序。"
 title: "存储后端"
 ---
 
@@ -14,6 +14,7 @@ title: "存储后端"
 | --- | --- | --- |
 | 本地磁盘 | 单机、NAS、小团队、最少依赖 | [本地磁盘](/admin/storage-backends/local/) |
 | S3 / MinIO / R2 | 对象存储、大文件、外部 bucket、云存储 | [S3 / MinIO / R2](/admin/storage-backends/s3/) |
+| 阿里云 OSS | 阿里云原生 OSS bucket、OSS V4 签名、内外网 endpoint 分流或 CNAME | [阿里云 OSS](/admin/storage-backends/alibaba-oss/) |
 | Azure Blob Storage | Azure Storage account、Blob container、Azure 托管对象存储 | [Azure Blob Storage](/admin/storage-backends/azure-blob/) |
 | 腾讯云 COS | 腾讯云对象存储、COS 数据万象、按策略启用原生处理 | [腾讯云 COS](/admin/storage-backends/tencent-cos/) |
 | OneDrive | Microsoft 365、OneDrive、SharePoint / group drive、Microsoft Graph 授权 | [OneDrive](/admin/storage-backends/onedrive/) |
@@ -48,5 +49,5 @@ flowchart TD
 5. 确认没有问题后，再把真实用户或团队迁到新策略组
 
 :::caution[已写入文件的策略，不要直接改真实落点]
-`local` 的目录、S3 的 bucket / endpoint / prefix、Azure Blob 的 endpoint / container / 基础路径、OneDrive 的 drive / root item / site 或 group 定位字段、SFTP 的 endpoint / 基础路径、远程节点绑定，这些字段决定旧文件在哪里。直接改掉，旧文件可能会找不到。正确的搬迁方式见 [存储策略与策略组](/admin/storage-policies/#迁移已有策略数据)。
+`local` 的目录、S3 / OSS 的 bucket / endpoint / prefix、Azure Blob 的 endpoint / container / 基础路径、OneDrive 的 drive / root item / site 或 group 定位字段、SFTP 的 endpoint / 基础路径、远程节点绑定，这些字段决定旧文件在哪里。直接改掉，旧文件可能会找不到。正确的搬迁方式见 [存储策略与策略组](/admin/storage-policies/#迁移已有策略数据)。
 :::
