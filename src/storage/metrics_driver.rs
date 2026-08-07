@@ -334,19 +334,19 @@ impl MultipartStorageDriver for MetricsMultipartStorageDriver {
         result
     }
 
-    async fn presigned_upload_part_url(
+    async fn presigned_upload_part_request(
         &self,
         path: &str,
         upload_id: &str,
         part_number: i32,
         expires: Duration,
-    ) -> aster_drive_storage::Result<String> {
+    ) -> aster_drive_storage::Result<aster_drive_storage::PresignedUploadRequest> {
         let started_at = Instant::now();
         let result = self
             .inner
-            .presigned_upload_part_url(path, upload_id, part_number, expires)
+            .presigned_upload_part_request(path, upload_id, part_number, expires)
             .await;
-        self.record("presigned_upload_part_url", &result, started_at);
+        self.record("presigned_upload_part_request", &result, started_at);
         result
     }
 

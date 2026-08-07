@@ -244,7 +244,7 @@ pub struct CompletedPartReq {
     pub etag: String,
 }
 
-/// Request presigned URLs for S3 multipart upload parts.
+/// Request complete presigned PUT descriptors for multipart upload parts.
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PresignPartsReq {

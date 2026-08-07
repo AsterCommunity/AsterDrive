@@ -8,7 +8,7 @@ mod signing;
 #[cfg(test)]
 mod tests;
 
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use aster_drive_storage::traits::driver::{PresignedDownloadOptions, StorageDriver};
 use aster_drive_storage::traits::extensions::{PresignedStorageDriver, StorageDriverExtensions};
@@ -381,15 +381,14 @@ impl PresignedStorageDriver for AlibabaOssDriver {
             .await
     }
 
-    async fn presigned_put_url(&self, path: &str, expires: Duration) -> Result<Option<String>> {
-        self.public_driver.presigned_put_url(path, expires).await
-    }
-
-    fn presigned_put_headers(&self) -> BTreeMap<String, String> {
-        BTreeMap::from([(
-            "Content-Type".to_string(),
-            signing::OSS_PRESIGNED_PUT_CONTENT_TYPE.to_string(),
-        )])
+    async fn presigned_put_request(
+        &self,
+        path: &str,
+        expires: Duration,
+    ) -> Result<Option<aster_drive_storage::PresignedUploadRequest>> {
+        self.public_driver
+            .presigned_put_request(path, expires)
+            .await
     }
 
     fn presigned_single_put_requires_etag(&self) -> bool {
@@ -405,15 +404,15 @@ impl MultipartStorageDriver for AlibabaOssDriver {
         self.storage.create_multipart_upload(path).await
     }
 
-    async fn presigned_upload_part_url(
+    async fn presigned_upload_part_request(
         &self,
         path: &str,
         upload_id: &str,
         part_number: i32,
         expires: Duration,
-    ) -> Result<String> {
+    ) -> Result<aster_drive_storage::PresignedUploadRequest> {
         self.public_driver
-            .presigned_upload_part_url(path, upload_id, part_number, expires)
+            .presigned_upload_part_request(path, upload_id, part_number, expires)
             .await
     }
 

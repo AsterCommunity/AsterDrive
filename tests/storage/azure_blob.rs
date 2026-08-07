@@ -23,6 +23,18 @@ const AZURITE_ACCOUNT_KEY: &str =
     "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==";
 const AZURE_STORAGE_VERSION: &str = "2023-11-03";
 
+fn presigned_put_request(
+    client: &reqwest::Client,
+    request: &aster_drive_storage::PresignedUploadRequest,
+) -> reqwest::RequestBuilder {
+    request
+        .headers
+        .iter()
+        .fold(client.put(&request.url), |builder, (name, value)| {
+            builder.header(name.as_str(), value.as_str())
+        })
+}
+
 fn azure_driver(endpoint: &str, container: &str, base_path: &str) -> AzureBlobDriver {
     AzureBlobDriver::new(
         AzureBlobDriverConfig {
@@ -139,10 +151,6 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
     wait_for_azurite_container(&endpoint, &container_name).await;
 
     let driver = azure_driver(&endpoint, &container_name, "itest/prefix");
-    assert_eq!(
-        driver.presigned_put_headers(),
-        std::collections::BTreeMap::from([("x-ms-blob-type".to_string(), "BlockBlob".to_string())])
-    );
     assert!(!driver.presigned_single_put_requires_etag());
 
     let data = b"hello azure blob";
@@ -212,12 +220,12 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
     assert!(listed.contains(&"docs/copy-dst.txt".to_string()));
 
     let missing_header_put = driver
-        .presigned_put_url("direct/missing-header.bin", Duration::from_secs(300))
+        .presigned_put_request("direct/missing-header.bin", Duration::from_secs(300))
         .await
         .unwrap()
         .expect("azure presigned put");
     let missing_header_resp = reqwest::Client::new()
-        .put(&missing_header_put)
+        .put(&missing_header_put.url)
         .body("missing blob type".as_bytes().to_vec())
         .send()
         .await
@@ -226,11 +234,15 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
     assert!(!driver.exists("direct/missing-header.bin").await.unwrap());
 
     let presigned_put = driver
-        .presigned_put_url("direct/presigned.bin", Duration::from_secs(300))
+        .presigned_put_request("direct/presigned.bin", Duration::from_secs(300))
         .await
         .unwrap()
         .expect("azure presigned put");
-    let presigned_put_query: std::collections::HashMap<_, _> = url::Url::parse(&presigned_put)
+    assert_eq!(
+        presigned_put.headers,
+        std::collections::BTreeMap::from([("x-ms-blob-type".to_string(), "BlockBlob".to_string())])
+    );
+    let presigned_put_query: std::collections::HashMap<_, _> = url::Url::parse(&presigned_put.url)
         .unwrap()
         .query_pairs()
         .into_owned()
@@ -239,9 +251,8 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
         presigned_put_query.get("spr").map(String::as_str),
         Some("https,http")
     );
-    let put_resp = reqwest::Client::new()
-        .put(&presigned_put)
-        .header("x-ms-blob-type", "BlockBlob")
+    let client = reqwest::Client::new();
+    let put_resp = presigned_put_request(&client, &presigned_put)
         .body("presigned body".as_bytes().to_vec())
         .send()
         .await
@@ -280,8 +291,8 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
             .unwrap()
             .is_empty()
     );
-    let part1_url = driver
-        .presigned_upload_part_url(
+    let part1_request = driver
+        .presigned_upload_part_request(
             "multipart/assembled.bin",
             &upload_id,
             1,
@@ -289,8 +300,8 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
         )
         .await
         .unwrap();
-    let part1_resp = reqwest::Client::new()
-        .put(&part1_url)
+    let client = reqwest::Client::new();
+    let part1_resp = presigned_put_request(&client, &part1_request)
         .body(b"hello ".to_vec())
         .send()
         .await
@@ -300,7 +311,7 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
         "azure presigned part upload failed: {}",
         part1_resp.status()
     );
-    let part1_marker = url::Url::parse(&part1_url)
+    let part1_marker = url::Url::parse(&part1_request.url)
         .unwrap()
         .query_pairs()
         .find(|(key, _)| key == "blockid")

@@ -10,6 +10,7 @@
 //! 内部封装 session 细节。
 
 use crate::error::{MapStorageErr, Result, StorageErrorKind, storage_driver_error};
+use crate::traits::driver::PresignedUploadRequest;
 use async_trait::async_trait;
 use bytes::Bytes;
 use std::time::Duration;
@@ -38,14 +39,14 @@ pub trait MultipartStorageDriver: Send + Sync {
     /// 创建 multipart upload，返回 provider 端的 upload_id
     async fn create_multipart_upload(&self, path: &str) -> Result<String>;
 
-    /// 为指定 part 生成 presigned PUT URL
-    async fn presigned_upload_part_url(
+    /// 为指定 part 生成完整 presigned PUT 请求
+    async fn presigned_upload_part_request(
         &self,
         path: &str,
         upload_id: &str,
         part_number: i32,
         expires: Duration,
-    ) -> Result<String>;
+    ) -> Result<PresignedUploadRequest>;
 
     /// 完成 multipart upload（parts: Vec<(part_number, etag)>）
     async fn complete_multipart_upload(
@@ -178,13 +179,13 @@ mod tests {
             panic!("not used")
         }
 
-        async fn presigned_upload_part_url(
+        async fn presigned_upload_part_request(
             &self,
             _path: &str,
             _upload_id: &str,
             _part_number: i32,
             _expires: Duration,
-        ) -> Result<String> {
+        ) -> Result<PresignedUploadRequest> {
             panic!("not used")
         }
 

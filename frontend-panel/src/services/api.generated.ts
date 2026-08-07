@@ -5847,14 +5847,9 @@ export interface components {
             /** Format: int64 */
             chunk_size?: number | null;
             mode: components["schemas"]["UploadMode"];
-            /** @description 存储驱动可能要求的 Presigned PUT 请求头。 */
-            presigned_headers?: {
-                [key: string]: string;
-            };
+            presigned_request?: null | components["schemas"]["PresignedUploadRequest"];
             /** @description 浏览器直传完成后是否必须从响应读取 ETag。 */
             presigned_require_etag?: boolean | null;
-            /** @description Presigned PUT URL（仅 presigned 模式） */
-            presigned_url?: string | null;
             provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
             /** Format: int32 */
             total_chunks?: number | null;
@@ -7040,9 +7035,24 @@ export interface components {
          * @enum {string}
          */
         PrefViewMode: "list" | "grid";
-        /** @description Request presigned URLs for S3 multipart upload parts. */
+        /** @description Request complete presigned PUT descriptors for multipart upload parts. */
         PresignPartsReq: {
             part_numbers: number[];
+        };
+        /**
+         * @description Complete browser request descriptor returned by a presigning driver.
+         *
+         *     The driver that creates the signature owns both the URL and every request
+         *     header required to make that signature valid. Browser adapters must forward
+         *     this descriptor without inventing provider-specific headers.
+         */
+        PresignedUploadRequest: {
+            /** @description 签名时纳入请求契约的 headers；浏览器必须原样转发，不能自行补充。 */
+            headers?: {
+                [key: string]: string;
+            };
+            /** @description 完整签名请求的目标 URL。 */
+            url: string;
         };
         /** @enum {string} */
         PreviewAppProvider: "builtin" | "url_template" | "wopi";
@@ -17194,14 +17204,9 @@ export interface operations {
                             /** Format: int64 */
                             chunk_size?: number | null;
                             mode: components["schemas"]["UploadMode"];
-                            /** @description 存储驱动可能要求的 Presigned PUT 请求头。 */
-                            presigned_headers?: {
-                                [key: string]: string;
-                            };
+                            presigned_request?: null | components["schemas"]["PresignedUploadRequest"];
                             /** @description 浏览器直传完成后是否必须从响应读取 ETag。 */
                             presigned_require_etag?: boolean | null;
-                            /** @description Presigned PUT URL（仅 presigned 模式） */
-                            presigned_url?: string | null;
                             provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
                             /** Format: int32 */
                             total_chunks?: number | null;
@@ -17446,7 +17451,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Presigned URLs for each part */
+            /** @description Presigned requests for each part */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -17455,7 +17460,14 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
-                            [key: string]: string;
+                            [key: string]: {
+                                /** @description 签名时纳入请求契约的 headers；浏览器必须原样转发，不能自行补充。 */
+                                headers?: {
+                                    [key: string]: string;
+                                };
+                                /** @description 完整签名请求的目标 URL。 */
+                                url: string;
+                            };
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -23010,14 +23022,9 @@ export interface operations {
                             /** Format: int64 */
                             chunk_size?: number | null;
                             mode: components["schemas"]["UploadMode"];
-                            /** @description 存储驱动可能要求的 Presigned PUT 请求头。 */
-                            presigned_headers?: {
-                                [key: string]: string;
-                            };
+                            presigned_request?: null | components["schemas"]["PresignedUploadRequest"];
                             /** @description 浏览器直传完成后是否必须从响应读取 ETag。 */
                             presigned_require_etag?: boolean | null;
-                            /** @description Presigned PUT URL（仅 presigned 模式） */
-                            presigned_url?: string | null;
                             provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
                             /** Format: int32 */
                             total_chunks?: number | null;
@@ -23326,7 +23333,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Presigned URLs */
+            /** @description Presigned requests */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -23335,7 +23342,14 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
-                            [key: string]: string;
+                            [key: string]: {
+                                /** @description 签名时纳入请求契约的 headers；浏览器必须原样转发，不能自行补充。 */
+                                headers?: {
+                                    [key: string]: string;
+                                };
+                                /** @description 完整签名请求的目标 URL。 */
+                                url: string;
+                            };
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;

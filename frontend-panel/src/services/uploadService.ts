@@ -15,6 +15,7 @@ import type {
 	CompletedPart,
 	FileInfo,
 	InitUploadResponse,
+	PresignedUploadRequest,
 	RecoverableUploadSession,
 	UploadProgressResponse,
 } from "@/types/api";
@@ -29,6 +30,7 @@ export type {
 	ChunkUploadResponse,
 	CompletedPart,
 	InitUploadResponse,
+	PresignedUploadRequest,
 	RecoverableUploadSession,
 	UploadProgressResponse,
 };
@@ -70,20 +72,6 @@ type ProviderResumableUploadOptions = {
 
 function isRetryableHttpStatus(status: number): boolean {
 	return status === 408 || status === 429 || status >= 500;
-}
-
-function buildPresignedUploadHeaders(
-	providerHeaders: Record<string, string> | undefined,
-): Record<string, string> {
-	// XHR appends repeated header values. Merge case-insensitively first so a
-	// provider-signed Content-Type is sent once and still matches its signature.
-	const headers = new Map<string, [name: string, value: string]>([
-		["content-type", ["Content-Type", "application/octet-stream"]],
-	]);
-	for (const [name, value] of Object.entries(providerHeaders ?? {})) {
-		headers.set(name.toLowerCase(), [name, value]);
-	}
-	return Object.fromEntries(headers.values());
 }
 
 function parseApiMessage(responseText: string): string | null {
@@ -301,7 +289,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 			),
 
 		presignParts: (uploadId: string, partNumbers: number[]) =>
-			api.post<Record<number, string>>(
+			api.post<Record<number, PresignedUploadRequest>>(
 				buildUploadPath(workspace, `/files/upload/${uploadId}/presign-parts`),
 				{
 					part_numbers: partNumbers,
@@ -318,7 +306,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 				const xhr = new XMLHttpRequest();
 				const blockId = new URL(presignedUrl).searchParams.get("blockid");
 				const requireEtag = options.requireEtag ?? true;
-				const requestHeaders = buildPresignedUploadHeaders(options.headers);
+				const requestHeaders = options.headers ?? {};
 				const logFailure = (event: "http-error" | "network-error") => {
 					logger.debug("presigned upload failed", {
 						event,

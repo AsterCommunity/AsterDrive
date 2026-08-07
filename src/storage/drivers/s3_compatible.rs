@@ -21,12 +21,12 @@ impl PresignedStorageDriver for S3CompatibleDriver {
         self.inner.presigned_url(path, expires, options).await
     }
 
-    async fn presigned_put_url(
+    async fn presigned_put_request(
         &self,
         path: &str,
         expires: Duration,
-    ) -> aster_drive_storage::Result<Option<String>> {
-        self.inner.presigned_put_url(path, expires).await
+    ) -> aster_drive_storage::Result<Option<aster_drive_storage::PresignedUploadRequest>> {
+        self.inner.presigned_put_request(path, expires).await
     }
 }
 
@@ -135,15 +135,15 @@ macro_rules! delegate_s3_compatible_multipart_driver {
                 self.$field.create_multipart_upload(path).await
             }
 
-            async fn presigned_upload_part_url(
+            async fn presigned_upload_part_request(
                 &self,
                 path: &str,
                 upload_id: &str,
                 part_number: i32,
                 expires: std::time::Duration,
-            ) -> aster_drive_storage::Result<String> {
+            ) -> aster_drive_storage::Result<aster_drive_storage::PresignedUploadRequest> {
                 self.$field
-                    .presigned_upload_part_url(path, upload_id, part_number, expires)
+                    .presigned_upload_part_request(path, upload_id, part_number, expires)
                     .await
             }
 
@@ -276,19 +276,24 @@ mod tests {
             .extensions()
             .presigned
             .expect("presigned capability")
-            .presigned_put_url("docs/report.txt", Duration::from_secs(60))
+            .presigned_put_request("docs/report.txt", Duration::from_secs(60))
             .await
             .expect("presigned URL should build")
             .expect("S3-compatible driver should return URL");
 
         assert!(
-            presigned.starts_with("https://s3.example.test/bucket/tenant-a/docs/report.txt"),
-            "unexpected presigned URL: {presigned}"
+            presigned
+                .url
+                .starts_with("https://s3.example.test/bucket/tenant-a/docs/report.txt"),
+            "unexpected presigned URL: {}",
+            presigned.url
         );
         assert!(
-            presigned.contains("X-Amz-Signature="),
-            "expected AWS query signature in {presigned}"
+            presigned.url.contains("X-Amz-Signature="),
+            "expected AWS query signature in {}",
+            presigned.url
         );
+        assert!(presigned.headers.is_empty());
     }
 
     #[test]

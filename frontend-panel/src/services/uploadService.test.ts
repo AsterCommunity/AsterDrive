@@ -447,7 +447,7 @@ describe("uploadService", () => {
 		);
 	});
 
-	it("uploads to presigned URLs and requires an ETag", async () => {
+	it("uploads to presigned URLs without inventing request headers", async () => {
 		const { uploadService } = await import("@/services/uploadService");
 		const progress = vi.fn();
 		const onCreateXhr = vi.fn();
@@ -474,8 +474,7 @@ describe("uploadService", () => {
 		expect(onCreateXhr).toHaveBeenCalledWith(xhr);
 		expect(xhr.method).toBe("PUT");
 		expect(xhr.url).toBe("https://s3.example/upload");
-		expect(xhr.headers["Content-Type"]).toBe("application/octet-stream");
-		expect(xhr.headers["x-ms-blob-type"]).toBeUndefined();
+		expect(xhr.requestHeaderCalls).toEqual([]);
 	});
 
 	it("uploads provider ranges without credentials or authorization headers", async () => {
@@ -645,7 +644,7 @@ describe("uploadService", () => {
 		xhr.onload?.();
 
 		await expect(promise).resolves.toBe("");
-		expect(xhr.headers["Content-Type"]).toBe("application/octet-stream");
+		expect(xhr.headers["Content-Type"]).toBeUndefined();
 		expect(xhr.headers["x-ms-blob-type"]).toBe("BlockBlob");
 	});
 
@@ -752,9 +751,7 @@ describe("uploadService", () => {
 				event: "http-error",
 				method: "PUT",
 				url: "https://blob.example/upload",
-				requestHeaders: {
-					"Content-Type": "application/octet-stream",
-				},
+				requestHeaders: {},
 				bodySize: 5,
 				status: 409,
 				statusText: "Conflict",

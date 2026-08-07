@@ -417,11 +417,11 @@ impl PresignedStorageDriver for OneDriveDriver {
             .map(Some)
     }
 
-    async fn presigned_put_url(
+    async fn presigned_put_request(
         &self,
         _path: &str,
         _expires: std::time::Duration,
-    ) -> aster_drive_storage::Result<Option<String>> {
+    ) -> aster_drive_storage::Result<Option<aster_drive_storage::PresignedUploadRequest>> {
         Ok(None)
     }
 }

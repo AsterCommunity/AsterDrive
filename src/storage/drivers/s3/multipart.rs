@@ -6,11 +6,12 @@ use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 use tokio::io::AsyncRead;
 
+use aster_drive_storage::PresignedUploadRequest;
 use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 use aster_drive_storage::{MapStorageErr, StorageErrorKind, storage_driver_error};
 
 use super::S3Driver;
-use super::presigned::clamp_presign_ttl;
+use super::presigned::{clamp_presign_ttl, sdk_presigned_upload_request};
 
 // =============================================================================
 // MultipartStorageDriver 扩展
@@ -37,16 +38,19 @@ impl MultipartStorageDriver for S3Driver {
         })
     }
 
-    async fn presigned_upload_part_url(
+    async fn presigned_upload_part_request(
         &self,
         path: &str,
         upload_id: &str,
         part_number: i32,
         expires: Duration,
-    ) -> aster_drive_storage::Result<String> {
+    ) -> aster_drive_storage::Result<PresignedUploadRequest> {
         let key = self.full_key(path);
         let presign_config = PresigningConfig::builder()
-            .expires_in(clamp_presign_ttl(expires, "S3 presigned_upload_part_url"))
+            .expires_in(clamp_presign_ttl(
+                expires,
+                "S3 presigned_upload_part_request",
+            ))
             .build()
             .map_storage_err_ctx(StorageErrorKind::Misconfigured, "presign config")?;
 
@@ -64,7 +68,7 @@ impl MultipartStorageDriver for S3Driver {
                 "S3 presigned upload_part failed",
             )?;
 
-        Ok(url.uri().to_string())
+        Ok(sdk_presigned_upload_request(url))
     }
 
     async fn complete_multipart_upload(

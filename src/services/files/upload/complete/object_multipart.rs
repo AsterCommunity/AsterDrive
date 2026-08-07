@@ -771,13 +771,13 @@ mod tests {
             unreachable!()
         }
 
-        async fn presigned_upload_part_url(
+        async fn presigned_upload_part_request(
             &self,
             _path: &str,
             _upload_id: &str,
             _part_number: i32,
             _expires: Duration,
-        ) -> aster_drive_storage::Result<String> {
+        ) -> aster_drive_storage::Result<aster_drive_storage::PresignedUploadRequest> {
             unreachable!()
         }
 

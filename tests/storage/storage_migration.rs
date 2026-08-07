@@ -379,13 +379,13 @@ impl MultipartStorageDriver for MultipartMigrationTestDriver {
         Ok(upload_id)
     }
 
-    async fn presigned_upload_part_url(
+    async fn presigned_upload_part_request(
         &self,
         _path: &str,
         _upload_id: &str,
         _part_number: i32,
         _expires: Duration,
-    ) -> Result<String> {
+    ) -> Result<aster_drive_storage::PresignedUploadRequest> {
         Err(aster_drive_storage::error::storage_driver_error(
             StorageErrorKind::Unsupported,
             "test driver does not presign multipart parts",
