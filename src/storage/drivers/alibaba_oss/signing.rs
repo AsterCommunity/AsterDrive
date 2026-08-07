@@ -286,10 +286,14 @@ fn normalize_aws_request_for_oss(
             let decoded_path = decoded_path.trim_start_matches('/');
             let object_key = if use_cname {
                 let prefix = format!("{bucket}/");
-                decoded_path
-                    .strip_prefix(&prefix)
-                    .ok_or("OSS CNAME request path is missing the bucket prefix")?
-                    .to_string()
+                if decoded_path == bucket {
+                    String::new()
+                } else {
+                    decoded_path
+                        .strip_prefix(&prefix)
+                        .ok_or("OSS CNAME request path is missing the bucket prefix")?
+                        .to_string()
+                }
             } else {
                 decoded_path.to_string()
             };
@@ -459,6 +463,7 @@ mod tests {
     use super::*;
     use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
     use aws_sdk_s3::presigning::PresigningConfig;
+    use aws_sdk_s3::primitives::ByteStream;
     use aws_smithy_http_client::test_util::{CaptureRequestReceiver, capture_request};
     use aws_smithy_types::body::SdkBody;
 
@@ -504,6 +509,21 @@ mod tests {
                 </ListBucketResult>"#,
             ))
             .expect("mock OSS list response")
+    }
+
+    fn create_multipart_response() -> http::Response<SdkBody> {
+        http::Response::builder()
+            .status(200)
+            .header("content-type", "application/xml")
+            .body(SdkBody::from(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
+                <InitiateMultipartUploadResult>
+                    <Bucket>bucket</Bucket>
+                    <Key>video.bin</Key>
+                    <UploadId>upload-id</UploadId>
+                </InitiateMultipartUploadResult>"#,
+            ))
+            .expect("mock OSS multipart response")
     }
 
     #[test]
@@ -603,6 +623,76 @@ mod tests {
         assert!(
             aws_protocol_headers.is_empty(),
             "unexpected AWS protocol headers: {aws_protocol_headers:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn aws_sdk_put_object_uses_oss_wire_contract() {
+        let (client, receiver) = oss_sdk_client(
+            "https://oss-cn-hangzhou.aliyuncs.com",
+            "bucket",
+            false,
+            Some(empty_success_response()),
+        );
+
+        client
+            .put_object()
+            .bucket("bucket")
+            .key("docs/report.txt")
+            .body(ByteStream::from_static(b"hello OSS"))
+            .send()
+            .await
+            .expect("mock OSS PUT should deserialize");
+
+        let request = receiver.expect_request();
+        let request_url = Url::parse(request.uri()).expect("captured OSS PUT URL");
+        assert_eq!(request.method(), "PUT");
+        assert_eq!(request_url.path(), "/docs/report.txt");
+        assert_eq!(
+            request_url.host_str(),
+            Some("bucket.oss-cn-hangzhou.aliyuncs.com")
+        );
+        assert!(
+            request
+                .headers()
+                .get("authorization")
+                .is_some_and(|value| value.starts_with(OSS_SIGN_ALGORITHM))
+        );
+        assert!(request.headers().get("x-amz-content-sha256").is_none());
+    }
+
+    #[tokio::test]
+    async fn aws_sdk_create_multipart_upload_uses_oss_wire_contract() {
+        let (client, receiver) = oss_sdk_client(
+            "https://oss-cn-hangzhou.aliyuncs.com",
+            "bucket",
+            false,
+            Some(create_multipart_response()),
+        );
+
+        let output = client
+            .create_multipart_upload()
+            .bucket("bucket")
+            .key("video.bin")
+            .send()
+            .await
+            .expect("mock OSS multipart init should deserialize");
+        assert_eq!(output.upload_id(), Some("upload-id"));
+
+        let request = receiver.expect_request();
+        let request_url = Url::parse(request.uri()).expect("captured OSS multipart URL");
+        assert_eq!(request.method(), "POST");
+        assert_eq!(request_url.path(), "/video.bin");
+        assert!(
+            request_url
+                .query_pairs()
+                .any(|(name, value)| name == "uploads" && value.is_empty())
+        );
+        assert!(
+            request
+                .headers()
+                .get("authorization")
+                .is_some_and(|value| value.starts_with(OSS_SIGN_ALGORITHM))
         );
     }
 
@@ -796,6 +886,19 @@ mod tests {
                 .get("authorization")
                 .is_some_and(|value| value.starts_with(OSS_SIGN_ALGORITHM))
         );
+    }
+
+    #[test]
+    fn cname_bare_bucket_path_normalizes_to_empty_object_key() {
+        let mut request =
+            HttpRequest::get("https://files.example.test/bucket").expect("valid CNAME request");
+
+        let object_key = normalize_aws_request_for_oss(&mut request, "bucket", true)
+            .expect("bare bucket path should normalize");
+        let request_url = Url::parse(request.uri()).expect("normalized CNAME URL");
+
+        assert_eq!(object_key, "");
+        assert_eq!(request_url.path(), "/");
     }
 
     #[tokio::test]

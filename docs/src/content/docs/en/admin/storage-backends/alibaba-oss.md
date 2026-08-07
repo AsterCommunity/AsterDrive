@@ -33,6 +33,10 @@ An endpoint that merely resembles S3 does not provide native OSS behavior. OSS V
 4. Create an AccessKey scoped to this bucket with the object read, write, delete, list, and multipart permissions AsterDrive needs
 5. If you plan to use `presigned`, configure OSS CORS for the AsterDrive site
 
+:::caution[Alibaba Cloud international-site accounts]
+The [Alibaba Cloud China documentation](https://help.aliyun.com/zh/oss/user-guide/regions-and-endpoints) continues to list `oss-cn-<region>.aliyuncs.com` as the public endpoint for Chinese mainland regions, so the default configuration above applies to China-site accounts. Alibaba Cloud [separately states](https://www.alibabacloud.com/en/notice/oss_update_notice_policy_change_in_calling_data_api_operations_via_the_default_public_domain_name_45a) that international-site users who activate OSS after March 20, 2025 at 00:00:00 (UTC+8) cannot call data API operations for buckets in Chinese mainland regions through default public domain names. International-site users who activated OSS before that time and internal domain names are not affected. If a request returns `PublicEndpointForbidden` (HTTP 400, EC `0048-00000401`), [bind a custom domain to the bucket](https://www.alibabacloud.com/help/en/oss/user-guide/access-buckets-via-custom-domain-names), enable **Use CNAME custom domain**, and use that domain as the public endpoint. Browser presigned uploads and downloads must also use the CNAME domain in this case.
+:::
+
 Do not paste the AccessKey into logs, screenshots, or issues. AsterDrive encrypts connector credentials at rest; backups and migrations must also preserve `[auth].storage_credential_secret_key`.
 
 ## 2. Understand the Three Endpoint Settings

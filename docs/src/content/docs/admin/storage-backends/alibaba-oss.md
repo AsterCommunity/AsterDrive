@@ -33,6 +33,10 @@ title: "阿里云 OSS 存储策略教程"
 4. 创建只允许访问该 bucket 的 AccessKey，至少授予对象读、写、删除、列举和 multipart 所需权限
 5. 如果使用 `presigned`，为 AsterDrive 站点配置 OSS CORS
 
+:::caution[Alibaba Cloud 国际站账号]
+[阿里云中国站文档](https://help.aliyun.com/zh/oss/user-guide/regions-and-endpoints)仍将 `oss-cn-<region>.aliyuncs.com` 列为中国内地地域的外网 endpoint，上面的默认配置适用于中国站账号。Alibaba Cloud 国际站则[另行规定](https://www.alibabacloud.com/zh/notice/oss_update_notice_policy_change_in_calling_data_api_operations_via_the_default_public_domain_name_45a)：在 2025 年 3 月 20 日 00:00:00（UTC+8）之后激活 OSS 的国际站用户，不能通过默认公网域名调用中国内地地域 bucket 的数据 API；此前已激活的国际站用户和内网域名不受影响。若请求返回 `PublicEndpointForbidden`（HTTP 400，EC `0048-00000401`），请给 bucket [绑定自定义域名](https://help.aliyun.com/zh/oss/user-guide/map-custom-domain-names-5)，启用 **使用 CNAME 自定义域名**，再把该域名配置为公网 endpoint。浏览器 presigned 上传和下载也需要使用该 CNAME 域名。
+:::
+
 不要把 AccessKey 写入日志、截图或 issue。AsterDrive 会把 connector credential 加密存储，备份和迁移时必须同时保留 `[auth].storage_credential_secret_key`。
 
 ## 2. 理解三个 endpoint 相关字段

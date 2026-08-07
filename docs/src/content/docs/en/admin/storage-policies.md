@@ -114,7 +114,7 @@ The storage policy edit dialog shows current capacity observation:
 | Policy type | Capacity observation behavior |
 | --- | --- |
 | `local` | Reads total, available, and used space of the filesystem holding the policy's base directory |
-| `s3` / `tencent_cos` | Returns "unsupported"; standard S3-compatible APIs have no uniform, reliable bucket free-space interface |
+| `s3` / `alibaba_oss` / `tencent_cos` | Returns "unsupported"; these object-storage APIs have no uniform, reliable bucket free-space interface |
 | `azure_blob` | Returns "unsupported"; the Blob data API offers no uniform storage-account capacity observation |
 | `one_drive` | Reads Microsoft Graph drive quota; if Graph returns no quota, shows "unavailable" |
 | `sftp` | Returns "unsupported"; the SFTP protocol has no uniform, reliable remote filesystem capacity interface |
@@ -128,7 +128,7 @@ Capacity check states:
 | --- | --- | --- |
 | Sufficient | Target available capacity is greater than or equal to estimated copy bytes | No |
 | Insufficient | Target clearly lacks capacity | Yes |
-| Unsupported | Driver has no reliable capacity interface, e.g. S3/COS/Azure Blob | No, but prompts you to confirm capacity |
+| Unsupported | Driver has no reliable capacity interface, e.g. S3/OSS/COS/Azure Blob | No, but prompts you to confirm capacity |
 | Unavailable | This capacity query failed or returned incomplete data | No, but prompts you to confirm capacity |
 
 ## Blob Matching Rules During Migration

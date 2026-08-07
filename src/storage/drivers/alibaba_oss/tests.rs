@@ -136,6 +136,36 @@ async fn public_presigned_url_ignores_server_side_endpoint() {
 }
 
 #[tokio::test]
+async fn presigned_upload_part_url_uses_public_endpoint() {
+    let mut config = sample_config();
+    config.server_side_endpoint = "https://oss-cn-hangzhou-internal.aliyuncs.com".to_string();
+    let driver =
+        AlibabaOssDriver::new(config, sample_credentials()).expect("OSS driver should build");
+
+    let url = driver
+        .extensions()
+        .multipart
+        .expect("multipart extension")
+        .presigned_upload_part_url("video.bin", "upload-id", 7, Duration::from_secs(60))
+        .await
+        .expect("presigned part URL");
+    let parsed = Url::parse(&url).expect("valid OSS presigned part URL");
+    let query = parsed
+        .query_pairs()
+        .into_owned()
+        .collect::<std::collections::HashMap<_, _>>();
+
+    assert_eq!(
+        parsed.host_str(),
+        Some("asterdrive-test.oss-cn-hangzhou.aliyuncs.com")
+    );
+    assert!(!url.contains("internal"));
+    assert_eq!(query.get("partNumber").map(String::as_str), Some("7"));
+    assert_eq!(query.get("uploadId").map(String::as_str), Some("upload-id"));
+    assert!(query.contains_key("x-oss-signature"));
+}
+
+#[tokio::test]
 async fn public_presigned_url_uses_cname_without_bucket_wire_path() {
     let mut config = sample_config();
     config.endpoint = "https://files.example.test".to_string();
