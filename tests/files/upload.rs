@@ -188,6 +188,7 @@ async fn upload_same_content_direct_and_chunked(
 
 struct UploadSessionSpec<'a> {
     upload_id: &'a str,
+    team_id: Option<i64>,
     status: aster_drive_model::types::UploadSessionStatus,
     expires_at: chrono::DateTime<chrono::Utc>,
     total_chunks: i32,
@@ -209,6 +210,7 @@ impl<'a> UploadSessionSpec<'a> {
     ) -> Self {
         Self {
             upload_id,
+            team_id: None,
             status,
             expires_at,
             total_chunks: 0,
@@ -220,6 +222,11 @@ impl<'a> UploadSessionSpec<'a> {
             provider_session_ciphertext: None,
             file_id: None,
         }
+    }
+
+    fn team(mut self, team_id: i64) -> Self {
+        self.team_id = Some(team_id);
+        self
     }
 
     fn chunks(mut self, total_chunks: i32, received_count: i32) -> Self {
@@ -273,7 +280,7 @@ async fn create_upload_session(
         aster_drive_model::entities::upload_session::ActiveModel {
             id: Set(spec.upload_id.to_string()),
             user_id: Set(user_id),
-            team_id: Set(None),
+            team_id: Set(spec.team_id),
             frontend_client_id: Set(None),
             filename: Set("manual-upload.bin".to_string()),
             total_size: Set(10),
@@ -4539,6 +4546,120 @@ async fn test_file_upload_presign_parts_validates_part_number_batch() {
             .len(),
         1
     );
+}
+
+async fn assert_presign_parts_terminal_cleanup(
+    state: &aster_drive::runtime::PrimaryAppState,
+    user_id: i64,
+    team_id: Option<i64>,
+) {
+    use aster_drive::db::repository::{policy_repo, upload_session_repo};
+    use aster_drive::services::files::upload;
+    use aster_drive_model::types::UploadSessionStatus;
+
+    let policy = policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .expect("default policy should exist in test setup");
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    let upload_id = new_test_upload_id();
+    let temp_key = format!("upload/data/files/{upload_id}-presign-terminal");
+    driver.put(&temp_key, b"temporary object").await.unwrap();
+    assert!(driver.exists(&temp_key).await.unwrap());
+
+    let mut session = UploadSessionSpec::new(
+        &upload_id,
+        UploadSessionStatus::Presigned,
+        chrono::Utc::now() + chrono::Duration::hours(1),
+        UploadSessionKind::ProviderPresignedMultipart,
+    )
+    .chunks(2, 0)
+    .policy(policy.id)
+    .object_upload(Some(&temp_key), Some("multipart-id"));
+    if let Some(team_id) = team_id {
+        session = session.team(team_id);
+    }
+    create_upload_session(state, user_id, session).await;
+
+    let err = if let Some(team_id) = team_id {
+        upload::presign_parts_for_team(state, team_id, &upload_id, user_id, vec![1])
+            .await
+            .unwrap_err()
+    } else {
+        upload::presign_parts(state, &upload_id, user_id, vec![1])
+            .await
+            .unwrap_err()
+    };
+    assert_eq!(err.api_error_code(), ApiErrorCode::StorageUnsupported);
+    assert!(!err.api_error_info().retryable);
+    assert!(
+        !driver.exists(&temp_key).await.unwrap(),
+        "terminal presign failure should delete the temporary object"
+    );
+    assert!(
+        upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+            .await
+            .is_err(),
+        "completed terminal cleanup should delete the failed session row"
+    );
+
+    let recoverable = if let Some(team_id) = team_id {
+        upload::list_recoverable_sessions_for_team(state, team_id, user_id, None)
+            .await
+            .unwrap()
+    } else {
+        upload::list_recoverable_sessions(state, user_id, None)
+            .await
+            .unwrap()
+    };
+    assert!(
+        recoverable
+            .iter()
+            .all(|session| session.upload_id != upload_id),
+        "terminal presign failure must not remain recoverable"
+    );
+}
+
+#[actix_web::test]
+async fn test_personal_presign_parts_terminal_error_cleans_session_and_temp_object() {
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "presignterminal",
+        "presign-terminal@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+
+    assert_presign_parts_terminal_cleanup(&state, user.id, None).await;
+}
+
+#[actix_web::test]
+async fn test_team_presign_parts_terminal_error_cleans_session_and_temp_object() {
+    use aster_drive::services::workspace::team;
+
+    let state = common::setup().await;
+    let owner = common::create_test_account(
+        &state,
+        "tmprsignterm",
+        "team-presign-terminal@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let team = team::create_team(
+        &state,
+        owner.id,
+        team::CreateTeamInput {
+            name: "Terminal presign team".to_string(),
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_presign_parts_terminal_cleanup(&state, owner.id, Some(team.id)).await;
 }
 
 #[actix_web::test]

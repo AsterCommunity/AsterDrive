@@ -1160,6 +1160,10 @@ describe("UploadArea", () => {
 			expect(removeSession).toHaveBeenCalledWith("upload-failed");
 		});
 		await screen.findByText("failed.txt:Chunked:files:upload_pending_file");
+		expect(
+			screen.getAllByText("failed.txt:Chunked:files:upload_pending_file"),
+		).toHaveLength(1);
+		expect(screen.queryByText("files:upload_retry")).not.toBeInTheDocument();
 	});
 
 	it("keeps persisted sessions when progress polling fails transiently", async () => {

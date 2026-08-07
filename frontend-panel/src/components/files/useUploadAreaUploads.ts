@@ -47,7 +47,7 @@ export function useUploadAreaUploads({
 	uploadRequestRef,
 	workspace,
 }: UseUploadAreaUploadsOptions) {
-	const retryingTaskIdsRef = useRef(new Set<string>());
+	const taskOperationLocksRef = useRef(new Map<string, "clear" | "retry">());
 	const modeRunners = useMemo(
 		() =>
 			createUploadModeRunners({
@@ -88,6 +88,7 @@ export function useUploadAreaUploads({
 				patchTask,
 				setTasks,
 				setUploadPanelOpen,
+				taskOperationLocks: taskOperationLocksRef.current,
 				t,
 				tasksRef,
 				uploadRequestRef,
@@ -119,6 +120,7 @@ export function useUploadAreaUploads({
 				patchTask,
 				setTasks,
 				setUploadPanelOpen,
+				taskOperationLocks: taskOperationLocksRef.current,
 				t,
 				tasksRef,
 				uploadRequestRef,
@@ -144,6 +146,7 @@ export function useUploadAreaUploads({
 		async (taskIds: readonly string[]) => {
 			await clearTerminalUploadTasks(taskIds, {
 				setTasks,
+				taskOperationLocks: taskOperationLocksRef.current,
 				tasksRef,
 			});
 		},
@@ -152,25 +155,20 @@ export function useUploadAreaUploads({
 
 	const retryTask = useCallback(
 		async (taskId: string) => {
-			if (retryingTaskIdsRef.current.has(taskId)) return;
-			retryingTaskIdsRef.current.add(taskId);
-			try {
-				await retryUploadTask(taskId, {
-					...modeRunners,
-					abortFlagsRef,
-					directAbortRef,
-					markTaskFailed,
-					patchTask,
-					setTasks,
-					setUploadPanelOpen,
-					t,
-					tasksRef,
-					uploadRequestRef,
-					workspace,
-				});
-			} finally {
-				retryingTaskIdsRef.current.delete(taskId);
-			}
+			await retryUploadTask(taskId, {
+				...modeRunners,
+				abortFlagsRef,
+				directAbortRef,
+				markTaskFailed,
+				patchTask,
+				setTasks,
+				setUploadPanelOpen,
+				t,
+				taskOperationLocks: taskOperationLocksRef.current,
+				tasksRef,
+				uploadRequestRef,
+				workspace,
+			});
 		},
 		[
 			modeRunners,

@@ -22,6 +22,19 @@ import {
 	type UploadRequestRef,
 } from "./uploadAreaUploadRunnerShared";
 
+export type UploadTaskOperation = "clear" | "retry";
+export type UploadTaskOperationLocks = Map<string, UploadTaskOperation>;
+
+function tryAcquireTaskOperation(
+	locks: UploadTaskOperationLocks,
+	taskId: string,
+	operation: UploadTaskOperation,
+) {
+	if (locks.has(taskId)) return false;
+	locks.set(taskId, operation);
+	return true;
+}
+
 export interface UploadTaskActionsContext extends UploadModeRunners {
 	abortFlagsRef: MutableRefObject<Map<string, boolean>>;
 	directAbortRef: MutableRefObject<Map<string, AbortController>>;
@@ -29,6 +42,7 @@ export interface UploadTaskActionsContext extends UploadModeRunners {
 	patchTask: (taskId: string, patch: Partial<UploadTask>) => void;
 	setTasks: Dispatch<SetStateAction<UploadTask[]>>;
 	setUploadPanelOpen: Dispatch<SetStateAction<boolean>>;
+	taskOperationLocks: UploadTaskOperationLocks;
 	t: UploadAreaManagerTranslationFn;
 	tasksRef: MutableRefObject<UploadTask[]>;
 	uploadRequestRef: UploadRequestRef;
@@ -37,6 +51,7 @@ export interface UploadTaskActionsContext extends UploadModeRunners {
 
 interface ClearTerminalUploadTasksContext {
 	setTasks: Dispatch<SetStateAction<UploadTask[]>>;
+	taskOperationLocks: UploadTaskOperationLocks;
 	tasksRef: MutableRefObject<UploadTask[]>;
 }
 
@@ -293,28 +308,54 @@ export async function cancelUploadTask(
 
 export async function clearTerminalUploadTasks(
 	taskIds: readonly string[],
-	{ setTasks, tasksRef }: ClearTerminalUploadTasksContext,
+	{ setTasks, taskOperationLocks, tasksRef }: ClearTerminalUploadTasksContext,
 ) {
 	const requestedIds = new Set(taskIds);
 	const tasksToClear = tasksRef.current.filter(
 		(task) =>
-			requestedIds.has(task.id) && TERMINAL_UPLOAD_STATUS_SET.has(task.status),
+			requestedIds.has(task.id) &&
+			TERMINAL_UPLOAD_STATUS_SET.has(task.status) &&
+			tryAcquireTaskOperation(taskOperationLocks, task.id, "clear"),
 	);
 	if (tasksToClear.length === 0) return;
 
-	await Promise.allSettled(
-		tasksToClear.map(async (task) => {
-			if (task.status === "failed" && task.uploadId) {
-				await uploadService.cancelUpload(task.uploadId);
-			}
-		}),
-	);
+	const clearedIds = new Set<string>();
+	try {
+		await Promise.allSettled(
+			tasksToClear.map(async (task) => {
+				if (task.status === "failed" && task.uploadId) {
+					try {
+						await uploadService.cancelUpload(task.uploadId);
+					} catch {}
+				}
+				const currentTask = tasksRef.current.find(
+					(item) => item.id === task.id,
+				);
+				if (
+					taskOperationLocks.get(task.id) === "clear" &&
+					currentTask?.status === task.status &&
+					currentTask.uploadId === task.uploadId
+				) {
+					clearedIds.add(task.id);
+				}
+			}),
+		);
 
-	for (const task of tasksToClear) {
-		if (task.uploadId) removeSession(task.uploadId);
+		for (const task of tasksToClear) {
+			if (clearedIds.has(task.id) && task.uploadId) {
+				removeSession(task.uploadId);
+			}
+		}
+		if (clearedIds.size > 0) {
+			setTasks((prev) => prev.filter((task) => !clearedIds.has(task.id)));
+		}
+	} finally {
+		for (const task of tasksToClear) {
+			if (taskOperationLocks.get(task.id) === "clear") {
+				taskOperationLocks.delete(task.id);
+			}
+		}
 	}
-	const clearedIds = new Set(tasksToClear.map((task) => task.id));
-	setTasks((prev) => prev.filter((task) => !clearedIds.has(task.id)));
 }
 
 export async function retryUploadTask(
@@ -325,50 +366,58 @@ export async function retryUploadTask(
 		resumeCompletionTask,
 		setUploadPanelOpen,
 		tasksRef,
+		taskOperationLocks,
 		workspace,
 	}: UploadTaskActionsContext,
 ) {
-	const task = tasksRef.current.find((item) => item.id === taskId);
-	if (!task) return;
+	if (!tryAcquireTaskOperation(taskOperationLocks, taskId, "retry")) return;
+	try {
+		const task = tasksRef.current.find((item) => item.id === taskId);
+		if (!task || (task.status === "failed" && task.retryable === false)) return;
 
-	if (!task.file && task.uploadId) {
-		const saved = loadSessions(workspace).find(
-			(session) => session.uploadId === task.uploadId,
-		);
-		void resumeCompletionTask(
-			task,
-			task.mode === "presigned_multipart"
-				? (saved?.completedParts ?? [])
-				: undefined,
-		);
+		if (!task.file && task.uploadId) {
+			const saved = loadSessions(workspace).find(
+				(session) => session.uploadId === task.uploadId,
+			);
+			await resumeCompletionTask(
+				task,
+				task.mode === "presigned_multipart"
+					? (saved?.completedParts ?? [])
+					: undefined,
+			);
+			setUploadPanelOpen(true);
+			return;
+		}
+
+		if (task.uploadId) {
+			if (
+				task.mode === "chunked" ||
+				task.mode === "presigned_multipart" ||
+				task.mode === "provider_resumable"
+			) {
+				await cancelMultipartSession(task);
+			} else {
+				void uploadService.cancelUpload(task.uploadId).catch(() => undefined);
+				removeSession(task.uploadId);
+			}
+		}
+
+		patchTask(taskId, {
+			status: "queued",
+			progress: 0,
+			uploadedBytes: 0,
+			speedBps: undefined,
+			error: null,
+			retryable: undefined,
+			uploadId: null,
+			completedChunks: 0,
+			totalChunks: 0,
+			mode: null,
+		});
 		setUploadPanelOpen(true);
-		return;
-	}
-
-	if (task.uploadId) {
-		if (
-			task.mode === "chunked" ||
-			task.mode === "presigned_multipart" ||
-			task.mode === "provider_resumable"
-		) {
-			await cancelMultipartSession(task);
-		} else {
-			void uploadService.cancelUpload(task.uploadId).catch(() => undefined);
-			removeSession(task.uploadId);
+	} finally {
+		if (taskOperationLocks.get(taskId) === "retry") {
+			taskOperationLocks.delete(taskId);
 		}
 	}
-
-	patchTask(taskId, {
-		status: "queued",
-		progress: 0,
-		uploadedBytes: 0,
-		speedBps: undefined,
-		error: null,
-		retryable: undefined,
-		uploadId: null,
-		completedChunks: 0,
-		totalChunks: 0,
-		mode: null,
-	});
-	setUploadPanelOpen(true);
 }
