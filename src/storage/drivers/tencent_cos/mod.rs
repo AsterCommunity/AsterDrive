@@ -190,10 +190,14 @@ impl PresignedStorageDriver for TencentCosDriver {
             .await
     }
 
-    async fn presigned_put_url(&self, path: &str, expires: Duration) -> Result<Option<String>> {
+    async fn presigned_put_request(
+        &self,
+        path: &str,
+        expires: Duration,
+    ) -> Result<Option<aster_drive_storage::PresignedUploadRequest>> {
         self.storage
             .s3_driver()
-            .presigned_put_url(path, expires)
+            .presigned_put_request(path, expires)
             .await
     }
 

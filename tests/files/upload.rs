@@ -18,6 +18,18 @@ const PERSONAL_FINALIZATION_CONCURRENCY: usize = 8;
 const TEAM_FINALIZATION_CONCURRENCY: usize = 4;
 const RUSTFS_TEST_IMAGE_TAG: &str = "1.0.0-alpha.90";
 
+fn presigned_put_request(
+    client: &reqwest::Client,
+    request: &aster_drive_storage::PresignedUploadRequest,
+) -> reqwest::RequestBuilder {
+    request
+        .headers
+        .iter()
+        .fold(client.put(&request.url), |builder, (name, value)| {
+            builder.header(name.as_str(), value.as_str())
+        })
+}
+
 #[derive(Clone, Copy)]
 struct S3TestTransferStrategies {
     upload: aster_drive_model::types::ObjectStorageUploadStrategy,
@@ -3224,7 +3236,7 @@ async fn test_init_upload_local_never_presigned() {
         mode, "presigned",
         "local storage should never use presigned"
     );
-    assert!(body["data"]["presigned_url"].is_null());
+    assert!(body["data"]["presigned_request"].is_null());
 }
 
 #[tokio::test]
@@ -4979,10 +4991,9 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
     let urls = upload::presign_parts(&state, &upload_id, user.id, vec![1])
         .await
         .unwrap();
-    let part_url = urls.get(&1).expect("part 1 URL missing");
+    let part_request = urls.get(&1).expect("part 1 request missing");
     let client = reqwest::Client::new();
-    let response = client
-        .put(part_url)
+    let response = presigned_put_request(&client, part_request)
         .header(reqwest::header::CONTENT_LENGTH, part1.len())
         .body(part1)
         .send()
@@ -5194,17 +5205,15 @@ async fn test_presigned_upload_s3_e2e() {
         .await
         .unwrap();
     assert_eq!(init.mode, aster_drive_model::types::UploadMode::Presigned);
-    assert!(init.presigned_url.is_some());
+    assert!(init.presigned_request.is_some());
     assert!(init.upload_id.is_some());
 
-    let presigned_url = init.presigned_url.unwrap();
+    let presigned_request = init.presigned_request.unwrap();
     let upload_id = init.upload_id.unwrap();
 
     // 2. PUT 到 presigned URL（模拟客户端直传）
     let client = reqwest::Client::new();
-    let resp = client
-        .put(&presigned_url)
-        .header("Content-Type", "application/octet-stream")
+    let resp = presigned_put_request(&client, &presigned_request)
         .body(data.to_vec())
         .send()
         .await
@@ -5251,11 +5260,9 @@ async fn test_presigned_upload_s3_e2e() {
     let init2 = upload::init_upload(&state, user.id, "hello2.txt", data.len() as i64, None, None)
         .await
         .unwrap();
-    let url2 = init2.presigned_url.unwrap();
+    let request2 = init2.presigned_request.unwrap();
     let id2 = init2.upload_id.unwrap();
-    client
-        .put(&url2)
-        .header("Content-Type", "application/octet-stream")
+    presigned_put_request(&client, &request2)
         .body(data.to_vec())
         .send()
         .await
@@ -5339,7 +5346,7 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
     .unwrap();
     assert_eq!(init.mode, aster_drive_model::types::UploadMode::Presigned);
     let upload_id = init.upload_id.unwrap();
-    let presigned_url = init.presigned_url.unwrap();
+    let presigned_request = init.presigned_request.unwrap();
     let session = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
         .await
         .unwrap();
@@ -5369,9 +5376,8 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
         "force delete should remove the upload session before the old URL expires"
     );
 
-    let response = reqwest::Client::new()
-        .put(&presigned_url)
-        .header("Content-Type", "application/octet-stream")
+    let client = reqwest::Client::new();
+    let response = presigned_put_request(&client, &presigned_request)
         .body(data)
         .send()
         .await
@@ -5471,7 +5477,7 @@ async fn test_presigned_multipart_upload_s3_e2e() {
         aster_drive_model::types::UploadMode::PresignedMultipart
     );
     assert_eq!(init.total_chunks, Some(2));
-    assert!(init.presigned_url.is_none());
+    assert!(init.presigned_request.is_none());
 
     let upload_id = init.upload_id.unwrap();
     let urls = upload::presign_parts(&state, &upload_id, user.id, vec![2, 1])
@@ -5480,8 +5486,7 @@ async fn test_presigned_multipart_upload_s3_e2e() {
     assert_eq!(urls.len(), 2);
 
     let client = reqwest::Client::new();
-    let resp1 = client
-        .put(urls.get(&1).unwrap())
+    let resp1 = presigned_put_request(&client, urls.get(&1).unwrap())
         .header(reqwest::header::CONTENT_LENGTH, part1.len())
         .body(part1.to_vec())
         .send()
@@ -5495,8 +5500,7 @@ async fn test_presigned_multipart_upload_s3_e2e() {
         .map(str::to_string)
         .expect("part 1 etag missing");
 
-    let resp2 = client
-        .put(urls.get(&2).unwrap())
+    let resp2 = presigned_put_request(&client, urls.get(&2).unwrap())
         .header(reqwest::header::CONTENT_LENGTH, part2.len())
         .body(part2.to_vec())
         .send()

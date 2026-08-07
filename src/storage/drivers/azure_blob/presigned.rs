@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use azure_storage_blob::models::BlobContainerClientListBlobsOptions;
 use futures::{StreamExt as _, TryStreamExt as _};
 
+use aster_drive_storage::PresignedUploadRequest;
 use aster_drive_storage::traits::driver::{PresignedDownloadOptions, StoragePathVisitor};
 use aster_drive_storage::traits::extensions::{ListStorageDriver, PresignedStorageDriver};
 
@@ -21,16 +22,15 @@ impl PresignedStorageDriver for AzureBlobDriver {
         Ok(Some(self.blob_url(path, "r", expires)?.to_string()))
     }
 
-    async fn presigned_put_url(
+    async fn presigned_put_request(
         &self,
         path: &str,
         expires: Duration,
-    ) -> aster_drive_storage::Result<Option<String>> {
-        Ok(Some(self.blob_url(path, "cw", expires)?.to_string()))
-    }
-
-    fn presigned_put_headers(&self) -> BTreeMap<String, String> {
-        BTreeMap::from([("x-ms-blob-type".to_string(), "BlockBlob".to_string())])
+    ) -> aster_drive_storage::Result<Option<PresignedUploadRequest>> {
+        Ok(Some(PresignedUploadRequest::new(
+            self.blob_url(path, "cw", expires)?.to_string(),
+            BTreeMap::from([("x-ms-blob-type".to_string(), "BlockBlob".to_string())]),
+        )))
     }
 
     fn presigned_single_put_requires_etag(&self) -> bool {

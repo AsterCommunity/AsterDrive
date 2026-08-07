@@ -154,8 +154,8 @@ async fn init_remote_presigned_single_upload(
             return Ok(UniqueUuidAttempt::Collision);
         }
 
-        let presigned_url = match remote_presigned_put_url(driver, &temp_key).await {
-            Ok(url) => url,
+        let presigned_request = match remote_presigned_put_request(driver, &temp_key).await {
+            Ok(request) => request,
             Err(error) => {
                 delete_upload_session_record_after_init_error(
                     state.writer_db(),
@@ -181,8 +181,7 @@ async fn init_remote_presigned_single_upload(
             upload_id: Some(upload_id),
             chunk_size: None,
             total_chunks: None,
-            presigned_url: Some(presigned_url),
-            presigned_headers: Default::default(),
+            presigned_request: Some(presigned_request),
             presigned_require_etag: Some(true),
             provider_resumable: None,
             upload_scheduling: None,
@@ -191,17 +190,17 @@ async fn init_remote_presigned_single_upload(
     .await
 }
 
-async fn remote_presigned_put_url(
+async fn remote_presigned_put_request(
     driver: &dyn aster_drive_storage::StorageDriver,
     temp_key: &str,
-) -> Result<String> {
+) -> Result<aster_drive_storage::PresignedUploadRequest> {
     let presigned_driver = driver.extensions().presigned.ok_or_else(|| {
         AsterError::storage_driver_error("remote driver does not implement presigned PUT")
     })?;
     presigned_driver
-        .presigned_put_url(temp_key, std::time::Duration::from_secs(HOUR_SECS))
+        .presigned_put_request(temp_key, std::time::Duration::from_secs(HOUR_SECS))
         .await?
         .ok_or_else(|| {
-            AsterError::storage_driver_error("remote driver returned no presigned PUT URL")
+            AsterError::storage_driver_error("remote driver returned no presigned PUT request")
         })
 }

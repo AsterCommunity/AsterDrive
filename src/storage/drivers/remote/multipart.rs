@@ -48,13 +48,13 @@ impl MultipartStorageDriver for RemoteDriver {
         Ok(aster_forge_utils::id::new_uuid())
     }
 
-    async fn presigned_upload_part_url(
+    async fn presigned_upload_part_request(
         &self,
         _path: &str,
         upload_id: &str,
         part_number: i32,
         expires: Duration,
-    ) -> aster_drive_storage::Result<String> {
+    ) -> aster_drive_storage::Result<aster_drive_storage::PresignedUploadRequest> {
         if self.uses_reverse_tunnel {
             return Err(storage_driver_error(
                 StorageErrorKind::Unsupported,
@@ -64,6 +64,7 @@ impl MultipartStorageDriver for RemoteDriver {
         let part_key = Self::multipart_part_key(upload_id, part_number)?;
         self.client
             .presigned_put_url(&self.object_key(&part_key), expires)
+            .map(aster_drive_storage::PresignedUploadRequest::without_headers)
             .map_err(Into::into)
     }
 

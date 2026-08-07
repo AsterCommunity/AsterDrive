@@ -209,8 +209,7 @@ fn provider_upload_response(
         upload_id: Some(upload_id),
         chunk_size: Some(chunk_size),
         total_chunks: Some(total_chunks),
-        presigned_url: None,
-        presigned_headers: Default::default(),
+        presigned_request: None,
         presigned_require_etag: None,
         provider_resumable: (strategy == ProviderResumableUploadStrategy::FrontendDirect)
             .then_some(ProviderResumableUploadResponse {

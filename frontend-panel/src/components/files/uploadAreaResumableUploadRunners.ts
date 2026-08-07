@@ -9,6 +9,7 @@ import { appendCompletedPart, removeSession } from "@/lib/uploadPersistence";
 import {
 	type CompletedPart,
 	type InitUploadResponse,
+	type PresignedUploadRequest,
 	UploadRequestError,
 	uploadService,
 } from "@/services/uploadService";
@@ -271,16 +272,18 @@ export function createResumableUploadRunners({
 		).filter((partNumber) => !completedSet.has(partNumber));
 		const pendingPartNumbers = [...queue];
 
-		let urlCache: Record<number, string> = {};
+		let requestCache: Record<number, PresignedUploadRequest> = {};
 		const inFlightPresignBatches = new Map<number, Promise<void>>();
 
-		const getPartUrl = async (partNumber: number): Promise<string> => {
-			if (urlCache[partNumber]) return urlCache[partNumber];
+		const getPartRequest = async (
+			partNumber: number,
+		): Promise<PresignedUploadRequest> => {
+			if (requestCache[partNumber]) return requestCache[partNumber];
 
 			const inFlightBatch = inFlightPresignBatches.get(partNumber);
 			if (inFlightBatch) {
 				await inFlightBatch;
-				if (urlCache[partNumber]) return urlCache[partNumber];
+				if (requestCache[partNumber]) return requestCache[partNumber];
 			}
 
 			const currentIndex = pendingPartNumbers.indexOf(partNumber);
@@ -289,7 +292,7 @@ export function createResumableUploadRunners({
 					? pendingPartNumbers.slice(currentIndex)
 					: [partNumber];
 			let batch = candidates
-				.filter((candidate) => !urlCache[candidate])
+				.filter((candidate) => !requestCache[candidate])
 				.slice(0, PRESIGNED_MULTIPART_URL_BATCH_SIZE);
 			if (!batch.includes(partNumber)) {
 				batch = [partNumber, ...batch].slice(
@@ -300,8 +303,8 @@ export function createResumableUploadRunners({
 
 			const presignBatch = uploadService
 				.presignParts(uploadId, batch)
-				.then((urls) => {
-					urlCache = { ...urlCache, ...urls };
+				.then((requests) => {
+					requestCache = { ...requestCache, ...requests };
 				});
 			for (const batchPartNumber of batch) {
 				inFlightPresignBatches.set(batchPartNumber, presignBatch);
@@ -315,11 +318,11 @@ export function createResumableUploadRunners({
 				}
 			}
 
-			const url = urlCache[partNumber];
-			if (!url) {
-				throw new Error(`Missing presigned URL for part ${partNumber}`);
+			const request = requestCache[partNumber];
+			if (!request) {
+				throw new Error(`Missing presigned request for part ${partNumber}`);
 			}
-			return url;
+			return request;
 		};
 
 		await runResumableTransfer({
@@ -349,18 +352,24 @@ export function createResumableUploadRunners({
 
 				const etag = await runRetryableUploadOperation({
 					onRetryableError: () => {
-						delete urlCache[partNumber];
+						delete requestCache[partNumber];
 					},
 					run: async () => {
-						const url = await getPartUrl(partNumber);
+						const request = await getPartRequest(partNumber);
 						return withTrackedMultipartRequest(task.id, () =>
 							withTrackedUploadRequest(
 								uploadRequestRef,
 								task.id,
 								(onCreateXhr) =>
-									uploadService.presignedUpload(url, blob, reportProgress, {
-										onCreateXhr,
-									}),
+									uploadService.presignedUpload(
+										request.url,
+										blob,
+										reportProgress,
+										{
+											headers: request.headers,
+											onCreateXhr,
+										},
+									),
 							),
 						);
 					},

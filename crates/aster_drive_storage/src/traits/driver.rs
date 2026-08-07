@@ -6,6 +6,8 @@
 
 use crate::error::{MapStorageErr, Result, StorageErrorKind, storage_driver_error};
 use async_trait::async_trait;
+use serde::Serialize;
+use std::collections::BTreeMap;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 #[derive(Debug, Clone)]
@@ -24,6 +26,53 @@ pub struct PresignedDownloadOptions {
     pub response_cache_control: Option<String>,
     pub response_content_disposition: Option<String>,
     pub response_content_type: Option<String>,
+}
+
+/// Complete browser request descriptor returned by a presigning driver.
+///
+/// The driver that creates the signature owns both the URL and every request
+/// header required to make that signature valid. Browser adapters must forward
+/// this descriptor without inventing provider-specific headers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+pub struct PresignedUploadRequest {
+    /// 完整签名请求的目标 URL。
+    pub url: String,
+    /// 签名时纳入请求契约的 headers；浏览器必须原样转发，不能自行补充。
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub headers: BTreeMap<String, String>,
+}
+
+impl PresignedUploadRequest {
+    pub fn new(url: impl Into<String>, headers: BTreeMap<String, String>) -> Self {
+        Self::from_header_pairs(url, headers)
+    }
+
+    pub fn from_header_pairs<I, K, V>(url: impl Into<String>, headers: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<str>,
+        V: AsRef<str>,
+    {
+        let mut normalized_headers = BTreeMap::<String, String>::new();
+        for (name, value) in headers {
+            let entry = normalized_headers
+                .entry(name.as_ref().to_ascii_lowercase())
+                .or_default();
+            if !entry.is_empty() {
+                entry.push(',');
+            }
+            entry.push_str(value.as_ref());
+        }
+        Self {
+            url: url.into(),
+            headers: normalized_headers,
+        }
+    }
+
+    pub fn without_headers(url: impl Into<String>) -> Self {
+        Self::new(url, BTreeMap::new())
+    }
 }
 
 pub trait StoragePathVisitor: Send {
@@ -152,6 +201,41 @@ mod tests {
     };
     use std::task::{Context, Poll};
     use tokio::io::{AsyncReadExt, ReadBuf};
+
+    #[test]
+    fn presigned_upload_request_normalizes_and_merges_headers() {
+        let request = PresignedUploadRequest::from_header_pairs(
+            "https://objects.example.test/upload",
+            [
+                ("Content-Type", "text/plain"),
+                ("content-type", "application/octet-stream"),
+                ("X-Provider", "signed"),
+            ],
+        );
+
+        assert_eq!(
+            request.headers.get("content-type").map(String::as_str),
+            Some("text/plain,application/octet-stream")
+        );
+        assert_eq!(
+            request.headers.get("x-provider").map(String::as_str),
+            Some("signed")
+        );
+    }
+
+    #[test]
+    fn presigned_upload_request_omits_empty_headers_from_json() {
+        let request =
+            PresignedUploadRequest::without_headers("https://objects.example.test/upload");
+        let value = serde_json::to_value(request).expect("request descriptor should serialize");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "url": "https://objects.example.test/upload"
+            })
+        );
+    }
 
     struct CountingReader {
         inner: std::io::Cursor<Vec<u8>>,

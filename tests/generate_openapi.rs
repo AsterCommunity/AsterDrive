@@ -105,6 +105,38 @@ fn api_response_openapi_code_references_api_error_code_schema() {
 }
 
 #[test]
+fn presigned_upload_openapi_exposes_driver_owned_request_contract() {
+    let value = serde_json::to_value(ApiDoc::openapi()).unwrap();
+    let schemas = value["components"]["schemas"]
+        .as_object()
+        .expect("components schemas should be object");
+
+    let request = &schemas["PresignedUploadRequest"];
+    let request_properties = request["properties"]
+        .as_object()
+        .expect("presigned request properties should be object");
+    assert!(request_properties.contains_key("url"));
+    assert!(request_properties.contains_key("headers"));
+    assert!(
+        request_properties["url"]["description"]
+            .as_str()
+            .is_some_and(|description| description.contains("URL"))
+    );
+    assert!(
+        request_properties["headers"]["description"]
+            .as_str()
+            .is_some_and(|description| description.contains("原样转发"))
+    );
+
+    let init_properties = schemas["InitUploadResponse"]["properties"]
+        .as_object()
+        .expect("init upload response properties should be object");
+    assert!(init_properties.contains_key("presigned_request"));
+    assert!(!init_properties.contains_key("presigned_url"));
+    assert!(!init_properties.contains_key("presigned_headers"));
+}
+
+#[test]
 fn storage_connector_action_openapi_exposes_plugin_owned_contracts() {
     let value = serde_json::to_value(ApiDoc::openapi()).unwrap();
     let schemas = value["components"]["schemas"]

@@ -447,7 +447,7 @@ describe("uploadService", () => {
 		);
 	});
 
-	it("uploads to presigned URLs and requires an ETag", async () => {
+	it("uploads to presigned URLs without inventing request headers", async () => {
 		const { uploadService } = await import("@/services/uploadService");
 		const progress = vi.fn();
 		const onCreateXhr = vi.fn();
@@ -474,8 +474,7 @@ describe("uploadService", () => {
 		expect(onCreateXhr).toHaveBeenCalledWith(xhr);
 		expect(xhr.method).toBe("PUT");
 		expect(xhr.url).toBe("https://s3.example/upload");
-		expect(xhr.headers["Content-Type"]).toBe("application/octet-stream");
-		expect(xhr.headers["x-ms-blob-type"]).toBeUndefined();
+		expect(xhr.requestHeaderCalls).toEqual([]);
 	});
 
 	it("uploads provider ranges without credentials or authorization headers", async () => {
@@ -645,7 +644,7 @@ describe("uploadService", () => {
 		xhr.onload?.();
 
 		await expect(promise).resolves.toBe("");
-		expect(xhr.headers["Content-Type"]).toBe("application/octet-stream");
+		expect(xhr.headers["Content-Type"]).toBeUndefined();
 		expect(xhr.headers["x-ms-blob-type"]).toBe("BlockBlob");
 	});
 
@@ -735,7 +734,14 @@ describe("uploadService", () => {
 			"https://blob.example/upload",
 			new Blob(["hello"]),
 			undefined,
-			{ requireEtag: false },
+			{
+				requireEtag: false,
+				headers: {
+					Authorization: "Bearer secret-presigned-token",
+					"Content-Type": "application/octet-stream",
+					"x-amz-security-token": "temporary-storage-credential",
+				},
+			},
 		);
 		const xhr = MockXMLHttpRequest.instances[0];
 		xhr.status = 409;
@@ -752,9 +758,11 @@ describe("uploadService", () => {
 				event: "http-error",
 				method: "PUT",
 				url: "https://blob.example/upload",
-				requestHeaders: {
-					"Content-Type": "application/octet-stream",
-				},
+				requestHeaderNames: [
+					"Authorization",
+					"Content-Type",
+					"x-amz-security-token",
+				],
 				bodySize: 5,
 				status: 409,
 				statusText: "Conflict",
@@ -763,6 +771,9 @@ describe("uploadService", () => {
 				responseText: "<Error><Code>SignatureDoesNotMatch</Code></Error>",
 			},
 		);
+		const logged = JSON.stringify(mockState.loggerDebug.mock.calls);
+		expect(logged).not.toContain("secret-presigned-token");
+		expect(logged).not.toContain("temporary-storage-credential");
 	});
 
 	it("uses Azure block IDs as presigned multipart completion markers", async () => {

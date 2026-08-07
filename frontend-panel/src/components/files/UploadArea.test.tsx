@@ -862,7 +862,9 @@ describe("UploadArea", () => {
 		initUpload.mockResolvedValue({
 			mode: "presigned",
 			upload_id: "upload-presigned",
-			presigned_url: "https://s3.example/upload",
+			presigned_request: {
+				url: "https://s3.example/upload",
+			},
 		});
 		presignedUpload.mockResolvedValue('"etag-123"');
 		completeUpload.mockResolvedValue({ id: 9002 });
@@ -889,11 +891,13 @@ describe("UploadArea", () => {
 		initUpload.mockResolvedValue({
 			mode: "presigned",
 			upload_id: "upload-azure-presigned",
-			presigned_url: "https://account.blob.core.windows.net/container/blob",
-			presigned_require_etag: false,
-			presigned_headers: {
-				"x-ms-blob-type": "BlockBlob",
+			presigned_request: {
+				url: "https://account.blob.core.windows.net/container/blob",
+				headers: {
+					"x-ms-blob-type": "BlockBlob",
+				},
 			},
+			presigned_require_etag: false,
 		});
 		presignedUpload.mockResolvedValue("");
 		completeUpload.mockResolvedValue({ id: 9013 });
@@ -927,7 +931,9 @@ describe("UploadArea", () => {
 		initUpload.mockResolvedValue({
 			mode: "presigned",
 			upload_id: "upload-presigned-speed",
-			presigned_url: "https://s3.example/upload-speed",
+			presigned_request: {
+				url: "https://s3.example/upload-speed",
+			},
 		});
 		presignedUpload.mockReturnValue(presignedPut.promise);
 		completeUpload.mockResolvedValue({ id: 9011 });
@@ -984,7 +990,10 @@ describe("UploadArea", () => {
 			total_chunks: 1,
 		});
 		presignParts.mockResolvedValue({
-			1: "https://s3.example/upload/part-1",
+			1: {
+				url: "https://s3.example/upload/part-1",
+				headers: { "x-provider-part": "part-1" },
+			},
 		});
 		presignedUpload.mockResolvedValue('"etag-001"');
 		completeUpload.mockResolvedValue({ id: 9003 });
@@ -1002,6 +1011,15 @@ describe("UploadArea", () => {
 			}),
 		);
 		expect(presignParts).toHaveBeenCalledWith("upload-multipart", [1]);
+		expect(presignedUpload).toHaveBeenCalledWith(
+			"https://s3.example/upload/part-1",
+			expect.any(Blob),
+			expect.any(Function),
+			{
+				headers: { "x-provider-part": "part-1" },
+				onCreateXhr: expect.any(Function),
+			},
+		);
 		expect(appendCompletedPart).toHaveBeenCalledWith("upload-multipart", {
 			part_number: 1,
 			etag: "etag-001",
@@ -1026,7 +1044,7 @@ describe("UploadArea", () => {
 			total_chunks: 1,
 		});
 		presignParts.mockResolvedValue({
-			1: "https://s3.example/upload/part-speed",
+			1: { url: "https://s3.example/upload/part-speed" },
 		});
 		presignedUpload.mockReturnValue(multipartPut.promise);
 		completeUpload.mockResolvedValue({ id: 9012 });
@@ -1041,6 +1059,7 @@ describe("UploadArea", () => {
 				expect.any(Blob),
 				expect.any(Function),
 				{
+					headers: undefined,
 					onCreateXhr: expect.any(Function),
 				},
 			);
@@ -1073,6 +1092,62 @@ describe("UploadArea", () => {
 		);
 	});
 
+	it("refreshes the complete multipart request descriptor after a retryable failure", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		initUpload.mockResolvedValue({
+			mode: "presigned_multipart",
+			upload_id: "upload-multipart-retry",
+			chunk_size: 5,
+			total_chunks: 1,
+		});
+		presignParts
+			.mockResolvedValueOnce({
+				1: {
+					url: "https://s3.example/upload/part-1-attempt-1",
+					headers: { "x-signature-attempt": "1" },
+				},
+			})
+			.mockResolvedValueOnce({
+				1: {
+					url: "https://s3.example/upload/part-1-attempt-2",
+					headers: { "x-signature-attempt": "2" },
+				},
+			});
+		presignedUpload
+			.mockRejectedValueOnce(
+				Object.assign(new Error("expired request"), { retryable: true }),
+			)
+			.mockResolvedValueOnce('"etag-retry"');
+		completeUpload.mockResolvedValue({ id: 9014 });
+
+		await uploadOneFile();
+
+		await screen.findByText(
+			"hello.txt:Presigned Multipart:files:upload_success",
+		);
+		expect(presignParts).toHaveBeenCalledTimes(2);
+		expect(presignedUpload).toHaveBeenNthCalledWith(
+			1,
+			"https://s3.example/upload/part-1-attempt-1",
+			expect.any(Blob),
+			expect.any(Function),
+			{
+				headers: { "x-signature-attempt": "1" },
+				onCreateXhr: expect.any(Function),
+			},
+		);
+		expect(presignedUpload).toHaveBeenNthCalledWith(
+			2,
+			"https://s3.example/upload/part-1-attempt-2",
+			expect.any(Blob),
+			expect.any(Function),
+			{
+				headers: { "x-signature-attempt": "2" },
+				onCreateXhr: expect.any(Function),
+			},
+		);
+	});
+
 	it("batches presigned multipart URL requests", async () => {
 		const partNumbers = Array.from({ length: 20 }, (_, index) => index + 1);
 		initUpload.mockResolvedValue({
@@ -1086,7 +1161,7 @@ describe("UploadArea", () => {
 				Object.fromEntries(
 					requestedParts.map((partNumber) => [
 						partNumber,
-						`https://s3.example/upload/part-${partNumber}`,
+						{ url: `https://s3.example/upload/part-${partNumber}` },
 					]),
 				),
 		);

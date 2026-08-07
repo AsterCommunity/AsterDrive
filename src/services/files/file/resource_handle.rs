@@ -513,14 +513,17 @@ mod tests {
             Ok(Some(url.to_string()))
         }
 
-        async fn presigned_put_url(
+        async fn presigned_put_request(
             &self,
             path: &str,
             _expires: Duration,
-        ) -> aster_drive_storage::Result<Option<String>> {
-            Ok(Some(format!(
-                "https://objects.example.test/upload?path={path}"
-            )))
+        ) -> aster_drive_storage::Result<Option<aster_drive_storage::PresignedUploadRequest>>
+        {
+            Ok(Some(
+                aster_drive_storage::PresignedUploadRequest::without_headers(format!(
+                    "https://objects.example.test/upload?path={path}"
+                )),
+            ))
         }
     }
 

@@ -272,12 +272,13 @@ async fn presigned_urls_include_base_path_response_options_and_signature() {
     );
     assert!(query.contains_key(PRESIGNED_AUTH_SIGNATURE_QUERY));
 
-    let put_url = driver
-        .presigned_put_url("upload.bin", Duration::from_secs(60))
+    let put_request = driver
+        .presigned_put_request("upload.bin", Duration::from_secs(60))
         .await
         .expect("PUT presigned URL should build")
         .expect("remote driver should return URL");
-    let parsed_put = reqwest::Url::parse(&put_url).expect("PUT URL should parse");
+    let parsed_put = reqwest::Url::parse(&put_request.url).expect("PUT URL should parse");
+    assert!(put_request.headers.is_empty());
     assert_eq!(
         parsed_put.path(),
         "/root/api/v1/internal/storage/objects/base/upload.bin"
@@ -320,14 +321,14 @@ async fn reverse_tunnel_driver_rejects_presigned_browser_urls() {
     assert!(download_error.message().contains("reverse tunnel"));
 
     let upload_error = driver
-        .presigned_put_url("file.txt", Duration::from_secs(60))
+        .presigned_put_request("file.txt", Duration::from_secs(60))
         .await
         .expect_err("reverse tunnel upload presigned URL should be rejected");
     assert_eq!(upload_error.kind(), StorageErrorKind::Unsupported);
     assert!(upload_error.message().contains("reverse tunnel"));
 
     let part_error = driver
-        .presigned_upload_part_url("file.txt", "upload-1", 1, Duration::from_secs(60))
+        .presigned_upload_part_request("file.txt", "upload-1", 1, Duration::from_secs(60))
         .await
         .expect_err("reverse tunnel multipart presigned URL should be rejected");
     assert_eq!(part_error.kind(), StorageErrorKind::Unsupported);

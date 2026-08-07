@@ -108,7 +108,11 @@ export function createSimpleUploadRunners({
 
 		const file = task.file;
 		const uploadId = init.upload_id as string;
-		const presignedUrl = init.presigned_url as string;
+		const presignedRequest = init.presigned_request;
+		if (!presignedRequest) {
+			markTaskFailed(task.id, new Error("Missing presigned upload request"));
+			return;
+		}
 		patchTask(task.id, {
 			mode: "presigned",
 			status: "uploading",
@@ -118,7 +122,6 @@ export function createSimpleUploadRunners({
 			speedBps: undefined,
 		});
 		const speedTracker = createUploadSpeedTracker();
-		const presignedHeaders = init.presigned_headers ?? undefined;
 		const requireEtag = init.presigned_require_etag ?? true;
 
 		try {
@@ -132,11 +135,16 @@ export function createSimpleUploadRunners({
 							...speedTracker.sample(loaded),
 						});
 					};
-					return uploadService.presignedUpload(presignedUrl, file, onProgress, {
-						headers: presignedHeaders,
-						onCreateXhr,
-						requireEtag,
-					});
+					return uploadService.presignedUpload(
+						presignedRequest.url,
+						file,
+						onProgress,
+						{
+							headers: presignedRequest.headers,
+							onCreateXhr,
+							requireEtag,
+						},
+					);
 				},
 			);
 

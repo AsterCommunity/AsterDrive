@@ -3,7 +3,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use aws_sdk_s3::presigning::PresigningConfig;
 
-use aster_drive_storage::traits::driver::PresignedDownloadOptions;
+use aster_drive_storage::traits::driver::{PresignedDownloadOptions, PresignedUploadRequest};
 use aster_drive_storage::traits::extensions::PresignedStorageDriver;
 use aster_drive_storage::{MapStorageErr, StorageErrorKind};
 
@@ -32,6 +32,12 @@ pub(super) fn clamp_presign_ttl(requested: Duration, ctx: &'static str) -> Durat
     } else {
         requested
     }
+}
+
+pub(super) fn sdk_presigned_upload_request(
+    request: aws_sdk_s3::presigning::PresignedRequest,
+) -> PresignedUploadRequest {
+    PresignedUploadRequest::from_header_pairs(request.uri(), request.headers())
 }
 // =============================================================================
 // PresignedStorageDriver 扩展
@@ -70,14 +76,14 @@ impl PresignedStorageDriver for S3Driver {
         Ok(Some(url.uri().to_string()))
     }
 
-    async fn presigned_put_url(
+    async fn presigned_put_request(
         &self,
         path: &str,
         expires: Duration,
-    ) -> aster_drive_storage::Result<Option<String>> {
+    ) -> aster_drive_storage::Result<Option<PresignedUploadRequest>> {
         let key = self.full_key(path);
         let presign_config = PresigningConfig::builder()
-            .expires_in(clamp_presign_ttl(expires, "S3 presigned_put_url"))
+            .expires_in(clamp_presign_ttl(expires, "S3 presigned_put_request"))
             .build()
             .map_storage_err_ctx(StorageErrorKind::Misconfigured, "presign config")?;
 
@@ -90,6 +96,6 @@ impl PresignedStorageDriver for S3Driver {
             .await
             .map_storage_err_ctx(StorageErrorKind::Misconfigured, "S3 presigned PUT failed")?;
 
-        Ok(Some(url.uri().to_string()))
+        Ok(Some(sdk_presigned_upload_request(url)))
     }
 }

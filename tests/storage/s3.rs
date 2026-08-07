@@ -174,7 +174,7 @@ async fn test_s3_put_get_delete() {
 
     // PRESIGNED PUT URL
     let url = driver
-        .presigned_put_url("test/new.txt", std::time::Duration::from_secs(300))
+        .presigned_put_request("test/new.txt", std::time::Duration::from_secs(300))
         .await
         .unwrap();
     assert!(url.is_some());

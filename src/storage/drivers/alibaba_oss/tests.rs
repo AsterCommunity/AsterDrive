@@ -114,42 +114,39 @@ async fn public_presigned_url_ignores_server_side_endpoint() {
         AlibabaOssDriver::new(config, sample_credentials()).expect("OSS driver should build");
 
     let presigned = driver.extensions().presigned.expect("presigned extension");
-    let url = presigned
-        .presigned_put_url("docs/report.txt", Duration::from_secs(60))
+    let request = presigned
+        .presigned_put_request("docs/report.txt", Duration::from_secs(60))
         .await
         .expect("presigned PUT")
         .expect("presigned URL");
 
-    assert!(url.starts_with(
+    assert!(request.url.starts_with(
         "https://asterdrive-test.oss-cn-hangzhou.aliyuncs.com/tenant/prefix/docs/report.txt"
     ));
-    assert!(url.contains("x-oss-signature="));
-    assert!(!url.contains("internal"));
+    assert!(request.url.contains("x-oss-signature="));
+    assert!(!request.url.contains("internal"));
     assert_eq!(
-        presigned
-            .presigned_put_headers()
-            .get("Content-Type")
-            .map(String::as_str),
+        request.headers.get("content-type").map(String::as_str),
         Some(signing::OSS_PRESIGNED_PUT_CONTENT_TYPE)
     );
     assert!(!presigned.presigned_single_put_requires_etag());
 }
 
 #[tokio::test]
-async fn presigned_upload_part_url_uses_public_endpoint() {
+async fn presigned_upload_part_request_uses_public_endpoint() {
     let mut config = sample_config();
     config.server_side_endpoint = "https://oss-cn-hangzhou-internal.aliyuncs.com".to_string();
     let driver =
         AlibabaOssDriver::new(config, sample_credentials()).expect("OSS driver should build");
 
-    let url = driver
+    let request = driver
         .extensions()
         .multipart
         .expect("multipart extension")
-        .presigned_upload_part_url("video.bin", "upload-id", 7, Duration::from_secs(60))
+        .presigned_upload_part_request("video.bin", "upload-id", 7, Duration::from_secs(60))
         .await
         .expect("presigned part URL");
-    let parsed = Url::parse(&url).expect("valid OSS presigned part URL");
+    let parsed = Url::parse(&request.url).expect("valid OSS presigned part URL");
     let query = parsed
         .query_pairs()
         .into_owned()
@@ -159,10 +156,14 @@ async fn presigned_upload_part_url_uses_public_endpoint() {
         parsed.host_str(),
         Some("asterdrive-test.oss-cn-hangzhou.aliyuncs.com")
     );
-    assert!(!url.contains("internal"));
+    assert!(!request.url.contains("internal"));
     assert_eq!(query.get("partNumber").map(String::as_str), Some("7"));
     assert_eq!(query.get("uploadId").map(String::as_str), Some("upload-id"));
     assert!(query.contains_key("x-oss-signature"));
+    assert_eq!(
+        request.headers.get("content-type").map(String::as_str),
+        Some(signing::OSS_PRESIGNED_PUT_CONTENT_TYPE)
+    );
 }
 
 #[tokio::test]
@@ -174,18 +175,22 @@ async fn public_presigned_url_uses_cname_without_bucket_wire_path() {
     let driver =
         AlibabaOssDriver::new(config, sample_credentials()).expect("OSS CNAME driver should build");
 
-    let url = driver
+    let request = driver
         .extensions()
         .presigned
         .expect("presigned extension")
-        .presigned_put_url("docs/report.txt", Duration::from_secs(60))
+        .presigned_put_request("docs/report.txt", Duration::from_secs(60))
         .await
         .expect("presigned PUT")
         .expect("presigned URL");
 
-    assert!(url.starts_with("https://files.example.test/tenant/prefix/docs/report.txt"));
-    assert!(!url.contains("/asterdrive-test/"));
-    assert!(url.contains("x-oss-signature="));
+    assert!(
+        request
+            .url
+            .starts_with("https://files.example.test/tenant/prefix/docs/report.txt")
+    );
+    assert!(!request.url.contains("/asterdrive-test/"));
+    assert!(request.url.contains("x-oss-signature="));
 }
 
 #[tokio::test]
