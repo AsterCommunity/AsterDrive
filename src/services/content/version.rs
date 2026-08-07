@@ -477,7 +477,7 @@ pub async fn cleanup_excess(state: &PrimaryAppState, file_id: i64) -> Result<()>
     let db = state.writer_db();
     let file = file_repo::find_by_id(db, file_id).await?;
     let scope = resource_scope_from_file(&file)?;
-    let max_versions = get_max_versions(state).await;
+    let max_versions = get_max_versions(state);
     let mut deleted_count = 0u64;
     let mut reclaimed_bytes = 0i64;
 
@@ -614,7 +614,7 @@ async fn cleanup_blobs_if_unused_by_counts(
     Ok(())
 }
 
-async fn get_max_versions(state: &PrimaryAppState) -> u64 {
+fn get_max_versions(state: &PrimaryAppState) -> u64 {
     state
         .runtime_config
         .get_u64("max_versions_per_file")

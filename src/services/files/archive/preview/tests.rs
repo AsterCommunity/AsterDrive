@@ -20,6 +20,8 @@ use aster_forge_config::{ConfigSource, ConfigValueType};
 use aster_forge_db::system_config;
 use aster_forge_tasks::TaskLease;
 
+static COPY_ALLOCATION_MEASUREMENT_INPUT: [u8; 128 * 1024] = [0; 128 * 1024];
+
 struct PreviewMemoryRangeDriver {
     data: Vec<u8>,
     range_calls: AtomicUsize,
@@ -707,6 +709,66 @@ async fn bounded_copy_stops_before_reading_when_shutdown_requested() {
     .expect_err("shutdown should stop copy before reading");
 
     assert!(error.message().contains("shutdown"));
+}
+
+#[tokio::test]
+async fn bounded_copy_propagates_write_failure() {
+    let context = test_execution_context();
+    let mut reader = &b"zip"[..];
+    let mut output = crate::test_support::FailingAsyncWriter;
+
+    let error = copy_async_reader_to_writer_with_execution_and_expected_size(
+        &context,
+        &mut reader,
+        &mut output,
+        3,
+        "source archive",
+        |message| {
+            archive_preview_validation_error(
+                ApiErrorCode::ArchivePreviewSourceSizeMismatch,
+                message,
+            )
+        },
+    )
+    .await
+    .expect_err("writer failure should abort the copy");
+
+    assert!(
+        error
+            .message()
+            .contains("write archive preview source stream chunk")
+    );
+}
+
+#[tokio::test]
+async fn bounded_copy_future_size_and_allocations_are_bounded() {
+    let context = test_execution_context();
+    let mut reader = COPY_ALLOCATION_MEASUREMENT_INPUT.as_slice();
+    let mut output = tokio::io::sink();
+    let future = copy_async_reader_to_writer_with_execution_and_expected_size(
+        &context,
+        &mut reader,
+        &mut output,
+        COPY_ALLOCATION_MEASUREMENT_INPUT.len() as u64,
+        "source archive",
+        |message| {
+            archive_preview_validation_error(
+                ApiErrorCode::ArchivePreviewSourceSizeMismatch,
+                message,
+            )
+        },
+    );
+    let future_size = std::mem::size_of_val(&future);
+    let (result, allocations) = crate::test_support::allocations::measure_future(future).await;
+
+    result.expect("multi-buffer exact-size stream should copy");
+    eprintln!("archive preview copy future: {future_size} bytes; allocations: {allocations:?}");
+    assert!(
+        future_size < 16 * 1024,
+        "archive preview copy future is {future_size} bytes"
+    );
+    assert_eq!(allocations.count, 1);
+    assert_eq!(allocations.bytes, 64 * 1024);
 }
 
 fn test_execution_context() -> TaskExecutionContext {

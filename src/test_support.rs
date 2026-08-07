@@ -1,5 +1,126 @@
 use std::{collections::BTreeSet, path::Path};
 
+pub(crate) mod allocations {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+    use std::future::Future;
+
+    thread_local! {
+        static MEASURING: Cell<bool> = const { Cell::new(false) };
+        static ALLOCATION_COUNT: Cell<usize> = const { Cell::new(0) };
+        static ALLOCATED_BYTES: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(crate) struct CountingAllocator;
+
+    // SAFETY: every operation delegates to `System` with the original pointer and layout. The
+    // thread-local counters are observational and do not alter allocator behavior.
+    unsafe impl GlobalAlloc for CountingAllocator {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            // SAFETY: the caller upholds `GlobalAlloc::alloc`'s layout contract.
+            let pointer = unsafe { System.alloc(layout) };
+            if !pointer.is_null() {
+                record_allocation(layout.size());
+            }
+            pointer
+        }
+
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            // SAFETY: the caller upholds `GlobalAlloc::alloc_zeroed`'s layout contract.
+            let pointer = unsafe { System.alloc_zeroed(layout) };
+            if !pointer.is_null() {
+                record_allocation(layout.size());
+            }
+            pointer
+        }
+
+        unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+            // SAFETY: the caller supplies the pointer and layout returned by this allocator.
+            unsafe { System.dealloc(pointer, layout) };
+        }
+
+        unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            // SAFETY: the caller supplies the original allocation and a valid new size.
+            let resized = unsafe { System.realloc(pointer, layout, new_size) };
+            if !resized.is_null() {
+                record_allocation(new_size);
+            }
+            resized
+        }
+    }
+
+    fn record_allocation(bytes: usize) {
+        MEASURING.with(|measuring| {
+            if measuring.get() {
+                ALLOCATION_COUNT.with(|count| count.set(count.get().saturating_add(1)));
+                ALLOCATED_BYTES.with(|total| total.set(total.get().saturating_add(bytes)));
+            }
+        });
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) struct AllocationMeasurement {
+        pub(crate) count: usize,
+        pub(crate) bytes: usize,
+    }
+
+    struct MeasurementGuard;
+
+    impl MeasurementGuard {
+        fn start() -> Self {
+            MEASURING.with(|measuring| {
+                assert!(!measuring.replace(true), "nested allocation measurement");
+            });
+            ALLOCATION_COUNT.with(|count| count.set(0));
+            ALLOCATED_BYTES.with(|bytes| bytes.set(0));
+            Self
+        }
+    }
+
+    impl Drop for MeasurementGuard {
+        fn drop(&mut self) {
+            MEASURING.with(|measuring| measuring.set(false));
+        }
+    }
+
+    pub(crate) async fn measure_future<F: Future>(future: F) -> (F::Output, AllocationMeasurement) {
+        let guard = MeasurementGuard::start();
+        let output = future.await;
+        let measurement = AllocationMeasurement {
+            count: ALLOCATION_COUNT.with(Cell::get),
+            bytes: ALLOCATED_BYTES.with(Cell::get),
+        };
+        drop(guard);
+        (output, measurement)
+    }
+}
+
+pub(crate) struct FailingAsyncWriter;
+
+impl tokio::io::AsyncWrite for FailingAsyncWriter {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        _context: &mut std::task::Context<'_>,
+        _buffer: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::task::Poll::Ready(Err(std::io::Error::other("injected write failure")))
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        _context: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        _context: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+
 pub(crate) fn snapshot_dir_tree(path: &Path) -> std::io::Result<BTreeSet<String>> {
     fn walk(root: &Path, current: &Path, entries: &mut BTreeSet<String>) -> std::io::Result<()> {
         for entry in std::fs::read_dir(current)? {
