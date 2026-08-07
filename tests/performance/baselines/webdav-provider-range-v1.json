@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "baseline_version": "webdav-provider-range-v1",
+  "regression_policy": {
+    "ttfb_p95_max_ratio": 1.5,
+    "throughput_p50_min_ratio": 0.7
+  },
+  "profiles": [
+    {
+      "profile": "debian-epyc-local-v1",
+      "provider": "local",
+      "payload_bytes": 5242880,
+      "range_bytes": 262144,
+      "sampling": {
+        "warmups": 3,
+        "samples": 20,
+        "read_buffer_bytes": 65536
+      },
+      "machine": {
+        "profile": "debian-epyc-local-v1",
+        "build_profile": "optimized",
+        "os": "linux",
+        "architecture": "x86_64",
+        "cpu_model": "AMD EPYC-Genoa Processor",
+        "logical_cpus": 64,
+        "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+        "kernel": "Linux 6.12.85+deb13-amd64 x86_64 GNU/Linux"
+      },
+      "generated_at": "2026-08-06T17:34:07.503493741+00:00",
+      "git_revision": "aaa2b5a641c2d7e688b15d718c6672390b13c3be",
+      "git_dirty": false,
+      "scenarios": {
+        "full_get": {
+          "ttfb_p95_ms": 0.13965960000000002,
+          "throughput_p50_bytes_per_second": 373698030.4126808
+        },
+        "multi_range_disjoint": {
+          "ttfb_p95_ms": 0.17509150000000007,
+          "throughput_p50_bytes_per_second": 388062253.79542506
+        },
+        "single_range_early": {
+          "ttfb_p95_ms": 0.12910165000000026,
+          "throughput_p50_bytes_per_second": 390046383.03697467
+        },
+        "single_range_late": {
+          "ttfb_p95_ms": 0.9772120500000002,
+          "throughput_p50_bytes_per_second": 376915149.4909163
+        }
+      }
+    }
+  ]
+}

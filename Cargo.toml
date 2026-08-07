@@ -295,6 +295,16 @@ name = "path_hotspots"
 harness = false
 required-features = ["benchmarks"]
 
+[[bench]]
+name = "webdav_provider_range"
+harness = false
+required-features = ["benchmarks"]
+
+[[test]]
+name = "webdav_provider_range_contract"
+path = "tests/webdav_provider_range_contract.rs"
+required-features = ["benchmarks"]
+
 [[test]]
 name = "multi_primary"
 path = "tests/multi_primary/main.rs"

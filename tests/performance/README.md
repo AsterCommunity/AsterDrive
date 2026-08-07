@@ -215,6 +215,149 @@ in path and naming helpers used by file, upload, and WebDAV flows.
 cargo bench --bench path_hotspots
 ```
 
+## WebDAV Provider Range Baselines
+
+Issue `#449` uses a separate Rust runner for provider efficiency. It calls the
+same `StorageDriver::get_stream()` / `get_range()` operations selected by the
+WebDAV download adapter, without putting wall-clock assertions into ordinary
+unit tests.
+
+The fixed scenario set is:
+
+- full GET;
+- an early single range;
+- a late single range;
+- two disjoint ranges, with one backend open per final segment;
+- the default `get_stream + prefix skip` fallback, measured against an
+  instrumented in-memory fixture.
+
+Each artifact contains raw samples plus p50/p95/p99 summaries for open time,
+TTFB, read time, total time, and payload throughput. It also records selected
+bytes, logical backend call count, bytes actually pulled through the returned
+reader, and fallback prefix bytes. `backend_call_count` follows the existing
+WebDAV observation contract: it counts `get_stream` / `get_range` opens. SDK
+retries and a provider's internal redirect hop remain transport details and
+must be called out in the provider fixture summary when they change.
+
+Machine metadata distinguishes debug from optimized binaries. Baseline lookup
+also matches warmup count, sample count, and read-buffer size, so results from a
+quick debug smoke run cannot be compared with the optimized `cargo bench`
+workflow by accident.
+
+Provider summaries record behavior-relevant configuration such as path style,
+protocol versions, host-key pinning, and whether explicit target selection is
+enabled. Credentials and fixture identifiers such as endpoints, bucket names,
+drive/item IDs, remote target keys, and SFTP fingerprints are deliberately
+redacted from artifacts.
+
+The fixture is explicitly bounded to at most 1 GiB. Download samples validate
+the deterministic byte pattern incrementally with a 64 KiB buffer rather than
+buffering a complete response or writing a temporary download.
+
+Local run:
+
+```bash
+ASTER_BENCH_RANGE_PROVIDER=local \
+ASTER_BENCH_RANGE_BASELINE_PROFILE="$(uname -s)-$(uname -m)-local-v1" \
+ASTER_BENCH_RANGE_BASELINE=tests/performance/baselines/webdav-provider-range-v1.json \
+cargo bench --bench webdav_provider_range --features benchmarks
+```
+
+The default artifact path is:
+
+```text
+tests/performance/results/webdav-provider-range/artifact.json
+```
+
+External fixtures are opt-in. Missing variables produce a structured `skipped`
+artifact with the exact prerequisite list; set
+`ASTER_BENCH_RANGE_PROVIDER_REQUIRED=true` when a selected fixture must exist.
+
+### S3-compatible
+
+Required:
+
+```text
+ASTER_BENCH_S3_ENDPOINT
+ASTER_BENCH_S3_BUCKET
+ASTER_BENCH_S3_ACCESS_KEY
+ASTER_BENCH_S3_SECRET_KEY
+```
+
+Optional: `ASTER_BENCH_S3_REGION`, `ASTER_BENCH_S3_BASE_PATH`, and
+`ASTER_BENCH_S3_PATH_STYLE`.
+
+### OneDrive
+
+Required:
+
+```text
+ASTER_BENCH_ONEDRIVE_ACCESS_TOKEN
+ASTER_BENCH_ONEDRIVE_DRIVE_ID
+ASTER_BENCH_ONEDRIVE_ROOT_ITEM_ID
+```
+
+Optional: `ASTER_BENCH_ONEDRIVE_GRAPH_BASE_URL` and
+`ASTER_BENCH_ONEDRIVE_BASE_PATH`. Use a benchmark-only folder because the
+runner overwrites and normally deletes its fixture object. The configured base
+folder must already exist; the benchmark does not mutate OneDrive folder
+topology just to time object reads.
+
+### SFTP
+
+Required:
+
+```text
+ASTER_BENCH_SFTP_ENDPOINT
+ASTER_BENCH_SFTP_USERNAME
+ASTER_BENCH_SFTP_PASSWORD
+ASTER_BENCH_SFTP_HOST_KEY_FINGERPRINT
+```
+
+Optional: `ASTER_BENCH_SFTP_BASE_PATH`. The host key pin is deliberately
+mandatory; a timing run is not an excuse to weaken the connector contract.
+
+### Remote driver
+
+Required:
+
+```text
+ASTER_BENCH_REMOTE_BASE_URL
+ASTER_BENCH_REMOTE_ACCESS_KEY
+ASTER_BENCH_REMOTE_SECRET_KEY
+```
+
+Optional: `ASTER_BENCH_REMOTE_BASE_PATH` and
+`ASTER_BENCH_REMOTE_STORAGE_TARGET_KEY`. Set
+`ASTER_BENCH_REMOTE_CAPABILITIES_JSON` to the follower's stored discovery
+document when benchmarking an older compatible protocol revision; otherwise
+the runner uses the current protocol capability model.
+
+### Versioned baselines
+
+Baseline profiles live in
+`tests/performance/baselines/webdav-provider-range-v1.json`. A profile is
+matched by profile name, provider, payload size, and range size. The default
+policy reports a regression when p95 TTFB exceeds `1.5x` or p50 throughput
+drops below `0.7x`; scheduled runs report the comparison in the artifact and do
+not turn network variance into a protocol-test failure.
+
+Update a profile only from a reviewed artifact captured from a clean Git
+worktree on the same machine and provider fixture. The updater rejects dirty,
+incomplete, empty, or non-finite artifacts before touching the baseline file:
+
+```bash
+bun tests/performance/update-webdav-provider-range-baseline.mjs \
+  tests/performance/results/webdav-provider-range/artifact.json \
+  tests/performance/baselines/webdav-provider-range-v1.json \
+  PROFILE_NAME
+```
+
+The dedicated `WebDAV Provider Range Baselines` workflow runs local storage on
+a weekly schedule and exposes manual provider selection. It always uploads the
+artifact, including skip artifacts, so fixture drift is visible instead of
+silently disappearing.
+
 ## Collecting Summaries
 
 If `ASTER_BENCH_SUMMARY_DIR` is set, each script writes a compact JSON summary:
