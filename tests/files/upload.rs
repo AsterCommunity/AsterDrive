@@ -188,6 +188,7 @@ async fn upload_same_content_direct_and_chunked(
 
 struct UploadSessionSpec<'a> {
     upload_id: &'a str,
+    team_id: Option<i64>,
     status: aster_drive_model::types::UploadSessionStatus,
     expires_at: chrono::DateTime<chrono::Utc>,
     total_chunks: i32,
@@ -209,6 +210,7 @@ impl<'a> UploadSessionSpec<'a> {
     ) -> Self {
         Self {
             upload_id,
+            team_id: None,
             status,
             expires_at,
             total_chunks: 0,
@@ -220,6 +222,11 @@ impl<'a> UploadSessionSpec<'a> {
             provider_session_ciphertext: None,
             file_id: None,
         }
+    }
+
+    fn team(mut self, team_id: i64) -> Self {
+        self.team_id = Some(team_id);
+        self
     }
 
     fn chunks(mut self, total_chunks: i32, received_count: i32) -> Self {
@@ -273,7 +280,7 @@ async fn create_upload_session(
         aster_drive_model::entities::upload_session::ActiveModel {
             id: Set(spec.upload_id.to_string()),
             user_id: Set(user_id),
-            team_id: Set(None),
+            team_id: Set(spec.team_id),
             frontend_client_id: Set(None),
             filename: Set("manual-upload.bin".to_string()),
             total_size: Set(10),
@@ -1208,6 +1215,7 @@ async fn test_chunk_upload_endpoint_streams_and_rejects_oversized_chunk_with_413
     let state = common::setup().await;
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
+    let frontend_client_id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
     let req = test::TestRequest::post()
         .uri("/api/v1/files/upload/init")
@@ -1215,7 +1223,8 @@ async fn test_chunk_upload_endpoint_streams_and_rejects_oversized_chunk_with_413
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "filename": "oversized-chunk.bin",
-            "total_size": TEST_CHUNK_SIZE + 1
+            "total_size": TEST_CHUNK_SIZE + 1,
+            "frontend_client_id": frontend_client_id
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -1238,6 +1247,21 @@ async fn test_chunk_upload_endpoint_streams_and_rejects_oversized_chunk_with_413
     );
     let body: Value = test::read_body_json(resp).await;
     assert_upload_error_contract(&body, "upload.chunk_too_large");
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/files/upload/sessions?frontend_client_id={frontend_client_id}"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert!(
+        body["data"].as_array().unwrap().is_empty(),
+        "terminal upload error must immediately remove the session from recovery"
+    );
 }
 
 #[actix_web::test]
@@ -3655,6 +3679,7 @@ async fn test_upload_session_part_upsert_updates_existing_row_without_duplicates
 
 #[actix_web::test]
 async fn test_upload_chunk_rejects_wrong_chunk_size() {
+    use aster_drive::db::repository::upload_session_repo;
     use aster_drive::services::files::upload;
 
     let state = common::setup().await;
@@ -3675,11 +3700,73 @@ async fn test_upload_chunk_rejects_wrong_chunk_size() {
     assert_eq!(err.code(), "E056");
     assert!(err.message().contains("size mismatch"));
 
-    let progress = upload::get_progress(&state, &upload_id, user.id)
-        .await
-        .unwrap();
-    assert_eq!(progress.received_count, 0);
-    assert!(progress.chunks_on_disk.is_empty());
+    assert!(
+        upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+            .await
+            .is_err(),
+        "local terminal cleanup should delete the upload session row"
+    );
+    assert!(
+        upload::list_recoverable_sessions(&state, user.id, None)
+            .await
+            .unwrap()
+            .is_empty(),
+        "terminal session must not remain recoverable"
+    );
+}
+
+#[actix_web::test]
+async fn test_team_upload_chunk_terminal_error_removes_session_from_recovery() {
+    use aster_drive::db::repository::upload_session_repo;
+    use aster_drive::services::{files::upload, workspace::team};
+
+    let state = common::setup().await;
+    let owner =
+        common::create_test_account(&state, "teamsizeuser", "team-size@test.com", "password123")
+            .await
+            .unwrap();
+    let team = team::create_team(
+        &state,
+        owner.id,
+        team::CreateTeamInput {
+            name: "Terminal upload team".to_string(),
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+    let init = upload::init_upload_for_team(
+        &state,
+        team.id,
+        owner.id,
+        "team-size-check.bin",
+        10_485_760,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let upload_id = init.upload_id.unwrap();
+
+    let err =
+        match upload::upload_chunk_for_team(&state, team.id, &upload_id, 0, owner.id, b"short")
+            .await
+        {
+            Ok(_) => panic!("wrong-sized team chunk upload should fail"),
+            Err(err) => err,
+        };
+    assert_eq!(err.api_error_code(), ApiErrorCode::UploadChunkSizeMismatch);
+    assert!(
+        upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+            .await
+            .is_err()
+    );
+    assert!(
+        upload::list_recoverable_sessions_for_team(&state, team.id, owner.id, None)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[actix_web::test]
@@ -4398,6 +4485,7 @@ async fn test_file_upload_presign_parts_rejects_non_multipart_session() {
 
 #[actix_web::test]
 async fn test_file_upload_presign_parts_validates_part_number_batch() {
+    use aster_drive::db::repository::upload_session_repo;
     use aster_drive::services::files::upload;
 
     let state = common::setup().await;
@@ -4442,6 +4530,136 @@ async fn test_file_upload_presign_parts_validates_part_number_batch() {
         .await
         .unwrap_err();
     assert_eq!(err.api_error_code(), ApiErrorCode::UploadPartNumbersTooMany);
+
+    let preserved = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        preserved.status,
+        aster_drive_model::types::UploadSessionStatus::Presigned,
+        "correctable presign request errors must preserve the session"
+    );
+    assert_eq!(
+        upload_session_repo::find_recoverable_by_owner(state.writer_db(), user.id, None, None, 10,)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+async fn assert_presign_parts_terminal_cleanup(
+    state: &aster_drive::runtime::PrimaryAppState,
+    user_id: i64,
+    team_id: Option<i64>,
+) {
+    use aster_drive::db::repository::{policy_repo, upload_session_repo};
+    use aster_drive::services::files::upload;
+    use aster_drive_model::types::UploadSessionStatus;
+
+    let policy = policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .expect("default policy should exist in test setup");
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    let upload_id = new_test_upload_id();
+    let temp_key = format!("upload/data/files/{upload_id}-presign-terminal");
+    driver.put(&temp_key, b"temporary object").await.unwrap();
+    assert!(driver.exists(&temp_key).await.unwrap());
+
+    let mut session = UploadSessionSpec::new(
+        &upload_id,
+        UploadSessionStatus::Presigned,
+        chrono::Utc::now() + chrono::Duration::hours(1),
+        UploadSessionKind::ProviderPresignedMultipart,
+    )
+    .chunks(2, 0)
+    .policy(policy.id)
+    .object_upload(Some(&temp_key), Some("multipart-id"));
+    if let Some(team_id) = team_id {
+        session = session.team(team_id);
+    }
+    create_upload_session(state, user_id, session).await;
+
+    let err = if let Some(team_id) = team_id {
+        upload::presign_parts_for_team(state, team_id, &upload_id, user_id, vec![1])
+            .await
+            .unwrap_err()
+    } else {
+        upload::presign_parts(state, &upload_id, user_id, vec![1])
+            .await
+            .unwrap_err()
+    };
+    assert_eq!(err.api_error_code(), ApiErrorCode::StorageUnsupported);
+    assert!(!err.api_error_info().retryable);
+    assert!(
+        !driver.exists(&temp_key).await.unwrap(),
+        "terminal presign failure should delete the temporary object"
+    );
+    assert!(
+        upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+            .await
+            .is_err(),
+        "completed terminal cleanup should delete the failed session row"
+    );
+
+    let recoverable = if let Some(team_id) = team_id {
+        upload::list_recoverable_sessions_for_team(state, team_id, user_id, None)
+            .await
+            .unwrap()
+    } else {
+        upload::list_recoverable_sessions(state, user_id, None)
+            .await
+            .unwrap()
+    };
+    assert!(
+        recoverable
+            .iter()
+            .all(|session| session.upload_id != upload_id),
+        "terminal presign failure must not remain recoverable"
+    );
+}
+
+#[actix_web::test]
+async fn test_personal_presign_parts_terminal_error_cleans_session_and_temp_object() {
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "presignterminal",
+        "presign-terminal@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+
+    assert_presign_parts_terminal_cleanup(&state, user.id, None).await;
+}
+
+#[actix_web::test]
+async fn test_team_presign_parts_terminal_error_cleans_session_and_temp_object() {
+    use aster_drive::services::workspace::team;
+
+    let state = common::setup().await;
+    let owner = common::create_test_account(
+        &state,
+        "tmprsignterm",
+        "team-presign-terminal@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let team = team::create_team(
+        &state,
+        owner.id,
+        team::CreateTeamInput {
+            name: "Terminal presign team".to_string(),
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_presign_parts_terminal_cleanup(&state, owner.id, Some(team.id)).await;
 }
 
 #[actix_web::test]

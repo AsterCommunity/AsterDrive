@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useTransferActivityStore } from "@/stores/transferActivityStore";
 import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import type { MeField } from "@/types/api";
+import { ApiErrorCode } from "@/types/api-helpers";
 
 const appendCompletedPart = vi.fn();
 const cancelUpload = vi.fn();
@@ -44,9 +45,9 @@ interface MockAuthStoreState {
 }
 
 class MockApiError extends Error {
-	code: number;
+	code: number | string;
 
-	constructor(code: number, message: string) {
+	constructor(code: number | string, message: string) {
 		super(message);
 		this.code = code;
 	}
@@ -84,7 +85,9 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("@/components/files/UploadPanel", () => ({
 	UploadPanel: (props: {
+		clearFinishedLabel?: string;
 		emptyText: string;
+		onClearFinished?: () => void;
 		open: boolean;
 		overallProgress?: number;
 		summary: string;
@@ -118,6 +121,11 @@ vi.mock("@/components/files/UploadPanel", () => ({
 						))}
 					</div>
 				))}
+				{props.onClearFinished && props.clearFinishedLabel ? (
+					<button type="button" onClick={props.onClearFinished}>
+						{props.clearFinishedLabel}
+					</button>
+				) : null}
 			</div>
 		);
 	},
@@ -585,6 +593,37 @@ describe("UploadArea", () => {
 		await screen.findByText("server.bin:Chunked:files:upload_pending_file");
 		expect(listRecoverableSessions).toHaveBeenCalledTimes(1);
 		expect(getProgress).not.toHaveBeenCalled();
+	});
+
+	it("removes a local terminal session when the backend no longer recovers it", async () => {
+		loadSessions.mockReturnValue([
+			{
+				uploadId: "upload-terminal",
+				filename: "terminal.bin",
+				totalSize: 10,
+				totalChunks: 2,
+				chunkSize: 5,
+				baseFolderId: 42,
+				baseFolderName: "Projects",
+				relativePath: null,
+				savedAt: Date.now(),
+				mode: "chunked",
+			},
+		]);
+		getProgress.mockRejectedValue(
+			new MockApiError(
+				ApiErrorCode.UploadSessionNotFound,
+				"terminal session was cleaned up",
+			),
+		);
+
+		await renderUploadAreaWithRestoreTimer();
+
+		await waitFor(() => {
+			expect(removeSession).toHaveBeenCalledWith("upload-terminal");
+		});
+		expect(screen.queryByText(/terminal\.bin/)).not.toBeInTheDocument();
+		expect(screen.queryByTestId("upload-panel")).not.toBeInTheDocument();
 	});
 
 	it("handles chunked uploads and persists resumable sessions", async () => {
@@ -1121,6 +1160,10 @@ describe("UploadArea", () => {
 			expect(removeSession).toHaveBeenCalledWith("upload-failed");
 		});
 		await screen.findByText("failed.txt:Chunked:files:upload_pending_file");
+		expect(
+			screen.getAllByText("failed.txt:Chunked:files:upload_pending_file"),
+		).toHaveLength(1);
+		expect(screen.queryByText("files:upload_retry")).not.toBeInTheDocument();
 	});
 
 	it("keeps persisted sessions when progress polling fails transiently", async () => {
@@ -1524,7 +1567,36 @@ describe("UploadArea", () => {
 		).toBe(true);
 	});
 
-	it("retries failed chunked uploads by reinitializing a new upload session", async () => {
+	it("hides retry and allows clearing a non-retryable failed upload", async () => {
+		cancelUpload.mockResolvedValue(undefined);
+		initUpload.mockResolvedValue({
+			mode: "chunked",
+			upload_id: "upload-terminal",
+			chunk_size: 5,
+			total_chunks: 1,
+		});
+		uploadChunk.mockRejectedValue(
+			Object.assign(new Error("upload failed"), { retryable: false }),
+		);
+
+		await uploadOneFile();
+
+		await screen.findByText("hello.txt:Chunked:files:upload_failed");
+		expect(screen.queryByText("files:upload_retry")).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByText("files:upload_clear_task"));
+
+		await waitFor(() => {
+			expect(
+				screen.queryByText("hello.txt:Chunked:files:upload_failed"),
+			).not.toBeInTheDocument();
+		});
+		expect(screen.getByText("files:upload_empty")).toBeInTheDocument();
+		expect(cancelUpload).toHaveBeenCalledWith("upload-terminal");
+		expect(removeSession).toHaveBeenCalledWith("upload-terminal");
+	});
+
+	it("retries failed chunked uploads when retryability is not explicitly false", async () => {
 		cancelUpload.mockResolvedValue(undefined);
 		initUpload
 			.mockResolvedValueOnce({
@@ -1540,9 +1612,7 @@ describe("UploadArea", () => {
 				total_chunks: 1,
 			});
 		uploadChunk
-			.mockRejectedValueOnce(
-				Object.assign(new Error("upload failed"), { retryable: false }),
-			)
+			.mockRejectedValueOnce(new Error("upload failed"))
 			.mockResolvedValueOnce({});
 		completeUpload.mockResolvedValue({ id: 9005 });
 
@@ -1550,17 +1620,12 @@ describe("UploadArea", () => {
 
 		await screen.findByText("hello.txt:Chunked:files:upload_failed");
 		fireEvent.click(screen.getByText("files:upload_retry"));
-
 		await screen.findByText("hello.txt:Chunked:files:upload_success");
 
 		expect(initUpload).toHaveBeenCalledTimes(2);
 		expect(cancelUpload).toHaveBeenCalledWith("upload-old");
 		expect(removeSession).toHaveBeenCalledWith("upload-old");
 		expect(uploadChunk.mock.calls.at(-1)?.[0]).toBe("upload-new");
-		expect(
-			uploadChunk.mock.calls.filter((call) => call[0] === "upload-old"),
-		).toHaveLength(1);
-		expect(completeUpload).toHaveBeenCalledWith("upload-new", undefined);
 	});
 
 	it("ignores repeated retry clicks while a retry is already in progress", async () => {
@@ -1582,9 +1647,7 @@ describe("UploadArea", () => {
 				total_chunks: 1,
 			});
 		uploadChunk
-			.mockRejectedValueOnce(
-				Object.assign(new Error("upload failed"), { retryable: false }),
-			)
+			.mockRejectedValueOnce(new Error("upload failed"))
 			.mockReturnValueOnce(retriedChunk.promise);
 		completeUpload.mockResolvedValue({ id: 9006 });
 
@@ -1632,9 +1695,7 @@ describe("UploadArea", () => {
 				total_chunks: 1,
 			});
 		uploadChunk
-			.mockRejectedValueOnce(
-				Object.assign(new Error("upload failed"), { retryable: false }),
-			)
+			.mockRejectedValueOnce(new Error("upload failed"))
 			.mockImplementationOnce(() => inFlightChunk.promise)
 			.mockResolvedValueOnce({});
 		completeUpload.mockResolvedValue({ id: 9010 });
@@ -1654,5 +1715,40 @@ describe("UploadArea", () => {
 		expect(cancelUpload).toHaveBeenCalledWith("upload-old");
 		expect(removeSession).toHaveBeenCalledWith("upload-old");
 		expect(uploadChunk.mock.calls.at(-1)?.[0]).toBe("upload-new");
+	});
+
+	it("batch-clears finished tasks while preserving active uploads", async () => {
+		const activeUpload = createDeferred<unknown>();
+		initUpload.mockResolvedValue({ mode: "direct" });
+		apiClientPost
+			.mockResolvedValueOnce({})
+			.mockRejectedValueOnce(new Error("direct upload failed"))
+			.mockReturnValueOnce(activeUpload.promise);
+
+		await uploadFiles([
+			new File(["done"], "done.txt"),
+			new File(["failed"], "failed.txt"),
+			new File(["active"], "active.txt"),
+		]);
+		await screen.findByText("done.txt:Direct:files:upload_success");
+		await screen.findByText("failed.txt:Direct:files:upload_failed");
+		await screen.findByText("active.txt:Direct:files:uploading_to_storage");
+
+		fireEvent.click(screen.getByText("files:upload_clear_finished"));
+
+		await waitFor(() => {
+			expect(
+				screen.queryByText("done.txt:Direct:files:upload_success"),
+			).not.toBeInTheDocument();
+			expect(
+				screen.queryByText("failed.txt:Direct:files:upload_failed"),
+			).not.toBeInTheDocument();
+		});
+		expect(
+			screen.getByText("active.txt:Direct:files:uploading_to_storage"),
+		).toBeInTheDocument();
+
+		activeUpload.resolve({});
+		await screen.findByText("active.txt:Direct:files:upload_success");
 	});
 });

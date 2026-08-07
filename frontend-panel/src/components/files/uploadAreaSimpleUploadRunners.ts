@@ -2,7 +2,6 @@ import {
 	getProcessingProgress,
 	SERVER_FINALIZE_PROGRESS,
 } from "@/components/files/uploadResume";
-import { getApiErrorMessage } from "@/hooks/useApiError";
 import { api } from "@/services/http";
 import type { InitUploadResponse } from "@/services/uploadService";
 import {
@@ -95,8 +94,7 @@ export function createSimpleUploadRunners({
 				patchTask(task.id, { status: "cancelled", error: null });
 				return;
 			}
-			const message = getApiErrorMessage(error);
-			markTaskFailed(task.id, message);
+			markTaskFailed(task.id, error);
 		} finally {
 			directAbortRef.current.delete(task.id);
 		}
@@ -162,8 +160,7 @@ export function createSimpleUploadRunners({
 				patchTask(task.id, { status: "cancelled", error: null });
 				return;
 			}
-			const message = getApiErrorMessage(error);
-			markTaskFailed(task.id, message);
+			markTaskFailed(task.id, error);
 		}
 	};
 

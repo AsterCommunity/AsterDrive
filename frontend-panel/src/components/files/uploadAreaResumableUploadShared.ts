@@ -1,4 +1,3 @@
-import { getApiErrorMessage } from "@/hooks/useApiError";
 import { removeSession } from "@/lib/uploadPersistence";
 import { isRetryableUploadError } from "@/services/uploadService";
 import { useAuthStore } from "@/stores/authStore";
@@ -286,8 +285,7 @@ export function createResumableUploadShared({
 				});
 				return;
 			}
-			const message = getApiErrorMessage(error);
-			markTaskFailed(task.id, message);
+			markTaskFailed(task.id, error);
 		} finally {
 			abortFlagsRef.current.delete(task.id);
 		}

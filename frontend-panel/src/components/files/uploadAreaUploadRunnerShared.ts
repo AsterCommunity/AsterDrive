@@ -14,7 +14,7 @@ export interface UploadModeRunnerContext {
 	directAbortRef: MutableRefObject<Map<string, AbortController>>;
 	flushProgress: () => void;
 	markFolderForRefresh: (task: UploadTask) => void;
-	markTaskFailed: (taskId: string, message: string) => void;
+	markTaskFailed: (taskId: string, error: unknown) => void;
 	multipartInFlightRef: MutableRefObject<Map<string, number>>;
 	patchTask: (taskId: string, patch: Partial<UploadTask>) => void;
 	patchTaskThrottled: (taskId: string, patch: Partial<UploadTask>) => void;

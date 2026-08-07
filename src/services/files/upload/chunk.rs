@@ -25,6 +25,7 @@ use crate::errors::{
 };
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::upload::kind::resolve_upload_session_kind;
+use crate::services::files::upload::lifecycle::run_upload_stage_operation;
 use crate::services::files::upload::responses::ChunkUploadResponse;
 use crate::services::files::upload::scope::{load_upload_session, personal_scope, team_scope};
 use crate::services::files::upload::shared::{
@@ -909,7 +910,17 @@ pub async fn upload_chunk(
     data: &[u8],
 ) -> Result<ChunkUploadResponse> {
     let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
-    upload_chunk_impl(state, session, chunk_number, Bytes::copy_from_slice(data)).await
+    run_upload_stage_operation(
+        state,
+        &session,
+        upload_chunk_impl(
+            state,
+            session.clone(),
+            chunk_number,
+            Bytes::copy_from_slice(data),
+        ),
+    )
+    .await
 }
 
 /// 上传单个分片，接收 HTTP body 已持有的 `Bytes`，避免 relay multipart 再复制一份大块数据。
@@ -921,7 +932,12 @@ pub async fn upload_chunk_bytes(
     data: Bytes,
 ) -> Result<ChunkUploadResponse> {
     let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
-    upload_chunk_impl(state, session, chunk_number, data).await
+    run_upload_stage_operation(
+        state,
+        &session,
+        upload_chunk_impl(state, session.clone(), chunk_number, data),
+    )
+    .await
 }
 
 pub async fn upload_chunk_payload(
@@ -932,7 +948,12 @@ pub async fn upload_chunk_payload(
     payload: actix_web::web::Payload,
 ) -> Result<ChunkUploadResponse> {
     let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
-    upload_chunk_payload_impl(state, session, chunk_number, payload).await
+    run_upload_stage_operation(
+        state,
+        &session,
+        upload_chunk_payload_impl(state, session.clone(), chunk_number, payload),
+    )
+    .await
 }
 
 pub async fn upload_chunk_for_team(
@@ -944,7 +965,17 @@ pub async fn upload_chunk_for_team(
     data: &[u8],
 ) -> Result<ChunkUploadResponse> {
     let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
-    upload_chunk_impl(state, session, chunk_number, Bytes::copy_from_slice(data)).await
+    run_upload_stage_operation(
+        state,
+        &session,
+        upload_chunk_impl(
+            state,
+            session.clone(),
+            chunk_number,
+            Bytes::copy_from_slice(data),
+        ),
+    )
+    .await
 }
 
 pub async fn upload_chunk_bytes_for_team(
@@ -956,7 +987,12 @@ pub async fn upload_chunk_bytes_for_team(
     data: Bytes,
 ) -> Result<ChunkUploadResponse> {
     let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
-    upload_chunk_impl(state, session, chunk_number, data).await
+    run_upload_stage_operation(
+        state,
+        &session,
+        upload_chunk_impl(state, session.clone(), chunk_number, data),
+    )
+    .await
 }
 
 pub async fn upload_chunk_payload_for_team(
@@ -968,7 +1004,12 @@ pub async fn upload_chunk_payload_for_team(
     payload: actix_web::web::Payload,
 ) -> Result<ChunkUploadResponse> {
     let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
-    upload_chunk_payload_impl(state, session, chunk_number, payload).await
+    run_upload_stage_operation(
+        state,
+        &session,
+        upload_chunk_payload_impl(state, session.clone(), chunk_number, payload),
+    )
+    .await
 }
 
 #[cfg(debug_assertions)]

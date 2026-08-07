@@ -26,10 +26,12 @@ export interface UploadTaskView {
 	detail?: string;
 	speed?: string;
 	completed?: boolean;
+	failed?: boolean;
 	cancelled?: boolean;
+	retryable?: boolean;
 	actions?: {
 		label: string;
-		icon: "X" | "ArrowsClockwise" | "Upload";
+		icon: "X" | "ArrowsClockwise" | "Trash" | "Upload";
 		onClick: () => void;
 		variant?: "outline" | "ghost";
 	}[];
@@ -54,8 +56,8 @@ interface UploadPanelProps {
 	onAutoClearCompletedChange?: (value: boolean) => void;
 	onRetryFailed?: () => void;
 	retryFailedLabel?: string;
-	onClearCompleted?: () => void;
-	clearCompletedLabel?: string;
+	onClearFinished?: () => void;
+	clearFinishedLabel?: string;
 }
 
 type FlatRow =
@@ -77,16 +79,13 @@ const ROW_HEIGHT_GROUP = 38;
 const PANEL_EXPANDED_BODY_CLASS = "h-[min(26rem,calc(100dvh-15rem))]";
 
 function taskShowsProgress(task: UploadTaskView) {
-	const failed = task.actions?.some(
-		(action) => action.icon === "ArrowsClockwise",
-	);
 	const waitingForFile = task.actions?.some(
 		(action) => action.icon === "Upload",
 	);
 	return (
 		!task.completed &&
 		!task.cancelled &&
-		!failed &&
+		!task.failed &&
 		!waitingForFile &&
 		task.progress < 100
 	);
@@ -114,8 +113,8 @@ export function UploadPanel({
 	onAutoClearCompletedChange,
 	onRetryFailed,
 	retryFailedLabel,
-	onClearCompleted,
-	clearCompletedLabel,
+	onClearFinished,
+	clearFinishedLabel,
 }: UploadPanelProps) {
 	const { t } = useTranslation("files");
 	const scrollRef = useRef<HTMLDivElement>(null);
@@ -136,11 +135,7 @@ export function UploadPanel({
 			let active = 0;
 			for (const task of groupTasks) {
 				if (task.completed) success++;
-				else if (
-					task.cancelled ||
-					task.actions?.some((a) => a.icon === "ArrowsClockwise")
-				)
-					failed++;
+				else if (task.cancelled || task.failed) failed++;
 				else active++;
 			}
 			const batchStatus =
@@ -177,10 +172,14 @@ export function UploadPanel({
 		overscan: 5,
 	});
 	const canRetryFailed = Boolean(
-		onRetryFailed && retryFailedLabel && failedCount > 0,
+		onRetryFailed &&
+			retryFailedLabel &&
+			tasks.some((task) => task.failed && task.retryable !== false),
 	);
-	const canClearCompleted = Boolean(
-		onClearCompleted && clearCompletedLabel && successCount > 0,
+	const canClearFinished = Boolean(
+		onClearFinished &&
+			clearFinishedLabel &&
+			tasks.some((task) => task.completed || task.failed || task.cancelled),
 	);
 	const showOverallProgress = activeCount > 0;
 	const generatedSettingsPanelId = useId();
@@ -294,7 +293,7 @@ export function UploadPanel({
 							</ScrollArea>
 						)}
 					</div>
-					{canRetryFailed || canClearCompleted ? (
+					{canRetryFailed || canClearFinished ? (
 						<div className="flex shrink-0 justify-end gap-2 border-t border-border/60 bg-card/80 px-4 py-3 dark:bg-card/65">
 							{canRetryFailed ? (
 								<Button variant="outline" size="sm" onClick={onRetryFailed}>
@@ -302,10 +301,10 @@ export function UploadPanel({
 									{retryFailedLabel}
 								</Button>
 							) : null}
-							{canClearCompleted ? (
-								<Button variant="outline" size="sm" onClick={onClearCompleted}>
-									<Icon name="X" className="size-3.5" />
-									{clearCompletedLabel}
+							{canClearFinished ? (
+								<Button variant="outline" size="sm" onClick={onClearFinished}>
+									<Icon name="Trash" className="size-3.5" />
+									{clearFinishedLabel}
 								</Button>
 							) : null}
 						</div>
