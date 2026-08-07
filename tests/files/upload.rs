@@ -2370,9 +2370,68 @@ async fn test_retry_with_existing_receipt_keeps_committed_staging_range() {
 
 #[actix_web::test]
 async fn test_offset_staging_rejects_corrupted_receipt_on_retry_and_complete() {
-    use aster_drive::db::repository::upload_session_part_repo;
+    use aster_drive::db::repository::{upload_session_part_repo, upload_session_repo};
     use aster_drive::services::files::upload;
     use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+
+    async fn create_corrupted_upload(
+        state: &aster_drive::runtime::PrimaryAppState,
+        user_id: i64,
+        filename: &str,
+        etag: &str,
+        size: i64,
+    ) -> (String, Vec<u8>) {
+        let init = upload::init_upload(state, user_id, filename, 10_485_760, None, None)
+            .await
+            .unwrap();
+        let upload_id = init.upload_id.unwrap();
+        let chunk0 = vec![b'A'; TEST_CHUNK_SIZE];
+        let chunk1 = vec![b'B'; TEST_CHUNK_SIZE];
+        upload::upload_chunk(state, &upload_id, 0, user_id, &chunk0)
+            .await
+            .unwrap();
+        upload::upload_chunk(state, &upload_id, 1, user_id, &chunk1)
+            .await
+            .unwrap();
+
+        let mut receipt =
+            upload_session_part_repo::find_by_upload_and_part(state.writer_db(), &upload_id, 1)
+                .await
+                .unwrap()
+                .unwrap()
+                .into_active_model();
+        receipt.etag = Set(etag.to_string());
+        receipt.size = Set(size);
+        receipt.update(state.writer_db()).await.unwrap();
+        (upload_id, chunk0)
+    }
+
+    async fn assert_upload_stage_terminal_cleanup(
+        state: &aster_drive::runtime::PrimaryAppState,
+        upload_id: &str,
+        operation: &str,
+    ) {
+        let session = upload_session_repo::find_by_id(state.writer_db(), upload_id).await;
+        assert!(
+            session.is_err(),
+            "terminal receipt corruption during {operation} must remove the upload session; found {session:?}"
+        );
+        assert!(
+            upload_session_part_repo::list_by_upload(state.writer_db(), upload_id)
+                .await
+                .unwrap()
+                .is_empty(),
+            "terminal receipt corruption must remove persisted chunk receipts"
+        );
+        let staging_dir = aster_forge_utils::paths::upload_temp_dir(
+            &state.config.server.upload_temp_dir,
+            upload_id,
+        );
+        assert!(
+            !tokio::fs::try_exists(staging_dir).await.unwrap(),
+            "terminal receipt corruption must remove the local staging directory"
+        );
+    }
 
     let state = common::setup().await;
     let user = common::create_test_account(
@@ -2383,61 +2442,85 @@ async fn test_offset_staging_rejects_corrupted_receipt_on_retry_and_complete() {
     )
     .await
     .unwrap();
-    let init = upload::init_upload(
+
+    let (retry_upload_id, retry_chunk) = create_corrupted_upload(
         &state,
         user.id,
-        "corrupt-receipt.bin",
-        10_485_760,
-        None,
-        None,
+        "corrupt-retry.bin",
+        "corrupted-receipt",
+        TEST_CHUNK_SIZE as i64,
     )
-    .await
-    .unwrap();
-    let upload_id = init.upload_id.unwrap();
-    let chunk0 = vec![b'A'; TEST_CHUNK_SIZE];
-    let chunk1 = vec![b'B'; TEST_CHUNK_SIZE];
-    upload::upload_chunk(&state, &upload_id, 0, user.id, &chunk0)
-        .await
-        .unwrap();
-    upload::upload_chunk(&state, &upload_id, 1, user.id, &chunk1)
-        .await
-        .unwrap();
-
-    let mut receipt =
-        upload_session_part_repo::find_by_upload_and_part(state.writer_db(), &upload_id, 1)
-            .await
-            .unwrap()
-            .unwrap()
-            .into_active_model();
-    receipt.etag = Set("corrupted-receipt".to_string());
-    receipt.update(state.writer_db()).await.unwrap();
-
-    let retry_error = match upload::upload_chunk(&state, &upload_id, 0, user.id, &chunk0).await {
-        Ok(_) => panic!("corrupted local receipt must reject a retry"),
-        Err(error) => error,
-    };
+    .await;
+    let retry_error =
+        match upload::upload_chunk(&state, &retry_upload_id, 0, user.id, &retry_chunk).await {
+            Ok(_) => panic!("corrupted local receipt must reject a retry"),
+            Err(error) => error,
+        };
     assert!(retry_error.message().contains("receipt is corrupted"));
+    assert_upload_stage_terminal_cleanup(&state, &retry_upload_id, "retry").await;
 
-    let mut receipt =
-        upload_session_part_repo::find_by_upload_and_part(state.writer_db(), &upload_id, 1)
-            .await
-            .unwrap()
-            .unwrap()
-            .into_active_model();
-    receipt.etag = Set(upload::test_support::offset_staging_receipt_etag().to_string());
-    receipt.size = Set(1);
-    receipt.update(state.writer_db()).await.unwrap();
-
-    let progress_error = match upload::get_progress(&state, &upload_id, user.id).await {
+    let (progress_upload_id, _) = create_corrupted_upload(
+        &state,
+        user.id,
+        "corrupt-progress.bin",
+        upload::test_support::offset_staging_receipt_etag(),
+        1,
+    )
+    .await;
+    let progress_error = match upload::get_progress(&state, &progress_upload_id, user.id).await {
         Ok(_) => panic!("corrupted local receipt size must reject progress recovery"),
         Err(error) => error,
     };
     assert!(progress_error.message().contains("receipt is corrupted"));
+    let progress_session = upload_session_repo::find_by_id(state.writer_db(), &progress_upload_id)
+        .await
+        .expect("read-only progress failure must preserve the upload session");
+    assert_eq!(
+        progress_session.status,
+        aster_drive_model::types::UploadSessionStatus::Uploading
+    );
+    assert_eq!(
+        upload_session_part_repo::list_by_upload(state.writer_db(), &progress_upload_id)
+            .await
+            .unwrap()
+            .len(),
+        2,
+        "read-only progress validation must not mutate chunk receipts"
+    );
 
-    let complete_error = upload::complete_upload(&state, &upload_id, user.id, None)
+    let (complete_upload_id, _) = create_corrupted_upload(
+        &state,
+        user.id,
+        "corrupt-complete.bin",
+        upload::test_support::offset_staging_receipt_etag(),
+        1,
+    )
+    .await;
+    let complete_error = upload::complete_upload(&state, &complete_upload_id, user.id, None)
         .await
         .unwrap_err();
     assert!(complete_error.message().contains("receipt is invalid"));
+    let failed_session = upload_session_repo::find_by_id(state.writer_db(), &complete_upload_id)
+        .await
+        .expect("completion-stage failure should retain the session for cleanup");
+    assert_eq!(
+        failed_session.status,
+        aster_drive_model::types::UploadSessionStatus::Failed
+    );
+    assert!(
+        upload_session_repo::find_recoverable_by_owner(
+            state.writer_db(),
+            user.id,
+            None,
+            None,
+            100,
+        )
+        .await
+        .unwrap()
+        .iter()
+        .all(|session| session.id != complete_upload_id),
+        "failed completion must not remain recoverable"
+    );
 }
 
 #[actix_web::test]
@@ -5693,10 +5776,20 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
             .is_empty(),
         "oversized relay chunk must release the claimed part row"
     );
-    let oversized_progress = upload::get_progress(&state, &oversized_upload_id, user.id)
-        .await
-        .unwrap();
-    assert!(oversized_progress.chunks_on_disk.is_empty());
+    assert!(
+        upload_session_repo::find_by_id(state.writer_db(), &oversized_upload_id)
+            .await
+            .is_err(),
+        "oversized relay chunk must terminate and remove its upload session"
+    );
+    assert!(
+        upload::list_recoverable_sessions(&state, user.id, None)
+            .await
+            .unwrap()
+            .iter()
+            .all(|session| session.upload_id != oversized_upload_id),
+        "oversized relay chunk must not remain recoverable"
+    );
     let oversized_relay_temp_dir = aster_forge_utils::paths::upload_temp_dir(
         &state.config.server.upload_temp_dir,
         &oversized_upload_id,

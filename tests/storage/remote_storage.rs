@@ -6690,10 +6690,20 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
             .is_empty(),
         "oversized remote relay chunk must release the claimed part row"
     );
-    let oversized_progress = upload::get_progress(&consumer_state, &oversized_upload_id, user.id)
-        .await
-        .expect("remote relay oversized progress should be queryable");
-    assert!(oversized_progress.chunks_on_disk.is_empty());
+    assert!(
+        upload_session_repo::find_by_id(consumer_state.writer_db(), &oversized_upload_id)
+            .await
+            .is_err(),
+        "oversized remote relay chunk must terminate and remove its upload session"
+    );
+    assert!(
+        upload::list_recoverable_sessions(&consumer_state, user.id, None)
+            .await
+            .expect("recoverable remote relay sessions should be queryable")
+            .iter()
+            .all(|session| session.upload_id != oversized_upload_id),
+        "oversized remote relay chunk must not remain recoverable"
+    );
 
     let first_chunk_end = std::cmp::min(chunk_size, body.len());
     let first_chunk = body[..first_chunk_end].to_vec();
