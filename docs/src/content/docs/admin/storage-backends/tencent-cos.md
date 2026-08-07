@@ -144,7 +144,9 @@ flowchart LR
 - `AllowedOrigin`：你的 AsterDrive 公开站点地址
 - `AllowedMethod`：包含 `PUT`
 - `AllowedHeader`：允许上传请求用到的请求头
-- `ExposeHeader`：包含 `ETag`
+- `ExposeHeader`：使用 presigned multipart 时包含 `ETag`
+
+单文件 presigned PUT 完成后，AsterDrive 会在服务端校验对象 metadata 和大小，不依赖浏览器读取 `ETag`。presigned multipart 完成时仍需要每个 part 的 `ETag`，所以要支持大文件直传，CORS 规则仍必须暴露 `ETag`。
 
 如果要使用 `presigned` 下载，也要确认浏览器可以访问 COS 返回的下载地址，并且你接受下载响应头、缓存行为更多由 COS 决定。
 

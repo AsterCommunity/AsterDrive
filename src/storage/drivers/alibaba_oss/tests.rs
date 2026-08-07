@@ -132,6 +132,7 @@ async fn public_presigned_url_ignores_server_side_endpoint() {
             .map(String::as_str),
         Some(signing::OSS_PRESIGNED_PUT_CONTENT_TYPE)
     );
+    assert!(!presigned.presigned_single_put_requires_etag());
 }
 
 #[tokio::test]

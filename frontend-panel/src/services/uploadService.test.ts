@@ -631,6 +631,24 @@ describe("uploadService", () => {
 		expect(xhr.headers["x-ms-blob-type"]).toBe("BlockBlob");
 	});
 
+	it("does not read ETag when the provider does not require it", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const promise = uploadService.presignedUpload(
+			"https://oss.example/upload",
+			new Blob(["hello"]),
+			undefined,
+			{ requireEtag: false },
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+		const getResponseHeader = vi.spyOn(xhr, "getResponseHeader");
+
+		xhr.status = 200;
+		xhr.onload?.();
+
+		await expect(promise).resolves.toBe("");
+		expect(getResponseHeader).not.toHaveBeenCalled();
+	});
+
 	it("still requires an ETag when headers are provided without an explicit override", async () => {
 		const { uploadService } = await import("@/services/uploadService");
 

@@ -214,6 +214,6 @@ async fn presigned_put_request(
     Ok((
         url,
         presigned_driver.presigned_put_headers(),
-        presigned_driver.presigned_put_requires_etag(),
+        presigned_driver.presigned_single_put_requires_etag(),
     ))
 }

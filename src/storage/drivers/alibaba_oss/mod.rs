@@ -391,6 +391,12 @@ impl PresignedStorageDriver for AlibabaOssDriver {
             signing::OSS_PRESIGNED_PUT_CONTENT_TYPE.to_string(),
         )])
     }
+
+    fn presigned_single_put_requires_etag(&self) -> bool {
+        // Single-object completion verifies the uploaded object's metadata and
+        // size server-side. ETag remains required for presigned multipart parts.
+        false
+    }
 }
 
 #[async_trait::async_trait]

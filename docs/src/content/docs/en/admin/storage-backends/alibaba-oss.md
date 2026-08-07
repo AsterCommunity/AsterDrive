@@ -66,7 +66,7 @@ Start with `relay_stream` for connection testing and end-to-end validation. Afte
 
 ## 4. Configure CORS for Presigned Transfers
 
-Browser direct transfers normally need the AsterDrive site origin to use `GET`, `HEAD`, `PUT`, `POST`, and `DELETE`, send the headers used by uploads, and read response headers such as `ETag`, `Content-Length`, and `Content-Range`. Use the current OSS console CORS form as the authority for exact field names.
+Browser direct transfers normally need the AsterDrive site origin to use `GET`, `HEAD`, `PUT`, `POST`, and `DELETE`, and send the headers used by uploads. Single-object presigned PUT completion verifies object metadata and size server-side, so it does not require browser access to `ETag`; presigned multipart parts still require `ETag` to complete the multipart object. Expose `ETag` when using multipart, and expose `Content-Length` / `Content-Range` when the selected workflow reads them. Use the current OSS console CORS form as the authority for exact field names.
 
 If the connection test succeeds but browser direct transfer fails, check:
 

@@ -66,7 +66,7 @@ title: "阿里云 OSS 存储策略教程"
 
 ## 4. 为 presigned 配置 CORS
 
-浏览器直传至少需要允许 AsterDrive 站点来源执行 `GET`、`HEAD`、`PUT`、`POST` 和 `DELETE`，允许上传实际携带的请求头，并暴露 `ETag`、`Content-Length`、`Content-Range` 等响应头。具体字段以 OSS 控制台当前 CORS 配置界面为准。
+浏览器直传至少需要允许 AsterDrive 站点来源执行 `GET`、`HEAD`、`PUT`、`POST` 和 `DELETE`，并允许上传实际携带的请求头。单文件 presigned PUT 会由服务端在 complete 阶段校验对象 metadata 和大小，因此不要求浏览器读取 `ETag`；presigned multipart 的 part 仍需要 `ETag` 才能完成 multipart 对象。使用 multipart 时暴露 `ETag`，只有选定流程会读取时才暴露 `Content-Length` / `Content-Range` 等响应头。具体字段以 OSS 控制台当前 CORS 配置界面为准。
 
 如果连接测试通过但浏览器直传失败，优先检查：
 

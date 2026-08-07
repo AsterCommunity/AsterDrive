@@ -318,16 +318,16 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 
 				xhr.onload = () => {
 					if (xhr.status >= 200 && xhr.status < 300) {
+						if (!requireEtag) {
+							resolve(blockId ?? "");
+							return;
+						}
 						const etag = xhr.getResponseHeader("ETag") ?? "";
 						if (!etag && blockId) {
 							resolve(blockId);
 							return;
 						}
 						if (!etag) {
-							if (!requireEtag) {
-								resolve("");
-								return;
-							}
 							reject(
 								new UploadRequestError(
 									"Presigned upload did not return ETag header. Check CORS ExposeHeaders configuration.",

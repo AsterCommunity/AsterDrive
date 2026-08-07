@@ -178,10 +178,10 @@ pub trait PresignedStorageDriver: Send + Sync {
 
     /// Whether browser clients must receive an ETag from a single presigned PUT.
     ///
-    /// S3-compatible providers expose ETag by default when CORS is configured
-    /// correctly. Azure Blob does not reliably provide a usable ETag to the
-    /// browser in this flow, so Azure overrides this to false.
-    fn presigned_put_requires_etag(&self) -> bool {
+    /// Providers default to requiring ETag. A driver may opt out when the
+    /// single-object completion path verifies the final object server-side;
+    /// multipart part ETags remain a separate protocol requirement.
+    fn presigned_single_put_requires_etag(&self) -> bool {
         true
     }
 }

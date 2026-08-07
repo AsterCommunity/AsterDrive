@@ -143,7 +143,7 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
         driver.presigned_put_headers(),
         std::collections::BTreeMap::from([("x-ms-blob-type".to_string(), "BlockBlob".to_string())])
     );
-    assert!(!driver.presigned_put_requires_etag());
+    assert!(!driver.presigned_single_put_requires_etag());
 
     let data = b"hello azure blob";
     driver.put("docs/hello.txt", data).await.unwrap();
