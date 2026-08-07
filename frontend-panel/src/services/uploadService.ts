@@ -312,7 +312,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 						event,
 						method: "PUT",
 						url: presignedUrl,
-						requestHeaders,
+						requestHeaderNames: Object.keys(requestHeaders).sort(),
 						bodySize: file.size,
 						status: xhr.status,
 						statusText: xhr.statusText,

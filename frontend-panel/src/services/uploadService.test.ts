@@ -734,7 +734,14 @@ describe("uploadService", () => {
 			"https://blob.example/upload",
 			new Blob(["hello"]),
 			undefined,
-			{ requireEtag: false },
+			{
+				requireEtag: false,
+				headers: {
+					Authorization: "Bearer secret-presigned-token",
+					"Content-Type": "application/octet-stream",
+					"x-amz-security-token": "temporary-storage-credential",
+				},
+			},
 		);
 		const xhr = MockXMLHttpRequest.instances[0];
 		xhr.status = 409;
@@ -751,7 +758,11 @@ describe("uploadService", () => {
 				event: "http-error",
 				method: "PUT",
 				url: "https://blob.example/upload",
-				requestHeaders: {},
+				requestHeaderNames: [
+					"Authorization",
+					"Content-Type",
+					"x-amz-security-token",
+				],
 				bodySize: 5,
 				status: 409,
 				statusText: "Conflict",
@@ -760,6 +771,9 @@ describe("uploadService", () => {
 				responseText: "<Error><Code>SignatureDoesNotMatch</Code></Error>",
 			},
 		);
+		const logged = JSON.stringify(mockState.loggerDebug.mock.calls);
+		expect(logged).not.toContain("secret-presigned-token");
+		expect(logged).not.toContain("temporary-storage-credential");
 	});
 
 	it("uses Azure block IDs as presigned multipart completion markers", async () => {

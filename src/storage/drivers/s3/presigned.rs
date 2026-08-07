@@ -37,10 +37,7 @@ pub(super) fn clamp_presign_ttl(requested: Duration, ctx: &'static str) -> Durat
 pub(super) fn sdk_presigned_upload_request(
     request: aws_sdk_s3::presigning::PresignedRequest,
 ) -> PresignedUploadRequest {
-    PresignedUploadRequest::from_header_pairs(
-        request.uri(),
-        request.headers().map(|(name, value)| (name, value)),
-    )
+    PresignedUploadRequest::from_header_pairs(request.uri(), request.headers())
 }
 // =============================================================================
 // PresignedStorageDriver 扩展
