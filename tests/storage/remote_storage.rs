@@ -6690,11 +6690,16 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
             .is_empty(),
         "oversized remote relay chunk must release the claimed part row"
     );
-    assert!(
+    let lookup_error =
         upload_session_repo::find_by_id(consumer_state.writer_db(), &oversized_upload_id)
             .await
-            .is_err(),
-        "oversized remote relay chunk must terminate and remove its upload session"
+            .expect_err("oversized remote relay chunk must remove its upload session");
+    assert!(
+        matches!(
+            lookup_error,
+            aster_drive::errors::AsterError::UploadSessionNotFound(_)
+        ),
+        "oversized remote relay chunk returned the wrong lookup error: {lookup_error:?}"
     );
     assert!(
         upload::list_recoverable_sessions(&consumer_state, user.id, None)

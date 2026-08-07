@@ -90,7 +90,7 @@ describe("validateArtifact", () => {
 	});
 });
 
-async function createBaselineRepository() {
+async function createBaselineRepository({ createBaseline = true } = {}) {
 	const root = await mkdtemp(join(tmpdir(), "asterdrive-range-baseline-test-"));
 	const repository = join(root, "repository");
 	const baselinePath = join(
@@ -98,9 +98,7 @@ async function createBaselineRepository() {
 		"tests/performance/baselines/webdav-provider-range-v1.json",
 	);
 	const artifactPath = join(root, "artifact.json");
-	await mkdir(join(repository, "tests/performance/baselines"), {
-		recursive: true,
-	});
+	await mkdir(repository, { recursive: true });
 	const originalBaseline = `${JSON.stringify(
 		{
 			schema_version: 1,
@@ -114,7 +112,12 @@ async function createBaselineRepository() {
 		null,
 		2,
 	)}\n`;
-	await writeFile(baselinePath, originalBaseline);
+	if (createBaseline) {
+		await mkdir(join(repository, "tests/performance/baselines"), {
+			recursive: true,
+		});
+		await writeFile(baselinePath, originalBaseline);
+	}
 	await writeFile(artifactPath, `${JSON.stringify(validArtifact())}\n`);
 	await execFileAsync("git", ["init", "--quiet", repository]);
 	await execFileAsync("git", [
@@ -137,6 +140,7 @@ async function createBaselineRepository() {
 		repository,
 		"commit",
 		"--quiet",
+		"--allow-empty",
 		"-m",
 		"test baseline fixture",
 	]);
@@ -175,6 +179,26 @@ describe("updateBaseline", () => {
 			expect(await readFile(fixture.baselinePath, "utf8")).toBe(
 				fixture.originalBaseline,
 			);
+		} finally {
+			await rm(fixture.root, { recursive: true, force: true });
+		}
+	});
+
+	test("creates a baseline when its target parent directories do not exist", async () => {
+		const fixture = await createBaselineRepository({ createBaseline: false });
+		const baselinePath = join(
+			fixture.repository,
+			"new/performance/baselines/webdav-provider-range-v1.json",
+		);
+		try {
+			await updateBaseline(
+				fixture.artifactPath,
+				baselinePath,
+				"test-profile",
+			);
+			const baseline = JSON.parse(await readFile(baselinePath, "utf8"));
+			expect(baseline.profiles).toHaveLength(1);
+			expect(baseline.profiles[0].profile).toBe("test-profile");
 		} finally {
 			await rm(fixture.root, { recursive: true, force: true });
 		}

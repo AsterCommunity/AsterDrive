@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import {
+	access,
+	mkdir,
+	readFile,
+	rename,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 
@@ -30,10 +37,10 @@ function requireFiniteNumber(value, name, minimum) {
 	}
 }
 
-export function validateArtifact(artifact) {
+export function validateArtifactMetadata(artifact) {
 	requireRecord(artifact, "artifact");
-	if (artifact.schema_version !== 1 || artifact.status !== "completed") {
-		throw new Error("baseline input must be a completed schema-v1 artifact");
+	if (artifact.schema_version !== 1) {
+		throw new Error("artifact must use schema v1");
 	}
 	requireNonEmptyString(artifact.provider, "artifact.provider");
 	requireNonEmptyString(artifact.generated_at, "artifact.generated_at");
@@ -62,6 +69,14 @@ export function validateArtifact(artifact) {
 	);
 	requireNonEmptyString(machine.os, "artifact.machine.os");
 	requireNonEmptyString(machine.architecture, "artifact.machine.architecture");
+	return artifact;
+}
+
+export function validateArtifact(artifact) {
+	validateArtifactMetadata(artifact);
+	if (artifact.status !== "completed") {
+		throw new Error("baseline input must be a completed schema-v1 artifact");
+	}
 
 	const scenarioEntries = Object.entries(
 		requireRecord(artifact.scenarios, "artifact.scenarios"),
@@ -101,7 +116,25 @@ export function validateArtifact(artifact) {
 }
 
 async function assertCleanBaselineWorktree(baselinePath) {
-	const baselineDirectory = dirname(resolve(baselinePath));
+	let baselineDirectory = dirname(resolve(baselinePath));
+	while (true) {
+		try {
+			await access(baselineDirectory);
+			break;
+		} catch (error) {
+			if (error?.code !== "ENOENT") {
+				throw error;
+			}
+			const parent = dirname(baselineDirectory);
+			if (parent === baselineDirectory) {
+				throw new Error(
+					`baseline path must belong to a Git worktree: ${baselinePath}`,
+					{ cause: error },
+				);
+			}
+			baselineDirectory = parent;
+		}
+	}
 	let worktreeRoot;
 	try {
 		({ stdout: worktreeRoot } = await execFileAsync(

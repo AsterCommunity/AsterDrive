@@ -2411,10 +2411,15 @@ async fn test_offset_staging_rejects_corrupted_receipt_on_retry_and_complete() {
         upload_id: &str,
         operation: &str,
     ) {
-        let session = upload_session_repo::find_by_id(state.writer_db(), upload_id).await;
+        let error = upload_session_repo::find_by_id(state.writer_db(), upload_id)
+            .await
+            .expect_err("terminal receipt corruption must remove the upload session");
         assert!(
-            session.is_err(),
-            "terminal receipt corruption during {operation} must remove the upload session; found {session:?}"
+            matches!(
+                error,
+                aster_drive::errors::AsterError::UploadSessionNotFound(_)
+            ),
+            "terminal receipt corruption during {operation} returned the wrong lookup error: {error:?}"
         );
         assert!(
             upload_session_part_repo::list_by_upload(state.writer_db(), upload_id)
@@ -5776,11 +5781,15 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
             .is_empty(),
         "oversized relay chunk must release the claimed part row"
     );
+    let lookup_error = upload_session_repo::find_by_id(state.writer_db(), &oversized_upload_id)
+        .await
+        .expect_err("oversized relay chunk must remove its upload session");
     assert!(
-        upload_session_repo::find_by_id(state.writer_db(), &oversized_upload_id)
-            .await
-            .is_err(),
-        "oversized relay chunk must terminate and remove its upload session"
+        matches!(
+            lookup_error,
+            aster_drive::errors::AsterError::UploadSessionNotFound(_)
+        ),
+        "oversized relay chunk returned the wrong lookup error: {lookup_error:?}"
     );
     assert!(
         upload::list_recoverable_sessions(&state, user.id, None)
