@@ -151,6 +151,31 @@ describe("buildUploadTaskViews", () => {
 		expect(retryTask).toHaveBeenCalledWith("retryable");
 		expect(clearTask).toHaveBeenCalledWith("terminal");
 	});
+
+	it("treats omitted retryability as retryable", () => {
+		const retryTask = vi.fn();
+		const [view] = buildUploadTaskViews({
+			cancelTask: vi.fn(),
+			clearTask: vi.fn(),
+			requestResumeFilePicker: vi.fn(),
+			retryTask,
+			t,
+			tasks: [
+				createTask({
+					status: "failed",
+					retryable: undefined,
+				}),
+			],
+		});
+
+		expect(view).toMatchObject({ failed: true, retryable: true });
+		expect(view?.actions?.map((action) => action.icon)).toEqual([
+			"ArrowsClockwise",
+			"Trash",
+		]);
+		view?.actions?.[0]?.onClick();
+		expect(retryTask).toHaveBeenCalledWith("task-1");
+	});
 });
 
 describe("summarizeUploadTasks", () => {

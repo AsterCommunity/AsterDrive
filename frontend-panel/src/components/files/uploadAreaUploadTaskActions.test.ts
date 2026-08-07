@@ -2,17 +2,21 @@ import type { Dispatch, SetStateAction } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { UploadTask } from "./uploadAreaManagerShared";
 
-const { cancelUpload, removeSession } = vi.hoisted(() => ({
-	cancelUpload: vi.fn(),
-	removeSession: vi.fn(),
-}));
+const { cancelUpload, initUpload, loadSessions, removeSession } = vi.hoisted(
+	() => ({
+		cancelUpload: vi.fn(),
+		initUpload: vi.fn(),
+		loadSessions: vi.fn(() => []),
+		removeSession: vi.fn(),
+	}),
+);
 
 vi.mock("@/services/uploadService", () => ({
-	uploadService: { cancelUpload },
+	uploadService: { cancelUpload, initUpload },
 }));
 
 vi.mock("@/lib/uploadPersistence", () => ({
-	loadSessions: vi.fn(() => []),
+	loadSessions,
 	removeSession,
 	saveSession: vi.fn(),
 }));
@@ -20,6 +24,7 @@ vi.mock("@/lib/uploadPersistence", () => ({
 import {
 	clearTerminalUploadTasks,
 	retryUploadTask,
+	runQueuedUploadTask,
 	type UploadTaskActionsContext,
 } from "./uploadAreaUploadTaskActions";
 
@@ -52,6 +57,7 @@ describe("clearTerminalUploadTasks", () => {
 		let tasks = [
 			task("completed", "completed", "completed-session"),
 			task("failed", "failed", "failed-session"),
+			task("failed-local", "failed", null),
 			task("cancelled", "cancelled", "cancelled-session"),
 			task("active", "uploading", "active-session"),
 		];
@@ -84,6 +90,61 @@ describe("clearTerminalUploadTasks", () => {
 		});
 		expect(setTasksMock).toHaveBeenCalledTimes(1);
 		expect(cancelUpload).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps tasks whose identity changes while cleanup is in flight", async () => {
+		let finishCleanup: (() => void) | undefined;
+		const cleanupPromise = new Promise<void>((resolve) => {
+			finishCleanup = resolve;
+		});
+		cancelUpload.mockReset();
+		cancelUpload.mockReturnValue(cleanupPromise);
+		removeSession.mockReset();
+		let tasks = [
+			task("status-changed", "failed", "status-session"),
+			task("upload-changed", "failed", "upload-session"),
+			task("removed", "failed", "removed-session"),
+			task("lock-changed", "failed", "lock-session"),
+		];
+		const tasksRef = { current: tasks };
+		const taskOperationLocks = new Map();
+		const setTasksMock = vi.fn((update: SetStateAction<UploadTask[]>) => {
+			tasks = typeof update === "function" ? update(tasks) : update;
+			tasksRef.current = tasks;
+		});
+		const setTasks: Dispatch<SetStateAction<UploadTask[]>> = setTasksMock;
+
+		const clearPromise = clearTerminalUploadTasks(
+			tasks.map((item) => item.id),
+			{ setTasks, taskOperationLocks, tasksRef },
+		);
+		await vi.waitFor(() => expect(cancelUpload).toHaveBeenCalledTimes(4));
+
+		tasks = tasks
+			.filter((item) => item.id !== "removed")
+			.map((item) => {
+				if (item.id === "status-changed") {
+					return { ...item, status: "completed" as const };
+				}
+				if (item.id === "upload-changed") {
+					return { ...item, uploadId: "replacement-session" };
+				}
+				return item;
+			});
+		tasksRef.current = tasks;
+		taskOperationLocks.set("lock-changed", "retry");
+		finishCleanup?.();
+
+		await clearPromise;
+
+		expect(setTasksMock).not.toHaveBeenCalled();
+		expect(removeSession).not.toHaveBeenCalled();
+		expect(taskOperationLocks).toEqual(new Map([["lock-changed", "retry"]]));
+		expect(tasks.map((item) => item.id)).toEqual([
+			"status-changed",
+			"upload-changed",
+			"lock-changed",
+		]);
 	});
 
 	it("blocks retry while delayed cleanup owns the task lock", async () => {
@@ -183,5 +244,136 @@ describe("clearTerminalUploadTasks", () => {
 		expect(tasks).toHaveLength(1);
 		expect(tasks[0]?.status).toBe("queued");
 		expect(removeSession).not.toHaveBeenCalled();
+	});
+
+	it("restarts direct sessions after best-effort server cleanup", async () => {
+		const failedTask = task("direct", "failed", "direct-session");
+		failedTask.file = new File(["retry"], "direct.bin");
+		failedTask.mode = "direct";
+		const tasksRef = { current: [failedTask] };
+		const taskOperationLocks = new Map();
+		const patchTask = vi.fn();
+		const setUploadPanelOpen = vi.fn();
+		cancelUpload.mockReset();
+		cancelUpload.mockRejectedValue(new Error("cleanup unavailable"));
+		removeSession.mockReset();
+
+		await retryUploadTask("direct", {
+			cancelMultipartSession: vi.fn(),
+			patchTask,
+			resumeCompletionTask: vi.fn(),
+			setUploadPanelOpen,
+			taskOperationLocks,
+			tasksRef,
+			workspace: { kind: "personal" },
+		} as unknown as UploadTaskActionsContext);
+
+		expect(cancelUpload).toHaveBeenCalledWith("direct-session");
+		expect(removeSession).toHaveBeenCalledWith("direct-session");
+		expect(patchTask).toHaveBeenCalledWith(
+			"direct",
+			expect.objectContaining({
+				status: "queued",
+				uploadId: null,
+				retryable: undefined,
+			}),
+		);
+		expect(setUploadPanelOpen).toHaveBeenCalledWith(true);
+		expect(taskOperationLocks).toEqual(new Map());
+	});
+
+	it("releases retry locks for missing and explicitly terminal tasks", async () => {
+		const terminalTask = task("terminal", "failed", "terminal-session");
+		terminalTask.retryable = false;
+		const tasksRef = { current: [terminalTask] };
+		const taskOperationLocks = new Map();
+		const patchTask = vi.fn();
+		const context = {
+			cancelMultipartSession: vi.fn(),
+			patchTask,
+			resumeCompletionTask: vi.fn(),
+			setUploadPanelOpen: vi.fn(),
+			taskOperationLocks,
+			tasksRef,
+			workspace: { kind: "personal" },
+		} as unknown as UploadTaskActionsContext;
+
+		await retryUploadTask("terminal", context);
+		tasksRef.current = [];
+		await retryUploadTask("missing", context);
+
+		expect(patchTask).not.toHaveBeenCalled();
+		expect(taskOperationLocks).toEqual(new Map());
+	});
+
+	it("preserves a successor lock after retrying multipart completion", async () => {
+		const completionTask = task("completion", "failed", "completion-session");
+		completionTask.mode = "presigned_multipart";
+		const tasksRef = { current: [completionTask] };
+		const taskOperationLocks = new Map();
+		const completedParts = [{ part_number: 1, etag: "etag-1" }];
+		loadSessions.mockReset();
+		loadSessions.mockReturnValue([
+			{
+				uploadId: "completion-session",
+				filename: "completion.bin",
+				totalSize: 1,
+				totalChunks: 1,
+				chunkSize: 1,
+				baseFolderId: null,
+				baseFolderName: "Root",
+				relativePath: null,
+				savedAt: Date.now(),
+				workspace: { kind: "personal" },
+				mode: "presigned_multipart",
+				completedParts,
+			},
+		]);
+		const resumeCompletionTask = vi.fn(async () => {
+			taskOperationLocks.set("completion", "clear");
+		});
+
+		await retryUploadTask("completion", {
+			cancelMultipartSession: vi.fn(),
+			patchTask: vi.fn(),
+			resumeCompletionTask,
+			setUploadPanelOpen: vi.fn(),
+			taskOperationLocks,
+			tasksRef,
+			workspace: { kind: "personal" },
+		} as unknown as UploadTaskActionsContext);
+
+		expect(resumeCompletionTask).toHaveBeenCalledWith(
+			completionTask,
+			completedParts,
+		);
+		expect(taskOperationLocks).toEqual(new Map([["completion", "clear"]]));
+	});
+});
+
+describe("runQueuedUploadTask", () => {
+	it("passes the original initialization error to task failure handling", async () => {
+		const error = Object.assign(new Error("init failed"), { retryable: false });
+		initUpload.mockReset();
+		initUpload.mockRejectedValue(error);
+		const queuedTask = task("queued", "queued", null);
+		queuedTask.file = new File(["content"], "queued.bin");
+		queuedTask.mode = null;
+		const markTaskFailed = vi.fn();
+
+		await runQueuedUploadTask("queued", {
+			markTaskFailed,
+			patchTask: vi.fn(),
+			runChunkedUpload: vi.fn(),
+			runDirectUpload: vi.fn(),
+			runMultipartUpload: vi.fn(),
+			runPresignedUpload: vi.fn(),
+			runProviderResumableUpload: vi.fn(),
+			resumeCompletionTask: vi.fn(),
+			tasksRef: { current: [queuedTask] },
+			workspace: { kind: "personal" },
+		} as unknown as UploadTaskActionsContext);
+
+		expect(markTaskFailed).toHaveBeenCalledWith("queued", error);
 	});
 });

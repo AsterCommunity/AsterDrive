@@ -168,6 +168,24 @@ describe("UploadPanel", () => {
 		expect(screen.queryByText("25%")).not.toBeInTheDocument();
 	});
 
+	it("allows bulk clearing when the only terminal task is cancelled", () => {
+		const { onClearFinished, onRetryFailed } = renderPanel([
+			{
+				id: "cancelled-only",
+				title: "cancelled.bin",
+				status: "Cancelled",
+				mode: "Direct",
+				progress: 40,
+				cancelled: true,
+			},
+		]);
+
+		expect(screen.queryByText("Retry failed")).not.toBeInTheDocument();
+		fireEvent.click(screen.getByText("Clear finished"));
+		expect(onRetryFailed).not.toHaveBeenCalled();
+		expect(onClearFinished).toHaveBeenCalledTimes(1);
+	});
+
 	it("exposes upload settings controls", () => {
 		const onConcurrencyChange = vi.fn();
 		const onAutoClearCompletedChange = vi.fn();

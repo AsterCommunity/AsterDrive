@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useTransferActivityStore } from "@/stores/transferActivityStore";
 import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
@@ -88,8 +94,10 @@ vi.mock("@/components/files/UploadPanel", () => ({
 		clearFinishedLabel?: string;
 		emptyText: string;
 		onClearFinished?: () => void;
+		onRetryFailed?: () => void;
 		open: boolean;
 		overallProgress?: number;
+		retryFailedLabel?: string;
 		summary: string;
 		tasks: Array<{
 			id: string;
@@ -568,6 +576,29 @@ describe("UploadArea", () => {
 			expect(refresh).toHaveBeenCalledTimes(1);
 		});
 		expect(refreshUser).not.toHaveBeenCalled();
+	});
+
+	it("removes existing completed tasks when auto-clear is enabled", async () => {
+		initUpload.mockResolvedValue({ mode: "direct" });
+		apiClientPost.mockResolvedValue({});
+
+		await uploadOneFile();
+		await screen.findByText("hello.txt:Direct:files:upload_success");
+
+		const panelProps = uploadPanelSpy.mock.calls.at(-1)?.[0] as
+			| { onAutoClearCompletedChange?: (value: boolean) => void }
+			| undefined;
+		expect(panelProps?.onAutoClearCompletedChange).toBeTypeOf("function");
+		await act(async () => {
+			panelProps?.onAutoClearCompletedChange?.(true);
+		});
+
+		await waitFor(() => {
+			expect(screen.getByText("files:upload_empty")).toBeInTheDocument();
+		});
+		expect(
+			screen.queryByText("hello.txt:Direct:files:upload_success"),
+		).not.toBeInTheDocument();
 	});
 
 	it("restores recoverable sessions listed by the backend", async () => {
@@ -1715,6 +1746,45 @@ describe("UploadArea", () => {
 		expect(cancelUpload).toHaveBeenCalledWith("upload-old");
 		expect(removeSession).toHaveBeenCalledWith("upload-old");
 		expect(uploadChunk.mock.calls.at(-1)?.[0]).toBe("upload-new");
+	});
+
+	it("batch-retries only failures that remain retryable", async () => {
+		const terminalError = Object.assign(new Error("terminal upload failure"), {
+			retryable: false,
+		});
+		const retryableError = Object.assign(
+			new Error("retryable upload failure"),
+			{
+				retryable: true,
+			},
+		);
+		initUpload.mockResolvedValue({ mode: "direct" });
+		apiClientPost
+			.mockRejectedValueOnce(terminalError)
+			.mockRejectedValueOnce(retryableError)
+			.mockRejectedValue(new Error("retry attempt failed"));
+
+		await uploadFiles([
+			new File(["terminal"], "terminal.txt"),
+			new File(["retryable"], "retryable.txt"),
+		]);
+		await screen.findByText("terminal.txt:Direct:files:upload_failed");
+		await screen.findByText("retryable.txt:Direct:files:upload_failed");
+
+		const panelProps = uploadPanelSpy.mock.calls.at(-1)?.[0] as
+			| { onRetryFailed?: () => void }
+			| undefined;
+		expect(panelProps?.onRetryFailed).toBeTypeOf("function");
+		await act(async () => {
+			panelProps?.onRetryFailed?.();
+		});
+
+		await waitFor(() => {
+			expect(initUpload).toHaveBeenCalledTimes(3);
+		});
+		expect(initUpload.mock.calls[2]?.[0]).toEqual(
+			expect.objectContaining({ filename: "retryable.txt" }),
+		);
 	});
 
 	it("batch-clears finished tasks while preserving active uploads", async () => {
