@@ -1,4 +1,14 @@
 //! Make core policy behavior the sole owner of storage-native enablement.
+//!
+//! # Downgrade limitation
+//!
+//! V1 used a non-empty `media_metadata_extensions` list to mean both enabled
+//! and configured, so it cannot represent V2's disabled state with retained
+//! media-metadata extensions. Downgrading such a policy returns an error
+//! instead of either discarding the retained configuration or silently
+//! re-enabling provider-native requests. Dormant thumbnail extensions remain
+//! reversible because V1 stored `thumbnail_processor` separately from
+//! `thumbnail_extensions`.
 
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::sea_orm::{ConnectionTrait, TransactionTrait};
@@ -111,6 +121,9 @@ fn downgrade_policy_config(policy_id: i64, connector_id: &str, raw: &str) -> Res
     let mut envelope: FrozenStoragePolicyConfigV2 = decode_policy_config(policy_id, raw)?;
     validate_envelope(policy_id, connector_id, &envelope, 2)?;
 
+    // V1 treats a non-empty metadata extension list as enabled and therefore
+    // cannot encode dormant configuration. Thumbnail fields need no matching
+    // guard because V1 stored their processor and extensions independently.
     if !envelope
         .behavior
         .values
@@ -123,7 +136,7 @@ fn downgrade_policy_config(policy_id: i64, connector_id: &str, raw: &str) -> Res
     {
         return Err(policy_error(
             policy_id,
-            "disabled storage-native media metadata has active extensions",
+            "cannot downgrade disabled storage-native media metadata with retained extensions to behavior schema V1",
         ));
     }
 
@@ -562,7 +575,13 @@ mod tests {
             "\"storage_native_media_metadata_enabled\":true",
             "\"storage_native_media_metadata_enabled\":false",
         );
-        assert!(downgrade_policy_config(10, TENCENT_COS_CONNECTOR_ID, &dormant_metadata).is_err());
+        let error = downgrade_policy_config(10, TENCENT_COS_CONNECTOR_ID, &dormant_metadata)
+            .expect_err("V1 cannot represent disabled metadata with retained extensions");
+        assert!(
+            error
+                .to_string()
+                .contains("cannot downgrade disabled storage-native media metadata")
+        );
     }
 
     #[tokio::test]

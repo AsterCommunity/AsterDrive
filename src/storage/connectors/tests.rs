@@ -1243,7 +1243,7 @@ fn connector_capabilities_validate_core_owned_storage_native_behavior() {
             storage_native_media_metadata_enabled: true,
             ..Default::default()
         })
-        .expect("enabled native behaviors may use an empty extension set");
+        .expect("enabled native behaviors may use an empty extension set that matches no files");
 }
 
 #[test]

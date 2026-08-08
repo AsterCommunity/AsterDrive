@@ -168,7 +168,7 @@ StoragePolicyOptions:
 
 | Legacy fields | New owner |
 | --- | --- |
-| object_storage_upload_strategy, object_storage_download_strategy, s3_path_style, s3_region, s3_*_timeout_secs | S3 connector config |
+| s3_path_style, s3_region, s3_*_timeout_secs | S3 connector config |
 | object_storage_upload_strategy, object_storage_download_strategy | Object-storage connector config declared by each descriptor |
 | remote_download_strategy, remote_upload_strategy | Remote connector config |
 | provider_resumable_upload_strategy, provider_download_strategy, provider_download_filename_mode, onedrive_* | OneDrive connector config |

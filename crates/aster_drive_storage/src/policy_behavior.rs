@@ -30,16 +30,18 @@ pub struct StoragePolicyBehaviorConfig {
     /// matching files. `false` leaves the global thumbnail processors enabled.
     #[serde(default)]
     pub storage_native_thumbnail_enabled: bool,
-    /// File extensions eligible for provider-native thumbnails. Retained as
-    /// dormant configuration while `storage_native_thumbnail_enabled` is false.
+    /// File extensions eligible for provider-native thumbnails. An empty list
+    /// matches no files even when enabled. Retained as dormant configuration
+    /// while `storage_native_thumbnail_enabled` is false.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub storage_native_thumbnail_extensions: Vec<String>,
     /// Prefer the storage provider's native media-metadata implementation for
     /// matching files. `false` leaves the global metadata processors enabled.
     #[serde(default)]
     pub storage_native_media_metadata_enabled: bool,
-    /// File extensions eligible for provider-native media metadata. Retained as
-    /// dormant configuration while the corresponding switch is false.
+    /// File extensions eligible for provider-native media metadata. An empty
+    /// list matches no files even when enabled. Retained as dormant
+    /// configuration while the corresponding switch is false.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub storage_native_media_metadata_extensions: Vec<String>,
 }
@@ -273,6 +275,20 @@ mod tests {
             ..Default::default()
         };
         assert!(!disabled_metadata.storage_native_media_metadata_matches_file_name("clip.mp4"));
+    }
+
+    #[test]
+    fn enabled_storage_native_behaviors_with_empty_extensions_match_no_files() {
+        let behavior = StoragePolicyBehaviorConfig {
+            storage_native_thumbnail_enabled: true,
+            storage_native_media_metadata_enabled: true,
+            ..Default::default()
+        };
+
+        assert!(behavior.uses_storage_native_thumbnail());
+        assert!(behavior.uses_storage_native_media_metadata());
+        assert!(!behavior.storage_native_thumbnail_matches_file_name("cover.jpg"));
+        assert!(!behavior.storage_native_media_metadata_matches_file_name("clip.mp4"));
     }
 
     #[test]
