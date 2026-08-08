@@ -52,16 +52,6 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "文件存入腾讯云 COS，并可使用 COS 数据万象进行原生文档预览。",
     ),
     aster_drive_storage::storage_connector_message!(
-        "storage_native_media_metadata_enabled",
-        "Enable native media info",
-        "启用原生媒体信息",
-    ),
-    aster_drive_storage::storage_connector_message!(
-        "storage_native_processing_enabled",
-        "Enable storage-native processing",
-        "启用存储原生处理",
-    ),
-    aster_drive_storage::storage_connector_message!(
         "tencent_cos_secret_id",
         "Tencent COS SecretId",
         "腾讯云 COS SecretId",

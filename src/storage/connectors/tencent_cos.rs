@@ -123,22 +123,6 @@ aster_drive_storage::storage_connector_schema! {
         pub object_storage_download_strategy: ObjectStorageDownloadStrategy => transfer_strategy_field(
             "object_storage_download_strategy", StorageTransferDirection::Download,
         ),
-        pub storage_native_processing_enabled: bool => {
-            let mut field = storage_connector_field(
-                "storage_native_processing_enabled", StorageConnectorFieldScope::ConnectorConfig,
-                StorageConnectorFieldKind::Boolean, false, false,
-            );
-            field.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(false));
-            field
-        },
-        pub storage_native_media_metadata_enabled: bool => {
-            let mut field = storage_connector_field(
-                "storage_native_media_metadata_enabled", StorageConnectorFieldScope::ConnectorConfig,
-                StorageConnectorFieldKind::Boolean, false, false,
-            );
-            field.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(false));
-            field
-        },
         }
         credentials static TencentCosStaticCredentialsV1 {
             pub tencent_cos_secret_id: String => storage_connector_field(

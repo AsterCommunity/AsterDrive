@@ -132,13 +132,13 @@ connector 和动态加载的 plugin 使用同一个 namespaced
 
 | 旧字段 | 新归属 |
 | --- | --- |
-| object_storage_upload_strategy、object_storage_download_strategy、s3_path_style、s3_region、s3_*_timeout_secs | S3 connector config |
-| object_storage_upload_strategy、object_storage_download_strategy、storage_native_processing_enabled、storage_native_media_metadata_enabled | 由各 descriptor 声明的 object-storage connector config |
+| s3_path_style、s3_region、s3_*_timeout_secs | S3 connector config |
+| object_storage_upload_strategy、object_storage_download_strategy | 由各 descriptor 声明的 object-storage connector config |
 | remote_download_strategy、remote_upload_strategy | Remote connector config |
 | provider_resumable_upload_strategy、provider_download_strategy、provider_download_filename_mode、onedrive_* | OneDrive connector config |
 | sftp_host_key_fingerprint | SFTP connector config |
 | content_dedup | Local connector config |
-| thumbnail_processor、thumbnail_extensions、media_metadata_extensions | core storage policy behavior |
+| storage_native_thumbnail_enabled、storage_native_thumbnail_extensions、storage_native_media_metadata_enabled、storage_native_media_metadata_extensions | core storage policy behavior |
 
 provider enum 要随具体 connector 一起移动，或者降为 connector 内部解析类型。
 迁移完成后它们不能继续从 shared model facade 导出。

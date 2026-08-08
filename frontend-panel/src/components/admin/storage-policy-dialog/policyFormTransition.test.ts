@@ -80,15 +80,16 @@ function descriptor(
 }
 
 describe("policy form transitions", () => {
-	it("starts a clean connector-owned envelope and applies only target defaults", () => {
+	it("starts a clean connector envelope while retaining dormant core behavior configuration", () => {
 		const form = {
 			...emptyForm,
 			connector_id: "plugin.old",
 			connector_config_values: { endpoint: "old", opaque: true },
 			credential_values: { token: "secret" },
-			thumbnail_processor: "storage_native" as const,
-			thumbnail_extensions: ["jpg"],
-			media_metadata_extensions: ["mp4"],
+			storage_native_thumbnail_enabled: true,
+			storage_native_thumbnail_extensions: ["jpg"],
+			storage_native_media_metadata_enabled: true,
+			storage_native_media_metadata_extensions: ["mp4"],
 		};
 		const target = descriptor("plugin.new", [
 			field("region", { default_value: "auto" }),
@@ -106,9 +107,10 @@ describe("policy form transitions", () => {
 			connector_id: "plugin.new",
 			connector_config_values: { region: "auto", enabled: false },
 			credential_values: {},
-			thumbnail_processor: null,
-			thumbnail_extensions: [],
-			media_metadata_extensions: [],
+			storage_native_thumbnail_enabled: false,
+			storage_native_thumbnail_extensions: ["jpg"],
+			storage_native_media_metadata_enabled: false,
+			storage_native_media_metadata_extensions: ["mp4"],
 		});
 	});
 
@@ -250,5 +252,78 @@ describe("policy form transitions", () => {
 
 		expect(changed.name).toBe("Archive");
 		expect(emptyForm.name).toBe("");
+	});
+
+	it("enables thumbnails with defaults without replacing an existing extension set", () => {
+		const enabled = applyPolicyFormFieldChange(
+			emptyForm,
+			"storage_native_thumbnail_enabled",
+			true,
+		);
+		expect(enabled.storage_native_thumbnail_extensions).toEqual([
+			"jpg",
+			"jpeg",
+			"png",
+			"webp",
+			"gif",
+		]);
+		expect(emptyForm.storage_native_thumbnail_extensions).toEqual([]);
+
+		const existing = applyPolicyFormFieldChange(
+			{ ...emptyForm, storage_native_thumbnail_extensions: ["heic"] },
+			"storage_native_thumbnail_enabled",
+			true,
+		);
+		expect(existing.storage_native_thumbnail_extensions).toEqual(["heic"]);
+	});
+
+	it("disables thumbnails without discarding their matching configuration", () => {
+		const original = {
+			...emptyForm,
+			storage_native_thumbnail_enabled: true,
+			storage_native_thumbnail_extensions: ["jpg"],
+		};
+		const disabled = applyPolicyFormFieldChange(
+			original,
+			"storage_native_thumbnail_enabled",
+			false,
+		);
+		expect(disabled).toMatchObject({
+			storage_native_thumbnail_enabled: false,
+			storage_native_thumbnail_extensions: ["jpg"],
+		});
+		expect(original.storage_native_thumbnail_extensions).toEqual(["jpg"]);
+	});
+
+	it("toggles media metadata without touching thumbnail behavior", () => {
+		const original = {
+			...emptyForm,
+			storage_native_thumbnail_enabled: true,
+			storage_native_thumbnail_extensions: ["png"],
+			storage_native_media_metadata_extensions: ["mp4"],
+		};
+		const enabled = applyPolicyFormFieldChange(
+			original,
+			"storage_native_media_metadata_enabled",
+			true,
+		);
+		expect(enabled.storage_native_media_metadata_extensions).toEqual(["mp4"]);
+		expect(enabled.storage_native_thumbnail_extensions).toEqual(["png"]);
+
+		const disabled = applyPolicyFormFieldChange(
+			enabled,
+			"storage_native_media_metadata_enabled",
+			false,
+		);
+		expect(disabled.storage_native_media_metadata_extensions).toEqual(["mp4"]);
+		expect(disabled.storage_native_thumbnail_enabled).toBe(true);
+		expect(original.storage_native_media_metadata_enabled).toBe(false);
+
+		const reenabled = applyPolicyFormFieldChange(
+			disabled,
+			"storage_native_media_metadata_enabled",
+			true,
+		);
+		expect(reenabled.storage_native_media_metadata_extensions).toEqual(["mp4"]);
 	});
 });

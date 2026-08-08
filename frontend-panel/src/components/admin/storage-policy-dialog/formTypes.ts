@@ -18,9 +18,10 @@ export interface PolicyFormData {
 	max_file_size: string;
 	chunk_size: string;
 	is_default: boolean;
-	thumbnail_processor: StoragePolicy["behavior"]["thumbnail_processor"];
-	thumbnail_extensions: string[];
-	media_metadata_extensions: string[];
+	storage_native_thumbnail_enabled: boolean;
+	storage_native_thumbnail_extensions: string[];
+	storage_native_media_metadata_enabled: boolean;
+	storage_native_media_metadata_extensions: string[];
 }
 
 interface ConnectorConfigEnvelopeView {
@@ -45,9 +46,14 @@ export function getPolicyForm(policy: StoragePolicy): PolicyFormData {
 				? String(Math.round(policy.chunk_size / 1024 / 1024))
 				: "5",
 		is_default: policy.is_default,
-		thumbnail_processor: policy.behavior.thumbnail_processor ?? null,
-		thumbnail_extensions: policy.behavior.thumbnail_extensions ?? [],
-		media_metadata_extensions: policy.behavior.media_metadata_extensions ?? [],
+		storage_native_thumbnail_enabled:
+			policy.behavior.storage_native_thumbnail_enabled === true,
+		storage_native_thumbnail_extensions:
+			policy.behavior.storage_native_thumbnail_extensions ?? [],
+		storage_native_media_metadata_enabled:
+			policy.behavior.storage_native_media_metadata_enabled === true,
+		storage_native_media_metadata_extensions:
+			policy.behavior.storage_native_media_metadata_extensions ?? [],
 	};
 }
 
@@ -59,9 +65,10 @@ export const emptyForm: PolicyFormData = {
 	max_file_size: "",
 	chunk_size: "5",
 	is_default: false,
-	thumbnail_processor: null,
-	thumbnail_extensions: [],
-	media_metadata_extensions: [],
+	storage_native_thumbnail_enabled: false,
+	storage_native_thumbnail_extensions: [],
+	storage_native_media_metadata_enabled: false,
+	storage_native_media_metadata_extensions: [],
 };
 
 export function connectorFormValue(

@@ -525,6 +525,8 @@ pub(crate) async fn execute_draft_action<S: RemoteProtocolRuntimeState + Sync>(
         &input.values,
     )
     .map_err(map_action_invocation_error)?;
+    input.connection.behavior = input.connection.behavior.normalized();
+    connector.validate_policy_behavior(&input.connection.behavior)?;
     connector
         .execute_draft_action(&remote_connector_context(state), input)
         .await

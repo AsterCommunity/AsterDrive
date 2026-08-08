@@ -63,10 +63,11 @@ function form(overrides: Partial<PolicyFormData> = {}): PolicyFormData {
 		},
 		is_default: true,
 		max_file_size: "1024",
-		media_metadata_extensions: ["mp4"],
+		storage_native_media_metadata_enabled: true,
+		storage_native_media_metadata_extensions: ["mp4"],
 		name: "Archive",
-		thumbnail_extensions: ["jpg"],
-		thumbnail_processor: "storage_native",
+		storage_native_thumbnail_extensions: ["jpg"],
+		storage_native_thumbnail_enabled: true,
 		...overrides,
 	};
 }
@@ -79,9 +80,10 @@ describe("storage policy payload builders", () => {
 			chunk_size: 8 * 1024 * 1024,
 			connection: {
 				behavior: {
-					media_metadata_extensions: ["mp4"],
-					thumbnail_extensions: ["jpg"],
-					thumbnail_processor: "storage_native",
+					storage_native_media_metadata_extensions: ["mp4"],
+					storage_native_media_metadata_enabled: true,
+					storage_native_thumbnail_extensions: ["jpg"],
+					storage_native_thumbnail_enabled: true,
 				},
 				connector_config: {
 					connector_id: "plugin.archive",
@@ -174,6 +176,73 @@ describe("storage policy payload builders", () => {
 		});
 		expect(actionPayload.connection.connector_config.values).not.toHaveProperty(
 			"action_only",
+		);
+		for (const behavior of [
+			testPayload.connection.behavior,
+			actionPayload.connection.behavior,
+		]) {
+			expect(behavior).toEqual({
+				storage_native_media_metadata_extensions: ["mp4"],
+				storage_native_media_metadata_enabled: true,
+				storage_native_thumbnail_extensions: ["jpg"],
+				storage_native_thumbnail_enabled: true,
+			});
+		}
+	});
+
+	it("preserves active and dormant native configuration in every payload shape", () => {
+		const schema = descriptor();
+		for (const [enabled, extensions] of [
+			[false, ["mp4"]],
+			[true, []],
+		] as const) {
+			const input = form({
+				storage_native_thumbnail_enabled: enabled,
+				storage_native_thumbnail_extensions: ["jpg"],
+				storage_native_media_metadata_enabled: enabled,
+				storage_native_media_metadata_extensions: [...extensions],
+			});
+			const behaviors = [
+				buildCreatePolicyPayload(input, schema).connection.behavior,
+				buildUpdatePolicyPayload(input, schema).behavior,
+				buildPolicyTestPayload(input, schema).connection.behavior,
+				buildStorageConnectorActionPayload(
+					input,
+					7,
+					schema,
+					"plugin.reindex",
+					{},
+				).connection.behavior,
+			];
+			for (const behavior of behaviors) {
+				expect(behavior.storage_native_thumbnail_enabled).toBe(enabled);
+				expect(behavior.storage_native_thumbnail_extensions).toEqual(["jpg"]);
+				expect(behavior.storage_native_media_metadata_enabled).toBe(enabled);
+				expect(behavior.storage_native_media_metadata_extensions).toEqual(
+					extensions,
+				);
+			}
+		}
+	});
+
+	it("never copies legacy native enablement fields into connector config", () => {
+		const input = form({
+			connector_config_values: {
+				endpoint: "https://archive.example.test",
+				storage_native_processing_enabled: true,
+				storage_native_media_metadata_enabled: true,
+			},
+		});
+		const connection = buildStorageConnectorConnection(
+			input,
+			descriptor(),
+			false,
+		);
+		expect(connection.connector_config.values).toEqual({
+			endpoint: "https://archive.example.test",
+		});
+		expect(connection.behavior.storage_native_media_metadata_enabled).toBe(
+			true,
 		);
 	});
 

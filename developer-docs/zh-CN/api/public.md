@@ -165,7 +165,7 @@
 - 内置 `lofty` 处理器启用 `thumbnail:audio` 时会暴露音频后缀，前端可通过同一条 thumbnail 接口请求音频内嵌封面
 - `vips_cli` / `ffmpeg_cli` 只有在对应命令可用且处理器启用时，才会把配置里的扩展名暴露出去；因此它可能包含图片以外的文档或视频扩展名
 - 这份能力主要来自运行时配置 `media_processing_registry_json`
-- 如果某条存储策略启用了原生处理，且实际驱动暴露存储原生缩略图 / 图片预览能力，策略里的 `thumbnail_extensions` 也会合并进公开能力列表；内置 `tencent_cos` 策略可通过 COS CI 暴露这项能力，内置 Local、S3-compatible、Azure Blob、OneDrive 和 Remote 策略不暴露
+- 如果某条存储策略设置了 `storage_native_thumbnail_enabled = true`，且实际驱动暴露存储原生缩略图 / 图片预览能力，策略里的 `storage_native_thumbnail_extensions` 也会合并进公开能力列表；设置为 `false` 只停用原生候选，不影响全局缩略图处理器。内置 `tencent_cos` 策略可通过 COS CI 暴露这项能力，内置 Local、S3-compatible、Azure Blob、OneDrive 和 Remote 策略不暴露
 
 ## `GET /public/media-data-support`
 

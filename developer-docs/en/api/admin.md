@@ -91,8 +91,8 @@ Current notes:
   - generic S3 path-style addressing through `s3_path_style` (defaults to `true`)
   - S3 SigV4 signing region through `s3_region`. This optional string is trimmed; an empty or whitespace-only value normalizes to unset, with runtime falling back to `auto`. A non-empty value must contain 1–128 printable ASCII characters and must not contain whitespace or `/`; invalid values are rejected as `BadRequest` (HTTP 400 with response code `bad_request`). Custom S3-compatible endpoints that require a fixed region should use the provider-specified value. Draft connection tests and the saved S3 runtime driver use the same region.
   - S3 connect / read / operation timeouts
-  - storage-native thumbnails / image previews with `storage_native_processing_enabled`, `thumbnail_processor`, and `thumbnail_extensions`
-  - storage-native media metadata with `storage_native_media_metadata_enabled` and `media_metadata_extensions`
+  - core-owned storage-native thumbnails / image previews with `storage_native_thumbnail_enabled` and `storage_native_thumbnail_extensions`; connector descriptors only advertise support
+  - core-owned storage-native media metadata with `storage_native_media_metadata_enabled` and `storage_native_media_metadata_extensions`; connector descriptors only advertise support
   - OneDrive location options: `onedrive_account_mode`, `onedrive_tenant`, `onedrive_site_id`, `onedrive_drive_id`, `onedrive_group_id`, and `onedrive_root_item_id`
   - OneDrive large-upload strategy through `provider_resumable_upload_strategy`: `server_relay` (default) or `frontend_direct`
   - OneDrive download strategy through `provider_download_strategy`: `server_relay` (default) or `frontend_direct`
