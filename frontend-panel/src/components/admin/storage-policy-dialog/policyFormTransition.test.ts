@@ -172,9 +172,10 @@ describe("policy form transitions", () => {
 				secret_key: "browser-secret-key",
 				unmapped_secret: "drop-me",
 			},
-			thumbnail_processor: "storage_native" as const,
-			thumbnail_extensions: ["jpg"],
-			media_metadata_extensions: ["mp4"],
+			storage_native_thumbnail_enabled: true,
+			storage_native_thumbnail_extensions: ["jpg"],
+			storage_native_media_metadata_enabled: true,
+			storage_native_media_metadata_extensions: ["mp4"],
 		};
 		const target = descriptor("plugin.vendor", [
 			field("endpoint", { required: true }),
@@ -204,9 +205,10 @@ describe("policy form transitions", () => {
 				values: { endpoint: "https://bucket.provider.test", enabled: false },
 			},
 			target_behavior: {
-				thumbnail_processor: null,
-				thumbnail_extensions: [],
-				media_metadata_extensions: [],
+				storage_native_thumbnail_enabled: false,
+				storage_native_thumbnail_extensions: ["webp"],
+				storage_native_media_metadata_enabled: true,
+				storage_native_media_metadata_extensions: ["mp4"],
 			},
 			field_mappings: [
 				{
@@ -237,9 +239,10 @@ describe("policy form transitions", () => {
 				vendor_id: "browser-secret-id",
 				vendor_key: "browser-secret-key",
 			},
-			thumbnail_processor: null,
-			thumbnail_extensions: [],
-			media_metadata_extensions: [],
+			storage_native_thumbnail_enabled: false,
+			storage_native_thumbnail_extensions: ["webp"],
+			storage_native_media_metadata_enabled: true,
+			storage_native_media_metadata_extensions: ["mp4"],
 		});
 		expect(source.credential_values).toHaveProperty(
 			"unmapped_secret",

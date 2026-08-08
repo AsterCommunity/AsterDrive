@@ -298,8 +298,6 @@ fn cos_transition_preview_preserves_namespace_and_generic_strategies() {
         target.object_storage_download_strategy,
         ObjectStorageDownloadStrategy::RelayStream
     );
-    assert!(!target.storage_native_processing_enabled);
-    assert!(!target.storage_native_media_metadata_enabled);
 }
 
 #[test]

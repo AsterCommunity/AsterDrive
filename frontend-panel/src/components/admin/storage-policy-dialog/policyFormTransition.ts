@@ -93,10 +93,14 @@ export function applyRecommendedPolicyConnectorTransition(
 		connector_id: transition.target_connector_id,
 		connector_config_values: connectorConfigValues,
 		credential_values: credentialValues,
-		thumbnail_processor: transition.target_behavior.thumbnail_processor ?? null,
-		thumbnail_extensions: transition.target_behavior.thumbnail_extensions ?? [],
-		media_metadata_extensions:
-			transition.target_behavior.media_metadata_extensions ?? [],
+		storage_native_thumbnail_enabled:
+			transition.target_behavior.storage_native_thumbnail_enabled === true,
+		storage_native_thumbnail_extensions:
+			transition.target_behavior.storage_native_thumbnail_extensions ?? [],
+		storage_native_media_metadata_enabled:
+			transition.target_behavior.storage_native_media_metadata_enabled === true,
+		storage_native_media_metadata_extensions:
+			transition.target_behavior.storage_native_media_metadata_extensions ?? [],
 	};
 }
 

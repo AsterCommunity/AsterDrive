@@ -1064,9 +1064,10 @@ describe("StoragePolicyDialog", () => {
 				values: {},
 			},
 			target_behavior: {
-				thumbnail_processor: null,
-				thumbnail_extensions: [],
-				media_metadata_extensions: [],
+				storage_native_thumbnail_enabled: false,
+				storage_native_thumbnail_extensions: [],
+				storage_native_media_metadata_enabled: false,
+				storage_native_media_metadata_extensions: [],
 			},
 		};
 		connectorMessages.set(

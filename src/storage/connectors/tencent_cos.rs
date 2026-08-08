@@ -259,8 +259,6 @@ impl TencentCosConnector {
                 base_path: config.base_path,
                 object_storage_upload_strategy: config.object_storage_upload_strategy,
                 object_storage_download_strategy: config.object_storage_download_strategy,
-                storage_native_processing_enabled: false,
-                storage_native_media_metadata_enabled: false,
             },
         )
         .map(Some)

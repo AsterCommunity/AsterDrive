@@ -1292,9 +1292,10 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		expect(mockState.resolveConnectorTransitions.mock.calls[0]?.[0]).toEqual({
 			connector_config: saved.connector_config,
 			behavior: {
-				thumbnail_processor: undefined,
-				thumbnail_extensions: [],
-				media_metadata_extensions: [],
+				storage_native_thumbnail_enabled: false,
+				storage_native_thumbnail_extensions: [],
+				storage_native_media_metadata_enabled: false,
+				storage_native_media_metadata_extensions: [],
 			},
 		});
 		expect(currentDialog().connectorTransitions).toEqual([transition]);
