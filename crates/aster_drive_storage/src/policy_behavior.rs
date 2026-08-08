@@ -13,7 +13,7 @@ use std::fmt;
 use utoipa::ToSchema;
 
 pub const STORAGE_POLICY_BEHAVIOR_FORMAT_VERSION: u32 = 1;
-pub const STORAGE_POLICY_BEHAVIOR_SCHEMA_VERSION: u32 = 2;
+pub const STORAGE_POLICY_BEHAVIOR_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -241,16 +241,22 @@ mod tests {
 
     #[test]
     fn behavior_codec_rejects_unknown_fields_and_version_mismatches() {
-        let unknown = r#"{"format_version":1,"schema_version":2,"values":{"unknown":true}}"#;
+        let unknown = r#"{"format_version":1,"schema_version":1,"values":{"unknown":true}}"#;
         assert!(matches!(
             decode_storage_policy_behavior_config(unknown),
             Err(StoragePolicyBehaviorConfigCodecError::InvalidJson(_))
         ));
 
-        let wrong_version = r#"{"format_version":2,"schema_version":2,"values":{}}"#;
+        let wrong_version = r#"{"format_version":2,"schema_version":1,"values":{}}"#;
         assert!(matches!(
             decode_storage_policy_behavior_config(wrong_version),
             Err(StoragePolicyBehaviorConfigCodecError::FormatVersionMismatch { .. })
+        ));
+
+        let wrong_schema = r#"{"format_version":1,"schema_version":2,"values":{}}"#;
+        assert!(matches!(
+            decode_storage_policy_behavior_config(wrong_schema),
+            Err(StoragePolicyBehaviorConfigCodecError::SchemaVersionMismatch { .. })
         ));
     }
 

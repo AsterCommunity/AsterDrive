@@ -21,7 +21,7 @@ use super::onedrive::{OneDriveAccountMode, OneDriveConnectorConfigV1};
 use super::remote::RemoteConnectorConfigV1;
 use super::s3::S3ConnectorConfigV1;
 use super::sftp::SftpConnectorConfigV1;
-use super::tencent_cos::TencentCosConnectorConfigV2;
+use super::tencent_cos::TencentCosConnectorConfigV1;
 use super::*;
 
 struct LocalizationContractConnector {
@@ -135,8 +135,8 @@ fn azure_config(upload: ObjectStorageUploadStrategy) -> AzureBlobConnectorConfig
     }
 }
 
-fn cos_config(upload: ObjectStorageUploadStrategy) -> TencentCosConnectorConfigV2 {
-    TencentCosConnectorConfigV2 {
+fn cos_config(upload: ObjectStorageUploadStrategy) -> TencentCosConnectorConfigV1 {
+    TencentCosConnectorConfigV1 {
         endpoint: "https://cos.ap-beijing.myqcloud.com".to_string(),
         bucket: "archive-1250000000".to_string(),
         base_path: "tenant-a".to_string(),
@@ -1266,5 +1266,5 @@ fn built_in_connector_descriptors_do_not_duplicate_core_native_behavior_state() 
             );
         }
     }
-    assert_eq!(descriptor(TencentCosConnector::ID).config_schema_version, 2);
+    assert_eq!(descriptor(TencentCosConnector::ID).config_schema_version, 1);
 }

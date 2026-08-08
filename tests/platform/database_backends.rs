@@ -315,7 +315,7 @@ async fn assert_current_storage_policy_ignores_retained_legacy_columns(
             name: Set(name),
             connector_id: Set("asterdrive.storage.local".to_string()),
             storage_config: Set(StoredStoragePolicyConfig::from(
-                r#"{"format_version":1,"connector":{"format_version":1,"connector_id":"asterdrive.storage.local","schema_version":1,"values":{"base_path":"./data/uploads","content_dedup":false}},"behavior":{"format_version":1,"schema_version":2,"values":{"storage_native_thumbnail_enabled":false,"storage_native_media_metadata_enabled":false}}}"#
+                r#"{"format_version":1,"connector":{"format_version":1,"connector_id":"asterdrive.storage.local","schema_version":1,"values":{"base_path":"./data/uploads","content_dedup":false}},"behavior":{"format_version":1,"schema_version":1,"values":{"storage_native_thumbnail_enabled":false,"storage_native_media_metadata_enabled":false}}}"#
                     .to_string(),
             )),
             max_file_size: Set(0),
@@ -353,10 +353,9 @@ async fn assert_current_storage_policy_ignores_retained_legacy_columns(
         "0.5.x compatibility migration should supply the legacy driver_type default"
     );
 
-    // Roll back both the storage-native behavior rewrite and the preceding
-    // retained-column compatibility migration. The former converts current
-    // behavior V2 rows back to V1 before the latter restores the old columns.
-    CurrentMigrator::down(db, Some(2))
+    // Roll back the retained-column compatibility migration, which restores
+    // the legacy write requirements while leaving converted policy rows intact.
+    CurrentMigrator::down(db, Some(1))
         .await
         .expect("latest storage policy migrations should roll back on production backend");
     insert_current_policy(db, format!("connector-policy-down-{backend:?}-{now}"))
@@ -382,7 +381,7 @@ async fn assert_current_storage_policy_ignores_retained_legacy_columns(
         );
     }
 
-    CurrentMigrator::up(db, Some(2))
+    CurrentMigrator::up(db, Some(1))
         .await
         .expect("latest storage policy migrations should reapply on production backend");
     let reapplied =

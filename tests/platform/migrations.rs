@@ -771,8 +771,20 @@ async fn storage_policy_connector_configs_backfill_all_builtin_drivers_and_reapp
     assert_eq!(s3.storage_config["behavior"]["format_version"], 1);
     assert_eq!(s3.storage_config["behavior"]["schema_version"], 1);
     assert_eq!(
-        s3.storage_config["behavior"]["values"]["thumbnail_extensions"],
+        s3.storage_config["behavior"]["values"]["storage_native_thumbnail_enabled"],
+        true
+    );
+    assert_eq!(
+        s3.storage_config["behavior"]["values"]["storage_native_thumbnail_extensions"],
         serde_json::json!(["jpg", "webp"])
+    );
+    assert_eq!(
+        s3.storage_config["behavior"]["values"]["storage_native_media_metadata_enabled"],
+        true
+    );
+    assert_eq!(
+        s3.storage_config["behavior"]["values"]["storage_native_media_metadata_extensions"],
+        serde_json::json!(["mp4"])
     );
 
     let sftp = &by_id[&103];
@@ -794,13 +806,32 @@ async fn storage_policy_connector_configs_backfill_all_builtin_drivers_and_reapp
 
     let cos = &by_id[&105];
     assert_eq!(cos.connector_id, "asterdrive.storage.tencent_cos");
+    assert_eq!(cos.storage_config["connector"]["schema_version"], 1);
+    assert!(
+        cos.storage_config["connector"]["values"]
+            .get("storage_native_processing_enabled")
+            .is_none()
+    );
+    assert!(
+        cos.storage_config["connector"]["values"]
+            .get("storage_native_media_metadata_enabled")
+            .is_none()
+    );
     assert_eq!(
-        cos.storage_config["connector"]["values"]["storage_native_processing_enabled"],
+        cos.storage_config["behavior"]["values"]["storage_native_thumbnail_enabled"],
         true
     );
     assert_eq!(
-        cos.storage_config["connector"]["values"]["storage_native_media_metadata_enabled"],
+        cos.storage_config["behavior"]["values"]["storage_native_thumbnail_extensions"],
+        serde_json::json!(["jpg"])
+    );
+    assert_eq!(
+        cos.storage_config["behavior"]["values"]["storage_native_media_metadata_enabled"],
         true
+    );
+    assert_eq!(
+        cos.storage_config["behavior"]["values"]["storage_native_media_metadata_extensions"],
+        serde_json::json!(["mp4"])
     );
 
     let remote = &by_id[&106];

@@ -71,7 +71,7 @@ pub struct TestS3ConnectorConfigV1 {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TestTencentCosConnectorConfigV2 {
+pub struct TestTencentCosConnectorConfigV1 {
     pub endpoint: String,
     pub bucket: String,
     pub base_path: String,
@@ -225,8 +225,8 @@ pub fn tencent_cos_connection(
     aster_drive::storage::StorageConnectorConnectionInput {
         connector_config: connector_envelope_with_schema(
             "asterdrive.storage.tencent_cos",
-            2,
-            TestTencentCosConnectorConfigV2 {
+            1,
+            TestTencentCosConnectorConfigV1 {
                 endpoint: endpoint.into(),
                 bucket: bucket.into(),
                 base_path: base_path.into(),

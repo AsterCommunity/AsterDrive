@@ -861,7 +861,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 				storage_native_thumbnail: true,
 				storage_native_media_metadata: true,
 			},
-			config_schema_version: 2,
+			config_schema_version: 1,
 			fields: [field("endpoint"), field("bucket"), field("base_path")],
 		});
 		const saved = policy(
@@ -881,7 +881,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 				connector_config: {
 					connector_id: "asterdrive.storage.tencent_cos",
 					format_version: 1,
-					schema_version: 2,
+					schema_version: 1,
 					values: {
 						endpoint: "https://bucket.cos.example.test",
 						bucket: "bucket-1250000000",
@@ -919,7 +919,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			connector_config: {
 				connector_id: "asterdrive.storage.tencent_cos",
 				format_version: 1,
-				schema_version: 2,
+				schema_version: 1,
 				values: {
 					endpoint: "https://bucket.cos.example.test",
 					bucket: "bucket-1250000000",

@@ -227,12 +227,12 @@ struct FrozenBehaviorConfigEnvelopeV1 {
 
 #[derive(Debug, Default, Serialize)]
 struct FrozenBehaviorConfigV1 {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    thumbnail_processor: Option<String>,
+    storage_native_thumbnail_enabled: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    thumbnail_extensions: Vec<String>,
+    storage_native_thumbnail_extensions: Vec<String>,
+    storage_native_media_metadata_enabled: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    media_metadata_extensions: Vec<String>,
+    storage_native_media_metadata_extensions: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -276,17 +276,6 @@ struct FrozenSftpConfigV1 {
 }
 
 #[derive(Serialize)]
-struct FrozenTencentCosConfigV1 {
-    endpoint: String,
-    bucket: String,
-    base_path: String,
-    object_storage_upload_strategy: String,
-    object_storage_download_strategy: String,
-    storage_native_processing_enabled: bool,
-    storage_native_media_metadata_enabled: bool,
-}
-
-#[derive(Serialize)]
 struct FrozenRemoteConfigV1 {
     base_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -324,7 +313,7 @@ enum FrozenConnectorConfigV1 {
     S3(FrozenS3ConfigV1),
     Sftp(FrozenSftpConfigV1),
     AzureBlob(FrozenObjectStorageConfigV1),
-    TencentCos(FrozenTencentCosConfigV1),
+    TencentCos(FrozenObjectStorageConfigV1),
     Remote(FrozenRemoteConfigV1),
     OneDrive(FrozenOneDriveConfigV1),
 }
@@ -368,12 +357,8 @@ fn serialize_storage_config<T: Serialize>(
 
 fn convert_legacy_policy(policy: LegacyStoragePolicy) -> Result<ConfigBackfill, DbErr> {
     let mut options = parse_legacy_options(policy.id, &policy.options)?;
-    let legacy_native_thumbnail = options
-        .get("thumbnail_processor")
-        .and_then(JsonValue::as_str)
-        == Some("storage_native");
     let behavior = take_behavior_values(policy.id, &mut options)?;
-    let connector = connector_values(policy.id, &policy, &mut options, legacy_native_thumbnail)?;
+    let connector = connector_values(policy.id, &policy, &mut options)?;
 
     if let Some(field) = options.keys().next() {
         return Err(migration_error(
@@ -488,14 +473,15 @@ fn take_behavior_values(
             "storage_native",
         ],
     )?;
-    let thumbnail_extensions =
+    let storage_native_thumbnail_extensions =
         take_extension_list(policy_id, options, "thumbnail_extensions")?.unwrap_or_default();
-    let media_metadata_extensions =
+    let storage_native_media_metadata_extensions =
         take_extension_list(policy_id, options, "media_metadata_extensions")?.unwrap_or_default();
     Ok(FrozenBehaviorConfigV1 {
-        thumbnail_processor,
-        thumbnail_extensions,
-        media_metadata_extensions,
+        storage_native_thumbnail_enabled: thumbnail_processor.as_deref() == Some("storage_native"),
+        storage_native_thumbnail_extensions,
+        storage_native_media_metadata_enabled: !storage_native_media_metadata_extensions.is_empty(),
+        storage_native_media_metadata_extensions,
     })
 }
 
@@ -503,18 +489,13 @@ fn connector_values(
     policy_id: i64,
     policy: &LegacyStoragePolicy,
     options: &mut Map<String, JsonValue>,
-    legacy_native_thumbnail: bool,
 ) -> Result<FrozenConnectorConfigV1, DbErr> {
     match policy.driver_type.as_str() {
         "local" => local_values(policy_id, policy, options),
         "s3" => s3_values(policy_id, policy, options),
         "sftp" => sftp_values(policy_id, policy, options),
-        "azure_blob" => {
-            object_storage_values(policy_id, policy, options, false, legacy_native_thumbnail)
-        }
-        "tencent_cos" => {
-            object_storage_values(policy_id, policy, options, true, legacy_native_thumbnail)
-        }
+        "azure_blob" => object_storage_values(policy_id, policy, options, false),
+        "tencent_cos" => object_storage_values(policy_id, policy, options, true),
         "remote" => remote_values(policy_id, policy, options),
         "onedrive" => onedrive_values(policy_id, policy, options),
         driver => Err(migration_error(
@@ -587,25 +568,15 @@ fn object_storage_values(
     policy: &LegacyStoragePolicy,
     options: &mut Map<String, JsonValue>,
     supports_native_processing: bool,
-    legacy_native_thumbnail: bool,
 ) -> Result<FrozenConnectorConfigV1, DbErr> {
     let transfer = object_storage_transfer_values(policy_id, policy, options)?;
     if supports_native_processing {
-        let processing = take_bool(policy_id, options, "storage_native_processing_enabled")?
-            .unwrap_or(legacy_native_thumbnail);
-        let metadata = take_bool(policy_id, options, "storage_native_media_metadata_enabled")?
-            .unwrap_or(false);
-        return Ok(FrozenConnectorConfigV1::TencentCos(
-            FrozenTencentCosConfigV1 {
-                endpoint: transfer.endpoint,
-                bucket: transfer.bucket,
-                base_path: transfer.base_path,
-                object_storage_upload_strategy: transfer.object_storage_upload_strategy,
-                object_storage_download_strategy: transfer.object_storage_download_strategy,
-                storage_native_processing_enabled: processing,
-                storage_native_media_metadata_enabled: metadata,
-            },
-        ));
+        // These duplicate connector switches never controlled the old runtime
+        // behavior. Validate and consume them, but derive the sole final state
+        // from the legacy core behavior fields in `take_behavior_values`.
+        take_bool(policy_id, options, "storage_native_processing_enabled")?;
+        take_bool(policy_id, options, "storage_native_media_metadata_enabled")?;
+        return Ok(FrozenConnectorConfigV1::TencentCos(transfer));
     }
     Ok(FrozenConnectorConfigV1::AzureBlob(transfer))
 }
@@ -884,6 +855,14 @@ mod tests {
             assert_eq!(envelope["format_version"], 1);
             assert_eq!(envelope["connector"]["schema_version"], 1);
             assert_eq!(envelope["connector"]["connector_id"], connector);
+            assert_eq!(envelope["behavior"]["schema_version"], 1);
+            assert_eq!(
+                envelope["behavior"]["values"],
+                json!({
+                    "storage_native_thumbnail_enabled": false,
+                    "storage_native_media_metadata_enabled": false
+                })
+            );
         }
     }
 
@@ -912,9 +891,52 @@ mod tests {
         );
         assert_eq!(connector["values"]["s3_path_style"], false);
         assert_eq!(connector["values"]["s3_connect_timeout_secs"], 5);
+        assert_eq!(behavior["schema_version"], 1);
+        assert_eq!(behavior["values"]["storage_native_thumbnail_enabled"], true);
         assert_eq!(
-            behavior["values"]["thumbnail_extensions"],
+            behavior["values"]["storage_native_thumbnail_extensions"],
             json!(["jpg", "webp"])
+        );
+        assert_eq!(
+            behavior["values"]["storage_native_media_metadata_enabled"],
+            false
+        );
+    }
+
+    #[test]
+    fn tencent_cos_uses_final_v1_behavior_without_duplicate_connector_switches() {
+        let converted = convert_legacy_policy(policy(
+            "tencent_cos",
+            json!({
+                "thumbnail_processor": "images",
+                "thumbnail_extensions": ["jpg"],
+                "media_metadata_extensions": ["mp4"],
+                "storage_native_processing_enabled": true,
+                "storage_native_media_metadata_enabled": false
+            }),
+        ))
+        .unwrap();
+        let storage: JsonValue = serde_json::from_str(&converted.storage_config).unwrap();
+
+        assert_eq!(storage["connector"]["schema_version"], 1);
+        assert!(
+            storage["connector"]["values"]
+                .get("storage_native_processing_enabled")
+                .is_none()
+        );
+        assert!(
+            storage["connector"]["values"]
+                .get("storage_native_media_metadata_enabled")
+                .is_none()
+        );
+        assert_eq!(
+            storage["behavior"]["values"],
+            json!({
+                "storage_native_thumbnail_enabled": false,
+                "storage_native_thumbnail_extensions": ["jpg"],
+                "storage_native_media_metadata_enabled": true,
+                "storage_native_media_metadata_extensions": ["mp4"]
+            })
         );
     }
 

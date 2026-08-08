@@ -91,7 +91,7 @@ where
                 "connector_config": {
                     "format_version": 1,
                     "connector_id": "asterdrive.storage.tencent_cos",
-                    "schema_version": 2,
+                    "schema_version": 1,
                     "values": {
                         "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
                         "bucket": "media-1250000000",
@@ -137,7 +137,7 @@ fn tencent_cos_action_connection() -> Value {
         "connector_config": {
             "format_version": 1,
             "connector_id": "asterdrive.storage.tencent_cos",
-            "schema_version": 2,
+            "schema_version": 1,
             "values": {
                 "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
                 "bucket": "media-1250000000",
@@ -467,7 +467,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     );
 
     let tencent_cos = descriptor("asterdrive.storage.tencent_cos");
-    assert_eq!(tencent_cos["config_schema_version"], 2);
+    assert_eq!(tencent_cos["config_schema_version"], 1);
     assert_eq!(
         tencent_cos["capabilities"]["storage_native_thumbnail"],
         true
@@ -2060,7 +2060,7 @@ async fn test_tencent_cos_uses_only_core_owned_storage_native_behavior_state() {
     );
     assert!(body["data"]["behavior"]["storage_native_thumbnail_extensions"].is_null());
     assert!(body["data"]["behavior"]["storage_native_media_metadata_extensions"].is_null());
-    assert_eq!(body["data"]["connector_config"]["schema_version"], 2);
+    assert_eq!(body["data"]["connector_config"]["schema_version"], 1);
     assert!(
         body["data"]["connector_config"]["values"]
             .get("storage_native_processing_enabled")
