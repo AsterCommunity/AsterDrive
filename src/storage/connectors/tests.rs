@@ -142,8 +142,6 @@ fn cos_config(upload: ObjectStorageUploadStrategy) -> TencentCosConnectorConfigV
         base_path: "tenant-a".to_string(),
         object_storage_upload_strategy: upload,
         object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
-        storage_native_processing_enabled: false,
-        storage_native_media_metadata_enabled: false,
     }
 }
 
@@ -179,7 +177,7 @@ fn onedrive_config(
 fn policy<T: serde::Serialize>(connector_id: &'static str, values: T) -> storage_policy::Model {
     super::test_support::policy(
         connector_id,
-        1,
+        descriptor(connector_id).config_schema_version,
         values,
         StoragePolicyBehaviorConfig::default(),
     )
@@ -899,7 +897,11 @@ fn assert_empty_base_path_normalizes<T>(
 ) where
     T: serde::Serialize + serde::de::DeserializeOwned,
 {
-    let input = super::test_support::connection_config(connector_id, 1, config);
+    let input = super::test_support::connection_config(
+        connector_id,
+        descriptor(connector_id).config_schema_version,
+        config,
+    );
     let normalized = connector(connector_id)
         .validate_connector_config(&input)
         .expect("an empty optional base_path should normalize");
@@ -1181,12 +1183,11 @@ fn saved_static_credential_merge_handles_mode_and_payload_boundaries() {
 
 #[test]
 fn connector_capabilities_validate_core_owned_storage_native_behavior() {
-    use aster_drive_model::types::MediaProcessorKind;
-
     let thumbnail = StoragePolicyBehaviorConfig {
-        thumbnail_processor: Some(MediaProcessorKind::StorageNative),
-        thumbnail_extensions: vec!["jpg".to_string()],
-        media_metadata_extensions: Vec::new(),
+        storage_native_thumbnail_enabled: true,
+        storage_native_thumbnail_extensions: vec!["jpg".to_string()],
+        storage_native_media_metadata_enabled: false,
+        storage_native_media_metadata_extensions: Vec::new(),
     };
     let error = connector(LocalConnector::ID)
         .validate_policy_behavior(&thumbnail)
@@ -1200,9 +1201,10 @@ fn connector_capabilities_validate_core_owned_storage_native_behavior() {
         .expect("Tencent COS advertises storage-native thumbnails");
 
     let metadata = StoragePolicyBehaviorConfig {
-        thumbnail_processor: None,
-        thumbnail_extensions: Vec::new(),
-        media_metadata_extensions: vec!["mp4".to_string()],
+        storage_native_thumbnail_enabled: false,
+        storage_native_thumbnail_extensions: Vec::new(),
+        storage_native_media_metadata_enabled: true,
+        storage_native_media_metadata_extensions: vec!["mp4".to_string()],
     };
     let error = connector(LocalConnector::ID)
         .validate_policy_behavior(&metadata)
@@ -1214,4 +1216,55 @@ fn connector_capabilities_validate_core_owned_storage_native_behavior() {
     connector(TencentCosConnector::ID)
         .validate_policy_behavior(&metadata)
         .expect("Tencent COS advertises storage-native media metadata");
+
+    for dormant in [
+        StoragePolicyBehaviorConfig {
+            storage_native_thumbnail_extensions: vec!["jpg".to_string()],
+            ..Default::default()
+        },
+        StoragePolicyBehaviorConfig {
+            storage_native_media_metadata_extensions: vec!["mp4".to_string()],
+            ..Default::default()
+        },
+    ] {
+        assert!(!dormant.uses_storage_native_thumbnail());
+        assert!(!dormant.uses_storage_native_media_metadata());
+        connector(LocalConnector::ID)
+            .validate_policy_behavior(&dormant)
+            .expect("inactive native configuration does not require connector capability");
+        connector(TencentCosConnector::ID)
+            .validate_policy_behavior(&dormant)
+            .expect("Tencent COS accepts inactive native configuration");
+    }
+
+    connector(TencentCosConnector::ID)
+        .validate_policy_behavior(&StoragePolicyBehaviorConfig {
+            storage_native_thumbnail_enabled: true,
+            storage_native_media_metadata_enabled: true,
+            ..Default::default()
+        })
+        .expect("enabled native behaviors may use an empty extension set that matches no files");
+}
+
+#[test]
+fn built_in_connector_descriptors_do_not_duplicate_core_native_behavior_state() {
+    for descriptor in registry().descriptors() {
+        for core_behavior_field in [
+            "storage_native_processing_enabled",
+            "storage_native_thumbnail_enabled",
+            "storage_native_thumbnail_extensions",
+            "storage_native_media_metadata_enabled",
+            "storage_native_media_metadata_extensions",
+        ] {
+            assert!(
+                descriptor
+                    .fields
+                    .iter()
+                    .all(|field| field.name != core_behavior_field),
+                "connector {} exposes duplicate core behavior field {core_behavior_field}",
+                descriptor.connector_id
+            );
+        }
+    }
+    assert_eq!(descriptor(TencentCosConnector::ID).config_schema_version, 1);
 }

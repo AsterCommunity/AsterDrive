@@ -122,7 +122,7 @@ fn local_action_connection() -> Value {
         "connector_config": {
             "format_version": 1,
             "connector_id": "asterdrive.storage.local",
-            "schema_version": 1,
+            "schema_version": 2,
             "values": {
                 "base_path": format!("/tmp/asterdrive-action-local-{}", uuid::Uuid::new_v4())
             }
@@ -467,6 +467,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     );
 
     let tencent_cos = descriptor("asterdrive.storage.tencent_cos");
+    assert_eq!(tencent_cos["config_schema_version"], 1);
     assert_eq!(
         tencent_cos["capabilities"]["storage_native_thumbnail"],
         true
@@ -475,6 +476,24 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
         tencent_cos["capabilities"]["storage_native_media_metadata"],
         true
     );
+    for descriptor in descriptors {
+        let fields = descriptor["fields"].as_array().expect("connector fields");
+        for core_behavior_field in [
+            "storage_native_processing_enabled",
+            "storage_native_thumbnail_enabled",
+            "storage_native_thumbnail_extensions",
+            "storage_native_media_metadata_enabled",
+            "storage_native_media_metadata_extensions",
+        ] {
+            assert!(
+                !fields
+                    .iter()
+                    .any(|field| field["name"] == core_behavior_field),
+                "connector {} must expose native processing only as capability, not duplicate core behavior {core_behavior_field}",
+                descriptor["connector_id"]
+            );
+        }
+    }
     assert!(
         tencent_cos["actions"]
             .as_array()
@@ -1849,8 +1868,8 @@ async fn test_policy_rejects_storage_native_thumbnail_for_unsupported_driver() {
     let (token, _) = register_and_login!(app);
     let mut connection = local_connection_json("/tmp/test-native-thumbnail-local");
     connection["behavior"] = serde_json::json!({
-        "thumbnail_processor": "storage_native",
-        "thumbnail_extensions": ["png", ".jpg"]
+        "storage_native_thumbnail_enabled": true,
+        "storage_native_thumbnail_extensions": ["png", ".jpg"]
     });
 
     let req = test::TestRequest::post()
@@ -1886,8 +1905,8 @@ async fn test_policy_rejects_storage_native_thumbnail_for_unsupported_driver() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "behavior": {
-                "thumbnail_processor": "storage_native",
-                "thumbnail_extensions": ["jpg"]
+                "storage_native_thumbnail_enabled": true,
+                "storage_native_thumbnail_extensions": ["jpg"]
             }
         }))
         .to_request();
@@ -1901,8 +1920,8 @@ async fn test_policy_rejects_storage_native_thumbnail_for_unsupported_driver() {
 
     let mut draft_connection = local_connection_json("/tmp/test-native-thumbnail-draft");
     draft_connection["behavior"] = serde_json::json!({
-        "thumbnail_processor": "storage_native",
-        "thumbnail_extensions": ["jpg"]
+        "storage_native_thumbnail_enabled": true,
+        "storage_native_thumbnail_extensions": ["jpg"]
     });
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/policies/test")
@@ -1926,7 +1945,8 @@ async fn test_policy_rejects_storage_native_media_metadata_for_unsupported_drive
     let (token, _) = register_and_login!(app);
     let mut connection = local_connection_json("/tmp/test-native-metadata-local");
     connection["behavior"] = serde_json::json!({
-        "media_metadata_extensions": ["mp4"]
+        "storage_native_media_metadata_enabled": true,
+        "storage_native_media_metadata_extensions": ["mp4"]
     });
 
     let req = test::TestRequest::post()
@@ -1962,7 +1982,8 @@ async fn test_policy_rejects_storage_native_media_metadata_for_unsupported_drive
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "behavior": {
-                "media_metadata_extensions": ["mp4"]
+                "storage_native_media_metadata_enabled": true,
+                "storage_native_media_metadata_extensions": ["mp4"]
             }
         }))
         .to_request();
@@ -1976,7 +1997,8 @@ async fn test_policy_rejects_storage_native_media_metadata_for_unsupported_drive
 
     let mut draft_connection = local_connection_json("/tmp/test-native-metadata-draft");
     draft_connection["behavior"] = serde_json::json!({
-        "media_metadata_extensions": ["mp4"]
+        "storage_native_media_metadata_enabled": true,
+        "storage_native_media_metadata_extensions": ["mp4"]
     });
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/policies/test")
@@ -1990,6 +2012,205 @@ async fn test_policy_rejects_storage_native_media_metadata_for_unsupported_drive
     assert_eq!(
         body["code"],
         ApiErrorCode::PolicyNativeMediaMetadataUnsupported.as_str()
+    );
+}
+
+#[actix_web::test]
+async fn test_tencent_cos_uses_only_core_owned_storage_native_behavior_state() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let mut connection = connection_json(common::tencent_cos_connection(
+        "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com",
+        "bucket-1250000000",
+        "",
+        "AKIDEXAMPLE",
+        "SECRETEXAMPLE",
+    ));
+    connection["behavior"] = serde_json::json!({
+        "storage_native_thumbnail_enabled": true,
+        "storage_native_thumbnail_extensions": [],
+        "storage_native_media_metadata_enabled": true,
+        "storage_native_media_metadata_extensions": []
+    });
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "COS Unified Native Behavior",
+            "connection": connection.clone(),
+            "max_file_size": 0,
+            "is_default": false
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let policy_id = body["data"]["id"].as_i64().expect("created policy id");
+    assert_eq!(
+        body["data"]["behavior"]["storage_native_thumbnail_enabled"],
+        true
+    );
+    assert_eq!(
+        body["data"]["behavior"]["storage_native_media_metadata_enabled"],
+        true
+    );
+    assert!(body["data"]["behavior"]["storage_native_thumbnail_extensions"].is_null());
+    assert!(body["data"]["behavior"]["storage_native_media_metadata_extensions"].is_null());
+    assert_eq!(body["data"]["connector_config"]["schema_version"], 1);
+    assert!(
+        body["data"]["connector_config"]["values"]
+            .get("storage_native_processing_enabled")
+            .is_none()
+    );
+    assert!(
+        body["data"]["connector_config"]["values"]
+            .get("storage_native_media_metadata_enabled")
+            .is_none()
+    );
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["data"]["behavior"]["storage_native_thumbnail_enabled"],
+        true
+    );
+    assert_eq!(
+        body["data"]["behavior"]["storage_native_media_metadata_enabled"],
+        true
+    );
+
+    for (behavior, extension_field, expected_extensions) in [
+        (
+            serde_json::json!({
+            "storage_native_thumbnail_enabled": false,
+            "storage_native_thumbnail_extensions": ["jpg"]
+            }),
+            "storage_native_thumbnail_extensions",
+            serde_json::json!(["jpg"]),
+        ),
+        (
+            serde_json::json!({
+            "storage_native_media_metadata_enabled": false,
+            "storage_native_media_metadata_extensions": ["mp4"]
+            }),
+            "storage_native_media_metadata_extensions",
+            serde_json::json!(["mp4"]),
+        ),
+    ] {
+        let req = test::TestRequest::patch()
+            .uri(&format!("/api/v1/admin/policies/{policy_id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "behavior": behavior }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(
+            body["data"]["behavior"][extension_field], expected_extensions,
+            "disabled behavior must retain its matching configuration"
+        );
+    }
+
+    let mut dormant_local = local_connection_json(format!(
+        "/tmp/asterdrive-dormant-native-config-{}",
+        uuid::Uuid::new_v4()
+    ));
+    dormant_local["behavior"] = serde_json::json!({
+        "storage_native_thumbnail_enabled": false,
+        "storage_native_thumbnail_extensions": ["jpg"],
+        "storage_native_media_metadata_enabled": false,
+        "storage_native_media_metadata_extensions": ["mp4"]
+    });
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Dormant Native Configuration",
+            "connection": dormant_local,
+            "max_file_size": 0,
+            "is_default": false
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["data"]["behavior"]["storage_native_thumbnail_enabled"],
+        false
+    );
+    assert_eq!(
+        body["data"]["behavior"]["storage_native_thumbnail_extensions"],
+        serde_json::json!(["jpg"])
+    );
+    assert_eq!(
+        body["data"]["behavior"]["storage_native_media_metadata_extensions"],
+        serde_json::json!(["mp4"])
+    );
+    assert_eq!(
+        body["data"]["behavior"]["storage_native_media_metadata_enabled"],
+        false
+    );
+
+    let mut legacy_connector_state = connection.clone();
+    legacy_connector_state["connector_config"]["values"]["storage_native_processing_enabled"] =
+        serde_json::json!(true);
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "COS Legacy Duplicate State",
+            "connection": legacy_connector_state,
+            "max_file_size": 0,
+            "is_default": false
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("storage_native_processing_enabled"),
+        "legacy connector state should be named in the rejection: {body}"
+    );
+
+    let mut legacy_behavior_state = connection;
+    legacy_behavior_state["behavior"]["thumbnail_processor"] = serde_json::json!("storage_native");
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "COS Legacy Behavior Key",
+            "connection": legacy_behavior_state,
+            "max_file_size": 0,
+            "is_default": false
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("thumbnail_processor"),
+        "the unpublished key rename must not leave a compatibility path: {body}"
     );
 }
 

@@ -52,7 +52,10 @@ describe("storage policy form values", () => {
 
 	it("falls back from malformed persisted connector envelope members", () => {
 		const form = getPolicyForm({
-			behavior: {},
+			behavior: {
+				storage_native_media_metadata_enabled: true,
+				storage_native_media_metadata_extensions: [],
+			},
 			connector_config: { connector_id: 42, values: [] },
 			connector_id: "plugin.archive",
 			name: "Archive",
@@ -60,6 +63,8 @@ describe("storage policy form values", () => {
 
 		expect(form.connector_id).toBe("plugin.archive");
 		expect(form.connector_config_values).toEqual({});
+		expect(form.storage_native_media_metadata_enabled).toBe(true);
+		expect(form.storage_native_media_metadata_extensions).toEqual([]);
 
 		const valid = getPolicyForm({
 			behavior: {},
@@ -72,5 +77,29 @@ describe("storage policy form values", () => {
 		} as never);
 		expect(valid.connector_id).toBe("plugin.persisted");
 		expect(valid.connector_config_values).toEqual({ enabled: true });
+	});
+
+	it("initializes both native behavior controls only from core behavior", () => {
+		const form = getPolicyForm({
+			behavior: {
+				storage_native_thumbnail_enabled: true,
+				storage_native_thumbnail_extensions: ["jpg"],
+				storage_native_media_metadata_enabled: false,
+				storage_native_media_metadata_extensions: [],
+			},
+			connector_config: {
+				connector_id: "plugin.persisted",
+				values: {
+					storage_native_processing_enabled: false,
+					storage_native_media_metadata_enabled: true,
+				},
+			},
+			connector_id: "plugin.persisted",
+			name: "Persisted",
+		} as never);
+
+		expect(form.storage_native_thumbnail_enabled).toBe(true);
+		expect(form.storage_native_thumbnail_extensions).toEqual(["jpg"]);
+		expect(form.storage_native_media_metadata_enabled).toBe(false);
 	});
 });

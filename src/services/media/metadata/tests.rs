@@ -424,7 +424,8 @@ async fn storage_native_media_metadata_extracts_when_policy_suffix_matches() {
     let state = test_state_with_driver_and_options(
         driver.clone(),
         aster_drive_storage::StoragePolicyBehaviorConfig {
-            media_metadata_extensions: vec!["mp4".to_string()],
+            storage_native_media_metadata_enabled: true,
+            storage_native_media_metadata_extensions: vec!["mp4".to_string()],
             ..Default::default()
         },
     )
@@ -457,6 +458,39 @@ async fn storage_native_media_metadata_extracts_when_policy_suffix_matches() {
 }
 
 #[tokio::test]
+async fn storage_native_media_metadata_keeps_dormant_suffixes_without_running_provider() {
+    let driver = Arc::new(NativeMetadataDriver::new(MediaMetadataPayload::Video(
+        VideoMediaMetadata::default(),
+    )));
+    let state = test_state_with_driver_and_options(
+        driver.clone(),
+        aster_drive_storage::StoragePolicyBehaviorConfig {
+            storage_native_media_metadata_enabled: false,
+            storage_native_media_metadata_extensions: vec!["mp4".to_string()],
+            ..Default::default()
+        },
+    )
+    .await;
+    let blob = file_blob::Model {
+        policy_id: 1,
+        ..test_blob(1024)
+    };
+
+    let extracted = extract_for_blob(
+        &state,
+        &blob,
+        "clip.mp4",
+        "video/mp4",
+        MediaMetadataKind::Video,
+    )
+    .await
+    .expect("disabled storage-native metadata should return unsupported");
+
+    assert_eq!(extracted.status, MediaMetadataStatus::Unsupported);
+    assert_eq!(driver.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
 async fn storage_native_media_metadata_does_not_run_for_unmatched_suffix_or_images() {
     let driver = Arc::new(NativeMetadataDriver::new(MediaMetadataPayload::Video(
         VideoMediaMetadata::default(),
@@ -464,7 +498,8 @@ async fn storage_native_media_metadata_does_not_run_for_unmatched_suffix_or_imag
     let state = test_state_with_driver_and_options(
         driver.clone(),
         aster_drive_storage::StoragePolicyBehaviorConfig {
-            media_metadata_extensions: vec!["mov".to_string(), "png".to_string()],
+            storage_native_media_metadata_enabled: true,
+            storage_native_media_metadata_extensions: vec!["mov".to_string(), "png".to_string()],
             ..Default::default()
         },
     )

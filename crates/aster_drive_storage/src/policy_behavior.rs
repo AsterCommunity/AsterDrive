@@ -6,7 +6,6 @@
 //! processing. Keeping this envelope typed prevents connector plugins from
 //! accidentally redefining product semantics.
 
-use aster_drive_model::types::MediaProcessorKind;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt;
@@ -19,13 +18,32 @@ pub const STORAGE_POLICY_BEHAVIOR_SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+/// Core-owned, per-policy storage-native processing preferences.
+///
+/// These switches only add provider-native candidates ahead of the global
+/// media-processing registry. Disabling them does not disable thumbnail or
+/// metadata processing for files on the policy; it makes those files continue
+/// through the ordinary global processor chain. Extension vectors are retained
+/// as dormant configuration while their corresponding switch is off.
 pub struct StoragePolicyBehaviorConfig {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thumbnail_processor: Option<MediaProcessorKind>,
+    /// Prefer the storage provider's native thumbnail implementation for
+    /// matching files. `false` leaves the global thumbnail processors enabled.
+    #[serde(default)]
+    pub storage_native_thumbnail_enabled: bool,
+    /// File extensions eligible for provider-native thumbnails. An empty list
+    /// matches no files even when enabled. Retained as dormant configuration
+    /// while `storage_native_thumbnail_enabled` is false.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub thumbnail_extensions: Vec<String>,
+    pub storage_native_thumbnail_extensions: Vec<String>,
+    /// Prefer the storage provider's native media-metadata implementation for
+    /// matching files. `false` leaves the global metadata processors enabled.
+    #[serde(default)]
+    pub storage_native_media_metadata_enabled: bool,
+    /// File extensions eligible for provider-native media metadata. An empty
+    /// list matches no files even when enabled. Retained as dormant
+    /// configuration while the corresponding switch is false.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub media_metadata_extensions: Vec<String>,
+    pub storage_native_media_metadata_extensions: Vec<String>,
 }
 
 impl StoragePolicyBehaviorConfig {
@@ -36,26 +54,29 @@ impl StoragePolicyBehaviorConfig {
     /// Storing one canonical representation prevents duplicate behavior and
     /// keeps API output deterministic across connectors and plugins.
     pub fn normalized(mut self) -> Self {
-        self.thumbnail_extensions = normalize_extensions(self.thumbnail_extensions);
-        self.media_metadata_extensions = normalize_extensions(self.media_metadata_extensions);
+        self.storage_native_thumbnail_extensions =
+            normalize_extensions(self.storage_native_thumbnail_extensions);
+        self.storage_native_media_metadata_extensions =
+            normalize_extensions(self.storage_native_media_metadata_extensions);
         self
     }
 
     pub fn uses_storage_native_thumbnail(&self) -> bool {
-        self.thumbnail_processor == Some(MediaProcessorKind::StorageNative)
+        self.storage_native_thumbnail_enabled
     }
 
     pub fn storage_native_thumbnail_matches_file_name(&self, file_name: &str) -> bool {
         self.uses_storage_native_thumbnail()
-            && extension_matches(file_name, &self.thumbnail_extensions)
+            && extension_matches(file_name, &self.storage_native_thumbnail_extensions)
     }
 
     pub fn uses_storage_native_media_metadata(&self) -> bool {
-        !self.media_metadata_extensions.is_empty()
+        self.storage_native_media_metadata_enabled
     }
 
     pub fn storage_native_media_metadata_matches_file_name(&self, file_name: &str) -> bool {
-        extension_matches(file_name, &self.media_metadata_extensions)
+        self.uses_storage_native_media_metadata()
+            && extension_matches(file_name, &self.storage_native_media_metadata_extensions)
     }
 }
 
@@ -177,9 +198,10 @@ mod tests {
     #[test]
     fn behavior_envelope_round_trips_versioned_core_fields() {
         let envelope = StoragePolicyBehaviorConfigEnvelope::new(StoragePolicyBehaviorConfig {
-            thumbnail_processor: Some(MediaProcessorKind::StorageNative),
-            thumbnail_extensions: vec!["jpg".to_string(), "webp".to_string()],
-            media_metadata_extensions: vec!["mp4".to_string()],
+            storage_native_thumbnail_enabled: true,
+            storage_native_thumbnail_extensions: vec!["jpg".to_string(), "webp".to_string()],
+            storage_native_media_metadata_enabled: true,
+            storage_native_media_metadata_extensions: vec!["mp4".to_string()],
         });
 
         let json = serde_json::to_string(&envelope).unwrap();
@@ -197,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_behavior_envelope_omits_empty_values() {
+    fn empty_behavior_envelope_serializes_explicit_disabled_switches() {
         let value = serde_json::to_value(StoragePolicyBehaviorConfigEnvelope::empty()).unwrap();
 
         assert_eq!(
@@ -208,7 +230,13 @@ mod tests {
             value["schema_version"],
             STORAGE_POLICY_BEHAVIOR_SCHEMA_VERSION
         );
-        assert_eq!(value["values"], serde_json::json!({}));
+        assert_eq!(
+            value["values"],
+            serde_json::json!({
+                "storage_native_thumbnail_enabled": false,
+                "storage_native_media_metadata_enabled": false
+            })
+        );
     }
 
     #[test]
@@ -224,14 +252,21 @@ mod tests {
             decode_storage_policy_behavior_config(wrong_version),
             Err(StoragePolicyBehaviorConfigCodecError::FormatVersionMismatch { .. })
         ));
+
+        let wrong_schema = r#"{"format_version":1,"schema_version":2,"values":{}}"#;
+        assert!(matches!(
+            decode_storage_policy_behavior_config(wrong_schema),
+            Err(StoragePolicyBehaviorConfigCodecError::SchemaVersionMismatch { .. })
+        ));
     }
 
     #[test]
     fn storage_native_extension_matching_is_case_insensitive_and_requires_a_suffix() {
         let behavior = StoragePolicyBehaviorConfig {
-            thumbnail_processor: Some(MediaProcessorKind::StorageNative),
-            thumbnail_extensions: vec!["jpg".to_string()],
-            media_metadata_extensions: vec!["mp4".to_string()],
+            storage_native_thumbnail_enabled: true,
+            storage_native_thumbnail_extensions: vec!["jpg".to_string()],
+            storage_native_media_metadata_enabled: true,
+            storage_native_media_metadata_extensions: vec!["mp4".to_string()],
         };
 
         assert!(behavior.storage_native_thumbnail_matches_file_name("cover.JPG"));
@@ -239,20 +274,42 @@ mod tests {
         assert!(!behavior.storage_native_thumbnail_matches_file_name("cover."));
         assert!(behavior.storage_native_media_metadata_matches_file_name("clip.MP4"));
         assert!(!behavior.storage_native_media_metadata_matches_file_name("clip.mp3"));
+
+        let disabled_metadata = StoragePolicyBehaviorConfig {
+            storage_native_media_metadata_enabled: false,
+            storage_native_media_metadata_extensions: vec!["mp4".to_string()],
+            ..Default::default()
+        };
+        assert!(!disabled_metadata.storage_native_media_metadata_matches_file_name("clip.mp4"));
+    }
+
+    #[test]
+    fn enabled_storage_native_behaviors_with_empty_extensions_match_no_files() {
+        let behavior = StoragePolicyBehaviorConfig {
+            storage_native_thumbnail_enabled: true,
+            storage_native_media_metadata_enabled: true,
+            ..Default::default()
+        };
+
+        assert!(behavior.uses_storage_native_thumbnail());
+        assert!(behavior.uses_storage_native_media_metadata());
+        assert!(!behavior.storage_native_thumbnail_matches_file_name("cover.jpg"));
+        assert!(!behavior.storage_native_media_metadata_matches_file_name("clip.mp4"));
     }
 
     #[test]
     fn behavior_normalization_trims_dots_case_blanks_and_duplicates() {
         let behavior = StoragePolicyBehaviorConfig {
-            thumbnail_processor: Some(MediaProcessorKind::StorageNative),
-            thumbnail_extensions: vec![
+            storage_native_thumbnail_enabled: true,
+            storage_native_thumbnail_extensions: vec![
                 " .JPG ".to_string(),
                 "jpg".to_string(),
                 "...WEBP".to_string(),
                 " . ".to_string(),
                 String::new(),
             ],
-            media_metadata_extensions: vec![
+            storage_native_media_metadata_enabled: true,
+            storage_native_media_metadata_extensions: vec![
                 "MP4".to_string(),
                 ".m4a".to_string(),
                 " mp4 ".to_string(),
@@ -260,23 +317,32 @@ mod tests {
         }
         .normalized();
 
-        assert_eq!(behavior.thumbnail_extensions, ["jpg", "webp"]);
-        assert_eq!(behavior.media_metadata_extensions, ["m4a", "mp4"]);
         assert_eq!(
-            behavior.thumbnail_processor,
-            Some(MediaProcessorKind::StorageNative)
+            behavior.storage_native_thumbnail_extensions,
+            ["jpg", "webp"]
         );
+        assert_eq!(
+            behavior.storage_native_media_metadata_extensions,
+            ["m4a", "mp4"]
+        );
+        assert!(behavior.storage_native_thumbnail_enabled);
     }
 
     #[test]
     fn behavior_envelope_persists_only_normalized_extensions() {
         let envelope = StoragePolicyBehaviorConfigEnvelope::new(StoragePolicyBehaviorConfig {
-            thumbnail_processor: None,
-            thumbnail_extensions: vec![" .PNG ".to_string(), "png".to_string()],
-            media_metadata_extensions: vec![" .MP4 ".to_string()],
+            storage_native_thumbnail_enabled: false,
+            storage_native_thumbnail_extensions: vec![" .PNG ".to_string(), "png".to_string()],
+            storage_native_media_metadata_enabled: false,
+            storage_native_media_metadata_extensions: vec![" .MP4 ".to_string()],
         });
 
-        assert_eq!(envelope.values.thumbnail_extensions, ["png"]);
-        assert_eq!(envelope.values.media_metadata_extensions, ["mp4"]);
+        assert_eq!(envelope.values.storage_native_thumbnail_extensions, ["png"]);
+        assert_eq!(
+            envelope.values.storage_native_media_metadata_extensions,
+            ["mp4"]
+        );
+        assert!(!envelope.values.uses_storage_native_thumbnail());
+        assert!(!envelope.values.uses_storage_native_media_metadata());
     }
 }

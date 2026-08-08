@@ -228,7 +228,7 @@
 
 当前缩略图能力主要来自运行时的 media processing registry，并由 `/public/thumbnail-support` 暴露给匿名态前端。默认内置 `images` 处理器覆盖常见图片格式；内置 `lofty` 处理器启用音频封面用途时也会暴露音频后缀；如果启用且运行环境可找到 `vips_cli` / `ffmpeg_cli`，缩略图支持列表也会包含对应配置里的扩展名。
 
-存储策略也可以通过 `storage_native_processing_enabled = true`、`thumbnail_processor = "storage_native"` 和 `thumbnail_extensions` 暴露策略级原生缩略图 / 图片预览能力。内置 `tencent_cos` 策略可通过 COS CI 暴露这项能力；内置 Local、S3-compatible、Azure Blob、OneDrive 和 Remote 策略不暴露原生缩略图或图片预览能力。
+存储策略也可以通过 core policy behavior 的 `storage_native_thumbnail_enabled = true` 和 `storage_native_thumbnail_extensions` 暴露策略级原生缩略图 / 图片预览能力。connector descriptor 只声明是否支持该行为，不再持有第二个启用开关。设置 `storage_native_thumbnail_enabled = false` 只会停用厂商原生候选；这个策略下的文件仍会继续经过全局媒体处理 registry。后缀列表会作为休眠配置保留，重新启用时恢复原匹配规则。内置 `tencent_cos` 策略可通过 COS CI 暴露这项能力；内置 Local、S3-compatible、Azure Blob、OneDrive 和 Remote 策略不暴露原生缩略图或图片预览能力。
 
 接口统一返回 WebP，并按 Blob、processor、processor version 和实际最大边长复用缓存。源文件大小上限由 `thumbnail_max_source_bytes` 控制；生成后最长边由运行时配置 `thumbnail_max_dimension` 控制。
 
@@ -254,7 +254,7 @@
 
 当前图片元数据由内置 `images` 处理器读取尺寸和格式；音频元数据由内置 `lofty` 处理器读取标题、艺术家、专辑、时长、采样率、声道、码率、曲目号和内嵌封面存在性等信息；视频元数据由 `ffprobe_cli` 处理器通过服务端 `ffprobe` 读取时长、尺寸、编码、容器和帧率。`media_metadata_enabled` 是总开关；图片 / 音频 / 视频是否参与解析、命中的后缀，以及 `ffprobe` 的命令名或绝对路径，都统一在 `media_processing_registry_json` 里配置。若运行环境找不到配置的 `ffprobe`，视频会返回并缓存为 `unsupported`；配置修正且命令可用后，旧的 missing-probe unsupported 缓存会被重新探测。
 
-存储策略可以通过 `storage_native_processing_enabled = true`、`storage_native_media_metadata_enabled = true` 和 `media_metadata_extensions` 启用策略级原生媒体元数据。内置 `tencent_cos` 策略可通过 COS CI 暴露音频 / 视频元数据；内置 Local、S3-compatible、Azure Blob、OneDrive 和 Remote 策略不暴露原生媒体元数据能力。
+存储策略可以通过 core policy behavior 的 `storage_native_media_metadata_enabled = true` 和 `storage_native_media_metadata_extensions` 启用策略级原生媒体元数据，connector descriptor 只声明支持能力。内置 `tencent_cos` 策略可通过 COS CI 暴露音频 / 视频元数据；内置 Local、S3-compatible、Azure Blob、OneDrive 和 Remote 策略不暴露原生媒体元数据能力。设置为 `false` 只会停用厂商原生提取，全局媒体元数据处理器仍然可用；行为关闭时仍保留后缀列表，因此临时停用不会丢失匹配配置。启用但后缀列表为空也是合法状态，只是不会匹配任何文件。
 
 音频内嵌封面不单独开音乐封面缓存。`lofty` 处理器具备 `thumbnail:audio` 用途时，客户端继续复用现有 thumbnail 路径获取封面图；响应里的 `has_embedded_picture` 和 MIME 用于播放器元数据展示和兜底判断。
 

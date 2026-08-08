@@ -34,9 +34,9 @@ function policy(overrides: Partial<StoragePolicy> = {}): StoragePolicy {
 	return {
 		allowed_types: [],
 		behavior: {
-			media_metadata_extensions: [],
-			thumbnail_extensions: [],
-			thumbnail_processor: null,
+			storage_native_media_metadata_extensions: [],
+			storage_native_thumbnail_extensions: [],
+			storage_native_thumbnail_enabled: false,
 		},
 		chunk_size: 5 * 1024 * 1024,
 		connector_config: {
@@ -125,9 +125,10 @@ describe("policyFormComparison", () => {
 	it("detects policy behavior arrays, limits, default state, and connector changes", () => {
 		const saved = policy({
 			behavior: {
-				media_metadata_extensions: ["mp4"],
-				thumbnail_extensions: ["jpg"],
-				thumbnail_processor: "storage_native",
+				storage_native_media_metadata_extensions: ["mp4"],
+				storage_native_media_metadata_enabled: true,
+				storage_native_thumbnail_extensions: ["jpg"],
+				storage_native_thumbnail_enabled: true,
 			},
 			is_default: true,
 			max_file_size: 1024,
@@ -137,7 +138,13 @@ describe("policyFormComparison", () => {
 		expect(policyFormHasUnsavedChanges(form, saved)).toBe(false);
 		expect(
 			policyFormHasUnsavedChanges(
-				{ ...form, thumbnail_extensions: ["png"] },
+				{ ...form, storage_native_thumbnail_extensions: ["png"] },
+				saved,
+			),
+		).toBe(true);
+		expect(
+			policyFormHasUnsavedChanges(
+				{ ...form, storage_native_media_metadata_enabled: false },
 				saved,
 			),
 		).toBe(true);

@@ -287,7 +287,7 @@ fn collect_thumbnail_processor_candidates(
     let behavior = crate::storage::connectors::resolve_policy_behavior(connectors, policy)?;
     let mut candidates = Vec::new();
 
-    if behavior.thumbnail_processor == Some(MediaProcessorKind::StorageNative) {
+    if behavior.uses_storage_native_thumbnail() {
         if !behavior.storage_native_thumbnail_matches_file_name(file_name) {
             tracing::debug!(
                 operation = MediaOperation::Thumbnail.as_str(),

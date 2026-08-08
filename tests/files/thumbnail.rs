@@ -213,20 +213,28 @@ async fn thumbnail_task_count(state: &PrimaryAppState, file_id: i64) -> usize {
 }
 
 async fn enable_default_policy_storage_native_thumbnail(state: &PrimaryAppState) {
+    set_default_policy_thumbnail_behavior(
+        state,
+        aster_drive_storage::StoragePolicyBehaviorConfig {
+            storage_native_thumbnail_enabled: true,
+            storage_native_thumbnail_extensions: vec!["png".to_string()],
+            ..Default::default()
+        },
+    )
+    .await;
+}
+
+async fn set_default_policy_thumbnail_behavior(
+    state: &PrimaryAppState,
+    behavior: aster_drive_storage::StoragePolicyBehaviorConfig,
+) {
     let policy = policy_repo::find_default(state.writer_db())
         .await
         .unwrap()
         .expect("default policy should exist");
     let mut active: aster_drive_model::entities::storage_policy::ActiveModel =
         policy.clone().into();
-    active.storage_config = Set(common::with_storage_policy_behavior(
-        &policy,
-        aster_drive_storage::StoragePolicyBehaviorConfig {
-            thumbnail_processor: Some(MediaProcessorKind::StorageNative),
-            thumbnail_extensions: vec!["png".to_string()],
-            ..Default::default()
-        },
-    ));
+    active.storage_config = Set(common::with_storage_policy_behavior(&policy, behavior));
     active.update(state.writer_db()).await.unwrap();
     state
         .driver_registry
@@ -711,6 +719,34 @@ async fn test_thumbnail_storage_native_processor_without_driver_capability_skips
     assert_eq!(task.status, BackgroundTaskStatus::Succeeded);
     assert_eq!(thumbnail_task_count(&state, file_id).await, 1);
 
+    let second = request_thumbnail!(app, token, file_id);
+    assert_eq!(second.status(), 200);
+}
+
+#[actix_web::test]
+async fn test_disabling_storage_native_thumbnail_falls_back_to_global_processor() {
+    let state = common::setup().await;
+    set_default_policy_thumbnail_behavior(
+        &state,
+        aster_drive_storage::StoragePolicyBehaviorConfig {
+            storage_native_thumbnail_enabled: false,
+            storage_native_thumbnail_extensions: vec!["png".to_string()],
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_file_bytes!(app, token, "dormant.png", "image/png", tiny_png());
+
+    let first = request_thumbnail!(app, token, file_id);
+    assert_eq!(first.status(), 202);
+    aster_drive::services::task::drain(&state).await.unwrap();
+
+    let task =
+        latest_thumbnail_task_for_processor(&state, file_id, MediaProcessorKind::Images).await;
+    assert_eq!(task.status, BackgroundTaskStatus::Succeeded);
     let second = request_thumbnail!(app, token, file_id);
     assert_eq!(second.status(), 200);
 }

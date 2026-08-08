@@ -8069,10 +8069,38 @@ export interface components {
             ok: boolean;
             output?: null | components["schemas"]["StorageConnectorActionOutput"];
         };
+        /**
+         * @description Core-owned, per-policy storage-native processing preferences.
+         *
+         *     These switches only add provider-native candidates ahead of the global
+         *     media-processing registry. Disabling them does not disable thumbnail or
+         *     metadata processing for files on the policy; it makes those files continue
+         *     through the ordinary global processor chain. Extension vectors are retained
+         *     as dormant configuration while their corresponding switch is off.
+         */
         StoragePolicyBehaviorConfig: {
-            media_metadata_extensions?: string[];
-            thumbnail_extensions?: string[];
-            thumbnail_processor?: null | components["schemas"]["MediaProcessorKind"];
+            /**
+             * @description Prefer the storage provider's native media-metadata implementation for
+             *     matching files. `false` leaves the global metadata processors enabled.
+             */
+            storage_native_media_metadata_enabled?: boolean;
+            /**
+             * @description File extensions eligible for provider-native media metadata. An empty
+             *     list matches no files even when enabled. Retained as dormant
+             *     configuration while the corresponding switch is false.
+             */
+            storage_native_media_metadata_extensions?: string[];
+            /**
+             * @description Prefer the storage provider's native thumbnail implementation for
+             *     matching files. `false` leaves the global thumbnail processors enabled.
+             */
+            storage_native_thumbnail_enabled?: boolean;
+            /**
+             * @description File extensions eligible for provider-native thumbnails. An empty list
+             *     matches no files even when enabled. Retained as dormant configuration
+             *     while `storage_native_thumbnail_enabled` is false.
+             */
+            storage_native_thumbnail_extensions?: string[];
         };
         StoragePolicyCredentialValidationResult: {
             credential: components["schemas"]["StorageConnectorCredentialInfo"];

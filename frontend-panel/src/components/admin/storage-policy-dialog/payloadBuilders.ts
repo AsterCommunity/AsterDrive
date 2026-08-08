@@ -188,8 +188,12 @@ function credentialValues(
 
 function buildBehavior(form: PolicyFormData) {
 	return {
-		thumbnail_processor: form.thumbnail_processor ?? undefined,
-		thumbnail_extensions: form.thumbnail_extensions,
-		media_metadata_extensions: form.media_metadata_extensions,
+		storage_native_thumbnail_enabled: form.storage_native_thumbnail_enabled,
+		storage_native_thumbnail_extensions:
+			form.storage_native_thumbnail_extensions,
+		storage_native_media_metadata_enabled:
+			form.storage_native_media_metadata_enabled,
+		storage_native_media_metadata_extensions:
+			form.storage_native_media_metadata_extensions,
 	};
 }

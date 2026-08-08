@@ -315,7 +315,7 @@ async fn assert_current_storage_policy_ignores_retained_legacy_columns(
             name: Set(name),
             connector_id: Set("asterdrive.storage.local".to_string()),
             storage_config: Set(StoredStoragePolicyConfig::from(
-                r#"{"format_version":1,"connector":{"format_version":1,"connector_id":"asterdrive.storage.local","schema_version":1,"values":{"base_path":"./data/uploads","content_dedup":false}},"behavior":{"format_version":1,"schema_version":1,"values":{}}}"#
+                r#"{"format_version":1,"connector":{"format_version":1,"connector_id":"asterdrive.storage.local","schema_version":1,"values":{"base_path":"./data/uploads","content_dedup":false}},"behavior":{"format_version":1,"schema_version":1,"values":{"storage_native_thumbnail_enabled":false,"storage_native_media_metadata_enabled":false}}}"#
                     .to_string(),
             )),
             max_file_size: Set(0),
@@ -353,9 +353,11 @@ async fn assert_current_storage_policy_ignores_retained_legacy_columns(
         "0.5.x compatibility migration should supply the legacy driver_type default"
     );
 
+    // Roll back the retained-column compatibility migration, which restores
+    // the legacy write requirements while leaving converted policy rows intact.
     CurrentMigrator::down(db, Some(1))
         .await
-        .expect("storage policy compatibility migration should roll back on production backend");
+        .expect("latest storage policy migrations should roll back on production backend");
     insert_current_policy(db, format!("connector-policy-down-{backend:?}-{now}"))
         .await
         .expect_err("historical retained schema should reject the current policy insert shape");
@@ -381,7 +383,7 @@ async fn assert_current_storage_policy_ignores_retained_legacy_columns(
 
     CurrentMigrator::up(db, Some(1))
         .await
-        .expect("storage policy compatibility migration should reapply on production backend");
+        .expect("latest storage policy migrations should reapply on production backend");
     let reapplied =
         insert_current_policy(db, format!("connector-policy-reapplied-{backend:?}-{now}"))
             .await
