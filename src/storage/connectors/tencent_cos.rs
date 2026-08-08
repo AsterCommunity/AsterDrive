@@ -83,7 +83,7 @@ impl From<crate::storage::drivers::tencent_cos::cors::TencentCosCorsApplyResult>
 }
 
 aster_drive_storage::storage_connector_schema! {
-    pub struct TencentCosConnectorConfigV1 {
+    pub struct TencentCosConnectorConfigV2 {
         config {
         pub endpoint: String => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
             name: "endpoint", scope: StorageConnectorFieldScope::ConnectorConfig,
@@ -117,22 +117,6 @@ aster_drive_storage::storage_connector_schema! {
         pub object_storage_download_strategy: ObjectStorageDownloadStrategy => transfer_strategy_field(
             "object_storage_download_strategy", StorageTransferDirection::Download,
         ),
-        pub storage_native_processing_enabled: bool => {
-            let mut field = storage_connector_field(
-                "storage_native_processing_enabled", StorageConnectorFieldScope::ConnectorConfig,
-                StorageConnectorFieldKind::Boolean, false, false,
-            );
-            field.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(false));
-            field
-        },
-        pub storage_native_media_metadata_enabled: bool => {
-            let mut field = storage_connector_field(
-                "storage_native_media_metadata_enabled", StorageConnectorFieldScope::ConnectorConfig,
-                StorageConnectorFieldKind::Boolean, false, false,
-            );
-            field.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(false));
-            field
-        },
         }
         credentials static TencentCosStaticCredentialsV1 {
             pub tencent_cos_secret_id: String => storage_connector_field(
@@ -150,11 +134,11 @@ aster_drive_storage::storage_connector_schema! {
 impl TencentCosConnector {
     pub const ID: &'static str = "asterdrive.storage.tencent_cos";
 
-    fn decode_config(policy: &storage_policy::Model) -> Result<TencentCosConnectorConfigV1> {
-        super::common::decode_typed_policy_config(policy, Self::ID, 1).map(|(config, _)| config)
+    fn decode_config(policy: &storage_policy::Model) -> Result<TencentCosConnectorConfigV2> {
+        super::common::decode_typed_policy_config(policy, Self::ID, 2).map(|(config, _)| config)
     }
 
-    fn driver_config(config: TencentCosConnectorConfigV1) -> TencentCosDriverConfig {
+    fn driver_config(config: TencentCosConnectorConfigV2) -> TencentCosDriverConfig {
         TencentCosDriverConfig {
             endpoint: config.endpoint,
             bucket: config.bucket,
@@ -210,11 +194,11 @@ impl TencentCosConnector {
                 },
                 deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
                 supports_initial_setup: true,
-                credential_mode: TencentCosConnectorConfigV1::credential_mode(),
-                fields: TencentCosConnectorConfigV1::descriptor_fields(),
+                credential_mode: TencentCosConnectorConfigV2::credential_mode(),
+                fields: TencentCosConnectorConfigV2::descriptor_fields(),
                 presigned_part_etag_required: true,
                 storage_native_processing: true,
-                config_schema_version: 1,
+                config_schema_version: 2,
                 credential_schema_version: Some(1),
                 related_issues: vec![328, 329],
             });
@@ -272,7 +256,7 @@ impl StorageConnector for TencentCosConnector {
                 input,
             )
             .map_err(|error| AsterError::validation_error(error.to_string()))?;
-        let mut config: TencentCosConnectorConfigV1 =
+        let mut config: TencentCosConnectorConfigV2 =
             super::common::decode_normalized_connector_config(&normalized)?;
         let connection = crate::storage::drivers::s3_config::normalize_s3_endpoint_and_bucket(
             &config.endpoint,

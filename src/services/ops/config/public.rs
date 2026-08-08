@@ -187,7 +187,9 @@ fn build_public_thumbnail_support(
             state.driver_registry().connectors(),
             &policy,
         )?;
-        if !behavior.uses_storage_native_thumbnail() || behavior.thumbnail_extensions.is_empty() {
+        if !behavior.uses_storage_native_thumbnail()
+            || behavior.storage_native_thumbnail_extensions.is_empty()
+        {
             continue;
         }
 
@@ -197,7 +199,7 @@ fn build_public_thumbnail_support(
             state.driver_registry().connectors(),
             &policy,
         )? {
-            image_thumbnail_extensions.extend(behavior.thumbnail_extensions);
+            image_thumbnail_extensions.extend(behavior.storage_native_thumbnail_extensions);
         }
     }
 
@@ -222,7 +224,7 @@ fn build_public_media_data_support(
             &policy,
         )?;
         if !behavior.uses_storage_native_media_metadata()
-            || behavior.media_metadata_extensions.is_empty()
+            || behavior.storage_native_media_metadata_extensions.is_empty()
         {
             continue;
         }
@@ -233,7 +235,7 @@ fn build_public_media_data_support(
             state.driver_registry().connectors(),
             &policy,
         )? {
-            storage_native_extensions.extend(behavior.media_metadata_extensions);
+            storage_native_extensions.extend(behavior.storage_native_media_metadata_extensions);
         }
     }
 

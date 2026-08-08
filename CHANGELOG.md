@@ -3920,7 +3920,7 @@ OneDrive 存储策略新增浏览器直连能力：上传可选 Microsoft Graph 
   - 新增 `vips_cli` 与 `ffmpeg_cli` 媒体处理器，支持通过 libvips / ffmpeg 处理更多图片、视频与 HEIC 等输入格式
   - 新增公开接口 `/api/v1/public/thumbnail-support`，前端可在请求缩略图前获取服务端支持的扩展名能力
   - `file_blobs` 新增 `thumbnail_processor` 元数据字段，用于和 `thumbnail_version` 一起区分不同处理链路生成的缓存
-  - 存储策略新增 `thumbnail_processor = "storage_native"` 与 `thumbnail_extensions`，支持按扩展名绑定存储原生缩略图能力
+  - 存储策略新增 `storage_native_thumbnail_enabled` 与 `storage_native_thumbnail_extensions`，支持按扩展名启停存储原生缩略图能力；关闭只停用原生候选，文件仍继续经过全局媒体处理器
 - **管理后台**
   - 新增媒体处理配置编辑器，支持编辑处理器启用状态、扩展名列表、CLI 命令，并触发 `vips` / `ffmpeg` 可用性探测
   - 系统设置页新增媒体处理配置入口与相关中英文文案
@@ -4006,7 +4006,7 @@ OneDrive 存储策略新增浏览器直连能力：上传可选 Microsoft Graph 
   - Docker 镜像默认启用 CLI 媒体处理；非 Docker 部署如需同等能力，需要自行安装 `vips` / `ffmpeg` 并配置
 - **存储策略配置**
   - 旧的 `remote_upload_strategy = "chunked"` 会被迁移为 `"presigned"`
-  - `thumbnail_extensions` 仅在 `thumbnail_processor = "storage_native"` 时有效，否则配置校验会失败
+  - `storage_native_thumbnail_extensions` 在 `storage_native_thumbnail_enabled = false` 时作为休眠配置保留，重新启用可恢复原匹配规则
 - **API 错误结构**
   - API 错误响应新增 `error` 字段；旧客户端忽略该字段不受影响，新客户端可使用 `subcode` 做细粒度提示
   - 存储错误码从笼统 `StorageDriverError` 分化为更具体的存储错误类型

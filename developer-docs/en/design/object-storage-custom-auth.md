@@ -169,12 +169,12 @@ StoragePolicyOptions:
 | Legacy fields | New owner |
 | --- | --- |
 | object_storage_upload_strategy, object_storage_download_strategy, s3_path_style, s3_region, s3_*_timeout_secs | S3 connector config |
-| object_storage_upload_strategy, object_storage_download_strategy, storage_native_processing_enabled, storage_native_media_metadata_enabled | Object-storage connector config declared by each descriptor |
+| object_storage_upload_strategy, object_storage_download_strategy | Object-storage connector config declared by each descriptor |
 | remote_download_strategy, remote_upload_strategy | Remote connector config |
 | provider_resumable_upload_strategy, provider_download_strategy, provider_download_filename_mode, onedrive_* | OneDrive connector config |
 | sftp_host_key_fingerprint | SFTP connector config |
 | content_dedup | Local connector config |
-| thumbnail_processor, thumbnail_extensions, media_metadata_extensions | Core storage policy behavior |
+| storage_native_thumbnail_enabled, storage_native_thumbnail_extensions, storage_native_media_metadata_enabled, storage_native_media_metadata_extensions | Core storage policy behavior |
 
 The provider enum types move with their connector or become private parser
 types. They must not remain in the shared model facade after the migration.

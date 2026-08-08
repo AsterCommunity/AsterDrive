@@ -20,7 +20,8 @@ async fn create_storage_native_media_metadata_policy(
     extensions: Vec<String>,
 ) -> aster_drive_model::entities::storage_policy::Model {
     connection.behavior = aster_drive_storage::StoragePolicyBehaviorConfig {
-        media_metadata_extensions: extensions,
+        storage_native_media_metadata_enabled: true,
+        storage_native_media_metadata_extensions: extensions,
         ..Default::default()
     };
     let created = aster_drive::services::storage_policy::policy::create(
@@ -230,7 +231,8 @@ async fn test_storage_native_media_metadata_rejects_unsupported_connector() {
         "SECRET",
     );
     connection.behavior = aster_drive_storage::StoragePolicyBehaviorConfig {
-        media_metadata_extensions: vec!["zzrawmedia".to_string()],
+        storage_native_media_metadata_enabled: true,
+        storage_native_media_metadata_extensions: vec!["zzrawmedia".to_string()],
         ..Default::default()
     };
     let error = aster_drive::services::storage_policy::policy::create(

@@ -71,14 +71,12 @@ pub struct TestS3ConnectorConfigV1 {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TestTencentCosConnectorConfigV1 {
+pub struct TestTencentCosConnectorConfigV2 {
     pub endpoint: String,
     pub bucket: String,
     pub base_path: String,
     pub object_storage_upload_strategy: aster_drive_model::types::ObjectStorageUploadStrategy,
     pub object_storage_download_strategy: aster_drive_model::types::ObjectStorageDownloadStrategy,
-    pub storage_native_processing_enabled: bool,
-    pub storage_native_media_metadata_enabled: bool,
 }
 
 pub fn connector_envelope<T: Serialize>(
@@ -91,6 +89,21 @@ pub fn connector_envelope<T: Serialize>(
     aster_drive_storage::ConnectorConfigEnvelope::new(
         aster_drive_storage::ConnectorId::declared(connector_id),
         1,
+        values,
+    )
+}
+
+pub fn connector_envelope_with_schema<T: Serialize>(
+    connector_id: &'static str,
+    schema_version: u32,
+    values: T,
+) -> aster_drive_storage::ConnectorConfigEnvelope {
+    let values = serde_json::to_value(values)
+        .and_then(serde_json::from_value)
+        .expect("typed integration connector config should serialize as a field map");
+    aster_drive_storage::ConnectorConfigEnvelope::new(
+        aster_drive_storage::ConnectorId::declared(connector_id),
+        schema_version,
         values,
     )
 }
@@ -210,9 +223,10 @@ pub fn tencent_cos_connection(
     secret_key: impl Into<String>,
 ) -> aster_drive::storage::StorageConnectorConnectionInput {
     aster_drive::storage::StorageConnectorConnectionInput {
-        connector_config: connector_envelope(
+        connector_config: connector_envelope_with_schema(
             "asterdrive.storage.tencent_cos",
-            TestTencentCosConnectorConfigV1 {
+            2,
+            TestTencentCosConnectorConfigV2 {
                 endpoint: endpoint.into(),
                 bucket: bucket.into(),
                 base_path: base_path.into(),
@@ -220,8 +234,6 @@ pub fn tencent_cos_connection(
                     aster_drive_model::types::ObjectStorageUploadStrategy::RelayStream,
                 object_storage_download_strategy:
                     aster_drive_model::types::ObjectStorageDownloadStrategy::RelayStream,
-                storage_native_processing_enabled: true,
-                storage_native_media_metadata_enabled: true,
             },
         ),
         behavior: aster_drive_storage::StoragePolicyBehaviorConfig::default(),

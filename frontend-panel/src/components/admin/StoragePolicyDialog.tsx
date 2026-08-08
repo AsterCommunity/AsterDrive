@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { getStorageConnectorBadgePresentation } from "@/components/admin/admin-policies-page/policyPresentation";
 import { RemoteNodeRemoteStorageTargetSection } from "@/components/admin/admin-remote-nodes-page/RemoteNodeRemoteStorageTargetSection";
@@ -40,7 +40,6 @@ import {
 	supportsSavedConnectionTest,
 } from "./storage-policy-dialog/descriptorPredicates";
 import {
-	connectorBooleanValue,
 	connectorFormValue,
 	connectorNumberValue,
 	connectorStringValue,
@@ -192,10 +191,11 @@ export function StoragePolicyDialog({
 	const remoteNodeId = remoteNodeField
 		? connectorNumberValue(form, remoteNodeField.name)
 		: null;
-	const nativeProcessingEnabled = connectorBooleanValue(
-		form,
-		"storage_native_processing_enabled",
-	);
+	const nativeThumbnailSupported =
+		storageDriverDescriptor?.capabilities.storage_native_thumbnail === true;
+	const nativeMediaMetadataSupported =
+		storageDriverDescriptor?.capabilities.storage_native_media_metadata ===
+		true;
 	const descriptorFields =
 		storageDriverDescriptor?.fields.filter(
 			(field) => field.scope !== "action_input",
@@ -407,7 +407,12 @@ export function StoragePolicyDialog({
 														<PolicyRules
 															form={form}
 															forceDefault={forceDefaultPolicy}
-															nativeProcessingEnabled={nativeProcessingEnabled}
+															nativeThumbnailSupported={
+																nativeThumbnailSupported
+															}
+															nativeMediaMetadataSupported={
+																nativeMediaMetadataSupported
+															}
 															onFieldChange={onFieldChange}
 														/>
 														<StorageConnectorActionsPanel
@@ -562,7 +567,10 @@ export function StoragePolicyDialog({
 										<PolicyRules
 											form={form}
 											forceDefault={forceDefaultPolicy}
-											nativeProcessingEnabled={nativeProcessingEnabled}
+											nativeThumbnailSupported={nativeThumbnailSupported}
+											nativeMediaMetadataSupported={
+												nativeMediaMetadataSupported
+											}
 											onFieldChange={onFieldChange}
 										/>
 									</div>
@@ -989,12 +997,14 @@ function RemoteTargets({
 function PolicyRules({
 	form,
 	forceDefault,
-	nativeProcessingEnabled,
+	nativeThumbnailSupported,
+	nativeMediaMetadataSupported,
 	onFieldChange,
 }: {
 	form: PolicyFormData;
 	forceDefault: boolean;
-	nativeProcessingEnabled: boolean;
+	nativeThumbnailSupported: boolean;
+	nativeMediaMetadataSupported: boolean;
 	onFieldChange: StoragePolicyDialogProps["onFieldChange"];
 }) {
 	const { t } = useTranslation("admin");
@@ -1024,26 +1034,55 @@ function PolicyRules({
 					/>
 				</div>
 			)}
-			{nativeProcessingEnabled ? (
+			{nativeThumbnailSupported || nativeMediaMetadataSupported ? (
 				<div className="space-y-4 border-t border-border/70 pt-4">
 					<SectionTitle
 						title={t("policy_storage_native_section_title")}
 						description={t("policy_storage_native_section_desc")}
 					/>
-					<ExtensionField
-						id="thumbnail-extensions"
-						label={t("storage_native_thumbnail_extensions")}
-						values={form.thumbnail_extensions}
-						onChange={(values) => onFieldChange("thumbnail_extensions", values)}
-					/>
-					<ExtensionField
-						id="media-extensions"
-						label={t("storage_native_media_metadata_extensions")}
-						values={form.media_metadata_extensions}
-						onChange={(values) =>
-							onFieldChange("media_metadata_extensions", values)
-						}
-					/>
+					{nativeThumbnailSupported ? (
+						<NativeBehaviorControl
+							id="storage-native-thumbnail-enabled"
+							checked={form.storage_native_thumbnail_enabled}
+							label={t("storage_native_thumbnail_enabled")}
+							description={t("storage_native_thumbnail_enabled_desc")}
+							onCheckedChange={(checked) =>
+								onFieldChange("storage_native_thumbnail_enabled", checked)
+							}
+						>
+							<ExtensionField
+								id="thumbnail-extensions"
+								label={t("storage_native_thumbnail_extensions")}
+								values={form.storage_native_thumbnail_extensions}
+								onChange={(values) =>
+									onFieldChange("storage_native_thumbnail_extensions", values)
+								}
+							/>
+						</NativeBehaviorControl>
+					) : null}
+					{nativeMediaMetadataSupported ? (
+						<NativeBehaviorControl
+							id="storage-native-media-metadata-enabled"
+							checked={form.storage_native_media_metadata_enabled}
+							label={t("storage_native_media_metadata_enabled")}
+							description={t("storage_native_media_metadata_enabled_desc")}
+							onCheckedChange={(checked) =>
+								onFieldChange("storage_native_media_metadata_enabled", checked)
+							}
+						>
+							<ExtensionField
+								id="media-extensions"
+								label={t("storage_native_media_metadata_extensions")}
+								values={form.storage_native_media_metadata_extensions}
+								onChange={(values) =>
+									onFieldChange(
+										"storage_native_media_metadata_extensions",
+										values,
+									)
+								}
+							/>
+						</NativeBehaviorControl>
+					) : null}
 				</div>
 			) : null}
 		</div>
@@ -1557,6 +1596,33 @@ function ExtensionField({
 					)
 				}
 			/>
+		</div>
+	);
+}
+
+function NativeBehaviorControl({
+	id,
+	checked,
+	label,
+	description,
+	children,
+	onCheckedChange,
+}: {
+	id: string;
+	checked: boolean;
+	label: string;
+	description: string;
+	children: ReactNode;
+	onCheckedChange: (checked: boolean) => void;
+}) {
+	return (
+		<div className="space-y-3 rounded-lg border border-border/70 p-3">
+			<div className="flex items-center justify-between gap-3">
+				<Label htmlFor={id}>{label}</Label>
+				<Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
+			</div>
+			<p className="text-xs leading-5 text-muted-foreground">{description}</p>
+			{checked ? children : null}
 		</div>
 	);
 }

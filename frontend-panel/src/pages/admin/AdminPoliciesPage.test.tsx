@@ -655,6 +655,10 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			expect(currentDialog().form.connector_id).toBe("plugin.first"),
 		);
 		await setField("credential_values", { stale_secret: "secret" });
+		await setField("storage_native_thumbnail_enabled", true);
+		await setField("storage_native_thumbnail_extensions", ["jpg"]);
+		await setField("storage_native_media_metadata_enabled", true);
+		await setField("storage_native_media_metadata_extensions", ["mp4"]);
 
 		await act(async () => currentDialog().onConnectorIdChange("plugin.second"));
 
@@ -662,9 +666,10 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			connector_id: "plugin.second",
 			connector_config_values: { enabled: true, region: "region-b" },
 			credential_values: {},
-			media_metadata_extensions: [],
-			thumbnail_extensions: [],
-			thumbnail_processor: null,
+			storage_native_media_metadata_extensions: ["mp4"],
+			storage_native_media_metadata_enabled: false,
+			storage_native_thumbnail_extensions: ["jpg"],
+			storage_native_thumbnail_enabled: false,
 		});
 	});
 
@@ -714,9 +719,10 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			chunk_size: 5 * 1024 * 1024,
 			connection: {
 				behavior: {
-					media_metadata_extensions: [],
-					thumbnail_extensions: [],
-					thumbnail_processor: undefined,
+					storage_native_media_metadata_extensions: [],
+					storage_native_media_metadata_enabled: false,
+					storage_native_thumbnail_extensions: [],
+					storage_native_thumbnail_enabled: false,
 				},
 				connector_config: {
 					connector_id: "plugin.static",
@@ -812,9 +818,10 @@ describe("AdminPoliciesPage connector orchestration", () => {
 				{ prefix: "tenant-a", replicas: 3 },
 				{
 					behavior: {
-						media_metadata_extensions: ["mp4"],
-						thumbnail_extensions: ["jpg"],
-						thumbnail_processor: "storage_native",
+						storage_native_media_metadata_extensions: ["mp4"],
+						storage_native_media_metadata_enabled: true,
+						storage_native_thumbnail_extensions: ["jpg"],
+						storage_native_thumbnail_enabled: true,
 					},
 					chunk_size: 8 * 1024 * 1024,
 					is_default: true,
@@ -837,11 +844,90 @@ describe("AdminPoliciesPage connector orchestration", () => {
 				credential_values: {},
 				is_default: true,
 				max_file_size: "4096",
-				media_metadata_extensions: ["mp4"],
+				storage_native_media_metadata_extensions: ["mp4"],
+				storage_native_media_metadata_enabled: true,
 				name: "Envelope Policy",
-				thumbnail_extensions: ["jpg"],
-				thumbnail_processor: "storage_native",
+				storage_native_thumbnail_extensions: ["jpg"],
+				storage_native_thumbnail_enabled: true,
 			});
+		});
+	});
+
+	it("preserves dormant native configuration on a no-op Tencent COS edit", async () => {
+		const connector = descriptor("asterdrive.storage.tencent_cos", {
+			actions: [],
+			capabilities: {
+				...descriptor("unused").capabilities,
+				storage_native_thumbnail: true,
+				storage_native_media_metadata: true,
+			},
+			config_schema_version: 2,
+			fields: [field("endpoint"), field("bucket"), field("base_path")],
+		});
+		const saved = policy(
+			"asterdrive.storage.tencent_cos",
+			{
+				endpoint: "https://bucket.cos.example.test",
+				bucket: "bucket-1250000000",
+				base_path: "",
+			},
+			{
+				behavior: {
+					storage_native_thumbnail_enabled: false,
+					storage_native_thumbnail_extensions: ["jpg"],
+					storage_native_media_metadata_enabled: false,
+					storage_native_media_metadata_extensions: ["mp4"],
+				},
+				connector_config: {
+					connector_id: "asterdrive.storage.tencent_cos",
+					format_version: 1,
+					schema_version: 2,
+					values: {
+						endpoint: "https://bucket.cos.example.test",
+						bucket: "bucket-1250000000",
+						base_path: "",
+					},
+				},
+			},
+		);
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		mockState.policies = [saved];
+		mockState.update.mockResolvedValue(saved);
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog("asterdrive.storage.tencent_cos");
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		await waitFor(() => expect(currentDialog().editMode).toBe(true));
+		expect(currentDialog().form).toMatchObject({
+			storage_native_thumbnail_enabled: false,
+			storage_native_thumbnail_extensions: ["jpg"],
+			storage_native_media_metadata_enabled: false,
+			storage_native_media_metadata_extensions: ["mp4"],
+		});
+
+		await act(async () => currentDialog().onSubmit());
+		await waitFor(() => expect(mockState.update).toHaveBeenCalledTimes(1));
+		expect(mockState.update).toHaveBeenCalledWith(7, {
+			behavior: {
+				storage_native_thumbnail_enabled: false,
+				storage_native_thumbnail_extensions: ["jpg"],
+				storage_native_media_metadata_enabled: false,
+				storage_native_media_metadata_extensions: ["mp4"],
+			},
+			chunk_size: 5 * 1024 * 1024,
+			connector_config: {
+				connector_id: "asterdrive.storage.tencent_cos",
+				format_version: 1,
+				schema_version: 2,
+				values: {
+					endpoint: "https://bucket.cos.example.test",
+					bucket: "bucket-1250000000",
+				},
+			},
+			is_default: false,
+			max_file_size: 0,
+			name: "Policy",
 		});
 	});
 

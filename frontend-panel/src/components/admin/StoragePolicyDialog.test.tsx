@@ -773,10 +773,6 @@ describe("StoragePolicyDialog", () => {
 				storage_native_media_metadata: true,
 				storage_native_thumbnail: true,
 			},
-			fields: [
-				...descriptor("plugin.example").fields,
-				field("storage_native_processing_enabled", { kind: "boolean" }),
-			],
 		});
 		const props = dialogProps({
 			createStep: 1,
@@ -787,10 +783,11 @@ describe("StoragePolicyDialog", () => {
 				connector_config_values: {
 					base_path: "plugin-root",
 					plugin_endpoint: "https://plugin.example.test",
-					storage_native_processing_enabled: true,
 				},
-				media_metadata_extensions: ["mp4"],
-				thumbnail_extensions: ["jpg"],
+				storage_native_media_metadata_enabled: true,
+				storage_native_media_metadata_extensions: ["mp4"],
+				storage_native_thumbnail_extensions: ["jpg"],
+				storage_native_thumbnail_enabled: true,
 			}),
 			saveAnywayConfirmOpen: true,
 			storageDriverDescriptor: plugin,
@@ -826,10 +823,11 @@ describe("StoragePolicyDialog", () => {
 					connector_config_values: {
 						base_path: "plugin-root",
 						plugin_endpoint: "https://plugin.example.test",
-						storage_native_processing_enabled: true,
 					},
-					media_metadata_extensions: ["mp4"],
-					thumbnail_extensions: ["jpg"],
+					storage_native_media_metadata_enabled: true,
+					storage_native_media_metadata_extensions: ["mp4"],
+					storage_native_thumbnail_extensions: ["jpg"],
+					storage_native_thumbnail_enabled: true,
 				})}
 			/>,
 		);
@@ -857,15 +855,102 @@ describe("StoragePolicyDialog", () => {
 		expect(props.onFieldChange).toHaveBeenCalledWith("max_file_size", "2048");
 		expect(props.onFieldChange).toHaveBeenCalledWith("chunk_size", "16");
 		expect(props.onFieldChange).toHaveBeenCalledWith("is_default", true);
-		expect(props.onFieldChange).toHaveBeenCalledWith("thumbnail_extensions", [
-			"jpg",
-			"webp",
-		]);
 		expect(props.onFieldChange).toHaveBeenCalledWith(
-			"media_metadata_extensions",
+			"storage_native_thumbnail_extensions",
+			["jpg", "webp"],
+		);
+		expect(props.onFieldChange).toHaveBeenCalledWith(
+			"storage_native_media_metadata_extensions",
 			["mp4", "mov"],
 		);
 		expect(props.onSubmit).toHaveBeenCalledOnce();
+	});
+
+	it("renders independent core behavior controls strictly from descriptor capabilities", () => {
+		const baseCapabilities = descriptor("plugin.example").capabilities;
+		const cases = [
+			{ thumbnail: false, metadata: false },
+			{ thumbnail: true, metadata: false },
+			{ thumbnail: false, metadata: true },
+			{ thumbnail: true, metadata: true },
+		];
+
+		for (const item of cases) {
+			const plugin = descriptor("plugin.example", {
+				capabilities: {
+					...baseCapabilities,
+					storage_native_thumbnail: item.thumbnail,
+					storage_native_media_metadata: item.metadata,
+				},
+			});
+			const props = dialogProps({
+				createStep: 2,
+				form: policyForm({
+					storage_native_thumbnail_enabled: item.thumbnail,
+					storage_native_thumbnail_extensions: item.thumbnail ? ["jpg"] : [],
+					storage_native_media_metadata_enabled: item.metadata,
+					storage_native_media_metadata_extensions: item.metadata
+						? ["mp4"]
+						: [],
+				}),
+				storageDriverDescriptor: plugin,
+				storageDriverDescriptors: [plugin],
+			});
+			const view = render(<StoragePolicyDialog {...props} />);
+
+			expect(
+				screen.queryByRole("switch", {
+					name: "storage_native_thumbnail_enabled",
+				}) !== null,
+			).toBe(item.thumbnail);
+			expect(
+				screen.queryByLabelText("storage_native_thumbnail_extensions") !== null,
+			).toBe(item.thumbnail);
+			expect(
+				screen.queryByRole("switch", {
+					name: "storage_native_media_metadata_enabled",
+				}) !== null,
+			).toBe(item.metadata);
+			expect(
+				screen.queryByLabelText("storage_native_media_metadata_extensions") !==
+					null,
+			).toBe(item.metadata);
+
+			view.unmount();
+		}
+	});
+
+	it("submits native enablement through core form keys", () => {
+		const plugin = descriptor("plugin.example", {
+			capabilities: {
+				...descriptor("plugin.example").capabilities,
+				storage_native_thumbnail: true,
+				storage_native_media_metadata: true,
+			},
+		});
+		const props = dialogProps({
+			createStep: 2,
+			storageDriverDescriptor: plugin,
+			storageDriverDescriptors: [plugin],
+		});
+		render(<StoragePolicyDialog {...props} />);
+
+		fireEvent.click(
+			screen.getByRole("switch", { name: "storage_native_thumbnail_enabled" }),
+		);
+		fireEvent.click(
+			screen.getByRole("switch", {
+				name: "storage_native_media_metadata_enabled",
+			}),
+		);
+		expect(props.onFieldChange).toHaveBeenCalledWith(
+			"storage_native_thumbnail_enabled",
+			true,
+		);
+		expect(props.onFieldChange).toHaveBeenCalledWith(
+			"storage_native_media_metadata_enabled",
+			true,
+		);
 	});
 
 	it("renders descriptor fallbacks, remote summaries, capacity, actions, and submitting states", () => {
