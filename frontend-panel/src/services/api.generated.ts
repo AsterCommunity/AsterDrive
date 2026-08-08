@@ -8085,8 +8085,9 @@ export interface components {
              */
             storage_native_media_metadata_enabled?: boolean;
             /**
-             * @description File extensions eligible for provider-native media metadata. Retained as
-             *     dormant configuration while the corresponding switch is false.
+             * @description File extensions eligible for provider-native media metadata. An empty
+             *     list matches no files even when enabled. Retained as dormant
+             *     configuration while the corresponding switch is false.
              */
             storage_native_media_metadata_extensions?: string[];
             /**
@@ -8095,8 +8096,9 @@ export interface components {
              */
             storage_native_thumbnail_enabled?: boolean;
             /**
-             * @description File extensions eligible for provider-native thumbnails. Retained as
-             *     dormant configuration while `storage_native_thumbnail_enabled` is false.
+             * @description File extensions eligible for provider-native thumbnails. An empty list
+             *     matches no files even when enabled. Retained as dormant configuration
+             *     while `storage_native_thumbnail_enabled` is false.
              */
             storage_native_thumbnail_extensions?: string[];
         };
