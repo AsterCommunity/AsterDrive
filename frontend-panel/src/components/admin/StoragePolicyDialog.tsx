@@ -1210,8 +1210,13 @@ function PolicyCapacitySummary({
 }) {
 	const { t } = useTranslation("admin");
 	const info = capacity?.capacity;
-	const blobTotalBytes = finiteNonNegative(capacity?.blob_total_bytes);
-	const blobCount = finiteNonNegative(capacity?.blob_count);
+	const blobUsage =
+		capacity == null
+			? null
+			: {
+					bytes: Math.max(capacity.blob_total_bytes, 0),
+					count: Math.max(capacity.blob_count, 0),
+				};
 	const rawTotal = finiteNonNegative(info?.total_bytes);
 	const rawUsed = finiteNonNegative(info?.used_bytes);
 	const rawAvailable = finiteNonNegative(info?.available_bytes);
@@ -1228,7 +1233,7 @@ function PolicyCapacitySummary({
 			? Math.min(rawAvailable, total - used)
 			: null;
 	const blobInUsed =
-		used != null && blobTotalBytes != null ? Math.min(blobTotalBytes, used) : 0;
+		used != null && blobUsage != null ? Math.min(blobUsage.bytes, used) : 0;
 	const occupiedPercent =
 		total != null && total > 0 && used != null ? (used / total) * 100 : null;
 	const blobPercent =
@@ -1265,7 +1270,7 @@ function PolicyCapacitySummary({
 				</p>
 			) : (
 				<div className="mt-3 space-y-3">
-					{blobTotalBytes != null ? (
+					{blobUsage != null ? (
 						<div className="flex items-baseline justify-between gap-3">
 							<div>
 								<p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
@@ -1275,14 +1280,12 @@ function PolicyCapacitySummary({
 									data-testid="policy-capacity-blob-used"
 									className="mt-0.5 text-sm font-semibold tabular-nums text-foreground"
 								>
-									{formatBytes(blobTotalBytes)}
+									{formatBytes(blobUsage.bytes)}
 								</p>
 							</div>
-							{blobCount != null ? (
-								<p className="text-xs text-muted-foreground">
-									{t("policy_capacity_blob_count", { count: blobCount })}
-								</p>
-							) : null}
+							<p className="text-xs text-muted-foreground">
+								{t("policy_capacity_blob_count", { count: blobUsage.count })}
+							</p>
 						</div>
 					) : null}
 
