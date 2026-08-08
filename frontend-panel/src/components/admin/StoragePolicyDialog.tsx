@@ -1234,7 +1234,7 @@ function PolicyCapacitySummary({
 	const blobPercent =
 		occupiedPercent != null && total != null ? (blobInUsed / total) * 100 : 0;
 	const otherPercent =
-		occupiedPercent != null ? occupiedPercent - blobPercent : 0;
+		occupiedPercent != null ? Math.max(0, occupiedPercent - blobPercent) : 0;
 	const fallbackDescription =
 		info?.status === "unsupported"
 			? t("policy_capacity_unsupported_desc")
