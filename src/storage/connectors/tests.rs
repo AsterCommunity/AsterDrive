@@ -208,6 +208,269 @@ fn registry_exposes_each_builtin_connector_once_in_stable_order() {
     assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 8);
 }
 
+fn s3_transition_config(endpoint: &str) -> ConnectorConfigEnvelope {
+    test_support::connection_config(
+        S3Connector::ID,
+        1,
+        S3ConnectorConfigV1 {
+            endpoint: endpoint.to_string(),
+            bucket: "archive-1250000000".to_string(),
+            base_path: "tenant-a/files".to_string(),
+            object_storage_upload_strategy: ObjectStorageUploadStrategy::Presigned,
+            object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
+            s3_path_style: false,
+            s3_region: "ap-hongkong".to_string(),
+            s3_connect_timeout_secs: 7,
+            s3_read_timeout_secs: 31,
+            s3_operation_timeout_secs: 601,
+        },
+    )
+}
+
+#[test]
+fn cos_declares_target_owned_s3_transition() {
+    let descriptor = descriptor(TencentCosConnector::ID);
+    assert_eq!(descriptor.inbound_transitions.len(), 1);
+    let transition = &descriptor.inbound_transitions[0];
+    assert_eq!(transition.transition_id.as_str(), "from_generic_s3");
+    assert_eq!(transition.source_connector_id.as_str(), S3Connector::ID);
+    assert!(transition.supports_draft);
+    assert!(transition.supports_saved);
+    assert!(transition.requires_confirmation);
+    descriptor.validate().expect("COS descriptor remains valid");
+
+    let english = connector(TencentCosConnector::ID)
+        .localization()
+        .expect("COS localization")
+        .bundle(&aster_drive_model::types::LocaleTag::parse("en").expect("English locale"));
+    assert!(english.messages.contains_key(&transition.label_key));
+    assert!(english.messages.contains_key(&transition.description_key));
+}
+
+#[test]
+fn cos_transition_preview_preserves_namespace_and_generic_strategies() {
+    let source_config =
+        s3_transition_config("https://ARCHIVE-1250000000.cos.ap-hongkong.myqcloud.com");
+    let behavior = StoragePolicyBehaviorConfig::default();
+    let previews = registry()
+        .resolve_transition_previews(StorageConnectorTransitionDraft {
+            connector_config: &source_config,
+            behavior: &behavior,
+        })
+        .expect("resolve transition preview");
+    assert_eq!(previews.len(), 1);
+    let preview = &previews[0];
+    assert_eq!(preview.transition_id.as_str(), "from_generic_s3");
+    assert_eq!(preview.source_connector_id.as_str(), S3Connector::ID);
+    assert_eq!(
+        preview.target_connector_id.as_str(),
+        TencentCosConnector::ID
+    );
+    assert!(preview.requires_confirmation);
+    assert_eq!(preview.target_behavior, behavior);
+    assert_eq!(preview.field_mappings.len(), 2);
+    assert_eq!(preview.field_mappings[0].source_name, "s3_access_key_id");
+    assert_eq!(
+        preview.field_mappings[0].target_name,
+        "tencent_cos_secret_id"
+    );
+    assert_eq!(
+        preview.field_mappings[1].source_name,
+        "s3_secret_access_key"
+    );
+    assert_eq!(
+        preview.field_mappings[1].target_name,
+        "tencent_cos_secret_key"
+    );
+
+    let target: TencentCosConnectorConfigV1 =
+        common::decode_normalized_connector_config(&preview.target_connector_config)
+            .expect("decode transitioned COS config");
+    assert_eq!(
+        target.endpoint,
+        "https://ARCHIVE-1250000000.cos.ap-hongkong.myqcloud.com"
+    );
+    assert_eq!(target.bucket, "archive-1250000000");
+    assert_eq!(target.base_path, "tenant-a/files");
+    assert_eq!(
+        target.object_storage_upload_strategy,
+        ObjectStorageUploadStrategy::Presigned
+    );
+    assert_eq!(
+        target.object_storage_download_strategy,
+        ObjectStorageDownloadStrategy::RelayStream
+    );
+    assert!(!target.storage_native_processing_enabled);
+    assert!(!target.storage_native_media_metadata_enabled);
+}
+
+#[test]
+fn cos_transition_preview_excludes_non_cos_and_bare_parent_hosts() {
+    let behavior = StoragePolicyBehaviorConfig::default();
+    for endpoint in [
+        "https://s3.example.test",
+        "https://myqcloud.com",
+        "https://notmyqcloud.com",
+    ] {
+        let source_config = s3_transition_config(endpoint);
+        let previews = registry()
+            .resolve_transition_previews(StorageConnectorTransitionDraft {
+                connector_config: &source_config,
+                behavior: &behavior,
+            })
+            .expect("non-COS source remains a valid generic S3 config");
+        assert!(previews.is_empty(), "unexpected preview for {endpoint}");
+    }
+}
+
+#[test]
+fn cos_saved_transition_maps_static_credentials_and_rejects_stale_source_shapes() {
+    let source_config =
+        s3_transition_config("https://archive-1250000000.cos.ap-hongkong.myqcloud.com");
+    let behavior = StoragePolicyBehaviorConfig::default();
+    let source_policy = test_support::policy(
+        S3Connector::ID,
+        1,
+        common::decode_normalized_connector_config::<S3ConnectorConfigV1>(&source_config)
+            .expect("decode S3 source config"),
+        behavior.clone(),
+    );
+    let credential = StoredStorageConnectorCredentialPayload {
+        connector_id: ConnectorId::declared(S3Connector::ID),
+        schema_version: 1,
+        values: serde_json::json!({
+            "s3_access_key_id": "secret-id",
+            "s3_secret_access_key": "secret-key"
+        }),
+    };
+    let transition_id =
+        aster_drive_storage::StorageConnectorTransitionId::declared("from_generic_s3");
+    let target = connector(TencentCosConnector::ID);
+    let prepared = target
+        .prepare_inbound_transition(
+            &transition_id,
+            StorageConnectorTransitionSavedState {
+                policy: &source_policy,
+                connector_config: &source_config,
+                behavior: &behavior,
+                credential: Some(&credential),
+            },
+        )
+        .expect("prepare saved transition");
+    assert_eq!(
+        prepared.connector_config.connector_id.as_str(),
+        TencentCosConnector::ID
+    );
+    assert_eq!(prepared.behavior, behavior);
+    let StorageConnectorCredentialInput::Static(target_credential) = prepared.credential else {
+        panic!("transition must produce a static COS credential");
+    };
+    assert_eq!(
+        target_credential,
+        serde_json::json!({
+            "tencent_cos_secret_id": "secret-id",
+            "tencent_cos_secret_key": "secret-key"
+        })
+    );
+
+    let missing = target.prepare_inbound_transition(
+        &transition_id,
+        StorageConnectorTransitionSavedState {
+            policy: &source_policy,
+            connector_config: &source_config,
+            behavior: &behavior,
+            credential: None,
+        },
+    );
+    assert!(missing.is_err());
+
+    let stale = StoredStorageConnectorCredentialPayload {
+        schema_version: 2,
+        ..credential
+    };
+    let stale = target.prepare_inbound_transition(
+        &transition_id,
+        StorageConnectorTransitionSavedState {
+            policy: &source_policy,
+            connector_config: &source_config,
+            behavior: &behavior,
+            credential: Some(&stale),
+        },
+    );
+    assert!(stale.is_err());
+}
+
+#[test]
+fn registry_rejects_unknown_or_wrong_source_saved_transitions() {
+    let transition_id =
+        aster_drive_storage::StorageConnectorTransitionId::declared("from_generic_s3");
+    assert!(
+        registry()
+            .require_saved_transition(
+                &ConnectorId::declared(TencentCosConnector::ID),
+                &transition_id,
+                &ConnectorId::declared(LocalConnector::ID),
+            )
+            .is_err()
+    );
+    assert!(
+        registry()
+            .require_saved_transition(
+                &ConnectorId::declared(TencentCosConnector::ID),
+                &aster_drive_storage::StorageConnectorTransitionId::declared("unknown"),
+                &ConnectorId::declared(S3Connector::ID),
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn transition_field_mappings_must_reference_declared_non_action_fields_once() {
+    let source = descriptor(S3Connector::ID);
+    let target = descriptor(TencentCosConnector::ID);
+    let valid = aster_drive_storage::StorageConnectorTransitionFieldMapping {
+        source_scope: StorageConnectorFieldScope::StaticCredential,
+        source_name: "s3_access_key_id".to_string(),
+        target_scope: StorageConnectorFieldScope::StaticCredential,
+        target_name: "tencent_cos_secret_id".to_string(),
+    };
+    super::contract::validate_transition_field_mappings(
+        &source,
+        &target,
+        std::slice::from_ref(&valid),
+    )
+    .expect("declared mapping");
+
+    let mut unknown = valid.clone();
+    unknown.target_name = "missing_target_field".to_string();
+    assert!(
+        super::contract::validate_transition_field_mappings(&source, &target, &[unknown])
+            .unwrap_err()
+            .to_string()
+            .contains("undeclared target field")
+    );
+
+    let mut action = valid.clone();
+    action.source_scope = StorageConnectorFieldScope::ActionInput;
+    assert!(
+        super::contract::validate_transition_field_mappings(&source, &target, &[action])
+            .unwrap_err()
+            .to_string()
+            .contains("may not reference action inputs")
+    );
+
+    assert!(
+        super::contract::validate_transition_field_mappings(
+            &source,
+            &target,
+            &[valid.clone(), valid],
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("more than once")
+    );
+}
+
 #[test]
 fn builtin_bundles_keep_connector_owned_management_messages() {
     let locale = aster_drive_model::types::LocaleTag::parse("en").expect("English locale");

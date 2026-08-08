@@ -9,7 +9,9 @@ use validator::Validate;
 
 use aster_drive_model::types::{StorageCredentialKind, StorageCredentialProvider};
 use aster_drive_storage::{
-    ConnectorConfigEnvelope, StorageConnectorActionId, StoragePolicyBehaviorConfig,
+    ConnectorConfigEnvelope, ConnectorId, StorageConnectorActionId,
+    StorageConnectorTransitionFieldMapping, StorageConnectorTransitionId,
+    StoragePolicyBehaviorConfig,
 };
 
 /// Failure stages exposed by connector-owned authorization workflows.
@@ -122,6 +124,77 @@ pub enum StorageConnectorCredentialInput {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorConnectionInput {
+    pub connector_config: ConnectorConfigEnvelope,
+    pub behavior: StoragePolicyBehaviorConfig,
+    pub credential: StorageConnectorCredentialInput,
+}
+
+/// Secret-free source state used to resolve connector transition candidates.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct ResolveStorageConnectorTransitionsInput {
+    pub connector_config: ConnectorConfigEnvelope,
+    pub behavior: StoragePolicyBehaviorConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct ExecuteStorageConnectorTransitionInput {
+    pub target_connector_id: ConnectorId,
+    pub transition_id: StorageConnectorTransitionId,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StorageConnectorTransitionPreview {
+    pub transition_id: StorageConnectorTransitionId,
+    pub source_connector_id: ConnectorId,
+    pub target_connector_id: ConnectorId,
+    pub label_key: String,
+    pub description_key: String,
+    pub requires_confirmation: bool,
+    pub target_connector_config: ConnectorConfigEnvelope,
+    pub target_behavior: StoragePolicyBehaviorConfig,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub field_mappings: Vec<StorageConnectorTransitionFieldMapping>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StorageConnectorTransitionPreviewList {
+    pub transitions: Vec<StorageConnectorTransitionPreview>,
+}
+
+pub(crate) struct StorageConnectorTransitionDraft<'a> {
+    pub connector_config: &'a ConnectorConfigEnvelope,
+    pub behavior: &'a StoragePolicyBehaviorConfig,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct StorageConnectorTransitionDraftPlan {
+    pub connector_config: ConnectorConfigEnvelope,
+    pub behavior: StoragePolicyBehaviorConfig,
+    pub field_mappings: Vec<StorageConnectorTransitionFieldMapping>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct StoredStorageConnectorCredentialPayload {
+    pub connector_id: ConnectorId,
+    pub schema_version: u32,
+    pub values: serde_json::Value,
+}
+
+pub(crate) struct StorageConnectorTransitionSavedState<'a> {
+    pub policy: &'a aster_drive_model::entities::storage_policy::Model,
+    pub connector_config: &'a ConnectorConfigEnvelope,
+    pub behavior: &'a StoragePolicyBehaviorConfig,
+    pub credential: Option<&'a StoredStorageConnectorCredentialPayload>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PreparedStorageConnectorTransition {
     pub connector_config: ConnectorConfigEnvelope,
     pub behavior: StoragePolicyBehaviorConfig,
     pub credential: StorageConnectorCredentialInput,

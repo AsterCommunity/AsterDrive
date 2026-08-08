@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use sea_orm::{DatabaseConnection, DatabaseTransaction};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::api::api_error_code::ApiErrorCode;
@@ -22,10 +22,12 @@ use super::common;
 use super::models::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
     LegacyStorageConnectorCredentialInput, LocalFilesystemPolicyProjection,
-    RemotePolicyBindingProjection, StorageConnectorActionResult,
-    StorageConnectorAuthorizationCallback, StorageConnectorAuthorizationError,
-    StorageConnectorAuthorizationStart, StorageConnectorCredentialInfo,
-    StorageConnectorCredentialInput, StorageConnectorRuntimeCredential,
+    PreparedStorageConnectorTransition, RemotePolicyBindingProjection,
+    StorageConnectorActionResult, StorageConnectorAuthorizationCallback,
+    StorageConnectorAuthorizationError, StorageConnectorAuthorizationStart,
+    StorageConnectorCredentialInfo, StorageConnectorCredentialInput,
+    StorageConnectorRuntimeCredential, StorageConnectorTransitionDraft,
+    StorageConnectorTransitionDraftPlan, StorageConnectorTransitionSavedState,
     StorageCredentialValidationOutcome, StoragePolicyCleanupDriverSnapshot,
     StoragePolicyCleanupSnapshots, TestDraftStorageConnectorConnectionInput,
 };
@@ -542,6 +544,33 @@ pub(crate) trait StorageConnector: Send + Sync {
         ))
     }
 
+    /// Preview a target-owned inbound connector transition without credentials.
+    ///
+    /// `None` means the declared source connector is valid but the current
+    /// source configuration does not match this transition.
+    fn preview_inbound_transition(
+        &self,
+        _transition_id: &aster_drive_storage::StorageConnectorTransitionId,
+        _source: StorageConnectorTransitionDraft<'_>,
+    ) -> Result<Option<StorageConnectorTransitionDraftPlan>> {
+        Ok(None)
+    }
+
+    /// Convert one persisted source policy into this target connector's config
+    /// and credential schemas. Remote object verification and persistence stay
+    /// in the storage-policy service.
+    fn prepare_inbound_transition(
+        &self,
+        transition_id: &aster_drive_storage::StorageConnectorTransitionId,
+        _source: StorageConnectorTransitionSavedState<'_>,
+    ) -> Result<PreparedStorageConnectorTransition> {
+        Err(AsterError::validation_error(format!(
+            "storage connector '{}' does not support transition '{}'",
+            self.descriptor().connector_id,
+            transition_id.as_str()
+        )))
+    }
+
     async fn cleanup_snapshot_for_policy(
         &self,
         context: &StorageConnectorContext<'_>,
@@ -746,6 +775,90 @@ impl StorageConnectorRegistry {
             }))
     }
 
+    pub(crate) fn resolve_transition_previews(
+        &self,
+        source: StorageConnectorTransitionDraft<'_>,
+    ) -> Result<Vec<super::StorageConnectorTransitionPreview>> {
+        let source_descriptor = self
+            .require_input_connector(&source.connector_config.connector_id)?
+            .descriptor();
+        let mut previews = Vec::new();
+        for connector in &self.ordered {
+            let descriptor = connector.descriptor();
+            for transition in descriptor.inbound_transitions.iter().filter(|transition| {
+                transition.supports_draft
+                    && transition.source_connector_id == source.connector_config.connector_id
+            }) {
+                let Some(plan) = connector.preview_inbound_transition(
+                    &transition.transition_id,
+                    StorageConnectorTransitionDraft {
+                        connector_config: source.connector_config,
+                        behavior: source.behavior,
+                    },
+                )?
+                else {
+                    continue;
+                };
+                if plan.connector_config.connector_id != descriptor.connector_id {
+                    return Err(AsterError::internal_error(format!(
+                        "storage connector '{}' returned transition config for '{}'",
+                        descriptor.connector_id, plan.connector_config.connector_id
+                    )));
+                }
+                validate_transition_field_mappings(
+                    &source_descriptor,
+                    &descriptor,
+                    &plan.field_mappings,
+                )?;
+                previews.push(super::StorageConnectorTransitionPreview {
+                    transition_id: transition.transition_id.clone(),
+                    source_connector_id: transition.source_connector_id.clone(),
+                    target_connector_id: descriptor.connector_id.clone(),
+                    label_key: transition.label_key.clone(),
+                    description_key: transition.description_key.clone(),
+                    requires_confirmation: transition.requires_confirmation,
+                    target_connector_config: plan.connector_config,
+                    target_behavior: plan.behavior,
+                    field_mappings: plan.field_mappings,
+                });
+            }
+        }
+        Ok(previews)
+    }
+
+    pub(crate) fn require_saved_transition(
+        &self,
+        target_connector_id: &ConnectorId,
+        transition_id: &aster_drive_storage::StorageConnectorTransitionId,
+        source_connector_id: &ConnectorId,
+    ) -> Result<(
+        &dyn StorageConnector,
+        aster_drive_storage::StorageConnectorTransitionDescriptor,
+    )> {
+        transition_id
+            .validate()
+            .map_err(|error| AsterError::validation_error(error.to_string()))?;
+        let connector = self.require_input_connector(target_connector_id)?;
+        let descriptor = connector.descriptor();
+        let transition = descriptor
+            .inbound_transitions
+            .into_iter()
+            .find(|transition| {
+                transition.supports_saved
+                    && &transition.transition_id == transition_id
+                    && &transition.source_connector_id == source_connector_id
+            })
+            .ok_or_else(|| {
+                AsterError::validation_error(format!(
+                    "storage connector '{}' does not accept transition '{}' from '{}'",
+                    target_connector_id,
+                    transition_id.as_str(),
+                    source_connector_id
+                ))
+            })?;
+        Ok((connector, transition))
+    }
+
     pub(crate) fn object_naming(
         &self,
         policy: &storage_policy::Model,
@@ -756,4 +869,48 @@ impl StorageConnectorRegistry {
             .capabilities
             .object_naming)
     }
+}
+
+pub(super) fn validate_transition_field_mappings(
+    source: &StorageConnectorDescriptor,
+    target: &StorageConnectorDescriptor,
+    mappings: &[aster_drive_storage::StorageConnectorTransitionFieldMapping],
+) -> Result<()> {
+    let mut targets = HashSet::with_capacity(mappings.len());
+    for mapping in mappings {
+        if mapping.source_scope == aster_drive_storage::StorageConnectorFieldScope::ActionInput
+            || mapping.target_scope == aster_drive_storage::StorageConnectorFieldScope::ActionInput
+        {
+            return Err(AsterError::internal_error(
+                "connector transition field mappings may not reference action inputs",
+            ));
+        }
+        if !source
+            .fields
+            .iter()
+            .any(|field| field.scope == mapping.source_scope && field.name == mapping.source_name)
+        {
+            return Err(AsterError::internal_error(format!(
+                "connector transition maps undeclared source field '{:?}:{}'",
+                mapping.source_scope, mapping.source_name
+            )));
+        }
+        if !target
+            .fields
+            .iter()
+            .any(|field| field.scope == mapping.target_scope && field.name == mapping.target_name)
+        {
+            return Err(AsterError::internal_error(format!(
+                "connector transition maps undeclared target field '{:?}:{}'",
+                mapping.target_scope, mapping.target_name
+            )));
+        }
+        if !targets.insert((mapping.target_scope, mapping.target_name.as_str())) {
+            return Err(AsterError::internal_error(format!(
+                "connector transition maps target field '{}' more than once",
+                mapping.target_name
+            )));
+        }
+    }
+    Ok(())
 }

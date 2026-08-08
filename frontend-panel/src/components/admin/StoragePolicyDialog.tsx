@@ -32,6 +32,7 @@ import type {
 	StorageConnectorDescriptor,
 	StorageConnectorFieldDescriptor,
 	StorageConnectorFieldValue,
+	StorageConnectorTransitionPreview,
 	StoragePolicyCapacityInfo,
 } from "@/types/api";
 import {
@@ -49,6 +50,7 @@ import {
 import type { StorageConnectorActionValues } from "./storage-policy-dialog/StorageConnectorActionsPanel";
 import { StorageConnectorActionsPanel } from "./storage-policy-dialog/StorageConnectorActionsPanel";
 import { StorageConnectorFieldsPanel } from "./storage-policy-dialog/StorageConnectorFieldsPanel";
+import { StorageConnectorTransitionPanel } from "./storage-policy-dialog/StorageConnectorTransitionPanel";
 import { StoragePolicyTestConnectionButton } from "./storage-policy-dialog/StoragePolicyTestConnectionButton";
 
 interface StoragePolicyDialogProps {
@@ -80,12 +82,21 @@ interface StoragePolicyDialogProps {
 	connectorActionConfirmId: string | null;
 	connectorActionSubmittingId: string | null;
 	connectorActionValues: StorageConnectorActionValues;
+	connectorTransitionConfirmKey: string | null;
+	connectorTransitionSubmittingKey: string | null;
+	connectorTransitions: StorageConnectorTransitionPreview[];
+	connectorTransitionsLoading: boolean;
+	hasUnsavedChanges: boolean;
 	saveAnywayConfirmOpen: boolean;
 	onCancelConnectorAction: () => void;
+	onCancelConnectorTransition: () => void;
 	onOpenChange: (open: boolean) => void;
 	onCancelSaveAnyway: () => void;
 	onConfirmSaveAnyway: () => void;
 	onConfirmConnectorAction: (actionId: string) => void;
+	onConfirmConnectorTransition: (
+		transition: StorageConnectorTransitionPreview,
+	) => void;
 	onStartStorageAuthorization: () => void;
 	onValidateStorageCredential: () => void;
 	onCreateRemoteStorageTarget: (
@@ -103,6 +114,9 @@ interface StoragePolicyDialogProps {
 		value: StorageConnectorFieldValue | undefined,
 	) => void;
 	onRequestConnectorAction: (actionId: string) => void;
+	onRequestConnectorTransition: (
+		transition: StorageConnectorTransitionPreview,
+	) => void;
 	onConnectorIdChange: (connectorId: string) => void;
 	onCreateBack: () => void;
 	onCreateStepChange: (step: number) => void;
@@ -142,12 +156,19 @@ export function StoragePolicyDialog({
 	connectorActionConfirmId,
 	connectorActionSubmittingId,
 	connectorActionValues,
+	connectorTransitionConfirmKey,
+	connectorTransitionSubmittingKey,
+	connectorTransitions,
+	connectorTransitionsLoading,
+	hasUnsavedChanges,
 	saveAnywayConfirmOpen,
 	onCancelConnectorAction,
+	onCancelConnectorTransition,
 	onOpenChange,
 	onCancelSaveAnyway,
 	onConfirmSaveAnyway,
 	onConfirmConnectorAction,
+	onConfirmConnectorTransition,
 	onStartStorageAuthorization,
 	onValidateStorageCredential,
 	onCreateRemoteStorageTarget,
@@ -156,6 +177,7 @@ export function StoragePolicyDialog({
 	onFieldChange,
 	onConnectorActionValueChange,
 	onRequestConnectorAction,
+	onRequestConnectorTransition,
 	onConnectorIdChange,
 	onCreateBack,
 	onCreateStepChange,
@@ -374,6 +396,18 @@ export function StoragePolicyDialog({
 															t={t}
 															onFieldChange={onFieldChange}
 														/>
+														<StorageConnectorTransitionPanel
+															confirmKey={connectorTransitionConfirmKey}
+															loading={connectorTransitionsLoading}
+															mode="create"
+															submittingKey={connectorTransitionSubmittingKey}
+															t={t}
+															transitions={connectorTransitions}
+															unsavedChanges={false}
+															onCancel={onCancelConnectorTransition}
+															onConfirm={onConfirmConnectorTransition}
+															onRequest={onRequestConnectorTransition}
+														/>
 														{endpointValidationMessage ? (
 															<p className="text-xs text-destructive">
 																{endpointValidationMessage}
@@ -445,6 +479,18 @@ export function StoragePolicyDialog({
 									descriptor={storageDriverDescriptor}
 									form={form}
 									loading={policyCapacityLoading}
+								/>
+								<StorageConnectorTransitionPanel
+									confirmKey={connectorTransitionConfirmKey}
+									loading={connectorTransitionsLoading}
+									mode="edit"
+									submittingKey={connectorTransitionSubmittingKey}
+									t={t}
+									transitions={connectorTransitions}
+									unsavedChanges={hasUnsavedChanges}
+									onCancel={onCancelConnectorTransition}
+									onConfirm={onConfirmConnectorTransition}
+									onRequest={onRequestConnectorTransition}
 								/>
 								<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
 									<SectionTitle

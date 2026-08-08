@@ -50,9 +50,10 @@ The overview response includes user, file, blob, share, audit, and task summarie
 | `DELETE` | `/admin/policies/{id}` | Delete policy |
 | `GET` | `/admin/policies/storage-drivers` | List storage connector descriptors |
 | `GET` | `/admin/policies/storage-credential-providers` | List storage OAuth credential providers |
+| `POST` | `/admin/policies/connector-transitions/resolve` | Resolve target-owned connector transitions for a secret-free draft |
 | `POST` | `/admin/policies/{id}/test` | Test saved policy |
 | `POST` | `/admin/policies/{id}/action` | Execute a storage action for a saved policy |
-| `POST` | `/admin/policies/{id}/promote-s3-driver` | Promote a generic S3-compatible policy to a supported specialized driver |
+| `POST` | `/admin/policies/{id}/connector-transitions` | Execute a declared transition for a saved policy |
 | `POST` | `/admin/policies/{id}/storage-authorization/start` | Start storage OAuth authorization for a policy |
 | `GET` | `/admin/policies/{id}/storage-credentials` | List stored OAuth credentials for a policy |
 | `POST` | `/admin/policies/{id}/storage-credentials/{provider}/validate` | Validate a stored OAuth credential |
@@ -110,7 +111,9 @@ Current notes:
 - After a node is selected, the policy create/edit UI loads its target list and driver descriptors. An admin can quick-create a target in the same flow, after which the new target is selected automatically. Fields and capabilities remain backend-descriptor driven.
 - A legacy remote policy with an empty target key may retain it only when an edit does not change the remote binding; runtime access then falls back to the follower binding's default target. New policies and remote-binding changes require an explicit target key.
 - `PATCH` cannot change `driver_type`
-- `POST /admin/policies/{id}/promote-s3-driver` currently supports promoting a generic `s3` policy to `tencent_cos`. The body must include the target driver and current endpoint / bucket, for example `{ "target_driver_type": "tencent_cos", "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com", "bucket": "bucket-1250000000" }`. Promotion is rejected unless the bucket stays unchanged, there are no active upload sessions for the policy, and the target driver validates the endpoint / bucket combination.
+- Target connectors declare accepted inbound conversions through descriptor `inbound_transitions`; the target connector, rather than the route or frontend, owns applicability checks and config / credential conversion.
+- `POST /admin/policies/connector-transitions/resolve` accepts only `connector_config` and `behavior`. It returns matching normalized target config / behavior plus field mappings, without receiving or returning browser-held secrets.
+- `POST /admin/policies/{id}/connector-transitions` accepts `{ "target_connector_id": "asterdrive.storage.tencent_cos", "transition_id": "from_generic_s3" }`. Saved execution rejects undeclared source / target pairs and active upload sessions, verifies a bounded sample of existing objects through the target driver, and atomically updates the policy and encrypted credential row under compare-and-swap guards. The built-in initial transition is generic S3 to Tencent COS for `myqcloud.com` bucket endpoints; future connectors use the same contract rather than adding provider-specific routes.
 - `GET /admin/policies` supports `limit`, `offset`, `sort_by`, `sort_order`
 - `GET /admin/policies/{id}/capacity` returns `StoragePolicyCapacityInfo`; local returns filesystem capacity, S3-compatible and Azure Blob are explicitly unsupported, OneDrive reads Microsoft Graph drive quota, and remote forwards follower capacity status
 - `DELETE /admin/policies/{id}?force=true` only cleans upload sessions that still reference the policy. Existing blobs or policy-group references still block deletion. If temp objects or multipart uploads need delayed cleanup, a `storage_policy_temp_cleanup` task is created.

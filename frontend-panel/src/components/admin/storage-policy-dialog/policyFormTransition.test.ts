@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import type {
 	StorageConnectorDescriptor,
 	StorageConnectorFieldDescriptor,
+	StorageConnectorTransitionPreview,
 } from "@/types/api";
 import { emptyForm } from "./formTypes";
 import {
 	applyPolicyConnectorTransition,
 	applyPolicyFormFieldChange,
+	applyRecommendedPolicyConnectorTransition,
 } from "./policyFormTransition";
 
 function field(
@@ -152,6 +154,95 @@ describe("policy form transitions", () => {
 
 		expect(form).toEqual(emptyForm);
 		expect(second.connector_config_values).toEqual({ region: "auto" });
+	});
+
+	it("applies a backend-resolved transition and maps browser-held credentials", () => {
+		const source = {
+			...emptyForm,
+			name: "Archive",
+			connector_id: "plugin.s3",
+			connector_config_values: {
+				endpoint: "https://bucket.provider.test",
+				legacy_only: true,
+			},
+			credential_values: {
+				access_key: "browser-secret-id",
+				secret_key: "browser-secret-key",
+				unmapped_secret: "drop-me",
+			},
+			thumbnail_processor: "storage_native" as const,
+			thumbnail_extensions: ["jpg"],
+			media_metadata_extensions: ["mp4"],
+		};
+		const target = descriptor("plugin.vendor", [
+			field("endpoint", { required: true }),
+			field("enabled", { kind: "boolean", default_value: true }),
+			field("vendor_id", {
+				scope: "static_credential",
+				kind: "secret",
+				secret: true,
+			}),
+			field("vendor_key", {
+				scope: "static_credential",
+				kind: "secret",
+				secret: true,
+			}),
+		]);
+		const transition: StorageConnectorTransitionPreview = {
+			transition_id: "from_generic",
+			source_connector_id: "plugin.s3",
+			target_connector_id: "plugin.vendor",
+			label_key: "transition_label",
+			description_key: "transition_desc",
+			requires_confirmation: true,
+			target_connector_config: {
+				format_version: 1,
+				connector_id: "plugin.vendor",
+				schema_version: 1,
+				values: { endpoint: "https://bucket.provider.test", enabled: false },
+			},
+			target_behavior: {
+				thumbnail_processor: null,
+				thumbnail_extensions: [],
+				media_metadata_extensions: [],
+			},
+			field_mappings: [
+				{
+					source_scope: "static_credential",
+					source_name: "access_key",
+					target_scope: "static_credential",
+					target_name: "vendor_id",
+				},
+				{
+					source_scope: "static_credential",
+					source_name: "secret_key",
+					target_scope: "static_credential",
+					target_name: "vendor_key",
+				},
+			],
+		};
+
+		expect(
+			applyRecommendedPolicyConnectorTransition(source, transition, target),
+		).toEqual({
+			...source,
+			connector_id: "plugin.vendor",
+			connector_config_values: {
+				endpoint: "https://bucket.provider.test",
+				enabled: false,
+			},
+			credential_values: {
+				vendor_id: "browser-secret-id",
+				vendor_key: "browser-secret-key",
+			},
+			thumbnail_processor: null,
+			thumbnail_extensions: [],
+			media_metadata_extensions: [],
+		});
+		expect(source.credential_values).toHaveProperty(
+			"unmapped_secret",
+			"drop-me",
+		);
 	});
 
 	it("applies ordinary policy-level field changes without connector knowledge", () => {

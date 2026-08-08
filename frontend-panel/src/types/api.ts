@@ -377,6 +377,16 @@ export type ExecuteDraftStoragePolicyActionRequest =
 	components["schemas"]["ExecuteDraftStorageConnectorActionInput"];
 export type ExecuteSavedStoragePolicyActionRequest =
 	components["schemas"]["ExecuteSavedStorageConnectorActionInput"];
+export type ResolveStorageConnectorTransitionsRequest =
+	components["schemas"]["ResolveStorageConnectorTransitionsInput"];
+export type ExecuteStorageConnectorTransitionRequest =
+	components["schemas"]["ExecuteStorageConnectorTransitionInput"];
+export type StorageConnectorTransitionPreview =
+	components["schemas"]["StorageConnectorTransitionPreview"];
+export type StorageConnectorTransitionDescriptor =
+	components["schemas"]["StorageConnectorTransitionDescriptor"];
+export type StorageConnectorTransitionFieldMapping =
+	components["schemas"]["StorageConnectorTransitionFieldMapping"];
 export type StoragePolicyActionResult =
 	OperationData<"execute_draft_storage_policy_action">;
 export type StoragePolicyConnectionTestResult =

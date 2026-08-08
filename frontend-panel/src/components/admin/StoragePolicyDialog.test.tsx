@@ -5,6 +5,7 @@ import type {
 	StorageConnectorActionDescriptor,
 	StorageConnectorDescriptor,
 	StorageConnectorFieldDescriptor,
+	StorageConnectorTransitionPreview,
 	StoragePolicyCapacityInfo,
 } from "@/types/api";
 import { StoragePolicyDialog } from "./StoragePolicyDialog";
@@ -228,12 +229,19 @@ function dialogProps(
 		connectorActionConfirmId: null,
 		connectorActionSubmittingId: null,
 		connectorActionValues: {},
+		connectorTransitionConfirmKey: null,
+		connectorTransitionSubmittingKey: null,
+		connectorTransitions: [],
+		connectorTransitionsLoading: false,
+		hasUnsavedChanges: false,
 		saveAnywayConfirmOpen: false,
 		onCancelConnectorAction: vi.fn(),
+		onCancelConnectorTransition: vi.fn(),
 		onOpenChange: vi.fn(),
 		onCancelSaveAnyway: vi.fn(),
 		onConfirmSaveAnyway: vi.fn(),
 		onConfirmConnectorAction: vi.fn(),
+		onConfirmConnectorTransition: vi.fn(),
 		onStartStorageAuthorization: vi.fn(),
 		onValidateStorageCredential: vi.fn(),
 		onCreateRemoteStorageTarget: vi.fn(async () => undefined),
@@ -242,6 +250,7 @@ function dialogProps(
 		onFieldChange: vi.fn(),
 		onConnectorActionValueChange: vi.fn(),
 		onRequestConnectorAction: vi.fn(),
+		onRequestConnectorTransition: vi.fn(),
 		onConnectorIdChange: vi.fn(),
 		onCreateBack: vi.fn(),
 		onCreateStepChange: vi.fn(),
@@ -953,5 +962,67 @@ describe("StoragePolicyDialog", () => {
 		).toBeDisabled();
 		expect(screen.getByRole("button", { name: "save_changes" })).toBeDisabled();
 		expect(props.onFieldChange).toHaveBeenCalledWith("name", "Edited policy");
+	});
+
+	it("presents connector transitions generically and blocks saved execution for dirty forms", () => {
+		const transition: StorageConnectorTransitionPreview = {
+			transition_id: "from_generic",
+			source_connector_id: "plugin.example",
+			target_connector_id: "plugin.vendor",
+			label_key: "transition_label",
+			description_key: "transition_description",
+			requires_confirmation: true,
+			target_connector_config: {
+				format_version: 1,
+				connector_id: "plugin.vendor",
+				schema_version: 1,
+				values: {},
+			},
+			target_behavior: {
+				thumbnail_processor: null,
+				thumbnail_extensions: [],
+				media_metadata_extensions: [],
+			},
+		};
+		connectorMessages.set(
+			"plugin.vendor:transition_label",
+			"Use vendor connector",
+		);
+		connectorMessages.set(
+			"plugin.vendor:transition_description",
+			"Keep the same object namespace",
+		);
+
+		const createProps = dialogProps({
+			createStep: 1,
+			connectorTransitions: [transition],
+		});
+		const view = render(<StoragePolicyDialog {...createProps} />);
+		expect(screen.getByText("Use vendor connector")).toBeVisible();
+		expect(screen.getByText("Keep the same object namespace")).toBeVisible();
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "policy_connector_transition_apply",
+			}),
+		);
+		expect(createProps.onRequestConnectorTransition).toHaveBeenCalledWith(
+			transition,
+		);
+
+		view.unmount();
+		const editProps = dialogProps({
+			mode: "edit",
+			connectorTransitions: [transition],
+			hasUnsavedChanges: true,
+		});
+		render(<StoragePolicyDialog {...editProps} />);
+		expect(
+			screen.getByRole("button", {
+				name: "policy_connector_transition_execute",
+			}),
+		).toBeDisabled();
+		expect(
+			screen.getByText("policy_connector_transition_save_first"),
+		).toBeVisible();
 	});
 });

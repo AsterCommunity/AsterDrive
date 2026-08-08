@@ -136,7 +136,7 @@ async fn init_remote_presigned_single_upload(
                 chunk_size: 0,
                 total_chunks: 0,
                 folder_id: ctx.target.folder_id,
-                policy_id: ctx.policy.id,
+                policy: &ctx.policy,
                 frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status: UploadSessionStatus::Presigned,
                 session_kind: session_kind_for_transport(

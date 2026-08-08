@@ -65,9 +65,10 @@
 | `DELETE` | `/admin/policies/{id}` | 删除策略 |
 | `GET` | `/admin/policies/storage-drivers` | 列出存储 connector descriptor |
 | `GET` | `/admin/policies/storage-credential-providers` | 列出存储 OAuth 凭据 provider |
+| `POST` | `/admin/policies/connector-transitions/resolve` | 为无密钥草稿解析目标 connector 声明的 transition |
 | `POST` | `/admin/policies/{id}/test` | 测试已保存策略 |
 | `POST` | `/admin/policies/{id}/action` | 对已保存策略执行存储 action |
-| `POST` | `/admin/policies/{id}/promote-s3-driver` | 把通用 S3-compatible 策略提升为受支持的专用驱动 |
+| `POST` | `/admin/policies/{id}/connector-transitions` | 对已保存策略执行声明过的 connector transition |
 | `POST` | `/admin/policies/{id}/storage-authorization/start` | 为策略启动存储 OAuth 授权 |
 | `GET` | `/admin/policies/{id}/storage-credentials` | 列出策略已保存的存储 OAuth 凭据 |
 | `POST` | `/admin/policies/{id}/storage-credentials/{provider}/validate` | 验证策略已保存的存储 OAuth 凭据 |
@@ -120,7 +121,9 @@
 - `driver_type = "alibaba_oss"` 复用 AWS S3 SDK 的对象、流式和 multipart 编排，但使用原生 `OSS4-HMAC-SHA256` header/query 签名；普通请求和 generated presign 分别验证
 - 内置 Local、S3-compatible、Alibaba OSS、SFTP、Azure Blob、OneDrive 和 Remote 驱动不暴露存储原生缩略图、图片预览或媒体元数据能力
 - 旧配置 `{"presigned_upload":true}` 仍兼容，等价于 S3 预签名上传策略
-- `POST /admin/policies/{id}/promote-s3-driver` 当前支持把通用 `s3` 策略提升为 `tencent_cos`。请求体必须包含目标驱动和当前 endpoint / bucket，例如 `{ "target_driver_type": "tencent_cos", "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com", "bucket": "bucket-1250000000" }`。提升时不允许改变 bucket；若该策略还有活动上传 session，或目标驱动不能接受当前 endpoint / bucket 组合，会直接拒绝。
+- 目标 connector 通过 descriptor 的 `inbound_transitions` 声明允许迁入的来源；适用性判断以及 config / credential 转换归目标 connector 所有，route 和前端不维护 provider 分支。
+- `POST /admin/policies/connector-transitions/resolve` 只接收 `connector_config` 和 `behavior`，返回匹配的目标 config / behavior 与字段映射，不接收也不回传浏览器持有的密钥。
+- `POST /admin/policies/{id}/connector-transitions` 接收 `{ "target_connector_id": "asterdrive.storage.tencent_cos", "transition_id": "from_generic_s3" }`。保存态执行会拒绝未声明的来源/目标组合和活动上传 session，通过目标 driver 抽样验证既有对象，并在 compare-and-swap 防护下原子更新策略和加密 credential 行。首个内置方向是 `myqcloud.com` bucket endpoint 的通用 S3 到腾讯云 COS；后续 connector 复用同一契约，不再增加 provider 专用端点。
 - REST 已经可以通过 `allowed_types` 管理策略允许的 MIME / 类型列表；不传时创建会使用空列表，更新会保持原值
 - 新建 `driver_type = "remote"` 策略时必须同时提供 `remote_node_id` 和 `remote_storage_target_key`。target 必须属于所选节点的当前 binding、没有 `last_error`，并满足 `applied_revision >= desired_revision`
 - 策略创建 / 编辑 UI 会在选择节点后加载该节点的 target 列表和 driver descriptors；管理员可以在同一流程快速创建 target，成功后新 target 会被自动选中。字段和 capability 仍以后端 descriptor 为准

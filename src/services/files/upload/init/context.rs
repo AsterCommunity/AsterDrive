@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use sea_orm::Set;
 
-use crate::db::repository::upload_session_repo;
+use crate::db::repository::{policy_repo, upload_session_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::files::upload::responses::InitUploadResponse;
@@ -39,7 +39,7 @@ pub(super) struct UploadSessionRecordParams<'a> {
     pub(super) chunk_size: i64,
     pub(super) total_chunks: i32,
     pub(super) folder_id: Option<i64>,
-    pub(super) policy_id: i64,
+    pub(super) policy: &'a storage_policy::Model,
     pub(super) frontend_client_id: Option<&'a str>,
     pub(super) status: UploadSessionStatus,
     pub(super) session_kind: UploadSessionKind,
@@ -236,8 +236,20 @@ pub(super) async fn try_persist_upload_session(
     db: &sea_orm::DatabaseConnection,
     params: UploadSessionRecordParams<'_>,
 ) -> Result<bool> {
+    let txn = aster_forge_db::transaction::begin(db).await?;
+    let locked_policy = policy_repo::lock_by_id(&txn, params.policy.id).await?;
+    if locked_policy.connector_id != params.policy.connector_id
+        || locked_policy.storage_config != params.policy.storage_config
+        || locked_policy.updated_at != params.policy.updated_at
+    {
+        return Err(AsterError::validation_error(
+            "storage policy changed while the upload session was being initialized",
+        ));
+    }
     let session = upload_session_active_model(params);
-    upload_session_repo::try_create(db, session).await
+    let inserted = upload_session_repo::try_create(&txn, session).await?;
+    aster_forge_db::transaction::commit(txn).await?;
+    Ok(inserted)
 }
 
 pub(super) async fn init_multipart_session_with_retry(
@@ -272,7 +284,7 @@ pub(super) async fn init_multipart_session_with_retry(
                 chunk_size,
                 total_chunks,
                 folder_id: ctx.target.folder_id,
-                policy_id: ctx.policy.id,
+                policy: &ctx.policy,
                 frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status,
                 session_kind,
@@ -350,7 +362,7 @@ fn upload_session_active_model(
         chunk_size,
         total_chunks,
         folder_id,
-        policy_id,
+        policy,
         frontend_client_id,
         status,
         session_kind,
@@ -372,7 +384,7 @@ fn upload_session_active_model(
         total_chunks: Set(total_chunks),
         received_count: Set(0),
         folder_id: Set(folder_id),
-        policy_id: Set(policy_id),
+        policy_id: Set(policy.id),
         status: Set(status),
         session_kind: Set(session_kind),
         object_temp_key: Set(object_temp_key.map(str::to_string)),
@@ -419,11 +431,17 @@ pub(super) fn chunked_upload_response(
 
 #[cfg(test)]
 mod tests {
-    use super::session_kind_for_transport;
+    use chrono::{Duration, Utc};
+    use sea_orm::{ActiveModelTrait, Database, EntityTrait, Set};
+
+    use super::{
+        UploadSessionRecordParams, session_kind_for_transport, try_persist_upload_session,
+    };
     use crate::services::workspace::storage::PolicyUploadTransport;
+    use crate::services::workspace::storage::WorkspaceStorageScope;
     use aster_drive_model::types::{
         ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy,
-        UploadMode, UploadSessionKind,
+        UploadMode, UploadSessionKind, UploadSessionStatus,
     };
 
     #[test]
@@ -515,5 +533,52 @@ mod tests {
         for (transport, mode) in invalid {
             assert!(session_kind_for_transport(transport, mode).is_err());
         }
+    }
+
+    #[tokio::test]
+    async fn upload_session_admission_rejects_a_stale_policy_snapshot() {
+        let db = Database::connect("sqlite::memory:").await.unwrap();
+        crate::storage::connectors::test_support::migrate_current_storage_test_schema(&db).await;
+        let policy = crate::storage::connectors::test_support::insertable_policy(
+            crate::storage::connectors::test_support::local_policy("/tmp/upload-policy-race"),
+        )
+        .insert(&db)
+        .await
+        .unwrap();
+        let resolved_policy = policy.clone();
+        let mut changed: aster_drive_model::entities::storage_policy::ActiveModel = policy.into();
+        changed.updated_at = Set(Utc::now() + Duration::seconds(1));
+        changed.update(&db).await.unwrap();
+
+        let error = try_persist_upload_session(
+            &db,
+            UploadSessionRecordParams {
+                upload_id: "stale-policy-upload",
+                scope: WorkspaceStorageScope::Personal { user_id: 999 },
+                filename: "file.bin",
+                total_size: 1,
+                chunk_size: 1,
+                total_chunks: 1,
+                folder_id: None,
+                policy: &resolved_policy,
+                frontend_client_id: None,
+                status: UploadSessionStatus::Uploading,
+                session_kind: UploadSessionKind::OffsetStaging,
+                object_temp_key: None,
+                object_multipart_id: None,
+                provider_session_ciphertext: None,
+                expires_at: Utc::now() + Duration::hours(1),
+            },
+        )
+        .await
+        .expect_err("stale policy must reject upload session admission");
+        assert!(error.to_string().contains("storage policy changed"));
+        assert!(
+            aster_drive_model::entities::upload_session::Entity::find_by_id("stale-policy-upload")
+                .one(&db)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 }

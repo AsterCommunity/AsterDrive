@@ -118,6 +118,13 @@ pub struct StoragePolicyActionAuditDetails<'a> {
 }
 
 #[derive(Serialize)]
+pub struct StoragePolicyConnectorTransitionAuditDetails<'a> {
+    pub transition_id: &'a str,
+    pub source_connector_id: &'a str,
+    pub target_connector_id: &'a str,
+}
+
+#[derive(Serialize)]
 pub struct FolderPolicyAuditDetails {
     pub previous_policy_id: Option<i64>,
     pub policy_id: Option<i64>,

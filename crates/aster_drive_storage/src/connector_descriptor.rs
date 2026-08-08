@@ -265,6 +265,120 @@ impl fmt::Display for StorageConnectorActionIdError {
 
 impl std::error::Error for StorageConnectorActionIdError {}
 
+/// Stable identity for one connector-owned inbound policy transition.
+///
+/// Transition IDs are namespaced by the target connector. Keeping this type
+/// distinct from custom action IDs prevents a provider action from being
+/// dispatched through the policy-mutation path by mistake.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(ToSchema),
+    schema(value_type = String)
+)]
+pub struct StorageConnectorTransitionId(String);
+
+impl StorageConnectorTransitionId {
+    pub fn declared(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn validate(&self) -> Result<(), StorageConnectorTransitionIdError> {
+        validate_stable_descriptor_id(self.as_str()).map_err(|_| StorageConnectorTransitionIdError)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StorageConnectorTransitionIdError;
+
+impl fmt::Display for StorageConnectorTransitionIdError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(
+            "transition id must be 3-128 lowercase ASCII letters, digits, '.', '-' or '_' and may not start or end with punctuation",
+        )
+    }
+}
+
+impl std::error::Error for StorageConnectorTransitionIdError {}
+
+fn validate_stable_descriptor_id(value: &str) -> std::result::Result<(), ()> {
+    if !(3..=128).contains(&value.len())
+        || value.starts_with(['.', '-', '_'])
+        || value.ends_with(['.', '-', '_'])
+        || value.contains("..")
+        || !value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b".-_".contains(&byte)
+        })
+    {
+        return Err(());
+    }
+    Ok(())
+}
+
+/// One explicitly supported source-to-target connector transition.
+///
+/// The descriptor belongs to the target connector. The target connector also
+/// owns applicability checks and config/credential conversion; core and the
+/// frontend only perform generic discovery and dispatch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StorageConnectorTransitionDescriptor {
+    pub transition_id: StorageConnectorTransitionId,
+    pub source_connector_id: ConnectorId,
+    pub label_key: String,
+    pub description_key: String,
+    pub supports_draft: bool,
+    pub supports_saved: bool,
+    pub requires_confirmation: bool,
+}
+
+impl StorageConnectorTransitionDescriptor {
+    fn validate(&self) -> Result<(), StorageConnectorDescriptorError> {
+        self.transition_id
+            .validate()
+            .map_err(|error| StorageConnectorDescriptorError(error.to_string()))?;
+        self.source_connector_id.validate().map_err(|error| {
+            StorageConnectorDescriptorError(format!(
+                "transition source connector id is invalid: {error}"
+            ))
+        })?;
+        if self.label_key.trim().is_empty() {
+            return Err(StorageConnectorDescriptorError(
+                "transition label_key must not be empty".to_string(),
+            ));
+        }
+        if self.description_key.trim().is_empty() {
+            return Err(StorageConnectorDescriptorError(
+                "transition description_key must not be empty".to_string(),
+            ));
+        }
+        if !self.supports_draft && !self.supports_saved {
+            return Err(StorageConnectorDescriptorError(
+                "transition must support draft discovery, saved execution, or both".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Generic frontend mapping for compatible draft values.
+///
+/// Values themselves are deliberately absent so secret draft values remain in
+/// the browser while the target connector still owns the field mapping.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StorageConnectorTransitionFieldMapping {
+    pub source_scope: StorageConnectorFieldScope,
+    pub source_name: String,
+    pub target_scope: StorageConnectorFieldScope,
+    pub target_name: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -1427,6 +1541,9 @@ pub struct StorageConnectorDescriptor {
     pub credential_schema_version: Option<u32>,
     /// 管理端/服务端可执行动作声明。
     pub actions: Vec<StorageConnectorActionDescriptor>,
+    /// Target-owned inbound policy connector transitions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inbound_transitions: Vec<StorageConnectorTransitionDescriptor>,
     /// 用于开发追踪的相关 issue 编号，不参与业务逻辑。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub related_issues: Vec<u16>,
@@ -1533,6 +1650,27 @@ impl StorageConnectorDescriptor {
                 )));
             }
         }
+        let mut transition_ids = HashSet::with_capacity(self.inbound_transitions.len());
+        for transition in &self.inbound_transitions {
+            transition.validate().map_err(|error| {
+                StorageConnectorDescriptorError(format!(
+                    "transition '{}' is invalid: {error}",
+                    transition.transition_id.as_str()
+                ))
+            })?;
+            if transition.source_connector_id == self.connector_id {
+                return Err(StorageConnectorDescriptorError(format!(
+                    "transition '{}' must use a different source connector",
+                    transition.transition_id.as_str()
+                )));
+            }
+            if !transition_ids.insert(transition.transition_id.clone()) {
+                return Err(StorageConnectorDescriptorError(format!(
+                    "transition '{}' is declared more than once",
+                    transition.transition_id.as_str()
+                )));
+            }
+        }
         if let Some(credential_management) = &self.credential_management {
             credential_management.validate()?;
         }
@@ -1576,6 +1714,10 @@ impl StorageConnectorDescriptor {
             for field in &action.fields {
                 collect_field_localization_message_ids(field, &mut message_ids);
             }
+        }
+        for transition in &self.inbound_transitions {
+            message_ids.insert(transition.label_key.as_str());
+            message_ids.insert(transition.description_key.as_str());
         }
         if let Some(credential_management) = &self.credential_management {
             credential_management.localization_message_ids(&mut message_ids);
@@ -1732,6 +1874,7 @@ pub fn object_storage_connector_descriptor(
             draft_connection_test_action_descriptor(),
             saved_connection_test_action_descriptor(false),
         ],
+        inbound_transitions: Vec::new(),
         related_issues: input.related_issues,
     }
 }
@@ -2080,7 +2223,8 @@ mod tests {
     };
     use crate::{
         CONNECTOR_CONFIG_FORMAT_VERSION, ConnectorConfigEnvelope, ConnectorId,
-        StorageConnectorActionSchema,
+        StorageConnectorActionSchema, StorageConnectorTransitionDescriptor,
+        StorageConnectorTransitionId,
     };
 
     crate::storage_connector_action_schema! {
@@ -2773,6 +2917,92 @@ mod tests {
                 "invalid action id accepted: {value}"
             );
         }
+    }
+
+    #[test]
+    fn transition_id_validation_uses_stable_descriptor_grammar() {
+        for value in [
+            "run",
+            "from_generic_s3",
+            "plugin.transition-v2",
+            "com.example.storage.transition_1",
+        ] {
+            assert!(
+                StorageConnectorTransitionId::declared(value)
+                    .validate()
+                    .is_ok(),
+                "valid transition id rejected: {value}"
+            );
+        }
+
+        for value in [
+            "",
+            "ab",
+            "Invalid",
+            "has space",
+            ".leading",
+            "trailing_",
+            "double..segment",
+            "connector/transition",
+        ] {
+            assert!(
+                StorageConnectorTransitionId::declared(value)
+                    .validate()
+                    .is_err(),
+                "invalid transition id accepted: {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn connector_transition_descriptor_rejects_ambiguous_contracts() {
+        let transition = StorageConnectorTransitionDescriptor {
+            transition_id: StorageConnectorTransitionId::declared("from_generic_s3"),
+            source_connector_id: ConnectorId::declared("asterdrive.storage.s3"),
+            label_key: "transition_label".to_string(),
+            description_key: "transition_description".to_string(),
+            supports_draft: true,
+            supports_saved: true,
+            requires_confirmation: true,
+        };
+        let mut descriptor = s3_descriptor();
+        descriptor.connector_id = ConnectorId::declared("asterdrive.storage.cos");
+        descriptor.inbound_transitions = vec![transition.clone()];
+        descriptor
+            .validate()
+            .expect("complete inbound transition is valid");
+
+        let mut duplicate = descriptor.clone();
+        duplicate.inbound_transitions.push(transition.clone());
+        assert!(
+            duplicate
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("declared more than once")
+        );
+
+        let mut self_transition = descriptor.clone();
+        self_transition.inbound_transitions[0].source_connector_id =
+            self_transition.connector_id.clone();
+        assert!(
+            self_transition
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("different source connector")
+        );
+
+        let mut unsupported = descriptor;
+        unsupported.inbound_transitions[0].supports_draft = false;
+        unsupported.inbound_transitions[0].supports_saved = false;
+        assert!(
+            unsupported
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("must support draft discovery")
+        );
     }
 
     #[test]

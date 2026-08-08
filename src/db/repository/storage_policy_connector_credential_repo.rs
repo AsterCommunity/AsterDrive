@@ -2,7 +2,8 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, QueryFilter,
+    QuerySelect, Set, sea_query::Expr,
 };
 
 use crate::errors::{AsterError, Result};
@@ -28,6 +29,20 @@ pub async fn find_by_policy<C: ConnectionTrait>(
         .one(db)
         .await
         .map_err(AsterError::from)
+}
+
+pub async fn lock_by_policy<C: ConnectionTrait>(
+    db: &C,
+    policy_id: i64,
+) -> Result<Option<storage_policy_connector_credential::Model>> {
+    let query = StoragePolicyConnectorCredential::find()
+        .filter(storage_policy_connector_credential::Column::PolicyId.eq(policy_id));
+    match db.get_database_backend() {
+        DbBackend::Postgres | DbBackend::MySql => query.lock_exclusive().one(db).await,
+        DbBackend::Sqlite => query.one(db).await,
+        _ => query.one(db).await,
+    }
+    .map_err(AsterError::from)
 }
 
 pub async fn upsert<C: ConnectionTrait>(

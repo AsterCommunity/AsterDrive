@@ -1,4 +1,7 @@
-import type { StorageConnectorDescriptor } from "@/types/api";
+import type {
+	StorageConnectorDescriptor,
+	StorageConnectorTransitionPreview,
+} from "@/types/api";
 import { normalizeConnectorFieldValue } from "./connectionNormalization";
 import type { ConnectorFormValue, PolicyFormData } from "./formTypes";
 
@@ -33,6 +36,56 @@ export function applyPolicyConnectorTransition(
 	};
 }
 
+/** Apply a backend-resolved transition without sending browser-held secrets. */
+export function applyRecommendedPolicyConnectorTransition(
+	form: PolicyFormData,
+	transition: StorageConnectorTransitionPreview,
+	targetDescriptor: StorageConnectorDescriptor,
+): PolicyFormData {
+	const targetValues = isRecord(transition.target_connector_config.values)
+		? transition.target_connector_config.values
+		: {};
+	const connectorConfigValues = descriptorDefaultValues(targetDescriptor);
+	for (const field of targetDescriptor.fields) {
+		if (field.scope !== "connector_config") {
+			continue;
+		}
+		const value = normalizeConnectorFieldValue(field, targetValues[field.name]);
+		if (value === undefined) {
+			delete connectorConfigValues[field.name];
+		} else {
+			connectorConfigValues[field.name] = value;
+		}
+	}
+
+	const credentialValues: Record<string, string> = {};
+	for (const mapping of transition.field_mappings ?? []) {
+		if (
+			mapping.source_scope === "connector_config" ||
+			mapping.source_scope === "action_input" ||
+			mapping.target_scope === "connector_config" ||
+			mapping.target_scope === "action_input"
+		) {
+			continue;
+		}
+		const value = form.credential_values[mapping.source_name];
+		if (value !== undefined && value !== "") {
+			credentialValues[mapping.target_name] = value;
+		}
+	}
+
+	return {
+		...form,
+		connector_id: transition.target_connector_id,
+		connector_config_values: connectorConfigValues,
+		credential_values: credentialValues,
+		thumbnail_processor: transition.target_behavior.thumbnail_processor ?? null,
+		thumbnail_extensions: transition.target_behavior.thumbnail_extensions ?? [],
+		media_metadata_extensions:
+			transition.target_behavior.media_metadata_extensions ?? [],
+	};
+}
+
 function descriptorDefaultValues(
 	descriptor: StorageConnectorDescriptor | null | undefined,
 ): Record<string, ConnectorFormValue> {
@@ -47,4 +100,8 @@ function descriptorDefaultValues(
 		}
 	}
 	return values;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

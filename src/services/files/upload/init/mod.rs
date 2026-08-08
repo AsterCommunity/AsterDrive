@@ -174,7 +174,7 @@ async fn init_chunked_upload_session(
                 chunk_size,
                 total_chunks,
                 folder_id: ctx.target.folder_id,
-                policy_id: ctx.policy.id,
+                policy: &ctx.policy,
                 frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status: UploadSessionStatus::Uploading,
                 session_kind,

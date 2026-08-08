@@ -21,6 +21,7 @@ import type {
 	StorageConnectorCredentialManagementDescriptor,
 	StorageConnectorDescriptor,
 	StorageConnectorFieldDescriptor,
+	StorageConnectorTransitionPreview,
 	StoragePolicy,
 } from "@/types/api";
 
@@ -32,6 +33,7 @@ const mockState = vi.hoisted(() => ({
 	dialogProps: null as unknown,
 	executeDraftPolicyAction: vi.fn(),
 	executeSavedPolicyAction: vi.fn(),
+	executeConnectorTransition: vi.fn(),
 	getCapacity: vi.fn(),
 	getPolicy: vi.fn(),
 	handleApiError: vi.fn(),
@@ -42,6 +44,7 @@ const mockState = vi.hoisted(() => ({
 	listStorageDriverLocalizations: vi.fn(),
 	listStorageTargetDrivers: vi.fn(),
 	listStorageTargets: vi.fn(),
+	resolveConnectorTransitions: vi.fn(),
 	logout: vi.fn(),
 	manageDescriptors: [] as unknown[],
 	createDescriptors: [] as unknown[],
@@ -204,6 +207,8 @@ vi.mock("@/services/adminService", () => ({
 			mockState.executeDraftPolicyAction(...args),
 		executeSavedPolicyAction: (...args: unknown[]) =>
 			mockState.executeSavedPolicyAction(...args),
+		executeConnectorTransition: (...args: unknown[]) =>
+			mockState.executeConnectorTransition(...args),
 		get: (...args: unknown[]) => mockState.getPolicy(...args),
 		getCapacity: (...args: unknown[]) => mockState.getCapacity(...args),
 		list: (...args: unknown[]) => mockState.listPolicies(...args),
@@ -216,6 +221,8 @@ vi.mock("@/services/adminService", () => ({
 			context?: string;
 			locale?: string;
 		}) => mockState.listStorageDriverLocalizations(query),
+		resolveConnectorTransitions: (...args: unknown[]) =>
+			mockState.resolveConnectorTransitions(...args),
 		startStorageAuthorization: (...args: unknown[]) =>
 			mockState.startStorageAuthorization(...args),
 		testConnection: (...args: unknown[]) => mockState.testConnection(...args),
@@ -481,6 +488,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.dialogProps = null;
 		mockState.executeDraftPolicyAction.mockReset();
 		mockState.executeSavedPolicyAction.mockReset();
+		mockState.executeConnectorTransition.mockReset();
 		mockState.getPolicy.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.listPolicies.mockReset();
@@ -490,6 +498,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.listStorageDriverLocalizations.mockReset();
 		mockState.listStorageTargetDrivers.mockReset();
 		mockState.listStorageTargets.mockReset();
+		mockState.resolveConnectorTransitions.mockReset();
 		mockState.logout.mockReset();
 		mockState.searchParams = new URLSearchParams();
 		mockState.setSearchParams.mockReset();
@@ -1139,6 +1148,92 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		expect(mockState.create).not.toHaveBeenCalled();
 		await act(async () => currentDialog().onConfirmSaveAnyway());
 		await waitFor(() => expect(mockState.create).toHaveBeenCalledTimes(1));
+	});
+
+	it("resolves and executes a saved connector transition then refreshes the editor", async () => {
+		const source = descriptor("plugin.source", {
+			fields: [field("endpoint", { required: true })],
+		});
+		const target = descriptor("plugin.target", {
+			fields: [field("endpoint", { required: true })],
+			inbound_transitions: [
+				{
+					transition_id: "from_source",
+					source_connector_id: "plugin.source",
+					label_key: "transition_label",
+					description_key: "transition_desc",
+					supports_draft: true,
+					supports_saved: true,
+					requires_confirmation: true,
+				},
+			],
+		});
+		const saved = policy("plugin.source", {
+			endpoint: "https://storage.example.test",
+		});
+		const updated = policy(
+			"plugin.target",
+			{ endpoint: "https://storage.example.test" },
+			{ updated_at: "2026-08-08T00:00:00Z" },
+		);
+		const transition: StorageConnectorTransitionPreview = {
+			transition_id: "from_source",
+			source_connector_id: "plugin.source",
+			target_connector_id: "plugin.target",
+			label_key: "transition_label",
+			description_key: "transition_desc",
+			requires_confirmation: true,
+			target_connector_config: updated.connector_config,
+			target_behavior: updated.behavior,
+		};
+		mockState.manageDescriptors = [source, target];
+		mockState.createDescriptors = [source, target];
+		mockState.policies = [saved];
+		mockState.resolveConnectorTransitions.mockResolvedValue({
+			transitions: [transition],
+		});
+		mockState.executeConnectorTransition.mockImplementation(async () => {
+			mockState.policies = [updated];
+			return updated;
+		});
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog("plugin.source");
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		await waitFor(() =>
+			expect(mockState.resolveConnectorTransitions).toHaveBeenCalled(),
+		);
+		expect(mockState.resolveConnectorTransitions.mock.calls[0]?.[0]).toEqual({
+			connector_config: saved.connector_config,
+			behavior: {
+				thumbnail_processor: undefined,
+				thumbnail_extensions: [],
+				media_metadata_extensions: [],
+			},
+		});
+		expect(currentDialog().connectorTransitions).toEqual([transition]);
+
+		await act(async () =>
+			currentDialog().onRequestConnectorTransition(transition),
+		);
+		expect(currentDialog().connectorTransitionConfirmKey).toBe(
+			"plugin.target:from_source",
+		);
+		await act(async () =>
+			currentDialog().onConfirmConnectorTransition(transition),
+		);
+		await waitFor(() =>
+			expect(mockState.executeConnectorTransition).toHaveBeenCalledWith(7, {
+				target_connector_id: "plugin.target",
+				transition_id: "from_source",
+			}),
+		);
+		await waitFor(() =>
+			expect(currentDialog().form.connector_id).toBe("plugin.target"),
+		);
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"policy_connector_transition_success",
+		);
 	});
 
 	it("forces setup policies to default and refreshes setup state", async () => {

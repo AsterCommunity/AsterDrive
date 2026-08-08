@@ -52,6 +52,7 @@ import type {
 	ExecuteConfigActionResponse,
 	ExecuteDraftStoragePolicyActionRequest,
 	ExecuteSavedStoragePolicyActionRequest,
+	ExecuteStorageConnectorTransitionRequest,
 	ExternalAuthProviderTestParamsInput,
 	ExternalAuthProviderTestResult,
 	FolderInfo,
@@ -68,6 +69,7 @@ import type {
 	RemoteUpdateStorageTargetRequest,
 	RemovedCountResponse,
 	ResetUserPasswordRequest,
+	ResolveStorageConnectorTransitionsRequest,
 	ShareInfo,
 	StorageAuthorizationStartResponse,
 	StorageConnectorCatalogQuery,
@@ -75,6 +77,7 @@ import type {
 	StorageConnectorDescriptor,
 	StorageConnectorLocalizationCatalog,
 	StorageConnectorLocalizationCatalogQuery,
+	StorageConnectorTransitionPreview,
 	StoragePolicy,
 	StoragePolicyActionResult,
 	StoragePolicyCapacityInfo,
@@ -339,6 +342,23 @@ export const adminPolicyService = {
 
 	update: (id: number, data: UpdatePolicyRequest) =>
 		api.patch<StoragePolicy>(`/admin/policies/${id}`, data),
+
+	resolveConnectorTransitions: (
+		data: ResolveStorageConnectorTransitionsRequest,
+	) =>
+		api.post<{ transitions: StorageConnectorTransitionPreview[] }>(
+			"/admin/policies/connector-transitions/resolve",
+			data,
+		),
+
+	executeConnectorTransition: (
+		id: number,
+		data: ExecuteStorageConnectorTransitionRequest,
+	) =>
+		api.post<StoragePolicy>(
+			`/admin/policies/${id}/connector-transitions`,
+			data,
+		),
 
 	delete: (id: number, params?: DeletePolicyQuery) =>
 		api.delete<void>(

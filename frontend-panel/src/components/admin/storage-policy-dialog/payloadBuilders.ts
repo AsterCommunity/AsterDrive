@@ -1,6 +1,7 @@
 import type {
 	CreatePolicyRequest,
 	ExecuteDraftStoragePolicyActionRequest,
+	ResolveStorageConnectorTransitionsRequest,
 	StorageConnectorActionId,
 	StorageConnectorDescriptor,
 	StorageConnectorFieldValue,
@@ -33,6 +34,17 @@ export function buildPolicyTestPayload(
 	return {
 		...(policyId != null ? { policy_id: policyId } : {}),
 		connection: buildStorageConnectorConnection(form, descriptor, true),
+	};
+}
+
+export function buildStorageConnectorTransitionResolverPayload(
+	form: PolicyFormData,
+	descriptor: StorageConnectorDescriptor,
+): ResolveStorageConnectorTransitionsRequest {
+	const normalizedForm = normalizePolicyForm(form, descriptor);
+	return {
+		connector_config: buildConnectorConfig(normalizedForm, descriptor),
+		behavior: buildBehavior(normalizedForm),
 	};
 }
 

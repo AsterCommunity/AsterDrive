@@ -12,6 +12,7 @@ import type {
 	StorageConnectorCredentialInfo,
 	StorageConnectorDescriptor,
 	StorageConnectorFieldValue,
+	StorageConnectorTransitionPreview,
 	StoragePolicyCapacityInfo,
 } from "@/types/api";
 
@@ -46,6 +47,11 @@ interface PolicyDialogsProps {
 	connectorActionConfirmId: string | null;
 	connectorActionSubmittingId: string | null;
 	connectorActionValues: StorageConnectorActionValues;
+	connectorTransitionConfirmKey: string | null;
+	connectorTransitionSubmittingKey: string | null;
+	connectorTransitions: StorageConnectorTransitionPreview[];
+	connectorTransitionsLoading: boolean;
+	hasUnsavedChanges: boolean;
 	remoteNodes: RemoteNodeInfo[];
 	remoteStorageTargetDriverDescriptors: RemoteStorageTargetDriverDescriptor[];
 	remoteStorageTargetDriverDescriptorsError: string | null;
@@ -60,9 +66,13 @@ interface PolicyDialogsProps {
 	storageDialogPresentation?: "dialog" | "setup";
 	onStorageSetupLogout?: () => void;
 	onCancelConnectorAction: () => void;
+	onCancelConnectorTransition: () => void;
 	onCancelSaveAnyway: () => void;
 	onConfirmSaveAnyway: () => void;
 	onConfirmConnectorAction: (actionId: string) => void;
+	onConfirmConnectorTransition: (
+		transition: StorageConnectorTransitionPreview,
+	) => void;
 	onStartStorageAuthorization: () => void;
 	onValidateStorageCredential: () => void;
 	onCreateRemoteStorageTarget: (
@@ -83,6 +93,9 @@ interface PolicyDialogsProps {
 		value: StorageConnectorFieldValue | undefined,
 	) => void;
 	onRequestConnectorAction: (actionId: string) => void;
+	onRequestConnectorTransition: (
+		transition: StorageConnectorTransitionPreview,
+	) => void;
 	onRunConnectionTest: () => Promise<boolean>;
 	onSubmit: () => void;
 }
@@ -112,6 +125,11 @@ export function PolicyDialogs({
 	connectorActionConfirmId,
 	connectorActionSubmittingId,
 	connectorActionValues,
+	connectorTransitionConfirmKey,
+	connectorTransitionSubmittingKey,
+	connectorTransitions,
+	connectorTransitionsLoading,
+	hasUnsavedChanges,
 	remoteNodes,
 	remoteStorageTargetDriverDescriptors,
 	remoteStorageTargetDriverDescriptorsError,
@@ -126,9 +144,11 @@ export function PolicyDialogs({
 	storageDialogPresentation = "dialog",
 	onStorageSetupLogout,
 	onCancelConnectorAction,
+	onCancelConnectorTransition,
 	onCancelSaveAnyway,
 	onConfirmSaveAnyway,
 	onConfirmConnectorAction,
+	onConfirmConnectorTransition,
 	onStartStorageAuthorization,
 	onValidateStorageCredential,
 	onCreateRemoteStorageTarget,
@@ -140,6 +160,7 @@ export function PolicyDialogs({
 	onFieldChange,
 	onConnectorActionValueChange,
 	onRequestConnectorAction,
+	onRequestConnectorTransition,
 	onRunConnectionTest,
 	onSubmit,
 }: PolicyDialogsProps) {
@@ -181,6 +202,11 @@ export function PolicyDialogs({
 				connectorActionConfirmId={connectorActionConfirmId}
 				connectorActionSubmittingId={connectorActionSubmittingId}
 				connectorActionValues={connectorActionValues}
+				connectorTransitionConfirmKey={connectorTransitionConfirmKey}
+				connectorTransitionSubmittingKey={connectorTransitionSubmittingKey}
+				connectorTransitions={connectorTransitions}
+				connectorTransitionsLoading={connectorTransitionsLoading}
+				hasUnsavedChanges={hasUnsavedChanges}
 				remoteNodes={remoteNodes}
 				remoteStorageTargetDriverDescriptors={
 					remoteStorageTargetDriverDescriptors
@@ -200,10 +226,12 @@ export function PolicyDialogs({
 				endpointValidationMessage={endpointValidationMessage}
 				saveAnywayConfirmOpen={saveAnywayConfirmOpen}
 				onCancelConnectorAction={onCancelConnectorAction}
+				onCancelConnectorTransition={onCancelConnectorTransition}
 				onOpenChange={onDialogOpenChange}
 				onCancelSaveAnyway={onCancelSaveAnyway}
 				onConfirmSaveAnyway={onConfirmSaveAnyway}
 				onConfirmConnectorAction={onConfirmConnectorAction}
+				onConfirmConnectorTransition={onConfirmConnectorTransition}
 				onStartStorageAuthorization={onStartStorageAuthorization}
 				onValidateStorageCredential={onValidateStorageCredential}
 				onCreateRemoteStorageTarget={onCreateRemoteStorageTarget}
@@ -212,6 +240,7 @@ export function PolicyDialogs({
 				onFieldChange={onFieldChange}
 				onConnectorActionValueChange={onConnectorActionValueChange}
 				onRequestConnectorAction={onRequestConnectorAction}
+				onRequestConnectorTransition={onRequestConnectorTransition}
 				onConnectorIdChange={onConnectorIdChange}
 				onCreateBack={onCreateBack}
 				onCreateStepChange={onCreateStepChange}

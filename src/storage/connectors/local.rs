@@ -122,6 +122,7 @@ impl LocalConnector {
                 draft_connection_test_action_descriptor(),
                 saved_connection_test_action_descriptor(false),
             ],
+            inbound_transitions: Vec::new(),
             related_issues: vec![328],
         }
     }

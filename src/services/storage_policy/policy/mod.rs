@@ -1,5 +1,6 @@
 //! 存储策略服务聚合入口。
 
+mod connector_transition;
 mod groups;
 mod models;
 mod policies;
@@ -11,14 +12,21 @@ use crate::services::ops::audit::{self, AuditContext};
 
 pub use crate::storage::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
+    ExecuteStorageConnectorTransitionInput, ResolveStorageConnectorTransitionsInput,
     StorageConnectorConnectionInput, TestDraftStorageConnectorConnectionInput,
+};
+pub use crate::storage::{
+    StorageConnectorTransitionPreview, StorageConnectorTransitionPreviewList,
 };
 pub use aster_drive_storage::{
     StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionId,
     StorageConnectorActionKind, StorageConnectorCapabilities, StorageConnectorCredentialMode,
     StorageConnectorFieldDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
-    StorageConnectorObjectNamingMode, StorageConnectorUploadWorkflows,
+    StorageConnectorObjectNamingMode, StorageConnectorTransitionDescriptor,
+    StorageConnectorTransitionFieldMapping, StorageConnectorTransitionId,
+    StorageConnectorUploadWorkflows,
 };
+pub use connector_transition::resolve_connector_transitions;
 pub use groups::{
     create_group, delete_group, ensure_policy_groups_seeded, get_group, list_groups_paginated,
     migrate_group_assignments, update_group,
@@ -120,6 +128,36 @@ pub async fn update_with_audit(
         Some(policy.id),
         Some(&policy.name),
         || policy_audit_details(&policy),
+    )
+    .await;
+    Ok(policy)
+}
+
+pub async fn execute_connector_transition_with_audit(
+    state: &(impl RemoteProtocolRuntimeState + Sync),
+    id: i64,
+    input: ExecuteStorageConnectorTransitionInput,
+    audit_ctx: &AuditContext,
+) -> Result<StoragePolicy> {
+    let transition_id = input.transition_id.clone();
+    let target_connector_id = input.target_connector_id.clone();
+    let executed = connector_transition::execute_connector_transition(state, id, input).await?;
+    let policy = executed.policy;
+    let source_connector_id = executed.source_connector_id;
+    audit::log_with_details(
+        state,
+        audit_ctx,
+        audit::AuditAction::AdminUpdatePolicy,
+        audit::AuditEntityType::StoragePolicy,
+        Some(policy.id),
+        Some(&policy.name),
+        || {
+            audit::details(audit::StoragePolicyConnectorTransitionAuditDetails {
+                transition_id: transition_id.as_str(),
+                source_connector_id: source_connector_id.as_str(),
+                target_connector_id: target_connector_id.as_str(),
+            })
+        },
     )
     .await;
     Ok(policy)

@@ -190,5 +190,14 @@
 	"storage_authorization_failed_target_resolution": "授权已返回，但 connector 无法解析存储目标，请检查目标配置。",
 	"storage_authorization_failed_unsupported_provider": "所选 connector 不支持当前存储授权提供方。",
 	"storage_authorization_failed_invalid_request": "存储授权回调参数无效，请重新启动授权。",
-	"storage_authorization_failed_server": "服务器处理存储授权时出错，请稍后重试。"
+	"storage_authorization_failed_server": "服务器处理存储授权时出错，请稍后重试。",
+	"policy_connector_transition_title": "可切换到专用 connector",
+	"policy_connector_transition_draft_desc": "当前 endpoint 匹配专用 connector，可保留兼容的配置和凭据字段直接切换。",
+	"policy_connector_transition_saved_desc": "当前策略可原地切换 connector 语义，不复制对象，也不改写对象路径。",
+	"policy_connector_transition_apply": "使用此 connector",
+	"policy_connector_transition_execute": "原地切换",
+	"policy_connector_transition_save_first": "请先保存或放弃当前编辑，再执行此切换。",
+	"policy_connector_transition_draft_confirm": "确定把当前草稿切换到推荐 connector，并映射兼容字段吗？",
+	"policy_connector_transition_saved_confirm": "服务端会先检查活动上传并抽样验证对象，再更新当前策略。继续吗？",
+	"policy_connector_transition_success": "存储 connector 已更新"
 }

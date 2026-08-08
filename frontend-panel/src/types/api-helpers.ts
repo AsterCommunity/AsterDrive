@@ -164,6 +164,9 @@ export const ApiErrorCode = {
 	PolicyActionUnsupported: "policy.action_unsupported",
 	PolicyActionParameterRequired: "policy.action_parameter_required",
 	PolicyActionParameterInvalid: "policy.action_parameter_invalid",
+	PolicyConnectorTransitionUnsupported:
+		"policy.connector_transition_unsupported",
+	PolicyConnectorTransitionConflict: "policy.connector_transition_conflict",
 	WorkspaceScopeDenied: "workspace.scope_denied",
 	ExternalAuthProviderDisabled: "external_auth.provider_disabled",
 	ExternalAuthPolicyDenied: "external_auth.policy_denied",

@@ -16,10 +16,14 @@ import {
 	getPolicyForm,
 	type PolicyFormData,
 } from "@/components/admin/storage-policy-dialog/formTypes";
+import { buildStorageConnectorTransitionResolverPayload } from "@/components/admin/storage-policy-dialog/payloadBuilders";
+import { policyFormHasUnsavedChanges } from "@/components/admin/storage-policy-dialog/policyFormComparison";
 import {
 	applyPolicyConnectorTransition,
 	applyPolicyFormFieldChange,
+	applyRecommendedPolicyConnectorTransition,
 } from "@/components/admin/storage-policy-dialog/policyFormTransition";
+import { storageConnectorTransitionKey } from "@/components/admin/storage-policy-dialog/StorageConnectorTransitionPanel";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
@@ -38,6 +42,7 @@ import { useSystemSetupStore } from "@/stores/systemSetupStore";
 import type {
 	StorageConnectorCredentialInfo,
 	StorageConnectorFieldValue,
+	StorageConnectorTransitionPreview,
 	StoragePolicy,
 	StoragePolicyCapacityInfo,
 } from "@/types/api";
@@ -168,6 +173,18 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 		setupMode,
 	]);
 	const [submitting, setSubmitting] = useState(false);
+	const [connectorTransitions, setConnectorTransitions] = useState<
+		StorageConnectorTransitionPreview[]
+	>([]);
+	const [connectorTransitionsLoading, setConnectorTransitionsLoading] =
+		useState(false);
+	const [connectorTransitionConfirmKey, setConnectorTransitionConfirmKey] =
+		useState<string | null>(null);
+	const [
+		connectorTransitionSubmittingKey,
+		setConnectorTransitionSubmittingKey,
+	] = useState<string | null>(null);
+	const connectorTransitionRequestSerial = useRef(0);
 
 	currentEditingIdRef.current = editingId;
 	const [saveAnywayConfirmOpen, setSaveAnywayConfirmOpen] = useState(false);
@@ -175,6 +192,11 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 	const [createStepTouched, setCreateStepTouched] = useState(false);
 	const currentStorageDriverDescriptor =
 		descriptorController.currentStorageDriverDescriptor;
+	const hasUnsavedChanges = policyFormHasUnsavedChanges(
+		form,
+		editingPolicy,
+		currentStorageDriverDescriptor,
+	);
 	const endpointValidationMessage = getEndpointValidationMessage(
 		form,
 		(key) =>
@@ -186,6 +208,64 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 		currentStorageDriverDescriptor,
 	);
 	const storageAuthorizationRedirectUri = getStorageAuthorizationCallbackUrl();
+	useEffect(() => {
+		const descriptor = currentStorageDriverDescriptor;
+		const sourceConnectorId = descriptor?.connector_id;
+		const transitionSupported =
+			sourceConnectorId != null &&
+			descriptorController.storageDriverDescriptors.some((target) =>
+				target.inbound_transitions?.some(
+					(transition) =>
+						transition.source_connector_id === sourceConnectorId &&
+						transition.supports_draft &&
+						(editingId === null || transition.supports_saved),
+				),
+			);
+		if (!dialogOpen || !descriptor || !transitionSupported) {
+			connectorTransitionRequestSerial.current += 1;
+			setConnectorTransitions([]);
+			setConnectorTransitionsLoading(false);
+			setConnectorTransitionConfirmKey(null);
+			return;
+		}
+
+		const requestSerial = ++connectorTransitionRequestSerial.current;
+		setConnectorTransitionsLoading(true);
+		const timer = window.setTimeout(() => {
+			const payload = buildStorageConnectorTransitionResolverPayload(
+				form,
+				descriptor,
+			);
+			void adminPolicyService
+				.resolveConnectorTransitions(payload)
+				.then((result) => {
+					if (requestSerial === connectorTransitionRequestSerial.current) {
+						setConnectorTransitions(result.transitions);
+						setConnectorTransitionConfirmKey(null);
+					}
+				})
+				.catch(() => {
+					// Partial drafts routinely fail connector validation while typing.
+					if (requestSerial === connectorTransitionRequestSerial.current) {
+						setConnectorTransitions([]);
+						setConnectorTransitionConfirmKey(null);
+					}
+				})
+				.finally(() => {
+					if (requestSerial === connectorTransitionRequestSerial.current) {
+						setConnectorTransitionsLoading(false);
+					}
+				});
+		}, 250);
+
+		return () => window.clearTimeout(timer);
+	}, [
+		currentStorageDriverDescriptor,
+		descriptorController.storageDriverDescriptors,
+		dialogOpen,
+		editingId,
+		form,
+	]);
 	const remoteNodeNameById = new Map(
 		descriptorController.remoteNodes.map(
 			(node) => [node.id, node.name] as const,
@@ -298,11 +378,16 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 		policyCapacityRequestSerial.current += 1;
 		storageCredentialsRequestSerial.current += 1;
 		storageCredentialValidationRequestSerial.current += 1;
+		connectorTransitionRequestSerial.current += 1;
 		setSaveAnywayConfirmOpen(false);
 		setPolicyCapacity(null);
 		setPolicyCapacityLoading(false);
 		setStorageCredentials([]);
 		setStorageCredentialsLoading(false);
+		setConnectorTransitions([]);
+		setConnectorTransitionsLoading(false);
+		setConnectorTransitionConfirmKey(null);
+		setConnectorTransitionSubmittingKey(null);
 		actionController.resetActionState();
 		descriptorController.resetRemoteStorageTargets();
 		setCreateStep(0);
@@ -466,6 +551,79 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 		});
 	}
 
+	async function executeConnectorTransition(
+		transition: StorageConnectorTransitionPreview,
+	) {
+		const transitionKey = storageConnectorTransitionKey(transition);
+		setConnectorTransitionConfirmKey(null);
+		if (editingId === null) {
+			const targetDescriptor = getStorageConnectorDescriptor(
+				descriptorController.storageDriverDescriptors,
+				transition.target_connector_id,
+			);
+			if (!targetDescriptor) {
+				return;
+			}
+			actionController.resetActionState();
+			setCreateStepTouched(false);
+			setForm((current) => {
+				const next = applyRecommendedPolicyConnectorTransition(
+					current,
+					transition,
+					targetDescriptor,
+				);
+				return setupMode ? { ...next, is_default: true } : next;
+			});
+			setConnectorTransitions([]);
+			return;
+		}
+
+		if (!editingPolicy || hasUnsavedChanges) {
+			return;
+		}
+		setConnectorTransitionSubmittingKey(transitionKey);
+		try {
+			const updated = await adminPolicyService.executeConnectorTransition(
+				editingId,
+				{
+					target_connector_id: transition.target_connector_id,
+					transition_id: transition.transition_id,
+				},
+			);
+			invalidateAdminPolicyLookup();
+			setEditingId(updated.id);
+			setEditingPolicy(updated);
+			setForm(getPolicyForm(updated));
+			setConnectorTransitions([]);
+			loadPolicyCapacity(updated.id);
+			policyList.setPolicies((current) =>
+				current.map((policy) => (policy.id === updated.id ? updated : policy)),
+			);
+			await policyList.reload();
+			toast.success(t("policy_connector_transition_success"));
+		} catch (error) {
+			handleApiError(error);
+		} finally {
+			setConnectorTransitionSubmittingKey(null);
+		}
+	}
+
+	function requestConnectorTransition(
+		transition: StorageConnectorTransitionPreview,
+	) {
+		if (editingId !== null && hasUnsavedChanges) {
+			toast.error(t("policy_connector_transition_save_first"));
+			return;
+		}
+		if (transition.requires_confirmation) {
+			setConnectorTransitionConfirmKey(
+				storageConnectorTransitionKey(transition),
+			);
+			return;
+		}
+		void executeConnectorTransition(transition);
+	}
+
 	function syncNormalizedPolicyForm() {
 		const descriptor = getStorageConnectorDescriptor(
 			descriptorController.storageDriverDescriptors,
@@ -542,6 +700,11 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 			connectorActionConfirmId={actionController.connectorActionConfirmId}
 			connectorActionSubmittingId={actionController.connectorActionSubmittingId}
 			connectorActionValues={actionController.connectorActionValues}
+			connectorTransitionConfirmKey={connectorTransitionConfirmKey}
+			connectorTransitionSubmittingKey={connectorTransitionSubmittingKey}
+			connectorTransitions={connectorTransitions}
+			connectorTransitionsLoading={connectorTransitionsLoading}
+			hasUnsavedChanges={hasUnsavedChanges}
 			remoteNodes={descriptorController.remoteNodes}
 			remoteStorageTargetDriverDescriptors={
 				descriptorController.remoteStorageTargetDriverDescriptors
@@ -567,6 +730,7 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 			storageDialogPresentation={setupMode ? "setup" : "dialog"}
 			onStorageSetupLogout={setupMode ? () => void logout() : undefined}
 			onCancelConnectorAction={actionController.cancelConnectorAction}
+			onCancelConnectorTransition={() => setConnectorTransitionConfirmKey(null)}
 			onCancelSaveAnyway={editorController.cancelSaveAnyway}
 			onConfirmSaveAnyway={() =>
 				editorController.confirmSaveAnyway(actionController)
@@ -575,6 +739,9 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 				setSaveAnywayConfirmOpen(false);
 				void actionController.executeConnectorAction(actionId);
 			}}
+			onConfirmConnectorTransition={(transition) =>
+				void executeConnectorTransition(transition)
+			}
 			onStartStorageAuthorization={actionController.startStorageAuthorization}
 			onValidateStorageCredential={actionController.validateStorageCredential}
 			onCreateRemoteStorageTarget={
@@ -587,6 +754,7 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 				setSaveAnywayConfirmOpen(false);
 				actionController.requestConnectorAction(actionId);
 			}}
+			onRequestConnectorTransition={requestConnectorTransition}
 			onRunConnectionTest={() => actionController.runConnectionTest()}
 			onFieldChange={setField}
 			onConnectorIdChange={setConnectorId}

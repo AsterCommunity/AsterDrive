@@ -57,11 +57,12 @@ pub use overview::get_overview;
 pub use policies::{
     create_policy, create_policy_group, delete_policy, delete_policy_group,
     execute_draft_storage_policy_action, execute_saved_storage_policy_action,
-    finish_storage_authorization, get_policy, get_policy_capacity, get_policy_group, list_policies,
-    list_policy_groups, list_storage_driver_descriptors, list_storage_driver_localizations,
-    list_storage_policy_credentials, migrate_policy_group_assignments, start_storage_authorization,
-    test_policy_connection, test_policy_params, update_policy, update_policy_group,
-    validate_storage_policy_credential,
+    execute_storage_connector_transition, finish_storage_authorization, get_policy,
+    get_policy_capacity, get_policy_group, list_policies, list_policy_groups,
+    list_storage_driver_descriptors, list_storage_driver_localizations,
+    list_storage_policy_credentials, migrate_policy_group_assignments,
+    resolve_storage_connector_transitions, start_storage_authorization, test_policy_connection,
+    test_policy_params, update_policy, update_policy_group, validate_storage_policy_credential,
 };
 pub use remote_nodes::{
     create_remote_node, create_remote_node_enrollment_token, create_remote_node_storage_target,
@@ -116,6 +117,10 @@ pub fn routes(
                         "/policies/storage-drivers/localizations",
                         web::get().to(list_storage_driver_localizations),
                     )
+                    .route(
+                        "/policies/connector-transitions/resolve",
+                        web::post().to(resolve_storage_connector_transitions),
+                    )
                     .route("/policies/{id}", web::get().to(get_policy))
                     .route(
                         "/policies/{id}/capacity",
@@ -130,6 +135,10 @@ pub fn routes(
                     .route(
                         "/policies/{id}/action",
                         web::post().to(execute_saved_storage_policy_action),
+                    )
+                    .route(
+                        "/policies/{id}/connector-transitions",
+                        web::post().to(execute_storage_connector_transition),
                     )
                     .route(
                         "/policies/{id}/storage-authorization/start",

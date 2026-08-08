@@ -721,6 +721,255 @@ async fn test_storage_driver_localizations_reject_invalid_locale_and_context() {
     }
 }
 
+fn connector_transition_request() -> Value {
+    serde_json::json!({
+        "target_connector_id": "asterdrive.storage.tencent_cos",
+        "transition_id": "from_generic_s3"
+    })
+}
+
+#[actix_web::test]
+async fn test_connector_transition_resolver_is_secret_free_and_endpoint_driven() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for (endpoint, expected_count) in [
+        ("https://archive-1250000000.cos.ap-hongkong.myqcloud.com", 1),
+        ("https://s3.example.test", 0),
+        ("https://myqcloud.com", 0),
+    ] {
+        let connection = s3_connection_json(
+            endpoint,
+            "archive-1250000000",
+            "tenant-a/files",
+            "DRAFT_SECRET_ID",
+            "DRAFT_SECRET_KEY",
+        );
+        let req = test::TestRequest::post()
+            .uri("/api/v1/admin/policies/connector-transitions/resolve")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "connector_config": connection["connector_config"].clone(),
+                "behavior": connection["behavior"].clone()
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        let body: Value = test::read_body_json(resp).await;
+        let transitions = body["data"]["transitions"]
+            .as_array()
+            .expect("transition list");
+        assert_eq!(transitions.len(), expected_count, "endpoint {endpoint}");
+        let serialized = serde_json::to_string(&body).expect("serialize response");
+        assert!(!serialized.contains("DRAFT_SECRET_ID"));
+        assert!(!serialized.contains("DRAFT_SECRET_KEY"));
+        if let Some(transition) = transitions.first() {
+            assert_eq!(transition["transition_id"], "from_generic_s3");
+            assert_eq!(
+                transition["target_connector_id"],
+                "asterdrive.storage.tencent_cos"
+            );
+            assert_eq!(
+                transition["target_connector_config"]["values"]["bucket"],
+                "archive-1250000000"
+            );
+            assert_eq!(
+                transition["target_connector_config"]["values"]["base_path"],
+                "tenant-a/files"
+            );
+            assert_eq!(transition["field_mappings"].as_array().unwrap().len(), 2);
+        }
+    }
+}
+
+#[actix_web::test]
+async fn test_saved_connector_transition_updates_policy_and_credential_atomically() {
+    use aster_drive::db::repository::{policy_repo, storage_policy_connector_credential_repo};
+    use aster_drive_model::entities::audit_log;
+    use aster_drive_model::types::AuditAction;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Generic COS policy",
+            "connection": s3_connection_json(
+                "https://archive-1250000000.cos.ap-hongkong.myqcloud.com",
+                "archive-1250000000",
+                "tenant-a/files",
+                "AKIDEXAMPLE",
+                "SECRETEXAMPLE",
+            ),
+            "chunk_size": 5_242_880,
+            "max_file_size": 123_456,
+            "is_default": false
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let policy_id = body["data"]["id"].as_i64().unwrap();
+    let before_policy = policy_repo::find_by_id(&db, policy_id).await.unwrap();
+    let before_credential =
+        storage_policy_connector_credential_repo::find_by_policy(&db, policy_id)
+            .await
+            .unwrap()
+            .expect("S3 credential");
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/policies/{policy_id}/connector-transitions"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(connector_transition_request())
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["id"], policy_id);
+    assert_eq!(
+        body["data"]["connector_id"],
+        "asterdrive.storage.tencent_cos"
+    );
+    assert_eq!(
+        body["data"]["connector_config"]["values"]["endpoint"],
+        "https://archive-1250000000.cos.ap-hongkong.myqcloud.com"
+    );
+    assert_eq!(
+        body["data"]["connector_config"]["values"]["bucket"],
+        "archive-1250000000"
+    );
+    assert_eq!(
+        body["data"]["connector_config"]["values"]["base_path"],
+        "tenant-a/files"
+    );
+    assert_eq!(body["data"]["max_file_size"], 123_456);
+    assert_eq!(body["data"]["chunk_size"], 5_242_880);
+
+    let after_policy = policy_repo::find_by_id(&db, policy_id).await.unwrap();
+    assert_eq!(after_policy.id, before_policy.id);
+    assert_eq!(after_policy.connector_id, "asterdrive.storage.tencent_cos");
+    let after_credential = storage_policy_connector_credential_repo::find_by_policy(&db, policy_id)
+        .await
+        .unwrap()
+        .expect("transitioned COS credential");
+    assert_eq!(after_credential.id, before_credential.id);
+    assert_eq!(
+        after_credential.connector_id,
+        "asterdrive.storage.tencent_cos"
+    );
+    assert_eq!(after_credential.schema_version, 1);
+    assert_eq!(after_credential.revision, before_credential.revision + 1);
+    assert_ne!(after_credential.ciphertext, before_credential.ciphertext);
+
+    aster_forge_audit::flush_global_audit_log_manager().await;
+    let audit = audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq(AuditAction::AdminUpdatePolicy))
+        .filter(audit_log::Column::EntityType.eq("storage_policy"))
+        .filter(audit_log::Column::EntityId.eq(policy_id))
+        .order_by_desc(audit_log::Column::Id)
+        .one(&db)
+        .await
+        .unwrap()
+        .expect("connector transition audit entry");
+    let details: Value = serde_json::from_str(audit.details.as_deref().unwrap()).unwrap();
+    assert_eq!(details["transition_id"], "from_generic_s3");
+    assert_eq!(details["source_connector_id"], "asterdrive.storage.s3");
+    assert_eq!(
+        details["target_connector_id"],
+        "asterdrive.storage.tencent_cos"
+    );
+    let serialized_details = serde_json::to_string(&details).unwrap();
+    assert!(!serialized_details.contains("AKIDEXAMPLE"));
+    assert!(!serialized_details.contains("SECRETEXAMPLE"));
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/policies/{policy_id}/promote-s3-driver"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({}))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 404);
+}
+
+#[actix_web::test]
+async fn test_saved_connector_transition_rejects_active_uploads_without_mutation() {
+    use aster_drive::db::repository::{policy_repo, user_repo};
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Transition upload guard",
+            "connection": s3_connection_json(
+                "https://archive-1250000000.cos.ap-hongkong.myqcloud.com",
+                "archive-1250000000",
+                "tenant-a/files",
+                "AKIDEXAMPLE",
+                "SECRETEXAMPLE",
+            )
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let policy_id = body["data"]["id"].as_i64().unwrap();
+    let before = policy_repo::find_by_id(&db, policy_id).await.unwrap();
+    let user = user_repo::find_by_username(&db, "testuser")
+        .await
+        .unwrap()
+        .expect("registered user");
+    let upload_id = uuid::Uuid::new_v4().to_string();
+    create_policy_upload_session(
+        &state,
+        PolicyUploadSessionSpec {
+            upload_id: &upload_id,
+            policy_id,
+            user_id: user.id,
+            object_temp_key: None,
+            status: None,
+            expires_at: None,
+        },
+    )
+    .await;
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/policies/{policy_id}/connector-transitions"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(connector_transition_request())
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 412);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyUploadSessionsExist.as_str()
+    );
+    let after = policy_repo::find_by_id(&db, policy_id).await.unwrap();
+    assert_eq!(after.connector_id, before.connector_id);
+    assert_eq!(after.storage_config, before.storage_config);
+}
+
 #[actix_web::test]
 async fn test_cluster_rejects_direct_local_policy_creation_without_side_effects() {
     let mut state = common::setup().await;

@@ -47,18 +47,22 @@ pub use common::unsupported_multipart_error;
 use local::LocalConnector;
 pub use models::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
+    ExecuteStorageConnectorTransitionInput, ResolveStorageConnectorTransitionsInput,
     StorageConnectorActionOutput, StorageConnectorActionResult, StorageConnectorConnectionInput,
     StorageConnectorCredentialInfo, StorageConnectorCredentialInput,
+    StorageConnectorTransitionPreview, StorageConnectorTransitionPreviewList,
     TestDraftStorageConnectorConnectionInput,
 };
 pub(crate) use models::{
     LegacyStorageConnectorCredentialInput, LegacyStoragePolicyStaticCredential,
-    LocalFilesystemPolicyProjection, RemotePolicyBindingProjection,
-    StorageAuthorizationFailureReason, StorageConnectorAuthorizationAudit,
-    StorageConnectorAuthorizationCallback, StorageConnectorAuthorizationError,
-    StorageConnectorAuthorizationStart, StorageConnectorRuntimeCredential,
+    LocalFilesystemPolicyProjection, PreparedStorageConnectorTransition,
+    RemotePolicyBindingProjection, StorageAuthorizationFailureReason,
+    StorageConnectorAuthorizationAudit, StorageConnectorAuthorizationCallback,
+    StorageConnectorAuthorizationError, StorageConnectorAuthorizationStart,
+    StorageConnectorRuntimeCredential, StorageConnectorTransitionDraft,
+    StorageConnectorTransitionDraftPlan, StorageConnectorTransitionSavedState,
     StorageCredentialValidationOutcome, StoragePolicyCleanupDriverSnapshot,
-    StoragePolicyCleanupSnapshots,
+    StoragePolicyCleanupSnapshots, StoredStorageConnectorCredentialPayload,
 };
 pub(crate) use onedrive::OneDriveConnector;
 #[cfg(test)]
@@ -114,6 +118,22 @@ pub(crate) async fn normalize_connector_config(
         .validate_config_binding(db, &connector_config)
         .await?;
     Ok(connector_config)
+}
+
+pub(crate) async fn resolve_transition_previews(
+    registry: &StorageConnectorRegistry,
+    db: &sea_orm::DatabaseConnection,
+    input: ResolveStorageConnectorTransitionsInput,
+) -> Result<StorageConnectorTransitionPreviewList> {
+    let connector_config = normalize_connector_config(registry, db, input.connector_config).await?;
+    registry
+        .require_input_connector(&connector_config.connector_id)?
+        .validate_policy_behavior(&input.behavior)?;
+    let transitions = registry.resolve_transition_previews(StorageConnectorTransitionDraft {
+        connector_config: &connector_config,
+        behavior: &input.behavior,
+    })?;
+    Ok(StorageConnectorTransitionPreviewList { transitions })
 }
 
 pub(crate) fn validate_credential_input(

@@ -320,6 +320,40 @@ describe("adminService", () => {
 		);
 	});
 
+	it("resolves and executes connector transitions through dedicated endpoints", () => {
+		const source = {
+			connector_config: {
+				format_version: 1,
+				connector_id: "plugin.source",
+				schema_version: 1,
+				values: { endpoint: "https://storage.example.test" },
+			},
+			behavior: {
+				thumbnail_extensions: [],
+				media_metadata_extensions: [],
+			},
+		};
+		adminPolicyService.resolveConnectorTransitions(source);
+		adminPolicyService.executeConnectorTransition(3, {
+			target_connector_id: "plugin.target",
+			transition_id: "from_source",
+		});
+
+		expect(mockState.post).toHaveBeenNthCalledWith(
+			1,
+			"/admin/policies/connector-transitions/resolve",
+			source,
+		);
+		expect(mockState.post).toHaveBeenNthCalledWith(
+			2,
+			"/admin/policies/3/connector-transitions",
+			{
+				target_connector_id: "plugin.target",
+				transition_id: "from_source",
+			},
+		);
+	});
+
 	it("uses the expected detail and mutation endpoints", () => {
 		adminOverviewService.get({
 			days: 30,

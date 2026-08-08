@@ -190,5 +190,14 @@
 	"storage_authorization_failed_target_resolution": "Authorization returned, but the connector could not resolve its storage target. Check the target configuration.",
 	"storage_authorization_failed_unsupported_provider": "This storage authorization provider is not supported by the selected connector.",
 	"storage_authorization_failed_invalid_request": "The storage authorization callback was invalid. Start authorization again.",
-	"storage_authorization_failed_server": "The server failed while completing storage authorization. Try again later."
+	"storage_authorization_failed_server": "The server failed while completing storage authorization. Try again later.",
+	"policy_connector_transition_title": "Specialized connector available",
+	"policy_connector_transition_draft_desc": "This endpoint matches a dedicated connector. You can switch while preserving compatible configuration and credentials.",
+	"policy_connector_transition_saved_desc": "This saved policy can change connector semantics in place without copying or rewriting objects.",
+	"policy_connector_transition_apply": "Use connector",
+	"policy_connector_transition_execute": "Transition in place",
+	"policy_connector_transition_save_first": "Save or discard the current edits before running this transition.",
+	"policy_connector_transition_draft_confirm": "Switch this draft to the recommended connector and map compatible fields?",
+	"policy_connector_transition_saved_confirm": "The server will validate sampled objects and active uploads before changing this saved policy. Continue?",
+	"policy_connector_transition_success": "Storage connector updated"
 }

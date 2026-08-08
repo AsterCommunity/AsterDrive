@@ -41,6 +41,8 @@ pub use connector_descriptor::{
     StorageConnectorSelectDataSource, StorageConnectorSelectDescriptor,
     StorageConnectorSelectOption, StorageConnectorSelectOptionInput,
     StorageConnectorSelectOptionValue, StorageConnectorSelectValueKind,
+    StorageConnectorTransitionDescriptor, StorageConnectorTransitionFieldMapping,
+    StorageConnectorTransitionId, StorageConnectorTransitionIdError,
     StorageConnectorUploadWorkflows, custom_action_descriptor,
     normalize_storage_connector_action_input, normalize_storage_connector_config,
     normalize_storage_connector_custom_action_invocation, storage_connector_dynamic_select_field,

@@ -236,6 +236,29 @@ pub async fn create_policy(
 }
 
 #[aster_forge_api_docs_macros::path(
+    post,
+    path = "/api/v1/admin/policies/connector-transitions/resolve",
+    tag = "admin",
+    operation_id = "resolve_storage_connector_transitions",
+    request_body = policy::ResolveStorageConnectorTransitionsInput,
+    responses(
+        (status = 200, description = "Resolve compatible connector transitions", body = inline(ApiResponse<policy::StorageConnectorTransitionPreviewList>)),
+        (status = 400, description = "Source connector configuration rejected"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn resolve_storage_connector_transitions(
+    state: web::Data<PrimaryAppState>,
+    body: web::Json<policy::ResolveStorageConnectorTransitionsInput>,
+) -> Result<HttpResponse> {
+    let transitions =
+        policy::resolve_connector_transitions(state.get_ref(), body.into_inner()).await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(transitions)))
+}
+
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policies/{id}",
     tag = "admin",
@@ -309,6 +332,41 @@ pub async fn update_policy(
     let ctx = audit::AuditContext::from_request(&req, &claims);
     let policy =
         policy::update_with_audit(state.get_ref(), *path, body.into_inner().into(), &ctx).await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(policy)))
+}
+
+#[aster_forge_api_docs_macros::path(
+    post,
+    path = "/api/v1/admin/policies/{id}/connector-transitions",
+    tag = "admin",
+    operation_id = "execute_storage_connector_transition",
+    params(("id" = i64, Path, description = "Policy ID")),
+    request_body = policy::ExecuteStorageConnectorTransitionInput,
+    responses(
+        (status = 200, description = "Storage policy connector transitioned", body = inline(ApiResponse<policy::StoragePolicy>)),
+        (status = 400, description = "Connector transition rejected"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Policy not found"),
+        (status = 412, description = "Policy or credential changed, or active uploads block the transition"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn execute_storage_connector_transition(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    path: web::Path<i64>,
+    body: web::Json<policy::ExecuteStorageConnectorTransitionInput>,
+) -> Result<HttpResponse> {
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    let policy = policy::execute_connector_transition_with_audit(
+        state.get_ref(),
+        *path,
+        body.into_inner(),
+        &ctx,
+    )
+    .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(policy)))
 }
 
