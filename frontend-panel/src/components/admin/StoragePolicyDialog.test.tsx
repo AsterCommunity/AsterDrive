@@ -5,6 +5,7 @@ import type {
 	StorageConnectorActionDescriptor,
 	StorageConnectorDescriptor,
 	StorageConnectorFieldDescriptor,
+	StoragePolicyCapacityInfo,
 } from "@/types/api";
 import { StoragePolicyDialog } from "./StoragePolicyDialog";
 import {
@@ -170,6 +171,26 @@ function policyForm(overrides: Partial<PolicyFormData> = {}): PolicyFormData {
 			plugin_endpoint: "https://plugin.example.test",
 		},
 		credential_values: { plugin_token: "SECRET_TOKEN" },
+		...overrides,
+	};
+}
+
+function policyCapacity(
+	overrides: Partial<StoragePolicyCapacityInfo> = {},
+): StoragePolicyCapacityInfo {
+	return {
+		blob_count: 3,
+		blob_total_bytes: 300,
+		capacity: {
+			available_bytes: 600,
+			observed_at: "2026-08-08T00:00:00Z",
+			source: "local_filesystem",
+			status: "supported",
+			total_bytes: 1000,
+			used_bytes: 400,
+		},
+		connector_id: "plugin.example",
+		policy_id: 1,
 		...overrides,
 	};
 }
@@ -387,6 +408,225 @@ describe("StoragePolicyDialog", () => {
 			"policy_editor_credentials_keep_placeholder",
 		);
 		expect(screen.getByRole("button", { name: "save_changes" })).toBeVisible();
+	});
+
+	it("renders schema-valid supported capacity values and an accessible segmented progress bar", () => {
+		render(
+			<StoragePolicyDialog
+				{...dialogProps({
+					mode: "edit",
+					policyCapacity: policyCapacity(),
+				})}
+			/>,
+		);
+
+		const summary = screen.getByTestId("policy-edit-capacity-summary");
+		expect(
+			within(summary).getByText("policy_capacity_status_supported"),
+		).toBeVisible();
+		expect(
+			within(summary).getByTestId("policy-capacity-blob-used"),
+		).toHaveTextContent("300.0 B");
+		expect(
+			within(summary).getByTestId("policy-capacity-system-used"),
+		).toHaveTextContent("400.0 B");
+		expect(
+			within(summary).getByTestId("policy-capacity-available"),
+		).toHaveTextContent("600.0 B");
+		expect(
+			within(summary).getByTestId("policy-capacity-total"),
+		).toHaveTextContent("1000.0 B");
+
+		const progress = within(summary).getByRole("progressbar", {
+			name: "policy_capacity_occupied_progress",
+		});
+		expect(progress).toHaveAttribute("aria-valuemin", "0");
+		expect(progress).toHaveAttribute("aria-valuemax", "100");
+		expect(progress).toHaveAttribute("aria-valuenow", "40");
+		expect(progress).toHaveAttribute(
+			"aria-valuetext",
+			"policy_capacity_occupied_value:40:1000.0 B:400.0 B",
+		);
+		expect(
+			within(summary).getByTestId("policy-capacity-other-segment"),
+		).toHaveStyle({ width: "10%" });
+		expect(
+			within(summary).getByTestId("policy-capacity-blob-segment"),
+		).toHaveStyle({ width: "30%" });
+		expect(
+			within(summary).getByText("policy_capacity_other_system_used"),
+		).toBeVisible();
+	});
+
+	it("clamps inconsistent provider capacity before formatting and sizing segments", () => {
+		render(
+			<StoragePolicyDialog
+				{...dialogProps({
+					mode: "edit",
+					policyCapacity: policyCapacity({
+						blob_total_bytes: 2000,
+						capacity: {
+							available_bytes: -100,
+							observed_at: "2026-08-08T00:00:00Z",
+							source: "inconsistent_provider",
+							status: "supported",
+							total_bytes: 1000,
+							used_bytes: 1500,
+						},
+					}),
+				})}
+			/>,
+		);
+
+		const summary = screen.getByTestId("policy-edit-capacity-summary");
+		expect(
+			within(summary).getByTestId("policy-capacity-system-used"),
+		).toHaveTextContent("1000.0 B");
+		expect(
+			within(summary).getByTestId("policy-capacity-available"),
+		).toHaveTextContent("0 B");
+		expect(within(summary).getByRole("progressbar")).toHaveAttribute(
+			"aria-valuenow",
+			"100",
+		);
+		expect(
+			within(summary).getByTestId("policy-capacity-other-segment"),
+		).toHaveStyle({ width: "0%" });
+		expect(
+			within(summary).getByTestId("policy-capacity-blob-segment"),
+		).toHaveStyle({ width: "100%" });
+	});
+
+	it("renders zero-total metrics without dividing or exposing progress semantics", () => {
+		render(
+			<StoragePolicyDialog
+				{...dialogProps({
+					mode: "edit",
+					policyCapacity: policyCapacity({
+						capacity: {
+							available_bytes: 10,
+							observed_at: "2026-08-08T00:00:00Z",
+							source: "zero_total_provider",
+							status: "supported",
+							total_bytes: 0,
+							used_bytes: 100,
+						},
+					}),
+				})}
+			/>,
+		);
+
+		const summary = screen.getByTestId("policy-edit-capacity-summary");
+		expect(
+			within(summary).getByTestId("policy-capacity-system-used"),
+		).toHaveTextContent("0 B");
+		expect(
+			within(summary).getByTestId("policy-capacity-available"),
+		).toHaveTextContent("0 B");
+		expect(within(summary).queryByRole("progressbar")).toBeNull();
+		expect(
+			within(summary).getByText("policy_capacity_zero_total_desc"),
+		).toBeVisible();
+	});
+
+	it("keeps loading, unsupported, unavailable, and null-field capacity fallbacks explicit", () => {
+		const view = render(
+			<StoragePolicyDialog
+				{...dialogProps({
+					mode: "edit",
+					policyCapacity: policyCapacity(),
+					policyCapacityLoading: true,
+				})}
+			/>,
+		);
+		let summary = screen.getByTestId("policy-edit-capacity-summary");
+		expect(within(summary).getByText("policy_capacity_loading")).toBeVisible();
+		expect(within(summary).queryByRole("progressbar")).toBeNull();
+		expect(
+			within(summary).queryByTestId("policy-capacity-system-used"),
+		).toBeNull();
+
+		view.rerender(
+			<StoragePolicyDialog
+				{...dialogProps({
+					mode: "edit",
+					policyCapacity: policyCapacity({
+						capacity: {
+							available_bytes: null,
+							observed_at: "2026-08-08T00:00:00Z",
+							source: "unsupported_provider",
+							status: "unsupported",
+							total_bytes: null,
+							used_bytes: null,
+						},
+					}),
+				})}
+			/>,
+		);
+		summary = screen.getByTestId("policy-edit-capacity-summary");
+		expect(
+			within(summary).getByText("policy_capacity_unsupported_desc"),
+		).toBeVisible();
+		expect(within(summary).queryByRole("progressbar")).toBeNull();
+
+		view.rerender(
+			<StoragePolicyDialog
+				{...dialogProps({
+					mode: "edit",
+					policyCapacity: policyCapacity({
+						capacity: {
+							available_bytes: null,
+							observed_at: "2026-08-08T00:00:00Z",
+							source: "temporarily_unavailable",
+							status: "unavailable",
+							total_bytes: null,
+							used_bytes: null,
+						},
+					}),
+				})}
+			/>,
+		);
+		summary = screen.getByTestId("policy-edit-capacity-summary");
+		expect(
+			within(summary).getByText("policy_capacity_unavailable_desc"),
+		).toBeVisible();
+
+		view.rerender(
+			<StoragePolicyDialog
+				{...dialogProps({
+					mode: "edit",
+					policyCapacity: policyCapacity({
+						capacity: {
+							available_bytes: null,
+							observed_at: "2026-08-08T00:00:00Z",
+							source: "partial_provider",
+							status: "supported",
+							total_bytes: 1000,
+							used_bytes: 400,
+						},
+					}),
+				})}
+			/>,
+		);
+		summary = screen.getByTestId("policy-edit-capacity-summary");
+		expect(
+			within(summary).getByText("policy_capacity_unavailable_desc"),
+		).toBeVisible();
+		expect(within(summary).queryByRole("progressbar")).toBeNull();
+		expect(within(summary).queryByTestId("policy-capacity-total")).toBeNull();
+
+		view.rerender(
+			<StoragePolicyDialog
+				{...dialogProps({ mode: "edit", policyCapacity: null })}
+			/>,
+		);
+		summary = screen.getByTestId("policy-edit-capacity-summary");
+		expect(
+			within(summary).getByText("policy_capacity_status_unavailable"),
+		).toBeVisible();
+		expect(
+			within(summary).getByText("policy_capacity_unavailable_desc"),
+		).toBeVisible();
 	});
 
 	it("renders connector-owned credential management messages from the connector namespace", () => {
@@ -649,11 +889,10 @@ describe("StoragePolicyDialog", () => {
 				is_default: false,
 			}),
 			mode: "edit",
-			policyCapacity: {
+			policyCapacity: policyCapacity({
 				blob_count: 3,
 				blob_total_bytes: 2048,
-				capacity: { status: "available" },
-			} as never,
+			}),
 			remoteNodes: [{ id: 7, name: "Node seven" } as never],
 			remoteStorageTargets: [
 				{ name: "Archive", target_key: "archive" } as never,
@@ -673,7 +912,7 @@ describe("StoragePolicyDialog", () => {
 			"targets failed",
 		);
 		expect(screen.getByTestId("remote-targets")).toHaveTextContent("true");
-		expect(screen.getByText("policy_capacity_status_available")).toBeVisible();
+		expect(screen.getByText("policy_capacity_status_supported")).toBeVisible();
 		expect(
 			screen.getByRole("button", { name: "plugin.repair" }),
 		).toBeDisabled();
