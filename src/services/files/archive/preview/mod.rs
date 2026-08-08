@@ -294,7 +294,7 @@ where
     E: Fn(String) -> AsterError,
 {
     let mut copied = 0_u64;
-    let mut buffer = [0_u8; 64 * 1024];
+    let mut buffer = vec![0_u8; 64 * 1024].into_boxed_slice();
 
     loop {
         context.ensure_active()?;

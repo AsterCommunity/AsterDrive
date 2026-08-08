@@ -39,7 +39,7 @@ pub(crate) async fn set_lock_in_scope(
 
     let file =
         crate::services::workspace::storage::verify_file_access(state, scope, file_id).await?;
-    publish_file_lock_change(state, scope, &file, locked).await?;
+    publish_file_lock_change(state, scope, &file, locked)?;
     tracing::debug!(
         scope = ?scope,
         file_id = file.id,
@@ -67,7 +67,7 @@ pub async fn set_lock(
     )))
 }
 
-async fn publish_file_lock_change(
+fn publish_file_lock_change(
     state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
     file: &file::Model,

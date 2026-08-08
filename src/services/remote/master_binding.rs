@@ -165,7 +165,7 @@ pub async fn authorize_presigned_put_request<S: FollowerRuntimeState>(
         ));
     }
 
-    let binding = authorize_presigned_binding_request(state, req).await?;
+    let binding = authorize_presigned_binding_request(state, req)?;
     resolve_authorized_ingress(
         state,
         binding,
@@ -185,7 +185,7 @@ pub async fn authorize_presigned_get_request<S: FollowerRuntimeState>(
         ));
     }
 
-    let binding = authorize_presigned_binding_request(state, req).await?;
+    let binding = authorize_presigned_binding_request(state, req)?;
     resolve_authorized_ingress(state, binding, remote_storage_target_key(req)?, 0).await
 }
 
@@ -285,7 +285,7 @@ async fn authorize_binding_request<S: FollowerRuntimeState>(
     Ok(binding)
 }
 
-async fn authorize_presigned_binding_request<S: FollowerRuntimeState>(
+fn authorize_presigned_binding_request<S: FollowerRuntimeState>(
     state: &S,
     req: &actix_web::HttpRequest,
 ) -> Result<master_binding::Model> {

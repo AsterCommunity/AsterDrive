@@ -25,3 +25,8 @@ pub mod storage;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod webdav;
+
+#[cfg(test)]
+#[global_allocator]
+static TEST_ALLOCATOR: test_support::allocations::CountingAllocator =
+    test_support::allocations::CountingAllocator;

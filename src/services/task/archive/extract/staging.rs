@@ -253,7 +253,7 @@ where
     W: tokio::io::AsyncWrite + Unpin,
 {
     let mut copied = 0_u64;
-    let mut buffer = [0_u8; 64 * 1024];
+    let mut buffer = vec![0_u8; 64 * 1024].into_boxed_slice();
 
     loop {
         context.ensure_active()?;
@@ -539,6 +539,8 @@ mod tests {
 
     use super::copy_async_reader_to_writer_with_execution_and_expected_size;
 
+    static COPY_ALLOCATION_MEASUREMENT_INPUT: [u8; 128 * 1024] = [0; 128 * 1024];
+
     #[tokio::test]
     async fn source_archive_copy_writes_bytes_when_declared_size_matches() {
         let context = TaskExecutionContext::new(
@@ -637,5 +639,61 @@ mod tests {
         .expect_err("shutdown should stop async copy before reading");
 
         assert!(is_task_worker_shutdown_requested(&error));
+    }
+
+    #[tokio::test]
+    async fn source_archive_copy_propagates_write_failure() {
+        let context = TaskExecutionContext::new(
+            TaskLease::new(42, 7),
+            std::time::Duration::from_secs(60),
+            CancellationToken::new(),
+        );
+        let mut reader = &b"archive"[..];
+        let mut writer = crate::test_support::FailingAsyncWriter;
+
+        let error = copy_async_reader_to_writer_with_execution_and_expected_size(
+            &context,
+            &mut reader,
+            &mut writer,
+            7,
+            "source archive",
+        )
+        .await
+        .expect_err("writer failure should abort the copy");
+
+        assert!(
+            error
+                .message()
+                .contains("write source archive stream chunk")
+        );
+    }
+
+    #[tokio::test]
+    async fn source_archive_copy_future_size_and_allocations_are_bounded() {
+        let context = TaskExecutionContext::new(
+            TaskLease::new(42, 7),
+            std::time::Duration::from_secs(60),
+            CancellationToken::new(),
+        );
+        let mut reader = COPY_ALLOCATION_MEASUREMENT_INPUT.as_slice();
+        let mut writer = tokio::io::sink();
+        let future = copy_async_reader_to_writer_with_execution_and_expected_size(
+            &context,
+            &mut reader,
+            &mut writer,
+            COPY_ALLOCATION_MEASUREMENT_INPUT.len() as u64,
+            "source archive",
+        );
+        let future_size = std::mem::size_of_val(&future);
+        let (result, allocations) = crate::test_support::allocations::measure_future(future).await;
+
+        result.expect("multi-buffer exact-size stream should copy");
+        eprintln!("archive extract copy future: {future_size} bytes; allocations: {allocations:?}");
+        assert!(
+            future_size < 16 * 1024,
+            "archive extract copy future is {future_size} bytes"
+        );
+        assert_eq!(allocations.count, 1);
+        assert_eq!(allocations.bytes, 64 * 1024);
     }
 }

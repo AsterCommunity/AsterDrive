@@ -52,7 +52,7 @@ pub(super) async fn upload_bytes(
     chunk_number: i32,
     data: Bytes,
 ) -> Result<ChunkUploadResponse> {
-    let context = load_context(state, &session).await?;
+    let context = load_context(state, &session)?;
     upload_bytes_with_context(state, session, chunk_number, data, &context).await
 }
 
@@ -112,7 +112,7 @@ pub(super) async fn upload_payload(
     chunk_number: i32,
     payload: actix_web::web::Payload,
 ) -> Result<ChunkUploadResponse> {
-    let context = load_context(state, &session).await?;
+    let context = load_context(state, &session)?;
     upload_payload_with_context(state, session, chunk_number, payload, &context).await
 }
 
@@ -295,7 +295,7 @@ pub(super) async fn reconcile_progress(
     state: &PrimaryAppState,
     session: &upload_session::Model,
 ) -> Result<Vec<i32>> {
-    let context = load_context(state, session).await?;
+    let context = load_context(state, session)?;
     reconcile_progress_with_context(state, session, &context).await
 }
 
@@ -339,7 +339,7 @@ fn validate_chunk_request(session: &upload_session::Model, chunk_number: i32) ->
     Ok(())
 }
 
-async fn load_context(
+fn load_context(
     state: &PrimaryAppState,
     session: &upload_session::Model,
 ) -> Result<ProviderRelayContext> {
