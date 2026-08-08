@@ -1122,19 +1122,6 @@ function PolicyEditContextBar({
 	const badgePresentation = getStorageConnectorBadgePresentation(
 		descriptor?.ui.badge_rgb,
 	);
-	const capacityStatus = loading
-		? t("policy_capacity_checking")
-		: capacity
-			? t(`policy_capacity_status_${capacity.capacity.status}`)
-			: t("policy_capacity_status_unavailable");
-	const capacityDescription = loading
-		? t("policy_capacity_loading")
-		: capacity
-			? t("policy_edit_usage_summary", {
-					size: formatBytes(capacity.blob_total_bytes),
-					count: capacity.blob_count,
-				})
-			: t("policy_capacity_unavailable_desc");
 	return (
 		<section
 			data-testid="policy-edit-context-bar"
@@ -1189,22 +1176,209 @@ function PolicyEditContextBar({
 					data-testid="policy-edit-capacity-summary"
 					className="min-w-0 border-border/70 md:border-l md:pl-4"
 				>
-					<div className="flex items-start justify-between gap-3">
-						<div className="min-w-0">
-							<p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-								{t("policy_capacity_title")}
-							</p>
-							<p className="mt-1 text-sm font-medium text-foreground">
-								{capacityDescription}
-							</p>
-						</div>
-						<span className="shrink-0 rounded-full border border-border bg-background/80 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-							{capacityStatus}
-						</span>
-					</div>
+					<PolicyCapacitySummary capacity={capacity} loading={loading} />
 				</div>
 			</div>
 		</section>
+	);
+}
+
+function capacityStatusTone(
+	status: StoragePolicyCapacityInfo["capacity"]["status"],
+) {
+	if (status === "supported") {
+		return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300";
+	}
+	if (status === "unsupported") {
+		return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300";
+	}
+	return "border-border bg-background/80 text-muted-foreground";
+}
+
+function finiteNonNegative(value: number | null | undefined) {
+	return typeof value === "number" && Number.isFinite(value)
+		? Math.max(value, 0)
+		: null;
+}
+
+function PolicyCapacitySummary({
+	capacity,
+	loading,
+}: {
+	capacity: StoragePolicyCapacityInfo | null;
+	loading: boolean;
+}) {
+	const { t } = useTranslation("admin");
+	const info = capacity?.capacity;
+	const blobUsage =
+		capacity == null
+			? null
+			: {
+					bytes: Math.max(capacity.blob_total_bytes, 0),
+					count: Math.max(capacity.blob_count, 0),
+				};
+	const rawTotal = finiteNonNegative(info?.total_bytes);
+	const rawUsed = finiteNonNegative(info?.used_bytes);
+	const rawAvailable = finiteNonNegative(info?.available_bytes);
+	const hasSupportedTotals =
+		info?.status === "supported" &&
+		rawTotal != null &&
+		rawUsed != null &&
+		rawAvailable != null;
+	const total = hasSupportedTotals ? rawTotal : null;
+	const used =
+		total != null && rawUsed != null ? Math.min(rawUsed, total) : null;
+	const available =
+		total != null && used != null && rawAvailable != null
+			? Math.min(rawAvailable, total - used)
+			: null;
+	const blobInUsed =
+		used != null && blobUsage != null ? Math.min(blobUsage.bytes, used) : 0;
+	const occupiedPercent =
+		total != null && total > 0 && used != null ? (used / total) * 100 : null;
+	const blobPercent =
+		occupiedPercent != null && total != null ? (blobInUsed / total) * 100 : 0;
+	const otherPercent =
+		occupiedPercent != null ? Math.max(0, occupiedPercent - blobPercent) : 0;
+	const fallbackDescription =
+		info?.status === "unsupported"
+			? t("policy_capacity_unsupported_desc")
+			: t("policy_capacity_unavailable_desc");
+	const status = loading ? "unavailable" : (info?.status ?? "unavailable");
+
+	return (
+		<div>
+			<div className="flex items-start justify-between gap-3">
+				<p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+					{t("policy_capacity_title")}
+				</p>
+				<span
+					className={cn(
+						"shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+						capacityStatusTone(status),
+					)}
+				>
+					{loading
+						? t("policy_capacity_checking")
+						: t(`policy_capacity_status_${status}`)}
+				</span>
+			</div>
+
+			{loading ? (
+				<p className="mt-3 text-sm leading-6 text-muted-foreground">
+					{t("policy_capacity_loading")}
+				</p>
+			) : (
+				<div className="mt-3 space-y-3">
+					{blobUsage != null ? (
+						<div className="flex items-baseline justify-between gap-3">
+							<div>
+								<p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+									{t("policy_capacity_blob_usage")}
+								</p>
+								<p
+									data-testid="policy-capacity-blob-used"
+									className="mt-0.5 text-sm font-semibold tabular-nums text-foreground"
+								>
+									{formatBytes(blobUsage.bytes)}
+								</p>
+							</div>
+							<p className="text-xs text-muted-foreground">
+								{t("policy_capacity_blob_count", { count: blobUsage.count })}
+							</p>
+						</div>
+					) : null}
+
+					{total != null && used != null && available != null ? (
+						<div className="rounded-xl border border-border/70 bg-background/70 p-3">
+							<div className="grid grid-cols-2 gap-3">
+								<div>
+									<p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+										{t("policy_capacity_system_used")}
+									</p>
+									<p
+										data-testid="policy-capacity-system-used"
+										className="mt-0.5 text-sm font-medium tabular-nums text-foreground"
+									>
+										{formatBytes(used)}
+									</p>
+								</div>
+								<div>
+									<p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+										{t("policy_capacity_available")}
+									</p>
+									<p
+										data-testid="policy-capacity-available"
+										className="mt-0.5 text-sm font-medium tabular-nums text-foreground"
+									>
+										{formatBytes(available)}
+									</p>
+								</div>
+							</div>
+							<p
+								data-testid="policy-capacity-total"
+								className="mt-2 text-xs text-muted-foreground"
+							>
+								{t("policy_capacity_total", { total: formatBytes(total) })}
+							</p>
+
+							{occupiedPercent != null ? (
+								<>
+									<div
+										role="progressbar"
+										aria-label={t("policy_capacity_occupied_progress")}
+										aria-valuemin={0}
+										aria-valuemax={100}
+										aria-valuenow={Number(occupiedPercent.toFixed(2))}
+										aria-valuetext={t("policy_capacity_occupied_value", {
+											percent: Math.round(occupiedPercent),
+											total: formatBytes(total),
+											used: formatBytes(used),
+										})}
+										className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-muted"
+									>
+										<span
+											aria-hidden="true"
+											data-testid="policy-capacity-other-segment"
+											className="h-full bg-emerald-500"
+											style={{ width: `${otherPercent}%` }}
+										/>
+										<span
+											aria-hidden="true"
+											data-testid="policy-capacity-blob-segment"
+											className="h-full bg-blue-500"
+											style={{ width: `${blobPercent}%` }}
+										/>
+									</div>
+									<div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+										<span className="flex items-center gap-1.5">
+											<span className="size-2 rounded-full bg-emerald-500" />
+											{t("policy_capacity_other_system_used")}
+										</span>
+										<span className="flex items-center gap-1.5">
+											<span className="size-2 rounded-full bg-blue-500" />
+											{t("policy_capacity_blob_usage")}
+										</span>
+										<span className="flex items-center gap-1.5">
+											<span className="size-2 rounded-full bg-muted ring-1 ring-border" />
+											{t("policy_capacity_available")}
+										</span>
+									</div>
+								</>
+							) : (
+								<p className="mt-2 text-xs leading-5 text-muted-foreground">
+									{t("policy_capacity_zero_total_desc")}
+								</p>
+							)}
+						</div>
+					) : (
+						<p className="text-sm leading-6 text-muted-foreground">
+							{fallbackDescription}
+						</p>
+					)}
+				</div>
+			)}
+		</div>
 	);
 }
 
