@@ -137,7 +137,7 @@ fn tencent_cos_action_connection() -> Value {
         "connector_config": {
             "format_version": 1,
             "connector_id": "asterdrive.storage.tencent_cos",
-            "schema_version": 1,
+            "schema_version": 2,
             "values": {
                 "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
                 "bucket": "media-1250000000",
