@@ -529,6 +529,41 @@ describe("StoragePolicyDialog", () => {
 		).toBeVisible();
 	});
 
+	it("normalizes a negative total to the zero-total presentation", () => {
+		render(
+			<StoragePolicyDialog
+				{...dialogProps({
+					mode: "edit",
+					policyCapacity: policyCapacity({
+						capacity: {
+							available_bytes: 10,
+							observed_at: "2026-08-08T00:00:00Z",
+							source: "negative_total_provider",
+							status: "supported",
+							total_bytes: -1,
+							used_bytes: 100,
+						},
+					}),
+				})}
+			/>,
+		);
+
+		const summary = screen.getByTestId("policy-edit-capacity-summary");
+		expect(
+			within(summary).getByTestId("policy-capacity-system-used"),
+		).toHaveTextContent("0 B");
+		expect(
+			within(summary).getByTestId("policy-capacity-available"),
+		).toHaveTextContent("0 B");
+		expect(
+			within(summary).getByTestId("policy-capacity-total"),
+		).toHaveTextContent("0 B");
+		expect(within(summary).queryByRole("progressbar")).toBeNull();
+		expect(
+			within(summary).getByText("policy_capacity_zero_total_desc"),
+		).toBeVisible();
+	});
+
 	it("keeps loading, unsupported, unavailable, and null-field capacity fallbacks explicit", () => {
 		const view = render(
 			<StoragePolicyDialog
