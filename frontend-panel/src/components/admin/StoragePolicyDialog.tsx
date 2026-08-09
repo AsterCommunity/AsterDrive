@@ -1773,13 +1773,13 @@ function ConnectorManagement({
 						<div className="flex gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs leading-5 text-amber-800 dark:text-amber-200">
 							<Icon name="Warning" className="mt-0.5 size-4 shrink-0" />
 							<div className="min-w-0 space-y-1">
-								{statusPresentation.attention_title_key ? (
+								{statusPresentation?.attention_title_key ? (
 									<p className="font-medium">
 										{connectorT(statusPresentation.attention_title_key)}
 									</p>
 								) : null}
 								{statusReason ? <p>{statusReason}</p> : null}
-								{statusPresentation.attention_guidance_key ? (
+								{statusPresentation?.attention_guidance_key ? (
 									<p>{connectorT(statusPresentation.attention_guidance_key)}</p>
 								) : null}
 							</div>

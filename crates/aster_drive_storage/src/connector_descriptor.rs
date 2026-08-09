@@ -2321,10 +2321,11 @@ mod tests {
         StorageConnectorActionKind, StorageConnectorActionOutputFieldDescriptor,
         StorageConnectorActionOutputValueKind, StorageConnectorBadgeRgb,
         StorageConnectorCredentialManagementDescriptor, StorageConnectorCredentialMode,
-        StorageConnectorCredentialStatusPresentation, StorageConnectorCredentialStatusTone,
-        StorageConnectorCustomActionDescriptorInput, StorageConnectorDeploymentScope,
-        StorageConnectorFieldDefaultMode, StorageConnectorFieldDefaultValue,
-        StorageConnectorFieldDisplayInput, StorageConnectorFieldKind, StorageConnectorFieldScope,
+        StorageConnectorCredentialReasonRule, StorageConnectorCredentialStatusPresentation,
+        StorageConnectorCredentialStatusTone, StorageConnectorCustomActionDescriptorInput,
+        StorageConnectorDeploymentScope, StorageConnectorFieldDefaultMode,
+        StorageConnectorFieldDefaultValue, StorageConnectorFieldDisplayInput,
+        StorageConnectorFieldKind, StorageConnectorFieldScope,
         StorageConnectorOptionsValidationError, StorageConnectorSelectDataSource,
         StorageConnectorSelectOption, StorageConnectorSelectOptionInput,
         StorageConnectorSelectOptionValue, StorageConnectorSelectValueKind,
@@ -2617,6 +2618,62 @@ mod tests {
                 .localization_message_ids()
                 .contains("credential_authorized")
         );
+
+        for field in ["redirect_uri_help_key", "redirect_uri_copy_key"] {
+            let mut invalid = descriptor.clone();
+            let management = invalid
+                .credential_management
+                .as_mut()
+                .expect("credential presentation");
+            match field {
+                "redirect_uri_help_key" => {
+                    management.redirect_uri_help_key = Some("credential_redirect_help".to_string());
+                }
+                "redirect_uri_copy_key" => {
+                    management.redirect_uri_copy_key = Some("credential_redirect_copy".to_string());
+                }
+                _ => unreachable!("fixture only declares redirect URI metadata fields"),
+            }
+            let error = invalid
+                .validate()
+                .expect_err("redirect URI metadata without redirect_uri_key must fail");
+            assert!(error.to_string().contains("requires redirect_uri_key"));
+        }
+
+        for (contains_any, message_key, expected) in [
+            (
+                Vec::<String>::new(),
+                "credential_reason".to_string(),
+                "non-empty fragments",
+            ),
+            (
+                vec!["  ".to_string()],
+                "credential_reason".to_string(),
+                "non-empty fragments",
+            ),
+            (
+                vec!["invalid_grant".to_string()],
+                "  ".to_string(),
+                "message_key must not be empty",
+            ),
+        ] {
+            let mut invalid = descriptor.clone();
+            invalid
+                .credential_management
+                .as_mut()
+                .expect("credential presentation")
+                .status_presentations
+                .get_mut("missing")
+                .expect("missing presentation")
+                .reason_rules = vec![StorageConnectorCredentialReasonRule {
+                contains_any,
+                message_key,
+            }];
+            let error = invalid
+                .validate()
+                .expect_err("invalid credential reason rule must fail");
+            assert!(error.to_string().contains(expected));
+        }
     }
 
     #[test]

@@ -965,10 +965,12 @@ describe("StoragePolicyDialog", () => {
 				reauthorize_action_key: null,
 			},
 		});
+		const onValidateStorageCredential = vi.fn();
 		view.rerender(
 			<StoragePolicyDialog
 				{...dialogProps({
 					mode: "edit",
+					onValidateStorageCredential,
 					storageDriverDescriptor: validationOnlyPlugin,
 					storageDriverDescriptors: [validationOnlyPlugin],
 					storageCredentials: [credential],
@@ -976,6 +978,12 @@ describe("StoragePolicyDialog", () => {
 			/>,
 		);
 		expect(screen.queryByText("Connector redirect URI")).toBeNull();
+		const validateButton = screen.getByRole("button", {
+			name: "Validate connector",
+		});
+		expect(validateButton).toBeVisible();
+		fireEvent.click(validateButton);
+		expect(onValidateStorageCredential).toHaveBeenCalledOnce();
 	});
 
 	it("covers connector loading and error states before selection", () => {
