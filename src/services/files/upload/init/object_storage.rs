@@ -221,5 +221,9 @@ async fn presigned_upload_request(
         .presigned_put_request(temp_key, std::time::Duration::from_secs(HOUR_SECS))
         .await?
         .ok_or_else(|| AsterError::storage_driver_error("presigned PUT not supported by driver"))?;
-    Ok((Some(request), None, Some(presigned_driver.presigned_single_put_requires_etag())))
+    Ok((
+        Some(request),
+        None,
+        Some(presigned_driver.presigned_single_put_requires_etag()),
+    ))
 }

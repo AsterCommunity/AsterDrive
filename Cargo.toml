@@ -241,7 +241,7 @@ parking_lot = "0.12"
 paste = "1.0.15"
 percent-encoding = "2.3"
 rand = { workspace = true }
-reqwest = { workspace = true, features = ["stream", "json"] }
+reqwest = { workspace = true, features = ["stream", "json", "multipart"] }
 qiniu-apis = "0.2.4"
 qiniu-credential = "0.2.4"
 qiniu-objects-manager = "0.2.4"
