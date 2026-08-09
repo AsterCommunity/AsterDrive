@@ -376,6 +376,19 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
     assert_eq!(reader_body.len(), usize::try_from(reader_size).unwrap());
     assert!(reader_body.iter().all(|byte| *byte == b'Z'));
 
+    driver
+        .put_reader(
+            "stream/single.bin",
+            Box::new(std::io::Cursor::new(b"single block".to_vec())),
+            12,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        driver.get("stream/single.bin").await.unwrap(),
+        b"single block"
+    );
+
     driver.delete("docs/hello.txt").await.unwrap();
     driver.delete("docs/hello.txt").await.unwrap();
     assert!(!driver.exists("docs/hello.txt").await.unwrap());

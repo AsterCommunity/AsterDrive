@@ -101,6 +101,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - **存储原生处理语义** — 缩略图与媒体元数据分别使用显式 enabled flag 和 extension list；关闭开关时保留扩展名作为 dormant configuration，空扩展列表即使在开启时也不匹配任何文件。
 - **Presigned 请求所有权** — URL 与签名所需 headers 由同一个 storage driver 生成完整 request descriptor；S3、Azure Blob、Alibaba OSS、Tencent COS、Remote 以及 multipart refresh 统一走该契约，前端不再硬编码 `Content-Type: application/octet-stream`。
 - **异步 Future 体积** — 归档预览与解压 copy loop 的 64 KiB 栈内 buffer 改为每次操作一次有界分配，把相关 Future 压到 16 KiB 以下；上传与 WebDAV 热路径未引入额外 boxing 或每请求动态分配。
+- **Azure Blob 分块上传内存边界** — `put_reader` 按 Azure block boundary 流式提交，每个 block 使用固定 64 KiB 请求缓冲，不再按有效 block size 分配整块 heap；50,000-block 规划、提交顺序和 declared-size 校验保持不变。
 - **反向隧道上传内存边界** — Reader 上传在 stream lane 可用时直接流式传输，消费后失败由上层重新打开数据源重试；polling 仅承载符合 follower 1 MiB control-plane envelope 预算的小型 body，并移除请求 body 与完整 base64 字符串的额外副本。
 - **Local 默认存储路径** — Local connector、driver、首次配置和测试统一使用 `./data/uploads`；缺失或空 base path 由 connector default 补全，不再散落多套 fallback。
 - **S3-compatible driver 复用** — 提取 AWS request vendor normalization，并用 storage / multipart delegation macro 收敛 S3-compatible 与 Tencent COS 重复实现；S3 driver 构造改为显式 options + SDK config hook，供 provider auth 和 signing customization 使用。

@@ -594,10 +594,34 @@ mod tests {
             usize::try_from(configured + 1).expect("raised chunk size usize"),
         );
 
-        let too_large = super::AZURE_BLOCK_BLOB_MAX_BLOCKS
+        let service_limit = super::AZURE_BLOCK_BLOB_MAX_BLOCKS
             .checked_mul(super::AZURE_BLOCK_BLOB_MAX_BLOCK_SIZE)
-            .and_then(|value| value.checked_add(1))
             .expect("test size within u64");
-        assert!(driver.chunk_size_for_content(too_large).is_err());
+        assert_eq!(
+            driver
+                .chunk_size_for_content(service_limit)
+                .expect("service limit should be accepted"),
+            usize::try_from(super::AZURE_BLOCK_BLOB_MAX_BLOCK_SIZE)
+                .expect("service block size usize"),
+        );
+        assert!(
+            driver.chunk_size_for_content(service_limit + 1).is_err(),
+            "one byte beyond 50,000 maximum-size blocks must be rejected"
+        );
+        assert!(
+            driver.chunk_size_for_content(u64::MAX).is_err(),
+            "content-length arithmetic overflow must be rejected"
+        );
+
+        let oversized_config = AzureBlobDriver::new(
+            AzureBlobDriverConfig {
+                chunk_size: i64::try_from(super::AZURE_BLOCK_BLOB_MAX_BLOCK_SIZE + 1)
+                    .expect("oversized config fits i64"),
+                ..sample_config()
+            },
+            sample_credentials(),
+        )
+        .expect("driver should retain oversized config for runtime validation");
+        assert!(oversized_config.chunk_size_for_content(0).is_err());
     }
 }
