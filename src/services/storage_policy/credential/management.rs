@@ -17,10 +17,9 @@ pub async fn list_policy_credentials(
     state: &impl SharedRuntimeState,
     policy_id: i64,
 ) -> Result<Vec<StorageConnectorCredentialInfo>> {
-    policy_repo::find_by_id(state.reader_db(), policy_id).await?;
-    let policy = policy_repo::find_by_id(state.reader_db(), policy_id).await?;
+    let policy = policy_repo::find_by_id(state.writer_db(), policy_id).await?;
     let credentials =
-        storage_policy_connector_credential_repo::find_by_policy(state.reader_db(), policy_id)
+        storage_policy_connector_credential_repo::find_by_policy(state.writer_db(), policy_id)
             .await?
             .into_iter()
             .filter_map(|credential| {
