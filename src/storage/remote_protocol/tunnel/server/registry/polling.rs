@@ -2,6 +2,7 @@ use bytes::Bytes;
 use http::Method;
 use tokio::sync::oneshot;
 
+use super::super::payload::serialized_poll_response_len;
 use super::broker::RemoteTunnelHttpResponse;
 use super::headers::request_headers;
 use super::{
@@ -11,7 +12,7 @@ use super::{
 use crate::errors::{AsterError, Result};
 use crate::storage::remote_protocol::tunnel::server::response::tunnel_http_response;
 use crate::storage::remote_protocol::tunnel::server::{
-    REMOTE_TUNNEL_BODY_LIMIT, RemoteTunnelRequest, RemoteTunnelResponse,
+    REMOTE_TUNNEL_POLL_BODY_LIMIT, RemoteTunnelRequest, RemoteTunnelResponse,
 };
 use aster_drive_model::entities::managed_follower;
 use aster_drive_storage::StorageErrorKind;
@@ -115,13 +116,38 @@ impl RemoteTunnelRegistry {
         extra_headers: Vec<(String, String)>,
         body: Bytes,
     ) -> Result<RemoteTunnelHttpResponse> {
-        if body.len() > REMOTE_TUNNEL_BODY_LIMIT {
+        if body.len() > REMOTE_TUNNEL_POLL_BODY_LIMIT {
             let error = crate::errors::storage_driver_error(
                 StorageErrorKind::Unsupported,
                 format!(
-                    "reverse tunnel request body exceeds {} bytes; use direct transport or a streaming tunnel",
-                    REMOTE_TUNNEL_BODY_LIMIT
+                    "reverse tunnel polling request body exceeds {} bytes; use direct transport or a streaming tunnel",
+                    REMOTE_TUNNEL_POLL_BODY_LIMIT
                 ),
+            );
+            self.record_error(remote_node.id, error.message());
+            return Err(error);
+        }
+
+        let request_id = aster_forge_utils::id::new_uuid();
+        let request = RemoteTunnelRequest {
+            request_id: request_id.clone(),
+            method: method.as_str().to_string(),
+            headers: request_headers(remote_node, &method, &path_and_query, content_length)
+                .chain(extra_headers)
+                .collect(),
+            path_and_query,
+            body,
+        };
+        let serialized_len = serialized_poll_response_len(&request).map_err(|error| {
+            crate::errors::storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                format!("serialize reverse tunnel poll response budget: {error}"),
+            )
+        })?;
+        if serialized_len > crate::storage::remote_protocol::REMOTE_CONTROL_PLANE_BODY_LIMIT {
+            let error = crate::errors::storage_driver_error(
+                StorageErrorKind::Unsupported,
+                "reverse tunnel polling request envelope exceeds follower control-plane body limit",
             );
             self.record_error(remote_node.id, error.message());
             return Err(error);
@@ -135,7 +161,6 @@ impl RemoteTunnelRegistry {
             }
         };
 
-        let request_id = aster_forge_utils::id::new_uuid();
         let (response_tx, response_rx) = oneshot::channel();
         self.pending.insert(
             request_id.clone(),
@@ -147,15 +172,6 @@ impl RemoteTunnelRegistry {
         let _pending_guard = PendingTunnelGuard {
             registry: self,
             request_id: request_id.clone(),
-        };
-        let request = RemoteTunnelRequest {
-            request_id: request_id.clone(),
-            method: method.as_str().to_string(),
-            headers: request_headers(remote_node, &method, &path_and_query, content_length)
-                .chain(extra_headers)
-                .collect(),
-            path_and_query,
-            body: body.to_vec(),
         };
 
         if request_tx.send(QueuedTunnelRequest { request }).is_err() {

@@ -74,16 +74,16 @@ impl RemoteRequestBody {
         match self {
             Self::Empty => Ok(Bytes::new()),
             Self::Bytes(body) => Ok(body),
-            Self::Reader { mut reader, size } => {
+            Self::Reader { reader, size } => {
                 if size
-                    > u64::try_from(super::tunnel::server::REMOTE_TUNNEL_BODY_LIMIT)
+                    > u64::try_from(super::tunnel::server::REMOTE_TUNNEL_POLL_BODY_LIMIT)
                         .unwrap_or(u64::MAX)
                 {
                     return Err(crate::errors::storage_driver_error(
                         StorageErrorKind::Unsupported,
                         format!(
-                            "reverse tunnel streaming upload exceeds {} bytes; use direct transport or a streaming tunnel",
-                            super::tunnel::server::REMOTE_TUNNEL_BODY_LIMIT
+                            "reverse tunnel polling upload exceeds {} bytes; use direct transport or a streaming tunnel",
+                            super::tunnel::server::REMOTE_TUNNEL_POLL_BODY_LIMIT
                         ),
                     ));
                 }
@@ -92,12 +92,16 @@ impl RemoteRequestBody {
                     "reverse tunnel buffered upload size",
                 )?;
                 let mut data = Vec::with_capacity(capacity);
-                reader.read_to_end(&mut data).await.map_err(|error| {
-                    crate::errors::storage_driver_error(
-                        StorageErrorKind::Transient,
-                        format!("read reverse tunnel buffered upload: {error}"),
-                    )
-                })?;
+                let mut limited_reader = reader.take(size.saturating_add(1));
+                limited_reader
+                    .read_to_end(&mut data)
+                    .await
+                    .map_err(|error| {
+                        crate::errors::storage_driver_error(
+                            StorageErrorKind::Transient,
+                            format!("read reverse tunnel buffered upload: {error}"),
+                        )
+                    })?;
                 let actual_len = u64::try_from(data.len()).map_err(|_| {
                     crate::errors::storage_driver_error(
                         StorageErrorKind::Precondition,
@@ -114,14 +118,6 @@ impl RemoteRequestBody {
                 }
                 Ok(Bytes::from(data))
             }
-        }
-    }
-
-    fn clone_for_stream_attempt(&self) -> Option<Self> {
-        match self {
-            Self::Empty => Some(Self::Empty),
-            Self::Bytes(body) => Some(Self::Bytes(body.clone())),
-            Self::Reader { .. } => None,
         }
     }
 }
@@ -304,9 +300,24 @@ impl RemoteTransport for ReverseTunnelTransport {
             .into_iter()
             .collect::<Vec<_>>();
 
-        if self.broker.has_tunnel_stream_lane(&self.remote_node)
-            && let Some(stream_body) = request.body.clone_for_stream_attempt()
-        {
+        let mut polling_body = Some(request.body);
+        if self.broker.has_tunnel_stream_lane(&self.remote_node) {
+            let Some(body) = polling_body.take() else {
+                return Err(crate::errors::storage_driver_error(
+                    StorageErrorKind::Precondition,
+                    "reverse tunnel request body was consumed before dispatch",
+                ));
+            };
+            let (stream_body, fallback_body) = match body {
+                RemoteRequestBody::Empty => {
+                    (RemoteRequestBody::Empty, Some(RemoteRequestBody::Empty))
+                }
+                RemoteRequestBody::Bytes(body) => (
+                    RemoteRequestBody::Bytes(body.clone()),
+                    Some(RemoteRequestBody::Bytes(body)),
+                ),
+                reader @ RemoteRequestBody::Reader { .. } => (reader, None),
+            };
             match self
                 .broker
                 .clone()
@@ -322,6 +333,10 @@ impl RemoteTransport for ReverseTunnelTransport {
             {
                 Ok(response) => return Ok(RemoteTransportResponse::TunnelStream(response)),
                 Err(error) if should_fallback_stream_error_to_poll(error.message()) => {
+                    let Some(fallback_body) = fallback_body else {
+                        return Err(error);
+                    };
+                    polling_body = Some(fallback_body);
                     tracing::warn!(
                         remote_node_id = self.remote_node.id,
                         error = %error,
@@ -332,7 +347,13 @@ impl RemoteTransport for ReverseTunnelTransport {
             }
         }
 
-        let body = request.body.into_buffered_bytes().await?;
+        let Some(body) = polling_body else {
+            return Err(crate::errors::storage_driver_error(
+                StorageErrorKind::Precondition,
+                "reverse tunnel polling body was consumed before dispatch",
+            ));
+        };
+        let body = body.into_buffered_bytes().await?;
         self.broker
             .clone()
             .send_tunnel_request(
@@ -651,7 +672,7 @@ fn presigned_expires_at(expires: Duration) -> Result<i64> {
 mod tests {
     use super::*;
     use crate::storage::remote_protocol::tunnel::server::{
-        REMOTE_TUNNEL_BODY_LIMIT, RemoteTunnelHttpResponse, RemoteTunnelStreamHttpResponse,
+        REMOTE_TUNNEL_POLL_BODY_LIMIT, RemoteTunnelHttpResponse, RemoteTunnelStreamHttpResponse,
     };
     use aster_drive_model::types::RemoteNodeTransportMode;
     use async_trait::async_trait;
@@ -682,6 +703,131 @@ mod tests {
                 request_headers: Mutex::new(Vec::new()),
                 stream_headers: Mutex::new(Vec::new()),
             }
+        }
+    }
+
+    struct StreamingAllocationBroker {
+        stream_calls: AtomicUsize,
+        request_calls: AtomicUsize,
+        bytes_read: AtomicUsize,
+    }
+
+    struct BoundaryTunnelBroker {
+        stream_available: bool,
+        request_calls: AtomicUsize,
+        stream_calls: AtomicUsize,
+        request_body: Mutex<Option<Bytes>>,
+    }
+
+    impl BoundaryTunnelBroker {
+        fn new(stream_available: bool) -> Self {
+            Self {
+                stream_available,
+                request_calls: AtomicUsize::new(0),
+                stream_calls: AtomicUsize::new(0),
+                request_body: Mutex::new(None),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl RemoteTunnelBroker for BoundaryTunnelBroker {
+        async fn send_tunnel_request(
+            self: Arc<Self>,
+            _remote_node: &managed_follower::Model,
+            _method: HttpMethod,
+            _path_and_query: String,
+            _content_length: Option<u64>,
+            _extra_headers: Vec<(String, String)>,
+            body: Bytes,
+        ) -> Result<RemoteTunnelHttpResponse> {
+            self.request_calls.fetch_add(1, Ordering::SeqCst);
+            *self
+                .request_body
+                .lock()
+                .expect("boundary request body lock should not be poisoned") = Some(body);
+            Ok(RemoteTunnelHttpResponse {
+                status: StatusCode::OK,
+                headers: http::HeaderMap::new(),
+                body: Bytes::new(),
+            })
+        }
+
+        async fn send_tunnel_stream(
+            self: Arc<Self>,
+            _remote_node: &managed_follower::Model,
+            _method: HttpMethod,
+            _path_and_query: String,
+            _content_length: Option<u64>,
+            _extra_headers: Vec<(String, String)>,
+            mut body: Box<dyn AsyncRead + Unpin + Send>,
+        ) -> Result<RemoteTunnelStreamHttpResponse> {
+            self.stream_calls.fetch_add(1, Ordering::SeqCst);
+            let mut sink = Vec::new();
+            body.read_to_end(&mut sink)
+                .await
+                .expect("boundary stream body should read");
+            Ok(RemoteTunnelStreamHttpResponse {
+                status: StatusCode::OK,
+                headers: http::HeaderMap::new(),
+                body: Box::new(std::io::Cursor::new(Bytes::new())),
+            })
+        }
+
+        fn has_tunnel_stream_lane(&self, _remote_node: &managed_follower::Model) -> bool {
+            self.stream_available
+        }
+    }
+
+    #[async_trait]
+    impl RemoteTunnelBroker for StreamingAllocationBroker {
+        async fn send_tunnel_request(
+            self: Arc<Self>,
+            _remote_node: &managed_follower::Model,
+            _method: HttpMethod,
+            _path_and_query: String,
+            _content_length: Option<u64>,
+            _extra_headers: Vec<(String, String)>,
+            _body: Bytes,
+        ) -> Result<RemoteTunnelHttpResponse> {
+            self.request_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(RemoteTunnelHttpResponse {
+                status: StatusCode::OK,
+                headers: http::HeaderMap::new(),
+                body: Bytes::new(),
+            })
+        }
+
+        async fn send_tunnel_stream(
+            self: Arc<Self>,
+            _remote_node: &managed_follower::Model,
+            _method: HttpMethod,
+            _path_and_query: String,
+            _content_length: Option<u64>,
+            _extra_headers: Vec<(String, String)>,
+            mut body: Box<dyn AsyncRead + Unpin + Send>,
+        ) -> Result<RemoteTunnelStreamHttpResponse> {
+            self.stream_calls.fetch_add(1, Ordering::SeqCst);
+            let mut buffer = [0u8; 8192];
+            loop {
+                let read = body
+                    .read(&mut buffer)
+                    .await
+                    .expect("allocation test stream body should read");
+                if read == 0 {
+                    break;
+                }
+                self.bytes_read.fetch_add(read, Ordering::SeqCst);
+            }
+            Ok(RemoteTunnelStreamHttpResponse {
+                status: StatusCode::OK,
+                headers: http::HeaderMap::new(),
+                body: Box::new(std::io::Cursor::new(Bytes::new())),
+            })
+        }
+
+        fn has_tunnel_stream_lane(&self, _remote_node: &managed_follower::Model) -> bool {
+            true
         }
     }
 
@@ -726,6 +872,10 @@ mod tests {
         ) -> Result<RemoteTunnelStreamHttpResponse> {
             self.stream_calls.fetch_add(1, Ordering::SeqCst);
             if self.fail_stream_with_lane_closed.load(Ordering::SeqCst) {
+                let mut first_byte = [0_u8; 1];
+                body.read_exact(&mut first_byte)
+                    .await
+                    .expect("failure-path stream body should be consumed");
                 return Err(crate::errors::storage_driver_error(
                     StorageErrorKind::Transient,
                     "reverse tunnel streaming lane closed",
@@ -779,6 +929,38 @@ mod tests {
             created_at: now,
             updated_at: now,
         }
+    }
+
+    async fn measure_streaming_reader_allocations(
+        size: usize,
+    ) -> (
+        crate::test_support::allocations::AllocationMeasurement,
+        Arc<StreamingAllocationBroker>,
+    ) {
+        let broker = Arc::new(StreamingAllocationBroker {
+            stream_calls: AtomicUsize::new(0),
+            request_calls: AtomicUsize::new(0),
+            bytes_read: AtomicUsize::new(0),
+        });
+        let transport = ReverseTunnelTransport::new(&build_remote_node(), broker.clone());
+        let size_u64 = u64::try_from(size).expect("allocation test size should fit u64");
+        let (response, allocations) = crate::test_support::allocations::measure_future(
+            transport.send(RemoteTransportRequest {
+                method: Method::PUT,
+                path_and_query: "/api/v1/internal/storage/objects/stream-reader.bin".to_string(),
+                content_type: Some("application/octet-stream"),
+                body: RemoteRequestBody::Reader {
+                    reader: Box::new(tokio::io::repeat(0).take(size_u64)),
+                    size: size_u64,
+                },
+            }),
+        )
+        .await;
+        assert!(matches!(
+            response,
+            Ok(RemoteTransportResponse::TunnelStream(_))
+        ));
+        (allocations, broker)
     }
 
     #[tokio::test]
@@ -873,6 +1055,138 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reverse_tunnel_transport_streams_empty_body_when_lane_is_available() {
+        let broker = Arc::new(BoundaryTunnelBroker::new(true));
+        let transport = ReverseTunnelTransport::new(&build_remote_node(), broker.clone());
+
+        let response = transport
+            .send(RemoteTransportRequest {
+                method: Method::PUT,
+                path_and_query: "/api/v1/internal/storage/objects/empty.bin".to_string(),
+                content_type: None,
+                body: RemoteRequestBody::Empty,
+            })
+            .await
+            .expect("empty body should use available stream lane");
+
+        assert!(matches!(response, RemoteTransportResponse::TunnelStream(_)));
+        assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(broker.request_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn reverse_tunnel_transport_polls_bytes_when_lane_is_unavailable() {
+        let broker = Arc::new(BoundaryTunnelBroker::new(false));
+        let transport = ReverseTunnelTransport::new(&build_remote_node(), broker.clone());
+
+        transport
+            .send(RemoteTransportRequest {
+                method: Method::PUT,
+                path_and_query: "/api/v1/internal/storage/objects/bytes.bin".to_string(),
+                content_type: None,
+                body: RemoteRequestBody::Bytes(Bytes::from_static(b"bytes-body")),
+            })
+            .await
+            .expect("bytes body should use polling without a stream lane");
+
+        assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(broker.request_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            broker
+                .request_body
+                .lock()
+                .expect("boundary request body lock should not be poisoned")
+                .as_ref(),
+            Some(&Bytes::from_static(b"bytes-body"))
+        );
+    }
+
+    #[tokio::test]
+    async fn reverse_tunnel_transport_streams_reader_without_polling_or_full_body_allocation() {
+        let small_size = 64 * 1024;
+        let large_size = 64 * 1024 * 1024;
+        let (small_allocations, small_broker) =
+            measure_streaming_reader_allocations(small_size).await;
+        let (large_allocations, large_broker) =
+            measure_streaming_reader_allocations(large_size).await;
+
+        for (size, broker) in [(small_size, small_broker), (large_size, large_broker)] {
+            assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 1);
+            assert_eq!(broker.request_calls.load(Ordering::SeqCst), 0);
+            assert_eq!(broker.bytes_read.load(Ordering::SeqCst), size);
+        }
+        assert!(
+            large_allocations.count <= small_allocations.count.saturating_add(4),
+            "streaming allocation count grew from {} to {} with object size",
+            small_allocations.count,
+            large_allocations.count
+        );
+        assert!(
+            large_allocations.bytes <= small_allocations.bytes.saturating_add(128 * 1024),
+            "streaming allocated bytes grew from {} to {} with object size",
+            small_allocations.bytes,
+            large_allocations.bytes
+        );
+        assert!(
+            large_allocations.bytes < large_size / 2,
+            "streaming reader allocated {} bytes for a {} byte body",
+            large_allocations.bytes,
+            large_size
+        );
+    }
+
+    #[tokio::test]
+    async fn reverse_tunnel_transport_does_not_poll_after_reader_stream_failure() {
+        let broker = Arc::new(TestTunnelBroker::new(true));
+        broker
+            .fail_stream_with_lane_closed
+            .store(true, Ordering::SeqCst);
+        let transport = ReverseTunnelTransport::new(&build_remote_node(), broker.clone());
+
+        let result = transport
+            .send(RemoteTransportRequest {
+                method: Method::PUT,
+                path_and_query: "/api/v1/internal/storage/objects/stream-reader.bin".to_string(),
+                content_type: Some("application/octet-stream"),
+                body: RemoteRequestBody::Reader {
+                    reader: Box::new(std::io::Cursor::new(Bytes::from_static(b"reader-body"))),
+                    size: 11,
+                },
+            })
+            .await;
+        let error = match result {
+            Ok(_) => panic!("consumed reader stream failure must not fall back to polling"),
+            Err(error) => error,
+        };
+
+        assert!(error.message().contains("streaming lane closed"));
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(StorageErrorKind::Transient)
+        );
+        assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(broker.request_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn stream_fallback_classifier_only_accepts_replayable_transport_failures() {
+        for message in [
+            "remote node #9 reverse tunnel is offline",
+            "reverse tunnel streaming lane closed",
+            "reverse tunnel streaming response channel closed",
+            "reverse tunnel streaming request timed out waiting for follower response",
+        ] {
+            assert!(
+                should_fallback_stream_error_to_poll(message),
+                "expected replayable stream failure: {message}"
+            );
+        }
+        assert!(!should_fallback_stream_error_to_poll(
+            "reverse tunnel returned invalid response metadata"
+        ));
+    }
+
+    #[tokio::test]
     async fn reverse_tunnel_transport_falls_back_to_poll_when_stream_lane_closes() {
         let broker = Arc::new(TestTunnelBroker::new(true));
         broker
@@ -912,8 +1226,9 @@ mod tests {
     async fn reverse_tunnel_poll_fallback_rejects_oversized_reader_before_dispatch() {
         let broker = Arc::new(TestTunnelBroker::new(false));
         let transport = ReverseTunnelTransport::new(&build_remote_node(), broker.clone());
-        let oversized =
-            u64::try_from(REMOTE_TUNNEL_BODY_LIMIT).expect("tunnel body limit should fit u64") + 1;
+        let oversized = u64::try_from(REMOTE_TUNNEL_POLL_BODY_LIMIT)
+            .expect("poll body limit should fit u64")
+            + 1;
 
         let result = transport
             .send(RemoteTransportRequest {
@@ -935,7 +1250,142 @@ mod tests {
             error.storage_error_kind(),
             Some(StorageErrorKind::Unsupported)
         );
-        assert!(error.message().contains("streaming upload exceeds"));
+        assert!(error.message().contains("polling upload exceeds"));
+        assert_eq!(broker.request_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn reverse_tunnel_poll_fallback_accepts_exact_poll_body_limit() {
+        let broker = Arc::new(BoundaryTunnelBroker::new(false));
+        let transport = ReverseTunnelTransport::new(&build_remote_node(), broker.clone());
+        let body = Bytes::from(vec![0x5a; REMOTE_TUNNEL_POLL_BODY_LIMIT]);
+
+        transport
+            .send(RemoteTransportRequest {
+                method: Method::PUT,
+                path_and_query: "/api/v1/internal/storage/objects/exact-limit.bin".to_string(),
+                content_type: None,
+                body: RemoteRequestBody::Reader {
+                    reader: Box::new(std::io::Cursor::new(body.clone())),
+                    size: body.len() as u64,
+                },
+            })
+            .await
+            .expect("reader at the exact polling body limit should be accepted");
+
+        assert_eq!(broker.request_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            broker
+                .request_body
+                .lock()
+                .expect("boundary request body lock should not be poisoned")
+                .as_ref()
+                .map(Bytes::len),
+            Some(REMOTE_TUNNEL_POLL_BODY_LIMIT)
+        );
+    }
+
+    #[tokio::test]
+    async fn reverse_tunnel_poll_fallback_rejects_reader_one_byte_over_declared_size() {
+        let broker = Arc::new(TestTunnelBroker::new(false));
+        let transport = ReverseTunnelTransport::new(&build_remote_node(), broker.clone());
+
+        let result = transport
+            .send(RemoteTransportRequest {
+                method: Method::PUT,
+                path_and_query: "/api/v1/internal/storage/objects/poll.bin".to_string(),
+                content_type: Some("application/octet-stream"),
+                body: RemoteRequestBody::Reader {
+                    reader: Box::new(std::io::Cursor::new(Bytes::from_static(b"poll-body!"))),
+                    size: 9,
+                },
+            })
+            .await;
+        let error = match result {
+            Ok(_) => panic!("reader longer than declared size must be rejected"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(StorageErrorKind::Precondition)
+        );
+        assert!(error.message().contains("length mismatch"));
+        assert_eq!(broker.request_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn reverse_tunnel_poll_fallback_rejects_reader_one_byte_under_declared_size() {
+        let broker = Arc::new(TestTunnelBroker::new(false));
+        let transport = ReverseTunnelTransport::new(&build_remote_node(), broker.clone());
+
+        let result = transport
+            .send(RemoteTransportRequest {
+                method: Method::PUT,
+                path_and_query: "/api/v1/internal/storage/objects/poll.bin".to_string(),
+                content_type: Some("application/octet-stream"),
+                body: RemoteRequestBody::Reader {
+                    reader: Box::new(std::io::Cursor::new(Bytes::from_static(b"poll-bod"))),
+                    size: 9,
+                },
+            })
+            .await;
+        let error = match result {
+            Ok(_) => panic!("reader shorter than declared size must be rejected"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(StorageErrorKind::Precondition)
+        );
+        assert!(error.message().contains("expected 9, got 8"));
+        assert_eq!(broker.request_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn reverse_tunnel_poll_fallback_propagates_reader_io_failure() {
+        struct ErrorReader;
+
+        impl AsyncRead for ErrorReader {
+            fn poll_read(
+                self: std::pin::Pin<&mut Self>,
+                _cx: &mut std::task::Context<'_>,
+                _buf: &mut tokio::io::ReadBuf<'_>,
+            ) -> std::task::Poll<std::io::Result<()>> {
+                std::task::Poll::Ready(Err(std::io::Error::other(
+                    "synthetic polling reader failure",
+                )))
+            }
+        }
+
+        let broker = Arc::new(BoundaryTunnelBroker::new(false));
+        let transport = ReverseTunnelTransport::new(&build_remote_node(), broker.clone());
+        let result = transport
+            .send(RemoteTransportRequest {
+                method: Method::PUT,
+                path_and_query: "/api/v1/internal/storage/objects/read-error.bin".to_string(),
+                content_type: Some("application/octet-stream"),
+                body: RemoteRequestBody::Reader {
+                    reader: Box::new(ErrorReader),
+                    size: 1,
+                },
+            })
+            .await;
+        let error = match result {
+            Ok(_) => panic!("polling reader I/O failure should be returned"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(StorageErrorKind::Transient)
+        );
+        assert!(error.message().contains("synthetic polling reader failure"));
         assert_eq!(broker.request_calls.load(Ordering::SeqCst), 0);
         assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 0);
     }

@@ -55,6 +55,12 @@ const REMOTE_TUNNEL_POLL_TIMEOUT: Duration = Duration::from_secs(25);
 const REMOTE_TUNNEL_STREAM_READ_TIMEOUT: Duration = Duration::from_secs(60);
 pub const REMOTE_TUNNEL_BODY_LIMIT: usize = 64 * 1024 * 1024;
 pub const REMOTE_TUNNEL_JSON_LIMIT: usize = REMOTE_TUNNEL_BODY_LIMIT * 2 + 1024 * 1024;
+pub const REMOTE_TUNNEL_POLL_METADATA_BUDGET: usize = 64 * 1024;
+pub const REMOTE_TUNNEL_POLL_BODY_LIMIT: usize =
+    ((crate::storage::remote_protocol::REMOTE_CONTROL_PLANE_BODY_LIMIT
+        - REMOTE_TUNNEL_POLL_METADATA_BUDGET)
+        / 4)
+        * 3;
 pub const REMOTE_TUNNEL_STREAM_CHUNK_SIZE: usize = 64 * 1024;
 pub const REMOTE_TUNNEL_STREAM_FRAME_LIMIT: usize = 256 * 1024;
 

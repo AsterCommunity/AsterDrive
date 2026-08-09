@@ -66,6 +66,11 @@ impl RemoteTunnelRegistry {
             .map(|entry| entry.value().clone())
     }
 
+    #[cfg(test)]
+    pub(crate) fn pending_poll_request_count(&self) -> usize {
+        self.pending.len()
+    }
+
     fn record_error(&self, remote_node_id: i64, error: impl Into<String>) {
         let error = error.into();
         if error.trim().is_empty() {
