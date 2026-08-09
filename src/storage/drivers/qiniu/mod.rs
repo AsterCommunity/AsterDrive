@@ -4,7 +4,10 @@
 //! module. Callers only observe AsterDrive storage traits and structured errors.
 
 use async_trait::async_trait;
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{
+    Engine as _,
+    engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD},
+};
 use bytes::Bytes;
 use futures::StreamExt;
 use reqwest::{Client, Method, Url};
@@ -903,7 +906,7 @@ mod tests {
             .unwrap();
         assert_eq!(token.split(':').count(), 3);
         let policy_segment = token.rsplit_once(':').expect("token policy segment").1;
-        let policy = URL_SAFE_NO_PAD
+        let policy = URL_SAFE
             .decode(policy_segment)
             .expect("decode upload policy");
         let policy: serde_json::Value =
