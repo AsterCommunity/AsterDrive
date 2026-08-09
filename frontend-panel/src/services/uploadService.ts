@@ -15,6 +15,7 @@ import type {
 	CompletedPart,
 	FileInfo,
 	InitUploadResponse,
+	PresignedFormUploadRequest,
 	PresignedUploadRequest,
 	RecoverableUploadSession,
 	UploadProgressResponse,
@@ -30,6 +31,7 @@ export type {
 	ChunkUploadResponse,
 	CompletedPart,
 	InitUploadResponse,
+	PresignedFormUploadRequest,
 	PresignedUploadRequest,
 	RecoverableUploadSession,
 	UploadProgressResponse,
@@ -385,6 +387,57 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 						}),
 					);
 				xhr.send(file);
+			});
+		},
+
+		presignedFormUpload: (
+			request: PresignedFormUploadRequest,
+			file: File | Blob,
+			onProgress?: (loaded: number, total: number) => void,
+			onCreateXhr?: (xhr: XMLHttpRequest) => void,
+		): Promise<void> => {
+			return new Promise((resolve, reject) => {
+				const xhr = new XMLHttpRequest();
+				onCreateXhr?.(xhr);
+				xhr.open("POST", request.url);
+				xhr.withCredentials = false;
+				if (onProgress) {
+					xhr.upload.onprogress = (event) => {
+						if (event.lengthComputable) onProgress(event.loaded, event.total);
+					};
+				}
+				xhr.onload = () => {
+					if (xhr.status >= 200 && xhr.status < 300) {
+						resolve();
+						return;
+					}
+					reject(
+						new UploadRequestError(
+							parseApiMessage(xhr.responseText) ??
+								`Presigned form upload failed: ${xhr.status}`,
+							{
+								status: xhr.status,
+								retryable: isRetryableHttpStatus(xhr.status),
+							},
+						),
+					);
+				};
+				xhr.onerror = () =>
+					reject(new UploadRequestError("network error", { retryable: true }));
+				xhr.onabort = () =>
+					reject(
+						new UploadRequestError("upload aborted", {
+							isAborted: true,
+							retryable: false,
+							status: xhr.status,
+						}),
+					);
+				const form = new FormData();
+				for (const [name, value] of Object.entries(request.fields)) {
+					form.append(name, value);
+				}
+				form.append("file", file);
+				xhr.send(form);
 			});
 		},
 
