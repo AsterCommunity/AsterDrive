@@ -123,6 +123,110 @@ describe("i18n", () => {
 		);
 	});
 
+	it.each([
+		{
+			language: "zh" as const,
+			labels: {
+				thumbnail: "使用存储后端生成图片缩略图",
+				thumbnailExtensions: "存储原生图片缩略图后缀",
+				media: "使用存储后端解析音视频媒体信息",
+				mediaExtensions: "存储原生音视频媒体信息后缀",
+			},
+			descriptionTerms: {
+				storage_native_thumbnail_enabled_desc: [
+					"存储后端",
+					"图片",
+					"全局缩略图处理链",
+					"休眠配置",
+					"计费",
+				],
+				storage_native_thumbnail_extensions_desc: [
+					"图片",
+					"匹配这些后缀",
+					"列表为空",
+					"关闭时列表仍会保存",
+				],
+				storage_native_media_metadata_enabled_desc: [
+					"存储后端",
+					"音视频",
+					"全局媒体信息处理链",
+					"休眠配置",
+					"计费",
+				],
+				storage_native_media_metadata_extensions_desc: [
+					"音视频",
+					"匹配这些后缀",
+					"列表为空",
+					"关闭时列表仍会保存",
+				],
+			},
+		},
+		{
+			language: "en" as const,
+			labels: {
+				thumbnail: "Use the storage backend to generate image thumbnails",
+				thumbnailExtensions: "Storage-native image thumbnail extensions",
+				media: "Use the storage backend to parse audio/video media information",
+				mediaExtensions:
+					"Storage-native audio/video media-information extensions",
+			},
+			descriptionTerms: {
+				storage_native_thumbnail_enabled_desc: [
+					"storage backend",
+					"images",
+					"global thumbnail processor chain",
+					"dormant",
+					"charge",
+				],
+				storage_native_thumbnail_extensions_desc: [
+					"images with matching extensions",
+					"empty list",
+					"remains saved while disabled",
+				],
+				storage_native_media_metadata_enabled_desc: [
+					"storage backend",
+					"audio or video",
+					"global media-information processor chain",
+					"dormant",
+					"charge",
+				],
+				storage_native_media_metadata_extensions_desc: [
+					"audio or video with matching extensions",
+					"empty list",
+					"remains saved while disabled",
+				],
+			},
+		},
+	])(
+		"provides explicit storage-native policy labels and detailed help in $language",
+		async ({ language, labels, descriptionTerms }) => {
+			localStorage.setItem("aster-language", language);
+			const module = await loadI18nModule();
+			const i18n = module.default;
+			await module.ensureI18nNamespaces(["admin"], language);
+
+			expect(i18n.t("admin:storage_native_thumbnail_enabled")).toBe(
+				labels.thumbnail,
+			);
+			expect(i18n.t("admin:storage_native_thumbnail_extensions")).toBe(
+				labels.thumbnailExtensions,
+			);
+			expect(i18n.t("admin:storage_native_media_metadata_enabled")).toBe(
+				labels.media,
+			);
+			expect(i18n.t("admin:storage_native_media_metadata_extensions")).toBe(
+				labels.mediaExtensions,
+			);
+
+			for (const [key, terms] of Object.entries(descriptionTerms)) {
+				const description = i18n.t(`admin:${key}`).toLowerCase();
+				for (const term of terms) {
+					expect(description, key).toContain(term.toLowerCase());
+				}
+			}
+		},
+	);
+
 	it("keeps unsplit locale files loadable", async () => {
 		localStorage.setItem("aster-language", "en");
 		const module = await loadI18nModule();

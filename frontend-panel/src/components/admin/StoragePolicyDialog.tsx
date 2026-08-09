@@ -407,6 +407,7 @@ export function StoragePolicyDialog({
 														<PolicyRules
 															form={form}
 															forceDefault={forceDefaultPolicy}
+															connectorId={form.connector_id}
 															nativeThumbnailSupported={
 																nativeThumbnailSupported
 															}
@@ -567,6 +568,7 @@ export function StoragePolicyDialog({
 										<PolicyRules
 											form={form}
 											forceDefault={forceDefaultPolicy}
+											connectorId={form.connector_id}
 											nativeThumbnailSupported={nativeThumbnailSupported}
 											nativeMediaMetadataSupported={
 												nativeMediaMetadataSupported
@@ -997,17 +999,21 @@ function RemoteTargets({
 function PolicyRules({
 	form,
 	forceDefault,
+	connectorId,
 	nativeThumbnailSupported,
 	nativeMediaMetadataSupported,
 	onFieldChange,
 }: {
 	form: PolicyFormData;
 	forceDefault: boolean;
+	connectorId: string;
 	nativeThumbnailSupported: boolean;
 	nativeMediaMetadataSupported: boolean;
 	onFieldChange: StoragePolicyDialogProps["onFieldChange"];
 }) {
 	const { t } = useTranslation("admin");
+	const behaviorT = (key: string) =>
+		translateStorageConnectorMessage(t, connectorId, key);
 	return (
 		<div className="space-y-4">
 			<div className="grid gap-4 md:grid-cols-2">
@@ -1044,15 +1050,18 @@ function PolicyRules({
 						<NativeBehaviorControl
 							id="storage-native-thumbnail-enabled"
 							checked={form.storage_native_thumbnail_enabled}
-							label={t("storage_native_thumbnail_enabled")}
-							description={t("storage_native_thumbnail_enabled_desc")}
+							label={behaviorT("storage_native_thumbnail_enabled")}
+							description={behaviorT("storage_native_thumbnail_enabled_desc")}
 							onCheckedChange={(checked) =>
 								onFieldChange("storage_native_thumbnail_enabled", checked)
 							}
 						>
 							<ExtensionField
 								id="thumbnail-extensions"
-								label={t("storage_native_thumbnail_extensions")}
+								label={behaviorT("storage_native_thumbnail_extensions")}
+								description={behaviorT(
+									"storage_native_thumbnail_extensions_desc",
+								)}
 								values={form.storage_native_thumbnail_extensions}
 								onChange={(values) =>
 									onFieldChange("storage_native_thumbnail_extensions", values)
@@ -1064,15 +1073,20 @@ function PolicyRules({
 						<NativeBehaviorControl
 							id="storage-native-media-metadata-enabled"
 							checked={form.storage_native_media_metadata_enabled}
-							label={t("storage_native_media_metadata_enabled")}
-							description={t("storage_native_media_metadata_enabled_desc")}
+							label={behaviorT("storage_native_media_metadata_enabled")}
+							description={behaviorT(
+								"storage_native_media_metadata_enabled_desc",
+							)}
 							onCheckedChange={(checked) =>
 								onFieldChange("storage_native_media_metadata_enabled", checked)
 							}
 						>
 							<ExtensionField
 								id="media-extensions"
-								label={t("storage_native_media_metadata_extensions")}
+								label={behaviorT("storage_native_media_metadata_extensions")}
+								description={behaviorT(
+									"storage_native_media_metadata_extensions_desc",
+								)}
 								values={form.storage_native_media_metadata_extensions}
 								onChange={(values) =>
 									onFieldChange(
@@ -1573,19 +1587,23 @@ function NumberTextField({
 function ExtensionField({
 	id,
 	label,
+	description,
 	values,
 	onChange,
 }: {
 	id: string;
 	label: string;
+	description: string;
 	values: string[];
 	onChange: (values: string[]) => void;
 }) {
+	const descriptionId = `${id}-description`;
 	return (
 		<div className="space-y-2">
 			<Label htmlFor={id}>{label}</Label>
 			<Input
 				id={id}
+				aria-describedby={descriptionId}
 				value={values.join(", ")}
 				onChange={(event) =>
 					onChange(
@@ -1596,6 +1614,9 @@ function ExtensionField({
 					)
 				}
 			/>
+			<p id={descriptionId} className="text-xs leading-5 text-muted-foreground">
+				{description}
+			</p>
 		</div>
 	);
 }
@@ -1615,15 +1636,30 @@ function NativeBehaviorControl({
 	children: ReactNode;
 	onCheckedChange: (checked: boolean) => void;
 }) {
+	const descriptionId = `${id}-description`;
+	const labelId = `${id}-label`;
 	return (
-		<div className="space-y-3 rounded-lg border border-border/70 p-3">
+		<fieldset
+			aria-labelledby={labelId}
+			data-enabled={checked}
+			className="min-w-0 space-y-3 rounded-lg border border-border/70 p-3"
+		>
 			<div className="flex items-center justify-between gap-3">
-				<Label htmlFor={id}>{label}</Label>
-				<Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
+				<Label id={labelId} htmlFor={id}>
+					{label}
+				</Label>
+				<Switch
+					id={id}
+					aria-describedby={descriptionId}
+					checked={checked}
+					onCheckedChange={onCheckedChange}
+				/>
 			</div>
-			<p className="text-xs leading-5 text-muted-foreground">{description}</p>
-			{checked ? children : null}
-		</div>
+			<p id={descriptionId} className="text-xs leading-5 text-muted-foreground">
+				{description}
+			</p>
+			{children}
+		</fieldset>
 	);
 }
 

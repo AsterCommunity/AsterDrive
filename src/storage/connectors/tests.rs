@@ -270,6 +270,47 @@ fn builtin_bundles_keep_connector_owned_management_messages() {
 }
 
 #[test]
+fn tencent_cos_bundle_explains_native_processing_and_billing_in_both_locales() {
+    let localization = connector(TencentCosConnector::ID)
+        .localization()
+        .expect("Tencent COS localization");
+
+    let english = localization
+        .bundle(&aster_drive_model::types::LocaleTag::parse("en").expect("English locale"));
+    let english_thumbnail = english
+        .messages
+        .get("storage_native_thumbnail_enabled_desc")
+        .expect("Tencent COS English thumbnail help");
+    assert!(english_thumbnail.contains("COS CI image processing"));
+    assert!(english_thumbnail.contains("saved extension list stays dormant"));
+    assert!(english_thumbnail.contains("charges"));
+    let english_media = english
+        .messages
+        .get("storage_native_media_metadata_enabled_desc")
+        .expect("Tencent COS English media-information help");
+    assert!(english_media.contains("GetMediainfo"));
+    assert!(english_media.contains("audio or video"));
+    assert!(english_media.contains("request charges"));
+
+    let chinese = localization
+        .bundle(&aster_drive_model::types::LocaleTag::parse("zh-CN").expect("Chinese locale"));
+    let chinese_thumbnail = chinese
+        .messages
+        .get("storage_native_thumbnail_enabled_desc")
+        .expect("Tencent COS Chinese thumbnail help");
+    assert!(chinese_thumbnail.contains("COS 数据万象"));
+    assert!(chinese_thumbnail.contains("休眠配置"));
+    assert!(chinese_thumbnail.contains("腾讯云费用"));
+    let chinese_media = chinese
+        .messages
+        .get("storage_native_media_metadata_enabled_desc")
+        .expect("Tencent COS Chinese media-information help");
+    assert!(chinese_media.contains("GetMediainfo"));
+    assert!(chinese_media.contains("音视频"));
+    assert!(chinese_media.contains("按请求计费"));
+}
+
+#[test]
 fn registry_rejects_duplicate_and_unknown_connector_ids() {
     let error = match StorageConnectorRegistry::new(vec![
         Arc::new(LocalConnector),
