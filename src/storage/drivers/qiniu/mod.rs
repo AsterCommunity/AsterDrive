@@ -7,13 +7,14 @@ use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use bytes::Bytes;
 use futures::StreamExt;
-use hmac::{Hmac, Mac, digest::KeyInit};
 use reqwest::{Client, Method, Url};
 use serde::{Deserialize, Serialize};
-use sha1::Sha1;
 use std::{collections::BTreeMap, time::Duration};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio_util::io::StreamReader;
+
+use qiniu_credential::{Credential, Uri};
+use qiniu_upload_token::UploadPolicy;
 
 use aster_drive_storage::traits::driver::{
     BlobMetadata, PresignedDownloadOptions, PresignedFormUploadRequest, PresignedUploadRequest,
@@ -24,8 +25,6 @@ use aster_drive_storage::traits::extensions::{
 };
 use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 use aster_drive_storage::{MapStorageErr, Result, StorageErrorKind, storage_driver_error};
-
-type HmacSha1 = Hmac<Sha1>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QiniuRegionEndpoints {
@@ -179,76 +178,41 @@ impl QiniuDriver {
         URL_SAFE_NO_PAD.encode(format!("{}:{}", self.config.bucket, key))
     }
 
-    fn upload_token(&self, key: &str, expires: Duration) -> Result<String> {
-        #[derive(Serialize)]
-        struct Policy<'a> {
-            scope: String,
-            deadline: u64,
-            #[serde(rename = "insertOnly")]
-            insert_only: u8,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            mime_limit: Option<&'a str>,
-        }
-        let deadline = std::time::SystemTime::now()
-            .checked_add(expires)
-            .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|value| value.as_secs())
-            .ok_or_else(|| {
-                storage_driver_error(
-                    StorageErrorKind::Misconfigured,
-                    "invalid Qiniu token expiry",
-                )
-            })?;
-        let policy = serde_json::to_vec(&Policy {
-            scope: format!("{}:{}", self.config.bucket, key),
-            deadline,
-            insert_only: 0,
-            mime_limit: None,
-        })
-        .map_storage_err_ctx(
-            StorageErrorKind::Misconfigured,
-            "serialize Qiniu upload policy",
-        )?;
-        let encoded = URL_SAFE_NO_PAD.encode(policy);
-        Ok(format!(
-            "{}:{}:{}",
-            self.credentials.access_key,
-            sign(&self.credentials.secret_key, encoded.as_bytes()),
-            encoded
-        ))
-    }
-
-    fn authorization(&self, method: &Method, url: &Url, body: &[u8]) -> String {
-        let mut data = format!("{} {}", method.as_str(), url.path());
-        if let Some(query) = url.query() {
-            data.push('?');
-            data.push_str(query);
-        }
-        data.push('\n');
-        data.push_str(&String::from_utf8_lossy(body));
-        format!(
-            "QBox {}:{}",
-            self.credentials.access_key,
-            sign(&self.credentials.secret_key, data.as_bytes())
+    fn credential(&self) -> Credential {
+        Credential::new(
+            self.credentials.access_key.clone(),
+            self.credentials.secret_key.clone(),
         )
     }
 
-    async fn request_json<T: for<'de> Deserialize<'de>>(
+    fn upload_token(&self, key: &str, expires: Duration) -> Result<String> {
+        Ok(
+            UploadPolicy::new_for_object(&self.config.bucket, key, expires)
+                .build()
+                .into_static_upload_token_provider(self.credential(), Default::default())
+                .into_string(),
+        )
+    }
+
+    fn management_authorization(&self, url: &Url) -> Result<String> {
+        let uri = url.as_str().parse::<Uri>().map_storage_err_ctx(
+            StorageErrorKind::Misconfigured,
+            "build Qiniu management request URI",
+        )?;
+        Ok(self
+            .credential()
+            .authorization_v1_for_request(&uri, None, &[]))
+    }
+
+    async fn management_request_json<T: for<'de> Deserialize<'de>>(
         &self,
         method: Method,
         url: Url,
-        body: Option<Bytes>,
     ) -> Result<T> {
-        let body_bytes = body.unwrap_or_default();
-        let mut request = self.client.request(method.clone(), url.clone()).header(
-            "Authorization",
-            self.authorization(&method, &url, &body_bytes),
-        );
-        if !body_bytes.is_empty() {
-            request = request
-                .header("Content-Type", "application/json")
-                .body(body_bytes.clone());
-        }
+        let request = self
+            .client
+            .request(method, url.clone())
+            .header("Authorization", self.management_authorization(&url)?);
         let response = request
             .send()
             .await
@@ -269,11 +233,63 @@ impl QiniuDriver {
             .map_storage_err_ctx(StorageErrorKind::Unknown, "decode Qiniu response")
     }
 
-    async fn send_bytes(&self, method: Method, url: Url, body: Bytes) -> Result<reqwest::Response> {
+    async fn upload_request_json<T: for<'de> Deserialize<'de>>(
+        &self,
+        method: Method,
+        url: Url,
+        key: &str,
+        body: Option<Bytes>,
+    ) -> Result<T> {
+        let body_bytes = body.unwrap_or_default();
+        let mut request = self.client.request(method, url).header(
+            "Authorization",
+            format!(
+                "UpToken {}",
+                self.upload_token(key, Duration::from_secs(3600))?
+            ),
+        );
+        if !body_bytes.is_empty() {
+            request = request
+                .header("Content-Type", "application/json")
+                .body(body_bytes.clone());
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|error| map_reqwest_error("Qiniu upload request", error))?;
+        let status = response.status();
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| map_reqwest_error("read Qiniu upload response", error))?;
+        if !status.is_success() {
+            return Err(provider_error(
+                "Qiniu upload request failed",
+                status.as_u16(),
+                &bytes,
+            ));
+        }
+        serde_json::from_slice(&bytes)
+            .map_storage_err_ctx(StorageErrorKind::Unknown, "decode Qiniu upload response")
+    }
+
+    async fn send_upload_bytes(
+        &self,
+        method: Method,
+        url: Url,
+        key: &str,
+        body: Bytes,
+    ) -> Result<reqwest::Response> {
         let response = self
             .client
-            .request(method.clone(), url.clone())
-            .header("Authorization", self.authorization(&method, &url, &body))
+            .request(method, url)
+            .header(
+                "Authorization",
+                format!(
+                    "UpToken {}",
+                    self.upload_token(key, Duration::from_secs(3600))?
+                ),
+            )
             .header("Content-Type", "application/octet-stream")
             .body(body)
             .send()
@@ -323,10 +339,9 @@ impl QiniuDriver {
 
     async fn stat_key(&self, key: &str) -> Result<BlobMetadata> {
         let response: StatResponse = self
-            .request_json(
+            .management_request_json(
                 Method::GET,
                 self.manage_url(&format!("stat/{}", self.entry(key)))?,
-                None,
             )
             .await?;
         Ok(BlobMetadata {
@@ -364,30 +379,14 @@ impl QiniuDriver {
     }
 
     fn private_download_url(&self, key: &str, expires: Duration) -> Result<String> {
-        let mut url = Url::parse(&self.public_key(key))
-            .map_storage_err_ctx(StorageErrorKind::Misconfigured, "build Qiniu download URL")?;
-        let deadline = std::time::SystemTime::now()
-            .checked_add(expires)
-            .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|value| value.as_secs())
-            .ok_or_else(|| {
-                storage_driver_error(
-                    StorageErrorKind::Misconfigured,
-                    "invalid Qiniu download expiry",
-                )
-            })?;
-        url.query_pairs_mut()
-            .append_pair("e", &deadline.to_string());
-        let signing = format!("{}\n", url.as_str());
-        url.query_pairs_mut().append_pair(
-            "token",
-            &format!(
-                "{}:{}",
-                self.credentials.access_key,
-                sign(&self.credentials.secret_key, signing.as_bytes())
-            ),
-        );
-        Ok(url.to_string())
+        let uri = self
+            .public_key(key)
+            .parse::<Uri>()
+            .map_storage_err_ctx(StorageErrorKind::Misconfigured, "build Qiniu download URI")?;
+        Ok(self
+            .credential()
+            .sign_download_url(uri, expires)
+            .to_string())
     }
 }
 
@@ -463,10 +462,9 @@ impl StorageDriver for QiniuDriver {
 
     async fn delete(&self, path: &str) -> Result<()> {
         let _: serde_json::Value = self
-            .request_json(
+            .management_request_json(
                 Method::POST,
                 self.manage_url(&format!("delete/{}", self.entry(&self.key(path))))?,
-                None,
             )
             .await?;
         Ok(())
@@ -488,10 +486,9 @@ impl StorageDriver for QiniuDriver {
         let source = self.entry(&self.key(src_path));
         let destination = self.entry(&self.key(dest_path));
         let _: serde_json::Value = self
-            .request_json(
+            .management_request_json(
                 Method::POST,
                 self.manage_url(&format!("copy/{source}/{destination}"))?,
-                None,
             )
             .await?;
         Ok(dest_path.to_string())
@@ -582,7 +579,7 @@ impl ListStorageDriver for QiniuDriver {
                 );
             }
             let response: ListResponse = self
-                .request_json(Method::GET, self.list_url(&query)?, None)
+                .management_request_json(Method::GET, self.list_url(&query)?)
                 .await?;
             for item in response.items {
                 paths.push(
@@ -656,13 +653,14 @@ impl MultipartStorageDriver for QiniuDriver {
     async fn create_multipart_upload(&self, path: &str) -> Result<String> {
         let key = self.key(path);
         let response: MultipartInitResponse = self
-            .request_json(
+            .upload_request_json(
                 Method::POST,
                 self.upload_url(&format!(
                     "/buckets/{}/objects/{}/uploads",
                     self.config.bucket,
                     URL_SAFE_NO_PAD.encode(key.as_bytes())
                 ))?,
+                &key,
                 None,
             )
             .await?;
@@ -686,7 +684,10 @@ impl MultipartStorageDriver for QiniuDriver {
         ))?;
         Ok(PresignedUploadRequest::from_header_pairs(
             url.to_string(),
-            [("authorization", self.authorization(&Method::PUT, &url, &[]))],
+            [(
+                "authorization",
+                format!("UpToken {}", self.upload_token(&key, _expires)?),
+            )],
         ))
     }
 
@@ -718,7 +719,7 @@ impl MultipartStorageDriver for QiniuDriver {
         )?;
         let key = self.key(path);
         let _: serde_json::Value = self
-            .request_json(
+            .upload_request_json(
                 Method::POST,
                 self.upload_url(&format!(
                     "/buckets/{}/objects/{}/uploads/{}",
@@ -726,6 +727,7 @@ impl MultipartStorageDriver for QiniuDriver {
                     URL_SAFE_NO_PAD.encode(key.as_bytes()),
                     upload_id
                 ))?,
+                &key,
                 Some(Bytes::from(body)),
             )
             .await?;
@@ -753,7 +755,7 @@ impl MultipartStorageDriver for QiniuDriver {
             upload_id,
             part_number
         ))?;
-        let response = self.send_bytes(Method::PUT, url, data).await?;
+        let response = self.send_upload_bytes(Method::PUT, url, &key, data).await?;
         if let Some(etag) = response
             .headers()
             .get("etag")
@@ -792,7 +794,7 @@ impl MultipartStorageDriver for QiniuDriver {
     async fn abort_multipart_upload(&self, path: &str, upload_id: &str) -> Result<()> {
         let key = self.key(path);
         let _: serde_json::Value = self
-            .request_json(
+            .upload_request_json(
                 Method::DELETE,
                 self.upload_url(&format!(
                     "/buckets/{}/objects/{}/uploads/{}",
@@ -800,6 +802,7 @@ impl MultipartStorageDriver for QiniuDriver {
                     URL_SAFE_NO_PAD.encode(key.as_bytes()),
                     upload_id
                 ))?,
+                &key,
                 None,
             )
             .await?;
@@ -813,7 +816,7 @@ impl MultipartStorageDriver for QiniuDriver {
     ) -> Result<Vec<UploadedMultipartPart>> {
         let key = self.key(path);
         let response: MultipartListResponse = self
-            .request_json(
+            .upload_request_json(
                 Method::GET,
                 self.upload_url(&format!(
                     "/buckets/{}/objects/{}/uploads/{}",
@@ -821,6 +824,7 @@ impl MultipartStorageDriver for QiniuDriver {
                     URL_SAFE_NO_PAD.encode(key.as_bytes()),
                     upload_id
                 ))?,
+                &key,
                 None,
             )
             .await?;
@@ -833,14 +837,6 @@ impl MultipartStorageDriver for QiniuDriver {
             })
             .collect())
     }
-}
-
-fn sign(secret: &str, data: &[u8]) -> String {
-    let Ok(mut mac) = HmacSha1::new_from_slice(secret.as_bytes()) else {
-        return String::new();
-    };
-    mac.update(data);
-    URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
 }
 
 fn map_reqwest_error(context: &str, error: reqwest::Error) -> aster_drive_storage::StorageError {
@@ -906,6 +902,55 @@ mod tests {
             .upload_token("files/object", Duration::from_secs(60))
             .unwrap();
         assert_eq!(token.split(':').count(), 3);
-        assert!(token.ends_with(&URL_SAFE_NO_PAD.encode(br#"files/object"#)) == false);
+        let policy_segment = token.rsplit_once(':').expect("token policy segment").1;
+        let policy = URL_SAFE_NO_PAD
+            .decode(policy_segment)
+            .expect("decode upload policy");
+        let policy: serde_json::Value =
+            serde_json::from_slice(&policy).expect("decode upload policy JSON");
+        assert_eq!(policy["scope"], "bucket:files/object");
+    }
+
+    #[tokio::test]
+    async fn multipart_requests_use_upload_token_authorization() {
+        let driver = QiniuDriver {
+            config: QiniuDriverConfig {
+                bucket: "bucket".to_string(),
+                region: "z0".to_string(),
+                download_domain: "https://download.example.test".to_string(),
+                object_prefix: String::new(),
+                endpoints: QiniuRegionEndpoints {
+                    upload: "https://up.example.test".to_string(),
+                    manage: "https://rs.example.test".to_string(),
+                    list: "https://rsf.example.test".to_string(),
+                },
+                connect_timeout: Duration::from_secs(1),
+                read_timeout: Duration::from_secs(1),
+                operation_timeout: Duration::from_secs(1),
+            },
+            credentials: QiniuStaticCredentials {
+                access_key: "ak".to_string(),
+                secret_key: "sk".to_string(),
+            },
+            client: Client::new(),
+        };
+        let request = driver
+            .presigned_upload_part_request("files/object", "upload-id", 1, Duration::from_secs(60))
+            .await
+            .expect("presigned part request");
+        let authorization = request
+            .headers
+            .get("authorization")
+            .expect("upload token authorization header");
+        assert!(authorization.starts_with("UpToken ak:"));
+
+        let url = Url::parse("https://rs.example.test/stat/YnVja2V0OmZpbGVzL29iamVjdA")
+            .expect("management URL");
+        assert!(
+            driver
+                .management_authorization(&url)
+                .expect("management authorization")
+                .starts_with("QBox ak:")
+        );
     }
 }
