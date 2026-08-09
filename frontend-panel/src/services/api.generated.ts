@@ -8158,6 +8158,7 @@ export interface components {
              */
             storage_native_thumbnail_extensions?: string[];
         };
+        /** @description Successful credential validation together with the resolved provider root. */
         StoragePolicyCredentialValidationResult: {
             credential: components["schemas"]["StorageConnectorCredentialInfo"];
             root_item_id: string;
@@ -11501,6 +11502,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Successful credential validation together with the resolved provider root. */
                         data?: {
                             credential: components["schemas"]["StorageConnectorCredentialInfo"];
                             root_item_id: string;
