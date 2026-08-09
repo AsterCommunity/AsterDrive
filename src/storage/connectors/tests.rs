@@ -624,6 +624,32 @@ fn descriptors_are_complete_and_keep_config_credentials_separate() {
 }
 
 #[test]
+fn built_in_connector_capacity_claims_match_runtime_probe_support() {
+    for connector_id in [
+        LocalConnector::ID,
+        OneDriveConnector::ID,
+        RemoteConnector::ID,
+    ] {
+        assert!(
+            connector(connector_id).descriptor().capabilities.capacity,
+            "{connector_id} should advertise capacity probing"
+        );
+    }
+    for connector_id in [
+        S3Connector::ID,
+        AlibabaOssConnector::ID,
+        AzureBlobConnector::ID,
+        TencentCosConnector::ID,
+        SftpConnector::ID,
+    ] {
+        assert!(
+            !connector(connector_id).descriptor().capabilities.capacity,
+            "{connector_id} should not advertise a portable capacity probe"
+        );
+    }
+}
+
+#[test]
 fn credential_schema_version_is_independent_from_connector_config_schema() {
     let mut descriptor = descriptor(S3Connector::ID);
     assert_eq!(descriptor.credential_schema_version, Some(1));

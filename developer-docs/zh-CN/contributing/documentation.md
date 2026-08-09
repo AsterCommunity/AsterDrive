@@ -30,11 +30,22 @@
 
 存储后端教程放在用户文档 `admin/storage-backends/`，一页只讲一种后端，按“准备后端服务 -> 创建存储策略 -> 配置策略组 -> 绑定测试用户或团队 -> 验收”的流程写。
 
-新增或改名存储后端页面时，至少同步检查这些入口：
+内置 connector 的身份、展示名称、部署范围、凭据模式和传输能力以运行时 `StorageConnector` descriptor 与 connector localization 为准。`tests/storage_connector_docs.rs` 通过管理 API 读取这份 catalog，并生成：
 
-- `docs/src/content/docs/admin/storage-backends/index.md`（后端选择表）
-- `docs/src/content/docs/reference/storage-matrix.md`（能力矩阵）
-- `docs/astro.config.mts` 里的侧边栏
+- `docs/generated/storage-connectors.json`：机器可读、随 PR 审查的 manifest
+- `docs/src/content/docs/admin/storage-backends/index.md` 中的后端选择表
+- `docs/src/content/docs/admin/storage-policies.md` 中的 connector catalog
+- `docs/src/content/docs/reference/storage-matrix.md` 中的能力矩阵
+- 上述三处英文页面的对应 block
+
+`docs/astro.config.mts` 直接从 manifest 构造存储后端侧边栏，不再维护第二份 backend 列表。新增或改名内置 connector 时：
+
+1. 修改 connector descriptor、本地化资源和 `tests/storage_connector_docs.rs` 中 provider-owned 的教程 slug / 适用场景摘要。
+2. 新增中英文 provider 教程。
+3. 运行 `make storage-docs`，审查 manifest 和 Markdown 生成 diff。
+4. 运行 `make storage-docs-check`；CI 也会执行同一漂移检查。
+
+生成 block 由 `storage-connectors:*:start/end` 标记包围，不手动编辑。后端总览、策略 catalog 和能力矩阵是穷举入口；README、部署说明、故障排查和教程里的 provider 名称只作上下文示例，必须写成“例如 / 等”而不是暗示完整清单。上下文示例不随每个新 connector 机械扩写。
 
 如果只改某个后端的细节，不要复制另一篇教程的大段内容；把共通模型链接到存储策略与策略组页（`/admin/storage-policies/`）或能力矩阵（`/reference/storage-matrix/`）。
 

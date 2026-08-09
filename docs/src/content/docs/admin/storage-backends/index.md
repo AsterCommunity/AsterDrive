@@ -1,5 +1,5 @@
 ---
-description: "AsterDrive 存储后端选择指南：八种后端的适用场景、所有后端共用的接入流程，以及切生产流量前的验证顺序。"
+description: "AsterDrive 内置存储后端选择指南：适用场景、所有后端共用的接入流程，以及切生产流量前的验证顺序。"
 title: "存储后端"
 ---
 
@@ -10,20 +10,22 @@ title: "存储后端"
 
 ## 后端怎么选
 
-| 后端 | 适合场景 | 教程 |
-| --- | --- | --- |
-| 本地磁盘 | 单机、NAS、小团队、最少依赖 | [本地磁盘](/admin/storage-backends/local/) |
-| S3 / MinIO / R2 | 对象存储、大文件、外部 bucket、云存储 | [S3 / MinIO / R2](/admin/storage-backends/s3/) |
-| 阿里云 OSS | 阿里云原生 OSS bucket、OSS V4 签名、内外网 endpoint 分流或 CNAME | [阿里云 OSS](/admin/storage-backends/alibaba-oss/) |
-| Azure Blob Storage | Azure Storage account、Blob container、Azure 托管对象存储 | [Azure Blob Storage](/admin/storage-backends/azure-blob/) |
-| 腾讯云 COS | 腾讯云对象存储、COS 数据万象、按策略启用原生处理 | [腾讯云 COS](/admin/storage-backends/tencent-cos/) |
-| OneDrive | Microsoft 365、OneDrive、SharePoint / group drive、Microsoft Graph 授权 | [OneDrive](/admin/storage-backends/onedrive/) |
-| SFTP | SSH/SFTP 文件服务器、NAS、传统服务器目录、服务端流式读写 | [SFTP](/admin/storage-backends/sftp/) |
-| 远程节点 | 控制面在主控，真实对象写到另一台 AsterDrive | [远程节点存储策略](/admin/storage-backends/remote-follower/) |
+<!-- storage-connectors:index:start -->
+| 后端 | Connector ID | 部署范围 | 适合场景 | 教程 |
+| --- | --- | --- | --- | --- |
+| 本机 | `asterdrive.storage.local` | 单实例本地 | 单机、NAS、小团队、最少依赖 | [本机](/admin/storage-backends/local/) |
+| S3 | `asterdrive.storage.s3` | Primary 间共享 | S3 兼容对象存储、外部 bucket 和大文件 | [S3](/admin/storage-backends/s3/) |
+| 阿里云 OSS | `asterdrive.storage.alibaba_oss` | Primary 间共享 | 阿里云 OSS 原生 V4 签名、内外网 endpoint 分流或 CNAME | [阿里云 OSS](/admin/storage-backends/alibaba-oss/) |
+| SFTP | `asterdrive.storage.sftp` | Primary 间共享 | SSH/SFTP 文件服务器和服务端流式读写 | [SFTP](/admin/storage-backends/sftp/) |
+| Azure Blob | `asterdrive.storage.azure_blob` | Primary 间共享 | Azure Storage account 和 Blob container | [Azure Blob](/admin/storage-backends/azure-blob/) |
+| 腾讯云 COS | `asterdrive.storage.tencent_cos` | Primary 间共享 | 腾讯云 COS 和按策略启用的 COS 数据万象 | [腾讯云 COS](/admin/storage-backends/tencent-cos/) |
+| 远程节点 | `asterdrive.storage.remote` | Primary 间共享 | 由另一台 AsterDrive follower 节点保存对象 | [远程节点](/admin/storage-backends/remote-follower/) |
+| OneDrive | `asterdrive.storage.onedrive` | Primary 间共享 | Microsoft 365、OneDrive、SharePoint 和 group drive | [OneDrive](/admin/storage-backends/onedrive/) |
+<!-- storage-connectors:index:end -->
 
 多 Primary（cluster profile）的默认策略必须由所有 Primary 访问，`local` 不能作为默认策略；详见 [存储策略与策略组](/admin/storage-policies/#第一次启动后默认会有什么)。
 
-各后端的直传能力、容量观测、原生处理和凭据落库对比，以及 `relay_stream` 与 `presigned` 怎么选，见 [存储能力矩阵](/reference/storage-matrix/)。
+各后端的直传能力、容量观测、原生处理和凭据模式对比，以及 `relay_stream` 与 `presigned` 怎么选，见 [存储能力矩阵](/reference/storage-matrix/)。
 
 ## 通用配置流程
 

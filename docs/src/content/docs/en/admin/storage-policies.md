@@ -26,16 +26,18 @@ When a system administrator creates a new team without specifying a policy group
 
 ## Currently Supported Storage Types
 
-| Type | Description | Full tutorial |
-| --- | --- | --- |
-| `local` | Files on a local directory | [Local Disk](/en/admin/storage-backends/local/) |
-| `s3` | Files on S3 or object storage with an explicit S3-compatible API (MinIO / R2 / B2, etc.) | [S3 / MinIO / R2](/en/admin/storage-backends/s3/) |
-| `alibaba_oss` | Files on Alibaba Cloud OSS with native OSS V4 signing, public/server endpoint separation, and CNAME support | [Alibaba Cloud OSS](/en/admin/storage-backends/alibaba-oss/) |
-| `azure_blob` | Files in an Azure Blob Storage container via the Azure Blob SDK and SAS URLs | [Azure Blob Storage](/en/admin/storage-backends/azure-blob/) |
-| `tencent_cos` | Files on Tencent Cloud COS; basic object I/O reuses S3-compatible logic and additionally exposes Tencent-native capabilities like COS CI | [Tencent Cloud COS](/en/admin/storage-backends/tencent-cos/) |
-| `one_drive` | Files written to OneDrive, SharePoint, or Microsoft 365 group drives reachable via Microsoft Graph | [OneDrive](/en/admin/storage-backends/onedrive/) |
-| `sftp` | Files streamed by the AsterDrive server to an SSH/SFTP file server | [SFTP](/en/admin/storage-backends/sftp/) |
-| `remote` | Files written through the internal remote storage protocol to another AsterDrive follower node | [Follower Node Storage Policy](/en/admin/storage-backends/remote-follower/) |
+<!-- storage-connectors:policy-catalog:start -->
+| Connector ID | Backend | Credential mode | Full tutorial |
+| --- | --- | --- | --- |
+| `asterdrive.storage.local` | Local | None | [Local](/en/admin/storage-backends/local/) |
+| `asterdrive.storage.s3` | S3 | Static secret | [S3](/en/admin/storage-backends/s3/) |
+| `asterdrive.storage.alibaba_oss` | Alibaba Cloud OSS | Static secret | [Alibaba Cloud OSS](/en/admin/storage-backends/alibaba-oss/) |
+| `asterdrive.storage.sftp` | SFTP | Static secret | [SFTP](/en/admin/storage-backends/sftp/) |
+| `asterdrive.storage.azure_blob` | Azure Blob | Static secret | [Azure Blob](/en/admin/storage-backends/azure-blob/) |
+| `asterdrive.storage.tencent_cos` | Tencent COS | Static secret | [Tencent COS](/en/admin/storage-backends/tencent-cos/) |
+| `asterdrive.storage.remote` | Remote | None | [Remote](/en/admin/storage-backends/remote-follower/) |
+| `asterdrive.storage.onedrive` | OneDrive | Delegated OAuth | [OneDrive](/en/admin/storage-backends/onedrive/) |
+<!-- storage-connectors:policy-catalog:end -->
 
 ## Storage Policies vs Policy Groups
 

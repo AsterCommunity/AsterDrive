@@ -25,6 +25,14 @@
 - action 返回的结构化 `output` 只允许按 descriptor 的 `output_fields` 临时展示；未声明字段、类型不匹配字段和其他 action 的结果一律忽略。输出不写回 policy config，也不跨 action 或对话框会话保存。
 - delegated credential 的状态文案、语义色、说明、需要管理员关注的提示、净化后的原因映射、生命周期标签、重新授权文案和 redirect URI 辅助信息都由 `credential_management` 描述。共享面板不得按 OneDrive、Microsoft Graph 或其他 provider ID 分支，也不得直接展示 wire `status_reason`。
 
+## 文档事实投影
+
+- 内置 connector 的身份、展示名称、`deployment_scope`、`credential_mode`、`capabilities` 和 `upload_workflows` 仍由运行时 descriptor/localization 唯一拥有，文档层不建立平行 capability 类型。
+- `tests/storage_connector_docs.rs` 通过管理员实际消费的 catalog API 生成 `docs/generated/storage-connectors.json`，并更新后端索引、策略 catalog 和能力矩阵中的 marker block。生成产物提交到仓库，和代码一起审查。
+- 教程 slug 和“适合场景”是 provider-owned 文档元数据，不属于 runtime capability。新增内置 connector 时必须显式补齐这两个字段和中英文教程；测试会拒绝缺项或不存在的教程路径。
+- capability matrix 展示 connector 的静态能力上限。策略选项、远端节点 transport 和部署网络仍可能收窄实际能力，provider 教程负责解释这些条件。
+- README、部署文档和教程中的 provider 名称是明确标注的非穷举示例，不作为 backend catalog；新增 connector 不要求替换所有上下文示例。
+
 ## 字段规范化规则
 
 字段规范化属于 backend use case 或 connector/driver-specific pure helper，不能散落在 handler 或前端组件里。
@@ -55,4 +63,5 @@
 - normalization 必须覆盖 trim、空值、逃逸路径、prefix 首尾斜杠、storage policy 负数 `max_file_size`、同 driver secret preserve、显式 secret replace、driver 切换字段重置。
 - SFTP 必须覆盖裸 host、`host:port`、`sftp://host:port`、错误协议、host key 指纹格式、未知 host key 拒绝和已确认指纹通过。
 - storage policy descriptor 行为改变时，跑 `cargo test --lib storage::connectors` 或更小过滤；remote storage target 归一化改变时，跑 `cargo test --lib remote::storage_target::tests::<filter>`。
+- 内置 connector 身份、localization 或上述文档事实改变时，运行 `make storage-docs` 更新生成产物，再运行 `make storage-docs-check` 验证无漂移。
 - 改 OpenAPI schema 后必须重新导出 OpenAPI、生成前端 SDK 并审查生成差异。

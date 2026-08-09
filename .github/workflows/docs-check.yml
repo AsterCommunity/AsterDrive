@@ -6,12 +6,20 @@ on:
     paths:
       - 'docs/**'
       - 'developer-docs/**'
+      - 'crates/aster_drive_storage/src/connector_descriptor.rs'
+      - 'src/storage/connectors/**'
+      - 'tests/storage_connector_docs.rs'
+      - 'Makefile'
       - 'src/api/api_error_code.rs'
       - '.github/workflows/docs-check.yml'
   pull_request:
     paths:
       - 'docs/**'
       - 'developer-docs/**'
+      - 'crates/aster_drive_storage/src/connector_descriptor.rs'
+      - 'src/storage/connectors/**'
+      - 'tests/storage_connector_docs.rs'
+      - 'Makefile'
       - 'src/api/api_error_code.rs'
       - '.github/workflows/docs-check.yml'
 
@@ -19,6 +27,23 @@ permissions:
   contents: read
 
 jobs:
+  storage-connectors:
+    name: Storage connector docs in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: storage-connector-docs-v1
+
+      - name: Check generated connector manifest and documentation blocks
+        run: make storage-docs-check
+
   error-codes:
     name: Error code docs in sync
     runs-on: ubuntu-latest

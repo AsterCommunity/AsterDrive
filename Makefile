@@ -27,7 +27,7 @@ TEST_ENV = $(if $(strip $(BACKEND)),ASTER_TEST_DATABASE_BACKEND=$(BACKEND),)
 	test test-backend test-frontend test-lib test-integration test-e2e \
 	coverage coverage-backend coverage-frontend \
 	openapi openapi-check \
-	docs-dev docs-build docs-preview \
+	storage-docs storage-docs-check docs-dev docs-build docs-preview \
 	docker-build docker-up docker-down docker-logs \
 	ci
 
@@ -136,6 +136,12 @@ openapi-check: openapi ## Verify generated OpenAPI and SDK files have no drift
 	git diff --exit-code -- \
 		$(FRONTEND_DIR)/generated/openapi.json \
 		$(FRONTEND_DIR)/src/services/api.generated.ts
+
+storage-docs: ## Regenerate the built-in storage connector manifest and documentation blocks
+	ASTER_UPDATE_STORAGE_CONNECTOR_DOCS=1 $(CARGO) test --test storage_connector_docs generated_storage_connector_docs_are_current -- --exact
+
+storage-docs-check: ## Verify storage connector documentation has no descriptor drift
+	$(CARGO) test --test storage_connector_docs generated_storage_connector_docs_are_current -- --exact
 
 docs-dev: ## Run the documentation development server
 	cd $(DOCS_DIR) && $(BUN) run docs:dev

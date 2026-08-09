@@ -30,11 +30,22 @@ When unsure, ask first: **what task did the reader open this page to complete?**
 
 Storage backend tutorials belong under `admin/storage-backends/` in the user documentation. Keep each page focused on one backend and follow the flow "prepare the backend service -> create a storage policy -> configure policy groups -> bind a test user or team -> validate".
 
-When adding or renaming a storage backend page, at least check these entry points:
+For built-in connectors, runtime `StorageConnector` descriptors and connector localization are authoritative for identity, display name, deployment scope, credential mode, and transfer capabilities. `tests/storage_connector_docs.rs` reads that catalog through the admin APIs and generates:
 
-- `docs/src/content/docs/admin/storage-backends/index.md` (backend selection table)
-- `docs/src/content/docs/reference/storage-matrix.md` (capability matrix)
-- the sidebar in `docs/astro.config.mts`
+- `docs/generated/storage-connectors.json`, the machine-readable manifest reviewed with each PR
+- the backend selection table in `docs/src/content/docs/admin/storage-backends/index.md`
+- the connector catalog in `docs/src/content/docs/admin/storage-policies.md`
+- the capability matrix in `docs/src/content/docs/reference/storage-matrix.md`
+- the corresponding blocks in all three English pages
+
+`docs/astro.config.mts` builds the storage-backend sidebar directly from the manifest instead of maintaining another backend list. When adding or renaming a built-in connector:
+
+1. Update its descriptor and localization plus the provider-owned tutorial slug / best-for summary in `tests/storage_connector_docs.rs`.
+2. Add the Chinese and English provider tutorials.
+3. Run `make storage-docs` and review the generated manifest and Markdown diff.
+4. Run `make storage-docs-check`; CI runs the same drift check.
+
+Generated blocks are bounded by `storage-connectors:*:start/end` markers and are not edited by hand. The backend overview, policy catalog, and capability matrix are exhaustive entry points. Provider names in READMEs, deployment explanations, troubleshooting, and tutorials are contextual examples and must say “for example”, “such as”, or “etc.” rather than implying a complete list. Contextual examples stay unchanged when a new connector is added.
 
 If you only change details for one backend, do not copy large sections from another tutorial. Link common concepts to the storage policy and policy group page (`/admin/storage-policies/`) or the capability matrix (`/reference/storage-matrix/`).
 

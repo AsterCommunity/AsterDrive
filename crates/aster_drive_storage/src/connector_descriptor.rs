@@ -1951,7 +1951,10 @@ pub fn object_storage_connector_descriptor(
         credential_management: None,
         capabilities: StorageConnectorCapabilities {
             efficient_range: true,
-            capacity: true,
+            // S3-compatible, OSS, COS, and Azure Blob data-plane APIs do not
+            // expose one portable remaining-capacity contract. Policy capacity
+            // probes therefore return `unsupported` for this shared family.
+            capacity: false,
             list: true,
             presigned_download: true,
             storage_native_thumbnail: input.storage_native_processing,

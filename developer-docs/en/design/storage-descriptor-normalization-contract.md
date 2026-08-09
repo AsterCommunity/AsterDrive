@@ -25,6 +25,14 @@ Shared field meanings and pure normalization helpers live in `src/storage/field_
 - Structured action `output` is presented transiently only through descriptor-declared `output_fields`. Undeclared fields, type mismatches, and results belonging to another action are ignored. Output is never copied into policy config or retained across actions or dialog sessions.
 - Delegated-credential status copy, semantic tone, description, attention guidance, sanitized-reason mapping, lifecycle labels, reauthorization wording, and redirect-URI help belong to `credential_management`. The shared panel must not branch on OneDrive, Microsoft Graph, or another provider ID, and must not render the wire `status_reason` directly.
 
+## Documentation Fact Projection
+
+- Built-in connector identity, display names, `deployment_scope`, `credential_mode`, `capabilities`, and `upload_workflows` remain owned by runtime descriptors and localization. The documentation layer does not define a parallel capability type.
+- `tests/storage_connector_docs.rs` reads the same catalog APIs used by administrators, generates `docs/generated/storage-connectors.json`, and updates marked blocks in the backend index, policy catalog, and capability matrix. Generated outputs are committed and reviewed with code.
+- Tutorial slugs and “best for” summaries are provider-owned documentation metadata, not runtime capabilities. Every new built-in connector must add both fields and Chinese/English tutorials; the test rejects missing metadata and tutorial paths.
+- The capability matrix shows each connector's static ceiling. Policy settings, remote-node transport, and deployment networking may narrow actual availability; provider tutorials explain those conditions.
+- Provider names in READMEs, deployment pages, and tutorials are explicitly non-exhaustive examples rather than backend catalogs. Adding a connector does not require global replacement of every contextual example.
+
 ## Normalization Rules
 
 Field normalization belongs in backend use cases or connector/driver-specific pure helpers. It must not be scattered in handlers or frontend components.
@@ -56,5 +64,6 @@ When descriptor or normalization behavior changes, add focused unit tests:
 - Normalization tests must cover trimming, blank values, path escapes, prefix slash trimming, negative storage-policy `max_file_size`, same-driver secret preservation, explicit secret replacement, and driver-change field reset.
 - SFTP coverage must include bare host, `host:port`, `sftp://host:port`, wrong schemes, host key fingerprint format, unknown-host-key rejection, and accepted pinned fingerprints.
 - For storage policy descriptor behavior, run `cargo test --lib storage::connectors` or a narrower filter.
+- When built-in connector identity, localization, or projected documentation facts change, run `make storage-docs`, review the generated diff, then run `make storage-docs-check`.
 - For remote storage target normalization, run `cargo test --lib remote::storage_target::tests::<filter>`.
 - OpenAPI schema changes require OpenAPI export, frontend SDK regeneration, and review of the generated diff.
