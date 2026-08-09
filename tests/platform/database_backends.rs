@@ -860,7 +860,7 @@ async fn test_mysql_smoke_search_and_admin_overview() {
         .try_get_by_index(0)
         .expect("MySQL table definition cache should be an unsigned integer");
     assert!(
-        table_definition_cache >= common::MYSQL_TEST_TABLE_DEFINITION_CACHE,
+        table_definition_cache >= aster_forge_test::mysql::MYSQL_TEST_TABLE_DEFINITION_CACHE,
         "MySQL table definition cache must cover parallel isolated test schemas"
     );
     database

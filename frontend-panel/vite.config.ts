@@ -97,8 +97,14 @@ const STARTUP_FORBIDDEN_PRECACHE_GLOBS = [
 
 export default defineConfig(({ command }) => {
 	const isDevServer = command === "serve";
-	const rootReactPath = path.resolve(__dirname, "./node_modules/react");
-	const rootReactDomPath = path.resolve(__dirname, "./node_modules/react-dom");
+	const rootReactPath = path.resolve(
+		import.meta.dirname,
+		"./node_modules/react",
+	);
+	const rootReactDomPath = path.resolve(
+		import.meta.dirname,
+		"./node_modules/react-dom",
+	);
 
 	return {
 		plugins: [
@@ -175,7 +181,7 @@ export default defineConfig(({ command }) => {
 		base: "/",
 		resolve: {
 			alias: [
-				{ find: "@", replacement: path.resolve(__dirname, "./src") },
+				{ find: "@", replacement: path.resolve(import.meta.dirname, "./src") },
 				{
 					find: "react/jsx-dev-runtime",
 					replacement: path.resolve(rootReactPath, "./jsx-dev-runtime.js"),

@@ -185,7 +185,10 @@ pub(crate) async fn handle_put(
     let plan = match plan_put_request(capabilities, &headers, resource_state) {
         Ok(plan) => plan,
         Err(error) => {
-            return aster_forge_webdav::actix::into_response(put_plan_error_response(&error));
+            return aster_forge_webdav::actix::into_response(put_plan_error_response(
+                capabilities,
+                &error,
+            ));
         }
     };
     let has_write_precondition = headers.contains_key(http::header::IF_MATCH)
