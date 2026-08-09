@@ -42,6 +42,16 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "文件存入腾讯云 COS，并可使用 COS 数据万象进行原生文档预览。",
     ),
     aster_drive_storage::storage_connector_message!(
+        "storage_native_thumbnail_enabled_desc",
+        "When enabled, only images matching the extensions below are sent to Tencent COS CI image processing for thumbnail generation. Disabling turns off only COS-native thumbnails: AsterDrive's global thumbnail processor chain remains available, and the saved extension list stays dormant until re-enabled. Tencent COS CI image-processing requests may incur cloud-provider charges.",
+        "开启后，只有下方后缀匹配的图片才会交给腾讯云 COS 数据万象生成缩略图。关闭只停用 COS 原生缩略图路径，AsterDrive 的全局缩略图处理链仍可继续处理；已保存的后缀列表会作为休眠配置保留，重新开启后恢复使用。COS 数据万象图片处理请求可能产生腾讯云费用。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "storage_native_media_metadata_enabled_desc",
+        "When enabled, only audio or video matching the extensions below is sent to Tencent COS CI GetMediainfo to parse duration, codecs, bit rate, and stream information. Disabling turns off only COS-native parsing: AsterDrive's global media-information processor chain remains available, and the saved extension list stays dormant until re-enabled. Tencent COS CI media-information requests may incur request charges.",
+        "开启后，只有下方后缀匹配的音视频才会交给腾讯云 COS 数据万象 GetMediainfo，解析时长、编码格式、码率和流信息。关闭只停用 COS 原生解析路径，AsterDrive 的全局媒体信息处理链仍可继续处理；已保存的后缀列表会作为休眠配置保留，重新开启后恢复使用。COS 数据万象媒体信息请求可能按请求计费并产生腾讯云费用。",
+    ),
+    aster_drive_storage::storage_connector_message!(
         "tencent_cos_secret_id",
         "Tencent COS SecretId",
         "腾讯云 COS SecretId",

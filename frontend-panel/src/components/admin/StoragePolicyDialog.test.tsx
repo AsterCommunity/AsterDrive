@@ -886,12 +886,10 @@ describe("StoragePolicyDialog", () => {
 			const props = dialogProps({
 				createStep: 2,
 				form: policyForm({
-					storage_native_thumbnail_enabled: item.thumbnail,
-					storage_native_thumbnail_extensions: item.thumbnail ? ["jpg"] : [],
-					storage_native_media_metadata_enabled: item.metadata,
-					storage_native_media_metadata_extensions: item.metadata
-						? ["mp4"]
-						: [],
+					storage_native_thumbnail_enabled: false,
+					storage_native_thumbnail_extensions: ["jpg"],
+					storage_native_media_metadata_enabled: false,
+					storage_native_media_metadata_extensions: ["mp4"],
 				}),
 				storageDriverDescriptor: plugin,
 				storageDriverDescriptors: [plugin],
@@ -903,6 +901,11 @@ describe("StoragePolicyDialog", () => {
 					name: "storage_native_thumbnail_enabled",
 				}) !== null,
 			).toBe(item.thumbnail);
+			if (item.thumbnail) {
+				expect(
+					screen.getByLabelText("storage_native_thumbnail_extensions"),
+				).toHaveValue("jpg");
+			}
 			expect(
 				screen.queryByLabelText("storage_native_thumbnail_extensions") !== null,
 			).toBe(item.thumbnail);
@@ -915,9 +918,121 @@ describe("StoragePolicyDialog", () => {
 				screen.queryByLabelText("storage_native_media_metadata_extensions") !==
 					null,
 			).toBe(item.metadata);
+			if (item.metadata) {
+				expect(
+					screen.getByLabelText("storage_native_media_metadata_extensions"),
+				).toHaveValue("mp4");
+			}
 
 			view.unmount();
 		}
+	});
+
+	it("keeps dormant extension controls visible, ordered, described, and editable", () => {
+		connectorMessages.set(
+			"plugin.example:storage_native_thumbnail_enabled_desc",
+			"Plugin image thumbnail billing help",
+		);
+		connectorMessages.set(
+			"plugin.example:storage_native_thumbnail_extensions_desc",
+			"Plugin image extension matching help",
+		);
+		connectorMessages.set(
+			"plugin.example:storage_native_media_metadata_enabled_desc",
+			"Plugin audio and video billing help",
+		);
+		connectorMessages.set(
+			"plugin.example:storage_native_media_metadata_extensions_desc",
+			"Plugin audio and video extension matching help",
+		);
+		const plugin = descriptor("plugin.example", {
+			capabilities: {
+				...descriptor("plugin.example").capabilities,
+				storage_native_thumbnail: true,
+				storage_native_media_metadata: true,
+			},
+		});
+		const props = dialogProps({
+			createStep: 2,
+			form: policyForm({
+				storage_native_thumbnail_enabled: false,
+				storage_native_thumbnail_extensions: ["jpg", "webp"],
+				storage_native_media_metadata_enabled: false,
+				storage_native_media_metadata_extensions: ["mp4", "flac"],
+			}),
+			storageDriverDescriptor: plugin,
+			storageDriverDescriptors: [plugin],
+		});
+		render(<StoragePolicyDialog {...props} />);
+
+		const thumbnailGroup = screen.getByRole("group", {
+			name: "storage_native_thumbnail_enabled",
+		});
+		const thumbnailSwitch = within(thumbnailGroup).getByRole("switch", {
+			name: "storage_native_thumbnail_enabled",
+		});
+		const thumbnailExtensions = within(thumbnailGroup).getByLabelText(
+			"storage_native_thumbnail_extensions",
+		);
+		expect(thumbnailGroup).toHaveAttribute("data-enabled", "false");
+		expect(thumbnailSwitch).toHaveAccessibleDescription(
+			"Plugin image thumbnail billing help",
+		);
+		expect(thumbnailExtensions).toHaveAccessibleDescription(
+			"Plugin image extension matching help",
+		);
+		expect(thumbnailExtensions).toHaveValue("jpg, webp");
+		expect(
+			thumbnailSwitch.compareDocumentPosition(thumbnailExtensions) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+
+		const mediaGroup = screen.getByRole("group", {
+			name: "storage_native_media_metadata_enabled",
+		});
+		const mediaSwitch = within(mediaGroup).getByRole("switch", {
+			name: "storage_native_media_metadata_enabled",
+		});
+		const mediaExtensions = within(mediaGroup).getByLabelText(
+			"storage_native_media_metadata_extensions",
+		);
+		expect(mediaGroup).toHaveAttribute("data-enabled", "false");
+		expect(mediaSwitch).toHaveAccessibleDescription(
+			"Plugin audio and video billing help",
+		);
+		expect(mediaExtensions).toHaveAccessibleDescription(
+			"Plugin audio and video extension matching help",
+		);
+		expect(mediaExtensions).toHaveValue("mp4, flac");
+		expect(
+			mediaSwitch.compareDocumentPosition(mediaExtensions) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+
+		fireEvent.change(thumbnailExtensions, {
+			target: { value: "heic, avif" },
+		});
+		fireEvent.change(mediaExtensions, {
+			target: { value: "mkv, opus" },
+		});
+		fireEvent.click(thumbnailSwitch);
+		fireEvent.click(mediaSwitch);
+		expect(props.onFieldChange).toHaveBeenCalledWith(
+			"storage_native_thumbnail_extensions",
+			["heic", "avif"],
+		);
+		expect(props.onFieldChange).toHaveBeenCalledWith(
+			"storage_native_media_metadata_extensions",
+			["mkv", "opus"],
+		);
+		expect(props.onFieldChange).toHaveBeenCalledWith(
+			"storage_native_thumbnail_enabled",
+			true,
+		);
+		expect(props.onFieldChange).toHaveBeenCalledWith(
+			"storage_native_media_metadata_enabled",
+			true,
+		);
 	});
 
 	it("submits native enablement through core form keys", () => {

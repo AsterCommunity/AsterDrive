@@ -123,6 +123,79 @@ describe("i18n", () => {
 		);
 	});
 
+	it.each([
+		{
+			language: "zh" as const,
+			labels: {
+				thumbnail: "使用存储后端生成图片缩略图",
+				thumbnailExtensions: "存储原生图片缩略图后缀",
+				media: "使用存储后端解析音视频媒体信息",
+				mediaExtensions: "存储原生音视频媒体信息后缀",
+			},
+			descriptionTerms: [
+				"存储后端",
+				"图片",
+				"音视频",
+				"只有",
+				"全局",
+				"休眠配置",
+				"列表为空",
+				"计费",
+			],
+		},
+		{
+			language: "en" as const,
+			labels: {
+				thumbnail: "Use the storage backend to generate image thumbnails",
+				thumbnailExtensions: "Storage-native image thumbnail extensions",
+				media: "Use the storage backend to parse audio/video media information",
+				mediaExtensions:
+					"Storage-native audio/video media-information extensions",
+			},
+			descriptionTerms: [
+				"storage backend",
+				"images",
+				"audio or video",
+				"only",
+				"global",
+				"dormant",
+				"empty list",
+				"charge",
+			],
+		},
+	])(
+		"provides explicit storage-native policy labels and detailed help in $language",
+		async ({ language, labels, descriptionTerms }) => {
+			localStorage.setItem("aster-language", language);
+			const module = await loadI18nModule();
+			const i18n = module.default;
+			await module.ensureI18nNamespaces(["admin"], language);
+
+			expect(i18n.t("admin:storage_native_thumbnail_enabled")).toBe(
+				labels.thumbnail,
+			);
+			expect(i18n.t("admin:storage_native_thumbnail_extensions")).toBe(
+				labels.thumbnailExtensions,
+			);
+			expect(i18n.t("admin:storage_native_media_metadata_enabled")).toBe(
+				labels.media,
+			);
+			expect(i18n.t("admin:storage_native_media_metadata_extensions")).toBe(
+				labels.mediaExtensions,
+			);
+
+			const descriptions = [
+				i18n.t("admin:storage_native_thumbnail_enabled_desc"),
+				i18n.t("admin:storage_native_thumbnail_extensions_desc"),
+				i18n.t("admin:storage_native_media_metadata_enabled_desc"),
+				i18n.t("admin:storage_native_media_metadata_extensions_desc"),
+			].join(" ");
+			for (const term of descriptionTerms) {
+				expect(descriptions.toLowerCase()).toContain(term.toLowerCase());
+			}
+		},
+	);
+
 	it("keeps unsplit locale files loadable", async () => {
 		localStorage.setItem("aster-language", "en");
 		const module = await loadI18nModule();
