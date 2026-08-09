@@ -325,7 +325,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
         "onedrive_credential_title"
     );
     assert_eq!(
-        onedrive["credential_management"]["status_keys"]["authorized"],
+        onedrive["credential_management"]["status_presentations"]["authorized"]["label_key"],
         "onedrive_credential_status_authorized"
     );
     let onedrive_actions = onedrive["actions"].as_array().expect("onedrive actions");
@@ -511,6 +511,13 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
                     && action["requires_saved_policy"] == false
                     && action["mutates_remote_state"] == true
                     && action["requires_confirmation"] == true
+                    && action["output_fields"].as_array().is_some_and(|fields| {
+                        fields.iter().any(|field| {
+                            field["name"] == "request_id"
+                                && field["label_key"] == "policy_cos_cors_output_request_id"
+                                && field["value_kind"] == "text"
+                        })
+                    })
             })
     );
     let cos_endpoint = tencent_cos["fields"]

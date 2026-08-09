@@ -2,6 +2,7 @@ import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { presentStorageConnectorActionOutput } from "@/components/admin/storage-policy-dialog/actionResultPresentation";
 import {
 	getEndpointValidationMessage,
 	getPolicyConnectionTestKey,
@@ -30,6 +31,7 @@ import type {
 	StorageConnectorDescriptor,
 	StorageConnectorFieldValue,
 	StoragePolicy,
+	StoragePolicyActionResult,
 } from "@/types/api";
 
 interface StoragePolicyActionControllerInput {
@@ -237,6 +239,7 @@ export function useStoragePolicyActionController({
 			if (executionMode === "unsupported") {
 				return;
 			}
+			let result: StoragePolicyActionResult;
 			if (executionMode === "draft") {
 				const currentEndpointValidationMessage = getEndpointValidationMessage(
 					currentForm,
@@ -248,7 +251,7 @@ export function useStoragePolicyActionController({
 					toast.error(currentEndpointValidationMessage);
 					return;
 				}
-				await adminPolicyService.executeDraftPolicyAction(
+				result = await adminPolicyService.executeDraftPolicyAction(
 					buildStorageConnectorActionPayload(
 						currentForm,
 						editingId,
@@ -262,17 +265,32 @@ export function useStoragePolicyActionController({
 				if (savedPolicyId === null) {
 					return;
 				}
-				await adminPolicyService.executeSavedPolicyAction(savedPolicyId, {
-					action_id: actionId,
-					values,
-				});
+				result = await adminPolicyService.executeSavedPolicyAction(
+					savedPolicyId,
+					{
+						action_id: actionId,
+						values,
+					},
+				);
 			}
 			setConnectorActionConfirmId(null);
-			toast.success(
-				t("policy_connector_action_success", {
-					action: connectorT(action.label_key),
-				}),
+			const successMessage = t("policy_connector_action_success", {
+				action: connectorT(action.label_key),
+			});
+			const outputDetails = presentStorageConnectorActionOutput(
+				action,
+				result,
+				(key) => connectorT(key),
 			);
+			if (outputDetails.length === 0) {
+				toast.success(successMessage);
+			} else {
+				toast.success(successMessage, {
+					description: outputDetails
+						.map(({ label, value }) => `${label}: ${value}`)
+						.join(" · "),
+				});
+			}
 		} catch (error) {
 			handleApiError(error);
 		} finally {

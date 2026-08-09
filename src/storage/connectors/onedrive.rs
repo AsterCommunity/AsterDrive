@@ -21,13 +21,15 @@ use aster_drive_model::types::{
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorBadgeRgb, StorageConnectorCapabilities,
-    StorageConnectorCredentialManagementDescriptor, StorageConnectorDeploymentScope,
-    StorageConnectorDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
-    StorageConnectorObjectNamingMode, StorageConnectorProviderResumableUploadCapabilities,
-    StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
-    saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
-    start_authorization_action_descriptor, storage_connector_field, storage_connector_select_field,
-    storage_connector_ui_descriptor, validate_credential_action_descriptor,
+    StorageConnectorCredentialManagementDescriptor, StorageConnectorCredentialReasonRule,
+    StorageConnectorCredentialStatusPresentation, StorageConnectorCredentialStatusTone,
+    StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorFieldKind,
+    StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
+    StorageConnectorProviderResumableUploadCapabilities, StorageConnectorUiDescriptorInput,
+    StorageConnectorUploadWorkflows, saved_connection_test_action_descriptor,
+    server_relay_simple_upload_capabilities, start_authorization_action_descriptor,
+    storage_connector_field, storage_connector_select_field, storage_connector_ui_descriptor,
+    validate_credential_action_descriptor,
 };
 use aster_drive_storage::{
     StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue,
@@ -672,33 +674,75 @@ impl OneDriveConnector {
             credential_management: Some(StorageConnectorCredentialManagementDescriptor {
                 title_key: "onedrive_credential_title".to_string(),
                 loading_key: "onedrive_credential_loading".to_string(),
-                status_keys: BTreeMap::from([
+                status_presentations: BTreeMap::from([
                     (
                         "authorized".to_string(),
-                        "onedrive_credential_status_authorized".to_string(),
+                        credential_status_presentation(
+                            "onedrive_credential_status_authorized",
+                            StorageConnectorCredentialStatusTone::Success,
+                            Some("onedrive_credential_desc_authorized"),
+                        ),
                     ),
                     (
                         "reauth_required".to_string(),
-                        "onedrive_credential_status_reauth_required".to_string(),
+                        StorageConnectorCredentialStatusPresentation {
+                            label_key: "onedrive_credential_status_reauth_required".to_string(),
+                            tone: StorageConnectorCredentialStatusTone::Warning,
+                            description_key: Some(
+                                "onedrive_credential_desc_authorized".to_string(),
+                            ),
+                            attention_title_key: Some(
+                                "onedrive_credential_reauth_required_title".to_string(),
+                            ),
+                            attention_guidance_key: Some(
+                                "onedrive_credential_reauth_required_desc".to_string(),
+                            ),
+                            reason_rules: onedrive_credential_reason_rules(),
+                            reason_fallback_key: Some(
+                                "onedrive_credential_reason_reauth_required".to_string(),
+                            ),
+                        },
                     ),
                     (
                         "permission_denied".to_string(),
-                        "onedrive_credential_status_permission_denied".to_string(),
+                        credential_status_presentation(
+                            "onedrive_credential_status_permission_denied",
+                            StorageConnectorCredentialStatusTone::Danger,
+                            None,
+                        ),
                     ),
                     (
                         "revoked".to_string(),
-                        "onedrive_credential_status_revoked".to_string(),
+                        credential_status_presentation(
+                            "onedrive_credential_status_revoked",
+                            StorageConnectorCredentialStatusTone::Danger,
+                            None,
+                        ),
                     ),
                     (
                         "invalid".to_string(),
-                        "onedrive_credential_status_invalid".to_string(),
+                        credential_status_presentation(
+                            "onedrive_credential_status_invalid",
+                            StorageConnectorCredentialStatusTone::Danger,
+                            None,
+                        ),
                     ),
                     (
                         "missing".to_string(),
-                        "onedrive_credential_status_missing".to_string(),
+                        credential_status_presentation(
+                            "onedrive_credential_status_missing",
+                            StorageConnectorCredentialStatusTone::Neutral,
+                            Some("onedrive_credential_desc_missing"),
+                        ),
                     ),
                 ]),
+                reauthorize_action_key: Some("onedrive_reauthorize_action".to_string()),
+                authorized_at_key: Some("onedrive_credential_authorized_at".to_string()),
+                refreshed_at_key: Some("onedrive_credential_refreshed_at".to_string()),
+                validated_at_key: Some("onedrive_credential_validated_at".to_string()),
                 redirect_uri_key: Some("onedrive_redirect_uri".to_string()),
+                redirect_uri_help_key: Some("onedrive_redirect_uri_desc".to_string()),
+                redirect_uri_copy_key: Some("onedrive_copy_redirect_uri".to_string()),
                 save_before_authorize_key: Some("onedrive_save_before_authorize".to_string()),
                 authorization_started_key: Some("onedrive_authorization_started".to_string()),
                 save_before_validate_key: Some("onedrive_save_before_validate".to_string()),
@@ -757,6 +801,62 @@ impl OneDriveConnector {
             related_issues: vec![328, 329, 330, 349],
         }
     }
+}
+
+fn credential_status_presentation(
+    label_key: &str,
+    tone: StorageConnectorCredentialStatusTone,
+    description_key: Option<&str>,
+) -> StorageConnectorCredentialStatusPresentation {
+    StorageConnectorCredentialStatusPresentation {
+        label_key: label_key.to_string(),
+        tone,
+        description_key: description_key.map(str::to_string),
+        attention_title_key: None,
+        attention_guidance_key: None,
+        reason_rules: Vec::new(),
+        reason_fallback_key: None,
+    }
+}
+
+fn onedrive_credential_reason_rules() -> Vec<StorageConnectorCredentialReasonRule> {
+    [
+        (
+            &["missing refresh token"][..],
+            "onedrive_credential_reason_missing_refresh_token",
+        ),
+        (
+            &["invalid_grant"][..],
+            "onedrive_credential_reason_invalid_grant",
+        ),
+        (
+            &["invalid_client"][..],
+            "onedrive_credential_reason_invalid_client",
+        ),
+        (
+            &["missing access_token", "missing access token"][..],
+            "onedrive_credential_reason_missing_access_token",
+        ),
+        (
+            &[
+                "drive resolution failed",
+                "onedrive target could not be resolved",
+                "resolve onedrive",
+            ][..],
+            "onedrive_credential_reason_drive_resolution_failed",
+        ),
+    ]
+    .into_iter()
+    .map(
+        |(contains_any, message_key)| StorageConnectorCredentialReasonRule {
+            contains_any: contains_any
+                .iter()
+                .map(|fragment| (*fragment).to_string())
+                .collect(),
+            message_key: message_key.to_string(),
+        },
+    )
+    .collect()
 }
 
 #[async_trait]

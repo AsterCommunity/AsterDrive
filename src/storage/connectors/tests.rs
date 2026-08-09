@@ -231,10 +231,17 @@ fn builtin_bundles_keep_connector_owned_management_messages() {
         .expect("OneDrive credential management descriptor");
     assert_eq!(
         credential_management
-            .status_keys
+            .status_presentations
             .get("authorized")
-            .map(String::as_str),
+            .map(|presentation| presentation.label_key.as_str()),
         Some("onedrive_credential_status_authorized")
+    );
+    assert_eq!(
+        credential_management
+            .status_presentations
+            .get("reauth_required")
+            .map(|presentation| presentation.reason_rules.len()),
+        Some(5)
     );
     assert_eq!(
         credential_management.created_authorize_next_key.as_deref(),

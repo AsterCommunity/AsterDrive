@@ -1,8 +1,15 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
 	StorageConnectorActionDescriptor,
+	StorageConnectorCredentialInfo,
 	StorageConnectorDescriptor,
 	StorageConnectorFieldDescriptor,
 	StoragePolicyCapacityInfo,
@@ -14,6 +21,11 @@ import {
 } from "./storage-policy-dialog/formTypes";
 
 const connectorMessages = vi.hoisted(() => new Map<string, string>());
+const interactionMocks = vi.hoisted(() => ({
+	clipboard: vi.fn(),
+	toastError: vi.fn(),
+	toastSuccess: vi.fn(),
+}));
 
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
@@ -29,6 +41,18 @@ vi.mock("react-i18next", () => ({
 				: key;
 		},
 	}),
+}));
+
+vi.mock("sonner", () => ({
+	toast: {
+		error: (...args: unknown[]) => interactionMocks.toastError(...args),
+		success: (...args: unknown[]) => interactionMocks.toastSuccess(...args),
+	},
+}));
+
+vi.mock("@/lib/clipboard", () => ({
+	writeTextToClipboard: (...args: unknown[]) =>
+		interactionMocks.clipboard(...args),
 }));
 
 vi.mock(
@@ -253,6 +277,10 @@ function dialogProps(
 describe("StoragePolicyDialog", () => {
 	beforeEach(() => {
 		connectorMessages.clear();
+		interactionMocks.clipboard.mockReset();
+		interactionMocks.clipboard.mockResolvedValue(undefined);
+		interactionMocks.toastError.mockReset();
+		interactionMocks.toastSuccess.mockReset();
 	});
 
 	it("keeps the previous two-column connector selection and advances directly from a descriptor card", () => {
@@ -664,13 +692,24 @@ describe("StoragePolicyDialog", () => {
 		).toBeVisible();
 	});
 
-	it("renders connector-owned credential management messages from the connector namespace", () => {
+	it("renders the full connector-owned credential lifecycle and copy feedback", async () => {
 		for (const [key, value] of Object.entries({
+			plugin_authorized_at: "Authorized 2026-08-01",
+			plugin_copy_redirect_uri: "Copy redirect URI",
+			plugin_credential_desc_authorized: "Credential is saved",
 			plugin_credential_loading: "Credential loading",
 			plugin_credential_status_authorized: "Credential authorized",
 			plugin_credential_status_missing: "Credential missing",
+			plugin_credential_status_reauth: "Reauthorization required",
 			plugin_credential_title: "Connector credential",
+			plugin_reauth_desc: "Authorize again after checking the app",
+			plugin_reauth_reason: "Application credentials were rejected",
+			plugin_reauth_title: "Authorization expired",
+			plugin_reauthorize: "Reauthorize connector",
 			plugin_redirect_uri: "Connector redirect URI",
+			plugin_redirect_uri_help: "Register this redirect URI",
+			plugin_refreshed_at: "Refreshed 2026-08-02",
+			plugin_validated_at: "Validated 2026-08-03",
 			policy_connector_start_authorization: "Authorize connector",
 			policy_connector_validate_credential: "Validate connector",
 		})) {
@@ -679,16 +718,42 @@ describe("StoragePolicyDialog", () => {
 		const plugin = descriptor("plugin.example", {
 			credential_management: {
 				authorization_started_key: "plugin_authorization_started",
+				authorized_at_key: "plugin_authorized_at",
 				created_authorize_next_key: "plugin_created_authorize_next",
 				loading_key: "plugin_credential_loading",
+				reauthorize_action_key: "plugin_reauthorize",
+				redirect_uri_copy_key: "plugin_copy_redirect_uri",
+				redirect_uri_help_key: "plugin_redirect_uri_help",
 				redirect_uri_key: "plugin_redirect_uri",
+				refreshed_at_key: "plugin_refreshed_at",
 				save_before_authorize_key: "plugin_save_before_authorize",
 				save_before_validate_key: "plugin_save_before_validate",
-				status_keys: {
-					authorized: "plugin_credential_status_authorized",
-					missing: "plugin_credential_status_missing",
+				status_presentations: {
+					authorized: {
+						description_key: "plugin_credential_desc_authorized",
+						label_key: "plugin_credential_status_authorized",
+						tone: "success",
+					},
+					missing: {
+						label_key: "plugin_credential_status_missing",
+						tone: "neutral",
+					},
+					reauth_required: {
+						attention_guidance_key: "plugin_reauth_desc",
+						attention_title_key: "plugin_reauth_title",
+						label_key: "plugin_credential_status_reauth",
+						reason_fallback_key: "plugin_reauth_reason",
+						reason_rules: [
+							{
+								contains_any: ["invalid_client"],
+								message_key: "plugin_reauth_reason",
+							},
+						],
+						tone: "warning",
+					},
 				},
 				title_key: "plugin_credential_title",
+				validated_at_key: "plugin_validated_at",
 				validation_success_detail_key: "plugin_validation_success_detail",
 				validation_success_key: "plugin_validation_success",
 			},
@@ -705,8 +770,70 @@ describe("StoragePolicyDialog", () => {
 				}),
 			],
 		});
+		const credential = {
+			account_label: "Admin account",
+			authorized_at: "2026-08-01T00:00:00Z",
+			created_at: "2026-08-04T00:00:00Z",
+			credential_kind: "authorization",
+			id: 1,
+			last_refreshed_at: "2026-08-02T00:00:00Z",
+			last_validated_at: "2026-08-03T00:00:00Z",
+			policy_id: 7,
+			provider: "microsoft_graph",
+			scopes: [],
+			status: "authorized",
+			updated_at: "2026-08-04T00:00:00Z",
+		} satisfies StorageConnectorCredentialInfo;
 
-		render(
+		const view = render(
+			<StoragePolicyDialog
+				{...dialogProps({
+					mode: "edit",
+					storageDriverDescriptor: plugin,
+					storageDriverDescriptors: [plugin],
+					storageCredentials: [credential],
+				})}
+			/>,
+		);
+
+		expect(screen.getByText("Connector credential")).toBeVisible();
+		expect(screen.getByText("Credential authorized")).toBeVisible();
+		expect(screen.getByText("Credential is saved")).toBeVisible();
+		expect(screen.getByText("Admin account")).toBeVisible();
+		expect(
+			screen.getByText(
+				/Authorized 2026-08-01 · Refreshed 2026-08-02 · Validated 2026-08-03/,
+			),
+		).toBeVisible();
+		expect(screen.getByText("Connector redirect URI")).toBeVisible();
+		expect(screen.getByText("Register this redirect URI")).toBeVisible();
+		expect(
+			screen.getByRole("button", { name: "Reauthorize connector" }),
+		).toBeVisible();
+		expect(
+			screen.getByRole("button", { name: "Validate connector" }),
+		).toBeVisible();
+		fireEvent.click(screen.getByRole("button", { name: "Copy redirect URI" }));
+		await waitFor(() =>
+			expect(interactionMocks.clipboard).toHaveBeenCalledWith(
+				"https://app.example.test/callback",
+			),
+		);
+		expect(interactionMocks.toastSuccess).toHaveBeenCalledWith(
+			"core:copied_to_clipboard",
+		);
+
+		interactionMocks.clipboard.mockRejectedValueOnce(
+			new Error("clipboard denied"),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Copy redirect URI" }));
+		await waitFor(() =>
+			expect(interactionMocks.toastError).toHaveBeenCalledWith(
+				"clipboard denied",
+			),
+		);
+
+		view.rerender(
 			<StoragePolicyDialog
 				{...dialogProps({
 					mode: "edit",
@@ -714,28 +841,37 @@ describe("StoragePolicyDialog", () => {
 					storageDriverDescriptors: [plugin],
 					storageCredentials: [
 						{
-							created_at: "2026-08-04T00:00:00Z",
-							credential_kind: "authorization",
-							id: 1,
-							policy_id: 7,
-							provider: "microsoft_graph",
-							scopes: [],
-							status: "authorized",
-							updated_at: "2026-08-04T00:00:00Z",
+							...credential,
+							status: "reauth_required",
+							status_reason: "INVALID_CLIENT: provider detail",
 						},
 					],
 				})}
 			/>,
 		);
-
-		expect(screen.getByText("Connector credential")).toBeVisible();
-		expect(screen.getByText("Credential authorized")).toBeVisible();
-		expect(screen.getByText("Connector redirect URI")).toBeVisible();
+		expect(screen.getByText("Reauthorization required")).toBeVisible();
+		expect(screen.getByText("Authorization expired")).toBeVisible();
 		expect(
-			screen.getByRole("button", { name: "Authorize connector" }),
+			screen.getByText("Application credentials were rejected"),
 		).toBeVisible();
 		expect(
-			screen.getByRole("button", { name: "Validate connector" }),
+			screen.getByText("Authorize again after checking the app"),
+		).toBeVisible();
+		expect(screen.queryByText("INVALID_CLIENT: provider detail")).toBeNull();
+
+		view.rerender(
+			<StoragePolicyDialog
+				{...dialogProps({
+					mode: "edit",
+					storageDriverDescriptor: plugin,
+					storageDriverDescriptors: [plugin],
+					storageCredentials: [],
+				})}
+			/>,
+		);
+		expect(screen.getByText("Credential missing")).toBeVisible();
+		expect(
+			screen.getByRole("button", { name: "Authorize connector" }),
 		).toBeVisible();
 	});
 
