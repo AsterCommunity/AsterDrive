@@ -18,7 +18,7 @@ export function applyPolicyFormFieldChange<K extends keyof PolicyFormData>(
 			storage_native_thumbnail_enabled: enabled,
 			storage_native_thumbnail_extensions:
 				enabled && form.storage_native_thumbnail_extensions.length === 0
-					? [...DEFAULT_STORAGE_NATIVE_THUMBNAIL_EXTENSIONS]
+					? defaultStorageNativeThumbnailExtensions()
 					: form.storage_native_thumbnail_extensions,
 		};
 	}
@@ -37,14 +37,27 @@ export function applyPolicyConnectorTransition(
 	connectorId: string,
 	descriptor: StorageConnectorDescriptor | null | undefined,
 ): PolicyFormData {
+	// The extension vector is dormant configuration, not enabled state. Seed a
+	// supported connector draft before the switch is turned on so the rules are
+	// visible and editable without changing runtime behavior.
+	const thumbnailExtensions =
+		descriptor?.capabilities.storage_native_thumbnail === true &&
+		form.storage_native_thumbnail_extensions.length === 0
+			? defaultStorageNativeThumbnailExtensions()
+			: form.storage_native_thumbnail_extensions;
 	return {
 		...form,
 		connector_id: connectorId,
 		connector_config_values: descriptorDefaultValues(descriptor),
 		credential_values: {},
 		storage_native_thumbnail_enabled: false,
+		storage_native_thumbnail_extensions: thumbnailExtensions,
 		storage_native_media_metadata_enabled: false,
 	};
+}
+
+function defaultStorageNativeThumbnailExtensions(): string[] {
+	return [...DEFAULT_STORAGE_NATIVE_THUMBNAIL_EXTENSIONS];
 }
 
 function descriptorDefaultValues(

@@ -572,6 +572,60 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		});
 	});
 
+	it("initializes and submits supported thumbnail defaults without enabling native processing", async () => {
+		const connector = descriptor("plugin.native", {
+			capabilities: {
+				...descriptor("unused").capabilities,
+				storage_native_thumbnail: true,
+			},
+		});
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		mockState.create.mockResolvedValue(policy(connector.connector_id));
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog(connector.connector_id);
+		openCreateDialog();
+
+		await waitFor(() => {
+			expect(currentDialog().form).toMatchObject({
+				connector_id: connector.connector_id,
+				storage_native_thumbnail_enabled: false,
+				storage_native_thumbnail_extensions: [
+					"jpg",
+					"jpeg",
+					"png",
+					"webp",
+					"gif",
+				],
+			});
+		});
+
+		await setField("name", "Native thumbnails");
+		await act(async () => currentDialog().onCreateStepChange(2));
+		await act(async () => currentDialog().onSubmit());
+
+		await waitFor(() => expect(mockState.create).toHaveBeenCalledTimes(1));
+		expect(mockState.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				connection: expect.objectContaining({
+					behavior: {
+						storage_native_media_metadata_enabled: false,
+						storage_native_media_metadata_extensions: [],
+						storage_native_thumbnail_enabled: false,
+						storage_native_thumbnail_extensions: [
+							"jpg",
+							"jpeg",
+							"png",
+							"webp",
+							"gif",
+						],
+					},
+				}),
+			}),
+		);
+	});
+
 	it("does not install connector resources from a stale language request", async () => {
 		const enManage = deferred<{
 			requested_locale: string;
@@ -929,6 +983,58 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			max_file_size: 0,
 			name: "Policy",
 		});
+	});
+
+	it("preserves an explicitly empty native extension set on a no-op edit", async () => {
+		const connector = descriptor("asterdrive.storage.tencent_cos", {
+			actions: [],
+			capabilities: {
+				...descriptor("unused").capabilities,
+				storage_native_thumbnail: true,
+				storage_native_media_metadata: true,
+			},
+		});
+		const saved = policy(
+			connector.connector_id,
+			{},
+			{
+				behavior: {
+					storage_native_thumbnail_enabled: false,
+					storage_native_thumbnail_extensions: [],
+					storage_native_media_metadata_enabled: false,
+					storage_native_media_metadata_extensions: [],
+				},
+			},
+		);
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		mockState.policies = [saved];
+		mockState.update.mockResolvedValue(saved);
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog(connector.connector_id);
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		await waitFor(() => expect(currentDialog().editMode).toBe(true));
+		expect(currentDialog().form).toMatchObject({
+			storage_native_thumbnail_enabled: false,
+			storage_native_thumbnail_extensions: [],
+			storage_native_media_metadata_enabled: false,
+			storage_native_media_metadata_extensions: [],
+		});
+
+		await act(async () => currentDialog().onSubmit());
+		await waitFor(() => expect(mockState.update).toHaveBeenCalledTimes(1));
+		expect(mockState.update).toHaveBeenCalledWith(
+			7,
+			expect.objectContaining({
+				behavior: {
+					storage_native_thumbnail_enabled: false,
+					storage_native_thumbnail_extensions: [],
+					storage_native_media_metadata_enabled: false,
+					storage_native_media_metadata_extensions: [],
+				},
+			}),
+		);
 	});
 
 	it("ignores stale remote target responses after the dependency changes", async () => {

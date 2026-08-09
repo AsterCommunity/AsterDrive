@@ -112,6 +112,67 @@ describe("policy form transitions", () => {
 		});
 	});
 
+	it("seeds supported thumbnail extensions while native processing remains disabled", () => {
+		const target = descriptor("plugin.native");
+		target.capabilities.storage_native_thumbnail = true;
+
+		const transitioned = applyPolicyConnectorTransition(
+			emptyForm,
+			target.connector_id,
+			target,
+		);
+
+		expect(transitioned).toMatchObject({
+			storage_native_thumbnail_enabled: false,
+			storage_native_thumbnail_extensions: [
+				"jpg",
+				"jpeg",
+				"png",
+				"webp",
+				"gif",
+			],
+		});
+		expect(emptyForm.storage_native_thumbnail_extensions).toEqual([]);
+	});
+
+	it("does not seed thumbnail extensions for an unsupported connector", () => {
+		const target = descriptor("plugin.plain");
+
+		const transitioned = applyPolicyConnectorTransition(
+			emptyForm,
+			target.connector_id,
+			target,
+		);
+
+		expect(transitioned).toMatchObject({
+			storage_native_thumbnail_enabled: false,
+			storage_native_thumbnail_extensions: [],
+		});
+	});
+
+	it("retains a custom dormant thumbnail extension set across connector changes", () => {
+		const target = descriptor("plugin.native");
+		target.capabilities.storage_native_thumbnail = true;
+		const form = {
+			...emptyForm,
+			storage_native_thumbnail_extensions: ["heic"],
+		};
+
+		const transitioned = applyPolicyConnectorTransition(
+			form,
+			target.connector_id,
+			target,
+		);
+
+		expect(transitioned).toMatchObject({
+			storage_native_thumbnail_enabled: false,
+			storage_native_thumbnail_extensions: ["heic"],
+		});
+		expect(transitioned.storage_native_thumbnail_extensions).toBe(
+			form.storage_native_thumbnail_extensions,
+		);
+	});
+
 	it("uses an empty config when the descriptor is missing or declares no defaults", () => {
 		const form = {
 			...emptyForm,

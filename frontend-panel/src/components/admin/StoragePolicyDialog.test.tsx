@@ -1035,6 +1035,48 @@ describe("StoragePolicyDialog", () => {
 		);
 	});
 
+	it("renders empty extension inputs while supported native behaviors are disabled", () => {
+		const plugin = descriptor("plugin.example", {
+			capabilities: {
+				...descriptor("plugin.example").capabilities,
+				storage_native_thumbnail: true,
+				storage_native_media_metadata: true,
+			},
+		});
+		render(
+			<StoragePolicyDialog
+				{...dialogProps({
+					createStep: 2,
+					form: policyForm({
+						storage_native_thumbnail_enabled: false,
+						storage_native_thumbnail_extensions: [],
+						storage_native_media_metadata_enabled: false,
+						storage_native_media_metadata_extensions: [],
+					}),
+					storageDriverDescriptor: plugin,
+					storageDriverDescriptors: [plugin],
+				})}
+			/>,
+		);
+
+		expect(
+			screen.getByRole("switch", {
+				name: "storage_native_thumbnail_enabled",
+			}),
+		).not.toBeChecked();
+		expect(
+			screen.getByLabelText("storage_native_thumbnail_extensions"),
+		).toHaveValue("");
+		expect(
+			screen.getByRole("switch", {
+				name: "storage_native_media_metadata_enabled",
+			}),
+		).not.toBeChecked();
+		expect(
+			screen.getByLabelText("storage_native_media_metadata_extensions"),
+		).toHaveValue("");
+	});
+
 	it("submits native enablement through core form keys", () => {
 		const plugin = descriptor("plugin.example", {
 			capabilities: {
