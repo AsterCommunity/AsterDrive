@@ -46,6 +46,18 @@ function upsertCredential(
 		: [nextCredential, ...credentials];
 }
 
+/**
+ * Owns the credential resource and credential actions for one saved-policy
+ * dialog session.
+ *
+ * A session is identified by dialog visibility, policy ID, and the saved
+ * connector ID rather than the `StoragePolicy` object identity. Closing the
+ * dialog or switching policies/connectors invalidates the generation so late
+ * list, authorization, validation, and `finally` completions cannot mutate a
+ * newer session. Validation failures reload the writer-backed credential
+ * status because the backend may persist an expired or reauthorization state
+ * before returning the provider error.
+ */
 export function useStoragePolicyCredentialController({
 	currentStorageDriverDescriptor,
 	dialogOpen,
