@@ -66,6 +66,17 @@ describe("presentStorageConnectorActionOutput", () => {
 				value: "https://a.example, https://b.example",
 			},
 		]);
+		expect(
+			presentStorageConnectorActionOutput(
+				action,
+				{
+					action_id: "plugin.configure_remote",
+					ok: true,
+					output: { changed: false },
+				},
+				(key) => `translated:${key}`,
+			),
+		).toEqual([{ label: "translated:changed", value: "translated:no" }]);
 	});
 
 	it("drops absent, malformed, failed, and cross-action output", () => {
@@ -95,6 +106,49 @@ describe("presentStorageConnectorActionOutput", () => {
 					action_id: "plugin.configure_remote",
 					ok: false,
 					output: { request_id: "req" },
+				},
+				translate,
+			),
+		).toEqual([]);
+		expect(
+			presentStorageConnectorActionOutput(
+				{ ...action, output_fields: undefined },
+				{
+					action_id: "plugin.configure_remote",
+					ok: true,
+					output: { request_id: "req" },
+				},
+				translate,
+			),
+		).toEqual([]);
+		expect(
+			presentStorageConnectorActionOutput(
+				{
+					...action,
+					output_fields: [
+						{ label_key: "changed", name: "changed", value_kind: "boolean" },
+						{
+							label_key: "origins",
+							name: "origins",
+							value_kind: "string_list",
+						},
+					],
+				},
+				{
+					action_id: "plugin.configure_remote",
+					ok: true,
+					output: { changed: true, origins: [" "] },
+				},
+				translate,
+			),
+		).toEqual([]);
+		expect(
+			presentStorageConnectorActionOutput(
+				action,
+				{
+					action_id: "plugin.configure_remote",
+					ok: true,
+					output: [] as never,
 				},
 				translate,
 			),

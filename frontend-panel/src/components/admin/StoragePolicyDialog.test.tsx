@@ -751,6 +751,11 @@ describe("StoragePolicyDialog", () => {
 						],
 						tone: "warning",
 					},
+					invalid: {
+						label_key: "plugin_credential_status_invalid",
+						reason_fallback_key: "plugin_reauth_reason",
+						tone: "danger",
+					},
 				},
 				title_key: "plugin_credential_title",
 				validated_at_key: "plugin_validated_at",
@@ -770,6 +775,9 @@ describe("StoragePolicyDialog", () => {
 				}),
 			],
 		});
+		const management = plugin.credential_management;
+		if (!management)
+			throw new Error("credential management fixture is required");
 		const credential = {
 			account_label: "Admin account",
 			authorized_at: "2026-08-01T00:00:00Z",
@@ -832,6 +840,13 @@ describe("StoragePolicyDialog", () => {
 				"clipboard denied",
 			),
 		);
+		interactionMocks.clipboard.mockRejectedValueOnce("clipboard unavailable");
+		fireEvent.click(screen.getByRole("button", { name: "Copy redirect URI" }));
+		await waitFor(() =>
+			expect(interactionMocks.toastError).toHaveBeenCalledWith(
+				"clipboard unavailable",
+			),
+		);
 
 		view.rerender(
 			<StoragePolicyDialog
@@ -873,6 +888,94 @@ describe("StoragePolicyDialog", () => {
 		expect(
 			screen.getByRole("button", { name: "Authorize connector" }),
 		).toBeVisible();
+
+		view.rerender(
+			<StoragePolicyDialog
+				{...dialogProps({
+					mode: "edit",
+					storageDriverDescriptor: plugin,
+					storageDriverDescriptors: [plugin],
+					storageCredentials: [credential],
+					storageCredentialsLoading: true,
+				})}
+			/>,
+		);
+		expect(screen.getByText("Credential loading")).toBeVisible();
+
+		view.rerender(
+			<StoragePolicyDialog
+				{...dialogProps({
+					mode: "edit",
+					storageDriverDescriptor: plugin,
+					storageDriverDescriptors: [plugin],
+					storageCredentials: [
+						{
+							...credential,
+							account_label: null,
+							authorized_at: null,
+							last_refreshed_at: null,
+							last_validated_at: null,
+							status: "invalid",
+							status_reason: "unmatched provider reason",
+							subject: "Subject account",
+						},
+					],
+				})}
+			/>,
+		);
+		expect(screen.getByText("plugin_credential_status_invalid")).toBeVisible();
+		expect(screen.getByText("Subject account")).toBeVisible();
+		expect(
+			screen.getByText("Application credentials were rejected"),
+		).toBeVisible();
+
+		const basicPlugin = descriptor("plugin.example", {
+			...plugin,
+			credential_management: {
+				...management,
+				redirect_uri_copy_key: null,
+				redirect_uri_help_key: null,
+				reauthorize_action_key: null,
+			},
+		});
+		view.rerender(
+			<StoragePolicyDialog
+				{...dialogProps({
+					mode: "edit",
+					storageAuthorizationSubmitting: true,
+					storageCredentialValidationSubmitting: true,
+					storageDriverDescriptor: basicPlugin,
+					storageDriverDescriptors: [basicPlugin],
+					storageCredentials: [credential],
+				})}
+			/>,
+		);
+		expect(
+			screen.queryByRole("button", { name: "Copy redirect URI" }),
+		).toBeNull();
+		expect(screen.queryByText("Register this redirect URI")).toBeNull();
+
+		const validationOnlyPlugin = descriptor("plugin.example", {
+			...plugin,
+			actions: plugin.actions.filter(
+				(candidate) => candidate.kind === "credential_validation",
+			),
+			credential_management: {
+				...management,
+				reauthorize_action_key: null,
+			},
+		});
+		view.rerender(
+			<StoragePolicyDialog
+				{...dialogProps({
+					mode: "edit",
+					storageDriverDescriptor: validationOnlyPlugin,
+					storageDriverDescriptors: [validationOnlyPlugin],
+					storageCredentials: [credential],
+				})}
+			/>,
+		);
+		expect(screen.queryByText("Connector redirect URI")).toBeNull();
 	});
 
 	it("covers connector loading and error states before selection", () => {
