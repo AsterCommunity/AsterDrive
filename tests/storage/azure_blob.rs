@@ -376,6 +376,19 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
     assert_eq!(reader_body.len(), usize::try_from(reader_size).unwrap());
     assert!(reader_body.iter().all(|byte| *byte == b'Z'));
 
+    driver
+        .put_reader(
+            "stream/single.bin",
+            Box::new(std::io::Cursor::new(b"single block".to_vec())),
+            12,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        driver.get("stream/single.bin").await.unwrap(),
+        b"single block"
+    );
+
     driver.delete("docs/hello.txt").await.unwrap();
     driver.delete("docs/hello.txt").await.unwrap();
     assert!(!driver.exists("docs/hello.txt").await.unwrap());
@@ -427,14 +440,7 @@ async fn test_azure_blob_put_reader_length_boundaries_with_azurite() {
         )
         .await
         .expect_err("long stream should fail");
-    assert!(
-        matches!(
-            long_error.kind(),
-            StorageErrorKind::Misconfigured | StorageErrorKind::Precondition
-        ),
-        "unexpected long reader error kind: {:?}",
-        long_error.kind()
-    );
+    assert_eq!(long_error.kind(), StorageErrorKind::Precondition);
 
     let upload_id = driver
         .create_multipart_upload("multipart/reader.bin")

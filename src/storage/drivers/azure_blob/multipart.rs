@@ -7,6 +7,7 @@ use azure_storage_blob::models::{BlockListType, BlockLookupList};
 use bytes::Bytes;
 use futures::io::AsyncRead as FuturesAsyncRead;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, ReadBuf};
@@ -30,6 +31,82 @@ struct AzureSizedReaderStream {
 struct AzureSizedReaderState {
     reader: Option<Box<dyn AsyncRead + Unpin + Send + Sync>>,
     remaining: u64,
+}
+
+struct AzureChunkReader {
+    reader: Arc<Mutex<Box<dyn AsyncRead + Unpin + Send + Sync>>>,
+    remaining: u64,
+    ended_early: Arc<AtomicBool>,
+}
+
+impl AzureChunkReader {
+    fn new(
+        reader: Arc<Mutex<Box<dyn AsyncRead + Unpin + Send + Sync>>>,
+        len: u64,
+        ended_early: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            reader,
+            remaining: len,
+            ended_early,
+        }
+    }
+}
+
+impl AsyncRead for AzureChunkReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        output: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        if self.remaining == 0 || output.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
+
+        let max_read = match aster_forge_utils::numbers::u64_to_usize(
+            self.remaining,
+            "Azure Blob upload chunk remaining",
+        )
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+        {
+            Ok(value) => value.min(output.remaining()),
+            Err(error) => return Poll::Ready(Err(error)),
+        };
+        let mut limited = ReadBuf::new(&mut output.initialize_unfilled()[..max_read]);
+        let poll_result = {
+            let mut state = match self.reader.lock() {
+                Ok(state) => state,
+                Err(_) => {
+                    return Poll::Ready(Err(std::io::Error::other(
+                        "Azure Blob upload reader lock poisoned",
+                    )));
+                }
+            };
+            Pin::new(&mut **state).poll_read(cx, &mut limited)
+        };
+        match poll_result {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(Ok(())) => {
+                let read = limited.filled().len();
+                if read == 0 {
+                    self.ended_early.store(true, Ordering::Relaxed);
+                    return Poll::Ready(Ok(()));
+                }
+                output.advance(read);
+                self.remaining -= match u64::try_from(read) {
+                    Ok(read) => read,
+                    Err(error) => {
+                        return Poll::Ready(Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            error,
+                        )));
+                    }
+                };
+                Poll::Ready(Ok(()))
+            }
+            Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
+        }
+    }
 }
 
 impl AzureSizedReaderStream {
@@ -313,14 +390,13 @@ impl StreamUploadDriver for AzureBlobDriver {
     async fn put_reader(
         &self,
         storage_path: &str,
-        mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+        reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
     ) -> aster_drive_storage::Result<String> {
-        use tokio::io::AsyncReadExt as _;
-
         let expected_size = numbers::i64_to_u64(size, "Azure Blob put_reader declared size")
             .map_storage_err(StorageErrorKind::Misconfigured)?;
         let chunk_size = self.chunk_size_for_content(expected_size)?;
+        let reader = Arc::new(Mutex::new(reader));
         let mut remaining = expected_size;
         let mut part_number = 1_i32;
         let mut parts = Vec::new();
@@ -339,17 +415,48 @@ impl StreamUploadDriver for AzureBlobDriver {
                 "Azure Blob put_reader next chunk size",
             )
             .map_storage_err(StorageErrorKind::Misconfigured)?;
-            let mut chunk = vec![0_u8; read_limit];
-            reader.read_exact(&mut chunk).await.map_storage_err_ctx(
-                StorageErrorKind::Precondition,
-                "read Azure Blob upload chunk",
-            )?;
+            let ended_early = Arc::new(AtomicBool::new(false));
+            let chunk_reader = AzureChunkReader::new(
+                Arc::clone(&reader),
+                u64::try_from(read_limit).map_err(|error| {
+                    storage_driver_error(
+                        StorageErrorKind::Misconfigured,
+                        format!("Azure Blob upload chunk size conversion failed: {error}"),
+                    )
+                })?,
+                Arc::clone(&ended_early),
+            );
             let marker = self
-                .upload_multipart_part_bytes(storage_path, "", part_number, Bytes::from(chunk))
-                .await?;
+                .upload_multipart_part_reader(
+                    storage_path,
+                    "",
+                    part_number,
+                    Box::new(chunk_reader),
+                    i64::try_from(read_limit).map_err(|error| {
+                        storage_driver_error(
+                            StorageErrorKind::Misconfigured,
+                            format!("Azure Blob upload chunk size conversion failed: {error}"),
+                        )
+                    })?,
+                )
+                .await
+                .map_err(|error| {
+                    if ended_early.load(Ordering::Relaxed) {
+                        storage_driver_error(
+                            StorageErrorKind::Precondition,
+                            format!("read Azure Blob upload chunk: {error}"),
+                        )
+                    } else {
+                        error
+                    }
+                })?;
             parts.push((part_number, marker));
-            remaining -= numbers::usize_to_u64(read_limit, "Azure Blob uploaded chunk size")
-                .map_storage_err(StorageErrorKind::Misconfigured)?;
+            remaining -= u64::try_from(read_limit).map_err(|error| {
+                storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    format!("Azure Blob uploaded chunk size conversion failed: {error}"),
+                )
+            })?;
             part_number = part_number.checked_add(1).ok_or_else(|| {
                 storage_driver_error(
                     StorageErrorKind::Misconfigured,
@@ -359,13 +466,18 @@ impl StreamUploadDriver for AzureBlobDriver {
         }
 
         let mut extra = [0_u8; 1];
-        let extra_read = reader.read(&mut extra).await.map_storage_err_ctx(
+        let extra_read = tokio::io::AsyncReadExt::read(
+            &mut AzureChunkReader::new(Arc::clone(&reader), 1, Arc::new(AtomicBool::new(false))),
+            &mut extra,
+        )
+        .await
+        .map_storage_err_ctx(
             StorageErrorKind::Precondition,
             "check Azure Blob upload stream length",
         )?;
         if extra_read != 0 {
             return Err(storage_driver_error(
-                StorageErrorKind::Misconfigured,
+                StorageErrorKind::Precondition,
                 "Azure Blob upload stream exceeded declared size",
             ));
         }
@@ -397,8 +509,11 @@ impl StreamUploadDriver for AzureBlobDriver {
 #[cfg(test)]
 mod tests {
     use futures::io::AsyncReadExt as _;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+    use tokio::io::AsyncReadExt as _;
 
-    use super::{AZURE_STREAM_BUFFER_SIZE, AzureSizedReaderStream};
+    use super::{AZURE_STREAM_BUFFER_SIZE, AzureChunkReader, AzureSizedReaderStream};
     use azure_core::stream::SeekableStream;
 
     #[tokio::test]
@@ -438,5 +553,66 @@ mod tests {
         let mut stream = AzureSizedReaderStream::new(reader, 3);
 
         assert!(stream.reset().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn chunk_reader_limits_each_block_without_consuming_the_next_one() {
+        let reader: Arc<Mutex<Box<dyn tokio::io::AsyncRead + Unpin + Send + Sync>>> = Arc::new(
+            Mutex::new(Box::new(std::io::Cursor::new(b"abcdef".to_vec()))),
+        );
+        let mut first =
+            AzureChunkReader::new(Arc::clone(&reader), 3, Arc::new(AtomicBool::new(false)));
+        let mut first_body = Vec::new();
+        first
+            .read_to_end(&mut first_body)
+            .await
+            .expect("first chunk should read");
+        assert_eq!(first_body, b"abc");
+
+        let mut second = AzureChunkReader::new(reader, 3, Arc::new(AtomicBool::new(false)));
+        let mut second_body = Vec::new();
+        second
+            .read_to_end(&mut second_body)
+            .await
+            .expect("second chunk should read");
+        assert_eq!(second_body, b"def");
+    }
+
+    #[tokio::test]
+    async fn chunk_reader_marks_short_block_for_precondition_mapping() {
+        let reader: Arc<Mutex<Box<dyn tokio::io::AsyncRead + Unpin + Send + Sync>>> =
+            Arc::new(Mutex::new(Box::new(std::io::Cursor::new(b"abc".to_vec()))));
+        let ended_early = Arc::new(AtomicBool::new(false));
+        let chunk = AzureChunkReader::new(Arc::clone(&reader), 5, Arc::clone(&ended_early));
+        let mut stream = AzureSizedReaderStream::new(Box::new(chunk), 5);
+        let mut body = Vec::new();
+
+        let error = futures::io::AsyncReadExt::read_to_end(&mut stream, &mut body)
+            .await
+            .expect_err("short block should fail");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
+        assert_eq!(body, b"abc");
+        assert!(ended_early.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn chunk_reader_handles_huge_declared_block_with_small_input() {
+        let reader: Arc<Mutex<Box<dyn tokio::io::AsyncRead + Unpin + Send + Sync>>> =
+            Arc::new(Mutex::new(Box::new(std::io::Cursor::new(b"x".to_vec()))));
+        let ended_early = Arc::new(AtomicBool::new(false));
+        let declared_size = 100_u64 * 1024 * 1024 * 1024 * 1024;
+        let chunk =
+            AzureChunkReader::new(Arc::clone(&reader), declared_size, Arc::clone(&ended_early));
+        let mut stream = AzureSizedReaderStream::new(Box::new(chunk), declared_size);
+        let mut body = Vec::new();
+
+        let error = futures::io::AsyncReadExt::read_to_end(&mut stream, &mut body)
+            .await
+            .expect_err("short huge declared block should fail");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
+        assert_eq!(body, b"x");
+        assert!(ended_early.load(Ordering::Relaxed));
     }
 }
