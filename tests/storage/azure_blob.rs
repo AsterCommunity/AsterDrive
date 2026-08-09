@@ -440,14 +440,7 @@ async fn test_azure_blob_put_reader_length_boundaries_with_azurite() {
         )
         .await
         .expect_err("long stream should fail");
-    assert!(
-        matches!(
-            long_error.kind(),
-            StorageErrorKind::Misconfigured | StorageErrorKind::Precondition
-        ),
-        "unexpected long reader error kind: {:?}",
-        long_error.kind()
-    );
+    assert_eq!(long_error.kind(), StorageErrorKind::Precondition);
 
     let upload_id = driver
         .create_multipart_upload("multipart/reader.bin")

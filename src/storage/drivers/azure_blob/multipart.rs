@@ -477,7 +477,7 @@ impl StreamUploadDriver for AzureBlobDriver {
         )?;
         if extra_read != 0 {
             return Err(storage_driver_error(
-                StorageErrorKind::Misconfigured,
+                StorageErrorKind::Precondition,
                 "Azure Blob upload stream exceeded declared size",
             ));
         }
