@@ -1,5 +1,6 @@
 use crate::errors::Result as AsterResult;
 use async_trait::async_trait;
+use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use futures::TryStreamExt;
 use reqwest::StatusCode;
@@ -305,9 +306,8 @@ impl MicrosoftGraphClient {
         })
     }
 
-    pub async fn put_small_content(&self, content_path: &str, data: &[u8]) -> Result<()> {
+    pub async fn put_small_content(&self, content_path: &str, body: Bytes) -> Result<()> {
         let url = self.url(content_path)?;
-        let body = data.to_vec();
         let response = self
             .send_with_auth("put OneDrive small content", |access_token| {
                 self.http
@@ -815,6 +815,7 @@ mod tests {
         base_url: String,
         ranges: Arc<Mutex<Vec<Option<String>>>>,
         auth_headers: Arc<Mutex<Vec<Option<String>>>>,
+        bodies: Arc<Mutex<Vec<Bytes>>>,
         handle: actix_web::dev::ServerHandle,
         task: tokio::task::JoinHandle<std::io::Result<()>>,
     }
@@ -930,6 +931,7 @@ mod tests {
             base_url,
             ranges,
             auth_headers,
+            bodies: Arc::new(Mutex::new(Vec::new())),
             handle,
             task,
         }
@@ -989,6 +991,7 @@ mod tests {
             base_url,
             ranges: Arc::new(Mutex::new(Vec::new())),
             auth_headers,
+            bodies: Arc::new(Mutex::new(Vec::new())),
             handle,
             task,
         }
@@ -1043,6 +1046,66 @@ mod tests {
             base_url,
             ranges: Arc::new(Mutex::new(Vec::new())),
             auth_headers,
+            bodies: Arc::new(Mutex::new(Vec::new())),
+            handle,
+            task,
+        }
+    }
+
+    async fn spawn_authorized_put_server() -> TestHttpServer {
+        async fn content(
+            req: HttpRequest,
+            body: web::Bytes,
+            auth_headers: web::Data<Arc<Mutex<Vec<Option<String>>>>>,
+            bodies: web::Data<Arc<Mutex<Vec<Bytes>>>>,
+        ) -> HttpResponse {
+            let authorization = req
+                .headers()
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            auth_headers
+                .lock()
+                .expect("auth header log lock")
+                .push(authorization.clone());
+            bodies.lock().expect("request body log lock").push(body);
+            match authorization.as_deref() {
+                Some("Bearer refreshed-token") => HttpResponse::Created().finish(),
+                _ => HttpResponse::Unauthorized().json(serde_json::json!({
+                    "error": {
+                        "code": "InvalidAuthenticationToken",
+                        "message": "expired"
+                    }
+                })),
+            }
+        }
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
+        let base_url = format!(
+            "http://{}",
+            listener.local_addr().expect("listener addr should exist")
+        );
+        let auth_headers = Arc::new(Mutex::new(Vec::new()));
+        let bodies = Arc::new(Mutex::new(Vec::new()));
+        let auth_headers_data = web::Data::new(auth_headers.clone());
+        let bodies_data = web::Data::new(bodies.clone());
+        let server = HttpServer::new(move || {
+            App::new()
+                .app_data(auth_headers_data.clone())
+                .app_data(bodies_data.clone())
+                .app_data(web::PayloadConfig::new(2 * 1024 * 1024))
+                .route("/v1.0/content", web::put().to(content))
+        })
+        .listen(listener)
+        .expect("server should listen")
+        .run();
+        let handle = server.handle();
+        let task = tokio::spawn(server);
+        TestHttpServer {
+            base_url,
+            ranges: Arc::new(Mutex::new(Vec::new())),
+            auth_headers,
+            bodies,
             handle,
             task,
         }
@@ -1091,6 +1154,7 @@ mod tests {
             base_url,
             ranges: Arc::new(Mutex::new(Vec::new())),
             auth_headers,
+            bodies: Arc::new(Mutex::new(Vec::new())),
             handle,
             task,
         }
@@ -1351,6 +1415,46 @@ mod tests {
                 Some("Bearer refreshed-token".to_string()),
             ]
         );
+        server.stop().await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn small_content_auth_retry_reuses_the_owned_body() {
+        let server = spawn_authorized_put_server().await;
+        let provider = Arc::new(RefreshingTestTokenProvider::new("refreshed-token"));
+        let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::with_token_provider(
+            &server.base_url,
+            provider.clone(),
+        ))
+        .expect("client should build");
+        let body = Bytes::from(vec![7_u8; 1024 * 1024]);
+
+        let future = client.put_small_content("/content", body.clone());
+        let (result, allocations) = crate::test_support::allocations::measure_future(future).await;
+
+        result.expect("refreshed upload should succeed");
+        assert!(
+            allocations.bytes < body.len(),
+            "auth retry allocated a payload-sized body: {allocations:?}"
+        );
+
+        assert_eq!(provider.access_token_calls(), 1);
+        assert_eq!(provider.refresh_calls(), 1);
+        assert_eq!(
+            server
+                .auth_headers
+                .lock()
+                .expect("auth header log lock")
+                .as_slice(),
+            [
+                Some("Bearer expired-token".to_string()),
+                Some("Bearer refreshed-token".to_string()),
+            ]
+        );
+        {
+            let bodies = server.bodies.lock().expect("request body log lock");
+            assert_eq!(bodies.as_slice(), [body.clone(), body]);
+        }
         server.stop().await;
     }
 
