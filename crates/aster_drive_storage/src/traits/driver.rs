@@ -249,6 +249,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn presigned_form_upload_request_preserves_provider_fields() {
+        let request = PresignedFormUploadRequest {
+            url: "https://up-z0.qiniup.com".to_string(),
+            fields: BTreeMap::from([
+                ("key".to_string(), "files/object".to_string()),
+                ("token".to_string(), "ak:signature:policy".to_string()),
+            ]),
+        };
+        let value = serde_json::to_value(request).expect("form request should serialize");
+        assert_eq!(value["url"], "https://up-z0.qiniup.com");
+        assert_eq!(value["fields"]["key"], "files/object");
+        assert_eq!(value["fields"]["token"], "ak:signature:policy");
+    }
+
     struct CountingReader {
         inner: std::io::Cursor<Vec<u8>>,
         bytes_read: Arc<AtomicU64>,

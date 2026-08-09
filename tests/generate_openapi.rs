@@ -132,6 +132,7 @@ fn presigned_upload_openapi_exposes_driver_owned_request_contract() {
         .as_object()
         .expect("init upload response properties should be object");
     assert!(init_properties.contains_key("presigned_request"));
+    assert!(init_properties.contains_key("presigned_form_request"));
     assert!(!init_properties.contains_key("presigned_url"));
     assert!(!init_properties.contains_key("presigned_headers"));
 }

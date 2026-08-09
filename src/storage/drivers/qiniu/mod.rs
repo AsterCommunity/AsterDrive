@@ -881,7 +881,7 @@ mod tests {
 
     #[test]
     fn upload_token_contains_scope_and_three_segments() {
-        let token = QiniuDriver {
+        let driver = QiniuDriver {
             config: QiniuDriverConfig {
                 bucket: "bucket".to_string(),
                 region: "z0".to_string(),
