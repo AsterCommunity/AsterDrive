@@ -242,6 +242,11 @@ paste = "1.0.15"
 percent-encoding = "2.3"
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["stream", "json"] }
+qiniu-apis = { version = "0.2.4", default-features = false, features = ["async", "reqwest", "tokio1"] }
+qiniu-credential = { version = "0.2.4", default-features = false, features = ["async", "reqwest", "tokio1"] }
+qiniu-objects-manager = { version = "0.2.4", default-features = false, features = ["async", "reqwest", "tokio1"] }
+qiniu-upload-manager = { version = "0.2.4", default-features = false, features = ["async", "reqwest", "tokio1"] }
+qiniu-upload-token = { version = "0.2.4", default-features = false, features = ["async", "reqwest", "tokio1"] }
 ring = "0.17"
 rust-embed = { version = "8", features = ["interpolate-folder-path"] }
 sea-orm = { workspace = true, features = ["sqlx-mysql", "sqlx-postgres", "sqlx-sqlite"] }
