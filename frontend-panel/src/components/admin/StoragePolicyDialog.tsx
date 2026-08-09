@@ -407,9 +407,7 @@ export function StoragePolicyDialog({
 														<PolicyRules
 															form={form}
 															forceDefault={forceDefaultPolicy}
-															connectorId={
-																storageDriverDescriptor?.connector_id ?? null
-															}
+															connectorId={form.connector_id}
 															nativeThumbnailSupported={
 																nativeThumbnailSupported
 															}
@@ -570,9 +568,7 @@ export function StoragePolicyDialog({
 										<PolicyRules
 											form={form}
 											forceDefault={forceDefaultPolicy}
-											connectorId={
-												storageDriverDescriptor?.connector_id ?? null
-											}
+											connectorId={form.connector_id}
 											nativeThumbnailSupported={nativeThumbnailSupported}
 											nativeMediaMetadataSupported={
 												nativeMediaMetadataSupported
@@ -1010,7 +1006,7 @@ function PolicyRules({
 }: {
 	form: PolicyFormData;
 	forceDefault: boolean;
-	connectorId: string | null;
+	connectorId: string;
 	nativeThumbnailSupported: boolean;
 	nativeMediaMetadataSupported: boolean;
 	onFieldChange: StoragePolicyDialogProps["onFieldChange"];
