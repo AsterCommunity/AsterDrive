@@ -132,16 +132,34 @@ describe("i18n", () => {
 				media: "使用存储后端解析音视频媒体信息",
 				mediaExtensions: "存储原生音视频媒体信息后缀",
 			},
-			descriptionTerms: [
-				"存储后端",
-				"图片",
-				"音视频",
-				"只有",
-				"全局",
-				"休眠配置",
-				"列表为空",
-				"计费",
-			],
+			descriptionTerms: {
+				storage_native_thumbnail_enabled_desc: [
+					"存储后端",
+					"图片",
+					"全局缩略图处理链",
+					"休眠配置",
+					"计费",
+				],
+				storage_native_thumbnail_extensions_desc: [
+					"图片",
+					"匹配这些后缀",
+					"列表为空",
+					"关闭时列表仍会保存",
+				],
+				storage_native_media_metadata_enabled_desc: [
+					"存储后端",
+					"音视频",
+					"全局媒体信息处理链",
+					"休眠配置",
+					"计费",
+				],
+				storage_native_media_metadata_extensions_desc: [
+					"音视频",
+					"匹配这些后缀",
+					"列表为空",
+					"关闭时列表仍会保存",
+				],
+			},
 		},
 		{
 			language: "en" as const,
@@ -152,16 +170,32 @@ describe("i18n", () => {
 				mediaExtensions:
 					"Storage-native audio/video media-information extensions",
 			},
-			descriptionTerms: [
-				"storage backend",
-				"images",
-				"audio or video",
-				"only",
-				"global",
-				"dormant",
-				"empty list",
-				"charge",
-			],
+			descriptionTerms: {
+				storage_native_thumbnail_enabled_desc: [
+					"storage backend",
+					"images",
+					"global thumbnail processor chain",
+					"dormant",
+					"charge",
+				],
+				storage_native_thumbnail_extensions_desc: [
+					"images with matching extensions",
+					"empty list",
+					"remains saved while disabled",
+				],
+				storage_native_media_metadata_enabled_desc: [
+					"storage backend",
+					"audio or video",
+					"global media-information processor chain",
+					"dormant",
+					"charge",
+				],
+				storage_native_media_metadata_extensions_desc: [
+					"audio or video with matching extensions",
+					"empty list",
+					"remains saved while disabled",
+				],
+			},
 		},
 	])(
 		"provides explicit storage-native policy labels and detailed help in $language",
@@ -184,14 +218,11 @@ describe("i18n", () => {
 				labels.mediaExtensions,
 			);
 
-			const descriptions = [
-				i18n.t("admin:storage_native_thumbnail_enabled_desc"),
-				i18n.t("admin:storage_native_thumbnail_extensions_desc"),
-				i18n.t("admin:storage_native_media_metadata_enabled_desc"),
-				i18n.t("admin:storage_native_media_metadata_extensions_desc"),
-			].join(" ");
-			for (const term of descriptionTerms) {
-				expect(descriptions.toLowerCase()).toContain(term.toLowerCase());
+			for (const [key, terms] of Object.entries(descriptionTerms)) {
+				const description = i18n.t(`admin:${key}`).toLowerCase();
+				for (const term of terms) {
+					expect(description, key).toContain(term.toLowerCase());
+				}
 			}
 		},
 	);
