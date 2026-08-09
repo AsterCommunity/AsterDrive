@@ -141,7 +141,7 @@ storage-docs: ## Regenerate the built-in storage connector manifest and document
 	ASTER_UPDATE_STORAGE_CONNECTOR_DOCS=1 $(CARGO) test --test storage_connector_docs generated_storage_connector_docs_are_current -- --exact
 
 storage-docs-check: ## Verify storage connector documentation has no descriptor drift
-	$(CARGO) test --test storage_connector_docs generated_storage_connector_docs_are_current -- --exact
+	env -u ASTER_UPDATE_STORAGE_CONNECTOR_DOCS $(CARGO) test --test storage_connector_docs generated_storage_connector_docs_are_current -- --exact
 
 docs-dev: ## Run the documentation development server
 	cd $(DOCS_DIR) && $(BUN) run docs:dev

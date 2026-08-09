@@ -625,23 +625,40 @@ fn descriptors_are_complete_and_keep_config_credentials_separate() {
 
 #[test]
 fn built_in_connector_capacity_claims_match_runtime_probe_support() {
-    for connector_id in [
+    let capacity_supported = [
         LocalConnector::ID,
         OneDriveConnector::ID,
         RemoteConnector::ID,
-    ] {
-        assert!(
-            connector(connector_id).descriptor().capabilities.capacity,
-            "{connector_id} should advertise capacity probing"
-        );
-    }
-    for connector_id in [
+    ];
+    let capacity_unsupported = [
         S3Connector::ID,
         AlibabaOssConnector::ID,
         AzureBlobConnector::ID,
         TencentCosConnector::ID,
         SftpConnector::ID,
-    ] {
+    ];
+    let descriptors = registry().descriptors();
+    assert_eq!(
+        descriptors.len(),
+        capacity_supported.len() + capacity_unsupported.len(),
+        "capacity expectations must cover every built-in connector exactly once"
+    );
+    for descriptor in descriptors {
+        let connector_id = descriptor.connector_id.as_str();
+        assert_ne!(
+            capacity_supported.contains(&connector_id),
+            capacity_unsupported.contains(&connector_id),
+            "{connector_id} must appear in exactly one capacity expectation list"
+        );
+    }
+
+    for connector_id in capacity_supported {
+        assert!(
+            connector(connector_id).descriptor().capabilities.capacity,
+            "{connector_id} should advertise capacity probing"
+        );
+    }
+    for connector_id in capacity_unsupported {
         assert!(
             !connector(connector_id).descriptor().capabilities.capacity,
             "{connector_id} should not advertise a portable capacity probe"

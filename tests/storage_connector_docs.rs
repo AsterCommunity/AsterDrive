@@ -556,11 +556,16 @@ fn replace_generated_block(
         .find(end_marker)
         .unwrap_or_else(|| panic!("{} is missing marker {end_marker}", path.display()));
     let end = content_start + end_offset;
-    assert!(
-        current[end + end_marker.len()..]
-            .find(start_marker)
-            .is_none(),
-        "{} contains duplicate marker {start_marker}",
+    assert_eq!(
+        current.matches(start_marker).count(),
+        1,
+        "{} must contain exactly one {start_marker}",
+        path.display()
+    );
+    assert_eq!(
+        current.matches(end_marker).count(),
+        1,
+        "{} must contain exactly one {end_marker}",
         path.display()
     );
     format!(
