@@ -13,6 +13,7 @@ pub use admin::{
 };
 pub(crate) use basic::{
     FileIdSize, find_all_by_folders_after_id_in_scope, find_id_size_by_folders,
+    find_ids_by_folder_after_id_in_scope,
 };
 pub use basic::{
     count_live_files, find_all_in_folders, find_by_folder, find_by_folder_after_id,

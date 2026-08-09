@@ -32,6 +32,7 @@
 pub(crate) mod archive;
 pub(crate) mod blob_maintenance;
 pub(crate) mod dispatch;
+pub(crate) mod folder_tree;
 pub(crate) mod media_metadata;
 pub(crate) mod offline_download;
 mod presentation;

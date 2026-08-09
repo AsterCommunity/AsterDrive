@@ -45,6 +45,10 @@ impl FolderTreeTraversalLimits {
     }
 }
 
+/// REST synchronous budget. Crossing it hands the operation to the resumable task path.
+pub(crate) const REST_FOLDER_TREE_LIMITS: FolderTreeTraversalLimits =
+    FolderTreeTraversalLimits::new(10_000, 2_000, 128);
+
 fn folder_matches_scope(folder: &folder::Model, scope: WorkspaceResourceScope) -> bool {
     match scope {
         WorkspaceResourceScope::Personal { user_id } => {

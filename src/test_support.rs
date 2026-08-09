@@ -9,6 +9,8 @@ pub(crate) mod allocations {
         static MEASURING: Cell<bool> = const { Cell::new(false) };
         static ALLOCATION_COUNT: Cell<usize> = const { Cell::new(0) };
         static ALLOCATED_BYTES: Cell<usize> = const { Cell::new(0) };
+        static LIVE_BYTES: Cell<usize> = const { Cell::new(0) };
+        static PEAK_BYTES: Cell<usize> = const { Cell::new(0) };
     }
 
     pub(crate) struct CountingAllocator;
@@ -35,6 +37,7 @@ pub(crate) mod allocations {
         }
 
         unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+            record_deallocation(layout.size());
             // SAFETY: the caller supplies the pointer and layout returned by this allocator.
             unsafe { System.dealloc(pointer, layout) };
         }
@@ -43,7 +46,7 @@ pub(crate) mod allocations {
             // SAFETY: the caller supplies the original allocation and a valid new size.
             let resized = unsafe { System.realloc(pointer, layout, new_size) };
             if !resized.is_null() {
-                record_allocation(new_size);
+                record_reallocation(layout.size(), new_size);
             }
             resized
         }
@@ -54,14 +57,33 @@ pub(crate) mod allocations {
             if measuring.get() {
                 ALLOCATION_COUNT.with(|count| count.set(count.get().saturating_add(1)));
                 ALLOCATED_BYTES.with(|total| total.set(total.get().saturating_add(bytes)));
+                LIVE_BYTES.with(|live| {
+                    let current = live.get().saturating_add(bytes);
+                    live.set(current);
+                    PEAK_BYTES.with(|peak| peak.set(peak.get().max(current)));
+                });
             }
         });
+    }
+
+    fn record_deallocation(bytes: usize) {
+        MEASURING.with(|measuring| {
+            if measuring.get() {
+                LIVE_BYTES.with(|live| live.set(live.get().saturating_sub(bytes)));
+            }
+        });
+    }
+
+    fn record_reallocation(previous_bytes: usize, new_bytes: usize) {
+        record_deallocation(previous_bytes);
+        record_allocation(new_bytes);
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(crate) struct AllocationMeasurement {
         pub(crate) count: usize,
         pub(crate) bytes: usize,
+        pub(crate) peak_bytes: usize,
     }
 
     struct MeasurementGuard;
@@ -73,6 +95,8 @@ pub(crate) mod allocations {
             });
             ALLOCATION_COUNT.with(|count| count.set(0));
             ALLOCATED_BYTES.with(|bytes| bytes.set(0));
+            LIVE_BYTES.with(|bytes| bytes.set(0));
+            PEAK_BYTES.with(|bytes| bytes.set(0));
             Self
         }
     }
@@ -89,6 +113,7 @@ pub(crate) mod allocations {
         let measurement = AllocationMeasurement {
             count: ALLOCATION_COUNT.with(Cell::get),
             bytes: ALLOCATED_BYTES.with(Cell::get),
+            peak_bytes: PEAK_BYTES.with(Cell::get),
         };
         drop(guard);
         (output, measurement)

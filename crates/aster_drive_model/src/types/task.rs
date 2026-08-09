@@ -133,6 +133,8 @@ pub enum BackgroundTaskKind {
     MediaMetadataExtract,
     #[sea_orm(string_value = "trash_purge_all")]
     TrashPurgeAll,
+    #[sea_orm(string_value = "folder_tree_mutation")]
+    FolderTreeMutation,
     #[sea_orm(string_value = "storage_policy_temp_cleanup")]
     StoragePolicyTempCleanup,
     #[sea_orm(string_value = "storage_policy_migration")]
@@ -155,6 +157,7 @@ impl BackgroundTaskKind {
             Self::ImagePreviewGenerate => "image_preview_generate",
             Self::MediaMetadataExtract => "media_metadata_extract",
             Self::TrashPurgeAll => "trash_purge_all",
+            Self::FolderTreeMutation => "folder_tree_mutation",
             Self::StoragePolicyTempCleanup => "storage_policy_temp_cleanup",
             Self::StoragePolicyMigration => "storage_policy_migration",
             Self::BlobMaintenance => "blob_maintenance",

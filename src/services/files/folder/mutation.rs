@@ -525,6 +525,15 @@ pub(crate) async fn update_in_scope(
             NullablePatch::Null => None,
             NullablePatch::Value(pid) => Some(pid),
         };
+        if target_parent != current.parent_id {
+            crate::services::files::lock::enforce_collection_membership_mutation_on(
+                txn,
+                crate::services::files::lock::LockWorkspace::from_folder(&current)?,
+                target_parent,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
+        }
         let target_chain = load_folder_chain_in_scope(txn, scope, target_parent).await?;
         // 目标父目录链里不能出现自己，否则会制造目录环。
         if target_chain.iter().any(|folder| folder.id == id) {

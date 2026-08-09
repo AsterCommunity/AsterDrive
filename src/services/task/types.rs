@@ -350,6 +350,28 @@ pub struct TrashPurgeAllTaskResult {
     pub purged: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum FolderTreeMutationOperation {
+    Delete,
+    Restore,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct FolderTreeMutationTaskPayload {
+    pub folder_id: i64,
+    pub operation: FolderTreeMutationOperation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct FolderTreeMutationTaskResult {
+    pub file_count: u64,
+    pub folder_count: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct StoragePolicyCleanupPolicySnapshot {
     pub id: i64,
@@ -699,6 +721,7 @@ pub enum TaskPayload {
     ImagePreviewGenerate(ImagePreviewGenerateTaskPayload),
     MediaMetadataExtract(MediaMetadataExtractTaskPayload),
     TrashPurgeAll(TrashPurgeAllTaskPayload),
+    FolderTreeMutation(FolderTreeMutationTaskPayload),
     StoragePolicyTempCleanup(StoragePolicyTempCleanupTaskPayloadInfo),
     StoragePolicyMigration(StoragePolicyMigrationTaskPayload),
     BlobMaintenance(BlobMaintenanceTaskPayload),
@@ -717,6 +740,7 @@ pub enum TaskResult {
     ImagePreviewGenerate(ImagePreviewGenerateTaskResult),
     MediaMetadataExtract(MediaMetadataExtractTaskResult),
     TrashPurgeAll(TrashPurgeAllTaskResult),
+    FolderTreeMutation(FolderTreeMutationTaskResult),
     StoragePolicyTempCleanup(StoragePolicyTempCleanupTaskResult),
     StoragePolicyMigration(StoragePolicyMigrationTaskResult),
     BlobMaintenance(BlobMaintenanceTaskResult),

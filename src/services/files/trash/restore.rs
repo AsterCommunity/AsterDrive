@@ -5,7 +5,10 @@ use sea_orm::{ActiveModelTrait, Set};
 
 use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
+use crate::runtime::PrimaryAppState;
 use crate::runtime::StorageChangeRuntimeState;
+use crate::services::files::folder::FolderTreeMutationDispatch;
+use crate::services::task::types::FolderTreeMutationOperation;
 use crate::services::{
     events::storage_change, files::folder as folder_ops, workspace::storage::WorkspaceStorageScope,
 };
@@ -72,13 +75,20 @@ async fn restore_folder_in_scope(
     state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
     id: i64,
+    traversal_limits: Option<folder_ops::FolderTreeTraversalLimits>,
 ) -> Result<()> {
     tracing::debug!(scope = ?scope, folder_id = id, "restoring folder from trash");
     let folder = verify_folder_in_trash_in_scope(state, scope, id).await?;
     let mut restored_parent_id = folder.parent_id;
     let mut restore_to_root = false;
-    let (files, folder_ids) =
-        folder_ops::collect_folder_tree_in_scope(state.writer_db(), scope, id, true, None).await?;
+    let (files, folder_ids) = folder_ops::collect_folder_tree_in_scope(
+        state.writer_db(),
+        scope,
+        id,
+        true,
+        traversal_limits,
+    )
+    .await?;
     let child_folder_ids: Vec<i64> = folder_ids.into_iter().filter(|&fid| fid != id).collect();
 
     if let Some(parent_id) = folder.parent_id {
@@ -156,7 +166,7 @@ pub async fn restore_folder(
     id: i64,
     user_id: i64,
 ) -> Result<()> {
-    restore_folder_in_scope(state, WorkspaceStorageScope::Personal { user_id }, id).await
+    restore_folder_in_scope(state, WorkspaceStorageScope::Personal { user_id }, id, None).await
 }
 
 pub async fn restore_team_folder(
@@ -172,6 +182,30 @@ pub async fn restore_team_folder(
             actor_user_id: user_id,
         },
         id,
+        None,
     )
     .await
+}
+
+pub(crate) async fn restore_folder_in_scope_with_dispatch(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    id: i64,
+) -> Result<FolderTreeMutationDispatch> {
+    match restore_folder_in_scope(state, scope, id, Some(folder_ops::REST_FOLDER_TREE_LIMITS)).await
+    {
+        Ok(()) => Ok(FolderTreeMutationDispatch::Completed),
+        Err(crate::errors::AsterError::OperationResourceLimitExceeded(_)) => {
+            Ok(FolderTreeMutationDispatch::Queued(Box::new(
+                crate::services::task::folder_tree::create_folder_tree_mutation_task_in_scope(
+                    state,
+                    scope,
+                    id,
+                    FolderTreeMutationOperation::Restore,
+                )
+                .await?,
+            )))
+        }
+        Err(error) => Err(error),
+    }
 }

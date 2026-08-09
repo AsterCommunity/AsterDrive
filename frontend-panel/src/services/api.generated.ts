@@ -4916,7 +4916,7 @@ export interface components {
          * @description 后台任务类型
          * @enum {string}
          */
-        BackgroundTaskKind: "archive_extract" | "archive_compress" | "archive_preview_generate" | "thumbnail_generate" | "image_preview_generate" | "media_metadata_extract" | "trash_purge_all" | "storage_policy_temp_cleanup" | "storage_policy_migration" | "blob_maintenance" | "offline_download" | "system_runtime";
+        BackgroundTaskKind: "archive_extract" | "archive_compress" | "archive_preview_generate" | "thumbnail_generate" | "image_preview_generate" | "media_metadata_extract" | "trash_purge_all" | "folder_tree_mutation" | "storage_policy_temp_cleanup" | "storage_policy_migration" | "blob_maintenance" | "offline_download" | "system_runtime";
         /**
          * @description 后台任务状态
          * @enum {string}
@@ -5731,6 +5731,19 @@ export interface components {
             folder_offset?: number | null;
             sort_by?: null | components["schemas"]["SortBy"];
             sort_order?: null | components["schemas"]["SortOrder"];
+        };
+        /** @enum {string} */
+        FolderTreeMutationOperation: "delete" | "restore";
+        FolderTreeMutationTaskPayload: {
+            /** Format: int64 */
+            folder_id: number;
+            operation: components["schemas"]["FolderTreeMutationOperation"];
+        };
+        FolderTreeMutationTaskResult: {
+            /** Format: int64 */
+            file_count: number;
+            /** Format: int64 */
+            folder_count: number;
         };
         /** @description Structured diagnostic detail attached to a component report. */
         HealthComponentDetail: {
@@ -8398,6 +8411,9 @@ export interface components {
         }) | (components["schemas"]["TrashPurgeAllTaskPayload"] & {
             /** @enum {string} */
             kind: "trash_purge_all";
+        }) | (components["schemas"]["FolderTreeMutationTaskPayload"] & {
+            /** @enum {string} */
+            kind: "folder_tree_mutation";
         }) | (components["schemas"]["StoragePolicyTempCleanupTaskPayloadInfo"] & {
             /** @enum {string} */
             kind: "storage_policy_temp_cleanup";
@@ -8447,6 +8463,9 @@ export interface components {
         }) | (components["schemas"]["TrashPurgeAllTaskResult"] & {
             /** @enum {string} */
             kind: "trash_purge_all";
+        }) | (components["schemas"]["FolderTreeMutationTaskResult"] & {
+            /** @enum {string} */
+            kind: "folder_tree_mutation";
         }) | (components["schemas"]["StoragePolicyTempCleanupTaskResult"] & {
             /** @enum {string} */
             kind: "storage_policy_temp_cleanup";
@@ -19052,6 +19071,54 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Folder deletion queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            /** Format: int32 */
+                            attempt_count: number;
+                            can_retry: boolean;
+                            created_at: string;
+                            creator?: null | components["schemas"]["UserSummary"];
+                            display_name: string;
+                            expires_at: string;
+                            finished_at?: string | null;
+                            /** Format: int64 */
+                            id: number;
+                            kind: components["schemas"]["BackgroundTaskKind"];
+                            last_error?: string | null;
+                            lease_expires_at?: string | null;
+                            /** Format: int32 */
+                            max_attempts: number;
+                            payload: components["schemas"]["TaskPayload"];
+                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            /** Format: int64 */
+                            progress_current: number;
+                            /** Format: int32 */
+                            progress_percent: number;
+                            /** Format: int64 */
+                            progress_total: number;
+                            result?: null | components["schemas"]["TaskResult"];
+                            /** Format: int64 */
+                            share_id?: number | null;
+                            started_at?: string | null;
+                            status: components["schemas"]["BackgroundTaskStatus"];
+                            status_text?: string | null;
+                            steps: components["schemas"]["TaskStepInfo"][];
+                            /** Format: int64 */
+                            team_id?: number | null;
+                            updated_at: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
             /** @description Unauthorized */
             401: {
                 headers: {
@@ -25145,6 +25212,54 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Team folder deletion queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            /** Format: int32 */
+                            attempt_count: number;
+                            can_retry: boolean;
+                            created_at: string;
+                            creator?: null | components["schemas"]["UserSummary"];
+                            display_name: string;
+                            expires_at: string;
+                            finished_at?: string | null;
+                            /** Format: int64 */
+                            id: number;
+                            kind: components["schemas"]["BackgroundTaskKind"];
+                            last_error?: string | null;
+                            lease_expires_at?: string | null;
+                            /** Format: int32 */
+                            max_attempts: number;
+                            payload: components["schemas"]["TaskPayload"];
+                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            /** Format: int64 */
+                            progress_current: number;
+                            /** Format: int32 */
+                            progress_percent: number;
+                            /** Format: int64 */
+                            progress_total: number;
+                            result?: null | components["schemas"]["TaskResult"];
+                            /** Format: int64 */
+                            share_id?: number | null;
+                            started_at?: string | null;
+                            status: components["schemas"]["BackgroundTaskStatus"];
+                            status_text?: string | null;
+                            steps: components["schemas"]["TaskStepInfo"][];
+                            /** Format: int64 */
+                            team_id?: number | null;
+                            updated_at: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
             /** @description Unauthorized */
             401: {
                 headers: {
@@ -26791,6 +26906,54 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Team folder restore queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            /** Format: int32 */
+                            attempt_count: number;
+                            can_retry: boolean;
+                            created_at: string;
+                            creator?: null | components["schemas"]["UserSummary"];
+                            display_name: string;
+                            expires_at: string;
+                            finished_at?: string | null;
+                            /** Format: int64 */
+                            id: number;
+                            kind: components["schemas"]["BackgroundTaskKind"];
+                            last_error?: string | null;
+                            lease_expires_at?: string | null;
+                            /** Format: int32 */
+                            max_attempts: number;
+                            payload: components["schemas"]["TaskPayload"];
+                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            /** Format: int64 */
+                            progress_current: number;
+                            /** Format: int32 */
+                            progress_percent: number;
+                            /** Format: int64 */
+                            progress_total: number;
+                            result?: null | components["schemas"]["TaskResult"];
+                            /** Format: int64 */
+                            share_id?: number | null;
+                            started_at?: string | null;
+                            status: components["schemas"]["BackgroundTaskStatus"];
+                            status_text?: string | null;
+                            steps: components["schemas"]["TaskStepInfo"][];
+                            /** Format: int64 */
+                            team_id?: number | null;
+                            updated_at: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
             /** @description Unauthorized */
             401: {
                 headers: {
@@ -27206,6 +27369,54 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Folder restore queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            /** Format: int32 */
+                            attempt_count: number;
+                            can_retry: boolean;
+                            created_at: string;
+                            creator?: null | components["schemas"]["UserSummary"];
+                            display_name: string;
+                            expires_at: string;
+                            finished_at?: string | null;
+                            /** Format: int64 */
+                            id: number;
+                            kind: components["schemas"]["BackgroundTaskKind"];
+                            last_error?: string | null;
+                            lease_expires_at?: string | null;
+                            /** Format: int32 */
+                            max_attempts: number;
+                            payload: components["schemas"]["TaskPayload"];
+                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            /** Format: int64 */
+                            progress_current: number;
+                            /** Format: int32 */
+                            progress_percent: number;
+                            /** Format: int64 */
+                            progress_total: number;
+                            result?: null | components["schemas"]["TaskResult"];
+                            /** Format: int64 */
+                            share_id?: number | null;
+                            started_at?: string | null;
+                            status: components["schemas"]["BackgroundTaskStatus"];
+                            status_text?: string | null;
+                            steps: components["schemas"]["TaskStepInfo"][];
+                            /** Format: int64 */
+                            team_id?: number | null;
+                            updated_at: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
             };
             /** @description Unauthorized */
             401: {

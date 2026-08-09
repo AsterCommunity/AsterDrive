@@ -206,6 +206,7 @@ pub async fn get_ancestors(
     params(("id" = i64, Path, description = "Folder ID")),
     responses(
         (status = 200, description = "Folder deleted"),
+        (status = 202, description = "Folder deletion queued", body = inline(ApiResponse<crate::services::task::types::TaskInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "Folder not found"),
     ),
@@ -504,6 +505,7 @@ pub(crate) async fn team_get_ancestors(
     ),
     responses(
         (status = 200, description = "Team folder deleted"),
+        (status = 202, description = "Team folder deletion queued", body = inline(ApiResponse<crate::services::task::types::TaskInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Folder not found"),
@@ -696,8 +698,14 @@ pub(crate) async fn delete_folder_response(
     folder_id: i64,
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(req, claims);
-    folder::delete_in_scope_with_audit(state, scope, folder_id, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    match folder::delete_in_scope_with_audit(state, scope, folder_id, &ctx).await? {
+        folder::FolderTreeMutationDispatch::Completed => {
+            Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+        }
+        folder::FolderTreeMutationDispatch::Queued(task) => {
+            Ok(HttpResponse::Accepted().json(ApiResponse::ok(task)))
+        }
+    }
 }
 
 pub(crate) async fn patch_folder_response(

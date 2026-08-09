@@ -15,6 +15,7 @@ pub(crate) use purge::{publish_purge_all_storage_change, purge_all_in_scope_sile
 pub use purge::{
     purge_all, purge_all_team, purge_file, purge_folder, purge_team_file, purge_team_folder,
 };
+pub(crate) use restore::restore_folder_in_scope_with_dispatch;
 pub use restore::{restore_file, restore_folder, restore_team_file, restore_team_folder};
 
 const DEFAULT_RETENTION_DAYS: i64 = 7;

@@ -44,6 +44,7 @@ async fn insert_task(
         BackgroundTaskKind::ImagePreviewGenerate => "image-preview-generate",
         BackgroundTaskKind::MediaMetadataExtract => "media-metadata-extract",
         BackgroundTaskKind::TrashPurgeAll => "trash-purge-all",
+        BackgroundTaskKind::FolderTreeMutation => "folder-tree-mutation",
         BackgroundTaskKind::StoragePolicyTempCleanup => "storage-policy-temp-cleanup",
         BackgroundTaskKind::StoragePolicyMigration => "storage-policy-migration",
         BackgroundTaskKind::BlobMaintenance => "blob-maintenance",
@@ -94,6 +95,10 @@ async fn insert_task(
             "kind": "image",
         }),
         BackgroundTaskKind::TrashPurgeAll => serde_json::json!({}),
+        BackgroundTaskKind::FolderTreeMutation => serde_json::json!({
+            "folder_id": 1,
+            "operation": "delete",
+        }),
         BackgroundTaskKind::StoragePolicyTempCleanup => serde_json::json!({
             "policy": {
                 "id": 1,

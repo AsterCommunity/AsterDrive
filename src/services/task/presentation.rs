@@ -106,6 +106,7 @@ fn title_message(
             }
         }
         TaskPayload::TrashPurgeAll(_) => Some(PresentationMessage::TrashPurgeAllTitle),
+        TaskPayload::FolderTreeMutation(_) => None,
         TaskPayload::StoragePolicyTempCleanup(payload) => {
             let policy_name = payload.policy_name.trim();
             if policy_name.is_empty() {
@@ -216,6 +217,7 @@ fn status_message_from_result(result: &TaskResult) -> Option<TaskPresentationMes
         TaskResult::TrashPurgeAll(result) => Some(PresentationMessage::TrashPurgedStatus {
             purged: result.purged,
         }),
+        TaskResult::FolderTreeMutation(_) => None,
         TaskResult::StoragePolicyTempCleanup(result) => {
             Some(PresentationMessage::TemporaryUploadCleanupFinishedStatus {
                 deleted_objects: result.deleted_objects,

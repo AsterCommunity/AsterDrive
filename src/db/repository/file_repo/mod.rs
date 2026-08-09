@@ -46,6 +46,7 @@ pub use query::{
 };
 pub(crate) use query::{
     FileIdSize, find_all_by_folders_after_id_in_scope, find_id_size_by_folders,
+    find_ids_by_folder_after_id_in_scope,
 };
 pub use trash::{
     delete, delete_many, find_all_by_team, find_all_by_team_paginated, find_all_by_user,

@@ -86,6 +86,15 @@ pub(crate) async fn update_in_scope(
         NullablePatch::Null => None,
         NullablePatch::Value(fid) => Some(fid),
     };
+    if target_folder != f.folder_id {
+        crate::services::files::lock::enforce_collection_membership_mutation_on(
+            &txn,
+            crate::services::files::lock::LockWorkspace::from_file(&f)?,
+            target_folder,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await?;
+    }
     if let NullablePatch::Value(fid) = folder_id {
         storage::lock_folder_access_on(&txn, state, scope, fid).await?;
     }

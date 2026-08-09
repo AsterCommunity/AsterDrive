@@ -21,6 +21,7 @@ use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::runtime::{PrimaryAppState, StorageChangeRuntimeState};
 use crate::services::ops::audit::{self, AuditContext};
+use crate::services::task::types::TaskInfo;
 use crate::services::workspace::models::FolderInfo;
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use aster_drive_model::entities::folder;
@@ -56,10 +57,15 @@ pub(crate) use mutation::{
     lock_tree_for_deletion_on, set_lock_in_scope, update_in_scope,
 };
 pub(crate) use tree::{
-    FOLDER_TREE_RESOURCE_LIMIT_MESSAGE, FolderTreeTraversalLimits,
+    FOLDER_TREE_RESOURCE_LIMIT_MESSAGE, FolderTreeTraversalLimits, REST_FOLDER_TREE_LIMITS,
     collect_folder_forest_in_resource_scope, collect_folder_tree_in_resource_scope,
     collect_folder_tree_in_scope,
 };
+
+pub(crate) enum FolderTreeMutationDispatch {
+    Completed,
+    Queued(Box<TaskInfo>),
+}
 
 // 和其他 service 一样，审计包装留在聚合层，避免核心目录逻辑被日志副作用污染。
 pub(crate) async fn create_in_scope_with_audit(
@@ -86,14 +92,29 @@ pub(crate) async fn create_in_scope_with_audit(
 }
 
 pub(crate) async fn delete_in_scope_with_audit(
-    state: &impl StorageChangeRuntimeState,
+    state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     folder_id: i64,
     audit_ctx: &AuditContext,
-) -> Result<()> {
+) -> Result<FolderTreeMutationDispatch> {
     let folder = get_info_in_scope(state, scope, folder_id).await?;
     let details = audit_location_details_for_model(state, scope, &folder).await;
-    delete_in_scope(state, scope, folder_id, None).await?;
+    let outcome =
+        match delete_in_scope(state, scope, folder_id, Some(REST_FOLDER_TREE_LIMITS)).await {
+            Ok(()) => FolderTreeMutationDispatch::Completed,
+            Err(AsterError::OperationResourceLimitExceeded(_)) => {
+                FolderTreeMutationDispatch::Queued(Box::new(
+                    crate::services::task::folder_tree::create_folder_tree_mutation_task_in_scope(
+                        state,
+                        scope,
+                        folder_id,
+                        crate::services::task::types::FolderTreeMutationOperation::Delete,
+                    )
+                    .await?,
+                ))
+            }
+            Err(error) => return Err(error),
+        };
     audit::log_with_details(
         state,
         audit_ctx,
@@ -104,7 +125,7 @@ pub(crate) async fn delete_in_scope_with_audit(
         || details.clone(),
     )
     .await;
-    Ok(())
+    Ok(outcome)
 }
 
 pub(crate) async fn update_in_scope_with_audit(

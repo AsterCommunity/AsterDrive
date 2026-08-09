@@ -236,7 +236,7 @@ pub(crate) mod runtime;
 pub(crate) mod storage;
 
 pub(crate) use archive::{ArchiveCompressTask, ArchiveExtractTask, ArchivePreviewGenerateTask};
-pub(crate) use maintenance::{BlobMaintenanceTask, TrashPurgeAllTask};
+pub(crate) use maintenance::{BlobMaintenanceTask, FolderTreeMutationTask, TrashPurgeAllTask};
 pub(crate) use media::{ImagePreviewGenerateTask, MediaMetadataExtractTask, ThumbnailGenerateTask};
 pub(crate) use offline_download::OfflineDownloadTask;
 pub(crate) use runtime::SystemRuntimeTask;

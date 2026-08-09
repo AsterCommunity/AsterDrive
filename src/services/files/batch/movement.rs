@@ -284,6 +284,13 @@ pub(crate) async fn batch_move_in_scope(
             }
         };
         crate::services::files::lock::lock_workspace_for_mutation_on(&txn, workspace).await?;
+        crate::services::files::lock::enforce_collection_membership_mutation_on(
+            &txn,
+            workspace,
+            target_folder_id,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await?;
         if let Some(target_folder_id) = target_folder_id {
             let target = folder_repo::lock_by_id(&txn, target_folder_id).await?;
             storage::ensure_active_folder_scope(&target, scope)?;

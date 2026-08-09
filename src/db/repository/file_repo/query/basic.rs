@@ -302,6 +302,38 @@ pub(crate) async fn find_all_by_folders_after_id_in_scope<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+pub(crate) async fn find_ids_by_folder_after_id_in_scope<C: ConnectionTrait>(
+    db: &C,
+    scope: FileScope,
+    folder_id: i64,
+    after_id: Option<i64>,
+    include_deleted: bool,
+    limit: u64,
+) -> Result<Vec<i64>> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let mut query = File::find()
+        .select_only()
+        .column(file::Column::Id)
+        .filter(if include_deleted {
+            scope_condition(scope)
+        } else {
+            active_scope_condition(scope)
+        })
+        .filter(file::Column::FolderId.eq(folder_id));
+    if let Some(after_id) = after_id {
+        query = query.filter(file::Column::Id.gt(after_id));
+    }
+    query
+        .order_by_asc(file::Column::Id)
+        .limit(limit)
+        .into_tuple::<i64>()
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 pub async fn find_by_folders_after_id<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
