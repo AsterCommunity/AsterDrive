@@ -7648,6 +7648,12 @@ export interface components {
             label_key: string;
             /** @description true 表示该动作会修改 provider 远端状态。 */
             mutates_remote_state: boolean;
+            /**
+             * @description Connector-owned presentation schema for successful structured output.
+             *
+             *     Action output remains transient and is never copied into policy config.
+             */
+            output_fields?: components["schemas"]["StorageConnectorActionOutputFieldDescriptor"][];
             /** @description true 表示执行前必须存在可用授权凭据。 */
             requires_authorization: boolean;
             /** @description true 表示 UI 在执行前应展示明确确认步骤。 */
@@ -7670,6 +7676,20 @@ export interface components {
         StorageConnectorActionOutput: {
             [key: string]: unknown;
         };
+        StorageConnectorActionOutputFieldDescriptor: {
+            /** @description Connector-owned label used when a boolean value is false. */
+            false_key?: string | null;
+            /** @description Connector-owned localization key used as the field label. */
+            label_key: string;
+            /** @description Top-level key read from `StoragePolicyActionResult.output`. */
+            name: string;
+            /** @description Connector-owned label used when a boolean value is true. */
+            true_key?: string | null;
+            /** @description Wire value shape accepted by the generic presenter. */
+            value_kind: components["schemas"]["StorageConnectorActionOutputValueKind"];
+        };
+        /** @enum {string} */
+        StorageConnectorActionOutputValueKind: "text" | "number" | "boolean" | "string_list";
         StorageConnectorBadgeRgb: {
             /** Format: int32 */
             blue: number;
@@ -7748,28 +7768,40 @@ export interface components {
         StorageConnectorCredentialManagementDescriptor: {
             /** @description Message shown after the authorization window is opened. */
             authorization_started_key?: string | null;
+            /** @description Localized lifecycle label for the original authorization time. */
+            authorized_at_key?: string | null;
             /** @description Message shown after creating a policy that still needs authorization. */
             created_authorize_next_key?: string | null;
             /** @description Status text shown while the credential snapshot is loading. */
             loading_key: string;
+            /** @description Label used when an existing credential starts authorization again. */
+            reauthorize_action_key?: string | null;
+            /** @description Accessible label for the redirect URI copy action. */
+            redirect_uri_copy_key?: string | null;
+            /** @description Redirect URI registration guidance. */
+            redirect_uri_help_key?: string | null;
             /** @description Label for an authorization redirect URI exposed by the platform. */
             redirect_uri_key?: string | null;
+            /** @description Localized lifecycle label for the latest token refresh time. */
+            refreshed_at_key?: string | null;
             /** @description Message shown when authorization is requested with unsaved policy data. */
             save_before_authorize_key?: string | null;
             /** @description Message shown when credential validation is requested with unsaved data. */
             save_before_validate_key?: string | null;
             /**
-             * @description Credential status wire value to connector-owned localization key.
+             * @description Credential status wire value to connector-owned presentation metadata.
              *
              *     The map keeps the UI independent from provider-specific status copy and
              *     lets future connector credential contracts add status values without a
              *     frontend provider matrix.
              */
-            status_keys: {
-                [key: string]: string;
+            status_presentations: {
+                [key: string]: components["schemas"]["StorageConnectorCredentialStatusPresentation"];
             };
             /** @description Credential panel heading. */
             title_key: string;
+            /** @description Localized lifecycle label for the latest validation time. */
+            validated_at_key?: string | null;
             /** @description Optional success detail rendered with connector-provided parameters. */
             validation_success_detail_key?: string | null;
             /** @description Message shown after a credential validates successfully. */
@@ -7777,6 +7809,30 @@ export interface components {
         };
         /** @enum {string} */
         StorageConnectorCredentialMode: "none" | "static_secret" | "remote_node" | "oauth_delegated";
+        StorageConnectorCredentialReasonRule: {
+            /** @description Case-insensitive fragments matched against the sanitized status reason. */
+            contains_any: string[];
+            /** @description Connector-owned localization key presented instead of the wire reason. */
+            message_key: string;
+        };
+        StorageConnectorCredentialStatusPresentation: {
+            /** @description Optional guidance shown below the normalized reason. */
+            attention_guidance_key?: string | null;
+            /** @description Optional alert heading for states that require administrator attention. */
+            attention_title_key?: string | null;
+            /** @description Optional explanatory copy for this status. */
+            description_key?: string | null;
+            /** @description Connector-owned localized status label. */
+            label_key: string;
+            /** @description Localized fallback used when no reason rule matches. */
+            reason_fallback_key?: string | null;
+            /** @description Connector-owned normalization rules for sanitized wire reasons. */
+            reason_rules?: components["schemas"]["StorageConnectorCredentialReasonRule"][];
+            /** @description Semantic styling consumed by the generic credential panel. */
+            tone: components["schemas"]["StorageConnectorCredentialStatusTone"];
+        };
+        /** @enum {string} */
+        StorageConnectorCredentialStatusTone: "neutral" | "success" | "warning" | "danger";
         /**
          * @description Connector-backed policy data is visible from which primary instances.
          *
@@ -8102,6 +8158,7 @@ export interface components {
              */
             storage_native_thumbnail_extensions?: string[];
         };
+        /** @description Successful credential validation together with the resolved provider root. */
         StoragePolicyCredentialValidationResult: {
             credential: components["schemas"]["StorageConnectorCredentialInfo"];
             root_item_id: string;
@@ -11445,6 +11502,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Successful credential validation together with the resolved provider root. */
                         data?: {
                             credential: components["schemas"]["StorageConnectorCredentialInfo"];
                             root_item_id: string;

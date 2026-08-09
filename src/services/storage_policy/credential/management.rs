@@ -5,6 +5,7 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::storage::StorageConnectorCredentialInfo;
 
+/// Successful credential validation together with the resolved provider root.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct StoragePolicyCredentialValidationResult {
@@ -13,14 +14,19 @@ pub struct StoragePolicyCredentialValidationResult {
     pub root_item_name: Option<String>,
 }
 
+/// Lists the connector credentials used by a storage policy.
+///
+/// This deliberately reads both the policy and credential rows from the writer
+/// connection. The admin flow calls it immediately after authorization or
+/// validation, and a reader replica may still contain the previous credential
+/// status at that point.
 pub async fn list_policy_credentials(
     state: &impl SharedRuntimeState,
     policy_id: i64,
 ) -> Result<Vec<StorageConnectorCredentialInfo>> {
-    policy_repo::find_by_id(state.reader_db(), policy_id).await?;
-    let policy = policy_repo::find_by_id(state.reader_db(), policy_id).await?;
+    let policy = policy_repo::find_by_id(state.writer_db(), policy_id).await?;
     let credentials =
-        storage_policy_connector_credential_repo::find_by_policy(state.reader_db(), policy_id)
+        storage_policy_connector_credential_repo::find_by_policy(state.writer_db(), policy_id)
             .await?
             .into_iter()
             .filter_map(|credential| {
@@ -36,6 +42,12 @@ pub async fn list_policy_credentials(
     Ok(credentials)
 }
 
+/// Validates a policy credential and persists the resulting lifecycle state.
+///
+/// Provider failures may still produce a sanitized credential payload (for
+/// example, an expired or reauthorization-required status). That payload is
+/// committed before the original validation error is returned so a subsequent
+/// writer-backed list reports the actionable state to the administrator.
 pub async fn validate_policy_credential(
     state: &impl SharedRuntimeState,
     policy_id: i64,

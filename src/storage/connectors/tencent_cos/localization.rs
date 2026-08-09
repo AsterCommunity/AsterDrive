@@ -22,6 +22,38 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "向腾讯云 COS bucket 写入 AsterDrive 的 CORS 规则。AllowedOrigin 来自系统 public_site_url 配置，其他规则会保留。",
     ),
     aster_drive_storage::storage_connector_message!(
+        "policy_cos_cors_output_request_id",
+        "Provider request ID",
+        "服务商请求 ID",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_cos_cors_output_rule_id",
+        "Applied rule",
+        "已应用规则",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_cos_cors_output_allowed_origins",
+        "Allowed origins",
+        "允许来源",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_cos_cors_output_preserved_rule_count",
+        "Preserved rules",
+        "保留规则数",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_cos_cors_output_replaced_existing_rule",
+        "Replaced existing AsterDrive rule",
+        "已替换现有 AsterDrive 规则",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_cos_cors_output_response_vary",
+        "Response varies by origin",
+        "响应按来源区分",
+    ),
+    aster_drive_storage::storage_connector_message!("policy_cos_cors_output_yes", "Yes", "是",),
+    aster_drive_storage::storage_connector_message!("policy_cos_cors_output_no", "No", "否",),
+    aster_drive_storage::storage_connector_message!(
         "policy_wizard_bucket_required",
         "Bucket is required for object storage policies.",
         "对象存储策略必须填写 bucket。",

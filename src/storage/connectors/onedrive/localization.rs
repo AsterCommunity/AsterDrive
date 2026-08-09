@@ -57,6 +57,16 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "加载中",
     ),
     aster_drive_storage::storage_connector_message!(
+        "onedrive_credential_desc_authorized",
+        "This policy has a saved Microsoft Graph credential.",
+        "此策略已保存 Microsoft Graph 凭据。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_credential_desc_missing",
+        "Authorize Microsoft Graph before using this policy.",
+        "使用此策略前请先授权 Microsoft Graph。",
+    ),
+    aster_drive_storage::storage_connector_message!(
         "onedrive_credential_status_authorized",
         "Authorized",
         "已授权",
@@ -92,9 +102,79 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "Microsoft Graph 凭据",
     ),
     aster_drive_storage::storage_connector_message!(
+        "onedrive_credential_reauth_required_title",
+        "Microsoft Graph must be authorized again",
+        "需要重新授权 Microsoft Graph",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_credential_reauth_required_desc",
+        "Review the Microsoft application configuration, then start authorization again.",
+        "检查 Microsoft 应用配置，然后重新发起授权。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_credential_reason_missing_refresh_token",
+        "The saved credential has no refresh token.",
+        "已保存的凭据缺少刷新令牌。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_credential_reason_invalid_grant",
+        "Microsoft rejected the saved authorization grant.",
+        "Microsoft 拒绝了已保存的授权许可。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_credential_reason_invalid_client",
+        "Microsoft rejected the application credentials.",
+        "Microsoft 拒绝了应用凭据。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_credential_reason_missing_access_token",
+        "Microsoft did not return an access token.",
+        "Microsoft 未返回访问令牌。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_credential_reason_drive_resolution_failed",
+        "The authorized OneDrive or SharePoint target could not be resolved.",
+        "授权的 OneDrive 或 SharePoint 目标未能解析。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_credential_reason_reauth_required",
+        "The saved Microsoft Graph authorization is no longer usable.",
+        "已保存的 Microsoft Graph 授权已不可用。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_credential_authorized_at",
+        "Authorized {{time}}",
+        "授权于 {{time}}",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_credential_refreshed_at",
+        "Refreshed {{time}}",
+        "刷新于 {{time}}",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_credential_validated_at",
+        "Validated {{time}}",
+        "验证于 {{time}}",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_reauthorize_action",
+        "Reauthorize",
+        "重新授权",
+    ),
+    aster_drive_storage::storage_connector_message!(
         "onedrive_redirect_uri",
         "Redirect URI",
-        "重定向 URL",
+        "重定向 URI",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_redirect_uri_desc",
+        "Register this exact URI in the Microsoft application before authorizing.",
+        "授权前请在 Microsoft 应用中登记此精确 URI。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_copy_redirect_uri",
+        "Copy redirect URI",
+        "复制重定向 URI",
     ),
     aster_drive_storage::storage_connector_message!(
         "onedrive_save_before_authorize",

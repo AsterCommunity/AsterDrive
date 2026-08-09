@@ -1,7 +1,7 @@
-import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { presentStorageConnectorActionOutput } from "@/components/admin/storage-policy-dialog/actionResultPresentation";
 import {
 	getEndpointValidationMessage,
 	getPolicyConnectionTestKey,
@@ -17,45 +17,31 @@ import {
 	selectStoragePolicyActionValueSource,
 	selectStoragePolicyConnectionTestMode,
 } from "@/components/admin/storage-policy-dialog/policyActionSelection";
-import { policyFormHasUnsavedChanges } from "@/components/admin/storage-policy-dialog/policyFormComparison";
 import type { StorageConnectorActionValues } from "@/components/admin/storage-policy-dialog/StorageConnectorActionsPanel";
 import { handleApiError } from "@/hooks/useApiError";
-import { usePendingAction } from "@/hooks/usePendingAction";
 import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
 import { getStorageConnectorDescriptor } from "@/lib/adminStorageDriverDescriptors";
 import { adminPolicyService } from "@/services/adminService";
 import type {
 	StorageConnectorActionId,
-	StorageConnectorCredentialInfo,
 	StorageConnectorDescriptor,
 	StorageConnectorFieldValue,
 	StoragePolicy,
+	StoragePolicyActionResult,
 } from "@/types/api";
 
 interface StoragePolicyActionControllerInput {
-	currentEditingIdRef: MutableRefObject<number | null>;
 	currentStorageDriverDescriptor: StorageConnectorDescriptor | null | undefined;
 	editingId: number | null;
 	editingPolicy: StoragePolicy | null;
-	form: PolicyFormData;
-	loadPolicyCapacity: (policyId: number) => void;
-	setStorageCredentials: Dispatch<
-		SetStateAction<StorageConnectorCredentialInfo[]>
-	>;
-	storageCredentialValidationRequestSerial: MutableRefObject<number>;
 	storageDriverDescriptors: StorageConnectorDescriptor[];
 	syncNormalizedPolicyForm: () => PolicyFormData;
 }
 
 export function useStoragePolicyActionController({
-	currentEditingIdRef,
 	currentStorageDriverDescriptor,
 	editingId,
 	editingPolicy,
-	form,
-	loadPolicyCapacity,
-	setStorageCredentials,
-	storageCredentialValidationRequestSerial,
 	storageDriverDescriptors,
 	syncNormalizedPolicyForm,
 }: StoragePolicyActionControllerInput) {
@@ -67,8 +53,6 @@ export function useStoragePolicyActionController({
 			key,
 			values,
 		);
-	const credentialManagement =
-		currentStorageDriverDescriptor?.credential_management;
 	const [connectorActionConfirmId, setConnectorActionConfirmId] = useState<
 		string | null
 	>(null);
@@ -79,14 +63,6 @@ export function useStoragePolicyActionController({
 	const [validatedConnectionKey, setValidatedConnectionKey] = useState<
 		string | null
 	>(null);
-	const {
-		pending: storageAuthorizationSubmitting,
-		runWithPending: runWithStorageAuthorization,
-	} = usePendingAction();
-	const {
-		pending: storageCredentialValidationSubmitting,
-		runWithPending: runWithStorageCredentialValidation,
-	} = usePendingAction();
 
 	const clearActionConfirms = () => {
 		setConnectorActionConfirmId(null);
@@ -237,6 +213,7 @@ export function useStoragePolicyActionController({
 			if (executionMode === "unsupported") {
 				return;
 			}
+			let result: StoragePolicyActionResult;
 			if (executionMode === "draft") {
 				const currentEndpointValidationMessage = getEndpointValidationMessage(
 					currentForm,
@@ -248,7 +225,7 @@ export function useStoragePolicyActionController({
 					toast.error(currentEndpointValidationMessage);
 					return;
 				}
-				await adminPolicyService.executeDraftPolicyAction(
+				result = await adminPolicyService.executeDraftPolicyAction(
 					buildStorageConnectorActionPayload(
 						currentForm,
 						editingId,
@@ -262,17 +239,32 @@ export function useStoragePolicyActionController({
 				if (savedPolicyId === null) {
 					return;
 				}
-				await adminPolicyService.executeSavedPolicyAction(savedPolicyId, {
-					action_id: actionId,
-					values,
-				});
+				result = await adminPolicyService.executeSavedPolicyAction(
+					savedPolicyId,
+					{
+						action_id: actionId,
+						values,
+					},
+				);
 			}
 			setConnectorActionConfirmId(null);
-			toast.success(
-				t("policy_connector_action_success", {
-					action: connectorT(action.label_key),
-				}),
+			const successMessage = t("policy_connector_action_success", {
+				action: connectorT(action.label_key),
+			});
+			const outputDetails = presentStorageConnectorActionOutput(
+				action,
+				result,
+				(key) => connectorT(key),
 			);
+			if (outputDetails.length === 0) {
+				toast.success(successMessage);
+			} else {
+				toast.success(successMessage, {
+					description: outputDetails
+						.map(({ label, value }) => `${label}: ${value}`)
+						.join(" · "),
+				});
+			}
 		} catch (error) {
 			handleApiError(error);
 		} finally {
@@ -296,139 +288,6 @@ export function useStoragePolicyActionController({
 		void executeConnectorAction(actionId);
 	};
 
-	const startStorageAuthorization = () => {
-		const action = findStorageConnectorAction(
-			currentStorageDriverDescriptor,
-			"start_authorization",
-			"authorization",
-		);
-		if (editingId === null || !editingPolicy || !action) {
-			return;
-		}
-		if (
-			policyFormHasUnsavedChanges(
-				form,
-				editingPolicy,
-				currentStorageDriverDescriptor,
-			)
-		) {
-			toast.error(
-				credentialManagement?.save_before_authorize_key
-					? connectorT(credentialManagement.save_before_authorize_key)
-					: t("policy_connector_action_save_first"),
-			);
-			return;
-		}
-		void runWithStorageAuthorization(async () => {
-			try {
-				const result =
-					await adminPolicyService.startStorageAuthorization(editingId);
-				toast.success(
-					credentialManagement?.authorization_started_key
-						? connectorT(credentialManagement.authorization_started_key)
-						: t("policy_connector_action_success", {
-								action: connectorT(action.label_key),
-							}),
-				);
-				const opened = window.open(result.authorization_url, "_blank");
-				if (opened) {
-					opened.opener = null;
-				} else {
-					window.location.assign(result.authorization_url);
-				}
-			} catch (error) {
-				handleApiError(error);
-			}
-		});
-	};
-
-	const validateStorageCredential = () => {
-		const action = findStorageConnectorAction(
-			currentStorageDriverDescriptor,
-			"validate_credential",
-			"credential_validation",
-		);
-		if (editingId === null || !action) {
-			return;
-		}
-		if (
-			policyFormHasUnsavedChanges(
-				form,
-				editingPolicy,
-				currentStorageDriverDescriptor,
-			)
-		) {
-			toast.error(
-				credentialManagement?.save_before_validate_key
-					? connectorT(credentialManagement.save_before_validate_key)
-					: t("policy_connector_action_save_first"),
-			);
-			return;
-		}
-
-		const policyId = editingId;
-		const validationRequestSerial =
-			++storageCredentialValidationRequestSerial.current;
-
-		void runWithStorageCredentialValidation(async () => {
-			try {
-				const isCurrentValidationRequest = () =>
-					validationRequestSerial ===
-						storageCredentialValidationRequestSerial.current &&
-					policyId === currentEditingIdRef.current;
-				if (!isCurrentValidationRequest()) {
-					return;
-				}
-
-				const result =
-					await adminPolicyService.validateStorageCredential(policyId);
-				if (isCurrentValidationRequest()) {
-					setStorageCredentials((prev) => {
-						const nextCredential = result.credential;
-						const hasExisting = prev.some(
-							(credential) => credential.provider === nextCredential.provider,
-						);
-						return hasExisting
-							? prev.map((credential) =>
-									credential.provider === nextCredential.provider
-										? nextCredential
-										: credential,
-								)
-							: [nextCredential, ...prev];
-					});
-					loadPolicyCapacity(policyId);
-					toast.success(
-						credentialManagement?.validation_success_key
-							? connectorT(credentialManagement.validation_success_key)
-							: t("policy_connector_action_success", {
-									action: connectorT(action.label_key),
-								}),
-						{
-							description: result.root_item_name
-								? credentialManagement?.validation_success_detail_key
-									? connectorT(
-											credentialManagement.validation_success_detail_key,
-											{
-												name: result.root_item_name,
-											},
-										)
-									: undefined
-								: undefined,
-						},
-					);
-				}
-			} catch (error) {
-				if (
-					validationRequestSerial ===
-						storageCredentialValidationRequestSerial.current &&
-					policyId === currentEditingIdRef.current
-				) {
-					handleApiError(error);
-				}
-			}
-		});
-	};
-
 	return {
 		cancelConnectorAction,
 		clearActionConfirms,
@@ -441,10 +300,6 @@ export function useStoragePolicyActionController({
 		runConnectionTest,
 		setValidatedConnectionKey,
 		setConnectorActionValue,
-		startStorageAuthorization,
-		storageAuthorizationSubmitting,
-		storageCredentialValidationSubmitting,
-		validateStorageCredential,
 		validatedConnectionKey,
 	};
 }

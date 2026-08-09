@@ -11,11 +11,12 @@ use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy};
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
-    ObjectStorageConnectorDescriptorInput, StorageConnectorActionId, StorageConnectorBadgeRgb,
-    StorageConnectorCustomActionDescriptorInput, StorageConnectorDeploymentScope,
-    StorageConnectorDescriptor, StorageConnectorFieldDisplayInput, StorageConnectorFieldKind,
-    StorageConnectorFieldScope, StorageConnectorUiDescriptorInput, custom_action_descriptor,
-    object_storage_connector_descriptor, storage_connector_field,
+    ObjectStorageConnectorDescriptorInput, StorageConnectorActionId,
+    StorageConnectorActionOutputFieldDescriptor, StorageConnectorActionOutputValueKind,
+    StorageConnectorBadgeRgb, StorageConnectorCustomActionDescriptorInput,
+    StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorFieldDisplayInput,
+    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorUiDescriptorInput,
+    custom_action_descriptor, object_storage_connector_descriptor, storage_connector_field,
     storage_connector_field_with_display,
 };
 use aster_drive_storage::{
@@ -49,12 +50,62 @@ fn configure_cors_action_descriptor() -> aster_drive_storage::StorageConnectorAc
         label_key: "policy_cos_cors_action",
         description_key: "policy_cos_cors_desc",
         fields: ConfigureTencentCosCorsActionInput::action_fields(),
+        output_fields: vec![
+            action_output_field(
+                "request_id",
+                "policy_cos_cors_output_request_id",
+                StorageConnectorActionOutputValueKind::Text,
+            ),
+            action_output_field(
+                "rule_id",
+                "policy_cos_cors_output_rule_id",
+                StorageConnectorActionOutputValueKind::Text,
+            ),
+            action_output_field(
+                "allowed_origins",
+                "policy_cos_cors_output_allowed_origins",
+                StorageConnectorActionOutputValueKind::StringList,
+            ),
+            action_output_field(
+                "preserved_rule_count",
+                "policy_cos_cors_output_preserved_rule_count",
+                StorageConnectorActionOutputValueKind::Number,
+            ),
+            StorageConnectorActionOutputFieldDescriptor {
+                name: "replaced_existing_rule".to_string(),
+                label_key: "policy_cos_cors_output_replaced_existing_rule".to_string(),
+                value_kind: StorageConnectorActionOutputValueKind::Boolean,
+                true_key: Some("policy_cos_cors_output_yes".to_string()),
+                false_key: Some("policy_cos_cors_output_no".to_string()),
+            },
+            StorageConnectorActionOutputFieldDescriptor {
+                name: "response_vary".to_string(),
+                label_key: "policy_cos_cors_output_response_vary".to_string(),
+                value_kind: StorageConnectorActionOutputValueKind::Boolean,
+                true_key: Some("policy_cos_cors_output_yes".to_string()),
+                false_key: Some("policy_cos_cors_output_no".to_string()),
+            },
+        ],
         supports_draft: true,
         supports_saved: true,
         requires_authorization: false,
         mutates_remote_state: true,
         requires_confirmation: true,
     })
+}
+
+fn action_output_field(
+    name: &str,
+    label_key: &str,
+    value_kind: StorageConnectorActionOutputValueKind,
+) -> StorageConnectorActionOutputFieldDescriptor {
+    StorageConnectorActionOutputFieldDescriptor {
+        name: name.to_string(),
+        label_key: label_key.to_string(),
+        value_kind,
+        true_key: None,
+        false_key: None,
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

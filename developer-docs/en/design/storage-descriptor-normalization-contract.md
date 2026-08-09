@@ -22,6 +22,8 @@ Shared field meanings and pure normalization helpers live in `src/storage/field_
 - Unsupported drivers must produce stable backend errors. Remote storage targets may expose only known registered drivers that the remote capability payload declares. Unknown wire-level driver ids may be preserved, but they are not locally configurable drivers.
 - When descriptors, remote capabilities, or capability parsing are missing, the frontend may only fall back conservatively by hiding risky actions or showing an unavailable state. It must not recreate a local capability matrix in that fallback path.
 - Action descriptors declare whether an entry point requires a saved policy, authorization credential, or remote-state mutation. Routes and services still perform final validation; hidden buttons are not authorization.
+- Structured action `output` is presented transiently only through descriptor-declared `output_fields`. Undeclared fields, type mismatches, and results belonging to another action are ignored. Output is never copied into policy config or retained across actions or dialog sessions.
+- Delegated-credential status copy, semantic tone, description, attention guidance, sanitized-reason mapping, lifecycle labels, reauthorization wording, and redirect-URI help belong to `credential_management`. The shared panel must not branch on OneDrive, Microsoft Graph, or another provider ID, and must not render the wire `status_reason` directly.
 
 ## Normalization Rules
 
@@ -50,8 +52,9 @@ Field normalization belongs in backend use cases or connector/driver-specific pu
 When descriptor or normalization behavior changes, add focused unit tests:
 
 - Descriptor tests must cover every built-in driver field, secret marker, action, and key capability.
+- Credential-management coverage must include missing, authorized, and reauthorization-required states. Action-output coverage must include draft and saved execution, absent output, undeclared fields, type-mismatched fields, and the generic-success fallback. It must also prove that failed-action output is neither displayed nor persisted, results are not written back to policy config, and no result survives into another action or dialog session.
 - Normalization tests must cover trimming, blank values, path escapes, prefix slash trimming, negative storage-policy `max_file_size`, same-driver secret preservation, explicit secret replacement, and driver-change field reset.
 - SFTP coverage must include bare host, `host:port`, `sftp://host:port`, wrong schemes, host key fingerprint format, unknown-host-key rejection, and accepted pinned fingerprints.
 - For storage policy descriptor behavior, run `cargo test --lib storage::connectors` or a narrower filter.
 - For remote storage target normalization, run `cargo test --lib remote::storage_target::tests::<filter>`.
-- OpenAPI schema changes require OpenAPI export and frontend SDK regeneration. This contract slice does not change public API shapes.
+- OpenAPI schema changes require OpenAPI export, frontend SDK regeneration, and review of the generated diff.

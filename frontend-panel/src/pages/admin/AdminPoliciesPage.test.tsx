@@ -18,6 +18,7 @@ import type {
 	RemoteNodeInfo,
 	RemoteStorageTargetInfo,
 	StorageConnectorActionDescriptor,
+	StorageConnectorCredentialInfo,
 	StorageConnectorCredentialManagementDescriptor,
 	StorageConnectorDescriptor,
 	StorageConnectorFieldDescriptor,
@@ -58,6 +59,7 @@ const mockState = vi.hoisted(() => ({
 	toastError: vi.fn(),
 	toastSuccess: vi.fn(),
 	update: vi.fn(),
+	validateStorageCredential: vi.fn(),
 }));
 
 const translate = vi.hoisted(
@@ -221,7 +223,8 @@ vi.mock("@/services/adminService", () => ({
 		testConnection: (...args: unknown[]) => mockState.testConnection(...args),
 		testParams: (...args: unknown[]) => mockState.testParams(...args),
 		update: (...args: unknown[]) => mockState.update(...args),
-		validateStorageCredential: vi.fn(),
+		validateStorageCredential: (...args: unknown[]) =>
+			mockState.validateStorageCredential(...args),
 	},
 	adminRemoteNodeService: {
 		createStorageTarget: vi.fn(),
@@ -250,6 +253,12 @@ const authorizationAction = action({
 	endpoints: ["start_storage_authorization"],
 	requires_saved_policy: true,
 });
+const credentialValidationAction = action({
+	action_id: "validate_credential",
+	kind: "credential_validation",
+	endpoints: ["validate_storage_credential"],
+	requires_saved_policy: true,
+});
 
 function credentialManagement(): StorageConnectorCredentialManagementDescriptor {
 	return {
@@ -259,9 +268,15 @@ function credentialManagement(): StorageConnectorCredentialManagementDescriptor 
 		redirect_uri_key: "plugin_redirect_uri",
 		save_before_authorize_key: "plugin_save_before_authorize",
 		save_before_validate_key: "plugin_save_before_validate",
-		status_keys: {
-			authorized: "plugin_credential_authorized",
-			missing: "plugin_credential_missing",
+		status_presentations: {
+			authorized: {
+				label_key: "plugin_credential_authorized",
+				tone: "success",
+			},
+			missing: {
+				label_key: "plugin_credential_missing",
+				tone: "neutral",
+			},
 		},
 		title_key: "plugin_credential_title",
 		validation_success_detail_key: "plugin_validation_success_detail",
@@ -389,6 +404,26 @@ function policy(
 	};
 }
 
+function credential(
+	status: StorageConnectorCredentialInfo["status"],
+	updatedAt = "2026-08-04T00:00:00Z",
+): StorageConnectorCredentialInfo {
+	return {
+		account_label: "Admin account",
+		authorized_at: "2026-08-01T00:00:00Z",
+		created_at: "2026-08-01T00:00:00Z",
+		credential_kind: "authorization",
+		id: 1,
+		last_refreshed_at: "2026-08-02T00:00:00Z",
+		last_validated_at: "2026-08-03T00:00:00Z",
+		policy_id: 7,
+		provider: "microsoft_graph",
+		scopes: [],
+		status,
+		updated_at: updatedAt,
+	};
+}
+
 function remoteNode(id: number, name: string): RemoteNodeInfo {
 	return {
 		base_url: `https://node-${id}.example.com`,
@@ -501,6 +536,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.toastError.mockReset();
 		mockState.toastSuccess.mockReset();
 		mockState.update.mockReset();
+		mockState.validateStorageCredential.mockReset();
 
 		mockState.manageDescriptors = [];
 		mockState.createDescriptors = [];
@@ -1147,6 +1183,181 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		);
 	});
 
+	it("reloads the credential session when reopening the same policy", async () => {
+		const connector = descriptor("plugin.oauth", {
+			actions: [credentialValidationAction],
+			authorization_provider: "plugin_oauth",
+			credential_management: credentialManagement(),
+			credential_mode: "oauth_delegated",
+			requires_authorization: true,
+			supports_initial_setup: false,
+		});
+		const saved = policy("plugin.oauth");
+		const initiallyAuthorized = credential("authorized");
+		const validated = credential("authorized", "2026-08-05T00:00:00Z");
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		mockState.policies = [saved];
+		mockState.listStorageCredentials.mockResolvedValue([initiallyAuthorized]);
+		mockState.validateStorageCredential.mockResolvedValue({
+			credential: validated,
+			root_item_id: "root",
+			root_item_name: "Drive",
+		});
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog("plugin.oauth");
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		await waitFor(() => {
+			expect(mockState.listStorageCredentials).toHaveBeenCalledTimes(1);
+			expect(currentDialog().storageCredentials).toEqual([initiallyAuthorized]);
+		});
+
+		await act(async () => currentDialog().onValidateStorageCredential());
+		await waitFor(() => {
+			expect(mockState.validateStorageCredential).toHaveBeenCalledWith(7);
+			expect(currentDialog().storageCredentials).toEqual([validated]);
+		});
+
+		await act(async () => currentDialog().onDialogOpenChange(false));
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		await waitFor(() => {
+			expect(mockState.listStorageCredentials).toHaveBeenCalledTimes(2);
+			expect(currentDialog().storageCredentials).toEqual([initiallyAuthorized]);
+		});
+	});
+
+	it("keeps a reopened credential session isolated from its stale list response", async () => {
+		const connector = descriptor("plugin.oauth", {
+			actions: [credentialValidationAction],
+			authorization_provider: "plugin_oauth",
+			credential_management: credentialManagement(),
+			credential_mode: "oauth_delegated",
+			requires_authorization: true,
+			supports_initial_setup: false,
+		});
+		const first = deferred<StorageConnectorCredentialInfo[]>();
+		const second = deferred<StorageConnectorCredentialInfo[]>();
+		const authorized = credential("authorized", "2026-08-06T00:00:00Z");
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		mockState.policies = [policy("plugin.oauth")];
+		mockState.listStorageCredentials
+			.mockImplementationOnce(() => first.promise)
+			.mockImplementationOnce(() => second.promise);
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog("plugin.oauth");
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		await waitFor(() =>
+			expect(mockState.listStorageCredentials).toHaveBeenCalledTimes(1),
+		);
+		await act(async () => currentDialog().onDialogOpenChange(false));
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		await waitFor(() =>
+			expect(mockState.listStorageCredentials).toHaveBeenCalledTimes(2),
+		);
+
+		await act(async () => second.resolve([authorized]));
+		await waitFor(() =>
+			expect(currentDialog().storageCredentials).toEqual([authorized]),
+		);
+		await act(async () => first.resolve([]));
+		expect(currentDialog().storageCredentials).toEqual([authorized]);
+	});
+
+	it("ignores validation completion from a closed credential session", async () => {
+		const connector = descriptor("plugin.oauth", {
+			actions: [credentialValidationAction],
+			authorization_provider: "plugin_oauth",
+			credential_management: credentialManagement(),
+			credential_mode: "oauth_delegated",
+			requires_authorization: true,
+			supports_initial_setup: false,
+		});
+		const validation = deferred<{
+			credential: StorageConnectorCredentialInfo;
+			root_item_id: string;
+			root_item_name: string | null;
+		}>();
+		const initial = credential("missing");
+		const reopened = credential("authorized", "2026-08-06T00:00:00Z");
+		const staleValidation = credential("expired", "2026-08-05T00:00:00Z");
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		mockState.policies = [policy("plugin.oauth")];
+		mockState.listStorageCredentials
+			.mockResolvedValueOnce([initial])
+			.mockResolvedValueOnce([reopened]);
+		mockState.validateStorageCredential.mockImplementation(
+			() => validation.promise,
+		);
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog("plugin.oauth");
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		await waitFor(() =>
+			expect(currentDialog().storageCredentials).toEqual([initial]),
+		);
+		await act(async () => currentDialog().onValidateStorageCredential());
+		await waitFor(() =>
+			expect(currentDialog().storageCredentialValidationSubmitting).toBe(true),
+		);
+
+		await act(async () => currentDialog().onDialogOpenChange(false));
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		await waitFor(() =>
+			expect(currentDialog().storageCredentials).toEqual([reopened]),
+		);
+		await act(async () =>
+			validation.resolve({
+				credential: staleValidation,
+				root_item_id: "stale-root",
+				root_item_name: null,
+			}),
+		);
+
+		expect(currentDialog().storageCredentials).toEqual([reopened]);
+		expect(currentDialog().storageCredentialValidationSubmitting).toBe(false);
+		expect(mockState.toastSuccess).not.toHaveBeenCalled();
+	});
+
+	it("reloads persisted credential status after validation fails", async () => {
+		const connector = descriptor("plugin.oauth", {
+			actions: [credentialValidationAction],
+			authorization_provider: "plugin_oauth",
+			credential_management: credentialManagement(),
+			credential_mode: "oauth_delegated",
+			requires_authorization: true,
+			supports_initial_setup: false,
+		});
+		const initial = credential("authorized");
+		const expired = credential("expired", "2026-08-07T00:00:00Z");
+		const validationError = new Error("credential expired");
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		mockState.policies = [policy("plugin.oauth")];
+		mockState.listStorageCredentials
+			.mockResolvedValueOnce([initial])
+			.mockResolvedValueOnce([expired]);
+		mockState.validateStorageCredential.mockRejectedValue(validationError);
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog("plugin.oauth");
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		await waitFor(() =>
+			expect(currentDialog().storageCredentials).toEqual([initial]),
+		);
+		await act(async () => currentDialog().onValidateStorageCredential());
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(validationError);
+			expect(mockState.listStorageCredentials).toHaveBeenCalledTimes(2);
+			expect(currentDialog().storageCredentials).toEqual([expired]);
+			expect(currentDialog().storageCredentialValidationSubmitting).toBe(false);
+		});
+	});
+
 	it("executes connector-defined custom actions with their own field mapping", async () => {
 		const repairAction = action({
 			action_id: "plugin.repair_index",
@@ -1160,6 +1371,13 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			],
 			kind: "custom",
 			mutates_remote_state: true,
+			output_fields: [
+				{
+					label_key: "plugin_request_id",
+					name: "request_id",
+					value_kind: "text",
+				},
+			],
 			requires_confirmation: true,
 		});
 		const connector = descriptor("plugin.actions", {
@@ -1171,6 +1389,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.executeDraftPolicyAction.mockResolvedValue({
 			action_id: "plugin.repair_index",
 			ok: true,
+			output: { request_id: "draft-request-1", private_value: "ignored" },
 		});
 
 		render(<AdminPoliciesPage />);
@@ -1210,6 +1429,70 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			policy_id: undefined,
 			values: { depth: 4 },
 		});
+		expect(mockState.toastSuccess).toHaveBeenLastCalledWith(
+			"policy_connector_action_success",
+			{ description: "plugin_request_id: draft-request-1" },
+		);
+	});
+
+	it("presents saved action output and keeps missing output on the generic fallback", async () => {
+		const inspectAction = action({
+			action_id: "plugin.inspect_saved",
+			endpoints: ["execute_saved_storage_policy_action"],
+			kind: "custom",
+			output_fields: [
+				{
+					label_key: "plugin_request_id",
+					name: "request_id",
+					value_kind: "text",
+				},
+			],
+			requires_saved_policy: true,
+		});
+		const connector = descriptor("plugin.actions", {
+			actions: [inspectAction],
+		});
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		mockState.policies = [policy("plugin.actions")];
+		mockState.executeSavedPolicyAction.mockResolvedValueOnce({
+			action_id: "plugin.inspect_saved",
+			ok: true,
+			output: { request_id: "saved-request-1" },
+		});
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog("plugin.actions");
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		await waitFor(() => expect(currentDialog().editMode).toBe(true));
+		await act(async () =>
+			currentDialog().onRequestConnectorAction("plugin.inspect_saved"),
+		);
+
+		await waitFor(() =>
+			expect(mockState.executeSavedPolicyAction).toHaveBeenCalledWith(7, {
+				action_id: "plugin.inspect_saved",
+				values: {},
+			}),
+		);
+		expect(mockState.toastSuccess).toHaveBeenLastCalledWith(
+			"policy_connector_action_success",
+			{ description: "plugin_request_id: saved-request-1" },
+		);
+
+		mockState.executeSavedPolicyAction.mockResolvedValueOnce({
+			action_id: "plugin.inspect_saved",
+			ok: true,
+		});
+		await act(async () =>
+			currentDialog().onRequestConnectorAction("plugin.inspect_saved"),
+		);
+		await waitFor(() =>
+			expect(mockState.executeSavedPolicyAction).toHaveBeenCalledTimes(2),
+		);
+		expect(mockState.toastSuccess).toHaveBeenLastCalledWith(
+			"policy_connector_action_success",
+		);
 	});
 
 	it("loads action target options without mutating connector policy config", async () => {

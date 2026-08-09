@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { getStorageConnectorBadgePresentation } from "@/components/admin/admin-policies-page/policyPresentation";
 import { RemoteNodeRemoteStorageTargetSection } from "@/components/admin/admin-remote-nodes-page/RemoteNodeRemoteStorageTargetSection";
 import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
@@ -19,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
+import { writeTextToClipboard } from "@/lib/clipboard";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { formatBytes, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -1684,10 +1686,11 @@ function ConnectorManagement({
 	validationActionLabel: string | null;
 	authorizationSubmitting: boolean;
 	validationSubmitting: boolean;
-	connectorT: (key: string) => string;
+	connectorT: (key: string, values?: Record<string, number | string>) => string;
 	onAuthorize: () => void;
 	onValidate: () => void;
 }) {
+	const { t } = useTranslation("admin");
 	if (
 		!management ||
 		(!authorizationActionLabel &&
@@ -1696,33 +1699,100 @@ function ConnectorManagement({
 	) {
 		return null;
 	}
+	const credential = credentials[0] ?? null;
+	const statusPresentation =
+		management.status_presentations[credential?.status ?? "missing"] ?? null;
+	const statusReason = presentCredentialStatusReason(
+		credential?.status_reason,
+		statusPresentation,
+		connectorT,
+	);
+	const lifecycle = credential
+		? [
+				management.authorized_at_key && credential.authorized_at
+					? connectorT(management.authorized_at_key, {
+							time: formatDateTime(credential.authorized_at),
+						})
+					: null,
+				management.refreshed_at_key && credential.last_refreshed_at
+					? connectorT(management.refreshed_at_key, {
+							time: formatDateTime(credential.last_refreshed_at),
+						})
+					: null,
+				management.validated_at_key && credential.last_validated_at
+					? connectorT(management.validated_at_key, {
+							time: formatDateTime(credential.last_validated_at),
+						})
+					: null,
+			].filter((value): value is string => value !== null)
+		: [];
+	const effectiveAuthorizationActionLabel =
+		credential && management.reauthorize_action_key
+			? connectorT(management.reauthorize_action_key)
+			: authorizationActionLabel;
+	const copyRedirectUri = async () => {
+		try {
+			await writeTextToClipboard(redirectUri);
+			toast.success(t("core:copied_to_clipboard"));
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : String(error));
+		}
+	};
 	return (
 		<section className="space-y-3 border-t pt-5">
 			<div className="flex flex-wrap items-center justify-between gap-3">
-				<div>
-					<h3 className="text-sm font-semibold">
-						{connectorT(management.title_key)}
-					</h3>
-					<p className="mt-1 text-xs text-muted-foreground">
-						{credentialsLoading
-							? connectorT(management.loading_key)
-							: credentials[0]
-								? `${
-										management.status_keys[credentials[0].status]
-											? connectorT(
-													management.status_keys[credentials[0].status],
-												)
-											: credentials[0].status
-									}${
-										credentials[0].last_validated_at
-											? ` · ${formatDateTime(credentials[0].last_validated_at)}`
-											: ""
-									}`
-								: connectorT(management.status_keys.missing)}
-					</p>
+				<div className="min-w-0 space-y-2">
+					<div className="flex flex-wrap items-center gap-2">
+						<h3 className="text-sm font-semibold">
+							{connectorT(management.title_key)}
+						</h3>
+						<Badge
+							variant="outline"
+							className={credentialStatusToneClass(
+								credentialsLoading ? "neutral" : statusPresentation?.tone,
+							)}
+						>
+							{credentialsLoading
+								? connectorT(management.loading_key)
+								: statusPresentation
+									? connectorT(statusPresentation.label_key)
+									: (credential?.status ?? "missing")}
+						</Badge>
+					</div>
+					{!credentialsLoading && statusPresentation?.description_key ? (
+						<p className="text-xs leading-5 text-muted-foreground">
+							{connectorT(statusPresentation.description_key)}
+						</p>
+					) : null}
+					{credential?.account_label || credential?.subject ? (
+						<p className="text-xs text-muted-foreground">
+							{credential.account_label ?? credential.subject}
+						</p>
+					) : null}
+					{statusPresentation?.attention_title_key || statusReason ? (
+						<div className="flex gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs leading-5 text-amber-800 dark:text-amber-200">
+							<Icon name="Warning" className="mt-0.5 size-4 shrink-0" />
+							<div className="min-w-0 space-y-1">
+								{statusPresentation?.attention_title_key ? (
+									<p className="font-medium">
+										{connectorT(statusPresentation.attention_title_key)}
+									</p>
+								) : null}
+								{statusReason ? <p>{statusReason}</p> : null}
+								{statusPresentation?.attention_guidance_key ? (
+									<p>{connectorT(statusPresentation.attention_guidance_key)}</p>
+								) : null}
+							</div>
+						</div>
+					) : null}
+					{lifecycle.length > 0 ? (
+						<p className="text-xs text-muted-foreground">
+							{lifecycle.join(" · ")}
+						</p>
+					) : null}
 				</div>
 				<div className="flex gap-2">
-					{authorizationActionLabel ? (
+					{effectiveAuthorizationActionLabel ? (
 						<Button
 							type="button"
 							variant="outline"
@@ -1732,7 +1802,7 @@ function ConnectorManagement({
 							{authorizationSubmitting ? (
 								<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
 							) : null}
-							{authorizationActionLabel}
+							{effectiveAuthorizationActionLabel}
 						</Button>
 					) : null}
 					{validationActionLabel ? (
@@ -1750,19 +1820,72 @@ function ConnectorManagement({
 					) : null}
 				</div>
 			</div>
-			{authorizationActionLabel && management.redirect_uri_key ? (
+			{effectiveAuthorizationActionLabel && management.redirect_uri_key ? (
 				<div className="space-y-2">
 					<Label htmlFor="storage-authorization-redirect-uri">
 						{connectorT(management.redirect_uri_key)}
 					</Label>
-					<Input
-						id="storage-authorization-redirect-uri"
-						readOnly
-						value={redirectUri}
-						className="font-mono text-xs"
-					/>
+					<div className="flex gap-2">
+						<Input
+							id="storage-authorization-redirect-uri"
+							readOnly
+							value={redirectUri}
+							className="font-mono text-xs"
+						/>
+						{management.redirect_uri_copy_key ? (
+							<Button
+								type="button"
+								variant="outline"
+								size="icon"
+								onClick={() => void copyRedirectUri()}
+								aria-label={connectorT(management.redirect_uri_copy_key)}
+								title={connectorT(management.redirect_uri_copy_key)}
+							>
+								<Icon name="Copy" className="size-4" />
+							</Button>
+						) : null}
+					</div>
+					{management.redirect_uri_help_key ? (
+						<p className="text-xs leading-5 text-muted-foreground">
+							{connectorT(management.redirect_uri_help_key)}
+						</p>
+					) : null}
 				</div>
 			) : null}
 		</section>
 	);
+}
+
+type CredentialStatusPresentation =
+	StorageConnectorCredentialManagementDescriptor["status_presentations"][string];
+
+function presentCredentialStatusReason(
+	reason: string | null | undefined,
+	presentation: CredentialStatusPresentation | null,
+	translate: (key: string) => string,
+) {
+	const normalized = reason?.trim().toLowerCase();
+	if (!normalized || !presentation) return null;
+	const matched = presentation.reason_rules?.find((rule) =>
+		rule.contains_any.some((fragment) =>
+			normalized.includes(fragment.trim().toLowerCase()),
+		),
+	);
+	const key = matched?.message_key ?? presentation.reason_fallback_key;
+	return key ? translate(key) : null;
+}
+
+function credentialStatusToneClass(
+	tone: CredentialStatusPresentation["tone"] | undefined,
+) {
+	switch (tone) {
+		case "success":
+			return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+		case "warning":
+			return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+		case "danger":
+			return "border-destructive/30 bg-destructive/10 text-destructive";
+		default:
+			return "border-muted-foreground/20 bg-muted text-muted-foreground";
+	}
 }

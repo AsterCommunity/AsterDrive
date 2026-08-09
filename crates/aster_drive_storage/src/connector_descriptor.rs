@@ -291,6 +291,72 @@ pub enum StorageConnectorActionEndpoint {
     TestPolicyConnection,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum StorageConnectorActionOutputValueKind {
+    Text,
+    Number,
+    Boolean,
+    StringList,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StorageConnectorActionOutputFieldDescriptor {
+    /// Top-level key read from `StoragePolicyActionResult.output`.
+    pub name: String,
+    /// Connector-owned localization key used as the field label.
+    pub label_key: String,
+    /// Wire value shape accepted by the generic presenter.
+    pub value_kind: StorageConnectorActionOutputValueKind,
+    /// Connector-owned label used when a boolean value is true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub true_key: Option<String>,
+    /// Connector-owned label used when a boolean value is false.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub false_key: Option<String>,
+}
+
+impl StorageConnectorActionOutputFieldDescriptor {
+    fn validate(&self) -> Result<(), StorageConnectorActionDescriptorError> {
+        if self.name.trim().is_empty() {
+            return Err(StorageConnectorActionDescriptorError(
+                "action output field name must not be empty".to_string(),
+            ));
+        }
+        if self.label_key.trim().is_empty() {
+            return Err(StorageConnectorActionDescriptorError(format!(
+                "action output field '{}' label_key must not be empty",
+                self.name
+            )));
+        }
+        match self.value_kind {
+            StorageConnectorActionOutputValueKind::Boolean => {
+                for (name, message_id) in [
+                    ("true_key", self.true_key.as_deref()),
+                    ("false_key", self.false_key.as_deref()),
+                ] {
+                    if !message_id.is_some_and(|message_id| !message_id.trim().is_empty()) {
+                        return Err(StorageConnectorActionDescriptorError(format!(
+                            "boolean action output field '{}' requires non-empty {name}",
+                            self.name
+                        )));
+                    }
+                }
+            }
+            _ if self.true_key.is_some() || self.false_key.is_some() => {
+                return Err(StorageConnectorActionDescriptorError(format!(
+                    "non-boolean action output field '{}' must not declare boolean labels",
+                    self.name
+                )));
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorActionDescriptor {
@@ -308,6 +374,11 @@ pub struct StorageConnectorActionDescriptor {
     /// Action-owned input schema. Values are never persisted into the policy.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<StorageConnectorFieldDescriptor>,
+    /// Connector-owned presentation schema for successful structured output.
+    ///
+    /// Action output remains transient and is never copied into policy config.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub output_fields: Vec<StorageConnectorActionOutputFieldDescriptor>,
     /// true 表示必须先保存 policy，draft 参数不能执行。
     pub requires_saved_policy: bool,
     /// true 表示执行前必须存在可用授权凭据。
@@ -389,6 +460,16 @@ impl StorageConnectorActionDescriptor {
             if !field_names.insert(field.name.as_str()) {
                 return Err(StorageConnectorActionDescriptorError(format!(
                     "action field '{}' is declared more than once",
+                    field.name
+                )));
+            }
+        }
+        let mut output_field_names = HashSet::with_capacity(self.output_fields.len());
+        for field in &self.output_fields {
+            field.validate()?;
+            if !output_field_names.insert(field.name.as_str()) {
+                return Err(StorageConnectorActionDescriptorError(format!(
+                    "action output field '{}' is declared more than once",
                     field.name
                 )));
             }
@@ -1259,6 +1340,118 @@ fn normalize_and_validate_connector_field_value(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum StorageConnectorCredentialStatusTone {
+    Neutral,
+    Success,
+    Warning,
+    Danger,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StorageConnectorCredentialReasonRule {
+    /// Case-insensitive fragments matched against the sanitized status reason.
+    pub contains_any: Vec<String>,
+    /// Connector-owned localization key presented instead of the wire reason.
+    pub message_key: String,
+}
+
+impl StorageConnectorCredentialReasonRule {
+    fn validate(&self) -> Result<(), StorageConnectorDescriptorError> {
+        if self.contains_any.is_empty()
+            || self
+                .contains_any
+                .iter()
+                .any(|fragment| fragment.trim().is_empty())
+        {
+            return Err(StorageConnectorDescriptorError(
+                "credential status reason rule must declare non-empty fragments".to_string(),
+            ));
+        }
+        if self.message_key.trim().is_empty() {
+            return Err(StorageConnectorDescriptorError(
+                "credential status reason rule message_key must not be empty".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StorageConnectorCredentialStatusPresentation {
+    /// Connector-owned localized status label.
+    pub label_key: String,
+    /// Semantic styling consumed by the generic credential panel.
+    pub tone: StorageConnectorCredentialStatusTone,
+    /// Optional explanatory copy for this status.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description_key: Option<String>,
+    /// Optional alert heading for states that require administrator attention.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attention_title_key: Option<String>,
+    /// Optional guidance shown below the normalized reason.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attention_guidance_key: Option<String>,
+    /// Connector-owned normalization rules for sanitized wire reasons.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reason_rules: Vec<StorageConnectorCredentialReasonRule>,
+    /// Localized fallback used when no reason rule matches.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason_fallback_key: Option<String>,
+}
+
+impl StorageConnectorCredentialStatusPresentation {
+    fn validate(&self) -> Result<(), StorageConnectorDescriptorError> {
+        if self.label_key.trim().is_empty() {
+            return Err(StorageConnectorDescriptorError(
+                "credential status presentation label_key must not be empty".to_string(),
+            ));
+        }
+        for (name, message_id) in [
+            ("description_key", self.description_key.as_deref()),
+            ("attention_title_key", self.attention_title_key.as_deref()),
+            (
+                "attention_guidance_key",
+                self.attention_guidance_key.as_deref(),
+            ),
+            ("reason_fallback_key", self.reason_fallback_key.as_deref()),
+        ] {
+            if message_id.is_some_and(|message_id| message_id.trim().is_empty()) {
+                return Err(StorageConnectorDescriptorError(format!(
+                    "credential status presentation {name} must not be empty when present"
+                )));
+            }
+        }
+        for rule in &self.reason_rules {
+            rule.validate()?;
+        }
+        Ok(())
+    }
+
+    fn localization_message_ids<'a>(&'a self, message_ids: &mut BTreeSet<&'a str>) {
+        message_ids.insert(self.label_key.as_str());
+        message_ids.extend(
+            [
+                self.description_key.as_deref(),
+                self.attention_title_key.as_deref(),
+                self.attention_guidance_key.as_deref(),
+                self.reason_fallback_key.as_deref(),
+            ]
+            .into_iter()
+            .flatten(),
+        );
+        message_ids.extend(
+            self.reason_rules
+                .iter()
+                .map(|rule| rule.message_key.as_str()),
+        );
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorCredentialManagementDescriptor {
@@ -1266,15 +1459,33 @@ pub struct StorageConnectorCredentialManagementDescriptor {
     pub title_key: String,
     /// Status text shown while the credential snapshot is loading.
     pub loading_key: String,
-    /// Credential status wire value to connector-owned localization key.
+    /// Credential status wire value to connector-owned presentation metadata.
     ///
     /// The map keeps the UI independent from provider-specific status copy and
     /// lets future connector credential contracts add status values without a
     /// frontend provider matrix.
-    pub status_keys: BTreeMap<String, String>,
+    pub status_presentations: BTreeMap<String, StorageConnectorCredentialStatusPresentation>,
+    /// Label used when an existing credential starts authorization again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reauthorize_action_key: Option<String>,
+    /// Localized lifecycle label for the original authorization time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authorized_at_key: Option<String>,
+    /// Localized lifecycle label for the latest token refresh time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refreshed_at_key: Option<String>,
+    /// Localized lifecycle label for the latest validation time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validated_at_key: Option<String>,
     /// Label for an authorization redirect URI exposed by the platform.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub redirect_uri_key: Option<String>,
+    /// Redirect URI registration guidance.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redirect_uri_help_key: Option<String>,
+    /// Accessible label for the redirect URI copy action.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redirect_uri_copy_key: Option<String>,
     /// Message shown when authorization is requested with unsaved policy data.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_before_authorize_key: Option<String>,
@@ -1307,26 +1518,41 @@ impl StorageConnectorCredentialManagementDescriptor {
                 )));
             }
         }
-        if self.status_keys.is_empty() {
+        if self.status_presentations.is_empty() {
             return Err(StorageConnectorDescriptorError(
-                "credential_management status_keys must not be empty".to_string(),
+                "credential_management status_presentations must not be empty".to_string(),
             ));
         }
-        if !self.status_keys.contains_key("missing") {
+        if !self.status_presentations.contains_key("missing") {
             return Err(StorageConnectorDescriptorError(
-                "credential_management status_keys must declare 'missing'".to_string(),
+                "credential_management status_presentations must declare 'missing'".to_string(),
             ));
         }
-        for (status, message_id) in &self.status_keys {
-            if status.trim().is_empty() || message_id.trim().is_empty() {
+        for (status, presentation) in &self.status_presentations {
+            if status.trim().is_empty() {
                 return Err(StorageConnectorDescriptorError(
-                    "credential_management status keys and message ids must not be empty"
-                        .to_string(),
+                    "credential_management status keys must not be empty".to_string(),
                 ));
             }
+            presentation.validate()?;
         }
         for (name, message_id) in [
+            (
+                "reauthorize_action_key",
+                self.reauthorize_action_key.as_deref(),
+            ),
+            ("authorized_at_key", self.authorized_at_key.as_deref()),
+            ("refreshed_at_key", self.refreshed_at_key.as_deref()),
+            ("validated_at_key", self.validated_at_key.as_deref()),
             ("redirect_uri_key", self.redirect_uri_key.as_deref()),
+            (
+                "redirect_uri_help_key",
+                self.redirect_uri_help_key.as_deref(),
+            ),
+            (
+                "redirect_uri_copy_key",
+                self.redirect_uri_copy_key.as_deref(),
+            ),
             (
                 "save_before_authorize_key",
                 self.save_before_authorize_key.as_deref(),
@@ -1358,16 +1584,32 @@ impl StorageConnectorCredentialManagementDescriptor {
                 )));
             }
         }
+        if (self.redirect_uri_help_key.is_some() || self.redirect_uri_copy_key.is_some())
+            && self.redirect_uri_key.is_none()
+        {
+            return Err(StorageConnectorDescriptorError(
+                "credential_management redirect URI help/copy metadata requires redirect_uri_key"
+                    .to_string(),
+            ));
+        }
         Ok(())
     }
 
     fn localization_message_ids<'a>(&'a self, message_ids: &mut BTreeSet<&'a str>) {
         message_ids.insert(self.title_key.as_str());
         message_ids.insert(self.loading_key.as_str());
-        message_ids.extend(self.status_keys.values().map(String::as_str));
+        for presentation in self.status_presentations.values() {
+            presentation.localization_message_ids(message_ids);
+        }
         message_ids.extend(
             [
+                self.reauthorize_action_key.as_deref(),
+                self.authorized_at_key.as_deref(),
+                self.refreshed_at_key.as_deref(),
+                self.validated_at_key.as_deref(),
                 self.redirect_uri_key.as_deref(),
+                self.redirect_uri_help_key.as_deref(),
+                self.redirect_uri_copy_key.as_deref(),
                 self.save_before_authorize_key.as_deref(),
                 self.authorization_started_key.as_deref(),
                 self.save_before_validate_key.as_deref(),
@@ -1576,6 +1818,14 @@ impl StorageConnectorDescriptor {
             for field in &action.fields {
                 collect_field_localization_message_ids(field, &mut message_ids);
             }
+            for field in &action.output_fields {
+                message_ids.insert(field.label_key.as_str());
+                message_ids.extend(
+                    [field.true_key.as_deref(), field.false_key.as_deref()]
+                        .into_iter()
+                        .flatten(),
+                );
+            }
         }
         if let Some(credential_management) = &self.credential_management {
             credential_management.localization_message_ids(&mut message_ids);
@@ -1770,6 +2020,7 @@ pub struct StorageConnectorCustomActionDescriptorInput {
     pub label_key: &'static str,
     pub description_key: &'static str,
     pub fields: Vec<StorageConnectorFieldDescriptor>,
+    pub output_fields: Vec<StorageConnectorActionOutputFieldDescriptor>,
     pub supports_draft: bool,
     pub supports_saved: bool,
     pub requires_authorization: bool,
@@ -1794,6 +2045,7 @@ pub fn custom_action_descriptor(
         kind: StorageConnectorActionKind::Custom,
         endpoints,
         fields: input.fields,
+        output_fields: input.output_fields,
         requires_saved_policy: !input.supports_draft,
         requires_authorization: input.requires_authorization,
         mutates_remote_state: input.mutates_remote_state,
@@ -1809,6 +2061,7 @@ pub fn start_authorization_action_descriptor() -> StorageConnectorActionDescript
         kind: StorageConnectorActionKind::Authorization,
         endpoints: vec![StorageConnectorActionEndpoint::StartStorageAuthorization],
         fields: Vec::new(),
+        output_fields: Vec::new(),
         requires_saved_policy: true,
         requires_authorization: false,
         mutates_remote_state: false,
@@ -1824,6 +2077,7 @@ pub fn validate_credential_action_descriptor() -> StorageConnectorActionDescript
         kind: StorageConnectorActionKind::CredentialValidation,
         endpoints: vec![StorageConnectorActionEndpoint::ValidateStoragePolicyCredential],
         fields: Vec::new(),
+        output_fields: Vec::new(),
         requires_saved_policy: true,
         requires_authorization: true,
         mutates_remote_state: false,
@@ -1839,6 +2093,7 @@ pub fn draft_connection_test_action_descriptor() -> StorageConnectorActionDescri
         kind: StorageConnectorActionKind::ConnectionTest,
         endpoints: vec![StorageConnectorActionEndpoint::TestPolicyParams],
         fields: Vec::new(),
+        output_fields: Vec::new(),
         requires_saved_policy: false,
         requires_authorization: false,
         mutates_remote_state: false,
@@ -1856,6 +2111,7 @@ pub fn saved_connection_test_action_descriptor(
         kind: StorageConnectorActionKind::ConnectionTest,
         endpoints: vec![StorageConnectorActionEndpoint::TestPolicyConnection],
         fields: Vec::new(),
+        output_fields: Vec::new(),
         requires_saved_policy: true,
         requires_authorization,
         mutates_remote_state: false,
@@ -2062,11 +2318,14 @@ mod tests {
     use super::{
         ObjectStorageConnectorDescriptorInput, StorageConnectorActionEndpoint,
         StorageConnectorActionId, StorageConnectorActionInvocationError,
-        StorageConnectorActionKind, StorageConnectorBadgeRgb,
+        StorageConnectorActionKind, StorageConnectorActionOutputFieldDescriptor,
+        StorageConnectorActionOutputValueKind, StorageConnectorBadgeRgb,
         StorageConnectorCredentialManagementDescriptor, StorageConnectorCredentialMode,
-        StorageConnectorCustomActionDescriptorInput, StorageConnectorDeploymentScope,
-        StorageConnectorFieldDefaultMode, StorageConnectorFieldDefaultValue,
-        StorageConnectorFieldDisplayInput, StorageConnectorFieldKind, StorageConnectorFieldScope,
+        StorageConnectorCredentialReasonRule, StorageConnectorCredentialStatusPresentation,
+        StorageConnectorCredentialStatusTone, StorageConnectorCustomActionDescriptorInput,
+        StorageConnectorDeploymentScope, StorageConnectorFieldDefaultMode,
+        StorageConnectorFieldDefaultValue, StorageConnectorFieldDisplayInput,
+        StorageConnectorFieldKind, StorageConnectorFieldScope,
         StorageConnectorOptionsValidationError, StorageConnectorSelectDataSource,
         StorageConnectorSelectOption, StorageConnectorSelectOptionInput,
         StorageConnectorSelectOptionValue, StorageConnectorSelectValueKind,
@@ -2135,6 +2394,13 @@ mod tests {
             label_key: "plugin_validate_path",
             description_key: "plugin_validate_path_desc",
             fields: TestPluginActionInput::action_fields(),
+            output_fields: vec![StorageConnectorActionOutputFieldDescriptor {
+                name: "request_id".to_string(),
+                label_key: "plugin_request_id".to_string(),
+                value_kind: StorageConnectorActionOutputValueKind::Text,
+                true_key: None,
+                false_key: None,
+            }],
             supports_draft: true,
             supports_saved: false,
             requires_authorization: true,
@@ -2281,8 +2547,14 @@ mod tests {
         descriptor.credential_management = Some(StorageConnectorCredentialManagementDescriptor {
             title_key: "credential_title".to_string(),
             loading_key: "credential_loading".to_string(),
-            status_keys: BTreeMap::new(),
+            status_presentations: BTreeMap::new(),
+            reauthorize_action_key: None,
+            authorized_at_key: None,
+            refreshed_at_key: None,
+            validated_at_key: None,
             redirect_uri_key: None,
+            redirect_uri_help_key: None,
+            redirect_uri_copy_key: None,
             save_before_authorize_key: None,
             authorization_started_key: None,
             save_before_validate_key: None,
@@ -2293,16 +2565,28 @@ mod tests {
         let error = descriptor
             .validate()
             .expect_err("empty credential status map must fail");
-        assert!(error.to_string().contains("status_keys must not be empty"));
+        assert!(
+            error
+                .to_string()
+                .contains("status_presentations must not be empty")
+        );
 
         descriptor
             .credential_management
             .as_mut()
             .expect("credential presentation")
-            .status_keys
+            .status_presentations
             .insert(
                 "authorized".to_string(),
-                "credential_authorized".to_string(),
+                StorageConnectorCredentialStatusPresentation {
+                    label_key: "credential_authorized".to_string(),
+                    tone: StorageConnectorCredentialStatusTone::Success,
+                    description_key: None,
+                    attention_title_key: None,
+                    attention_guidance_key: None,
+                    reason_rules: Vec::new(),
+                    reason_fallback_key: None,
+                },
             );
         let error = descriptor
             .validate()
@@ -2313,8 +2597,19 @@ mod tests {
             .credential_management
             .as_mut()
             .expect("credential presentation")
-            .status_keys
-            .insert("missing".to_string(), "credential_missing".to_string());
+            .status_presentations
+            .insert(
+                "missing".to_string(),
+                StorageConnectorCredentialStatusPresentation {
+                    label_key: "credential_missing".to_string(),
+                    tone: StorageConnectorCredentialStatusTone::Neutral,
+                    description_key: None,
+                    attention_title_key: None,
+                    attention_guidance_key: None,
+                    reason_rules: Vec::new(),
+                    reason_fallback_key: None,
+                },
+            );
         descriptor
             .validate()
             .expect("valid credential presentation");
@@ -2323,6 +2618,62 @@ mod tests {
                 .localization_message_ids()
                 .contains("credential_authorized")
         );
+
+        for field in ["redirect_uri_help_key", "redirect_uri_copy_key"] {
+            let mut invalid = descriptor.clone();
+            let management = invalid
+                .credential_management
+                .as_mut()
+                .expect("credential presentation");
+            match field {
+                "redirect_uri_help_key" => {
+                    management.redirect_uri_help_key = Some("credential_redirect_help".to_string());
+                }
+                "redirect_uri_copy_key" => {
+                    management.redirect_uri_copy_key = Some("credential_redirect_copy".to_string());
+                }
+                _ => unreachable!("fixture only declares redirect URI metadata fields"),
+            }
+            let error = invalid
+                .validate()
+                .expect_err("redirect URI metadata without redirect_uri_key must fail");
+            assert!(error.to_string().contains("requires redirect_uri_key"));
+        }
+
+        for (contains_any, message_key, expected) in [
+            (
+                Vec::<String>::new(),
+                "credential_reason".to_string(),
+                "non-empty fragments",
+            ),
+            (
+                vec!["  ".to_string()],
+                "credential_reason".to_string(),
+                "non-empty fragments",
+            ),
+            (
+                vec!["invalid_grant".to_string()],
+                "  ".to_string(),
+                "message_key must not be empty",
+            ),
+        ] {
+            let mut invalid = descriptor.clone();
+            invalid
+                .credential_management
+                .as_mut()
+                .expect("credential presentation")
+                .status_presentations
+                .get_mut("missing")
+                .expect("missing presentation")
+                .reason_rules = vec![StorageConnectorCredentialReasonRule {
+                contains_any,
+                message_key,
+            }];
+            let error = invalid
+                .validate()
+                .expect_err("invalid credential reason rule must fail");
+            assert!(error.to_string().contains(expected));
+        }
     }
 
     #[test]
@@ -2730,6 +3081,25 @@ mod tests {
             .fields
             .push(duplicate_field.fields[0].clone());
         cases.push((duplicate_field, "declared more than once"));
+
+        let mut empty_output_name = plugin_action_descriptor();
+        empty_output_name.output_fields[0].name.clear();
+        cases.push((empty_output_name, "output field name"));
+
+        let mut duplicate_output = plugin_action_descriptor();
+        duplicate_output
+            .output_fields
+            .push(duplicate_output.output_fields[0].clone());
+        cases.push((duplicate_output, "output field 'request_id'"));
+
+        let mut incomplete_boolean_output = plugin_action_descriptor();
+        incomplete_boolean_output.output_fields[0].value_kind =
+            StorageConnectorActionOutputValueKind::Boolean;
+        cases.push((incomplete_boolean_output, "requires non-empty true_key"));
+
+        let mut non_boolean_labels = plugin_action_descriptor();
+        non_boolean_labels.output_fields[0].true_key = Some("plugin_yes".to_string());
+        cases.push((non_boolean_labels, "must not declare boolean labels"));
 
         for (descriptor, expected_message) in cases {
             let error = descriptor

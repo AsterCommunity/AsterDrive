@@ -22,6 +22,8 @@
 - 不支持的 driver 必须由后端返回稳定错误。remote storage target 只能暴露已注册且远端 capability 声明支持的 known driver；未知 driver id 可以在 wire model 中保留，但不能被前端当成本地可配置 driver。
 - descriptor 缺失、远端 capability 缺失或解析失败时，前端只能做保守兜底：隐藏高风险动作或显示不可用状态。不能在兜底路径里恢复本地 capability 矩阵。
 - action descriptor 用来声明入口是否需要 saved policy、授权 credential，以及是否会修改远端状态。路由和 service 仍要做最终校验，不能只靠前端隐藏按钮。
+- action 返回的结构化 `output` 只允许按 descriptor 的 `output_fields` 临时展示；未声明字段、类型不匹配字段和其他 action 的结果一律忽略。输出不写回 policy config，也不跨 action 或对话框会话保存。
+- delegated credential 的状态文案、语义色、说明、需要管理员关注的提示、净化后的原因映射、生命周期标签、重新授权文案和 redirect URI 辅助信息都由 `credential_management` 描述。共享面板不得按 OneDrive、Microsoft Graph 或其他 provider ID 分支，也不得直接展示 wire `status_reason`。
 
 ## 字段规范化规则
 
@@ -49,7 +51,8 @@
 修改 descriptor 或 normalization 时至少补对应的纯函数/单元测试：
 
 - descriptor 必须覆盖每个内置 driver 的字段、secret 标记、action 和关键 capability。
+- credential management 必须覆盖 missing、authorized 和需要重新授权的展示边界；action output 必须覆盖 draft/saved、缺失 output、未声明字段、类型不匹配字段和通用成功兜底。测试还必须证明失败 action 的 output 既不展示也不持久化，结果不写回 policy config，也不会保留到其他 action 或对话框会话。
 - normalization 必须覆盖 trim、空值、逃逸路径、prefix 首尾斜杠、storage policy 负数 `max_file_size`、同 driver secret preserve、显式 secret replace、driver 切换字段重置。
 - SFTP 必须覆盖裸 host、`host:port`、`sftp://host:port`、错误协议、host key 指纹格式、未知 host key 拒绝和已确认指纹通过。
 - storage policy descriptor 行为改变时，跑 `cargo test --lib storage::connectors` 或更小过滤；remote storage target 归一化改变时，跑 `cargo test --lib remote::storage_target::tests::<filter>`。
-- 改 OpenAPI schema 后必须重新导出 OpenAPI 并生成前端 SDK。本契约切片不改变 API shape。
+- 改 OpenAPI schema 后必须重新导出 OpenAPI、生成前端 SDK 并审查生成差异。
