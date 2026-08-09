@@ -17,6 +17,7 @@ mod local;
 mod localization;
 mod models;
 mod onedrive;
+mod qiniu;
 mod remote;
 mod s3;
 mod sftp;
@@ -65,6 +66,7 @@ pub(crate) use onedrive::OneDriveConnector;
 pub(crate) use onedrive::{
     OneDriveAccountMode, OneDriveCredentialV1, encrypt_application_client_secret,
 };
+use qiniu::QiniuConnector;
 use remote::RemoteConnector;
 use s3::S3Connector;
 use sftp::SftpConnector;
@@ -85,6 +87,7 @@ pub(crate) fn builtin_storage_connector_registry() -> Result<StorageConnectorReg
         Arc::new(TencentCosConnector),
         Arc::new(RemoteConnector),
         Arc::new(OneDriveConnector),
+        Arc::new(QiniuConnector),
     ])
 }
 
