@@ -877,6 +877,10 @@ mod tests {
         ) -> Result<RemoteTunnelStreamHttpResponse> {
             self.stream_calls.fetch_add(1, Ordering::SeqCst);
             if self.fail_stream_with_lane_closed.load(Ordering::SeqCst) {
+                let mut first_byte = [0_u8; 1];
+                body.read_exact(&mut first_byte)
+                    .await
+                    .expect("failure-path stream body should be consumed");
                 return Err(crate::errors::storage_driver_error(
                     StorageErrorKind::Transient,
                     "reverse tunnel streaming lane closed",
