@@ -688,9 +688,7 @@ impl OneDriveConnector {
                         StorageConnectorCredentialStatusPresentation {
                             label_key: "onedrive_credential_status_reauth_required".to_string(),
                             tone: StorageConnectorCredentialStatusTone::Warning,
-                            description_key: Some(
-                                "onedrive_credential_desc_authorized".to_string(),
-                            ),
+                            description_key: None,
                             attention_title_key: Some(
                                 "onedrive_credential_reauth_required_title".to_string(),
                             ),

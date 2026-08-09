@@ -164,7 +164,7 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     aster_drive_storage::storage_connector_message!(
         "onedrive_redirect_uri",
         "Redirect URI",
-        "重定向 URL",
+        "重定向 URI",
     ),
     aster_drive_storage::storage_connector_message!(
         "onedrive_redirect_uri_desc",
@@ -174,7 +174,7 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     aster_drive_storage::storage_connector_message!(
         "onedrive_copy_redirect_uri",
         "Copy redirect URI",
-        "复制重定向 URL",
+        "复制重定向 URI",
     ),
     aster_drive_storage::storage_connector_message!(
         "onedrive_save_before_authorize",

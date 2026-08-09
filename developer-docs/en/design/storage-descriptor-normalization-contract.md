@@ -52,7 +52,7 @@ Field normalization belongs in backend use cases or connector/driver-specific pu
 When descriptor or normalization behavior changes, add focused unit tests:
 
 - Descriptor tests must cover every built-in driver field, secret marker, action, and key capability.
-- Credential-management coverage must include missing, authorized, and reauthorization-required states. Action-output coverage must include draft and saved execution, absent or malformed fields, action isolation, and the generic-success fallback.
+- Credential-management coverage must include missing, authorized, and reauthorization-required states. Action-output coverage must include draft and saved execution, absent output, undeclared fields, type-mismatched fields, and the generic-success fallback. It must also prove that failed-action output is neither displayed nor persisted, results are not written back to policy config, and no result survives into another action or dialog session.
 - Normalization tests must cover trimming, blank values, path escapes, prefix slash trimming, negative storage-policy `max_file_size`, same-driver secret preservation, explicit secret replacement, and driver-change field reset.
 - SFTP coverage must include bare host, `host:port`, `sftp://host:port`, wrong schemes, host key fingerprint format, unknown-host-key rejection, and accepted pinned fingerprints.
 - For storage policy descriptor behavior, run `cargo test --lib storage::connectors` or a narrower filter.
