@@ -764,12 +764,9 @@ mod tests {
         ) -> Result<RemoteTunnelStreamHttpResponse> {
             self.stream_calls.fetch_add(1, Ordering::SeqCst);
             let mut sink = Vec::new();
-            body.read_to_end(&mut sink).await.map_err(|error| {
-                crate::errors::storage_driver_error(
-                    StorageErrorKind::Transient,
-                    format!("read boundary stream body: {error}"),
-                )
-            })?;
+            body.read_to_end(&mut sink)
+                .await
+                .expect("boundary stream body should read");
             Ok(RemoteTunnelStreamHttpResponse {
                 status: StatusCode::OK,
                 headers: http::HeaderMap::new(),
@@ -813,12 +810,10 @@ mod tests {
             self.stream_calls.fetch_add(1, Ordering::SeqCst);
             let mut buffer = [0u8; 8192];
             loop {
-                let read = body.read(&mut buffer).await.map_err(|error| {
-                    crate::errors::storage_driver_error(
-                        StorageErrorKind::Transient,
-                        format!("read allocation test stream body: {error}"),
-                    )
-                })?;
+                let read = body
+                    .read(&mut buffer)
+                    .await
+                    .expect("allocation test stream body should read");
                 if read == 0 {
                     break;
                 }
@@ -1348,6 +1343,49 @@ mod tests {
             Some(StorageErrorKind::Precondition)
         );
         assert!(error.message().contains("expected 9, got 8"));
+        assert_eq!(broker.request_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn reverse_tunnel_poll_fallback_propagates_reader_io_failure() {
+        struct ErrorReader;
+
+        impl AsyncRead for ErrorReader {
+            fn poll_read(
+                self: std::pin::Pin<&mut Self>,
+                _cx: &mut std::task::Context<'_>,
+                _buf: &mut tokio::io::ReadBuf<'_>,
+            ) -> std::task::Poll<std::io::Result<()>> {
+                std::task::Poll::Ready(Err(std::io::Error::other(
+                    "synthetic polling reader failure",
+                )))
+            }
+        }
+
+        let broker = Arc::new(BoundaryTunnelBroker::new(false));
+        let transport = ReverseTunnelTransport::new(&build_remote_node(), broker.clone());
+        let result = transport
+            .send(RemoteTransportRequest {
+                method: Method::PUT,
+                path_and_query: "/api/v1/internal/storage/objects/read-error.bin".to_string(),
+                content_type: Some("application/octet-stream"),
+                body: RemoteRequestBody::Reader {
+                    reader: Box::new(ErrorReader),
+                    size: 1,
+                },
+            })
+            .await;
+        let error = match result {
+            Ok(_) => panic!("polling reader I/O failure should be returned"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(StorageErrorKind::Transient)
+        );
+        assert!(error.message().contains("synthetic polling reader failure"));
         assert_eq!(broker.request_calls.load(Ordering::SeqCst), 0);
         assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 0);
     }
