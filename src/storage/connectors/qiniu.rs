@@ -326,3 +326,68 @@ impl StorageConnector for QiniuConnector {
         Ok(config.object_storage_download_strategy == ObjectStorageDownloadStrategy::Presigned)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aster_drive_storage::traits::extensions::PresignedStorageDriver;
+
+    #[test]
+    fn region_endpoint_mapping_is_backend_owned() {
+        let z0 = QiniuConnector::endpoints("z0").expect("z0 endpoint mapping");
+        assert_eq!(z0.upload, "https://up-z0.qiniup.com");
+        assert_eq!(z0.manage, "https://rs-z0.qiniuapi.com");
+        assert_eq!(z0.list, "https://rsf-z0.qiniuapi.com");
+        assert!(QiniuConnector::endpoints("custom").is_err());
+    }
+
+    #[test]
+    fn descriptor_declares_form_presigned_and_multipart_capabilities() {
+        let descriptor = QiniuConnector::descriptor_definition();
+        assert_eq!(descriptor.connector_id.as_str(), QiniuConnector::ID);
+        assert!(descriptor.capabilities.presigned_download);
+        assert!(descriptor.upload_workflows.presigned_upload);
+        assert!(descriptor.upload_workflows.object_multipart_upload);
+        assert!(
+            descriptor
+                .upload_workflows
+                .object_multipart_upload_capabilities
+                .is_some()
+        );
+        assert!(!descriptor.capabilities.storage_native_thumbnail);
+        assert!(!descriptor.capabilities.storage_native_media_metadata);
+    }
+
+    #[tokio::test]
+    async fn form_request_contains_only_provider_fields_and_no_secret_key() {
+        let driver = QiniuDriver::new(
+            QiniuDriverConfig {
+                bucket: "bucket".to_string(),
+                region: "z0".to_string(),
+                download_domain: "https://download.example.test".to_string(),
+                object_prefix: "tenant".to_string(),
+                endpoints: QiniuConnector::endpoints("z0").expect("z0 endpoints"),
+                connect_timeout: Duration::from_secs(1),
+                read_timeout: Duration::from_secs(1),
+                operation_timeout: Duration::from_secs(1),
+            },
+            QiniuStaticCredentials {
+                access_key: "ak".to_string(),
+                secret_key: "secret-value".to_string(),
+            },
+        )
+        .expect("driver config");
+        let request = driver
+            .presigned_form_upload_request("files/object", Duration::from_secs(60))
+            .await
+            .expect("form request")
+            .expect("Qiniu supports form uploads");
+        assert_eq!(request.url, "https://up-z0.qiniup.com");
+        assert_eq!(
+            request.fields.get("key"),
+            Some(&"tenant/files/object".to_string())
+        );
+        assert!(request.fields.contains_key("token"));
+        assert!(!request.fields.values().any(|value| value == "secret-value"));
+    }
+}
