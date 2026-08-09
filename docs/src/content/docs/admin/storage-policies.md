@@ -26,16 +26,18 @@ title: "存储策略与策略组"
 
 ## 当前支持的存储类型
 
-| 类型 | 说明 | 详细教程 |
-| --- | --- | --- |
-| `local` | 文件存到本地目录 | [本地磁盘](/admin/storage-backends/local/) |
-| `s3` | 文件存到 S3 或明确提供 S3-compatible API 的对象存储（MinIO / R2 / B2 等） | [S3 / MinIO / R2](/admin/storage-backends/s3/) |
-| `alibaba_oss` | 使用原生 OSS V4 签名写入阿里云 OSS，支持公网 / 服务端 endpoint 分流和 CNAME | [阿里云 OSS](/admin/storage-backends/alibaba-oss/) |
-| `azure_blob` | 文件存到 Azure Blob Storage container，使用 Azure Blob SDK 和 SAS URL | [Azure Blob Storage](/admin/storage-backends/azure-blob/) |
-| `tencent_cos` | 文件存到腾讯云 COS；基础对象读写复用 S3 兼容能力，并额外暴露 COS 数据万象等腾讯云原生能力 | [腾讯云 COS](/admin/storage-backends/tencent-cos/) |
-| `one_drive` | 文件写到 Microsoft Graph 可访问的 OneDrive、SharePoint 或 Microsoft 365 group drive | [OneDrive](/admin/storage-backends/onedrive/) |
-| `sftp` | 文件通过 AsterDrive 服务端流式读写到 SSH/SFTP 文件服务器 | [SFTP](/admin/storage-backends/sftp/) |
-| `remote` | 文件通过内部远程存储协议写到另一台 AsterDrive 从节点 | [远程节点存储策略](/admin/storage-backends/remote-follower/) |
+<!-- storage-connectors:policy-catalog:start -->
+| Connector ID | 后端 | 凭据模式 | 详细教程 |
+| --- | --- | --- | --- |
+| `asterdrive.storage.local` | 本机 | 无 connector 凭据 | [本机](/admin/storage-backends/local/) |
+| `asterdrive.storage.s3` | S3 | 静态密钥 | [S3](/admin/storage-backends/s3/) |
+| `asterdrive.storage.alibaba_oss` | 阿里云 OSS | 静态密钥 | [阿里云 OSS](/admin/storage-backends/alibaba-oss/) |
+| `asterdrive.storage.sftp` | SFTP | 静态密钥 | [SFTP](/admin/storage-backends/sftp/) |
+| `asterdrive.storage.azure_blob` | Azure Blob | 静态密钥 | [Azure Blob](/admin/storage-backends/azure-blob/) |
+| `asterdrive.storage.tencent_cos` | 腾讯云 COS | 静态密钥 | [腾讯云 COS](/admin/storage-backends/tencent-cos/) |
+| `asterdrive.storage.remote` | 远程节点 | 无 connector 凭据 | [远程节点](/admin/storage-backends/remote-follower/) |
+| `asterdrive.storage.onedrive` | OneDrive | 委托 OAuth | [OneDrive](/admin/storage-backends/onedrive/) |
+<!-- storage-connectors:policy-catalog:end -->
 
 ## 存储策略 vs 策略组
 

@@ -1,5 +1,5 @@
 ---
-description: "AsterDrive storage backend selection guide: when to pick each of the eight backends, the onboarding flow shared by all backends, and how to validate before switching production traffic."
+description: "AsterDrive built-in storage backend selection guide: when to pick each backend, the shared onboarding flow, and how to validate before switching production traffic."
 title: "Storage Backends"
 ---
 
@@ -10,20 +10,22 @@ The two-layer concept of storage policies and policy groups itself lives in [Sto
 
 ## Choosing a Backend
 
-| Backend | Best for | Tutorial |
-| --- | --- | --- |
-| Local Disk | Single machine, NAS, small teams, minimal dependencies | [Local Disk](/en/admin/storage-backends/local/) |
-| S3 / MinIO / R2 | Object storage, large files, external buckets, cloud storage | [S3 / MinIO / R2](/en/admin/storage-backends/s3/) |
-| Alibaba Cloud OSS | Native Alibaba OSS buckets, OSS V4 signing, public/internal endpoint split, or CNAME | [Alibaba Cloud OSS](/en/admin/storage-backends/alibaba-oss/) |
-| Azure Blob Storage | Azure Storage accounts, Blob containers, Azure-managed object storage | [Azure Blob Storage](/en/admin/storage-backends/azure-blob/) |
-| Tencent Cloud COS | Tencent Cloud object storage, COS CI, per-policy native processing | [Tencent Cloud COS](/en/admin/storage-backends/tencent-cos/) |
-| OneDrive | Microsoft 365, OneDrive, SharePoint / group drives, Microsoft Graph authorization | [OneDrive](/en/admin/storage-backends/onedrive/) |
-| SFTP | SSH/SFTP file servers, NAS, traditional server directories, server-side streaming | [SFTP](/en/admin/storage-backends/sftp/) |
-| Remote Node | Control plane on the primary, real objects written to another AsterDrive | [Follower Node Storage Policy](/en/admin/storage-backends/remote-follower/) |
+<!-- storage-connectors:index:start -->
+| Backend | Connector ID | Deployment scope | Best for | Tutorial |
+| --- | --- | --- | --- | --- |
+| Local | `asterdrive.storage.local` | Instance-local | Single machine, NAS, small teams, minimal dependencies | [Local](/en/admin/storage-backends/local/) |
+| S3 | `asterdrive.storage.s3` | Shared across Primary instances | S3-compatible object storage, external buckets, and large files | [S3](/en/admin/storage-backends/s3/) |
+| Alibaba Cloud OSS | `asterdrive.storage.alibaba_oss` | Shared across Primary instances | Alibaba Cloud OSS with native V4 signing, split endpoints, or CNAME | [Alibaba Cloud OSS](/en/admin/storage-backends/alibaba-oss/) |
+| SFTP | `asterdrive.storage.sftp` | Shared across Primary instances | SSH/SFTP file servers and server-side streaming | [SFTP](/en/admin/storage-backends/sftp/) |
+| Azure Blob | `asterdrive.storage.azure_blob` | Shared across Primary instances | Azure Storage accounts and Blob containers | [Azure Blob](/en/admin/storage-backends/azure-blob/) |
+| Tencent COS | `asterdrive.storage.tencent_cos` | Shared across Primary instances | Tencent COS and per-policy COS CI processing | [Tencent COS](/en/admin/storage-backends/tencent-cos/) |
+| Remote | `asterdrive.storage.remote` | Shared across Primary instances | Objects stored by another AsterDrive follower node | [Remote](/en/admin/storage-backends/remote-follower/) |
+| OneDrive | `asterdrive.storage.onedrive` | Shared across Primary instances | Microsoft 365, OneDrive, SharePoint, and group drives | [OneDrive](/en/admin/storage-backends/onedrive/) |
+<!-- storage-connectors:index:end -->
 
 For multi-Primary (cluster profile) deployments, the default policy must be reachable by every Primary, and `local` cannot be the default policy; see [Storage Policies and Policy Groups](/en/admin/storage-policies/#what-exists-after-first-start).
 
-For each backend's direct-upload capability, capacity observation, native processing, and credentials at rest — plus how to choose between `relay_stream` and `presigned` — see the [Storage Capability Matrix](/en/reference/storage-matrix/).
+For each backend's direct-upload capability, capacity observation, native processing, and credential mode — plus how to choose between `relay_stream` and `presigned` — see the [Storage Capability Matrix](/en/reference/storage-matrix/).
 
 ## Shared Onboarding Flow
 

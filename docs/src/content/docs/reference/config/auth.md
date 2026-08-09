@@ -54,18 +54,18 @@ bootstrap_insecure_cookies = false
 
 ### `storage_credential_secret_key`
 
-这是 OneDrive 存储策略的 Microsoft Graph 凭据（Client Secret、access token、refresh token）的服务端加密主密钥。首次生成配置时，服务会自动写入一段随机值；派生出的密钥用 AES-256-GCM 把凭据加密后落库，API 与审计只暴露 `client_secret_configured` 这类布尔状态。
+这是 storage connector 凭据的服务端加密主密钥。首次生成配置时，服务会自动写入一段随机值；派生出的密钥使用 AES-256-GCM 加密静态密钥、授权应用 secret 和 OAuth token，API 与审计不会回显明文。
 
-:::tip[这把密钥目前只覆盖 OneDrive]
-它保护的是 `storage_connector_application_configs.client_secret_ciphertext` 和 `storage_policy_credentials` 表里的 access / refresh token 密文。
+:::tip[覆盖哪些凭据]
+它保护 `storage_policy_connector_credentials.ciphertext` 中 connector 自己管理的版本化 payload，包括 S3、阿里云 OSS、Azure Blob、腾讯云 COS、SFTP 的静态密钥，以及 OneDrive 的 Microsoft Graph Client Secret、access token 和 refresh token。
 
-S3、Azure Blob、腾讯云 COS 的 `access_key` / `secret_key`，以及远程节点（follower）凭据，**目前是明文落库**，不依赖这把密钥——换掉它不会影响这些驱动。
+本机和远程节点 connector 的 `credential_mode` 是 `none`，不会在这张 connector credential 表里创建 payload。远程节点之间的内部协议凭据属于节点管理边界，不要和存储策略 connector 凭据混为一谈。
 :::
 
 :::caution[备份和迁移时必须保留]
-只要有一条 OneDrive 策略完成过 Microsoft Graph 授权，就不要在迁移、恢复或重建 `config.toml` 时换掉它。
+只要有任意存储策略保存过 connector 凭据，就不要在迁移、恢复或重建 `config.toml` 时换掉它。
 
-一旦修改或丢失，已加密落库的 Client Secret 和 OAuth token 都无法解密，所有 OneDrive 策略会进入需要重新授权状态。旧 refresh token 无法恢复，管理员只能逐条回到 `管理 -> 存储策略 -> 目标 OneDrive 策略 -> 授权` 重新走一遍授权流程。
+一旦修改或丢失，已加密落库的静态密钥和 OAuth 凭据都无法解密。静态凭据后端需要重新填写密钥；OneDrive 的旧 refresh token 无从恢复，需要逐条回到 `管理 -> 存储策略 -> 目标 OneDrive 策略 -> 授权` 重新走授权流程。
 
 升级或换机前，把整个 `[auth]` 段连同这把密钥一起备份。
 :::

@@ -1,5 +1,5 @@
 ---
-description: "Storage capability matrix for the eight backends: browser direct upload / download, capacity observation, storage-native processing, credentials at rest, and the authoritative relay_stream vs presigned comparison."
+description: "Capability matrix for built-in storage backends: deployment scope, browser direct upload / download, capacity, storage-native processing, credential mode, and relay_stream vs presigned."
 title: "Storage Capability Matrix"
 ---
 
@@ -9,18 +9,22 @@ Per-backend onboarding steps live in the [Storage Backends](/en/admin/storage-ba
 
 ## Capability Quick Reference
 
-| Backend | Browser direct upload / download | Capacity observation | Storage-native processing | Credentials at rest |
-| --- | --- | --- | --- | --- |
-| `local` | Not supported; AsterDrive reads/writes the local disk | Supported (filesystem) | Not supported | No credentials |
-| `s3` | `presigned` upload + download | Not supported | Not supported | Plaintext |
-| `alibaba_oss` | `presigned` upload + download; browsers always use the public endpoint | Not supported | Not supported | AES-256-GCM encrypted |
-| `azure_blob` | `presigned` (SAS URL) upload + download | Not supported | Not supported | Plaintext |
-| `tencent_cos` | `presigned` upload + download | Not supported | COS CI (per-policy switch) | Plaintext |
-| `one_drive` | `frontend_direct` upload, Graph direct download | Supported (Graph quota) | Not supported | AES-256-GCM encrypted |
-| `sftp` | Not supported; server-side streaming | Not supported | Not supported | Plaintext |
-| `remote` | `presigned` requires direct mode plus a browser-reachable follower `base_url` | Follows the remote storage target | Not supported | Plaintext |
+<!-- storage-connectors:matrix:start -->
+| Backend | Deployment scope | Browser direct upload | Direct download | Capacity | Storage-native processing | Credential mode |
+| --- | --- | --- | --- | --- | --- | --- |
+| [Local](/en/admin/storage-backends/local/) | Instance-local | No | No | Yes | No | None |
+| [S3](/en/admin/storage-backends/s3/) | Shared across Primary instances | Presigned | Yes | No | No | Static secret |
+| [Alibaba Cloud OSS](/en/admin/storage-backends/alibaba-oss/) | Shared across Primary instances | Presigned | Yes | No | No | Static secret |
+| [SFTP](/en/admin/storage-backends/sftp/) | Shared across Primary instances | No | No | No | No | Static secret |
+| [Azure Blob](/en/admin/storage-backends/azure-blob/) | Shared across Primary instances | Presigned | Yes | No | No | Static secret |
+| [Tencent COS](/en/admin/storage-backends/tencent-cos/) | Shared across Primary instances | Presigned | Yes | No | Thumbnail + media metadata | Static secret |
+| [Remote](/en/admin/storage-backends/remote-follower/) | Shared across Primary instances | Presigned | Yes | Yes | No | None |
+| [OneDrive](/en/admin/storage-backends/onedrive/) | Shared across Primary instances | Provider-direct | Yes | Yes | No | Delegated OAuth |
+<!-- storage-connectors:matrix:end -->
 
-The encryption master key for OneDrive credentials is `[auth].storage_credential_secret_key` in `config.toml`; keep it safe across migrations and restores. See [Login and Sessions](/en/reference/config/auth/#storage_credential_secret_key).
+The table shows each connector's static capability ceiling; policy settings and deployment topology can narrow the usable paths. For example, remote-node `presigned` transfer requires direct mode and a browser-reachable follower `base_url`, while its capacity result depends on the remote storage target.
+
+`Static secret` and `Delegated OAuth` describe how credentials are acquired, not a plaintext database format. Every connector-managed static secret, authorization-application secret, and OAuth token is encrypted at rest with AES-256-GCM using `[auth].storage_credential_secret_key`. Preserve that key across backups and migrations. See [Authentication and Sessions](/en/reference/config/auth/#storage_credential_secret_key).
 
 ## `relay_stream` vs `presigned`
 

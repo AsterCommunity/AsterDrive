@@ -54,18 +54,18 @@ Once changed, existing authenticator secrets can no longer be decrypted, and use
 
 ### `storage_credential_secret_key`
 
-This is the server-side encryption master key for the Microsoft Graph credentials (Client Secret, access token, refresh token) used by OneDrive storage policies. When the configuration is generated for the first time, the service automatically writes a random value; a key derived from it encrypts the credentials at rest with AES-256-GCM, and API responses and audit logs expose only boolean state such as `client_secret_configured`.
+This is the server-side encryption master key for storage connector credentials. The service writes a random value when configuration is first generated; a derived key encrypts static secrets, authorization-application secrets, and OAuth tokens with AES-256-GCM. API responses and audit logs do not echo plaintext credentials.
 
-:::tip[This key currently only covers OneDrive]
-It protects `storage_connector_application_configs.client_secret_ciphertext` and the access / refresh token ciphertext in the `storage_policy_credentials` table.
+:::tip[Credentials covered by this key]
+It protects connector-owned, versioned payloads in `storage_policy_connector_credentials.ciphertext`: static secrets for S3, Alibaba Cloud OSS, Azure Blob, Tencent COS, and SFTP, plus Microsoft Graph Client Secrets, access tokens, and refresh tokens for OneDrive.
 
-The `access_key` / `secret_key` for S3, Azure Blob, and Tencent COS, as well as remote node (follower) credentials, **are currently stored in plaintext** and do not depend on this key — rotating it does not affect those drivers.
+The Local and Remote Node connectors declare `credential_mode = none` and create no payload in this connector-credential table. Internal-protocol credentials between nodes belong to the separate remote-node management boundary.
 :::
 
 :::caution[Preserve it during backup and migration]
-As long as any OneDrive policy has completed Microsoft Graph authorization, do not casually replace it while migrating, restoring, or rebuilding `config.toml`.
+As long as any storage policy has saved connector credentials, do not replace this key while migrating, restoring, or rebuilding `config.toml`.
 
-Once changed or lost, the encrypted Client Secret and OAuth tokens can no longer be decrypted, and every OneDrive policy enters a requires-reauthorization state. Old refresh tokens cannot be recovered; an administrator must re-run the authorization flow for each policy from `Admin -> Storage Policies -> target OneDrive policy -> Authorize`.
+Once changed or lost, saved static secrets and OAuth credentials can no longer be decrypted. Static-credential backends need their secrets entered again; old OneDrive refresh tokens cannot be recovered, so an administrator must re-run authorization for each affected policy from `Admin -> Storage Policies -> target OneDrive policy -> Authorize`.
 
 Back up the entire `[auth]` section together with this key before upgrading or moving hosts.
 :::

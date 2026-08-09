@@ -1,5 +1,5 @@
 ---
-description: "八种存储后端的能力矩阵：浏览器直传 / 直连下载、容量观测、存储原生处理、凭据落库方式，以及 relay_stream 与 presigned 的权威对比。"
+description: "内置存储后端的能力矩阵：部署范围、浏览器直传 / 直连下载、容量观测、存储原生处理、凭据模式，以及 relay_stream 与 presigned 的权威对比。"
 title: "存储能力矩阵"
 ---
 
@@ -9,18 +9,22 @@ title: "存储能力矩阵"
 
 ## 能力速查
 
-| 后端 | 浏览器直传 / 直连下载 | 容量观测 | 存储原生处理 | 凭据落库 |
-| --- | --- | --- | --- | --- |
-| `local` | 不支持，由 AsterDrive 读写本地磁盘 | 支持（文件系统） | 不支持 | 无凭据 |
-| `s3` | `presigned` 上传 + 下载 | 不支持 | 不支持 | 明文 |
-| `alibaba_oss` | `presigned` 上传 + 下载；浏览器固定走公网 endpoint | 不支持 | 不支持 | AES-256-GCM 加密 |
-| `azure_blob` | `presigned`（SAS URL）上传 + 下载 | 不支持 | 不支持 | 明文 |
-| `tencent_cos` | `presigned` 上传 + 下载 | 不支持 | COS 数据万象（按策略开关） | 明文 |
-| `one_drive` | `frontend_direct` 上传、Graph 直接下载 | 支持（Graph quota） | 不支持 | AES-256-GCM 加密 |
-| `sftp` | 不支持，服务端流式读写 | 不支持 | 不支持 | 明文 |
-| `remote` | `presigned` 需直连 + 浏览器可达的 follower `base_url` | 跟随远程存储目标 | 不支持 | 明文 |
+<!-- storage-connectors:matrix:start -->
+| 后端 | 部署范围 | 浏览器直传 | 直连下载 | 容量观测 | 存储原生处理 | 凭据模式 |
+| --- | --- | --- | --- | --- | --- | --- |
+| [本机](/admin/storage-backends/local/) | 单实例本地 | 不支持 | 不支持 | 支持 | 不支持 | 无 connector 凭据 |
+| [S3](/admin/storage-backends/s3/) | Primary 间共享 | Presigned | 支持 | 不支持 | 不支持 | 静态密钥 |
+| [阿里云 OSS](/admin/storage-backends/alibaba-oss/) | Primary 间共享 | Presigned | 支持 | 不支持 | 不支持 | 静态密钥 |
+| [SFTP](/admin/storage-backends/sftp/) | Primary 间共享 | 不支持 | 不支持 | 不支持 | 不支持 | 静态密钥 |
+| [Azure Blob](/admin/storage-backends/azure-blob/) | Primary 间共享 | Presigned | 支持 | 不支持 | 不支持 | 静态密钥 |
+| [腾讯云 COS](/admin/storage-backends/tencent-cos/) | Primary 间共享 | Presigned | 支持 | 不支持 | 缩略图 + 媒体元数据 | 静态密钥 |
+| [远程节点](/admin/storage-backends/remote-follower/) | Primary 间共享 | Presigned | 支持 | 支持 | 不支持 | 无 connector 凭据 |
+| [OneDrive](/admin/storage-backends/onedrive/) | Primary 间共享 | Provider direct | 支持 | 支持 | 不支持 | 委托 OAuth |
+<!-- storage-connectors:matrix:end -->
 
-OneDrive 凭据的加密主密钥是 `config.toml` 里的 `[auth].storage_credential_secret_key`，迁移备份时必须保留；见 [登录与会话](/reference/config/auth/#storage_credential_secret_key)。
+表格展示的是 connector 的静态能力上限；具体策略选项和部署拓扑可以进一步收窄可用路径。例如远程节点的 `presigned` 要求直连模式和浏览器可达的 follower `base_url`，容量观测结果则取决于远程存储目标。
+
+`静态密钥` 和 `委托 OAuth` 描述凭据取得方式，不表示数据库明文格式。所有 connector 自己管理的静态密钥、授权应用 secret 和 OAuth token 都由 `[auth].storage_credential_secret_key` 使用 AES-256-GCM 加密后落库；备份或迁移时必须保留该密钥。详见 [登录与会话](/reference/config/auth/#storage_credential_secret_key)。
 
 ## `relay_stream` vs `presigned`
 

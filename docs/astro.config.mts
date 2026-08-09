@@ -7,6 +7,7 @@ import starlightCopyButton from 'starlight-copy-button'
 import starlightLinksValidator from 'starlight-links-validator'
 import starlightLlmsTxt from 'starlight-llms-txt'
 import starlightScrollToTop from 'starlight-scroll-to-top'
+import storageConnectorManifest from './generated/storage-connectors.json'
 
 const SITE_URL = 'https://drive.astercosm.com'
 const ZH_SITE_DESCRIPTION =
@@ -19,6 +20,12 @@ type SidebarItem = {
   collapsed?: boolean
   items?: SidebarItem[]
 }
+
+const storageBackendSidebarItems: SidebarItem[] = storageConnectorManifest.connectors.map((connector) => ({
+  label: connector.display_name.zh,
+  translations: { en: connector.display_name.en },
+  link: `/admin/storage-backends/${connector.documentation.tutorial_slug}/`
+}))
 
 function assertUniqueSidebarLinks<T extends SidebarItem[]>(sidebar: T): T {
   const seen = new Map<string, string>()
@@ -102,22 +109,7 @@ const sidebar = assertUniqueSidebarLinks([
         collapsed: true,
         items: [
           { label: '后端总览', translations: { en: 'Backend Overview' }, link: '/admin/storage-backends/' },
-          { label: '本地磁盘', translations: { en: 'Local Disk' }, link: '/admin/storage-backends/local/' },
-          { label: 'S3 / MinIO / R2', translations: { en: 'S3 / MinIO / R2' }, link: '/admin/storage-backends/s3/' },
-          { label: '阿里云 OSS', translations: { en: 'Alibaba Cloud OSS' }, link: '/admin/storage-backends/alibaba-oss/' },
-          {
-            label: 'Azure Blob Storage',
-            translations: { en: 'Azure Blob Storage' },
-            link: '/admin/storage-backends/azure-blob/'
-          },
-          { label: '腾讯云 COS', translations: { en: 'Tencent COS' }, link: '/admin/storage-backends/tencent-cos/' },
-          { label: 'OneDrive', translations: { en: 'OneDrive' }, link: '/admin/storage-backends/onedrive/' },
-          { label: 'SFTP', translations: { en: 'SFTP' }, link: '/admin/storage-backends/sftp/' },
-          {
-            label: '远程节点存储策略',
-            translations: { en: 'Follower Node Storage Policy' },
-            link: '/admin/storage-backends/remote-follower/'
-          }
+          ...storageBackendSidebarItems
         ]
       },
       { label: '远程节点', translations: { en: 'Remote Nodes' }, link: '/admin/follower-nodes/' },
