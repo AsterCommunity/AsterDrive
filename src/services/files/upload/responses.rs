@@ -7,7 +7,7 @@ use utoipa::ToSchema;
 use chrono::{DateTime, Utc};
 
 use aster_drive_model::types::{UploadMode, UploadScheduling, UploadSessionStatus};
-use aster_drive_storage::PresignedUploadRequest;
+use aster_drive_storage::{PresignedFormUploadRequest, PresignedUploadRequest};
 
 #[derive(Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -28,6 +28,9 @@ pub struct InitUploadResponse {
     /// 完整的 Presigned PUT 请求（仅 presigned 模式）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presigned_request: Option<PresignedUploadRequest>,
+    /// 完整的 provider-native multipart form upload 请求。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presigned_form_request: Option<PresignedFormUploadRequest>,
     /// 浏览器直传完成后是否必须从响应读取 ETag。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presigned_require_etag: Option<bool>,

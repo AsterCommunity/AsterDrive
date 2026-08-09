@@ -5,8 +5,8 @@ pub mod extensions;
 pub mod multipart;
 
 pub use driver::{
-    BlobMetadata, PresignedDownloadOptions, PresignedUploadRequest, StorageDriver,
-    StoragePathVisitor,
+    BlobMetadata, PresignedDownloadOptions, PresignedFormUploadRequest, PresignedUploadRequest,
+    StorageDriver, StoragePathVisitor,
 };
 pub use extensions::{
     ListStorageDriver, LocalPathStorageDriver, NativeMediaMetadataRequest,

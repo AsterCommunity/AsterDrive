@@ -7,7 +7,10 @@
 //! OAuth、连接测试、策略动作或前端可见能力声明，应该放到 connector/descriptor。
 
 use crate::error::Result;
-use crate::traits::driver::{PresignedDownloadOptions, PresignedUploadRequest, StoragePathVisitor};
+use crate::traits::driver::{
+    PresignedDownloadOptions, PresignedFormUploadRequest, PresignedUploadRequest,
+    StoragePathVisitor,
+};
 use aster_drive_model::types::{MediaMetadataKind, MediaMetadataPayload};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -172,6 +175,16 @@ pub trait PresignedStorageDriver: Send + Sync {
         path: &str,
         expires: Duration,
     ) -> Result<Option<PresignedUploadRequest>>;
+
+    /// Generate a provider-native multipart form upload request when the
+    /// backend does not use a raw PUT body for single-object uploads.
+    async fn presigned_form_upload_request(
+        &self,
+        _path: &str,
+        _expires: Duration,
+    ) -> Result<Option<PresignedFormUploadRequest>> {
+        Ok(None)
+    }
 
     /// Whether browser clients must receive an ETag from a single presigned PUT.
     ///

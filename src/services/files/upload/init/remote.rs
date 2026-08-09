@@ -182,6 +182,7 @@ async fn init_remote_presigned_single_upload(
             chunk_size: None,
             total_chunks: None,
             presigned_request: Some(presigned_request),
+            presigned_form_request: None,
             presigned_require_etag: Some(true),
             provider_resumable: None,
             upload_scheduling: None,

@@ -43,6 +43,18 @@ pub struct PresignedUploadRequest {
     pub headers: BTreeMap<String, String>,
 }
 
+/// Complete browser request descriptor for a provider-native multipart form upload.
+///
+/// The provider owns both the target URL and every hidden form field required
+/// by its upload policy. Browser adapters must forward the fields unchanged
+/// and append the file part using the provider's documented field name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+pub struct PresignedFormUploadRequest {
+    pub url: String,
+    pub fields: BTreeMap<String, String>,
+}
+
 impl PresignedUploadRequest {
     pub fn new(url: impl Into<String>, headers: BTreeMap<String, String>) -> Self {
         Self::from_header_pairs(url, headers)
