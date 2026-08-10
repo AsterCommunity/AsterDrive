@@ -19,8 +19,8 @@ pub async fn clear_failed_dedupe_key<C: ConnectionTrait>(
     db: &C,
     id: i64,
     dedupe_key: &str,
-) -> Result<bool> {
-    let result = BackgroundTask::update_many()
+) -> Result<()> {
+    BackgroundTask::update_many()
         .col_expr(
             background_task::Column::DedupeKey,
             Expr::value(Option::<String>::None),
@@ -31,7 +31,7 @@ pub async fn clear_failed_dedupe_key<C: ConnectionTrait>(
         .exec(db)
         .await
         .map_err(AsterError::from)?;
-    Ok(result.rows_affected == 1)
+    Ok(())
 }
 
 pub struct SystemRuntimeSuccessRefresh<'a> {

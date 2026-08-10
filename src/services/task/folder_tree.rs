@@ -108,6 +108,26 @@ pub(crate) async fn create_folder_tree_mutation_task_in_scope<S: TaskRuntimeStat
     folder_id: i64,
     operation: FolderTreeMutationOperation,
 ) -> Result<TaskInfo> {
+    create_folder_tree_mutation_task_in_scope_with_failed_barrier(
+        state,
+        scope,
+        folder_id,
+        operation,
+        #[cfg(test)]
+        None,
+    )
+    .await
+}
+
+async fn create_folder_tree_mutation_task_in_scope_with_failed_barrier<
+    S: TaskRuntimeState + Sync,
+>(
+    state: &S,
+    scope: WorkspaceStorageScope,
+    folder_id: i64,
+    operation: FolderTreeMutationOperation,
+    #[cfg(test)] failed_task_barrier: Option<&tokio::sync::Barrier>,
+) -> Result<TaskInfo> {
     storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
     let root = folder_repo::find_by_id(state.writer_db(), folder_id).await?;
     ensure_root_scope(&root, scope)?;
@@ -127,14 +147,17 @@ pub(crate) async fn create_folder_tree_mutation_task_in_scope<S: TaskRuntimeStat
             .dedupe_key(dedupe_key.clone())
     };
     let mut task = insert_typed_task_record(state, state.writer_db(), create_request()).await?;
-    if task.status == aster_drive_model::types::BackgroundTaskStatus::Failed
-        && background_task_repo::clear_failed_dedupe_key(
+    if task.status == aster_drive_model::types::BackgroundTaskStatus::Failed {
+        #[cfg(test)]
+        if let Some(barrier) = failed_task_barrier {
+            barrier.wait().await;
+        }
+        background_task_repo::clear_failed_dedupe_key(
             state.writer_db(),
             task.id,
             dedupe_key.as_str(),
         )
-        .await?
-    {
+        .await?;
         task = insert_typed_task_record(state, state.writer_db(), create_request()).await?;
     }
     state.wake_background_task_dispatcher();
@@ -769,6 +792,7 @@ mod tests {
     use aster_forge_tasks::{TaskExecutionContext, TaskLease};
     use chrono::Utc;
     use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
+    use tokio::sync::Barrier;
     use tokio_util::sync::CancellationToken;
 
     use super::{
@@ -1015,6 +1039,65 @@ mod tests {
                 .expect("resubmitted folder-tree task should load")
                 .dedupe_key
                 .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_failed_task_resubmissions_converge_on_the_new_task() {
+        let state = build_test_state().await;
+        let (user, root) = insert_test_user_and_root(&state, "dedupe-failed-race", None).await;
+        let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+        let first = super::create_folder_tree_mutation_task_in_scope(
+            &state,
+            scope,
+            root.id,
+            FolderTreeMutationOperation::Delete,
+        )
+        .await
+        .expect("first folder-tree task should create");
+        let first_model = background_task_repo::find_by_id(state.writer_db(), first.id)
+            .await
+            .expect("first folder-tree task should load");
+        let failed_at = Utc::now();
+        let mut failed: background_task::ActiveModel = first_model.into();
+        failed.status = Set(BackgroundTaskStatus::Failed);
+        failed.finished_at = Set(Some(failed_at));
+        failed.updated_at = Set(failed_at);
+        failed
+            .update(state.writer_db())
+            .await
+            .expect("folder-tree task should enter failed terminal state");
+
+        let barrier = Barrier::new(2);
+        let submit = || {
+            super::create_folder_tree_mutation_task_in_scope_with_failed_barrier(
+                &state,
+                scope,
+                root.id,
+                FolderTreeMutationOperation::Delete,
+                Some(&barrier),
+            )
+        };
+        let (first_resubmission, second_resubmission) = tokio::join!(submit(), submit());
+        let first_resubmission = first_resubmission.expect("first resubmission should resolve");
+        let second_resubmission = second_resubmission.expect("second resubmission should resolve");
+
+        assert_ne!(first_resubmission.id, first.id);
+        assert_eq!(first_resubmission.id, second_resubmission.id);
+        assert_eq!(
+            background_task::Entity::find()
+                .filter(background_task::Column::Kind.eq(BackgroundTaskKind::FolderTreeMutation))
+                .count(state.writer_db())
+                .await
+                .expect("folder-tree task count should load"),
+            2
+        );
+        assert!(
+            background_task_repo::find_by_id(state.writer_db(), first.id)
+                .await
+                .expect("failed folder-tree task should remain available for history")
+                .dedupe_key
+                .is_none()
         );
     }
 
