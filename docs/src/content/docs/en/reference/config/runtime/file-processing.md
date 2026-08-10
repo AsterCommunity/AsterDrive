@@ -136,7 +136,7 @@ ASTER_BOOTSTRAP_ENABLE_FFMPEG_CLI=true
 ASTER_BOOTSTRAP_ENABLE_FFPROBE_CLI=true
 ```
 
-The official Docker image already installs `vips`, `ffmpeg`, and `ffprobe`, and enables these three bootstrap ENV values by default. New databases usually get the corresponding processors directly.
+The full official Docker image installs `vips`, `ffmpeg`, and `ffprobe`, and enables these three bootstrap ENV values by default. The `-slim` / `-metrics-slim` images omit these commands and disable their processors for new databases. Existing databases retain their configuration when switched to a slim image, but public capability endpoints do not advertise processors whose commands are missing. See [Single-Instance Docker Deployment](/en/deploy/docker/#choose-the-full-or-slim-image) for tags and switching guidance.
 
 These three variables only affect the initial default value when `media_processing_registry_json` does not yet exist. This rule table is the unified media processing configuration entry point. It manages enabled state, capability purposes, extension bindings, and command paths for built-in `images`, built-in `lofty`, VIPS CLI, FFmpeg CLI, and FFprobe CLI. Thumbnails and media metadata both use this path.
 </details>

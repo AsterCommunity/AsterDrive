@@ -24,6 +24,18 @@ For **production launch**, put a reverse proxy in front to handle HTTPS. Do not 
 
 The official image runs as a **non-root user** by default (UID/GID fixed to `10001:10001`, username `aster`) and includes a `HEALTHCHECK` based on `/health/ready`.
 
+### Choose the full or slim image
+
+The default tags continue to publish the full image with `vips`, `ffmpeg`, and `ffprobe`. Use it for HEIC/AVIF/PDF covers, video thumbnails, or video metadata. Slim images omit those external media commands to reduce downloads, storage, and the software bill of materials. Built-in processing for common images and audio, storage-provider-native processing, and all other product capabilities such as databases, storage backends, WebDAV, WOPI, and remote nodes remain available.
+
+| Release channel | Default features | Metrics enabled |
+| --- | --- | --- |
+| Stable release | `vX.Y.Z` / `latest` / `stable` | `vX.Y.Z-metrics` / `latest-metrics` / `stable-metrics` |
+| Slim | `vX.Y.Z-slim` / `latest-slim` / `stable-slim` | `vX.Y.Z-metrics-slim` / `latest-metrics-slim` / `stable-metrics-slim` |
+| Prerelease | `edge` / `edge-slim` | `edge-metrics` / `edge-metrics-slim` |
+
+Fresh slim instances disable the `vips_cli`, `ffmpeg_cli`, and `ffprobe_cli` processors by default. Before switching an existing instance from the full image, review these processors under `Admin -> System Settings -> File Processing -> Media Processing`. The existing database keeps its configuration, but a slim container reports the missing commands as unavailable and does not advertise their formats through public capability endpoints. Keep using the full image when the instance needs any of these processors.
+
 If you bind mount a host directory directly to `/data`, **create the directory first and change its owner to `10001:10001`**. Otherwise, container startup will fail with permission errors when generating `config.toml`, creating the SQLite file, or creating temporary directories:
 
 ```bash

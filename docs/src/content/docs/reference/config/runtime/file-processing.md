@@ -136,7 +136,7 @@ ASTER_BOOTSTRAP_ENABLE_FFMPEG_CLI=true
 ASTER_BOOTSTRAP_ENABLE_FFPROBE_CLI=true
 ```
 
-官方 Docker 镜像已经安装 `vips`、`ffmpeg` 和 `ffprobe`，并默认打开这三个 bootstrap ENV，所以新库通常会直接带上对应处理器。
+官方 Docker 完整镜像已经安装 `vips`、`ffmpeg` 和 `ffprobe`，并默认打开这三个 bootstrap ENV，所以新库通常会直接带上对应处理器。`-slim` / `-metrics-slim` 镜像不包含这些命令，并在新库中默认关闭对应处理器；已有数据库切换到 slim 镜像时会保留配置，但缺失的命令不会被公开能力接口声明为可用。镜像标签和切换注意事项见[单实例 Docker 部署](/deploy/docker/#选择完整镜像或-slim-镜像)。
 
 这三个变量只影响 `media_processing_registry_json` 还不存在时的初始默认值。这个规则表是统一媒体处理配置入口，用来管理内置 `images`、内置 `lofty`、VIPS CLI、FFmpeg CLI、FFprobe CLI 的启用状态、能力用途、后缀绑定和命令路径；缩略图和媒体元数据都会走这条链路。
 </details>
