@@ -4,10 +4,9 @@
 //! module. Callers only observe AsterDrive storage traits and structured errors.
 
 use async_trait::async_trait;
-use base64::{
-    Engine as _,
-    engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD},
-};
+#[cfg(test)]
+use base64::engine::general_purpose::URL_SAFE;
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use bytes::Bytes;
 use futures::StreamExt;
 use reqwest::{Client, Method, Url};
