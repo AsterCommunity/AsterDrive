@@ -4,16 +4,14 @@
 //! module. Callers only observe AsterDrive storage traits and structured errors.
 
 use async_trait::async_trait;
-#[cfg(test)]
-use base64::engine::general_purpose::URL_SAFE;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use bytes::Bytes;
 use futures::StreamExt;
 use reqwest::{Client, Method, Url};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, time::Duration};
-use tokio::io::{AsyncRead, AsyncReadExt};
-use tokio_util::io::StreamReader;
+use tokio::io::AsyncRead;
+use tokio_util::io::{ReaderStream, StreamReader};
 
 use qiniu_credential::{Credential, Uri};
 use qiniu_upload_token::UploadPolicy;
@@ -27,6 +25,9 @@ use aster_drive_storage::traits::extensions::{
 };
 use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 use aster_drive_storage::{MapStorageErr, Result, StorageErrorKind, storage_driver_error};
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QiniuRegionEndpoints {
@@ -352,15 +353,12 @@ impl QiniuDriver {
         })
     }
 
-    async fn upload_form(&self, key: &str, data: Bytes) -> Result<()> {
+    async fn upload_form(&self, key: &str, file: reqwest::multipart::Part) -> Result<()> {
         let token = self.upload_token(key, Duration::from_secs(3600))?;
         let form = reqwest::multipart::Form::new()
             .text("token", token)
             .text("key", key.to_string())
-            .part(
-                "file",
-                reqwest::multipart::Part::bytes(data.to_vec()).file_name("upload"),
-            );
+            .part("file", file);
         let response = self
             .client
             .post(self.config.endpoints.upload.clone())
@@ -396,7 +394,11 @@ impl QiniuDriver {
 impl StorageDriver for QiniuDriver {
     async fn put(&self, path: &str, data: &[u8]) -> Result<String> {
         let key = self.key(path);
-        self.upload_form(&key, Bytes::copy_from_slice(data)).await?;
+        self.upload_form(
+            &key,
+            reqwest::multipart::Part::bytes(data.to_vec()).file_name("upload"),
+        )
+        .await?;
         Ok(path.to_string())
     }
 
@@ -592,7 +594,7 @@ impl ListStorageDriver for QiniuDriver {
                         .to_string(),
                 );
             }
-            marker = response.marker;
+            marker = response.marker.filter(|value| !value.is_empty());
             if marker.is_none() {
                 break;
             }
@@ -606,7 +608,7 @@ impl StreamUploadDriver for QiniuDriver {
     async fn put_reader(
         &self,
         storage_path: &str,
-        mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+        reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
     ) -> Result<String> {
         if size < 0 {
@@ -615,20 +617,47 @@ impl StreamUploadDriver for QiniuDriver {
                 "Qiniu put_reader size cannot be negative",
             ));
         }
-        let expected = usize::try_from(size)
+        let expected = u64::try_from(size)
             .map_storage_err_ctx(StorageErrorKind::Misconfigured, "Qiniu put_reader size")?;
-        let mut data = Vec::with_capacity(expected);
-        reader
-            .read_to_end(&mut data)
-            .await
-            .map_storage_err_ctx(StorageErrorKind::Transient, "read Qiniu upload stream")?;
-        if data.len() != expected {
-            return Err(storage_driver_error(
-                StorageErrorKind::Transient,
-                "Qiniu upload stream size mismatch",
-            ));
-        }
-        self.put(storage_path, &data).await
+        let stream = futures::stream::try_unfold(
+            (ReaderStream::new(reader), expected),
+            |(mut reader_stream, remaining)| async move {
+                match reader_stream.next().await {
+                    Some(Ok(bytes)) => {
+                        let actual = u64::try_from(bytes.len()).map_err(|_| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "Qiniu upload stream chunk length exceeds u64",
+                            )
+                        })?;
+                        if actual > remaining {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "Qiniu upload stream exceeds declared size",
+                            ));
+                        }
+                        Ok(Some((bytes, (reader_stream, remaining - actual))))
+                    }
+                    Some(Err(error)) => Err(error),
+                    None if remaining == 0 => Ok(None),
+                    None => Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "Qiniu upload stream ended before declared size",
+                    )),
+                }
+            },
+        );
+        let key = self.key(storage_path);
+        self.upload_form(
+            &key,
+            reqwest::multipart::Part::stream_with_length(
+                reqwest::Body::wrap_stream(stream),
+                expected,
+            )
+            .file_name("upload"),
+        )
+        .await?;
+        Ok(storage_path.to_string())
     }
 
     async fn put_file(&self, storage_path: &str, local_path: &str) -> Result<String> {
@@ -871,88 +900,4 @@ fn provider_error(context: &str, status: u16, body: &[u8]) -> aster_drive_storag
         })
         .unwrap_or_else(|| format!("HTTP {status}"));
     storage_driver_error(kind, format!("{context}: {detail}"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn upload_token_contains_scope_and_three_segments() {
-        let driver = QiniuDriver {
-            config: QiniuDriverConfig {
-                bucket: "bucket".to_string(),
-                region: "z0".to_string(),
-                download_domain: "https://download.example.test".to_string(),
-                object_prefix: String::new(),
-                endpoints: QiniuRegionEndpoints {
-                    upload: "https://up.example.test".to_string(),
-                    manage: "https://rs.example.test".to_string(),
-                    list: "https://rsf.example.test".to_string(),
-                },
-                connect_timeout: Duration::from_secs(1),
-                read_timeout: Duration::from_secs(1),
-                operation_timeout: Duration::from_secs(1),
-            },
-            credentials: QiniuStaticCredentials {
-                access_key: "ak".to_string(),
-                secret_key: "sk".to_string(),
-            },
-            client: Client::new(),
-        };
-        let token = driver
-            .upload_token("files/object", Duration::from_secs(60))
-            .unwrap();
-        assert_eq!(token.split(':').count(), 3);
-        let policy_segment = token.rsplit_once(':').expect("token policy segment").1;
-        let policy = URL_SAFE
-            .decode(policy_segment)
-            .expect("decode upload policy");
-        let policy: serde_json::Value =
-            serde_json::from_slice(&policy).expect("decode upload policy JSON");
-        assert_eq!(policy["scope"], "bucket:files/object");
-    }
-
-    #[tokio::test]
-    async fn multipart_requests_use_upload_token_authorization() {
-        let driver = QiniuDriver {
-            config: QiniuDriverConfig {
-                bucket: "bucket".to_string(),
-                region: "z0".to_string(),
-                download_domain: "https://download.example.test".to_string(),
-                object_prefix: String::new(),
-                endpoints: QiniuRegionEndpoints {
-                    upload: "https://up.example.test".to_string(),
-                    manage: "https://rs.example.test".to_string(),
-                    list: "https://rsf.example.test".to_string(),
-                },
-                connect_timeout: Duration::from_secs(1),
-                read_timeout: Duration::from_secs(1),
-                operation_timeout: Duration::from_secs(1),
-            },
-            credentials: QiniuStaticCredentials {
-                access_key: "ak".to_string(),
-                secret_key: "sk".to_string(),
-            },
-            client: Client::new(),
-        };
-        let request = driver
-            .presigned_upload_part_request("files/object", "upload-id", 1, Duration::from_secs(60))
-            .await
-            .expect("presigned part request");
-        let authorization = request
-            .headers
-            .get("authorization")
-            .expect("upload token authorization header");
-        assert!(authorization.starts_with("UpToken ak:"));
-
-        let url = Url::parse("https://rs.example.test/stat/YnVja2V0OmZpbGVzL29iamVjdA")
-            .expect("management URL");
-        assert!(
-            driver
-                .management_authorization(&url)
-                .expect("management authorization")
-                .starts_with("QBox ak:")
-        );
-    }
 }
