@@ -562,10 +562,8 @@ export type FileQuery = components["schemas"]["FileQuery"];
 export type InitUploadResponse = components["schemas"]["InitUploadResponse"];
 export type PresignedUploadRequest =
 	components["schemas"]["PresignedUploadRequest"];
-export type PresignedFormUploadRequest = {
-	url: string;
-	fields: Record<string, string>;
-};
+export type PresignedFormUploadRequest =
+	components["schemas"]["PresignedFormUploadRequest"];
 export type ProviderResumableUploadResponse =
 	components["schemas"]["ProviderResumableUploadResponse"];
 export type RecoverableUploadPart =

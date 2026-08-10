@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import type { UploadTask } from "./uploadAreaManagerShared";
 import type { UploadModeRunnerContext } from "./uploadAreaUploadRunnerShared";
 
-const { completeUpload, presignedFormUpload, presignedUpload } = vi.hoisted(() => ({
-	completeUpload: vi.fn(),
-	presignedFormUpload: vi.fn(),
-	presignedUpload: vi.fn(),
-}));
+const { completeUpload, presignedFormUpload, presignedUpload } = vi.hoisted(
+	() => ({
+		completeUpload: vi.fn(),
+		presignedFormUpload: vi.fn(),
+		presignedUpload: vi.fn(),
+	}),
+);
 
 vi.mock("@/services/http", () => ({
 	api: {
@@ -129,6 +131,7 @@ describe("createSimpleUploadRunners", () => {
 	it("uses the provider form request without requiring an ETag", async () => {
 		presignedFormUpload.mockReset();
 		presignedFormUpload.mockResolvedValue(undefined);
+		presignedUpload.mockReset();
 		completeUpload.mockReset();
 		completeUpload.mockResolvedValue({ id: 1 });
 		const context: UploadModeRunnerContext = {
@@ -167,7 +170,7 @@ describe("createSimpleUploadRunners", () => {
 				url: "https://up-z0.qiniup.com",
 				fields: { token: "ak:signature:policy", key: "files/upload-qiniu" },
 			},
-		} as never);
+		});
 
 		expect(presignedFormUpload).toHaveBeenCalledWith(
 			expect.objectContaining({ url: "https://up-z0.qiniup.com" }),
@@ -176,6 +179,6 @@ describe("createSimpleUploadRunners", () => {
 			expect.any(Function),
 		);
 		expect(presignedUpload).not.toHaveBeenCalled();
-		expect(completeUpload).toHaveBeenCalledWith("upload-qiniu");
+		expect(completeUpload).toHaveBeenCalledWith("upload-qiniu", undefined);
 	});
 });

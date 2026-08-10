@@ -5847,6 +5847,7 @@ export interface components {
             /** Format: int64 */
             chunk_size?: number | null;
             mode: components["schemas"]["UploadMode"];
+            presigned_form_request?: null | components["schemas"]["PresignedFormUploadRequest"];
             presigned_request?: null | components["schemas"]["PresignedUploadRequest"];
             /** @description 浏览器直传完成后是否必须从响应读取 ETag。 */
             presigned_require_etag?: boolean | null;
@@ -7038,6 +7039,19 @@ export interface components {
         /** @description Request complete presigned PUT descriptors for multipart upload parts. */
         PresignPartsReq: {
             part_numbers: number[];
+        };
+        /**
+         * @description Complete browser request descriptor for a provider-native multipart form upload.
+         *
+         *     The provider owns both the target URL and every hidden form field required
+         *     by its upload policy. Browser adapters must forward the fields unchanged
+         *     and append the file part using the provider's documented field name.
+         */
+        PresignedFormUploadRequest: {
+            fields: {
+                [key: string]: string;
+            };
+            url: string;
         };
         /**
          * @description Complete browser request descriptor returned by a presigning driver.
@@ -17290,6 +17304,7 @@ export interface operations {
                             /** Format: int64 */
                             chunk_size?: number | null;
                             mode: components["schemas"]["UploadMode"];
+                            presigned_form_request?: null | components["schemas"]["PresignedFormUploadRequest"];
                             presigned_request?: null | components["schemas"]["PresignedUploadRequest"];
                             /** @description 浏览器直传完成后是否必须从响应读取 ETag。 */
                             presigned_require_etag?: boolean | null;
@@ -23108,6 +23123,7 @@ export interface operations {
                             /** Format: int64 */
                             chunk_size?: number | null;
                             mode: components["schemas"]["UploadMode"];
+                            presigned_form_request?: null | components["schemas"]["PresignedFormUploadRequest"];
                             presigned_request?: null | components["schemas"]["PresignedUploadRequest"];
                             /** @description 浏览器直传完成后是否必须从响应读取 ETag。 */
                             presigned_require_etag?: boolean | null;

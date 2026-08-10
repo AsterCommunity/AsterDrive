@@ -109,14 +109,7 @@ export function createSimpleUploadRunners({
 		const file = task.file;
 		const uploadId = init.upload_id as string;
 		const presignedRequest = init.presigned_request;
-		const formRequest = (
-			init as InitUploadResponse & {
-				presigned_form_request?: {
-					url: string;
-					fields: Record<string, string>;
-				};
-			}
-		).presigned_form_request;
+		const formRequest = init.presigned_form_request;
 		if (!presignedRequest && !formRequest) {
 			markTaskFailed(task.id, new Error("Missing presigned upload request"));
 			return;
@@ -136,31 +129,34 @@ export function createSimpleUploadRunners({
 			await withTrackedUploadRequest(
 				uploadRequestRef,
 				task.id,
-				(onCreateXhr) => {
+				async (onCreateXhr) => {
 					const onProgress = (loaded: number, total: number) => {
 						patchTaskThrottled(task.id, {
 							progress: Math.round((loaded / total) * SERVER_FINALIZE_PROGRESS),
 							...speedTracker.sample(loaded),
 						});
 					};
-				if (formRequest) {
-					return uploadService.presignedFormUpload(
-						formRequest,
-						file,
-						onProgress,
-						onCreateXhr,
-					);
-				}
-				return uploadService.presignedUpload(
-					presignedRequest!.url,
-					file,
-					onProgress,
-					{
-						headers: presignedRequest!.headers,
-						onCreateXhr,
-						requireEtag,
-					},
-				);
+					if (formRequest) {
+						await uploadService.presignedFormUpload(
+							formRequest,
+							file,
+							onProgress,
+							onCreateXhr,
+						);
+						return;
+					}
+					if (presignedRequest) {
+						await uploadService.presignedUpload(
+							presignedRequest.url,
+							file,
+							onProgress,
+							{
+								headers: presignedRequest.headers,
+								onCreateXhr,
+								requireEtag,
+							},
+						);
+					}
 				},
 			);
 
