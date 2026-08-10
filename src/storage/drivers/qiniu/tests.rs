@@ -2,7 +2,7 @@ use super::*;
 use actix_web::{App, HttpResponse, HttpServer, web};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE};
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
 
@@ -71,6 +71,55 @@ async fn multipart_requests_use_upload_token_authorization() {
             .expect("management authorization")
             .starts_with("QBox ak:")
     );
+}
+
+#[tokio::test]
+async fn put_reader_streams_multipart_payload() {
+    async fn upload_response(
+        body: web::Bytes,
+        received: web::Data<Arc<Mutex<Vec<u8>>>>,
+    ) -> HttpResponse {
+        *received.lock().expect("test body mutex") = body.to_vec();
+        HttpResponse::Ok().finish()
+    }
+
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let listener =
+        std::net::TcpListener::bind(("127.0.0.1", 0)).expect("test listener should bind");
+    let addr = listener
+        .local_addr()
+        .expect("test listener should expose local address");
+    let received_for_server = Arc::clone(&received);
+    let server = HttpServer::new(move || {
+        App::new()
+            .app_data(web::Data::new(Arc::clone(&received_for_server)))
+            .route("/upload", web::post().to(upload_response))
+    })
+    .listen(listener)
+    .expect("test server should listen")
+    .run();
+    let handle = server.handle();
+    let task = tokio::spawn(server);
+
+    let payload = b"streamed qiniu payload".to_vec();
+    let mut endpoints = test_endpoints();
+    endpoints.upload = format!("http://127.0.0.1:{}/upload", addr.port());
+    let driver = test_driver("files", endpoints);
+    let returned = driver
+        .put_reader(
+            "object.txt",
+            Box::new(std::io::Cursor::new(payload.clone())),
+            payload.len() as i64,
+        )
+        .await
+        .expect("streamed upload should succeed");
+
+    assert_eq!(returned, "object.txt");
+    let body = received.lock().expect("test body mutex");
+    assert!(body.windows(payload.len()).any(|window| window == payload));
+
+    handle.stop(true).await;
+    let _ = task.await;
 }
 
 #[tokio::test]
