@@ -8,8 +8,10 @@ use aster_drive::db::repository::{
     policy_repo, user_repo,
 };
 use aster_drive::services::events::storage_change::StorageChangeKind;
-use aster_drive_model::entities::{file, file_blob, folder as folder_entity};
-use aster_drive_model::types::EntityType;
+use aster_drive_model::entities::{background_task, file, file_blob, folder as folder_entity};
+use aster_drive_model::types::{
+    BackgroundTaskKind, BackgroundTaskStatus, EntityType, StoredTaskPayload,
+};
 use aster_forge_file_classification::FileCategory;
 use chrono::Utc;
 use sea_orm::{
@@ -248,6 +250,18 @@ async fn test_large_folder_delete_and_restore_dispatch_bounded_tasks() {
             .deleted_at
             .is_none()
     );
+    assert_eq!(
+        folder_tree_operation_repo::count(state.writer_db(), delete_task_id)
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(
+        lock_repo::find_all_by_entity(state.writer_db(), EntityType::Folder, folder_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/files/{}/lock", locked_file.id))
@@ -440,6 +454,96 @@ async fn test_large_folder_delete_and_restore_dispatch_bounded_tasks() {
             .await
             .unwrap()
             .is_empty()
+    );
+    assert_eq!(
+        folder_tree_operation_repo::count(state.writer_db(), team_restore_task_id)
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[actix_web::test]
+async fn test_folder_tree_staging_is_idempotent_and_cascades_with_task_record() {
+    let state = common::setup().await;
+    let now = Utc::now();
+    let task = background_task_repo::create(
+        state.writer_db(),
+        background_task::ActiveModel {
+            kind: Set(BackgroundTaskKind::FolderTreeMutation),
+            status: Set(BackgroundTaskStatus::Pending),
+            creator_user_id: Set(None),
+            team_id: Set(None),
+            share_id: Set(None),
+            display_name: Set("folder-tree staging cascade fixture".to_string()),
+            payload_json: Set(StoredTaskPayload(
+                r#"{"folder_id":1,"operation":"delete"}"#.to_string(),
+            )),
+            result_json: Set(None),
+            runtime_json: Set(None),
+            steps_json: Set(None),
+            progress_current: Set(0),
+            progress_total: Set(0),
+            status_text: Set(None),
+            attempt_count: Set(0),
+            max_attempts: Set(1),
+            next_run_at: Set(now),
+            processing_token: Set(0),
+            processing_started_at: Set(None),
+            last_heartbeat_at: Set(None),
+            lease_expires_at: Set(None),
+            started_at: Set(None),
+            finished_at: Set(None),
+            last_error: Set(None),
+            failure_can_retry: Set(None),
+            expires_at: Set(now + chrono::Duration::hours(1)),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("folder-tree task fixture should insert");
+
+    assert_eq!(
+        folder_tree_operation_repo::stage_ids(
+            state.writer_db(),
+            task.id,
+            EntityType::Folder,
+            &[41, 41],
+        )
+        .await
+        .expect("duplicate staging IDs should insert idempotently"),
+        1
+    );
+    assert_eq!(
+        folder_tree_operation_repo::stage_ids(
+            state.writer_db(),
+            task.id,
+            EntityType::Folder,
+            &[41],
+        )
+        .await
+        .expect("retry staging should remain idempotent"),
+        1
+    );
+    assert_eq!(
+        folder_tree_operation_repo::count(state.writer_db(), task.id)
+            .await
+            .unwrap(),
+        1
+    );
+
+    background_task::Entity::delete_by_id(task.id)
+        .exec(state.writer_db())
+        .await
+        .expect("task fixture should delete");
+    assert_eq!(
+        folder_tree_operation_repo::count(state.writer_db(), task.id)
+            .await
+            .unwrap(),
+        0,
+        "staging rows must be removed by the background-task foreign-key cascade"
     );
 }
 

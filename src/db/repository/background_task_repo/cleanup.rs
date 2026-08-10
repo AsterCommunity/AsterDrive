@@ -1,5 +1,8 @@
 use chrono::{DateTime, Utc};
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 
 use super::common::{TerminalTaskCleanupFilters, terminal_cleanup_condition};
 use crate::errors::{AsterError, Result};
@@ -37,8 +40,8 @@ pub async fn delete_many(db: &DatabaseConnection, ids: &[i64]) -> Result<u64> {
         .rows_affected)
 }
 
-pub async fn delete_terminal_by_filters(
-    db: &DatabaseConnection,
+pub async fn delete_terminal_by_filters<C: ConnectionTrait>(
+    db: &C,
     filters: &TerminalTaskCleanupFilters,
 ) -> Result<u64> {
     Ok(BackgroundTask::delete_many()
@@ -47,4 +50,17 @@ pub async fn delete_terminal_by_filters(
         .await
         .map_err(AsterError::from)?
         .rows_affected)
+}
+
+pub async fn list_terminal_by_filters_for_update<C: ConnectionTrait>(
+    db: &C,
+    filters: &TerminalTaskCleanupFilters,
+) -> Result<Vec<background_task::Model>> {
+    BackgroundTask::find()
+        .filter(terminal_cleanup_condition(filters))
+        .order_by_asc(background_task::Column::Id)
+        .lock_exclusive()
+        .all(db)
+        .await
+        .map_err(AsterError::from)
 }

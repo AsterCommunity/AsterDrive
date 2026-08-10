@@ -98,7 +98,9 @@ pub(crate) async fn delete_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FolderTreeMutationDispatch> {
     let folder = get_info_in_scope(state, scope, folder_id).await?;
-    let details = audit_location_details_for_model(state, scope, &folder).await;
+    let mut details = audit_location_details_for_model(state, scope, &folder)
+        .await
+        .unwrap_or_else(|| json!({}));
     let outcome =
         match delete_in_scope(state, scope, folder_id, Some(REST_FOLDER_TREE_LIMITS)).await {
             Ok(()) => FolderTreeMutationDispatch::Completed,
@@ -115,6 +117,20 @@ pub(crate) async fn delete_in_scope_with_audit(
             }
             Err(error) => return Err(error),
         };
+    let Some(details_object) = details.as_object_mut() else {
+        return Err(AsterError::internal_error(
+            "folder audit location details must be a JSON object",
+        ));
+    };
+    match &outcome {
+        FolderTreeMutationDispatch::Completed => {
+            details_object.insert("dispatch".to_string(), json!("completed"));
+        }
+        FolderTreeMutationDispatch::Queued(task) => {
+            details_object.insert("dispatch".to_string(), json!("queued"));
+            details_object.insert("task_id".to_string(), json!(task.id));
+        }
+    }
     audit::log_with_details(
         state,
         audit_ctx,
@@ -122,7 +138,7 @@ pub(crate) async fn delete_in_scope_with_audit(
         crate::services::ops::audit::AuditEntityType::Folder,
         Some(folder_id),
         Some(&folder.name),
-        || details.clone(),
+        || Some(details.clone()),
     )
     .await;
     Ok(outcome)

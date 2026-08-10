@@ -16,7 +16,7 @@ pub use purge::{
     purge_all, purge_all_team, purge_file, purge_folder, purge_team_file, purge_team_folder,
 };
 pub(crate) use restore::restore_folder_in_scope_with_dispatch;
-pub use restore::{restore_file, restore_folder, restore_team_file, restore_team_folder};
+pub use restore::{restore_file, restore_team_file};
 
 const DEFAULT_RETENTION_DAYS: i64 = 7;
 const PURGE_ALL_BATCH_SIZE: u64 = 100;

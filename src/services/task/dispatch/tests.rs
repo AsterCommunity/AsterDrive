@@ -24,7 +24,8 @@ use crate::services::workspace::storage::WorkspaceStorageScope;
 use aster_drive_migration::Migrator;
 use aster_drive_model::entities::{background_task, file, file_blob, folder, user};
 use aster_drive_model::types::{
-    BackgroundTaskKind, BackgroundTaskStatus, EntityType, StoredTaskPayload, UserRole, UserStatus,
+    BackgroundTaskKind, BackgroundTaskStatus, EntityType, LockDepth, LockMode, LockOrigin,
+    StoredTaskPayload, UserRole, UserStatus,
 };
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 use aster_forge_file_classification::FileCategory;
@@ -435,6 +436,76 @@ async fn folder_tree_task_blocks_membership_changes_and_cleans_up_after_shutdown
             .expect("folder-tree children should insert");
     }
 
+    for file_id in [movable_file_a.id, movable_file_b.id] {
+        file_service::move_file(&state, file_id, user.id, Some(root.id))
+            .await
+            .expect("membership-lock fixture file should move into the source folder");
+    }
+    let source_child = crate::db::repository::folder_repo::find_by_name_in_parent(
+        state.writer_db(),
+        user.id,
+        Some(root.id),
+        "child-00000",
+    )
+    .await
+    .expect("membership-lock source child lookup should succeed")
+    .expect("membership-lock source child should exist");
+    let membership_lock = crate::services::files::lock::acquire(
+        &state,
+        crate::services::files::lock::LockTarget {
+            workspace: crate::services::files::lock::LockWorkspace::Personal { user_id: user.id },
+            root: crate::services::files::lock::LockRoot::Folder { folder_id: root.id },
+            depth: LockDepth::Resource,
+        },
+        LockMode::Exclusive,
+        LockOrigin::Product,
+        None,
+        Some(crate::services::files::lock::ResourceLockOwnerInfo::Text(
+            crate::services::files::lock::TextLockOwnerInfo {
+                value: "source-membership-test".to_string(),
+            },
+        )),
+        None,
+        crate::services::files::lock::resolve_entity_path(
+            state.writer_db(),
+            EntityType::Folder,
+            root.id,
+        )
+        .await
+        .map(Some)
+        .expect("membership-lock source path should resolve"),
+    )
+    .await
+    .expect("source collection resource lock should acquire");
+    let source_file_error = file_service::move_file(&state, movable_file_a.id, user.id, None)
+        .await
+        .expect_err("source collection lock should block moving a file out");
+    assert!(matches!(source_file_error, AsterError::ResourceLocked(_)));
+    let source_folder_error = folder_service::move_folder(&state, source_child.id, user.id, None)
+        .await
+        .expect_err("source collection lock should block moving a folder out");
+    assert!(matches!(source_folder_error, AsterError::ResourceLocked(_)));
+    let source_batch_result = batch_service::batch_move(
+        &state,
+        user.id,
+        &[movable_file_a.id, movable_file_b.id],
+        &[],
+        None,
+    )
+    .await;
+    let Err(source_batch_error) = source_batch_result else {
+        panic!("source collection lock should abort the atomic batch move");
+    };
+    assert!(matches!(source_batch_error, AsterError::ResourceLocked(_)));
+    crate::services::files::lock::unlock_by_token(&state, &membership_lock.token)
+        .await
+        .expect("source collection resource lock should release");
+    for file_id in [movable_file_a.id, movable_file_b.id] {
+        file_service::move_file(&state, file_id, user.id, None)
+            .await
+            .expect("membership-lock fixture file should move back to root");
+    }
+
     let invalid_restore =
         crate::services::task::folder_tree::create_folder_tree_mutation_task_in_scope(
             &state,
@@ -653,7 +724,8 @@ async fn folder_tree_task_blocks_membership_changes_and_cleans_up_after_shutdown
     .await
     .expect("reclaimed folder-tree task should begin staging");
 
-    let _ = lost_guard.mark_lost();
+    let lost_mark = AsterError::from(lost_guard.mark_lost());
+    assert!(is_task_lease_lost(&lost_mark));
     let lost_error = lost_runner
         .await
         .expect("lease-lost folder-tree runner should not panic")

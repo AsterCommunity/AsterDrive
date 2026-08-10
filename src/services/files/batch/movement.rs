@@ -283,17 +283,30 @@ pub(crate) async fn batch_move_in_scope(
                 crate::services::files::lock::LockWorkspace::Team { team_id }
             }
         };
-        crate::services::files::lock::lock_workspace_for_mutation_on(&txn, workspace).await?;
-        crate::services::files::lock::enforce_collection_membership_mutation_on(
-            &txn,
-            workspace,
-            target_folder_id,
-            &crate::services::files::lock::SubmittedLockCredentials::none(),
-        )
-        .await?;
         if let Some(target_folder_id) = target_folder_id {
             let target = folder_repo::lock_by_id(&txn, target_folder_id).await?;
             storage::ensure_active_folder_scope(&target, scope)?;
+        }
+        let source_and_target_parents: BTreeSet<Option<i64>> = file_ids_to_move
+            .iter()
+            .filter_map(|id| file_map.get(id).map(|file| file.folder_id))
+            .chain(
+                folder_ids_to_move
+                    .iter()
+                    .filter_map(|id| folder_map.get(id).map(|folder| folder.parent_id)),
+            )
+            .chain(std::iter::once(target_folder_id))
+            .collect();
+        // The mutation phase is one atomic transaction. A membership lock found during
+        // revalidation aborts the whole batch instead of reporting a partial commit.
+        for parent_id in source_and_target_parents {
+            crate::services::files::lock::enforce_collection_membership_mutation_on(
+                &txn,
+                workspace,
+                parent_id,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
         }
         let mut locked_file_ids = file_ids_to_move.clone();
         locked_file_ids.sort_unstable();

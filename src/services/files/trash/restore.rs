@@ -160,33 +160,6 @@ pub async fn restore_team_file(
     .await
 }
 
-/// 恢复文件夹（递归恢复子项）
-pub async fn restore_folder(
-    state: &impl StorageChangeRuntimeState,
-    id: i64,
-    user_id: i64,
-) -> Result<()> {
-    restore_folder_in_scope(state, WorkspaceStorageScope::Personal { user_id }, id, None).await
-}
-
-pub async fn restore_team_folder(
-    state: &impl StorageChangeRuntimeState,
-    team_id: i64,
-    id: i64,
-    user_id: i64,
-) -> Result<()> {
-    restore_folder_in_scope(
-        state,
-        WorkspaceStorageScope::Team {
-            team_id,
-            actor_user_id: user_id,
-        },
-        id,
-        None,
-    )
-    .await
-}
-
 pub(crate) async fn restore_folder_in_scope_with_dispatch(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,

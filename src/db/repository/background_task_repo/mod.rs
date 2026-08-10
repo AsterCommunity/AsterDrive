@@ -6,7 +6,10 @@ mod dispatch;
 mod mutation;
 mod query;
 
-pub use cleanup::{delete_many, delete_terminal_by_filters, list_expired_terminal};
+pub use cleanup::{
+    delete_many, delete_terminal_by_filters, list_expired_terminal,
+    list_terminal_by_filters_for_update,
+};
 pub use common::{AdminTaskFilters, TerminalTaskCleanupFilters};
 pub use dispatch::{list_claimable, list_claimable_by_kinds, touch_heartbeat, try_claim};
 pub use mutation::{

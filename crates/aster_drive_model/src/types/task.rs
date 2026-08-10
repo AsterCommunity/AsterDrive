@@ -275,6 +275,10 @@ mod tests {
             ),
             (BackgroundTaskKind::TrashPurgeAll, "trash_purge_all"),
             (
+                BackgroundTaskKind::FolderTreeMutation,
+                "folder_tree_mutation",
+            ),
+            (
                 BackgroundTaskKind::StoragePolicyTempCleanup,
                 "storage_policy_temp_cleanup",
             ),

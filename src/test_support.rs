@@ -13,6 +13,11 @@ pub(crate) mod allocations {
         static PEAK_BYTES: Cell<usize> = const { Cell::new(0) };
     }
 
+    // LIVE_BYTES starts at zero for each measurement window. If an allocation made before the
+    // window is freed while measurement is active, saturating subtraction can understate both
+    // live and peak bytes. These counters are therefore a safe bounded-growth approximation,
+    // not an exact process-memory measurement.
+
     pub(crate) struct CountingAllocator;
 
     // SAFETY: every operation delegates to `System` with the original pointer and layout. The

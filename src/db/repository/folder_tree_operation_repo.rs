@@ -15,9 +15,9 @@ pub async fn stage_ids<C: ConnectionTrait>(
     task_id: i64,
     resource_kind: EntityType,
     resource_ids: &[i64],
-) -> Result<()> {
+) -> Result<u64> {
     if resource_ids.is_empty() {
-        return Ok(());
+        return count(db, task_id).await;
     }
 
     let models = resource_ids
@@ -37,7 +37,10 @@ pub async fn stage_ids<C: ConnectionTrait>(
         .exec_without_returning(db)
         .await
         .map_err(AsterError::from)?;
-    Ok(())
+    // MySQL implements do-nothing through a no-op duplicate-key update and reports those
+    // conflicts as affected rows. The authoritative total is portable across all backends and
+    // lets callers publish exact progress after retries or lease takeover.
+    count(db, task_id).await
 }
 
 pub async fn count<C: ConnectionTrait>(db: &C, task_id: i64) -> Result<u64> {
