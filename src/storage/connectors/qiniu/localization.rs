@@ -4,12 +4,12 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     aster_drive_storage::storage_connector_message!(
         "driver_type_qiniu",
         "Qiniu Kodo",
-        "涓冪墰浜戞柇鎴樹簯 Kodo"
+        "七牛云 Kodo"
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_wizard_qiniu_storage_desc",
         "Store files in Qiniu Cloud Kodo using native UploadToken and Multipart v2 APIs.",
-        "浣跨敤涓冪墰浜戞柇鎴樹簯 Kodo 鍘熺敓 UploadToken 鍜 Multipart v2 API 瀛樺偨鏂囦欢。"
+        "使用七牛云 Kodo 原生 UploadToken 和 Multipart v2 API 存储文件。"
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_wizard_qiniu_helper",
