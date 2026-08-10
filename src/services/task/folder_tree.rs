@@ -2,7 +2,7 @@
 
 use aster_forge_db::transaction;
 use aster_forge_tasks::{
-    TaskExecutionContext, TaskLeaseGuard, TaskStepInfo, set_task_step_active,
+    TaskDedupeKey, TaskExecutionContext, TaskLeaseGuard, TaskStepInfo, set_task_step_active,
     set_task_step_succeeded,
 };
 use chrono::Utc;
@@ -29,7 +29,7 @@ use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 use aster_drive_model::entities::{background_task, folder as folder_entity, resource_lock};
 use aster_drive_model::types::{EntityType, LockDepth, LockMode, LockOrigin};
 
-use super::{create_typed_task_record, mark_task_progress, task_scope};
+use super::{TypedTaskCreate, insert_typed_task_record, mark_task_progress, task_scope};
 
 const PAGE_SIZE: u64 = 512;
 const MAX_BACKGROUND_DEPTH: usize = 4096;
@@ -96,10 +96,37 @@ pub(crate) async fn create_folder_tree_mutation_task_in_scope<S: TaskRuntimeStat
         FolderTreeMutationOperation::Delete => "Delete folder tree",
         FolderTreeMutationOperation::Restore => "Restore folder tree",
     };
-    let task =
-        create_typed_task_record::<FolderTreeMutationTask>(state, scope, display_name, &payload)
-            .await?;
+    let dedupe_key = folder_tree_dedupe_key(scope, &root, operation)?;
+    let task = insert_typed_task_record(
+        state,
+        state.writer_db(),
+        TypedTaskCreate::<FolderTreeMutationTask>::new(display_name, payload)
+            .in_scope(scope)
+            .dedupe_key(dedupe_key),
+    )
+    .await?;
+    state.wake_background_task_dispatcher();
     super::get_task_in_scope(state, scope, task.id).await
+}
+
+fn folder_tree_dedupe_key(
+    scope: WorkspaceStorageScope,
+    root: &folder_entity::Model,
+    operation: FolderTreeMutationOperation,
+) -> Result<TaskDedupeKey> {
+    let scope_key = match scope {
+        WorkspaceStorageScope::Personal { user_id } => format!("personal:{user_id}"),
+        WorkspaceStorageScope::Team { team_id, .. } => format!("team:{team_id}"),
+    };
+    let operation_key = match operation {
+        FolderTreeMutationOperation::Delete => "delete",
+        FolderTreeMutationOperation::Restore => "restore",
+    };
+    Ok(TaskDedupeKey::new(format!(
+        "folder-tree:{scope_key}:{}:{operation_key}:{}",
+        root.id,
+        root.updated_at.timestamp_micros()
+    ))?)
 }
 
 pub(crate) async fn process_folder_tree_mutation_task(
@@ -322,22 +349,30 @@ async fn process_staging(
             frame.next_child_index = 0;
         }
 
-        if let Some(child_id) = frame.child_page.get(frame.next_child_index).copied() {
-            let child_depth = frame.depth.saturating_add(1);
-            frame.next_child_index = frame.next_child_index.saturating_add(1);
-            stack.push(Frame {
-                folder_id: child_id,
-                next_child_after: None,
-                child_page: Vec::new(),
-                next_child_index: 0,
-                next_file_after: None,
-                entered: false,
-                files_done: false,
-                depth: child_depth,
-            });
-        }
+        let child_frame = take_next_child_frame(frame)?;
+        stack.push(child_frame);
     }
     Ok(())
+}
+
+fn take_next_child_frame(frame: &mut Frame) -> Result<Frame> {
+    let Some(child_id) = frame.child_page.get(frame.next_child_index).copied() else {
+        return Err(AsterError::internal_error(
+            "folder-tree child page index moved past its cached page",
+        ));
+    };
+    let child_depth = frame.depth.saturating_add(1);
+    frame.next_child_index = frame.next_child_index.saturating_add(1);
+    Ok(Frame {
+        folder_id: child_id,
+        next_child_after: None,
+        child_page: Vec::new(),
+        next_child_index: 0,
+        next_file_after: None,
+        entered: false,
+        files_done: false,
+        depth: child_depth,
+    })
 }
 
 fn ensure_background_depth(depth: usize) -> Result<()> {
@@ -375,7 +410,11 @@ async fn finalize_operation(
         let mut restored_parent_id = root.parent_id;
         let counts = match payload.operation {
             FolderTreeMutationOperation::Delete => {
-                folder_tree_operation_repo::apply_delete(txn, task.id, now).await?
+                let counts = folder_tree_operation_repo::apply_delete(txn, task.id, now).await?;
+                let mut root_active: folder_entity::ActiveModel = root.clone().into();
+                root_active.updated_at = Set(now);
+                root_active.update(txn).await.map_err(AsterError::from)?;
+                counts
             }
             FolderTreeMutationOperation::Restore => {
                 let mut root_active: folder_entity::ActiveModel = root.clone().into();
@@ -397,13 +436,14 @@ async fn finalize_operation(
                     }
                 }
                 root_active.deleted_at = Set(None);
+                root_active.updated_at = Set(now);
                 root_active
                     .update(txn)
                     .await
                     .map_err(|error| folder_repo::map_name_db_err(error, &root.name))?;
-                // Staged restore intentionally changes only deleted_at. It must not overwrite
-                // the root parent selected above, which may have been detached from a deleted
-                // or out-of-scope parent.
+                // Staged restore changes only trash/update timestamps. It must not overwrite the
+                // root parent selected above, which may have been detached from an unavailable
+                // parent.
                 folder_tree_operation_repo::apply_restore(txn, task.id).await?
             }
         };
@@ -582,6 +622,10 @@ async fn cleanup_operation(state: &PrimaryAppState, task_id: i64, token: &str) {
     }
 }
 
+/// Cleans staging and the product lock for one terminal folder-tree task.
+///
+/// Callers must provide a transaction-backed connection because lock deletion and namespace
+/// generation changes form one atomic cleanup operation.
 pub(super) async fn cleanup_terminal_operation_on<C: ConnectionTrait>(
     db: &C,
     task: &background_task::Model,
@@ -589,7 +633,18 @@ pub(super) async fn cleanup_terminal_operation_on<C: ConnectionTrait>(
     if task.kind != aster_drive_model::types::BackgroundTaskKind::FolderTreeMutation {
         return Ok(());
     }
-    let payload = decode_payload_as::<FolderTreeMutationTask>(task)?;
+    let payload = match decode_payload_as::<FolderTreeMutationTask>(task) {
+        Ok(payload) => payload,
+        Err(error) => {
+            tracing::error!(
+                task_id = task.id,
+                %error,
+                "failed to decode folder-tree task payload during terminal cleanup"
+            );
+            folder_tree_operation_repo::clear(db, task.id).await?;
+            return Ok(());
+        }
+    };
     let marker = operation_lock_marker(task.id);
     folder_tree_operation_repo::clear(db, task.id).await?;
     for operation_lock in
@@ -674,18 +729,22 @@ mod tests {
 
     use aster_forge_tasks::{TaskExecutionContext, TaskLease};
     use chrono::Utc;
-    use sea_orm::{ActiveModelTrait, Set};
+    use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
     use tokio_util::sync::CancellationToken;
 
-    use super::{MAX_BACKGROUND_DEPTH, ensure_background_depth, should_preserve_resumable_state};
+    use super::{
+        Frame, MAX_BACKGROUND_DEPTH, ensure_background_depth, should_preserve_resumable_state,
+        take_next_child_frame,
+    };
     use crate::config::DatabaseConfig;
     use crate::db::repository::{background_task_repo, config_repo, folder_repo};
     use crate::services::task::types::FolderTreeMutationOperation;
     use crate::services::workspace::storage::WorkspaceStorageScope;
     use aster_drive_migration::Migrator;
-    use aster_drive_model::entities::{folder, user};
+    use aster_drive_model::entities::{background_task, folder, user};
     use aster_drive_model::types::{
-        BackgroundTaskKind, BackgroundTaskStatus, EntityType, UserRole, UserStatus,
+        BackgroundTaskKind, BackgroundTaskStatus, EntityType, StoredTaskPayload, UserRole,
+        UserStatus,
     };
 
     async fn build_test_state() -> crate::runtime::PrimaryAppState {
@@ -744,6 +803,51 @@ mod tests {
         }
     }
 
+    async fn insert_test_user_and_root(
+        state: &crate::runtime::PrimaryAppState,
+        fixture: &str,
+        deleted_at: Option<chrono::DateTime<Utc>>,
+    ) -> (user::Model, folder::Model) {
+        let now = Utc::now();
+        let user = user::ActiveModel {
+            username: Set(format!("folder-tree-{fixture}")),
+            email: Set(format!("folder-tree-{fixture}@example.com")),
+            password_hash: Set("not-used".to_string()),
+            role: Set(UserRole::User),
+            status: Set(UserStatus::Active),
+            session_version: Set(0),
+            email_verified_at: Set(Some(now)),
+            pending_email: Set(None),
+            storage_used: Set(0),
+            storage_quota: Set(0),
+            policy_group_id: Set(None),
+            created_at: Set(now),
+            updated_at: Set(now),
+            config: Set(None),
+            ..Default::default()
+        }
+        .insert(state.writer_db())
+        .await
+        .expect("folder-tree fixture user should insert");
+        let root = folder::ActiveModel {
+            name: Set(format!("{fixture}-root")),
+            parent_id: Set(None),
+            team_id: Set(None),
+            owner_user_id: Set(Some(user.id)),
+            created_by_user_id: Set(Some(user.id)),
+            created_by_username: Set(user.username.clone()),
+            policy_id: Set(None),
+            created_at: Set(now),
+            updated_at: Set(now),
+            deleted_at: Set(deleted_at),
+            ..Default::default()
+        }
+        .insert(state.writer_db())
+        .await
+        .expect("folder-tree fixture root should insert");
+        (user, root)
+    }
+
     #[test]
     fn background_depth_accepts_exact_limit_and_rejects_limit_plus_one() {
         ensure_background_depth(MAX_BACKGROUND_DEPTH)
@@ -766,6 +870,99 @@ mod tests {
             BackgroundTaskKind::FolderTreeMutation,
             &crate::errors::AsterError::resource_locked("tree member locked"),
         ));
+    }
+
+    #[test]
+    fn child_page_out_of_bounds_is_an_error_instead_of_a_stalled_frame() {
+        let mut frame = Frame {
+            folder_id: 1,
+            next_child_after: Some(2),
+            child_page: vec![2],
+            next_child_index: 1,
+            next_file_after: None,
+            entered: true,
+            files_done: true,
+            depth: 0,
+        };
+
+        let error = take_next_child_frame(&mut frame)
+            .expect_err("an exhausted child page must not leave the traversal frame unchanged");
+        assert!(error.message().contains("child page index"));
+    }
+
+    #[tokio::test]
+    async fn duplicate_queued_delete_and_restore_submissions_reuse_the_same_task() {
+        for (fixture, operation, deleted_at) in [
+            ("dedupe-delete", FolderTreeMutationOperation::Delete, None),
+            (
+                "dedupe-restore",
+                FolderTreeMutationOperation::Restore,
+                Some(Utc::now()),
+            ),
+        ] {
+            let state = build_test_state().await;
+            let (user, root) = insert_test_user_and_root(&state, fixture, deleted_at).await;
+            let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+
+            let first =
+                super::create_folder_tree_mutation_task_in_scope(&state, scope, root.id, operation)
+                    .await
+                    .expect("first folder-tree task should create");
+            let duplicate =
+                super::create_folder_tree_mutation_task_in_scope(&state, scope, root.id, operation)
+                    .await
+                    .expect("duplicate folder-tree task should resolve");
+
+            assert_eq!(first.id, duplicate.id);
+            assert_eq!(
+                background_task::Entity::find()
+                    .filter(
+                        background_task::Column::Kind.eq(BackgroundTaskKind::FolderTreeMutation)
+                    )
+                    .count(state.writer_db())
+                    .await
+                    .expect("folder-tree task count should load"),
+                1
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn folder_tree_dedupe_key_separates_operation_scope_and_mutation_cycle() {
+        let state = build_test_state().await;
+        let (user, root) = insert_test_user_and_root(&state, "dedupe-key", None).await;
+        let personal_scope = WorkspaceStorageScope::Personal { user_id: user.id };
+        let team_scope = WorkspaceStorageScope::Team {
+            team_id: 42,
+            actor_user_id: user.id,
+        };
+        let delete = super::folder_tree_dedupe_key(
+            personal_scope,
+            &root,
+            FolderTreeMutationOperation::Delete,
+        )
+        .unwrap();
+        let restore = super::folder_tree_dedupe_key(
+            personal_scope,
+            &root,
+            FolderTreeMutationOperation::Restore,
+        )
+        .unwrap();
+        let team =
+            super::folder_tree_dedupe_key(team_scope, &root, FolderTreeMutationOperation::Delete)
+                .unwrap();
+        let mut next_cycle_root = root.clone();
+        next_cycle_root.updated_at += chrono::Duration::microseconds(1);
+        let next_cycle = super::folder_tree_dedupe_key(
+            personal_scope,
+            &next_cycle_root,
+            FolderTreeMutationOperation::Delete,
+        )
+        .unwrap();
+
+        assert_ne!(delete, restore);
+        assert_ne!(delete, team);
+        assert_ne!(delete, next_cycle);
     }
 
     async fn measure_real_traversal_peak(child_count: usize) -> usize {
@@ -1053,6 +1250,89 @@ mod tests {
             .await
             .expect("terminal operation locks should load")
             .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn malformed_folder_tree_payload_does_not_block_admin_terminal_cleanup() {
+        let state = build_test_state().await;
+        let now = Utc::now();
+        let (first_user, first_root) =
+            insert_test_user_and_root(&state, "cleanup-corrupt", None).await;
+        let (second_user, second_root) =
+            insert_test_user_and_root(&state, "cleanup-valid", None).await;
+        let first = super::create_folder_tree_mutation_task_in_scope(
+            &state,
+            WorkspaceStorageScope::Personal {
+                user_id: first_user.id,
+            },
+            first_root.id,
+            FolderTreeMutationOperation::Delete,
+        )
+        .await
+        .expect("corrupt cleanup fixture task should create");
+        let second = super::create_folder_tree_mutation_task_in_scope(
+            &state,
+            WorkspaceStorageScope::Personal {
+                user_id: second_user.id,
+            },
+            second_root.id,
+            FolderTreeMutationOperation::Delete,
+        )
+        .await
+        .expect("valid cleanup fixture task should create");
+
+        for (task_id, corrupt_payload) in [(first.id, true), (second.id, false)] {
+            let task = background_task_repo::find_by_id(state.writer_db(), task_id)
+                .await
+                .expect("terminal cleanup fixture task should load");
+            let mut active: background_task::ActiveModel = task.into();
+            active.status = Set(BackgroundTaskStatus::Failed);
+            active.finished_at = Set(Some(now));
+            active.expires_at = Set(now + chrono::Duration::hours(1));
+            active.updated_at = Set(now);
+            if corrupt_payload {
+                active.payload_json = Set(StoredTaskPayload("{".to_string()));
+            }
+            active
+                .update(state.writer_db())
+                .await
+                .expect("terminal cleanup fixture task should update");
+        }
+        crate::db::repository::folder_tree_operation_repo::stage_ids(
+            state.writer_db(),
+            first.id,
+            EntityType::Folder,
+            &[first_root.id],
+        )
+        .await
+        .expect("corrupt task staging should insert");
+
+        let removed = crate::services::task::cleanup_tasks_for_admin(
+            &state,
+            crate::services::task::AdminTaskCleanupFilters {
+                finished_before: now + chrono::Duration::seconds(1),
+                kind: Some(BackgroundTaskKind::FolderTreeMutation),
+                status: Some(BackgroundTaskStatus::Failed),
+            },
+        )
+        .await
+        .expect("one malformed payload should not abort terminal cleanup");
+
+        assert_eq!(removed, 2);
+        assert_eq!(
+            background_task::Entity::find()
+                .filter(background_task::Column::Id.is_in([first.id, second.id]))
+                .count(state.writer_db())
+                .await
+                .expect("cleaned task count should load"),
+            0
+        );
+        assert_eq!(
+            crate::db::repository::folder_tree_operation_repo::count(state.writer_db(), first.id)
+                .await
+                .expect("corrupt task staging count should load"),
+            0
         );
     }
 }

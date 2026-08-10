@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
-    QuerySelect,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, QueryFilter,
+    QueryOrder, QuerySelect,
 };
 
 use super::common::{TerminalTaskCleanupFilters, terminal_cleanup_condition};
@@ -28,7 +28,7 @@ pub async fn list_expired_terminal(
         .map_err(AsterError::from)
 }
 
-pub async fn delete_many(db: &DatabaseConnection, ids: &[i64]) -> Result<u64> {
+pub async fn delete_many<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<u64> {
     if ids.is_empty() {
         return Ok(0);
     }
@@ -56,11 +56,13 @@ pub async fn list_terminal_by_filters_for_update<C: ConnectionTrait>(
     db: &C,
     filters: &TerminalTaskCleanupFilters,
 ) -> Result<Vec<background_task::Model>> {
-    BackgroundTask::find()
+    let query = BackgroundTask::find()
         .filter(terminal_cleanup_condition(filters))
-        .order_by_asc(background_task::Column::Id)
-        .lock_exclusive()
-        .all(db)
-        .await
-        .map_err(AsterError::from)
+        .order_by_asc(background_task::Column::Id);
+    let query = if db.get_database_backend() == DbBackend::Sqlite {
+        query
+    } else {
+        query.lock_exclusive()
+    };
+    query.all(db).await.map_err(AsterError::from)
 }

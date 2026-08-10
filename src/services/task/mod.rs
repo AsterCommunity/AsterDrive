@@ -179,7 +179,8 @@ pub(crate) async fn cleanup_tasks_for_admin(
         for task in &tasks {
             folder_tree::cleanup_terminal_operation_on(txn, task).await?;
         }
-        background_task_repo::delete_terminal_by_filters(txn, &repository_filters).await
+        let ids = tasks.iter().map(|task| task.id).collect::<Vec<_>>();
+        background_task_repo::delete_many(txn, &ids).await
     })
     .await
 }

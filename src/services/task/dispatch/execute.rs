@@ -1,5 +1,6 @@
 use std::time::Duration as StdDuration;
 
+use aster_forge_db::transaction;
 use chrono::Utc;
 use tokio_util::sync::CancellationToken;
 
@@ -152,10 +153,9 @@ impl aster_forge_tasks::ClaimedTaskExecutionStore<background_task::Model, Backgr
         )
         .await?;
         if marked
-            && let Err(error) = super::super::folder_tree::cleanup_terminal_operation_on(
-                self.state.writer_db(),
-                task,
-            )
+            && let Err(error) = transaction::with_transaction(self.state.writer_db(), async |txn| {
+                super::super::folder_tree::cleanup_terminal_operation_on(txn, task).await
+            })
             .await
         {
             tracing::error!(
