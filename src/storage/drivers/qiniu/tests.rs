@@ -115,8 +115,12 @@ async fn put_reader_streams_multipart_payload() {
         .expect("streamed upload should succeed");
 
     assert_eq!(returned, "object.txt");
-    let body = received.lock().expect("test body mutex");
-    assert!(body.windows(payload.len()).any(|window| window == payload));
+    let contains_payload = received
+        .lock()
+        .expect("test body mutex")
+        .windows(payload.len())
+        .any(|window| window == payload);
+    assert!(contains_payload);
 
     handle.stop(true).await;
     let _ = task.await;
