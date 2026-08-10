@@ -288,10 +288,10 @@ async fn process_staging(
 
     while !stack.is_empty() {
         #[cfg(test)]
-        if let Some(observer) = working_set_observer.as_deref_mut() {
-            if observer.observe(&stack) {
-                break;
-            }
+        if let Some(observer) = working_set_observer.as_deref_mut()
+            && observer.observe(&stack)
+        {
+            break;
         }
         let Some(frame) = stack.last_mut() else {
             break;
