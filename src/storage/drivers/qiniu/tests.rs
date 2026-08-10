@@ -1,6 +1,6 @@
 use super::*;
 use actix_web::{App, HttpResponse, HttpServer, web};
-use base64::{Engine as _, engine::general_purpose::URL_SAFE};
+use base64::engine::general_purpose::URL_SAFE;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -83,7 +83,7 @@ async fn put_reader_streams_multipart_payload() {
         HttpResponse::Ok().finish()
     }
 
-    let received = Arc::new(Mutex::new(Vec::new()));
+    let received = Arc::new(Mutex::new(Vec::<u8>::new()));
     let listener =
         std::net::TcpListener::bind(("127.0.0.1", 0)).expect("test listener should bind");
     let addr = listener
