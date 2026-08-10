@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use aster_drive_model::types::{
     MicrosoftGraphCloud, ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy,
@@ -11,8 +12,11 @@ use aster_drive_storage::connector_descriptor::{
     StorageConnectorFieldScope, StorageConnectorObjectNamingMode, StorageConnectorSelectDataSource,
     StorageConnectorSelectValueKind,
 };
+use aster_drive_storage::traits::extensions::PresignedStorageDriver;
 use aster_drive_storage::{ConnectorConfigEnvelope, ConnectorId, StoragePolicyBehaviorConfig};
 use sea_orm::ActiveModelTrait;
+
+use crate::storage::drivers::qiniu::{QiniuDriver, QiniuDriverConfig, QiniuStaticCredentials};
 
 use super::alibaba_oss::AlibabaOssConnectorConfigV1;
 use super::azure_blob::AzureBlobConnectorConfigV1;
@@ -1358,4 +1362,63 @@ fn built_in_connector_descriptors_do_not_duplicate_core_native_behavior_state() 
         }
     }
     assert_eq!(descriptor(TencentCosConnector::ID).config_schema_version, 1);
+}
+
+#[test]
+fn qiniu_region_endpoint_mapping_is_backend_owned() {
+    let z0 = QiniuConnector::endpoints("z0").expect("z0 endpoint mapping");
+    assert_eq!(z0.upload, "https://up-z0.qiniup.com");
+    assert_eq!(z0.manage, "https://rs-z0.qiniuapi.com");
+    assert_eq!(z0.list, "https://rsf-z0.qiniuapi.com");
+    assert!(QiniuConnector::endpoints("custom").is_err());
+}
+
+#[test]
+fn qiniu_descriptor_declares_form_presigned_and_multipart_capabilities() {
+    let descriptor = QiniuConnector::descriptor_definition();
+    assert_eq!(descriptor.connector_id.as_str(), QiniuConnector::ID);
+    assert!(descriptor.capabilities.presigned_download);
+    assert!(descriptor.upload_workflows.presigned_upload);
+    assert!(descriptor.upload_workflows.object_multipart_upload);
+    assert!(
+        descriptor
+            .upload_workflows
+            .object_multipart_upload_capabilities
+            .is_some()
+    );
+    assert!(!descriptor.capabilities.storage_native_thumbnail);
+    assert!(!descriptor.capabilities.storage_native_media_metadata);
+}
+
+#[tokio::test]
+async fn qiniu_form_request_contains_only_provider_fields_and_no_secret_key() {
+    let driver = QiniuDriver::new(
+        QiniuDriverConfig {
+            bucket: "bucket".to_string(),
+            region: "z0".to_string(),
+            download_domain: "https://download.example.test".to_string(),
+            object_prefix: "tenant".to_string(),
+            endpoints: QiniuConnector::endpoints("z0").expect("z0 endpoints"),
+            connect_timeout: Duration::from_secs(1),
+            read_timeout: Duration::from_secs(1),
+            operation_timeout: Duration::from_secs(1),
+        },
+        QiniuStaticCredentials {
+            access_key: "ak".to_string(),
+            secret_key: "secret-value".to_string(),
+        },
+    )
+    .expect("driver config");
+    let request = driver
+        .presigned_form_upload_request("files/object", Duration::from_secs(60))
+        .await
+        .expect("form request")
+        .expect("Qiniu supports form uploads");
+    assert_eq!(request.url, "https://up-z0.qiniup.com");
+    assert_eq!(
+        request.fields.get("key"),
+        Some(&"tenant/files/object".to_string())
+    );
+    assert!(request.fields.contains_key("token"));
+    assert!(!request.fields.values().any(|value| value == "secret-value"));
 }
