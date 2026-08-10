@@ -52,11 +52,20 @@ struct Frame {
 struct TraversalWorkingSetObserver {
     current_bytes: usize,
     peak_bytes: usize,
+    peak_bytes_by_stack_len: Vec<usize>,
+    stop_at_stack_len: Option<usize>,
 }
 
 #[cfg(test)]
 impl TraversalWorkingSetObserver {
-    fn observe(&mut self, stack: &[Frame]) {
+    fn stopping_at_stack_len(stack_len: usize) -> Self {
+        Self {
+            stop_at_stack_len: Some(stack_len),
+            ..Self::default()
+        }
+    }
+
+    fn observe(&mut self, stack: &[Frame]) -> bool {
         let frame_bytes = stack.len().saturating_mul(std::mem::size_of::<Frame>());
         let cached_child_bytes = stack.iter().fold(0usize, |total, frame| {
             total.saturating_add(
@@ -68,6 +77,14 @@ impl TraversalWorkingSetObserver {
         });
         self.current_bytes = frame_bytes.saturating_add(cached_child_bytes);
         self.peak_bytes = self.peak_bytes.max(self.current_bytes);
+        if self.peak_bytes_by_stack_len.len() <= stack.len() {
+            self.peak_bytes_by_stack_len
+                .resize(stack.len().saturating_add(1), 0);
+        }
+        self.peak_bytes_by_stack_len[stack.len()] =
+            self.peak_bytes_by_stack_len[stack.len()].max(self.current_bytes);
+        self.stop_at_stack_len == Some(stack.len())
+            && stack.last().is_some_and(|frame| frame.entered)
     }
 
     fn observe_transient_page(&mut self, capacity: usize) {
@@ -75,6 +92,13 @@ impl TraversalWorkingSetObserver {
             self.current_bytes
                 .saturating_add(capacity.saturating_mul(std::mem::size_of::<i64>())),
         );
+    }
+
+    fn peak_at_stack_len(&self, stack_len: usize) -> Option<usize> {
+        self.peak_bytes_by_stack_len
+            .get(stack_len)
+            .copied()
+            .filter(|peak| *peak > 0)
     }
 }
 
@@ -265,7 +289,9 @@ async fn process_staging(
     while !stack.is_empty() {
         #[cfg(test)]
         if let Some(observer) = working_set_observer.as_deref_mut() {
-            observer.observe(&stack);
+            if observer.observe(&stack) {
+                break;
+            }
         }
         let Some(frame) = stack.last_mut() else {
             break;
@@ -335,7 +361,7 @@ async fn process_staging(
         if frame.next_child_index >= frame.child_page.len() {
             let parent_id = frame.folder_id;
             let after = frame.next_child_after;
-            let child_page = transaction::with_transaction(state.writer_db(), async |txn| {
+            let mut child_page = transaction::with_transaction(state.writer_db(), async |txn| {
                 enforce_task_root_lock(txn, &root, &lock_tokens).await?;
                 folder_repo::find_child_ids_after_id_in_scope(
                     txn,
@@ -352,6 +378,11 @@ async fn process_staging(
                 stack.pop();
                 continue;
             }
+            #[cfg(test)]
+            if let Some(observer) = working_set_observer.as_deref_mut() {
+                observer.observe_transient_page(child_page.capacity());
+            }
+            child_page.shrink_to_fit();
             frame.next_child_after = child_page.last().copied();
             frame.child_page = child_page;
             frame.next_child_index = 0;
@@ -1025,34 +1056,15 @@ mod tests {
         assert_ne!(delete, next_cycle);
     }
 
-    async fn measure_real_traversal_peak(child_count: usize) -> usize {
-        const INSERT_BATCH: usize = 400;
-
-        let state = build_test_state().await;
-        let now = Utc::now();
-        let user = user::ActiveModel {
-            username: Set(format!("folder-tree-memory-{child_count}")),
-            email: Set(format!("folder-tree-memory-{child_count}@example.com")),
-            password_hash: Set("not-used".to_string()),
-            role: Set(UserRole::User),
-            status: Set(UserStatus::Active),
-            session_version: Set(0),
-            email_verified_at: Set(Some(now)),
-            pending_email: Set(None),
-            storage_used: Set(0),
-            storage_quota: Set(0),
-            policy_group_id: Set(None),
-            created_at: Set(now),
-            updated_at: Set(now),
-            config: Set(None),
-            ..Default::default()
-        }
-        .insert(state.writer_db())
-        .await
-        .expect("folder-tree memory user should insert");
-        let root = folder::ActiveModel {
-            name: Set("folder-tree-memory-root".to_string()),
-            parent_id: Set(None),
+    fn memory_folder(
+        user: &user::Model,
+        parent_id: i64,
+        name: String,
+        now: chrono::DateTime<Utc>,
+    ) -> folder::ActiveModel {
+        folder::ActiveModel {
+            name: Set(name),
+            parent_id: Set(Some(parent_id)),
             team_id: Set(None),
             owner_user_id: Set(Some(user.id)),
             created_by_user_id: Set(Some(user.id)),
@@ -1063,31 +1075,17 @@ mod tests {
             deleted_at: Set(None),
             ..Default::default()
         }
-        .insert(state.writer_db())
-        .await
-        .expect("folder-tree memory root should insert");
-        for batch_start in (0..child_count).step_by(INSERT_BATCH) {
-            let batch_end = (batch_start + INSERT_BATCH).min(child_count);
-            let children = (batch_start..batch_end).map(|index| folder::ActiveModel {
-                name: Set(format!("memory-child-{index:06}")),
-                parent_id: Set(Some(root.id)),
-                team_id: Set(None),
-                owner_user_id: Set(Some(user.id)),
-                created_by_user_id: Set(Some(user.id)),
-                created_by_username: Set(user.username.clone()),
-                policy_id: Set(None),
-                created_at: Set(now),
-                updated_at: Set(now),
-                deleted_at: Set(None),
-                ..Default::default()
-            });
-            folder_repo::create_many(state.writer_db(), children.collect())
-                .await
-                .expect("folder-tree memory children should insert");
-        }
+    }
 
+    async fn measure_real_traversal_peak(
+        state: &crate::runtime::PrimaryAppState,
+        user: &user::Model,
+        root: folder::Model,
+        expected_staged_folder_count: usize,
+        mut observer: super::TraversalWorkingSetObserver,
+    ) -> super::TraversalWorkingSetObserver {
         let task_info = super::create_folder_tree_mutation_task_in_scope(
-            &state,
+            state,
             WorkspaceStorageScope::Personal { user_id: user.id },
             root.id,
             FolderTreeMutationOperation::Delete,
@@ -1118,7 +1116,7 @@ mod tests {
         );
         let lease_guard = context.lease_guard().clone();
         let scope = WorkspaceStorageScope::Personal { user_id: user.id };
-        let token = super::ensure_operation_lock(&state, &task, &lease_guard, scope, &root)
+        let token = super::ensure_operation_lock(state, &task, &lease_guard, scope, &root)
             .await
             .expect("folder-tree memory operation lock should acquire");
         let payload = crate::services::task::types::FolderTreeMutationTaskPayload {
@@ -1129,9 +1127,8 @@ mod tests {
             task.steps_json.as_ref().map(|raw| raw.as_ref()),
         )
         .expect("folder-tree memory task steps should decode");
-        let mut observer = super::TraversalWorkingSetObserver::default();
         super::process_staging(
-            &state,
+            state,
             &task,
             &context,
             &lease_guard,
@@ -1148,23 +1145,97 @@ mod tests {
             crate::db::repository::folder_tree_operation_repo::count(state.writer_db(), task.id)
                 .await
                 .expect("folder-tree memory staging count should load"),
-            u64::try_from(child_count).unwrap().saturating_add(1)
+            u64::try_from(expected_staged_folder_count).unwrap()
         );
-        super::cleanup_operation(&state, task.id, &token).await;
+        super::cleanup_operation(state, task.id, &token).await;
         assert_eq!(
             crate::db::repository::folder_tree_operation_repo::count(state.writer_db(), task.id)
                 .await
                 .expect("cleaned folder-tree memory staging count should load"),
             0
         );
-        observer.peak_bytes
+        observer
+    }
+
+    async fn measure_wide_traversal_peak(child_count: usize) -> usize {
+        const INSERT_BATCH: usize = 400;
+
+        let state = build_test_state().await;
+        let (user, root) =
+            insert_test_user_and_root(&state, &format!("memory-wide-{child_count}"), None).await;
+        let now = Utc::now();
+        for batch_start in (0..child_count).step_by(INSERT_BATCH) {
+            let batch_end = (batch_start + INSERT_BATCH).min(child_count);
+            let children = (batch_start..batch_end).map(|index| {
+                memory_folder(&user, root.id, format!("memory-child-{index:06}"), now)
+            });
+            folder_repo::create_many(state.writer_db(), children.collect())
+                .await
+                .expect("folder-tree memory children should insert");
+        }
+
+        measure_real_traversal_peak(
+            &state,
+            &user,
+            root,
+            child_count.saturating_add(1),
+            super::TraversalWorkingSetObserver::default(),
+        )
+        .await
+        .peak_bytes
+    }
+
+    async fn measure_deep_traversal(depth: usize) -> super::TraversalWorkingSetObserver {
+        const INSERT_BATCH: usize = 400;
+
+        let page_width = usize::try_from(super::PAGE_SIZE).expect("page size should fit usize");
+        let state = build_test_state().await;
+        let (user, root) =
+            insert_test_user_and_root(&state, &format!("memory-deep-{depth}"), None).await;
+        let now = Utc::now();
+        let mut parent_id = root.id;
+        for level in 0..depth {
+            let spine = memory_folder(
+                &user,
+                parent_id,
+                format!("memory-depth-{level:04}-0000"),
+                now,
+            )
+            .insert(state.writer_db())
+            .await
+            .expect("folder-tree memory spine should insert");
+            for batch_start in (1..page_width).step_by(INSERT_BATCH) {
+                let batch_end = (batch_start + INSERT_BATCH).min(page_width);
+                let siblings = (batch_start..batch_end).map(|index| {
+                    memory_folder(
+                        &user,
+                        parent_id,
+                        format!("memory-depth-{level:04}-{index:04}"),
+                        now,
+                    )
+                });
+                folder_repo::create_many(state.writer_db(), siblings.collect())
+                    .await
+                    .expect("folder-tree memory depth siblings should insert");
+            }
+            parent_id = spine.id;
+        }
+
+        measure_real_traversal_peak(
+            &state,
+            &user,
+            root,
+            depth.saturating_add(1),
+            super::TraversalWorkingSetObserver::stopping_at_stack_len(depth.saturating_add(1)),
+        )
+        .await
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn large_fixtures_keep_peak_working_set_bounded() {
         let mut peaks = Vec::new();
         for child_count in [2_000, 10_000, 20_000] {
-            peaks.push(measure_real_traversal_peak(child_count).await);
+            peaks.push(measure_wide_traversal_peak(child_count).await);
         }
 
         let baseline = peaks[0];
@@ -1174,6 +1245,54 @@ mod tests {
                 "bounded traversal peak grew with fixture size: baseline={baseline}, peak={peak}, all={peaks:?}"
             );
         }
+
+        let deepest_fixture = 64usize;
+        let depth_observer = measure_deep_traversal(deepest_fixture).await;
+        let measured_depth_peaks = [8, 32, deepest_fixture].map(|depth| {
+            (
+                depth,
+                depth_observer
+                    .peak_at_stack_len(depth.saturating_add(1))
+                    .expect("deep traversal should observe every stack depth"),
+            )
+        });
+        let page_bytes = usize::try_from(super::PAGE_SIZE)
+            .expect("page size should fit usize")
+            .saturating_mul(std::mem::size_of::<i64>());
+        for pair in measured_depth_peaks.windows(2) {
+            let (shallower_depth, shallower_peak) = pair[0];
+            let (deeper_depth, deeper_peak) = pair[1];
+            let added_depth = deeper_depth.saturating_sub(shallower_depth);
+            let added_bytes = deeper_peak.saturating_sub(shallower_peak);
+            assert!(
+                deeper_peak > shallower_peak,
+                "cached child pages should grow with traversal depth: {measured_depth_peaks:?}"
+            );
+            assert!(
+                added_bytes >= added_depth.saturating_mul(page_bytes),
+                "each additional depth should retain one full child page: {measured_depth_peaks:?}"
+            );
+            assert!(
+                added_bytes
+                    <= added_depth.saturating_mul(
+                        page_bytes
+                            .saturating_mul(2)
+                            .saturating_add(std::mem::size_of::<Frame>()),
+                    ),
+                "depth working set should remain linear in cached pages: {measured_depth_peaks:?}"
+            );
+        }
+        let maximum_bounded_working_set = MAX_BACKGROUND_DEPTH.saturating_add(2).saturating_mul(
+            page_bytes
+                .saturating_mul(2)
+                .saturating_add(std::mem::size_of::<Frame>()),
+        );
+        assert!(
+            measured_depth_peaks
+                .iter()
+                .all(|(_, peak)| *peak <= maximum_bounded_working_set),
+            "depth fixtures must remain within the configured traversal bound: bound={maximum_bounded_working_set}, peaks={measured_depth_peaks:?}"
+        );
     }
 
     #[tokio::test]
