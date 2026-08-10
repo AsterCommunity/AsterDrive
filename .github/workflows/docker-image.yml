@@ -27,25 +27,21 @@ jobs:
         include:
           - variant: default
             features: server,cli
-            suffix: ""
             platform: linux/amd64
             arch: amd64
             runner: ubuntu-latest
           - variant: default
             features: server,cli
-            suffix: ""
             platform: linux/arm64
             arch: arm64
             runner: ubuntu-24.04-arm
           - variant: metrics
             features: server,cli,metrics
-            suffix: "-metrics"
             platform: linux/amd64
             arch: amd64
             runner: ubuntu-latest
           - variant: metrics
             features: server,cli,metrics
-            suffix: "-metrics"
             platform: linux/arm64
             arch: arm64
             runner: ubuntu-24.04-arm
@@ -77,21 +73,18 @@ jobs:
           images: |
             ${{ env.REGISTRY_IMAGE_GHCR }}
             ${{ env.REGISTRY_IMAGE_DOCKERHUB }}
-          tags: |
-            type=ref,event=tag,suffix=${{ matrix.suffix }}
-            type=raw,value=latest${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
-            type=raw,value=stable${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
-            type=raw,value=edge${{ matrix.suffix }},enable=${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           labels: |
             org.opencontainers.image.title=AsterDrive
             org.opencontainers.image.description=Self-hosted cloud storage system built with Rust
             org.opencontainers.image.vendor=AsterCommunity
 
-      - name: Build and push Docker image
-        id: build-push
+      # Build full first so the slim target reuses the exact same feature/architecture binary.
+      - name: Build and push full Docker image
+        id: build-push-full
         uses: docker/build-push-action@v7
         with:
           context: .
+          target: runtime-full
           platforms: ${{ matrix.platform }}
           push: true
           tags: |
@@ -101,10 +94,30 @@ jobs:
           cache-from: |
             type=gha,scope=docker-image-${{ matrix.variant }}-${{ matrix.arch }}
             type=registry,ref=${{ env.REGISTRY_IMAGE_GHCR }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }}
-            type=registry,ref=${{ env.REGISTRY_IMAGE_GHCR }}:buildcache-${{ matrix.variant }}
           cache-to: |
             type=gha,mode=max,scope=docker-image-${{ matrix.variant }}-${{ matrix.arch }}
             type=registry,ref=${{ env.REGISTRY_IMAGE_GHCR }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }},mode=max
+          build-args: |
+            CARGO_FEATURES=${{ matrix.features }}
+            ASTER_BUILD_REVISION=${{ github.sha }}
+          provenance: true
+          sbom: true
+
+      - name: Build and push slim Docker image
+        id: build-push-slim
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: runtime-slim
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY_IMAGE_GHCR }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.variant }}-slim-${{ matrix.arch }}
+            ${{ env.REGISTRY_IMAGE_DOCKERHUB }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.variant }}-slim-${{ matrix.arch }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=gha,scope=docker-image-${{ matrix.variant }}-${{ matrix.arch }}
+            type=registry,ref=${{ env.REGISTRY_IMAGE_GHCR }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }}
           build-args: |
             CARGO_FEATURES=${{ matrix.features }}
             ASTER_BUILD_REVISION=${{ github.sha }}
@@ -122,8 +135,12 @@ jobs:
         include:
           - variant: default
             suffix: ""
+          - variant: default-slim
+            suffix: "-slim"
           - variant: metrics
             suffix: "-metrics"
+          - variant: metrics-slim
+            suffix: "-metrics-slim"
 
     steps:
       - name: Login to Docker Hub

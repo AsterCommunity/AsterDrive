@@ -24,6 +24,18 @@ NAS、单机、小团队，或者已经在用容器编排的单实例部署。10
 
 官方镜像默认以 **非 root 用户** 运行（UID/GID 固定为 `10001:10001`，用户名 `aster`），并内置了基于 `/health/ready` 的 `HEALTHCHECK`。
 
+### 选择完整镜像或 slim 镜像
+
+默认标签仍然发布完整镜像，内置 `vips`、`ffmpeg` 和 `ffprobe`，适合需要 HEIC / AVIF / PDF 封面、视频缩略图或视频元数据的实例。Slim 镜像不包含这些外部媒体命令，下载、存储和软件物料清单更小；常见图片与音频的内置处理器、存储提供商原生处理能力，以及数据库、存储、WebDAV、WOPI 和远程节点等其他产品能力不受影响。
+
+| 版本通道 | 默认功能 | 启用 metrics |
+| --- | --- | --- |
+| 正式版本 | `vX.Y.Z` / `latest` / `stable` | `vX.Y.Z-metrics` / `latest-metrics` / `stable-metrics` |
+| Slim | `vX.Y.Z-slim` / `latest-slim` / `stable-slim` | `vX.Y.Z-metrics-slim` / `latest-metrics-slim` / `stable-metrics-slim` |
+| 预发布 | `edge` / `edge-slim` | `edge-metrics` / `edge-metrics-slim` |
+
+新建 slim 实例时，`vips_cli`、`ffmpeg_cli` 和 `ffprobe_cli` 默认关闭。从完整镜像切换已有实例之前，先到 `管理 -> 系统设置 -> 文件处理 -> 媒体处理` 检查这三个处理器；已有数据库会保留原配置，但 slim 容器会将缺失命令报告为不可用，也不会在公开能力接口中继续声明对应格式。如果实例需要其中任一能力，继续使用完整镜像。
+
 如果你把宿主机目录直接 bind mount 到 `/data`，**一定要先把目录创建好并把属主改成 `10001:10001`**，否则容器启动时生成 `config.toml`、SQLite 文件或临时目录都会直接报权限错误：
 
 ```bash

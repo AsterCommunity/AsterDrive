@@ -49,6 +49,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - **Kubernetes / Helm 部署**
   - 新增多 Primary StatefulSet、headless / ClusterIP Service、PodDisruptionBudget、RWX avatar PVC、Ingress 示例和 NetworkPolicy
   - 提供 OrbStack smoke-test overlay、production-example overlay 与 Helm chart；chart 校验敏感配置、selector label、资源名长度和固定共享存储边界
+- **Slim Docker 镜像** — GHCR 与 Docker Hub 新增 default / metrics 的 `-slim` 多架构标签，不内置可选的 FFmpeg、ffprobe 和 libvips 工具链；现有标签继续发布开箱即用的完整媒体处理镜像，同 feature / architecture 的 full 与 slim 产物复用一次 Rust binary build。
 - **三态系统初始化** — 新增 `SystemSetupState`（`needs_admin` / `needs_storage` / `ready`），并同步到 `/auth/check`、`/health/ready`、路由守卫和前端首次存储配置流程。
 - **结构化连接凭据** — database、cache 和 config-sync endpoint 支持 `{ base_url, username, password }` inline table 与嵌套环境变量，原始保留字符由配置层安全编码。
 - **Plugin-ready storage connector registry**

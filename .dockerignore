@@ -15,8 +15,8 @@ developer-docs/
 tests/
 !tests/
 tests/*
-!tests/test_multi_primary_e2e.rs
-!tests/test_multi_primary_storage_events_e2e.rs
+!tests/multi_primary/
+!tests/multi_primary/**
 .DS_Store
 *.db
 *.db-shm
