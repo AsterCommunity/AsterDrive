@@ -97,14 +97,22 @@ pub(crate) async fn create_folder_tree_mutation_task_in_scope<S: TaskRuntimeStat
         FolderTreeMutationOperation::Restore => "Restore folder tree",
     };
     let dedupe_key = folder_tree_dedupe_key(scope, &root, operation)?;
-    let task = insert_typed_task_record(
-        state,
-        state.writer_db(),
-        TypedTaskCreate::<FolderTreeMutationTask>::new(display_name, payload)
+    let create_request = || {
+        TypedTaskCreate::<FolderTreeMutationTask>::new(display_name, payload.clone())
             .in_scope(scope)
-            .dedupe_key(dedupe_key),
-    )
-    .await?;
+            .dedupe_key(dedupe_key.clone())
+    };
+    let mut task = insert_typed_task_record(state, state.writer_db(), create_request()).await?;
+    if task.status == aster_drive_model::types::BackgroundTaskStatus::Failed
+        && background_task_repo::clear_failed_dedupe_key(
+            state.writer_db(),
+            task.id,
+            dedupe_key.as_str(),
+        )
+        .await?
+    {
+        task = insert_typed_task_record(state, state.writer_db(), create_request()).await?;
+    }
     state.wake_background_task_dispatcher();
     super::get_task_in_scope(state, scope, task.id).await
 }
@@ -925,6 +933,58 @@ mod tests {
                 1
             );
         }
+    }
+
+    #[tokio::test]
+    async fn failed_folder_tree_task_releases_dedupe_key_for_resubmission() {
+        let state = build_test_state().await;
+        let (user, root) = insert_test_user_and_root(&state, "dedupe-failed", None).await;
+        let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+        let first = super::create_folder_tree_mutation_task_in_scope(
+            &state,
+            scope,
+            root.id,
+            FolderTreeMutationOperation::Delete,
+        )
+        .await
+        .expect("first folder-tree task should create");
+        let first_model = background_task_repo::find_by_id(state.writer_db(), first.id)
+            .await
+            .expect("first folder-tree task should load");
+        let failed_at = Utc::now();
+        let mut failed: background_task::ActiveModel = first_model.into();
+        failed.status = Set(BackgroundTaskStatus::Failed);
+        failed.finished_at = Set(Some(failed_at));
+        failed.updated_at = Set(failed_at);
+        failed
+            .update(state.writer_db())
+            .await
+            .expect("folder-tree task should enter failed terminal state");
+
+        let resubmitted = super::create_folder_tree_mutation_task_in_scope(
+            &state,
+            scope,
+            root.id,
+            FolderTreeMutationOperation::Delete,
+        )
+        .await
+        .expect("failed folder-tree task should not block resubmission");
+
+        assert_ne!(first.id, resubmitted.id);
+        assert!(
+            background_task_repo::find_by_id(state.writer_db(), first.id)
+                .await
+                .expect("failed folder-tree task should remain available for history")
+                .dedupe_key
+                .is_none()
+        );
+        assert!(
+            background_task_repo::find_by_id(state.writer_db(), resubmitted.id)
+                .await
+                .expect("resubmitted folder-tree task should load")
+                .dedupe_key
+                .is_some()
+        );
     }
 
     #[tokio::test]

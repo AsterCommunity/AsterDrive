@@ -440,17 +440,24 @@ async fn assert_current_storage_policy_ignores_retained_legacy_columns(
 
     // Roll back the retained-column compatibility migration, which restores
     // the legacy write requirements while leaving converted policy rows intact.
-    let rollback_steps = CurrentMigrator::migrations()
+    let later_migration_steps = CurrentMigrator::migrations()
         .iter()
         .rev()
         .position(|migration| {
             migration.name() == "m20260805_000001_allow_connector_policy_writes_with_legacy_schema"
         })
-        .map(|tail_index| u32::try_from(tail_index + 1).expect("migration count should fit u32"))
+        .map(|tail_index| u32::try_from(tail_index).expect("migration count should fit u32"))
         .expect("retained-column compatibility migration should remain registered");
-    CurrentMigrator::down(db, Some(rollback_steps))
+    if later_migration_steps > 0 {
+        CurrentMigrator::down(db, Some(later_migration_steps))
+            .await
+            .expect(
+                "migrations after the retained-column compatibility migration should roll back",
+            );
+    }
+    CurrentMigrator::down(db, Some(1))
         .await
-        .expect("latest storage policy migrations should roll back on production backend");
+        .expect("retained-column compatibility migration should roll back on production backend");
     insert_current_policy(db, format!("connector-policy-down-{backend:?}-{now}"))
         .await
         .expect_err("historical retained schema should reject the current policy insert shape");
@@ -474,9 +481,14 @@ async fn assert_current_storage_policy_ignores_retained_legacy_columns(
         );
     }
 
-    CurrentMigrator::up(db, Some(rollback_steps))
+    CurrentMigrator::up(db, Some(1))
         .await
-        .expect("latest storage policy migrations should reapply on production backend");
+        .expect("retained-column compatibility migration should reapply on production backend");
+    if later_migration_steps > 0 {
+        CurrentMigrator::up(db, Some(later_migration_steps))
+            .await
+            .expect("migrations after the retained-column compatibility migration should reapply");
+    }
     let reapplied =
         insert_current_policy(db, format!("connector-policy-reapplied-{backend:?}-{now}"))
             .await

@@ -15,6 +15,25 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
+pub async fn clear_failed_dedupe_key<C: ConnectionTrait>(
+    db: &C,
+    id: i64,
+    dedupe_key: &str,
+) -> Result<bool> {
+    let result = BackgroundTask::update_many()
+        .col_expr(
+            background_task::Column::DedupeKey,
+            Expr::value(Option::<String>::None),
+        )
+        .filter(background_task::Column::Id.eq(id))
+        .filter(background_task::Column::Status.eq(BackgroundTaskStatus::Failed))
+        .filter(background_task::Column::DedupeKey.eq(dedupe_key))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected == 1)
+}
+
 pub struct SystemRuntimeSuccessRefresh<'a> {
     pub id: i64,
     pub result_json: &'a str,

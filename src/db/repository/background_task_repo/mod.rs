@@ -13,9 +13,10 @@ pub use cleanup::{
 pub use common::{AdminTaskFilters, TerminalTaskCleanupFilters};
 pub use dispatch::{list_claimable, list_claimable_by_kinds, touch_heartbeat, try_claim};
 pub use mutation::{
-    SystemRuntimeSuccessRefresh, TaskFailureUpdate, TaskProgressUpdate, TaskSuccessUpdate, create,
-    mark_failed, mark_progress, mark_retry, mark_succeeded, refresh_system_runtime_success,
-    release_processing, reset_for_manual_retry, set_display_name, set_runtime_json,
+    SystemRuntimeSuccessRefresh, TaskFailureUpdate, TaskProgressUpdate, TaskSuccessUpdate,
+    clear_failed_dedupe_key, create, mark_failed, mark_progress, mark_retry, mark_succeeded,
+    refresh_system_runtime_success, release_processing, reset_for_manual_retry, set_display_name,
+    set_runtime_json,
 };
 pub use query::{
     count_active_processing_by_kinds, count_pending_or_retry, count_processing, find_by_dedupe_key,
