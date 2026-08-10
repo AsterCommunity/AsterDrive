@@ -109,7 +109,7 @@ impl QiniuConnector {
         super::common::decode_typed_policy_config(policy, Self::ID, 1).map(|(config, _)| config)
     }
 
-    fn endpoints(region: &str) -> Result<QiniuRegionEndpoints> {
+    pub(super) fn endpoints(region: &str) -> Result<QiniuRegionEndpoints> {
         match region {
             "z0" => Ok(QiniuRegionEndpoints {
                 upload: "https://up-z0.qiniup.com".to_string(),
@@ -150,7 +150,7 @@ impl QiniuConnector {
         }
     }
 
-    fn descriptor_definition() -> StorageConnectorDescriptor {
+    pub(super) fn descriptor_definition() -> StorageConnectorDescriptor {
         object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
             connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
             label: "Qiniu Kodo",
