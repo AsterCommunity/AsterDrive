@@ -217,11 +217,16 @@ cargo bench --bench path_hotspots
 
 ## Folder Tree Mutation Memory Boundary
 
-Issue `#497` has a separate ignored Rust integration benchmark because its
-acceptance fixtures contain 100,000, 500,000, and 1,000,000 resources. The
-runner uses file-backed SQLite, creates one folder plus enough files to reach
-each exact resource count, and excludes fixture construction from the measured
-interval.
+Issue `#497` has a separate ignored Rust integration benchmark for the three
+independent traversal limits. The runner uses file-backed SQLite and excludes
+all fixture construction from the measured interval. Its default matrix is:
+
+- `wide_files`: one root folder plus enough direct files to reach exactly
+  100,000, 500,000, and 1,000,000 resources;
+- `wide_folders`: one root folder plus 2,001 direct child folders, crossing the
+  2,000-entry synchronous frontier limit;
+- `deep_chain`: one root folder plus 129 descendants, crossing the maximum
+  synchronous depth of 128.
 
 For both REST delete and trash restore it records:
 
@@ -237,10 +242,15 @@ observer, so it contains duration-dependent sampling noise. The acceptance gate
 uses the cross-size live-heap ratio; cumulative allocation and database growth
 remain diagnostic occupancy evidence.
 
-The summary requires every operation to return `202 Accepted` and requires the
-maximum heap peak across the three fixture sizes to stay within 1.25x of the
-minimum. This checks the configured memory boundary without putting machine
-specific latency or absolute byte thresholds into ordinary CI.
+The summary requires delete and restore in every scenario to return
+`202 Accepted`, records the exact folder/file split, and rejects missing,
+duplicate, inconsistent, or non-positive measurements. For `wide_files`, the
+maximum heap peak across the three resource counts must stay within 1.25x of the
+minimum. The fixed `wide_folders` and `deep_chain` cases validate the frontier
+and depth fallback paths separately; their peaks are not mixed into the
+cross-size ratio because the fixture shapes exercise different working sets.
+This checks the configured memory boundaries without putting machine-specific
+latency or absolute byte thresholds into ordinary CI.
 
 Run the complete acceptance matrix:
 
@@ -252,15 +262,18 @@ Useful overrides:
 
 ```bash
 ASTER_ISSUE497_RESOURCE_COUNTS=100000 \
+ASTER_ISSUE497_SCENARIOS=wide_files,wide_folders,deep_chain \
 ASTER_ISSUE497_KEEP_DATABASES=1 \
 ASTER_ISSUE497_RESULT_DIR=/tmp/issue-497-smoke \
 ASTER_ISSUE497_MAX_PEAK_RATIO=1.5 \
 tests/performance/run-issue-497-folder-tree-memory.sh
 ```
 
-The single-size override is only a smoke test for the runner and task path. Its
-max/min ratio is necessarily `1.0`, so it does not validate bounded growth
-across resource counts. Keep the default three sizes for issue acceptance.
+`ASTER_ISSUE497_SCENARIOS` accepts `wide_files`, `wide_folders`, and
+`deep_chain`. A single wide-file size or a subset of scenarios is only a smoke
+test for the runner and task path. A one-size max/min ratio is necessarily
+`1.0`, and omitted shape scenarios leave their traversal bounds unvalidated.
+Keep the default scenario and resource-count matrices for issue acceptance.
 
 The benchmark target is gated by the existing `benchmarks` feature, so ordinary
 test runs do not execute or compile the large-fixture runner. Workspace

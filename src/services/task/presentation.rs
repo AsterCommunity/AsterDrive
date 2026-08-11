@@ -825,7 +825,7 @@ mod tests {
     use super::{Params, TaskPresentationContext, build_task_presentation};
     use crate::services::task::types::{
         FolderTreeMutationOperation, FolderTreeMutationTaskPayload, FolderTreeMutationTaskResult,
-        TaskPayload, TaskPresentationCode, TaskResult,
+        TaskPayload, TaskPresentationCode, TaskResult, TrashPurgeAllTaskPayload,
     };
     use aster_drive_model::types::BackgroundTaskStatus;
     use serde_json::json;
@@ -916,5 +916,14 @@ mod tests {
                 .code,
             TaskPresentationCode::StatusTextFolderTreeRestoreFinished
         );
+
+        let mismatched = build_task_presentation(
+            &TaskPayload::TrashPurgeAll(TrashPurgeAllTaskPayload {}),
+            Some(&result),
+            BackgroundTaskStatus::Succeeded,
+            TaskPresentationContext::default(),
+        )
+        .expect("mismatched result should not prevent the payload presentation");
+        assert!(mismatched.status.is_none());
     }
 }

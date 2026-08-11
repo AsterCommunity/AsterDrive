@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, QueryFilter,
-    QueryOrder, QuerySelect,
+    QueryOrder, QuerySelect, Select,
 };
 
 use super::common::{TerminalTaskCleanupFilters, terminal_cleanup_condition};
@@ -56,13 +56,52 @@ pub async fn list_terminal_by_filters_for_update<C: ConnectionTrait>(
     db: &C,
     filters: &TerminalTaskCleanupFilters,
 ) -> Result<Vec<background_task::Model>> {
+    terminal_by_filters_query(filters, db.get_database_backend())
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
+fn terminal_by_filters_query(
+    filters: &TerminalTaskCleanupFilters,
+    backend: DbBackend,
+) -> Select<BackgroundTask> {
     let query = BackgroundTask::find()
         .filter(terminal_cleanup_condition(filters))
         .order_by_asc(background_task::Column::Id);
-    let query = if db.get_database_backend() == DbBackend::Sqlite {
+    if backend == DbBackend::Sqlite {
         query
     } else {
         query.lock_exclusive()
-    };
-    query.all(db).await.map_err(AsterError::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sea_orm::QueryTrait;
+
+    use super::*;
+
+    #[test]
+    fn terminal_cleanup_query_locks_rows_only_on_row_locking_backends() {
+        let filters = TerminalTaskCleanupFilters {
+            finished_before: Utc::now(),
+            kind: None,
+            status: None,
+        };
+
+        let sqlite = terminal_by_filters_query(&filters, DbBackend::Sqlite)
+            .build(DbBackend::Sqlite)
+            .to_string();
+        let postgres = terminal_by_filters_query(&filters, DbBackend::Postgres)
+            .build(DbBackend::Postgres)
+            .to_string();
+        let mysql = terminal_by_filters_query(&filters, DbBackend::MySql)
+            .build(DbBackend::MySql)
+            .to_string();
+
+        assert!(!sqlite.contains("FOR UPDATE"));
+        assert!(postgres.ends_with("FOR UPDATE"));
+        assert!(mysql.ends_with("FOR UPDATE"));
+    }
 }

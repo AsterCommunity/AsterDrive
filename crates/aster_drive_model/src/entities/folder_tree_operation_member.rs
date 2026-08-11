@@ -34,3 +34,19 @@ impl Related<super::background_task::Entity> for Entity {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_orm::RelationType;
+
+    #[test]
+    fn background_task_relation_uses_task_id_and_cascades() {
+        let relation = <Entity as Related<super::super::background_task::Entity>>::to();
+
+        assert_eq!(relation.rel_type, RelationType::HasOne);
+        assert!(!relation.skip_fk);
+        assert_eq!(format!("{:?}", relation.on_delete), "Some(Cascade)");
+        assert_eq!(format!("{:?}", relation.on_update), "Some(Cascade)");
+    }
+}

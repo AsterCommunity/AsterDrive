@@ -118,11 +118,7 @@ pub(crate) async fn delete_in_scope_with_audit(
             }
             Err(error) => return Err(error),
         };
-    let Some(details_object) = details.as_object_mut() else {
-        return Err(AsterError::internal_error(
-            "folder audit location details must be a JSON object",
-        ));
-    };
+    let details_object = folder_delete_audit_details_object(&mut details)?;
     match &outcome {
         FolderTreeMutationDispatch::Completed => {
             details_object.insert("dispatch".to_string(), json!("completed"));
@@ -143,6 +139,14 @@ pub(crate) async fn delete_in_scope_with_audit(
     )
     .await;
     Ok(outcome)
+}
+
+fn folder_delete_audit_details_object(
+    details: &mut serde_json::Value,
+) -> Result<&mut serde_json::Map<String, serde_json::Value>> {
+    details.as_object_mut().ok_or_else(|| {
+        AsterError::internal_error("folder audit location details must be a JSON object")
+    })
 }
 
 pub(crate) async fn update_in_scope_with_audit(
@@ -387,5 +391,18 @@ fn scope_team_id(scope: WorkspaceStorageScope) -> Option<i64> {
     match scope {
         WorkspaceStorageScope::Personal { .. } => None,
         WorkspaceStorageScope::Team { team_id, .. } => Some(team_id),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn folder_delete_audit_details_reject_non_object_values() {
+        let mut details = serde_json::json!(["unexpected"]);
+
+        let error = super::folder_delete_audit_details_object(&mut details)
+            .expect_err("folder delete audit details must remain an object");
+
+        assert!(error.message().contains("must be a JSON object"));
     }
 }

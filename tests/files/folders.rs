@@ -534,6 +534,12 @@ async fn test_folder_tree_staging_is_idempotent_and_cascades_with_task_record() 
             .unwrap(),
         1
     );
+    assert_eq!(
+        folder_tree_operation_repo::stage_ids(state.writer_db(), task.id, EntityType::Folder, &[],)
+            .await
+            .expect("empty staging batch should preserve the authoritative count"),
+        1
+    );
 
     background_task::Entity::delete_by_id(task.id)
         .exec(state.writer_db())

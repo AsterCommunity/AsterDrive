@@ -12,11 +12,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use actix_web::test;
-use aster_drive::db::repository::{file_repo, policy_repo, user_repo};
-use aster_drive_model::entities::{file, file_blob};
+use aster_drive::db::repository::{file_repo, folder_repo, policy_repo, user_repo};
+use aster_drive_model::entities::{file, file_blob, folder};
 use aster_forge_file_classification::FileCategory;
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, Set,
+};
 use serde_json::Value;
 
 struct MeasuringAllocator;
@@ -100,6 +102,63 @@ struct HeapMeasurement {
     end_bytes: u64,
     allocated_bytes: u64,
     allocation_count: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FixtureScenario {
+    WideFiles,
+    WideFolders,
+    DeepChain,
+}
+
+impl FixtureScenario {
+    const WIDE_FOLDER_CHILDREN: usize = 2_001;
+    const DEEP_CHAIN_CHILDREN: usize = 129;
+
+    fn from_environment() -> Self {
+        match std::env::var("ISSUE497_SCENARIO").as_deref() {
+            Ok("wide_files") => Self::WideFiles,
+            Ok("wide_folders") => Self::WideFolders,
+            Ok("deep_chain") => Self::DeepChain,
+            Ok(value) => panic!(
+                "ISSUE497_SCENARIO must be wide_files, wide_folders, or deep_chain; got {value}"
+            ),
+            Err(_) => panic!("ISSUE497_SCENARIO must be set"),
+        }
+    }
+
+    const fn name(self) -> &'static str {
+        match self {
+            Self::WideFiles => "wide_files",
+            Self::WideFolders => "wide_folders",
+            Self::DeepChain => "deep_chain",
+        }
+    }
+
+    fn counts(self) -> (usize, usize, usize) {
+        match self {
+            Self::WideFiles => {
+                let resource_count = std::env::var("ISSUE497_RESOURCES")
+                    .expect("ISSUE497_RESOURCES must be set for wide_files")
+                    .parse::<usize>()
+                    .expect("ISSUE497_RESOURCES must be an integer");
+                assert!(
+                    resource_count
+                        > aster_drive::services::files::folder::REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_RESOURCES,
+                    "wide_files must exceed the REST resource budget; got {resource_count}"
+                );
+                (resource_count, 1, resource_count - 1)
+            }
+            Self::WideFolders => {
+                let folder_count = Self::WIDE_FOLDER_CHILDREN + 1;
+                (folder_count, folder_count, 0)
+            }
+            Self::DeepChain => {
+                let folder_count = Self::DEEP_CHAIN_CHILDREN + 1;
+                (folder_count, folder_count, 0)
+            }
+        }
+    }
 }
 
 fn start_heap_measurement() -> u64 {
@@ -194,8 +253,10 @@ async fn checkpoint(state: &aster_drive::runtime::PrimaryAppState) {
 )]
 fn print_metrics(
     revision: &str,
+    scenario: FixtureScenario,
     operation: &str,
     resource_count: usize,
+    folder_count: usize,
     file_count: usize,
     status: u16,
     request_elapsed: Duration,
@@ -209,8 +270,10 @@ fn print_metrics(
         "ISSUE497_METRICS {}",
         serde_json::json!({
             "revision": revision,
+            "scenario": scenario.name(),
             "operation": operation,
             "resource_count": resource_count,
+            "folder_count": folder_count,
             "file_count": file_count,
             "status": status,
             "request_us": request_elapsed.as_micros(),
@@ -229,47 +292,16 @@ fn print_metrics(
     );
 }
 
-#[actix_web::test]
-#[ignore = "large fixture benchmark; run tests/performance/run-issue-497-folder-tree-memory.sh"]
-async fn measure_folder_delete_restore_memory() {
+async fn insert_wide_files(
+    state: &aster_drive::runtime::PrimaryAppState,
+    user: &aster_drive_model::entities::user::Model,
+    folder_id: i64,
+    file_count: usize,
+    revision: &str,
+    resource_count: usize,
+) {
     const INSERT_BATCH: usize = 400;
 
-    let resource_count = std::env::var("ISSUE497_RESOURCES")
-        .expect("ISSUE497_RESOURCES must be set")
-        .parse::<usize>()
-        .expect("ISSUE497_RESOURCES must be an integer");
-    assert!(
-        resource_count
-            > aster_drive::services::files::folder::REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_RESOURCES,
-        "fixture must exceed the REST synchronous traversal resource budget so delete and restore return 202; got {resource_count}"
-    );
-    let file_count = resource_count - 1;
-    let revision = std::env::var("ISSUE497_REVISION").unwrap_or_else(|_| "unknown".to_string());
-    let database_path =
-        PathBuf::from(std::env::var("ISSUE497_DB_PATH").expect("ISSUE497_DB_PATH must be set"));
-    let paths = database_paths(&database_path);
-    remove_database(&paths);
-    let database_url = format!("sqlite://{}?mode=rwc", database_path.display());
-
-    let state = common::setup_with_database_url(&database_url).await;
-    let app = create_test_app!(state.clone());
-    let (token, _) = register_and_login!(app);
-
-    let request = test::TestRequest::post()
-        .uri("/api/v1/folders")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({ "name": "Issue 497 benchmark" }))
-        .to_request();
-    let response = test::call_service(&app, request).await;
-    assert_eq!(response.status(), 201);
-    let body: Value = test::read_body_json(response).await;
-    let folder_id = body["data"]["id"].as_i64().unwrap();
-
-    let user = user_repo::find_by_username(state.writer_db(), "testuser")
-        .await
-        .unwrap()
-        .expect("benchmark user should exist");
     let policy = policy_repo::find_default(state.writer_db())
         .await
         .unwrap()
@@ -315,6 +347,161 @@ async fn measure_folder_delete_restore_memory() {
             .await
             .expect("benchmark files should insert");
     }
+}
+
+async fn insert_wide_folders(
+    state: &aster_drive::runtime::PrimaryAppState,
+    user: &aster_drive_model::entities::user::Model,
+    root_id: i64,
+) {
+    const INSERT_BATCH: usize = 400;
+    let now = Utc::now();
+
+    for batch_start in (0..FixtureScenario::WIDE_FOLDER_CHILDREN).step_by(INSERT_BATCH) {
+        let batch_end = (batch_start + INSERT_BATCH).min(FixtureScenario::WIDE_FOLDER_CHILDREN);
+        let models = (batch_start..batch_end)
+            .map(|index| folder::ActiveModel {
+                name: Set(format!("benchmark-frontier-child-{index:04}")),
+                parent_id: Set(Some(root_id)),
+                team_id: Set(None),
+                owner_user_id: Set(Some(user.id)),
+                created_by_user_id: Set(Some(user.id)),
+                created_by_username: Set(user.username.clone()),
+                policy_id: Set(None),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(None),
+                ..Default::default()
+            })
+            .collect();
+        folder_repo::create_many(state.writer_db(), models)
+            .await
+            .expect("benchmark frontier folders should insert");
+    }
+}
+
+async fn insert_deep_chain(
+    state: &aster_drive::runtime::PrimaryAppState,
+    user: &aster_drive_model::entities::user::Model,
+    root_id: i64,
+) {
+    let now = Utc::now();
+    let mut parent_id = root_id;
+    for depth in 1..=FixtureScenario::DEEP_CHAIN_CHILDREN {
+        parent_id = folder_repo::create(
+            state.writer_db(),
+            folder::ActiveModel {
+                name: Set(format!("benchmark-depth-child-{depth:03}")),
+                parent_id: Set(Some(parent_id)),
+                team_id: Set(None),
+                owner_user_id: Set(Some(user.id)),
+                created_by_user_id: Set(Some(user.id)),
+                created_by_username: Set(user.username.clone()),
+                policy_id: Set(None),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(None),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("benchmark depth folder should insert")
+        .id;
+    }
+}
+
+async fn assert_fixture_deleted_state(
+    state: &aster_drive::runtime::PrimaryAppState,
+    user_id: i64,
+    folder_count: usize,
+    file_count: usize,
+    deleted: bool,
+) {
+    let folder_scope = folder::Entity::find().filter(folder::Column::OwnerUserId.eq(user_id));
+    let matching_folders = if deleted {
+        folder_scope
+            .clone()
+            .filter(folder::Column::DeletedAt.is_not_null())
+    } else {
+        folder_scope
+            .clone()
+            .filter(folder::Column::DeletedAt.is_null())
+    };
+    assert_eq!(
+        folder_scope.count(state.writer_db()).await.unwrap(),
+        u64::try_from(folder_count).unwrap()
+    );
+    assert_eq!(
+        matching_folders.count(state.writer_db()).await.unwrap(),
+        u64::try_from(folder_count).unwrap()
+    );
+
+    let file_scope = file::Entity::find().filter(file::Column::OwnerUserId.eq(user_id));
+    let matching_files = if deleted {
+        file_scope
+            .clone()
+            .filter(file::Column::DeletedAt.is_not_null())
+    } else {
+        file_scope.clone().filter(file::Column::DeletedAt.is_null())
+    };
+    assert_eq!(
+        file_scope.count(state.writer_db()).await.unwrap(),
+        u64::try_from(file_count).unwrap()
+    );
+    assert_eq!(
+        matching_files.count(state.writer_db()).await.unwrap(),
+        u64::try_from(file_count).unwrap()
+    );
+}
+
+#[actix_web::test]
+#[ignore = "large fixture benchmark; run tests/performance/run-issue-497-folder-tree-memory.sh"]
+async fn measure_folder_delete_restore_memory() {
+    let scenario = FixtureScenario::from_environment();
+    let (resource_count, folder_count, file_count) = scenario.counts();
+    let revision = std::env::var("ISSUE497_REVISION").unwrap_or_else(|_| "unknown".to_string());
+    let database_path =
+        PathBuf::from(std::env::var("ISSUE497_DB_PATH").expect("ISSUE497_DB_PATH must be set"));
+    let paths = database_paths(&database_path);
+    remove_database(&paths);
+    let database_url = format!("sqlite://{}?mode=rwc", database_path.display());
+
+    let state = common::setup_with_database_url(&database_url).await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let request = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "Issue 497 benchmark" }))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), 201);
+    let body: Value = test::read_body_json(response).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+
+    let user = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .expect("benchmark user should exist");
+    match scenario {
+        FixtureScenario::WideFiles => {
+            insert_wide_files(
+                &state,
+                &user,
+                folder_id,
+                file_count,
+                &revision,
+                resource_count,
+            )
+            .await;
+        }
+        FixtureScenario::WideFolders => insert_wide_folders(&state, &user, folder_id).await,
+        FixtureScenario::DeepChain => insert_deep_chain(&state, &user, folder_id).await,
+    }
+
+    assert_fixture_deleted_state(&state, user.id, folder_count, file_count, false).await;
 
     checkpoint(&state).await;
     let delete_database_before = database_footprint(&paths);
@@ -348,8 +535,10 @@ async fn measure_folder_delete_restore_memory() {
     let delete_database_after = database_footprint(&paths);
     print_metrics(
         &revision,
+        scenario,
         "delete",
         resource_count,
+        folder_count,
         file_count,
         delete_status,
         delete_request_elapsed,
@@ -364,6 +553,7 @@ async fn measure_folder_delete_restore_memory() {
         "delete should queue with 202: {}",
         delete_failure.unwrap_or_default()
     );
+    assert_fixture_deleted_state(&state, user.id, folder_count, file_count, true).await;
 
     checkpoint(&state).await;
     let restore_database_before = database_footprint(&paths);
@@ -397,8 +587,10 @@ async fn measure_folder_delete_restore_memory() {
     let restore_database_after = database_footprint(&paths);
     print_metrics(
         &revision,
+        scenario,
         "restore",
         resource_count,
+        folder_count,
         file_count,
         restore_status,
         restore_request_elapsed,
@@ -413,4 +605,5 @@ async fn measure_folder_delete_restore_memory() {
         "restore should queue with 202: {}",
         restore_failure.unwrap_or_default()
     );
+    assert_fixture_deleted_state(&state, user.id, folder_count, file_count, false).await;
 }
