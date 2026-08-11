@@ -39,7 +39,10 @@ pub use models::{
     build_folder_list_items_with_tags, build_folder_list_items_with_tags_and_lock_states,
 };
 pub use mutation::{create, delete, move_folder, set_lock, update};
-pub use tree::REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_RESOURCES;
+pub use tree::{
+    REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_DEPTH, REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_FRONTIER,
+    REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_RESOURCES,
+};
 
 pub(crate) use access::{
     ensure_folder_model_in_scope, ensure_personal_folder_scope, verify_folder_in_scope,

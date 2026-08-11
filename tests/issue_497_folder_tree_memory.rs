@@ -112,8 +112,10 @@ enum FixtureScenario {
 }
 
 impl FixtureScenario {
-    const WIDE_FOLDER_CHILDREN: usize = 2_001;
-    const DEEP_CHAIN_CHILDREN: usize = 129;
+    const WIDE_FOLDER_CHILDREN: usize =
+        aster_drive::services::files::folder::REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_FRONTIER + 1;
+    const DEEP_CHAIN_CHILDREN: usize =
+        aster_drive::services::files::folder::REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_DEPTH + 1;
 
     fn from_environment() -> Self {
         match std::env::var("ISSUE497_SCENARIO").as_deref() {
@@ -437,6 +439,12 @@ async fn assert_fixture_deleted_state(
     );
 
     let file_scope = file::Entity::find().filter(file::Column::OwnerUserId.eq(user_id));
+    let actual_file_count = file_scope.clone().count(state.writer_db()).await.unwrap();
+    if file_count == 0 {
+        assert_eq!(actual_file_count, 0, "zero-file fixture gained files");
+        return;
+    }
+    assert_eq!(actual_file_count, u64::try_from(file_count).unwrap());
     let matching_files = if deleted {
         file_scope
             .clone()
@@ -444,10 +452,6 @@ async fn assert_fixture_deleted_state(
     } else {
         file_scope.clone().filter(file::Column::DeletedAt.is_null())
     };
-    assert_eq!(
-        file_scope.count(state.writer_db()).await.unwrap(),
-        u64::try_from(file_count).unwrap()
-    );
     assert_eq!(
         matching_files.count(state.writer_db()).await.unwrap(),
         u64::try_from(file_count).unwrap()
