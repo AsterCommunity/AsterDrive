@@ -11,9 +11,9 @@ use aster_drive_model::types::{
 
 use super::runtime::SystemRuntimeTaskKind;
 use super::types::{
-    BlobMaintenanceAction, RuntimeSystemHealthComponent, RuntimeSystemHealthResult,
-    RuntimeSystemHealthStatus, RuntimeTaskResult, TaskPayload, TaskPresentation,
-    TaskPresentationCode, TaskPresentationMessage, TaskResult,
+    BlobMaintenanceAction, FolderTreeMutationOperation, RuntimeSystemHealthComponent,
+    RuntimeSystemHealthResult, RuntimeSystemHealthStatus, RuntimeTaskResult, TaskPayload,
+    TaskPresentation, TaskPresentationCode, TaskPresentationMessage, TaskResult,
 };
 
 use TaskPresentationCode as Code;
@@ -106,7 +106,10 @@ fn title_message(
             }
         }
         TaskPayload::TrashPurgeAll(_) => Some(PresentationMessage::TrashPurgeAllTitle),
-        TaskPayload::FolderTreeMutation(_) => None,
+        TaskPayload::FolderTreeMutation(payload) => Some(match payload.operation {
+            FolderTreeMutationOperation::Delete => PresentationMessage::FolderTreeDeleteTitle,
+            FolderTreeMutationOperation::Restore => PresentationMessage::FolderTreeRestoreTitle,
+        }),
         TaskPayload::StoragePolicyTempCleanup(payload) => {
             let policy_name = payload.policy_name.trim();
             if policy_name.is_empty() {
@@ -177,12 +180,15 @@ fn status_message(
         (TaskPayload::SystemRuntime(_), Some(TaskResult::SystemRuntime(result))) => {
             system_runtime_status_message(result)
         }
-        (_, Some(result)) => status_message_from_result(result),
+        (_, Some(result)) => status_message_from_result(payload, result),
         _ => status_message_without_result(payload, status),
     }
 }
 
-fn status_message_from_result(result: &TaskResult) -> Option<TaskPresentationMessage> {
+fn status_message_from_result(
+    payload: &TaskPayload,
+    result: &TaskResult,
+) -> Option<TaskPresentationMessage> {
     match result {
         TaskResult::ArchiveCompress(result) => Some(PresentationMessage::ArchiveReadyStatus {
             name: result.target_file_name.clone(),
@@ -217,7 +223,23 @@ fn status_message_from_result(result: &TaskResult) -> Option<TaskPresentationMes
         TaskResult::TrashPurgeAll(result) => Some(PresentationMessage::TrashPurgedStatus {
             purged: result.purged,
         }),
-        TaskResult::FolderTreeMutation(_) => None,
+        TaskResult::FolderTreeMutation(result) => match payload {
+            TaskPayload::FolderTreeMutation(payload) => Some(match payload.operation {
+                FolderTreeMutationOperation::Delete => {
+                    PresentationMessage::FolderTreeDeleteFinishedStatus {
+                        file_count: result.file_count,
+                        folder_count: result.folder_count,
+                    }
+                }
+                FolderTreeMutationOperation::Restore => {
+                    PresentationMessage::FolderTreeRestoreFinishedStatus {
+                        file_count: result.file_count,
+                        folder_count: result.folder_count,
+                    }
+                }
+            }),
+            _ => None,
+        },
         TaskResult::StoragePolicyTempCleanup(result) => {
             Some(PresentationMessage::TemporaryUploadCleanupFinishedStatus {
                 deleted_objects: result.deleted_objects,
@@ -263,6 +285,14 @@ fn status_message_without_result(
             ) =>
         {
             Some(PresentationMessage::WaitingPresignedUrlExpiryStatus.into())
+        }
+        TaskPayload::FolderTreeMutation(_)
+            if matches!(
+                status,
+                BackgroundTaskStatus::Processing | BackgroundTaskStatus::Retry
+            ) =>
+        {
+            Some(PresentationMessage::FolderTreeMutationScanningStatus.into())
         }
         _ => None,
     }
@@ -366,6 +396,8 @@ enum PresentationMessage {
         kind: MediaMetadataKind,
     },
     TrashPurgeAllTitle,
+    FolderTreeDeleteTitle,
+    FolderTreeRestoreTitle,
     StoragePolicyTempCleanupTitle {
         policy: String,
         policy_id: i64,
@@ -420,6 +452,15 @@ enum PresentationMessage {
     },
     TrashPurgedStatus {
         purged: u32,
+    },
+    FolderTreeMutationScanningStatus,
+    FolderTreeDeleteFinishedStatus {
+        file_count: u64,
+        folder_count: u64,
+    },
+    FolderTreeRestoreFinishedStatus {
+        file_count: u64,
+        folder_count: u64,
     },
     TemporaryUploadCleanupFinishedStatus {
         deleted_objects: u64,
@@ -532,6 +573,12 @@ impl From<PresentationMessage> for TaskPresentationMessage {
             ),
             PresentationMessage::TrashPurgeAllTitle => {
                 (Code::TaskNameTrashPurgeAll, BTreeMap::new())
+            }
+            PresentationMessage::FolderTreeDeleteTitle => {
+                (Code::TaskNameFolderTreeDelete, BTreeMap::new())
+            }
+            PresentationMessage::FolderTreeRestoreTitle => {
+                (Code::TaskNameFolderTreeRestore, BTreeMap::new())
             }
             PresentationMessage::StoragePolicyTempCleanupTitle { policy, policy_id } => (
                 Code::TaskNameStoragePolicyTempCleanup,
@@ -681,6 +728,29 @@ impl From<PresentationMessage> for TaskPresentationMessage {
                 Code::StatusTextTrashPurged,
                 Params::new().with("purged", json!(purged)).finish(),
             ),
+            PresentationMessage::FolderTreeMutationScanningStatus => {
+                (Code::StatusTextFolderTreeMutationScanning, BTreeMap::new())
+            }
+            PresentationMessage::FolderTreeDeleteFinishedStatus {
+                file_count,
+                folder_count,
+            } => (
+                Code::StatusTextFolderTreeDeleteFinished,
+                Params::new()
+                    .with("fileCount", json!(file_count))
+                    .with("folderCount", json!(folder_count))
+                    .finish(),
+            ),
+            PresentationMessage::FolderTreeRestoreFinishedStatus {
+                file_count,
+                folder_count,
+            } => (
+                Code::StatusTextFolderTreeRestoreFinished,
+                Params::new()
+                    .with("fileCount", json!(file_count))
+                    .with("folderCount", json!(folder_count))
+                    .finish(),
+            ),
             PresentationMessage::TemporaryUploadCleanupFinishedStatus {
                 deleted_objects,
                 missing_objects,
@@ -752,7 +822,12 @@ impl From<PresentationMessage> for TaskPresentationMessage {
 
 #[cfg(test)]
 mod tests {
-    use super::Params;
+    use super::{Params, TaskPresentationContext, build_task_presentation};
+    use crate::services::task::types::{
+        FolderTreeMutationOperation, FolderTreeMutationTaskPayload, FolderTreeMutationTaskResult,
+        TaskPayload, TaskPresentationCode, TaskResult,
+    };
+    use aster_drive_model::types::BackgroundTaskStatus;
     use serde_json::json;
 
     #[test]
@@ -768,5 +843,78 @@ mod tests {
         );
         assert_eq!(params["a"], json!(42));
         assert_eq!(params["z"], json!({"nested": [1, 2, 3]}));
+    }
+
+    #[test]
+    fn folder_tree_presentation_localizes_operations_and_status_boundaries() {
+        let delete_payload = TaskPayload::FolderTreeMutation(FolderTreeMutationTaskPayload {
+            folder_id: 41,
+            operation: FolderTreeMutationOperation::Delete,
+        });
+        let processing = build_task_presentation(
+            &delete_payload,
+            None,
+            BackgroundTaskStatus::Processing,
+            TaskPresentationContext::default(),
+        )
+        .expect("folder-tree presentation should exist");
+        assert_eq!(
+            processing.title.expect("delete title should exist").code,
+            TaskPresentationCode::TaskNameFolderTreeDelete
+        );
+        assert_eq!(
+            processing
+                .status
+                .expect("scanning status should exist")
+                .code,
+            TaskPresentationCode::StatusTextFolderTreeMutationScanning
+        );
+
+        let result = TaskResult::FolderTreeMutation(FolderTreeMutationTaskResult {
+            file_count: 73,
+            folder_count: 11,
+        });
+        let completed_delete = build_task_presentation(
+            &delete_payload,
+            Some(&result),
+            BackgroundTaskStatus::Succeeded,
+            TaskPresentationContext::default(),
+        )
+        .expect("completed delete presentation should exist");
+        let delete_status = completed_delete
+            .status
+            .expect("completed delete status should exist");
+        assert_eq!(
+            delete_status.code,
+            TaskPresentationCode::StatusTextFolderTreeDeleteFinished
+        );
+        assert_eq!(delete_status.params["fileCount"], json!(73));
+        assert_eq!(delete_status.params["folderCount"], json!(11));
+
+        let restore_payload = TaskPayload::FolderTreeMutation(FolderTreeMutationTaskPayload {
+            folder_id: 41,
+            operation: FolderTreeMutationOperation::Restore,
+        });
+        let completed_restore = build_task_presentation(
+            &restore_payload,
+            Some(&result),
+            BackgroundTaskStatus::Succeeded,
+            TaskPresentationContext::default(),
+        )
+        .expect("completed restore presentation should exist");
+        assert_eq!(
+            completed_restore
+                .title
+                .expect("restore title should exist")
+                .code,
+            TaskPresentationCode::TaskNameFolderTreeRestore
+        );
+        assert_eq!(
+            completed_restore
+                .status
+                .expect("completed restore status should exist")
+                .code,
+            TaskPresentationCode::StatusTextFolderTreeRestoreFinished
+        );
     }
 }

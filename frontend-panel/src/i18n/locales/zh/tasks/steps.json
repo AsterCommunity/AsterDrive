@@ -32,6 +32,8 @@
 	"step_media_metadata_extract_persist_metadata": "保存媒体元数据",
 	"step_trash_purge_all_waiting": "等待执行",
 	"step_trash_purge_all_purge_trash": "清空回收站",
+	"step_folder_tree_mutation_waiting": "等待执行",
+	"step_folder_tree_mutation_folder_tree": "变更目录树",
 	"step_storage_policy_temp_cleanup_waiting": "等待执行",
 	"step_storage_policy_temp_cleanup_prepare_sources": "准备存储驱动快照",
 	"step_storage_policy_temp_cleanup_cleanup_objects": "清理临时对象",

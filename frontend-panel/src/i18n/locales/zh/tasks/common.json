@@ -33,6 +33,8 @@
 	"task_name_archive_preview_generate": "为 {{name}} 生成压缩包预览",
 	"task_name_archive_preview_generate_file_id": "生成文件 #{{fileId}} 的压缩包预览（Blob #{{blobId}}）",
 	"task_name_blob_id": "Blob #{{id}}",
+	"task_name_folder_tree_delete": "删除目录树",
+	"task_name_folder_tree_restore": "恢复目录树",
 	"task_name_media_metadata_extract_blob": "提取 Blob #{{blobId}} 的{{kind}}元数据",
 	"task_name_media_metadata_extract_source": "提取 {{source}} 的{{kind}}元数据",
 	"task_name_offline_download_source": "从 {{source}} 导入 {{filename}}",
