@@ -215,6 +215,46 @@ in path and naming helpers used by file, upload, and WebDAV flows.
 cargo bench --bench path_hotspots
 ```
 
+## Folder Tree Mutation Memory Boundary
+
+Issue `#497` has a separate ignored Rust integration benchmark because its
+acceptance fixtures contain 100,000, 500,000, and 1,000,000 resources. The
+runner uses file-backed SQLite, creates one folder plus enough files to reach
+each exact resource count, and excludes fixture construction from the measured
+interval.
+
+For both REST delete and trash restore it records:
+
+- HTTP response and end-to-end task completion time;
+- live heap baseline, peak growth, and end state;
+- cumulative allocation bytes and allocation count;
+- SQLite database and WAL peak growth.
+
+The summary requires every operation to return `202 Accepted` and requires the
+maximum heap peak across the three fixture sizes to stay within 1.25x of the
+minimum. This checks the configured memory boundary without putting machine
+specific latency or absolute byte thresholds into ordinary CI.
+
+Run the complete acceptance matrix:
+
+```bash
+tests/performance/run-issue-497-folder-tree-memory.sh
+```
+
+Useful overrides:
+
+```bash
+ASTER_ISSUE497_RESOURCE_COUNTS=100000 \
+ASTER_ISSUE497_KEEP_DATABASES=1 \
+ASTER_ISSUE497_RESULT_DIR=/private/tmp/issue-497-smoke \
+tests/performance/run-issue-497-folder-tree-memory.sh
+```
+
+The benchmark target is gated by the existing `benchmarks` feature, so ordinary
+test runs do not execute or compile the large-fixture runner. Workspace
+all-feature/all-target Clippy still compiles it to keep the measurement tooling
+in sync with application APIs.
+
 ## WebDAV Provider Range Baselines
 
 Issue `#449` uses a separate Rust runner for provider efficiency. It calls the

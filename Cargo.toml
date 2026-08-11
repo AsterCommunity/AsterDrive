@@ -306,6 +306,11 @@ path = "tests/webdav_provider_range_contract.rs"
 required-features = ["benchmarks"]
 
 [[test]]
+name = "issue_497_folder_tree_memory"
+path = "tests/issue_497_folder_tree_memory.rs"
+required-features = ["benchmarks"]
+
+[[test]]
 name = "multi_primary"
 path = "tests/multi_primary/main.rs"
 required-features = ["multi-primary-e2e"]
