@@ -86,7 +86,8 @@ async fn test_folders_crud() {
 
 #[actix_web::test]
 async fn test_large_folder_delete_and_restore_dispatch_bounded_tasks() {
-    const FILE_COUNT: usize = 10_000;
+    const FILE_COUNT: usize =
+        aster_drive::services::files::folder::REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_RESOURCES;
     const SYNCHRONOUS_FILE_COUNT: usize = FILE_COUNT - 1;
     const INSERT_BATCH: usize = 400;
 

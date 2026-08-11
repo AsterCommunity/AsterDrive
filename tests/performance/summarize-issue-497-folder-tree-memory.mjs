@@ -24,9 +24,13 @@ for (const resourceCount of expectedSizes) {
 }
 
 const operations = ["delete", "restore"];
-const maxPeakRatio = Number.parseFloat(
-  process.env.ASTER_ISSUE497_MAX_PEAK_RATIO ?? "1.25",
-);
+const maxPeakRatioRaw = process.env.ASTER_ISSUE497_MAX_PEAK_RATIO ?? "1.25";
+const maxPeakRatio = Number(maxPeakRatioRaw);
+if (!Number.isFinite(maxPeakRatio) || maxPeakRatio <= 0) {
+  throw new Error(
+    `ASTER_ISSUE497_MAX_PEAK_RATIO must be a positive finite number, got "${maxPeakRatioRaw}"`,
+  );
+}
 
 for (const resourceCount of expectedSizes) {
   for (const operation of operations) {
@@ -76,9 +80,16 @@ for (const operation of operations) {
   const peaks = metrics
     .filter((metric) => metric.operation === operation)
     .map((metric) => metric.heap_peak_growth_bytes);
-  const ratio = Math.max(...peaks) / Math.min(...peaks);
+  const minPeak = Math.min(...peaks);
+  const maxPeak = Math.max(...peaks);
+  if (!Number.isFinite(minPeak) || minPeak <= 0 || !Number.isFinite(maxPeak)) {
+    throw new Error(
+      `${operation} recorded unusable heap peak growth values (${peaks.join(", ")})`,
+    );
+  }
+  const ratio = maxPeak / minPeak;
   console.log(`${operation} heap peak max/min ratio: ${ratio.toFixed(4)}x`);
-  if (ratio > maxPeakRatio) {
+  if (!Number.isFinite(ratio) || ratio > maxPeakRatio) {
     throw new Error(
       `${operation} heap peak ratio ${ratio.toFixed(4)} exceeds ${maxPeakRatio.toFixed(4)}`,
     );

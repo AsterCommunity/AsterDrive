@@ -230,6 +230,13 @@ For both REST delete and trash restore it records:
 - cumulative allocation bytes and allocation count;
 - SQLite database and WAL peak growth.
 
+The live heap peak is a concurrent sampling approximation: allocator updates can
+change the live counter between its read and the peak update. Cumulative
+allocation also includes any allocation performed by the 2 ms SQLite/WAL
+observer, so it contains duration-dependent sampling noise. The acceptance gate
+uses the cross-size live-heap ratio; cumulative allocation and database growth
+remain diagnostic occupancy evidence.
+
 The summary requires every operation to return `202 Accepted` and requires the
 maximum heap peak across the three fixture sizes to stay within 1.25x of the
 minimum. This checks the configured memory boundary without putting machine
@@ -246,9 +253,14 @@ Useful overrides:
 ```bash
 ASTER_ISSUE497_RESOURCE_COUNTS=100000 \
 ASTER_ISSUE497_KEEP_DATABASES=1 \
-ASTER_ISSUE497_RESULT_DIR=/private/tmp/issue-497-smoke \
+ASTER_ISSUE497_RESULT_DIR=/tmp/issue-497-smoke \
+ASTER_ISSUE497_MAX_PEAK_RATIO=1.5 \
 tests/performance/run-issue-497-folder-tree-memory.sh
 ```
+
+The single-size override is only a smoke test for the runner and task path. Its
+max/min ratio is necessarily `1.0`, so it does not validate bounded growth
+across resource counts. Keep the default three sizes for issue acceptance.
 
 The benchmark target is gated by the existing `benchmarks` feature, so ordinary
 test runs do not execute or compile the large-fixture runner. Workspace

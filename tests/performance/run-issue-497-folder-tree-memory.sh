@@ -4,13 +4,23 @@ set -euo pipefail
 repository_root="$(git rev-parse --show-toplevel)"
 revision="$(git rev-parse --short=12 HEAD)"
 resource_counts_csv="${ASTER_ISSUE497_RESOURCE_COUNTS:-100000,500000,1000000}"
-result_directory="${ASTER_ISSUE497_RESULT_DIR:-/private/tmp/asterdrive-issue-497-${revision}}"
+temporary_root="${TMPDIR:-/tmp}"
+temporary_root="${temporary_root%/}"
+if [[ -z "${temporary_root}" ]]; then
+  temporary_root="/"
+fi
+result_directory="${ASTER_ISSUE497_RESULT_DIR:-${temporary_root}/asterdrive-issue-497-${revision}}"
+database_directory="${temporary_root}/asterdrive-issue-497-${revision}-databases"
 
 IFS=',' read -r -a resource_counts <<< "${resource_counts_csv}"
 mkdir -p "${result_directory}"
+mkdir -p "${database_directory}"
+
+node --test \
+  "${repository_root}/tests/performance/summarize-issue-497-folder-tree-memory.test.mjs"
 
 for resource_count in "${resource_counts[@]}"; do
-  database_path="/private/tmp/asterdrive-issue-497-${revision}-${resource_count}.db"
+  database_path="${database_directory}/${resource_count}.db"
   log_path="${result_directory}/${resource_count}.log"
   printf 'Measuring %s resources at %s\n' "${resource_count}" "${revision}"
   ISSUE497_RESOURCES="${resource_count}" \

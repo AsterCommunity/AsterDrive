@@ -88,6 +88,8 @@ fn record_allocation(bytes: usize) {
 }
 
 fn update_peak() {
+    // `LIVE_BYTES` can change between the load and `fetch_max`, so this is a sampling
+    // approximation for cross-size comparisons, not an exact process-memory watermark.
     PEAK_BYTES.fetch_max(LIVE_BYTES.load(Ordering::Relaxed), Ordering::Relaxed);
 }
 
@@ -236,7 +238,11 @@ async fn measure_folder_delete_restore_memory() {
         .expect("ISSUE497_RESOURCES must be set")
         .parse::<usize>()
         .expect("ISSUE497_RESOURCES must be an integer");
-    assert!(resource_count > 1, "fixture needs a root folder and files");
+    assert!(
+        resource_count
+            > aster_drive::services::files::folder::REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_RESOURCES,
+        "fixture must exceed the REST synchronous traversal resource budget so delete and restore return 202; got {resource_count}"
+    );
     let file_count = resource_count - 1;
     let revision = std::env::var("ISSUE497_REVISION").unwrap_or_else(|_| "unknown".to_string());
     let database_path =
