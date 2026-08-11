@@ -32,6 +32,7 @@
 pub(crate) mod archive;
 pub(crate) mod blob_maintenance;
 pub(crate) mod dispatch;
+pub(crate) mod folder_tree;
 pub(crate) mod media_metadata;
 pub(crate) mod offline_download;
 mod presentation;
@@ -46,6 +47,7 @@ pub(crate) mod thumbnail;
 pub(crate) mod trash;
 pub mod types;
 
+use aster_forge_db::transaction;
 use chrono::{Duration, Utc};
 use sea_orm::{ConnectionTrait, DatabaseConnection, Set};
 use std::collections::HashMap;
@@ -165,14 +167,21 @@ pub(crate) async fn cleanup_tasks_for_admin(
     filters: AdminTaskCleanupFilters,
 ) -> Result<u64> {
     validate_admin_task_cleanup_status(filters.status)?;
-    background_task_repo::delete_terminal_by_filters(
-        state.writer_db(),
-        &background_task_repo::TerminalTaskCleanupFilters {
-            finished_before: filters.finished_before,
-            kind: filters.kind,
-            status: filters.status,
-        },
-    )
+    let repository_filters = background_task_repo::TerminalTaskCleanupFilters {
+        finished_before: filters.finished_before,
+        kind: filters.kind,
+        status: filters.status,
+    };
+    transaction::with_transaction(state.writer_db(), async |txn| {
+        let tasks =
+            background_task_repo::list_terminal_by_filters_for_update(txn, &repository_filters)
+                .await?;
+        for task in &tasks {
+            folder_tree::cleanup_terminal_operation_on(txn, task).await?;
+        }
+        let ids = tasks.iter().map(|task| task.id).collect::<Vec<_>>();
+        background_task_repo::delete_many(txn, &ids).await
+    })
     .await
 }
 

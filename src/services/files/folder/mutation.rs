@@ -494,11 +494,6 @@ pub(crate) async fn update_in_scope(
     let (updated, previous_parent_id) = transaction::with_transaction(db, async |txn| {
         let preview = folder_repo::find_by_id(txn, id).await?;
         ensure_folder_model_in_scope(&preview, scope)?;
-        crate::services::files::lock::lock_workspace_for_mutation_on(
-            txn,
-            crate::services::files::lock::LockWorkspace::from_folder(&preview)?,
-        )
-        .await?;
         let preview_target_parent = match parent_id {
             NullablePatch::Absent => preview.parent_id,
             NullablePatch::Null => None,
@@ -526,6 +521,23 @@ pub(crate) async fn update_in_scope(
             NullablePatch::Value(pid) => Some(pid),
         };
         let target_chain = load_folder_chain_in_scope(txn, scope, target_parent).await?;
+        if target_parent != current.parent_id {
+            let workspace = crate::services::files::lock::LockWorkspace::from_folder(&current)?;
+            crate::services::files::lock::enforce_collection_membership_mutation_on(
+                txn,
+                workspace,
+                current.parent_id,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
+            crate::services::files::lock::enforce_collection_membership_mutation_on(
+                txn,
+                workspace,
+                target_parent,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
+        }
         // 目标父目录链里不能出现自己，否则会制造目录环。
         if target_chain.iter().any(|folder| folder.id == id) {
             return Err(AsterError::validation_error(

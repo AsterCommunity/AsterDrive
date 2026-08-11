@@ -1,5 +1,6 @@
 use std::time::Duration as StdDuration;
 
+use aster_forge_db::transaction;
 use chrono::Utc;
 use tokio_util::sync::CancellationToken;
 
@@ -137,7 +138,7 @@ impl aster_forge_tasks::ClaimedTaskExecutionStore<background_task::Model, Backgr
         lease: TaskLease,
         failure: aster_forge_tasks::TaskPermanentFailure<'_>,
     ) -> Result<bool> {
-        background_task_repo::mark_failed(
+        let marked = background_task_repo::mark_failed(
             self.state.writer_db(),
             background_task_repo::TaskFailureUpdate {
                 id: task.id,
@@ -150,7 +151,20 @@ impl aster_forge_tasks::ClaimedTaskExecutionStore<background_task::Model, Backgr
                 failure_can_retry: failure.failure_can_retry,
             },
         )
-        .await
+        .await?;
+        if marked
+            && let Err(error) = transaction::with_transaction(self.state.writer_db(), async |txn| {
+                super::super::folder_tree::cleanup_terminal_operation_on(txn, task).await
+            })
+            .await
+        {
+            tracing::error!(
+                task_id = task.id,
+                %error,
+                "failed to clean terminal folder-tree task state"
+            );
+        }
+        Ok(marked)
     }
 
     async fn mark_task_retry(

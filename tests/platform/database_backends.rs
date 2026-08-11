@@ -4,16 +4,17 @@ use crate::common;
 
 use actix_web::test;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ConnectionTrait, DatabaseConnection, DbBackend, Statement,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseConnection,
+    DbBackend, EntityTrait, PaginatorTrait, QueryFilter, Statement,
 };
 use serde_json::Value;
 use tokio::time::{Duration, timeout};
 
 use aster_drive::db::repository::background_task_repo;
-use aster_drive_migration::{CurrentMigrator, MigratorTrait};
-use aster_drive_model::entities::{background_task, storage_policy};
+use aster_drive_migration::{CurrentMigrator, Migrator, MigratorTrait};
+use aster_drive_model::entities::{background_task, folder_tree_operation_member, storage_policy};
 use aster_drive_model::types::{
-    BackgroundTaskKind, BackgroundTaskStatus, StoredStoragePolicyAllowedTypes,
+    BackgroundTaskKind, BackgroundTaskStatus, EntityType, StoredStoragePolicyAllowedTypes,
     StoredStoragePolicyConfig, StoredTaskPayload, StoredTaskResult,
 };
 
@@ -302,6 +303,90 @@ async fn assert_background_task_display_name_accepts_expanded_len(db: &DatabaseC
     assert_eq!(task.display_name, display_name);
 }
 
+async fn assert_folder_tree_staging_primary_key_and_task_cascade(db: &DatabaseConnection) {
+    let now = chrono::Utc::now();
+    let task = background_task_repo::create(
+        db,
+        background_task::ActiveModel {
+            kind: Set(BackgroundTaskKind::FolderTreeMutation),
+            status: Set(BackgroundTaskStatus::Pending),
+            creator_user_id: Set(None),
+            team_id: Set(None),
+            share_id: Set(None),
+            display_name: Set("folder-tree-migration-matrix".to_string()),
+            payload_json: Set(StoredTaskPayload(
+                r#"{"folder_id":1,"operation":"delete"}"#.to_string(),
+            )),
+            result_json: Set(None),
+            runtime_json: Set(None),
+            steps_json: Set(None),
+            progress_current: Set(0),
+            progress_total: Set(0),
+            status_text: Set(None),
+            attempt_count: Set(0),
+            max_attempts: Set(1),
+            next_run_at: Set(now),
+            processing_token: Set(0),
+            processing_started_at: Set(None),
+            last_heartbeat_at: Set(None),
+            lease_expires_at: Set(None),
+            started_at: Set(None),
+            finished_at: Set(None),
+            last_error: Set(None),
+            failure_can_retry: Set(None),
+            expires_at: Set(now + chrono::Duration::hours(1)),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("folder-tree migration matrix task should insert");
+    let member = || folder_tree_operation_member::ActiveModel {
+        task_id: Set(task.id),
+        resource_kind: Set(EntityType::Folder),
+        resource_id: Set(7001),
+    };
+    member()
+        .insert(db)
+        .await
+        .expect("first folder-tree staging member should insert");
+    member()
+        .insert(db)
+        .await
+        .expect_err("the composite staging primary key should reject an exact duplicate");
+    folder_tree_operation_member::ActiveModel {
+        task_id: Set(task.id),
+        resource_kind: Set(EntityType::File),
+        resource_id: Set(7001),
+    }
+    .insert(db)
+    .await
+    .expect("resource kind must participate in the composite primary key");
+    assert_eq!(
+        folder_tree_operation_member::Entity::find()
+            .filter(folder_tree_operation_member::Column::TaskId.eq(task.id))
+            .count(db)
+            .await
+            .expect("folder-tree staging members should count"),
+        2
+    );
+
+    background_task::Entity::delete_by_id(task.id)
+        .exec(db)
+        .await
+        .expect("folder-tree migration matrix task should delete");
+    assert_eq!(
+        folder_tree_operation_member::Entity::find()
+            .filter(folder_tree_operation_member::Column::TaskId.eq(task.id))
+            .count(db)
+            .await
+            .expect("cascaded folder-tree staging members should count"),
+        0,
+        "deleting a background task must cascade to all staged members"
+    );
+}
+
 async fn assert_current_storage_policy_ignores_retained_legacy_columns(
     db: &DatabaseConnection,
     backend: DbBackend,
@@ -355,9 +440,24 @@ async fn assert_current_storage_policy_ignores_retained_legacy_columns(
 
     // Roll back the retained-column compatibility migration, which restores
     // the legacy write requirements while leaving converted policy rows intact.
+    let later_migration_steps = CurrentMigrator::migrations()
+        .iter()
+        .rev()
+        .position(|migration| {
+            migration.name() == "m20260805_000001_allow_connector_policy_writes_with_legacy_schema"
+        })
+        .map(|tail_index| u32::try_from(tail_index).expect("migration count should fit u32"))
+        .expect("retained-column compatibility migration should remain registered");
+    if later_migration_steps > 0 {
+        CurrentMigrator::down(db, Some(later_migration_steps))
+            .await
+            .expect(
+                "migrations after the retained-column compatibility migration should roll back",
+            );
+    }
     CurrentMigrator::down(db, Some(1))
         .await
-        .expect("latest storage policy migrations should roll back on production backend");
+        .expect("retained-column compatibility migration should roll back on production backend");
     insert_current_policy(db, format!("connector-policy-down-{backend:?}-{now}"))
         .await
         .expect_err("historical retained schema should reject the current policy insert shape");
@@ -383,7 +483,12 @@ async fn assert_current_storage_policy_ignores_retained_legacy_columns(
 
     CurrentMigrator::up(db, Some(1))
         .await
-        .expect("latest storage policy migrations should reapply on production backend");
+        .expect("retained-column compatibility migration should reapply on production backend");
+    if later_migration_steps > 0 {
+        CurrentMigrator::up(db, Some(later_migration_steps))
+            .await
+            .expect("migrations after the retained-column compatibility migration should reapply");
+    }
     let reapplied =
         insert_current_policy(db, format!("connector-policy-reapplied-{backend:?}-{now}"))
             .await
@@ -435,6 +540,23 @@ async fn test_sqlite_transactions_are_serialized_by_single_connection_pool() {
     let _ = tokio::fs::remove_file(database_path).await;
 }
 
+#[actix_web::test]
+async fn test_sqlite_folder_tree_staging_primary_key_and_task_cascade() {
+    let cfg = aster_drive::config::DatabaseConfig {
+        url: "sqlite::memory:".into(),
+        pool_size: 1,
+        retry_count: 0,
+    };
+    let db = aster_drive::db::connect_with_metrics(&cfg, aster_drive_metrics::NoopMetrics::arc())
+        .await
+        .expect("SQLite folder-tree migration matrix database should connect");
+    Migrator::up(&db, None)
+        .await
+        .expect("SQLite folder-tree migration matrix should apply");
+
+    assert_folder_tree_staging_primary_key_and_task_cascade(&db).await;
+}
+
 async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     wait_for_database(database_url).await;
 
@@ -448,6 +570,7 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     assert_background_task_display_name_accepts_expanded_len(state.writer_db()).await;
     assert_upload_session_kind_column(state.writer_db(), backend).await;
     assert_current_storage_policy_ignores_retained_legacy_columns(state.writer_db(), backend).await;
+    assert_folder_tree_staging_primary_key_and_task_cascade(state.writer_db()).await;
 
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);

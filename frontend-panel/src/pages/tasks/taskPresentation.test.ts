@@ -7,6 +7,7 @@ import {
 	formatTaskDetail,
 	formatTaskDisplayName,
 	formatTaskKind,
+	formatTaskPresentationStatus,
 	formatTaskStatus,
 	formatTaskStepStatus,
 	formatTaskStepTitle,
@@ -25,6 +26,7 @@ import {
 function t(key: string, values?: Record<string, number | string>) {
 	const translations: Record<string, string> = {
 		"tasks:kind_storage_policy_migration": "Storage policy migration",
+		"tasks:kind_folder_tree_mutation": "Folder tree mutation",
 		"tasks:summary_created_at": `Created ${values?.date}`,
 		"tasks:summary_started_at": `Started ${values?.date}`,
 		"tasks:summary_finished_at": `Finished ${values?.date}`,
@@ -54,6 +56,9 @@ function t(key: string, values?: Record<string, number | string>) {
 		"tasks:status_text_archive_extracted": `Extracted to ${values?.name}`,
 		"tasks:status_text_thumbnail_ready": "Thumbnail ready",
 		"tasks:status_text_image_preview_ready": "Image preview ready",
+		"tasks:status_text_folder_tree_delete_finished": `Deleted ${values?.folderCount} folders and ${values?.fileCount} files`,
+		"tasks:status_text_folder_tree_mutation_scanning": "Scanning folder tree",
+		"tasks:status_text_folder_tree_restore_finished": `Restored ${values?.folderCount} folders and ${values?.fileCount} files`,
 		"tasks:status_text_waiting_presigned_url_expiry":
 			"Waiting for presigned URLs to expire",
 		"tasks:task_name_archive_compress": `Compress ${values?.name}`,
@@ -71,6 +76,8 @@ function t(key: string, values?: Record<string, number | string>) {
 		"tasks:task_name_image_preview_generate": `Image preview ${values?.source} via ${values?.processor}`,
 		"tasks:task_name_image_preview_generate_blob_with_processor": `Image preview Blob #${values?.blobId} via ${values?.processor}`,
 		"tasks:task_name_trash_purge_all": "Empty trash",
+		"tasks:task_name_folder_tree_delete": "Delete folder tree",
+		"tasks:task_name_folder_tree_restore": "Restore folder tree",
 		"tasks:step_storage_policy_migration_prepare_sources":
 			"Prepare source policy",
 		"tasks:step_storage_policy_migration_scan_blobs": "Scan source blobs",
@@ -85,6 +92,7 @@ function t(key: string, values?: Record<string, number | string>) {
 			"Render image preview",
 		"tasks:step_image_preview_generate_persist_thumbnail": "Save image preview",
 		"tasks:kind_image_preview_generate": "Image preview generation",
+		"tasks:step_folder_tree_mutation_folder_tree": "Update folder tree",
 	};
 	return translations[key] ?? key;
 }
@@ -1184,5 +1192,58 @@ describe("taskPresentation storage policy migration", () => {
 			target_folder_id: 9,
 			target_path: "/Incoming/file.bin",
 		});
+	});
+});
+
+describe("taskPresentation folder tree mutation", () => {
+	it("localizes delete and restore titles, statuses, and kind", () => {
+		const deleteTask = createTask({
+			display_name: "Backend delete title",
+			kind: "folder_tree_mutation",
+			payload: {
+				folder_id: 41,
+				kind: "folder_tree_mutation",
+				operation: "delete",
+			},
+			presentation: {
+				title: { code: "task_name_folder_tree_delete" },
+				status: { code: "status_text_folder_tree_mutation_scanning" },
+			},
+		});
+		expect(formatTaskDisplayName(t, deleteTask)).toBe("Delete folder tree");
+		expect(formatTaskPresentationStatus(t, deleteTask)).toBe(
+			"Scanning folder tree",
+		);
+		expect(formatTaskKind(t, deleteTask.kind)).toBe("Folder tree mutation");
+		expect(
+			formatTaskStepTitle(t, deleteTask.kind, {
+				key: "folder_tree",
+				progress_current: 84,
+				progress_total: 84,
+				status: "succeeded",
+				title: "Mutate folder tree",
+			}),
+		).toBe("Update folder tree");
+
+		const restoreTask = createTask({
+			display_name: "Backend restore title",
+			kind: "folder_tree_mutation",
+			payload: {
+				folder_id: 41,
+				kind: "folder_tree_mutation",
+				operation: "restore",
+			},
+			presentation: {
+				title: { code: "task_name_folder_tree_restore" },
+				status: {
+					code: "status_text_folder_tree_restore_finished",
+					params: { fileCount: 73, folderCount: 11 },
+				},
+			},
+		});
+		expect(formatTaskDisplayName(t, restoreTask)).toBe("Restore folder tree");
+		expect(formatTaskPresentationStatus(t, restoreTask)).toBe(
+			"Restored 11 folders and 73 files",
+		);
 	});
 });

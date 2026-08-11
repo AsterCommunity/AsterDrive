@@ -1,5 +1,5 @@
 use super::{
-    AdminTaskFilters, TerminalTaskCleanupFilters, count_active_processing_by_kinds,
+    AdminTaskFilters, TerminalTaskCleanupFilters, count_active_processing_by_kinds, delete_many,
     delete_terminal_by_filters, find_paginated_all_filtered, list_claimable_by_kinds,
     release_processing,
 };
@@ -44,6 +44,7 @@ async fn insert_task(
         BackgroundTaskKind::ImagePreviewGenerate => "image-preview-generate",
         BackgroundTaskKind::MediaMetadataExtract => "media-metadata-extract",
         BackgroundTaskKind::TrashPurgeAll => "trash-purge-all",
+        BackgroundTaskKind::FolderTreeMutation => "folder-tree-mutation",
         BackgroundTaskKind::StoragePolicyTempCleanup => "storage-policy-temp-cleanup",
         BackgroundTaskKind::StoragePolicyMigration => "storage-policy-migration",
         BackgroundTaskKind::BlobMaintenance => "blob-maintenance",
@@ -94,6 +95,10 @@ async fn insert_task(
             "kind": "image",
         }),
         BackgroundTaskKind::TrashPurgeAll => serde_json::json!({}),
+        BackgroundTaskKind::FolderTreeMutation => serde_json::json!({
+            "folder_id": 1,
+            "operation": "delete",
+        }),
         BackgroundTaskKind::StoragePolicyTempCleanup => serde_json::json!({
             "policy": {
                 "id": 1,
@@ -552,4 +557,47 @@ async fn delete_terminal_by_filters_only_removes_matching_completed_tasks() {
     assert!(remaining_ids.contains(&recent_failed.id));
     assert!(remaining_ids.contains(&other_kind.id));
     assert!(remaining_ids.contains(&active_task.id));
+}
+
+#[tokio::test]
+async fn delete_many_removes_only_the_preselected_task_ids() {
+    let db = build_test_db().await;
+    let now = Utc::now();
+    let selected = insert_task(
+        &db,
+        BackgroundTaskKind::SystemRuntime,
+        BackgroundTaskStatus::Failed,
+        Some(now - Duration::hours(48)),
+        now - Duration::hours(48),
+    )
+    .await;
+    let matching_but_not_selected = insert_task(
+        &db,
+        BackgroundTaskKind::SystemRuntime,
+        BackgroundTaskStatus::Failed,
+        Some(now - Duration::hours(48)),
+        now - Duration::hours(48),
+    )
+    .await;
+
+    let removed = delete_many(&db, &[selected.id])
+        .await
+        .expect("preselected task deletion should succeed");
+
+    assert_eq!(removed, 1);
+    assert!(
+        background_task::Entity::find_by_id(selected.id)
+            .one(&db)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        background_task::Entity::find_by_id(matching_but_not_selected.id)
+            .one(&db)
+            .await
+            .unwrap()
+            .is_some(),
+        "a newly matching terminal task outside the locked ID set must remain"
+    );
 }

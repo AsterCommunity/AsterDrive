@@ -80,6 +80,7 @@ const COPY_TABLE_ORDER: &[&str] = &[
     "audit_logs",
     "mail_outbox",
     "background_tasks",
+    "folder_tree_operation_members",
     aster_forge_db::RUNTIME_LEASES_TABLE,
     aster_forge_db::SCHEDULED_TASKS_TABLE,
     "storage_migration_checkpoints",

@@ -107,6 +107,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - **Local 默认存储路径** — Local connector、driver、首次配置和测试统一使用 `./data/uploads`；缺失或空 base path 由 connector default 补全，不再散落多套 fallback。
 - **S3-compatible driver 复用** — 提取 AWS request vendor normalization，并用 storage / multipart delegation macro 收敛 S3-compatible 与 Tencent COS 重复实现；S3 driver 构造改为显式 options + SDK config hook，供 provider auth 和 signing customization 使用。
 - **资源锁权威模型** — 删除 `files.is_locked` / `folders.is_locked` 持久化布尔值；新增 workspace-scoped `resource_lock_namespaces`、generation counter 和结构化 lock root，写入路径通过同一事务中的 namespace lock 与 `SELECT FOR UPDATE` 重新校验。
+- **REST 目录树 mutation 内存边界** — folder delete 与 trash restore 对同步请求使用显式资源、frontier 和深度预算；超预算 personal / team 操作返回 `202` 与带中英文结构化展示的 `folder_tree_mutation` 任务详情。后台任务按有界 ID 页和 DFS 深度栈扫描，通过持久化 staging membership、Infinity resource lock 和同事务终态提交保持 delete / restore、锁、审计与 storage-change 一致性；WebDAV 既有预算和协议行为不变。
 - **WebDAV mutation 原子性** — DELETE / MOVE / COPY 将资源变更、锁清理和锁路径 rebind 纳入同一 writer transaction；递归 DELETE 遇到锁冲突或后端失败时整体回滚并返回请求级 `423` / `500`，不再提交部分结果；UNLOCK / force unlock 同样保证锁行与关联状态一致回滚。
 - **WebDAV 协议所有权** — 协议解析、XML、HTTP conditional / Range、锁 grammar 和 canonical response 迁移到 `aster_forge_webdav` / `aster_forge_xml`；Drive 保留 workspace、权限、持久化、存储、配额、审计和集成层。
 - **上传 session contract** — Chunk PUT、Progress、Complete、Cancel / Cleanup 只接受持久化的显式 `UploadSessionKind`，并继续校验 multipart、temp key 和 provider session metadata 的组合不变量；OffsetStaging、StreamStaging、relay、presigned 与 resumable 主路径保持 connector-owned transport 协商。
@@ -161,6 +162,8 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - `m20260805_000001_allow_connector_policy_writes_with_legacy_schema`
   - 为保留到 0.6.0 的 legacy `driver_type` 增加空字符串 compatibility default，并仅在 MySQL 临时允许 deprecated `TEXT options` 为 NULL，使 current slim entity 可在 0.5.x schema 上写入
   - SQLite rebuild 保留 current + legacy columns、数据和 indexes；生产 migration coordinator 在 Forge transaction 外管理 connection-local foreign-key pragma，在 transaction 内校验引用完整性，并于 commit / rollback 后恢复原状态；PostgreSQL / MySQL forward 与 rollback 显式恢复原约束
+- `m20260810_000001_folder_tree_operation_members`
+  - 新增按 task、资源类型和资源 ID 去重的 folder-tree staging membership；后台扫描可恢复，终态 mutation、staging 清理、操作锁释放和任务成功状态在同一事务内提交
 
 ### Notes
 

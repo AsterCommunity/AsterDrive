@@ -3,8 +3,20 @@
 use crate::common;
 
 use actix_web::test;
-use aster_drive::db::repository::{folder_repo, user_repo};
+use aster_drive::db::repository::{
+    background_task_repo, file_repo, folder_repo, folder_tree_operation_repo, lock_repo,
+    policy_repo, user_repo,
+};
 use aster_drive::services::events::storage_change::StorageChangeKind;
+use aster_drive_model::entities::{background_task, file, file_blob, folder as folder_entity};
+use aster_drive_model::types::{
+    BackgroundTaskKind, BackgroundTaskStatus, EntityType, StoredTaskPayload,
+};
+use aster_forge_file_classification::FileCategory;
+use chrono::Utc;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set, sea_query::Expr,
+};
 use serde_json::Value;
 use std::time::Duration;
 
@@ -70,6 +82,747 @@ async fn test_folders_crud() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
+async fn test_large_folder_delete_and_restore_dispatch_bounded_tasks() {
+    const FILE_COUNT: usize =
+        aster_drive::services::files::folder::REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_RESOURCES;
+    const SYNCHRONOUS_FILE_COUNT: usize = FILE_COUNT - 1;
+    const INSERT_BATCH: usize = 400;
+
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "Task-sized folder" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+
+    let user = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .expect("registered test user should exist");
+    let policy = policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .expect("default policy should exist");
+    let now = Utc::now();
+    let blob = file_blob::ActiveModel {
+        hash: Set("folder-tree-task-fixture".to_string()),
+        size: Set(0),
+        policy_id: Set(policy.id),
+        storage_path: Set("folder-tree-task-fixture".to_string()),
+        ref_count: Set(i32::try_from(FILE_COUNT).unwrap()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("fixture blob should insert");
+
+    for batch_start in (0..SYNCHRONOUS_FILE_COUNT).step_by(INSERT_BATCH) {
+        let batch_end = (batch_start + INSERT_BATCH).min(SYNCHRONOUS_FILE_COUNT);
+        let models = (batch_start..batch_end)
+            .map(|index| file::ActiveModel {
+                name: Set(format!("fixture-{index:05}.txt")),
+                folder_id: Set(Some(folder_id)),
+                team_id: Set(None),
+                blob_id: Set(blob.id),
+                size: Set(0),
+                owner_user_id: Set(Some(user.id)),
+                created_by_user_id: Set(Some(user.id)),
+                created_by_username: Set(user.username.clone()),
+                mime_type: Set("text/plain".to_string()),
+                extension: Set("txt".to_string()),
+                compound_extension: Set(None),
+                file_category: Set(FileCategory::Document),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(None),
+                ..Default::default()
+            })
+            .collect();
+        file_repo::create_many(state.writer_db(), models)
+            .await
+            .expect("fixture files should insert");
+    }
+
+    // Root + 9,999 files is exactly the 10,000-resource synchronous budget.
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/folders/{folder_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        count_files_with_deleted_state(&state, folder_id, true).await,
+        SYNCHRONOUS_FILE_COUNT as u64
+    );
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/trash/folder/{folder_id}/restore"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        count_files_with_deleted_state(&state, folder_id, false).await,
+        SYNCHRONOUS_FILE_COUNT as u64
+    );
+
+    file_repo::create(
+        state.writer_db(),
+        file::ActiveModel {
+            name: Set(format!("fixture-{SYNCHRONOUS_FILE_COUNT:05}.txt")),
+            folder_id: Set(Some(folder_id)),
+            team_id: Set(None),
+            blob_id: Set(blob.id),
+            size: Set(0),
+            owner_user_id: Set(Some(user.id)),
+            created_by_user_id: Set(Some(user.id)),
+            created_by_username: Set(user.username.clone()),
+            mime_type: Set("text/plain".to_string()),
+            extension: Set("txt".to_string()),
+            compound_extension: Set(None),
+            file_category: Set(FileCategory::Document),
+            created_at: Set(now),
+            updated_at: Set(now),
+            deleted_at: Set(None),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("resource-limit-plus-one file should insert");
+
+    // Root + 10,000 files exceeds the budget by exactly one and must queue.
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/folders/{folder_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 202);
+    let body: Value = test::read_body_json(resp).await;
+    let delete_task_id = body["data"]["id"].as_i64().unwrap();
+    assert_eq!(body["data"]["kind"], "folder_tree_mutation");
+
+    let locked_file = file_repo::find_by_name_in_folder(
+        state.writer_db(),
+        user.id,
+        Some(folder_id),
+        "fixture-00000.txt",
+    )
+    .await
+    .unwrap()
+    .expect("fixture file should exist");
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/files/{}/lock", locked_file.id))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "locked": true }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let stats = aster_drive::services::task::drain(&state)
+        .await
+        .expect("locked large folder task should drain as a failed task");
+    assert_eq!(stats.failed, 1);
+    assert_eq!(stats.succeeded, 0);
+    assert_eq!(
+        count_files_with_deleted_state(&state, folder_id, false).await,
+        FILE_COUNT as u64
+    );
+    assert!(
+        folder_repo::find_by_id(state.writer_db(), folder_id)
+            .await
+            .unwrap()
+            .deleted_at
+            .is_none()
+    );
+    assert_eq!(
+        folder_tree_operation_repo::count(state.writer_db(), delete_task_id)
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(
+        lock_repo::find_all_by_entity(state.writer_db(), EntityType::Folder, folder_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/files/{}/lock", locked_file.id))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "locked": false }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/tasks/{delete_task_id}/retry"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let stats = aster_drive::services::task::drain(&state)
+        .await
+        .expect("large folder delete task should drain");
+    let delete_task = background_task_repo::find_by_id(state.writer_db(), delete_task_id)
+        .await
+        .expect("large folder delete task should still exist");
+    assert_eq!(
+        stats.failed, 0,
+        "large folder delete task failed: {:?}",
+        delete_task.last_error
+    );
+    assert_eq!(stats.succeeded, 1);
+    assert_folder_tree_task_result(&app, &token, None, delete_task_id, FILE_COUNT, 1).await;
+    assert_eq!(
+        count_files_with_deleted_state(&state, folder_id, true).await,
+        FILE_COUNT as u64
+    );
+    assert!(
+        folder_repo::find_by_id(state.writer_db(), folder_id)
+            .await
+            .unwrap()
+            .deleted_at
+            .is_some()
+    );
+    assert_eq!(
+        folder_tree_operation_repo::count(state.writer_db(), delete_task_id)
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(
+        lock_repo::find_all_by_entity(state.writer_db(), EntityType::Folder, folder_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/trash/folder/{folder_id}/restore"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 202);
+    let body: Value = test::read_body_json(resp).await;
+    let restore_task_id = body["data"]["id"].as_i64().unwrap();
+
+    let stats = aster_drive::services::task::drain(&state)
+        .await
+        .expect("large folder restore task should drain");
+    assert_eq!(stats.failed, 0);
+    assert_eq!(stats.succeeded, 1);
+    assert_folder_tree_task_result(&app, &token, None, restore_task_id, FILE_COUNT, 1).await;
+    assert_eq!(
+        count_files_with_deleted_state(&state, folder_id, false).await,
+        FILE_COUNT as u64
+    );
+    assert!(
+        folder_repo::find_by_id(state.writer_db(), folder_id)
+            .await
+            .unwrap()
+            .deleted_at
+            .is_none()
+    );
+    assert_eq!(
+        folder_tree_operation_repo::count(state.writer_db(), restore_task_id)
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(
+        lock_repo::find_all_by_entity(state.writer_db(), EntityType::Folder, folder_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    let team = aster_drive::services::workspace::team::create_team(
+        &state,
+        user.id,
+        aster_drive::services::workspace::team::CreateTeamInput {
+            name: "Folder tree task team".to_string(),
+            description: None,
+        },
+    )
+    .await
+    .expect("fixture team should be created");
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/teams/{}/folders", team.id))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "Team task-sized folder" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let team_folder_id = body["data"]["id"].as_i64().unwrap();
+
+    file::Entity::update_many()
+        .col_expr(file::Column::FolderId, Expr::value(Some(team_folder_id)))
+        .col_expr(file::Column::TeamId, Expr::value(Some(team.id)))
+        .col_expr(file::Column::OwnerUserId, Expr::value(Option::<i64>::None))
+        .filter(file::Column::FolderId.eq(folder_id))
+        .exec(state.writer_db())
+        .await
+        .expect("fixture files should move into team scope");
+
+    let req = test::TestRequest::delete()
+        .uri(&format!(
+            "/api/v1/teams/{}/folders/{team_folder_id}",
+            team.id
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 202);
+    let body: Value = test::read_body_json(resp).await;
+    let team_delete_task_id = body["data"]["id"].as_i64().unwrap();
+
+    let stats = aster_drive::services::task::drain(&state)
+        .await
+        .expect("large team folder delete task should drain");
+    assert_eq!(stats.failed, 0);
+    assert_eq!(stats.succeeded, 1);
+    assert_folder_tree_task_result(
+        &app,
+        &token,
+        Some(team.id),
+        team_delete_task_id,
+        FILE_COUNT,
+        1,
+    )
+    .await;
+    assert_eq!(
+        count_files_with_deleted_state(&state, team_folder_id, true).await,
+        FILE_COUNT as u64
+    );
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/teams/{}/trash/folder/{team_folder_id}/restore",
+            team.id
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 202);
+    let body: Value = test::read_body_json(resp).await;
+    let team_restore_task_id = body["data"]["id"].as_i64().unwrap();
+
+    let stats = aster_drive::services::task::drain(&state)
+        .await
+        .expect("large team folder restore task should drain");
+    assert_eq!(stats.failed, 0);
+    assert_eq!(stats.succeeded, 1);
+    assert_folder_tree_task_result(
+        &app,
+        &token,
+        Some(team.id),
+        team_restore_task_id,
+        FILE_COUNT,
+        1,
+    )
+    .await;
+    assert_eq!(
+        count_files_with_deleted_state(&state, team_folder_id, false).await,
+        FILE_COUNT as u64
+    );
+    assert!(
+        lock_repo::find_all_by_entity(state.writer_db(), EntityType::Folder, team_folder_id,)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        folder_tree_operation_repo::count(state.writer_db(), team_restore_task_id)
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[actix_web::test]
+async fn test_folder_tree_staging_is_idempotent_and_cascades_with_task_record() {
+    let state = common::setup().await;
+    let now = Utc::now();
+    let task = background_task_repo::create(
+        state.writer_db(),
+        background_task::ActiveModel {
+            kind: Set(BackgroundTaskKind::FolderTreeMutation),
+            status: Set(BackgroundTaskStatus::Pending),
+            creator_user_id: Set(None),
+            team_id: Set(None),
+            share_id: Set(None),
+            display_name: Set("folder-tree staging cascade fixture".to_string()),
+            payload_json: Set(StoredTaskPayload(
+                r#"{"folder_id":1,"operation":"delete"}"#.to_string(),
+            )),
+            result_json: Set(None),
+            runtime_json: Set(None),
+            steps_json: Set(None),
+            progress_current: Set(0),
+            progress_total: Set(0),
+            status_text: Set(None),
+            attempt_count: Set(0),
+            max_attempts: Set(1),
+            next_run_at: Set(now),
+            processing_token: Set(0),
+            processing_started_at: Set(None),
+            last_heartbeat_at: Set(None),
+            lease_expires_at: Set(None),
+            started_at: Set(None),
+            finished_at: Set(None),
+            last_error: Set(None),
+            failure_can_retry: Set(None),
+            expires_at: Set(now + chrono::Duration::hours(1)),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("folder-tree task fixture should insert");
+
+    assert_eq!(
+        folder_tree_operation_repo::stage_ids(
+            state.writer_db(),
+            task.id,
+            EntityType::Folder,
+            &[41, 41],
+        )
+        .await
+        .expect("duplicate staging IDs should insert idempotently"),
+        1
+    );
+    assert_eq!(
+        folder_tree_operation_repo::stage_ids(
+            state.writer_db(),
+            task.id,
+            EntityType::Folder,
+            &[41],
+        )
+        .await
+        .expect("retry staging should remain idempotent"),
+        1
+    );
+    assert_eq!(
+        folder_tree_operation_repo::count(state.writer_db(), task.id)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        folder_tree_operation_repo::stage_ids(state.writer_db(), task.id, EntityType::Folder, &[],)
+            .await
+            .expect("empty staging batch should preserve the authoritative count"),
+        1
+    );
+
+    background_task::Entity::delete_by_id(task.id)
+        .exec(state.writer_db())
+        .await
+        .expect("task fixture should delete");
+    assert_eq!(
+        folder_tree_operation_repo::count(state.writer_db(), task.id)
+            .await
+            .unwrap(),
+        0,
+        "staging rows must be removed by the background-task foreign-key cascade"
+    );
+}
+
+#[actix_web::test]
+async fn test_rest_folder_tree_frontier_and_depth_exact_boundaries() {
+    const MAXIMUM_FRONTIER: usize = 2_000;
+    const MAXIMUM_DEPTH: usize = 128;
+    const INSERT_BATCH: usize = 400;
+
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let user = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .expect("registered test user should exist");
+    let now = Utc::now();
+
+    let frontier_root = aster_drive::services::files::folder::create(
+        &state,
+        user.id,
+        "Frontier boundary root",
+        None,
+    )
+    .await
+    .expect("frontier boundary root should be created");
+    for batch_start in (0..MAXIMUM_FRONTIER).step_by(INSERT_BATCH) {
+        let batch_end = (batch_start + INSERT_BATCH).min(MAXIMUM_FRONTIER);
+        let models = (batch_start..batch_end)
+            .map(|index| folder_entity::ActiveModel {
+                name: Set(format!("frontier-child-{index:04}")),
+                parent_id: Set(Some(frontier_root.id)),
+                team_id: Set(None),
+                owner_user_id: Set(Some(user.id)),
+                created_by_user_id: Set(Some(user.id)),
+                created_by_username: Set(user.username.clone()),
+                policy_id: Set(None),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(None),
+                ..Default::default()
+            })
+            .collect();
+        folder_repo::create_many(state.writer_db(), models)
+            .await
+            .expect("frontier boundary children should insert");
+    }
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/folders/{}", frontier_root.id))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        200,
+        "frontier at the exact limit should stay synchronous"
+    );
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/trash/folder/{}/restore",
+            frontier_root.id
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        200,
+        "frontier restore at the exact limit should stay synchronous"
+    );
+
+    aster_drive::services::files::folder::create(
+        &state,
+        user.id,
+        "frontier-child-over-limit",
+        Some(frontier_root.id),
+    )
+    .await
+    .expect("frontier limit plus one child should be created");
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/folders/{}", frontier_root.id))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 202, "frontier limit plus one should queue");
+    let body: Value = test::read_body_json(resp).await;
+    let frontier_task_id = body["data"]["id"].as_i64().unwrap();
+
+    let depth_root =
+        aster_drive::services::files::folder::create(&state, user.id, "Depth boundary root", None)
+            .await
+            .expect("depth boundary root should be created");
+    let mut deepest_id = depth_root.id;
+    for depth in 1..=MAXIMUM_DEPTH {
+        deepest_id = aster_drive::services::files::folder::create(
+            &state,
+            user.id,
+            &format!("depth-child-{depth:03}"),
+            Some(deepest_id),
+        )
+        .await
+        .expect("depth boundary child should be created")
+        .id;
+    }
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/folders/{}", depth_root.id))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        200,
+        "depth at the exact limit should stay synchronous"
+    );
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/trash/folder/{}/restore", depth_root.id))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        200,
+        "depth restore at the exact limit should stay synchronous"
+    );
+
+    aster_drive::services::files::folder::create(
+        &state,
+        user.id,
+        "depth-child-over-limit",
+        Some(deepest_id),
+    )
+    .await
+    .expect("depth limit plus one child should be created");
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/folders/{}", depth_root.id))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 202, "depth limit plus one should queue");
+    let body: Value = test::read_body_json(resp).await;
+    let depth_task_id = body["data"]["id"].as_i64().unwrap();
+
+    let stats = aster_drive::services::task::drain(&state)
+        .await
+        .expect("shape-boundary folder tasks should drain");
+    assert_eq!(stats.failed, 0);
+    assert_eq!(stats.succeeded, 2);
+    assert_folder_tree_task_result(
+        &app,
+        &token,
+        None,
+        frontier_task_id,
+        0,
+        MAXIMUM_FRONTIER + 2,
+    )
+    .await;
+    assert_folder_tree_task_result(&app, &token, None, depth_task_id, 0, MAXIMUM_DEPTH + 2).await;
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/trash/folder/{}/restore",
+            frontier_root.id
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        202,
+        "frontier limit plus one restore should queue"
+    );
+    let body: Value = test::read_body_json(resp).await;
+    let frontier_restore_task_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/trash/folder/{}/restore", depth_root.id))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        202,
+        "depth limit plus one restore should queue"
+    );
+    let body: Value = test::read_body_json(resp).await;
+    let depth_restore_task_id = body["data"]["id"].as_i64().unwrap();
+
+    let stats = aster_drive::services::task::drain(&state)
+        .await
+        .expect("shape-boundary folder restore tasks should drain");
+    assert_eq!(stats.failed, 0);
+    assert_eq!(stats.succeeded, 2);
+    assert_folder_tree_task_result(
+        &app,
+        &token,
+        None,
+        frontier_restore_task_id,
+        0,
+        MAXIMUM_FRONTIER + 2,
+    )
+    .await;
+    assert_folder_tree_task_result(
+        &app,
+        &token,
+        None,
+        depth_restore_task_id,
+        0,
+        MAXIMUM_DEPTH + 2,
+    )
+    .await;
+}
+
+async fn assert_folder_tree_task_result<S>(
+    app: &S,
+    token: &str,
+    team_id: Option<i64>,
+    task_id: i64,
+    expected_files: usize,
+    expected_folders: usize,
+) where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse,
+            Error = actix_web::Error,
+        >,
+{
+    let task_path = team_id.map_or_else(
+        || format!("/api/v1/tasks/{task_id}"),
+        |team_id| format!("/api/v1/teams/{team_id}/tasks/{task_id}"),
+    );
+    let req = test::TestRequest::get()
+        .uri(&task_path)
+        .insert_header(("Cookie", common::access_cookie_header(token)))
+        .insert_header(common::csrf_header_for(token))
+        .to_request();
+    let resp = test::call_service(app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "succeeded");
+    assert_eq!(body["data"]["result"]["kind"], "folder_tree_mutation");
+    assert_eq!(body["data"]["result"]["file_count"], expected_files);
+    assert_eq!(body["data"]["result"]["folder_count"], expected_folders);
+}
+
+async fn count_files_with_deleted_state(
+    state: &aster_drive::runtime::PrimaryAppState,
+    folder_id: i64,
+    deleted: bool,
+) -> u64 {
+    let deleted_filter = if deleted {
+        file::Column::DeletedAt.is_not_null()
+    } else {
+        file::Column::DeletedAt.is_null()
+    };
+    file::Entity::find()
+        .filter(file::Column::FolderId.eq(folder_id))
+        .filter(deleted_filter)
+        .count(state.writer_db())
+        .await
+        .unwrap()
 }
 
 #[actix_web::test]

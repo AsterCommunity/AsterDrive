@@ -22,6 +22,7 @@ pub(super) const TASK_STEP_EXTRACT_METADATA: &str = "extract_metadata";
 pub(super) const TASK_STEP_PERSIST_METADATA: &str = "persist_metadata";
 pub(super) const TASK_STEP_CLEANUP_OBJECTS: &str = "cleanup_objects";
 pub(super) const TASK_STEP_PURGE_TRASH: &str = "purge_trash";
+pub(super) const TASK_STEP_FOLDER_TREE: &str = "folder_tree";
 pub(super) const TASK_STEP_SCAN_BLOBS: &str = "scan_blobs";
 pub(super) const TASK_STEP_MIGRATE_BLOBS: &str = "migrate_blobs";
 pub(super) const TASK_STEP_CHECK_BLOBS: &str = "check_blobs";

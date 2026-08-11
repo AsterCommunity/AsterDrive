@@ -45,6 +45,20 @@ impl FolderTreeTraversalLimits {
     }
 }
 
+/// REST synchronous budget. Crossing it hands the operation to the resumable task path.
+pub const REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_RESOURCES: usize = 10_000;
+/// Maximum breadth accepted by the synchronous REST folder-tree path.
+pub const REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_FRONTIER: usize = 2_000;
+/// Maximum descendant depth accepted by the synchronous REST folder-tree path.
+pub const REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_DEPTH: usize = 128;
+
+pub(crate) const REST_FOLDER_TREE_LIMITS: FolderTreeTraversalLimits =
+    FolderTreeTraversalLimits::new(
+        REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_RESOURCES,
+        REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_FRONTIER,
+        REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_DEPTH,
+    );
+
 fn folder_matches_scope(folder: &folder::Model, scope: WorkspaceResourceScope) -> bool {
     match scope {
         WorkspaceResourceScope::Personal { user_id } => {

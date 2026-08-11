@@ -14,6 +14,7 @@ pub mod file;
 pub mod file_blob;
 pub mod file_version;
 pub mod folder;
+pub mod folder_tree_operation_member;
 pub mod follower_enrollment_session;
 pub mod managed_follower;
 pub mod master_binding;

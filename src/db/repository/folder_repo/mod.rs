@@ -16,7 +16,6 @@ pub use mutation::{
 };
 pub(crate) use path::{find_ancestor_models, find_team_ancestor_models};
 pub use path::{find_ancestors, resolve_path_chain};
-pub(crate) use query::find_child_ids_in_parents;
 pub use query::{
     find_all_children, find_all_children_in_parents, find_all_files_in_folder, find_by_id,
     find_by_ids, find_by_ids_in_personal_scope, find_by_ids_in_team_scope, find_by_name_in_parent,
@@ -25,6 +24,7 @@ pub use query::{
     find_team_children, find_team_children_after_id, find_team_children_in_parents,
     find_team_children_paginated, lock_by_id,
 };
+pub(crate) use query::{find_child_ids_after_id_in_scope, find_child_ids_in_parents};
 pub use trash::{
     find_all_by_team, find_all_by_team_paginated, find_all_by_user, find_all_by_user_paginated,
     find_deleted_by_user, find_deleted_children, find_expired_deleted,

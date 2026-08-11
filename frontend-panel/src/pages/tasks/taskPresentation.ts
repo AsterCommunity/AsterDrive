@@ -332,6 +332,8 @@ export function formatTaskKind(t: TaskTranslate, kind: BackgroundTaskKind) {
 			return t("tasks:kind_media_metadata_extract");
 		case "trash_purge_all":
 			return t("tasks:kind_trash_purge_all");
+		case "folder_tree_mutation":
+			return t("tasks:kind_folder_tree_mutation");
 		case "storage_policy_temp_cleanup":
 			return t("tasks:kind_storage_policy_temp_cleanup");
 		case "storage_policy_migration":

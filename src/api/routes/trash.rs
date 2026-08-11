@@ -84,6 +84,7 @@ pub async fn list_trash(
     ),
     responses(
         (status = 200, description = "Restored"),
+        (status = 202, description = "Folder restore queued", body = inline(ApiResponse<crate::services::task::types::TaskInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
     ),
@@ -100,12 +101,15 @@ pub async fn restore(
     };
     let (entity_name, details) =
         trash_item_audit_details(state.get_ref(), scope, path.entity_type, path.id).await?;
-    match path.entity_type {
-        EntityType::File => trash::restore_file(state.get_ref(), path.id, claims.user_id).await?,
-        EntityType::Folder => {
-            trash::restore_folder(state.get_ref(), path.id, claims.user_id).await?
+    let folder_outcome = match path.entity_type {
+        EntityType::File => {
+            trash::restore_file(state.get_ref(), path.id, claims.user_id).await?;
+            None
         }
-    }
+        EntityType::Folder => Some(
+            trash::restore_folder_in_scope_with_dispatch(state.get_ref(), scope, path.id).await?,
+        ),
+    };
     let ctx = audit::AuditContext::from_request(&req, &claims);
     audit::log_with_details(
         state.get_ref(),
@@ -120,7 +124,14 @@ pub async fn restore(
         || details.clone(),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    match folder_outcome {
+        Some(crate::services::files::folder::FolderTreeMutationDispatch::Queued(task)) => {
+            Ok(HttpResponse::Accepted().json(ApiResponse::ok(task)))
+        }
+        Some(crate::services::files::folder::FolderTreeMutationDispatch::Completed) | None => {
+            Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+        }
+    }
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -261,6 +272,7 @@ pub(crate) async fn team_list_trash(
     ),
     responses(
         (status = 200, description = "Restored"),
+        (status = 202, description = "Team folder restore queued", body = inline(ApiResponse<crate::services::task::types::TaskInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
@@ -280,14 +292,15 @@ pub(crate) async fn team_restore(
     };
     let (entity_name, details) =
         trash_item_audit_details(state.get_ref(), scope, entity_type, id).await?;
-    match entity_type {
+    let folder_outcome = match entity_type {
         EntityType::File => {
-            trash::restore_team_file(state.get_ref(), team_id, id, claims.user_id).await?
+            trash::restore_team_file(state.get_ref(), team_id, id, claims.user_id).await?;
+            None
         }
         EntityType::Folder => {
-            trash::restore_team_folder(state.get_ref(), team_id, id, claims.user_id).await?
+            Some(trash::restore_folder_in_scope_with_dispatch(state.get_ref(), scope, id).await?)
         }
-    }
+    };
     let ctx = audit::AuditContext::from_request(&req, &claims);
     audit::log_with_details(
         state.get_ref(),
@@ -302,7 +315,14 @@ pub(crate) async fn team_restore(
         || details.clone(),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    match folder_outcome {
+        Some(crate::services::files::folder::FolderTreeMutationDispatch::Queued(task)) => {
+            Ok(HttpResponse::Accepted().json(ApiResponse::ok(task)))
+        }
+        Some(crate::services::files::folder::FolderTreeMutationDispatch::Completed) | None => {
+            Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+        }
+    }
 }
 
 #[aster_forge_api_docs_macros::path(

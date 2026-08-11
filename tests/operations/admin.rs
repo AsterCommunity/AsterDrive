@@ -3172,6 +3172,9 @@ async fn test_admin_tasks_cleanup_uses_explicit_finished_before() {
             BackgroundTaskKind::TrashPurgeAll => {
                 StoredTaskPayload(r#"{}"#.to_string())
             }
+            BackgroundTaskKind::FolderTreeMutation => StoredTaskPayload(
+                r#"{"folder_id":1,"operation":"delete"}"#.to_string(),
+            ),
         };
 
         background_task_repo::create(

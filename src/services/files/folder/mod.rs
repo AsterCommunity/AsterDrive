@@ -21,6 +21,7 @@ use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::runtime::{PrimaryAppState, StorageChangeRuntimeState};
 use crate::services::ops::audit::{self, AuditContext};
+use crate::services::task::types::TaskInfo;
 use crate::services::workspace::models::FolderInfo;
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use aster_drive_model::entities::folder;
@@ -38,6 +39,10 @@ pub use models::{
     build_folder_list_items_with_tags, build_folder_list_items_with_tags_and_lock_states,
 };
 pub use mutation::{create, delete, move_folder, set_lock, update};
+pub use tree::{
+    REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_DEPTH, REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_FRONTIER,
+    REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_RESOURCES,
+};
 
 pub(crate) use access::{
     ensure_folder_model_in_scope, ensure_personal_folder_scope, verify_folder_in_scope,
@@ -56,10 +61,15 @@ pub(crate) use mutation::{
     lock_tree_for_deletion_on, set_lock_in_scope, update_in_scope,
 };
 pub(crate) use tree::{
-    FOLDER_TREE_RESOURCE_LIMIT_MESSAGE, FolderTreeTraversalLimits,
+    FOLDER_TREE_RESOURCE_LIMIT_MESSAGE, FolderTreeTraversalLimits, REST_FOLDER_TREE_LIMITS,
     collect_folder_forest_in_resource_scope, collect_folder_tree_in_resource_scope,
     collect_folder_tree_in_scope,
 };
+
+pub(crate) enum FolderTreeMutationDispatch {
+    Completed,
+    Queued(Box<TaskInfo>),
+}
 
 // 和其他 service 一样，审计包装留在聚合层，避免核心目录逻辑被日志副作用污染。
 pub(crate) async fn create_in_scope_with_audit(
@@ -86,14 +96,41 @@ pub(crate) async fn create_in_scope_with_audit(
 }
 
 pub(crate) async fn delete_in_scope_with_audit(
-    state: &impl StorageChangeRuntimeState,
+    state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     folder_id: i64,
     audit_ctx: &AuditContext,
-) -> Result<()> {
+) -> Result<FolderTreeMutationDispatch> {
     let folder = get_info_in_scope(state, scope, folder_id).await?;
-    let details = audit_location_details_for_model(state, scope, &folder).await;
-    delete_in_scope(state, scope, folder_id, None).await?;
+    let mut details = audit_location_details_for_model(state, scope, &folder)
+        .await
+        .unwrap_or_else(|| json!({}));
+    let outcome =
+        match delete_in_scope(state, scope, folder_id, Some(REST_FOLDER_TREE_LIMITS)).await {
+            Ok(()) => FolderTreeMutationDispatch::Completed,
+            Err(AsterError::OperationResourceLimitExceeded(_)) => {
+                FolderTreeMutationDispatch::Queued(Box::new(
+                    crate::services::task::folder_tree::create_folder_tree_mutation_task_in_scope(
+                        state,
+                        scope,
+                        folder_id,
+                        crate::services::task::types::FolderTreeMutationOperation::Delete,
+                    )
+                    .await?,
+                ))
+            }
+            Err(error) => return Err(error),
+        };
+    let details_object = folder_delete_audit_details_object(&mut details)?;
+    match &outcome {
+        FolderTreeMutationDispatch::Completed => {
+            details_object.insert("dispatch".to_string(), json!("completed"));
+        }
+        FolderTreeMutationDispatch::Queued(task) => {
+            details_object.insert("dispatch".to_string(), json!("queued"));
+            details_object.insert("task_id".to_string(), json!(task.id));
+        }
+    }
     audit::log_with_details(
         state,
         audit_ctx,
@@ -101,10 +138,18 @@ pub(crate) async fn delete_in_scope_with_audit(
         crate::services::ops::audit::AuditEntityType::Folder,
         Some(folder_id),
         Some(&folder.name),
-        || details.clone(),
+        || Some(details.clone()),
     )
     .await;
-    Ok(())
+    Ok(outcome)
+}
+
+fn folder_delete_audit_details_object(
+    details: &mut serde_json::Value,
+) -> Result<&mut serde_json::Map<String, serde_json::Value>> {
+    details.as_object_mut().ok_or_else(|| {
+        AsterError::internal_error("folder audit location details must be a JSON object")
+    })
 }
 
 pub(crate) async fn update_in_scope_with_audit(
@@ -349,5 +394,18 @@ fn scope_team_id(scope: WorkspaceStorageScope) -> Option<i64> {
     match scope {
         WorkspaceStorageScope::Personal { .. } => None,
         WorkspaceStorageScope::Team { team_id, .. } => Some(team_id),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn folder_delete_audit_details_reject_non_object_values() {
+        let mut details = serde_json::json!(["unexpected"]);
+
+        let error = super::folder_delete_audit_details_object(&mut details)
+            .expect_err("folder delete audit details must remain an object");
+
+        assert!(error.message().contains("must be a JSON object"));
     }
 }

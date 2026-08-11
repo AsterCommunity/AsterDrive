@@ -143,6 +143,38 @@ async fn find_children_after_id_in_scope<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+pub(crate) async fn find_child_ids_after_id_in_scope<C: ConnectionTrait>(
+    db: &C,
+    scope: FolderScope,
+    parent_id: i64,
+    after_id: Option<i64>,
+    include_deleted: bool,
+    limit: u64,
+) -> Result<Vec<i64>> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let mut query = Folder::find()
+        .select_only()
+        .column(folder::Column::Id)
+        .filter(if include_deleted {
+            scope_condition(scope)
+        } else {
+            active_scope_condition(scope)
+        })
+        .filter(folder::Column::ParentId.eq(parent_id));
+    if let Some(after_id) = after_id {
+        query = query.filter(folder::Column::Id.gt(after_id));
+    }
+    query
+        .order_by_asc(folder::Column::Id)
+        .limit(limit)
+        .into_tuple::<i64>()
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 pub async fn find_children_after_id<C: ConnectionTrait>(
     db: &C,
     user_id: i64,

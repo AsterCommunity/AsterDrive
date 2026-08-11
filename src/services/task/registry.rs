@@ -19,9 +19,10 @@ use super::dispatch::TaskLane;
 use super::presentation::TaskPresentationContext;
 use super::spec::{
     ArchiveCompressTask, ArchiveExtractTask, ArchivePreviewGenerateTask, BlobMaintenanceTask,
-    ErasedBackgroundTaskSpec, ImagePreviewGenerateTask, MediaMetadataExtractTask,
-    OfflineDownloadTask, StoragePolicyMigrationTask, StoragePolicyTempCleanupTask,
-    SystemRuntimeTask, TaskProcessFuture, ThumbnailGenerateTask, TrashPurgeAllTask,
+    ErasedBackgroundTaskSpec, FolderTreeMutationTask, ImagePreviewGenerateTask,
+    MediaMetadataExtractTask, OfflineDownloadTask, StoragePolicyMigrationTask,
+    StoragePolicyTempCleanupTask, SystemRuntimeTask, TaskProcessFuture, ThumbnailGenerateTask,
+    TrashPurgeAllTask,
 };
 use super::types::{TaskPayload, TaskPresentation, TaskResult};
 
@@ -44,6 +45,7 @@ aster_forge_tasks::task_registry! {
             IMAGE_PREVIEW_GENERATE: super::ImagePreviewGenerateTask => aster_drive_model::types::BackgroundTaskKind::ImagePreviewGenerate,
             MEDIA_METADATA_EXTRACT: super::MediaMetadataExtractTask => aster_drive_model::types::BackgroundTaskKind::MediaMetadataExtract,
             TRASH_PURGE_ALL: super::TrashPurgeAllTask => aster_drive_model::types::BackgroundTaskKind::TrashPurgeAll,
+            FOLDER_TREE_MUTATION: super::FolderTreeMutationTask => aster_drive_model::types::BackgroundTaskKind::FolderTreeMutation,
             STORAGE_POLICY_TEMP_CLEANUP: super::StoragePolicyTempCleanupTask => aster_drive_model::types::BackgroundTaskKind::StoragePolicyTempCleanup,
             STORAGE_POLICY_MIGRATION: super::StoragePolicyMigrationTask => aster_drive_model::types::BackgroundTaskKind::StoragePolicyMigration,
             BLOB_MAINTENANCE: super::BlobMaintenanceTask => aster_drive_model::types::BackgroundTaskKind::BlobMaintenance,
@@ -71,6 +73,7 @@ aster_forge_tasks::task_registry! {
                 aster_drive_model::types::BackgroundTaskKind::SystemRuntime,
                 aster_drive_model::types::BackgroundTaskKind::StoragePolicyTempCleanup,
                 aster_drive_model::types::BackgroundTaskKind::TrashPurgeAll,
+                aster_drive_model::types::BackgroundTaskKind::FolderTreeMutation,
                 aster_drive_model::types::BackgroundTaskKind::BlobMaintenance,
             ],
         }
@@ -148,6 +151,7 @@ mod tests {
             BackgroundTaskKind::ImagePreviewGenerate,
             BackgroundTaskKind::MediaMetadataExtract,
             BackgroundTaskKind::TrashPurgeAll,
+            BackgroundTaskKind::FolderTreeMutation,
             BackgroundTaskKind::StoragePolicyTempCleanup,
             BackgroundTaskKind::StoragePolicyMigration,
             BackgroundTaskKind::BlobMaintenance,
@@ -168,6 +172,7 @@ mod tests {
             BackgroundTaskKind::ImagePreviewGenerate,
             BackgroundTaskKind::MediaMetadataExtract,
             BackgroundTaskKind::TrashPurgeAll,
+            BackgroundTaskKind::FolderTreeMutation,
             BackgroundTaskKind::StoragePolicyTempCleanup,
             BackgroundTaskKind::StoragePolicyMigration,
             BackgroundTaskKind::BlobMaintenance,
