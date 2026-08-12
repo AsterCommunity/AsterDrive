@@ -7,6 +7,14 @@ export const AUTOMATION_LABELS = {
     color: "D73A4A",
     description: "Tracks a reproducible default-branch or scheduled CI failure",
   },
+  "CI: Running": {
+    color: "FBCA04",
+    description: "A pull request has required CI workflows that have not reached a terminal state",
+  },
+  "CI: Passed": {
+    color: "0E8A16",
+    description: "All required CI workflows passed for the current pull request head",
+  },
   "CI: Infrastructure": {
     color: "5319E7",
     description: "CI failure appears to originate from runner or external infrastructure",
@@ -29,6 +37,8 @@ export const MANAGED_PR_LABELS = [
   "Scope: Versioning",
   "Scope: WebDAV",
   "Risk: High",
+  "CI: Running",
+  "CI: Passed",
 ];
 
 const RUST_PATHS = [
@@ -166,4 +176,6 @@ export const LABEL_RULES = [
 
 export const CI_COMMENT_MARKER = "<!-- asterdrive-ci-diagnostics -->";
 export const CI_INCIDENT_MARKER_PREFIX = "asterdrive-ci-incident";
+export const PR_CI_RUNNING_LABEL = "CI: Running";
+export const PR_CI_PASSED_LABEL = "CI: Passed";
 export const PR_GATE_NAME = "PR Gate";

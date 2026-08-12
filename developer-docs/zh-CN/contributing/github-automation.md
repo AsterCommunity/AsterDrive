@@ -20,13 +20,16 @@ PR 使用 GitHub 原生 closing keyword（例如 `Fixes #123`）关联 Issue 后
 
 1. 根据与现有 workflow 相同的 path filter 计算本次需要运行的检查。
 2. 将结果汇总为稳定的 `PR Gate` Check Run。
-3. 失败时创建一条包含隐藏 marker 的 PR 评论；后续运行只更新该评论。
-4. 新 commit 到达后只处理当前 HEAD，旧 SHA 结果不会覆盖新诊断。
-5. 所有必要检查恢复后，评论更新为 resolved。
+3. 相关 CI 仍在运行时添加 `CI: Running`；至少一个相关 workflow 全部成功时切换为 `CI: Passed`。失败、取消、新 commit 或 PR 关闭/合并会清理这两个 CI 生命周期标签；没有相关 CI 的元数据变更不添加 `CI: Passed`。
+4. 失败时创建一条包含隐藏 marker 的 PR 评论；后续运行只更新该评论。
+5. 新 commit 到达后只处理当前 HEAD，旧 SHA 结果不会覆盖新诊断。
+6. 所有必要检查恢复后，评论更新为 resolved。
 
 `PR Gate` 只汇总已有 CI，不重新执行测试。添加或修改 path-filtered workflow 时，必须同步更新 `scripts/github/automation-config.mjs` 的 `PR_WORKFLOWS`，并补路径边界测试。
 
 PR 打开或更新时，PR automation 会立即为当前 HEAD 创建初始 Gate。没有任何 path-filtered CI 的变更直接成功；其余变更保持 pending，直到 CI diagnostics 根据 workflow 完成事件更新。`Repository Automation` workflow 负责验证这些脚本、单元测试和所有 Actions YAML，防止自动化自身成为盲区。
+
+历史 workflow 已结束但 Gate 未收敛时，可从 Actions 页面手动运行 `CI Diagnostics`，并传入源 workflow 的 run ID。该入口只重新读取 GitHub API 状态并更新 Gate、标签和诊断评论，不重新执行源 workflow。
 
 ## 默认分支与定时任务故障
 

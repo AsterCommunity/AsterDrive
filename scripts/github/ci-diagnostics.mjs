@@ -17,6 +17,8 @@ import {
 import {
   AUTOMATION_LABELS,
   CI_COMMENT_MARKER,
+  PR_CI_PASSED_LABEL,
+  PR_CI_RUNNING_LABEL,
   PR_GATE_NAME,
 } from "./automation-config.mjs";
 import { GitHubClient } from "./github-client.mjs";
@@ -45,7 +47,11 @@ async function collectWorkflowRuns(client, sha, expectedNames) {
     if (workflowRuns.has(runId)) continue;
     const run = await client.getWorkflowRun(runId);
     if (!expectedNames.includes(run.name) || run.head_sha !== sha) continue;
-    const jobs = (await client.listWorkflowRunJobs(runId)).map(normalizeJob);
+    // The custom PR Gate check can be listed as a job of the source workflow's
+    // check suite. It is the aggregate output, never evidence about that source.
+    const jobs = (await client.listWorkflowRunJobs(runId))
+      .filter((job) => job.name !== PR_GATE_NAME)
+      .map(normalizeJob);
     workflowRuns.set(runId, {
       workflowName: run.name,
       status: run.status,
@@ -95,7 +101,13 @@ async function updatePrDiagnostics(client, pull) {
   const files = (await client.listPullFiles(pull.number)).map((file) => file.filename);
   const expected = expectedWorkflows(files);
   const workflows = classifyCheckRuns(await collectWorkflowRuns(client, sha, expected), expected);
+  const gateState = gateConclusion(workflows);
   await upsertGate(client, sha, workflows);
+  const labels = current.labels.map((label) => label.name)
+    .filter((label) => ![PR_CI_RUNNING_LABEL, PR_CI_PASSED_LABEL].includes(label));
+  if (gateState.status === "in_progress") labels.push(PR_CI_RUNNING_LABEL);
+  if (expected.length > 0 && gateState.conclusion === "success") labels.push(PR_CI_PASSED_LABEL);
+  await client.setIssueLabels(current.number, labels);
 
   const comments = await client.listIssueComments(pull.number);
   const existing = comments.find((comment) => comment.body?.includes(CI_COMMENT_MARKER));
@@ -177,7 +189,10 @@ export async function runCiDiagnostics({ client, event }) {
   for (const [name, definition] of Object.entries(AUTOMATION_LABELS)) {
     await client.ensureLabel(name, definition);
   }
-  const run = event.workflow_run;
+  const dispatchedRunId = event.inputs?.workflow_run_id;
+  const run = event.workflow_run || (dispatchedRunId
+    ? await client.getWorkflowRun(Number(dispatchedRunId))
+    : null);
   if (!run) throw new Error("workflow_run payload is required");
   const candidates = run.pull_requests?.length > 0
     ? run.pull_requests

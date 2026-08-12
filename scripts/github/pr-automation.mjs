@@ -7,6 +7,8 @@ import {
   AUTOMATION_LABELS,
   CI_COMMENT_MARKER,
   MANAGED_PR_LABELS,
+  PR_CI_PASSED_LABEL,
+  PR_CI_RUNNING_LABEL,
   PR_GATE_NAME,
 } from "./automation-config.mjs";
 import { GitHubClient } from "./github-client.mjs";
@@ -47,6 +49,17 @@ function inheritedPriority(issues) {
 async function synchronizeOpenPull(client, pull) {
   const files = (await client.listPullFiles(pull.number)).map((file) => file.filename);
   const desiredManaged = new Set(labelsForFiles(files));
+  const requiredWorkflows = expectedWorkflows(files);
+  const existingGate = (await client.listCheckRuns(pull.head.sha))
+    .filter((run) => run.name === PR_GATE_NAME)
+    .sort((left, right) => right.id - left.id)[0];
+  if (requiredWorkflows.length > 0) {
+    if (existingGate?.status === "completed" && existingGate.conclusion === "success") {
+      desiredManaged.add(PR_CI_PASSED_LABEL);
+    } else if (existingGate?.status !== "completed" || !existingGate) {
+      desiredManaged.add(PR_CI_RUNNING_LABEL);
+    }
+  }
   const currentLabels = pull.labels.map((label) => label.name);
   const preserved = currentLabels.filter((label) => !MANAGED_PR_LABELS.includes(label));
   const linkedIssues = await getLinkedIssues(client, pull.number);
@@ -54,27 +67,23 @@ async function synchronizeOpenPull(client, pull) {
   if (priority && !preserved.some((label) => label.startsWith("Priority: "))) preserved.push(priority);
   await client.setIssueLabels(pull.number, [...preserved, ...desiredManaged]);
 
-  const existingGate = (await client.listCheckRuns(pull.head.sha))
-    .filter((run) => run.name === PR_GATE_NAME)
-    .sort((left, right) => right.id - left.id)[0];
   if (!existingGate) {
-    const required = expectedWorkflows(files);
     const body = {
       name: PR_GATE_NAME,
       head_sha: pull.head.sha,
-      status: required.length === 0 ? "completed" : "in_progress",
+      status: requiredWorkflows.length === 0 ? "completed" : "in_progress",
       output: {
-        title: required.length === 0 ? "No path-filtered CI required" : "Waiting for required CI",
-        summary: required.length === 0
+        title: requiredWorkflows.length === 0 ? "No path-filtered CI required" : "Waiting for required CI",
+        summary: requiredWorkflows.length === 0
           ? "No path-filtered CI workflows are required for this change."
-          : required.map((name) => `${name}: pending`).join("\n"),
+          : requiredWorkflows.map((name) => `${name}: pending`).join("\n"),
       },
     };
-    if (required.length === 0) body.conclusion = "success";
+    if (requiredWorkflows.length === 0) body.conclusion = "success";
     await client.createCheckRun(body);
   }
 
-  if (expectedWorkflows(files).length === 0) {
+  if (requiredWorkflows.length === 0) {
     const comments = await client.listIssueComments(pull.number);
     const diagnostics = comments.find((comment) => comment.body?.includes(CI_COMMENT_MARKER));
     if (diagnostics) {
@@ -95,10 +104,14 @@ async function synchronizeOpenPull(client, pull) {
 }
 
 async function synchronizeClosedPull(client, pull) {
+  const labels = pull.labels.map((label) => label.name)
+    .filter((label) => ![PR_CI_RUNNING_LABEL, PR_CI_PASSED_LABEL].includes(label));
   if (pull.merged) {
-    const labels = pull.labels.map((label) => label.name)
+    const mergedLabels = labels
       .filter((label) => !["Status: In Progress", "Status: Needs Decision"].includes(label));
-    if (!labels.includes("Merged")) labels.push("Merged");
+    if (!mergedLabels.includes("Merged")) mergedLabels.push("Merged");
+    await client.setIssueLabels(pull.number, mergedLabels);
+  } else if (labels.length !== pull.labels.length) {
     await client.setIssueLabels(pull.number, labels);
   }
 

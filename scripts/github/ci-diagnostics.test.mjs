@@ -33,9 +33,10 @@ function requiredMethods(overrides = {}) {
 test("failed PR workflow updates the existing gate and creates one diagnostics comment", async () => {
   const checkUpdates = [];
   const comments = [];
+  const labelWrites = [];
   let checkListCalls = 0;
   const client = requiredMethods({
-    getPull: async () => ({ number: 12, state: "open", head: { sha: "abc123" } }),
+    getPull: async () => ({ number: 12, state: "open", head: { sha: "abc123" }, labels: [{ name: "Rust" }, { name: "CI: Running" }] }),
     listPullFiles: async () => [{ filename: "src/lib.rs" }],
     listCheckRuns: async () => {
       checkListCalls += 1;
@@ -66,6 +67,7 @@ test("failed PR workflow updates the existing gate and creates one diagnostics c
       steps: [{ name: "Run tests with coverage", conclusion: "failure" }],
     }],
     updateCheckRun: async (id, body) => checkUpdates.push({ id, body }),
+    setIssueLabels: async (number, labels) => labelWrites.push({ number, labels }),
     createCheckRun: async () => assert.fail("existing gate should be updated"),
     listIssueComments: async () => [],
     createIssueComment: async (number, body) => comments.push({ number, body }),
@@ -75,15 +77,17 @@ test("failed PR workflow updates the existing gate and creates one diagnostics c
   await runCiDiagnostics({ client, event: eventFor() });
   assert.equal(checkUpdates[0].id, 99);
   assert.equal(checkUpdates[0].body.conclusion, "failure");
+  assert.deepEqual(labelWrites, [{ number: 12, labels: ["Rust"] }]);
   assert.equal(comments.length, 1);
   assert.match(comments[0].body, /Tests and coverage/);
 });
 
 test("completed gate is superseded instead of reopened when rerun conclusion changes", async () => {
   const created = [];
+  const labelWrites = [];
   let checkListCalls = 0;
   const client = requiredMethods({
-    getPull: async () => ({ number: 12, state: "open", head: { sha: "abc123" } }),
+    getPull: async () => ({ number: 12, state: "open", head: { sha: "abc123" }, labels: [{ name: "Dependencies" }, { name: "CI: Running" }] }),
     listPullFiles: async () => [{ filename: ".cargo/audit.toml" }],
     listCheckRuns: async () => {
       checkListCalls += 1;
@@ -106,8 +110,12 @@ test("completed gate is superseded instead of reopened when rerun conclusion cha
       run_started_at: "2026-08-12T00:00:00Z",
       html_url: "https://example.test/runs/100",
     }),
-    listWorkflowRunJobs: async () => [{ name: "Tests", status: "completed", conclusion: "success", steps: [] }],
+    listWorkflowRunJobs: async () => [
+      { name: "Tests", status: "completed", conclusion: "success", steps: [] },
+      { name: "PR Gate", status: "in_progress", conclusion: null, steps: [] },
+    ],
     createCheckRun: async (body) => created.push(body),
+    setIssueLabels: async (number, labels) => labelWrites.push({ number, labels }),
     updateCheckRun: async () => assert.fail("completed gate should not be reopened"),
     listIssueComments: async () => [],
     createIssueComment: async () => {},
@@ -115,6 +123,86 @@ test("completed gate is superseded instead of reopened when rerun conclusion cha
   await runCiDiagnostics({ client, event: eventFor({ name: "Security Audit", conclusion: "success" }) });
   assert.equal(created.length, 1);
   assert.equal(created[0].conclusion, "success");
+  assert.deepEqual(labelWrites, [{ number: 12, labels: ["Dependencies", "CI: Passed"] }]);
+});
+
+test("CI-running label remains while another required workflow is pending", async () => {
+  const labelWrites = [];
+  let checkListCalls = 0;
+  const client = requiredMethods({
+    getPull: async () => ({ number: 12, state: "open", head: { sha: "abc123" }, labels: [{ name: "Rust" }, { name: "CI: Running" }] }),
+    listPullFiles: async () => [{ filename: "Cargo.toml" }],
+    listCheckRuns: async () => {
+      checkListCalls += 1;
+      if (checkListCalls === 1) {
+        return [{
+          id: 10,
+          name: "Rust CI",
+          details_url: "https://github.com/AsterCommunity/AsterDrive/actions/runs/100/job/1",
+          check_suite: { app: { slug: "github-actions" } },
+        }];
+      }
+      return [{ id: 99, name: "PR Gate", status: "in_progress", conclusion: null }];
+    },
+    getWorkflowRun: async () => ({
+      id: 100,
+      name: "Rust CI",
+      head_sha: "abc123",
+      status: "completed",
+      conclusion: "success",
+      run_started_at: "2026-08-12T00:00:00Z",
+      html_url: "https://example.test/runs/100",
+    }),
+    listWorkflowRunJobs: async () => [{ name: "Tests", status: "completed", conclusion: "success", steps: [] }],
+    updateCheckRun: async () => {},
+    setIssueLabels: async (number, labels) => labelWrites.push({ number, labels }),
+    listIssueComments: async () => [],
+  });
+  await runCiDiagnostics({ client, event: eventFor({ conclusion: "success" }) });
+  assert.deepEqual(labelWrites, [{ number: 12, labels: ["Rust", "CI: Running"] }]);
+});
+
+test("manual dispatch reconciles a historical workflow run", async () => {
+  const checkUpdates = [];
+  const labelWrites = [];
+  let checkListCalls = 0;
+  const sourceRun = eventFor({ name: "Security Audit", conclusion: "success" }).workflow_run;
+  const client = requiredMethods({
+    getWorkflowRun: async (runId) => {
+      assert.equal(runId, 100);
+      if (checkListCalls === 0) return sourceRun;
+      return {
+        ...sourceRun,
+        status: "completed",
+        conclusion: "success",
+        run_started_at: "2026-08-12T00:00:00Z",
+      };
+    },
+    getPull: async () => ({ number: 12, state: "open", head: { sha: "abc123" }, labels: [{ name: "Rust" }, { name: "CI: Running" }] }),
+    listPullFiles: async () => [{ filename: ".cargo/audit.toml" }],
+    listCheckRuns: async () => {
+      checkListCalls += 1;
+      if (checkListCalls === 1) {
+        return [{
+          id: 10,
+          name: "Tests",
+          details_url: "https://github.com/AsterCommunity/AsterDrive/actions/runs/100/job/1",
+          check_suite: { app: { slug: "github-actions" } },
+        }];
+      }
+      return [{ id: 99, name: "PR Gate", status: "in_progress", conclusion: null }];
+    },
+    listWorkflowRunJobs: async () => [{ name: "Tests", status: "completed", conclusion: "success", steps: [] }],
+    updateCheckRun: async (id, body) => checkUpdates.push({ id, body }),
+    setIssueLabels: async (number, labels) => labelWrites.push({ number, labels }),
+    listIssueComments: async () => [],
+  });
+  await runCiDiagnostics({
+    client,
+    event: { repository: { default_branch: "master" }, inputs: { workflow_run_id: "100" } },
+  });
+  assert.equal(checkUpdates[0].body.conclusion, "success");
+  assert.deepEqual(labelWrites, [{ number: 12, labels: ["Rust", "CI: Passed"] }]);
 });
 
 test("default branch failure creates one fingerprinted incident", async () => {

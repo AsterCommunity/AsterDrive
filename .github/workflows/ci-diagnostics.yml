@@ -1,6 +1,12 @@
 name: CI Diagnostics
 
 on:
+  workflow_dispatch:
+    inputs:
+      workflow_run_id:
+        description: Source workflow run ID to reconcile
+        required: true
+        type: string
   workflow_run:
     workflows:
       - Repository Automation
