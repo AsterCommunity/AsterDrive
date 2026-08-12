@@ -1,0 +1,43 @@
+name: CI Diagnostics
+
+on:
+  workflow_run:
+    workflows:
+      - Repository Automation
+      - Rust CI
+      - Frontend CI
+      - E2E
+      - Security Audit
+      - Docs Check
+      - Kubernetes Manifests
+      - Multi-Primary E2E
+      - WebDAV Compatibility
+      - WebDAV Provider Range Baselines
+    types: [completed]
+
+concurrency:
+  group: ci-diagnostics-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  checks: write
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  summarize:
+    name: Update PR gate and diagnostics
+    runs-on: ubuntu-latest
+    steps:
+      # workflow_run always executes the trusted default-branch implementation.
+      # CI logs and pull request metadata remain untrusted input to the script.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Reconcile diagnostics
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/github/ci-diagnostics.mjs

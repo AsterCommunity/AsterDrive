@@ -14,6 +14,7 @@
 | 静态或运行时配置 | [架构概览](../architecture/index.md) | `src/config/`、runtime startup、admin config API/frontend | 默认值、normalize、读写和权限测试；必要时 OpenAPI/frontend tests |
 | AsterForge 接入或抽取 | [项目契约](../architecture/project-contract.md) | 当前 Drive adapter、对应 Forge crate/API | 先写“旧模块 -> Forge API -> Drive 保留职责 -> 必测行为”；相关 crate/Drive 编译和集成测试 |
 | Code review fixes | [工程工作流](./engineering-workflow.md) | review 引用路径、当前 diff、相邻测试 | 逐条验证真伪；每批 focused compile/test |
+| GitHub Actions、PR 标签、CI 评论和合并流程 | [GitHub 自动化](./github-automation.md) | `.github/workflows/`、`scripts/github/`、仓库 labels / ruleset | `node --test scripts/github/*.test.mjs`、workflow 静态检查、`git diff --check` |
 | 文档修改 | [文档贡献指南](./documentation.md) | `developer-docs/` 或 `docs/` | 开发者文档跑 `developer-docs:build`；用户文档跑 `docs:build` |
 
 ## 文件、工作空间与上传

@@ -1,0 +1,8 @@
+[
+  { "filepath": ".github/workflows/performance.yml", "line": 50, "code": "SC2034" },
+  { "filepath": ".github/workflows/rust-release.yml", "line": 76, "code": "SC2086", "count": 2 },
+  { "filepath": ".github/workflows/rust-release.yml", "line": 90, "code": "SC2193" },
+  { "filepath": ".github/workflows/rust-release.yml", "line": 151, "code": "SC2086", "count": 2 },
+  { "filepath": ".github/workflows/rust-release.yml", "line": 283, "code": "SC2035" },
+  { "filepath": ".github/workflows/rust-release.yml", "line": 312, "code": "SC1003", "count": 4 }
+]

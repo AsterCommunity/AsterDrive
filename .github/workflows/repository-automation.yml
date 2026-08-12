@@ -1,0 +1,63 @@
+name: Repository Automation
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/**'
+      - 'scripts/github/**'
+      - 'developer-docs/zh-CN/contributing/github-automation.md'
+  pull_request:
+    branches: [master, develop]
+    paths:
+      - '.github/workflows/**'
+      - 'scripts/github/**'
+      - 'developer-docs/zh-CN/contributing/github-automation.md'
+
+concurrency:
+  group: repository-automation-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate repository automation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+
+      - name: Run automation tests
+        run: node --test scripts/github/*.test.mjs
+
+      - name: Check script syntax
+        run: |
+          for file in scripts/github/*.mjs; do
+            node --check "$file"
+          done
+
+      - name: Install actionlint
+        env:
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+          ACTIONLINT_VERSION: 1.7.12
+        run: |
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl --fail --location --retry 3 \
+            --output "/tmp/${archive}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${ACTIONLINT_SHA256}  /tmp/${archive}" | sha256sum --check
+          tar -xzf "/tmp/${archive}" -C /tmp actionlint
+          install /tmp/actionlint /usr/local/bin/actionlint
+
+      - name: Validate GitHub Actions workflows
+        # Existing release/performance findings are pinned by path, line, rule,
+        # and count. Any new finding or baseline drift fails validation.
+        run: node scripts/github/check-actionlint.mjs

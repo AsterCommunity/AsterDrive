@@ -15,10 +15,13 @@ ignore = [
     # 纯编译期宏，零运行时代码，无安全风险
     "RUSTSEC-2024-0436",
 
-    # proc-macro-error2 2.0.1 unmaintained
-    # 仅通过 sea-bae -> sea-orm-macros 的 proc-macro 编译期路径引入
-    # RustSec 标记为 unmaintained，非已知漏洞；不进入服务运行时攻击面
-    "RUSTSEC-2026-0173",
+    # lru 0.16.4 LruCache::pop() panic-safety issue
+    # 仅由最新 aws-sdk-s3 1.141.0 的 S3 Express identity cache 引入；该缓存使用
+    # CacheKey(String)，不调用 LruCache::pop()，也不通过 catch_unwind 在 key 析构
+    # panic 后继续操作缓存，因此不具备 advisory 所需的触发链路。
+    # AWS SDK 仍约束 lru ^0.16.3；跟踪 awslabs/aws-sdk-rust#1451，迁移到
+    # lru >= 0.18.2 后删除本项。
+    "RUSTSEC-2026-0253",
 
     # rkyv 0.7.46 archive validation issue
     # 仅作为 rust_decimal 的 optional dependency 出现在 Cargo.lock；AsterDrive、SeaORM、
