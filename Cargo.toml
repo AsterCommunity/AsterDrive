@@ -271,7 +271,7 @@ webauthn-rs = { version = "0.6.1-dev", default-features = false, features = ["co
 webauthn-rs-proto = "0.6.1-dev"
 
 zip = { version = "8", default-features = false, features = ["deflate"] }
-lofty = "0.24.0"
+lofty = "0.25.0"
 
 [dev-dependencies]
 aes-gcm = "0.11"
