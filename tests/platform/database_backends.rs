@@ -21,6 +21,106 @@ use aster_drive_model::types::{
 const OLD_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 255;
 const EXPANDED_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 512;
 
+async fn assert_revision_expected_head_serializes_concurrent_appends(
+    database_url: &str,
+    file_id: i64,
+) {
+    use aster_drive::db::repository::{file_repo, revision_repo};
+
+    let connect = || async {
+        let config = aster_drive::config::DatabaseConfig {
+            url: database_url.into(),
+            pool_size: 1,
+            retry_count: 0,
+        };
+        aster_drive::db::connect_with_metrics(&config, aster_drive_metrics::NoopMetrics::arc())
+            .await
+            .unwrap()
+    };
+    let (first_db, second_db) = tokio::join!(connect(), connect());
+    let file = file_repo::find_by_id(&first_db, file_id).await.unwrap();
+    let history = revision_repo::find_history_by_file_id(&first_db, file_id)
+        .await
+        .unwrap();
+    let expected_head = history.current_revision_id.unwrap();
+
+    let first_txn = aster_forge_db::transaction::begin(&first_db).await.unwrap();
+    file_repo::increment_blob_ref_count(&first_txn, file.blob_id)
+        .await
+        .unwrap();
+    let first_revision = revision_repo::append(
+        &first_txn,
+        file_id,
+        Some(expected_head),
+        revision_repo::NewRevision {
+            blob_id: file.blob_id,
+            logical_size: file.size,
+            mime_type: &file.mime_type,
+            content_sha256: None,
+            creator_user_id: file.created_by_user_id,
+            creator_display_name: &file.created_by_username,
+            comment: Some("database-backend concurrency winner"),
+            reason: revision_repo::RevisionReason::Overwrite,
+            created_at: chrono::Utc::now(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(first_revision.sequence, 2);
+
+    let second_file = file.clone();
+    let loser = tokio::spawn(async move {
+        let txn = aster_forge_db::transaction::begin(&second_db)
+            .await
+            .unwrap();
+        let result = revision_repo::append(
+            &txn,
+            file_id,
+            Some(expected_head),
+            revision_repo::NewRevision {
+                blob_id: second_file.blob_id,
+                logical_size: second_file.size,
+                mime_type: &second_file.mime_type,
+                content_sha256: None,
+                creator_user_id: second_file.created_by_user_id,
+                creator_display_name: &second_file.created_by_username,
+                comment: Some("database-backend concurrency loser"),
+                reason: revision_repo::RevisionReason::Overwrite,
+                created_at: chrono::Utc::now(),
+            },
+        )
+        .await;
+        txn.rollback().await.unwrap();
+        result
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        !loser.is_finished(),
+        "the competing revision append must wait for the history row lock"
+    );
+    first_txn.commit().await.unwrap();
+
+    let error = timeout(Duration::from_secs(5), loser)
+        .await
+        .expect("competing append should finish after the winner commits")
+        .unwrap()
+        .expect_err("the stale expected head must lose after lock acquisition");
+    assert_eq!(
+        error.api_error_code(),
+        aster_drive::api::api_error_code::ApiErrorCode::FileModifiedDuringWrite
+    );
+    let revisions = revision_repo::find_by_file_id(&first_db, file_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        revisions
+            .iter()
+            .map(|revision| revision.sequence)
+            .collect::<Vec<_>>(),
+        vec![2, 1]
+    );
+}
+
 fn upload_named_file(name: &str, content: &str, mime: &str, boundary: &str) -> String {
     format!(
         "--{boundary}\r\n\
@@ -572,7 +672,7 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     assert_current_storage_policy_ignores_retained_legacy_columns(state.writer_db(), backend).await;
     assert_folder_tree_staging_primary_key_and_task_cascade(state.writer_db()).await;
 
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
     let share_file_boundary = "----BackendShareBoundary123";
@@ -605,6 +705,7 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     let share_file_id = share_upload_body["data"]["id"]
         .as_i64()
         .expect("share upload should return file id");
+    assert_revision_expected_head_serializes_concurrent_appends(database_url, share_file_id).await;
 
     let create_share_req = test::TestRequest::post()
         .uri("/api/v1/shares")
@@ -953,14 +1054,20 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
 
 #[actix_web::test]
 async fn test_postgres_smoke_search_and_admin_overview() {
-    let database_url = common::postgres_test_database_url().await;
+    let database_url = match std::env::var("ASTER_TEST_POSTGRES_DATABASE_URL") {
+        Ok(url) => url,
+        Err(_) => common::postgres_test_database_url().await,
+    };
 
     exercise_backend_smoke(&database_url, DbBackend::Postgres).await;
 }
 
 #[actix_web::test]
 async fn test_mysql_smoke_search_and_admin_overview() {
-    let database_url = common::mysql_test_database_url().await;
+    let database_url = match std::env::var("ASTER_TEST_MYSQL_DATABASE_URL") {
+        Ok(url) => url,
+        Err(_) => common::mysql_test_database_url().await,
+    };
 
     let config = aster_drive::config::DatabaseConfig {
         url: database_url.clone().into(),

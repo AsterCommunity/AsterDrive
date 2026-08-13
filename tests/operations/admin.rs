@@ -15,7 +15,7 @@ use aster_drive::db::repository::{
     audit_log_repo, background_task_repo, lock_namespace_repo, lock_repo, policy_repo, team_repo,
     user_repo,
 };
-use aster_drive_model::entities::{background_task, file, file_blob, file_version, resource_lock};
+use aster_drive_model::entities::{background_task, file, file_blob, file_revision, resource_lock};
 use aster_drive_model::types::{
     AuditAction, BackgroundTaskKind, BackgroundTaskStatus, LockDepth, LockMode, LockOrigin,
     LockRootKind, LockWorkspaceType, StoredLockOwnerInfo, StoredTaskPayload, StoredTaskResult,
@@ -617,9 +617,13 @@ async fn test_admin_files_and_file_blobs_observability() {
         detail_body["data"]["created_by"]["username"],
         "fileobserver"
     );
-    assert_eq!(detail_body["data"]["versions"].as_array().unwrap().len(), 1);
-    assert_eq!(detail_body["data"]["versions"][0]["blob_id"], blob_id);
-    assert_eq!(detail_body["data"]["versions"][0]["blob"]["id"], blob_id);
+    let revisions = detail_body["data"]["versions"].as_array().unwrap();
+    assert_eq!(revisions.len(), 2);
+    assert_eq!(revisions[0]["version"], 2);
+    assert_ne!(revisions[0]["blob_id"], blob_id);
+    assert_eq!(revisions[1]["version"], 1);
+    assert_eq!(revisions[1]["blob_id"], blob_id);
+    assert_eq!(revisions[1]["blob"]["id"], blob_id);
 
     let delete_req = test::TestRequest::delete()
         .uri(&format!("/api/v1/files/{notes_id}"))
@@ -785,12 +789,29 @@ async fn test_admin_file_blob_health_states_and_reference_boundaries() {
     .insert(state.writer_db())
     .await
     .expect("version-only blob should insert");
-    file_version::ActiveModel {
-        file_id: Set(live_file_id),
-        blob_id: Set(version_only_blob.id),
-        version: Set(99),
-        size: Set(33),
+    let revision_history = aster_drive::db::repository::revision_repo::find_history_by_file_id(
+        state.writer_db(),
+        live_file_id,
+    )
+    .await
+    .unwrap();
+    file_revision::ActiveModel {
+        public_id: Set(uuid::Uuid::new_v4().to_string()),
+        history_id: Set(revision_history.id),
+        sequence: Set(99),
+        predecessor_revision_id: Set(None),
+        blob_id: Set(Some(version_only_blob.id)),
+        logical_size: Set(33),
+        mime_type: Set(Some("application/octet-stream".to_string())),
+        etag: Set(uuid::Uuid::new_v4().simple().to_string()),
+        content_sha256: Set(None),
+        creator_user_id: Set(None),
+        creator_display_name: Set(Some("fixture".to_string())),
+        comment: Set(None),
+        reason: Set("overwrite".to_string()),
         created_at: Set(now),
+        retired_at: Set(None),
+        purged_at: Set(None),
         ..Default::default()
     }
     .insert(state.writer_db())

@@ -12,7 +12,10 @@ use actix_web::{HttpRequest, HttpResponse, web};
     path = "/api/v1/files/{id}/versions",
     tag = "files",
     operation_id = "list_versions",
-    params(("id" = i64, Path, description = "File ID")),
+    params(
+        ("id" = i64, Path, description = "File ID"),
+        crate::services::workspace::models::FileVersionListQuery,
+    ),
     responses(
         (status = 200, description = "File versions", body = inline(ApiResponse<Vec<crate::services::workspace::models::FileVersion>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
@@ -23,8 +26,9 @@ pub async fn list_versions(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
     path: web::Path<i64>,
+    query: web::Query<crate::services::workspace::models::FileVersionListQuery>,
 ) -> Result<HttpResponse> {
-    let versions = version::list_versions(state.get_ref(), *path, claims.user_id).await?;
+    let versions = version::list_versions(state.get_ref(), *path, claims.user_id, *query).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(versions)))
 }
 
@@ -103,7 +107,8 @@ pub async fn delete_version(
     operation_id = "list_team_versions",
     params(
         ("team_id" = i64, Path, description = "Team ID"),
-        ("id" = i64, Path, description = "File ID")
+        ("id" = i64, Path, description = "File ID"),
+        crate::services::workspace::models::FileVersionListQuery,
     ),
     responses(
         (status = 200, description = "File versions", body = inline(ApiResponse<Vec<crate::services::workspace::models::FileVersion>>)),
@@ -116,10 +121,12 @@ pub(crate) async fn team_list_versions(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
     path: web::Path<(i64, i64)>,
+    query: web::Query<crate::services::workspace::models::FileVersionListQuery>,
 ) -> Result<HttpResponse> {
     let (team_id, file_id) = path.into_inner();
     let versions =
-        version::list_versions_for_team(state.get_ref(), team_id, file_id, claims.user_id).await?;
+        version::list_versions_for_team(state.get_ref(), team_id, file_id, claims.user_id, *query)
+            .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(versions)))
 }
 

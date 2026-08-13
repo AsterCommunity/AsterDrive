@@ -64,6 +64,7 @@ mod m20260803_000002_storage_policy_connector_configs;
 mod m20260803_000003_add_storage_policy_connector_credentials;
 mod m20260805_000001_allow_connector_policy_writes_with_legacy_schema;
 mod m20260810_000001_folder_tree_operation_members;
+mod m20260813_000001_canonical_file_revision_ledger;
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
@@ -201,6 +202,7 @@ impl MigratorTrait for CurrentMigrator {
                 m20260805_000001_allow_connector_policy_writes_with_legacy_schema::Migration,
             ),
             Box::new(m20260810_000001_folder_tree_operation_members::Migration),
+            Box::new(m20260813_000001_canonical_file_revision_ledger::Migration),
         ]
     }
 }

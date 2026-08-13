@@ -152,7 +152,15 @@ export const LABEL_RULES = [
   { label: "Scope: Remote Nodes", paths: ["src/services/remote/**", "src/storage/remote_protocol/**", "src/api/routes/internal_storage.rs", "src/storage/remote_tunnel.rs"] },
   { label: "Scope: Runtime", paths: ["src/runtime/**", "src/services/background_tasks/**", "src/api/routes/background_tasks.rs", "deploy/**", "Dockerfile", "docker-compose.yml"] },
   { label: "Scope: Upload", paths: ["src/services/files/upload/**", "src/api/routes/files/upload*", "frontend-panel/**/upload*"] },
-  { label: "Scope: Versioning", paths: ["src/services/files/version*", "src/db/repository/file_version*", "crates/aster_drive_model/**/file_version*"] },
+  {
+    label: "Scope: Versioning",
+    paths: [
+      "src/services/content/version*",
+      "src/db/repository/revision_repo.rs",
+      "crates/aster_drive_model/**/file_revision*",
+      "crates/aster_drive_migration/**/*canonical_file_revision_ledger*",
+    ],
+  },
   { label: "Scope: WebDAV", paths: ["src/webdav/**", "tests/webdav/**", "scripts/ci/webdav-compat/**", ".github/actions/setup-litmus/**"] },
   {
     label: "Risk: High",

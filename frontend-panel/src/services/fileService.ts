@@ -80,6 +80,31 @@ function encodeFileName(fileName: string) {
 }
 
 export function createFileService(workspace: Workspace) {
+	const listVersions = async (id: number): Promise<FileVersion[]> => {
+		const versions: FileVersion[] = [];
+		let afterSequence: number | undefined;
+
+		for (;;) {
+			const page = await api.get<FileVersion[]>(
+				buildWorkspacePath(workspace, `/files/${id}/versions`),
+				{
+					params: {
+						after_sequence: afterSequence,
+						limit: 1000,
+					},
+				},
+			);
+			versions.push(...page);
+			if (page.length < 1000) return versions;
+
+			const nextSequence = page.at(-1)?.version;
+			if (nextSequence === undefined || nextSequence === afterSequence) {
+				throw new Error("File version cursor did not advance");
+			}
+			afterSequence = nextSequence;
+		}
+	};
+
 	return {
 		listRoot: (params?: FolderListParams, options?: ServiceRequestOptions) =>
 			api.get<FolderContents>(buildWorkspacePath(workspace, "/folders"), {
@@ -313,10 +338,7 @@ export function createFileService(workspace: Workspace) {
 			}
 		},
 
-		listVersions: (id: number) =>
-			api.get<FileVersion[]>(
-				buildWorkspacePath(workspace, `/files/${id}/versions`),
-			),
+		listVersions,
 
 		restoreVersion: (fileId: number, versionId: number) =>
 			api.post<FileInfo>(

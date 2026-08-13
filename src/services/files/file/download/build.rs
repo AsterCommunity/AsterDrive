@@ -17,6 +17,10 @@ use super::types::{DownloadOutcome, StreamedFile};
 
 const PRESIGNED_DOWNLOAD_TTL_SECS: u64 = 5 * 60;
 
+async fn canonical_etag(state: &PrimaryAppState, file_id: i64) -> Result<String> {
+    crate::db::repository::revision_repo::current_etag(state.reader_db(), file_id).await
+}
+
 pub(crate) async fn download_in_scope_with_range_and_file(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
@@ -116,8 +120,9 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,
 ) -> Result<DownloadOutcome> {
+    let revision_etag = canonical_etag(state, file.id).await?;
     if let Some(if_none_match) = if_none_match
-        && if_none_match_matches(if_none_match, &blob.hash)
+        && if_none_match_matches(if_none_match, &revision_etag)
     {
         // 命中 If-None-Match 时仍走统一 outcome builder，
         // 这样 304 和 200 会共享相同的缓存头 / sandbox 头策略。
@@ -254,9 +259,10 @@ pub(crate) async fn build_stream_outcome_with_disposition_and_range(
         );
     }
 
-    let etag = format!("\"{}\"", blob.hash);
+    let revision_etag = canonical_etag(state, file.id).await?;
+    let etag = format!("\"{revision_etag}\"");
     if let Some(if_none_match) = if_none_match
-        && if_none_match_matches(if_none_match, &blob.hash)
+        && if_none_match_matches(if_none_match, &revision_etag)
     {
         tracing::debug!(
             file_id = file.id,

@@ -338,11 +338,18 @@ async fn test_force_delete_user_preserves_team_upload_and_blob_ref() {
     assert_eq!(after_update_file.created_by_user_id, None);
     assert_eq!(after_update_file.created_by_username, "team-uploader");
 
-    let versions = aster_drive::db::repository::version_repo::find_by_file_id(&db, file_id)
+    let history = aster_drive::db::repository::revision_repo::find_history_by_file_id(&db, file_id)
         .await
         .unwrap();
-    assert_eq!(versions.len(), 1);
-    assert_eq!(versions[0].size, "team update one".len() as i64);
+    let revisions = aster_drive::db::repository::revision_repo::find_by_file_id(&db, file_id)
+        .await
+        .unwrap();
+    assert_eq!(revisions.len(), 2);
+    let historical = revisions
+        .iter()
+        .find(|revision| Some(revision.id) != history.current_revision_id)
+        .unwrap();
+    assert_eq!(historical.logical_size, "team update one".len() as i64);
 
     let after_update_storage = aster_drive::db::repository::team_repo::find_by_id(&db, team_id)
         .await

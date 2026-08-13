@@ -166,7 +166,11 @@ impl AsterDavFs {
         let blob = file_repo::find_blob_by_id(self.state.reader_db(), file.blob_id)
             .await
             .map_err(|_| FsError::GeneralFailure)?;
-        let meta = AsterDavMeta::from_file(&file, &blob);
+        let revision_etag =
+            crate::db::repository::revision_repo::current_etag(self.state.reader_db(), file.id)
+                .await
+                .map_err(|_| FsError::GeneralFailure)?;
+        let meta = AsterDavMeta::from_file(&file, revision_etag);
 
         Ok(Some(AsterDavDownloadFile { file, blob, meta }))
     }
@@ -203,10 +207,13 @@ impl AsterDavFs {
             ResolvedNode::Root => Ok(AsterDavMeta::root()),
             ResolvedNode::Folder(folder) => Ok(AsterDavMeta::from_folder(&folder)),
             ResolvedNode::File(file) => {
-                let blob = file_repo::find_blob_by_id(self.state.writer_db(), file.blob_id)
-                    .await
-                    .map_err(|_| FsError::GeneralFailure)?;
-                Ok(AsterDavMeta::from_file(&file, &blob))
+                let revision_etag = crate::db::repository::revision_repo::current_etag(
+                    self.state.writer_db(),
+                    file.id,
+                )
+                .await
+                .map_err(|_| FsError::GeneralFailure)?;
+                Ok(AsterDavMeta::from_file(&file, revision_etag))
             }
         }
     }
@@ -367,7 +374,9 @@ impl AsterDavFs {
                 let files = self
                     .file_page(folder_id, Some(*id), fetch_size, writer_authoritative)
                     .await?;
-                return Ok(file_only_page(files, request.maximum_entries));
+                return self
+                    .file_only_page(files, request.maximum_entries, writer_authoritative)
+                    .await;
             }
         };
 
@@ -421,14 +430,58 @@ impl AsterDavFs {
         let returned_files = files.into_iter().take(remaining).collect::<Vec<_>>();
         let last_file_id = returned_files.last().map(|file| file.id);
         entries.extend(
-            returned_files
-                .iter()
-                .map(AsterDavDirEntry::from_file_record),
+            self.file_entries(&returned_files, writer_authoritative)
+                .await?,
         );
         Ok(DavDirectoryPage {
             entries,
             next_cursor: has_more_files
                 .then(|| AsterDavDirectoryCursor::Files(last_file_id.unwrap_or_default())),
+        })
+    }
+
+    async fn file_entries(
+        &self,
+        files: &[file_entity::Model],
+        writer_authoritative: bool,
+    ) -> Result<Vec<AsterDavDirEntry>, DavBackendError> {
+        let db = if writer_authoritative {
+            self.state.writer_db()
+        } else {
+            self.state.reader_db()
+        };
+        let file_ids = files.iter().map(|file| file.id).collect::<Vec<_>>();
+        let etags = crate::db::repository::revision_repo::current_etags_by_file_ids(db, &file_ids)
+            .await
+            .map_err(|error| {
+                tracing::warn!(%error, "WebDAV revision ETag query failed");
+                DavBackendError::new(DavBackendErrorKind::Internal)
+            })?;
+        files
+            .iter()
+            .map(|file| {
+                let etag = etags
+                    .get(&file.id)
+                    .cloned()
+                    .ok_or_else(|| DavBackendError::new(DavBackendErrorKind::Internal))?;
+                Ok(AsterDavDirEntry::from_file_record(file, etag))
+            })
+            .collect()
+    }
+
+    async fn file_only_page(
+        &self,
+        files: Vec<file_entity::Model>,
+        maximum_entries: usize,
+        writer_authoritative: bool,
+    ) -> Result<DavDirectoryPage<AsterDavDirEntry, AsterDavDirectoryCursor>, DavBackendError> {
+        let has_more = files.len() > maximum_entries;
+        let returned = files.into_iter().take(maximum_entries).collect::<Vec<_>>();
+        let next_cursor = has_more
+            .then(|| AsterDavDirectoryCursor::Files(returned.last().map_or(0, |file| file.id)));
+        Ok(DavDirectoryPage {
+            entries: self.file_entries(&returned, writer_authoritative).await?,
+            next_cursor,
         })
     }
 }
@@ -457,23 +510,6 @@ impl DavDirectoryEnumerator for AsterDavWriteDirectoryEnumerator<'_> {
         self.dav_fs
             .read_directory_page_with_consistency(request, true)
             .await
-    }
-}
-
-fn file_only_page(
-    files: Vec<file_entity::Model>,
-    maximum_entries: usize,
-) -> DavDirectoryPage<AsterDavDirEntry, AsterDavDirectoryCursor> {
-    let has_more = files.len() > maximum_entries;
-    let returned = files.into_iter().take(maximum_entries).collect::<Vec<_>>();
-    let next_cursor =
-        has_more.then(|| AsterDavDirectoryCursor::Files(returned.last().map_or(0, |file| file.id)));
-    DavDirectoryPage {
-        entries: returned
-            .iter()
-            .map(AsterDavDirEntry::from_file_record)
-            .collect(),
-        next_cursor,
     }
 }
 
@@ -639,10 +675,13 @@ impl DavFileSystem for AsterDavFs {
                 ResolvedNode::Root => Box::new(AsterDavMeta::root()),
                 ResolvedNode::Folder(f) => Box::new(AsterDavMeta::from_folder(&f)),
                 ResolvedNode::File(f) => {
-                    let blob = file_repo::find_blob_by_id(self.state.reader_db(), f.blob_id)
-                        .await
-                        .map_err(|_| FsError::GeneralFailure)?;
-                    Box::new(AsterDavMeta::from_file(&f, &blob))
+                    let revision_etag = crate::db::repository::revision_repo::current_etag(
+                        self.state.reader_db(),
+                        f.id,
+                    )
+                    .await
+                    .map_err(|_| FsError::GeneralFailure)?;
+                    Box::new(AsterDavMeta::from_file(&f, revision_etag))
                 }
             };
 
@@ -1530,7 +1569,11 @@ async fn revalidate_atomic_target<C: ConnectionTrait>(
             Some(metadata::to_system_time(folder.updated_at)),
         ),
         ResolvedNode::File(file) => (
-            Some(metadata::file_etag(&file)),
+            Some(
+                crate::db::repository::revision_repo::current_etag(db, file.id)
+                    .await
+                    .map_err(|_| AsterDavMutationError::Backend)?,
+            ),
             Some(metadata::to_system_time(file.updated_at)),
         ),
     };

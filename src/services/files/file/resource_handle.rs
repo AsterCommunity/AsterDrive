@@ -123,11 +123,13 @@ async fn original_handle(
     delivery_mode: FileResourceDeliveryMode,
     scope: Option<&str>,
 ) -> Result<FileResourceHandle> {
+    let revision_etag =
+        crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id).await?;
     if let Some(presigned_url) = presigned_original_url(state, file, blob).await? {
         return Ok(FileResourceHandle {
             identity: FileResourceIdentity {
                 cache_key: download_path,
-                etag: Some(format!("\"{}\"", blob.hash)),
+                etag: Some(format!("\"{revision_etag}\"")),
                 scope: scope.map(str::to_string),
             },
             request: FileResourceRequestInfo {
@@ -146,7 +148,7 @@ async fn original_handle(
     Ok(FileResourceHandle {
         identity: FileResourceIdentity {
             cache_key: download_path.clone(),
-            etag: Some(format!("\"{}\"", blob.hash)),
+            etag: Some(format!("\"{revision_etag}\"")),
             scope: scope.map(str::to_string),
         },
         request: FileResourceRequestInfo {
@@ -385,7 +387,7 @@ mod tests {
     };
     use crate::config::{Config, DatabaseConfig, RuntimeConfig};
     use crate::db::repository::file_repo;
-    use crate::runtime::PrimaryAppState;
+    use crate::runtime::{PrimaryAppState, SharedRuntimeState};
     use crate::services::{mail::sender, media::processing, storage_policy::policy};
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use aster_drive_model::entities::{file, file_blob, storage_policy, user};
@@ -699,6 +701,13 @@ mod tests {
         )
         .await
         .expect("resource handle file should be inserted");
+        crate::db::repository::revision_repo::create_initial(
+            &db,
+            &file,
+            crate::db::repository::revision_repo::RevisionReason::Create,
+        )
+        .await
+        .expect("resource handle file should have an initial revision");
 
         (state, file, blob)
     }
@@ -802,6 +811,10 @@ mod tests {
     async fn original_handle_uses_same_origin_when_presigned_download_is_disabled() {
         let (state, file, blob) =
             build_resource_handle_state(TestDriver, None, "report.txt", "text/plain").await;
+        let revision_etag =
+            crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id)
+                .await
+                .expect("current revision ETag should load");
 
         let handle = resolve_file_resource_handle_for_file(
             &state,
@@ -824,7 +837,7 @@ mod tests {
         );
         assert_eq!(
             handle.identity.etag.as_deref(),
-            Some("\"resource-handle-hash\"")
+            Some(format!("\"{revision_etag}\"").as_str())
         );
         assert_eq!(handle.identity.scope.as_deref(), Some("personal"));
         assert_eq!(
@@ -853,6 +866,10 @@ mod tests {
             "image/png",
         )
         .await;
+        let revision_etag =
+            crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id)
+                .await
+                .expect("current revision ETag should load");
 
         let handle = resolve_file_resource_handle_for_file(
             &state,
@@ -875,7 +892,7 @@ mod tests {
         );
         assert_eq!(
             handle.identity.etag.as_deref(),
-            Some("\"resource-handle-hash\"")
+            Some(format!("\"{revision_etag}\"").as_str())
         );
         assert_eq!(handle.identity.scope.as_deref(), Some("team"));
         assert_eq!(handle.request.credentials, FileResourceCredentials::Omit);

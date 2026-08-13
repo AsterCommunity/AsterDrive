@@ -325,7 +325,7 @@ pub(crate) async fn download_shared_file_with_disposition_and_range(
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,
 ) -> Result<file_ops::DownloadOutcome> {
-    let share = load_valid_share(state, token).await?;
+    let share = load_usable_share_ignoring_download_limit(state, token).await?;
     let file = load_share_file_resource(state, &share).await?;
     download_share_resource_with_disposition(
         state,
@@ -364,7 +364,8 @@ pub(crate) async fn download_shared_folder_file_with_disposition_and_range(
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,
 ) -> Result<file_ops::DownloadOutcome> {
-    let (share, file) = load_shared_folder_file_target(state, token, file_id).await?;
+    let (share, file) =
+        load_shared_folder_file_target_ignoring_download_limit(state, token, file_id).await?;
     download_share_resource_with_disposition(
         state,
         &share,
@@ -644,8 +645,10 @@ async fn download_share_resource_with_disposition(
     );
     let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id).await?;
 
+    let revision_etag =
+        crate::db::repository::revision_repo::current_etag(state.writer_db(), file.id).await?;
     if let Some(if_none_match) = if_none_match
-        && file_ops::if_none_match_matches(if_none_match, &blob.hash)
+        && file_ops::if_none_match_matches(if_none_match, &revision_etag)
     {
         tracing::debug!(
             share_id = share.id,

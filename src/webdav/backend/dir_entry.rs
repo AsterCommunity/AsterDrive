@@ -20,11 +20,11 @@ impl AsterDavDirEntry {
         }
     }
 
-    pub fn from_file_record(file: &file::Model) -> Self {
+    pub fn from_file_record(file: &file::Model, revision_etag: String) -> Self {
         Self {
             name: file.name.as_bytes().to_vec(),
             stable_key: stable_key(1, file.id),
-            metadata: AsterDavMeta::from_file_record(file),
+            metadata: AsterDavMeta::from_file_record(file, revision_etag),
         }
     }
 }

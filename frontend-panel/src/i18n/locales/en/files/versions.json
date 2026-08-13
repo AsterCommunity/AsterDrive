@@ -15,7 +15,7 @@
 	"version_restored": "Version restored",
 	"version_deleted": "Version deleted",
 	"version_restore_confirm_title": "Restore this version?",
-	"version_restore_confirm_desc": "Version v{{version}} and all newer history versions will be permanently removed. This action cannot be undone.",
+	"version_restore_confirm_desc": "Restoring v{{version}} creates a new current revision. Existing history remains unchanged.",
 	"version_delete_confirm_title": "Permanently delete this history version?",
-	"version_delete_confirm_desc": "Version v{{version}} will be permanently removed and cannot be restored. If this is the last history version, you will no longer be able to roll back to earlier content."
+	"version_delete_confirm_desc": "The content of v{{version}} will be permanently removed. Its sequence and public identity remain reserved and will never be reused."
 }

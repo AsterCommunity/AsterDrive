@@ -381,11 +381,10 @@ async fn test_open_wopi_session_persists_token_and_check_file_info_succeeds() {
     assert_eq!(body["SupportsLocks"], true);
     assert_eq!(body["SupportsRename"], true);
     assert_eq!(body["SupportsUpdate"], true);
-    assert!(
-        body["Version"]
-            .as_str()
-            .is_some_and(|value| !value.is_empty())
-    );
+    let revision_etag = aster_drive::db::repository::revision_repo::current_etag(&db, file_id)
+        .await
+        .expect("current revision ETag should load");
+    assert_eq!(body["Version"], revision_etag);
 
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/wopi/files/{file_id}"))

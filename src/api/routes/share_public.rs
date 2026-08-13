@@ -177,7 +177,7 @@ async fn shared_file_range(
     if !req.headers().contains_key(header::RANGE) {
         return Ok(None);
     }
-    let (_, file) = share::load_preview_shared_file(state, token).await?;
+    let (_, file) = share::load_shared_file_ignoring_download_limit(state, token).await?;
     file::parse_range_header(req.headers().get(header::RANGE), file.size)
 }
 
@@ -190,7 +190,8 @@ async fn shared_folder_file_range(
     if !req.headers().contains_key(header::RANGE) {
         return Ok(None);
     }
-    let (_, file) = share::load_preview_shared_folder_file(state, token, file_id).await?;
+    let (_, file) =
+        share::load_shared_folder_file_ignoring_download_limit(state, token, file_id).await?;
     file::parse_range_header(req.headers().get(header::RANGE), file.size)
 }
 
@@ -554,7 +555,7 @@ pub async fn download_shared(
     path: web::Path<String>,
     query: web::Query<DownloadQuery>,
     req: actix_web::HttpRequest,
-    _access: VerifiedShareAccess,
+    _access: VerifiedShareAccessIgnoringDownloadLimit,
 ) -> Result<HttpResponse> {
     let range = shared_file_range(state.get_ref(), path.as_str(), &req).await?;
     let has_range = range.is_some();
@@ -693,7 +694,7 @@ pub async fn download_shared_folder_file_handler(
     path: web::Path<(String, i64)>,
     query: web::Query<DownloadQuery>,
     req: actix_web::HttpRequest,
-    _access: VerifiedShareAccess,
+    _access: VerifiedShareAccessIgnoringDownloadLimit,
 ) -> Result<HttpResponse> {
     let (token, file_id) = path.into_inner();
     let range = shared_folder_file_range(state.get_ref(), &token, file_id, &req).await?;

@@ -41,6 +41,7 @@ describe("fileService", () => {
 		mockState.clientPut.mockReset();
 		mockState.delete.mockReset();
 		mockState.get.mockReset();
+		mockState.get.mockResolvedValue([]);
 		mockState.patch.mockReset();
 		mockState.post.mockReset();
 		const { setPublicSiteUrls } = await import("@/lib/publicSiteUrl");
@@ -194,7 +195,9 @@ describe("fileService", () => {
 		expect(mockState.post).toHaveBeenNthCalledWith(10, "/folders/7/copy", {
 			parent_id: 3,
 		});
-		expect(mockState.get).toHaveBeenNthCalledWith(8, "/files/8/versions");
+		expect(mockState.get).toHaveBeenNthCalledWith(8, "/files/8/versions", {
+			params: { after_sequence: undefined, limit: 1000 },
+		});
 		expect(mockState.post).toHaveBeenNthCalledWith(
 			11,
 			"/files/8/versions/2/restore",
@@ -283,7 +286,9 @@ describe("fileService", () => {
 				url: "https://example.com/team.bin",
 			},
 		);
-		expect(mockState.get).toHaveBeenCalledWith("/teams/9/files/8/versions");
+		expect(mockState.get).toHaveBeenCalledWith("/teams/9/files/8/versions", {
+			params: { after_sequence: undefined, limit: 1000 },
+		});
 		expect(teamFileService.downloadPath(8)).toBe("/teams/9/files/8/download");
 		expect(teamFileService.downloadUrl(8)).toBe(
 			"/api/v1/teams/9/files/8/download",

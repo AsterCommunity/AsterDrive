@@ -15,7 +15,7 @@ use crate::services::workspace::storage::{
     resolve_policy_for_size, upload_temp_file_to_prepared_blob,
     upload_temp_file_to_prepared_blob_cancellable, verify_file_access,
 };
-use aster_drive_model::entities::{file, file_blob, storage_policy};
+use aster_drive_model::entities::{file, storage_policy};
 use aster_drive_storage::StorageDriver;
 
 pub(super) struct PreparedStoreFromTemp {
@@ -42,7 +42,6 @@ pub(super) struct PreparedStoreFromTemp {
 #[derive(Clone)]
 pub(super) struct OverwriteContext {
     pub old_file: file::Model,
-    pub old_blob: file_blob::Model,
 }
 
 fn upload_hash_temp_open_failed(message: String) -> AsterError {
@@ -244,5 +243,5 @@ async fn load_overwrite_context(
         tracing::warn!("failed to delete thumbnail for blob {}: {err}", old_blob.id);
     }
 
-    Ok(Some(OverwriteContext { old_file, old_blob }))
+    Ok(Some(OverwriteContext { old_file }))
 }

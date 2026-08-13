@@ -1,36 +1,28 @@
-//! 服务模块：`content::version`。
+//! Canonical immutable file revision lifecycle.
 
 use aster_forge_db::transaction;
-use std::collections::BTreeMap;
-
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
 
-use crate::db::repository::{file_repo, version_repo};
+use crate::db::repository::{file_repo, revision_repo};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     events::storage_change,
     ops::audit::{self, AuditContext},
-    workspace::models::{FileInfo, FileVersion},
+    workspace::models::{FileInfo, FileVersion, FileVersionListQuery},
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
-use aster_drive_model::entities::file_version;
+use aster_drive_model::entities::file_revision;
 
-async fn load_version_for_file(
-    db: &sea_orm::DatabaseConnection,
+async fn load_revision_for_file<C: sea_orm::ConnectionTrait>(
+    db: &C,
     file_id: i64,
-    version_id: i64,
-) -> Result<file_version::Model> {
-    let version = version_repo::find_by_id(db, version_id)
+    revision_id: i64,
+) -> Result<file_revision::Model> {
+    revision_repo::find_by_id_for_file(db, file_id, revision_id)
         .await?
-        .ok_or_else(|| AsterError::record_not_found("version not found"))?;
-
-    if version.file_id != file_id {
-        return Err(AsterError::record_not_found("version not found"));
-    }
-
-    Ok(version)
+        .ok_or_else(|| AsterError::record_not_found("version not found"))
 }
 
 fn resource_scope_from_file(
@@ -46,41 +38,54 @@ fn resource_scope_from_file(
     }
 }
 
-fn add_reclaimed_bytes(total: &mut i64, bytes: i64, context: &str) -> Result<()> {
-    *total = total.checked_add(bytes).ok_or_else(|| {
-        AsterError::internal_error(format!("version storage accounting overflow: {context}"))
-    })?;
-    Ok(())
-}
-
-fn add_cleanup_count(counts: &mut BTreeMap<i64, i32>, blob_id: i64, context: &str) -> Result<()> {
-    let entry = counts.entry(blob_id).or_default();
-    *entry = entry.checked_add(1).ok_or_else(|| {
-        AsterError::internal_error(format!(
-            "version blob cleanup count overflow for blob {blob_id}: {context}"
-        ))
-    })?;
-    Ok(())
+async fn list_versions_in_scope(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceStorageScope,
+    file_id: i64,
+    query: FileVersionListQuery,
+) -> Result<Vec<FileVersion>> {
+    storage::verify_file_access_for_read(state, scope, file_id).await?;
+    // A successful restore must be visible to the immediate follow-up history refresh.
+    // Version history includes the authoritative current-head projection, so replica lag is not
+    // an acceptable source for this read.
+    let history = revision_repo::find_history_by_file_id(state.writer_db(), file_id).await?;
+    revision_repo::find_page_by_file_id(
+        state.writer_db(),
+        file_id,
+        query.limit(),
+        query.after_sequence,
+    )
+    .await
+    .map(|revisions| {
+        revisions
+            .into_iter()
+            .map(|revision| {
+                FileVersion::from_revision(file_id, history.current_revision_id, revision)
+            })
+            .collect()
+    })
 }
 
 async fn restore_version_inner(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     file: aster_drive_model::entities::file::Model,
-    version: file_version::Model,
+    revision_id: i64,
 ) -> Result<aster_drive_model::entities::file::Model> {
-    let db = state.writer_db();
-    let now = Utc::now();
-    let current_blob = file_repo::find_blob_by_id(db, file.blob_id).await?;
-    if let Err(e) = crate::services::media::processing::delete_thumbnail(state, &current_blob).await
+    let current_blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id).await?;
+    if let Err(error) =
+        crate::services::media::processing::delete_thumbnail(state, &current_blob).await
     {
         tracing::warn!(
-            "failed to delete thumbnail for blob {}: {e}",
-            current_blob.id
+            blob_id = current_blob.id,
+            %error,
+            "failed to delete thumbnail before revision restore"
         );
     }
 
+    let now = Utc::now();
     let txn = transaction::begin(state.writer_db()).await?;
+    let actor_username = storage::load_scope_actor_username(&txn, scope).await?;
     let current = crate::services::files::lock::enforce_file_mutation_on(
         &txn,
         &file,
@@ -94,47 +99,54 @@ async fn restore_version_inner(
         ));
     }
     storage::lock_storage_usage(&txn, scope).await?;
+    let history = revision_repo::lock_history_by_file_id(&txn, file.id).await?;
+    let target = load_revision_for_file(&txn, file.id, revision_id).await?;
+    let target_blob_id = target
+        .blob_id
+        .ok_or_else(|| AsterError::record_not_found("version content has been purged"))?;
+    let target_mime = target
+        .mime_type
+        .clone()
+        .unwrap_or_else(|| current.mime_type.clone());
 
-    let previous_blob_id = current_blob.id;
-    let target_blob_id = version.blob_id;
+    storage::update_storage_used(&txn, scope, target.logical_size).await?;
+    file_repo::increment_blob_ref_count(&txn, target_blob_id).await?;
+    revision_repo::restore_user_properties(&txn, file.id, target.id).await?;
+    revision_repo::append(
+        &txn,
+        file.id,
+        history.current_revision_id,
+        revision_repo::NewRevision {
+            blob_id: target_blob_id,
+            logical_size: target.logical_size,
+            mime_type: &target_mime,
+            content_sha256: target.content_sha256.as_deref(),
+            creator_user_id: Some(scope.actor_user_id()),
+            creator_display_name: &actor_username,
+            comment: Some("restored historical revision"),
+            reason: revision_repo::RevisionReason::Restore,
+            created_at: now,
+        },
+    )
+    .await?;
 
+    let current_name = current.name.clone();
     let mut active: aster_drive_model::entities::file::ActiveModel = current.into();
     active.blob_id = Set(target_blob_id);
-    active.size = Set(version.size);
+    active.size = Set(target.logical_size);
+    active.mime_type = Set(target_mime.clone());
+    let classification =
+        aster_forge_file_classification::classify_file(&current_name, &target_mime);
+    active.extension = Set(classification.extension);
+    active.compound_extension = Set(classification.compound_extension);
+    active.file_category = Set(classification.category);
     active.updated_at = Set(now);
     let updated = active
         .update(&txn)
         .await
         .map_aster_err(AsterError::database_operation)?;
-
-    let truncated_versions =
-        version_repo::find_by_file_id_from_version(&txn, updated.id, version.version).await?;
-    let truncated_blob_ids: Vec<i64> = truncated_versions.iter().map(|v| v.blob_id).collect();
-    version_repo::delete_by_file_id_from_version(&txn, updated.id, version.version).await?;
-
-    let mut reclaimed_bytes = 0i64;
-    for truncated_version in &truncated_versions {
-        if previous_blob_id != target_blob_id && truncated_version.id == version.id {
-            continue;
-        }
-        add_reclaimed_bytes(
-            &mut reclaimed_bytes,
-            truncated_version.size,
-            "restore truncated version bytes",
-        )?;
-    }
-    if previous_blob_id != target_blob_id {
-        add_reclaimed_bytes(
-            &mut reclaimed_bytes,
-            current_blob.size,
-            "restore previous current blob bytes",
-        )?;
-    }
-    if reclaimed_bytes != 0 {
-        storage::update_storage_used(&txn, scope, -reclaimed_bytes).await?;
-    }
-
     transaction::commit(txn).await?;
+
     storage_change::publish(
         state,
         storage_change::StorageChangeEvent::new(
@@ -144,88 +156,50 @@ async fn restore_version_inner(
             vec![],
             vec![updated.folder_id],
         )
-        .with_storage_delta(-reclaimed_bytes),
+        .with_storage_delta(target.logical_size),
     );
-
-    let mut cleanup_counts = BTreeMap::<i64, i32>::new();
-    for blob_id in truncated_blob_ids {
-        add_cleanup_count(
-            &mut cleanup_counts,
-            blob_id,
-            "restore truncated version cleanup",
-        )?;
-    }
-
-    if previous_blob_id != target_blob_id {
-        add_cleanup_count(
-            &mut cleanup_counts,
-            previous_blob_id,
-            "restore previous current blob cleanup",
-        )?;
-        if let Some(count) = cleanup_counts.get_mut(&target_blob_id) {
-            *count = count.saturating_sub(1);
-        }
-    }
-
-    let cleanup_counts: Vec<(i64, i32)> = cleanup_counts
-        .into_iter()
-        .filter(|(_, count)| *count > 0)
-        .collect();
-    cleanup_blobs_if_unused_by_counts(state, &cleanup_counts).await?;
-
     Ok(updated)
 }
 
 async fn delete_version_inner(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
-    parent_folder_id: Option<i64>,
-    version: file_version::Model,
+    file: &aster_drive_model::entities::file::Model,
+    revision_id: i64,
 ) -> Result<()> {
-    let version_id = version.id;
-    let file_id = version.file_id;
-    let version_number = version.version;
-    let blob_id = version.blob_id;
-    let size = version.size;
     let txn = transaction::begin(state.writer_db()).await?;
     storage::lock_storage_usage(&txn, scope).await?;
-    version_repo::delete_by_id(&txn, version_id).await?;
-    version_repo::decrement_versions_after(&txn, file_id, version_number).await?;
-    if size != 0 {
-        storage::update_storage_used(&txn, scope, -size).await?;
+    let history = revision_repo::lock_history_by_file_id(&txn, file.id).await?;
+    if history.current_revision_id == Some(revision_id) {
+        return Err(AsterError::validation_error(
+            "the current file revision cannot be deleted",
+        ));
+    }
+    let revision = load_revision_for_file(&txn, file.id, revision_id).await?;
+    let blob_id = revision
+        .blob_id
+        .ok_or_else(|| AsterError::record_not_found("version content has been purged"))?;
+    let reclaimed_bytes = revision.logical_size;
+    revision_repo::tombstone(&txn, revision).await?;
+    file_repo::decrement_blob_ref_count(&txn, blob_id).await?;
+    if reclaimed_bytes != 0 {
+        storage::update_storage_used(&txn, scope, -reclaimed_bytes).await?;
     }
     transaction::commit(txn).await?;
+
     storage_change::publish(
         state,
         storage_change::StorageChangeEvent::new(
             storage_change::StorageChangeKind::FileVersionDeleted,
             scope,
-            vec![file_id],
+            vec![file.id],
             vec![],
-            vec![parent_folder_id],
+            vec![file.folder_id],
         )
-        .with_storage_delta(-size),
+        .with_storage_delta(-reclaimed_bytes),
     );
-    cleanup_blob_if_unused(state, blob_id).await?;
-    tracing::debug!(
-        scope = ?scope,
-        file_id,
-        version_id,
-        version = version_number,
-        blob_id,
-        reclaimed_bytes = size,
-        "deleted file version"
-    );
+    cleanup_blob_if_unreferenced(state, blob_id).await;
     Ok(())
-}
-
-async fn list_versions_in_scope(
-    state: &impl SharedRuntimeState,
-    scope: WorkspaceStorageScope,
-    file_id: i64,
-) -> Result<Vec<file_version::Model>> {
-    storage::verify_file_access_for_read(state, scope, file_id).await?;
-    version_repo::find_by_file_id(state.reader_db(), file_id).await
 }
 
 async fn restore_version_in_scope(
@@ -242,8 +216,7 @@ async fn restore_version_in_scope(
     {
         storage::require_team_management_access(state, team_id, actor_user_id).await?;
     }
-    let version = load_version_for_file(state.writer_db(), file_id, version_id).await?;
-    restore_version_inner(state, scope, file, version).await
+    restore_version_inner(state, scope, file, version_id).await
 }
 
 async fn delete_version_in_scope(
@@ -260,27 +233,30 @@ async fn delete_version_in_scope(
     {
         storage::require_team_management_access(state, team_id, actor_user_id).await?;
     }
-    let version = load_version_for_file(state.writer_db(), file_id, version_id).await?;
-    delete_version_inner(state, scope, file.folder_id, version).await
+    delete_version_inner(state, scope, &file, version_id).await
 }
 
-/// 列出文件的所有版本
 pub async fn list_versions(
     state: &impl SharedRuntimeState,
     file_id: i64,
     user_id: i64,
+    query: FileVersionListQuery,
 ) -> Result<Vec<FileVersion>> {
-    list_versions_in_scope(state, WorkspaceStorageScope::Personal { user_id }, file_id)
-        .await
-        .map(|versions| versions.into_iter().map(FileVersion::from).collect())
+    list_versions_in_scope(
+        state,
+        WorkspaceStorageScope::Personal { user_id },
+        file_id,
+        query,
+    )
+    .await
 }
 
-/// 列出团队工作空间中文件的所有版本。
 pub async fn list_versions_for_team(
     state: &impl SharedRuntimeState,
     team_id: i64,
     file_id: i64,
     user_id: i64,
+    query: FileVersionListQuery,
 ) -> Result<Vec<FileVersion>> {
     list_versions_in_scope(
         state,
@@ -289,12 +265,11 @@ pub async fn list_versions_for_team(
             actor_user_id: user_id,
         },
         file_id,
+        query,
     )
     .await
-    .map(|versions| versions.into_iter().map(FileVersion::from).collect())
 }
 
-/// 恢复到指定版本，并截断该版本及之后的历史版本
 pub async fn restore_version(
     state: &PrimaryAppState,
     file_id: i64,
@@ -311,7 +286,6 @@ pub async fn restore_version(
     .map(FileInfo::from)
 }
 
-/// 恢复个人文件版本并记录对应审计事件。
 pub async fn restore_version_with_audit(
     state: &PrimaryAppState,
     file_id: i64,
@@ -333,7 +307,6 @@ pub async fn restore_version_with_audit(
     Ok(file)
 }
 
-/// 恢复团队文件到指定版本，并截断该版本及之后的历史版本。
 pub async fn restore_version_for_team(
     state: &PrimaryAppState,
     team_id: i64,
@@ -354,7 +327,6 @@ pub async fn restore_version_for_team(
     .map(FileInfo::from)
 }
 
-/// 恢复团队文件版本并记录对应审计事件。
 pub async fn restore_version_for_team_with_audit(
     state: &PrimaryAppState,
     team_id: i64,
@@ -377,7 +349,6 @@ pub async fn restore_version_for_team_with_audit(
     Ok(file)
 }
 
-/// 删除指定版本（减 blob ref_count）
 pub async fn delete_version(
     state: &PrimaryAppState,
     file_id: i64,
@@ -393,7 +364,6 @@ pub async fn delete_version(
     .await
 }
 
-/// 删除个人文件版本并记录对应审计事件。
 pub async fn delete_version_with_audit(
     state: &PrimaryAppState,
     file_id: i64,
@@ -404,22 +374,12 @@ pub async fn delete_version_with_audit(
     let file =
         storage::verify_file_access(state, WorkspaceStorageScope::Personal { user_id }, file_id)
             .await?;
-    let _version = load_version_for_file(state.writer_db(), file_id, version_id).await?;
+    load_revision_for_file(state.writer_db(), file_id, version_id).await?;
     delete_version(state, file_id, version_id, user_id).await?;
-    audit::log_with_details(
-        state,
-        audit_ctx,
-        audit::AuditAction::FileVersionDelete,
-        crate::services::ops::audit::AuditEntityType::File,
-        Some(file.id),
-        Some(&file.name),
-        || audit::details(audit::FileVersionAuditDetails { version_id }),
-    )
-    .await;
+    audit_version_delete(state, audit_ctx, &file, version_id).await;
     Ok(())
 }
 
-/// 删除团队文件的指定历史版本。
 pub async fn delete_version_for_team(
     state: &PrimaryAppState,
     team_id: i64,
@@ -439,7 +399,6 @@ pub async fn delete_version_for_team(
     .await
 }
 
-/// 删除团队文件版本并记录对应审计事件。
 pub async fn delete_version_for_team_with_audit(
     state: &PrimaryAppState,
     team_id: i64,
@@ -448,17 +407,23 @@ pub async fn delete_version_for_team_with_audit(
     user_id: i64,
     audit_ctx: &AuditContext,
 ) -> Result<()> {
-    let file = storage::verify_file_access(
-        state,
-        WorkspaceStorageScope::Team {
-            team_id,
-            actor_user_id: user_id,
-        },
-        file_id,
-    )
-    .await?;
-    let _version = load_version_for_file(state.writer_db(), file_id, version_id).await?;
+    let scope = WorkspaceStorageScope::Team {
+        team_id,
+        actor_user_id: user_id,
+    };
+    let file = storage::verify_file_access(state, scope, file_id).await?;
+    load_revision_for_file(state.writer_db(), file_id, version_id).await?;
     delete_version_for_team(state, team_id, file_id, version_id, user_id).await?;
+    audit_version_delete(state, audit_ctx, &file, version_id).await;
+    Ok(())
+}
+
+async fn audit_version_delete(
+    state: &PrimaryAppState,
+    audit_ctx: &AuditContext,
+    file: &aster_drive_model::entities::file::Model,
+    version_id: i64,
+) {
     audit::log_with_details(
         state,
         audit_ctx,
@@ -469,47 +434,46 @@ pub async fn delete_version_for_team_with_audit(
         || audit::details(audit::FileVersionAuditDetails { version_id }),
     )
     .await;
-    Ok(())
 }
 
-/// 超出版本上限时清理最旧版本
 pub async fn cleanup_excess(state: &PrimaryAppState, file_id: i64) -> Result<()> {
-    let db = state.writer_db();
-    let file = file_repo::find_by_id(db, file_id).await?;
+    let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
     let scope = resource_scope_from_file(&file)?;
-    let max_versions = get_max_versions(state);
-    let mut deleted_count = 0u64;
-    let mut reclaimed_bytes = 0i64;
+    let max_history = get_max_versions(state);
+    let max_total = max_history.saturating_add(1);
+    let mut deleted_count = 0_u64;
+    let mut reclaimed_bytes = 0_i64;
 
     loop {
-        let oldest = transaction::with_transaction(state.writer_db(), async |txn| {
+        let retired = transaction::with_transaction(state.writer_db(), async |txn| {
             storage::lock_storage_usage_for_resource_scope(txn, scope).await?;
-            let count = version_repo::count_by_file_id(txn, file_id).await?;
-            if count <= max_versions {
-                return Ok::<Option<file_version::Model>, AsterError>(None);
+            revision_repo::lock_history_by_file_id(txn, file_id).await?;
+            if revision_repo::count_by_file_id(txn, file_id).await? <= max_total {
+                return Ok::<Option<(i64, i64)>, AsterError>(None);
             }
-            let Some(oldest) = version_repo::find_oldest_by_file_id(txn, file_id).await? else {
+            let Some(oldest) = revision_repo::find_oldest_non_current(txn, file_id).await? else {
                 return Ok(None);
             };
-            version_repo::delete_by_id(txn, oldest.id).await?;
-            version_repo::decrement_versions_after(txn, file_id, oldest.version).await?;
-            if oldest.size != 0 {
-                storage::update_storage_used_for_resource_scope(txn, scope, -oldest.size).await?;
+            let blob_id = oldest.blob_id.ok_or_else(|| {
+                AsterError::internal_error("active historical revision has no blob")
+            })?;
+            let size = oldest.logical_size;
+            revision_repo::tombstone(txn, oldest).await?;
+            file_repo::decrement_blob_ref_count(txn, blob_id).await?;
+            if size != 0 {
+                storage::update_storage_used_for_resource_scope(txn, scope, -size).await?;
             }
-            Ok(Some(oldest))
+            Ok(Some((blob_id, size)))
         })
         .await?;
-        if let Some(oldest) = oldest {
-            cleanup_blob_if_unused(state, oldest.blob_id).await?;
-            deleted_count += 1;
-            add_reclaimed_bytes(
-                &mut reclaimed_bytes,
-                oldest.size,
-                "cleanup excess version bytes",
-            )?;
-        } else {
+        let Some((blob_id, size)) = retired else {
             break;
-        }
+        };
+        cleanup_blob_if_unreferenced(state, blob_id).await;
+        deleted_count += 1;
+        reclaimed_bytes = reclaimed_bytes
+            .checked_add(size)
+            .ok_or_else(|| AsterError::internal_error("revision cleanup byte count overflow"))?;
     }
 
     if deleted_count > 0 {
@@ -524,94 +488,17 @@ pub async fn cleanup_excess(state: &PrimaryAppState, file_id: i64) -> Result<()>
             )
             .with_storage_delta(-reclaimed_bytes),
         );
-        tracing::info!(
-            file_id,
-            scope = ?scope,
-            deleted_count,
-            reclaimed_bytes,
-            max_versions,
-            "cleaned up excess file versions"
-        );
     }
     Ok(())
 }
 
-/// 清理所有版本（文件永久删除时调用）
-pub async fn purge_all_versions(state: &PrimaryAppState, file_id: i64) -> Result<()> {
-    let db = state.writer_db();
-    let file = file_repo::find_by_id(db, file_id).await?;
-    let scope = resource_scope_from_file(&file)?;
-    let (blob_ids, version_count, reclaimed_bytes) =
-        transaction::with_transaction(state.writer_db(), async |txn| {
-            storage::lock_storage_usage_for_resource_scope(txn, scope).await?;
-            let versions = version_repo::find_by_file_id(txn, file_id).await?;
-            let mut reclaimed_bytes = 0i64;
-            for version in &versions {
-                add_reclaimed_bytes(
-                    &mut reclaimed_bytes,
-                    version.size,
-                    "purge all version bytes",
-                )?;
-            }
-            let blob_ids = version_repo::delete_all_by_file_id(txn, file_id).await?;
-            if reclaimed_bytes != 0 {
-                storage::update_storage_used_for_resource_scope(txn, scope, -reclaimed_bytes)
-                    .await?;
-            }
-            Ok::<_, AsterError>((blob_ids, versions.len(), reclaimed_bytes))
-        })
-        .await?;
-
-    for blob_id in blob_ids {
-        cleanup_blob_if_unused(state, blob_id).await?;
-    }
-
-    tracing::debug!(
-        file_id,
-        scope = ?scope,
-        version_count,
-        reclaimed_bytes,
-        "purged all file versions"
-    );
-    Ok(())
-}
-
-/// 如果 blob 不再被任何文件或版本引用，减 ref_count 并可能删除物理文件
-async fn cleanup_blob_if_unused(state: &PrimaryAppState, blob_id: i64) -> Result<()> {
-    let db = state.writer_db();
-    let blob = file_repo::find_blob_by_id(db, blob_id).await?;
-
-    file_repo::decrement_blob_ref_count(db, blob.id).await?;
-    if !crate::services::files::file::ensure_blob_cleanup_if_unreferenced(state, blob.id).await {
+async fn cleanup_blob_if_unreferenced(state: &PrimaryAppState, blob_id: i64) {
+    if !crate::services::files::file::ensure_blob_cleanup_if_unreferenced(state, blob_id).await {
         tracing::warn!(
-            blob_id = blob.id,
-            "blob cleanup incomplete after version cleanup; blob row retained for retry"
+            blob_id,
+            "blob cleanup incomplete after revision retirement; blob row retained for retry"
         );
     }
-
-    Ok(())
-}
-
-async fn cleanup_blobs_if_unused_by_counts(
-    state: &PrimaryAppState,
-    blob_counts: &[(i64, i32)],
-) -> Result<()> {
-    if blob_counts.is_empty() {
-        return Ok(());
-    }
-
-    file_repo::decrement_blob_ref_counts_by(state.writer_db(), blob_counts).await?;
-    for &(blob_id, _) in blob_counts {
-        if !crate::services::files::file::ensure_blob_cleanup_if_unreferenced(state, blob_id).await
-        {
-            tracing::warn!(
-                blob_id,
-                "blob cleanup incomplete after version cleanup; blob row retained for retry"
-            );
-        }
-    }
-
-    Ok(())
 }
 
 fn get_max_versions(state: &PrimaryAppState) -> u64 {

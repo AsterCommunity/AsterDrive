@@ -37,6 +37,17 @@ test("file facts produce deterministic language, scope, and risk labels", () => 
   ]));
 });
 
+test("canonical revision ledger paths retain the versioning scope label", () => {
+  for (const path of [
+    "src/services/content/version.rs",
+    "src/db/repository/revision_repo.rs",
+    "crates/aster_drive_model/src/entities/file_revision_history.rs",
+    "crates/aster_drive_migration/src/m20260813_000001_canonical_file_revision_ledger.rs",
+  ]) {
+    assert.ok(labelsForFiles([path]).includes("Scope: Versioning"), path);
+  }
+});
+
 test("expected workflows mirror path-filtered CI entrypoints", () => {
   assert.deepEqual(new Set(expectedWorkflows(["src/webdav/mod.rs"])), new Set([
     "Rust CI",

@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
 
-use crate::db::repository::{file_repo, upload_session_repo, version_repo};
+use crate::db::repository::{file_repo, revision_repo, upload_session_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use aster_drive_model::entities::{file_blob, upload_session};
@@ -224,7 +224,7 @@ async fn reconcile_single_blob_ref_count(
 
 async fn current_blob_ref_count<C: sea_orm::ConnectionTrait>(db: &C, blob_id: i64) -> Result<i32> {
     let file_refs = file_repo::count_blob_refs_from_files_for_blob(db, blob_id).await?;
-    let version_refs = version_repo::count_blob_refs_from_versions_for_blob(db, blob_id).await?;
+    let version_refs = revision_repo::count_non_current_blob_refs_for_blob(db, blob_id).await?;
     let total_refs = file_refs
         .checked_add(version_refs)
         .ok_or_else(|| AsterError::internal_error("blob ref count overflow during reconcile"))?;
@@ -240,7 +240,7 @@ async fn current_blob_ref_counts(
     let file_refs =
         file_repo::count_blob_refs_from_files_for_blobs(state.writer_db(), blob_ids).await?;
     let version_refs =
-        version_repo::count_blob_refs_from_versions_for_blobs(state.writer_db(), blob_ids).await?;
+        revision_repo::count_non_current_blob_refs_for_blobs(state.writer_db(), blob_ids).await?;
     let mut actual = HashMap::with_capacity(blob_ids.len());
 
     for blob_id in blob_ids {

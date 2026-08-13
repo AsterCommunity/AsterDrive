@@ -4310,7 +4310,7 @@ export interface components {
             id: number;
             /** Format: int64 */
             size: number;
-            /** Format: int32 */
+            /** Format: int64 */
             version: number;
         };
         /** @enum {string} */
@@ -4383,7 +4383,7 @@ export interface components {
             id: number;
             /** Format: int64 */
             size: number;
-            /** Format: int32 */
+            /** Format: int64 */
             version: number;
         };
         AdminLockListQuery: {
@@ -5625,16 +5625,37 @@ export interface components {
         };
         FileVersion: {
             /** Format: int64 */
-            blob_id: number;
+            blob_id?: number | null;
+            comment?: string | null;
             created_at: string;
+            creator_display_name?: string | null;
+            /** Format: int64 */
+            creator_user_id?: number | null;
+            current: boolean;
+            etag: string;
             /** Format: int64 */
             file_id: number;
             /** Format: int64 */
             id: number;
+            mime_type?: string | null;
+            public_id: string;
+            reason: string;
             /** Format: int64 */
             size: number;
-            /** Format: int32 */
+            /** Format: int64 */
             version: number;
+        };
+        FileVersionListQuery: {
+            /**
+             * Format: int64
+             * @description Stable keyset cursor: the last sequence returned by the previous page.
+             */
+            after_sequence?: number | null;
+            /**
+             * Format: int64
+             * @description Maximum revisions returned per request (default 100, maximum 1000).
+             */
+            limit?: number | null;
         };
         FolderAncestorItem: {
             /** Format: int64 */
@@ -18654,7 +18675,12 @@ export interface operations {
     };
     list_versions: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Maximum revisions returned per request (default 100, maximum 1000). */
+                limit?: number | null;
+                /** @description Stable keyset cursor: the last sequence returned by the previous page. */
+                after_sequence?: number | null;
+            };
             header?: never;
             path: {
                 /** @description File ID */
@@ -18674,15 +18700,24 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             /** Format: int64 */
-                            blob_id: number;
+                            blob_id?: number | null;
+                            comment?: string | null;
                             created_at: string;
+                            creator_display_name?: string | null;
+                            /** Format: int64 */
+                            creator_user_id?: number | null;
+                            current: boolean;
+                            etag: string;
                             /** Format: int64 */
                             file_id: number;
                             /** Format: int64 */
                             id: number;
+                            mime_type?: string | null;
+                            public_id: string;
+                            reason: string;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int32 */
+                            /** Format: int64 */
                             version: number;
                         }[];
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -24728,7 +24763,12 @@ export interface operations {
     };
     list_team_versions: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Maximum revisions returned per request (default 100, maximum 1000). */
+                limit?: number | null;
+                /** @description Stable keyset cursor: the last sequence returned by the previous page. */
+                after_sequence?: number | null;
+            };
             header?: never;
             path: {
                 /** @description Team ID */
@@ -24750,15 +24790,24 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             /** Format: int64 */
-                            blob_id: number;
+                            blob_id?: number | null;
+                            comment?: string | null;
                             created_at: string;
+                            creator_display_name?: string | null;
+                            /** Format: int64 */
+                            creator_user_id?: number | null;
+                            current: boolean;
+                            etag: string;
                             /** Format: int64 */
                             file_id: number;
                             /** Format: int64 */
                             id: number;
+                            mime_type?: string | null;
+                            public_id: string;
+                            reason: string;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int32 */
+                            /** Format: int64 */
                             version: number;
                         }[];
                         error?: null | components["schemas"]["ApiErrorInfo"];

@@ -48,7 +48,9 @@ pub async fn check_file_info(
     request_source: WopiRequestSource<'_>,
 ) -> Result<WopiCheckFileInfo> {
     let resolved = resolve_access_token(state, file_id, access_token, request_source).await?;
-    let blob = file_repo::find_blob_by_id(state.writer_db(), resolved.file.blob_id).await?;
+    let revision_etag =
+        crate::db::repository::revision_repo::current_etag(state.writer_db(), resolved.file.id)
+            .await?;
     let user_info = profile::get_wopi_user_info(state, resolved.payload.actor_user_id).await?;
 
     Ok(WopiCheckFileInfo {
@@ -75,7 +77,7 @@ pub async fn check_file_info(
         supports_rename: true,
         supports_user_info: Some(true),
         supports_update: true,
-        version: blob.hash,
+        version: revision_etag,
     })
 }
 
@@ -100,7 +102,9 @@ pub async fn get_file_contents(
         ));
     }
 
-    let item_version = blob.hash.clone();
+    let item_version =
+        crate::db::repository::revision_repo::current_etag(state.writer_db(), resolved.file.id)
+            .await?;
     let outcome = file::build_stream_outcome_with_disposition(
         state,
         &resolved.file,

@@ -18,12 +18,12 @@ use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 use aster_drive::db::repository::{
-    background_task_repo, file_repo, policy_repo, storage_migration_checkpoint_repo,
+    background_task_repo, file_repo, policy_repo, revision_repo, storage_migration_checkpoint_repo,
 };
 use aster_drive::errors::{AsterError, MapAsterErr};
 use aster_drive::runtime::PrimaryAppState;
 use aster_drive::services::{storage_policy::policy, task};
-use aster_drive_model::entities::{file, file_blob, file_version, storage_policy};
+use aster_drive_model::entities::{file, file_blob, file_revision, storage_policy};
 use aster_drive_model::types::BackgroundTaskStatus;
 use aster_drive_storage::{
     BlobMetadata, MultipartStorageDriver, Result, StorageDriver, StorageDriverExtensions,
@@ -819,7 +819,7 @@ async fn create_opaque_blob_with_object(
 
 async fn create_file_for_blob(state: &PrimaryAppState, blob_id: i64, name: &str) -> file::Model {
     let now = Utc::now();
-    file::ActiveModel {
+    let file = file::ActiveModel {
         name: Set(name.to_string()),
         folder_id: Set(None),
         team_id: Set(None),
@@ -839,24 +839,39 @@ async fn create_file_for_blob(state: &PrimaryAppState, blob_id: i64, name: &str)
     }
     .insert(state.writer_db())
     .await
-    .expect("file row should insert")
+    .expect("file row should insert");
+    revision_repo::create_initial(
+        state.writer_db(),
+        &file,
+        revision_repo::RevisionReason::Create,
+    )
+    .await
+    .expect("initial revision should insert");
+    file
 }
 
 async fn create_version_for_blob(
     state: &PrimaryAppState,
     file_id: i64,
     blob_id: i64,
-    version: i32,
-) -> file_version::Model {
-    file_version::ActiveModel {
-        file_id: Set(file_id),
-        blob_id: Set(blob_id),
-        version: Set(version),
-        size: Set(1),
-        created_at: Set(Utc::now()),
-        ..Default::default()
-    }
-    .insert(state.writer_db())
+    _version: i32,
+) -> file_revision::Model {
+    revision_repo::append(
+        state.writer_db(),
+        file_id,
+        None,
+        revision_repo::NewRevision {
+            blob_id,
+            logical_size: 1,
+            mime_type: "text/plain",
+            content_sha256: None,
+            creator_user_id: None,
+            creator_display_name: "tester",
+            comment: None,
+            reason: revision_repo::RevisionReason::Overwrite,
+            created_at: Utc::now(),
+        },
+    )
     .await
     .expect("file version row should insert")
 }
@@ -1658,6 +1673,23 @@ async fn test_storage_migration_merges_when_target_blob_already_exists() {
     let target_blob = create_blob_with_object(&state, &target, b"same-bytes", 1).await;
     let active_file = create_file_for_blob(&state, source_blob.id, "active.txt").await;
     create_version_for_blob(&state, active_file.id, source_blob.id, 1).await;
+    let history_before = revision_repo::find_history_by_file_id(state.writer_db(), active_file.id)
+        .await
+        .unwrap();
+    let revisions_before = revision_repo::find_by_file_id(state.writer_db(), active_file.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|revision| {
+            (
+                revision.id,
+                revision.public_id,
+                revision.etag,
+                revision.sequence,
+                revision.predecessor_revision_id,
+            )
+        })
+        .collect::<Vec<_>>();
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
@@ -1682,13 +1714,36 @@ async fn test_storage_migration_merges_when_target_blob_already_exists() {
         .expect("file query should succeed")
         .expect("file should exist");
     assert_eq!(updated_file.blob_id, target_blob.id);
-    let updated_version = file_version::Entity::find()
-        .filter(file_version::Column::FileId.eq(active_file.id))
-        .one(state.writer_db())
+    let history_after = revision_repo::find_history_by_file_id(state.writer_db(), active_file.id)
         .await
-        .expect("version query should succeed")
-        .expect("version should exist");
-    assert_eq!(updated_version.blob_id, target_blob.id);
+        .unwrap();
+    assert_eq!(history_after.id, history_before.id);
+    assert_eq!(history_after.public_id, history_before.public_id);
+    let revisions_after = revision_repo::find_by_file_id(state.writer_db(), active_file.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        revisions_after
+            .iter()
+            .map(|revision| {
+                (
+                    revision.id,
+                    revision.public_id.clone(),
+                    revision.etag.clone(),
+                    revision.sequence,
+                    revision.predecessor_revision_id,
+                )
+            })
+            .collect::<Vec<_>>(),
+        revisions_before
+    );
+    assert_eq!(revisions_after.len(), 2);
+    assert!(
+        revisions_after
+            .iter()
+            .all(|revision| revision.blob_id == Some(target_blob.id)),
+        "storage migration must only rewrite retained revision blob pointers"
+    );
     let checkpoint = storage_migration_checkpoint_repo::get_by_task_id(state.writer_db(), task_id)
         .await
         .expect("checkpoint should exist");

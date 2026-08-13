@@ -197,6 +197,68 @@ async fn test_shares_crud() {
 }
 
 #[actix_web::test]
+async fn test_shared_download_matching_revision_etag_returns_304_without_consuming_limit() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file!(app, token);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/shares")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "target": file_target(file_id),
+            "max_downloads": 1
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let body: Value = test::read_body_json(resp).await;
+    let share_id = body["data"]["id"].as_i64().unwrap();
+    let share_token = body["data"]["token"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/s/{share_token}/download"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let etag = resp
+        .headers()
+        .get(header::ETAG)
+        .expect("shared download should include the current revision ETag")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let body = test::read_body(resp).await;
+    assert!(!body.is_empty());
+
+    let share = share_repo::find_by_id(state.writer_db(), share_id)
+        .await
+        .unwrap();
+    assert_eq!(share.download_count, 1);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/s/{share_token}/download"))
+        .insert_header((header::IF_NONE_MATCH, etag.as_str()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::NOT_MODIFIED,
+        "matching revision ETag should take precedence over an exhausted download limit"
+    );
+    assert_eq!(resp.headers().get(header::ETAG).unwrap(), etag.as_str());
+    assert!(test::read_body(resp).await.is_empty());
+
+    let share = share_repo::find_by_id(state.writer_db(), share_id)
+        .await
+        .unwrap();
+    assert_eq!(share.download_count, 1, "304 must not consume a download");
+}
+
+#[actix_web::test]
 async fn test_shared_thumbnail_returns_304_for_matching_if_none_match() {
     let state = common::setup().await;
     if state.writer_db().get_database_backend() == sea_orm::DbBackend::Sqlite {

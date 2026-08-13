@@ -1091,6 +1091,7 @@ where
 
 fn should_use_mysql_schema_template(database_url: &str) -> bool {
     database_url.starts_with("mysql://")
+        && std::env::var("ASTER_TEST_DISABLE_MYSQL_SCHEMA_TEMPLATE").as_deref() != Ok("1")
 }
 
 async fn load_mysql_schema_template(

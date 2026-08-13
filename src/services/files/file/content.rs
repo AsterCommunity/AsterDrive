@@ -270,10 +270,10 @@ pub(crate) async fn update_content_in_scope(
     let submitted = lock_credentials.submitted();
     crate::services::files::lock::enforce_file_mutation(db, &f, &submitted).await?;
 
-    let current_blob = crate::db::repository::file_repo::find_blob_by_id(db, f.blob_id).await?;
     if let Some(etag) = if_match {
         let expected = etag.trim_matches('"');
-        if !expected.eq_ignore_ascii_case(&current_blob.hash) {
+        let current_etag = crate::db::repository::revision_repo::current_etag(db, f.id).await?;
+        if !expected.eq_ignore_ascii_case(&current_etag) {
             return Err(precondition_failed_with_code(
                 ApiErrorCode::FileEtagMismatch,
                 "file has been modified (ETag mismatch)",
@@ -355,7 +355,7 @@ pub(crate) async fn update_content_in_scope(
     };
 
     let updated = result?;
-    let new_blob = crate::db::repository::file_repo::find_blob_by_id(db, updated.blob_id).await?;
+    let revision_etag = crate::db::repository::revision_repo::current_etag(db, updated.id).await?;
     tracing::debug!(
         scope = ?scope,
         file_id = updated.id,
@@ -363,7 +363,7 @@ pub(crate) async fn update_content_in_scope(
         size = updated.size,
         "updated file content"
     );
-    Ok((updated, new_blob.hash.clone()))
+    Ok((updated, revision_etag))
 }
 
 pub(crate) async fn update_content_stream_in_scope(
@@ -388,10 +388,10 @@ pub(crate) async fn update_content_stream_in_scope(
     let submitted = lock_credentials.submitted();
     crate::services::files::lock::enforce_file_mutation(db, &f, &submitted).await?;
 
-    let current_blob = crate::db::repository::file_repo::find_blob_by_id(db, f.blob_id).await?;
     if let Some(etag) = if_match {
         let expected = etag.trim_matches('"');
-        if !expected.eq_ignore_ascii_case(&current_blob.hash) {
+        let current_etag = crate::db::repository::revision_repo::current_etag(db, f.id).await?;
+        if !expected.eq_ignore_ascii_case(&current_etag) {
             return Err(precondition_failed_with_code(
                 ApiErrorCode::FileEtagMismatch,
                 "file has been modified (ETag mismatch)",
@@ -431,7 +431,7 @@ pub(crate) async fn update_content_stream_in_scope(
     aster_forge_utils::fs::cleanup_temp_file(&temp_path).await;
 
     let updated = result?;
-    let new_blob = crate::db::repository::file_repo::find_blob_by_id(db, updated.blob_id).await?;
+    let revision_etag = crate::db::repository::revision_repo::current_etag(db, updated.id).await?;
     tracing::debug!(
         scope = ?scope,
         file_id = updated.id,
@@ -439,13 +439,13 @@ pub(crate) async fn update_content_stream_in_scope(
         size = updated.size,
         "completed streamed file content update"
     );
-    Ok((updated, new_blob.hash.clone()))
+    Ok((updated, revision_etag))
 }
 
 /// 覆盖文件内容（REST API 编辑入口）
 ///
 /// 支持 ETag 乐观锁（If-Match）和权威资源锁校验。
-/// 自动创建版本历史。返回 (更新后的 file, 新 blob hash)。
+/// 自动创建 revision。返回 (更新后的 file, 新 revision ETag)。
 pub async fn update_content(
     state: &PrimaryAppState,
     file_id: i64,

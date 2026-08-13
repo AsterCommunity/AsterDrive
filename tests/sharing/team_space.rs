@@ -1167,8 +1167,12 @@ async fn test_team_space_content_versions_and_locks() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"].as_array().unwrap().len(), 2);
-    let restore_version_id = body["data"][1]["id"].as_i64().unwrap();
+    let revisions = body["data"].as_array().unwrap();
+    assert_eq!(revisions.len(), 3);
+    assert_eq!(revisions[0]["version"], 3);
+    assert_eq!(revisions[0]["current"], true);
+    assert_eq!(revisions[2]["version"], 1);
+    let restore_version_id = revisions[2]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/teams/{team_id}/files/{file_id}/lock"))
@@ -1207,7 +1211,11 @@ async fn test_team_space_content_versions_and_locks() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert!(body["data"].as_array().unwrap().is_empty());
+    let revisions = body["data"].as_array().unwrap();
+    assert_eq!(revisions.len(), 4);
+    assert_eq!(revisions[0]["version"], 4);
+    assert_eq!(revisions[0]["current"], true);
+    assert_eq!(revisions[0]["reason"], "restore");
 
     let req = test::TestRequest::put()
         .uri(&format!("/api/v1/teams/{team_id}/files/{file_id}/content"))
@@ -1227,8 +1235,12 @@ async fn test_team_space_content_versions_and_locks() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"].as_array().unwrap().len(), 1);
-    let delete_version_id = body["data"][0]["id"].as_i64().unwrap();
+    let revisions = body["data"].as_array().unwrap();
+    assert_eq!(revisions.len(), 5);
+    assert_eq!(revisions[0]["version"], 5);
+    assert_eq!(revisions[0]["current"], true);
+    assert_eq!(revisions[3]["version"], 2);
+    let delete_version_id = revisions[3]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::delete()
         .uri(&format!(
@@ -1248,7 +1260,17 @@ async fn test_team_space_content_versions_and_locks() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert!(body["data"].as_array().unwrap().is_empty());
+    let revisions = body["data"].as_array().unwrap();
+    assert_eq!(revisions.len(), 4);
+    assert_eq!(revisions[0]["version"], 5);
+    assert_eq!(revisions[0]["current"], true);
+    assert_eq!(
+        revisions
+            .iter()
+            .map(|revision| revision["version"].as_i64().unwrap())
+            .collect::<Vec<_>>(),
+        vec![5, 4, 3, 1]
+    );
 
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/teams/{team_id}/folders/{docs_id}/lock"))
@@ -1427,8 +1449,12 @@ async fn test_team_versions_enforce_scope_and_membership() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"].as_array().unwrap().len(), 1);
-    let version_id = body["data"][0]["id"].as_i64().unwrap();
+    let revisions = body["data"].as_array().unwrap();
+    assert_eq!(revisions.len(), 2);
+    assert_eq!(revisions[0]["version"], 2);
+    assert_eq!(revisions[0]["current"], true);
+    assert_eq!(revisions[1]["version"], 1);
+    let version_id = revisions[1]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/teams/{team_id}/files/{file_id}"))
@@ -1510,8 +1536,10 @@ async fn test_team_versions_enforce_scope_and_membership() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"].as_array().unwrap().len(), 1);
-    assert_eq!(body["data"][0]["id"], version_id);
+    let revisions = body["data"].as_array().unwrap();
+    assert_eq!(revisions.len(), 2);
+    assert_eq!(revisions[0]["current"], true);
+    assert_eq!(revisions[1]["id"], version_id);
 }
 
 #[actix_web::test]

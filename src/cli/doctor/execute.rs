@@ -430,7 +430,7 @@ async fn push_deep_checks(
                 "failed to audit storage usage counters",
                 vec![err.message().to_string()],
                 Some(
-                    "Check whether the users, teams, files, and file_versions tables are complete and readable."
+                    "Check whether the users, teams, files, file_revision_histories, and file_revisions tables are complete and readable."
                         .to_string(),
                 ),
             ),
@@ -447,7 +447,7 @@ async fn push_deep_checks(
                 "failed to audit blob reference counters",
                 vec![err.message().to_string()],
                 Some(
-                    "Check whether the file_blobs, files, and file_versions tables are complete and readable."
+                    "Check whether the file_blobs, files, file_revision_histories, and file_revisions tables are complete and readable."
                         .to_string(),
                 ),
             ),
@@ -513,6 +513,35 @@ async fn push_deep_checks(
                     "Check whether the folders table is complete and whether parent_id relationships are readable."
                         .to_string(),
                 ),
+            ),
+        });
+    }
+
+    if doctor_scope_enabled(scopes, DoctorDeepScope::RevisionLedger) {
+        checks.push(match crate::services::ops::integrity::audit_revision_ledger(db).await {
+            Ok(issues) if issues.is_empty() => doctor_check(
+                "revision_ledger_integrity",
+                "Revision ledger integrity",
+                DoctorStatus::Ok,
+                "revision histories, heads, predecessors, and file projections are consistent",
+                Vec::new(),
+                None,
+            ),
+            Ok(issues) => doctor_check(
+                "revision_ledger_integrity",
+                "Revision ledger integrity",
+                DoctorStatus::Fail,
+                format!("{} revision ledger issue(s) detected", issues.len()),
+                issues.into_iter().map(|issue| format!("history #{} revision {:?}: {}", issue.history_id, issue.revision_id, issue.detail)).collect(),
+                Some("Repair the affected file history and current projection before serving DeltaV reads.".to_string()),
+            ),
+            Err(err) => doctor_check(
+                "revision_ledger_integrity",
+                "Revision ledger integrity",
+                DoctorStatus::Fail,
+                "failed to audit revision ledger",
+                vec![err.message().to_string()],
+                None,
             ),
         });
     }

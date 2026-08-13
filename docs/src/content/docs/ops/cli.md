@@ -144,9 +144,10 @@ ASTER_CLI_COPY_BATCH_SIZE=100
 `--deep` 额外会做这些检查：
 
 - `storage-usage`：核对 `users.storage_used` / `teams.storage_used` 和文件、历史版本实际占用
-- `blob-ref-counts`：核对 `file_blobs.ref_count` 与 `files` / `file_versions` 的真实引用数
+- `blob-ref-counts`：核对 `file_blobs.ref_count` 与 `files` / 非 current `file_revisions` 的真实引用数
 - `storage-objects`：扫描每个存储策略下的对象路径，找出缺失 Blob、未追踪对象和孤儿缩略图
 - `folder-tree`：检查缺失父目录、跨工作空间父目录和目录循环引用
+- `revision-ledger`：检查 history/head/predecessor 指针和 `files` current projection
 
 如果你只想跑其中一部分，可以直接缩小范围：
 

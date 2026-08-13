@@ -54,7 +54,7 @@ type VersionHistoryAction =
 	| { type: "delete-start"; versionId: number }
 	| { type: "load-end"; versions?: FileVersion[] }
 	| { type: "load-start" }
-	| { type: "restore-end" }
+	| { type: "restore-end"; versions?: FileVersion[] }
 	| { type: "restore-start"; versionId: number }
 	| { type: "set-inline-confirm"; inlineConfirm: VersionInlineConfirm | null };
 
@@ -91,21 +91,17 @@ function versionHistoryReducer(
 		case "load-start":
 			return { ...state, loading: true };
 		case "restore-end":
-			return { ...state, inlineConfirm: null, restoringVersionId: null };
+			return {
+				...state,
+				inlineConfirm: null,
+				restoringVersionId: null,
+				versions: action.versions ?? state.versions,
+			};
 		case "restore-start":
 			return { ...state, restoringVersionId: action.versionId };
 		case "set-inline-confirm":
 			return { ...state, inlineConfirm: action.inlineConfirm };
 	}
-}
-
-function getCurrentVersionNumber(versions: FileVersion[]) {
-	return (
-		versions.reduce(
-			(maxVersion, version) => Math.max(maxVersion, version.version),
-			0,
-		) + 1
-	);
 }
 
 export function VersionHistoryDialog({
@@ -122,7 +118,10 @@ export function VersionHistoryDialog({
 		{ deletingVersionId, inlineConfirm, loading, restoringVersionId, versions },
 		dispatch,
 	] = useReducer(versionHistoryReducer, VERSION_HISTORY_INITIAL_STATE);
-	const currentVersion = loading ? null : getCurrentVersionNumber(versions);
+	const currentRevision = versions.find((version) => version.current) ?? null;
+	const historicalVersionCount = versions.filter(
+		(version) => !version.current,
+	).length;
 
 	const load = useCallback(async () => {
 		try {
@@ -139,6 +138,7 @@ export function VersionHistoryDialog({
 		try {
 			dispatch({ type: "restore-start", versionId });
 			await fileService.restoreVersion(fileId, versionId);
+			const data = await fileService.listVersions(fileId);
 			invalidateFileResourceCachesForMutation({
 				download: fileService.downloadPath(fileId),
 				thumbnail: fileService.thumbnailPath(fileId),
@@ -146,9 +146,9 @@ export function VersionHistoryDialog({
 			});
 			toast.success(t("version_restored"));
 			onRestored?.();
+			dispatch({ type: "restore-end", versions: data });
 		} catch (e) {
 			handleApiError(e);
-		} finally {
 			dispatch({ type: "restore-end" });
 		}
 	};
@@ -219,14 +219,16 @@ export function VersionHistoryDialog({
 							<div className="text-sm font-medium text-foreground">
 								{t("version_current")}
 							</div>
-							{currentVersion !== null ? (
+							{currentRevision !== null ? (
 								<div className="mt-1 font-mono text-xs text-muted-foreground">
-									v{currentVersion}
+									v{currentRevision.version}
 								</div>
 							) : null}
 						</div>
 						<div className="text-xs text-muted-foreground">
-							{t("version_history_count", { count: versions.length })}
+							{t("version_history_count", {
+								count: historicalVersionCount,
+							})}
 						</div>
 					</div>
 				</div>
@@ -253,7 +255,14 @@ export function VersionHistoryDialog({
 								<Fragment key={v.id}>
 									<TableRow key={v.id}>
 										<TableCell className="font-mono text-sm">
-											v{v.version}
+											<div className="flex items-center gap-2">
+												<span>v{v.version}</span>
+												{v.current ? (
+													<span className="font-sans text-xs text-muted-foreground">
+														{t("version_current")}
+													</span>
+												) : null}
+											</div>
 										</TableCell>
 										<TableCell className="text-sm">
 											{formatBytes(v.size)}
@@ -263,52 +272,58 @@ export function VersionHistoryDialog({
 										</TableCell>
 										<TableCell>
 											<div className="flex gap-1">
-												<Button
-													variant="ghost"
-													size="icon"
-													className="size-7"
-													title={
-														restoringVersionId === v.id
-															? t("version_restoring")
-															: t("version_restore")
-													}
-													disabled={
-														restoringVersionId !== null ||
-														deletingVersionId !== null
-													}
-													onClick={() => requestInlineConfirm("restore", v)}
-												>
-													<Icon
-														name={
-															restoringVersionId === v.id
-																? "Spinner"
-																: "ArrowCounterClockwise"
-														}
-														className={`size-3.5 ${restoringVersionId === v.id ? "animate-spin" : ""}`}
-													/>
-												</Button>
-												<Button
-													variant="ghost"
-													size="icon"
-													className="size-7 text-destructive"
-													title={
-														deletingVersionId === v.id
-															? t("version_deleting")
-															: t("version_delete")
-													}
-													disabled={
-														restoringVersionId !== null ||
-														deletingVersionId !== null
-													}
-													onClick={() => requestInlineConfirm("delete", v)}
-												>
-													<Icon
-														name={
-															deletingVersionId === v.id ? "Spinner" : "Trash"
-														}
-														className={`size-3.5 ${deletingVersionId === v.id ? "animate-spin" : ""}`}
-													/>
-												</Button>
+												{v.current ? null : (
+													<>
+														<Button
+															variant="ghost"
+															size="icon"
+															className="size-7"
+															title={
+																restoringVersionId === v.id
+																	? t("version_restoring")
+																	: t("version_restore")
+															}
+															disabled={
+																restoringVersionId !== null ||
+																deletingVersionId !== null
+															}
+															onClick={() => requestInlineConfirm("restore", v)}
+														>
+															<Icon
+																name={
+																	restoringVersionId === v.id
+																		? "Spinner"
+																		: "ArrowCounterClockwise"
+																}
+																className={`size-3.5 ${restoringVersionId === v.id ? "animate-spin" : ""}`}
+															/>
+														</Button>
+														<Button
+															variant="ghost"
+															size="icon"
+															className="size-7 text-destructive"
+															title={
+																deletingVersionId === v.id
+																	? t("version_deleting")
+																	: t("version_delete")
+															}
+															disabled={
+																restoringVersionId !== null ||
+																deletingVersionId !== null
+															}
+															onClick={() => requestInlineConfirm("delete", v)}
+														>
+															<Icon
+																name={
+																	deletingVersionId === v.id
+																		? "Spinner"
+																		: "Trash"
+																}
+																className={`size-3.5 ${deletingVersionId === v.id ? "animate-spin" : ""}`}
+															/>
+														</Button>
+													</>
+												)}
 											</div>
 										</TableCell>
 									</TableRow>

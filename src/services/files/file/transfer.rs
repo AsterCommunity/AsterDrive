@@ -217,6 +217,14 @@ pub(crate) async fn batch_duplicate_file_records_with_specs_in_scope(
             "failed to load all copied files after batch insert",
         ));
     }
+    for created in &created_files {
+        crate::db::repository::revision_repo::create_initial(
+            &txn,
+            created,
+            crate::db::repository::revision_repo::RevisionReason::Copy,
+        )
+        .await?;
+    }
 
     transaction::commit(txn).await?;
     Ok(created_files)
@@ -274,6 +282,13 @@ pub(crate) async fn duplicate_file_record_in_scope_on<C: ConnectionTrait>(
     .insert(db)
     .await
     .map_err(|err| file_repo::map_name_db_err(err, dest_name))?;
+
+    crate::db::repository::revision_repo::create_initial(
+        db,
+        &new_file,
+        crate::db::repository::revision_repo::RevisionReason::Copy,
+    )
+    .await?;
 
     storage::update_storage_used(db, scope, blob_size).await?;
 

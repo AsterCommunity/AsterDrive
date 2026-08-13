@@ -347,7 +347,7 @@ pub(crate) async fn store_preuploaded_nondedup(
                 debug_assert_eq!(blob.policy_id, verified_blob.policy_id());
                 debug_assert_eq!(blob.storage_path, verified_blob.storage_path());
 
-                let result = if let Some((old_file, old_blob)) = overwrite_ctx {
+                let result = if let Some((old_file, _old_blob)) = overwrite_ctx {
                     let current_file = revalidate_preuploaded_overwrite_target(
                         txn,
                         scope,
@@ -356,6 +356,13 @@ pub(crate) async fn store_preuploaded_nondedup(
                     )
                     .await?;
                     let existing_id = current_file.id;
+                    let expected_revision_id =
+                        crate::db::repository::revision_repo::lock_history_by_file_id(
+                            txn,
+                            existing_id,
+                        )
+                        .await?
+                        .current_revision_id;
                     let current_name = current_file.name.clone();
                     let mut active: file::ActiveModel = current_file.into();
                     active.blob_id = Set(blob.id);
@@ -369,17 +376,22 @@ pub(crate) async fn store_preuploaded_nondedup(
                     active.updated_at = Set(now);
                     let updated = active.update(txn).await.map_err(AsterError::from)?;
 
-                    let next_ver =
-                        crate::db::repository::version_repo::next_version(txn, existing_id).await?;
-                    crate::db::repository::version_repo::create(
+                    crate::db::repository::revision_repo::append(
                         txn,
-                        aster_drive_model::entities::file_version::ActiveModel {
-                            file_id: Set(existing_id),
-                            blob_id: Set(old_blob.id),
-                            version: Set(next_ver),
-                            size: Set(old_blob.size),
-                            created_at: Set(now),
-                            ..Default::default()
+                        existing_id,
+                        expected_revision_id,
+                        crate::db::repository::revision_repo::NewRevision {
+                            blob_id: blob.id,
+                            logical_size: blob.size,
+                            mime_type: &mime,
+                            content_sha256: None,
+                            creator_user_id: Some(scope.actor_user_id()),
+                            creator_display_name: actor_username
+                                .as_deref()
+                                .unwrap_or(&updated.created_by_username),
+                            comment: None,
+                            reason: crate::db::repository::revision_repo::RevisionReason::Overwrite,
+                            created_at: now,
                         },
                     )
                     .await?;

@@ -3,7 +3,7 @@
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
 
-use crate::db::repository::{file_repo, version_repo};
+use crate::db::repository::{file_repo, revision_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
@@ -30,7 +30,8 @@ pub(crate) async fn get_info_with_storage_used_in_scope(
     id: i64,
 ) -> Result<FileInfo> {
     let file = get_info_in_scope(state, scope, id).await?;
-    let version_bytes = version_repo::sum_sizes_by_file_id(state.reader_db(), file.id).await?;
+    let version_bytes =
+        revision_repo::sum_non_current_sizes_by_file_id(state.reader_db(), file.id).await?;
     let storage_used = file.size.checked_add(version_bytes).ok_or_else(|| {
         AsterError::internal_error(format!(
             "file storage_used overflow while reading file #{}",

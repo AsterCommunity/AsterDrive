@@ -12,7 +12,7 @@ use tokio::io::{AsyncRead, AsyncWriteExt};
 
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
-use crate::runtime::PrimaryAppState;
+use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::file::DownloadDisposition;
 use crate::services::{mail::sender, storage_policy::policy};
 use crate::storage::{DriverRegistry, PolicySnapshot};
@@ -419,6 +419,13 @@ where
     )
     .await
     .expect("download test file should be inserted");
+    crate::db::repository::revision_repo::create_initial(
+        &db,
+        &file,
+        crate::db::repository::revision_repo::RevisionReason::Create,
+    )
+    .await
+    .expect("download test file should have an initial revision");
 
     (state, file, blob, driver)
 }
@@ -457,6 +464,37 @@ async fn build_stream_response_uses_get_stream_instead_of_get() {
         1,
         "download response should open exactly one streaming reader"
     );
+}
+
+#[actix_web::test]
+async fn conditional_download_uses_revision_etag_instead_of_blob_hash() {
+    let payload = b"canonical revision validator".to_vec();
+    let driver = CountingStreamDriver::new(payload.clone());
+    let get_stream_calls = driver.get_stream_calls.clone();
+    let (state, file, blob, _) = build_download_test_state(driver, payload_len_i64(&payload)).await;
+    let revision_etag =
+        crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id)
+            .await
+            .expect("current revision ETag should load");
+    assert_ne!(revision_etag, blob.hash);
+
+    let outcome = build_download_outcome_with_disposition_and_range(
+        &state,
+        &file,
+        &blob,
+        DownloadDisposition::Attachment,
+        Some(format!("\"{revision_etag}\"").as_str()),
+        None,
+    )
+    .await
+    .expect("matching revision ETag should build a conditional response");
+    match outcome {
+        DownloadOutcome::NotModified { etag, .. } => {
+            assert_eq!(etag, format!("\"{revision_etag}\""));
+        }
+        other => panic!("matching revision ETag should return not-modified, got {other:?}"),
+    }
+    assert_eq!(get_stream_calls.load(Ordering::SeqCst), 0);
 }
 
 fn s3_presigned_download_policy() -> storage_policy::Model {

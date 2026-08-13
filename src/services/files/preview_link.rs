@@ -139,26 +139,12 @@ pub(crate) async fn download_file(
     direct_link::validate_public_file_name(file, requested_name)?;
 
     let blob = file_repo::find_blob_by_id(state.reader_db(), file.blob_id).await?;
-    if let Some(if_none_match) = if_none_match
-        && file_ops::if_none_match_matches(if_none_match, &blob.hash)
-    {
-        return file_ops::build_download_outcome_with_disposition_and_range(
-            state,
-            file,
-            &blob,
-            file_ops::DownloadDisposition::Inline,
-            Some(if_none_match),
-            None,
-        )
-        .await;
-    }
-
     file_ops::build_download_outcome_with_disposition_and_range(
         state,
         file,
         &blob,
         file_ops::DownloadDisposition::Inline,
-        None,
+        if_none_match,
         range,
     )
     .await
@@ -226,8 +212,9 @@ async fn canonical_file_etag(
     state: &impl SharedRuntimeState,
     file: &file::Model,
 ) -> Result<String> {
-    let blob = file_repo::find_blob_by_id(state.reader_db(), file.blob_id).await?;
-    Ok(format!("\"{}\"", blob.hash))
+    let etag =
+        crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id).await?;
+    Ok(format!("\"{etag}\""))
 }
 
 fn preview_path(

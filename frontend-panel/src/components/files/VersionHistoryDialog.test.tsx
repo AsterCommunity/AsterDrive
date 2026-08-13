@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { VersionHistoryDialog } from "@/components/files/VersionHistoryDialog";
+import type { FileVersion } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
 	deleteVersion: vi.fn(),
@@ -162,20 +163,56 @@ vi.mock("@/services/fileService", () => ({
 	},
 }));
 
-const versions = [
+const versions: FileVersion[] = [
 	{
-		created_at: "2026-03-01T00:00:00Z",
-		id: 11,
+		blob_id: 22,
+		comment: null,
+		created_at: "2026-03-03T00:00:00Z",
+		creator_display_name: "alice",
+		creator_user_id: 7,
+		current: true,
+		etag: "etag-3",
+		file_id: 8,
+		id: 13,
+		mime_type: "application/pdf",
+		public_id: "revision-3",
+		reason: "overwrite",
 		size: 128,
+		version: 3,
+	},
+	{
+		blob_id: 21,
+		comment: null,
+		created_at: "2026-03-01T00:00:00Z",
+		creator_display_name: "alice",
+		creator_user_id: 7,
+		current: false,
+		etag: "etag-2",
+		file_id: 8,
+		id: 11,
+		mime_type: "application/pdf",
+		public_id: "revision-2",
+		reason: "overwrite",
+		size: 256,
 		version: 2,
 	},
 	{
-		created_at: "2026-03-02T00:00:00Z",
+		blob_id: 20,
+		comment: null,
+		created_at: "2026-02-28T00:00:00Z",
+		creator_display_name: "alice",
+		creator_user_id: 7,
+		current: false,
+		etag: "etag-1",
+		file_id: 8,
 		id: 12,
-		size: 256,
+		mime_type: "application/pdf",
+		public_id: "revision-1",
+		reason: "create",
+		size: 64,
 		version: 1,
 	},
-] as never[];
+];
 
 describe("VersionHistoryDialog", () => {
 	beforeEach(() => {
@@ -219,13 +256,21 @@ describe("VersionHistoryDialog", () => {
 
 		resolveList?.(versions);
 
-		expect(await screen.findByText("v3")).toBeInTheDocument();
+		expect(await screen.findAllByText("v3")).toHaveLength(2);
 		expect(screen.getByText("v2")).toBeInTheDocument();
 		expect(screen.getByText("v1")).toBeInTheDocument();
 		expect(screen.getByText("bytes:128")).toBeInTheDocument();
 		expect(screen.getByText("bytes:256")).toBeInTheDocument();
 		expect(screen.getByText("time:2026-03-01T00:00:00Z")).toBeInTheDocument();
 		expect(screen.getByText("count:2")).toBeInTheDocument();
+		const currentRow = screen
+			.getAllByText("v3")
+			.find((element) => element.closest("tr"))
+			?.closest("tr");
+		expect(currentRow).not.toBeNull();
+		expect(
+			within(currentRow as HTMLTableRowElement).queryByRole("button"),
+		).toBeNull();
 
 		rerender(
 			<VersionHistoryDialog
@@ -243,8 +288,24 @@ describe("VersionHistoryDialog", () => {
 
 	it("restores a version after confirmation and invalidates related caches", async () => {
 		const onRestored = vi.fn();
-		mockState.listVersions.mockResolvedValueOnce([versions[0]]);
+		const restoredVersions: FileVersion[] = [
+			{
+				...versions[1],
+				blob_id: versions[1].blob_id,
+				current: true,
+				etag: "etag-4",
+				id: 14,
+				public_id: "revision-4",
+				reason: "restore",
+				version: 4,
+			},
+			{ ...versions[0], current: false },
+			versions[1],
+			versions[2],
+		];
+		mockState.listVersions.mockResolvedValueOnce(versions);
 		mockState.restoreVersion.mockResolvedValueOnce(undefined);
+		mockState.listVersions.mockResolvedValueOnce(restoredVersions);
 
 		render(
 			<VersionHistoryDialog
@@ -279,6 +340,9 @@ describe("VersionHistoryDialog", () => {
 		await waitFor(() => {
 			expect(mockState.restoreVersion).toHaveBeenCalledWith(10, 11);
 		});
+		expect(await screen.findAllByText("v4")).toHaveLength(2);
+		expect(screen.getByText("count:3")).toBeInTheDocument();
+		expect(mockState.listVersions).toHaveBeenCalledTimes(2);
 		expect(
 			mockState.invalidateFileResourceCachesForMutation,
 		).toHaveBeenCalledWith({
@@ -293,7 +357,7 @@ describe("VersionHistoryDialog", () => {
 	it("deletes a version after confirmation and removes it from the rendered list", async () => {
 		mockState.listVersions.mockResolvedValueOnce(versions);
 		mockState.deleteVersion.mockResolvedValueOnce(undefined);
-		mockState.listVersions.mockResolvedValueOnce([versions[1]]);
+		mockState.listVersions.mockResolvedValueOnce([versions[0], versions[2]]);
 
 		render(
 			<VersionHistoryDialog
@@ -328,7 +392,7 @@ describe("VersionHistoryDialog", () => {
 			expect(mockState.deleteVersion).toHaveBeenCalledWith(15, 11);
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("version_deleted");
-		expect(screen.getAllByText("v2")).toHaveLength(1);
+		expect(screen.queryByText("v2")).toBeNull();
 		expect(screen.getByText("v1")).toBeInTheDocument();
 	});
 
