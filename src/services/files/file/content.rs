@@ -268,6 +268,7 @@ pub(crate) async fn update_content_in_scope(
         "updating file content"
     );
     let f = storage::verify_file_access(state, scope, file_id).await?;
+    let actor_username = storage::load_scope_actor_username_cached(state, scope).await?;
 
     let submitted = lock_credentials.submitted();
     crate::services::files::lock::enforce_file_mutation(db, &f, &submitted).await?;
@@ -328,7 +329,7 @@ pub(crate) async fn update_content_in_scope(
             StoreFromTempHints {
                 resolved_policy: Some(resolved_policy),
                 precomputed_hash: precomputed_hash.as_deref(),
-                actor_username: None,
+                actor_username: Some(&actor_username),
                 revision_etag: Some(&revision_etag),
                 ..Default::default()
             },
@@ -358,6 +359,7 @@ pub(crate) async fn update_content_in_scope(
                 .with_expected_revision(expected_revision)
                 .with_expected_revision_etag(if_match.map(|etag| etag.trim_matches('"'))),
             StoreFromTempHints {
+                actor_username: Some(&actor_username),
                 revision_etag: Some(&revision_etag),
                 ..Default::default()
             },
@@ -398,6 +400,7 @@ pub(crate) async fn update_content_stream_in_scope(
         "streaming file content update"
     );
     let f = storage::verify_file_access(state, scope, file_id).await?;
+    let actor_username = storage::load_scope_actor_username_cached(state, scope).await?;
 
     let submitted = lock_credentials.submitted();
     crate::services::files::lock::enforce_file_mutation(db, &f, &submitted).await?;
@@ -444,7 +447,7 @@ pub(crate) async fn update_content_stream_in_scope(
         StoreFromTempHints {
             resolved_policy,
             precomputed_hash: precomputed_hash.as_deref(),
-            actor_username: None,
+            actor_username: Some(&actor_username),
             revision_etag: Some(&revision_etag),
             ..Default::default()
         },

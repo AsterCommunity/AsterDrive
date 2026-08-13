@@ -1,4 +1,5 @@
 import {
+	act,
 	fireEvent,
 	render,
 	screen,
@@ -88,8 +89,25 @@ vi.mock("@/components/ui/button", () => ({
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-	Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
-		open ? <div data-testid="dialog">{children}</div> : null,
+	Dialog: ({
+		children,
+		onOpenChange,
+		open,
+	}: {
+		children: React.ReactNode;
+		onOpenChange: (open: boolean) => void;
+		open: boolean;
+	}) =>
+		open ? (
+			<div data-testid="dialog">
+				<button
+					type="button"
+					aria-label="dialog_close_control"
+					onClick={() => onOpenChange(false)}
+				/>
+				{children}
+			</div>
+		) : null,
 	DialogContent: ({
 		children,
 		className,
@@ -221,6 +239,33 @@ function versionPage(
 	return { items, nextAfterSequence };
 }
 
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (reason: unknown) => void;
+	const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+		resolve = resolvePromise;
+		reject = rejectPromise;
+	});
+	return { promise, reject, resolve };
+}
+
+async function confirmVersionAction(action: "restore" | "delete") {
+	const versionRow = (await screen.findByText("v2")).closest("tr");
+	expect(versionRow).not.toBeNull();
+	fireEvent.click(
+		within(versionRow as HTMLTableRowElement).getByRole("button", {
+			name: `version_${action}`,
+		}),
+	);
+	const confirmRow = screen.getByText(`${action}:2`).closest("tr");
+	expect(confirmRow).not.toBeNull();
+	fireEvent.click(
+		within(confirmRow as HTMLTableRowElement).getByRole("button", {
+			name: `version_${action}`,
+		}),
+	);
+}
+
 describe("VersionHistoryDialog", () => {
 	beforeEach(() => {
 		mockState.deleteVersion.mockReset();
@@ -346,6 +391,68 @@ describe("VersionHistoryDialog", () => {
 		});
 		expect(screen.getByText("v2")).toBeInTheDocument();
 		expect(loadMore).toBeEnabled();
+	});
+
+	it("discards stale pagination results and errors after the dialog closes", async () => {
+		const resolvedOlderPage = deferred<ReturnType<typeof versionPage>>();
+		const rejectedOlderPage = deferred<ReturnType<typeof versionPage>>();
+		mockState.listVersions
+			.mockResolvedValueOnce(versionPage(versions.slice(0, 2), 2))
+			.mockReturnValueOnce(resolvedOlderPage.promise)
+			.mockResolvedValueOnce(versionPage(versions.slice(0, 2), 2))
+			.mockReturnValueOnce(rejectedOlderPage.promise);
+
+		const { rerender } = render(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={8}
+				fileName="report.pdf"
+			/>,
+		);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "version_load_more" }),
+		);
+		rerender(
+			<VersionHistoryDialog
+				open={false}
+				onOpenChange={vi.fn()}
+				fileId={8}
+				fileName="report.pdf"
+			/>,
+		);
+		await act(async () => {
+			resolvedOlderPage.resolve(versionPage([versions[2]]));
+			await resolvedOlderPage.promise;
+		});
+
+		rerender(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={8}
+				fileName="report.pdf"
+			/>,
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "version_load_more" }),
+		);
+		rerender(
+			<VersionHistoryDialog
+				open={false}
+				onOpenChange={vi.fn()}
+				fileId={8}
+				fileName="report.pdf"
+			/>,
+		);
+		await act(async () => {
+			rejectedOlderPage.reject(new Error("stale older page"));
+			await rejectedOlderPage.promise.catch(() => undefined);
+		});
+
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
+		expect(screen.queryByText("v1")).not.toBeInTheDocument();
 	});
 
 	it("blocks revision mutations while an older page is loading", async () => {
@@ -501,6 +608,217 @@ describe("VersionHistoryDialog", () => {
 		expect(screen.getByText("v1")).toBeInTheDocument();
 	});
 
+	it("clears inline confirmation and closes through the dialog callback", async () => {
+		const onOpenChange = vi.fn();
+		mockState.listVersions.mockResolvedValueOnce(versionPage(versions));
+
+		render(
+			<VersionHistoryDialog
+				open
+				onOpenChange={onOpenChange}
+				fileId={16}
+				fileName="report.pdf"
+			/>,
+		);
+
+		const versionRow = (await screen.findByText("v2")).closest("tr");
+		fireEvent.click(
+			within(versionRow as HTMLTableRowElement).getByRole("button", {
+				name: "version_restore",
+			}),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "core:cancel" }));
+		expect(screen.queryByText("restore:2")).not.toBeInTheDocument();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "dialog_close_control" }),
+		);
+		expect(onOpenChange).toHaveBeenCalledWith(false);
+		expect(screen.getByText("version_empty")).toBeInTheDocument();
+	});
+
+	it("keeps successful mutation side effects but ignores stale completion state", async () => {
+		const restoreRequest = deferred<void>();
+		const deleteRequest = deferred<void>();
+		const onRestored = vi.fn();
+		mockState.listVersions.mockResolvedValue(versionPage(versions));
+		mockState.restoreVersion.mockReturnValueOnce(restoreRequest.promise);
+		mockState.deleteVersion.mockReturnValueOnce(deleteRequest.promise);
+
+		const restoreView = render(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={22}
+				fileName="report.pdf"
+				onRestored={onRestored}
+			/>,
+		);
+		await confirmVersionAction("restore");
+		restoreView.rerender(
+			<VersionHistoryDialog
+				open={false}
+				onOpenChange={vi.fn()}
+				fileId={22}
+				fileName="report.pdf"
+				onRestored={onRestored}
+			/>,
+		);
+		await act(async () => {
+			restoreRequest.resolve();
+			await restoreRequest.promise;
+		});
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("version_restored");
+		expect(onRestored).toHaveBeenCalledTimes(1);
+		expect(mockState.listVersions).toHaveBeenCalledTimes(1);
+		restoreView.unmount();
+
+		const deleteView = render(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={23}
+				fileName="report.pdf"
+			/>,
+		);
+		await confirmVersionAction("delete");
+		deleteView.rerender(
+			<VersionHistoryDialog
+				open={false}
+				onOpenChange={vi.fn()}
+				fileId={23}
+				fileName="report.pdf"
+			/>,
+		);
+		await act(async () => {
+			deleteRequest.resolve();
+			await deleteRequest.promise;
+		});
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("version_deleted");
+		expect(mockState.listVersions).toHaveBeenCalledTimes(2);
+	});
+
+	it("does not surface stale mutation failures after the dialog closes", async () => {
+		const restoreRequest = deferred<void>();
+		const deleteRequest = deferred<void>();
+		mockState.listVersions.mockResolvedValue(versionPage(versions));
+		mockState.restoreVersion.mockReturnValueOnce(restoreRequest.promise);
+		mockState.deleteVersion.mockReturnValueOnce(deleteRequest.promise);
+
+		const restoreView = render(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={24}
+				fileName="report.pdf"
+			/>,
+		);
+		await confirmVersionAction("restore");
+		restoreView.rerender(
+			<VersionHistoryDialog
+				open={false}
+				onOpenChange={vi.fn()}
+				fileId={24}
+				fileName="report.pdf"
+			/>,
+		);
+		await act(async () => {
+			restoreRequest.reject(new Error("stale restore"));
+			await restoreRequest.promise.catch(() => undefined);
+		});
+		restoreView.unmount();
+
+		const deleteView = render(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={25}
+				fileName="report.pdf"
+			/>,
+		);
+		await confirmVersionAction("delete");
+		deleteView.rerender(
+			<VersionHistoryDialog
+				open={false}
+				onOpenChange={vi.fn()}
+				fileId={25}
+				fileName="report.pdf"
+			/>,
+		);
+		await act(async () => {
+			deleteRequest.reject(new Error("stale delete"));
+			await deleteRequest.promise.catch(() => undefined);
+		});
+
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
+		expect(mockState.toastSuccess).not.toHaveBeenCalled();
+	});
+
+	it("ignores stale restore and delete refresh responses", async () => {
+		const restoreRefresh = deferred<ReturnType<typeof versionPage>>();
+		const deleteRefresh = deferred<ReturnType<typeof versionPage>>();
+		mockState.listVersions
+			.mockResolvedValueOnce(versionPage(versions))
+			.mockReturnValueOnce(restoreRefresh.promise)
+			.mockResolvedValueOnce(versionPage(versions))
+			.mockReturnValueOnce(deleteRefresh.promise);
+		mockState.restoreVersion.mockResolvedValueOnce(undefined);
+		mockState.deleteVersion.mockResolvedValueOnce(undefined);
+
+		const restoreView = render(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={26}
+				fileName="report.pdf"
+			/>,
+		);
+		await confirmVersionAction("restore");
+		await waitFor(() =>
+			expect(mockState.listVersions).toHaveBeenCalledTimes(2),
+		);
+		restoreView.rerender(
+			<VersionHistoryDialog
+				open={false}
+				onOpenChange={vi.fn()}
+				fileId={26}
+				fileName="report.pdf"
+			/>,
+		);
+		await act(async () => {
+			restoreRefresh.reject(new Error("stale restore refresh"));
+			await restoreRefresh.promise.catch(() => undefined);
+		});
+		restoreView.unmount();
+
+		const deleteView = render(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={27}
+				fileName="report.pdf"
+			/>,
+		);
+		await confirmVersionAction("delete");
+		await waitFor(() =>
+			expect(mockState.listVersions).toHaveBeenCalledTimes(4),
+		);
+		deleteView.rerender(
+			<VersionHistoryDialog
+				open={false}
+				onOpenChange={vi.fn()}
+				fileId={27}
+				fileName="report.pdf"
+			/>,
+		);
+		await act(async () => {
+			deleteRefresh.resolve(versionPage([versions[0], versions[2]]));
+			await deleteRefresh.promise;
+		});
+
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
+	});
+
 	it("keeps the loaded history and re-enables actions when restore fails", async () => {
 		const error = new Error("restore failed");
 		mockState.listVersions.mockResolvedValueOnce(versionPage(versions));
@@ -537,6 +855,34 @@ describe("VersionHistoryDialog", () => {
 		expect(
 			within(versionRow as HTMLTableRowElement).getByRole("button", {
 				name: "version_restore",
+			}),
+		).toBeEnabled();
+		expect(mockState.listVersions).toHaveBeenCalledTimes(1);
+		expect(mockState.toastSuccess).not.toHaveBeenCalled();
+	});
+
+	it("keeps the loaded history and re-enables actions when delete fails", async () => {
+		const error = new Error("delete failed");
+		mockState.listVersions.mockResolvedValueOnce(versionPage(versions));
+		mockState.deleteVersion.mockRejectedValueOnce(error);
+
+		render(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={19}
+				fileName="report.pdf"
+			/>,
+		);
+
+		await confirmVersionAction("delete");
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+		});
+		const versionRow = screen.getByText("v2").closest("tr");
+		expect(
+			within(versionRow as HTMLTableRowElement).getByRole("button", {
+				name: "version_delete",
 			}),
 		).toBeEnabled();
 		expect(mockState.listVersions).toHaveBeenCalledTimes(1);
@@ -656,9 +1002,12 @@ describe("VersionHistoryDialog", () => {
 
 		expect(await screen.findAllByText("v3")).toHaveLength(2);
 		resolveOld?.(versionPage(versions));
-		await waitFor(() => {
-			expect(mockState.listVersions).toHaveBeenNthCalledWith(2, 9);
+		await act(async () => {
+			await Promise.resolve();
+			await Promise.resolve();
 		});
+		expect(mockState.listVersions).toHaveBeenNthCalledWith(2, 9);
+		expect(screen.getAllByText("v3")).toHaveLength(2);
 		expect(screen.getByText("count:0")).toBeInTheDocument();
 	});
 

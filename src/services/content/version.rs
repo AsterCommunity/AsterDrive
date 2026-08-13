@@ -97,6 +97,7 @@ async fn restore_version_inner(
         .mime_type
         .clone()
         .unwrap_or_else(|| current.mime_type.clone());
+    let target_blob_was_changed = target_blob_id != file.blob_id;
 
     storage::update_storage_used(&txn, scope, target.logical_size).await?;
     file_repo::increment_blob_ref_count(&txn, target_blob_id).await?;
@@ -152,15 +153,17 @@ async fn restore_version_inner(
         .map_aster_err(AsterError::database_operation)?;
     transaction::commit(txn).await?;
 
-    let current_blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id).await?;
-    if let Err(error) =
-        crate::services::media::processing::delete_thumbnail(state, &current_blob).await
-    {
-        tracing::warn!(
-            blob_id = current_blob.id,
-            %error,
-            "failed to delete thumbnail after revision restore"
-        );
+    if target_blob_was_changed {
+        let current_blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id).await?;
+        if let Err(error) =
+            crate::services::media::processing::delete_thumbnail(state, &current_blob).await
+        {
+            tracing::warn!(
+                blob_id = current_blob.id,
+                %error,
+                "failed to delete thumbnail after revision restore"
+            );
+        }
     }
 
     storage_change::publish(

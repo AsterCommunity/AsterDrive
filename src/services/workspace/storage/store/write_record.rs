@@ -110,6 +110,12 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
         active.file_category = Set(classification.category);
         active.updated_at = Set(now);
         let updated = active.update(txn).await.map_err(AsterError::from)?;
+        let actor_username = match actor_username {
+            Some(username) => username.to_owned(),
+            None => {
+                crate::services::workspace::storage::load_scope_actor_username(txn, scope).await?
+            }
+        };
 
         let revision_input = crate::db::repository::revision_repo::NewRevision {
             blob_id: blob.id,
@@ -117,7 +123,7 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
             mime_type: mime,
             content_sha256: None,
             creator_user_id: Some(scope.actor_user_id()),
-            creator_display_name: actor_username.unwrap_or(&updated.created_by_username),
+            creator_display_name: &actor_username,
             comment: None,
             reason: crate::db::repository::revision_repo::RevisionReason::Overwrite,
             created_at: now,

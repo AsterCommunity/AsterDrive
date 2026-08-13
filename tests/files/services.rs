@@ -1394,7 +1394,7 @@ async fn test_version_restore_appends_head_and_preserves_history_blobs() {
 
 #[actix_web::test]
 async fn test_version_restore_failure_keeps_thumbnail_and_rolls_back_revision() {
-    use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, Set, Statement};
+    use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, Set};
 
     let state = common::setup().await;
     let user = common::create_test_account(
@@ -1454,18 +1454,44 @@ async fn test_version_restore_failure_keeps_thumbnail_and_rolls_back_revision() 
     active_blob.thumbnail_version = Set(Some("test".to_string()));
     active_blob.update(state.writer_db()).await.unwrap();
 
-    state
-        .writer_db()
-        .execute_raw(Statement::from_string(
-            sea_orm::DbBackend::Sqlite,
-            format!(
+    let db = state.writer_db();
+    match db.get_database_backend() {
+        sea_orm::DbBackend::Sqlite => {
+            db.execute_unprepared(&format!(
                 "CREATE TRIGGER fail_restore_file_update BEFORE UPDATE ON files \
                  WHEN OLD.id = {} BEGIN SELECT RAISE(ABORT, 'forced restore failure'); END",
                 file.id
-            ),
-        ))
-        .await
-        .unwrap();
+            ))
+            .await
+            .unwrap();
+        }
+        sea_orm::DbBackend::Postgres => {
+            db.execute_unprepared(&format!(
+                "CREATE FUNCTION fail_restore_file_update_fn() RETURNS trigger AS $$ BEGIN \
+                 IF OLD.id = {} THEN RAISE EXCEPTION 'forced restore failure'; END IF; \
+                 RETURN NEW; END; $$ LANGUAGE plpgsql",
+                file.id
+            ))
+            .await
+            .unwrap();
+            db.execute_unprepared(
+                "CREATE TRIGGER fail_restore_file_update BEFORE UPDATE ON files \
+                 FOR EACH ROW EXECUTE FUNCTION fail_restore_file_update_fn()",
+            )
+            .await
+            .unwrap();
+        }
+        sea_orm::DbBackend::MySql => {
+            db.execute_unprepared(&format!(
+                "CREATE TRIGGER fail_restore_file_update BEFORE UPDATE ON files FOR EACH ROW \
+                 BEGIN IF OLD.id = {} THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'forced restore failure'; END IF; END",
+                file.id
+            ))
+            .await
+            .unwrap();
+        }
+        backend => panic!("unsupported test database backend: {backend:?}"),
+    }
 
     aster_drive::services::content::version::restore_version(&state, file.id, target.id, user.id)
         .await
@@ -1478,6 +1504,89 @@ async fn test_version_restore_failure_keeps_thumbnail_and_rolls_back_revision() 
             .unwrap(),
         revision_count
     );
+}
+
+#[actix_web::test]
+async fn test_version_restore_same_blob_keeps_current_thumbnail() {
+    use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "restoresameblob",
+        "restoresameblob@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    let policy = aster_drive::db::repository::policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    let mut active_policy: aster_drive_model::entities::storage_policy::ActiveModel =
+        policy.clone().into();
+    active_policy.storage_config = Set(common::with_local_content_dedup(&policy, true));
+    active_policy.update(state.writer_db()).await.unwrap();
+    state
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
+        .await
+        .unwrap();
+
+    let initial = write_service_fixture("restore-same-blob-v1.txt", "same bytes");
+    let file = aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "restore-same-blob.txt", &initial, 10),
+    )
+    .await
+    .unwrap();
+    let overwrite = write_service_fixture("restore-same-blob-v2.txt", "same bytes");
+    let current = aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "restore-same-blob.txt", &overwrite, 10).overwrite(file.id),
+    )
+    .await
+    .unwrap();
+    let target = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap()
+    .into_iter()
+    .find(|version| version.version == 1)
+    .unwrap();
+    assert_eq!(target.blob_id, Some(current.blob_id));
+
+    let blob =
+        aster_drive::db::repository::file_repo::find_blob_by_id(state.writer_db(), current.blob_id)
+            .await
+            .unwrap();
+    let thumbnail_path = format!("thumbnails/restore-same-blob-{}.webp", blob.id);
+    let policy = state
+        .policy_snapshot
+        .get_policy_or_err(blob.policy_id)
+        .unwrap();
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    driver.put(&thumbnail_path, b"thumbnail").await.unwrap();
+    let mut active_blob = blob.into_active_model();
+    active_blob.thumbnail_path = Set(Some(thumbnail_path.clone()));
+    active_blob.thumbnail_processor = Set(Some("images".to_string()));
+    active_blob.thumbnail_version = Set(Some("test".to_string()));
+    active_blob.update(state.writer_db()).await.unwrap();
+
+    let restored = aster_drive::services::content::version::restore_version(
+        &state, file.id, target.id, user.id,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(restored.blob_id, current.blob_id);
+    assert!(driver.exists(&thumbnail_path).await.unwrap());
 }
 
 #[actix_web::test]
@@ -1521,6 +1630,70 @@ async fn test_identical_overwrite_still_appends_revision() {
     assert_ne!(overwrite.public_id, initial.public_id);
     assert_ne!(overwrite.etag, initial.etag);
     assert_eq!(overwrite.logical_size, initial.logical_size);
+}
+
+#[actix_web::test]
+async fn test_content_overwrite_revision_uses_actual_actor_username() {
+    use actix_web::web::Bytes;
+    use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+
+    let state = common::setup().await;
+    let creator = common::create_test_account(
+        &state,
+        "revisioncreator",
+        "revisioncreator@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    let actor = common::create_test_account(
+        &state,
+        "revisionactor",
+        "revisionactor@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    let initial = write_service_fixture("revision-actor.txt", "before");
+    let file = aster_drive::services::files::file::store_from_temp(
+        &state,
+        actor.id,
+        StoreFromTempRequest::new(None, "revision-actor.txt", &initial, 6),
+    )
+    .await
+    .unwrap();
+    let mut file_record =
+        aster_drive::db::repository::file_repo::find_by_id(state.writer_db(), file.id)
+            .await
+            .unwrap()
+            .into_active_model();
+    file_record.created_by_user_id = Set(Some(creator.id));
+    file_record.created_by_username = Set(creator.username.clone());
+    file_record.update(state.writer_db()).await.unwrap();
+
+    aster_drive::services::files::file::update_content(
+        &state,
+        file.id,
+        actor.id,
+        Bytes::from_static(b"after"),
+        None,
+    )
+    .await
+    .unwrap();
+
+    let revisions =
+        aster_drive::db::repository::revision_repo::find_by_file_id(state.writer_db(), file.id)
+            .await
+            .unwrap();
+    let current = revisions
+        .iter()
+        .find(|revision| revision.sequence == 2)
+        .unwrap();
+    assert_eq!(current.creator_user_id, Some(actor.id));
+    assert_eq!(
+        current.creator_display_name.as_deref(),
+        Some(actor.username.as_str())
+    );
 }
 
 #[actix_web::test]

@@ -391,6 +391,15 @@ pub(crate) async fn store_preuploaded_nondedup(
                     active.updated_at = Set(now);
                     let updated = active.update(txn).await.map_err(AsterError::from)?;
 
+                    let actor_username = match actor_username {
+                        Some(username) => username,
+                        None => {
+                            crate::services::workspace::storage::load_scope_actor_username(
+                                txn, scope,
+                            )
+                            .await?
+                        }
+                    };
                     crate::db::repository::revision_repo::append(
                         txn,
                         existing_id,
@@ -401,9 +410,7 @@ pub(crate) async fn store_preuploaded_nondedup(
                             mime_type: &mime,
                             content_sha256: None,
                             creator_user_id: Some(scope.actor_user_id()),
-                            creator_display_name: actor_username
-                                .as_deref()
-                                .unwrap_or(&updated.created_by_username),
+                            creator_display_name: &actor_username,
                             comment: None,
                             reason: crate::db::repository::revision_repo::RevisionReason::Overwrite,
                             created_at: now,
