@@ -22,7 +22,7 @@ import {
 import { handleApiError } from "@/hooks/useApiError";
 import { invalidateFileResourceCachesForMutation } from "@/lib/fileResourceCacheInvalidation";
 import { formatBytes, formatDateTime } from "@/lib/format";
-import { fileService } from "@/services/fileService";
+import { type FileVersionPage, fileService } from "@/services/fileService";
 import type { FileVersion } from "@/types/api";
 
 interface VersionHistoryDialogProps {
@@ -44,17 +44,21 @@ interface VersionHistoryState {
 	deletingVersionId: number | null;
 	inlineConfirm: VersionInlineConfirm | null;
 	loading: boolean;
+	loadingMore: boolean;
+	nextAfterSequence: number | null;
 	restoringVersionId: number | null;
 	versions: FileVersion[];
 }
 
 type VersionHistoryAction =
 	| { type: "close" }
-	| { type: "delete-end"; versions: FileVersion[] }
+	| { type: "delete-end"; page: FileVersionPage }
 	| { type: "delete-start"; versionId: number }
-	| { type: "load-end"; versions?: FileVersion[] }
+	| { type: "load-end"; page?: FileVersionPage }
+	| { type: "load-more-end"; page?: FileVersionPage }
+	| { type: "load-more-start" }
 	| { type: "load-start" }
-	| { type: "restore-end"; versions?: FileVersion[] }
+	| { type: "restore-end"; page?: FileVersionPage }
 	| { type: "restore-start"; versionId: number }
 	| { type: "set-inline-confirm"; inlineConfirm: VersionInlineConfirm | null };
 
@@ -62,6 +66,8 @@ const VERSION_HISTORY_INITIAL_STATE: VersionHistoryState = {
 	deletingVersionId: null,
 	inlineConfirm: null,
 	loading: false,
+	loadingMore: false,
+	nextAfterSequence: null,
 	restoringVersionId: null,
 	versions: [],
 };
@@ -78,7 +84,8 @@ function versionHistoryReducer(
 				...state,
 				deletingVersionId: null,
 				inlineConfirm: null,
-				versions: action.versions,
+				nextAfterSequence: action.page.nextAfterSequence,
+				versions: action.page.items,
 			};
 		case "delete-start":
 			return { ...state, deletingVersionId: action.versionId };
@@ -86,16 +93,35 @@ function versionHistoryReducer(
 			return {
 				...state,
 				loading: false,
-				versions: action.versions ?? state.versions,
+				nextAfterSequence: action.page
+					? action.page.nextAfterSequence
+					: state.nextAfterSequence,
+				versions: action.page?.items ?? state.versions,
 			};
+		case "load-more-end":
+			return {
+				...state,
+				loadingMore: false,
+				nextAfterSequence: action.page
+					? action.page.nextAfterSequence
+					: state.nextAfterSequence,
+				versions: action.page
+					? [...state.versions, ...action.page.items]
+					: state.versions,
+			};
+		case "load-more-start":
+			return { ...state, loadingMore: true };
 		case "load-start":
 			return { ...state, loading: true };
 		case "restore-end":
 			return {
 				...state,
 				inlineConfirm: null,
+				nextAfterSequence: action.page
+					? action.page.nextAfterSequence
+					: state.nextAfterSequence,
 				restoringVersionId: null,
-				versions: action.versions ?? state.versions,
+				versions: action.page?.items ?? state.versions,
 			};
 		case "restore-start":
 			return { ...state, restoringVersionId: action.versionId };
@@ -115,7 +141,15 @@ export function VersionHistoryDialog({
 }: VersionHistoryDialogProps) {
 	const { t } = useTranslation(["files", "core"]);
 	const [
-		{ deletingVersionId, inlineConfirm, loading, restoringVersionId, versions },
+		{
+			deletingVersionId,
+			inlineConfirm,
+			loading,
+			loadingMore,
+			nextAfterSequence,
+			restoringVersionId,
+			versions,
+		},
 		dispatch,
 	] = useReducer(versionHistoryReducer, VERSION_HISTORY_INITIAL_STATE);
 	const currentRevision = versions.find((version) => version.current) ?? null;
@@ -126,19 +160,31 @@ export function VersionHistoryDialog({
 	const load = useCallback(async () => {
 		try {
 			dispatch({ type: "load-start" });
-			const data = await fileService.listVersions(fileId);
-			dispatch({ type: "load-end", versions: data });
+			const page = await fileService.listVersions(fileId);
+			dispatch({ type: "load-end", page });
 		} catch (e) {
 			handleApiError(e);
 			dispatch({ type: "load-end" });
 		}
 	}, [fileId]);
 
+	const loadMore = async () => {
+		if (nextAfterSequence === null || loadingMore) return;
+		try {
+			dispatch({ type: "load-more-start" });
+			const page = await fileService.listVersions(fileId, nextAfterSequence);
+			dispatch({ type: "load-more-end", page });
+		} catch (e) {
+			handleApiError(e);
+			dispatch({ type: "load-more-end" });
+		}
+	};
+
 	const handleRestore = async (versionId: number) => {
 		try {
 			dispatch({ type: "restore-start", versionId });
 			await fileService.restoreVersion(fileId, versionId);
-			const data = await fileService.listVersions(fileId);
+			const page = await fileService.listVersions(fileId);
 			invalidateFileResourceCachesForMutation({
 				download: fileService.downloadPath(fileId),
 				thumbnail: fileService.thumbnailPath(fileId),
@@ -146,7 +192,7 @@ export function VersionHistoryDialog({
 			});
 			toast.success(t("version_restored"));
 			onRestored?.();
-			dispatch({ type: "restore-end", versions: data });
+			dispatch({ type: "restore-end", page });
 		} catch (e) {
 			handleApiError(e);
 			dispatch({ type: "restore-end" });
@@ -157,12 +203,15 @@ export function VersionHistoryDialog({
 		try {
 			dispatch({ type: "delete-start", versionId });
 			await fileService.deleteVersion(fileId, versionId);
-			const data = await fileService.listVersions(fileId);
+			const page = await fileService.listVersions(fileId);
 			toast.success(t("version_deleted"));
-			dispatch({ type: "delete-end", versions: data });
+			dispatch({ type: "delete-end", page });
 		} catch (e) {
 			handleApiError(e);
-			dispatch({ type: "delete-end", versions });
+			dispatch({
+				type: "delete-end",
+				page: { items: versions, nextAfterSequence },
+			});
 		}
 	};
 
@@ -284,6 +333,7 @@ export function VersionHistoryDialog({
 																	: t("version_restore")
 															}
 															disabled={
+																loadingMore ||
 																restoringVersionId !== null ||
 																deletingVersionId !== null
 															}
@@ -308,6 +358,7 @@ export function VersionHistoryDialog({
 																	: t("version_delete")
 															}
 															disabled={
+																loadingMore ||
 																restoringVersionId !== null ||
 																deletingVersionId !== null
 															}
@@ -353,6 +404,7 @@ export function VersionHistoryDialog({
 																variant="ghost"
 																size="sm"
 																disabled={
+																	loadingMore ||
 																	restoringVersionId !== null ||
 																	deletingVersionId !== null
 																}
@@ -373,6 +425,7 @@ export function VersionHistoryDialog({
 																}
 																size="sm"
 																disabled={
+																	loadingMore ||
 																	restoringVersionId !== null ||
 																	deletingVersionId !== null
 																}
@@ -399,6 +452,22 @@ export function VersionHistoryDialog({
 						</TableBody>
 					</Table>
 				)}
+				{nextAfterSequence !== null ? (
+					<div className="mt-4 flex justify-center">
+						<Button
+							variant="outline"
+							size="sm"
+							disabled={
+								loadingMore ||
+								restoringVersionId !== null ||
+								deletingVersionId !== null
+							}
+							onClick={() => void loadMore()}
+						>
+							{loadingMore ? t("version_loading_more") : t("version_load_more")}
+						</Button>
+					</div>
+				) : null}
 			</DialogContent>
 		</Dialog>
 	);

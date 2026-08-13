@@ -214,6 +214,13 @@ const versions: FileVersion[] = [
 	},
 ];
 
+function versionPage(
+	items: FileVersion[],
+	nextAfterSequence: number | null = null,
+) {
+	return { items, nextAfterSequence };
+}
+
 describe("VersionHistoryDialog", () => {
 	beforeEach(() => {
 		mockState.deleteVersion.mockReset();
@@ -225,11 +232,13 @@ describe("VersionHistoryDialog", () => {
 	});
 
 	it("shows loading state, renders version rows, and clears them when closed", async () => {
-		let resolveList: ((value: typeof versions) => void) | undefined;
+		let resolveList:
+			| ((value: ReturnType<typeof versionPage>) => void)
+			| undefined;
 
 		mockState.listVersions.mockImplementationOnce(
 			() =>
-				new Promise<typeof versions>((resolve) => {
+				new Promise<ReturnType<typeof versionPage>>((resolve) => {
 					resolveList = resolve;
 				}),
 		);
@@ -254,7 +263,7 @@ describe("VersionHistoryDialog", () => {
 		expect(screen.getByText("loading")).toBeInTheDocument();
 		expect(screen.getAllByTestId("file-type-icon")).toHaveLength(1);
 
-		resolveList?.(versions);
+		resolveList?.(versionPage(versions));
 
 		expect(await screen.findAllByText("v3")).toHaveLength(2);
 		expect(screen.getByText("v2")).toBeInTheDocument();
@@ -286,6 +295,100 @@ describe("VersionHistoryDialog", () => {
 		expect(screen.queryByText("v2")).not.toBeInTheDocument();
 	});
 
+	it("loads older revisions on demand without replacing the current page", async () => {
+		mockState.listVersions
+			.mockResolvedValueOnce(versionPage(versions.slice(0, 2), 2))
+			.mockResolvedValueOnce(versionPage([versions[2]]));
+
+		render(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={8}
+				fileName="report.pdf"
+			/>,
+		);
+
+		await screen.findByText("v2");
+		expect(screen.queryByText("v1")).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "version_load_more" }));
+
+		expect(await screen.findByText("v1")).toBeInTheDocument();
+		expect(screen.getByText("v2")).toBeInTheDocument();
+		expect(mockState.listVersions).toHaveBeenNthCalledWith(1, 8);
+		expect(mockState.listVersions).toHaveBeenNthCalledWith(2, 8, 2);
+		expect(
+			screen.queryByRole("button", { name: "version_load_more" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("keeps the loaded page and re-enables pagination when loading more fails", async () => {
+		const error = new Error("older page failed");
+		mockState.listVersions
+			.mockResolvedValueOnce(versionPage(versions.slice(0, 2), 2))
+			.mockRejectedValueOnce(error);
+
+		render(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={8}
+				fileName="report.pdf"
+			/>,
+		);
+
+		const loadMore = await screen.findByRole("button", {
+			name: "version_load_more",
+		});
+		fireEvent.click(loadMore);
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+		});
+		expect(screen.getByText("v2")).toBeInTheDocument();
+		expect(loadMore).toBeEnabled();
+	});
+
+	it("blocks revision mutations while an older page is loading", async () => {
+		let resolveOlderPage:
+			| ((value: ReturnType<typeof versionPage>) => void)
+			| undefined;
+		mockState.listVersions
+			.mockResolvedValueOnce(versionPage(versions.slice(0, 2), 2))
+			.mockImplementationOnce(
+				() =>
+					new Promise<ReturnType<typeof versionPage>>((resolve) => {
+						resolveOlderPage = resolve;
+					}),
+			);
+
+		render(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={8}
+				fileName="report.pdf"
+			/>,
+		);
+
+		const versionRow = (await screen.findByText("v2")).closest("tr");
+		expect(versionRow).not.toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "version_load_more" }));
+
+		expect(
+			within(versionRow as HTMLTableRowElement).getByRole("button", {
+				name: "version_restore",
+			}),
+		).toBeDisabled();
+		expect(
+			within(versionRow as HTMLTableRowElement).getByRole("button", {
+				name: "version_delete",
+			}),
+		).toBeDisabled();
+
+		resolveOlderPage?.(versionPage([versions[2]]));
+		expect(await screen.findByText("v1")).toBeInTheDocument();
+	});
+
 	it("restores a version after confirmation and invalidates related caches", async () => {
 		const onRestored = vi.fn();
 		const restoredVersions: FileVersion[] = [
@@ -303,9 +406,9 @@ describe("VersionHistoryDialog", () => {
 			versions[1],
 			versions[2],
 		];
-		mockState.listVersions.mockResolvedValueOnce(versions);
+		mockState.listVersions.mockResolvedValueOnce(versionPage(versions));
 		mockState.restoreVersion.mockResolvedValueOnce(undefined);
-		mockState.listVersions.mockResolvedValueOnce(restoredVersions);
+		mockState.listVersions.mockResolvedValueOnce(versionPage(restoredVersions));
 
 		render(
 			<VersionHistoryDialog
@@ -355,9 +458,11 @@ describe("VersionHistoryDialog", () => {
 	});
 
 	it("deletes a version after confirmation and removes it from the rendered list", async () => {
-		mockState.listVersions.mockResolvedValueOnce(versions);
+		mockState.listVersions.mockResolvedValueOnce(versionPage(versions));
 		mockState.deleteVersion.mockResolvedValueOnce(undefined);
-		mockState.listVersions.mockResolvedValueOnce([versions[0], versions[2]]);
+		mockState.listVersions.mockResolvedValueOnce(
+			versionPage([versions[0], versions[2]]),
+		);
 
 		render(
 			<VersionHistoryDialog
@@ -398,7 +503,7 @@ describe("VersionHistoryDialog", () => {
 
 	it("keeps the loaded history and re-enables actions when restore fails", async () => {
 		const error = new Error("restore failed");
-		mockState.listVersions.mockResolvedValueOnce(versions);
+		mockState.listVersions.mockResolvedValueOnce(versionPage(versions));
 		mockState.restoreVersion.mockRejectedValueOnce(error);
 
 		render(

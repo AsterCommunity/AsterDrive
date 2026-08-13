@@ -5,6 +5,9 @@ use sea_orm_migration::sea_orm::{
     ConnectionTrait, DbBackend, TransactionTrait, prelude::DateTimeUtc,
 };
 
+const FILE_BACKFILL_BATCH_SIZE: u64 = 500;
+const LEGACY_REVISION_BATCH_SIZE: u64 = 1_000;
+
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 
@@ -15,6 +18,7 @@ impl MigrationTrait for Migration {
         create_revisions(manager).await?;
         create_revision_properties(manager).await?;
         create_indexes(manager).await?;
+        create_legacy_backfill_index(manager).await?;
         backfill_ledger(manager).await?;
         reset_postgres_sequences(manager).await?;
         manager
@@ -39,6 +43,20 @@ impl MigrationTrait for Migration {
             .drop_table(Table::drop().table(FileRevisionHistories::Table).to_owned())
             .await
     }
+}
+
+async fn create_legacy_backfill_index(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_file_versions_backfill_cursor")
+                .table(FileVersions::Table)
+                .col(FileVersions::FileId)
+                .col(FileVersions::Version)
+                .col(FileVersions::Id)
+                .to_owned(),
+        )
+        .await
 }
 
 async fn reset_postgres_sequences(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
@@ -328,98 +346,160 @@ async fn create_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
 
 async fn backfill_ledger(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     let db = manager.get_connection();
-    let legacy_rows = load_legacy_revisions(db).await?;
-    let files = load_files(db).await?;
-    let mut next_revision_id = legacy_rows
-        .iter()
-        .map(|revision| revision.id)
-        .max()
-        .unwrap_or(0)
+    let mut next_revision_id = find_max_legacy_revision_id(db)
+        .await?
         .checked_add(1)
         .ok_or_else(|| DbErr::Migration("file revision id space exhausted".to_string()))?;
     let txn = db.begin().await?;
+    let mut after_file_id = None;
 
-    for file in files {
-        let history_id = file.id;
-        let history_public_id = uuid::Uuid::new_v4().hyphenated().to_string();
-        let mut predecessor = None;
-        let mut sequence = 1_i64;
+    loop {
+        let files = load_files_page(&txn, after_file_id, FILE_BACKFILL_BATCH_SIZE).await?;
+        if files.is_empty() {
+            break;
+        }
+        after_file_id = files.last().map(|file| file.id);
 
-        insert_history(&txn, history_id, &history_public_id, &file).await?;
-        for legacy in legacy_rows
-            .iter()
-            .filter(|revision| revision.file_id == file.id)
-        {
+        for file in files {
+            let history_id = file.id;
+            let history_public_id = uuid::Uuid::new_v4().hyphenated().to_string();
+            let mut predecessor = None;
+            let mut sequence = 1_i64;
+            let mut legacy_cursor = None;
+
+            insert_history(&txn, history_id, &history_public_id, &file).await?;
+            loop {
+                let legacy_rows = load_legacy_revisions_page(
+                    &txn,
+                    file.id,
+                    legacy_cursor,
+                    LEGACY_REVISION_BATCH_SIZE,
+                )
+                .await?;
+                if legacy_rows.is_empty() {
+                    break;
+                }
+                legacy_cursor = legacy_rows
+                    .last()
+                    .map(|revision| (revision.version, revision.id));
+
+                for legacy in legacy_rows {
+                    insert_revision(
+                        &txn,
+                        RevisionInsert {
+                            id: legacy.id,
+                            history_id,
+                            sequence,
+                            predecessor_revision_id: predecessor,
+                            blob_id: legacy.blob_id,
+                            logical_size: legacy.size,
+                            mime_type: None,
+                            creator_user_id: None,
+                            creator_display_name: None,
+                            reason: "migration_history",
+                            created_at: legacy.created_at,
+                        },
+                    )
+                    .await?;
+                    predecessor = Some(legacy.id);
+                    sequence = sequence.checked_add(1).ok_or_else(|| {
+                        DbErr::Migration("file revision sequence space exhausted".to_string())
+                    })?;
+                }
+            }
+
+            let current_revision_id = next_revision_id;
+            next_revision_id = next_revision_id
+                .checked_add(1)
+                .ok_or_else(|| DbErr::Migration("file revision id space exhausted".to_string()))?;
             insert_revision(
                 &txn,
                 RevisionInsert {
-                    id: legacy.id,
+                    id: current_revision_id,
                     history_id,
                     sequence,
                     predecessor_revision_id: predecessor,
-                    blob_id: legacy.blob_id,
-                    logical_size: legacy.size,
-                    mime_type: None,
-                    creator_user_id: None,
-                    creator_display_name: None,
-                    reason: "migration_history",
-                    created_at: legacy.created_at,
+                    blob_id: file.blob_id,
+                    logical_size: file.size,
+                    mime_type: Some(file.mime_type.clone()),
+                    creator_user_id: file.created_by_user_id,
+                    creator_display_name: Some(file.created_by_username.clone()),
+                    reason: "migration_current",
+                    created_at: file.updated_at,
                 },
             )
             .await?;
-            predecessor = Some(legacy.id);
-            sequence += 1;
-        }
-
-        let current_revision_id = next_revision_id;
-        next_revision_id = next_revision_id
-            .checked_add(1)
-            .ok_or_else(|| DbErr::Migration("file revision id space exhausted".to_string()))?;
-        insert_revision(
-            &txn,
-            RevisionInsert {
-                id: current_revision_id,
+            snapshot_live_user_properties(&txn, file.id, current_revision_id).await?;
+            update_history_head(
+                &txn,
                 history_id,
-                sequence,
-                predecessor_revision_id: predecessor,
-                blob_id: file.blob_id,
-                logical_size: file.size,
-                mime_type: Some(file.mime_type.clone()),
-                creator_user_id: file.created_by_user_id,
-                creator_display_name: Some(file.created_by_username.clone()),
-                reason: "migration_current",
-                created_at: file.updated_at,
-            },
-        )
-        .await?;
-        snapshot_live_user_properties(&txn, file.id, current_revision_id).await?;
-        update_history_head(&txn, history_id, current_revision_id, sequence + 1).await?;
+                current_revision_id,
+                sequence.checked_add(1).ok_or_else(|| {
+                    DbErr::Migration("file revision sequence space exhausted".to_string())
+                })?,
+            )
+            .await?;
+        }
     }
 
     txn.commit().await
 }
 
-async fn load_legacy_revisions<C: ConnectionTrait>(db: &C) -> Result<Vec<LegacyRevision>, DbErr> {
+async fn find_max_legacy_revision_id<C: ConnectionTrait>(db: &C) -> Result<i64, DbErr> {
+    let mut select = Query::select();
+    select
+        .column(FileVersions::Id)
+        .from(FileVersions::Table)
+        .order_by(FileVersions::Id, Order::Desc)
+        .limit(1);
+    Ok(db
+        .query_one(&select)
+        .await?
+        .map(|row| row.try_get_by_index::<i64>(0))
+        .transpose()?
+        .unwrap_or(0))
+}
+
+async fn load_legacy_revisions_page<C: ConnectionTrait>(
+    db: &C,
+    file_id: i64,
+    after: Option<(i32, i64)>,
+    limit: u64,
+) -> Result<Vec<LegacyRevision>, DbErr> {
     let mut select = Query::select();
     select
         .columns([
             FileVersions::Id,
-            FileVersions::FileId,
+            FileVersions::Version,
             FileVersions::BlobId,
             FileVersions::Size,
             FileVersions::CreatedAt,
         ])
         .from(FileVersions::Table)
-        .order_by(FileVersions::FileId, Order::Asc)
+        .and_where(Expr::col(FileVersions::FileId).eq(file_id));
+    if let Some((version, id)) = after {
+        select.and_where(
+            Condition::any()
+                .add(Expr::col(FileVersions::Version).gt(version))
+                .add(
+                    Condition::all()
+                        .add(Expr::col(FileVersions::Version).eq(version))
+                        .add(Expr::col(FileVersions::Id).gt(id)),
+                )
+                .into(),
+        );
+    }
+    select
         .order_by(FileVersions::Version, Order::Asc)
-        .order_by(FileVersions::Id, Order::Asc);
+        .order_by(FileVersions::Id, Order::Asc)
+        .limit(limit);
     db.query_all(&select)
         .await?
         .into_iter()
         .map(|row| {
             Ok(LegacyRevision {
                 id: row.try_get_by_index(0)?,
-                file_id: row.try_get_by_index(1)?,
+                version: row.try_get_by_index(1)?,
                 blob_id: row.try_get_by_index(2)?,
                 size: row.try_get_by_index(3)?,
                 created_at: row.try_get_by_index(4)?,
@@ -428,7 +508,11 @@ async fn load_legacy_revisions<C: ConnectionTrait>(db: &C) -> Result<Vec<LegacyR
         .collect()
 }
 
-async fn load_files<C: ConnectionTrait>(db: &C) -> Result<Vec<LegacyFile>, DbErr> {
+async fn load_files_page<C: ConnectionTrait>(
+    db: &C,
+    after_id: Option<i64>,
+    limit: u64,
+) -> Result<Vec<LegacyFile>, DbErr> {
     let mut select = Query::select();
     select
         .columns([
@@ -441,8 +525,11 @@ async fn load_files<C: ConnectionTrait>(db: &C) -> Result<Vec<LegacyFile>, DbErr
             Files::CreatedAt,
             Files::UpdatedAt,
         ])
-        .from(Files::Table)
-        .order_by(Files::Id, Order::Asc);
+        .from(Files::Table);
+    if let Some(id) = after_id {
+        select.and_where(Expr::col(Files::Id).gt(id));
+    }
+    select.order_by(Files::Id, Order::Asc).limit(limit);
     db.query_all(&select)
         .await?
         .into_iter()
@@ -681,7 +768,7 @@ async fn restore_legacy_history(manager: &SchemaManager<'_>) -> Result<(), DbErr
 
 struct LegacyRevision {
     id: i64,
-    file_id: i64,
+    version: i32,
     blob_id: i64,
     size: i64,
     created_at: DateTimeUtc,
@@ -801,4 +888,100 @@ enum EntityProperties {
     Namespace,
     Name,
     Value,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_orm_migration::sea_orm::{Database, DatabaseConnection};
+
+    async fn pagination_fixture() -> DatabaseConnection {
+        let db = Database::connect("sqlite::memory:")
+            .await
+            .expect("SQLite fixture should connect");
+        db.execute_unprepared(
+            "CREATE TABLE files (\
+                id INTEGER PRIMARY KEY, blob_id INTEGER NOT NULL, size INTEGER NOT NULL, \
+                mime_type TEXT NOT NULL, created_by_user_id INTEGER NULL, \
+                created_by_username TEXT NOT NULL, created_at TEXT NOT NULL, \
+                updated_at TEXT NOT NULL\
+             ); \
+             CREATE TABLE file_versions (\
+                id INTEGER PRIMARY KEY, file_id INTEGER NOT NULL, blob_id INTEGER NOT NULL, \
+                version INTEGER NOT NULL, size INTEGER NOT NULL, created_at TEXT NOT NULL\
+             ); \
+             CREATE INDEX idx_file_versions_backfill_cursor \
+                ON file_versions (file_id, version, id);",
+        )
+        .await
+        .expect("pagination fixture schema should apply");
+
+        let files = (1..=501)
+            .map(|id| {
+                format!(
+                    "({id}, 1, {id}, 'text/plain', NULL, 'migration', \
+                     '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z')"
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        db.execute_unprepared(&format!(
+            "INSERT INTO files (id, blob_id, size, mime_type, created_by_user_id, \
+             created_by_username, created_at, updated_at) VALUES {files}"
+        ))
+        .await
+        .expect("file pagination fixtures should insert");
+
+        let revisions = (1..=1_001)
+            .map(|id| {
+                let version = (id + 1) / 2;
+                format!("({id}, 1, 1, {version}, {id}, '2026-08-01T00:00:00Z')")
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        db.execute_unprepared(&format!(
+            "INSERT INTO file_versions (id, file_id, blob_id, version, size, created_at) \
+             VALUES {revisions}"
+        ))
+        .await
+        .expect("revision pagination fixtures should insert");
+        db
+    }
+
+    #[tokio::test]
+    async fn backfill_readers_bound_memory_and_preserve_composite_cursor_order() {
+        let db = pagination_fixture().await;
+
+        let first_files = load_files_page(&db, None, FILE_BACKFILL_BATCH_SIZE)
+            .await
+            .expect("first file batch should load");
+        assert_eq!(first_files.len(), 500);
+        assert_eq!(first_files.first().map(|file| file.id), Some(1));
+        assert_eq!(first_files.last().map(|file| file.id), Some(500));
+        let final_files = load_files_page(
+            &db,
+            first_files.last().map(|file| file.id),
+            FILE_BACKFILL_BATCH_SIZE,
+        )
+        .await
+        .expect("final file batch should load");
+        assert_eq!(final_files.len(), 1);
+        assert_eq!(final_files[0].id, 501);
+
+        let first_revisions = load_legacy_revisions_page(&db, 1, None, LEGACY_REVISION_BATCH_SIZE)
+            .await
+            .expect("first revision batch should load");
+        assert_eq!(first_revisions.len(), 1_000);
+        let cursor = first_revisions
+            .last()
+            .map(|revision| (revision.version, revision.id));
+        assert_eq!(cursor, Some((500, 1_000)));
+        let final_revisions =
+            load_legacy_revisions_page(&db, 1, cursor, LEGACY_REVISION_BATCH_SIZE)
+                .await
+                .expect("final revision batch should load");
+        assert_eq!(final_revisions.len(), 1);
+        assert_eq!(final_revisions[0].id, 1_001);
+        assert_eq!(final_revisions[0].version, 501);
+    }
 }

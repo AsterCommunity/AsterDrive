@@ -197,7 +197,7 @@ describe("fileService", () => {
 			parent_id: 3,
 		});
 		expect(mockState.get).toHaveBeenNthCalledWith(8, "/files/8/versions", {
-			params: { after_sequence: undefined, limit: 1000 },
+			params: { after_sequence: undefined, limit: 101 },
 		});
 		expect(mockState.post).toHaveBeenNthCalledWith(
 			11,
@@ -288,7 +288,7 @@ describe("fileService", () => {
 			},
 		);
 		expect(mockState.get).toHaveBeenCalledWith("/teams/9/files/8/versions", {
-			params: { after_sequence: undefined, limit: 1000 },
+			params: { after_sequence: undefined, limit: 101 },
 		});
 		expect(teamFileService.downloadPath(8)).toBe("/teams/9/files/8/download");
 		expect(teamFileService.downloadUrl(8)).toBe(
@@ -316,49 +316,44 @@ describe("fileService", () => {
 		});
 	});
 
-	it("collects every version page and advances with the last sequence", async () => {
-		const firstPage = Array.from(
-			{ length: 1000 },
-			(_, index) => ({ version: index + 1 }) as FileVersion,
+	it("returns one bounded version page with a stable continuation cursor", async () => {
+		const apiPage = Array.from(
+			{ length: 101 },
+			(_, index) => ({ version: 200 - index }) as FileVersion,
 		);
-		const finalPage = [{ version: 1001 } as FileVersion];
-		mockState.get
-			.mockResolvedValueOnce(firstPage)
-			.mockResolvedValueOnce(finalPage);
+		mockState.get.mockResolvedValueOnce(apiPage);
 		const { fileService } = await import("@/services/fileService");
 
-		await expect(fileService.listVersions(8)).resolves.toEqual([
-			...firstPage,
-			...finalPage,
-		]);
-		expect(mockState.get).toHaveBeenNthCalledWith(1, "/files/8/versions", {
-			params: { after_sequence: undefined, limit: 1000 },
+		await expect(fileService.listVersions(8)).resolves.toEqual({
+			items: apiPage.slice(0, 100),
+			nextAfterSequence: 101,
 		});
-		expect(mockState.get).toHaveBeenNthCalledWith(2, "/files/8/versions", {
-			params: { after_sequence: 1000, limit: 1000 },
+		expect(mockState.get).toHaveBeenCalledTimes(1);
+		expect(mockState.get).toHaveBeenCalledWith("/files/8/versions", {
+			params: { after_sequence: undefined, limit: 101 },
 		});
 	});
 
 	it("rejects a version page whose cursor does not advance", async () => {
 		const page = Array.from(
-			{ length: 1000 },
-			(_, index) => ({ version: index + 1 }) as FileVersion,
+			{ length: 101 },
+			(_, index) => ({ version: 200 - index }) as FileVersion,
 		);
-		mockState.get.mockResolvedValue(page);
+		mockState.get.mockResolvedValueOnce(page);
 		const { fileService } = await import("@/services/fileService");
 
-		await expect(fileService.listVersions(8)).rejects.toThrow(
+		await expect(fileService.listVersions(8, 101)).rejects.toThrow(
 			"File version cursor did not advance",
 		);
-		expect(mockState.get).toHaveBeenCalledTimes(2);
+		expect(mockState.get).toHaveBeenCalledTimes(1);
 	});
 
-	it("rejects a full version page without a terminal sequence", async () => {
+	it("rejects a lookahead page without a terminal item sequence", async () => {
 		const page = Array.from(
-			{ length: 1000 },
-			(_, index) => ({ version: index + 1 }) as FileVersion,
+			{ length: 101 },
+			(_, index) => ({ version: 200 - index }) as FileVersion,
 		);
-		page[999] = {} as FileVersion;
+		page[99] = {} as FileVersion;
 		mockState.get.mockResolvedValueOnce(page);
 		const { fileService } = await import("@/services/fileService");
 

@@ -34,6 +34,13 @@ import { ApiError, type ApiRequestConfig, api } from "./http";
 
 type ServiceRequestOptions = Pick<ApiRequestConfig, "signal">;
 
+const FILE_VERSION_PAGE_SIZE = 100;
+
+export interface FileVersionPage {
+	items: FileVersion[];
+	nextAfterSequence: number | null;
+}
+
 interface ApiFileResourceHandle {
 	identity: {
 		cache_key: string;
@@ -80,29 +87,32 @@ function encodeFileName(fileName: string) {
 }
 
 export function createFileService(workspace: Workspace) {
-	const listVersions = async (id: number): Promise<FileVersion[]> => {
-		const versions: FileVersion[] = [];
-		let afterSequence: number | undefined;
-
-		for (;;) {
-			const page = await api.get<FileVersion[]>(
-				buildWorkspacePath(workspace, `/files/${id}/versions`),
-				{
-					params: {
-						after_sequence: afterSequence,
-						limit: 1000,
-					},
+	const listVersions = async (
+		id: number,
+		afterSequence?: number,
+	): Promise<FileVersionPage> => {
+		const page = await api.get<FileVersion[]>(
+			buildWorkspacePath(workspace, `/files/${id}/versions`),
+			{
+				params: {
+					after_sequence: afterSequence,
+					limit: FILE_VERSION_PAGE_SIZE + 1,
 				},
-			);
-			versions.push(...page);
-			if (page.length < 1000) return versions;
-
-			const nextSequence = page.at(-1)?.version;
-			if (nextSequence === undefined || nextSequence === afterSequence) {
-				throw new Error("File version cursor did not advance");
-			}
-			afterSequence = nextSequence;
+			},
+		);
+		const items = page.slice(0, FILE_VERSION_PAGE_SIZE);
+		if (page.length <= FILE_VERSION_PAGE_SIZE) {
+			return { items, nextAfterSequence: null };
 		}
+
+		const nextAfterSequence = items.at(-1)?.version;
+		if (
+			nextAfterSequence === undefined ||
+			(afterSequence !== undefined && nextAfterSequence >= afterSequence)
+		) {
+			throw new Error("File version cursor did not advance");
+		}
+		return { items, nextAfterSequence };
 	};
 
 	return {
