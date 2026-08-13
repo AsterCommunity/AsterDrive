@@ -396,6 +396,48 @@ describe("VersionHistoryDialog", () => {
 		expect(screen.getByText("v1")).toBeInTheDocument();
 	});
 
+	it("keeps the loaded history and re-enables actions when restore fails", async () => {
+		const error = new Error("restore failed");
+		mockState.listVersions.mockResolvedValueOnce(versions);
+		mockState.restoreVersion.mockRejectedValueOnce(error);
+
+		render(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={18}
+				fileName="report.pdf"
+			/>,
+		);
+
+		const versionRow = (await screen.findByText("v2")).closest("tr");
+		expect(versionRow).not.toBeNull();
+		fireEvent.click(
+			within(versionRow as HTMLTableRowElement).getByRole("button", {
+				name: "version_restore",
+			}),
+		);
+		const inlineConfirmRow = screen.getByText("restore:2").closest("tr");
+		expect(inlineConfirmRow).not.toBeNull();
+		fireEvent.click(
+			within(inlineConfirmRow as HTMLTableRowElement).getByRole("button", {
+				name: "version_restore",
+			}),
+		);
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+		});
+		expect(screen.getByText("v2")).toBeInTheDocument();
+		expect(
+			within(versionRow as HTMLTableRowElement).getByRole("button", {
+				name: "version_restore",
+			}),
+		).toBeEnabled();
+		expect(mockState.listVersions).toHaveBeenCalledTimes(1);
+		expect(mockState.toastSuccess).not.toHaveBeenCalled();
+	});
+
 	it("surfaces loading failures through the api error handler and falls back to the empty state", async () => {
 		const error = new Error("network");
 		mockState.listVersions.mockRejectedValueOnce(error);

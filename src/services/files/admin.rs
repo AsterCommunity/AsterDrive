@@ -96,7 +96,7 @@ pub async fn get_file(state: &impl SharedRuntimeState, file_id: i64) -> Result<A
                         version.id
                     ))
                 })?;
-            Ok(to_admin_version_summary(file_id, version, blob)?)
+            to_admin_version_summary(file_id, version, blob)
         })
         .collect::<Result<Vec<_>>>()?;
 

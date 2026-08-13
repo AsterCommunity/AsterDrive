@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PERSONAL_WORKSPACE } from "@/lib/workspace";
+import type { FileVersion } from "@/types/api";
 
 const mockState = vi.hoisted(() => {
 	class MockApiError extends Error {
@@ -313,6 +314,58 @@ describe("fileService", () => {
 		expect(mockState.patch).toHaveBeenNthCalledWith(2, "/teams/4/folders/7", {
 			parent_id: null,
 		});
+	});
+
+	it("collects every version page and advances with the last sequence", async () => {
+		const firstPage = Array.from(
+			{ length: 1000 },
+			(_, index) => ({ version: index + 1 }) as FileVersion,
+		);
+		const finalPage = [{ version: 1001 } as FileVersion];
+		mockState.get
+			.mockResolvedValueOnce(firstPage)
+			.mockResolvedValueOnce(finalPage);
+		const { fileService } = await import("@/services/fileService");
+
+		await expect(fileService.listVersions(8)).resolves.toEqual([
+			...firstPage,
+			...finalPage,
+		]);
+		expect(mockState.get).toHaveBeenNthCalledWith(1, "/files/8/versions", {
+			params: { after_sequence: undefined, limit: 1000 },
+		});
+		expect(mockState.get).toHaveBeenNthCalledWith(2, "/files/8/versions", {
+			params: { after_sequence: 1000, limit: 1000 },
+		});
+	});
+
+	it("rejects a version page whose cursor does not advance", async () => {
+		const page = Array.from(
+			{ length: 1000 },
+			(_, index) => ({ version: index + 1 }) as FileVersion,
+		);
+		mockState.get.mockResolvedValue(page);
+		const { fileService } = await import("@/services/fileService");
+
+		await expect(fileService.listVersions(8)).rejects.toThrow(
+			"File version cursor did not advance",
+		);
+		expect(mockState.get).toHaveBeenCalledTimes(2);
+	});
+
+	it("rejects a full version page without a terminal sequence", async () => {
+		const page = Array.from(
+			{ length: 1000 },
+			(_, index) => ({ version: index + 1 }) as FileVersion,
+		);
+		page[999] = {} as FileVersion;
+		mockState.get.mockResolvedValueOnce(page);
+		const { fileService } = await import("@/services/fileService");
+
+		await expect(fileService.listVersions(8)).rejects.toThrow(
+			"File version cursor did not advance",
+		);
+		expect(mockState.get).toHaveBeenCalledTimes(1);
 	});
 
 	it("forwards abort signals for folder listing requests", async () => {
