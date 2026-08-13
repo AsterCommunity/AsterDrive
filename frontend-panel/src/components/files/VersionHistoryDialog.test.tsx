@@ -97,17 +97,16 @@ vi.mock("@/components/ui/dialog", () => ({
 		children: React.ReactNode;
 		onOpenChange: (open: boolean) => void;
 		open: boolean;
-	}) =>
-		open ? (
-			<div data-testid="dialog">
-				<button
-					type="button"
-					aria-label="dialog_close_control"
-					onClick={() => onOpenChange(false)}
-				/>
-				{children}
-			</div>
-		) : null,
+	}) => (
+		<div data-testid="dialog" hidden={!open}>
+			<button
+				type="button"
+				aria-label="dialog_close_control"
+				onClick={() => onOpenChange(false)}
+			/>
+			{children}
+		</div>
+	),
 	DialogContent: ({
 		children,
 		className,
@@ -336,7 +335,7 @@ describe("VersionHistoryDialog", () => {
 			/>,
 		);
 
-		expect(screen.queryByTestId("dialog")).not.toBeInTheDocument();
+		expect(screen.getByTestId("dialog")).not.toBeVisible();
 		expect(screen.queryByText("v2")).not.toBeInTheDocument();
 	});
 
@@ -426,6 +425,8 @@ describe("VersionHistoryDialog", () => {
 			resolvedOlderPage.resolve(versionPage([versions[2]]));
 			await resolvedOlderPage.promise;
 		});
+		expect(screen.queryByText("v1")).not.toBeInTheDocument();
+		expect(screen.getByText("version_empty")).toBeInTheDocument();
 
 		rerender(
 			<VersionHistoryDialog
@@ -453,6 +454,7 @@ describe("VersionHistoryDialog", () => {
 
 		expect(mockState.handleApiError).not.toHaveBeenCalled();
 		expect(screen.queryByText("v1")).not.toBeInTheDocument();
+		expect(screen.getByText("version_empty")).toBeInTheDocument();
 	});
 
 	it("blocks revision mutations while an older page is loading", async () => {
@@ -761,7 +763,8 @@ describe("VersionHistoryDialog", () => {
 			.mockResolvedValueOnce(versionPage(versions))
 			.mockReturnValueOnce(restoreRefresh.promise)
 			.mockResolvedValueOnce(versionPage(versions))
-			.mockReturnValueOnce(deleteRefresh.promise);
+			.mockReturnValueOnce(deleteRefresh.promise)
+			.mockResolvedValueOnce(versionPage(versions));
 		mockState.restoreVersion.mockResolvedValueOnce(undefined);
 		mockState.deleteVersion.mockResolvedValueOnce(undefined);
 
@@ -817,6 +820,19 @@ describe("VersionHistoryDialog", () => {
 		});
 
 		expect(mockState.handleApiError).not.toHaveBeenCalled();
+		expect(screen.queryByText("v1")).not.toBeInTheDocument();
+		expect(screen.getByText("version_empty")).toBeInTheDocument();
+
+		deleteView.rerender(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={27}
+				fileName="report.pdf"
+			/>,
+		);
+		expect(await screen.findByText("v2")).toBeInTheDocument();
+		expect(screen.queryByText("v1")).toBeInTheDocument();
 	});
 
 	it("keeps the loaded history and re-enables actions when restore fails", async () => {
