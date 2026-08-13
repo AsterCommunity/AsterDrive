@@ -3,7 +3,7 @@
 use crate::common;
 
 use chrono::{Duration, Utc};
-use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, Set};
+use sea_orm::{ActiveModelTrait, EntityTrait, IntoActiveModel, PaginatorTrait, Set};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
@@ -701,28 +701,31 @@ async fn test_reconcile_blob_state_deletes_orphans_and_fixes_ref_counts() {
     let history = revision_repo::find_history_by_file_id(state.writer_db(), live_file.id)
         .await
         .unwrap();
-    aster_drive_model::entities::file_revision::ActiveModel {
-        public_id: Set(uuid::Uuid::new_v4().to_string()),
-        history_id: Set(history.id),
-        sequence: Set(99),
-        predecessor_revision_id: Set(None),
-        blob_id: Set(Some(version_blob.id)),
-        logical_size: Set(version_blob.size),
-        mime_type: Set(Some("application/octet-stream".to_string())),
-        etag: Set(uuid::Uuid::new_v4().simple().to_string()),
-        content_sha256: Set(Some(version_hash.clone())),
-        creator_user_id: Set(Some(user.id)),
-        creator_display_name: Set(Some(user.username.clone())),
-        comment: Set(None),
-        reason: Set("overwrite".to_string()),
-        created_at: Set(Utc::now()),
-        retired_at: Set(None),
-        purged_at: Set(None),
-        ..Default::default()
-    }
-    .insert(state.writer_db())
+    revision_repo::append(
+        state.writer_db(),
+        live_file.id,
+        history.current_revision_id,
+        revision_repo::NewRevision {
+            blob_id: version_blob.id,
+            logical_size: version_blob.size,
+            mime_type: "application/octet-stream",
+            content_sha256: Some(&version_hash),
+            creator_user_id: Some(user.id),
+            creator_display_name: &user.username,
+            comment: None,
+            reason: revision_repo::RevisionReason::Overwrite,
+            created_at: Utc::now(),
+            etag: None,
+        },
+    )
     .await
     .unwrap();
+    let mut history_after = revision_repo::find_history_by_file_id(state.writer_db(), live_file.id)
+        .await
+        .unwrap()
+        .into_active_model();
+    history_after.current_revision_id = Set(history.current_revision_id);
+    history_after.update(state.writer_db()).await.unwrap();
 
     let orphan_hash = "c".repeat(64);
     let orphan_path = "orphans/orphan.bin";

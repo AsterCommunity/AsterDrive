@@ -487,6 +487,8 @@ impl DavWriteHandle for AsterDavWriteHandle {
                                 submitted_lock_tokens.clone(),
                             ),
                         file_precondition: *file_precondition,
+                        expected_current_revision_id: None,
+                        expected_current_revision_etag: None,
                     },
                     storage::StoreFromTempHints {
                         resolved_policy: resolved_policy_hint,

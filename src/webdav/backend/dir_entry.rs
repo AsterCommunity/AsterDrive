@@ -24,7 +24,7 @@ impl AsterDavDirEntry {
         Self {
             name: file.name.as_bytes().to_vec(),
             stable_key: stable_key(1, file.id),
-            metadata: AsterDavMeta::from_file_record(file, revision_etag),
+            metadata: AsterDavMeta::from_file(file, revision_etag),
         }
     }
 }

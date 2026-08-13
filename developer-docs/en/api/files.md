@@ -139,7 +139,7 @@ Every file has a canonical revision from creation. Successful overwrites through
 
 - `GET /files/{id}/versions` lists current and historical revisions in descending sequence order. Use `limit` (default 100, maximum 1000) and `after_sequence` for stable keyset pagination.
 - `POST /files/{id}/versions/{version_id}/restore` appends a new current head whose content and user dead-property snapshot come from the target. Existing revisions remain intact.
-- `DELETE /files/{id}/versions/{version_id}` applies only to a historical revision. It purges the content reference while preserving the public identity and sequence as a tombstone, and repairs the successor predecessor link.
+- `DELETE /files/{id}/versions/{version_id}` applies only to a historical revision. It purges the content reference while preserving the public identity and sequence as a tombstone, and repairs the successor's predecessor link.
 
 Revision sequences increase monotonically and are never reused, so gaps are expected. COPY creates an independent history; MOVE/rename, trash, and trash restore retain the existing history. `files` is the current materialized projection and is counted once for logical quota and blob references.
 

@@ -12,6 +12,25 @@ use aster_drive_model::entities::{file, file_blob};
 use super::NewFileMode;
 use super::prepare::OverwriteContext;
 
+fn map_revision_append_error(
+    error: crate::db::repository::revision_repo::RevisionAppendError,
+) -> AsterError {
+    use crate::api::api_error_code::ApiErrorCode;
+    use crate::db::repository::revision_repo::RevisionAppendError;
+
+    match error {
+        RevisionAppendError::HeadChanged => crate::errors::precondition_failed_with_code(
+            ApiErrorCode::FileModifiedDuringWrite,
+            "file revision head changed while content was being committed",
+        ),
+        RevisionAppendError::EtagMismatch => crate::errors::precondition_failed_with_code(
+            ApiErrorCode::FileEtagMismatch,
+            "file has been modified (ETag mismatch)",
+        ),
+        RevisionAppendError::Repository(error) => error,
+    }
+}
+
 pub(super) struct WriteFileRecordFromTempParams<'a> {
     pub scope: WorkspaceStorageScope,
     pub folder_id: Option<i64>,
@@ -25,6 +44,9 @@ pub(super) struct WriteFileRecordFromTempParams<'a> {
     pub actor_username: Option<&'a str>,
     pub lock_credentials: &'a crate::services::files::lock::LockMutationCredentials,
     pub file_precondition: Option<&'a super::FileWritePrecondition>,
+    pub expected_current_revision_id: Option<i64>,
+    pub expected_current_revision_etag: Option<&'a str>,
+    pub revision_etag: Option<&'a str>,
 }
 
 pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
@@ -44,6 +66,9 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
         actor_username,
         lock_credentials,
         file_precondition,
+        expected_current_revision_id,
+        expected_current_revision_etag,
+        revision_etag,
     } = params;
     if overwrite_ctx.is_none() {
         let workspace = match scope {
@@ -70,7 +95,7 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
         )
         .await?;
         let existing_id = current_file.id;
-        let expected_revision_id =
+        let locked_revision_id =
             crate::db::repository::revision_repo::lock_history_by_file_id(txn, existing_id)
                 .await?
                 .current_revision_id;
@@ -86,23 +111,37 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
         active.updated_at = Set(now);
         let updated = active.update(txn).await.map_err(AsterError::from)?;
 
-        crate::db::repository::revision_repo::append(
-            txn,
-            existing_id,
-            expected_revision_id,
-            crate::db::repository::revision_repo::NewRevision {
-                blob_id: blob.id,
-                logical_size: blob.size,
-                mime_type: mime,
-                content_sha256: None,
-                creator_user_id: Some(scope.actor_user_id()),
-                creator_display_name: actor_username.unwrap_or(&updated.created_by_username),
-                comment: None,
-                reason: crate::db::repository::revision_repo::RevisionReason::Overwrite,
-                created_at: now,
-            },
-        )
-        .await?;
+        let revision_input = crate::db::repository::revision_repo::NewRevision {
+            blob_id: blob.id,
+            logical_size: blob.size,
+            mime_type: mime,
+            content_sha256: None,
+            creator_user_id: Some(scope.actor_user_id()),
+            creator_display_name: actor_username.unwrap_or(&updated.created_by_username),
+            comment: None,
+            reason: crate::db::repository::revision_repo::RevisionReason::Overwrite,
+            created_at: now,
+            etag: revision_etag,
+        };
+        if expected_current_revision_etag.is_some() {
+            crate::db::repository::revision_repo::append_for_expected_etag(
+                txn,
+                existing_id,
+                expected_current_revision_etag,
+                revision_input,
+            )
+            .await
+            .map_err(map_revision_append_error)?;
+        } else {
+            crate::db::repository::revision_repo::append(
+                txn,
+                existing_id,
+                expected_current_revision_id.or(locked_revision_id),
+                revision_input,
+            )
+            .await
+            .map_err(map_revision_append_error)?;
+        }
         updated
     } else {
         match new_file_mode {

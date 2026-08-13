@@ -880,6 +880,18 @@ pub async fn mysql_test_database_url() -> String {
     resolve_test_database_url_for(TestDatabaseBackend::MySql).await
 }
 
+pub async fn postgres_empty_test_database_url() -> String {
+    let (admin_database_url, database_url) =
+        shared_test_database_urls(TestDatabaseBackend::Postgres).await;
+    provision_isolated_test_database_url(&admin_database_url, &database_url).await
+}
+
+pub async fn mysql_empty_test_database_url() -> String {
+    let (admin_database_url, database_url) =
+        shared_test_database_urls(TestDatabaseBackend::MySql).await;
+    provision_isolated_test_database_url(&admin_database_url, &database_url).await
+}
+
 /// 构建一个干净的测试 PrimaryAppState。
 ///
 /// 默认使用内存 SQLite。若设置 `ASTER_TEST_DATABASE_BACKEND=postgres|mysql`，

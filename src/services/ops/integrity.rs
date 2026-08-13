@@ -236,10 +236,17 @@ async fn load_actual_storage_usage<C: ConnectionTrait>(
             .column(file::Column::TeamId)
             .filter(file_revision::Column::RetiredAt.is_null())
             .filter(
-                Expr::col((file_revision::Entity, file_revision::Column::Id)).ne(Expr::col((
+                Expr::col((
                     file_revision_history::Entity,
                     file_revision_history::Column::CurrentRevisionId,
-                ))),
+                ))
+                .is_null()
+                .or(
+                    Expr::col((file_revision::Entity, file_revision::Column::Id)).ne(Expr::col((
+                        file_revision_history::Entity,
+                        file_revision_history::Column::CurrentRevisionId,
+                    ))),
+                ),
             )
             .order_by_asc(file_revision::Column::Id)
             .limit(INTEGRITY_BATCH_SIZE);
@@ -323,113 +330,188 @@ pub async fn audit_storage_usage<C: ConnectionTrait>(db: &C) -> Result<Vec<Stora
 /// one live history/head per file, a matching files projection, and local
 /// predecessor links.
 pub async fn audit_revision_ledger<C: ConnectionTrait>(db: &C) -> Result<Vec<RevisionLedgerIssue>> {
-    let files = File::find()
-        .all(db)
-        .await
-        .map_aster_err(AsterError::database_operation)?;
-    let histories = file_revision_history::Entity::find()
-        .all(db)
-        .await
-        .map_aster_err(AsterError::database_operation)?;
-    let revisions = FileRevision::find()
-        .all(db)
-        .await
-        .map_aster_err(AsterError::database_operation)?;
-    let revisions_by_id = revisions
-        .iter()
-        .map(|revision| (revision.id, revision))
-        .collect::<HashMap<_, _>>();
     let mut issues = Vec::new();
 
-    for file in &files {
-        let matching_histories = histories
-            .iter()
-            .filter(|history| history.file_id == Some(file.id))
+    let mut after_file_id = None;
+    loop {
+        let mut query = File::find()
+            .order_by_asc(file::Column::Id)
+            .limit(INTEGRITY_BATCH_SIZE);
+        if let Some(id) = after_file_id {
+            query = query.filter(file::Column::Id.gt(id));
+        }
+        let files = query
+            .all(db)
+            .await
+            .map_aster_err(AsterError::database_operation)?;
+        if files.is_empty() {
+            break;
+        }
+        after_file_id = files.last().map(|file| file.id);
+        let file_ids = files.iter().map(|file| file.id).collect::<Vec<_>>();
+        let histories = file_revision_history::Entity::find()
+            .filter(file_revision_history::Column::FileId.is_in(file_ids))
+            .all(db)
+            .await
+            .map_aster_err(AsterError::database_operation)?;
+        let mut histories_by_file = HashMap::<i64, Vec<_>>::new();
+        for history in histories {
+            if let Some(file_id) = history.file_id {
+                histories_by_file.entry(file_id).or_default().push(history);
+            }
+        }
+        let current_ids = histories_by_file
+            .values()
+            .flatten()
+            .filter_map(|history| history.current_revision_id)
             .collect::<Vec<_>>();
-        let Some(history) = matching_histories.first().copied() else {
-            issues.push(RevisionLedgerIssue {
-                file_id: Some(file.id),
-                history_id: 0,
-                revision_id: None,
-                detail: "live file has no revision history".to_string(),
-            });
-            continue;
-        };
-        if matching_histories.len() != 1 {
-            issues.push(RevisionLedgerIssue {
-                file_id: Some(file.id),
-                history_id: history.id,
-                revision_id: None,
-                detail: format!(
-                    "live file has {} revision histories",
-                    matching_histories.len()
-                ),
-            });
-            continue;
-        }
-        let Some(current_id) = history.current_revision_id else {
-            issues.push(RevisionLedgerIssue {
-                file_id: Some(file.id),
-                history_id: history.id,
-                revision_id: None,
-                detail: "live history has no current revision".to_string(),
-            });
-            continue;
-        };
-        let Some(current) = revisions_by_id.get(&current_id) else {
-            issues.push(RevisionLedgerIssue {
-                file_id: Some(file.id),
-                history_id: history.id,
-                revision_id: Some(current_id),
-                detail: "history current pointer is dangling".to_string(),
-            });
-            continue;
-        };
-        if current.history_id != history.id || current.retired_at.is_some() {
-            issues.push(RevisionLedgerIssue {
-                file_id: Some(file.id),
-                history_id: history.id,
-                revision_id: Some(current.id),
-                detail: "history current pointer targets another history or retired revision"
-                    .to_string(),
-            });
-        }
-        if current.blob_id != Some(file.blob_id)
-            || file.size != current.logical_size
-            || current.mime_type.as_deref() != Some(file.mime_type.as_str())
-        {
-            issues.push(RevisionLedgerIssue {
-                file_id: Some(file.id),
-                history_id: history.id,
-                revision_id: Some(current.id),
-                detail: "files projection does not match current revision".to_string(),
-            });
+        let current_revisions = FileRevision::find()
+            .filter(file_revision::Column::Id.is_in(current_ids))
+            .all(db)
+            .await
+            .map_aster_err(AsterError::database_operation)?
+            .into_iter()
+            .map(|revision| (revision.id, revision))
+            .collect::<HashMap<_, _>>();
+
+        for file in files {
+            let Some(matching_histories) = histories_by_file.get(&file.id) else {
+                issues.push(RevisionLedgerIssue {
+                    file_id: Some(file.id),
+                    history_id: 0,
+                    revision_id: None,
+                    detail: "live file has no revision history".to_string(),
+                });
+                continue;
+            };
+            let history = &matching_histories[0];
+            if matching_histories.len() != 1 {
+                issues.push(RevisionLedgerIssue {
+                    file_id: Some(file.id),
+                    history_id: history.id,
+                    revision_id: None,
+                    detail: format!(
+                        "live file has {} revision histories",
+                        matching_histories.len()
+                    ),
+                });
+                continue;
+            }
+            let Some(current_id) = history.current_revision_id else {
+                issues.push(RevisionLedgerIssue {
+                    file_id: Some(file.id),
+                    history_id: history.id,
+                    revision_id: None,
+                    detail: "live history has no current revision".to_string(),
+                });
+                continue;
+            };
+            let Some(current) = current_revisions.get(&current_id) else {
+                issues.push(RevisionLedgerIssue {
+                    file_id: Some(file.id),
+                    history_id: history.id,
+                    revision_id: Some(current_id),
+                    detail: "history current pointer is dangling".to_string(),
+                });
+                continue;
+            };
+            if current.history_id != history.id || current.retired_at.is_some() {
+                issues.push(RevisionLedgerIssue {
+                    file_id: Some(file.id),
+                    history_id: history.id,
+                    revision_id: Some(current.id),
+                    detail: "history current pointer targets another history or retired revision"
+                        .to_string(),
+                });
+            }
+            if current.blob_id != Some(file.blob_id)
+                || file.size != current.logical_size
+                || current.mime_type.as_deref() != Some(file.mime_type.as_str())
+            {
+                issues.push(RevisionLedgerIssue {
+                    file_id: Some(file.id),
+                    history_id: history.id,
+                    revision_id: Some(current.id),
+                    detail: "files projection does not match current revision".to_string(),
+                });
+            }
         }
     }
 
-    for history in histories
-        .iter()
-        .filter(|history| history.file_id.is_some() && history.retired_at.is_none())
-    {
-        for revision in revisions
+    let mut after_history_id = None;
+    loop {
+        let mut query = file_revision_history::Entity::find()
+            .filter(file_revision_history::Column::FileId.is_not_null())
+            .filter(file_revision_history::Column::RetiredAt.is_null())
+            .order_by_asc(file_revision_history::Column::Id)
+            .limit(INTEGRITY_BATCH_SIZE);
+        if let Some(id) = after_history_id {
+            query = query.filter(file_revision_history::Column::Id.gt(id));
+        }
+        let histories = query
+            .all(db)
+            .await
+            .map_aster_err(AsterError::database_operation)?;
+        if histories.is_empty() {
+            break;
+        }
+        after_history_id = histories.last().map(|history| history.id);
+        let history_ids = histories
             .iter()
-            .filter(|revision| revision.history_id == history.id && revision.retired_at.is_none())
-        {
-            if let Some(predecessor_id) = revision.predecessor_revision_id {
-                match revisions_by_id.get(&predecessor_id) {
-                    Some(predecessor) if predecessor.history_id == history.id => {}
-                    Some(_) => issues.push(RevisionLedgerIssue {
-                        file_id: history.file_id,
-                        history_id: history.id,
-                        revision_id: Some(revision.id),
-                        detail: "predecessor points to another history".to_string(),
-                    }),
-                    None => issues.push(RevisionLedgerIssue {
-                        file_id: history.file_id,
-                        history_id: history.id,
-                        revision_id: Some(revision.id),
-                        detail: "predecessor pointer is dangling".to_string(),
-                    }),
+            .map(|history| history.id)
+            .collect::<Vec<_>>();
+        let histories_by_id = histories
+            .into_iter()
+            .map(|history| (history.id, history))
+            .collect::<HashMap<_, _>>();
+        let mut after_revision_id = None;
+        loop {
+            let mut revision_query = FileRevision::find()
+                .filter(file_revision::Column::HistoryId.is_in(history_ids.iter().copied()))
+                .filter(file_revision::Column::RetiredAt.is_null())
+                .order_by_asc(file_revision::Column::Id)
+                .limit(INTEGRITY_BATCH_SIZE);
+            if let Some(id) = after_revision_id {
+                revision_query = revision_query.filter(file_revision::Column::Id.gt(id));
+            }
+            let revisions = revision_query
+                .all(db)
+                .await
+                .map_aster_err(AsterError::database_operation)?;
+            if revisions.is_empty() {
+                break;
+            }
+            after_revision_id = revisions.last().map(|revision| revision.id);
+            let predecessor_ids = revisions
+                .iter()
+                .filter_map(|revision| revision.predecessor_revision_id)
+                .collect::<Vec<_>>();
+            let predecessors = FileRevision::find()
+                .filter(file_revision::Column::Id.is_in(predecessor_ids))
+                .all(db)
+                .await
+                .map_aster_err(AsterError::database_operation)?
+                .into_iter()
+                .map(|revision| (revision.id, revision))
+                .collect::<HashMap<_, _>>();
+            for revision in revisions {
+                let history = &histories_by_id[&revision.history_id];
+                if let Some(predecessor_id) = revision.predecessor_revision_id {
+                    match predecessors.get(&predecessor_id) {
+                        Some(predecessor) if predecessor.history_id == history.id => {}
+                        Some(_) => issues.push(RevisionLedgerIssue {
+                            file_id: history.file_id,
+                            history_id: history.id,
+                            revision_id: Some(revision.id),
+                            detail: "predecessor points to another history".to_string(),
+                        }),
+                        None => issues.push(RevisionLedgerIssue {
+                            file_id: history.file_id,
+                            history_id: history.id,
+                            revision_id: Some(revision.id),
+                            detail: "predecessor pointer is dangling".to_string(),
+                        }),
+                    }
                 }
             }
         }
@@ -496,10 +578,17 @@ async fn load_actual_blob_ref_counts<C: ConnectionTrait>(
         )
         .filter(file_revision::Column::RetiredAt.is_null())
         .filter(
-            Expr::col((file_revision::Entity, file_revision::Column::Id)).ne(Expr::col((
+            Expr::col((
                 file_revision_history::Entity,
                 file_revision_history::Column::CurrentRevisionId,
-            ))),
+            ))
+            .is_null()
+            .or(
+                Expr::col((file_revision::Entity, file_revision::Column::Id)).ne(Expr::col((
+                    file_revision_history::Entity,
+                    file_revision_history::Column::CurrentRevisionId,
+                ))),
+            ),
         )
         .group_by(file_revision::Column::BlobId);
     if let Some(policy_id) = policy_id {

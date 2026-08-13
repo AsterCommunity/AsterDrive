@@ -135,12 +135,13 @@ async fn compute_folder_storage_used(
 
                 for file_id_chunk in file_ids.chunks(STORAGE_USED_VERSION_SUM_CHUNK_SIZE) {
                     let mut version_bytes = 0_i64;
+                    let historical_sizes = revision_repo::sum_non_current_sizes_by_file_ids(
+                        state.reader_db(),
+                        file_id_chunk,
+                    )
+                    .await?;
                     for file_id in file_id_chunk {
-                        let bytes = revision_repo::sum_non_current_sizes_by_file_id(
-                            state.reader_db(),
-                            *file_id,
-                        )
-                        .await?;
+                        let bytes = historical_sizes.get(file_id).copied().unwrap_or(0);
                         add_checked(&mut version_bytes, bytes, || {
                             format!("historical revision bytes for file #{file_id}")
                         })?;

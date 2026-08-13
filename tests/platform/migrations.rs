@@ -325,20 +325,14 @@ async fn assert_canonical_revision_ledger_upgrade_on_backend(db: &DatabaseConnec
 
 #[tokio::test]
 async fn canonical_revision_ledger_upgrades_postgres() {
-    let database_url = match std::env::var("ASTER_TEST_POSTGRES_DATABASE_URL") {
-        Ok(url) => url,
-        Err(_) => common::postgres_test_database_url().await,
-    };
+    let database_url = common::postgres_empty_test_database_url().await;
     let db = Database::connect(database_url).await.unwrap();
     assert_canonical_revision_ledger_upgrade_on_backend(&db).await;
 }
 
 #[tokio::test]
 async fn canonical_revision_ledger_upgrades_mysql() {
-    let database_url = match std::env::var("ASTER_TEST_MYSQL_DATABASE_URL") {
-        Ok(url) => url,
-        Err(_) => common::mysql_test_database_url().await,
-    };
+    let database_url = common::mysql_empty_test_database_url().await;
     let db = Database::connect(database_url).await.unwrap();
     assert_canonical_revision_ledger_upgrade_on_backend(&db).await;
 }

@@ -348,6 +348,23 @@ describe("fileService", () => {
 		expect(mockState.get).toHaveBeenCalledTimes(1);
 	});
 
+	it("returns the next bounded version page when the cursor advances", async () => {
+		const apiPage = Array.from(
+			{ length: 101 },
+			(_, index) => ({ version: 100 - index }) as FileVersion,
+		);
+		mockState.get.mockResolvedValueOnce(apiPage);
+		const { fileService } = await import("@/services/fileService");
+
+		await expect(fileService.listVersions(8, 101)).resolves.toEqual({
+			items: apiPage.slice(0, 100),
+			nextAfterSequence: 1,
+		});
+		expect(mockState.get).toHaveBeenCalledWith("/files/8/versions", {
+			params: { after_sequence: 101, limit: 101 },
+		});
+	});
+
 	it("rejects a lookahead page without a terminal item sequence", async () => {
 		const page = Array.from(
 			{ length: 101 },

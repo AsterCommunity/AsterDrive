@@ -532,7 +532,7 @@ async fn push_deep_checks(
                 "Revision ledger integrity",
                 DoctorStatus::Fail,
                 format!("{} revision ledger issue(s) detected", issues.len()),
-                issues.into_iter().map(|issue| format!("history #{} revision {:?}: {}", issue.history_id, issue.revision_id, issue.detail)).collect(),
+                issues.into_iter().map(|issue| format!("file {:?} history #{} revision {:?}: {}", issue.file_id, issue.history_id, issue.revision_id, issue.detail)).collect(),
                 Some("Repair the affected file history and current projection before serving DeltaV reads.".to_string()),
             ),
             Err(err) => doctor_check(

@@ -37,6 +37,9 @@ pub(super) struct PreparedStoreFromTemp {
     pub actor_username: Option<String>,
     pub lock_credentials: crate::services::files::lock::LockMutationCredentials,
     pub file_precondition: Option<super::FileWritePrecondition>,
+    pub expected_current_revision_id: Option<i64>,
+    pub expected_current_revision_etag: Option<String>,
+    pub revision_etag: Option<String>,
 }
 
 #[derive(Clone)]
@@ -66,12 +69,15 @@ pub(super) async fn prepare_store_from_temp(
         existing_file_id,
         lock_credentials,
         file_precondition,
+        expected_current_revision_id,
+        expected_current_revision_etag,
     } = params;
     let StoreFromTempHints {
         resolved_policy,
         precomputed_hash,
         actor_username,
         operation_context,
+        revision_etag,
     } = hints;
     operation_context.checkpoint()?;
 
@@ -182,6 +188,9 @@ pub(super) async fn prepare_store_from_temp(
         actor_username: actor_username.map(ToOwned::to_owned),
         lock_credentials,
         file_precondition,
+        expected_current_revision_id,
+        expected_current_revision_etag,
+        revision_etag: revision_etag.map(ToOwned::to_owned),
     })
 }
 

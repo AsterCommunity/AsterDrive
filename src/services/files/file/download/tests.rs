@@ -445,6 +445,7 @@ async fn build_stream_response_uses_get_stream_instead_of_get() {
         DownloadDisposition::Attachment,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .expect("stream download outcome should build");
@@ -485,6 +486,7 @@ async fn conditional_download_uses_revision_etag_instead_of_blob_hash() {
         DownloadDisposition::Attachment,
         Some(format!("\"{revision_etag}\"").as_str()),
         None,
+        &revision_etag,
     )
     .await
     .expect("matching revision ETag should build a conditional response");
@@ -563,6 +565,7 @@ async fn attachment_download_redirects_to_presigned_url_with_attachment_disposit
         DownloadDisposition::Attachment,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .expect("attachment presigned outcome should build");
@@ -616,6 +619,7 @@ async fn safe_inline_preview_redirects_to_presigned_url_with_inline_disposition(
         DownloadDisposition::Inline,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .expect("safe inline presigned outcome should build");
@@ -665,6 +669,7 @@ async fn onedrive_direct_download_redirects_only_when_explicitly_enabled() {
         DownloadDisposition::Attachment,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .expect("explicit OneDrive direct download should build");
@@ -689,6 +694,7 @@ async fn onedrive_direct_download_redirects_only_when_explicitly_enabled() {
         DownloadDisposition::Attachment,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .expect("default OneDrive relay download should build");
@@ -720,6 +726,7 @@ async fn onedrive_direct_download_keeps_range_request_on_redirect_path() {
             ResolvedDownloadRange::new(3, 7, payload.len() as u64)
                 .expect("test range should be valid"),
         ),
+        "test-revision-etag",
     )
     .await
     .expect("OneDrive range download should use provider redirect");
@@ -747,6 +754,7 @@ async fn onedrive_strict_filename_mode_requires_provider_name_match() {
         DownloadDisposition::Attachment,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .expect("strict OneDrive download should build");
@@ -782,6 +790,7 @@ async fn onedrive_direct_download_requires_runtime_temporary_url_capability() {
         DownloadDisposition::Attachment,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .unwrap_err();
@@ -813,6 +822,7 @@ async fn onedrive_legacy_uuid_object_falls_back_to_same_origin_streaming() {
         DownloadDisposition::Attachment,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .expect("legacy OneDrive objects should use the stream fallback");
@@ -843,6 +853,7 @@ async fn onedrive_direct_download_falls_back_for_conditional_and_sandboxed_inlin
             DownloadDisposition::Inline,
             if_none_match,
             None,
+            "test-revision-etag",
         )
         .await
         .expect("fallback request should stream through AsterDrive");
@@ -872,6 +883,7 @@ async fn conditional_miss_inline_preview_streams_instead_of_presigned_redirect()
         DownloadDisposition::Inline,
         Some("\"stale-etag\""),
         None,
+        "test-revision-etag",
     )
     .await
     .expect("conditional miss inline outcome should build");
@@ -908,6 +920,7 @@ async fn sandboxed_inline_preview_does_not_redirect_to_presigned_storage() {
         DownloadDisposition::Inline,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .expect("sandboxed inline outcome should build");

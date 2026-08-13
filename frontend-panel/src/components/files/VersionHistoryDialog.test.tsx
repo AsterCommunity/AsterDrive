@@ -543,6 +543,125 @@ describe("VersionHistoryDialog", () => {
 		expect(mockState.toastSuccess).not.toHaveBeenCalled();
 	});
 
+	it("keeps successful restore side effects when refreshing history fails", async () => {
+		const refreshError = new Error("refresh failed");
+		const onRestored = vi.fn();
+		mockState.listVersions.mockResolvedValueOnce(versionPage(versions));
+		mockState.restoreVersion.mockResolvedValueOnce(undefined);
+		mockState.listVersions.mockRejectedValueOnce(refreshError);
+
+		render(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={20}
+				fileName="report.pdf"
+				onRestored={onRestored}
+			/>,
+		);
+
+		const versionRow = (await screen.findByText("v2")).closest("tr");
+		fireEvent.click(
+			within(versionRow as HTMLTableRowElement).getByRole("button", {
+				name: "version_restore",
+			}),
+		);
+		const confirmRow = screen.getByText("restore:2").closest("tr");
+		fireEvent.click(
+			within(confirmRow as HTMLTableRowElement).getByRole("button", {
+				name: "version_restore",
+			}),
+		);
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(refreshError);
+		});
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("version_restored");
+		expect(onRestored).toHaveBeenCalledTimes(1);
+		expect(
+			mockState.invalidateFileResourceCachesForMutation,
+		).toHaveBeenCalledTimes(1);
+		expect(screen.getByText("v2")).toBeInTheDocument();
+	});
+
+	it("keeps successful delete state usable when refreshing history fails", async () => {
+		const refreshError = new Error("refresh failed");
+		mockState.listVersions.mockResolvedValueOnce(versionPage(versions));
+		mockState.deleteVersion.mockResolvedValueOnce(undefined);
+		mockState.listVersions.mockRejectedValueOnce(refreshError);
+
+		render(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={21}
+				fileName="report.pdf"
+			/>,
+		);
+
+		const versionRow = (await screen.findByText("v2")).closest("tr");
+		fireEvent.click(
+			within(versionRow as HTMLTableRowElement).getByRole("button", {
+				name: "version_delete",
+			}),
+		);
+		const confirmRow = screen.getByText("delete:2").closest("tr");
+		fireEvent.click(
+			within(confirmRow as HTMLTableRowElement).getByRole("button", {
+				name: "version_delete",
+			}),
+		);
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(refreshError);
+		});
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("version_deleted");
+		expect(screen.getByText("v2")).toBeInTheDocument();
+		expect(
+			within(versionRow as HTMLTableRowElement).getByRole("button", {
+				name: "version_delete",
+			}),
+		).toBeEnabled();
+	});
+
+	it("ignores an initial response that belongs to a previous file", async () => {
+		let resolveOld:
+			| ((value: ReturnType<typeof versionPage>) => void)
+			| undefined;
+		mockState.listVersions
+			.mockImplementationOnce(
+				() =>
+					new Promise<ReturnType<typeof versionPage>>((resolve) => {
+						resolveOld = resolve;
+					}),
+			)
+			.mockResolvedValueOnce(versionPage([{ ...versions[0], file_id: 9 }]));
+
+		const { rerender } = render(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={8}
+				fileName="old.pdf"
+			/>,
+		);
+		rerender(
+			<VersionHistoryDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={9}
+				fileName="new.pdf"
+			/>,
+		);
+
+		expect(await screen.findAllByText("v3")).toHaveLength(2);
+		resolveOld?.(versionPage(versions));
+		await waitFor(() => {
+			expect(mockState.listVersions).toHaveBeenNthCalledWith(2, 9);
+		});
+		expect(screen.getByText("count:0")).toBeInTheDocument();
+	});
+
 	it("surfaces loading failures through the api error handler and falls back to the empty state", async () => {
 		const error = new Error("network");
 		mockState.listVersions.mockRejectedValueOnce(error);

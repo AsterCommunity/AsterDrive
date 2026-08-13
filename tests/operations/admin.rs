@@ -5,7 +5,7 @@ use aster_drive::runtime::SharedRuntimeState;
 
 use actix_web::{App, HttpResponse, HttpServer, test, web};
 use chrono::{Duration, Utc};
-use sea_orm::{ActiveModelTrait, Set};
+use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 use serde_json::Value;
 use std::io::Cursor;
 #[cfg(unix)]
@@ -808,7 +808,11 @@ async fn test_admin_file_blob_health_states_and_reference_boundaries() {
         creator_user_id: Set(None),
         creator_display_name: Set(Some("fixture".to_string())),
         comment: Set(None),
-        reason: Set("overwrite".to_string()),
+        reason: Set(
+            aster_drive::db::repository::revision_repo::RevisionReason::Overwrite
+                .as_str()
+                .to_string(),
+        ),
         created_at: Set(now),
         retired_at: Set(None),
         purged_at: Set(None),
@@ -817,6 +821,12 @@ async fn test_admin_file_blob_health_states_and_reference_boundaries() {
     .insert(state.writer_db())
     .await
     .expect("version-only ref should insert");
+    let mut revision_history = revision_history.into_active_model();
+    revision_history.next_sequence = Set(100);
+    revision_history
+        .update(state.writer_db())
+        .await
+        .expect("fixture history sequence should advance");
     let version_only_detail: Value = admin_get_json!(
         app,
         admin_token,

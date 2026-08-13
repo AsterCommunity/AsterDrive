@@ -460,10 +460,13 @@ impl AsterDavFs {
         files
             .iter()
             .map(|file| {
-                let etag = etags
-                    .get(&file.id)
-                    .cloned()
-                    .ok_or_else(|| DavBackendError::new(DavBackendErrorKind::Internal))?;
+                let etag = etags.get(&file.id).cloned().ok_or_else(|| {
+                    tracing::warn!(
+                        file_id = file.id,
+                        "WebDAV directory entry has no current revision ETag"
+                    );
+                    DavBackendError::new(DavBackendErrorKind::Internal)
+                })?;
                 Ok(AsterDavDirEntry::from_file_record(file, etag))
             })
             .collect()

@@ -6,7 +6,6 @@ use crate::api::dto::files::{
     FileResourcePurpose, FileResourceRedirectPolicy, FileResourceRepresentation,
     FileResourceRequestInfo,
 };
-use crate::db::repository::file_repo;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{media::processing, workspace::storage::WorkspaceStorageScope};
@@ -37,8 +36,14 @@ pub(crate) async fn resolve_file_resource_handle(
     paths: FileResourcePathSet,
     request: &FileResourceHandleRequest,
 ) -> Result<FileResourceHandle> {
-    let file = get_info_in_scope(state, scope, file_id).await?;
-    let blob = file_repo::find_blob_by_id(state.reader_db(), file.blob_id).await?;
+    let authorized = get_info_in_scope(state, scope, file_id).await?;
+    let (file, blob, revision) =
+        crate::db::repository::revision_repo::find_file_blob_and_current_revision(
+            state.reader_db(),
+            file_id,
+        )
+        .await?;
+    debug_assert_eq!(authorized.id, file.id);
     resolve_file_resource_handle_for_file(
         state,
         &file,
@@ -49,6 +54,7 @@ pub(crate) async fn resolve_file_resource_handle(
             WorkspaceStorageScope::Personal { .. } => "personal",
             WorkspaceStorageScope::Team { .. } => "team",
         }),
+        Some(&revision.etag),
     )
     .await
 }
@@ -60,6 +66,7 @@ pub(crate) async fn resolve_file_resource_handle_for_file(
     paths: FileResourcePathSet,
     request: &FileResourceHandleRequest,
     scope: Option<&str>,
+    revision_etag: Option<&str>,
 ) -> Result<FileResourceHandle> {
     let representation = resolve_representation(file, request);
 
@@ -72,6 +79,7 @@ pub(crate) async fn resolve_file_resource_handle_for_file(
                 blob,
                 request.delivery_mode,
                 scope,
+                revision_etag,
             )
             .await
         }
@@ -122,9 +130,14 @@ async fn original_handle(
     blob: &file_blob::Model,
     delivery_mode: FileResourceDeliveryMode,
     scope: Option<&str>,
+    revision_etag: Option<&str>,
 ) -> Result<FileResourceHandle> {
-    let revision_etag =
-        crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id).await?;
+    let revision_etag = match revision_etag {
+        Some(etag) => etag.to_string(),
+        None => {
+            crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id).await?
+        }
+    };
     if let Some(presigned_url) = presigned_original_url(state, file, blob).await? {
         return Ok(FileResourceHandle {
             identity: FileResourceIdentity {
@@ -827,6 +840,7 @@ mod tests {
                 FileResourceRepresentation::Original,
             ),
             Some("personal"),
+            None,
         )
         .await
         .expect("same-origin original handle should resolve");
@@ -882,6 +896,7 @@ mod tests {
                 FileResourceRepresentation::Original,
             ),
             Some("team"),
+            None,
         )
         .await
         .expect("presigned original handle should resolve");
@@ -955,6 +970,7 @@ mod tests {
                 FileResourceRepresentation::Original,
             ),
             Some("personal"),
+            None,
         )
         .await
         .expect("OneDrive direct original handle should resolve");
@@ -1000,6 +1016,7 @@ mod tests {
                 FileResourceRepresentation::Original,
             ),
             Some("personal"),
+            None,
         )
         .await
         .expect("OneDrive relay original handle should resolve");
@@ -1040,6 +1057,7 @@ mod tests {
                 FileResourceRepresentation::Original,
             ),
             None,
+            None,
         )
         .await
         .expect("sandboxed original handle should resolve");
@@ -1075,6 +1093,7 @@ mod tests {
                 FileResourceRepresentation::Auto,
             ),
             Some("personal"),
+            None,
         )
         .await
         .expect("auto image preview handle should resolve");
@@ -1120,6 +1139,7 @@ mod tests {
                 FileResourceRepresentation::Auto,
             ),
             Some("personal"),
+            None,
         )
         .await
         .expect("auto original image handle should resolve");
@@ -1161,6 +1181,7 @@ mod tests {
                 paths(),
                 &request(purpose, delivery_mode, FileResourceRepresentation::Auto),
                 Some("personal"),
+                None,
             )
             .await
             .expect("non preview blob auto request should keep original");
@@ -1194,6 +1215,7 @@ mod tests {
                 FileResourceRepresentation::Thumbnail,
             ),
             Some("team"),
+            None,
         )
         .await
         .expect("thumbnail handle should resolve");
@@ -1238,6 +1260,7 @@ mod tests {
                 FileResourceRepresentation::Thumbnail,
             ),
             Some("personal"),
+            None,
         )
         .await
         .expect_err("text thumbnail handle should fail validation");

@@ -111,6 +111,7 @@ pub async fn get_file_contents(
         &blob,
         file::DownloadDisposition::Inline,
         if_none_match,
+        &item_version,
     )
     .await?;
     let audit_ctx = request_info.to_context(resolved.payload.actor_user_id);

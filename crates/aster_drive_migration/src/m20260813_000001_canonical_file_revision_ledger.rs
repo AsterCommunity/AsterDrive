@@ -742,10 +742,17 @@ async fn restore_legacy_history(manager: &SchemaManager<'_>) -> Result<(), DbErr
                 .equals((FileRevisionHistories::Table, FileRevisionHistories::Id)),
         )
         .and_where(
-            Expr::col((FileRevisions::Table, FileRevisions::Id)).ne(Expr::col((
+            Expr::col((
                 FileRevisionHistories::Table,
                 FileRevisionHistories::CurrentRevisionId,
-            ))),
+            ))
+            .is_null()
+            .or(
+                Expr::col((FileRevisions::Table, FileRevisions::Id)).ne(Expr::col((
+                    FileRevisionHistories::Table,
+                    FileRevisionHistories::CurrentRevisionId,
+                ))),
+            ),
         )
         .and_where(Expr::col(FileRevisions::BlobId).is_not_null())
         .and_where(Expr::col(FileRevisionHistories::FileId).is_not_null());
@@ -983,5 +990,43 @@ mod tests {
         assert_eq!(final_revisions.len(), 1);
         assert_eq!(final_revisions[0].id, 1_001);
         assert_eq!(final_revisions[0].version, 501);
+    }
+
+    #[tokio::test]
+    async fn restore_legacy_history_keeps_rows_when_current_pointer_is_null() {
+        let db = Database::connect("sqlite::memory:")
+            .await
+            .expect("SQLite fixture should connect");
+        db.execute_unprepared(
+            "CREATE TABLE file_blobs (id INTEGER PRIMARY KEY); \
+             CREATE TABLE files (id INTEGER PRIMARY KEY); \
+             CREATE TABLE file_revision_histories (id INTEGER PRIMARY KEY, file_id INTEGER, current_revision_id INTEGER); \
+             CREATE TABLE file_revisions (id INTEGER PRIMARY KEY, history_id INTEGER NOT NULL, blob_id INTEGER, sequence INTEGER NOT NULL, logical_size INTEGER NOT NULL, created_at TEXT NOT NULL); \
+             INSERT INTO file_blobs VALUES (11); \
+             INSERT INTO files VALUES (7); \
+             INSERT INTO file_revision_histories VALUES (7, 7, NULL); \
+             INSERT INTO file_revisions VALUES (21, 7, 11, 1, 5, '2026-08-01T00:00:00Z');",
+        )
+        .await
+        .expect("legacy restore fixture should insert");
+        let manager = SchemaManager::new(&db);
+        create_legacy_file_versions(&manager)
+            .await
+            .expect("legacy history table should create");
+        restore_legacy_history(&manager)
+            .await
+            .expect("legacy history should restore");
+
+        let row = db
+            .query_one_raw(sea_orm_migration::sea_orm::Statement::from_string(
+                DbBackend::Sqlite,
+                "SELECT id, file_id, version FROM file_versions",
+            ))
+            .await
+            .expect("legacy row should query")
+            .expect("NULL current pointer must not filter the revision");
+        assert_eq!(row.try_get_by_index::<i64>(0).unwrap(), 21);
+        assert_eq!(row.try_get_by_index::<i64>(1).unwrap(), 7);
+        assert_eq!(row.try_get_by_index::<i32>(2).unwrap(), 1);
     }
 }

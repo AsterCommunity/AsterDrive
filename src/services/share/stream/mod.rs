@@ -127,6 +127,8 @@ pub(crate) async fn stream_file(
     direct_link::validate_public_file_name(&file, requested_name)?;
 
     let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id).await?;
+    let revision_etag =
+        crate::db::repository::revision_repo::current_etag(state.writer_db(), file.id).await?;
     let count_reservation = ensure_counted_once(state, session_token, &payload).await?;
 
     if matches!(count_reservation, CountReservation::Reserved) {
@@ -157,6 +159,7 @@ pub(crate) async fn stream_file(
         file_ops::DownloadDisposition::Inline,
         None,
         range,
+        &revision_etag,
     )
     .await
     {

@@ -1207,6 +1207,13 @@ mod tests {
         )
         .await
         .expect("image preview route file should insert");
+        crate::db::repository::revision_repo::create_initial(
+            &db,
+            &file,
+            crate::db::repository::revision_repo::RevisionReason::Create,
+        )
+        .await
+        .expect("image preview route revision should insert");
 
         let driver_registry =
             Arc::new(DriverRegistry::noop().expect("built-in storage connector registry"));
@@ -1314,6 +1321,13 @@ mod tests {
         )
         .await
         .expect("resource handle route team file should insert");
+        crate::db::repository::revision_repo::create_initial(
+            state.writer_db(),
+            &team_file,
+            crate::db::repository::revision_repo::RevisionReason::Create,
+        )
+        .await
+        .expect("resource handle route team revision should insert");
 
         (team, team_file)
     }

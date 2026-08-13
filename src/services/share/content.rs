@@ -662,6 +662,7 @@ async fn download_share_resource_with_disposition(
             disposition,
             Some(if_none_match),
             None,
+            &revision_etag,
         )
         .await;
     }
@@ -675,6 +676,7 @@ async fn download_share_resource_with_disposition(
         disposition,
         None,
         range,
+        &revision_etag,
     )
     .await
     {

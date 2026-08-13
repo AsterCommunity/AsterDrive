@@ -62,18 +62,6 @@ impl AsterDavMeta {
         }
     }
 
-    pub fn from_file_record(file: &file::Model, revision_etag: String) -> Self {
-        Self {
-            is_dir: false,
-            len: u64::try_from(file.size).unwrap_or_default(),
-            modified: to_system_time(file.updated_at),
-            created: to_system_time(file.created_at),
-            etag: Some(revision_etag),
-            content_type: Some(file.mime_type.clone()),
-            file: Some(file.clone()),
-        }
-    }
-
     pub(crate) fn file_model(&self) -> Option<&file::Model> {
         self.file.as_ref()
     }

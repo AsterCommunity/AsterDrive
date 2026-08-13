@@ -218,6 +218,8 @@ pub async fn store_from_temp(
             existing_file_id: request.existing_file_id,
             lock_credentials: request.lock_credentials,
             file_precondition: None,
+            expected_current_revision_id: None,
+            expected_current_revision_etag: None,
         },
         StoreFromTempHints::default(),
         NewFileMode::ResolveUnique,
@@ -270,16 +272,21 @@ pub(crate) async fn update_content_in_scope(
     let submitted = lock_credentials.submitted();
     crate::services::files::lock::enforce_file_mutation(db, &f, &submitted).await?;
 
-    if let Some(etag) = if_match {
+    let expected_revision = if let Some(etag) = if_match {
         let expected = etag.trim_matches('"');
-        let current_etag = crate::db::repository::revision_repo::current_etag(db, f.id).await?;
-        if !expected.eq_ignore_ascii_case(&current_etag) {
+        let current =
+            crate::db::repository::revision_repo::find_current_by_file_id(db, f.id).await?;
+        if !expected.eq_ignore_ascii_case(&current.etag) {
             return Err(precondition_failed_with_code(
                 ApiErrorCode::FileEtagMismatch,
                 "file has been modified (ETag mismatch)",
             ));
         }
-    }
+        Some(current.id)
+    } else {
+        None
+    };
+    let revision_etag = uuid::Uuid::new_v4().simple().to_string();
 
     let size = usize_to_i64(body.len(), "body length")?;
     let resolved_policy = storage::resolve_policy_for_size(state, scope, f.folder_id, size).await?;
@@ -315,11 +322,14 @@ pub(crate) async fn update_content_in_scope(
             state,
             StoreFromTempParams::new(scope, f.folder_id, &f.name, &staging_path, size)
                 .overwrite(file_id)
-                .with_lock_credentials(lock_credentials.clone()),
+                .with_lock_credentials(lock_credentials.clone())
+                .with_expected_revision(expected_revision)
+                .with_expected_revision_etag(if_match.map(|etag| etag.trim_matches('"'))),
             StoreFromTempHints {
                 resolved_policy: Some(resolved_policy),
                 precomputed_hash: precomputed_hash.as_deref(),
                 actor_username: None,
+                revision_etag: Some(&revision_etag),
                 ..Default::default()
             },
         )
@@ -344,8 +354,13 @@ pub(crate) async fn update_content_in_scope(
             state,
             StoreFromTempParams::new(scope, f.folder_id, &f.name, &temp_path, size)
                 .overwrite(file_id)
-                .with_lock_credentials(lock_credentials),
-            StoreFromTempHints::default(),
+                .with_lock_credentials(lock_credentials)
+                .with_expected_revision(expected_revision)
+                .with_expected_revision_etag(if_match.map(|etag| etag.trim_matches('"'))),
+            StoreFromTempHints {
+                revision_etag: Some(&revision_etag),
+                ..Default::default()
+            },
             NewFileMode::ResolveUnique,
             true,
         )
@@ -355,7 +370,6 @@ pub(crate) async fn update_content_in_scope(
     };
 
     let updated = result?;
-    let revision_etag = crate::db::repository::revision_repo::current_etag(db, updated.id).await?;
     tracing::debug!(
         scope = ?scope,
         file_id = updated.id,
@@ -388,16 +402,21 @@ pub(crate) async fn update_content_stream_in_scope(
     let submitted = lock_credentials.submitted();
     crate::services::files::lock::enforce_file_mutation(db, &f, &submitted).await?;
 
-    if let Some(etag) = if_match {
+    let expected_revision = if let Some(etag) = if_match {
         let expected = etag.trim_matches('"');
-        let current_etag = crate::db::repository::revision_repo::current_etag(db, f.id).await?;
-        if !expected.eq_ignore_ascii_case(&current_etag) {
+        let current =
+            crate::db::repository::revision_repo::find_current_by_file_id(db, f.id).await?;
+        if !expected.eq_ignore_ascii_case(&current.etag) {
             return Err(precondition_failed_with_code(
                 ApiErrorCode::FileEtagMismatch,
                 "file has been modified (ETag mismatch)",
             ));
         }
-    }
+        Some(current.id)
+    } else {
+        None
+    };
+    let revision_etag = uuid::Uuid::new_v4().simple().to_string();
 
     let resolved_policy_hint = match declared_size {
         Some(size) => {
@@ -419,11 +438,14 @@ pub(crate) async fn update_content_stream_in_scope(
         state,
         StoreFromTempParams::new(scope, f.folder_id, &f.name, &temp_path, size)
             .overwrite(file_id)
-            .with_lock_credentials(lock_credentials),
+            .with_lock_credentials(lock_credentials)
+            .with_expected_revision(expected_revision)
+            .with_expected_revision_etag(if_match.map(|etag| etag.trim_matches('"'))),
         StoreFromTempHints {
             resolved_policy,
             precomputed_hash: precomputed_hash.as_deref(),
             actor_username: None,
+            revision_etag: Some(&revision_etag),
             ..Default::default()
         },
     )
@@ -431,7 +453,6 @@ pub(crate) async fn update_content_stream_in_scope(
     aster_forge_utils::fs::cleanup_temp_file(&temp_path).await;
 
     let updated = result?;
-    let revision_etag = crate::db::repository::revision_repo::current_etag(db, updated.id).await?;
     tracing::debug!(
         scope = ?scope,
         file_id = updated.id,

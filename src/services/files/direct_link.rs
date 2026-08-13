@@ -74,6 +74,8 @@ pub(crate) async fn download_file(
 ) -> Result<file_ops::DownloadOutcome> {
     let file = resolve_file_for_download(state, token, requested_name).await?;
     let blob = file_repo::find_blob_by_id(state.reader_db(), file.blob_id).await?;
+    let revision_etag =
+        crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id).await?;
     let disposition = if force_download {
         file_ops::DownloadDisposition::Attachment
     } else {
@@ -87,6 +89,7 @@ pub(crate) async fn download_file(
         disposition,
         if_none_match,
         range,
+        &revision_etag,
     )
     .await
 }

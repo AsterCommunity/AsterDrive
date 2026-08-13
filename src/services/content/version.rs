@@ -72,17 +72,6 @@ async fn restore_version_inner(
     file: aster_drive_model::entities::file::Model,
     revision_id: i64,
 ) -> Result<aster_drive_model::entities::file::Model> {
-    let current_blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id).await?;
-    if let Err(error) =
-        crate::services::media::processing::delete_thumbnail(state, &current_blob).await
-    {
-        tracing::warn!(
-            blob_id = current_blob.id,
-            %error,
-            "failed to delete thumbnail before revision restore"
-        );
-    }
-
     let now = Utc::now();
     let txn = transaction::begin(state.writer_db()).await?;
     let actor_username = storage::load_scope_actor_username(&txn, scope).await?;
@@ -126,9 +115,25 @@ async fn restore_version_inner(
             comment: Some("restored historical revision"),
             reason: revision_repo::RevisionReason::Restore,
             created_at: now,
+            etag: None,
         },
     )
-    .await?;
+    .await
+    .map_err(|error| match error {
+        revision_repo::RevisionAppendError::HeadChanged => {
+            crate::errors::precondition_failed_with_code(
+                crate::api::api_error_code::ApiErrorCode::FileModifiedDuringWrite,
+                "file revision head changed while content was being committed",
+            )
+        }
+        revision_repo::RevisionAppendError::EtagMismatch => {
+            crate::errors::precondition_failed_with_code(
+                crate::api::api_error_code::ApiErrorCode::FileEtagMismatch,
+                "file has been modified (ETag mismatch)",
+            )
+        }
+        revision_repo::RevisionAppendError::Repository(error) => error,
+    })?;
 
     let current_name = current.name.clone();
     let mut active: aster_drive_model::entities::file::ActiveModel = current.into();
@@ -146,6 +151,17 @@ async fn restore_version_inner(
         .await
         .map_aster_err(AsterError::database_operation)?;
     transaction::commit(txn).await?;
+
+    let current_blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id).await?;
+    if let Err(error) =
+        crate::services::media::processing::delete_thumbnail(state, &current_blob).await
+    {
+        tracing::warn!(
+            blob_id = current_blob.id,
+            %error,
+            "failed to delete thumbnail after revision restore"
+        );
+    }
 
     storage_change::publish(
         state,

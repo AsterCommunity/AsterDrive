@@ -4,8 +4,9 @@ use std::collections::HashMap;
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, ExprTrait, ModelTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, Set, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, ExprTrait,
+    IsolationLevel, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, Set,
+    TransactionSession, TransactionTrait, sea_query::Expr,
 };
 
 use crate::errors::{AsterError, Result};
@@ -17,6 +18,21 @@ use aster_drive_model::entities::{
 };
 use aster_drive_model::types::EntityType;
 
+#[derive(Debug)]
+pub enum RevisionAppendError {
+    HeadChanged,
+    EtagMismatch,
+    Repository(AsterError),
+}
+
+impl From<AsterError> for RevisionAppendError {
+    fn from(error: AsterError) -> Self {
+        Self::Repository(error)
+    }
+}
+
+pub type RevisionAppendResult<T> = std::result::Result<T, RevisionAppendError>;
+
 #[derive(Clone, Copy, Debug)]
 pub enum RevisionReason {
     Create,
@@ -26,7 +42,7 @@ pub enum RevisionReason {
 }
 
 impl RevisionReason {
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Create => "create",
             Self::Overwrite => "overwrite",
@@ -46,6 +62,7 @@ pub struct NewRevision<'a> {
     pub comment: Option<&'a str>,
     pub reason: RevisionReason,
     pub created_at: chrono::DateTime<Utc>,
+    pub etag: Option<&'a str>,
 }
 
 fn new_etag() -> String {
@@ -125,6 +142,7 @@ pub async fn create_initial<C: ConnectionTrait>(
             comment: None,
             reason,
             created_at: file.created_at,
+            etag: None,
         },
     )
     .await?;
@@ -138,16 +156,58 @@ pub async fn append<C: ConnectionTrait>(
     file_id: i64,
     expected_current_revision_id: Option<i64>,
     input: NewRevision<'_>,
-) -> Result<file_revision::Model> {
+) -> RevisionAppendResult<file_revision::Model> {
     let history = lock_history_by_file_id(db, file_id).await?;
     if let Some(expected) = expected_current_revision_id
         && history.current_revision_id != Some(expected)
     {
-        return Err(crate::errors::precondition_failed_with_code(
-            crate::api::api_error_code::ApiErrorCode::FileModifiedDuringWrite,
-            "file revision head changed while content was being committed",
-        ));
+        return Err(RevisionAppendError::HeadChanged);
     }
+    append_locked(db, file_id, history, input)
+        .await
+        .map_err(Into::into)
+}
+
+pub async fn append_for_expected_etag<C: ConnectionTrait>(
+    db: &C,
+    file_id: i64,
+    expected_etag: Option<&str>,
+    input: NewRevision<'_>,
+) -> RevisionAppendResult<file_revision::Model> {
+    let history = lock_history_by_file_id(db, file_id).await?;
+    if let Some(expected_etag) = expected_etag {
+        let current_id = history.current_revision_id.ok_or_else(|| {
+            AsterError::internal_error(format!(
+                "file #{file_id} revision history has no current revision"
+            ))
+        })?;
+        let current_etag = FileRevision::find_by_id(current_id)
+            .select_only()
+            .column(file_revision::Column::Etag)
+            .into_tuple::<String>()
+            .one(db)
+            .await
+            .map_err(AsterError::from)?
+            .ok_or_else(|| {
+                AsterError::internal_error(format!(
+                    "file #{file_id} revision history has a dangling current pointer"
+                ))
+            })?;
+        if !expected_etag.eq_ignore_ascii_case(&current_etag) {
+            return Err(RevisionAppendError::EtagMismatch);
+        }
+    }
+    append_locked(db, file_id, history, input)
+        .await
+        .map_err(Into::into)
+}
+
+async fn append_locked<C: ConnectionTrait>(
+    db: &C,
+    file_id: i64,
+    history: file_revision_history::Model,
+    input: NewRevision<'_>,
+) -> Result<file_revision::Model> {
     let predecessor = history.current_revision_id;
     let revision =
         insert_revision(db, history.id, history.next_sequence, predecessor, input).await?;
@@ -186,7 +246,7 @@ async fn insert_revision<C: ConnectionTrait>(
         blob_id: Set(Some(input.blob_id)),
         logical_size: Set(input.logical_size),
         mime_type: Set(Some(input.mime_type.to_string())),
-        etag: Set(new_etag()),
+        etag: Set(input.etag.map_or_else(new_etag, ToOwned::to_owned)),
         content_sha256: Set(input.content_sha256.map(ToOwned::to_owned)),
         creator_user_id: Set(input.creator_user_id),
         creator_display_name: Set(Some(input.creator_display_name.to_string())),
@@ -291,6 +351,29 @@ pub async fn find_current_by_file_id<C: ConnectionTrait>(
         )));
     }
     Ok(revision)
+}
+
+pub async fn find_file_blob_and_current_revision<C: ConnectionTrait + TransactionTrait>(
+    db: &C,
+    file_id: i64,
+) -> Result<(
+    file::Model,
+    aster_drive_model::entities::file_blob::Model,
+    file_revision::Model,
+)> {
+    let txn = match db.get_database_backend() {
+        DbBackend::Postgres | DbBackend::MySql => {
+            db.begin_with_config(Some(IsolationLevel::RepeatableRead), None)
+                .await
+        }
+        _ => db.begin().await,
+    }
+    .map_err(AsterError::from)?;
+    let file = crate::db::repository::file_repo::find_by_id(&txn, file_id).await?;
+    let blob = crate::db::repository::file_repo::find_blob_by_id(&txn, file.blob_id).await?;
+    let revision = find_current_by_file_id(&txn, file_id).await?;
+    txn.commit().await.map_err(AsterError::from)?;
+    Ok((file, blob, revision))
 }
 
 pub async fn current_etag<C: ConnectionTrait>(db: &C, file_id: i64) -> Result<String> {
@@ -407,27 +490,27 @@ pub async fn restore_user_properties<C: ConnectionTrait>(
     file_id: i64,
     revision_id: i64,
 ) -> Result<()> {
-    let live = entity_property::Entity::find()
+    entity_property::Entity::delete_many()
         .filter(entity_property::Column::EntityType.eq(EntityType::File))
         .filter(entity_property::Column::EntityId.eq(file_id))
-        .all(db)
+        .filter(entity_property::Column::Namespace.ne("DAV:"))
+        .filter(entity_property::Column::Namespace.not_like("system.%"))
+        .exec(db)
         .await
         .map_err(AsterError::from)?;
-    for property in live {
-        if property.namespace != "DAV:" && !property.namespace.starts_with("system.") {
-            property.delete(db).await.map_err(AsterError::from)?;
-        }
-    }
-    for property in find_properties(db, revision_id).await? {
-        entity_property::ActiveModel {
-            entity_type: Set(EntityType::File),
-            entity_id: Set(file_id),
-            namespace: Set(property.namespace),
-            name: Set(property.name),
-            value: Set(property.xml_value),
-            ..Default::default()
-        }
-        .insert(db)
+    let properties = find_properties(db, revision_id).await?;
+    if !properties.is_empty() {
+        entity_property::Entity::insert_many(properties.into_iter().map(|property| {
+            entity_property::ActiveModel {
+                entity_type: Set(EntityType::File),
+                entity_id: Set(file_id),
+                namespace: Set(property.namespace),
+                name: Set(property.name),
+                value: Set(property.xml_value),
+                ..Default::default()
+            }
+        }))
+        .exec(db)
         .await
         .map_err(AsterError::from)?;
     }
@@ -468,14 +551,14 @@ pub async fn find_oldest_non_current<C: ConnectionTrait>(
     file_id: i64,
 ) -> Result<Option<file_revision::Model>> {
     let history = find_history_by_file_id(db, file_id).await?;
-    FileRevision::find()
+    let mut query = FileRevision::find()
         .filter(file_revision::Column::HistoryId.eq(history.id))
-        .filter(file_revision::Column::Id.ne(history.current_revision_id))
         .filter(file_revision::Column::RetiredAt.is_null())
-        .order_by_asc(file_revision::Column::Sequence)
-        .one(db)
-        .await
-        .map_err(AsterError::from)
+        .order_by_asc(file_revision::Column::Sequence);
+    if let Some(current_revision_id) = history.current_revision_id {
+        query = query.filter(file_revision::Column::Id.ne(current_revision_id));
+    }
+    query.one(db).await.map_err(AsterError::from)
 }
 
 pub async fn tombstone<C: ConnectionTrait>(db: &C, revision: file_revision::Model) -> Result<()> {
@@ -537,6 +620,7 @@ pub async fn retire_histories<C: ConnectionTrait>(
         .col_expr(file_revision::Column::RetiredAt, Expr::value(Some(now)))
         .col_expr(file_revision::Column::PurgedAt, Expr::value(Some(now)))
         .filter(file_revision::Column::HistoryId.is_in(history_ids.iter().copied()))
+        .filter(file_revision::Column::RetiredAt.is_null())
         .exec(db)
         .await
         .map_err(AsterError::from)?;
@@ -576,18 +660,62 @@ pub async fn sum_non_current_sizes_by_file_id(
     file_id: i64,
 ) -> Result<i64> {
     let history = find_history_by_file_id(db, file_id).await?;
-    Ok(FileRevision::find()
+    let mut query = FileRevision::find()
         .select_only()
         .column_as(sum_size_expr(db.get_database_backend()), "sum")
         .filter(file_revision::Column::HistoryId.eq(history.id))
-        .filter(file_revision::Column::Id.ne(history.current_revision_id))
-        .filter(file_revision::Column::RetiredAt.is_null())
+        .filter(file_revision::Column::RetiredAt.is_null());
+    if let Some(current_revision_id) = history.current_revision_id {
+        query = query.filter(file_revision::Column::Id.ne(current_revision_id));
+    }
+    Ok(query
         .into_tuple::<Option<i64>>()
         .one(db)
         .await
         .map_err(AsterError::from)?
         .flatten()
         .unwrap_or(0))
+}
+
+pub async fn sum_non_current_sizes_by_file_ids<C: ConnectionTrait>(
+    db: &C,
+    file_ids: &[i64],
+) -> Result<HashMap<i64, i64>> {
+    if file_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = FileRevision::find()
+        .join(
+            sea_orm::JoinType::InnerJoin,
+            file_revision::Relation::History.def(),
+        )
+        .select_only()
+        .column(file_revision_history::Column::FileId)
+        .column_as(sum_size_expr(db.get_database_backend()), "sum")
+        .filter(file_revision_history::Column::FileId.is_in(file_ids.iter().copied()))
+        .filter(file_revision::Column::RetiredAt.is_null())
+        .filter(
+            Expr::col((
+                file_revision_history::Entity,
+                file_revision_history::Column::CurrentRevisionId,
+            ))
+            .is_null()
+            .or(
+                Expr::col((file_revision::Entity, file_revision::Column::Id)).ne(Expr::col((
+                    file_revision_history::Entity,
+                    file_revision_history::Column::CurrentRevisionId,
+                ))),
+            ),
+        )
+        .group_by(file_revision_history::Column::FileId)
+        .into_tuple::<(i64, Option<i64>)>()
+        .all(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(rows
+        .into_iter()
+        .map(|(file_id, size)| (file_id, size.unwrap_or(0)))
+        .collect())
 }
 
 pub async fn count_non_current_blob_refs_for_blobs<C: ConnectionTrait>(
@@ -611,10 +739,17 @@ pub async fn count_non_current_blob_refs_for_blobs<C: ConnectionTrait>(
         .filter(file_revision::Column::BlobId.is_in(blob_ids.iter().copied()))
         .filter(file_revision::Column::RetiredAt.is_null())
         .filter(
-            Expr::col((file_revision::Entity, file_revision::Column::Id)).ne(Expr::col((
+            Expr::col((
                 file_revision_history::Entity,
                 file_revision_history::Column::CurrentRevisionId,
-            ))),
+            ))
+            .is_null()
+            .or(
+                Expr::col((file_revision::Entity, file_revision::Column::Id)).ne(Expr::col((
+                    file_revision_history::Entity,
+                    file_revision_history::Column::CurrentRevisionId,
+                ))),
+            ),
         )
         .group_by(file_revision::Column::BlobId)
         .into_tuple::<(i64, i64)>()
@@ -651,4 +786,40 @@ pub async fn replace_blob_refs<C: ConnectionTrait>(
         .await
         .map_err(AsterError::from)?;
     Ok(result.rows_affected)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_orm::{Database, EntityTrait, QueryFilter};
+
+    #[tokio::test]
+    async fn retire_histories_preserves_existing_tombstone_timestamps() {
+        let db = Database::connect("sqlite::memory:").await.unwrap();
+        db.execute_unprepared(
+            "CREATE TABLE file_revision_histories (id INTEGER PRIMARY KEY, public_id TEXT NOT NULL, file_id INTEGER, current_revision_id INTEGER, next_sequence INTEGER NOT NULL, deltav_controlled_at TEXT, deltav_root_revision_id INTEGER, created_at TEXT NOT NULL, retired_at TEXT); \
+             CREATE TABLE file_revisions (id INTEGER PRIMARY KEY, public_id TEXT NOT NULL, history_id INTEGER NOT NULL, sequence INTEGER NOT NULL, predecessor_revision_id INTEGER, blob_id INTEGER, logical_size INTEGER NOT NULL, mime_type TEXT, etag TEXT NOT NULL, content_sha256 TEXT, creator_user_id INTEGER, creator_display_name TEXT, comment TEXT, reason TEXT NOT NULL, created_at TEXT NOT NULL, retired_at TEXT, purged_at TEXT); \
+             INSERT INTO file_revision_histories VALUES (1, 'history', 7, 2, 3, NULL, NULL, '2026-08-01T00:00:00Z', NULL); \
+             INSERT INTO file_revisions VALUES (1, 'old', 1, 1, NULL, NULL, 5, NULL, 'old-etag', NULL, NULL, NULL, NULL, 'overwrite', '2026-08-01T00:00:00Z', '2026-08-02T00:00:00Z', '2026-08-02T00:00:00Z'); \
+             INSERT INTO file_revisions VALUES (2, 'current', 1, 2, 1, 9, 5, 'text/plain', 'current-etag', NULL, NULL, NULL, NULL, 'overwrite', '2026-08-03T00:00:00Z', NULL, NULL);",
+        )
+        .await
+        .unwrap();
+
+        let old = FileRevision::find_by_id(1).one(&db).await.unwrap().unwrap();
+        retire_histories(&db, &[7]).await.unwrap();
+        let retired = FileRevision::find_by_id(1).one(&db).await.unwrap().unwrap();
+        assert_eq!(retired.retired_at, old.retired_at);
+        assert_eq!(retired.purged_at, old.purged_at);
+        assert!(
+            FileRevision::find()
+                .filter(file_revision::Column::Id.eq(2))
+                .one(&db)
+                .await
+                .unwrap()
+                .unwrap()
+                .retired_at
+                .is_some()
+        );
+    }
 }

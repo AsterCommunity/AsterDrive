@@ -60,6 +60,8 @@ pub(crate) struct StoreFromTempParams<'a> {
     pub existing_file_id: Option<i64>,
     pub lock_credentials: crate::services::files::lock::LockMutationCredentials,
     pub file_precondition: Option<FileWritePrecondition>,
+    pub expected_current_revision_id: Option<i64>,
+    pub expected_current_revision_etag: Option<String>,
 }
 
 impl<'a> StoreFromTempParams<'a> {
@@ -79,6 +81,8 @@ impl<'a> StoreFromTempParams<'a> {
             existing_file_id: None,
             lock_credentials: crate::services::files::lock::LockMutationCredentials::None,
             file_precondition: None,
+            expected_current_revision_id: None,
+            expected_current_revision_etag: None,
         }
     }
 
@@ -94,6 +98,16 @@ impl<'a> StoreFromTempParams<'a> {
         self.lock_credentials = credentials;
         self
     }
+
+    pub(crate) fn with_expected_revision(mut self, revision_id: Option<i64>) -> Self {
+        self.expected_current_revision_id = revision_id;
+        self
+    }
+
+    pub(crate) fn with_expected_revision_etag(mut self, etag: Option<&str>) -> Self {
+        self.expected_current_revision_etag = etag.map(ToOwned::to_owned);
+        self
+    }
 }
 
 #[derive(Clone, Default)]
@@ -102,6 +116,7 @@ pub(crate) struct StoreFromTempHints<'a> {
     pub precomputed_hash: Option<&'a str>,
     pub actor_username: Option<&'a str>,
     pub operation_context: crate::services::workspace::storage::StorageOperationContext,
+    pub revision_etag: Option<&'a str>,
 }
 
 pub(crate) struct StorePreuploadedNondedupParams<'a> {
@@ -392,9 +407,27 @@ pub(crate) async fn store_preuploaded_nondedup(
                             comment: None,
                             reason: crate::db::repository::revision_repo::RevisionReason::Overwrite,
                             created_at: now,
+                            etag: None,
                         },
                     )
-                    .await?;
+                    .await
+                    .map_err(|error| match error {
+                        crate::db::repository::revision_repo::RevisionAppendError::HeadChanged => {
+                            precondition_failed_with_code(
+                                ApiErrorCode::FileModifiedDuringWrite,
+                                "file revision head changed while content was being committed",
+                            )
+                        }
+                        crate::db::repository::revision_repo::RevisionAppendError::EtagMismatch => {
+                            precondition_failed_with_code(
+                                ApiErrorCode::FileEtagMismatch,
+                                "file has been modified (ETag mismatch)",
+                            )
+                        }
+                        crate::db::repository::revision_repo::RevisionAppendError::Repository(
+                            error,
+                        ) => error,
+                    })?;
 
                     if storage_delta != 0 {
                         update_storage_used(txn, scope, storage_delta).await?;

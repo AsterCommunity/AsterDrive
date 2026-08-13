@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useReducer } from "react";
+import { Fragment, useEffect, useReducer, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { InlineConfirm } from "@/components/common/ManagerDialogShell";
@@ -52,7 +52,7 @@ interface VersionHistoryState {
 
 type VersionHistoryAction =
 	| { type: "close" }
-	| { type: "delete-end"; page: FileVersionPage }
+	| { type: "delete-end"; page?: FileVersionPage }
 	| { type: "delete-start"; versionId: number }
 	| { type: "load-end"; page?: FileVersionPage }
 	| { type: "load-more-end"; page?: FileVersionPage }
@@ -84,8 +84,10 @@ function versionHistoryReducer(
 				...state,
 				deletingVersionId: null,
 				inlineConfirm: null,
-				nextAfterSequence: action.page.nextAfterSequence,
-				versions: action.page.items,
+				nextAfterSequence: action.page
+					? action.page.nextAfterSequence
+					: state.nextAfterSequence,
+				versions: action.page?.items ?? state.versions,
 			};
 		case "delete-start":
 			return { ...state, deletingVersionId: action.versionId };
@@ -152,66 +154,82 @@ export function VersionHistoryDialog({
 		},
 		dispatch,
 	] = useReducer(versionHistoryReducer, VERSION_HISTORY_INITIAL_STATE);
+	const requestGeneration = useRef(0);
 	const currentRevision = versions.find((version) => version.current) ?? null;
 	const historicalVersionCount = versions.filter(
 		(version) => !version.current,
 	).length;
 
-	const load = useCallback(async () => {
-		try {
-			dispatch({ type: "load-start" });
-			const page = await fileService.listVersions(fileId);
-			dispatch({ type: "load-end", page });
-		} catch (e) {
-			handleApiError(e);
-			dispatch({ type: "load-end" });
-		}
-	}, [fileId]);
-
 	const loadMore = async () => {
 		if (nextAfterSequence === null || loadingMore) return;
+		const generation = requestGeneration.current;
+		const targetFileId = fileId;
 		try {
 			dispatch({ type: "load-more-start" });
-			const page = await fileService.listVersions(fileId, nextAfterSequence);
+			const page = await fileService.listVersions(
+				targetFileId,
+				nextAfterSequence,
+			);
+			if (requestGeneration.current !== generation) return;
 			dispatch({ type: "load-more-end", page });
 		} catch (e) {
+			if (requestGeneration.current !== generation) return;
 			handleApiError(e);
 			dispatch({ type: "load-more-end" });
 		}
 	};
 
 	const handleRestore = async (versionId: number) => {
+		const generation = requestGeneration.current;
+		const targetFileId = fileId;
 		try {
 			dispatch({ type: "restore-start", versionId });
-			await fileService.restoreVersion(fileId, versionId);
-			const page = await fileService.listVersions(fileId);
+			await fileService.restoreVersion(targetFileId, versionId);
 			invalidateFileResourceCachesForMutation({
-				download: fileService.downloadPath(fileId),
-				thumbnail: fileService.thumbnailPath(fileId),
-				imagePreview: fileService.imagePreviewPath(fileId),
+				download: fileService.downloadPath(targetFileId),
+				thumbnail: fileService.thumbnailPath(targetFileId),
+				imagePreview: fileService.imagePreviewPath(targetFileId),
 			});
 			toast.success(t("version_restored"));
 			onRestored?.();
-			dispatch({ type: "restore-end", page });
+			if (requestGeneration.current !== generation) return;
+			dispatch({ type: "restore-end" });
+			try {
+				const page = await fileService.listVersions(targetFileId);
+				if (requestGeneration.current !== generation) return;
+				dispatch({ type: "load-end", page });
+			} catch (e) {
+				if (requestGeneration.current !== generation) return;
+				handleApiError(e);
+			}
 		} catch (e) {
+			if (requestGeneration.current !== generation) return;
 			handleApiError(e);
 			dispatch({ type: "restore-end" });
 		}
 	};
 
 	const handleDelete = async (versionId: number) => {
+		const generation = requestGeneration.current;
+		const targetFileId = fileId;
 		try {
 			dispatch({ type: "delete-start", versionId });
-			await fileService.deleteVersion(fileId, versionId);
-			const page = await fileService.listVersions(fileId);
+			await fileService.deleteVersion(targetFileId, versionId);
 			toast.success(t("version_deleted"));
-			dispatch({ type: "delete-end", page });
+			if (requestGeneration.current !== generation) return;
+			dispatch({ type: "delete-end" });
+			try {
+				const page = await fileService.listVersions(targetFileId);
+				if (requestGeneration.current !== generation) return;
+				dispatch({ type: "load-end", page });
+			} catch (e) {
+				if (requestGeneration.current !== generation) return;
+				handleApiError(e);
+			}
 		} catch (e) {
+			if (requestGeneration.current !== generation) return;
 			handleApiError(e);
-			dispatch({
-				type: "delete-end",
-				page: { items: versions, nextAfterSequence },
-			});
+			dispatch({ type: "delete-end" });
 		}
 	};
 
@@ -229,15 +247,37 @@ export function VersionHistoryDialog({
 	};
 	const handleOpenChange = (nextOpen: boolean) => {
 		if (!nextOpen) {
+			requestGeneration.current += 1;
 			dispatch({ type: "close" });
 		}
 		onOpenChange(nextOpen);
 	};
 
 	useEffect(() => {
-		if (!open) return;
-		load();
-	}, [load, open]);
+		const generation = ++requestGeneration.current;
+		dispatch({ type: "close" });
+		if (open) {
+			dispatch({ type: "load-start" });
+			void fileService
+				.listVersions(fileId)
+				.then((page) => {
+					if (requestGeneration.current === generation) {
+						dispatch({ type: "load-end", page });
+					}
+				})
+				.catch((error: unknown) => {
+					if (requestGeneration.current === generation) {
+						handleApiError(error);
+						dispatch({ type: "load-end" });
+					}
+				});
+		}
+		return () => {
+			if (requestGeneration.current === generation) {
+				requestGeneration.current += 1;
+			}
+		};
+	}, [fileId, open]);
 
 	return (
 		<Dialog

@@ -139,6 +139,8 @@ pub(crate) async fn download_file(
     direct_link::validate_public_file_name(file, requested_name)?;
 
     let blob = file_repo::find_blob_by_id(state.reader_db(), file.blob_id).await?;
+    let revision_etag =
+        crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id).await?;
     file_ops::build_download_outcome_with_disposition_and_range(
         state,
         file,
@@ -146,6 +148,7 @@ pub(crate) async fn download_file(
         file_ops::DownloadDisposition::Inline,
         if_none_match,
         range,
+        &revision_etag,
     )
     .await
 }

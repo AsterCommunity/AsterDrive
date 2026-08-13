@@ -1393,6 +1393,94 @@ async fn test_version_restore_appends_head_and_preserves_history_blobs() {
 }
 
 #[actix_web::test]
+async fn test_version_restore_failure_keeps_thumbnail_and_rolls_back_revision() {
+    use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, Set, Statement};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "restorefailure",
+        "restorefailure@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    let initial = write_service_fixture("restore-failure-v1.txt", "version 1");
+    let file = aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "restore-failure.txt", &initial, 9),
+    )
+    .await
+    .unwrap();
+    let overwrite = write_service_fixture("restore-failure-v2.txt", "version 2");
+    let current = aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "restore-failure.txt", &overwrite, 9).overwrite(file.id),
+    )
+    .await
+    .unwrap();
+    let target = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap()
+    .into_iter()
+    .find(|version| version.version == 1)
+    .unwrap();
+    let revision_count =
+        aster_drive::db::repository::revision_repo::count_by_file_id(state.writer_db(), file.id)
+            .await
+            .unwrap();
+
+    let blob =
+        aster_drive::db::repository::file_repo::find_blob_by_id(state.writer_db(), current.blob_id)
+            .await
+            .unwrap();
+    let thumbnail_path = format!("thumbnails/restore-failure-{}.webp", blob.id);
+    let policy = state
+        .policy_snapshot
+        .get_policy_or_err(blob.policy_id)
+        .unwrap();
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    driver.put(&thumbnail_path, b"thumbnail").await.unwrap();
+    let mut active_blob = blob.into_active_model();
+    active_blob.thumbnail_path = Set(Some(thumbnail_path.clone()));
+    active_blob.thumbnail_processor = Set(Some("images".to_string()));
+    active_blob.thumbnail_version = Set(Some("test".to_string()));
+    active_blob.update(state.writer_db()).await.unwrap();
+
+    state
+        .writer_db()
+        .execute_raw(Statement::from_string(
+            sea_orm::DbBackend::Sqlite,
+            format!(
+                "CREATE TRIGGER fail_restore_file_update BEFORE UPDATE ON files \
+                 WHEN OLD.id = {} BEGIN SELECT RAISE(ABORT, 'forced restore failure'); END",
+                file.id
+            ),
+        ))
+        .await
+        .unwrap();
+
+    aster_drive::services::content::version::restore_version(&state, file.id, target.id, user.id)
+        .await
+        .expect_err("the injected file update failure must abort restore");
+
+    assert!(driver.exists(&thumbnail_path).await.unwrap());
+    assert_eq!(
+        aster_drive::db::repository::revision_repo::count_by_file_id(state.writer_db(), file.id)
+            .await
+            .unwrap(),
+        revision_count
+    );
+}
+
+#[actix_web::test]
 async fn test_identical_overwrite_still_appends_revision() {
     let state = common::setup().await;
     let user =
@@ -1475,11 +1563,15 @@ async fn test_revision_append_rejects_stale_expected_head_without_side_effects()
             comment: None,
             reason: aster_drive::db::repository::revision_repo::RevisionReason::Overwrite,
             created_at: chrono::Utc::now(),
+            etag: None,
         },
     )
     .await
     .unwrap_err();
-    assert_eq!(error.code(), "E060");
+    assert!(matches!(
+        error,
+        aster_drive::db::repository::revision_repo::RevisionAppendError::HeadChanged
+    ));
 
     let after = aster_drive::db::repository::revision_repo::find_history_by_file_id(
         state.writer_db(),
@@ -1583,18 +1675,22 @@ async fn test_revision_cursor_pagination_handles_limits_and_sequence_gaps() {
             .collect::<Vec<_>>(),
         vec![1]
     );
-    let empty = aster_drive::services::content::version::list_versions(
+    let clamped = aster_drive::services::content::version::list_versions(
         &state,
         file.id,
         user.id,
         aster_drive::services::workspace::models::FileVersionListQuery {
             limit: Some(0),
-            after_sequence: Some(1),
+            after_sequence: None,
         },
     )
     .await
     .unwrap();
-    assert!(empty.is_empty());
+    assert_eq!(
+        clamped.iter().map(|item| item.version).collect::<Vec<_>>(),
+        vec![4],
+        "limit zero must clamp to one instead of disabling the page bound"
+    );
 }
 
 #[actix_web::test]
@@ -3187,7 +3283,7 @@ async fn test_team_service_list_user_team_ids_filters_archived_teams() {
 #[actix_web::test]
 async fn test_team_archive_cleanup_deletes_expired_team_data() {
     use chrono::{Duration, Utc};
-    use sea_orm::{IntoActiveModel, Set};
+    use sea_orm::{EntityTrait, IntoActiveModel, Set};
 
     let state = common::setup().await;
     let owner = common::create_test_account(
@@ -3267,6 +3363,13 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
             deleted_at: Set(None),
             ..Default::default()
         },
+    )
+    .await
+    .unwrap();
+    let history = aster_drive::db::repository::revision_repo::create_initial(
+        state.writer_db(),
+        &file,
+        aster_drive::db::repository::revision_repo::RevisionReason::Create,
     )
     .await
     .unwrap();
@@ -3371,6 +3474,14 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
         aster_drive::db::repository::file_repo::find_by_id(state.writer_db(), file.id)
             .await
             .is_err()
+    );
+    assert!(
+        aster_drive_model::entities::file_revision_history::Entity::find_by_id(history.history_id)
+            .one(state.writer_db())
+            .await
+            .unwrap()
+            .is_some(),
+        "purged team ledger identities must remain as retired tombstones"
     );
     assert!(
         aster_drive::db::repository::folder_repo::find_by_id(state.writer_db(), folder.id)
@@ -3624,6 +3735,14 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
             sample_file_ids.push(file.id);
         }
     }
+
+    assert!(
+        aster_drive::services::ops::integrity::audit_revision_ledger(state.writer_db())
+            .await
+            .unwrap()
+            .is_empty(),
+        "revision ledger audit must cross its 1000-row pagination boundary"
+    );
 
     let mut sample_folder_ids = Vec::new();
     for idx in 0..1001 {

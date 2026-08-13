@@ -854,7 +854,6 @@ async fn create_version_for_blob(
     state: &PrimaryAppState,
     file_id: i64,
     blob_id: i64,
-    _version: i32,
 ) -> file_revision::Model {
     revision_repo::append(
         state.writer_db(),
@@ -870,6 +869,7 @@ async fn create_version_for_blob(
             comment: None,
             reason: revision_repo::RevisionReason::Overwrite,
             created_at: Utc::now(),
+            etag: None,
         },
     )
     .await
@@ -1672,7 +1672,7 @@ async fn test_storage_migration_merges_when_target_blob_already_exists() {
     let source_blob = create_blob_with_object(&state, &source, b"same-bytes", 2).await;
     let target_blob = create_blob_with_object(&state, &target, b"same-bytes", 1).await;
     let active_file = create_file_for_blob(&state, source_blob.id, "active.txt").await;
-    create_version_for_blob(&state, active_file.id, source_blob.id, 1).await;
+    create_version_for_blob(&state, active_file.id, source_blob.id).await;
     let history_before = revision_repo::find_history_by_file_id(state.writer_db(), active_file.id)
         .await
         .unwrap();
