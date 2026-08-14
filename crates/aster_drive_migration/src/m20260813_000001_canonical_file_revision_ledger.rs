@@ -1265,25 +1265,23 @@ mod tests {
                 entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL, namespace TEXT NOT NULL, \
                 name TEXT NOT NULL, value TEXT NULL\
              ); \
-             CREATE TABLE file_revision_histories (\
-                id INTEGER PRIMARY KEY, public_id TEXT NOT NULL, file_id INTEGER NULL, \
-                current_revision_id INTEGER NULL, next_sequence INTEGER NOT NULL, \
-                created_at TEXT NOT NULL\
-             ); \
-             CREATE TABLE file_revisions (\
-                id INTEGER PRIMARY KEY, public_id TEXT NOT NULL, history_id INTEGER NOT NULL, \
-                sequence INTEGER NOT NULL, predecessor_revision_id INTEGER NULL, \
-                blob_id INTEGER NULL, logical_size INTEGER NOT NULL, mime_type TEXT NULL, \
-                etag TEXT NOT NULL, creator_user_id INTEGER NULL, creator_display_name TEXT NULL, \
-                reason TEXT NOT NULL, created_at TEXT NOT NULL\
-             ); \
-             CREATE TABLE file_revision_properties (\
-                revision_id INTEGER NOT NULL, namespace TEXT NOT NULL, name TEXT NOT NULL, \
-                xml_value TEXT NULL\
-             );",
+             CREATE TABLE file_blobs (id INTEGER PRIMARY KEY); \
+             CREATE TABLE users (id INTEGER PRIMARY KEY); \
+             INSERT INTO file_blobs (id) VALUES (1);",
         )
         .await
-        .expect("backfill ledger fixture schema should apply");
+        .expect("backfill fixture prerequisite schema should apply");
+
+        let manager = SchemaManager::new(db);
+        create_revision_histories(&manager)
+            .await
+            .expect("revision history schema should apply");
+        create_revisions(&manager)
+            .await
+            .expect("revision schema should apply");
+        create_revision_properties(&manager)
+            .await
+            .expect("revision property schema should apply");
     }
 
     async fn count_rows(db: &DatabaseConnection, table: &str) -> i64 {
