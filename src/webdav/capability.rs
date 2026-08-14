@@ -78,7 +78,10 @@ impl<'a> DriveDavCapabilityProvider<'a> {
                     DavMethod::Lock,
                     DavMethod::Unlock,
                 ],
-                (DavResourceState::File, _) => &[
+                (
+                    DavResourceState::File,
+                    DavVersioningState::CheckedIn | DavVersioningState::CheckedOut,
+                ) => &[
                     DavMethod::Options,
                     DavMethod::Get,
                     DavMethod::Put,

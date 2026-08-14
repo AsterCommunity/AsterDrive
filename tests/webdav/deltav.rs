@@ -5,13 +5,30 @@ use crate::common;
 use actix_web::test;
 use base64::Engine;
 
-const VERSION_HREF_PREFIX: &str = "/webdav/.asterdrive-deltav/versions/";
-
 fn basic_auth_header(username: &str, password: &str) -> String {
     format!(
         "Basic {}",
         base64::engine::general_purpose::STANDARD.encode(format!("{username}:{password}"))
     )
+}
+
+async fn property_audit_count(
+    state: &aster_drive::runtime::PrimaryAppState,
+    entity_id: i64,
+) -> u64 {
+    use aster_drive_model::entities::audit_log;
+    use aster_drive_model::types::AuditAction;
+    use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
+
+    audit_log::Entity::find()
+        .filter(audit_log::Column::EntityId.eq(entity_id))
+        .filter(
+            audit_log::Column::Action
+                .is_in([AuditAction::PropertySet, AuditAction::PropertyDelete]),
+        )
+        .count(state.writer_db())
+        .await
+        .unwrap()
 }
 
 async fn create_webdav_auth(
@@ -75,23 +92,6 @@ async fn version_tree_report(
     let resp = test::call_service(app, req).await;
     assert_eq!(resp.status(), 207);
     String::from_utf8(test::read_body(resp).await.to_vec()).expect("REPORT XML should be UTF-8")
-}
-
-fn version_hrefs(report: &str) -> Vec<String> {
-    let mut hrefs = Vec::new();
-    let mut remaining = report;
-    while let Some(offset) = remaining.find(VERSION_HREF_PREFIX) {
-        let candidate = &remaining[offset..];
-        let end = candidate
-            .find('<')
-            .expect("version href should terminate before the next XML element");
-        let href = candidate[..end].to_owned();
-        if !hrefs.contains(&href) {
-            hrefs.push(href);
-        }
-        remaining = &candidate[end..];
-    }
-    hrefs
 }
 
 #[actix_web::test]
@@ -174,15 +174,17 @@ async fn deltav_version_control_report_and_immutable_resource_workflow() {
     assert!(allow.split(',').any(|method| method.trim() == "REPORT"));
 
     let report = version_tree_report(&app, &auth, "/webdav/file.txt").await;
-    let hrefs = version_hrefs(&report);
+    let hrefs = common::deltav_version_hrefs(&report);
     assert_eq!(
         hrefs.len(),
         2,
         "controlled PROPPATCH should append exactly one immutable revision:\n{report}"
     );
-    let version_path = hrefs[0].clone();
-    let property_version_path = hrefs[1].clone();
-    assert!(report.contains("version-name"));
+    let version_path = common::deltav_version_href_by_name(&report, "1")
+        .expect("version-tree should expose the activation-root revision");
+    let property_version_path = common::deltav_version_href_by_name(&report, "2")
+        .expect("version-tree should expose the property-change revision");
+    assert_ne!(version_path, property_version_path);
 
     let req = test::TestRequest::with_uri("/webdav/file.txt")
         .method(actix_web::http::Method::from_bytes(b"REPORT").unwrap())
@@ -234,7 +236,65 @@ async fn deltav_version_control_report_and_immutable_resource_workflow() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
-    assert!(resp.headers().contains_key("ETag"));
+    let version_etag = resp
+        .headers()
+        .get("ETag")
+        .expect("immutable HEAD should expose an ETag")
+        .clone();
+
+    for (range, expected_content_range, expected_body) in [
+        ("bytes=-3", "bytes 4-6/7", &b"ent"[..]),
+        ("bytes=4-", "bytes 4-6/7", &b"ent"[..]),
+    ] {
+        let req = test::TestRequest::get()
+            .uri(&version_path)
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Range", range))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 206, "range {range} should be satisfiable");
+        assert_eq!(
+            resp.headers()
+                .get("Content-Range")
+                .and_then(|value| value.to_str().ok()),
+            Some(expected_content_range)
+        );
+        assert_eq!(&test::read_body(resp).await[..], expected_body);
+    }
+
+    let req = test::TestRequest::get()
+        .uri(&version_path)
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Range", "bytes=100-200"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 416);
+    assert_eq!(
+        resp.headers()
+            .get("Content-Range")
+            .and_then(|value| value.to_str().ok()),
+        Some("bytes */7")
+    );
+
+    let req = test::TestRequest::get()
+        .uri(&version_path)
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Range", "bytes=1-3"))
+        .insert_header(("If-Range", version_etag.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 206);
+    assert_eq!(&test::read_body(resp).await[..], b"ont");
+
+    let req = test::TestRequest::get()
+        .uri(&version_path)
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Range", "bytes=1-3"))
+        .insert_header(("If-Range", "\"different-version\""))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(&test::read_body(resp).await[..], b"content");
 
     let req = test::TestRequest::default()
         .method(actix_web::http::Method::OPTIONS)
@@ -359,10 +419,25 @@ async fn deltav_version_control_report_and_immutable_resource_workflow() {
 
 #[actix_web::test]
 async fn deltav_proppatch_revisions_require_a_real_controlled_property_change() {
-    let app = setup_with_webdav!();
+    use aster_drive::db::repository::{file_repo, user_repo};
+
+    let (app, state) = setup_with_webdav!(with_state);
     let (token, _) = register_and_login!(app);
     let auth = create_webdav_auth(&app, &token).await;
     put_file(&app, &auth, "/webdav/property-revisions.txt").await;
+    let user = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .expect("test user should exist");
+    let file = file_repo::find_by_name_in_folder(
+        state.writer_db(),
+        user.id,
+        None,
+        "property-revisions.txt",
+    )
+    .await
+    .unwrap()
+    .expect("WebDAV file should exist");
 
     let req = test::TestRequest::default()
         .method(actix_web::http::Method::HEAD)
@@ -385,6 +460,7 @@ async fn deltav_proppatch_revisions_require_a_real_controlled_property_change() 
         .set_payload(property_one)
         .to_request();
     assert_eq!(test::call_service(&app, req).await.status(), 207);
+    assert_eq!(property_audit_count(&state, file.id).await, 1);
 
     let req = test::TestRequest::default()
         .method(actix_web::http::Method::HEAD)
@@ -408,7 +484,7 @@ async fn deltav_proppatch_revisions_require_a_real_controlled_property_change() 
         .to_request();
     assert_eq!(test::call_service(&app, req).await.status(), 200);
     let initial_report = version_tree_report(&app, &auth, "/webdav/property-revisions.txt").await;
-    assert_eq!(version_hrefs(&initial_report).len(), 1);
+    assert_eq!(common::deltav_version_hrefs(&initial_report).len(), 1);
 
     let req = test::TestRequest::with_uri("/webdav/property-revisions.txt")
         .method(actix_web::http::Method::from_bytes(b"PROPPATCH").unwrap())
@@ -419,9 +495,14 @@ async fn deltav_proppatch_revisions_require_a_real_controlled_property_change() 
     assert_eq!(test::call_service(&app, req).await.status(), 207);
     let no_op_set_report = version_tree_report(&app, &auth, "/webdav/property-revisions.txt").await;
     assert_eq!(
-        version_hrefs(&no_op_set_report).len(),
+        common::deltav_version_hrefs(&no_op_set_report).len(),
         1,
         "setting the existing value must not append a revision"
+    );
+    assert_eq!(
+        property_audit_count(&state, file.id).await,
+        1,
+        "setting the existing value must not emit a mutation audit"
     );
 
     let req = test::TestRequest::with_uri("/webdav/property-revisions.txt")
@@ -436,9 +517,14 @@ async fn deltav_proppatch_revisions_require_a_real_controlled_property_change() 
     let no_op_delete_report =
         version_tree_report(&app, &auth, "/webdav/property-revisions.txt").await;
     assert_eq!(
-        version_hrefs(&no_op_delete_report).len(),
+        common::deltav_version_hrefs(&no_op_delete_report).len(),
         1,
         "deleting a missing property must not append a revision"
+    );
+    assert_eq!(
+        property_audit_count(&state, file.id).await,
+        1,
+        "deleting a missing property must not emit a mutation audit"
     );
 
     let req = test::TestRequest::with_uri("/webdav/property-revisions.txt")
@@ -452,9 +538,171 @@ async fn deltav_proppatch_revisions_require_a_real_controlled_property_change() 
     assert_eq!(test::call_service(&app, req).await.status(), 207);
     let changed_report = version_tree_report(&app, &auth, "/webdav/property-revisions.txt").await;
     assert_eq!(
-        version_hrefs(&changed_report).len(),
+        common::deltav_version_hrefs(&changed_report).len(),
         2,
         "one real controlled property change must append exactly one revision"
+    );
+    assert_eq!(property_audit_count(&state, file.id).await, 2);
+}
+
+#[actix_web::test]
+async fn deltav_property_revision_refcount_quota_and_rollback_stay_balanced() {
+    use aster_drive::db::repository::{file_repo, property_repo, revision_repo, user_repo};
+    use aster_drive_model::types::EntityType;
+    use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+
+    let (app, state) = setup_with_webdav!(with_state);
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_auth(&app, &token).await;
+    put_file(&app, &auth, "/webdav/refcounted-property.txt").await;
+
+    let user = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .expect("test user should exist");
+    let file = file_repo::find_by_name_in_folder(
+        state.writer_db(),
+        user.id,
+        None,
+        "refcounted-property.txt",
+    )
+    .await
+    .unwrap()
+    .expect("WebDAV file should exist");
+    let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id)
+        .await
+        .unwrap();
+    assert_eq!(blob.ref_count, 1);
+    assert_eq!(user.storage_used, 7);
+
+    let req = test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"VERSION-CONTROL").unwrap())
+        .uri("/webdav/refcounted-property.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload("<D:version-control xmlns:D=\"DAV:\"/>")
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
+
+    let mut quota_limited = user.clone().into_active_model();
+    quota_limited.storage_quota = Set(user.storage_used);
+    quota_limited.update(state.writer_db()).await.unwrap();
+
+    let property_patch = "<D:propertyupdate xmlns:D=\"DAV:\" xmlns:A=\"urn:test\"><D:set><D:prop><A:note>one</A:note></D:prop></D:set></D:propertyupdate>";
+    let req = test::TestRequest::with_uri("/webdav/refcounted-property.txt")
+        .method(actix_web::http::Method::from_bytes(b"PROPPATCH").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(property_patch)
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, req).await.status(),
+        507,
+        "quota failure should roll back both the property and revision"
+    );
+
+    let history = revision_repo::find_history_by_file_id(state.writer_db(), file.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        revision_repo::find_deltav_revisions(state.writer_db(), &history, 10)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        property_repo::find_by_key(
+            state.writer_db(),
+            EntityType::File,
+            file.id,
+            "urn:test",
+            "note",
+        )
+        .await
+        .unwrap()
+        .is_none()
+    );
+    assert_eq!(
+        file_repo::find_blob_by_id(state.writer_db(), file.blob_id)
+            .await
+            .unwrap()
+            .ref_count,
+        1
+    );
+    assert_eq!(
+        user_repo::find_by_id(state.writer_db(), user.id)
+            .await
+            .unwrap()
+            .storage_used,
+        7
+    );
+
+    let mut quota_restored = user_repo::find_by_id(state.writer_db(), user.id)
+        .await
+        .unwrap()
+        .into_active_model();
+    quota_restored.storage_quota = Set(1024);
+    quota_restored.update(state.writer_db()).await.unwrap();
+
+    let req = test::TestRequest::with_uri("/webdav/refcounted-property.txt")
+        .method(actix_web::http::Method::from_bytes(b"PROPPATCH").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(property_patch)
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 207);
+
+    let history = revision_repo::find_history_by_file_id(state.writer_db(), file.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        revision_repo::find_deltav_revisions(state.writer_db(), &history, 10)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        file_repo::find_blob_by_id(state.writer_db(), file.blob_id)
+            .await
+            .unwrap()
+            .ref_count,
+        2
+    );
+    assert_eq!(
+        user_repo::find_by_id(state.writer_db(), user.id)
+            .await
+            .unwrap()
+            .storage_used,
+        14
+    );
+
+    let root_revision_id = history
+        .deltav_root_revision_id
+        .expect("controlled history should retain an activation root");
+    let req = test::TestRequest::delete()
+        .uri(&format!(
+            "/api/v1/files/{}/versions/{root_revision_id}",
+            file.id
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
+    assert_eq!(
+        file_repo::find_blob_by_id(state.writer_db(), file.blob_id)
+            .await
+            .unwrap()
+            .ref_count,
+        1
+    );
+    assert_eq!(
+        user_repo::find_by_id(state.writer_db(), user.id)
+            .await
+            .unwrap()
+            .storage_used,
+        7
     );
 }
 

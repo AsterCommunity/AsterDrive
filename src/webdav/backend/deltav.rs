@@ -62,35 +62,56 @@ fn backend_error(error: impl std::fmt::Display) -> DavBackendError {
     DavBackendError::new(DavBackendErrorKind::Internal)
 }
 
+async fn ensure_deltav_file_visible_for_scope_on<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceStorageScope,
+    root_folder_id: Option<i64>,
+    file: &file::Model,
+) -> crate::errors::Result<()> {
+    crate::services::workspace::storage::ensure_active_file_scope(file, scope).map_err(|_| {
+        crate::errors::AsterError::record_not_found("DeltaV file is outside the active scope")
+    })?;
+    let Some(root_folder_id) = root_folder_id else {
+        return Ok(());
+    };
+    let Some(folder_id) = file.folder_id else {
+        return Err(crate::errors::AsterError::record_not_found(
+            "DeltaV file is outside the mounted root",
+        ));
+    };
+    let ancestors = match scope {
+        WorkspaceStorageScope::Personal { user_id } => {
+            folder_repo::find_ancestor_models(db, user_id, folder_id).await
+        }
+        WorkspaceStorageScope::Team { team_id, .. } => {
+            folder_repo::find_team_ancestor_models(db, team_id, folder_id).await
+        }
+    }?;
+    if ancestors.iter().any(|folder| folder.deleted_at.is_some())
+        || !ancestors.iter().any(|folder| folder.id == root_folder_id)
+    {
+        return Err(crate::errors::AsterError::record_not_found(
+            "DeltaV file is outside the mounted root",
+        ));
+    }
+    Ok(())
+}
+
 impl AsterDavFs {
     async fn ensure_deltav_file_visible_on<C: ConnectionTrait>(
         &self,
         db: &C,
         file: &file::Model,
     ) -> Result<(), DavBackendError> {
-        crate::services::workspace::storage::ensure_active_file_scope(file, self.scope)
-            .map_err(|_| DavBackendError::new(DavBackendErrorKind::NotFound))?;
-        let Some(root_folder_id) = self.root_folder_id else {
-            return Ok(());
-        };
-        let Some(folder_id) = file.folder_id else {
-            return Err(DavBackendError::new(DavBackendErrorKind::NotFound));
-        };
-        let ancestors = match self.scope {
-            WorkspaceStorageScope::Personal { user_id } => {
-                folder_repo::find_ancestor_models(db, user_id, folder_id).await
-            }
-            WorkspaceStorageScope::Team { team_id, .. } => {
-                folder_repo::find_team_ancestor_models(db, team_id, folder_id).await
-            }
-        }
-        .map_err(backend_error)?;
-        if ancestors.iter().any(|folder| folder.deleted_at.is_some())
-            || !ancestors.iter().any(|folder| folder.id == root_folder_id)
-        {
-            return Err(DavBackendError::new(DavBackendErrorKind::NotFound));
-        }
-        Ok(())
+        ensure_deltav_file_visible_for_scope_on(db, self.scope, self.root_folder_id, file)
+            .await
+            .map_err(|error| {
+                if matches!(error, crate::errors::AsterError::RecordNotFound(_)) {
+                    DavBackendError::new(DavBackendErrorKind::NotFound)
+                } else {
+                    backend_error(error)
+                }
+            })
     }
 
     pub(crate) async fn deltav_capability_target(
@@ -319,13 +340,15 @@ impl AsterDavFs {
         };
         let file_id = file.id;
         let scope = self.scope;
+        let root_folder_id = self.root_folder_id;
         aster_forge_db::transaction::with_transaction_retry(
             self.state.writer_db(),
             &aster_forge_db::retry::RetryConfig::deadlock(),
             move |txn| {
                 Box::pin(async move {
                     let file = file_repo::find_by_id(txn, file_id).await?;
-                    crate::services::workspace::storage::ensure_active_file_scope(&file, scope)?;
+                    ensure_deltav_file_visible_for_scope_on(txn, scope, root_folder_id, &file)
+                        .await?;
                     revision_repo::activate_deltav(txn, file_id).await
                 })
             },

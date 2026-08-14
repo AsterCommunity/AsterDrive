@@ -33,6 +33,55 @@ fn lock_csrf_registry() -> std::sync::MutexGuard<'static, HashMap<String, String
 const TEST_DATABASE_BACKEND_ENV: &str = "ASTER_TEST_DATABASE_BACKEND";
 // Keep the year within MySQL TIMESTAMP's supported range.
 pub const TEST_FUTURE_SHARE_EXPIRY_RFC3339: &str = "2099-12-31T23:59:59Z";
+pub const DELTAV_VERSION_HREF_PREFIX: &str = "/webdav/.asterdrive-deltav/versions/";
+
+pub fn deltav_version_entries(xml: &str) -> Vec<(String, String)> {
+    use aster_forge_webdav::DavXmlElement as Element;
+
+    let multistatus = Element::parse_reader(std::io::Cursor::new(xml.as_bytes()))
+        .expect("DeltaV Multi-Status XML should parse");
+    multistatus
+        .child_elements()
+        .filter(|element| element.name == "response")
+        .filter_map(|response| {
+            let href = response
+                .child_elements()
+                .find(|element| element.name == "href")
+                .and_then(Element::text)?;
+            if !href.starts_with(DELTAV_VERSION_HREF_PREFIX) {
+                return None;
+            }
+            let version_name = response
+                .child_elements()
+                .filter(|element| element.name == "propstat")
+                .filter_map(|propstat| {
+                    propstat
+                        .child_elements()
+                        .find(|element| element.name == "prop")
+                })
+                .flat_map(Element::child_elements)
+                .find(|property| property.name == "version-name")
+                .and_then(Element::text)?;
+            Some((href, version_name))
+        })
+        .collect()
+}
+
+pub fn deltav_version_hrefs(xml: &str) -> Vec<String> {
+    let mut hrefs = Vec::new();
+    for (href, _) in deltav_version_entries(xml) {
+        if !hrefs.contains(&href) {
+            hrefs.push(href);
+        }
+    }
+    hrefs
+}
+
+pub fn deltav_version_href_by_name(xml: &str, version_name: &str) -> Option<String> {
+    deltav_version_entries(xml)
+        .into_iter()
+        .find_map(|(href, name)| (name == version_name).then_some(href))
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TestLocalConnectorConfigV1 {
@@ -1826,6 +1875,10 @@ macro_rules! upload_test_file_to_folder {
 #[macro_export]
 macro_rules! setup_with_webdav {
     () => {{
+        let (app, _state) = setup_with_webdav!(with_state);
+        app
+    }};
+    (with_state) => {{
         use actix_web::{App, test, web};
         let state = common::setup().await;
         let db1 = state.writer_db().clone();
@@ -1838,14 +1891,14 @@ macro_rules! setup_with_webdav {
                     aster_drive::api::extractors::DEFAULT_PAYLOAD_LIMIT,
                 ))
                 .app_data(web::JsonConfig::default().limit(1024 * 1024))
-                .app_data(web::Data::new(state))
+                .app_data(web::Data::new(state.clone()))
                 .configure(move |cfg| {
                     aster_drive::webdav::configure(cfg, &webdav_config, &db2);
                     aster_drive::api::configure_primary(cfg, &db1);
                 }),
         )
         .await;
-        app
+        (app, state)
     }};
 }
 

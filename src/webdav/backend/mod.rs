@@ -1195,7 +1195,7 @@ impl DavFileSystem for AsterDavFs {
                 .await
                 .map_err(|_| FsError::GeneralFailure)?;
 
-            let mut changed = false;
+            let mut applied = Vec::with_capacity(patches.len());
 
             for (set, prop) in &patches {
                 let ns = prop.namespace.as_deref().unwrap_or("");
@@ -1209,6 +1209,7 @@ impl DavFileSystem for AsterDavFs {
                         .as_ref()
                         .is_some_and(|current| current.value.as_deref() == value.as_deref())
                     {
+                        applied.push(false);
                         continue;
                     }
                     property_repo::upsert(
@@ -1221,18 +1222,21 @@ impl DavFileSystem for AsterDavFs {
                     )
                     .await
                     .map_err(|_| FsError::GeneralFailure)?;
-                    changed = true;
+                    applied.push(true);
                 } else {
                     if current.is_none() {
+                        applied.push(false);
                         continue;
                     }
                     property_repo::delete_prop(&txn, entity_type, entity_id, ns, &prop.name)
                         .await
                         .map_err(|_| FsError::GeneralFailure)?;
-                    changed = true;
+                    applied.push(true);
                 }
             }
 
+            let changed = applied.iter().any(|applied| *applied);
+            let mut controlled_revision_file_id = None;
             if changed && matches!(entity_type, EntityType::File) {
                 let file = file_repo::find_by_id(&txn, entity_id)
                     .await
@@ -1242,12 +1246,25 @@ impl DavFileSystem for AsterDavFs {
                         .await
                         .map_err(|_| FsError::GeneralFailure)?;
                 if history.deltav_controlled_at.is_some() {
+                    crate::services::workspace::storage::lock_storage_usage(&txn, self.scope)
+                        .await
+                        .map_err(to_fs_error)?;
+                    if file.size > 0 {
+                        crate::services::workspace::storage::check_quota(
+                            &txn, self.scope, file.size,
+                        )
+                        .await
+                        .map_err(to_fs_error)?;
+                    }
                     let actor_username =
                         crate::services::workspace::storage::load_scope_actor_username(
                             &txn, self.scope,
                         )
                         .await
                         .map_err(|_| FsError::GeneralFailure)?;
+                    file_repo::increment_blob_ref_count(&txn, file.blob_id)
+                        .await
+                        .map_err(to_fs_error)?;
                     crate::db::repository::revision_repo::append(
                         &txn,
                         file.id,
@@ -1268,6 +1285,14 @@ impl DavFileSystem for AsterDavFs {
                     )
                     .await
                     .map_err(|_| FsError::GeneralFailure)?;
+                    if file.size != 0 {
+                        crate::services::workspace::storage::update_storage_used(
+                            &txn, self.scope, file.size,
+                        )
+                        .await
+                        .map_err(to_fs_error)?;
+                    }
+                    controlled_revision_file_id = Some(file.id);
                 }
             }
 
@@ -1275,7 +1300,16 @@ impl DavFileSystem for AsterDavFs {
                 .await
                 .map_err(|_| FsError::GeneralFailure)?;
 
-            for (set, prop) in &patches {
+            if let Some(file_id) = controlled_revision_file_id {
+                crate::services::content::version::cleanup_excess(&self.state, file_id)
+                    .await
+                    .map_err(to_fs_error)?;
+            }
+
+            for ((set, prop), applied) in patches.iter().zip(applied.iter()) {
+                if !*applied {
+                    continue;
+                }
                 let ns = prop.namespace.as_deref().unwrap_or("");
                 let entity_type_label = entity_type.as_str();
                 audit::log_with_details(

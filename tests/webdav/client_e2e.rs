@@ -21,8 +21,6 @@ use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 
 const CLIENT_COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
-const DELTAV_VERSION_HREF_PREFIX: &str = "/webdav/.asterdrive-deltav/versions/";
-
 struct RunningWebdavServer {
     base_url: String,
     handle: actix_web::dev::ServerHandle,
@@ -422,23 +420,6 @@ fn deltav_method(name: &str) -> reqwest::Method {
     reqwest::Method::from_bytes(name.as_bytes()).expect("DeltaV method should be valid")
 }
 
-fn deltav_version_hrefs(xml: &str) -> Vec<String> {
-    let mut hrefs = Vec::new();
-    let mut remaining = xml;
-    while let Some(offset) = remaining.find(DELTAV_VERSION_HREF_PREFIX) {
-        let candidate = &remaining[offset..];
-        let end = candidate
-            .find('<')
-            .expect("DeltaV version href should terminate before the next XML element");
-        let href = candidate[..end].to_string();
-        if !hrefs.contains(&href) {
-            hrefs.push(href);
-        }
-        remaining = &candidate[end..];
-    }
-    hrefs
-}
-
 fn absolute_webdav_url(server: &RunningWebdavServer, href: &str) -> String {
     format!("{}{href}", server.base_url)
 }
@@ -567,7 +548,7 @@ async fn test_webdav_real_http_deltav_rfc3253_workflow() {
     let initial_report = raw_deltav_report(&client, &file_url, &username, &password).await;
     assert!(initial_report.contains("version-name"));
     assert!(initial_report.contains("getetag"));
-    let initial_hrefs = deltav_version_hrefs(&initial_report);
+    let initial_hrefs = common::deltav_version_hrefs(&initial_report);
     assert_eq!(
         initial_hrefs.len(),
         1,
@@ -682,7 +663,10 @@ async fn test_webdav_real_http_deltav_rfc3253_workflow() {
 
     let immutable_report =
         raw_deltav_report(&client, &initial_version_url, &username, &password).await;
-    assert_eq!(deltav_version_hrefs(&immutable_report), initial_hrefs);
+    assert_eq!(
+        common::deltav_version_hrefs(&immutable_report),
+        initial_hrefs
+    );
 
     let updated = client
         .put(&file_url)
@@ -698,7 +682,7 @@ async fn test_webdav_real_http_deltav_rfc3253_workflow() {
     );
 
     let updated_report = raw_deltav_report(&client, &file_url, &username, &password).await;
-    let updated_hrefs = deltav_version_hrefs(&updated_report);
+    let updated_hrefs = common::deltav_version_hrefs(&updated_report);
     assert_eq!(
         updated_hrefs.len(),
         2,
@@ -1529,7 +1513,7 @@ async fn test_webdav_cadaver_deltav_version_history_and_normal_io() {
     let client = reqwest::Client::new();
     let file_url = format!("{}/webdav/{file_name}", server.base_url);
     let report = raw_deltav_report(&client, &file_url, &username, &password).await;
-    let version_hrefs = deltav_version_hrefs(&report);
+    let version_hrefs = common::deltav_version_hrefs(&report);
     assert_eq!(
         version_hrefs.len(),
         2,
