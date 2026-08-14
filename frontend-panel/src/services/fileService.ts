@@ -213,12 +213,18 @@ export function createFileService(workspace: Workspace) {
 			name: string,
 			folderId?: number | null,
 			relativePath?: string,
-		) =>
-			api.post<FileInfo>(buildWorkspacePath(workspace, "/files/new"), {
+			options?: ServiceRequestOptions,
+		) => {
+			const path = buildWorkspacePath(workspace, "/files/new");
+			const data = {
 				name,
 				folder_id: folderId ?? null,
 				...(relativePath === undefined ? {} : { relative_path: relativePath }),
-			}),
+			};
+			return options === undefined
+				? api.post<FileInfo>(path, data)
+				: api.post<FileInfo>(path, data, options);
+		},
 
 		copyFile: (id: number, folderId?: number | null) =>
 			api.post<FileInfo>(buildWorkspacePath(workspace, `/files/${id}/copy`), {

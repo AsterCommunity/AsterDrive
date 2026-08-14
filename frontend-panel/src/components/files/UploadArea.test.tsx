@@ -403,11 +403,44 @@ describe("UploadArea", () => {
 		await renderUploadAreaWithFiles([new File([], "empty.txt")]);
 
 		await screen.findByText("empty.txt:Direct:files:upload_success");
-		expect(createEmptyFile).toHaveBeenCalledWith("empty.txt", 42, undefined);
+		expect(createEmptyFile).toHaveBeenCalledWith("empty.txt", 42, undefined, {
+			signal: expect.any(AbortSignal),
+		});
 		expect(initUpload).not.toHaveBeenCalled();
 		expect(apiClientPost).not.toHaveBeenCalled();
 		expect(uploadChunk).not.toHaveBeenCalled();
 		expect(presignedUpload).not.toHaveBeenCalled();
+	});
+
+	it("keeps empty file creation cancelled when the request finishes later", async () => {
+		const creation = createDeferred<{ id: number }>();
+		createEmptyFile.mockReturnValue(creation.promise);
+
+		await renderUploadAreaWithFiles([new File([], "cancel-empty.txt")]);
+
+		await screen.findByText("cancel-empty.txt:Direct:files:processing:0");
+		const signal = createEmptyFile.mock.calls[0]?.[3]?.signal as AbortSignal;
+		expect(signal.aborted).toBe(false);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "files:upload_dismiss" }),
+		);
+
+		await screen.findByText("cancel-empty.txt:Direct:files:upload_cancelled:0");
+		expect(signal.aborted).toBe(true);
+
+		await act(async () => {
+			creation.resolve({ id: 1002 });
+			await creation.promise;
+		});
+
+		expect(
+			screen.getByText("cancel-empty.txt:Direct:files:upload_cancelled:0"),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByText("cancel-empty.txt:Direct:files:upload_success:100"),
+		).not.toBeInTheDocument();
+		expect(refresh).not.toHaveBeenCalled();
 	});
 
 	it("creates empty picker files in the active team workspace", async () => {
@@ -424,6 +457,7 @@ describe("UploadArea", () => {
 			"team-empty.txt",
 			42,
 			undefined,
+			{ signal: expect.any(AbortSignal) },
 		);
 		expect(initUpload).not.toHaveBeenCalled();
 	});
@@ -468,6 +502,7 @@ describe("UploadArea", () => {
 			"empty.txt",
 			42,
 			"docs/empty.txt",
+			{ signal: expect.any(AbortSignal) },
 		);
 		expect(initUpload).toHaveBeenCalledTimes(1);
 		expect(initUpload).toHaveBeenCalledWith(

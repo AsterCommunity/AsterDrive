@@ -88,6 +88,7 @@ function createSavedSession(
 export async function runQueuedUploadTask(
 	taskId: string,
 	{
+		directAbortRef,
 		markTaskFailed,
 		markFolderForRefresh,
 		patchTask,
@@ -106,6 +107,7 @@ export async function runQueuedUploadTask(
 
 	const file = task.file;
 	patchTask(taskId, {
+		...(file.size === 0 ? { mode: "direct" as const } : {}),
 		status: "initializing",
 		error: null,
 		progress: 0,
@@ -115,20 +117,31 @@ export async function runQueuedUploadTask(
 
 	try {
 		if (file.size === 0) {
-			await createFileService(workspace).createEmptyFile(
-				file.name,
-				task.baseFolderId,
-				task.relativePath ?? undefined,
-			);
-			patchTask(taskId, {
-				mode: "direct",
-				status: "completed",
-				progress: 100,
-				uploadedBytes: 0,
-				speedBps: 0,
-				error: null,
-			});
-			markFolderForRefresh(task);
+			const controller = new AbortController();
+			directAbortRef.current.set(taskId, controller);
+			try {
+				await createFileService(workspace).createEmptyFile(
+					file.name,
+					task.baseFolderId,
+					task.relativePath ?? undefined,
+					{ signal: controller.signal },
+				);
+				if (controller.signal.aborted) return;
+
+				patchTask(taskId, {
+					mode: "direct",
+					status: "completed",
+					progress: 100,
+					uploadedBytes: 0,
+					speedBps: 0,
+					error: null,
+				});
+				markFolderForRefresh(task);
+			} catch (error) {
+				if (!controller.signal.aborted) throw error;
+			} finally {
+				directAbortRef.current.delete(taskId);
+			}
 			return;
 		}
 

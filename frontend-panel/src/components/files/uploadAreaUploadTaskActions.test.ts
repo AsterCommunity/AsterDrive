@@ -386,6 +386,7 @@ describe("runQueuedUploadTask", () => {
 		const resumeCompletionTask = vi.fn();
 
 		await runQueuedUploadTask("empty", {
+			directAbortRef: { current: new Map() },
 			markFolderForRefresh,
 			markTaskFailed: vi.fn(),
 			patchTask,
@@ -403,6 +404,7 @@ describe("runQueuedUploadTask", () => {
 			"empty.txt",
 			7,
 			"docs/empty.txt",
+			{ signal: expect.any(AbortSignal) },
 		);
 		expect(createFileService).toHaveBeenCalledWith({ kind: "personal" });
 		expect(initUpload).not.toHaveBeenCalled();

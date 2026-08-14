@@ -317,6 +317,24 @@ describe("fileService", () => {
 		});
 	});
 
+	it("forwards abort signals when creating empty files", async () => {
+		const { fileService } = await import("@/services/fileService");
+		const controller = new AbortController();
+
+		fileService.createEmptyFile("cancelable.md", null, undefined, {
+			signal: controller.signal,
+		});
+
+		expect(mockState.post).toHaveBeenCalledWith(
+			"/files/new",
+			{
+				name: "cancelable.md",
+				folder_id: null,
+			},
+			{ signal: controller.signal },
+		);
+	});
+
 	it("uses metadata PATCH endpoints for single-item moves", async () => {
 		const { createFileService } = await import("@/services/fileService");
 		const personal = createFileService(PERSONAL_WORKSPACE);
