@@ -172,6 +172,40 @@ fn invalid_avatar_upload_payload() -> (String, Vec<u8>) {
     (boundary, body)
 }
 
+fn avatar_metadata_only_payload() -> (String, Vec<u8>) {
+    let boundary = "----AsterAvatarMetadataOnlyBoundary".to_string();
+    let payload = format!(
+        "--{boundary}\r\n\
+         Content-Disposition: form-data; name=\"metadata\"\r\n\r\n\
+         no avatar file\r\n\
+         --{boundary}--\r\n"
+    )
+    .into_bytes();
+    (boundary, payload)
+}
+
+fn configure_avatar_vips(state: &aster_drive::runtime::PrimaryAppState) {
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY,
+        &serde_json::json!({
+            "version": 1,
+            "processors": [
+                {
+                    "kind": "vips_cli",
+                    "enabled": true,
+                    "extensions": ["png"],
+                    "config": { "command": "vips" }
+                },
+                {
+                    "kind": "images",
+                    "enabled": true
+                }
+            ]
+        })
+        .to_string(),
+    ));
+}
+
 fn extract_verification_token(message: &aster_forge_mail::MailMessage) -> String {
     common::extract_token_from_mail_message(
         message,
@@ -5209,6 +5243,89 @@ async fn test_display_name_survives_avatar_source_switches() {
         assert_eq!(body["data"]["display_name"], "Avatar User");
         assert_eq!(body["data"]["avatar"]["source"], source);
     }
+}
+
+#[actix_web::test]
+async fn test_fresh_profile_none_source_is_a_noop_without_creating_a_row() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let user_id = testuser_id(state.writer_db()).await;
+    assert!(
+        aster_drive::db::repository::user_profile_repo::find_by_user_id(state.writer_db(), user_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/auth/profile/avatar/source")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "source": "none" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["avatar"]["source"], "none");
+    assert_eq!(body["data"]["avatar"]["version"], 0);
+    assert!(
+        aster_drive::db::repository::user_profile_repo::find_by_user_id(state.writer_db(), user_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[actix_web::test]
+async fn test_avatar_upload_requires_a_filename_field() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let (boundary, payload) = avatar_metadata_only_payload();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/profile/avatar/upload")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], ApiErrorCode::AvatarFileRequired.as_str());
+}
+
+#[actix_web::test]
+async fn test_avatar_upload_uses_vips_processor_when_available() {
+    if !aster_drive::config::media_processing::command_is_available("vips") {
+        return;
+    }
+    let state = common::setup().await;
+    configure_avatar_vips(&state);
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let (boundary, payload) = avatar_upload_payload();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/profile/avatar/upload")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["applied"], true);
+    assert_eq!(body["data"]["profile"]["avatar"]["source"], "upload");
 }
 
 #[actix_web::test]

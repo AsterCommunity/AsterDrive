@@ -131,10 +131,7 @@ async fn write_staged_avatar_variants(
     let large_path = avatar_variant_file_path(&rendered_dir, AVATAR_SIZE_LG);
 
     write_local_avatar(&large_path, &processed.large_bytes).await?;
-    if let Err(error) = write_local_avatar(&small_path, &processed.small_bytes).await {
-        cleanup_local_avatar_prefix(&rendered_dir, avatar_root_dir).await;
-        return Err(error);
-    }
+    write_local_avatar(&small_path, &processed.small_bytes).await?;
     Ok(rendered_dir)
 }
 
@@ -215,11 +212,10 @@ async fn publish_staged_avatar(
                 let version = next_avatar_version(current_profile.as_ref())?;
                 let prefix_key = user_avatar_prefix(transaction_user_id, version);
                 let prefix = user_avatar_dir(&avatar_root_dir, transaction_user_id, version);
-                let Some(prefix_parent) = prefix.parent() else {
-                    return Err(AsterError::storage_driver_error(
-                        "avatar destination has no parent directory",
-                    ));
-                };
+                let prefix_parent = avatar_root_dir
+                    .join("user")
+                    .join(transaction_user_id.to_string());
+                debug_assert_eq!(prefix.parent(), Some(prefix_parent.as_path()));
                 cleanup_local_avatar_prefix(&prefix, &avatar_root_dir).await;
                 tokio::fs::create_dir_all(prefix_parent)
                     .await
@@ -227,6 +223,9 @@ async fn publish_staged_avatar(
                         "create avatar user directory",
                         AsterError::storage_driver_error,
                     )?;
+                // Keep publish before the profile row update while the row lock is held:
+                // committing first could expose a profile that points at a missing file.
+                // max_retries=0 above prevents replaying this cross-resource side effect.
                 tokio::fs::rename(&rendered_dir, &prefix)
                     .await
                     .map_aster_err_ctx(

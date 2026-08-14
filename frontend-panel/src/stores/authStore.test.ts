@@ -371,7 +371,7 @@ describe("useAuthStore", () => {
 		await useAuthStore.getState().checkAuth();
 		const nextProfile = {
 			avatar: {
-				source: "uploaded" as const,
+				source: "upload" as const,
 				url_512: "/avatars/1/7/512.webp",
 				url_1024: "/avatars/1/7/1024.webp",
 				version: 7,
@@ -393,6 +393,56 @@ describe("useAuthStore", () => {
 			preferences: user.preferences,
 			profile: nextProfile,
 		});
+	});
+
+	it("keeps a newer profile when an older full refresh completes later", async () => {
+		const initialUser = createMeResponse({ storage_used: 10 });
+		const staleRefreshUser = createMeResponse({ storage_used: 42 });
+		let requestCount = 0;
+		let signalRefreshStarted: (() => void) | undefined;
+		const refreshStarted = new Promise<void>((resolve) => {
+			signalRefreshStarted = resolve;
+		});
+		let releaseRefresh: (() => void) | undefined;
+		const refreshRelease = new Promise<void>((resolve) => {
+			releaseRefresh = resolve;
+		});
+		server.use(
+			http.get("*/api/v1/auth/me", async () => {
+				requestCount += 1;
+				if (requestCount === 1) {
+					return HttpResponse.json(apiResponse(initialUser));
+				}
+				signalRefreshStarted?.();
+				await refreshRelease;
+				return HttpResponse.json(apiResponse(staleRefreshUser));
+			}),
+		);
+		const { useAuthStore } = await loadStores();
+		await useAuthStore.getState().checkAuth();
+
+		const refresh = useAuthStore.getState().refreshUser();
+		await refreshStarted;
+		const newerProfile = {
+			avatar: {
+				source: "upload" as const,
+				url_512: "/avatars/1/9/512.webp",
+				url_1024: "/avatars/1/9/1024.webp",
+				version: 9,
+			},
+			display_name: "Newest profile",
+		};
+		useAuthStore.getState().applyUserProfile(newerProfile);
+		releaseRefresh?.();
+		await refresh;
+
+		expect(useAuthStore.getState().user).toMatchObject({
+			storage_used: 42,
+			profile: newerProfile,
+		});
+		expect(
+			JSON.parse(localStorage.getItem("aster-cached-user") ?? "{}").profile,
+		).toEqual(newerProfile);
 	});
 
 	it("ignores a profile result when there is no current user", async () => {

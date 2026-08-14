@@ -29,6 +29,7 @@ pub(super) async fn stage_avatar_upload(
     max_upload_size: usize,
     avatar_root: &Path,
 ) -> Result<StagedAvatarUpload> {
+    let mut discarded_size = 0usize;
     while let Some(field) = payload.next().await {
         let mut field = field.map_aster_err(|message| {
             file_upload_error_with_code(ApiErrorCode::AvatarUploadReadFailed, message)
@@ -41,9 +42,17 @@ pub(super) async fn stage_avatar_upload(
             .map(ToOwned::to_owned)
         else {
             while let Some(chunk) = field.next().await {
-                chunk.map_aster_err(|message| {
+                let chunk = chunk.map_aster_err(|message| {
                     file_upload_error_with_code(ApiErrorCode::AvatarUploadReadFailed, message)
                 })?;
+                discarded_size = discarded_size.checked_add(chunk.len()).ok_or_else(|| {
+                    AsterError::file_too_large("discarded multipart size overflow")
+                })?;
+                if discarded_size > max_upload_size {
+                    return Err(AsterError::file_too_large(format!(
+                        "discarded multipart fields exceed {max_upload_size} bytes"
+                    )));
+                }
             }
             continue;
         };
@@ -158,6 +167,22 @@ mod tests {
         body
     }
 
+    fn multipart_fields_body(boundary: &str, fields: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut body = Vec::new();
+        for (disposition, bytes) in fields {
+            body.extend_from_slice(
+                format!(
+                    "--{boundary}\r\nContent-Disposition: {disposition}\r\nContent-Type: application/octet-stream\r\n\r\n"
+                )
+                .as_bytes(),
+            );
+            body.extend_from_slice(bytes);
+            body.extend_from_slice(b"\r\n");
+        }
+        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+        body
+    }
+
     fn chunked_multipart(headers: &HeaderMap, body: &[u8], chunk_size: usize) -> Multipart {
         let chunks = body
             .chunks(chunk_size)
@@ -242,6 +267,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reports_staging_directory_creation_conflicts() {
+        let boundary = "aster-avatar-root-conflict";
+        let body = multipart_body(
+            boundary,
+            "form-data; name=\"file\"; filename=\"avatar.png\"",
+            b"avatar",
+        );
+        let headers = multipart_headers(boundary);
+        let mut multipart = chunked_multipart(&headers, &body, 3);
+        let root = test_root("root-conflict");
+        tokio::fs::write(&root, b"not a directory").await.unwrap();
+
+        assert!(stage_avatar_upload(&mut multipart, 8, &root).await.is_err());
+
+        tokio::fs::remove_file(root).await.unwrap();
+    }
+
+    #[tokio::test]
     async fn rejects_empty_or_missing_filename_without_staging_leaks() {
         for (fixture, disposition) in [
             ("empty", "form-data; name=\"file\"; filename=\"avatar.png\""),
@@ -257,6 +300,56 @@ mod tests {
             assert_staging_empty(&root);
             let _ = tokio::fs::remove_dir_all(root).await;
         }
+    }
+
+    #[tokio::test]
+    async fn bounds_discarded_fields_separately_from_the_avatar_file() {
+        let boundary = "aster-avatar-discarded-exact";
+        let body = multipart_fields_body(
+            boundary,
+            &[
+                ("form-data; name=\"metadata-a\"", b"1234"),
+                ("form-data; name=\"metadata-b\"", b"5678"),
+                (
+                    "form-data; name=\"file\"; filename=\"avatar.png\"",
+                    b"avatar12",
+                ),
+            ],
+        );
+        let headers = multipart_headers(boundary);
+        let mut multipart = chunked_multipart(&headers, &body, 3);
+        let root = test_root("discarded-exact");
+
+        let staged = stage_avatar_upload(&mut multipart, 8, &root)
+            .await
+            .expect("exact discarded and file limits should both be accepted");
+        assert_eq!(staged.source_size, 8);
+        drop(staged);
+        assert_staging_empty(&root);
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_aggregate_discarded_fields_one_byte_over_limit() {
+        let boundary = "aster-avatar-discarded-over";
+        let body = multipart_fields_body(
+            boundary,
+            &[
+                ("form-data; name=\"metadata-a\"", b"1234"),
+                ("form-data; name=\"metadata-b\"", b"56789"),
+                (
+                    "form-data; name=\"file\"; filename=\"avatar.png\"",
+                    b"avatar",
+                ),
+            ],
+        );
+        let headers = multipart_headers(boundary);
+        let mut multipart = chunked_multipart(&headers, &body, 2);
+        let root = test_root("discarded-over");
+
+        assert!(stage_avatar_upload(&mut multipart, 8, &root).await.is_err());
+        assert_staging_empty(&root);
+        let _ = tokio::fs::remove_dir_all(root).await;
     }
 
     #[tokio::test]

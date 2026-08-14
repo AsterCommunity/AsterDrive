@@ -188,22 +188,12 @@ pub async fn process_staged_avatar(
                 let command = processor.vips_command().to_string();
                 render_avatar_path_with_vips_cli(state, source_path, &command).await
             }
-            MediaProcessorKind::FfmpegCli => Err(precondition_failed_with_code(
-                ApiErrorCode::AvatarProcessorUnavailable,
-                "ffmpeg_cli avatar processing is not supported",
-            )),
-            MediaProcessorKind::FfprobeCli => Err(precondition_failed_with_code(
-                ApiErrorCode::AvatarProcessorUnavailable,
-                "ffprobe_cli avatar processing is not supported",
-            )),
-            MediaProcessorKind::Lofty => Err(precondition_failed_with_code(
-                ApiErrorCode::AvatarProcessorUnavailable,
-                "lofty avatar processing is not supported",
-            )),
-            MediaProcessorKind::StorageNative => Err(precondition_failed_with_code(
-                ApiErrorCode::AvatarProcessorUnavailable,
-                "storage-native avatar processing is not supported",
-            )),
+            MediaProcessorKind::FfmpegCli
+            | MediaProcessorKind::FfprobeCli
+            | MediaProcessorKind::Lofty
+            | MediaProcessorKind::StorageNative => {
+                Err(unsupported_avatar_processor_error(processor.kind()))
+            }
             MediaProcessorKind::Images => Err(AsterError::internal_error(
                 "images avatar processor reached non-images dispatch",
             )),
@@ -222,10 +212,27 @@ pub async fn process_staged_avatar(
     state
         .metrics()
         .record_avatar_render_duration(processor_label, started_at.elapsed().as_secs_f64());
-    if result.is_err() {
-        state.metrics().record_avatar_rejection("decode_or_render");
+    if let Err(error) = &result {
+        state
+            .metrics()
+            .record_avatar_rejection(avatar_rejection_reason(error));
     }
     result
+}
+
+fn unsupported_avatar_processor_error(kind: MediaProcessorKind) -> AsterError {
+    precondition_failed_with_code(
+        ApiErrorCode::AvatarProcessorUnavailable,
+        format!("{} avatar processing is not supported", kind.as_str()),
+    )
+}
+
+fn avatar_rejection_reason(error: &AsterError) -> &'static str {
+    if error.api_error_code() == ApiErrorCode::AvatarProcessorUnavailable {
+        "processor_unavailable"
+    } else {
+        "decode_or_render"
+    }
 }
 
 pub(super) fn avatar_decode_limits() -> Limits {
@@ -711,17 +718,6 @@ mod tests {
         }
     }
 
-    impl BufRead for CountingReader {
-        fn fill_buf(&mut self) -> IoResult<&[u8]> {
-            self.inner.fill_buf()
-        }
-
-        fn consume(&mut self, amount: usize) {
-            self.bytes_read.fetch_add(amount, Ordering::SeqCst);
-            self.inner.consume(amount);
-        }
-    }
-
     impl Seek for CountingReader {
         fn seek(&mut self, position: SeekFrom) -> IoResult<u64> {
             self.inner.seek(position)
@@ -742,10 +738,13 @@ mod tests {
         let encoded = encoded.into_inner();
         let source_len = encoded.len();
         let bytes_read = Arc::new(AtomicUsize::new(0));
-        let reader = ImageReader::new(CountingReader {
-            inner: Cursor::new(encoded),
-            bytes_read: bytes_read.clone(),
-        })
+        let reader = ImageReader::new(BufReader::with_capacity(
+            16,
+            CountingReader {
+                inner: Cursor::new(encoded),
+                bytes_read: bytes_read.clone(),
+            },
+        ))
         .with_guessed_format()
         .unwrap();
 
@@ -755,5 +754,73 @@ mod tests {
         assert!(!output.processed.large_bytes.is_empty());
         assert!(!output.processed.small_bytes.is_empty());
         assert!(bytes_read.load(Ordering::SeqCst) <= source_len + 16);
+    }
+
+    #[test]
+    fn unsupported_processors_report_their_kind_and_rejection_reason() {
+        for kind in [
+            MediaProcessorKind::FfmpegCli,
+            MediaProcessorKind::FfprobeCli,
+            MediaProcessorKind::Lofty,
+            MediaProcessorKind::StorageNative,
+        ] {
+            let error = unsupported_avatar_processor_error(kind);
+            assert_eq!(
+                error.api_error_code(),
+                ApiErrorCode::AvatarProcessorUnavailable
+            );
+            assert!(error.to_string().contains(kind.as_str()));
+            assert_eq!(avatar_rejection_reason(&error), "processor_unavailable");
+        }
+    }
+
+    #[test]
+    fn decode_errors_keep_the_decode_or_render_rejection_reason() {
+        let error = AsterError::file_type_not_allowed("invalid avatar fixture");
+        assert_eq!(avatar_rejection_reason(&error), "decode_or_render");
+    }
+
+    #[test]
+    fn dimension_inspection_reads_valid_files_and_rejects_missing_sources() {
+        let root = std::env::temp_dir().join(format!(
+            "asterdrive-avatar-dimensions-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("avatar.png");
+        let image = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(7, 5, Rgb([1, 2, 3])));
+        image.save(&path).unwrap();
+
+        assert_eq!(inspect_avatar_dimensions(&path).unwrap(), (7, 5));
+        assert!(inspect_avatar_dimensions(&root.join("missing.png")).is_err());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn vips_variant_command_produces_the_requested_webp_when_available() {
+        if !media_processing_config::command_is_available("vips") {
+            return;
+        }
+        let root =
+            std::env::temp_dir().join(format!("asterdrive-avatar-vips-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let input = root.join("input.png");
+        let output = root.join("output.webp");
+        DynamicImage::ImageRgb8(ImageBuffer::from_pixel(8, 6, Rgb([1, 2, 3])))
+            .save(&input)
+            .unwrap();
+
+        run_avatar_vips_variant(
+            "vips",
+            &input.to_string_lossy(),
+            &output.to_string_lossy(),
+            AVATAR_SIZE_SM,
+        )
+        .unwrap();
+        let output_bytes = std::fs::read(&output).unwrap();
+        validate_avatar_variant_output(&output_bytes, AVATAR_SIZE_SM, "fixture").unwrap();
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

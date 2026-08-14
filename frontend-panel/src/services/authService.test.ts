@@ -10,10 +10,8 @@ import type {
 	ExternalAuthPublicProvider,
 	PasskeyInfo,
 } from "@/types/api";
-import { ApiErrorCode } from "@/types/api-helpers";
 
 const mockState = vi.hoisted(() => ({
-	clientPost: vi.fn(),
 	delete: vi.fn(),
 	get: vi.fn(),
 	patch: vi.fn(),
@@ -23,30 +21,11 @@ const mockState = vi.hoisted(() => ({
 
 vi.mock("@/services/http", () => ({
 	api: {
-		client: {
-			post: mockState.clientPost,
-		},
 		delete: mockState.delete,
 		get: mockState.get,
 		patch: mockState.patch,
 		post: mockState.post,
 		put: mockState.put,
-	},
-	ApiError: class ApiError extends Error {
-		code: string;
-		retryable?: boolean;
-
-		constructor(
-			code: string,
-			message: string,
-			options?: {
-				retryable?: boolean;
-			},
-		) {
-			super(message);
-			this.code = code;
-			this.retryable = options?.retryable;
-		}
 	},
 }));
 
@@ -55,7 +34,6 @@ describe("authService", () => {
 		invalidateExternalAuthLinksCache();
 		invalidateMfaStatusCache();
 		invalidatePasskeysCache();
-		mockState.clientPost.mockReset();
 		mockState.delete.mockReset();
 		mockState.get.mockReset();
 		mockState.patch.mockReset();
@@ -890,7 +868,7 @@ describe("authService", () => {
 		expect(mockState.get).toHaveBeenCalledTimes(2);
 	});
 
-	it("uploads avatars through multipart form data and unwraps API responses", async () => {
+	it("uploads avatars through the shared API multipart path", async () => {
 		const result = {
 			applied: true,
 			profile: {
@@ -903,19 +881,13 @@ describe("authService", () => {
 				display_name: "Alice",
 			},
 		};
-		mockState.clientPost.mockResolvedValue({
-			data: {
-				code: ApiErrorCode.Success,
-				data: result,
-				msg: "",
-			},
-		});
+		mockState.post.mockResolvedValue(result);
 
 		const file = new File(["avatar"], "avatar.png", { type: "image/png" });
 
 		await expect(authService.uploadAvatar(file)).resolves.toBe(result);
 
-		expect(mockState.clientPost).toHaveBeenCalledWith(
+		expect(mockState.post).toHaveBeenCalledWith(
 			"/auth/profile/avatar/upload",
 			expect.any(FormData),
 			{
@@ -924,29 +896,18 @@ describe("authService", () => {
 				},
 			},
 		);
-		const formData = mockState.clientPost.mock.calls[0]?.[1] as FormData;
+		const formData = mockState.post.mock.calls[0]?.[1] as FormData;
 		expect(formData.get("file")).toBe(file);
 	});
 
-	it("throws ApiError details when avatar upload returns an error envelope", async () => {
-		mockState.clientPost.mockResolvedValue({
-			data: {
-				code: ApiErrorCode.AvatarRenderFailed,
-				error: {
-					retryable: true,
-				},
-				msg: "upload failed",
-			},
-		});
+	it("propagates shared API avatar upload failures", async () => {
+		const error = new Error("upload failed");
+		mockState.post.mockRejectedValue(error);
 
 		await expect(
 			authService.uploadAvatar(
 				new File(["avatar"], "avatar.png", { type: "image/png" }),
 			),
-		).rejects.toMatchObject({
-			code: ApiErrorCode.AvatarRenderFailed,
-			message: "upload failed",
-			retryable: true,
-		});
+		).rejects.toBe(error);
 	});
 });

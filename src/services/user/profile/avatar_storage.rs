@@ -218,6 +218,28 @@ mod tests {
         std::env::temp_dir().join("asterdrive-avatar")
     }
 
+    #[tokio::test]
+    async fn staging_cleanup_keeps_a_conflicting_file_for_diagnostics() {
+        let root = std::env::temp_dir().join(format!(
+            "asterdrive-avatar-cleanup-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let submission_id = uuid::Uuid::new_v4();
+        let path = avatar_staging_dir(&root, submission_id);
+        tokio::fs::create_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&path, b"conflicting fixture")
+            .await
+            .unwrap();
+
+        cleanup_avatar_staging(&root, submission_id).await;
+
+        assert!(path.is_file());
+        tokio::fs::remove_file(path).await.unwrap();
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
     #[test]
     fn resolve_stored_avatar_prefix_accepts_expected_relative_key() {
         let root = avatar_test_root();

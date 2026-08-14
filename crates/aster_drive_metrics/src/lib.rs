@@ -680,7 +680,9 @@ mod tests {
         recorder.record_avatar_source_bytes(4096);
         recorder.record_avatar_dimension("width", 1024);
         recorder.record_avatar_dimension("height", 768);
-        recorder.set_avatar_budget_bytes("decode_allocation", 32 * 1024 * 1024);
+        recorder.set_avatar_budget_bytes("decode_alloc", 32 * 1024 * 1024);
+        recorder.set_avatar_budget_bytes("source_configured", 10 * 1024 * 1024);
+        recorder.set_avatar_budget_bytes("source_hard_ceiling", 16 * 1024 * 1024);
         recorder.record_avatar_render_duration("images", 0.25);
         recorder.record_avatar_render_wait_duration(0.125);
         recorder.adjust_avatar_render_waiting(1);
@@ -698,7 +700,9 @@ mod tests {
         assert!(body.contains("axis=\"width\""));
         assert!(body.contains("axis=\"height\""));
         assert!(body.contains("avatar_budget_bytes"));
-        assert!(body.contains("budget=\"decode_allocation\""));
+        assert!(body.contains("budget=\"decode_alloc\""));
+        assert!(body.contains("budget=\"source_configured\""));
+        assert!(body.contains("budget=\"source_hard_ceiling\""));
         assert!(body.contains("avatar_render_duration_seconds_bucket"));
         assert!(body.contains("avatar_render_duration_seconds_count"));
         assert!(body.contains("avatar_render_wait_duration_seconds_bucket"));

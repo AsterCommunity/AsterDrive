@@ -1,7 +1,6 @@
 import type {
 	AcceptUserInvitationRequest,
 	ActionMessageResp,
-	ApiResponse,
 	AuthSessionInfo,
 	AuthTokenResp,
 	AvatarSource,
@@ -34,8 +33,7 @@ import type {
 	UserPreferences,
 	UserProfileInfo,
 } from "@/types/api";
-import { ApiErrorCode } from "@/types/api-helpers";
-import { ApiError, api } from "./http";
+import { api } from "./http";
 
 export interface AuthSessionState {
 	expiresIn: number;
@@ -578,21 +576,17 @@ export const authService = {
 	setAvatarSource: (source: Extract<AvatarSource, "none" | "gravatar">) =>
 		api.put<UserProfileInfo>("/auth/profile/avatar/source", { source }),
 
-	uploadAvatar: async (file: File) => {
+	uploadAvatar: (file: File) => {
 		const formData = new FormData();
 		formData.set("file", file);
-		const { data: resp } = await api.client.post<
-			ApiResponse<AvatarUploadResult>
-		>("/auth/profile/avatar/upload", formData, {
-			headers: {
-				"Content-Type": "multipart/form-data",
+		return api.post<AvatarUploadResult>(
+			"/auth/profile/avatar/upload",
+			formData,
+			{
+				headers: {
+					"Content-Type": "multipart/form-data",
+				},
 			},
-		});
-		if (resp.code !== ApiErrorCode.Success) {
-			throw new ApiError(resp.code, resp.msg, {
-				retryable: resp.error?.retryable ?? undefined,
-			});
-		}
-		return resp.data as AvatarUploadResult;
+		);
 	},
 };
