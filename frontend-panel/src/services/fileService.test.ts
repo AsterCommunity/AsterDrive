@@ -306,6 +306,17 @@ describe("fileService", () => {
 		);
 	});
 
+	it("omits relative_path when creating an empty file without a relative path", async () => {
+		const { fileService } = await import("@/services/fileService");
+
+		fileService.createEmptyFile("plain-empty.md");
+
+		expect(mockState.post).toHaveBeenCalledWith("/files/new", {
+			name: "plain-empty.md",
+			folder_id: null,
+		});
+	});
+
 	it("uses metadata PATCH endpoints for single-item moves", async () => {
 		const { createFileService } = await import("@/services/fileService");
 		const personal = createFileService(PERSONAL_WORKSPACE);

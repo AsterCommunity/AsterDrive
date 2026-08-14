@@ -57,6 +57,28 @@ async fn test_create_empty_with_relative_path_creates_nested_folders() {
 }
 
 #[actix_web::test]
+async fn test_create_empty_with_single_segment_relative_path_uses_exact_filename() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/new")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "ignored.txt",
+            "relative_path": "root-empty.txt"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["name"], "root-empty.txt");
+    assert_eq!(body["data"]["size"], 0);
+}
+
+#[actix_web::test]
 async fn test_create_empty_with_invalid_relative_parent_leaves_no_partial_path() {
     let state = common::setup().await;
     let app = create_test_app!(state);
@@ -158,6 +180,56 @@ async fn test_direct_upload_with_relative_path_creates_nested_folders() {
     let guides = folder_repo::find_by_id(&db, guides_id).await.unwrap();
     assert_eq!(docs.created_by_username, "testuser");
     assert_eq!(guides.created_by_username, "testuser");
+}
+
+#[actix_web::test]
+async fn test_staged_empty_upload_without_declared_size_uses_name_mode_for_relative_path() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let boundary = "----StagedEmptyUploadBoundary";
+    let plain_payload = "------StagedEmptyUploadBoundary\r\n\
+         Content-Disposition: form-data; name=\"file\"; filename=\"plain-empty.txt\"\r\n\
+         Content-Type: application/octet-stream\r\n\r\n\
+         \r\n\
+         ------StagedEmptyUploadBoundary--\r\n";
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(plain_payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["name"], "plain-empty.txt");
+    assert_eq!(body["data"]["size"], 0);
+
+    let relative_payload = "------StagedEmptyUploadBoundary\r\n\
+         Content-Disposition: form-data; name=\"file\"; filename=\"ignored.txt\"\r\n\
+         Content-Type: application/octet-stream\r\n\r\n\
+         \r\n\
+         ------StagedEmptyUploadBoundary--\r\n";
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload?relative_path=exact-empty.txt")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(relative_payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["name"], "exact-empty.txt");
+    assert_eq!(body["data"]["size"], 0);
 }
 
 #[actix_web::test]
