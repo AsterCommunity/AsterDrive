@@ -104,6 +104,21 @@ async function synchronizeOpenPull(client, pull) {
 }
 
 async function synchronizeClosedPull(client, pull) {
+  const pendingGate = (await client.listCheckRuns(pull.head.sha))
+    .filter((run) => run.name === PR_GATE_NAME && run.status !== "completed")
+    .sort((left, right) => right.id - left.id)[0];
+  if (pendingGate) {
+    const state = pull.merged ? "merged" : "closed";
+    await client.updateCheckRun(pendingGate.id, {
+      status: "completed",
+      conclusion: "cancelled",
+      output: {
+        title: `Pull request ${state} before CI completed`,
+        summary: `The pull request was ${state} before all required CI workflows reached a terminal state.`,
+      },
+    });
+  }
+
   const labels = pull.labels.map((label) => label.name)
     .filter((label) => ![PR_CI_RUNNING_LABEL, PR_CI_PASSED_LABEL].includes(label));
   if (pull.merged) {
@@ -131,9 +146,17 @@ export async function runPrAutomation({ client, event }) {
     await client.ensureLabel(name, definition);
   }
   const eventPull = event.pull_request;
-  if (!eventPull) throw new Error("pull_request payload is required");
-  const pull = await client.getPull(eventPull.number);
-  if (event.action === "closed") return synchronizeClosedPull(client, pull);
+  const manualNumber = event.inputs?.pull_request_number;
+  const pullNumber = eventPull?.number ?? Number(manualNumber);
+  if (!Number.isInteger(pullNumber) || pullNumber <= 0) {
+    throw new Error("pull_request payload or a positive pull_request_number is required");
+  }
+  const pull = await client.getPull(pullNumber);
+  const isManualReconciliation = !eventPull;
+  if (isManualReconciliation && pull.state !== "closed") {
+    throw new Error("manual reconciliation requires a closed pull request");
+  }
+  if (isManualReconciliation || event.action === "closed") return synchronizeClosedPull(client, pull);
   return synchronizeOpenPull(client, pull);
 }
 

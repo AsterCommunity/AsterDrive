@@ -31,6 +31,8 @@ PR 打开或更新时，PR automation 会立即为当前 HEAD 创建初始 Gate�
 
 历史 workflow 已结束但 Gate 未收敛时，可从 Actions 页面手动运行 `CI Diagnostics`，并传入源 workflow 的 run ID。该入口只重新读取 GitHub API 状态并更新 Gate、标签和诊断评论，不重新执行源 workflow。
 
+PR 已关闭或合并但 Gate 仍停留在 pending 时，可手动运行 `PR Automation`，传入 `pull_request_number`。该入口在默认分支受信任代码中以 `cancelled` 终结未完成 Gate，并按关闭 PR 的最终状态清理生命周期标签；它使用 Actions token 执行 Check Run 更新，个人 token 不能直接 PATCH Actions 创建的 Check Run。
+
 ## 默认分支与定时任务故障
 
 默认分支或 scheduled workflow 失败时，自动化使用 `workflow + branch + failed job set` 生成稳定 fingerprint：

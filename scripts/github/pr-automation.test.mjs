@@ -12,6 +12,7 @@ function baseClient(overrides = {}) {
     listPullFiles: async () => [],
     listCheckRuns: async () => [],
     createCheckRun: async () => {},
+    updateCheckRun: async () => {},
     listIssueComments: async () => [],
     updateIssueComment: async () => {},
     setIssueLabels: async () => {},
@@ -26,6 +27,7 @@ function pull(overrides = {}) {
   return {
     number: 12,
     merged: false,
+    state: "open",
     labels: [],
     head: { sha: "abc123" },
     ...overrides,
@@ -150,4 +152,47 @@ test("closed unmerged PR clears its CI lifecycle labels", async () => {
   });
   await runPrAutomation({ client, event: { action: "closed", pull_request: pull() } });
   assert.deepEqual(labelWrites[0], { number: 12, labels: ["Rust"] });
+});
+
+test("closed PR cancels its pending gate", async () => {
+  const updates = [];
+  const client = baseClient({
+    getPull: async () => pull({ merged: true }),
+    listCheckRuns: async () => [{ id: 99, name: "PR Gate", status: "in_progress", conclusion: null }],
+    updateCheckRun: async (id, body) => updates.push({ id, body }),
+  });
+  await runPrAutomation({ client, event: { action: "closed", pull_request: pull() } });
+  assert.deepEqual(updates, [{
+    id: 99,
+    body: {
+      status: "completed",
+      conclusion: "cancelled",
+      output: {
+        title: "Pull request merged before CI completed",
+        summary: "The pull request was merged before all required CI workflows reached a terminal state.",
+      },
+    },
+  }]);
+});
+
+test("manual reconciliation finalizes a closed PR gate by number", async () => {
+  const updates = [];
+  const client = baseClient({
+    getPull: async (number) => {
+      assert.equal(number, 526);
+      return pull({ merged: true, state: "closed" });
+    },
+    listCheckRuns: async () => [{ id: 99, name: "PR Gate", status: "in_progress", conclusion: null }],
+    updateCheckRun: async (id, body) => updates.push({ id, body }),
+  });
+  await runPrAutomation({ client, event: { inputs: { pull_request_number: "526" } } });
+  assert.equal(updates[0].body.conclusion, "cancelled");
+});
+
+test("manual reconciliation rejects an open PR", async () => {
+  const client = baseClient({ getPull: async () => pull({ state: "open" }) });
+  await assert.rejects(
+    runPrAutomation({ client, event: { inputs: { pull_request_number: "12" } } }),
+    /requires a closed pull request/,
+  );
 });
