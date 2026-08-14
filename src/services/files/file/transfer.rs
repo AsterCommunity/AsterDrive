@@ -140,7 +140,7 @@ pub(crate) struct BatchDuplicateFileRecordSpec<'a> {
 pub(crate) struct BatchDuplicateFileRecordTargetSpec<'a> {
     pub src: &'a file::Model,
     pub dest_name: Cow<'a, str>,
-    pub dest_folder_id: Option<i64>,
+    pub dest_folder_id: i64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -421,7 +421,7 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
             );
             file::ActiveModel {
                 name: Set(spec.dest_name.to_string()),
-                folder_id: Set(spec.dest_folder_id),
+                folder_id: Set(Some(spec.dest_folder_id)),
                 team_id: Set(scope.team_id()),
                 blob_id: Set(spec.src.blob_id),
                 size: Set(spec.src.size),
@@ -440,10 +440,7 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
         .collect();
     file_repo::create_many(&txn, models).await?;
 
-    let mut dest_folder_ids: Vec<i64> = copy_specs
-        .iter()
-        .filter_map(|spec| spec.dest_folder_id)
-        .collect();
+    let mut dest_folder_ids: Vec<i64> = copy_specs.iter().map(|spec| spec.dest_folder_id).collect();
     dest_folder_ids.sort_unstable();
     dest_folder_ids.dedup();
     let created_files = match scope {
@@ -454,10 +451,18 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
             file_repo::find_by_team_folders(&txn, team_id, &dest_folder_ids).await?
         }
     };
-    let mut created_by_target: HashMap<(Option<i64>, String), file::Model> = created_files
+    let mut created_by_target: HashMap<(i64, String), file::Model> = created_files
         .into_iter()
-        .map(|created| ((created.folder_id, created.name.clone()), created))
-        .collect();
+        .map(|created| {
+            let folder_id = created.folder_id.ok_or_else(|| {
+                AsterError::internal_error(format!(
+                    "folder copy reloaded root file #{} from destination folders",
+                    created.id
+                ))
+            })?;
+            Ok(((folder_id, created.name.clone()), created))
+        })
+        .collect::<Result<_>>()?;
 
     let mut properties_by_source = HashMap::new();
     if property_mode == CopiedFilePropertyMode::CopyUserProperties {
@@ -476,6 +481,8 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
         }
     }
 
+    let mut copied_properties = Vec::new();
+    let mut created_in_spec_order = Vec::with_capacity(copy_specs.len());
     for spec in copy_specs {
         let target = (spec.dest_folder_id, spec.dest_name.to_string());
         let created = created_by_target.remove(&target).ok_or_else(|| {
@@ -486,29 +493,29 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
         })?;
         if let Some(properties) = properties_by_source.get(&spec.src.id) {
             for property in properties {
-                property_repo::upsert(
-                    &txn,
-                    EntityType::File,
-                    created.id,
-                    &property.namespace,
-                    &property.name,
-                    property.value.as_deref(),
-                )
-                .await?;
+                copied_properties.push(property_repo::NewEntityProperty {
+                    entity_type: EntityType::File,
+                    entity_id: created.id,
+                    namespace: property.namespace.clone(),
+                    name: property.name.clone(),
+                    value: property.value.clone(),
+                });
             }
         }
-        crate::db::repository::revision_repo::create_initial(
-            &txn,
-            &created,
-            crate::db::repository::revision_repo::RevisionReason::Copy,
-        )
-        .await?;
+        created_in_spec_order.push(created);
     }
     if !created_by_target.is_empty() {
         return Err(AsterError::internal_error(
             "folder copy reloaded unexpected destination files",
         ));
     }
+    property_repo::insert_many(&txn, copied_properties).await?;
+    crate::db::repository::revision_repo::create_initial_many(
+        &txn,
+        &created_in_spec_order,
+        crate::db::repository::revision_repo::RevisionReason::Copy,
+    )
+    .await?;
 
     storage::update_storage_used(&txn, scope, total_size).await?;
 

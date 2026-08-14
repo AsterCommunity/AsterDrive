@@ -6,7 +6,8 @@ use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, ExprTrait,
     IsolationLevel, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, Set,
-    TransactionSession, TransactionTrait, sea_query::Expr,
+    TransactionSession, TransactionTrait,
+    sea_query::{CaseStatement, Expr},
 };
 
 use crate::errors::{AsterError, Result};
@@ -149,6 +150,211 @@ pub async fn create_initial<C: ConnectionTrait>(
     snapshot_user_properties(db, file.id, revision.id).await?;
     set_current_revision(db, history.id, revision.id).await?;
     Ok(revision)
+}
+
+/// Creates initial histories, revisions, property snapshots, and head pointers in bounded batches.
+pub async fn create_initial_many<C: ConnectionTrait>(
+    db: &C,
+    files: &[file::Model],
+    reason: RevisionReason,
+) -> Result<Vec<file_revision::Model>> {
+    const BATCH_SIZE: usize = 50;
+
+    if files.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let file_by_id: HashMap<i64, &file::Model> = files.iter().map(|file| (file.id, file)).collect();
+    if file_by_id.len() != files.len() {
+        return Err(AsterError::internal_error(
+            "initial revision batch contains duplicate file ids",
+        ));
+    }
+
+    for chunk in files.chunks(BATCH_SIZE) {
+        FileRevisionHistory::insert_many(chunk.iter().map(|file| {
+            file_revision_history::ActiveModel {
+                public_id: Set(uuid::Uuid::new_v4().hyphenated().to_string()),
+                file_id: Set(Some(file.id)),
+                current_revision_id: Set(None),
+                next_sequence: Set(2),
+                created_at: Set(file.created_at),
+                ..Default::default()
+            }
+        }))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    }
+
+    let file_ids: Vec<i64> = files.iter().map(|file| file.id).collect();
+    let mut histories = Vec::with_capacity(files.len());
+    for chunk in file_ids.chunks(BATCH_SIZE) {
+        histories.extend(
+            FileRevisionHistory::find()
+                .filter(file_revision_history::Column::FileId.is_in(chunk.iter().copied()))
+                .all(db)
+                .await
+                .map_err(AsterError::from)?,
+        );
+    }
+    if histories.len() != files.len() {
+        return Err(AsterError::internal_error(
+            "initial revision batch could not reload every history",
+        ));
+    }
+
+    for chunk in histories.chunks(BATCH_SIZE) {
+        FileRevision::insert_many(
+            chunk
+                .iter()
+                .map(|history| {
+                    let file_id = history.file_id.ok_or_else(|| {
+                        AsterError::internal_error("new initial revision history lost its file id")
+                    })?;
+                    let file = file_by_id.get(&file_id).ok_or_else(|| {
+                        AsterError::internal_error(format!(
+                            "new initial revision history references unexpected file #{file_id}"
+                        ))
+                    })?;
+                    Ok(file_revision::ActiveModel {
+                        public_id: Set(uuid::Uuid::new_v4().hyphenated().to_string()),
+                        history_id: Set(history.id),
+                        sequence: Set(1),
+                        predecessor_revision_id: Set(None),
+                        blob_id: Set(Some(file.blob_id)),
+                        logical_size: Set(file.size),
+                        mime_type: Set(Some(file.mime_type.clone())),
+                        etag: Set(new_etag()),
+                        content_sha256: Set(None),
+                        creator_user_id: Set(file.created_by_user_id),
+                        creator_display_name: Set(Some(file.created_by_username.clone())),
+                        comment: Set(None),
+                        reason: Set(reason.as_str().to_string()),
+                        created_at: Set(file.created_at),
+                        ..Default::default()
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?,
+        )
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    }
+
+    let history_ids: Vec<i64> = histories.iter().map(|history| history.id).collect();
+    let mut revisions = Vec::with_capacity(files.len());
+    for chunk in history_ids.chunks(BATCH_SIZE) {
+        revisions.extend(
+            FileRevision::find()
+                .filter(file_revision::Column::HistoryId.is_in(chunk.iter().copied()))
+                .filter(file_revision::Column::Sequence.eq(1))
+                .all(db)
+                .await
+                .map_err(AsterError::from)?,
+        );
+    }
+    if revisions.len() != files.len() {
+        return Err(AsterError::internal_error(
+            "initial revision batch could not reload every revision",
+        ));
+    }
+
+    let revision_by_history_id: HashMap<i64, i64> = revisions
+        .iter()
+        .map(|revision| (revision.history_id, revision.id))
+        .collect();
+    let revision_by_file_id: HashMap<i64, i64> = histories
+        .iter()
+        .map(|history| {
+            let file_id = history.file_id.ok_or_else(|| {
+                AsterError::internal_error("new initial revision history lost its file id")
+            })?;
+            let revision_id = revision_by_history_id
+                .get(&history.id)
+                .copied()
+                .ok_or_else(|| {
+                    AsterError::internal_error(format!(
+                        "new history #{} has no initial revision",
+                        history.id
+                    ))
+                })?;
+            Ok((file_id, revision_id))
+        })
+        .collect::<Result<_>>()?;
+
+    let targets: Vec<_> = file_ids
+        .iter()
+        .map(|file_id| (EntityType::File, *file_id))
+        .collect();
+    let properties = crate::db::repository::property_repo::find_by_entities(db, &targets).await?;
+    let snapshot_models: Vec<_> = properties
+        .into_iter()
+        .filter(|property| {
+            property.namespace != "DAV:" && !property.namespace.starts_with("system.")
+        })
+        .map(|property| {
+            let revision_id = revision_by_file_id
+                .get(&property.entity_id)
+                .copied()
+                .ok_or_else(|| {
+                    AsterError::internal_error(format!(
+                        "initial revision property references unexpected file #{}",
+                        property.entity_id
+                    ))
+                })?;
+            Ok(file_revision_property::ActiveModel {
+                revision_id: Set(revision_id),
+                namespace: Set(property.namespace),
+                name: Set(property.name),
+                xml_value: Set(property.value),
+            })
+        })
+        .collect::<Result<_>>()?;
+    for chunk in snapshot_models.chunks(BATCH_SIZE) {
+        file_revision_property::Entity::insert_many(chunk.iter().cloned())
+            .exec(db)
+            .await
+            .map_err(AsterError::from)?;
+    }
+
+    for chunk in histories.chunks(BATCH_SIZE) {
+        let mut current_revision_case = CaseStatement::new();
+        for history in chunk {
+            let revision_id = revision_by_history_id
+                .get(&history.id)
+                .copied()
+                .ok_or_else(|| {
+                    AsterError::internal_error(format!(
+                        "new history #{} has no initial revision",
+                        history.id
+                    ))
+                })?;
+            current_revision_case = current_revision_case.case(
+                Expr::col(file_revision_history::Column::Id).eq(history.id),
+                revision_id,
+            );
+        }
+        let ids: Vec<i64> = chunk.iter().map(|history| history.id).collect();
+        let result = FileRevisionHistory::update_many()
+            .col_expr(
+                file_revision_history::Column::CurrentRevisionId,
+                current_revision_case
+                    .finally(Expr::col(file_revision_history::Column::CurrentRevisionId))
+                    .into(),
+            )
+            .filter(file_revision_history::Column::Id.is_in(ids))
+            .exec(db)
+            .await
+            .map_err(AsterError::from)?;
+        if result.rows_affected != chunk.len() as u64 {
+            return Err(AsterError::internal_error(
+                "initial revision batch did not update every history head",
+            ));
+        }
+    }
+
+    Ok(revisions)
 }
 
 pub async fn append<C: ConnectionTrait>(

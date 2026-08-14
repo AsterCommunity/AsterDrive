@@ -203,8 +203,12 @@ impl StorageDriver for PathStreamDriver {
         let bytes = self.bytes(path)?;
         let (mut writer, reader) = tokio::io::duplex(bytes.len().max(1));
         tokio::spawn(async move {
-            writer.write_all(&bytes).await.unwrap();
-            writer.shutdown().await.unwrap();
+            if let Err(error) = writer.write_all(&bytes).await {
+                tracing::trace!("path-aware mock stream write failed (reader dropped?): {error}");
+            }
+            if let Err(error) = writer.shutdown().await {
+                tracing::trace!("path-aware mock stream shutdown failed: {error}");
+            }
         });
         Ok(Box::new(reader))
     }

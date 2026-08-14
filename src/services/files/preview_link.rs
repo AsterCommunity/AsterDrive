@@ -1,5 +1,6 @@
 //! 服务模块：`preview_link`。
 
+use actix_web::http::header::HeaderValue;
 use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -10,10 +11,7 @@ use crate::config::site_url;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    files::{
-        direct_link,
-        file::{self as file_ops, ResolvedDownloadRange},
-    },
+    files::{direct_link, file as file_ops},
     share::{
         load_shared_file_ignoring_download_limit, load_shared_folder_file_ignoring_download_limit,
     },
@@ -127,7 +125,7 @@ pub(crate) async fn download_file(
     token: &str,
     requested_name: &str,
     if_none_match: Option<&str>,
-    range: Option<ResolvedDownloadRange>,
+    range_header: Option<&HeaderValue>,
 ) -> Result<file_ops::DownloadOutcome> {
     let resolved = resolve_token(state, token).await?;
     let authorized = match &resolved {
@@ -146,6 +144,7 @@ pub(crate) async fn download_file(
         ));
     }
     direct_link::validate_public_file_name(&file, requested_name)?;
+    let range = file_ops::parse_range_header(range_header, file.size)?;
     file_ops::build_download_outcome_with_disposition_and_range(
         state,
         &file,
@@ -156,20 +155,6 @@ pub(crate) async fn download_file(
         &revision.etag,
     )
     .await
-}
-
-pub(crate) async fn resolve_file_for_download(
-    state: &impl SharedRuntimeState,
-    token: &str,
-    requested_name: &str,
-) -> Result<aster_drive_model::entities::file::Model> {
-    let resolved = resolve_token(state, token).await?;
-    let file = match &resolved {
-        ResolvedPreviewTarget::File { file, .. } => file,
-        ResolvedPreviewTarget::Shared { file, .. } => file,
-    };
-    direct_link::validate_public_file_name(file, requested_name)?;
-    Ok(file.clone())
 }
 
 fn build_payload(subject: PreviewSubject) -> PreviewTokenPayload {

@@ -11,6 +11,14 @@ use aster_drive_model::types::EntityType;
 
 const ENTITY_PROPERTY_BATCH_CHUNK_SIZE: usize = 500;
 
+pub struct NewEntityProperty {
+    pub entity_type: EntityType,
+    pub entity_id: i64,
+    pub namespace: String,
+    pub name: String,
+    pub value: Option<String>,
+}
+
 /// 查询实体的所有属性
 pub async fn find_by_entity<C: ConnectionTrait>(
     db: &C,
@@ -157,6 +165,27 @@ pub async fn upsert<C: ConnectionTrait>(
                 "entity property upsert could not reload row for {entity_type:?}#{entity_id} {namespace}:{name}"
             ))
         })
+}
+
+/// Inserts properties for newly-created entities in bounded batches.
+pub async fn insert_many<C: ConnectionTrait>(
+    db: &C,
+    properties: Vec<NewEntityProperty>,
+) -> Result<()> {
+    for chunk in properties.chunks(ENTITY_PROPERTY_BATCH_CHUNK_SIZE) {
+        EntityProperty::insert_many(chunk.iter().map(|property| entity_property::ActiveModel {
+            entity_type: Set(property.entity_type),
+            entity_id: Set(property.entity_id),
+            namespace: Set(property.namespace.clone()),
+            name: Set(property.name.clone()),
+            value: Set(property.value.clone()),
+            ..Default::default()
+        }))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    }
+    Ok(())
 }
 
 /// 删除单个属性

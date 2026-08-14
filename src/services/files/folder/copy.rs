@@ -103,7 +103,7 @@ async fn copy_frontier_files_between_scopes(
                     crate::services::files::file::BatchDuplicateFileRecordTargetSpec {
                         dest_name: Cow::Borrowed(file.name.as_str()),
                         src: file,
-                        dest_folder_id: Some(dest_folder_id),
+                        dest_folder_id,
                     },
                 )
             })

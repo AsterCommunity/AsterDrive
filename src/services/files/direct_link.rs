@@ -1,5 +1,6 @@
 //! 服务模块：`direct_link`。
 
+use actix_web::http::header::HeaderValue;
 use base64::Engine;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -10,7 +11,7 @@ use crate::db::repository::{file_repo, team_repo};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    files::file::{self as file_ops, ResolvedDownloadRange},
+    files::file as file_ops,
     workspace::storage::{self, WorkspaceStorageScope},
 };
 use aster_drive_model::entities::file;
@@ -45,44 +46,25 @@ pub(crate) async fn load_public_file(
     Ok(file)
 }
 
-pub(crate) async fn resolve_file_for_download(
-    state: &impl SharedRuntimeState,
-    token: &str,
-    requested_name: &str,
-) -> Result<file::Model> {
-    let parsed = parse_token(token)?;
-    let file_id = parsed.file_id();
-    let file = load_public_file(state, file_id).await?;
-
-    if !verify_token_signature(&file, &parsed, &state.config().auth.direct_link_secret)? {
-        return Err(AsterError::share_not_found(
-            "direct link token signature mismatch",
-        ));
-    }
-
-    validate_public_file_name(&file, requested_name)?;
-    Ok(file)
-}
-
 pub(crate) async fn download_file(
     state: &PrimaryAppState,
     token: &str,
     requested_name: &str,
     force_download: bool,
     if_none_match: Option<&str>,
-    range: Option<ResolvedDownloadRange>,
+    range_header: Option<&HeaderValue>,
 ) -> Result<file_ops::DownloadOutcome> {
-    let authorized = resolve_file_for_download(state, token, requested_name).await?;
-    let (file, blob, revision) =
-        file_ops::load_current_download_snapshot(state, authorized.id).await?;
-    validate_file_scope(state, &file).await?;
     let parsed = parse_token(token)?;
+    let (file, blob, revision) =
+        file_ops::load_current_download_snapshot(state, parsed.file_id()).await?;
+    validate_file_scope(state, &file).await?;
     if !verify_token_signature(&file, &parsed, &state.config().auth.direct_link_secret)? {
         return Err(AsterError::share_not_found(
             "direct link token signature mismatch",
         ));
     }
     validate_public_file_name(&file, requested_name)?;
+    let range = file_ops::parse_range_header(range_header, file.size)?;
     let disposition = if force_download {
         file_ops::DownloadDisposition::Attachment
     } else {

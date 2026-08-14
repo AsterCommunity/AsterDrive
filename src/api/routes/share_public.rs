@@ -585,9 +585,8 @@ pub async fn download_direct(
     req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     let (token, filename) = path.into_inner();
-    let file = direct_link::resolve_file_for_download(state.get_ref(), &token, &filename).await?;
-    let range = file::parse_range_header(req.headers().get(header::RANGE), file.size)?;
-    let has_range = range.is_some();
+    let range_header = req.headers().get(header::RANGE);
+    let has_range = range_header.is_some();
     let outcome = file::record_download_result(
         state.get_ref(),
         "direct_link",
@@ -600,7 +599,7 @@ pub async fn download_direct(
             req.headers()
                 .get("If-None-Match")
                 .and_then(|v| v.to_str().ok()),
-            range,
+            range_header,
         ),
     )
     .await?;
@@ -613,9 +612,8 @@ pub async fn download_preview(
     req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     let (token, filename) = path.into_inner();
-    let file = preview_link::resolve_file_for_download(state.get_ref(), &token, &filename).await?;
-    let range = file::parse_range_header(req.headers().get(header::RANGE), file.size)?;
-    let has_range = range.is_some();
+    let range_header = req.headers().get(header::RANGE);
+    let has_range = range_header.is_some();
     let outcome = file::record_download_result(
         state.get_ref(),
         "preview_link",
@@ -627,7 +625,7 @@ pub async fn download_preview(
             req.headers()
                 .get("If-None-Match")
                 .and_then(|v| v.to_str().ok()),
-            range,
+            range_header,
         ),
     )
     .await?;

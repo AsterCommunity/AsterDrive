@@ -2581,6 +2581,8 @@ async fn test_folder_copy_preserves_multi_level_tree_and_storage_used() {
 
 #[actix_web::test]
 async fn test_empty_folder_copy_creates_no_revision_rows() {
+    use sea_orm::{EntityTrait, PaginatorTrait};
+
     let state = common::setup().await;
     let user =
         common::create_test_account(&state, "copyempty", "copyempty@example.com", "pass1234")
@@ -2602,6 +2604,75 @@ async fn test_empty_folder_copy_creates_no_revision_rows() {
     .await
     .unwrap();
     assert!(copied_files.is_empty());
+    assert_eq!(
+        aster_drive_model::entities::file_revision::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        aster_drive_model::entities::file_revision_history::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[actix_web::test]
+async fn test_folder_copy_creates_initial_revisions_across_batch_boundary() {
+    let state = common::setup().await;
+    let user =
+        common::create_test_account(&state, "copybatch", "copybatch@example.com", "pass1234")
+            .await
+            .unwrap();
+    let source = aster_drive::services::files::folder::create(&state, user.id, "Batch", None)
+        .await
+        .unwrap();
+
+    for index in 0..51 {
+        aster_drive::services::files::file::create_empty(
+            &state,
+            user.id,
+            Some(source.id),
+            &format!("file-{index:02}.txt"),
+        )
+        .await
+        .unwrap();
+    }
+
+    let copied =
+        aster_drive::services::files::folder::copy_folder(&state, source.id, user.id, None)
+            .await
+            .unwrap();
+    let copied_files = aster_drive::db::repository::file_repo::find_by_folder(
+        state.writer_db(),
+        user.id,
+        Some(copied.id),
+    )
+    .await
+    .unwrap();
+    assert_eq!(copied_files.len(), 51);
+
+    for copied_file in copied_files {
+        let history = aster_drive::db::repository::revision_repo::find_history_by_file_id(
+            state.writer_db(),
+            copied_file.id,
+        )
+        .await
+        .unwrap();
+        let revisions = aster_drive::db::repository::revision_repo::find_by_file_id(
+            state.writer_db(),
+            copied_file.id,
+        )
+        .await
+        .unwrap();
+        assert_eq!(revisions.len(), 1);
+        assert_eq!(revisions[0].reason, "copy");
+        assert_eq!(revisions[0].blob_id, Some(copied_file.blob_id));
+        assert_eq!(history.current_revision_id, Some(revisions[0].id));
+    }
 }
 
 #[actix_web::test]

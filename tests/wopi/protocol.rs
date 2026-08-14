@@ -7,7 +7,7 @@ use bytes::Bytes;
 use chrono::{DateTime, Duration, Utc};
 use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::config::{RuntimeConfig, site_url::PUBLIC_SITE_URL_KEY};
@@ -181,18 +181,39 @@ fn parse_wopi_result_url(url: &str) -> (i64, String) {
     (file_id, access_token)
 }
 
-fn directory_contains_nonempty_file(path: &std::path::Path) -> bool {
-    std::fs::read_dir(path).is_ok_and(|entries| {
-        entries.filter_map(Result::ok).any(|entry| {
-            entry.metadata().is_ok_and(|metadata| {
-                if metadata.is_dir() {
-                    directory_contains_nonempty_file(&entry.path())
-                } else {
-                    metadata.len() > 0
-                }
-            })
-        })
-    })
+fn nonempty_files_under(path: &std::path::Path) -> BTreeSet<std::path::PathBuf> {
+    fn collect(path: &std::path::Path, files: &mut BTreeSet<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(path) else {
+            return;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let entry_path = entry.path();
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            if metadata.is_dir() {
+                collect(&entry_path, files);
+            } else if metadata.len() > 0 {
+                files.insert(entry_path);
+            }
+        }
+    }
+
+    let mut files = BTreeSet::new();
+    collect(path, &mut files);
+    files
+}
+
+fn use_isolated_wopi_temp_root(
+    state: &mut aster_drive::runtime::PrimaryAppState,
+) -> (std::path::PathBuf, aster_forge_utils::raii::TempDirGuard) {
+    let root =
+        std::env::temp_dir().join(format!("asterdrive-wopi-runtime-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::sync::Arc::make_mut(&mut state.config).server.temp_dir =
+        root.join("temp").to_string_lossy().into_owned();
+    let guard = aster_forge_utils::raii::TempDirGuard::new(root.clone(), "wopi runtime temp root");
+    (root, guard)
 }
 
 fn stored_wopi_owner(lock_value: &str) -> StoredLockOwnerInfo {
@@ -1611,7 +1632,8 @@ async fn test_wopi_put_relative_overwrite_updates_existing_target() {
 
 #[actix_web::test]
 async fn test_wopi_put_relative_rejects_target_changed_while_body_is_streaming() {
-    let state = common::setup().await;
+    let mut state = common::setup().await;
+    let (_temp_root, _temp_root_guard) = use_isolated_wopi_temp_root(&mut state);
     configure_test_wopi_runtime(&state);
     let app = create_test_app!(state.clone());
 
@@ -1639,9 +1661,15 @@ async fn test_wopi_put_relative_rejects_target_changed_while_body_is_streaming()
         .await
         .unwrap();
 
-    let temp_dir = state.config.server.temp_dir.clone();
-    let concurrent_path = format!("/tmp/wopi-concurrent-target-{}.docx", uuid::Uuid::new_v4());
+    let temp_dir = std::path::PathBuf::from(&state.config.server.temp_dir);
+    let fixture_dir =
+        std::env::temp_dir().join(format!("asterdrive-wopi-race-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let _fixture_guard =
+        aster_forge_utils::raii::TempDirGuard::new(fixture_dir.clone(), "wopi race fixture");
+    let concurrent_path = fixture_dir.join("winner.docx");
     std::fs::write(&concurrent_path, b"concurrent winner").unwrap();
+    let baseline_temp_files = nonempty_files_under(&temp_dir);
 
     let put_relative = put_relative_file(
         &state,
@@ -1664,7 +1692,10 @@ async fn test_wopi_put_relative_rejects_target_changed_while_body_is_streaming()
     let concurrent_update = async {
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
-                if directory_contains_nonempty_file(std::path::Path::new(&temp_dir)) {
+                if nonempty_files_under(&temp_dir)
+                    .iter()
+                    .any(|path| !baseline_temp_files.contains(path))
+                {
                     break;
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(5)).await;
@@ -1676,8 +1707,13 @@ async fn test_wopi_put_relative_rejects_target_changed_while_body_is_streaming()
         aster_drive::services::files::file::store_from_temp(
             &state,
             user.id,
-            StoreFromTempRequest::new(None, "stream-target.docx", &concurrent_path, 17)
-                .overwrite(target_file_id),
+            StoreFromTempRequest::new(
+                None,
+                "stream-target.docx",
+                concurrent_path.to_str().unwrap(),
+                17,
+            )
+            .overwrite(target_file_id),
         )
         .await
         .unwrap();
@@ -1712,7 +1748,8 @@ async fn test_wopi_put_relative_rejects_target_changed_while_body_is_streaming()
 
 #[actix_web::test]
 async fn test_wopi_put_relative_rejects_target_created_while_body_is_streaming() {
-    let state = common::setup().await;
+    let mut state = common::setup().await;
+    let (_temp_root, _temp_root_guard) = use_isolated_wopi_temp_root(&mut state);
     configure_test_wopi_runtime(&state);
     let app = create_test_app!(state.clone());
 
@@ -1739,9 +1776,15 @@ async fn test_wopi_put_relative_rejects_target_created_while_body_is_streaming()
         .await
         .unwrap();
 
-    let temp_dir = state.config.server.temp_dir.clone();
-    let concurrent_path = format!("/tmp/wopi-concurrent-create-{}.docx", uuid::Uuid::new_v4());
+    let temp_dir = std::path::PathBuf::from(&state.config.server.temp_dir);
+    let fixture_dir =
+        std::env::temp_dir().join(format!("asterdrive-wopi-race-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let _fixture_guard =
+        aster_forge_utils::raii::TempDirGuard::new(fixture_dir.clone(), "wopi race fixture");
+    let concurrent_path = fixture_dir.join("winner.docx");
     std::fs::write(&concurrent_path, b"concurrent creator").unwrap();
+    let baseline_temp_files = nonempty_files_under(&temp_dir);
 
     let put_relative = put_relative_file(
         &state,
@@ -1764,7 +1807,10 @@ async fn test_wopi_put_relative_rejects_target_created_while_body_is_streaming()
     let concurrent_create = async {
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
-                if directory_contains_nonempty_file(std::path::Path::new(&temp_dir)) {
+                if nonempty_files_under(&temp_dir)
+                    .iter()
+                    .any(|path| !baseline_temp_files.contains(path))
+                {
                     break;
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(5)).await;
@@ -1776,7 +1822,12 @@ async fn test_wopi_put_relative_rejects_target_created_while_body_is_streaming()
         let created = aster_drive::services::files::file::store_from_temp(
             &state,
             user.id,
-            StoreFromTempRequest::new(None, "create-race-target.docx", &concurrent_path, 18),
+            StoreFromTempRequest::new(
+                None,
+                "create-race-target.docx",
+                concurrent_path.to_str().unwrap(),
+                18,
+            ),
         )
         .await
         .unwrap();
