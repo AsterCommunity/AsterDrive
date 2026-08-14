@@ -87,7 +87,7 @@ pub async fn upload_avatar(
         state,
         &user,
         base_profile.as_ref(),
-        staged,
+        &staged,
         &avatar_root_dir,
     )
     .await;
@@ -142,7 +142,7 @@ async fn publish_staged_avatar(
     state: &PrimaryAppState,
     user: &aster_drive_model::entities::user::Model,
     base_profile: Option<&user_profile::Model>,
-    staged: StagedAvatarUpload,
+    staged: &StagedAvatarUpload,
     avatar_root_dir: &std::path::Path,
 ) -> Result<AvatarUploadResult> {
     tracing::debug!(
@@ -154,7 +154,7 @@ async fn publish_staged_avatar(
     let processed =
         processing::process_staged_avatar(state, &staged.file_name, staged.source_path.clone())
             .await?;
-    let rendered_dir = write_staged_avatar_variants(avatar_root_dir, &staged, &processed).await?;
+    let rendered_dir = write_staged_avatar_variants(avatar_root_dir, staged, &processed).await?;
     let output_size = i64::try_from(
         processed
             .small_bytes

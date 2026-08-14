@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use actix_multipart::Multipart;
+use aster_forge_utils::raii::TempDirGuard;
 use futures::StreamExt;
 use tokio::io::{AsyncWriteExt, BufWriter};
 
@@ -20,6 +21,7 @@ pub(super) struct StagedAvatarUpload {
     pub file_name: String,
     pub source_path: PathBuf,
     pub source_size: u64,
+    _staging_guard: TempDirGuard,
 }
 
 pub(super) async fn stage_avatar_upload(
@@ -56,8 +58,9 @@ pub(super) async fn stage_avatar_upload(
                 "create avatar staging directory",
                 AsterError::storage_driver_error,
             )?;
+        let staging_guard = TempDirGuard::new(staging_dir.clone(), "avatar upload staging dir");
 
-        let result = async {
+        let result = async move {
             let file = tokio::fs::File::create(&partial_path)
                 .await
                 .map_aster_err_ctx(
@@ -106,6 +109,7 @@ pub(super) async fn stage_avatar_upload(
                 source_path,
                 source_size: u64::try_from(source_size)
                     .map_err(|_| AsterError::file_too_large("avatar upload size exceeds u64"))?,
+                _staging_guard: staging_guard,
             })
         }
         .await;
@@ -210,6 +214,8 @@ mod tests {
                 .join("source.part")
                 .exists()
         );
+        drop(staged);
+        assert_staging_empty(&root);
         tokio::fs::remove_dir_all(root).await.unwrap();
     }
 
