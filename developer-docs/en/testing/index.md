@@ -63,6 +63,8 @@ ASTER_TEST_DATABASE_BACKEND=postgres cargo test --test files search::test_search
 ASTER_TEST_DATABASE_BACKEND=mysql cargo test --test operations admin::test_admin_team_crud
 ```
 
+To reuse an already running external MySQL instance, point `ASTER_TEST_MYSQL_DATABASE_URL` at a dedicated test database. When that database is not the schema-template container managed by testcontainers, also set `ASTER_TEST_DISABLE_MYSQL_SCHEMA_TEMPLATE=1`; the test will migrate and exercise that database directly. This switch is only for disposable external test databases, never an instance containing product data.
+
 ## Current behavior
 
 `common::setup()` in `tests/common/mod.rs` works like this:

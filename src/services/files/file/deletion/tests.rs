@@ -255,7 +255,7 @@ async fn create_file(
     name: &str,
 ) -> file::Model {
     let now = Utc::now();
-    file::ActiveModel {
+    let file = file::ActiveModel {
         name: Set(name.to_string()),
         folder_id: Set(None),
         team_id: Set(None),
@@ -272,7 +272,15 @@ async fn create_file(
     }
     .insert(db)
     .await
-    .expect("test file should insert")
+    .expect("test file should insert");
+    crate::db::repository::revision_repo::create_initial(
+        db,
+        &file,
+        crate::db::repository::revision_repo::RevisionReason::Create,
+    )
+    .await
+    .expect("test file revision should insert");
+    file
 }
 
 async fn set_user_storage_used(

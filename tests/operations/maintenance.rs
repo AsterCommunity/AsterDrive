@@ -3,7 +3,7 @@
 use crate::common;
 
 use chrono::{Duration, Utc};
-use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, Set};
+use sea_orm::{ActiveModelTrait, EntityTrait, IntoActiveModel, PaginatorTrait, Set};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
@@ -669,7 +669,7 @@ async fn test_cleanup_expired_completed_upload_sessions_cleans_team_sessions() {
 
 #[actix_web::test]
 async fn test_reconcile_blob_state_deletes_orphans_and_fixes_ref_counts() {
-    use aster_drive::db::repository::{file_repo, version_repo};
+    use aster_drive::db::repository::{file_repo, revision_repo};
     use aster_drive::services::ops::maintenance;
 
     let state = common::setup().await;
@@ -698,19 +698,34 @@ async fn test_reconcile_blob_state_deletes_orphans_and_fixes_ref_counts() {
         9,
     )
     .await;
-    version_repo::create(
+    let history = revision_repo::find_history_by_file_id(state.writer_db(), live_file.id)
+        .await
+        .unwrap();
+    revision_repo::append(
         state.writer_db(),
-        aster_drive_model::entities::file_version::ActiveModel {
-            file_id: Set(live_file.id),
-            blob_id: Set(version_blob.id),
-            version: Set(1),
-            size: Set(version_blob.size),
-            created_at: Set(Utc::now()),
-            ..Default::default()
+        live_file.id,
+        history.current_revision_id,
+        revision_repo::NewRevision {
+            blob_id: version_blob.id,
+            logical_size: version_blob.size,
+            mime_type: "application/octet-stream",
+            content_sha256: Some(&version_hash),
+            creator_user_id: Some(user.id),
+            creator_display_name: &user.username,
+            comment: None,
+            reason: revision_repo::RevisionReason::Overwrite,
+            created_at: Utc::now(),
+            etag: None,
         },
     )
     .await
     .unwrap();
+    let mut history_after = revision_repo::find_history_by_file_id(state.writer_db(), live_file.id)
+        .await
+        .unwrap()
+        .into_active_model();
+    history_after.current_revision_id = Set(history.current_revision_id);
+    history_after.update(state.writer_db()).await.unwrap();
 
     let orphan_hash = "c".repeat(64);
     let orphan_path = "orphans/orphan.bin";
@@ -884,8 +899,10 @@ async fn test_purge_keeps_blob_row_when_storage_delete_fails_then_maintenance_re
 
 #[actix_web::test]
 async fn test_purge_releases_all_versioned_storage_used() {
-    use aster_drive::db::repository::user_repo;
+    use aster_drive::db::repository::{revision_repo, user_repo};
     use aster_drive::services::files::file;
+    use aster_drive_model::entities::{file_revision, file_revision_history};
+    use sea_orm::{ColumnTrait, QueryFilter};
 
     let state = common::setup().await;
     let user =
@@ -914,6 +931,23 @@ async fn test_purge_releases_all_versioned_storage_used() {
         before_purge.storage_used,
         initial_bytes.len() as i64 + updated_bytes.len() as i64
     );
+    let history_before = revision_repo::find_history_by_file_id(state.writer_db(), file.id)
+        .await
+        .unwrap();
+    let revisions_before = revision_repo::find_by_file_id(state.writer_db(), file.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|revision| {
+            (
+                revision.id,
+                revision.public_id,
+                revision.sequence,
+                revision.etag,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(revisions_before.len(), 2);
 
     file::purge(&state, file.id, user.id).await.unwrap();
 
@@ -921,6 +955,41 @@ async fn test_purge_releases_all_versioned_storage_used() {
         .await
         .unwrap();
     assert_eq!(after_purge.storage_used, 0);
+
+    let history_after = file_revision_history::Entity::find_by_id(history_before.id)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(history_after.public_id, history_before.public_id);
+    assert!(history_after.file_id.is_none());
+    assert!(history_after.current_revision_id.is_none());
+    assert!(history_after.retired_at.is_some());
+    let revisions_after = file_revision::Entity::find()
+        .filter(file_revision::Column::HistoryId.eq(history_before.id))
+        .all(state.writer_db())
+        .await
+        .unwrap();
+    assert_eq!(revisions_after.len(), 2);
+    assert_eq!(
+        revisions_after
+            .iter()
+            .map(|revision| {
+                (
+                    revision.id,
+                    revision.public_id.clone(),
+                    revision.sequence,
+                    revision.etag.clone(),
+                )
+            })
+            .collect::<std::collections::BTreeSet<_>>(),
+        revisions_before
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+    );
+    assert!(revisions_after.iter().all(|revision| {
+        revision.blob_id.is_none() && revision.retired_at.is_some() && revision.purged_at.is_some()
+    }));
 }
 
 #[actix_web::test]
@@ -983,9 +1052,11 @@ async fn test_batch_purge_releases_all_versioned_storage_used() {
 
 #[actix_web::test]
 async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
-    use aster_drive::db::repository::{file_repo, folder_repo, user_repo};
+    use aster_drive::db::repository::{file_repo, folder_repo, revision_repo, user_repo};
     use aster_drive::services::ops::integrity;
-    use aster_drive_model::entities::{file_blob, folder};
+    use aster_drive_model::entities::{
+        file, file_blob, file_revision, file_revision_history, folder,
+    };
 
     let state = common::setup().await;
     let user = common::create_test_account(&state, "audituser1", "audit1@test.com", "password123")
@@ -998,6 +1069,57 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
     let live_blob = file_repo::find_blob_by_id(state.writer_db(), live_file.blob_id)
         .await
         .unwrap();
+    assert!(
+        integrity::audit_revision_ledger(state.writer_db())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    let persisted_file = file::Entity::find_by_id(live_file.id)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    let mut mismatched_file: file::ActiveModel = persisted_file.into();
+    mismatched_file.size = Set(live_file.size + 1);
+    mismatched_file.update(state.writer_db()).await.unwrap();
+    let ledger_issues = integrity::audit_revision_ledger(state.writer_db())
+        .await
+        .unwrap();
+    assert!(ledger_issues.iter().any(|issue| {
+        issue.file_id == Some(live_file.id)
+            && issue.detail == "files projection does not match current revision"
+    }));
+
+    let history = revision_repo::find_history_by_file_id(state.writer_db(), live_file.id)
+        .await
+        .unwrap();
+    let current_id = history.current_revision_id.unwrap();
+    let mut current: file_revision::ActiveModel = file_revision::Entity::find_by_id(current_id)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap()
+        .into();
+    current.predecessor_revision_id = Set(Some(999_999));
+    current.update(state.writer_db()).await.unwrap();
+    let ledger_issues = integrity::audit_revision_ledger(state.writer_db())
+        .await
+        .unwrap();
+    assert!(ledger_issues.iter().any(|issue| {
+        issue.revision_id == Some(current_id) && issue.detail == "predecessor pointer is dangling"
+    }));
+
+    let mut dangling_history: file_revision_history::ActiveModel = history.into();
+    dangling_history.current_revision_id = Set(Some(999_998));
+    dangling_history.update(state.writer_db()).await.unwrap();
+    let ledger_issues = integrity::audit_revision_ledger(state.writer_db())
+        .await
+        .unwrap();
+    assert!(ledger_issues.iter().any(|issue| {
+        issue.file_id == Some(live_file.id) && issue.detail == "history current pointer is dangling"
+    }));
 
     let mut user_active: aster_drive_model::entities::user::ActiveModel =
         user_repo::find_by_id(state.writer_db(), user.id)
@@ -1102,7 +1224,7 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
     assert!(blob_drifts.iter().any(|drift| {
         drift.blob_id == live_blob.id
             && drift.recorded_ref_count == 7
-            && drift.actual_ref_count == 1
+            && drift.actual_ref_count == 2
     }));
 
     let storage_report = integrity::audit_storage_objects(

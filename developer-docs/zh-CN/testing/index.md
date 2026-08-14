@@ -63,6 +63,8 @@ ASTER_TEST_DATABASE_BACKEND=postgres cargo test --test files search::test_search
 ASTER_TEST_DATABASE_BACKEND=mysql cargo test --test operations admin::test_admin_team_crud
 ```
 
+需要复用已经运行的外部 MySQL 数据库时，可把 `ASTER_TEST_MYSQL_DATABASE_URL` 指向专用测试库；若该库不是 testcontainers 管理的 schema-template 容器，同时设置 `ASTER_TEST_DISABLE_MYSQL_SCHEMA_TEMPLATE=1`，测试会直接在该库完成 migration 和验收。该开关只用于一次性的外部测试库，不要指向含有产品数据的实例。
+
 ## 现在的行为
 
 `tests/common/mod.rs` 里的 `common::setup()` 会按下面的规则工作：

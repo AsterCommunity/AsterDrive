@@ -42,3 +42,4 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
 tracing = { workspace = true }
+uuid = { version = "1", features = ["v4"] }

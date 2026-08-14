@@ -880,6 +880,18 @@ pub async fn mysql_test_database_url() -> String {
     resolve_test_database_url_for(TestDatabaseBackend::MySql).await
 }
 
+pub async fn postgres_empty_test_database_url() -> String {
+    let (admin_database_url, database_url) =
+        shared_test_database_urls(TestDatabaseBackend::Postgres).await;
+    provision_isolated_test_database_url(&admin_database_url, &database_url).await
+}
+
+pub async fn mysql_empty_test_database_url() -> String {
+    let (admin_database_url, database_url) =
+        shared_test_database_urls(TestDatabaseBackend::MySql).await;
+    provision_isolated_test_database_url(&admin_database_url, &database_url).await
+}
+
 /// 构建一个干净的测试 PrimaryAppState。
 ///
 /// 默认使用内存 SQLite。若设置 `ASTER_TEST_DATABASE_BACKEND=postgres|mysql`，
@@ -1030,6 +1042,44 @@ where
     create_test_account_at_api_endpoint(app, "/api/v1/auth/setup", username, email, password).await
 }
 
+/// Creates an empty personal-workspace file through the canonical HTTP lifecycle.
+pub async fn create_empty_file_via_api<S, B, E>(
+    app: &S,
+    access_token: &str,
+    name: &str,
+    folder_id: Option<i64>,
+) -> i64
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = E,
+        >,
+    B: actix_web::body::MessageBody,
+    B::Error: std::fmt::Debug,
+    E: std::fmt::Debug,
+{
+    let request = actix_web::test::TestRequest::post()
+        .uri("/api/v1/files/new")
+        .insert_header(("Cookie", access_cookie_header(access_token)))
+        .insert_header(csrf_header_for(access_token))
+        .set_json(serde_json::json!({
+            "name": name,
+            "folder_id": folder_id,
+        }))
+        .to_request();
+    let response = actix_web::test::call_service(app, request).await;
+    assert_eq!(
+        response.status(),
+        201,
+        "empty file creation should return 201"
+    );
+    let body: serde_json::Value = actix_web::test::read_body_json(response).await;
+    body["data"]["id"]
+        .as_i64()
+        .expect("empty file response should contain file id")
+}
+
 /// Creates an account through the production setup/register lifecycle and confirms registration
 /// email when that policy is enabled.
 pub async fn create_test_account_via_api<S, B, E>(
@@ -1091,6 +1141,7 @@ where
 
 fn should_use_mysql_schema_template(database_url: &str) -> bool {
     database_url.starts_with("mysql://")
+        && std::env::var("ASTER_TEST_DISABLE_MYSQL_SCHEMA_TEMPLATE").as_deref() != Ok("1")
 }
 
 async fn load_mysql_schema_template(

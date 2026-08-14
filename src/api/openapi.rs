@@ -477,14 +477,15 @@ use utoipa::{Modify, OpenApi};
             crate::services::files::archive::preview::ArchivePreviewExtractCompatibility,
             crate::services::files::archive::preview::ArchivePreviewExtractUnsupportedReason,
 
-            // services::files::folder / entities::{file,folder,file_version}：个人空间文件树、文件实体和版本信息模型。
+            // services::files::folder、workspace::models 与 file/folder entities：文件树、API 投影和持久化实体。
             crate::services::files::folder::FolderContents,
             crate::services::files::folder::FolderAncestorItem,
             crate::services::workspace::models::FileInfo,
             crate::services::workspace::models::FolderInfo,
+            crate::services::workspace::models::FileVersion,
+            crate::services::workspace::models::FileVersionListQuery,
             aster_drive_model::entities::file::Model,
             aster_drive_model::entities::folder::Model,
-            aster_drive_model::entities::file_version::Model,
             crate::api::routes::files::FileQuery,
             crate::api::routes::files::PatchFileReq,
             crate::api::routes::files::OpenWopiRequest,

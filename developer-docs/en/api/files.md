@@ -137,6 +137,16 @@ These fields are recalculated on create, upload, overwrite, and rename.
 
 Detail responses from `GET /files/{id}` and `GET /teams/{team_id}/files/{id}` also include `storage_used`. This is the quota-accounting size for the file detail view: current `size` plus all historical version sizes. Directory list items omit this field.
 
+## Revision history
+
+Every file has a canonical revision from creation. Successful overwrites through REST, uploads, WebDAV, or WOPI append immutable revisions; handlers do not maintain separate history tables.
+
+- `GET /files/{id}/versions` lists current and historical revisions in descending sequence order. Use `limit` (default 100, maximum 1000) and `after_sequence` for stable keyset pagination.
+- `POST /files/{id}/versions/{version_id}/restore` appends a new current head whose content and user dead-property snapshot come from the target. Existing revisions remain intact.
+- `DELETE /files/{id}/versions/{version_id}` applies only to a historical revision. It purges the content reference while preserving the public identity and sequence as a tombstone, and repairs the successor's predecessor link.
+
+Revision sequences increase monotonically and are never reused, so gaps are expected. COPY creates an independent history; MOVE/rename, trash, and trash restore retain the existing history. `files` is the current materialized projection and is counted once for logical quota and blob references.
+
 ## `POST /files/{id}/resource-handle`
 
 File details answer what a file is. A resource handle answers how the current client should consume it. Request example:

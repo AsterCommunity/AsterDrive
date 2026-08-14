@@ -1,7 +1,7 @@
 //! 服务模块：`workspace::models`。
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
@@ -163,21 +163,59 @@ impl FolderInfo {
 pub struct FileVersion {
     pub id: i64,
     pub file_id: i64,
-    pub blob_id: i64,
-    pub version: i32,
+    pub public_id: String,
+    pub blob_id: Option<i64>,
+    pub version: i64,
     pub size: i64,
+    pub mime_type: Option<String>,
+    pub etag: String,
+    pub creator_user_id: Option<i64>,
+    pub creator_display_name: Option<String>,
+    pub comment: Option<String>,
+    pub reason: String,
+    pub current: bool,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTime<Utc>,
 }
 
-impl From<aster_drive_model::entities::file_version::Model> for FileVersion {
-    fn from(model: aster_drive_model::entities::file_version::Model) -> Self {
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(utoipa::IntoParams, ToSchema)
+)]
+pub struct FileVersionListQuery {
+    /// Maximum revisions returned per request (default 100, maximum 1000).
+    pub limit: Option<u64>,
+    /// Stable keyset cursor: the last sequence returned by the previous page.
+    pub after_sequence: Option<i64>,
+}
+
+impl FileVersionListQuery {
+    pub fn limit(self) -> u64 {
+        self.limit.unwrap_or(100).clamp(1, 1000)
+    }
+}
+
+impl FileVersion {
+    pub fn from_revision(
+        file_id: i64,
+        current_revision_id: Option<i64>,
+        model: aster_drive_model::entities::file_revision::Model,
+    ) -> Self {
         Self {
             id: model.id,
-            file_id: model.file_id,
+            file_id,
+            public_id: model.public_id,
             blob_id: model.blob_id,
-            version: model.version,
-            size: model.size,
+            version: model.sequence,
+            size: model.logical_size,
+            mime_type: model.mime_type,
+            etag: model.etag,
+            creator_user_id: model.creator_user_id,
+            creator_display_name: model.creator_display_name,
+            comment: model.comment,
+            reason: model.reason,
+            current: current_revision_id == Some(model.id),
             created_at: model.created_at,
         }
     }

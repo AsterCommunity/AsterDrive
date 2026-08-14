@@ -2,6 +2,7 @@
 
 mod cache;
 
+use actix_web::http::header::HeaderValue;
 use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -10,13 +11,10 @@ use std::time::Duration as StdDuration;
 use utoipa::ToSchema;
 
 use crate::config::{operations, site_url};
-use crate::db::repository::{file_repo, share_repo};
+use crate::db::repository::share_repo;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::files::{
-    direct_link,
-    file::{self as file_ops, ResolvedDownloadRange},
-};
+use crate::services::files::{direct_link, file as file_ops};
 use aster_drive_model::entities::{file, share};
 use aster_forge_utils::numbers::u64_to_i64;
 
@@ -97,27 +95,12 @@ pub(crate) async fn create_session_for_shared_folder_file_for_origin(
     build_session_for_shared_file(state, &share, &file, &payload, Some(request_origin))
 }
 
-pub(crate) async fn resolve_file_for_stream(
-    state: &impl SharedRuntimeState,
-    share_token: &str,
-    session_token: &str,
-    requested_name: &str,
-) -> Result<file::Model> {
-    let (_, target) = resolve_session_target(state, share_token, session_token).await?;
-    let file = match target {
-        ResolvedShareStreamTarget::Fresh { file, .. }
-        | ResolvedShareStreamTarget::Marked { file, .. } => file,
-    };
-    direct_link::validate_public_file_name(&file, requested_name)?;
-    Ok(file)
-}
-
 pub(crate) async fn stream_file(
     state: &PrimaryAppState,
     share_token: &str,
     session_token: &str,
     requested_name: &str,
-    range: Option<ResolvedDownloadRange>,
+    range_header: Option<&HeaderValue>,
 ) -> Result<file_ops::DownloadOutcome> {
     let (payload, target) = resolve_session_target(state, share_token, session_token).await?;
     let (share, file) = match target {
@@ -125,8 +108,20 @@ pub(crate) async fn stream_file(
         | ResolvedShareStreamTarget::Marked { share, file } => (share, file),
     };
     direct_link::validate_public_file_name(&file, requested_name)?;
-
-    let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id).await?;
+    let authorized = file;
+    let (file, blob, revision) =
+        file_ops::load_current_download_snapshot(state, authorized.id).await?;
+    if file.deleted_at.is_some()
+        || file.owner_user_id != authorized.owner_user_id
+        || file.team_id != authorized.team_id
+        || file.folder_id != authorized.folder_id
+    {
+        return Err(AsterError::share_not_found(
+            "shared stream target changed location before download",
+        ));
+    }
+    direct_link::validate_public_file_name(&file, requested_name)?;
+    let range = file_ops::resolve_range_for_download_snapshot(&file, range_header)?;
     let count_reservation = ensure_counted_once(state, session_token, &payload).await?;
 
     if matches!(count_reservation, CountReservation::Reserved) {
@@ -157,6 +152,7 @@ pub(crate) async fn stream_file(
         file_ops::DownloadDisposition::Inline,
         None,
         range,
+        &revision.etag,
     )
     .await
     {

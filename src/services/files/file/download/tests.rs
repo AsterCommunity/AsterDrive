@@ -1,5 +1,6 @@
+use std::collections::HashMap;
 use std::sync::{
-    Arc,
+    Arc, RwLock,
     atomic::{AtomicUsize, Ordering},
 };
 use std::time::Duration;
@@ -12,7 +13,7 @@ use tokio::io::{AsyncRead, AsyncWriteExt};
 
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
-use crate::runtime::PrimaryAppState;
+use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::file::DownloadDisposition;
 use crate::services::{mail::sender, storage_policy::policy};
 use crate::storage::{DriverRegistry, PolicySnapshot};
@@ -28,11 +29,14 @@ use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
 use aster_forge_utils::numbers::usize_to_i64;
 
-use super::build::build_download_outcome_with_disposition_and_range;
+use super::build::{
+    build_download_outcome_with_disposition_and_range, download_in_scope_with_range_header_and_file,
+};
 use super::range::ResolvedDownloadRange;
 use super::response::outcome_to_response;
 use super::streaming::AbortAwareStream;
 use super::types::DownloadOutcome;
+use crate::services::workspace::storage::WorkspaceStorageScope;
 
 fn payload_len_i64(payload: &[u8]) -> i64 {
     usize_to_i64(payload.len(), "payload_len").expect("test payload length should fit in i64")
@@ -148,6 +152,80 @@ impl StorageDriver for CountingStreamDriver {
     async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         Ok(BlobMetadata {
             size: self.bytes.len() as u64,
+            content_type: Some("text/plain".to_string()),
+        })
+    }
+}
+
+#[derive(Clone, Default)]
+struct PathStreamDriver {
+    objects: Arc<RwLock<HashMap<String, Vec<u8>>>>,
+}
+
+impl PathStreamDriver {
+    fn insert(&self, path: impl Into<String>, bytes: impl Into<Vec<u8>>) {
+        self.objects
+            .write()
+            .unwrap()
+            .insert(path.into(), bytes.into());
+    }
+
+    fn bytes(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
+        self.objects
+            .read()
+            .unwrap()
+            .get(path)
+            .cloned()
+            .ok_or_else(|| {
+                aster_drive_storage::StorageError::new(
+                    aster_drive_storage::StorageErrorKind::NotFound,
+                    format!("missing path-aware test object {path}"),
+                )
+            })
+    }
+}
+
+#[async_trait]
+impl StorageDriver for PathStreamDriver {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
+        self.insert(path, data.to_vec());
+        Ok(path.to_string())
+    }
+
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
+        self.bytes(path)
+    }
+
+    async fn get_stream(
+        &self,
+        path: &str,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
+        let bytes = self.bytes(path)?;
+        let (mut writer, reader) = tokio::io::duplex(bytes.len().max(1));
+        tokio::spawn(async move {
+            if let Err(error) = writer.write_all(&bytes).await {
+                tracing::trace!("path-aware mock stream write failed (reader dropped?): {error}");
+            }
+            if let Err(error) = writer.shutdown().await {
+                tracing::trace!("path-aware mock stream shutdown failed: {error}");
+            }
+        });
+        Ok(Box::new(reader))
+    }
+
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
+        self.objects.write().unwrap().remove(path);
+        Ok(())
+    }
+
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
+        Ok(self.objects.read().unwrap().contains_key(path))
+    }
+
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
+        let bytes = self.bytes(path)?;
+        Ok(BlobMetadata {
+            size: bytes.len() as u64,
             content_type: Some("text/plain".to_string()),
         })
     }
@@ -419,6 +497,13 @@ where
     )
     .await
     .expect("download test file should be inserted");
+    crate::db::repository::revision_repo::create_initial(
+        &db,
+        &file,
+        crate::db::repository::revision_repo::RevisionReason::Create,
+    )
+    .await
+    .expect("download test file should have an initial revision");
 
     (state, file, blob, driver)
 }
@@ -438,6 +523,7 @@ async fn build_stream_response_uses_get_stream_instead_of_get() {
         DownloadDisposition::Attachment,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .expect("stream download outcome should build");
@@ -457,6 +543,127 @@ async fn build_stream_response_uses_get_stream_instead_of_get() {
         1,
         "download response should open exactly one streaming reader"
     );
+}
+
+#[actix_web::test]
+async fn conditional_download_uses_revision_etag_instead_of_blob_hash() {
+    let payload = b"canonical revision validator".to_vec();
+    let driver = CountingStreamDriver::new(payload.clone());
+    let get_stream_calls = driver.get_stream_calls.clone();
+    let (state, file, blob, _) = build_download_test_state(driver, payload_len_i64(&payload)).await;
+    let revision_etag =
+        crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id)
+            .await
+            .expect("current revision ETag should load");
+    assert_ne!(revision_etag, blob.hash);
+
+    let outcome = build_download_outcome_with_disposition_and_range(
+        &state,
+        &file,
+        &blob,
+        DownloadDisposition::Attachment,
+        Some(format!("\"{revision_etag}\"").as_str()),
+        None,
+        &revision_etag,
+    )
+    .await
+    .expect("matching revision ETag should build a conditional response");
+    match outcome {
+        DownloadOutcome::NotModified { etag, .. } => {
+            assert_eq!(etag, format!("\"{revision_etag}\""));
+        }
+        other => panic!("matching revision ETag should return not-modified, got {other:?}"),
+    }
+    assert_eq!(get_stream_calls.load(Ordering::SeqCst), 0);
+}
+
+#[actix_web::test]
+async fn download_reloads_content_and_etag_from_one_current_snapshot() {
+    let driver = PathStreamDriver::default();
+    let driver_handle = driver.clone();
+    let stale_bytes = b"old".to_vec();
+    let current_bytes = b"new-current".to_vec();
+    let (state, stale_file, stale_blob, _) =
+        build_download_test_state(driver, payload_len_i64(&stale_bytes)).await;
+    driver_handle.insert(stale_blob.storage_path.clone(), stale_bytes);
+
+    let now = Utc::now() + chrono::Duration::seconds(1);
+    let current_blob = file_repo::create_blob(
+        state.writer_db(),
+        file_blob::ActiveModel {
+            hash: Set(format!("current-{}", uuid::Uuid::new_v4())),
+            size: Set(payload_len_i64(&current_bytes)),
+            policy_id: Set(stale_blob.policy_id),
+            storage_path: Set(format!("files/current-{}", uuid::Uuid::new_v4())),
+            ref_count: Set(1),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    driver_handle.insert(current_blob.storage_path.clone(), current_bytes.clone());
+
+    let txn = aster_forge_db::transaction::begin(state.writer_db())
+        .await
+        .unwrap();
+    let history =
+        crate::db::repository::revision_repo::lock_history_by_file_id(&txn, stale_file.id)
+            .await
+            .unwrap();
+    let mut current_file: file::ActiveModel = stale_file.clone().into();
+    current_file.blob_id = Set(current_blob.id);
+    current_file.size = Set(current_blob.size);
+    current_file.updated_at = Set(now);
+    current_file.update(&txn).await.unwrap();
+    let current_revision = crate::db::repository::revision_repo::append(
+        &txn,
+        stale_file.id,
+        history.current_revision_id,
+        crate::db::repository::revision_repo::NewRevision {
+            blob_id: current_blob.id,
+            logical_size: current_blob.size,
+            mime_type: &stale_file.mime_type,
+            content_sha256: None,
+            creator_user_id: stale_file.owner_user_id,
+            creator_display_name: &stale_file.created_by_username,
+            comment: None,
+            reason: crate::db::repository::revision_repo::RevisionReason::Overwrite,
+            created_at: now,
+            etag: None,
+        },
+    )
+    .await
+    .unwrap();
+    aster_forge_db::transaction::commit(txn).await.unwrap();
+
+    let range_header = actix_web::http::header::HeaderValue::from_static("bytes=3-10");
+    let outcome = download_in_scope_with_range_header_and_file(
+        &state,
+        WorkspaceStorageScope::Personal {
+            user_id: stale_file.owner_user_id.unwrap(),
+        },
+        stale_file.id,
+        Some(stale_file),
+        None,
+        Some(&range_header),
+        DownloadDisposition::Attachment,
+    )
+    .await
+    .unwrap();
+    let response = outcome_to_response(outcome);
+    assert_eq!(
+        response
+            .headers()
+            .get(actix_web::http::header::ETAG)
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        format!("\"{}\"", current_revision.etag)
+    );
+    let body = body::to_bytes(response.into_body()).await.unwrap();
+    assert_eq!(body.as_ref(), &current_bytes[3..]);
 }
 
 fn s3_presigned_download_policy() -> storage_policy::Model {
@@ -525,6 +732,7 @@ async fn attachment_download_redirects_to_presigned_url_with_attachment_disposit
         DownloadDisposition::Attachment,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .expect("attachment presigned outcome should build");
@@ -578,6 +786,7 @@ async fn safe_inline_preview_redirects_to_presigned_url_with_inline_disposition(
         DownloadDisposition::Inline,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .expect("safe inline presigned outcome should build");
@@ -627,6 +836,7 @@ async fn onedrive_direct_download_redirects_only_when_explicitly_enabled() {
         DownloadDisposition::Attachment,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .expect("explicit OneDrive direct download should build");
@@ -651,6 +861,7 @@ async fn onedrive_direct_download_redirects_only_when_explicitly_enabled() {
         DownloadDisposition::Attachment,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .expect("default OneDrive relay download should build");
@@ -682,6 +893,7 @@ async fn onedrive_direct_download_keeps_range_request_on_redirect_path() {
             ResolvedDownloadRange::new(3, 7, payload.len() as u64)
                 .expect("test range should be valid"),
         ),
+        "test-revision-etag",
     )
     .await
     .expect("OneDrive range download should use provider redirect");
@@ -709,6 +921,7 @@ async fn onedrive_strict_filename_mode_requires_provider_name_match() {
         DownloadDisposition::Attachment,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .expect("strict OneDrive download should build");
@@ -744,6 +957,7 @@ async fn onedrive_direct_download_requires_runtime_temporary_url_capability() {
         DownloadDisposition::Attachment,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .unwrap_err();
@@ -775,6 +989,7 @@ async fn onedrive_legacy_uuid_object_falls_back_to_same_origin_streaming() {
         DownloadDisposition::Attachment,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .expect("legacy OneDrive objects should use the stream fallback");
@@ -805,6 +1020,7 @@ async fn onedrive_direct_download_falls_back_for_conditional_and_sandboxed_inlin
             DownloadDisposition::Inline,
             if_none_match,
             None,
+            "test-revision-etag",
         )
         .await
         .expect("fallback request should stream through AsterDrive");
@@ -834,6 +1050,7 @@ async fn conditional_miss_inline_preview_streams_instead_of_presigned_redirect()
         DownloadDisposition::Inline,
         Some("\"stale-etag\""),
         None,
+        "test-revision-etag",
     )
     .await
     .expect("conditional miss inline outcome should build");
@@ -870,6 +1087,7 @@ async fn sandboxed_inline_preview_does_not_redirect_to_presigned_storage() {
         DownloadDisposition::Inline,
         None,
         None,
+        "test-revision-etag",
     )
     .await
     .expect("sandboxed inline outcome should build");

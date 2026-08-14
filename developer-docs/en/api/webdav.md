@@ -89,7 +89,7 @@ Common WebDAV methods are supported:
 
 Limits:
 
-- AsterDrive `file_versions` is product version history, not an RFC 3253 core versioning resource model. The current capability snapshot does not advertise `version-control`; `REPORT` and `VERSION-CONTROL` return resource-aware `405 Method Not Allowed` responses.
+- AsterDrive uses immutable `file_revision_histories` / `file_revisions` as the shared product history for REST, WebDAV writes, and WOPI writeback. Every successful create or overwrite appends a revision, and restore appends a new head without truncating history. This is still not the RFC 3253 wire model: the current capability snapshot does not advertise `version-control`, and `REPORT` / `VERSION-CONTROL` return resource-aware `405 Method Not Allowed`. Issue #448 owns the DeltaV methods, properties, URLs, and XML projection on top of this ledger.
 - the `/webdav/` mount root is a virtual entry point, not a persisted folder entity. `PROPFIND /webdav/` may list contents and read live DAV properties, but `PROPPATCH /webdav/` explicitly returns `403 Forbidden`; custom dead properties are supported only on concrete files or folders.
 - missing `Depth` on `PROPFIND` is parsed as `infinity`; when the target is a collection, the server returns `403` with `DAV:propfind-finite-depth` instead of doing unbounded recursion.
 - `COPY` accepts `Depth: 0` or missing / `infinity`, and rejects `Depth: 1`; `COPY Depth: 0` copies only the collection itself and its dead properties, not children.

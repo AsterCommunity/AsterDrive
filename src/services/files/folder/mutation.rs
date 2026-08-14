@@ -12,7 +12,7 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::db::repository::{file_repo, folder_repo, policy_repo, version_repo};
+use crate::db::repository::{file_repo, folder_repo, policy_repo, revision_repo};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::{SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
@@ -134,11 +134,20 @@ async fn compute_folder_storage_used(
                 after_file_id = files.last().map(|(file_id, _)| *file_id);
 
                 for file_id_chunk in file_ids.chunks(STORAGE_USED_VERSION_SUM_CHUNK_SIZE) {
-                    let version_bytes =
-                        version_repo::sum_sizes_by_file_ids(state.reader_db(), file_id_chunk)
-                            .await?;
+                    let mut version_bytes = 0_i64;
+                    let historical_sizes = revision_repo::sum_non_current_sizes_by_file_ids(
+                        state.reader_db(),
+                        file_id_chunk,
+                    )
+                    .await?;
+                    for file_id in file_id_chunk {
+                        let bytes = historical_sizes.get(file_id).copied().unwrap_or(0);
+                        add_checked(&mut version_bytes, bytes, || {
+                            format!("historical revision bytes for file #{file_id}")
+                        })?;
+                    }
                     add_checked(&mut total, version_bytes, || {
-                        format!("version bytes for folder #{folder_id}")
+                        format!("historical revision bytes for folder #{folder_id}")
                     })?;
                 }
 

@@ -5,7 +5,7 @@ use crate::common;
 use actix_web::test;
 use actix_web::{App, HttpServer, web};
 use aster_drive::config::{RateLimitConfig, RateLimitTier, WebDavConfig};
-use aster_drive::db::repository::{file_repo, lock_repo, property_repo};
+use aster_drive::db::repository::{file_repo, folder_repo, lock_repo, property_repo, user_repo};
 use aster_drive::runtime::PrimaryAppState;
 use aster_drive_model::entities::{audit_log, folder, team, team_member, user, webdav_account};
 use aster_drive_model::types::{AuditAction, EntityType, TeamMemberRole, UserRole, UserStatus};
@@ -4277,7 +4277,7 @@ async fn test_webdav_dead_property_inherits_xml_lang_from_prop_container() {
 
 #[actix_web::test]
 async fn test_webdav_copy_file_preserves_dead_properties() {
-    let app = setup_with_webdav!();
+    let (app, db, _) = setup_with_webdav_and_mail!();
     let (token, _) = register_and_login!(app);
     let auth = create_webdav_basic_auth!(app, token);
 
@@ -4305,6 +4305,25 @@ async fn test_webdav_copy_file_preserves_dead_properties() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 207);
+
+    let user = user_repo::find_by_username(&db, "testuser")
+        .await
+        .unwrap()
+        .unwrap();
+    let source = file_repo::find_by_name_in_folder(&db, user.id, None, "props-copy-source.txt")
+        .await
+        .unwrap()
+        .unwrap();
+    aster_drive::db::repository::property_repo::upsert(
+        &db,
+        EntityType::File,
+        source.id,
+        "system.preview",
+        "cache",
+        Some("internal"),
+    )
+    .await
+    .unwrap();
 
     let req = test::TestRequest::with_uri("/webdav/props-copy-source.txt")
         .method(actix_web::http::Method::from_bytes(b"COPY").unwrap())
@@ -4339,6 +4358,28 @@ async fn test_webdav_copy_file_preserves_dead_properties() {
         xml.contains(">blue<"),
         "COPY must preserve file dead properties: {xml}"
     );
+
+    let copied = file_repo::find_by_name_in_folder(&db, user.id, None, "props-copy-target.txt")
+        .await
+        .unwrap()
+        .unwrap();
+    let revisions = aster_drive::db::repository::revision_repo::find_by_file_id(&db, copied.id)
+        .await
+        .unwrap();
+    assert_eq!(revisions.len(), 1);
+    let snapshot =
+        aster_drive::db::repository::revision_repo::find_properties(&db, revisions[0].id)
+            .await
+            .unwrap();
+    assert_eq!(snapshot.len(), 1);
+    assert_eq!(snapshot[0].namespace, "urn:aster:");
+    assert_eq!(snapshot[0].name, "color");
+    let xml_value = snapshot[0].xml_value.as_deref().unwrap();
+    let property =
+        Element::parse(xml_value.as_bytes()).expect("snapshot property XML should parse");
+    assert_eq!(property.name, "color");
+    assert_eq!(property.namespace.as_deref(), Some("urn:aster:"));
+    assert_eq!(property.text().as_deref(), Some("blue"));
 }
 
 #[actix_web::test]
@@ -4428,7 +4469,7 @@ async fn test_webdav_copy_folder_depth_zero_preserves_collection_dead_properties
 
 #[actix_web::test]
 async fn test_webdav_copy_folder_recursively_preserves_descendant_dead_properties() {
-    let app = setup_with_webdav!();
+    let (app, db, _) = setup_with_webdav_and_mail!();
     let (token, _) = register_and_login!(app);
     let auth = create_webdav_basic_auth!(app, token);
 
@@ -4515,6 +4556,160 @@ async fn test_webdav_copy_folder_recursively_preserves_descendant_dead_propertie
             xml.contains(expected),
             "recursive COPY must preserve dead property '{expected}' for {uri}: {xml}"
         );
+    }
+
+    let user = user_repo::find_by_username(&db, "testuser")
+        .await
+        .unwrap()
+        .unwrap();
+    let copied_root = folder_repo::find_by_name_in_parent(&db, user.id, None, "props-tree-target")
+        .await
+        .unwrap()
+        .unwrap();
+    let copied_sub = folder_repo::find_by_name_in_parent(&db, user.id, Some(copied_root.id), "sub")
+        .await
+        .unwrap()
+        .unwrap();
+    let copied_file =
+        file_repo::find_by_name_in_folder(&db, user.id, Some(copied_sub.id), "file.txt")
+            .await
+            .unwrap()
+            .unwrap();
+    let revisions =
+        aster_drive::db::repository::revision_repo::find_by_file_id(&db, copied_file.id)
+            .await
+            .unwrap();
+    assert_eq!(revisions.len(), 1);
+    let snapshot =
+        aster_drive::db::repository::revision_repo::find_properties(&db, revisions[0].id)
+            .await
+            .unwrap();
+    assert_eq!(snapshot.len(), 1);
+    assert_eq!(snapshot[0].namespace, "urn:aster:");
+    assert_eq!(snapshot[0].name, "marker");
+    let xml_value = snapshot[0].xml_value.as_deref().unwrap();
+    let property =
+        Element::parse(xml_value.as_bytes()).expect("snapshot property XML should parse");
+    assert_eq!(property.name, "marker");
+    assert_eq!(property.namespace.as_deref(), Some("urn:aster:"));
+    assert_eq!(property.text().as_deref(), Some("file-prop"));
+}
+
+#[actix_web::test]
+async fn test_webdav_copy_folder_batches_initial_revisions_and_property_snapshots() {
+    let (app, db, _) = setup_with_webdav_and_mail!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    let req = test::TestRequest::with_uri("/webdav/batch-props-source/")
+        .method(actix_web::http::Method::from_bytes(b"MKCOL").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    for index in 0..51 {
+        let req = test::TestRequest::put()
+            .uri(&format!("/webdav/batch-props-source/file-{index:02}.txt"))
+            .insert_header(("Authorization", auth.clone()))
+            .set_payload(format!("content-{index}"))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status() == 201 || resp.status() == 204);
+    }
+
+    let user = user_repo::find_by_username(&db, "testuser")
+        .await
+        .unwrap()
+        .unwrap();
+    let source_root = folder_repo::find_by_name_in_parent(&db, user.id, None, "batch-props-source")
+        .await
+        .unwrap()
+        .unwrap();
+    for name in ["file-00.txt", "file-50.txt"] {
+        let source = file_repo::find_by_name_in_folder(&db, user.id, Some(source_root.id), name)
+            .await
+            .unwrap()
+            .unwrap();
+        property_repo::upsert(
+            &db,
+            EntityType::File,
+            source.id,
+            "urn:aster:",
+            "marker",
+            Some(&format!(
+                r#"<X:marker xmlns:X="urn:aster:">{name}</X:marker>"#
+            )),
+        )
+        .await
+        .unwrap();
+        property_repo::upsert(
+            &db,
+            EntityType::File,
+            source.id,
+            "DAV:",
+            "displayname",
+            Some("protected"),
+        )
+        .await
+        .unwrap();
+        property_repo::upsert(
+            &db,
+            EntityType::File,
+            source.id,
+            "system.private",
+            "marker",
+            Some("protected"),
+        )
+        .await
+        .unwrap();
+    }
+
+    let req = test::TestRequest::with_uri("/webdav/batch-props-source/")
+        .method(actix_web::http::Method::from_bytes(b"COPY").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Destination", "/webdav/batch-props-target/"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 201 || resp.status() == 204);
+
+    let copied_root = folder_repo::find_by_name_in_parent(&db, user.id, None, "batch-props-target")
+        .await
+        .unwrap()
+        .unwrap();
+    let copied_files = file_repo::find_by_folder(&db, user.id, Some(copied_root.id))
+        .await
+        .unwrap();
+    assert_eq!(copied_files.len(), 51);
+    for copied in &copied_files {
+        let history =
+            aster_drive::db::repository::revision_repo::find_history_by_file_id(&db, copied.id)
+                .await
+                .unwrap();
+        let revisions = aster_drive::db::repository::revision_repo::find_by_file_id(&db, copied.id)
+            .await
+            .unwrap();
+        assert_eq!(revisions.len(), 1);
+        assert_eq!(revisions[0].reason, "copy");
+        assert_eq!(revisions[0].sequence, 1);
+        assert_eq!(revisions[0].predecessor_revision_id, None);
+        assert_eq!(history.current_revision_id, Some(revisions[0].id));
+        assert_eq!(history.next_sequence, 2);
+
+        if copied.name == "file-00.txt" || copied.name == "file-50.txt" {
+            let snapshot =
+                aster_drive::db::repository::revision_repo::find_properties(&db, revisions[0].id)
+                    .await
+                    .unwrap();
+            assert_eq!(snapshot.len(), 1);
+            assert_eq!(snapshot[0].namespace, "urn:aster:");
+            assert_eq!(snapshot[0].name, "marker");
+            let property =
+                Element::parse(snapshot[0].xml_value.as_deref().unwrap().as_bytes()).unwrap();
+            assert_eq!(property.name, "marker");
+            assert_eq!(property.namespace.as_deref(), Some("urn:aster:"));
+            assert_eq!(property.text().as_deref(), Some(copied.name.as_str()));
+        }
     }
 }
 

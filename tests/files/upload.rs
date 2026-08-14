@@ -3537,7 +3537,7 @@ async fn test_concurrent_chunked_complete_same_team_serializes_team_quota() {
 
 #[actix_web::test]
 async fn test_concurrent_chunked_complete_same_team_quota_boundary_rolls_back_loser() {
-    use aster_drive::db::repository::{file_repo, team_repo, upload_session_repo, version_repo};
+    use aster_drive::db::repository::{file_repo, revision_repo, team_repo, upload_session_repo};
     use aster_drive::services::{files::upload, workspace::team};
     use aster_drive_model::entities::team as team_entity;
     use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, Set};
@@ -3656,10 +3656,14 @@ async fn test_concurrent_chunked_complete_same_team_quota_boundary_rolls_back_lo
                     .file_id
                     .expect("completed session must reference a file");
                 assert_eq!(file_id, completed_file.id);
-                let versions = version_repo::find_by_file_id(state.writer_db(), file_id)
+                let revisions = revision_repo::find_by_file_id(state.writer_db(), file_id)
                     .await
                     .unwrap();
-                assert!(versions.is_empty());
+                assert_eq!(revisions.len(), 1);
+                let history = revision_repo::find_history_by_file_id(state.writer_db(), file_id)
+                    .await
+                    .unwrap();
+                assert_eq!(history.current_revision_id, Some(revisions[0].id));
                 completed += 1;
             }
             aster_drive_model::types::UploadSessionStatus::Failed => {
@@ -3671,11 +3675,11 @@ async fn test_concurrent_chunked_complete_same_team_quota_boundary_rolls_back_lo
     }
     assert_eq!((completed, failed), (1, 1));
     assert_eq!(
-        aster_drive_model::entities::file_version::Entity::find()
+        aster_drive_model::entities::file_revision::Entity::find()
             .count(state.writer_db())
             .await
             .unwrap(),
-        0
+        1
     );
 }
 
@@ -4457,7 +4461,7 @@ async fn test_team_upload_chunk_terminal_error_removes_session_from_recovery() {
 
 #[actix_web::test]
 async fn test_complete_upload_is_idempotent_after_completion() {
-    use aster_drive::db::repository::{upload_session_repo, user_repo};
+    use aster_drive::db::repository::{revision_repo, upload_session_repo, user_repo};
     use aster_drive::services::files::upload;
 
     let state = common::setup().await;
@@ -4484,6 +4488,17 @@ async fn test_complete_upload_is_idempotent_after_completion() {
     let first = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .unwrap();
+    let revisions_after_first = revision_repo::find_by_file_id(state.writer_db(), first.id)
+        .await
+        .unwrap();
+    assert_eq!(revisions_after_first.len(), 1);
+    let history_after_first = revision_repo::find_history_by_file_id(state.writer_db(), first.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        history_after_first.current_revision_id,
+        Some(revisions_after_first[0].id)
+    );
     let user_after_first = user_repo::find_by_id(state.writer_db(), user.id)
         .await
         .unwrap();
@@ -4501,6 +4516,27 @@ async fn test_complete_upload_is_idempotent_after_completion() {
     assert_eq!(
         user_after_second.storage_used, user_after_first.storage_used,
         "completed retry must not charge quota twice"
+    );
+    let revisions_after_second = revision_repo::find_by_file_id(state.writer_db(), first.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        revisions_after_second
+            .iter()
+            .map(|revision| (revision.id, revision.sequence, revision.public_id.clone()))
+            .collect::<Vec<_>>(),
+        revisions_after_first
+            .iter()
+            .map(|revision| (revision.id, revision.sequence, revision.public_id.clone()))
+            .collect::<Vec<_>>(),
+        "completed retry must not append a second revision"
+    );
+    assert_eq!(
+        revision_repo::find_history_by_file_id(state.writer_db(), first.id)
+            .await
+            .unwrap()
+            .current_revision_id,
+        history_after_first.current_revision_id
     );
 
     let session = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
@@ -4572,6 +4608,35 @@ async fn test_complete_chunked_upload_quota_failure_does_not_complete_session_or
         .await
         .unwrap();
     assert_eq!(user_after.storage_used, 0);
+    assert!(
+        aster_drive::db::repository::file_repo::find_by_name_in_folder(
+            state.writer_db(),
+            user.id,
+            None,
+            "quota-finalize.txt",
+        )
+        .await
+        .unwrap()
+        .is_none(),
+        "failed finalization must roll back the live file projection"
+    );
+    use sea_orm::{EntityTrait, PaginatorTrait};
+    assert_eq!(
+        aster_drive_model::entities::file_revision_history::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        0,
+        "failed finalization must not leave a revision history"
+    );
+    assert_eq!(
+        aster_drive_model::entities::file_revision::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        0,
+        "failed finalization must not leave an initial revision"
+    );
 }
 
 #[actix_web::test]

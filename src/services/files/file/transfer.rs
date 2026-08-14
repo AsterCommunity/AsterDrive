@@ -1,12 +1,15 @@
 //! 文件服务子模块：`transfer`。
 
 use aster_forge_db::transaction;
-use std::{borrow::Cow, collections::BTreeMap};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, HashMap},
+};
 
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 
-use crate::db::repository::file_repo;
+use crate::db::repository::{file_repo, property_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::{
@@ -14,7 +17,7 @@ use crate::services::{
     workspace::models::FileInfo,
     workspace::storage::{self, WorkspaceStorageScope, load_scope_actor_username},
 };
-use aster_drive_model::entities::file;
+use aster_drive_model::{entities::file, types::EntityType};
 
 const MAX_COPY_NAME_RETRIES: usize = 32;
 
@@ -137,7 +140,14 @@ pub(crate) struct BatchDuplicateFileRecordSpec<'a> {
 pub(crate) struct BatchDuplicateFileRecordTargetSpec<'a> {
     pub src: &'a file::Model,
     pub dest_name: Cow<'a, str>,
-    pub dest_folder_id: Option<i64>,
+    // Recursive folder-copy frontiers always target a concrete newly-created folder, never root.
+    pub dest_folder_id: i64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CopiedFilePropertyMode {
+    None,
+    CopyUserProperties,
 }
 
 pub(crate) async fn batch_duplicate_file_records_with_specs_in_scope(
@@ -217,6 +227,14 @@ pub(crate) async fn batch_duplicate_file_records_with_specs_in_scope(
             "failed to load all copied files after batch insert",
         ));
     }
+    for created in &created_files {
+        crate::db::repository::revision_repo::create_initial(
+            &txn,
+            created,
+            crate::db::repository::revision_repo::RevisionReason::Copy,
+        )
+        .await?;
+    }
 
     transaction::commit(txn).await?;
     Ok(created_files)
@@ -237,6 +255,38 @@ pub(crate) async fn duplicate_file_record_in_scope(
 }
 
 pub(crate) async fn duplicate_file_record_in_scope_on<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceStorageScope,
+    src: &file::Model,
+    dest_folder_id: Option<i64>,
+    dest_name: &str,
+) -> Result<file::Model> {
+    let new_file = duplicate_file_record_without_initial_revision_in_scope_on(
+        db,
+        scope,
+        src,
+        dest_folder_id,
+        dest_name,
+    )
+    .await?;
+
+    crate::db::repository::revision_repo::create_initial(
+        db,
+        &new_file,
+        crate::db::repository::revision_repo::RevisionReason::Copy,
+    )
+    .await?;
+
+    Ok(new_file)
+}
+
+/// Creates a copied file projection without publishing its initial revision.
+///
+/// WebDAV uses this inside one transaction to copy dead properties first; the caller must then
+/// create the initial revision so its property snapshot observes those copied values.
+pub(crate) async fn duplicate_file_record_without_initial_revision_in_scope_on<
+    C: ConnectionTrait,
+>(
     db: &C,
     scope: WorkspaceStorageScope,
     src: &file::Model,
@@ -341,6 +391,7 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     copy_specs: &[BatchDuplicateFileRecordTargetSpec<'_>],
+    property_mode: CopiedFilePropertyMode,
 ) -> Result<i64> {
     if copy_specs.is_empty() {
         return Ok(0);
@@ -375,7 +426,7 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
             );
             file::ActiveModel {
                 name: Set(spec.dest_name.to_string()),
-                folder_id: Set(spec.dest_folder_id),
+                folder_id: Set(Some(spec.dest_folder_id)),
                 team_id: Set(scope.team_id()),
                 blob_id: Set(spec.src.blob_id),
                 size: Set(spec.src.size),
@@ -393,6 +444,84 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
         })
         .collect();
     file_repo::create_many(&txn, models).await?;
+
+    let mut dest_folder_ids: Vec<i64> = copy_specs.iter().map(|spec| spec.dest_folder_id).collect();
+    dest_folder_ids.sort_unstable();
+    dest_folder_ids.dedup();
+    let created_files = match scope {
+        WorkspaceStorageScope::Personal { user_id } => {
+            file_repo::find_by_folders(&txn, user_id, &dest_folder_ids).await?
+        }
+        WorkspaceStorageScope::Team { team_id, .. } => {
+            file_repo::find_by_team_folders(&txn, team_id, &dest_folder_ids).await?
+        }
+    };
+    let mut created_by_target: HashMap<(i64, String), file::Model> = created_files
+        .into_iter()
+        .map(|created| {
+            let folder_id = created.folder_id.ok_or_else(|| {
+                AsterError::internal_error(format!(
+                    "folder copy reloaded root file #{} from destination folders",
+                    created.id
+                ))
+            })?;
+            Ok(((folder_id, created.name.clone()), created))
+        })
+        .collect::<Result<_>>()?;
+
+    let mut properties_by_source = HashMap::new();
+    if property_mode == CopiedFilePropertyMode::CopyUserProperties {
+        let source_targets: Vec<_> = copy_specs
+            .iter()
+            .map(|spec| (EntityType::File, spec.src.id))
+            .collect();
+        for property in property_repo::find_by_entities(&txn, &source_targets).await? {
+            if property_repo::is_protected_namespace(&property.namespace) {
+                continue;
+            }
+            properties_by_source
+                .entry(property.entity_id)
+                .or_insert_with(Vec::new)
+                .push(property);
+        }
+    }
+
+    let mut copied_properties = Vec::new();
+    let mut created_in_spec_order = Vec::with_capacity(copy_specs.len());
+    for spec in copy_specs {
+        let target = (spec.dest_folder_id, spec.dest_name.to_string());
+        let created = created_by_target.remove(&target).ok_or_else(|| {
+            AsterError::internal_error(format!(
+                "failed to reload copied file '{}' in folder {:?}",
+                target.1, target.0
+            ))
+        })?;
+        if let Some(properties) = properties_by_source.get(&spec.src.id) {
+            for property in properties {
+                copied_properties.push(property_repo::NewEntityProperty {
+                    entity_type: EntityType::File,
+                    entity_id: created.id,
+                    namespace: property.namespace.clone(),
+                    name: property.name.clone(),
+                    value: property.value.clone(),
+                });
+            }
+        }
+        created_in_spec_order.push(created);
+    }
+    if !created_by_target.is_empty() {
+        return Err(AsterError::internal_error(
+            "folder copy reloaded unexpected destination files",
+        ));
+    }
+    // Initial revisions freeze current user properties, so copied properties must land first.
+    property_repo::insert_many(&txn, copied_properties).await?;
+    crate::db::repository::revision_repo::create_initial_many(
+        &txn,
+        &created_in_spec_order,
+        crate::db::repository::revision_repo::RevisionReason::Copy,
+    )
+    .await?;
 
     storage::update_storage_used(&txn, scope, total_size).await?;
 

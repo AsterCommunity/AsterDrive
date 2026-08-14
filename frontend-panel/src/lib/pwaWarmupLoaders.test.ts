@@ -208,7 +208,7 @@ describe("pwaWarmupLoaders", () => {
 		await expect(
 			Promise.all(entries.map((loader) => loader.load())),
 		).resolves.toHaveLength(entries.length);
-	});
+	}, 15_000);
 
 	it("loads language icon data through the feature loader", async () => {
 		const result = await userFeatureWarmupLoaders

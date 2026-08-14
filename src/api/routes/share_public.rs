@@ -15,7 +15,6 @@ use crate::config::operations;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::PrimaryAppState;
-use crate::services::files::file::ResolvedDownloadRange;
 use crate::services::ops::audit::AuditRequestInfo;
 use crate::services::{
     files::archive::preview,
@@ -167,31 +166,6 @@ impl<const IGNORE_DOWNLOAD_LIMIT: bool, const REQUIRE_ARCHIVE_DOWNLOAD_ENABLED: 
             Ok(Self)
         })
     }
-}
-
-async fn shared_file_range(
-    state: &PrimaryAppState,
-    token: &str,
-    req: &HttpRequest,
-) -> Result<Option<ResolvedDownloadRange>> {
-    if !req.headers().contains_key(header::RANGE) {
-        return Ok(None);
-    }
-    let (_, file) = share::load_preview_shared_file(state, token).await?;
-    file::parse_range_header(req.headers().get(header::RANGE), file.size)
-}
-
-async fn shared_folder_file_range(
-    state: &PrimaryAppState,
-    token: &str,
-    file_id: i64,
-    req: &HttpRequest,
-) -> Result<Option<ResolvedDownloadRange>> {
-    if !req.headers().contains_key(header::RANGE) {
-        return Ok(None);
-    }
-    let (_, file) = share::load_preview_shared_folder_file(state, token, file_id).await?;
-    file::parse_range_header(req.headers().get(header::RANGE), file.size)
 }
 
 /// Extension methods for `DirectLinkQuery`.
@@ -554,23 +528,23 @@ pub async fn download_shared(
     path: web::Path<String>,
     query: web::Query<DownloadQuery>,
     req: actix_web::HttpRequest,
-    _access: VerifiedShareAccess,
+    _access: VerifiedShareAccessIgnoringDownloadLimit,
 ) -> Result<HttpResponse> {
-    let range = shared_file_range(state.get_ref(), path.as_str(), &req).await?;
-    let has_range = range.is_some();
+    let range_header = req.headers().get(header::RANGE);
+    let has_range = range_header.is_some();
 
     let outcome = file::record_download_result(
         state.get_ref(),
         "share",
         has_range,
-        share::download_shared_file_with_disposition_and_range(
+        share::download_shared_file_with_disposition_and_range_header(
             state.get_ref(),
             &path,
             files::access::download_disposition_from_query(&query)?,
             req.headers()
                 .get("If-None-Match")
                 .and_then(|v| v.to_str().ok()),
-            range,
+            range_header,
         ),
     )
     .await?;
@@ -584,9 +558,8 @@ pub async fn download_direct(
     req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     let (token, filename) = path.into_inner();
-    let file = direct_link::resolve_file_for_download(state.get_ref(), &token, &filename).await?;
-    let range = file::parse_range_header(req.headers().get(header::RANGE), file.size)?;
-    let has_range = range.is_some();
+    let range_header = req.headers().get(header::RANGE);
+    let has_range = range_header.is_some();
     let outcome = file::record_download_result(
         state.get_ref(),
         "direct_link",
@@ -599,7 +572,7 @@ pub async fn download_direct(
             req.headers()
                 .get("If-None-Match")
                 .and_then(|v| v.to_str().ok()),
-            range,
+            range_header,
         ),
     )
     .await?;
@@ -612,9 +585,8 @@ pub async fn download_preview(
     req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     let (token, filename) = path.into_inner();
-    let file = preview_link::resolve_file_for_download(state.get_ref(), &token, &filename).await?;
-    let range = file::parse_range_header(req.headers().get(header::RANGE), file.size)?;
-    let has_range = range.is_some();
+    let range_header = req.headers().get(header::RANGE);
+    let has_range = range_header.is_some();
     let outcome = file::record_download_result(
         state.get_ref(),
         "preview_link",
@@ -626,7 +598,7 @@ pub async fn download_preview(
             req.headers()
                 .get("If-None-Match")
                 .and_then(|v| v.to_str().ok()),
-            range,
+            range_header,
         ),
     )
     .await?;
@@ -657,15 +629,19 @@ pub async fn stream_shared_video(
     _access: VerifiedShareAccessIgnoringDownloadLimit,
 ) -> Result<HttpResponse> {
     let (token, session_token, filename) = path.into_inner();
-    let file =
-        stream::resolve_file_for_stream(state.get_ref(), &token, &session_token, &filename).await?;
-    let range = file::parse_range_header(req.headers().get(header::RANGE), file.size)?;
-    let has_range = range.is_some();
+    let range_header = req.headers().get(header::RANGE);
+    let has_range = range_header.is_some();
     let outcome = file::record_download_result(
         state.get_ref(),
         "share_stream",
         has_range,
-        stream::stream_file(state.get_ref(), &token, &session_token, &filename, range),
+        stream::stream_file(
+            state.get_ref(),
+            &token,
+            &session_token,
+            &filename,
+            range_header,
+        ),
     )
     .await?;
     Ok(file::outcome_to_response(outcome))
@@ -693,17 +669,17 @@ pub async fn download_shared_folder_file_handler(
     path: web::Path<(String, i64)>,
     query: web::Query<DownloadQuery>,
     req: actix_web::HttpRequest,
-    _access: VerifiedShareAccess,
+    _access: VerifiedShareAccessIgnoringDownloadLimit,
 ) -> Result<HttpResponse> {
     let (token, file_id) = path.into_inner();
-    let range = shared_folder_file_range(state.get_ref(), &token, file_id, &req).await?;
-    let has_range = range.is_some();
+    let range_header = req.headers().get(header::RANGE);
+    let has_range = range_header.is_some();
 
     let outcome = file::record_download_result(
         state.get_ref(),
         "share",
         has_range,
-        share::download_shared_folder_file_with_disposition_and_range(
+        share::download_shared_folder_file_with_disposition_and_range_header(
             state.get_ref(),
             &token,
             file_id,
@@ -711,7 +687,7 @@ pub async fn download_shared_folder_file_handler(
             req.headers()
                 .get("If-None-Match")
                 .and_then(|v| v.to_str().ok()),
-            range,
+            range_header,
         ),
     )
     .await?;

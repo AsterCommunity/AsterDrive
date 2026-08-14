@@ -916,11 +916,18 @@ async fn test_version_service_list_delete() {
     .await
     .unwrap();
 
-    // 无版本
-    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
-        .await
-        .unwrap();
-    assert_eq!(versions.len(), 0);
+    // Every file starts with an immutable initial revision.
+    let versions = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(versions.len(), 1);
+    assert!(versions[0].current);
+    assert_eq!(versions[0].version, 1);
 
     // 覆盖 → v2（产生 v1 版本记录）
     let temp2 = format!("{}/v2.txt", temp_dir);
@@ -934,31 +941,44 @@ async fn test_version_service_list_delete() {
     .await
     .unwrap();
 
-    // 应有 1 个版本
-    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
-        .await
-        .unwrap();
-    assert_eq!(versions.len(), 1);
-    assert_eq!(versions[0].version, 1);
+    let versions = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(versions.len(), 2);
+    assert_eq!(versions[0].version, 2);
+    assert!(versions[0].current);
+    assert_eq!(versions[1].version, 1);
 
     // 删除版本
     aster_drive::services::content::version::delete_version(
         &state,
         file.id,
-        versions[0].id,
+        versions[1].id,
         user.id,
     )
     .await
     .unwrap();
 
-    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
-        .await
-        .unwrap();
-    assert_eq!(versions.len(), 0);
+    let versions = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(versions.len(), 1);
+    assert_eq!(versions[0].version, 2);
+    assert!(versions[0].current);
 }
 
 #[actix_web::test]
-async fn test_delete_version_keeps_history_numbers_dense() {
+async fn test_delete_version_preserves_sequence_gaps() {
     let state = common::setup().await;
 
     let user = common::create_test_account(&state, "densever", "densever@example.com", "pass1234")
@@ -992,31 +1012,42 @@ async fn test_delete_version_keeps_history_numbers_dense() {
     .await
     .unwrap();
 
-    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
-        .await
-        .unwrap();
+    let versions = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(
         versions
             .iter()
             .map(|version| version.version)
             .collect::<Vec<_>>(),
-        vec![2, 1]
+        vec![3, 2, 1]
     );
 
     aster_drive::services::content::version::delete_version(
         &state,
         file.id,
-        versions[1].id,
+        versions[2].id,
         user.id,
     )
     .await
     .unwrap();
 
-    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
-        .await
-        .unwrap();
-    assert_eq!(versions.len(), 1);
-    assert_eq!(versions[0].version, 1);
+    let versions = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(versions.len(), 2);
+    assert_eq!(versions[0].version, 3);
+    assert_eq!(versions[1].version, 2);
 
     let temp4 = write_service_fixture("dense-v4.txt", "4444");
     aster_drive::services::files::file::store_from_temp(
@@ -1027,15 +1058,20 @@ async fn test_delete_version_keeps_history_numbers_dense() {
     .await
     .unwrap();
 
-    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
-        .await
-        .unwrap();
+    let versions = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(
         versions
             .iter()
             .map(|version| version.version)
             .collect::<Vec<_>>(),
-        vec![2, 1]
+        vec![4, 3, 2]
     );
 }
 
@@ -1082,18 +1118,41 @@ async fn test_version_storage_used_tracks_overwrite_delete_and_restore() {
     .unwrap();
     assert_eq!(user_storage_used(&state, user.id).await, 18);
 
-    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
-        .await
-        .unwrap();
+    let versions = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(
         versions
             .iter()
             .map(|version| version.size)
             .collect::<Vec<_>>(),
-        vec![6, 4]
+        vec![8, 6, 4]
     );
 
     aster_drive::services::content::version::delete_version(
+        &state,
+        file.id,
+        versions[2].id,
+        user.id,
+    )
+    .await
+    .unwrap();
+    assert_eq!(user_storage_used(&state, user.id).await, 14);
+
+    let versions = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    let restored = aster_drive::services::content::version::restore_version(
         &state,
         file.id,
         versions[1].id,
@@ -1101,26 +1160,20 @@ async fn test_version_storage_used_tracks_overwrite_delete_and_restore() {
     )
     .await
     .unwrap();
-    assert_eq!(user_storage_used(&state, user.id).await, 14);
+    assert_eq!(restored.size, 6);
+    assert_eq!(user_storage_used(&state, user.id).await, 20);
 
-    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
-        .await
-        .unwrap();
-    let restored = aster_drive::services::content::version::restore_version(
+    let versions = aster_drive::services::content::version::list_versions(
         &state,
         file.id,
-        versions[0].id,
         user.id,
+        Default::default(),
     )
     .await
     .unwrap();
-    assert_eq!(restored.size, 6);
-    assert_eq!(user_storage_used(&state, user.id).await, 6);
-
-    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
-        .await
-        .unwrap();
-    assert!(versions.is_empty());
+    assert_eq!(versions.len(), 3);
+    assert_eq!(versions[0].version, 4);
+    assert!(versions[0].current);
 }
 
 #[actix_web::test]
@@ -1175,17 +1228,121 @@ async fn test_version_cleanup_excess_reclaims_storage_used() {
     .await
     .unwrap();
 
-    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
-        .await
-        .unwrap();
-    assert_eq!(versions.len(), 1);
-    assert_eq!(versions[0].version, 1);
+    let versions = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(versions.len(), 2);
+    assert_eq!(versions[0].version, 3);
+    assert!(versions[0].current);
+    assert_eq!(versions[1].version, 2);
+    assert_eq!(versions[1].size, 6);
+    assert_eq!(user_storage_used(&state, user.id).await, 14);
+
+    let restored = aster_drive::services::content::version::restore_version(
+        &state,
+        file.id,
+        versions[1].id,
+        user.id,
+    )
+    .await
+    .unwrap();
+    assert_eq!(restored.size, 6);
+
+    let versions = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(versions.len(), 2, "restore must enforce the history limit");
+    assert_eq!(versions[0].version, 4);
+    assert!(versions[0].current);
     assert_eq!(versions[0].size, 6);
+    assert_eq!(versions[1].version, 3);
+    assert_eq!(versions[1].size, 8);
     assert_eq!(user_storage_used(&state, user.id).await, 14);
 }
 
 #[actix_web::test]
-async fn test_version_restore_truncates_future_versions_without_deleting_target_blob() {
+async fn test_version_restore_honors_zero_history_limit() {
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "versionlimit0",
+        "versionlimit0@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+
+    let temp1 = write_service_fixture("limit-zero-v1.txt", "one");
+    let file = aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "limit-zero.txt", &temp1, 3),
+    )
+    .await
+    .unwrap();
+    let initial_revision =
+        aster_drive::db::repository::revision_repo::find_by_file_id(state.writer_db(), file.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|revision| revision.sequence == 1)
+            .unwrap();
+
+    let temp2 = write_service_fixture("limit-zero-v2.txt", "second");
+    aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "limit-zero.txt", &temp2, 6).overwrite(file.id),
+    )
+    .await
+    .unwrap();
+
+    let mut max_versions = aster_drive::db::repository::config_repo::find_by_key(
+        state.writer_db(),
+        "max_versions_per_file",
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    max_versions.value = "0".to_string();
+    state.runtime_config.apply(max_versions);
+
+    aster_drive::services::content::version::restore_version(
+        &state,
+        file.id,
+        initial_revision.id,
+        user.id,
+    )
+    .await
+    .unwrap();
+
+    let versions = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(versions.len(), 1);
+    assert!(versions[0].current);
+    assert_eq!(versions[0].version, 3);
+    assert_eq!(versions[0].size, 3);
+    assert_eq!(user_storage_used(&state, user.id).await, 3);
+}
+
+#[actix_web::test]
+async fn test_version_restore_appends_head_and_preserves_history_blobs() {
     let state = common::setup().await;
 
     let user =
@@ -1236,12 +1393,17 @@ async fn test_version_restore_truncates_future_versions_without_deleting_target_
     .await
     .unwrap();
 
-    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
-        .await
-        .unwrap();
+    let versions = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(
         versions.iter().map(|v| v.version).collect::<Vec<_>>(),
-        vec![3, 2, 1]
+        vec![4, 3, 2, 1]
     );
 
     let v3 = versions.iter().find(|v| v.version == 3).unwrap().clone();
@@ -1254,29 +1416,45 @@ async fn test_version_restore_truncates_future_versions_without_deleting_target_
             .await
             .unwrap();
 
-    assert_eq!(restored.blob_id, v2.blob_id);
+    assert_eq!(Some(restored.blob_id), v2.blob_id);
 
-    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
+    let versions = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(versions.len(), 5);
+    assert_eq!(versions[0].version, 5);
+    assert!(versions[0].current);
+    assert_eq!(versions[0].blob_id, v2.blob_id);
+    assert_eq!(versions[4].blob_id, v1.blob_id);
+
+    assert!(
+        aster_drive::db::repository::file_repo::find_blob_by_id(
+            state.writer_db(),
+            v1.blob_id.unwrap()
+        )
         .await
-        .unwrap();
-    assert_eq!(versions.len(), 1);
-    assert_eq!(versions[0].version, 1);
-    assert_eq!(versions[0].blob_id, v1.blob_id);
-
-    assert!(
-        aster_drive::db::repository::file_repo::find_blob_by_id(state.writer_db(), v1.blob_id)
-            .await
-            .is_ok()
+        .is_ok()
     );
     assert!(
-        aster_drive::db::repository::file_repo::find_blob_by_id(state.writer_db(), v2.blob_id)
-            .await
-            .is_ok()
+        aster_drive::db::repository::file_repo::find_blob_by_id(
+            state.writer_db(),
+            v2.blob_id.unwrap()
+        )
+        .await
+        .is_ok()
     );
     assert!(
-        aster_drive::db::repository::file_repo::find_blob_by_id(state.writer_db(), v3.blob_id)
-            .await
-            .is_err()
+        aster_drive::db::repository::file_repo::find_blob_by_id(
+            state.writer_db(),
+            v3.blob_id.unwrap()
+        )
+        .await
+        .is_ok()
     );
     assert!(
         aster_drive::db::repository::file_repo::find_blob_by_id(
@@ -1284,7 +1462,7 @@ async fn test_version_restore_truncates_future_versions_without_deleting_target_
             old_current_blob_id
         )
         .await
-        .is_err()
+        .is_ok()
     );
 
     let temp5 = format!("{}/v5.txt", temp_dir);
@@ -1297,12 +1475,943 @@ async fn test_version_restore_truncates_future_versions_without_deleting_target_
     .await
     .unwrap();
 
-    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
-        .await
-        .unwrap();
+    let versions = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(
         versions.iter().map(|v| v.version).collect::<Vec<_>>(),
-        vec![2, 1]
+        vec![6, 5, 4, 3, 2, 1]
+    );
+}
+
+#[actix_web::test]
+async fn test_version_restore_failure_keeps_thumbnail_and_rolls_back_revision() {
+    use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, Set};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "restorefailure",
+        "restorefailure@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    let initial = write_service_fixture("restore-failure-v1.txt", "version 1");
+    let file = aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "restore-failure.txt", &initial, 9),
+    )
+    .await
+    .unwrap();
+    let overwrite = write_service_fixture("restore-failure-v2.txt", "version 2");
+    let current = aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "restore-failure.txt", &overwrite, 9).overwrite(file.id),
+    )
+    .await
+    .unwrap();
+    let target = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap()
+    .into_iter()
+    .find(|version| version.version == 1)
+    .unwrap();
+    let revision_count =
+        aster_drive::db::repository::revision_repo::count_by_file_id(state.writer_db(), file.id)
+            .await
+            .unwrap();
+
+    let blob =
+        aster_drive::db::repository::file_repo::find_blob_by_id(state.writer_db(), current.blob_id)
+            .await
+            .unwrap();
+    let thumbnail_path = format!("thumbnails/restore-failure-{}.webp", blob.id);
+    let policy = state
+        .policy_snapshot
+        .get_policy_or_err(blob.policy_id)
+        .unwrap();
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    driver.put(&thumbnail_path, b"thumbnail").await.unwrap();
+    let mut active_blob = blob.into_active_model();
+    active_blob.thumbnail_path = Set(Some(thumbnail_path.clone()));
+    active_blob.thumbnail_processor = Set(Some("images".to_string()));
+    active_blob.thumbnail_version = Set(Some("test".to_string()));
+    active_blob.update(state.writer_db()).await.unwrap();
+
+    let db = state.writer_db();
+    match db.get_database_backend() {
+        sea_orm::DbBackend::Sqlite => {
+            db.execute_unprepared(&format!(
+                "CREATE TRIGGER fail_restore_file_update BEFORE UPDATE ON files \
+                 WHEN OLD.id = {} BEGIN SELECT RAISE(ABORT, 'forced restore failure'); END",
+                file.id
+            ))
+            .await
+            .unwrap();
+        }
+        sea_orm::DbBackend::Postgres => {
+            db.execute_unprepared(&format!(
+                "CREATE FUNCTION fail_restore_file_update_fn() RETURNS trigger AS $$ BEGIN \
+                 IF OLD.id = {} THEN RAISE EXCEPTION 'forced restore failure'; END IF; \
+                 RETURN NEW; END; $$ LANGUAGE plpgsql",
+                file.id
+            ))
+            .await
+            .unwrap();
+            db.execute_unprepared(
+                "CREATE TRIGGER fail_restore_file_update BEFORE UPDATE ON files \
+                 FOR EACH ROW EXECUTE FUNCTION fail_restore_file_update_fn()",
+            )
+            .await
+            .unwrap();
+        }
+        sea_orm::DbBackend::MySql => {
+            db.execute_unprepared(&format!(
+                "CREATE TRIGGER fail_restore_file_update BEFORE UPDATE ON files FOR EACH ROW \
+                 BEGIN IF OLD.id = {} THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'forced restore failure'; END IF; END",
+                file.id
+            ))
+            .await
+            .unwrap();
+        }
+        backend => panic!("unsupported test database backend: {backend:?}"),
+    }
+
+    aster_drive::services::content::version::restore_version(&state, file.id, target.id, user.id)
+        .await
+        .expect_err("the injected file update failure must abort restore");
+
+    assert!(driver.exists(&thumbnail_path).await.unwrap());
+    assert_eq!(
+        aster_drive::db::repository::revision_repo::count_by_file_id(state.writer_db(), file.id)
+            .await
+            .unwrap(),
+        revision_count
+    );
+}
+
+#[actix_web::test]
+async fn test_version_restore_same_blob_keeps_current_thumbnail() {
+    use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "restoresameblob",
+        "restoresameblob@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    let policy = aster_drive::db::repository::policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    let mut active_policy: aster_drive_model::entities::storage_policy::ActiveModel =
+        policy.clone().into();
+    active_policy.storage_config = Set(common::with_local_content_dedup(&policy, true));
+    active_policy.update(state.writer_db()).await.unwrap();
+    state
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
+        .await
+        .unwrap();
+
+    let initial = write_service_fixture("restore-same-blob-v1.txt", "same bytes");
+    let file = aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "restore-same-blob.txt", &initial, 10),
+    )
+    .await
+    .unwrap();
+    let overwrite = write_service_fixture("restore-same-blob-v2.txt", "same bytes");
+    let current = aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "restore-same-blob.txt", &overwrite, 10).overwrite(file.id),
+    )
+    .await
+    .unwrap();
+    let target = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap()
+    .into_iter()
+    .find(|version| version.version == 1)
+    .unwrap();
+    assert_eq!(target.blob_id, Some(current.blob_id));
+
+    let blob =
+        aster_drive::db::repository::file_repo::find_blob_by_id(state.writer_db(), current.blob_id)
+            .await
+            .unwrap();
+    let thumbnail_path = format!("thumbnails/restore-same-blob-{}.webp", blob.id);
+    let policy = state
+        .policy_snapshot
+        .get_policy_or_err(blob.policy_id)
+        .unwrap();
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    driver.put(&thumbnail_path, b"thumbnail").await.unwrap();
+    let mut active_blob = blob.into_active_model();
+    active_blob.thumbnail_path = Set(Some(thumbnail_path.clone()));
+    active_blob.thumbnail_processor = Set(Some("images".to_string()));
+    active_blob.thumbnail_version = Set(Some("test".to_string()));
+    active_blob.update(state.writer_db()).await.unwrap();
+
+    let restored = aster_drive::services::content::version::restore_version(
+        &state, file.id, target.id, user.id,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(restored.blob_id, current.blob_id);
+    assert!(driver.exists(&thumbnail_path).await.unwrap());
+}
+
+#[actix_web::test]
+async fn test_identical_overwrite_still_appends_revision() {
+    let state = common::setup().await;
+    let user =
+        common::create_test_account(&state, "samebytes", "samebytes@example.com", "pass1234")
+            .await
+            .unwrap();
+    let initial = write_service_fixture("same-initial.txt", "identical bytes");
+    let file = aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "same.txt", &initial, 15),
+    )
+    .await
+    .unwrap();
+    let overwrite = write_service_fixture("same-overwrite.txt", "identical bytes");
+    aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "same.txt", &overwrite, 15).overwrite(file.id),
+    )
+    .await
+    .unwrap();
+
+    let revisions =
+        aster_drive::db::repository::revision_repo::find_by_file_id(state.writer_db(), file.id)
+            .await
+            .unwrap();
+    assert_eq!(revisions.len(), 2);
+    let initial = revisions
+        .iter()
+        .find(|revision| revision.sequence == 1)
+        .unwrap();
+    let overwrite = revisions
+        .iter()
+        .find(|revision| revision.sequence == 2)
+        .unwrap();
+    assert_eq!(overwrite.predecessor_revision_id, Some(initial.id));
+    assert_ne!(overwrite.public_id, initial.public_id);
+    assert_ne!(overwrite.etag, initial.etag);
+    assert_eq!(overwrite.logical_size, initial.logical_size);
+}
+
+#[actix_web::test]
+async fn test_content_overwrite_revision_uses_actual_actor_username() {
+    use actix_web::web::Bytes;
+    use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+
+    let state = common::setup().await;
+    let creator = common::create_test_account(
+        &state,
+        "revisioncreator",
+        "revisioncreator@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    let actor = common::create_test_account(
+        &state,
+        "revisionactor",
+        "revisionactor@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    let initial = write_service_fixture("revision-actor.txt", "before");
+    let file = aster_drive::services::files::file::store_from_temp(
+        &state,
+        actor.id,
+        StoreFromTempRequest::new(None, "revision-actor.txt", &initial, 6),
+    )
+    .await
+    .unwrap();
+    let mut file_record =
+        aster_drive::db::repository::file_repo::find_by_id(state.writer_db(), file.id)
+            .await
+            .unwrap()
+            .into_active_model();
+    file_record.created_by_user_id = Set(Some(creator.id));
+    file_record.created_by_username = Set(creator.username.clone());
+    file_record.update(state.writer_db()).await.unwrap();
+
+    aster_drive::services::files::file::update_content(
+        &state,
+        file.id,
+        actor.id,
+        Bytes::from_static(b"after"),
+        None,
+    )
+    .await
+    .unwrap();
+
+    let revisions =
+        aster_drive::db::repository::revision_repo::find_by_file_id(state.writer_db(), file.id)
+            .await
+            .unwrap();
+    let current = revisions
+        .iter()
+        .find(|revision| revision.sequence == 2)
+        .unwrap();
+    assert_eq!(current.creator_user_id, Some(actor.id));
+    assert_eq!(
+        current.creator_display_name.as_deref(),
+        Some(actor.username.as_str())
+    );
+}
+
+#[actix_web::test]
+async fn test_revision_append_rejects_stale_expected_head_without_side_effects() {
+    let state = common::setup().await;
+    let user =
+        common::create_test_account(&state, "stalehead", "stalehead@example.com", "pass1234")
+            .await
+            .unwrap();
+    let temp = write_service_fixture("stale.txt", "head");
+    let file = aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "stale.txt", &temp, 4),
+    )
+    .await
+    .unwrap();
+    let history = aster_drive::db::repository::revision_repo::find_history_by_file_id(
+        state.writer_db(),
+        file.id,
+    )
+    .await
+    .unwrap();
+    let count_before =
+        aster_drive::db::repository::revision_repo::count_by_file_id(state.writer_db(), file.id)
+            .await
+            .unwrap();
+
+    let error = aster_drive::db::repository::revision_repo::append(
+        state.writer_db(),
+        file.id,
+        Some(history.current_revision_id.unwrap() + 999),
+        aster_drive::db::repository::revision_repo::NewRevision {
+            blob_id: file.blob_id,
+            logical_size: file.size,
+            mime_type: &file.mime_type,
+            content_sha256: None,
+            creator_user_id: Some(user.id),
+            creator_display_name: &user.username,
+            comment: None,
+            reason: aster_drive::db::repository::revision_repo::RevisionReason::Overwrite,
+            created_at: chrono::Utc::now(),
+            etag: None,
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        aster_drive::db::repository::revision_repo::RevisionAppendError::HeadChanged
+    ));
+
+    let after = aster_drive::db::repository::revision_repo::find_history_by_file_id(
+        state.writer_db(),
+        file.id,
+    )
+    .await
+    .unwrap();
+    assert_eq!(after.current_revision_id, history.current_revision_id);
+    assert_eq!(after.next_sequence, history.next_sequence);
+    assert_eq!(
+        aster_drive::db::repository::revision_repo::count_by_file_id(state.writer_db(), file.id)
+            .await
+            .unwrap(),
+        count_before
+    );
+}
+
+#[actix_web::test]
+async fn test_revision_cursor_pagination_handles_limits_and_sequence_gaps() {
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "revisionpage",
+        "revisionpage@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    let first = write_service_fixture("page-1.txt", "one");
+    let file = aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "page.txt", &first, 3),
+    )
+    .await
+    .unwrap();
+    for (name, contents) in [
+        ("page-2.txt", "two"),
+        ("page-3.txt", "three"),
+        ("page-4.txt", "four"),
+    ] {
+        let path = write_service_fixture(name, contents);
+        aster_drive::services::files::file::store_from_temp(
+            &state,
+            user.id,
+            StoreFromTempRequest::new(None, "page.txt", &path, contents.len() as i64)
+                .overwrite(file.id),
+        )
+        .await
+        .unwrap();
+    }
+    let all =
+        aster_drive::db::repository::revision_repo::find_by_file_id(state.writer_db(), file.id)
+            .await
+            .unwrap();
+    aster_drive::services::content::version::delete_version(
+        &state,
+        file.id,
+        all.iter()
+            .find(|revision| revision.sequence == 2)
+            .unwrap()
+            .id,
+        user.id,
+    )
+    .await
+    .unwrap();
+
+    let first_page = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        aster_drive::services::workspace::models::FileVersionListQuery {
+            limit: Some(2),
+            after_sequence: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        first_page
+            .iter()
+            .map(|item| item.version)
+            .collect::<Vec<_>>(),
+        vec![4, 3]
+    );
+    let second_page = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        aster_drive::services::workspace::models::FileVersionListQuery {
+            limit: Some(2),
+            after_sequence: Some(3),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        second_page
+            .iter()
+            .map(|item| item.version)
+            .collect::<Vec<_>>(),
+        vec![1]
+    );
+    let clamped = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        aster_drive::services::workspace::models::FileVersionListQuery {
+            limit: Some(0),
+            after_sequence: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        clamped.iter().map(|item| item.version).collect::<Vec<_>>(),
+        vec![4],
+        "limit zero must clamp to one instead of disabling the page bound"
+    );
+}
+
+#[actix_web::test]
+async fn test_current_revision_delete_is_rejected_without_side_effects() {
+    use sea_orm::EntityTrait;
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "deletecurrent",
+        "deletecurrent@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    let temp = write_service_fixture("current.txt", "current");
+    let file = aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "current.txt", &temp, 7),
+    )
+    .await
+    .unwrap();
+    let revision =
+        aster_drive::db::repository::revision_repo::find_by_file_id(state.writer_db(), file.id)
+            .await
+            .unwrap()
+            .remove(0);
+    let error = aster_drive::services::content::version::delete_version(
+        &state,
+        file.id,
+        revision.id,
+        user.id,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code(), "E005");
+    let after = aster_drive_model::entities::file_revision::Entity::find_by_id(revision.id)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(after.blob_id, revision.blob_id);
+    assert!(after.retired_at.is_none());
+    assert!(after.purged_at.is_none());
+}
+
+#[actix_web::test]
+async fn test_historical_delete_keeps_tombstone_and_repairs_predecessor() {
+    use sea_orm::EntityTrait;
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "deletetombstone",
+        "deletetombstone@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    let first = write_service_fixture("tombstone-1.txt", "one");
+    let file = aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "tombstone.txt", &first, 3),
+    )
+    .await
+    .unwrap();
+    for (name, contents) in [("tombstone-2.txt", "two"), ("tombstone-3.txt", "three")] {
+        let path = write_service_fixture(name, contents);
+        aster_drive::services::files::file::store_from_temp(
+            &state,
+            user.id,
+            StoreFromTempRequest::new(None, "tombstone.txt", &path, contents.len() as i64)
+                .overwrite(file.id),
+        )
+        .await
+        .unwrap();
+    }
+    let revisions =
+        aster_drive::db::repository::revision_repo::find_by_file_id(state.writer_db(), file.id)
+            .await
+            .unwrap();
+    let first = revisions
+        .iter()
+        .find(|revision| revision.sequence == 1)
+        .unwrap();
+    let middle = revisions
+        .iter()
+        .find(|revision| revision.sequence == 2)
+        .unwrap()
+        .clone();
+    let head = revisions
+        .iter()
+        .find(|revision| revision.sequence == 3)
+        .unwrap();
+    assert_eq!(head.predecessor_revision_id, Some(middle.id));
+
+    aster_drive::services::content::version::delete_version(&state, file.id, middle.id, user.id)
+        .await
+        .unwrap();
+    let tombstone = aster_drive_model::entities::file_revision::Entity::find_by_id(middle.id)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(tombstone.public_id, middle.public_id);
+    assert_eq!(tombstone.sequence, 2);
+    assert!(tombstone.blob_id.is_none());
+    assert!(tombstone.retired_at.is_some());
+    assert!(tombstone.purged_at.is_some());
+    let repaired_head = aster_drive_model::entities::file_revision::Entity::find_by_id(head.id)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(repaired_head.predecessor_revision_id, Some(first.id));
+}
+
+#[actix_web::test]
+async fn test_revision_restore_restores_user_properties_but_preserves_protected_properties() {
+    use aster_drive::db::repository::{property_repo, revision_repo};
+    use aster_drive_model::types::EntityType;
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "revisionprops",
+        "revisionprops@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    let initial = write_service_fixture("property-1.txt", "one");
+    let file = aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "properties.txt", &initial, 3),
+    )
+    .await
+    .unwrap();
+
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "urn:test",
+        "color",
+        Some("blue"),
+    )
+    .await
+    .unwrap();
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "DAV:",
+        "displayname",
+        Some("dav-old"),
+    )
+    .await
+    .unwrap();
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "system.preview",
+        "cache",
+        Some("system-old"),
+    )
+    .await
+    .unwrap();
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "system.",
+        "root",
+        Some("system-root-old"),
+    )
+    .await
+    .unwrap();
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "systemx.preview",
+        "cache",
+        Some("boundary-old"),
+    )
+    .await
+    .unwrap();
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "System.preview",
+        "cache",
+        Some("case-sensitive-old"),
+    )
+    .await
+    .unwrap();
+
+    let second = write_service_fixture("property-2.txt", "two");
+    aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "properties.txt", &second, 3).overwrite(file.id),
+    )
+    .await
+    .unwrap();
+    let second_revision = revision_repo::find_by_file_id(state.writer_db(), file.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|revision| revision.sequence == 2)
+        .unwrap();
+    let second_properties = revision_repo::find_properties(state.writer_db(), second_revision.id)
+        .await
+        .unwrap();
+    assert_eq!(second_properties.len(), 3);
+    let second_value = |namespace: &str, name: &str| {
+        second_properties
+            .iter()
+            .find(|property| property.namespace == namespace && property.name == name)
+            .and_then(|property| property.xml_value.as_deref())
+    };
+    assert_eq!(second_value("urn:test", "color"), Some("blue"));
+    assert_eq!(
+        second_value("systemx.preview", "cache"),
+        Some("boundary-old")
+    );
+    assert_eq!(
+        second_value("System.preview", "cache"),
+        Some("case-sensitive-old")
+    );
+
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "urn:test",
+        "color",
+        Some("red"),
+    )
+    .await
+    .unwrap();
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "DAV:",
+        "displayname",
+        Some("dav-current"),
+    )
+    .await
+    .unwrap();
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "system.preview",
+        "cache",
+        Some("system-current"),
+    )
+    .await
+    .unwrap();
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "system.",
+        "root",
+        Some("system-root-current"),
+    )
+    .await
+    .unwrap();
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "systemx.preview",
+        "cache",
+        Some("boundary-current"),
+    )
+    .await
+    .unwrap();
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "System.preview",
+        "cache",
+        Some("case-sensitive-current"),
+    )
+    .await
+    .unwrap();
+    let third = write_service_fixture("property-3.txt", "three");
+    aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "properties.txt", &third, 5).overwrite(file.id),
+    )
+    .await
+    .unwrap();
+
+    aster_drive::services::content::version::restore_version(
+        &state,
+        file.id,
+        second_revision.id,
+        user.id,
+    )
+    .await
+    .unwrap();
+    let properties = property_repo::find_by_entity(state.writer_db(), EntityType::File, file.id)
+        .await
+        .unwrap();
+    let value = |namespace: &str, name: &str| {
+        properties
+            .iter()
+            .find(|property| property.namespace == namespace && property.name == name)
+            .and_then(|property| property.value.as_deref())
+    };
+    assert_eq!(value("urn:test", "color"), Some("blue"));
+    assert_eq!(value("DAV:", "displayname"), Some("dav-current"));
+    assert_eq!(value("system.preview", "cache"), Some("system-current"));
+    assert_eq!(value("system.", "root"), Some("system-root-current"));
+    assert_eq!(value("systemx.preview", "cache"), Some("boundary-old"));
+    assert_eq!(value("System.preview", "cache"), Some("case-sensitive-old"));
+
+    let revisions = revision_repo::find_by_file_id(state.writer_db(), file.id)
+        .await
+        .unwrap();
+    let restored = revisions
+        .iter()
+        .find(|revision| revision.sequence == 4)
+        .unwrap();
+    assert_eq!(restored.reason, "restore");
+    let restored_properties = revision_repo::find_properties(state.writer_db(), restored.id)
+        .await
+        .unwrap();
+    assert_eq!(restored_properties.len(), 3);
+    let restored_value = |namespace: &str, name: &str| {
+        restored_properties
+            .iter()
+            .find(|property| property.namespace == namespace && property.name == name)
+            .and_then(|property| property.xml_value.as_deref())
+    };
+    assert_eq!(restored_value("urn:test", "color"), Some("blue"));
+    assert_eq!(
+        restored_value("systemx.preview", "cache"),
+        Some("boundary-old")
+    );
+    assert_eq!(
+        restored_value("System.preview", "cache"),
+        Some("case-sensitive-old")
+    );
+}
+
+#[actix_web::test]
+async fn test_copy_move_rename_and_trash_preserve_revision_history_identity() {
+    use aster_drive::db::repository::revision_repo;
+    use aster_forge_api::NullablePatch;
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "revisionidentity",
+        "revisionidentity@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    let initial = write_service_fixture("identity-1.txt", "one");
+    let file = aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "identity.txt", &initial, 3),
+    )
+    .await
+    .unwrap();
+    let overwrite = write_service_fixture("identity-2.txt", "two");
+    aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "identity.txt", &overwrite, 3).overwrite(file.id),
+    )
+    .await
+    .unwrap();
+
+    let source_history = revision_repo::find_history_by_file_id(state.writer_db(), file.id)
+        .await
+        .unwrap();
+    let source_revision_ids = revision_repo::find_by_file_id(state.writer_db(), file.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|revision| (revision.sequence, revision.public_id, revision.etag))
+        .collect::<Vec<_>>();
+
+    let copied = aster_drive::services::files::file::copy_file(&state, file.id, user.id, None)
+        .await
+        .unwrap();
+    let copied_history = revision_repo::find_history_by_file_id(state.writer_db(), copied.id)
+        .await
+        .unwrap();
+    assert_ne!(copied_history.id, source_history.id);
+    assert_ne!(copied_history.public_id, source_history.public_id);
+    let copied_revisions = revision_repo::find_by_file_id(state.writer_db(), copied.id)
+        .await
+        .unwrap();
+    assert_eq!(copied_revisions.len(), 1);
+    assert_eq!(copied_revisions[0].sequence, 1);
+    assert_eq!(copied_revisions[0].reason, "copy");
+
+    aster_drive::services::files::file::update(
+        &state,
+        file.id,
+        user.id,
+        Some("renamed.txt".to_string()),
+        NullablePatch::Absent,
+    )
+    .await
+    .unwrap();
+    let folder =
+        aster_drive::services::files::folder::create(&state, user.id, "Revision Identity", None)
+            .await
+            .unwrap();
+    aster_drive::services::files::file::move_file(&state, file.id, user.id, Some(folder.id))
+        .await
+        .unwrap();
+    aster_drive::services::files::file::delete(&state, file.id, user.id)
+        .await
+        .unwrap();
+    aster_drive::services::files::trash::restore_file(&state, file.id, user.id)
+        .await
+        .unwrap();
+
+    let final_history = revision_repo::find_history_by_file_id(state.writer_db(), file.id)
+        .await
+        .unwrap();
+    assert_eq!(final_history.id, source_history.id);
+    assert_eq!(final_history.public_id, source_history.public_id);
+    assert_eq!(
+        revision_repo::find_by_file_id(state.writer_db(), file.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|revision| (revision.sequence, revision.public_id, revision.etag))
+            .collect::<Vec<_>>(),
+        source_revision_ids
     );
 }
 
@@ -1531,6 +2640,174 @@ async fn test_folder_copy_preserves_multi_level_tree_and_storage_used() {
             .unwrap()
             .blob_id
     );
+
+    for copied_file in [
+        &copied_root_files[0],
+        &copied_child_a_files[0],
+        &copied_child_b_files[0],
+        &copied_grandchild_files[0],
+    ] {
+        let history = aster_drive::db::repository::revision_repo::find_history_by_file_id(
+            state.writer_db(),
+            copied_file.id,
+        )
+        .await
+        .expect("every recursively copied file must have a revision history");
+        let revisions = aster_drive::db::repository::revision_repo::find_by_file_id(
+            state.writer_db(),
+            copied_file.id,
+        )
+        .await
+        .unwrap();
+        assert_eq!(revisions.len(), 1);
+        assert_eq!(revisions[0].sequence, 1);
+        assert_eq!(revisions[0].reason, "copy");
+        assert_eq!(history.current_revision_id, Some(revisions[0].id));
+        assert_eq!(revisions[0].blob_id, Some(copied_file.blob_id));
+    }
+}
+
+#[actix_web::test]
+async fn test_empty_folder_copy_creates_no_revision_rows() {
+    use sea_orm::{EntityTrait, PaginatorTrait};
+
+    let state = common::setup().await;
+    let user =
+        common::create_test_account(&state, "copyempty", "copyempty@example.com", "pass1234")
+            .await
+            .unwrap();
+    let source = aster_drive::services::files::folder::create(&state, user.id, "Empty", None)
+        .await
+        .unwrap();
+
+    let copied =
+        aster_drive::services::files::folder::copy_folder(&state, source.id, user.id, None)
+            .await
+            .unwrap();
+    let copied_files = aster_drive::db::repository::file_repo::find_by_folder(
+        state.writer_db(),
+        user.id,
+        Some(copied.id),
+    )
+    .await
+    .unwrap();
+    assert!(copied_files.is_empty());
+    assert_eq!(
+        aster_drive_model::entities::file_revision::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        aster_drive_model::entities::file_revision_history::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[actix_web::test]
+async fn test_folder_copy_creates_initial_revisions_across_batch_boundary() {
+    let state = common::setup().await;
+    let user =
+        common::create_test_account(&state, "copybatch", "copybatch@example.com", "pass1234")
+            .await
+            .unwrap();
+    let app = create_test_app!(state.clone());
+    let (token, _) = login_user!(app, "copybatch", "pass1234");
+    let source = aster_drive::services::files::folder::create(&state, user.id, "Batch", None)
+        .await
+        .unwrap();
+
+    for index in 0..51 {
+        common::create_empty_file_via_api(
+            &app,
+            &token,
+            &format!("file-{index:02}.txt"),
+            Some(source.id),
+        )
+        .await;
+    }
+
+    let copied =
+        aster_drive::services::files::folder::copy_folder(&state, source.id, user.id, None)
+            .await
+            .unwrap();
+    let copied_files = aster_drive::db::repository::file_repo::find_by_folder(
+        state.writer_db(),
+        user.id,
+        Some(copied.id),
+    )
+    .await
+    .unwrap();
+    assert_eq!(copied_files.len(), 51);
+
+    for copied_file in copied_files {
+        let history = aster_drive::db::repository::revision_repo::find_history_by_file_id(
+            state.writer_db(),
+            copied_file.id,
+        )
+        .await
+        .unwrap();
+        let revisions = aster_drive::db::repository::revision_repo::find_by_file_id(
+            state.writer_db(),
+            copied_file.id,
+        )
+        .await
+        .unwrap();
+        assert_eq!(revisions.len(), 1);
+        assert_eq!(revisions[0].reason, "copy");
+        assert_eq!(revisions[0].sequence, 1);
+        assert_eq!(revisions[0].predecessor_revision_id, None);
+        assert_eq!(revisions[0].blob_id, Some(copied_file.blob_id));
+        assert_eq!(history.current_revision_id, Some(revisions[0].id));
+        assert_eq!(history.next_sequence, 2);
+    }
+}
+
+#[actix_web::test]
+async fn test_property_batch_insert_empty_and_chunk_boundaries() {
+    use aster_drive::db::repository::property_repo::NewEntityProperty;
+    use aster_drive_model::entities::entity_property;
+    use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
+
+    let state = common::setup().await;
+    aster_drive::db::repository::property_repo::insert_many(state.writer_db(), Vec::new())
+        .await
+        .unwrap();
+    assert_eq!(
+        entity_property::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        0
+    );
+
+    for count in [499usize, 500, 501] {
+        let namespace = format!("urn:batch:{count}");
+        let properties = (0..count)
+            .map(|index| NewEntityProperty {
+                entity_type: aster_drive_model::types::EntityType::File,
+                entity_id: index as i64 + 1,
+                namespace: namespace.clone(),
+                name: "marker".to_string(),
+                value: Some(index.to_string()),
+            })
+            .collect();
+        aster_drive::db::repository::property_repo::insert_many(state.writer_db(), properties)
+            .await
+            .unwrap();
+        assert_eq!(
+            entity_property::Entity::find()
+                .filter(entity_property::Column::Namespace.eq(&namespace))
+                .count(state.writer_db())
+                .await
+                .unwrap(),
+            count as u64
+        );
+    }
 }
 
 #[actix_web::test]
@@ -1814,7 +3091,7 @@ async fn test_share_download_failure_rolls_back_download_quota() {
         std::path::Path::new(&common::local_policy_base_path(&policy)).join(&blob.storage_path);
     std::fs::remove_file(&stored_path).unwrap();
 
-    let err = aster_drive::services::share::download_shared_file_with_range(
+    let err = aster_drive::services::share::download_shared_file_with_range_header(
         &state,
         &share.token,
         None,
@@ -1829,7 +3106,7 @@ async fn test_share_download_failure_rolls_back_download_quota() {
         .unwrap();
     assert_eq!(reloaded.download_count, 0);
 
-    let err = aster_drive::services::share::download_shared_file_with_range(
+    let err = aster_drive::services::share::download_shared_file_with_range_header(
         &state,
         &share.token,
         None,
@@ -2532,7 +3809,7 @@ async fn test_team_service_list_user_team_ids_filters_archived_teams() {
 #[actix_web::test]
 async fn test_team_archive_cleanup_deletes_expired_team_data() {
     use chrono::{Duration, Utc};
-    use sea_orm::{IntoActiveModel, Set};
+    use sea_orm::{EntityTrait, IntoActiveModel, Set};
 
     let state = common::setup().await;
     let owner = common::create_test_account(
@@ -2612,6 +3889,13 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
             deleted_at: Set(None),
             ..Default::default()
         },
+    )
+    .await
+    .unwrap();
+    let history = aster_drive::db::repository::revision_repo::create_initial(
+        state.writer_db(),
+        &file,
+        aster_drive::db::repository::revision_repo::RevisionReason::Create,
     )
     .await
     .unwrap();
@@ -2716,6 +4000,14 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
         aster_drive::db::repository::file_repo::find_by_id(state.writer_db(), file.id)
             .await
             .is_err()
+    );
+    assert!(
+        aster_drive_model::entities::file_revision_history::Entity::find_by_id(history.history_id)
+            .one(state.writer_db())
+            .await
+            .unwrap()
+            .is_some(),
+        "purged team ledger identities must remain as retired tombstones"
     );
     assert!(
         aster_drive::db::repository::folder_repo::find_by_id(state.writer_db(), folder.id)
@@ -2891,7 +4183,7 @@ async fn test_team_archive_cleanup_keeps_team_when_upload_temp_delete_fails() {
 #[actix_web::test]
 async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() {
     use chrono::{Duration, Utc};
-    use sea_orm::{IntoActiveModel, Set};
+    use sea_orm::{ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter, Set};
 
     let state = common::setup().await;
     let owner = common::create_test_account(
@@ -2937,6 +4229,7 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
     .unwrap();
 
     let mut sample_file_ids = Vec::new();
+    let mut sample_history_ids = Vec::new();
     for idx in 0..1001 {
         let file = aster_drive::db::repository::file_repo::create(
             state.writer_db(),
@@ -2958,10 +4251,26 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
         )
         .await
         .unwrap();
+        let history = aster_drive::db::repository::revision_repo::create_initial(
+            state.writer_db(),
+            &file,
+            aster_drive::db::repository::revision_repo::RevisionReason::Create,
+        )
+        .await
+        .unwrap();
         if idx == 0 || idx == 1000 {
             sample_file_ids.push(file.id);
+            sample_history_ids.push(history.history_id);
         }
     }
+
+    assert!(
+        aster_drive::services::ops::integrity::audit_revision_ledger(state.writer_db())
+            .await
+            .unwrap()
+            .is_empty(),
+        "revision ledger audit must cross its 1000-row pagination boundary"
+    );
 
     let mut sample_folder_ids = Vec::new();
     for idx in 0..1001 {
@@ -3029,6 +4338,43 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
                 .is_err()
         );
     }
+    for history_id in sample_history_ids {
+        let history =
+            aster_drive_model::entities::file_revision_history::Entity::find_by_id(history_id)
+                .one(state.writer_db())
+                .await
+                .unwrap()
+                .expect("archived team cleanup must preserve the revision history tombstone");
+        assert_eq!(history.file_id, None);
+        assert_eq!(history.current_revision_id, None);
+        assert!(history.retired_at.is_some());
+
+        let revisions = aster_drive_model::entities::file_revision::Entity::find()
+            .filter(aster_drive_model::entities::file_revision::Column::HistoryId.eq(history_id))
+            .all(state.writer_db())
+            .await
+            .unwrap();
+        assert_eq!(revisions.len(), 1);
+        assert_eq!(revisions[0].blob_id, None);
+        assert!(revisions[0].retired_at.is_some());
+        assert!(revisions[0].purged_at.is_some());
+    }
+    assert_eq!(
+        aster_drive_model::entities::file_revision_history::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        1_001,
+        "all batched histories must remain as retired identity tombstones"
+    );
+    assert_eq!(
+        aster_drive_model::entities::file_revision::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        1_001,
+        "all batched revisions must remain as purged sequence tombstones"
+    );
     for folder_id in sample_folder_ids {
         assert!(
             aster_drive::db::repository::folder_repo::find_by_id(state.writer_db(), folder_id)

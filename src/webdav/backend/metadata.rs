@@ -2,7 +2,7 @@
 
 use std::time::SystemTime;
 
-use aster_drive_model::entities::{file, file_blob, folder};
+use aster_drive_model::entities::{file, folder};
 use aster_forge_webdav::{DavMetaData, FsResult};
 
 /// 将 chrono DateTimeUtc 转换为 SystemTime
@@ -50,25 +50,13 @@ impl AsterDavMeta {
         }
     }
 
-    pub fn from_file(file: &file::Model, _blob: &file_blob::Model) -> Self {
+    pub fn from_file(file: &file::Model, revision_etag: String) -> Self {
         Self {
             is_dir: false,
             len: u64::try_from(file.size).unwrap_or_default(),
             modified: to_system_time(file.updated_at),
             created: to_system_time(file.created_at),
-            etag: Some(file_etag(file)),
-            content_type: Some(file.mime_type.clone()),
-            file: Some(file.clone()),
-        }
-    }
-
-    pub fn from_file_record(file: &file::Model) -> Self {
-        Self {
-            is_dir: false,
-            len: u64::try_from(file.size).unwrap_or_default(),
-            modified: to_system_time(file.updated_at),
-            created: to_system_time(file.created_at),
-            etag: Some(file_etag(file)),
+            etag: Some(revision_etag),
             content_type: Some(file.mime_type.clone()),
             file: Some(file.clone()),
         }
@@ -77,19 +65,6 @@ impl AsterDavMeta {
     pub(crate) fn file_model(&self) -> Option<&file::Model> {
         self.file.as_ref()
     }
-}
-
-pub(crate) fn file_etag(file: &file::Model) -> String {
-    // File records are updated together with blob_id, size, and updated_at on
-    // content replacement/version restore, so GET/HEAD and PROPFIND can share
-    // this file-state validator without loading the blob in directory listings.
-    format!(
-        "file-{}-{}-{}-{}",
-        file.id,
-        file.blob_id,
-        file.size,
-        file.updated_at.timestamp_millis()
-    )
 }
 
 impl DavMetaData for AsterDavMeta {

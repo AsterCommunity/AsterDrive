@@ -27,6 +27,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Breaking
 
+- **文件版本数据库模型** — `m20260813_000001_canonical_file_revision_ledger` 将可变的 `file_versions` 表迁入 `file_revision_histories`、`file_revisions` 和 `file_revision_properties`，完成 backfill 后删除原表。直接查询旧表、依赖旧版本号主键或绕过 REST/service 写版本历史的外部脚本需要迁移；降级 migration 会重建可表示的 legacy history，但新 ledger 的 actor、comment、reason、property snapshot 和 stable public ID 没有旧表对应字段。
 - **存储策略 API / schema** — 存储策略不再暴露 `driver_type`、`endpoint`、`bucket`、`base_path`、`access_key`、`secret_key`、`options` 等 provider-specific 平铺字段；响应改用稳定 `connector_id`、`connector_config` 与 `behavior`，创建请求统一提交 `connection = { connector_config, behavior, credential }`，更新请求分别提交 connector config、behavior 和 tagged credential。依赖旧 DTO、`DriverType` 枚举或字段名的客户端需要按 connector descriptor 构造请求。
 - **存储凭据输入** — 静态密钥与授权应用配置改为互斥的 tagged credential channel（`none` / `static` / `authorization_application`），字段名称由 connector schema 定义，例如 S3 与 Tencent COS 使用各自命名空间，不再共享含糊的 `access_key` / `secret_key` 表单字段。
 - **存储 connector action** — 删除 S3-compatible policy promotion 专用 API 和 provider-specific action 枚举；管理端与 API 客户端应从 connector catalog 读取 action ID、endpoint、输入字段、是否要求已保存策略/授权以及远端副作用声明。
@@ -146,6 +147,9 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Database Migrations
 
+- `m20260813_000001_canonical_file_revision_ledger`
+  - 以可恢复的 500 文件事务批次 backfill `file_versions` 和每个文件当前内容，建立 immutable revision predecessor chain、stable public ID、current head / next sequence 与用户属性快照，完成后删除 legacy `file_versions`；批次间故障重跑会跳过已提交 history，并从 legacy/ledger 最大 revision ID 之后继续
+  - MySQL 使用 `utf8mb4_bin` virtual generated columns 维持 XML property `(namespace, name)` 大小写敏感唯一性，但不按服务端版本字符串设置全局门槛，也不依赖 8.0.23 的 invisible-column 语法
 - `m20260723_000001_require_upload_session_kind`
   - 升级前检查 legacy / invalid upload sessions，并将 `upload_sessions.session_kind` 收紧为 `NOT NULL`
 - `m20260725_000001_remote_tunnel_owners`

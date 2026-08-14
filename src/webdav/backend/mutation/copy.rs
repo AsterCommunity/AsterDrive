@@ -154,7 +154,7 @@ impl AsterDavFs {
         )
         .await
         .map_err(AsterDavMutationError::FileSystem)?;
-        let copied = file_ops::duplicate_file_record_in_scope_on(
+        let copied = file_ops::duplicate_file_record_without_initial_revision_in_scope_on(
             &txn,
             self.scope,
             &source_file,
@@ -172,6 +172,14 @@ impl AsterDavFs {
             copied.id,
         )
         .await
+        .map_err(AsterDavMutationError::FileSystem)?;
+        crate::db::repository::revision_repo::create_initial(
+            &txn,
+            &copied,
+            crate::db::repository::revision_repo::RevisionReason::Copy,
+        )
+        .await
+        .map_err(to_fs_error)
         .map_err(AsterDavMutationError::FileSystem)?;
         lock_mutation
             .rebind_destination_root_locks(destination, EntityType::File, copied.id)

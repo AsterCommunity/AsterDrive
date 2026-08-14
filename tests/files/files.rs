@@ -9,7 +9,7 @@ use aster_drive::services::events::storage_change::StorageChangeKind;
 use aster_drive_model::entities::{file, file_blob};
 use aster_forge_file_classification::FileCategory;
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde_json::Value;
 use std::time::Duration;
 
@@ -333,6 +333,24 @@ async fn test_file_direct_link_supports_public_access_force_download_and_file_re
         .as_str()
         .expect("direct link token should exist")
         .to_string();
+
+    let mut forged_token = direct_token.clone();
+    let replacement = if forged_token.ends_with('A') {
+        "B"
+    } else {
+        "A"
+    };
+    forged_token.replace_range(forged_token.len() - 1.., replacement);
+    let req = test::TestRequest::get()
+        .uri(&format!("/d/{forged_token}/clip%201.m3u8"))
+        .insert_header((header::RANGE, "bytes=999-1000"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::NOT_FOUND,
+        "Range validation must not run before direct-link signature validation"
+    );
 
     let req = test::TestRequest::get()
         .uri(&format!("/d/{direct_token}/wrong.m3u8"))
@@ -1294,7 +1312,7 @@ async fn test_file_versions() {
     // 上传文件 v1
     let file_id = upload_test_file!(app, token);
 
-    // 无版本记录
+    // Initial upload creates the first current revision.
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/files/{file_id}/versions"))
         .insert_header(("Cookie", common::access_cookie_header(&token)))
@@ -1303,7 +1321,10 @@ async fn test_file_versions() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"].as_array().unwrap().len(), 0);
+    let revisions = body["data"].as_array().unwrap();
+    assert_eq!(revisions.len(), 1);
+    assert_eq!(revisions[0]["version"], 1);
+    assert_eq!(revisions[0]["current"], true);
 
     // 覆盖上传（同名文件 → 产生 v1 版本记录）
     let boundary = "----TestBoundary123";
@@ -1338,6 +1359,77 @@ async fn test_file_versions() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
+async fn test_file_version_api_cursor_limits_and_current_delete_boundary() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file_with_content!(app, token, "revision-page.txt", "one");
+
+    for content in ["two", "three", "four"] {
+        let req = test::TestRequest::put()
+            .uri(&format!("/api/v1/files/{file_id}/content"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .insert_header(("Content-Type", "application/octet-stream"))
+            .set_payload(content)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    let request_page = |query: &str| {
+        test::TestRequest::get()
+            .uri(&format!("/api/v1/files/{file_id}/versions?{query}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request()
+    };
+    let first: Value =
+        test::read_body_json(test::call_service(&app, request_page("limit=1")).await).await;
+    let first_items = first["data"].as_array().unwrap();
+    assert_eq!(first_items.len(), 1);
+    assert_eq!(first_items[0]["version"], 4);
+    assert_eq!(first_items[0]["current"], true);
+    let current_id = first_items[0]["id"].as_i64().unwrap();
+
+    let second: Value = test::read_body_json(
+        test::call_service(&app, request_page("limit=1&after_sequence=4")).await,
+    )
+    .await;
+    assert_eq!(second["data"].as_array().unwrap()[0]["version"], 3);
+
+    let zero_limit: Value = test::read_body_json(
+        test::call_service(&app, request_page("limit=0&after_sequence=3")).await,
+    )
+    .await;
+    let zero_limit_items = zero_limit["data"].as_array().unwrap();
+    assert_eq!(zero_limit_items.len(), 1);
+    assert_eq!(zero_limit_items[0]["version"], 2);
+
+    let oversized: Value = test::read_body_json(
+        test::call_service(&app, request_page("limit=2000&after_sequence=999")).await,
+    )
+    .await;
+    assert_eq!(oversized["data"].as_array().unwrap().len(), 4);
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/files/{file_id}/versions/{current_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "bad_request");
+
+    let after: Value =
+        test::read_body_json(test::call_service(&app, request_page("limit=1000")).await).await;
+    assert_eq!(after["data"].as_array().unwrap().len(), 4);
+    assert_eq!(after["data"].as_array().unwrap()[0]["id"], current_id);
+    assert_eq!(after["data"].as_array().unwrap()[0]["current"], true);
 }
 
 #[actix_web::test]
@@ -1392,7 +1484,10 @@ async fn test_file_detail_storage_used_includes_all_history_versions() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"].as_array().unwrap().len(), 2);
+    let revisions = body["data"].as_array().unwrap();
+    assert_eq!(revisions.len(), 3);
+    assert_eq!(revisions[0]["version"], 3);
+    assert_eq!(revisions[0]["current"], true);
 
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/files/{file_id}"))
@@ -1630,6 +1725,21 @@ async fn test_folder_detail_storage_used_handles_paginated_file_batches() {
     file_repo::create_many(state.writer_db(), files)
         .await
         .expect("pagination test files should insert");
+    let files = file::Entity::find()
+        .filter(file::Column::FolderId.eq(folder_id))
+        .all(state.writer_db())
+        .await
+        .expect("pagination test files should load");
+    assert_eq!(files.len(), 501);
+    for file in files {
+        aster_drive::db::repository::revision_repo::create_initial(
+            state.writer_db(),
+            &file,
+            aster_drive::db::repository::revision_repo::RevisionReason::Create,
+        )
+        .await
+        .expect("pagination test file should have an initial revision");
+    }
 
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/folders/{folder_id}/info"))

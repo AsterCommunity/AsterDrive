@@ -9,7 +9,7 @@ If you are new to the repository, read this page first and then [`module-designs
 - AsterDrive is no longer a single-mode monolith. The same codebase now supports two node modes:
   - `primary`: serves the main REST API, public sharing, WebDAV, frontend pages, runtime configuration, and background tasks
   - `follower`: exposes only health checks and the internal object storage protocol, acting as a managed storage node for a remote primary
-- Metadata mainly lives in the database, while file content mainly lives in storage drivers. They are linked through tables such as `files`, `file_blobs`, `file_versions`, and `upload_sessions`
+- Metadata mainly lives in the database, while file content mainly lives in storage drivers. They are linked through `files`, `file_blobs`, `file_revision_histories`, `file_revisions`, and `upload_sessions`. `files` is the materialized current-revision projection, not a second version authority
 - Personal spaces and team spaces share the same file pipeline; route and service layers switch scope through `WorkspaceStorageScope`
 - The backend main path is still:
   `src/api/routes/*` -> `src/services/*` -> `src/db/repository/*` / `src/storage/*`

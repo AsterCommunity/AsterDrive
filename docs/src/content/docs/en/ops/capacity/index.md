@@ -25,7 +25,7 @@ A normal file usually creates:
 
 - 1 `files` record
 - 1 new or reused `file_blobs` record
-- 0 to many `file_versions` records
+- 1 `file_revision_histories` record, at least 1 `file_revisions` record, and optional user dead-property snapshots
 - possible share, lock, property, thumbnail, media metadata, background task, and audit records
 - under SQLite, possible filename / folder-name search acceleration index entries
 
@@ -207,7 +207,8 @@ UNION ALL SELECT 'teams', COUNT(*) FROM teams
 UNION ALL SELECT 'folders', COUNT(*) FROM folders
 UNION ALL SELECT 'files', COUNT(*) FROM files
 UNION ALL SELECT 'file_blobs', COUNT(*) FROM file_blobs
-UNION ALL SELECT 'file_versions', COUNT(*) FROM file_versions
+UNION ALL SELECT 'file_revision_histories', COUNT(*) FROM file_revision_histories
+UNION ALL SELECT 'file_revisions', COUNT(*) FROM file_revisions
 UNION ALL SELECT 'shares', COUNT(*) FROM shares
 UNION ALL SELECT 'upload_sessions', COUNT(*) FROM upload_sessions
 UNION ALL SELECT 'background_tasks', COUNT(*) FROM background_tasks

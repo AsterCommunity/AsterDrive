@@ -11,11 +11,13 @@
     )
 )]
 
+use std::sync::Arc;
+
 pub use sea_orm_migration::prelude::*;
 
 use sea_orm_migration::sea_orm::{
     ConnectionTrait as SeaConnectionTrait, DatabaseConnection, DatabaseExecutor, DbBackend,
-    Statement,
+    DbErr as SeaDbErr, RuntimeErr, Statement,
 };
 
 mod m20260512_000001_baseline_schema;
@@ -64,6 +66,7 @@ mod m20260803_000002_storage_policy_connector_configs;
 mod m20260803_000003_add_storage_policy_connector_credentials;
 mod m20260805_000001_allow_connector_policy_writes_with_legacy_schema;
 mod m20260810_000001_folder_tree_operation_members;
+mod m20260813_000001_canonical_file_revision_ledger;
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
@@ -201,6 +204,7 @@ impl MigratorTrait for CurrentMigrator {
                 m20260805_000001_allow_connector_policy_writes_with_legacy_schema::Migration,
             ),
             Box::new(m20260810_000001_folder_tree_operation_members::Migration),
+            Box::new(m20260813_000001_canonical_file_revision_ledger::Migration),
         ]
     }
 }
@@ -321,10 +325,54 @@ pub async fn apply_database_migrations(database: &DatabaseConnection) -> Result<
     if database.get_database_backend() == DbBackend::Sqlite {
         return apply_sqlite_database_migrations(database).await;
     }
+    if database.get_database_backend() == DbBackend::Postgres {
+        // Forge holds the process-wide advisory lock in its own transaction. Run migrations on
+        // the pool rather than inside that transaction so migrations with `use_transaction(false)`
+        // can commit bounded batches while the lock remains held on the dedicated checked-out
+        // connection. Ordinary PostgreSQL migrations still receive SeaORM's per-migration
+        // transaction according to their own `use_transaction` policy.
+        let source_database = database.clone();
+        return with_database_migration_lock(database, move |_lock_connection| {
+            Box::pin(async move {
+                let migration_database =
+                    create_postgres_migration_connection(&source_database).await?;
+                let result = apply_database_migrations_unlocked(DatabaseExecutor::Connection(
+                    &migration_database,
+                ))
+                .await;
+                if let Err(close_error) = migration_database.close().await {
+                    tracing::warn!(%close_error, "failed to close dedicated PostgreSQL migration connection");
+                }
+                result
+            })
+        })
+        .await;
+    }
     with_database_migration_lock(database, |connection| {
         Box::pin(apply_database_migrations_unlocked(connection))
     })
     .await
+}
+
+async fn create_postgres_migration_connection(
+    database: &DatabaseConnection,
+) -> Result<DatabaseConnection, DbErr> {
+    let source_pool = database.get_postgres_connection_pool();
+    let connect_options = source_pool.connect_options();
+    let dedicated_pool = source_pool
+        .options()
+        .clone()
+        .max_connections(1)
+        .min_connections(1)
+        .idle_timeout(None)
+        .max_lifetime(None)
+        .test_before_acquire(false)
+        .before_acquire(|_, _| Box::pin(async { Ok(true) }))
+        .after_release(|_, _| Box::pin(async { Ok(true) }))
+        .connect_with((*connect_options).clone())
+        .await
+        .map_err(|error| SeaDbErr::Conn(RuntimeErr::SqlxError(Arc::new(error))))?;
+    Ok(dedicated_pool.into())
 }
 
 /// Run SQLite schema migrations with foreign keys disabled before Forge opens
@@ -627,6 +675,25 @@ fn migration_state_error(message: String) -> DbErr {
 mod tests {
     use super::*;
     use sea_orm_migration::SchemaManager;
+
+    #[test]
+    fn mysql_migrations_do_not_install_a_global_version_gate() {
+        let source = include_str!("lib.rs");
+        let gate_symbol = ["ensure", "supported", "database", "server"].join("_");
+        let minimum_symbol = ["MINIMUM", "MYSQL", "VERSION"].join("_");
+        let version_query = ["SELECT", "VERSION()"].join(" ");
+
+        assert!(!source.contains(&gate_symbol));
+        assert!(!source.contains(&minimum_symbol));
+        assert!(!source.contains(&version_query));
+    }
+
+    #[test]
+    fn mysql_property_case_projection_avoids_version_specific_ddl() {
+        let source = include_str!("m20260813_000001_canonical_file_revision_ledger.rs");
+        assert!(!source.contains("VIRTUAL INVISIBLE"));
+        assert!(!source.contains("ALGORITHM=INSTANT"));
+    }
 
     async fn record_applied_migration(db: &DatabaseConnection, migration_name: &str) {
         db.execute_unprepared(&format!(

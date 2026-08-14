@@ -10,8 +10,6 @@ use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-pub const SYSTEM_PROPERTY_NAMESPACE_PREFIX: &str = "system.";
-
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct EntityProperty {
@@ -36,23 +34,11 @@ impl From<entity_property::Model> for EntityProperty {
     }
 }
 
-pub fn is_system_namespace(namespace: &str) -> bool {
-    namespace.starts_with(SYSTEM_PROPERTY_NAMESPACE_PREFIX)
-}
-
-pub fn is_dav_namespace(namespace: &str) -> bool {
-    namespace == "DAV:"
-}
-
-pub fn is_protected_namespace(namespace: &str) -> bool {
-    is_dav_namespace(namespace) || is_system_namespace(namespace)
-}
-
 fn ensure_user_namespace_mutable(namespace: &str) -> Result<()> {
-    if is_dav_namespace(namespace) {
+    if property_repo::is_dav_namespace(namespace) {
         return Err(AsterError::auth_forbidden("DAV: namespace is read-only"));
     }
-    if is_system_namespace(namespace) {
+    if property_repo::is_system_namespace(namespace) {
         return Err(AsterError::auth_forbidden("system namespace is read-only"));
     }
     Ok(())
@@ -96,7 +82,7 @@ pub async fn list(
         property_repo::find_by_entity(state.writer_db(), entity_type, entity_id)
             .await?
             .into_iter()
-            .filter(|prop| !is_protected_namespace(&prop.namespace))
+            .filter(|prop| !property_repo::is_protected_namespace(&prop.namespace))
             .map(Into::into)
             .collect(),
     )

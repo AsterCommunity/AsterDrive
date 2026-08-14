@@ -17,7 +17,6 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use crate::db::repository::{file_repo, folder_repo, property_repo, team_repo, user_repo};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    content::property,
     events::storage_change,
     files::{file as file_ops, folder},
     ops::audit::{self, AuditContext},
@@ -156,17 +155,23 @@ impl AsterDavFs {
         )
         .await?;
 
-        let file = match node {
+        let authorized = match node {
             ResolvedNode::Root | ResolvedNode::Folder(_) => {
                 return Ok(None);
             }
             ResolvedNode::File(file) => file,
         };
 
-        let blob = file_repo::find_blob_by_id(self.state.reader_db(), file.blob_id)
-            .await
-            .map_err(|_| FsError::GeneralFailure)?;
-        let meta = AsterDavMeta::from_file(&file, &blob);
+        let (file, blob, revision) =
+            file_ops::load_current_download_snapshot(&self.state, authorized.id)
+                .await
+                .map_err(to_fs_error)?;
+        crate::services::workspace::storage::ensure_active_file_scope(&file, self.scope)
+            .map_err(to_fs_error)?;
+        if file.folder_id != authorized.folder_id || file.name != authorized.name {
+            return Err(FsError::NotFound);
+        }
+        let meta = AsterDavMeta::from_file(&file, revision.etag);
 
         Ok(Some(AsterDavDownloadFile { file, blob, meta }))
     }
@@ -202,11 +207,17 @@ impl AsterDavFs {
         match node {
             ResolvedNode::Root => Ok(AsterDavMeta::root()),
             ResolvedNode::Folder(folder) => Ok(AsterDavMeta::from_folder(&folder)),
-            ResolvedNode::File(file) => {
-                let blob = file_repo::find_blob_by_id(self.state.writer_db(), file.blob_id)
-                    .await
-                    .map_err(|_| FsError::GeneralFailure)?;
-                Ok(AsterDavMeta::from_file(&file, &blob))
+            ResolvedNode::File(authorized) => {
+                let (file, _, revision) =
+                    file_ops::load_current_download_snapshot(&self.state, authorized.id)
+                        .await
+                        .map_err(to_fs_error)?;
+                crate::services::workspace::storage::ensure_active_file_scope(&file, self.scope)
+                    .map_err(to_fs_error)?;
+                if file.folder_id != authorized.folder_id || file.name != authorized.name {
+                    return Err(FsError::NotFound);
+                }
+                Ok(AsterDavMeta::from_file(&file, revision.etag))
             }
         }
     }
@@ -367,7 +378,9 @@ impl AsterDavFs {
                 let files = self
                     .file_page(folder_id, Some(*id), fetch_size, writer_authoritative)
                     .await?;
-                return Ok(file_only_page(files, request.maximum_entries));
+                return self
+                    .file_only_page(files, request.maximum_entries, writer_authoritative)
+                    .await;
             }
         };
 
@@ -421,14 +434,61 @@ impl AsterDavFs {
         let returned_files = files.into_iter().take(remaining).collect::<Vec<_>>();
         let last_file_id = returned_files.last().map(|file| file.id);
         entries.extend(
-            returned_files
-                .iter()
-                .map(AsterDavDirEntry::from_file_record),
+            self.file_entries(&returned_files, writer_authoritative)
+                .await?,
         );
         Ok(DavDirectoryPage {
             entries,
             next_cursor: has_more_files
                 .then(|| AsterDavDirectoryCursor::Files(last_file_id.unwrap_or_default())),
+        })
+    }
+
+    async fn file_entries(
+        &self,
+        files: &[file_entity::Model],
+        writer_authoritative: bool,
+    ) -> Result<Vec<AsterDavDirEntry>, DavBackendError> {
+        let db = if writer_authoritative {
+            self.state.writer_db()
+        } else {
+            self.state.reader_db()
+        };
+        let file_ids = files.iter().map(|file| file.id).collect::<Vec<_>>();
+        let etags = crate::db::repository::revision_repo::current_etags_by_file_ids(db, &file_ids)
+            .await
+            .map_err(|error| {
+                tracing::warn!(%error, "WebDAV revision ETag query failed");
+                DavBackendError::new(DavBackendErrorKind::Internal)
+            })?;
+        files
+            .iter()
+            .map(|file| {
+                let etag = etags.get(&file.id).cloned().ok_or_else(|| {
+                    tracing::warn!(
+                        file_id = file.id,
+                        "WebDAV directory entry has no current revision ETag"
+                    );
+                    DavBackendError::new(DavBackendErrorKind::Internal)
+                })?;
+                Ok(AsterDavDirEntry::from_file_record(file, etag))
+            })
+            .collect()
+    }
+
+    async fn file_only_page(
+        &self,
+        files: Vec<file_entity::Model>,
+        maximum_entries: usize,
+        writer_authoritative: bool,
+    ) -> Result<DavDirectoryPage<AsterDavDirEntry, AsterDavDirectoryCursor>, DavBackendError> {
+        let has_more = files.len() > maximum_entries;
+        let returned = files.into_iter().take(maximum_entries).collect::<Vec<_>>();
+        let next_cursor = has_more
+            .then(|| AsterDavDirectoryCursor::Files(returned.last().map_or(0, |file| file.id)));
+        Ok(DavDirectoryPage {
+            entries: self.file_entries(&returned, writer_authoritative).await?,
+            next_cursor,
         })
     }
 }
@@ -457,23 +517,6 @@ impl DavDirectoryEnumerator for AsterDavWriteDirectoryEnumerator<'_> {
         self.dav_fs
             .read_directory_page_with_consistency(request, true)
             .await
-    }
-}
-
-fn file_only_page(
-    files: Vec<file_entity::Model>,
-    maximum_entries: usize,
-) -> DavDirectoryPage<AsterDavDirEntry, AsterDavDirectoryCursor> {
-    let has_more = files.len() > maximum_entries;
-    let returned = files.into_iter().take(maximum_entries).collect::<Vec<_>>();
-    let next_cursor =
-        has_more.then(|| AsterDavDirectoryCursor::Files(returned.last().map_or(0, |file| file.id)));
-    DavDirectoryPage {
-        entries: returned
-            .iter()
-            .map(AsterDavDirEntry::from_file_record)
-            .collect(),
-        next_cursor,
     }
 }
 
@@ -638,11 +681,19 @@ impl DavFileSystem for AsterDavFs {
             let meta: Box<dyn DavMetaData> = match node {
                 ResolvedNode::Root => Box::new(AsterDavMeta::root()),
                 ResolvedNode::Folder(f) => Box::new(AsterDavMeta::from_folder(&f)),
-                ResolvedNode::File(f) => {
-                    let blob = file_repo::find_blob_by_id(self.state.reader_db(), f.blob_id)
-                        .await
-                        .map_err(|_| FsError::GeneralFailure)?;
-                    Box::new(AsterDavMeta::from_file(&f, &blob))
+                ResolvedNode::File(authorized) => {
+                    let (file, _, revision) =
+                        file_ops::load_current_download_snapshot(&self.state, authorized.id)
+                            .await
+                            .map_err(to_fs_error)?;
+                    crate::services::workspace::storage::ensure_active_file_scope(
+                        &file, self.scope,
+                    )
+                    .map_err(to_fs_error)?;
+                    if file.folder_id != authorized.folder_id || file.name != authorized.name {
+                        return Err(FsError::NotFound);
+                    }
+                    Box::new(AsterDavMeta::from_file(&file, revision.etag))
                 }
             };
 
@@ -897,16 +948,17 @@ impl DavFileSystem for AsterDavFs {
                     .await;
                 }
                 ResolvedNode::Folder(f) => {
-                    let (copied, storage_delta) = folder::copy_folder_tree_in_scope(
-                        &state,
-                        self.scope,
-                        f.id,
-                        dest_parent_id,
-                        &dest_name,
-                        Some(MUTATION_FOLDER_TREE_LIMITS),
-                    )
-                    .await
-                    .map_err(to_fs_error)?;
+                    let (copied, storage_delta) =
+                        folder::copy_folder_tree_in_scope_with_user_properties(
+                            &state,
+                            self.scope,
+                            f.id,
+                            dest_parent_id,
+                            &dest_name,
+                            Some(MUTATION_FOLDER_TREE_LIMITS),
+                        )
+                        .await
+                        .map_err(to_fs_error)?;
                     storage_change::publish(
                         &state,
                         storage_change::StorageChangeEvent::new(
@@ -918,8 +970,13 @@ impl DavFileSystem for AsterDavFs {
                         )
                         .with_storage_delta(storage_delta),
                     );
-                    copy_visible_properties_for_copied_tree(&state, self.scope(), f.id, copied.id)
-                        .await?;
+                    copy_visible_folder_properties_for_copied_tree(
+                        &state,
+                        self.scope(),
+                        f.id,
+                        copied.id,
+                    )
+                    .await?;
                     let details = folder::audit_transfer_details_for_models(
                         &state,
                         self.scope(),
@@ -994,7 +1051,7 @@ impl DavFileSystem for AsterDavFs {
                 .map(|props| {
                     props
                         .iter()
-                        .any(|prop| !property::is_protected_namespace(&prop.namespace))
+                        .any(|prop| !property_repo::is_protected_namespace(&prop.namespace))
                 })
                 .unwrap_or(false)
         })
@@ -1040,7 +1097,7 @@ impl DavFileSystem for AsterDavFs {
                 .map_err(|_| FsError::GeneralFailure)?;
             let mut props_by_target: HashMap<(EntityType, i64), Vec<DavProp>> = HashMap::new();
             for prop in props {
-                if property::is_protected_namespace(&prop.namespace) {
+                if property_repo::is_protected_namespace(&prop.namespace) {
                     continue;
                 }
                 props_by_target
@@ -1072,7 +1129,7 @@ impl DavFileSystem for AsterDavFs {
                     .ok_or(FsError::NotFound)?;
 
             let protocol_plan = plan_atomic_proppatch(patches.iter().map(|(_, prop)| {
-                property::is_protected_namespace(prop.namespace.as_deref().unwrap_or(""))
+                property_repo::is_protected_namespace(prop.namespace.as_deref().unwrap_or(""))
             }));
             if !protocol_plan.apply {
                 return Ok(patches
@@ -1151,7 +1208,7 @@ fn entity_props_to_dav_props(
 ) -> Vec<DavProp> {
     props
         .into_iter()
-        .filter(|p| !property::is_protected_namespace(&p.namespace))
+        .filter(|p| !property_repo::is_protected_namespace(&p.namespace))
         .map(|p| entity_prop_to_dav_prop(p, do_content))
         .collect()
 }
@@ -1234,7 +1291,7 @@ async fn copy_visible_entity_properties_on<C: ConnectionTrait>(
         .map_err(|_| FsError::GeneralFailure)?;
 
     for prop in props {
-        if property::is_protected_namespace(&prop.namespace) {
+        if property_repo::is_protected_namespace(&prop.namespace) {
             continue;
         }
         property_repo::upsert(
@@ -1268,23 +1325,7 @@ async fn load_child_folders_in_scope(
     .map_err(|_| FsError::GeneralFailure)
 }
 
-async fn load_files_in_folders_in_scope(
-    state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
-    folder_ids: &[i64],
-) -> Result<Vec<aster_drive_model::entities::file::Model>, FsError> {
-    match scope {
-        WorkspaceStorageScope::Personal { user_id } => {
-            file_repo::find_by_folders(state.writer_db(), user_id, folder_ids).await
-        }
-        WorkspaceStorageScope::Team { team_id, .. } => {
-            file_repo::find_by_team_folders(state.writer_db(), team_id, folder_ids).await
-        }
-    }
-    .map_err(|_| FsError::GeneralFailure)
-}
-
-async fn copy_visible_properties_for_copied_tree(
+async fn copy_visible_folder_properties_for_copied_tree(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     src_root_id: i64,
@@ -1308,43 +1349,10 @@ async fn copy_visible_properties_for_copied_tree(
         let dest_folder_ids: Vec<i64> = frontier.iter().map(|(_, dest)| *dest).collect();
         let dest_parent_by_src: HashMap<i64, i64> = frontier.iter().copied().collect();
 
-        let (src_files, dest_files, src_children, dest_children) = tokio::try_join!(
-            load_files_in_folders_in_scope(state, scope, &src_folder_ids),
-            load_files_in_folders_in_scope(state, scope, &dest_folder_ids),
+        let (src_children, dest_children) = tokio::try_join!(
             load_child_folders_in_scope(state, scope, &src_folder_ids),
             load_child_folders_in_scope(state, scope, &dest_folder_ids),
         )?;
-
-        let dest_file_by_parent_and_name: HashMap<(i64, String), i64> = dest_files
-            .into_iter()
-            .filter_map(|file| {
-                file.folder_id
-                    .map(|folder_id| ((folder_id, file.name), file.id))
-            })
-            .collect();
-
-        for src_file in src_files {
-            let Some(src_parent_id) = src_file.folder_id else {
-                return Err(FsError::GeneralFailure);
-            };
-            let Some(dest_parent_id) = dest_parent_by_src.get(&src_parent_id).copied() else {
-                return Err(FsError::GeneralFailure);
-            };
-            let Some(dest_file_id) = dest_file_by_parent_and_name
-                .get(&(dest_parent_id, src_file.name.clone()))
-                .copied()
-            else {
-                return Err(FsError::GeneralFailure);
-            };
-            copy_visible_entity_properties(
-                state,
-                EntityType::File,
-                src_file.id,
-                EntityType::File,
-                dest_file_id,
-            )
-            .await?;
-        }
 
         let dest_child_by_parent_and_name: HashMap<(i64, String), i64> = dest_children
             .into_iter()
@@ -1530,7 +1538,11 @@ async fn revalidate_atomic_target<C: ConnectionTrait>(
             Some(metadata::to_system_time(folder.updated_at)),
         ),
         ResolvedNode::File(file) => (
-            Some(metadata::file_etag(&file)),
+            Some(
+                crate::db::repository::revision_repo::current_etag(db, file.id)
+                    .await
+                    .map_err(|_| AsterDavMutationError::Backend)?,
+            ),
             Some(metadata::to_system_time(file.updated_at)),
         ),
     };

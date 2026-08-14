@@ -144,9 +144,10 @@ If you suspect existing "data and storage inconsistency" in the database, run a 
 `--deep` adds these checks:
 
 - `storage-usage`: compares `users.storage_used` / `teams.storage_used` with actual usage from files and historical versions
-- `blob-ref-counts`: compares `file_blobs.ref_count` with real references from `files` / `file_versions`
+- `blob-ref-counts`: compares `file_blobs.ref_count` with real references from `files` / non-current `file_revisions`
 - `storage-objects`: scans object paths under each storage policy to find missing blobs, untracked objects, and orphan thumbnails
 - `folder-tree`: checks missing parent folders, cross-workspace parent folders, and folder cycles
+- `revision-ledger`: checks history/head/predecessor pointers and the `files` current projection
 
 If you only want part of the deep checks, narrow the scope:
 

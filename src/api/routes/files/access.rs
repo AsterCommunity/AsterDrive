@@ -922,7 +922,7 @@ pub(crate) async fn download_response(
         .get("If-None-Match")
         .and_then(|value| value.to_str().ok());
     let file = file::get_info_in_scope(state, scope, file_id).await?;
-    let range = file::parse_range_header(req.headers().get(header::RANGE), file.size)?;
+    let range_header = req.headers().get(header::RANGE);
     let ctx = AuditContext::from_request(req, claims);
     let outcome = file::download_in_scope_with_file_and_audit(
         state,
@@ -930,7 +930,7 @@ pub(crate) async fn download_response(
         file,
         disposition,
         if_none_match,
-        range,
+        range_header,
         &ctx,
     )
     .await?;
@@ -1207,6 +1207,13 @@ mod tests {
         )
         .await
         .expect("image preview route file should insert");
+        crate::db::repository::revision_repo::create_initial(
+            &db,
+            &file,
+            crate::db::repository::revision_repo::RevisionReason::Create,
+        )
+        .await
+        .expect("image preview route revision should insert");
 
         let driver_registry =
             Arc::new(DriverRegistry::noop().expect("built-in storage connector registry"));
@@ -1314,6 +1321,13 @@ mod tests {
         )
         .await
         .expect("resource handle route team file should insert");
+        crate::db::repository::revision_repo::create_initial(
+            state.writer_db(),
+            &team_file,
+            crate::db::repository::revision_repo::RevisionReason::Create,
+        )
+        .await
+        .expect("resource handle route team revision should insert");
 
         (team, team_file)
     }

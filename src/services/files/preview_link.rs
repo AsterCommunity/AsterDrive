@@ -1,5 +1,6 @@
 //! 服务模块：`preview_link`。
 
+use actix_web::http::header::HeaderValue;
 use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -7,14 +8,10 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::config::site_url;
-use crate::db::repository::file_repo;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    files::{
-        direct_link,
-        file::{self as file_ops, ResolvedDownloadRange},
-    },
+    files::{direct_link, file as file_ops},
     share::{
         load_shared_file_ignoring_download_limit, load_shared_folder_file_ignoring_download_limit,
     },
@@ -128,54 +125,36 @@ pub(crate) async fn download_file(
     token: &str,
     requested_name: &str,
     if_none_match: Option<&str>,
-    range: Option<ResolvedDownloadRange>,
+    range_header: Option<&HeaderValue>,
 ) -> Result<file_ops::DownloadOutcome> {
     let resolved = resolve_token(state, token).await?;
-    let file = match &resolved {
+    let authorized = match &resolved {
         ResolvedPreviewTarget::File { file, .. } => file,
         ResolvedPreviewTarget::Shared { file, .. } => file,
     };
-
-    direct_link::validate_public_file_name(file, requested_name)?;
-
-    let blob = file_repo::find_blob_by_id(state.reader_db(), file.blob_id).await?;
-    if let Some(if_none_match) = if_none_match
-        && file_ops::if_none_match_matches(if_none_match, &blob.hash)
+    let (file, blob, revision) =
+        file_ops::load_current_download_snapshot(state, authorized.id).await?;
+    if file.deleted_at.is_some()
+        || file.owner_user_id != authorized.owner_user_id
+        || file.team_id != authorized.team_id
+        || file.folder_id != authorized.folder_id
     {
-        return file_ops::build_download_outcome_with_disposition_and_range(
-            state,
-            file,
-            &blob,
-            file_ops::DownloadDisposition::Inline,
-            Some(if_none_match),
-            None,
-        )
-        .await;
+        return Err(AsterError::share_not_found(
+            "preview target changed after token validation",
+        ));
     }
-
+    direct_link::validate_public_file_name(&file, requested_name)?;
+    let range = file_ops::resolve_range_for_download_snapshot(&file, range_header)?;
     file_ops::build_download_outcome_with_disposition_and_range(
         state,
-        file,
+        &file,
         &blob,
         file_ops::DownloadDisposition::Inline,
-        None,
+        if_none_match,
         range,
+        &revision.etag,
     )
     .await
-}
-
-pub(crate) async fn resolve_file_for_download(
-    state: &impl SharedRuntimeState,
-    token: &str,
-    requested_name: &str,
-) -> Result<aster_drive_model::entities::file::Model> {
-    let resolved = resolve_token(state, token).await?;
-    let file = match &resolved {
-        ResolvedPreviewTarget::File { file, .. } => file,
-        ResolvedPreviewTarget::Shared { file, .. } => file,
-    };
-    direct_link::validate_public_file_name(file, requested_name)?;
-    Ok(file.clone())
 }
 
 fn build_payload(subject: PreviewSubject) -> PreviewTokenPayload {
@@ -226,8 +205,9 @@ async fn canonical_file_etag(
     state: &impl SharedRuntimeState,
     file: &file::Model,
 ) -> Result<String> {
-    let blob = file_repo::find_blob_by_id(state.reader_db(), file.blob_id).await?;
-    Ok(format!("\"{}\"", blob.hash))
+    let etag =
+        crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id).await?;
+    Ok(format!("\"{etag}\""))
 }
 
 fn preview_path(

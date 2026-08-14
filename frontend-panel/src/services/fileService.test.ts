@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PERSONAL_WORKSPACE } from "@/lib/workspace";
+import type { FileVersion } from "@/types/api";
 
 const mockState = vi.hoisted(() => {
 	class MockApiError extends Error {
@@ -41,6 +42,7 @@ describe("fileService", () => {
 		mockState.clientPut.mockReset();
 		mockState.delete.mockReset();
 		mockState.get.mockReset();
+		mockState.get.mockResolvedValue([]);
 		mockState.patch.mockReset();
 		mockState.post.mockReset();
 		const { setPublicSiteUrls } = await import("@/lib/publicSiteUrl");
@@ -200,7 +202,9 @@ describe("fileService", () => {
 		expect(mockState.post).toHaveBeenNthCalledWith(10, "/folders/7/copy", {
 			parent_id: 3,
 		});
-		expect(mockState.get).toHaveBeenNthCalledWith(8, "/files/8/versions");
+		expect(mockState.get).toHaveBeenNthCalledWith(8, "/files/8/versions", {
+			params: { after_sequence: undefined, limit: 101 },
+		});
 		expect(mockState.post).toHaveBeenNthCalledWith(
 			11,
 			"/files/8/versions/2/restore",
@@ -290,7 +294,9 @@ describe("fileService", () => {
 				url: "https://example.com/team.bin",
 			},
 		);
-		expect(mockState.get).toHaveBeenCalledWith("/teams/9/files/8/versions");
+		expect(mockState.get).toHaveBeenCalledWith("/teams/9/files/8/versions", {
+			params: { after_sequence: undefined, limit: 101 },
+		});
 		expect(mockState.post).toHaveBeenCalledWith("/teams/9/files/new", {
 			name: "empty.md",
 			folder_id: null,
@@ -349,6 +355,70 @@ describe("fileService", () => {
 		expect(mockState.patch).toHaveBeenNthCalledWith(2, "/teams/4/folders/7", {
 			parent_id: null,
 		});
+	});
+
+	it("returns one bounded version page with a stable continuation cursor", async () => {
+		const apiPage = Array.from(
+			{ length: 101 },
+			(_, index) => ({ version: 200 - index }) as FileVersion,
+		);
+		mockState.get.mockResolvedValueOnce(apiPage);
+		const { fileService } = await import("@/services/fileService");
+
+		await expect(fileService.listVersions(8)).resolves.toEqual({
+			items: apiPage.slice(0, 100),
+			nextAfterSequence: 101,
+		});
+		expect(mockState.get).toHaveBeenCalledTimes(1);
+		expect(mockState.get).toHaveBeenCalledWith("/files/8/versions", {
+			params: { after_sequence: undefined, limit: 101 },
+		});
+	});
+
+	it("rejects a version page whose cursor does not advance", async () => {
+		const page = Array.from(
+			{ length: 101 },
+			(_, index) => ({ version: 200 - index }) as FileVersion,
+		);
+		mockState.get.mockResolvedValueOnce(page);
+		const { fileService } = await import("@/services/fileService");
+
+		await expect(fileService.listVersions(8, 101)).rejects.toThrow(
+			"File version cursor did not advance",
+		);
+		expect(mockState.get).toHaveBeenCalledTimes(1);
+	});
+
+	it("returns the next bounded version page when the cursor advances", async () => {
+		const apiPage = Array.from(
+			{ length: 101 },
+			(_, index) => ({ version: 100 - index }) as FileVersion,
+		);
+		mockState.get.mockResolvedValueOnce(apiPage);
+		const { fileService } = await import("@/services/fileService");
+
+		await expect(fileService.listVersions(8, 101)).resolves.toEqual({
+			items: apiPage.slice(0, 100),
+			nextAfterSequence: 1,
+		});
+		expect(mockState.get).toHaveBeenCalledWith("/files/8/versions", {
+			params: { after_sequence: 101, limit: 101 },
+		});
+	});
+
+	it("rejects a lookahead page without a terminal item sequence", async () => {
+		const page = Array.from(
+			{ length: 101 },
+			(_, index) => ({ version: 200 - index }) as FileVersion,
+		);
+		page[99] = {} as FileVersion;
+		mockState.get.mockResolvedValueOnce(page);
+		const { fileService } = await import("@/services/fileService");
+
+		await expect(fileService.listVersions(8)).rejects.toThrow(
+			"File version cursor did not advance",
+		);
+		expect(mockState.get).toHaveBeenCalledTimes(1);
 	});
 
 	it("forwards abort signals for folder listing requests", async () => {

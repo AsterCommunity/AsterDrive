@@ -60,6 +60,8 @@ pub(crate) struct StoreFromTempParams<'a> {
     pub existing_file_id: Option<i64>,
     pub lock_credentials: crate::services::files::lock::LockMutationCredentials,
     pub file_precondition: Option<FileWritePrecondition>,
+    pub expected_current_revision_id: Option<i64>,
+    pub expected_current_revision_etag: Option<String>,
 }
 
 impl<'a> StoreFromTempParams<'a> {
@@ -79,6 +81,8 @@ impl<'a> StoreFromTempParams<'a> {
             existing_file_id: None,
             lock_credentials: crate::services::files::lock::LockMutationCredentials::None,
             file_precondition: None,
+            expected_current_revision_id: None,
+            expected_current_revision_etag: None,
         }
     }
 
@@ -94,6 +98,16 @@ impl<'a> StoreFromTempParams<'a> {
         self.lock_credentials = credentials;
         self
     }
+
+    pub(crate) fn with_expected_revision(mut self, revision_id: Option<i64>) -> Self {
+        self.expected_current_revision_id = revision_id;
+        self
+    }
+
+    pub(crate) fn with_expected_revision_etag(mut self, etag: Option<&str>) -> Self {
+        self.expected_current_revision_etag = etag.map(ToOwned::to_owned);
+        self
+    }
 }
 
 #[derive(Clone, Default)]
@@ -102,6 +116,7 @@ pub(crate) struct StoreFromTempHints<'a> {
     pub precomputed_hash: Option<&'a str>,
     pub actor_username: Option<&'a str>,
     pub operation_context: crate::services::workspace::storage::StorageOperationContext,
+    pub revision_etag: Option<&'a str>,
 }
 
 pub(crate) struct StorePreuploadedNondedupParams<'a> {
@@ -341,7 +356,7 @@ pub(crate) async fn store_preuploaded_nondedup(
                 debug_assert_eq!(blob.policy_id, verified_blob.policy_id());
                 debug_assert_eq!(blob.storage_path, verified_blob.storage_path());
 
-                let result = if let Some((old_file, old_blob)) = overwrite_ctx {
+                let result = if let Some((old_file, _old_blob)) = overwrite_ctx {
                     let current_file = revalidate_preuploaded_overwrite_target(
                         txn,
                         scope,
@@ -350,6 +365,13 @@ pub(crate) async fn store_preuploaded_nondedup(
                     )
                     .await?;
                     let existing_id = current_file.id;
+                    let expected_revision_id =
+                        crate::db::repository::revision_repo::lock_history_by_file_id(
+                            txn,
+                            existing_id,
+                        )
+                        .await?
+                        .current_revision_id;
                     let current_name = current_file.name.clone();
                     let mut active: file::ActiveModel = current_file.into();
                     active.blob_id = Set(blob.id);
@@ -363,20 +385,34 @@ pub(crate) async fn store_preuploaded_nondedup(
                     active.updated_at = Set(now);
                     let updated = active.update(txn).await.map_err(AsterError::from)?;
 
-                    let next_ver =
-                        crate::db::repository::version_repo::next_version(txn, existing_id).await?;
-                    crate::db::repository::version_repo::create(
+                    let actor_username = match actor_username {
+                        Some(username) => username,
+                        None => {
+                            crate::services::workspace::storage::load_scope_actor_username(
+                                txn, scope,
+                            )
+                            .await?
+                        }
+                    };
+                    crate::db::repository::revision_repo::append(
                         txn,
-                        aster_drive_model::entities::file_version::ActiveModel {
-                            file_id: Set(existing_id),
-                            blob_id: Set(old_blob.id),
-                            version: Set(next_ver),
-                            size: Set(old_blob.size),
-                            created_at: Set(now),
-                            ..Default::default()
+                        existing_id,
+                        expected_revision_id,
+                        crate::db::repository::revision_repo::NewRevision {
+                            blob_id: blob.id,
+                            logical_size: blob.size,
+                            mime_type: &mime,
+                            content_sha256: None,
+                            creator_user_id: Some(scope.actor_user_id()),
+                            creator_display_name: &actor_username,
+                            comment: None,
+                            reason: crate::db::repository::revision_repo::RevisionReason::Overwrite,
+                            created_at: now,
+                            etag: None,
                         },
                     )
-                    .await?;
+                    .await
+                    .map_err(crate::services::content::revision::map_append_error)?;
 
                     if storage_delta != 0 {
                         update_storage_used(txn, scope, storage_delta).await?;

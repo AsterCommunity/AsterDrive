@@ -8,7 +8,8 @@ use crate::services::files::file::{
     inline_sandbox_csp, requires_inline_sandbox,
 };
 use crate::services::workspace::storage::WorkspaceStorageScope;
-use aster_drive_model::entities::{file, file_blob};
+use actix_web::http::header::HeaderValue;
+use aster_drive_model::entities::{file, file_blob, file_revision};
 use aster_drive_storage::PresignedDownloadOptions;
 use aster_forge_utils::numbers;
 
@@ -17,27 +18,65 @@ use super::types::{DownloadOutcome, StreamedFile};
 
 const PRESIGNED_DOWNLOAD_TTL_SECS: u64 = 5 * 60;
 
-pub(crate) async fn download_in_scope_with_range_and_file(
+/// Loads content and its validator from one writer-backed snapshot.
+pub(crate) async fn load_current_download_snapshot(
+    state: &PrimaryAppState,
+    file_id: i64,
+) -> Result<(file::Model, file_blob::Model, file_revision::Model)> {
+    let (file, blob, revision) =
+        crate::db::repository::revision_repo::find_file_blob_and_current_revision(
+            state.writer_db(),
+            file_id,
+        )
+        .await?;
+    if revision.blob_id != Some(file.blob_id)
+        || revision.logical_size != file.size
+        || blob.id != file.blob_id
+        || blob.size != file.size
+    {
+        return Err(AsterError::internal_error(format!(
+            "file #{file_id} content projection does not match its current revision"
+        )));
+    }
+    Ok((file, blob, revision))
+}
+
+/// Resolves Range against a writer-backed content snapshot after access checks succeed.
+///
+/// Parsing against an earlier projection can pair stale bounds with a newer blob and ETag;
+/// parsing before access checks can disclose the current file size through range errors.
+pub(crate) fn resolve_range_for_download_snapshot(
+    file: &file::Model,
+    range_header: Option<&HeaderValue>,
+) -> Result<Option<ResolvedDownloadRange>> {
+    let range = super::range::parse_range_header(range_header, file.size)?;
+    Ok(range)
+}
+
+pub(crate) async fn download_in_scope_with_range_header_and_file(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     id: i64,
     file: Option<file::Model>,
     if_none_match: Option<&str>,
-    range: Option<ResolvedDownloadRange>,
+    range_header: Option<&HeaderValue>,
     disposition: DownloadDisposition,
 ) -> Result<DownloadOutcome> {
     tracing::debug!(
         scope = ?scope,
         file_id = id,
         has_if_none_match = if_none_match.is_some(),
-        has_range = range.is_some(),
+        has_range = range_header.is_some(),
         "starting file download"
     );
-    let file = match file {
+    let authorized = match file {
         Some(file) => file,
         None => get_info_in_scope(state, scope, id).await?,
     };
-    let blob = file_repo::find_blob_by_id(state.reader_db(), file.blob_id).await?;
+    crate::services::workspace::storage::ensure_active_file_scope(&authorized, scope)?;
+    let (file, blob, revision) = load_current_download_snapshot(state, authorized.id).await?;
+    crate::services::workspace::storage::ensure_active_file_scope(&file, scope)?;
+    let range = resolve_range_for_download_snapshot(&file, range_header)?;
     build_download_outcome_with_disposition_and_range(
         state,
         &file,
@@ -45,6 +84,7 @@ pub(crate) async fn download_in_scope_with_range_and_file(
         disposition,
         if_none_match,
         range,
+        &revision.etag,
     )
     .await
 }
@@ -56,7 +96,7 @@ pub async fn download(
     user_id: i64,
     if_none_match: Option<&str>,
 ) -> Result<DownloadOutcome> {
-    download_in_scope_with_range_and_file(
+    download_in_scope_with_range_header_and_file(
         state,
         WorkspaceStorageScope::Personal { user_id },
         id,
@@ -85,8 +125,15 @@ async fn download_raw_unchecked_with_file(
     file: file::Model,
     if_none_match: Option<&str>,
 ) -> Result<DownloadOutcome> {
-    let blob = file_repo::find_blob_by_id(state.reader_db(), file.blob_id).await?;
-    build_stream_outcome(state, &file, &blob, if_none_match, None).await
+    let (file, blob, revision) = load_current_download_snapshot(state, file.id).await?;
+    ensure_personal_file_scope(&file)?;
+    if file.deleted_at.is_some() {
+        return Err(AsterError::file_not_found(format!(
+            "file #{} is in trash",
+            file.id
+        )));
+    }
+    build_stream_outcome(state, &file, &blob, if_none_match, None, &revision.etag).await
 }
 
 /// 构建流式下载结果（Attachment disposition）
@@ -96,6 +143,7 @@ async fn build_stream_outcome(
     blob: &file_blob::Model,
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,
+    revision_etag: &str,
 ) -> Result<DownloadOutcome> {
     build_stream_outcome_with_disposition_and_range(
         state,
@@ -104,6 +152,7 @@ async fn build_stream_outcome(
         DownloadDisposition::Attachment,
         if_none_match,
         range,
+        revision_etag,
     )
     .await
 }
@@ -115,9 +164,10 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
     disposition: DownloadDisposition,
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,
+    revision_etag: &str,
 ) -> Result<DownloadOutcome> {
     if let Some(if_none_match) = if_none_match
-        && if_none_match_matches(if_none_match, &blob.hash)
+        && if_none_match_matches(if_none_match, revision_etag)
     {
         // 命中 If-None-Match 时仍走统一 outcome builder，
         // 这样 304 和 200 会共享相同的缓存头 / sandbox 头策略。
@@ -128,6 +178,7 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
             disposition,
             Some(if_none_match),
             None,
+            revision_etag,
         )
         .await;
     }
@@ -143,6 +194,7 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
             disposition,
             None,
             range,
+            revision_etag,
         )
         .await;
     }
@@ -166,8 +218,16 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
         }
     }
 
-    build_stream_outcome_with_disposition_and_range(state, file, blob, disposition, None, range)
-        .await
+    build_stream_outcome_with_disposition_and_range(
+        state,
+        file,
+        blob,
+        disposition,
+        None,
+        range,
+        revision_etag,
+    )
+    .await
 }
 
 async fn build_presigned_redirect_outcome(
@@ -222,6 +282,7 @@ pub async fn build_stream_outcome_with_disposition(
     blob: &file_blob::Model,
     disposition: DownloadDisposition,
     if_none_match: Option<&str>,
+    revision_etag: &str,
 ) -> Result<DownloadOutcome> {
     build_stream_outcome_with_disposition_and_range(
         state,
@@ -230,6 +291,7 @@ pub async fn build_stream_outcome_with_disposition(
         disposition,
         if_none_match,
         None,
+        revision_etag,
     )
     .await
 }
@@ -241,6 +303,7 @@ pub(crate) async fn build_stream_outcome_with_disposition_and_range(
     disposition: DownloadDisposition,
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,
+    revision_etag: &str,
 ) -> Result<DownloadOutcome> {
     let requires_sandbox =
         disposition == DownloadDisposition::Inline && requires_inline_sandbox(&file.mime_type);
@@ -254,9 +317,9 @@ pub(crate) async fn build_stream_outcome_with_disposition_and_range(
         );
     }
 
-    let etag = format!("\"{}\"", blob.hash);
+    let etag = format!("\"{revision_etag}\"");
     if let Some(if_none_match) = if_none_match
-        && if_none_match_matches(if_none_match, &blob.hash)
+        && if_none_match_matches(if_none_match, revision_etag)
     {
         tracing::debug!(
             file_id = file.id,
