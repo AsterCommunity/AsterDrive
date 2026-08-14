@@ -75,6 +75,9 @@ async fn canonical_revision_ledger_backfills_history_head_and_user_properties() 
            (402, 301, 202, 2, 20, '2026-08-02T00:00:00Z'); \
          INSERT INTO entity_properties (entity_type, entity_id, namespace, name, value) VALUES \
            ('file', 301, 'urn:example:user', 'color', '<color>blue</color>'), \
+           ('file', 301, 'System.preview', 'cache', 'case-sensitive-user'), \
+           ('file', 301, 'systemx.preview', 'cache', 'prefix-boundary-user'), \
+           ('file', 301, 'DAVx:', 'displayname', 'dav-boundary-user'), \
            ('file', 301, 'DAV:', 'getetag', 'protected'), \
            ('file', 301, 'system.preview', 'cache', 'internal')"
     ))
@@ -149,14 +152,41 @@ async fn canonical_revision_ledger_backfills_history_head_and_user_properties() 
         ))
         .await
         .expect("revision properties should query");
-    assert_eq!(properties.len(), 1);
+    let mut properties: Vec<(String, String, Option<String>)> = properties
+        .iter()
+        .map(|property| {
+            (
+                property.try_get_by_index(0).unwrap(),
+                property.try_get_by_index(1).unwrap(),
+                property.try_get_by_index(2).unwrap(),
+            )
+        })
+        .collect();
+    properties.sort();
     assert_eq!(
-        properties[0].try_get_by_index::<String>(0).unwrap(),
-        "urn:example:user"
-    );
-    assert_eq!(
-        properties[0].try_get_by_index::<String>(1).unwrap(),
-        "color"
+        properties,
+        vec![
+            (
+                "DAVx:".to_string(),
+                "displayname".to_string(),
+                Some("dav-boundary-user".to_string()),
+            ),
+            (
+                "System.preview".to_string(),
+                "cache".to_string(),
+                Some("case-sensitive-user".to_string()),
+            ),
+            (
+                "systemx.preview".to_string(),
+                "cache".to_string(),
+                Some("prefix-boundary-user".to_string()),
+            ),
+            (
+                "urn:example:user".to_string(),
+                "color".to_string(),
+                Some("<color>blue</color>".to_string()),
+            ),
+        ]
     );
 
     let foreign_key_violations = db
@@ -232,6 +262,9 @@ async fn assert_canonical_revision_ledger_upgrade_on_backend(db: &DatabaseConnec
         "INSERT INTO files (id, name, folder_id, team_id, blob_id, size, owner_user_id, created_by_user_id, created_by_username, mime_type, extension, compound_extension, file_category, created_at, updated_at, deleted_at) VALUES (9301, 'upgrade.txt', NULL, NULL, 9202, 20, NULL, NULL, 'migration', 'text/plain', 'txt', NULL, 'document', '2026-08-01 00:00:00', '2026-08-02 00:00:00', NULL)",
         "INSERT INTO file_versions (id, file_id, blob_id, version, size, created_at) VALUES (9401, 9301, 9201, 7, 10, '2026-08-01 00:00:00')",
         "INSERT INTO entity_properties (entity_type, entity_id, namespace, name, value) VALUES ('file', 9301, 'urn:test', 'color', 'blue')",
+        "INSERT INTO entity_properties (entity_type, entity_id, namespace, name, value) VALUES ('file', 9301, 'System.preview', 'user-case', 'case-sensitive-user')",
+        "INSERT INTO entity_properties (entity_type, entity_id, namespace, name, value) VALUES ('file', 9301, 'systemx.preview', 'boundary', 'prefix-boundary-user')",
+        "INSERT INTO entity_properties (entity_type, entity_id, namespace, name, value) VALUES ('file', 9301, 'DAVx:', 'boundary', 'dav-boundary-user')",
         "INSERT INTO entity_properties (entity_type, entity_id, namespace, name, value) VALUES ('file', 9301, 'DAV:', 'getetag', 'protected')",
         "INSERT INTO entity_properties (entity_type, entity_id, namespace, name, value) VALUES ('file', 9301, 'system.preview', 'cache', 'internal')",
     ] {
@@ -274,10 +307,41 @@ async fn assert_canonical_revision_ledger_upgrade_on_backend(db: &DatabaseConnec
         ))
         .await
         .expect("backfilled revision properties should query");
-    assert_eq!(properties.len(), 1);
+    let mut properties: Vec<(String, String, Option<String>)> = properties
+        .iter()
+        .map(|property| {
+            (
+                property.try_get_by_index(0).unwrap(),
+                property.try_get_by_index(1).unwrap(),
+                property.try_get_by_index(2).unwrap(),
+            )
+        })
+        .collect();
+    properties.sort();
     assert_eq!(
-        properties[0].try_get_by_index::<String>(0).unwrap(),
-        "urn:test"
+        properties,
+        vec![
+            (
+                "DAVx:".to_string(),
+                "boundary".to_string(),
+                Some("dav-boundary-user".to_string()),
+            ),
+            (
+                "System.preview".to_string(),
+                "user-case".to_string(),
+                Some("case-sensitive-user".to_string()),
+            ),
+            (
+                "systemx.preview".to_string(),
+                "boundary".to_string(),
+                Some("prefix-boundary-user".to_string()),
+            ),
+            (
+                "urn:test".to_string(),
+                "color".to_string(),
+                Some("blue".to_string()),
+            ),
+        ]
     );
 
     for sql in [

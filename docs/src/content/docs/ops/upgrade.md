@@ -75,7 +75,7 @@ sudo -u asterdrive ./aster_drive database-migrate
 ## MySQL 大表 ALTER 注意事项
 
 :::caution[数据量大的部署需要预留维护窗口]
-某些版本的 migration 会对多个表执行 `ALTER TABLE ... MODIFY COLUMN`。如果你的 `files` / `file_blobs` 表已经有数百万行，MySQL 5.7 / 8.0 默认 `INPLACE` 也会触发整表 rebuild，长时间持表锁。
+某些版本的 migration 会对多个表执行 `ALTER TABLE`。即使使用 AsterDrive 当前要求的 MySQL 8.0.23+，部分 DDL 仍可能触发整表 rebuild 或持有较长时间的 metadata lock。持续集成使用 MySQL 8.4；升级前仍应按实际数据量演练。
 :::
 
 如果你的 MySQL 部署数据量较大：

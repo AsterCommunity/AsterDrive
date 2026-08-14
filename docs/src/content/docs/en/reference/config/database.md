@@ -60,6 +60,8 @@ url = { base_url = "postgres://localhost:5432/asterdrive", username = "RAW_USERN
 
 ### MySQL
 
+AsterDrive requires MySQL 8.0.23 or newer; continuous integration runs the complete migration and integration suites on MySQL 8.4. MariaDB is not in the current support matrix. Startup checks the server version before applying MySQL-specific DDL so an older server does not receive only part of a schema change.
+
 ```toml
 url = "mysql://user:password@localhost:3306/asterdrive"
 ```
