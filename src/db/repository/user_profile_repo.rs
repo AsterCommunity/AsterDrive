@@ -4,7 +4,10 @@ use std::collections::HashMap;
 
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::user_profile::{self, Entity as UserProfile};
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
+    QueryFilter, QuerySelect,
+};
 
 pub async fn find_by_user_id(
     db: &DatabaseConnection,
@@ -14,6 +17,31 @@ pub async fn find_by_user_id(
         .one(db)
         .await
         .map_err(AsterError::from)
+}
+
+pub async fn find_by_user_id_on<C: ConnectionTrait>(
+    db: &C,
+    user_id: i64,
+) -> Result<Option<user_profile::Model>> {
+    UserProfile::find_by_id(user_id)
+        .one(db)
+        .await
+        .map_err(AsterError::from)
+}
+
+pub async fn lock_by_user_id<C: ConnectionTrait>(
+    db: &C,
+    user_id: i64,
+) -> Result<Option<user_profile::Model>> {
+    let query = UserProfile::find_by_id(user_id);
+    match db.get_database_backend() {
+        DbBackend::Postgres | DbBackend::MySql => query
+            .lock_exclusive()
+            .one(db)
+            .await
+            .map_err(AsterError::from),
+        _ => query.one(db).await.map_err(AsterError::from),
+    }
 }
 
 pub async fn find_by_user_ids(
@@ -33,15 +61,15 @@ pub async fn find_by_user_ids(
     Ok(rows.into_iter().map(|row| (row.user_id, row)).collect())
 }
 
-pub async fn create(
-    db: &DatabaseConnection,
+pub async fn create<C: ConnectionTrait>(
+    db: &C,
     model: user_profile::ActiveModel,
 ) -> Result<user_profile::Model> {
     model.insert(db).await.map_err(AsterError::from)
 }
 
-pub async fn update(
-    db: &DatabaseConnection,
+pub async fn update<C: ConnectionTrait>(
+    db: &C,
     model: user_profile::ActiveModel,
 ) -> Result<user_profile::Model> {
     model.update(db).await.map_err(AsterError::from)

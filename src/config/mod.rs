@@ -3,6 +3,7 @@
 pub mod audit;
 pub mod auth_runtime;
 pub mod avatar;
+pub mod avatar_render;
 pub mod bool_like;
 pub mod branding;
 pub mod cors;

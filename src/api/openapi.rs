@@ -564,6 +564,7 @@ use utoipa::{Modify, OpenApi};
             crate::services::user::account::UserPreferences,
             crate::services::user::account::UpdatePreferencesReq,
             crate::services::user::profile::AvatarInfo,
+            crate::services::user::profile::AvatarUploadResult,
             crate::services::user::profile::UserProfileInfo,
             crate::api::routes::auth::ChangePasswordReq,
             crate::api::routes::auth::RequestEmailChangeReq,

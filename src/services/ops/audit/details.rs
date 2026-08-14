@@ -367,6 +367,7 @@ pub struct UserPreferencesAuditDetails<'a> {
 pub struct UserAvatarUploadAuditDetails {
     pub source: aster_drive_model::types::AvatarSource,
     pub version: i32,
+    pub applied: bool,
 }
 
 #[derive(Serialize)]

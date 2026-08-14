@@ -5,6 +5,7 @@ import type {
 	AuthSessionInfo,
 	AuthTokenResp,
 	AvatarSource,
+	AvatarUploadResult,
 	ChangePasswordRequest,
 	CheckResp,
 	ExternalAuthEmailVerificationStartRequest,
@@ -580,20 +581,18 @@ export const authService = {
 	uploadAvatar: async (file: File) => {
 		const formData = new FormData();
 		formData.set("file", file);
-		const { data: resp } = await api.client.post<ApiResponse<UserProfileInfo>>(
-			"/auth/profile/avatar/upload",
-			formData,
-			{
-				headers: {
-					"Content-Type": "multipart/form-data",
-				},
+		const { data: resp } = await api.client.post<
+			ApiResponse<AvatarUploadResult>
+		>("/auth/profile/avatar/upload", formData, {
+			headers: {
+				"Content-Type": "multipart/form-data",
 			},
-		);
+		});
 		if (resp.code !== ApiErrorCode.Success) {
 			throw new ApiError(resp.code, resp.msg, {
 				retryable: resp.error?.retryable ?? undefined,
 			});
 		}
-		return resp.data as UserProfileInfo;
+		return resp.data as AvatarUploadResult;
 	},
 };

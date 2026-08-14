@@ -448,11 +448,24 @@ MFA 自助管理接口都需要已登录。当前持久化因子只支持 TOTP�
 
 头像相关接口都需要登录：
 
-- `POST /auth/profile/avatar/upload`：`multipart/form-data` 上传图片，后端会生成 WebP 头像资源
+- `POST /auth/profile/avatar/upload`：`multipart/form-data` 上传图片，同步生成头像并返回
+  `AvatarUploadResult { profile, applied }`
 - `PUT /auth/profile/avatar/source`：只能在 `none` 和 `gravatar` 之间切换；`upload` 来源必须通过上传接口设置
 - `GET /auth/profile/avatar/{size}`：只读取“已上传头像”的 WebP 资源，当前支持 `512` 和 `1024`
 
-也就是说：
+内置前端会先让用户裁剪图片，并把结果归一化为最大 `1024 × 1024` 的 WebP；这只是上传体验优化，
+不是服务端的资源保护边界。服务端仍按图片实际内容检测格式，并执行以下限制：
+
+- multipart 内容按 chunk 写入 staging，不在内存中聚合完整源文件
+- 源文件默认最多 `10 MiB`；运行时配置可调，但产品硬上限是 `16 MiB`
+- 宽和高都不能超过 `1024` 像素
+- 解码器 allocation 上限为 `32 MiB`
+- 同一进程最多并行渲染 2 个头像；每次按顺序生成 `1024` 和 `512` WebP，避免同时保留两套未压缩 resize buffer
+
+上传成功返回 `200 OK`。`applied = true` 表示本次候选头像已写入资料；如果处理期间另一个头像上传或来源切换已经推进了 `avatar_version`，本次响应会返回
+`applied = false` 以及数据库中的当前 `profile`，不会覆盖较新的头像状态。头像上传不创建后台任务。
+
+头像发布失败或候选被并发更新覆盖时，原头像继续可读，当前请求的 staging 内容会被清理。也就是说：
 
 - 如果你要把头像来源切到上传图，应该调用 `/auth/profile/avatar/upload`
 - 如果当前来源是 `gravatar` 或 `none`，应优先使用 `/auth/me` 或资料更新接口返回的 `profile.avatar.url_*`

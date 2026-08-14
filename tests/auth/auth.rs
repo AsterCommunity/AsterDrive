@@ -129,10 +129,14 @@ macro_rules! team_upload_request {
 }
 
 fn avatar_upload_payload() -> (String, Vec<u8>) {
+    avatar_upload_payload_with_dimensions(8, 8)
+}
+
+fn avatar_upload_payload_with_dimensions(width: u32, height: u32) -> (String, Vec<u8>) {
     let boundary = "----AsterAvatarBoundary".to_string();
     let image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
-        8,
-        8,
+        width,
+        height,
         image::Rgba([255, 120, 0, 255]),
     ));
     let mut png = Cursor::new(Vec::new());
@@ -148,6 +152,22 @@ fn avatar_upload_payload() -> (String, Vec<u8>) {
         .as_bytes(),
     );
     body.extend_from_slice(&png.into_inner());
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    (boundary, body)
+}
+
+fn invalid_avatar_upload_payload() -> (String, Vec<u8>) {
+    let boundary = "----AsterInvalidAvatarBoundary".to_string();
+    let mut body = Vec::new();
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\n\
+             Content-Disposition: form-data; name=\"file\"; filename=\"avatar.png\"\r\n\
+             Content-Type: image/png\r\n\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(b"not-an-image");
     body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
     (boundary, body)
 }
@@ -1215,7 +1235,7 @@ async fn test_login_uses_generic_invalid_credentials_message() {
 #[actix_web::test]
 async fn test_cookie_authenticated_write_rejects_same_site_request_source() {
     let state = common::setup().await;
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
 
     let (access, _) = register_and_login!(app);
 
@@ -4516,8 +4536,9 @@ async fn test_patch_profile_display_name_round_trip_and_clear() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["display_name"], "Test User");
-    assert_eq!(body["data"]["avatar"]["source"], "upload");
+    assert_eq!(body["data"]["applied"], true);
+    assert_eq!(body["data"]["profile"]["display_name"], "Test User");
+    assert_eq!(body["data"]["profile"]["avatar"]["source"], "upload");
 
     let req = test::TestRequest::patch()
         .uri("/api/v1/auth/profile")
@@ -5171,8 +5192,9 @@ async fn test_display_name_survives_avatar_source_switches() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["display_name"], "Avatar User");
-    assert_eq!(body["data"]["avatar"]["source"], "upload");
+    assert_eq!(body["data"]["applied"], true);
+    assert_eq!(body["data"]["profile"]["display_name"], "Avatar User");
+    assert_eq!(body["data"]["profile"]["avatar"]["source"], "upload");
 
     for source in ["gravatar", "none"] {
         let req = test::TestRequest::put()
@@ -5201,7 +5223,7 @@ async fn test_avatar_upload_and_source_switch() {
         .unwrap()
         .expect("default policy should exist");
     let shared_policy_base_path = common::local_policy_base_path(&default_policy);
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
     let req = test::TestRequest::get()
@@ -5213,6 +5235,14 @@ async fn test_avatar_upload_and_source_switch() {
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     let user_id = body["data"]["id"].as_i64().unwrap();
+    let (_, background_task_count_before) =
+        aster_drive::db::repository::background_task_repo::find_paginated_all(
+            state.writer_db(),
+            1,
+            0,
+        )
+        .await
+        .unwrap();
 
     let (boundary, payload) = avatar_upload_payload();
     let req = test::TestRequest::post()
@@ -5228,12 +5258,22 @@ async fn test_avatar_upload_and_source_switch() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["avatar"]["source"], "upload");
-    assert_eq!(body["data"]["avatar"]["version"], 1);
+    assert_eq!(body["data"]["applied"], true);
+    assert_eq!(body["data"]["profile"]["avatar"]["source"], "upload");
+    assert_eq!(body["data"]["profile"]["avatar"]["version"], 1);
     assert_eq!(
-        body["data"]["avatar"]["url_512"],
+        body["data"]["profile"]["avatar"]["url_512"],
         "/auth/profile/avatar/512?v=1"
     );
+    let (_, background_task_count_after) =
+        aster_drive::db::repository::background_task_repo::find_paginated_all(
+            state.writer_db(),
+            1,
+            0,
+        )
+        .await
+        .unwrap();
+    assert_eq!(background_task_count_after, background_task_count_before);
     let avatar_user_dir =
         std::path::PathBuf::from(&avatar_base_path).join(format!("user/{user_id}"));
     let avatar_v1_dir = avatar_user_dir.join("v1");
@@ -5413,10 +5453,11 @@ async fn test_avatar_reupload_replaces_previous_objects() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["avatar"]["source"], "upload");
-    assert_eq!(body["data"]["avatar"]["version"], 2);
+    assert_eq!(body["data"]["applied"], true);
+    assert_eq!(body["data"]["profile"]["avatar"]["source"], "upload");
+    assert_eq!(body["data"]["profile"]["avatar"]["version"], 2);
     assert_eq!(
-        body["data"]["avatar"]["url_512"],
+        body["data"]["profile"]["avatar"]["url_512"],
         "/auth/profile/avatar/512?v=2"
     );
 
@@ -5430,6 +5471,148 @@ async fn test_avatar_reupload_replaces_previous_objects() {
     assert!(avatar_v2_dir.exists());
     assert!(avatar_v2_512.exists());
     assert!(avatar_v2_1024.exists());
+}
+
+#[actix_web::test]
+async fn test_concurrent_avatar_uploads_from_same_revision_apply_only_one_candidate() {
+    let state = common::setup().await;
+    let avatar_root = std::path::PathBuf::from(
+        state
+            .runtime_config
+            .get(aster_drive::config::avatar::AVATAR_DIR_KEY)
+            .expect("avatar_dir should exist"),
+    );
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let render_runtime = state.runtime_config.avatar_render_runtime();
+    let first_held_permit = render_runtime.acquire_render().await.unwrap();
+    let second_held_permit = render_runtime.acquire_render().await.unwrap();
+
+    let (first_boundary, first_payload) = avatar_upload_payload();
+    let first_request = test::TestRequest::post()
+        .uri("/api/v1/auth/profile/avatar/upload")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={first_boundary}"),
+        ))
+        .set_payload(first_payload)
+        .to_request();
+    let (second_boundary, second_payload) = avatar_upload_payload();
+    let second_request = test::TestRequest::post()
+        .uri("/api/v1/auth/profile/avatar/upload")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={second_boundary}"),
+        ))
+        .set_payload(second_payload)
+        .to_request();
+
+    let release_renderers = async move {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let staged_submissions = std::fs::read_dir(avatar_root.join("staging"))
+                    .ok()
+                    .map(|entries| entries.filter_map(std::result::Result::ok).count())
+                    .unwrap_or(0);
+                if staged_submissions == 2 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("both uploads should reach staging before render permits are released");
+        drop(first_held_permit);
+        drop(second_held_permit);
+    };
+    let (first_response, second_response, ()) = tokio::join!(
+        test::call_service(&app, first_request),
+        test::call_service(&app, second_request),
+        release_renderers,
+    );
+    assert_eq!(first_response.status(), 200);
+    assert_eq!(second_response.status(), 200);
+    let first_body: Value = test::read_body_json(first_response).await;
+    let second_body: Value = test::read_body_json(second_response).await;
+
+    let applied = [
+        first_body["data"]["applied"].as_bool().unwrap(),
+        second_body["data"]["applied"].as_bool().unwrap(),
+    ];
+    assert_eq!(applied.into_iter().filter(|applied| *applied).count(), 1);
+    for body in [&first_body, &second_body] {
+        assert_eq!(body["data"]["profile"]["avatar"]["source"], "upload");
+        assert_eq!(body["data"]["profile"]["avatar"]["version"], 1);
+    }
+}
+
+#[actix_web::test]
+async fn test_avatar_rejection_preserves_current_profile_and_cleans_staging() {
+    let state = common::setup().await;
+    let avatar_root = std::path::PathBuf::from(
+        state
+            .runtime_config
+            .get(aster_drive::config::avatar::AVATAR_DIR_KEY)
+            .expect("avatar_dir should exist"),
+    );
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let (boundary, payload) = avatar_upload_payload();
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/profile/avatar/upload")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    for (boundary, payload) in [
+        invalid_avatar_upload_payload(),
+        avatar_upload_payload_with_dimensions(1025, 1024),
+    ] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/profile/avatar/upload")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .insert_header((
+                "Content-Type",
+                format!("multipart/form-data; boundary={boundary}"),
+            ))
+            .set_payload(payload)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400);
+
+        let req = test::TestRequest::get()
+            .uri("/api/v1/auth/me?fields=profile")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["data"]["profile"]["avatar"]["source"], "upload");
+        assert_eq!(body["data"]["profile"]["avatar"]["version"], 1);
+    }
+
+    let staging = avatar_root.join("staging");
+    assert!(
+        !staging.exists()
+            || std::fs::read_dir(staging)
+                .expect("avatar staging should be readable")
+                .next()
+                .is_none()
+    );
 }
 
 #[actix_web::test]

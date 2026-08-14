@@ -198,6 +198,7 @@ interface AuthState {
 	ensureFreshSession: () => Promise<void>;
 	refreshToken: () => Promise<void>;
 	refreshUser: (options?: RefreshUserOptions) => Promise<void>;
+	applyUserProfile: (profile: UserProfileInfo) => void;
 	setStorageEventStreamEnabled: (enabled: boolean) => void;
 	syncSession: (expiresIn: number) => void;
 	startAutoRefresh: (delayMs?: number) => void;
@@ -583,6 +584,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 			inFlightFullRefreshUser = refresh;
 		}
 		return refresh;
+	},
+
+	applyUserProfile: (profile) => {
+		const user = get().user;
+		if (!user) return;
+
+		const nextUser = { ...user, profile };
+		setCachedUser(nextUser);
+		set({ user: nextUser });
 	},
 
 	setStorageEventStreamEnabled: (enabled) => {

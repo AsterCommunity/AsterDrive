@@ -22,6 +22,27 @@ pub(super) fn user_avatar_dir(root_dir: &Path, user_id: i64, version: i32) -> Pa
     root_dir.join(user_avatar_prefix(user_id, version))
 }
 
+pub(super) fn avatar_staging_dir(root_dir: &Path, submission_id: uuid::Uuid) -> PathBuf {
+    root_dir.join("staging").join(submission_id.to_string())
+}
+
+pub(super) fn avatar_staging_source_path(root_dir: &Path, submission_id: uuid::Uuid) -> PathBuf {
+    avatar_staging_dir(root_dir, submission_id).join("source")
+}
+
+pub(super) fn avatar_staging_rendered_dir(root_dir: &Path, submission_id: uuid::Uuid) -> PathBuf {
+    avatar_staging_dir(root_dir, submission_id).join("rendered")
+}
+
+pub(super) async fn cleanup_avatar_staging(root_dir: &Path, submission_id: uuid::Uuid) {
+    let path = avatar_staging_dir(root_dir, submission_id);
+    if let Err(error) = tokio::fs::remove_dir_all(&path).await
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        tracing::warn!(path = %path.display(), %error, "failed to clean avatar staging");
+    }
+}
+
 fn normalize_absolute_path(path: &Path) -> Option<PathBuf> {
     if !path.is_absolute() {
         return None;

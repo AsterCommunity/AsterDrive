@@ -1,5 +1,7 @@
-use std::io::Cursor;
+use std::fs::File;
+use std::io::{BufReader, Cursor};
 use std::path::PathBuf;
+use std::time::Instant;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::media_processing as media_processing_config;
@@ -7,9 +9,9 @@ use crate::errors::{
     AsterError, MapAsterErr, Result, file_upload_error_with_code, precondition_failed_with_code,
     validation_error_with_code,
 };
-use crate::runtime::PrimaryAppState;
+use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::user::profile::shared::{
-    AVATAR_SIZE_LG, AVATAR_SIZE_SM, MAX_AVATAR_DECODE_ALLOC,
+    AVATAR_SIZE_LG, AVATAR_SIZE_SM, MAX_AVATAR_DECODE_ALLOC, MAX_AVATAR_IMAGE_DIMENSION,
 };
 use aster_drive_model::types::MediaProcessorKind;
 use image::imageops::FilterType;
@@ -17,8 +19,7 @@ use image::{DynamicImage, GenericImageView, ImageFormat, ImageReader, Limits};
 
 use super::resolve::resolve_avatar_processor;
 use super::shared::{
-    MediaOperation, ProcessedAvatar, TempDirGuard, cli_output_detail, cli_source_temp_path,
-    run_cli_command_with_timeout,
+    MediaOperation, ProcessedAvatar, TempDirGuard, cli_output_detail, run_cli_command_with_timeout,
 };
 
 pub async fn probe_vips_cli_command(command: &str) -> Result<String> {
@@ -74,25 +75,53 @@ pub async fn probe_vips_cli_command(command: &str) -> Result<String> {
     }
 }
 
-pub async fn process_avatar_upload(
+pub async fn process_staged_avatar(
     state: &PrimaryAppState,
     file_name: &str,
-    data: Vec<u8>,
+    source_path: PathBuf,
 ) -> Result<ProcessedAvatar> {
+    let _permit = state
+        .runtime_config()
+        .avatar_render_runtime()
+        .acquire_render()
+        .await?;
     let processor = resolve_avatar_processor(state.runtime_config(), file_name)?;
-    let source_extension = media_processing_config::file_extension(file_name);
+    let processor_label = processor.kind().as_str();
+    let started_at = Instant::now();
     tracing::debug!(
         operation = MediaOperation::Avatar.as_str(),
         processor = processor.kind().as_str(),
         file_name,
-        source_extension = source_extension.as_deref().unwrap_or(""),
-        source_bytes = data.len(),
-        "processing avatar upload via resolved media processor"
+        source_path = %source_path.display(),
+        "processing staged avatar via resolved media processor"
     );
 
-    match processor.kind() {
+    let inspected_path = source_path.clone();
+    let dimensions =
+        match tokio::task::spawn_blocking(move || inspect_avatar_dimensions(&inspected_path))
+            .await
+            .map_aster_err_ctx("avatar dimension inspection task panicked", |message| {
+                file_upload_error_with_code(ApiErrorCode::AvatarRenderFailed, message)
+            })? {
+            Ok(dimensions) => dimensions,
+            Err(error) => {
+                state.metrics().record_avatar_rejection("dimensions");
+                return Err(error);
+            }
+        };
+    state
+        .metrics()
+        .record_avatar_dimension("width", dimensions.0);
+    state
+        .metrics()
+        .record_avatar_dimension("height", dimensions.1);
+    state
+        .metrics()
+        .set_avatar_budget_bytes("decode_alloc", MAX_AVATAR_DECODE_ALLOC);
+
+    let result = match processor.kind() {
         MediaProcessorKind::Images => {
-            tokio::task::spawn_blocking(move || generate_avatar_variants(data))
+            tokio::task::spawn_blocking(move || generate_avatar_variants_from_path(&source_path))
                 .await
                 .map_aster_err_ctx("avatar processing task panicked", |message| {
                     file_upload_error_with_code(ApiErrorCode::AvatarRenderFailed, message)
@@ -100,7 +129,7 @@ pub async fn process_avatar_upload(
         }
         MediaProcessorKind::VipsCli => {
             let command = processor.vips_command().to_string();
-            render_avatar_with_vips_cli(state, file_name, data, &command).await
+            render_avatar_path_with_vips_cli(state, source_path, &command).await
         }
         MediaProcessorKind::FfmpegCli => Err(precondition_failed_with_code(
             ApiErrorCode::AvatarProcessorUnavailable,
@@ -118,40 +147,114 @@ pub async fn process_avatar_upload(
             ApiErrorCode::AvatarProcessorUnavailable,
             "storage-native avatar processing is not supported",
         )),
+    };
+    state
+        .metrics()
+        .record_avatar_render_duration(processor_label, started_at.elapsed().as_secs_f64());
+    if result.is_err() {
+        state.metrics().record_avatar_rejection("decode_or_render");
     }
+    result
 }
 
-pub(super) fn generate_avatar_variants(data: Vec<u8>) -> Result<ProcessedAvatar> {
-    let mut reader = ImageReader::new(Cursor::new(data))
-        .with_guessed_format()
-        .map_aster_err_ctx("guess avatar format", AsterError::file_type_not_allowed)?;
-
+pub(super) fn avatar_decode_limits() -> Limits {
     let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_AVATAR_IMAGE_DIMENSION);
+    limits.max_image_height = Some(MAX_AVATAR_IMAGE_DIMENSION);
     limits.max_alloc = Some(MAX_AVATAR_DECODE_ALLOC);
-    reader.limits(limits);
+    limits
+}
 
-    let img = reader
-        .decode()
-        .map_aster_err_ctx("decode avatar", AsterError::file_type_not_allowed)?;
+fn open_avatar_reader(path: &std::path::Path) -> Result<ImageReader<BufReader<File>>> {
+    let file = File::open(path).map_aster_err_ctx(
+        "open staged avatar source",
+        AsterError::storage_driver_error,
+    )?;
+    ImageReader::new(BufReader::new(file))
+        .with_guessed_format()
+        .map_aster_err_ctx("guess avatar format", AsterError::file_type_not_allowed)
+}
 
-    let (width, height) = img.dimensions();
+pub(super) fn inspect_avatar_dimensions(path: &std::path::Path) -> Result<(u32, u32)> {
+    let mut reader = open_avatar_reader(path)?;
+    reader.limits(avatar_decode_limits());
+    let dimensions = reader.into_dimensions().map_aster_err_ctx(
+        "inspect avatar dimensions",
+        AsterError::file_type_not_allowed,
+    )?;
+    validate_avatar_dimensions(dimensions)?;
+    Ok(dimensions)
+}
+
+pub(super) fn validate_avatar_dimensions((width, height): (u32, u32)) -> Result<()> {
     if width == 0 || height == 0 {
         return Err(validation_error_with_code(
             ApiErrorCode::AvatarEmptyImage,
             "empty image",
         ));
     }
+    if width > MAX_AVATAR_IMAGE_DIMENSION || height > MAX_AVATAR_IMAGE_DIMENSION {
+        return Err(validation_error_with_code(
+            ApiErrorCode::AvatarRenderFailed,
+            format!(
+                "avatar dimensions {width}x{height} exceed {MAX_AVATAR_IMAGE_DIMENSION}x{MAX_AVATAR_IMAGE_DIMENSION}"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn generate_avatar_variants_from_path(path: &std::path::Path) -> Result<ProcessedAvatar> {
+    let mut reader = open_avatar_reader(path)?;
+    reader.limits(avatar_decode_limits());
+    let image = reader
+        .decode()
+        .map_aster_err_ctx("decode avatar", AsterError::file_type_not_allowed)?;
+    generate_avatar_variants_from_image(&image)
+}
+
+#[cfg(test)]
+pub(super) fn generate_avatar_variants(data: Vec<u8>) -> Result<ProcessedAvatar> {
+    let mut reader = ImageReader::new(Cursor::new(data))
+        .with_guessed_format()
+        .map_aster_err_ctx("guess avatar format", AsterError::file_type_not_allowed)?;
+
+    reader.limits(avatar_decode_limits());
+
+    let img = reader
+        .decode()
+        .map_aster_err_ctx("decode avatar", AsterError::file_type_not_allowed)?;
+
+    generate_avatar_variants_from_image(&img)
+}
+
+fn generate_avatar_variants_from_image(img: &DynamicImage) -> Result<ProcessedAvatar> {
+    let (width, height) = img.dimensions();
+    validate_avatar_dimensions((width, height))?;
 
     let side = width.min(height);
     let left = (width - side) / 2;
     let top = (height - side) / 2;
-    let square = img.crop_imm(left, top, side, side);
+    let square = img.view(left, top, side, side);
 
-    let large = square.resize_exact(AVATAR_SIZE_LG, AVATAR_SIZE_LG, FilterType::Triangle);
-    let small = square.resize_exact(AVATAR_SIZE_SM, AVATAR_SIZE_SM, FilterType::Triangle);
-
-    let large_bytes = encode_avatar_webp(&large)?;
-    let small_bytes = encode_avatar_webp(&small)?;
+    let large_bytes = {
+        let large = image::imageops::resize(
+            &*square,
+            AVATAR_SIZE_LG,
+            AVATAR_SIZE_LG,
+            FilterType::Triangle,
+        );
+        encode_avatar_webp(&DynamicImage::ImageRgba8(large))?
+    };
+    let small_bytes = {
+        let small = image::imageops::resize(
+            &*square,
+            AVATAR_SIZE_SM,
+            AVATAR_SIZE_SM,
+            FilterType::Triangle,
+        );
+        encode_avatar_webp(&DynamicImage::ImageRgba8(small))?
+    };
 
     Ok(ProcessedAvatar {
         small_bytes,
@@ -202,10 +305,9 @@ fn validate_avatar_variant_output(bytes: &[u8], expected_size: u32, label: &str)
     Ok(())
 }
 
-async fn render_avatar_with_vips_cli(
+async fn render_avatar_path_with_vips_cli(
     state: &PrimaryAppState,
-    file_name: &str,
-    original: Vec<u8>,
+    input_path: PathBuf,
     command: &str,
 ) -> Result<ProcessedAvatar> {
     let temp_root = aster_forge_utils::paths::runtime_temp_dir(&state.config().server.temp_dir);
@@ -219,14 +321,8 @@ async fn render_avatar_with_vips_cli(
         )?;
     let temp_dir = TempDirGuard::new(temp_dir, "media processing avatar temp dir");
 
-    let input_path = cli_source_temp_path(temp_dir.path(), file_name, "");
     let small_output_path = temp_dir.path().join("avatar-512.webp");
     let large_output_path = temp_dir.path().join("avatar-1024.webp");
-    tokio::fs::write(&input_path, original)
-        .await
-        .map_aster_err_ctx("write avatar vips source temp file", |message| {
-            file_upload_error_with_code(ApiErrorCode::AvatarRenderFailed, message)
-        })?;
 
     let command = command.to_string();
     let input_arg = input_path.to_string_lossy().to_string();
@@ -241,29 +337,26 @@ async fn render_avatar_with_vips_cli(
         large_output_path = large_output_arg,
         "starting vips CLI avatar render"
     );
-    let small_task = tokio::task::spawn_blocking({
-        let command = command.clone();
-        let input_arg = input_arg.clone();
-        let output_arg = small_output_arg.clone();
-        move || run_avatar_vips_variant(&command, &input_arg, &output_arg, AVATAR_SIZE_SM)
-    });
-    let large_task = tokio::task::spawn_blocking({
+    tokio::task::spawn_blocking({
         let command = command.clone();
         let input_arg = input_arg.clone();
         let output_arg = large_output_arg.clone();
         move || run_avatar_vips_variant(&command, &input_arg, &output_arg, AVATAR_SIZE_LG)
-    });
-
-    small_task
-        .await
-        .map_aster_err_ctx("avatar vips CLI 512 task panicked", |message| {
-            file_upload_error_with_code(ApiErrorCode::AvatarRenderFailed, message)
-        })??;
-    large_task
-        .await
-        .map_aster_err_ctx("avatar vips CLI 1024 task panicked", |message| {
-            file_upload_error_with_code(ApiErrorCode::AvatarRenderFailed, message)
-        })??;
+    })
+    .await
+    .map_aster_err_ctx("avatar vips CLI 1024 task panicked", |message| {
+        file_upload_error_with_code(ApiErrorCode::AvatarRenderFailed, message)
+    })??;
+    tokio::task::spawn_blocking({
+        let command = command.clone();
+        let input_arg = input_arg.clone();
+        let output_arg = small_output_arg.clone();
+        move || run_avatar_vips_variant(&command, &input_arg, &output_arg, AVATAR_SIZE_SM)
+    })
+    .await
+    .map_aster_err_ctx("avatar vips CLI 512 task panicked", |message| {
+        file_upload_error_with_code(ApiErrorCode::AvatarRenderFailed, message)
+    })??;
 
     let small_bytes = tokio::fs::read(&small_output_path)
         .await

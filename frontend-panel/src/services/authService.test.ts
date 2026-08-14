@@ -891,26 +891,29 @@ describe("authService", () => {
 	});
 
 	it("uploads avatars through multipart form data and unwraps API responses", async () => {
-		const profile = {
-			avatar: {
-				source: "upload",
-				url_512: "/avatars/1.webp",
-				url_1024: "/avatars/1@2x.webp",
-				version: 2,
+		const result = {
+			applied: true,
+			profile: {
+				avatar: {
+					source: "upload",
+					url_512: "/avatars/1.webp",
+					url_1024: "/avatars/1@2x.webp",
+					version: 2,
+				},
+				display_name: "Alice",
 			},
-			display_name: "Alice",
 		};
 		mockState.clientPost.mockResolvedValue({
 			data: {
 				code: ApiErrorCode.Success,
-				data: profile,
+				data: result,
 				msg: "",
 			},
 		});
 
 		const file = new File(["avatar"], "avatar.png", { type: "image/png" });
 
-		await expect(authService.uploadAvatar(file)).resolves.toBe(profile);
+		await expect(authService.uploadAvatar(file)).resolves.toBe(result);
 
 		expect(mockState.clientPost).toHaveBeenCalledWith(
 			"/auth/profile/avatar/upload",

@@ -73,6 +73,24 @@ pub trait MetricsRecorder: Send + Sync {
     /// Records a background-task status transition.
     fn record_background_task_transition(&self, kind: &'static str, status: &'static str) {}
 
+    /// Records an avatar upload lifecycle outcome.
+    fn record_avatar_upload(&self, status: &'static str) {}
+
+    /// Records the compressed source bytes accepted by the avatar staging boundary.
+    fn record_avatar_source_bytes(&self, bytes: u64) {}
+
+    /// Records a validated avatar source dimension.
+    fn record_avatar_dimension(&self, axis: &'static str, pixels: u32) {}
+
+    /// Exposes a configured avatar resource boundary.
+    fn set_avatar_budget_bytes(&self, budget: &'static str, bytes: u64) {}
+
+    /// Records synchronous avatar render latency.
+    fn record_avatar_render_duration(&self, processor: &'static str, duration_seconds: f64) {}
+
+    /// Records an avatar rejection at a stable boundary.
+    fn record_avatar_rejection(&self, reason: &'static str) {}
+
     /// Records one runtime configuration reload decision.
     fn record_config_reload(
         &self,
@@ -206,6 +224,45 @@ mod product {
                 "Drive storage driver operation duration in seconds.",
                 &["driver", "operation", "status", "kind"],
                 &[0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 5.0, 15.0, 60.0],
+            ),
+            avatar_uploads: counter(
+                "avatar",
+                "uploads_total",
+                "Total synchronous avatar upload outcomes.",
+                &["status"],
+            ),
+            avatar_source_bytes: histogram_with_buckets(
+                "avatar",
+                "source_bytes",
+                "Compressed avatar source bytes accepted by staging.",
+                &[],
+                &[1024.0, 64.0 * 1024.0, 1024.0 * 1024.0, 4.0 * 1024.0 * 1024.0, 10.0 * 1024.0 * 1024.0, 16.0 * 1024.0 * 1024.0],
+            ),
+            avatar_dimensions: histogram_with_buckets(
+                "avatar",
+                "dimension_pixels",
+                "Validated avatar source dimensions in pixels.",
+                &["axis"],
+                &[128.0, 256.0, 512.0, 1024.0],
+            ),
+            avatar_budget_bytes: gauge(
+                "avatar",
+                "budget_bytes",
+                "Configured avatar source and decoder allocation boundaries in bytes.",
+                &["budget"],
+            ),
+            avatar_render_duration: histogram_with_buckets(
+                "avatar",
+                "render_duration_seconds",
+                "Synchronous avatar render duration in seconds.",
+                &["processor"],
+                &[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 15.0],
+            ),
+            avatar_rejections: counter(
+                "avatar",
+                "rejections_total",
+                "Total avatar upload rejections by boundary.",
+                &["reason"],
             ),
             share_download_rollback_events: counter(
                 "share_download_rollback",
@@ -450,6 +507,46 @@ impl MetricsRecorder for DriveMetricsRecorder {
         self.forge.record_background_task_transition(kind, status);
     }
 
+    fn record_avatar_upload(&self, status: &'static str) {
+        if let Some(product) = self.product {
+            product.avatar_uploads.inc(&[status], 1);
+        }
+    }
+
+    fn record_avatar_source_bytes(&self, bytes: u64) {
+        if let Some(product) = self.product {
+            product.avatar_source_bytes.observe(&[], bytes as f64);
+        }
+    }
+
+    fn record_avatar_dimension(&self, axis: &'static str, pixels: u32) {
+        if let Some(product) = self.product {
+            product
+                .avatar_dimensions
+                .observe(&[axis], f64::from(pixels));
+        }
+    }
+
+    fn set_avatar_budget_bytes(&self, budget: &'static str, bytes: u64) {
+        if let Some(product) = self.product {
+            product.avatar_budget_bytes.set(&[budget], bytes as f64);
+        }
+    }
+
+    fn record_avatar_render_duration(&self, processor: &'static str, duration_seconds: f64) {
+        if let Some(product) = self.product {
+            product
+                .avatar_render_duration
+                .observe(&[processor], duration_seconds);
+        }
+    }
+
+    fn record_avatar_rejection(&self, reason: &'static str) {
+        if let Some(product) = self.product {
+            product.avatar_rejections.inc(&[reason], 1);
+        }
+    }
+
     fn set_background_tasks_pending(&self, pending: u64) {
         self.forge.set_background_tasks_pending(pending);
     }
@@ -516,5 +613,42 @@ mod tests {
                 .system_metrics_updater_task(CancellationToken::new())
                 .is_none()
         );
+    }
+
+    #[cfg(feature = "metrics")]
+    #[test]
+    fn avatar_metrics_register_record_and_export_expected_families() {
+        use std::sync::Arc;
+
+        use aster_forge_metrics::prometheus::{
+            PrometheusMetricsRecorder, export_metrics, init_metrics,
+        };
+
+        init_metrics().expect("Prometheus registry should initialize before product metrics");
+        let recorder = super::DriveMetricsRecorder::new(Arc::new(PrometheusMetricsRecorder));
+        assert!(recorder.enabled());
+
+        recorder.record_avatar_upload("applied");
+        recorder.record_avatar_source_bytes(4096);
+        recorder.record_avatar_dimension("width", 1024);
+        recorder.record_avatar_dimension("height", 768);
+        recorder.set_avatar_budget_bytes("decode_allocation", 32 * 1024 * 1024);
+        recorder.record_avatar_render_duration("images", 0.25);
+        recorder.record_avatar_rejection("dimension");
+
+        let body = export_metrics().expect("Drive avatar metrics should export");
+        assert!(body.contains("avatar_uploads_total"));
+        assert!(body.contains("status=\"applied\""));
+        assert!(body.contains("avatar_source_bytes_bucket"));
+        assert!(body.contains("avatar_source_bytes_count"));
+        assert!(body.contains("avatar_dimension_pixels_bucket"));
+        assert!(body.contains("axis=\"width\""));
+        assert!(body.contains("axis=\"height\""));
+        assert!(body.contains("avatar_budget_bytes"));
+        assert!(body.contains("budget=\"decode_allocation\""));
+        assert!(body.contains("avatar_render_duration_seconds_bucket"));
+        assert!(body.contains("avatar_render_duration_seconds_count"));
+        assert!(body.contains("avatar_rejections_total"));
+        assert!(body.contains("reason=\"dimension\""));
     }
 }
