@@ -44,7 +44,7 @@
 - `POST /files/upload`：直接走普通 multipart 上传
 - `GET /files/upload/sessions`：刷新页面后恢复仍未完成的上传 session
 
-这些入口都支持目录上传语义：
+创建和上传入口的相关参数如下：
 
 - `POST /files/new` 可在请求体里传 `folder_id` 和 `relative_path`
 - `POST /files/upload` 可通过 query 传 `folder_id`
@@ -52,12 +52,13 @@
 - `POST /files/upload` 可通过 query 传 `declared_size`
 - `POST /files/upload/init` 可在请求体里传 `relative_path`
 - `POST /files/upload/init` 可在请求体里传 `frontend_client_id`
-- `GET /files/upload/sessions` 可通过 query 传 `frontend_client_id`，只列出同一前端实例创建的可恢复 session
 - `folder_id = null` 或不传时表示上传到根目录
 - `declared_size` 是可选的客户端声明大小；当前前端普通 multipart 直传会带上它
 - `frontend_client_id` 是前端实例 UUID，只用于断点续传列表过滤；用户 / 团队作用域仍然由登录态和路由决定
 - 服务端会按相对路径自动创建缺失目录、复用已存在目录
 - `relative_path` 中的空 segment 会被拒绝，例如 `docs//bad.txt`
+
+`GET /files/upload/sessions` 是独立的可恢复 session 列表接口。它可通过 query 传 `frontend_client_id`，只列出同一前端实例创建的可恢复 session，不接收 `folder_id` 或 `relative_path`，也不执行目录上传。
 
 协商接口会返回四种模式之一：
 

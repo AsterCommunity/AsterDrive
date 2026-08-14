@@ -44,14 +44,15 @@ Primary upload entries:
 - `POST /files/upload`: ordinary multipart upload
 - `GET /files/upload/sessions`: recover unfinished sessions after refresh
 
-Directory-upload semantics are supported through:
+Creation and upload parameters include:
 
-- `folder_id`
-- `relative_path`
-- `declared_size`
-- `frontend_client_id`
+- `POST /files/new`: `folder_id` and `relative_path` request body fields
+- `POST /files/upload`: `folder_id`, `relative_path`, and `declared_size` query parameters
+- `POST /files/upload/init`: `relative_path` and `frontend_client_id`
 
 `folder_id = null` means root. Missing directories in `relative_path` are created automatically. Empty path segments such as `docs//bad.txt` are rejected.
+
+`GET /files/upload/sessions` is a separate recoverable-session listing endpoint. Its optional `frontend_client_id` query parameter filters sessions created by the same frontend instance; it does not accept `folder_id` or `relative_path` and does not perform directory uploads.
 
 Negotiation returns one of four modes:
 
