@@ -1,7 +1,7 @@
-//! Real WebDAV client compatibility tests.
+//! Real HTTP server and WebDAV client compatibility tests.
 //!
-//! These tests require external binaries and are intentionally ignored by
-//! default. Run with:
+//! Tests that require external binaries are intentionally ignored by default.
+//! Run the complete client matrix with:
 //!
 //! `cargo test --test webdav client_e2e:: -- --ignored --nocapture`
 
@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 
 const CLIENT_COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
+const DELTAV_VERSION_HREF_PREFIX: &str = "/webdav/.asterdrive-deltav/versions/";
 
 struct RunningWebdavServer {
     base_url: String,
@@ -415,6 +416,325 @@ fn response_status_code(headers: &str) -> Option<u16> {
             parts.next()?.parse().ok()
         })
         .next_back()
+}
+
+fn deltav_method(name: &str) -> reqwest::Method {
+    reqwest::Method::from_bytes(name.as_bytes()).expect("DeltaV method should be valid")
+}
+
+fn deltav_version_hrefs(xml: &str) -> Vec<String> {
+    let mut hrefs = Vec::new();
+    let mut remaining = xml;
+    while let Some(offset) = remaining.find(DELTAV_VERSION_HREF_PREFIX) {
+        let candidate = &remaining[offset..];
+        let end = candidate
+            .find('<')
+            .expect("DeltaV version href should terminate before the next XML element");
+        let href = candidate[..end].to_string();
+        if !hrefs.contains(&href) {
+            hrefs.push(href);
+        }
+        remaining = &candidate[end..];
+    }
+    hrefs
+}
+
+fn absolute_webdav_url(server: &RunningWebdavServer, href: &str) -> String {
+    format!("{}{href}", server.base_url)
+}
+
+async fn raw_deltav_report(
+    client: &reqwest::Client,
+    url: &str,
+    username: &str,
+    password: &str,
+) -> String {
+    let response = client
+        .request(deltav_method("REPORT"), url)
+        .basic_auth(username, Some(password))
+        .header("Content-Type", "application/xml; charset=utf-8")
+        .body(
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:version-tree xmlns:D="DAV:">
+  <D:prop>
+    <D:version-name/>
+    <D:getetag/>
+    <D:getcontentlength/>
+    <D:predecessor-set/>
+    <D:successor-set/>
+  </D:prop>
+</D:version-tree>"#,
+        )
+        .send()
+        .await
+        .expect("real HTTP DeltaV REPORT should receive a response");
+    assert_eq!(
+        response.status(),
+        reqwest::StatusCode::MULTI_STATUS,
+        "real HTTP DeltaV REPORT should return Multi-Status"
+    );
+    response
+        .text()
+        .await
+        .expect("real HTTP DeltaV REPORT body should be readable")
+}
+
+#[actix_web::test]
+async fn test_webdav_real_http_deltav_rfc3253_workflow() {
+    let state = common::setup().await;
+    let (username, password) = seed_real_webdav_account(&state).await;
+    let server = start_real_webdav_server(state).await;
+    let client = reqwest::Client::new();
+    let file_name = format!("{}.txt", unique_name("raw-deltav"));
+    let file_url = format!("{}/webdav/{file_name}", server.base_url);
+    let initial_content = b"AsterDrive raw RFC 3253 initial representation\n";
+    let updated_content = b"AsterDrive raw RFC 3253 updated representation\n";
+
+    let created = client
+        .put(&file_url)
+        .basic_auth(&username, Some(&password))
+        .body(initial_content.as_slice())
+        .send()
+        .await
+        .expect("real HTTP PUT should receive a response");
+    assert!(
+        matches!(created.status().as_u16(), 201 | 204),
+        "real HTTP PUT should create the versionable file: {}",
+        created.status()
+    );
+
+    let options = client
+        .request(reqwest::Method::OPTIONS, &file_url)
+        .basic_auth(&username, Some(&password))
+        .send()
+        .await
+        .expect("real HTTP OPTIONS should receive a response");
+    assert_eq!(options.status(), reqwest::StatusCode::OK);
+    let dav = options
+        .headers()
+        .get("DAV")
+        .and_then(|value| value.to_str().ok())
+        .expect("real HTTP OPTIONS should expose DAV capabilities");
+    let allow = options
+        .headers()
+        .get("Allow")
+        .and_then(|value| value.to_str().ok())
+        .expect("real HTTP OPTIONS should expose allowed methods");
+    assert!(
+        dav.split(',')
+            .any(|token| token.trim() == "version-control")
+    );
+    assert!(
+        allow
+            .split(',')
+            .any(|method| method.trim() == "VERSION-CONTROL")
+    );
+    assert!(!allow.split(',').any(|method| method.trim() == "REPORT"));
+
+    let controlled = client
+        .request(deltav_method("VERSION-CONTROL"), &file_url)
+        .basic_auth(&username, Some(&password))
+        .header("Content-Type", "application/xml; charset=utf-8")
+        .body(r#"<D:version-control xmlns:D="DAV:"/>"#)
+        .send()
+        .await
+        .expect("real HTTP VERSION-CONTROL should receive a response");
+    assert_eq!(controlled.status(), reqwest::StatusCode::OK);
+
+    let propfind = client
+        .request(deltav_method("PROPFIND"), &file_url)
+        .basic_auth(&username, Some(&password))
+        .header("Depth", "0")
+        .header("Content-Type", "application/xml; charset=utf-8")
+        .body(
+            r#"<D:propfind xmlns:D="DAV:"><D:prop><D:checked-in/><D:auto-version/><D:supported-report-set/></D:prop></D:propfind>"#,
+        )
+        .send()
+        .await
+        .expect("real HTTP controlled-file PROPFIND should receive a response");
+    assert_eq!(propfind.status(), reqwest::StatusCode::MULTI_STATUS);
+    let controlled_properties = propfind
+        .text()
+        .await
+        .expect("real HTTP controlled-file PROPFIND body should be readable");
+    assert!(controlled_properties.contains("checked-in"));
+    assert!(controlled_properties.contains("auto-version"));
+    assert!(controlled_properties.contains("checkout-checkin"));
+    assert!(controlled_properties.contains("supported-report-set"));
+    assert!(controlled_properties.contains("version-tree"));
+    assert!(controlled_properties.contains("expand-property"));
+
+    let initial_report = raw_deltav_report(&client, &file_url, &username, &password).await;
+    assert!(initial_report.contains("version-name"));
+    assert!(initial_report.contains("getetag"));
+    let initial_hrefs = deltav_version_hrefs(&initial_report);
+    assert_eq!(
+        initial_hrefs.len(),
+        1,
+        "initial controlled resource should have one immutable version:\n{initial_report}"
+    );
+    let initial_version_url = absolute_webdav_url(&server, &initial_hrefs[0]);
+
+    let immutable_get = client
+        .get(&initial_version_url)
+        .basic_auth(&username, Some(&password))
+        .send()
+        .await
+        .expect("immutable version GET should receive a response");
+    assert_eq!(immutable_get.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        immutable_get
+            .headers()
+            .get("Cache-Control")
+            .and_then(|value| value.to_str().ok()),
+        Some("private, max-age=31536000, immutable")
+    );
+    assert!(immutable_get.headers().contains_key("ETag"));
+    assert_eq!(
+        immutable_get
+            .bytes()
+            .await
+            .expect("immutable version GET body should be readable")
+            .as_ref(),
+        initial_content
+    );
+
+    let immutable_head = client
+        .head(&initial_version_url)
+        .basic_auth(&username, Some(&password))
+        .header("Accept-Encoding", "identity")
+        .send()
+        .await
+        .expect("immutable version HEAD should receive a response");
+    assert_eq!(immutable_head.status(), reqwest::StatusCode::OK);
+    assert!(immutable_head.headers().contains_key("ETag"));
+    assert_eq!(
+        immutable_head
+            .headers()
+            .get("Content-Length")
+            .and_then(|value| value.to_str().ok()),
+        Some(initial_content.len().to_string().as_str())
+    );
+
+    let immutable_range = client
+        .get(&initial_version_url)
+        .basic_auth(&username, Some(&password))
+        .header("Range", "bytes=11-18")
+        .send()
+        .await
+        .expect("immutable version range GET should receive a response");
+    assert_eq!(
+        immutable_range.status(),
+        reqwest::StatusCode::PARTIAL_CONTENT
+    );
+    assert_eq!(
+        immutable_range
+            .bytes()
+            .await
+            .expect("immutable version range body should be readable")
+            .as_ref(),
+        &initial_content[11..=18]
+    );
+
+    let immutable_propfind = client
+        .request(deltav_method("PROPFIND"), &initial_version_url)
+        .basic_auth(&username, Some(&password))
+        .header("Depth", "0")
+        .header("Content-Type", "application/xml; charset=utf-8")
+        .body(
+            r#"<D:propfind xmlns:D="DAV:"><D:prop><D:version-name/><D:predecessor-set/><D:successor-set/><D:getetag/></D:prop></D:propfind>"#,
+        )
+        .send()
+        .await
+        .expect("immutable version PROPFIND should receive a response");
+    assert_eq!(
+        immutable_propfind.status(),
+        reqwest::StatusCode::MULTI_STATUS
+    );
+    let immutable_properties = immutable_propfind
+        .text()
+        .await
+        .expect("immutable version PROPFIND body should be readable");
+    assert!(immutable_properties.contains("version-name"));
+    assert!(immutable_properties.contains("predecessor-set"));
+    assert!(immutable_properties.contains("successor-set"));
+    assert!(immutable_properties.contains("getetag"));
+
+    let immutable_report =
+        raw_deltav_report(&client, &initial_version_url, &username, &password).await;
+    assert_eq!(deltav_version_hrefs(&immutable_report), initial_hrefs);
+
+    let updated = client
+        .put(&file_url)
+        .basic_auth(&username, Some(&password))
+        .body(updated_content.as_slice())
+        .send()
+        .await
+        .expect("versioning-unaware real HTTP PUT should receive a response");
+    assert!(
+        matches!(updated.status().as_u16(), 200 | 204),
+        "controlled-file PUT should update the live representation: {}",
+        updated.status()
+    );
+
+    let updated_report = raw_deltav_report(&client, &file_url, &username, &password).await;
+    let updated_hrefs = deltav_version_hrefs(&updated_report);
+    assert_eq!(
+        updated_hrefs.len(),
+        2,
+        "controlled-file PUT should append one immutable version:\n{updated_report}"
+    );
+    assert!(updated_hrefs.contains(&initial_hrefs[0]));
+    let updated_href = updated_hrefs
+        .iter()
+        .find(|href| !initial_hrefs.contains(href))
+        .expect("updated history should contain a new immutable href");
+    let updated_version_url = absolute_webdav_url(&server, updated_href);
+
+    let preserved_initial = client
+        .get(&initial_version_url)
+        .basic_auth(&username, Some(&password))
+        .send()
+        .await
+        .expect("old immutable version GET should receive a response");
+    assert_eq!(
+        preserved_initial
+            .bytes()
+            .await
+            .expect("old immutable version body should remain readable")
+            .as_ref(),
+        initial_content
+    );
+    let immutable_updated = client
+        .get(&updated_version_url)
+        .basic_auth(&username, Some(&password))
+        .send()
+        .await
+        .expect("new immutable version GET should receive a response");
+    assert_eq!(
+        immutable_updated
+            .bytes()
+            .await
+            .expect("new immutable version body should be readable")
+            .as_ref(),
+        updated_content
+    );
+
+    let rejected_mutation = client
+        .put(&initial_version_url)
+        .basic_auth(&username, Some(&password))
+        .body("forbidden immutable rewrite")
+        .send()
+        .await
+        .expect("immutable version mutation should receive a DAV error response");
+    assert_eq!(rejected_mutation.status(), reqwest::StatusCode::FORBIDDEN);
+    let rejected_body = rejected_mutation
+        .text()
+        .await
+        .expect("immutable version mutation DAV error body should be readable");
+    assert!(rejected_body.contains("cannot-modify-version"));
+
+    server.stop().await;
 }
 
 #[actix_web::test]
@@ -1122,6 +1442,98 @@ async fn test_webdav_cadaver_client_roundtrip() {
         reqwest::StatusCode::NOT_FOUND,
         "cadaver delete should remove moved file"
     );
+
+    server.stop().await;
+}
+
+#[actix_web::test]
+#[ignore = "requires cadaver 0.26 or newer, add -- --ignored to run"]
+async fn test_webdav_cadaver_deltav_version_history_and_normal_io() {
+    let state = common::setup().await;
+    let (username, password) = seed_real_webdav_account(&state).await;
+    let server = start_real_webdav_server(state).await;
+    let (work_dir, _work_dir_guard) = temp_dir("asterdrive-cadaver-deltav-e2e");
+    let rc_path = work_dir.join("cadaverrc");
+    let initial_path = work_dir.join("initial.txt");
+    let updated_path = work_dir.join("updated.txt");
+    let initial_download_path = work_dir.join("initial-downloaded.txt");
+    let updated_download_path = work_dir.join("updated-downloaded.txt");
+    let file_name = format!("{}.txt", unique_name("cadaver-deltav"));
+    let initial_content = "cadaver 0.26 DeltaV initial representation\n";
+    let updated_content = "cadaver 0.26 DeltaV updated representation\n";
+
+    std::fs::write(&rc_path, "").expect("cadaver DeltaV rc file should be written");
+    std::fs::write(&initial_path, initial_content)
+        .expect("cadaver DeltaV initial source should be written");
+    std::fs::write(&updated_path, updated_content)
+        .expect("cadaver DeltaV updated source should be written");
+    write_netrc_credentials(&work_dir, &username, &password);
+
+    let endpoint =
+        reqwest::Url::parse(&format!("{}/webdav/", server.base_url)).expect("valid WebDAV URL");
+    let script = format!(
+        "put {} {file_name}\nversion {file_name}\nhistory {file_name}\nget {file_name} {}\nput {} {file_name}\nhistory {file_name}\nget {file_name} {}\nquit\n",
+        path_arg(&initial_path),
+        path_arg(&initial_download_path),
+        path_arg(&updated_path),
+        path_arg(&updated_download_path),
+    );
+    let output = run_client_command_with_env(
+        "cadaver",
+        vec!["-r".to_string(), path_arg(&rc_path), endpoint.to_string()],
+        Some(script),
+        vec![("HOME".to_string(), path_arg(&work_dir))],
+        Some(work_dir.clone()),
+    )
+    .await;
+
+    assert_eq!(
+        std::fs::read_to_string(&initial_download_path)
+            .expect("cadaver should GET the initial controlled representation"),
+        initial_content
+    );
+    assert_eq!(
+        std::fs::read_to_string(&updated_download_path)
+            .expect("cadaver should GET the updated controlled representation"),
+        updated_content
+    );
+    let transcript = format!("{}\n{}", output.stdout, output.stderr);
+    assert!(
+        transcript.matches("Version history").count() >= 2
+            || transcript.matches("version history").count() >= 2,
+        "cadaver should print version history before and after its ordinary PUT\nstdout:\n{}\nstderr:\n{}",
+        output.stdout,
+        output.stderr
+    );
+
+    let client = reqwest::Client::new();
+    let file_url = format!("{}/webdav/{file_name}", server.base_url);
+    let report = raw_deltav_report(&client, &file_url, &username, &password).await;
+    let version_hrefs = deltav_version_hrefs(&report);
+    assert_eq!(
+        version_hrefs.len(),
+        2,
+        "cadaver version plus ordinary PUT should leave two immutable revisions:\n{report}"
+    );
+
+    let mut immutable_representations = Vec::new();
+    for href in version_hrefs {
+        let response = client
+            .get(absolute_webdav_url(&server, &href))
+            .basic_auth(&username, Some(&password))
+            .send()
+            .await
+            .expect("cadaver-created immutable version GET should receive a response");
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        immutable_representations.push(
+            response
+                .text()
+                .await
+                .expect("cadaver-created immutable version body should be readable"),
+        );
+    }
+    assert!(immutable_representations.contains(&initial_content.to_string()));
+    assert!(immutable_representations.contains(&updated_content.to_string()));
 
     server.stop().await;
 }

@@ -1,4 +1,4 @@
-//! RFC 3253 capability-withdrawal integration tests.
+//! RFC 3253 core DeltaV integration tests.
 
 use crate::common;
 
@@ -55,7 +55,7 @@ async fn put_file(
 }
 
 #[actix_web::test]
-async fn deltav_methods_are_not_advertised_or_dispatched() {
+async fn deltav_version_control_report_and_immutable_resource_workflow() {
     let app = setup_with_webdav!();
     let (token, _) = register_and_login!(app);
     let auth = create_webdav_auth(&app, &token).await;
@@ -81,37 +81,135 @@ async fn deltav_methods_are_not_advertised_or_dispatched() {
         .to_str()
         .expect("Allow should be valid UTF-8");
     assert!(
-        !dav.split(',')
+        dav.split(',')
             .any(|token| token.trim() == "version-control")
     );
-    assert!(!allow.split(',').any(|method| method.trim() == "REPORT"));
     assert!(
-        !allow
+        allow
             .split(',')
             .any(|method| method.trim() == "VERSION-CONTROL")
     );
+    assert!(!allow.split(',').any(|method| method.trim() == "REPORT"));
 
-    for method in ["REPORT", "VERSION-CONTROL"] {
-        let req = test::TestRequest::default()
-            .method(actix_web::http::Method::from_bytes(method.as_bytes()).unwrap())
-            .uri("/webdav/file.txt")
-            .insert_header(("Authorization", auth.clone()))
-            .insert_header(("Content-Type", "application/xml"))
-            .set_payload("<D:version-tree xmlns:D=\"DAV:\"><broken")
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 405);
-        let allow = resp
-            .headers()
-            .get("Allow")
-            .and_then(|value| value.to_str().ok())
-            .expect("405 must carry the target capability Allow set");
-        assert!(!allow.split(',').any(|value| value.trim() == method));
-    }
+    let req = test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"VERSION-CONTROL").unwrap())
+        .uri("/webdav/file.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload("<D:version-control xmlns:D=\"DAV:\"/>")
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
+
+    let req = test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"VERSION-CONTROL").unwrap())
+        .uri("/webdav/file.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload("<D:version-control xmlns:D=\"DAV:\"/>")
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
+
+    let req = test::TestRequest::with_uri("/webdav/file.txt")
+        .method(actix_web::http::Method::from_bytes(b"PROPPATCH").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(
+            "<D:propertyupdate xmlns:D=\"DAV:\" xmlns:A=\"urn:test\"><D:set><D:prop><A:note>one</A:note></D:prop></D:set></D:propertyupdate>",
+        )
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 207);
+
+    let req = test::TestRequest::default()
+        .method(actix_web::http::Method::OPTIONS)
+        .uri("/webdav/file.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let allow = resp
+        .headers()
+        .get("Allow")
+        .and_then(|value| value.to_str().ok())
+        .expect("OPTIONS should include Allow");
+    assert!(allow.split(',').any(|method| method.trim() == "REPORT"));
+
+    let req = test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"REPORT").unwrap())
+        .uri("/webdav/file.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload("<D:version-tree xmlns:D=\"DAV:\"/>")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 207);
+    let report = test::read_body(resp).await;
+    let report = String::from_utf8(report.to_vec()).expect("REPORT XML should be UTF-8");
+    let marker = "/.asterdrive-deltav/versions/";
+    let start = report
+        .find(marker)
+        .expect("REPORT should expose version href")
+        + marker.len();
+    let end = report[start..]
+        .find('<')
+        .map(|offset| start + offset)
+        .expect("version href should be terminated");
+    let version_path = format!("/webdav{marker}{}", &report[start..end]);
+    assert!(report.contains("version-name"));
+    assert!(report.matches("<D:version-name").count() >= 2);
+
+    let req = test::TestRequest::with_uri("/webdav/file.txt")
+        .method(actix_web::http::Method::from_bytes(b"REPORT").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(
+            "<D:expand-property xmlns:D=\"DAV:\"><D:property name=\"checked-in\"><D:property name=\"version-name\"/></D:property></D:expand-property>",
+        )
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 207);
+    let expanded = String::from_utf8(test::read_body(resp).await.to_vec()).unwrap();
+    assert!(expanded.contains("checked-in"));
+    assert!(expanded.contains("version-name"));
+
+    let req = test::TestRequest::get()
+        .uri(&version_path)
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(&test::read_body(resp).await[..], b"content");
+
+    let req = test::TestRequest::default()
+        .method(actix_web::http::Method::HEAD)
+        .uri(&version_path)
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert!(resp.headers().contains_key("ETag"));
+
+    let req = test::TestRequest::with_uri(&version_path)
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Depth", "0"))
+        .set_payload("<D:propfind xmlns:D=\"DAV:\"><D:prop><D:version-name/><D:getetag/></D:prop></D:propfind>")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 207);
+    let propfind = String::from_utf8(test::read_body(resp).await.to_vec()).unwrap();
+    assert!(propfind.contains("version-name"));
+    assert!(propfind.contains("getetag"));
+
+    let req = test::TestRequest::put()
+        .uri(&version_path)
+        .insert_header(("Authorization", auth))
+        .set_payload("changed")
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 403);
 }
 
 #[actix_web::test]
-async fn deltav_methods_are_withdrawn_for_collection_and_unmapped_targets() {
+async fn deltav_methods_remain_unsupported_for_collection_and_unmapped_targets() {
     let app = setup_with_webdav!();
     let (token, _) = register_and_login!(app);
     let auth = create_webdav_auth(&app, &token).await;

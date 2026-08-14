@@ -2,7 +2,7 @@
 
 use std::time::SystemTime;
 
-use aster_drive_model::entities::{file, folder};
+use aster_drive_model::entities::{file, file_revision, folder};
 use aster_forge_webdav::{DavMetaData, FsResult};
 
 /// 将 chrono DateTimeUtc 转换为 SystemTime
@@ -58,6 +58,21 @@ impl AsterDavMeta {
             created: to_system_time(file.created_at),
             etag: Some(revision_etag),
             content_type: Some(file.mime_type.clone()),
+            file: Some(file.clone()),
+        }
+    }
+
+    pub(crate) fn from_revision(file: &file::Model, revision: &file_revision::Model) -> Self {
+        Self {
+            is_dir: false,
+            len: u64::try_from(revision.logical_size).unwrap_or_default(),
+            modified: to_system_time(revision.created_at),
+            created: to_system_time(revision.created_at),
+            etag: Some(revision.etag.clone()),
+            content_type: revision
+                .mime_type
+                .clone()
+                .or_else(|| Some(file.mime_type.clone())),
             file: Some(file.clone()),
         }
     }

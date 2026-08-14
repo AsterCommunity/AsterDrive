@@ -1309,7 +1309,10 @@ async fn test_webdav_small_xml_methods_still_reach_handlers() {
         );
     }
 
-    for method in ["REPORT", "VERSION-CONTROL"] {
+    for (method, expected_status) in [
+        ("REPORT", actix_web::http::StatusCode::METHOD_NOT_ALLOWED),
+        ("VERSION-CONTROL", actix_web::http::StatusCode::BAD_REQUEST),
+    ] {
         let req = test::TestRequest::with_uri("/webdav/xml-limit-small.txt")
             .method(actix_web::http::Method::from_bytes(method.as_bytes()).unwrap())
             .insert_header(("Authorization", auth.clone()))
@@ -1319,7 +1322,8 @@ async fn test_webdav_small_xml_methods_still_reach_handlers() {
         let resp = test::call_service(&app, req).await;
         assert_eq!(
             resp.status(),
-            actix_web::http::StatusCode::METHOD_NOT_ALLOWED
+            expected_status,
+            "{method} should reach its parser/dispatch boundary"
         );
     }
 
@@ -9663,7 +9667,10 @@ async fn test_webdav_xml_entrypoints_reject_probe_depth_without_crashing_process
         );
     }
 
-    for method in ["REPORT", "VERSION-CONTROL"] {
+    for (method, expected_status) in [
+        ("REPORT", actix_web::http::StatusCode::METHOD_NOT_ALLOWED),
+        ("VERSION-CONTROL", actix_web::http::StatusCode::BAD_REQUEST),
+    ] {
         let req = test::TestRequest::with_uri("/webdav/deep-xml-target.txt")
             .method(actix_web::http::Method::from_bytes(method.as_bytes()).unwrap())
             .insert_header(("Authorization", auth.clone()))
@@ -9673,8 +9680,8 @@ async fn test_webdav_xml_entrypoints_reject_probe_depth_without_crashing_process
         let resp = test::call_service(&app, req).await;
         assert_eq!(
             resp.status(),
-            405,
-            "{method} is outside the declared capability set"
+            expected_status,
+            "{method} must preserve its capability/parser boundary"
         );
     }
 
