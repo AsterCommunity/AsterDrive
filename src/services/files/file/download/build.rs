@@ -8,6 +8,7 @@ use crate::services::files::file::{
     inline_sandbox_csp, requires_inline_sandbox,
 };
 use crate::services::workspace::storage::WorkspaceStorageScope;
+use actix_web::http::header::HeaderValue;
 use aster_drive_model::entities::{file, file_blob, file_revision};
 use aster_drive_storage::PresignedDownloadOptions;
 use aster_forge_utils::numbers;
@@ -17,6 +18,7 @@ use super::types::{DownloadOutcome, StreamedFile};
 
 const PRESIGNED_DOWNLOAD_TTL_SECS: u64 = 5 * 60;
 
+/// Loads content and its validator from one writer-backed snapshot.
 pub(crate) async fn load_current_download_snapshot(
     state: &PrimaryAppState,
     file_id: i64,
@@ -39,20 +41,32 @@ pub(crate) async fn load_current_download_snapshot(
     Ok((file, blob, revision))
 }
 
-pub(crate) async fn download_in_scope_with_range_and_file(
+/// Resolves Range against a writer-backed content snapshot after access checks succeed.
+///
+/// Parsing against an earlier projection can pair stale bounds with a newer blob and ETag;
+/// parsing before access checks can disclose the current file size through range errors.
+pub(crate) fn resolve_range_for_download_snapshot(
+    file: &file::Model,
+    range_header: Option<&HeaderValue>,
+) -> Result<Option<ResolvedDownloadRange>> {
+    let range = super::range::parse_range_header(range_header, file.size)?;
+    Ok(range)
+}
+
+pub(crate) async fn download_in_scope_with_range_header_and_file(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     id: i64,
     file: Option<file::Model>,
     if_none_match: Option<&str>,
-    range: Option<ResolvedDownloadRange>,
+    range_header: Option<&HeaderValue>,
     disposition: DownloadDisposition,
 ) -> Result<DownloadOutcome> {
     tracing::debug!(
         scope = ?scope,
         file_id = id,
         has_if_none_match = if_none_match.is_some(),
-        has_range = range.is_some(),
+        has_range = range_header.is_some(),
         "starting file download"
     );
     let authorized = match file {
@@ -62,6 +76,7 @@ pub(crate) async fn download_in_scope_with_range_and_file(
     crate::services::workspace::storage::ensure_active_file_scope(&authorized, scope)?;
     let (file, blob, revision) = load_current_download_snapshot(state, authorized.id).await?;
     crate::services::workspace::storage::ensure_active_file_scope(&file, scope)?;
+    let range = resolve_range_for_download_snapshot(&file, range_header)?;
     build_download_outcome_with_disposition_and_range(
         state,
         &file,
@@ -81,7 +96,7 @@ pub async fn download(
     user_id: i64,
     if_none_match: Option<&str>,
 ) -> Result<DownloadOutcome> {
-    download_in_scope_with_range_and_file(
+    download_in_scope_with_range_header_and_file(
         state,
         WorkspaceStorageScope::Personal { user_id },
         id,

@@ -922,7 +922,7 @@ pub(crate) async fn download_response(
         .get("If-None-Match")
         .and_then(|value| value.to_str().ok());
     let file = file::get_info_in_scope(state, scope, file_id).await?;
-    let range = file::parse_range_header(req.headers().get(header::RANGE), file.size)?;
+    let range_header = req.headers().get(header::RANGE);
     let ctx = AuditContext::from_request(req, claims);
     let outcome = file::download_in_scope_with_file_and_audit(
         state,
@@ -930,7 +930,7 @@ pub(crate) async fn download_response(
         file,
         disposition,
         if_none_match,
-        range,
+        range_header,
         &ctx,
     )
     .await?;

@@ -144,7 +144,7 @@ pub(crate) async fn download_file(
         ));
     }
     direct_link::validate_public_file_name(&file, requested_name)?;
-    let range = file_ops::parse_range_header(range_header, file.size)?;
+    let range = file_ops::resolve_range_for_download_snapshot(&file, range_header)?;
     file_ops::build_download_outcome_with_disposition_and_range(
         state,
         &file,

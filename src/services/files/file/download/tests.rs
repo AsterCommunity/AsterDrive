@@ -30,7 +30,7 @@ use aster_forge_cache::CacheConfig;
 use aster_forge_utils::numbers::usize_to_i64;
 
 use super::build::{
-    build_download_outcome_with_disposition_and_range, download_in_scope_with_range_and_file,
+    build_download_outcome_with_disposition_and_range, download_in_scope_with_range_header_and_file,
 };
 use super::range::ResolvedDownloadRange;
 use super::response::outcome_to_response;
@@ -638,7 +638,8 @@ async fn download_reloads_content_and_etag_from_one_current_snapshot() {
     .unwrap();
     aster_forge_db::transaction::commit(txn).await.unwrap();
 
-    let outcome = download_in_scope_with_range_and_file(
+    let range_header = actix_web::http::header::HeaderValue::from_static("bytes=3-10");
+    let outcome = download_in_scope_with_range_header_and_file(
         &state,
         WorkspaceStorageScope::Personal {
             user_id: stale_file.owner_user_id.unwrap(),
@@ -646,7 +647,7 @@ async fn download_reloads_content_and_etag_from_one_current_snapshot() {
         stale_file.id,
         Some(stale_file),
         None,
-        None,
+        Some(&range_header),
         DownloadDisposition::Attachment,
     )
     .await
@@ -662,7 +663,7 @@ async fn download_reloads_content_and_etag_from_one_current_snapshot() {
         format!("\"{}\"", current_revision.etag)
     );
     let body = body::to_bytes(response.into_body()).await.unwrap();
-    assert_eq!(body.as_ref(), current_bytes.as_slice());
+    assert_eq!(body.as_ref(), &current_bytes[3..]);
 }
 
 fn s3_presigned_download_policy() -> storage_policy::Model {

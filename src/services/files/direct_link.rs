@@ -64,7 +64,7 @@ pub(crate) async fn download_file(
         ));
     }
     validate_public_file_name(&file, requested_name)?;
-    let range = file_ops::parse_range_header(range_header, file.size)?;
+    let range = file_ops::resolve_range_for_download_snapshot(&file, range_header)?;
     let disposition = if force_download {
         file_ops::DownloadDisposition::Attachment
     } else {

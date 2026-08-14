@@ -120,21 +120,7 @@ async fn restore_version_inner(
         },
     )
     .await
-    .map_err(|error| match error {
-        revision_repo::RevisionAppendError::HeadChanged => {
-            crate::errors::precondition_failed_with_code(
-                crate::api::api_error_code::ApiErrorCode::FileModifiedDuringWrite,
-                "file revision head changed while content was being committed",
-            )
-        }
-        revision_repo::RevisionAppendError::EtagMismatch => {
-            crate::errors::precondition_failed_with_code(
-                crate::api::api_error_code::ApiErrorCode::FileEtagMismatch,
-                "file has been modified (ETag mismatch)",
-            )
-        }
-        revision_repo::RevisionAppendError::Repository(error) => error,
-    })?;
+    .map_err(super::revision::map_append_error)?;
 
     let current_name = current.name.clone();
     let mut active: aster_drive_model::entities::file::ActiveModel = current.into();

@@ -418,23 +418,7 @@ pub(crate) async fn store_preuploaded_nondedup(
                         },
                     )
                     .await
-                    .map_err(|error| match error {
-                        crate::db::repository::revision_repo::RevisionAppendError::HeadChanged => {
-                            precondition_failed_with_code(
-                                ApiErrorCode::FileModifiedDuringWrite,
-                                "file revision head changed while content was being committed",
-                            )
-                        }
-                        crate::db::repository::revision_repo::RevisionAppendError::EtagMismatch => {
-                            precondition_failed_with_code(
-                                ApiErrorCode::FileEtagMismatch,
-                                "file has been modified (ETag mismatch)",
-                            )
-                        }
-                        crate::db::repository::revision_repo::RevisionAppendError::Repository(
-                            error,
-                        ) => error,
-                    })?;
+                    .map_err(crate::services::content::revision::map_append_error)?;
 
                     if storage_delta != 0 {
                         update_storage_used(txn, scope, storage_delta).await?;

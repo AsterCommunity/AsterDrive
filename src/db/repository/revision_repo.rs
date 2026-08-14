@@ -70,6 +70,28 @@ fn new_etag() -> String {
     uuid::Uuid::new_v4().simple().to_string()
 }
 
+async fn find_user_properties<C: ConnectionTrait>(
+    db: &C,
+    file_ids: &[i64],
+) -> Result<Vec<entity_property::Model>> {
+    let targets: Vec<_> = file_ids
+        .iter()
+        .map(|file_id| (EntityType::File, *file_id))
+        .collect();
+    crate::db::repository::property_repo::find_by_entities(db, &targets)
+        .await
+        .map(|properties| {
+            properties
+                .into_iter()
+                .filter(|property| {
+                    !crate::db::repository::property_repo::is_protected_namespace(
+                        &property.namespace,
+                    )
+                })
+                .collect()
+        })
+}
+
 async fn history_public_id_exists<C: ConnectionTrait>(db: &C, public_id: &str) -> Result<bool> {
     FileRevisionHistory::find()
         .select_only()
@@ -153,11 +175,15 @@ pub async fn create_initial<C: ConnectionTrait>(
 }
 
 /// Creates initial histories, revisions, property snapshots, and head pointers in bounded batches.
+///
+/// Callers must include this operation in the transaction that created the files and their user
+/// properties. Heads are published last so no visible history points at a partial snapshot.
 pub async fn create_initial_many<C: ConnectionTrait>(
     db: &C,
     files: &[file::Model],
     reason: RevisionReason,
 ) -> Result<Vec<file_revision::Model>> {
+    // Keep multi-row INSERTs and CASE updates below cross-database bind-parameter limits.
     const BATCH_SIZE: usize = 50;
 
     if files.is_empty() {
@@ -171,6 +197,7 @@ pub async fn create_initial_many<C: ConnectionTrait>(
         ));
     }
 
+    // Histories provide the foreign-key parents required by every later phase.
     for chunk in files.chunks(BATCH_SIZE) {
         FileRevisionHistory::insert_many(chunk.iter().map(|file| {
             file_revision_history::ActiveModel {
@@ -283,16 +310,10 @@ pub async fn create_initial_many<C: ConnectionTrait>(
         })
         .collect::<Result<_>>()?;
 
-    let targets: Vec<_> = file_ids
-        .iter()
-        .map(|file_id| (EntityType::File, *file_id))
-        .collect();
-    let properties = crate::db::repository::property_repo::find_by_entities(db, &targets).await?;
+    // Snapshot properties only after callers have copied them onto the new file projections.
+    let properties = find_user_properties(db, &file_ids).await?;
     let snapshot_models: Vec<_> = properties
         .into_iter()
-        .filter(|property| {
-            !crate::services::content::property::is_protected_namespace(&property.namespace)
-        })
         .map(|property| {
             let revision_id = revision_by_file_id
                 .get(&property.entity_id)
@@ -318,6 +339,7 @@ pub async fn create_initial_many<C: ConnectionTrait>(
             .map_err(AsterError::from)?;
     }
 
+    // Publishing heads is the final phase; all referenced revisions and snapshots now exist.
     for chunk in histories.chunks(BATCH_SIZE) {
         let mut current_revision_case = CaseStatement::new();
         for history in chunk {
@@ -488,14 +510,7 @@ async fn snapshot_user_properties<C: ConnectionTrait>(
     file_id: i64,
     revision_id: i64,
 ) -> Result<()> {
-    let properties = entity_property::Entity::find()
-        .filter(entity_property::Column::EntityType.eq(EntityType::File))
-        .filter(entity_property::Column::EntityId.eq(file_id))
-        .filter(entity_property::Column::Namespace.ne("DAV:"))
-        .filter(entity_property::Column::Namespace.not_like("system.%"))
-        .all(db)
-        .await
-        .map_err(AsterError::from)?;
+    let properties = find_user_properties(db, &[file_id]).await?;
     if properties.is_empty() {
         return Ok(());
     }
@@ -699,8 +714,7 @@ pub async fn restore_user_properties<C: ConnectionTrait>(
     entity_property::Entity::delete_many()
         .filter(entity_property::Column::EntityType.eq(EntityType::File))
         .filter(entity_property::Column::EntityId.eq(file_id))
-        .filter(entity_property::Column::Namespace.ne("DAV:"))
-        .filter(entity_property::Column::Namespace.not_like("system.%"))
+        .filter(crate::db::repository::property_repo::user_namespace_condition())
         .exec(db)
         .await
         .map_err(AsterError::from)?;

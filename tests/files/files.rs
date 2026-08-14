@@ -334,6 +334,24 @@ async fn test_file_direct_link_supports_public_access_force_download_and_file_re
         .expect("direct link token should exist")
         .to_string();
 
+    let mut forged_token = direct_token.clone();
+    let replacement = if forged_token.ends_with('A') {
+        "B"
+    } else {
+        "A"
+    };
+    forged_token.replace_range(forged_token.len() - 1.., replacement);
+    let req = test::TestRequest::get()
+        .uri(&format!("/d/{forged_token}/clip%201.m3u8"))
+        .insert_header((header::RANGE, "bytes=999-1000"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::NOT_FOUND,
+        "Range validation must not run before direct-link signature validation"
+    );
+
     let req = test::TestRequest::get()
         .uri(&format!("/d/{direct_token}/wrong.m3u8"))
         .to_request();

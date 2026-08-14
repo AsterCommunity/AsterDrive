@@ -140,6 +140,7 @@ pub(crate) struct BatchDuplicateFileRecordSpec<'a> {
 pub(crate) struct BatchDuplicateFileRecordTargetSpec<'a> {
     pub src: &'a file::Model,
     pub dest_name: Cow<'a, str>,
+    // Recursive folder-copy frontiers always target a concrete newly-created folder, never root.
     pub dest_folder_id: i64,
 }
 
@@ -279,6 +280,10 @@ pub(crate) async fn duplicate_file_record_in_scope_on<C: ConnectionTrait>(
     Ok(new_file)
 }
 
+/// Creates a copied file projection without publishing its initial revision.
+///
+/// WebDAV uses this inside one transaction to copy dead properties first; the caller must then
+/// create the initial revision so its property snapshot observes those copied values.
 pub(crate) async fn duplicate_file_record_without_initial_revision_in_scope_on<
     C: ConnectionTrait,
 >(
@@ -471,7 +476,7 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
             .map(|spec| (EntityType::File, spec.src.id))
             .collect();
         for property in property_repo::find_by_entities(&txn, &source_targets).await? {
-            if crate::services::content::property::is_protected_namespace(&property.namespace) {
+            if property_repo::is_protected_namespace(&property.namespace) {
                 continue;
             }
             properties_by_source
@@ -509,6 +514,7 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
             "folder copy reloaded unexpected destination files",
         ));
     }
+    // Initial revisions freeze current user properties, so copied properties must land first.
     property_repo::insert_many(&txn, copied_properties).await?;
     crate::db::repository::revision_repo::create_initial_many(
         &txn,

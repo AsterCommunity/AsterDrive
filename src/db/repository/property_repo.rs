@@ -10,6 +10,29 @@ use aster_drive_model::entities::entity_property::{self, Entity as EntityPropert
 use aster_drive_model::types::EntityType;
 
 const ENTITY_PROPERTY_BATCH_CHUNK_SIZE: usize = 500;
+pub(crate) const SYSTEM_PROPERTY_NAMESPACE_PREFIX: &str = "system.";
+const DAV_PROPERTY_NAMESPACE: &str = "DAV:";
+
+pub(crate) fn is_system_namespace(namespace: &str) -> bool {
+    namespace.starts_with(SYSTEM_PROPERTY_NAMESPACE_PREFIX)
+}
+
+pub(crate) fn is_dav_namespace(namespace: &str) -> bool {
+    namespace == DAV_PROPERTY_NAMESPACE
+}
+
+pub(crate) fn is_protected_namespace(namespace: &str) -> bool {
+    is_dav_namespace(namespace) || is_system_namespace(namespace)
+}
+
+pub(crate) fn user_namespace_condition() -> sea_orm::Condition {
+    sea_orm::Condition::all()
+        .add(entity_property::Column::Namespace.ne(DAV_PROPERTY_NAMESPACE))
+        .add(
+            entity_property::Column::Namespace
+                .not_like(format!("{SYSTEM_PROPERTY_NAMESPACE_PREFIX}%")),
+        )
+}
 
 pub struct NewEntityProperty {
     pub entity_type: EntityType,
@@ -469,4 +492,19 @@ pub async fn has_properties<C: ConnectionTrait>(
         .await
         .map_err(AsterError::from)?;
     Ok(count > 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_protected_namespace;
+
+    #[test]
+    fn protected_namespace_matching_has_exact_dav_and_system_prefix_boundaries() {
+        for namespace in ["DAV:", "system.", "system.preview"] {
+            assert!(is_protected_namespace(namespace), "{namespace}");
+        }
+        for namespace in ["", "dav:", "DAV", "system", "systemx.preview", "urn:test"] {
+            assert!(!is_protected_namespace(namespace), "{namespace}");
+        }
+    }
 }

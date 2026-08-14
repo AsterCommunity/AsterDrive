@@ -12,25 +12,6 @@ use aster_drive_model::entities::{file, file_blob};
 use super::NewFileMode;
 use super::prepare::OverwriteContext;
 
-fn map_revision_append_error(
-    error: crate::db::repository::revision_repo::RevisionAppendError,
-) -> AsterError {
-    use crate::api::api_error_code::ApiErrorCode;
-    use crate::db::repository::revision_repo::RevisionAppendError;
-
-    match error {
-        RevisionAppendError::HeadChanged => crate::errors::precondition_failed_with_code(
-            ApiErrorCode::FileModifiedDuringWrite,
-            "file revision head changed while content was being committed",
-        ),
-        RevisionAppendError::EtagMismatch => crate::errors::precondition_failed_with_code(
-            ApiErrorCode::FileEtagMismatch,
-            "file has been modified (ETag mismatch)",
-        ),
-        RevisionAppendError::Repository(error) => error,
-    }
-}
-
 pub(super) struct WriteFileRecordFromTempParams<'a> {
     pub scope: WorkspaceStorageScope,
     pub folder_id: Option<i64>,
@@ -137,7 +118,7 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
                 revision_input,
             )
             .await
-            .map_err(map_revision_append_error)?;
+            .map_err(crate::services::content::revision::map_append_error)?;
         } else {
             crate::db::repository::revision_repo::append(
                 txn,
@@ -146,7 +127,7 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
                 revision_input,
             )
             .await
-            .map_err(map_revision_append_error)?;
+            .map_err(crate::services::content::revision::map_append_error)?;
         }
         updated
     } else {

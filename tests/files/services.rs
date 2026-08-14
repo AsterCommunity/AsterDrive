@@ -2133,6 +2133,26 @@ async fn test_revision_restore_restores_user_properties_but_preserves_protected_
     )
     .await
     .unwrap();
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "system.",
+        "root",
+        Some("system-root-old"),
+    )
+    .await
+    .unwrap();
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "systemx.preview",
+        "cache",
+        Some("boundary-old"),
+    )
+    .await
+    .unwrap();
 
     let second = write_service_fixture("property-2.txt", "two");
     aster_drive::services::files::file::store_from_temp(
@@ -2151,10 +2171,18 @@ async fn test_revision_restore_restores_user_properties_but_preserves_protected_
     let second_properties = revision_repo::find_properties(state.writer_db(), second_revision.id)
         .await
         .unwrap();
-    assert_eq!(second_properties.len(), 1);
-    assert_eq!(second_properties[0].namespace, "urn:test");
-    assert_eq!(second_properties[0].name, "color");
-    assert_eq!(second_properties[0].xml_value.as_deref(), Some("blue"));
+    assert_eq!(second_properties.len(), 2);
+    let second_value = |namespace: &str, name: &str| {
+        second_properties
+            .iter()
+            .find(|property| property.namespace == namespace && property.name == name)
+            .and_then(|property| property.xml_value.as_deref())
+    };
+    assert_eq!(second_value("urn:test", "color"), Some("blue"));
+    assert_eq!(
+        second_value("systemx.preview", "cache"),
+        Some("boundary-old")
+    );
 
     property_repo::upsert(
         state.writer_db(),
@@ -2183,6 +2211,26 @@ async fn test_revision_restore_restores_user_properties_but_preserves_protected_
         "system.preview",
         "cache",
         Some("system-current"),
+    )
+    .await
+    .unwrap();
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "system.",
+        "root",
+        Some("system-root-current"),
+    )
+    .await
+    .unwrap();
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "systemx.preview",
+        "cache",
+        Some("boundary-current"),
     )
     .await
     .unwrap();
@@ -2215,6 +2263,8 @@ async fn test_revision_restore_restores_user_properties_but_preserves_protected_
     assert_eq!(value("urn:test", "color"), Some("blue"));
     assert_eq!(value("DAV:", "displayname"), Some("dav-current"));
     assert_eq!(value("system.preview", "cache"), Some("system-current"));
+    assert_eq!(value("system.", "root"), Some("system-root-current"));
+    assert_eq!(value("systemx.preview", "cache"), Some("boundary-old"));
 
     let revisions = revision_repo::find_by_file_id(state.writer_db(), file.id)
         .await
@@ -2227,9 +2277,18 @@ async fn test_revision_restore_restores_user_properties_but_preserves_protected_
     let restored_properties = revision_repo::find_properties(state.writer_db(), restored.id)
         .await
         .unwrap();
-    assert_eq!(restored_properties.len(), 1);
-    assert_eq!(restored_properties[0].namespace, "urn:test");
-    assert_eq!(restored_properties[0].xml_value.as_deref(), Some("blue"));
+    assert_eq!(restored_properties.len(), 2);
+    let restored_value = |namespace: &str, name: &str| {
+        restored_properties
+            .iter()
+            .find(|property| property.namespace == namespace && property.name == name)
+            .and_then(|property| property.xml_value.as_deref())
+    };
+    assert_eq!(restored_value("urn:test", "color"), Some("blue"));
+    assert_eq!(
+        restored_value("systemx.preview", "cache"),
+        Some("boundary-old")
+    );
 }
 
 #[actix_web::test]
@@ -3002,7 +3061,7 @@ async fn test_share_download_failure_rolls_back_download_quota() {
         std::path::Path::new(&common::local_policy_base_path(&policy)).join(&blob.storage_path);
     std::fs::remove_file(&stored_path).unwrap();
 
-    let err = aster_drive::services::share::download_shared_file_with_range(
+    let err = aster_drive::services::share::download_shared_file_with_range_header(
         &state,
         &share.token,
         None,
@@ -3017,7 +3076,7 @@ async fn test_share_download_failure_rolls_back_download_quota() {
         .unwrap();
     assert_eq!(reloaded.download_count, 0);
 
-    let err = aster_drive::services::share::download_shared_file_with_range(
+    let err = aster_drive::services::share::download_shared_file_with_range_header(
         &state,
         &share.token,
         None,

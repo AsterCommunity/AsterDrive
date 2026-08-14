@@ -1,10 +1,11 @@
 //! 分享服务子模块：`content`。
 
+use actix_web::http::header::HeaderValue;
+
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{file_repo, folder_repo, share_repo};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::{PrimaryAppState, ShareDownloadRuntimeState, SharedRuntimeState};
-use crate::services::files::file::ResolvedDownloadRange;
 use crate::services::{
     files::{file as file_ops, folder},
     media::metadata,
@@ -302,28 +303,28 @@ fn push_job(batch: &mut HashMap<i64, u64>, job: DownloadCountRollbackJob) {
     *batch.entry(job.share_id).or_default() += job.count;
 }
 
-pub async fn download_shared_file_with_range(
+pub async fn download_shared_file_with_range_header(
     state: &PrimaryAppState,
     token: &str,
     if_none_match: Option<&str>,
-    range: Option<ResolvedDownloadRange>,
+    range_header: Option<&HeaderValue>,
 ) -> Result<file_ops::DownloadOutcome> {
-    download_shared_file_with_disposition_and_range(
+    download_shared_file_with_disposition_and_range_header(
         state,
         token,
         file_ops::DownloadDisposition::Attachment,
         if_none_match,
-        range,
+        range_header,
     )
     .await
 }
 
-pub(crate) async fn download_shared_file_with_disposition_and_range(
+pub(crate) async fn download_shared_file_with_disposition_and_range_header(
     state: &PrimaryAppState,
     token: &str,
     disposition: file_ops::DownloadDisposition,
     if_none_match: Option<&str>,
-    range: Option<ResolvedDownloadRange>,
+    range_header: Option<&HeaderValue>,
 ) -> Result<file_ops::DownloadOutcome> {
     let share = load_usable_share_ignoring_download_limit(state, token).await?;
     let file = load_share_file_resource(state, &share).await?;
@@ -333,36 +334,36 @@ pub(crate) async fn download_shared_file_with_disposition_and_range(
         &file,
         disposition,
         if_none_match,
-        range,
+        range_header,
     )
     .await
 }
 
-pub async fn download_shared_folder_file_with_range(
+pub async fn download_shared_folder_file_with_range_header(
     state: &PrimaryAppState,
     token: &str,
     file_id: i64,
     if_none_match: Option<&str>,
-    range: Option<ResolvedDownloadRange>,
+    range_header: Option<&HeaderValue>,
 ) -> Result<file_ops::DownloadOutcome> {
-    download_shared_folder_file_with_disposition_and_range(
+    download_shared_folder_file_with_disposition_and_range_header(
         state,
         token,
         file_id,
         file_ops::DownloadDisposition::Attachment,
         if_none_match,
-        range,
+        range_header,
     )
     .await
 }
 
-pub(crate) async fn download_shared_folder_file_with_disposition_and_range(
+pub(crate) async fn download_shared_folder_file_with_disposition_and_range_header(
     state: &PrimaryAppState,
     token: &str,
     file_id: i64,
     disposition: file_ops::DownloadDisposition,
     if_none_match: Option<&str>,
-    range: Option<ResolvedDownloadRange>,
+    range_header: Option<&HeaderValue>,
 ) -> Result<file_ops::DownloadOutcome> {
     let (share, file) =
         load_shared_folder_file_target_ignoring_download_limit(state, token, file_id).await?;
@@ -372,7 +373,7 @@ pub(crate) async fn download_shared_folder_file_with_disposition_and_range(
         &file,
         disposition,
         if_none_match,
-        range,
+        range_header,
     )
     .await
 }
@@ -634,7 +635,7 @@ async fn download_share_resource_with_disposition(
     file: &aster_drive_model::entities::file::Model,
     disposition: file_ops::DownloadDisposition,
     if_none_match: Option<&str>,
-    range: Option<ResolvedDownloadRange>,
+    range_header: Option<&HeaderValue>,
 ) -> Result<file_ops::DownloadOutcome> {
     tracing::debug!(
         share_id = share.id,
@@ -674,6 +675,8 @@ async fn download_share_resource_with_disposition(
         )
         .await;
     }
+
+    let range = file_ops::resolve_range_for_download_snapshot(&current_file, range_header)?;
 
     reserve_share_download_count(state, share).await?;
 

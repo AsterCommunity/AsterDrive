@@ -17,7 +17,6 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use crate::db::repository::{file_repo, folder_repo, property_repo, team_repo, user_repo};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    content::property,
     events::storage_change,
     files::{file as file_ops, folder},
     ops::audit::{self, AuditContext},
@@ -1052,7 +1051,7 @@ impl DavFileSystem for AsterDavFs {
                 .map(|props| {
                     props
                         .iter()
-                        .any(|prop| !property::is_protected_namespace(&prop.namespace))
+                        .any(|prop| !property_repo::is_protected_namespace(&prop.namespace))
                 })
                 .unwrap_or(false)
         })
@@ -1098,7 +1097,7 @@ impl DavFileSystem for AsterDavFs {
                 .map_err(|_| FsError::GeneralFailure)?;
             let mut props_by_target: HashMap<(EntityType, i64), Vec<DavProp>> = HashMap::new();
             for prop in props {
-                if property::is_protected_namespace(&prop.namespace) {
+                if property_repo::is_protected_namespace(&prop.namespace) {
                     continue;
                 }
                 props_by_target
@@ -1130,7 +1129,7 @@ impl DavFileSystem for AsterDavFs {
                     .ok_or(FsError::NotFound)?;
 
             let protocol_plan = plan_atomic_proppatch(patches.iter().map(|(_, prop)| {
-                property::is_protected_namespace(prop.namespace.as_deref().unwrap_or(""))
+                property_repo::is_protected_namespace(prop.namespace.as_deref().unwrap_or(""))
             }));
             if !protocol_plan.apply {
                 return Ok(patches
@@ -1209,7 +1208,7 @@ fn entity_props_to_dav_props(
 ) -> Vec<DavProp> {
     props
         .into_iter()
-        .filter(|p| !property::is_protected_namespace(&p.namespace))
+        .filter(|p| !property_repo::is_protected_namespace(&p.namespace))
         .map(|p| entity_prop_to_dav_prop(p, do_content))
         .collect()
 }
@@ -1292,7 +1291,7 @@ async fn copy_visible_entity_properties_on<C: ConnectionTrait>(
         .map_err(|_| FsError::GeneralFailure)?;
 
     for prop in props {
-        if property::is_protected_namespace(&prop.namespace) {
+        if property_repo::is_protected_namespace(&prop.namespace) {
             continue;
         }
         property_repo::upsert(
