@@ -268,9 +268,158 @@ async fn assert_batched_folder_copy_initial_revisions(
         .unwrap();
         assert_eq!(revision.sequence, 1);
         assert_eq!(revision.predecessor_revision_id, None);
+        assert_eq!(revision.reason, "copy");
+        assert_eq!(revision.blob_id, Some(copied_file.blob_id));
         assert_eq!(history.current_revision_id, Some(revision.id));
         assert_eq!(history.next_sequence, 2);
     }
+}
+
+async fn assert_revision_property_namespace_case_sensitivity(
+    state: &aster_drive::runtime::PrimaryAppState,
+    backend: DbBackend,
+) {
+    use aster_drive::db::repository::{file_repo, property_repo, revision_repo};
+    use aster_drive::services::files::file;
+
+    let (username_suffix, backend_name) = match backend {
+        DbBackend::Postgres => ("pg", "postgres"),
+        DbBackend::MySql => ("my", "mysql"),
+        _ => unreachable!("only postgres/mysql smoke tests use this helper"),
+    };
+    let user = common::create_test_account(
+        state,
+        &format!("revprop-{username_suffix}"),
+        &format!("revision-property-{backend_name}@example.com"),
+        "password123",
+    )
+    .await
+    .unwrap();
+    let file = file::create_empty(
+        state,
+        user.id,
+        None,
+        &format!("revision-property-{backend_name}.txt"),
+    )
+    .await
+    .unwrap();
+
+    for (namespace, name, value) in [
+        ("System.preview", "cache", "case-sensitive-old"),
+        ("systemx.preview", "cache", "boundary-old"),
+        ("system.preview", "cache", "protected-old"),
+        ("urn:case-sensitive", "Color", "upper-name-old"),
+        ("urn:case-sensitive", "color", "lower-name-old"),
+    ] {
+        property_repo::upsert(
+            state.writer_db(),
+            EntityType::File,
+            file.id,
+            namespace,
+            name,
+            Some(value),
+        )
+        .await
+        .unwrap();
+    }
+
+    let file_model = file_repo::find_by_id(state.writer_db(), file.id)
+        .await
+        .unwrap();
+    let history = revision_repo::find_history_by_file_id(state.writer_db(), file.id)
+        .await
+        .unwrap();
+    let txn = aster_forge_db::transaction::begin(state.writer_db())
+        .await
+        .unwrap();
+    file_repo::increment_blob_ref_count(&txn, file_model.blob_id)
+        .await
+        .unwrap();
+    let revision = revision_repo::append(
+        &txn,
+        file.id,
+        history.current_revision_id,
+        revision_repo::NewRevision {
+            blob_id: file_model.blob_id,
+            logical_size: file_model.size,
+            mime_type: &file_model.mime_type,
+            content_sha256: None,
+            creator_user_id: Some(user.id),
+            creator_display_name: &user.username,
+            comment: Some("property namespace case-sensitivity fixture"),
+            reason: revision_repo::RevisionReason::Overwrite,
+            created_at: chrono::Utc::now(),
+            etag: None,
+        },
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let snapshot = revision_repo::find_properties(state.writer_db(), revision.id)
+        .await
+        .unwrap();
+    assert_eq!(snapshot.len(), 4);
+    assert!(snapshot.iter().any(|property| {
+        property.namespace == "System.preview"
+            && property.xml_value.as_deref() == Some("case-sensitive-old")
+    }));
+    assert!(snapshot.iter().any(|property| {
+        property.namespace == "systemx.preview"
+            && property.xml_value.as_deref() == Some("boundary-old")
+    }));
+    assert!(snapshot.iter().any(|property| {
+        property.namespace == "urn:case-sensitive"
+            && property.name == "Color"
+            && property.xml_value.as_deref() == Some("upper-name-old")
+    }));
+    assert!(snapshot.iter().any(|property| {
+        property.namespace == "urn:case-sensitive"
+            && property.name == "color"
+            && property.xml_value.as_deref() == Some("lower-name-old")
+    }));
+
+    for (namespace, name, value) in [
+        ("System.preview", "cache", "case-sensitive-current"),
+        ("systemx.preview", "cache", "boundary-current"),
+        ("system.preview", "cache", "protected-current"),
+        ("urn:case-sensitive", "Color", "upper-name-current"),
+        ("urn:case-sensitive", "color", "lower-name-current"),
+    ] {
+        property_repo::upsert(
+            state.writer_db(),
+            EntityType::File,
+            file.id,
+            namespace,
+            name,
+            Some(value),
+        )
+        .await
+        .unwrap();
+    }
+
+    let txn = aster_forge_db::transaction::begin(state.writer_db())
+        .await
+        .unwrap();
+    revision_repo::restore_user_properties(&txn, file.id, revision.id)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let properties = property_repo::find_by_entity(state.writer_db(), EntityType::File, file.id)
+        .await
+        .unwrap();
+    let value = |namespace: &str, name: &str| {
+        properties
+            .iter()
+            .find(|property| property.namespace == namespace && property.name == name)
+            .and_then(|property| property.value.as_deref())
+    };
+    assert_eq!(value("System.preview", "cache"), Some("case-sensitive-old"));
+    assert_eq!(value("systemx.preview", "cache"), Some("boundary-old"));
+    assert_eq!(value("system.preview", "cache"), Some("protected-current"));
+    assert_eq!(value("urn:case-sensitive", "Color"), Some("upper-name-old"));
+    assert_eq!(value("urn:case-sensitive", "color"), Some("lower-name-old"));
 }
 
 fn upload_named_file(name: &str, content: &str, mime: &str, boundary: &str) -> String {
@@ -1204,6 +1353,7 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     assert_eq!(overview_body["data"]["stats"]["total_files"], 3);
     assert_eq!(overview_body["data"]["stats"]["uploads_today"], 4);
 
+    assert_revision_property_namespace_case_sensitivity(&state, backend).await;
     assert_batched_folder_copy_initial_revisions(&state, backend).await;
 }
 

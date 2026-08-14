@@ -714,7 +714,11 @@ pub async fn restore_user_properties<C: ConnectionTrait>(
     entity_property::Entity::delete_many()
         .filter(entity_property::Column::EntityType.eq(EntityType::File))
         .filter(entity_property::Column::EntityId.eq(file_id))
-        .filter(crate::db::repository::property_repo::user_namespace_condition())
+        .filter(
+            crate::db::repository::property_repo::user_namespace_condition(
+                db.get_database_backend(),
+            ),
+        )
         .exec(db)
         .await
         .map_err(AsterError::from)?;

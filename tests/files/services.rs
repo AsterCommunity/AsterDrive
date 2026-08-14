@@ -2153,6 +2153,16 @@ async fn test_revision_restore_restores_user_properties_but_preserves_protected_
     )
     .await
     .unwrap();
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "System.preview",
+        "cache",
+        Some("case-sensitive-old"),
+    )
+    .await
+    .unwrap();
 
     let second = write_service_fixture("property-2.txt", "two");
     aster_drive::services::files::file::store_from_temp(
@@ -2171,7 +2181,7 @@ async fn test_revision_restore_restores_user_properties_but_preserves_protected_
     let second_properties = revision_repo::find_properties(state.writer_db(), second_revision.id)
         .await
         .unwrap();
-    assert_eq!(second_properties.len(), 2);
+    assert_eq!(second_properties.len(), 3);
     let second_value = |namespace: &str, name: &str| {
         second_properties
             .iter()
@@ -2182,6 +2192,10 @@ async fn test_revision_restore_restores_user_properties_but_preserves_protected_
     assert_eq!(
         second_value("systemx.preview", "cache"),
         Some("boundary-old")
+    );
+    assert_eq!(
+        second_value("System.preview", "cache"),
+        Some("case-sensitive-old")
     );
 
     property_repo::upsert(
@@ -2234,6 +2248,16 @@ async fn test_revision_restore_restores_user_properties_but_preserves_protected_
     )
     .await
     .unwrap();
+    property_repo::upsert(
+        state.writer_db(),
+        EntityType::File,
+        file.id,
+        "System.preview",
+        "cache",
+        Some("case-sensitive-current"),
+    )
+    .await
+    .unwrap();
     let third = write_service_fixture("property-3.txt", "three");
     aster_drive::services::files::file::store_from_temp(
         &state,
@@ -2265,6 +2289,7 @@ async fn test_revision_restore_restores_user_properties_but_preserves_protected_
     assert_eq!(value("system.preview", "cache"), Some("system-current"));
     assert_eq!(value("system.", "root"), Some("system-root-current"));
     assert_eq!(value("systemx.preview", "cache"), Some("boundary-old"));
+    assert_eq!(value("System.preview", "cache"), Some("case-sensitive-old"));
 
     let revisions = revision_repo::find_by_file_id(state.writer_db(), file.id)
         .await
@@ -2277,7 +2302,7 @@ async fn test_revision_restore_restores_user_properties_but_preserves_protected_
     let restored_properties = revision_repo::find_properties(state.writer_db(), restored.id)
         .await
         .unwrap();
-    assert_eq!(restored_properties.len(), 2);
+    assert_eq!(restored_properties.len(), 3);
     let restored_value = |namespace: &str, name: &str| {
         restored_properties
             .iter()
@@ -2288,6 +2313,10 @@ async fn test_revision_restore_restores_user_properties_but_preserves_protected_
     assert_eq!(
         restored_value("systemx.preview", "cache"),
         Some("boundary-old")
+    );
+    assert_eq!(
+        restored_value("System.preview", "cache"),
+        Some("case-sensitive-old")
     );
 }
 

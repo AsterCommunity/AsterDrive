@@ -1,8 +1,9 @@
 //! 仓储模块：`property_repo`。
 
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult, PaginatorTrait,
-    QueryFilter, QueryOrder, QuerySelect, Set, TryInsertResult, sea_query::Expr,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, ExprTrait,
+    FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, TryInsertResult,
+    sea_query::Expr,
 };
 
 use crate::errors::{AsterError, Result};
@@ -25,13 +26,40 @@ pub(crate) fn is_protected_namespace(namespace: &str) -> bool {
     is_dav_namespace(namespace) || is_system_namespace(namespace)
 }
 
-pub(crate) fn user_namespace_condition() -> sea_orm::Condition {
+pub(crate) fn user_namespace_condition(backend: DbBackend) -> sea_orm::Condition {
+    let column = || Expr::col(entity_property::Column::Namespace);
+    let exact_not_match = |value: &'static str| match backend {
+        DbBackend::Sqlite => Expr::cust_with_exprs("NOT (? GLOB ?)", [column(), Expr::val(value)]),
+        DbBackend::Postgres => column().ne(value),
+        DbBackend::MySql => {
+            Expr::cust_with_exprs("BINARY ? <> BINARY ?", [column(), Expr::val(value)])
+        }
+        _ => column().ne(value),
+    };
+    let prefix_not_match = match backend {
+        DbBackend::Sqlite => Expr::cust_with_exprs(
+            "NOT (? GLOB ?)",
+            [
+                column(),
+                Expr::val(format!("{SYSTEM_PROPERTY_NAMESPACE_PREFIX}*")),
+            ],
+        ),
+        DbBackend::Postgres => column().not_like(format!("{SYSTEM_PROPERTY_NAMESPACE_PREFIX}%")),
+        DbBackend::MySql => Expr::cust_with_exprs(
+            "BINARY ? NOT LIKE BINARY ?",
+            [
+                column(),
+                Expr::val(format!("{SYSTEM_PROPERTY_NAMESPACE_PREFIX}%")),
+            ],
+        ),
+        _ => column().not_like(format!("{SYSTEM_PROPERTY_NAMESPACE_PREFIX}%")),
+    };
+
+    // Namespace identifiers are case-sensitive. Backend-specific operators keep the
+    // atomic DELETE aligned with the Rust predicate even under SQLite/MySQL defaults.
     sea_orm::Condition::all()
-        .add(entity_property::Column::Namespace.ne(DAV_PROPERTY_NAMESPACE))
-        .add(
-            entity_property::Column::Namespace
-                .not_like(format!("{SYSTEM_PROPERTY_NAMESPACE_PREFIX}%")),
-        )
+        .add(exact_not_match(DAV_PROPERTY_NAMESPACE))
+        .add(prefix_not_match)
 }
 
 pub struct NewEntityProperty {
@@ -496,15 +524,49 @@ pub async fn has_properties<C: ConnectionTrait>(
 
 #[cfg(test)]
 mod tests {
-    use super::is_protected_namespace;
+    use sea_orm::{DbBackend, EntityTrait, QueryFilter, QueryTrait};
+
+    use super::{EntityProperty, is_protected_namespace, user_namespace_condition};
 
     #[test]
     fn protected_namespace_matching_has_exact_dav_and_system_prefix_boundaries() {
         for namespace in ["DAV:", "system.", "system.preview"] {
             assert!(is_protected_namespace(namespace), "{namespace}");
         }
-        for namespace in ["", "dav:", "DAV", "system", "systemx.preview", "urn:test"] {
+        for namespace in [
+            "",
+            "dav:",
+            "DAV",
+            "system",
+            "System.preview",
+            "systemx.preview",
+            "urn:test",
+        ] {
             assert!(!is_protected_namespace(namespace), "{namespace}");
         }
+    }
+
+    #[test]
+    fn user_namespace_sql_uses_case_sensitive_backend_operators() {
+        let sqlite = EntityProperty::find()
+            .filter(user_namespace_condition(DbBackend::Sqlite))
+            .build(DbBackend::Sqlite)
+            .to_string();
+        assert!(sqlite.contains("GLOB"), "{sqlite}");
+        assert!(!sqlite.contains(" LIKE "), "{sqlite}");
+
+        let postgres = EntityProperty::find()
+            .filter(user_namespace_condition(DbBackend::Postgres))
+            .build(DbBackend::Postgres)
+            .to_string();
+        assert!(postgres.contains("NOT LIKE"), "{postgres}");
+        assert!(!postgres.contains("BINARY"), "{postgres}");
+
+        let mysql = EntityProperty::find()
+            .filter(user_namespace_condition(DbBackend::MySql))
+            .build(DbBackend::MySql)
+            .to_string();
+        assert!(mysql.contains("BINARY"), "{mysql}");
+        assert!(mysql.contains("NOT LIKE"), "{mysql}");
     }
 }

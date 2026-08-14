@@ -18,6 +18,7 @@ impl MigrationTrait for Migration {
         create_revisions(manager).await?;
         create_revision_properties(manager).await?;
         create_indexes(manager).await?;
+        configure_mysql_case_sensitive_property_namespaces(manager).await?;
         create_legacy_backfill_index(manager).await?;
         backfill_ledger(manager).await?;
         reset_postgres_sequences(manager).await?;
@@ -254,49 +255,129 @@ async fn create_revisions(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
 }
 
 async fn create_revision_properties(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
-    manager
-        .create_table(
-            Table::create()
-                .table(FileRevisionProperties::Table)
-                .col(
-                    ColumnDef::new(FileRevisionProperties::RevisionId)
-                        .big_integer()
-                        .not_null(),
-                )
-                .col(
-                    ColumnDef::new(FileRevisionProperties::Namespace)
-                        .string_len(256)
-                        .not_null(),
-                )
-                .col(
-                    ColumnDef::new(FileRevisionProperties::Name)
-                        .string_len(256)
-                        .not_null(),
-                )
-                .col(
-                    ColumnDef::new(FileRevisionProperties::XmlValue)
-                        .text()
-                        .null(),
-                )
-                .primary_key(
-                    Index::create()
-                        .col(FileRevisionProperties::RevisionId)
-                        .col(FileRevisionProperties::Namespace)
-                        .col(FileRevisionProperties::Name),
-                )
-                .foreign_key(
-                    ForeignKey::create()
-                        .name("fk_file_revision_properties_revision")
-                        .from(
-                            FileRevisionProperties::Table,
-                            FileRevisionProperties::RevisionId,
-                        )
-                        .to(FileRevisions::Table, FileRevisions::Id)
-                        .on_delete(ForeignKeyAction::Cascade),
-                )
-                .to_owned(),
+    let mut table = Table::create();
+    table
+        .table(FileRevisionProperties::Table)
+        .col(
+            ColumnDef::new(FileRevisionProperties::RevisionId)
+                .big_integer()
+                .not_null(),
         )
-        .await
+        .col(
+            ColumnDef::new(FileRevisionProperties::Namespace)
+                .string_len(256)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(FileRevisionProperties::Name)
+                .string_len(256)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(FileRevisionProperties::XmlValue)
+                .text()
+                .null(),
+        )
+        .primary_key(
+            Index::create()
+                .col(FileRevisionProperties::RevisionId)
+                .col(FileRevisionProperties::Namespace)
+                .col(FileRevisionProperties::Name),
+        )
+        .foreign_key(
+            ForeignKey::create()
+                .name("fk_file_revision_properties_revision")
+                .from(
+                    FileRevisionProperties::Table,
+                    FileRevisionProperties::RevisionId,
+                )
+                .to(FileRevisions::Table, FileRevisions::Id)
+                .on_delete(ForeignKeyAction::Cascade),
+        );
+    if manager.get_database_backend() == DbBackend::MySql {
+        table.collate("utf8mb4_bin");
+    }
+    manager.create_table(table.to_owned()).await
+}
+
+async fn configure_mysql_case_sensitive_property_namespaces(
+    manager: &SchemaManager<'_>,
+) -> Result<(), DbErr> {
+    if manager.get_database_backend() != DbBackend::MySql {
+        return Ok(());
+    }
+
+    // MySQL's default collation makes XML QName identity case-insensitive. Build binary
+    // projections and the replacement unique index online so large property tables avoid COPY.
+    // Each step probes current schema state so interrupted runs and down/re-up cycles converge.
+    if !manager
+        .has_column("entity_properties", "namespace_case_key")
+        .await?
+    {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "ALTER TABLE entity_properties \
+                 ADD COLUMN namespace_case_key VARCHAR(256) CHARACTER SET utf8mb4 \
+                 COLLATE utf8mb4_bin GENERATED ALWAYS AS (namespace) VIRTUAL INVISIBLE, \
+                 ALGORITHM=INSTANT",
+            )
+            .await?;
+    }
+    if !manager
+        .has_column("entity_properties", "name_case_key")
+        .await?
+    {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "ALTER TABLE entity_properties \
+                 ADD COLUMN name_case_key VARCHAR(255) CHARACTER SET utf8mb4 \
+                 COLLATE utf8mb4_bin GENERATED ALWAYS AS (name) VIRTUAL INVISIBLE, \
+                 ALGORITHM=INSTANT",
+            )
+            .await?;
+    }
+    if !manager
+        .has_index("entity_properties", "idx_entity_properties_namespace_case")
+        .await?
+    {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "ALTER TABLE entity_properties \
+                 ADD UNIQUE INDEX idx_entity_properties_namespace_case \
+                 (entity_type, entity_id, namespace_case_key, name_case_key), \
+                 ALGORITHM=INPLACE, LOCK=NONE",
+            )
+            .await?;
+    }
+    if manager
+        .has_index("entity_properties", "idx_entity_properties_unique")
+        .await?
+    {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "ALTER TABLE entity_properties \
+                 DROP INDEX idx_entity_properties_unique, ALGORITHM=INPLACE, LOCK=NONE",
+            )
+            .await?;
+    }
+    if manager
+        .has_index("entity_properties", "idx_entity_properties_namespace_case")
+        .await?
+    {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "ALTER TABLE entity_properties \
+                 RENAME INDEX idx_entity_properties_namespace_case \
+                 TO idx_entity_properties_unique, ALGORITHM=INPLACE, LOCK=NONE",
+            )
+            .await?;
+    }
+    Ok(())
 }
 
 async fn create_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
