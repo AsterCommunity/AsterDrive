@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       pull_request_number:
-        description: Closed PR number whose pending gate should be finalized
+        description: Closed PR number whose historical pending gates should be finalized
         required: true
         type: string
 
@@ -31,7 +31,21 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Create AsterCommunity Automation token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ vars.ASTER_AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.ASTER_AUTOMATION_PRIVATE_KEY }}
+          permission-actions: read
+          permission-checks: write
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
+
       - name: Apply labels and linked-issue lifecycle
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/github/pr-automation.mjs
+        uses: AsterCommunity/aster-automation@de500c4059edff0574b374bc5e834087c735c4f1 # v0.1.0 candidate
+        with:
+          mode: pr-automation
+          token: ${{ steps.app-token.outputs.token }}
+          config-path: .github/aster-automation.json

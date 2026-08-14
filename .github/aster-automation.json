@@ -1,0 +1,104 @@
+{
+  "$schema": "https://raw.githubusercontent.com/AsterCommunity/aster-automation/main/schema.json",
+  "version": 1,
+  "gate": {
+    "name": "PR Gate",
+    "commentMarker": "<!-- asterdrive-ci-diagnostics -->",
+    "incidentMarkerPrefix": "asterdrive-ci-incident",
+    "runningLabel": "CI: Running",
+    "passedLabel": "CI: Passed"
+  },
+  "labels": {
+    "definitions": {
+      "Risk: High": {
+        "color": "B60205",
+        "description": "Changes a high-risk data, security, protocol, or deployment boundary"
+      },
+      "CI: Failure": {
+        "color": "D73A4A",
+        "description": "Tracks a reproducible default-branch or scheduled CI failure"
+      },
+      "CI: Running": {
+        "color": "FBCA04",
+        "description": "A pull request has required CI workflows that have not reached a terminal state"
+      },
+      "CI: Passed": {
+        "color": "0E8A16",
+        "description": "All required CI workflows passed for the current pull request head"
+      },
+      "CI: Infrastructure": {
+        "color": "5319E7",
+        "description": "CI failure appears to originate from runner or external infrastructure"
+      }
+    },
+    "rules": [
+      { "label": "Rust", "paths": ["**/*.rs", "**/Cargo.toml", "**/Cargo.lock", "rust-toolchain.toml"] },
+      { "label": "TypeScript", "paths": ["frontend-panel/**", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.mjs"] },
+      { "label": "Documentation", "paths": ["docs/**", "developer-docs/**", "README.md", "README.zh.md", "CONTRIBUTING.md", "CHANGELOG.md"] },
+      { "label": "Dependencies", "paths": ["**/Cargo.toml", "**/Cargo.lock", "**/package.json", "**/bun.lock", ".github/dependabot.yml"] },
+      { "label": "Scope: Storage", "paths": ["src/storage/**", "src/services/storage_policy/**", "crates/aster_drive_storage/**", "tests/storage_*.rs", "docs/**/storage*", "developer-docs/**/storage*"] },
+      { "label": "Scope: Admin UI", "paths": ["frontend-panel/src/pages/admin/**", "frontend-panel/src/components/admin/**", "frontend-panel/src/features/admin/**"] },
+      { "label": "Scope: Archive", "paths": ["src/services/archive/**", "tests/archive/**", "frontend-panel/**/archive*"] },
+      { "label": "Scope: Files", "paths": ["src/api/routes/files/**", "src/api/routes/folders.rs", "src/services/files/**", "src/services/workspace/**", "frontend-panel/**/file*"] },
+      { "label": "Scope: Plugins", "paths": ["src/plugins/**", "crates/**/plugin*", "developer-docs/**/plugin*"] },
+      { "label": "Scope: Remote Nodes", "paths": ["src/services/remote/**", "src/storage/remote_protocol/**", "src/api/routes/internal_storage.rs", "src/storage/remote_tunnel.rs"] },
+      { "label": "Scope: Runtime", "paths": ["src/runtime/**", "src/services/background_tasks/**", "src/api/routes/background_tasks.rs", "deploy/**", "Dockerfile", "docker-compose.yml"] },
+      { "label": "Scope: Upload", "paths": ["src/services/files/upload/**", "src/api/routes/files/upload*", "frontend-panel/**/upload*"] },
+      { "label": "Scope: Versioning", "paths": ["src/services/content/version*", "src/db/repository/revision_repo.rs", "crates/aster_drive_model/**/file_revision*", "crates/aster_drive_migration/**/*canonical_file_revision_ledger*"] },
+      { "label": "Scope: WebDAV", "paths": ["src/webdav/**", "tests/webdav/**", "scripts/ci/webdav-compat/**", ".github/actions/setup-litmus/**"] },
+      {
+        "label": "Risk: High",
+        "paths": [
+          "crates/aster_drive_migration/**", "src/api/routes/auth/**", "src/services/auth/**",
+          "src/services/files/upload/**", "src/services/files/lock/**", "src/services/quota/**",
+          "src/webdav/**", "src/services/preview/wopi/**", "src/api/routes/internal_storage.rs",
+          "src/storage/remote_protocol/**", "deploy/kubernetes/**", "deploy/helm/**", ".github/workflows/**"
+        ]
+      }
+    ]
+  },
+  "workflows": [
+    {
+      "name": "Repository Automation",
+      "paths": [".github/workflows/**", ".github/aster-automation.json", "scripts/github/**", "developer-docs/zh-CN/contributing/github-automation.md"]
+    },
+    {
+      "name": "Rust CI",
+      "paths": ["**/*.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "frontend-panel/package.json", "frontend-panel/generated/openapi.json", "frontend-panel/src/services/api.generated.ts", "scripts/coverage-summary.mjs", ".github/workflows/rust.yml"]
+    },
+    { "name": "Frontend CI", "paths": ["frontend-panel/**", "scripts/coverage-summary.mjs", ".github/workflows/frontend.yml"] },
+    { "name": "E2E", "paths": ["frontend-panel/**", "src/**", "crates/**", "Cargo.toml", "Cargo.lock", ".github/workflows/frontend-e2e.yml"] },
+    { "name": "Security Audit", "paths": ["**/Cargo.toml", "**/Cargo.lock", ".cargo/audit.toml", ".github/workflows/audit.yml"] },
+    {
+      "name": "Docs Check",
+      "paths": ["docs/**", "developer-docs/**", "crates/aster_drive_storage/src/connector_descriptor.rs", "src/storage/connectors/**", "tests/storage_connector_docs.rs", "Makefile", "src/api/api_error_code.rs", ".github/workflows/docs-check.yml"]
+    },
+    { "name": "Kubernetes Manifests", "paths": ["deploy/kubernetes/**", "deploy/helm/**", ".github/workflows/kubernetes.yml"] },
+    { "name": "Multi-Primary E2E", "paths": ["src/**", "crates/**", "tests/multi_primary/**", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".github/workflows/multi-primary-e2e.yml"] },
+    {
+      "name": "WebDAV Compatibility",
+      "paths": ["src/webdav/**", "src/services/files/**", "src/services/preview/wopi/locks.rs", "src/db/repository/lock*.rs", "crates/aster_drive_model/src/entities/resource_lock*.rs", "crates/aster_drive_model/src/types/resource_lock.rs", "crates/aster_drive_migration/src/*resource_locks*.rs", "tests/common/**", "tests/webdav/**", "scripts/ci/webdav-compat/**", ".github/actions/setup-litmus/**", ".github/workflows/webdav-compatibility.yml", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml"]
+    }
+  ],
+  "linkedIssues": {
+    "priorityPrefix": "Priority: ",
+    "statusPrefix": "Status: ",
+    "waitLabel": "Wait For PR",
+    "readyLabel": "Status: Ready",
+    "inProgressLabel": "Status: In Progress",
+    "mergedLabel": "Merged",
+    "mergedPullLabelsToRemove": ["Status: In Progress", "Status: Needs Decision"]
+  },
+  "incidents": {
+    "failureLabel": "CI: Failure",
+    "infrastructureLabel": "CI: Infrastructure",
+    "recoverySuccesses": 2
+  },
+  "diagnosticHints": [
+    { "pattern": "openapi|generated|sdk drift|generated files", "message": "OpenAPI 或生成 SDK 存在漂移，请运行仓库正式生成流程并审查生成 diff。" },
+    { "pattern": "format|clippy|lint", "message": "格式或静态检查失败，请先运行对应的本地 format/lint 命令。" },
+    { "pattern": "postgres|mysql|database|migration", "message": "数据库检查失败；若多个后端同时失败，优先检查共享查询、migration 与 fixture 契约。" },
+    { "pattern": "playwright|e2e|browser", "message": "用户流程检查失败，请从 Playwright artifact 和首个失败步骤开始定位。" },
+    { "pattern": "docker|runner|disk|network|timeout|rate limit|connection reset", "message": "日志包含 runner 或外部基础设施信号，先区分环境故障与代码回归再重跑。" }
+  ]
+}
