@@ -5,12 +5,14 @@ on:
     branches: [master]
     paths:
       - '.github/workflows/**'
+      - '.github/aster-automation.json'
       - 'scripts/github/**'
       - 'developer-docs/zh-CN/contributing/github-automation.md'
   pull_request:
     branches: [master, develop]
     paths:
       - '.github/workflows/**'
+      - '.github/aster-automation.json'
       - 'scripts/github/**'
       - 'developer-docs/zh-CN/contributing/github-automation.md'
 
@@ -35,14 +37,11 @@ jobs:
         with:
           node-version: 24
 
-      - name: Run automation tests
-        run: node --test scripts/github/*.test.mjs
-
-      - name: Check script syntax
-        run: |
-          for file in scripts/github/*.mjs; do
-            node --check "$file"
-          done
+      - name: Validate repository automation configuration
+        uses: AsterCommunity/aster-automation@de500c4059edff0574b374bc5e834087c735c4f1 # v0.1.0 candidate
+        with:
+          mode: validate-config
+          config-path: .github/aster-automation.json
 
       - name: Install actionlint
         env:

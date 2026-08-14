@@ -41,7 +41,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Added
 
-- **GitHub PR 与 CI 生命周期自动化** — 根据 changed files 幂等维护语言、文档、产品 scope 与高风险标签，联动 closing issue 的 PR 状态；聚合当前 PR HEAD 的 path-filtered workflow 为稳定 `PR Gate` 和单条可更新诊断评论，关闭或合并 PR 时终结未完成的 Gate，并为默认分支及定时任务失败维护带 fingerprint、连续恢复判定的故障 Issue。
+- **GitHub PR 与 CI 生命周期自动化** — 通过固定 revision 的组织共享 Action、仓库自有配置和 `AsterCommunity Automation` GitHub App 身份，根据 changed files 幂等维护语言、文档、产品 scope 与高风险标签，联动 closing issue 的 PR 状态；聚合当前 PR HEAD 的 path-filtered workflow 为稳定 `PR Gate` 和始终发布、原位更新的诊断评论，在 HEAD 被替代、PR 关闭或合并时终结全部历史未完成 Gate，并为默认分支及定时任务失败维护带 fingerprint、连续恢复判定的故障 Issue。
 
 - **多 Primary deployment profile**
   - 新增 `[deployment].profile = "single" | "cluster"`；cluster 模式要求共享 PostgreSQL / MySQL、Redis cache、Redis config sync 和共享对象存储
