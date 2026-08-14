@@ -2,17 +2,31 @@ import type { Dispatch, SetStateAction } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { UploadTask } from "./uploadAreaManagerShared";
 
-const { cancelUpload, initUpload, loadSessions, removeSession } = vi.hoisted(
-	() => ({
-		cancelUpload: vi.fn(),
-		initUpload: vi.fn(),
-		loadSessions: vi.fn(() => []),
-		removeSession: vi.fn(),
-	}),
-);
+const {
+	cancelUpload,
+	createEmptyFile,
+	createFileService,
+	initUpload,
+	loadSessions,
+	removeSession,
+} = vi.hoisted(() => ({
+	cancelUpload: vi.fn(),
+	createEmptyFile: vi.fn(),
+	createFileService: vi.fn(),
+	initUpload: vi.fn(),
+	loadSessions: vi.fn(() => []),
+	removeSession: vi.fn(),
+}));
 
 vi.mock("@/services/uploadService", () => ({
 	uploadService: { cancelUpload, initUpload },
+}));
+
+vi.mock("@/services/fileService", () => ({
+	createFileService: (workspace: unknown) => {
+		createFileService(workspace);
+		return { createEmptyFile };
+	},
 }));
 
 vi.mock("@/lib/uploadPersistence", () => ({
@@ -352,6 +366,59 @@ describe("clearTerminalUploadTasks", () => {
 });
 
 describe("runQueuedUploadTask", () => {
+	it("creates zero-byte files without initializing upload data planes", async () => {
+		createEmptyFile.mockReset();
+		createEmptyFile.mockResolvedValue({ id: 42 });
+		createFileService.mockReset();
+		initUpload.mockReset();
+		const queuedTask = task("empty", "queued", null);
+		queuedTask.file = new File([], "empty.txt");
+		queuedTask.relativePath = "docs/empty.txt";
+		queuedTask.baseFolderId = 7;
+		queuedTask.mode = null;
+		const patchTask = vi.fn();
+		const markFolderForRefresh = vi.fn();
+		const runChunkedUpload = vi.fn();
+		const runDirectUpload = vi.fn();
+		const runMultipartUpload = vi.fn();
+		const runPresignedUpload = vi.fn();
+		const runProviderResumableUpload = vi.fn();
+		const resumeCompletionTask = vi.fn();
+
+		await runQueuedUploadTask("empty", {
+			markFolderForRefresh,
+			markTaskFailed: vi.fn(),
+			patchTask,
+			runChunkedUpload,
+			runDirectUpload,
+			runMultipartUpload,
+			runPresignedUpload,
+			runProviderResumableUpload,
+			resumeCompletionTask,
+			tasksRef: { current: [queuedTask] },
+			workspace: { kind: "personal" },
+		} as unknown as UploadTaskActionsContext);
+
+		expect(createEmptyFile).toHaveBeenCalledWith(
+			"empty.txt",
+			7,
+			"docs/empty.txt",
+		);
+		expect(createFileService).toHaveBeenCalledWith({ kind: "personal" });
+		expect(initUpload).not.toHaveBeenCalled();
+		expect(runChunkedUpload).not.toHaveBeenCalled();
+		expect(runDirectUpload).not.toHaveBeenCalled();
+		expect(runMultipartUpload).not.toHaveBeenCalled();
+		expect(runPresignedUpload).not.toHaveBeenCalled();
+		expect(runProviderResumableUpload).not.toHaveBeenCalled();
+		expect(resumeCompletionTask).not.toHaveBeenCalled();
+		expect(patchTask).toHaveBeenLastCalledWith(
+			"empty",
+			expect.objectContaining({ mode: "direct", status: "completed" }),
+		);
+		expect(markFolderForRefresh).toHaveBeenCalledWith(queuedTask);
+	});
+
 	it("passes the original initialization error to task failure handling", async () => {
 		const error = Object.assign(new Error("init failed"), { retryable: false });
 		initUpload.mockReset();
