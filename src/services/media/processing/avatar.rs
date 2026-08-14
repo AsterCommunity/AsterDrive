@@ -731,7 +731,11 @@ mod tests {
     #[test]
     fn images_processor_reads_jpeg_source_once_for_dimensions_and_decode() {
         let source = DynamicImage::ImageRgb8(ImageBuffer::from_fn(32, 24, |x, y| {
-            Rgb([(x * 7) as u8, (y * 11) as u8, ((x + y) * 5) as u8])
+            Rgb([
+                x.to_le_bytes()[0].wrapping_mul(7),
+                y.to_le_bytes()[0].wrapping_mul(11),
+                x.wrapping_add(y).to_le_bytes()[0].wrapping_mul(5),
+            ])
         }));
         let mut encoded = Cursor::new(Vec::new());
         source.write_to(&mut encoded, ImageFormat::Jpeg).unwrap();

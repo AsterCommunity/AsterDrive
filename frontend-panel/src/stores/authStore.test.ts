@@ -358,6 +358,60 @@ describe("useAuthStore", () => {
 		).toBe(false);
 	});
 
+	it("applies an authoritative profile without replacing the current user", async () => {
+		const user = createMeResponse({
+			username: "profile-owner",
+			storage_used: 42,
+		});
+		server.use(
+			http.get("*/api/v1/auth/me", () => HttpResponse.json(apiResponse(user))),
+		);
+
+		const { useAuthStore } = await loadStores();
+		await useAuthStore.getState().checkAuth();
+		const nextProfile = {
+			avatar: {
+				source: "uploaded" as const,
+				url_512: "/avatars/1/7/512.webp",
+				url_1024: "/avatars/1/7/1024.webp",
+				version: 7,
+			},
+			display_name: "Updated profile",
+		};
+
+		useAuthStore.getState().applyUserProfile(nextProfile);
+
+		expect(useAuthStore.getState().user).toEqual({
+			...user,
+			profile: nextProfile,
+		});
+		const cached = JSON.parse(
+			localStorage.getItem("aster-cached-user") ?? "{}",
+		);
+		expect(cached).toEqual({
+			access_token_expires_at: user.access_token_expires_at,
+			preferences: user.preferences,
+			profile: nextProfile,
+		});
+	});
+
+	it("ignores a profile result when there is no current user", async () => {
+		const { useAuthStore } = await loadStores();
+
+		useAuthStore.getState().applyUserProfile({
+			avatar: {
+				source: "none",
+				url_512: null,
+				url_1024: null,
+				version: 0,
+			},
+			display_name: null,
+		});
+
+		expect(useAuthStore.getState().user).toBeNull();
+		expect(localStorage.getItem("aster-cached-user")).toBeNull();
+	});
+
 	it("resets the display time zone to browser default when the server has no preferences", async () => {
 		const user = createMeResponse({ preferences: null });
 		server.use(
