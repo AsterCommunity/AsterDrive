@@ -16,7 +16,6 @@ use crate::services::{
     workspace::models::FileInfo,
     workspace::storage::{
         self, NewFileMode, StoreFromTempHints, StoreFromTempParams, WorkspaceStorageScope,
-        WorkspaceUploadHints,
     },
 };
 
@@ -222,28 +221,6 @@ pub async fn store_from_temp(
         StoreFromTempHints::default(),
         NewFileMode::ResolveUnique,
         true,
-    )
-    .await
-    .map(Into::into)
-}
-
-/// 上传文件（REST API，multipart）
-pub async fn upload(
-    state: &PrimaryAppState,
-    user_id: i64,
-    payload: &mut actix_multipart::Multipart,
-    folder_id: Option<i64>,
-    relative_path: Option<&str>,
-    declared_size: Option<i64>,
-) -> Result<FileInfo> {
-    storage::upload_with_hints(
-        state,
-        WorkspaceStorageScope::Personal { user_id },
-        payload,
-        folder_id,
-        relative_path,
-        declared_size,
-        WorkspaceUploadHints::default(),
     )
     .await
     .map(Into::into)

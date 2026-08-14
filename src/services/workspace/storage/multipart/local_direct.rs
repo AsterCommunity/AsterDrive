@@ -6,8 +6,7 @@ use tokio::io::{AsyncWriteExt, BufWriter};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::workspace::storage::{
-    EmptyFileNameMode, StoreFromTempHints, StoreFromTempParams, create_empty,
-    store_from_temp_with_hints,
+    StoreFromTempHints, StoreFromTempParams, store_from_temp_with_hints,
 };
 use aster_drive_model::entities::file;
 use aster_forge_utils::numbers::usize_to_i64;
@@ -119,22 +118,6 @@ pub(super) async fn upload_local_direct(
             if size != declared_size {
                 aster_forge_utils::fs::cleanup_temp_file(&staging_path).await;
                 return Err(upload_size_mismatch_error(declared_size, size));
-            }
-
-            if size == 0 {
-                aster_forge_utils::fs::cleanup_temp_file(&staging_path).await;
-                return create_empty(
-                    state,
-                    scope,
-                    folder_id,
-                    &filename,
-                    if relative_path.is_some() {
-                        EmptyFileNameMode::Exact
-                    } else {
-                        EmptyFileNameMode::ResolveUnique
-                    },
-                )
-                .await;
             }
 
             let precomputed_hash =
