@@ -358,6 +358,110 @@ describe("useAuthStore", () => {
 		).toBe(false);
 	});
 
+	it("applies an authoritative profile without replacing the current user", async () => {
+		const user = createMeResponse({
+			username: "profile-owner",
+			storage_used: 42,
+		});
+		server.use(
+			http.get("*/api/v1/auth/me", () => HttpResponse.json(apiResponse(user))),
+		);
+
+		const { useAuthStore } = await loadStores();
+		await useAuthStore.getState().checkAuth();
+		const nextProfile = {
+			avatar: {
+				source: "upload" as const,
+				url_512: "/avatars/1/7/512.webp",
+				url_1024: "/avatars/1/7/1024.webp",
+				version: 7,
+			},
+			display_name: "Updated profile",
+		};
+
+		useAuthStore.getState().applyUserProfile(nextProfile);
+
+		expect(useAuthStore.getState().user).toEqual({
+			...user,
+			profile: nextProfile,
+		});
+		const cached = JSON.parse(
+			localStorage.getItem("aster-cached-user") ?? "{}",
+		);
+		expect(cached).toEqual({
+			access_token_expires_at: user.access_token_expires_at,
+			preferences: user.preferences,
+			profile: nextProfile,
+		});
+	});
+
+	it("keeps a newer profile when an older full refresh completes later", async () => {
+		const initialUser = createMeResponse({ storage_used: 10 });
+		const staleRefreshUser = createMeResponse({ storage_used: 42 });
+		let requestCount = 0;
+		let signalRefreshStarted: (() => void) | undefined;
+		const refreshStarted = new Promise<void>((resolve) => {
+			signalRefreshStarted = resolve;
+		});
+		let releaseRefresh: (() => void) | undefined;
+		const refreshRelease = new Promise<void>((resolve) => {
+			releaseRefresh = resolve;
+		});
+		server.use(
+			http.get("*/api/v1/auth/me", async () => {
+				requestCount += 1;
+				if (requestCount === 1) {
+					return HttpResponse.json(apiResponse(initialUser));
+				}
+				signalRefreshStarted?.();
+				await refreshRelease;
+				return HttpResponse.json(apiResponse(staleRefreshUser));
+			}),
+		);
+		const { useAuthStore } = await loadStores();
+		await useAuthStore.getState().checkAuth();
+
+		const refresh = useAuthStore.getState().refreshUser();
+		await refreshStarted;
+		const newerProfile = {
+			avatar: {
+				source: "upload" as const,
+				url_512: "/avatars/1/9/512.webp",
+				url_1024: "/avatars/1/9/1024.webp",
+				version: 9,
+			},
+			display_name: "Newest profile",
+		};
+		useAuthStore.getState().applyUserProfile(newerProfile);
+		releaseRefresh?.();
+		await refresh;
+
+		expect(useAuthStore.getState().user).toMatchObject({
+			storage_used: 42,
+			profile: newerProfile,
+		});
+		expect(
+			JSON.parse(localStorage.getItem("aster-cached-user") ?? "{}").profile,
+		).toEqual(newerProfile);
+	});
+
+	it("ignores a profile result when there is no current user", async () => {
+		const { useAuthStore } = await loadStores();
+
+		useAuthStore.getState().applyUserProfile({
+			avatar: {
+				source: "none",
+				url_512: null,
+				url_1024: null,
+				version: 0,
+			},
+			display_name: null,
+		});
+
+		expect(useAuthStore.getState().user).toBeNull();
+		expect(localStorage.getItem("aster-cached-user")).toBeNull();
+	});
+
 	it("resets the display time zone to browser default when the server has no preferences", async () => {
 		const user = createMeResponse({ preferences: null });
 		server.use(

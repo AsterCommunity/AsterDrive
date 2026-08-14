@@ -26,6 +26,7 @@ const mockState = vi.hoisted(() => ({
 		uploadAvatar: vi.fn(),
 	},
 	authStore: {
+		applyUserProfile: vi.fn(),
 		forceLogout: vi.fn(),
 		refreshUser: vi.fn(),
 		setStorageEventStreamEnabled: vi.fn(),
@@ -568,8 +569,13 @@ describe("SettingsPage", () => {
 			secret: "SECRET123",
 		});
 		mockState.authService.uploadAvatar.mockReset();
+		mockState.authService.uploadAvatar.mockResolvedValue({
+			applied: true,
+			profile: mockState.authStore.user.profile,
+		});
 		mockState.authService.updateProfile.mockReset();
 		mockState.authStore.forceLogout.mockReset();
+		mockState.authStore.applyUserProfile.mockReset();
 		mockState.authStore.refreshUser.mockReset();
 		mockState.authStore.setStorageEventStreamEnabled.mockReset();
 		mockState.authStore.syncSession.mockReset();
@@ -1244,7 +1250,9 @@ describe("SettingsPage", () => {
 			expect(mockState.authService.uploadAvatar).toHaveBeenCalledTimes(1),
 		);
 		await waitFor(() =>
-			expect(mockState.authStore.refreshUser).toHaveBeenCalledTimes(1),
+			expect(mockState.authStore.applyUserProfile).toHaveBeenCalledWith(
+				mockState.authStore.user.profile,
+			),
 		);
 
 		const uploadedFile = mockState.authService.uploadAvatar.mock.calls[0]?.[0];

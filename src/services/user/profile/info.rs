@@ -37,6 +37,13 @@ pub struct UserProfileInfo {
     pub avatar: AvatarInfo,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct AvatarUploadResult {
+    pub profile: UserProfileInfo,
+    pub applied: bool,
+}
+
 pub fn resolve_gravatar_base_url(state: &impl SharedRuntimeState) -> String {
     let base_url = state
         .runtime_config()

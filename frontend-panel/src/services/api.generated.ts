@@ -4912,6 +4912,10 @@ export interface components {
          * @enum {string}
          */
         AvatarSource: "none" | "gravatar" | "upload";
+        AvatarUploadResult: {
+            applied: boolean;
+            profile: components["schemas"]["UserProfileInfo"];
+        };
         /**
          * @description 后台任务类型
          * @enum {string}
@@ -16480,7 +16484,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Avatar uploaded */
+            /** @description Avatar upload resolved */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -16489,8 +16493,8 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
-                            avatar: components["schemas"]["AvatarInfo"];
-                            display_name?: string | null;
+                            applied: boolean;
+                            profile: components["schemas"]["UserProfileInfo"];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;

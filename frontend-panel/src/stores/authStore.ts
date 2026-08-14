@@ -32,6 +32,7 @@ export const SESSION_REFRESH_THRESHOLD_MS = 30_000;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let inFlightRefresh: Promise<void> | null = null;
 let inFlightFullRefreshUser: Promise<void> | null = null;
+let profileMutationGeneration = 0;
 
 interface RefreshUserOptions {
 	fields?: MeField[];
@@ -198,6 +199,7 @@ interface AuthState {
 	ensureFreshSession: () => Promise<void>;
 	refreshToken: () => Promise<void>;
 	refreshUser: (options?: RefreshUserOptions) => Promise<void>;
+	applyUserProfile: (profile: UserProfileInfo) => void;
 	setStorageEventStreamEnabled: (enabled: boolean) => void;
 	syncSession: (expiresIn: number) => void;
 	startAutoRefresh: (delayMs?: number) => void;
@@ -538,11 +540,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 		}
 
 		const refresh = (async () => {
+			const startedProfileGeneration = profileMutationGeneration;
 			try {
 				const response = isPartialRefresh
 					? await authService.me(selectedFields)
 					: await authService.me();
-				const user = isPartialRefresh
+				let user = isPartialRefresh
 					? mergePartialUser(
 							get().user,
 							response as MePartialResponse,
@@ -550,6 +553,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 						)
 					: (response as MeResponse);
 				if (!user) return;
+				if (profileMutationGeneration !== startedProfileGeneration) {
+					const currentUser = get().user;
+					if (currentUser) {
+						user = { ...user, profile: currentUser.profile };
+					}
+				}
 
 				const expiresAt = selectedFields?.includes("session")
 					? (getExpiresAtFromUser(user) ??
@@ -583,6 +592,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 			inFlightFullRefreshUser = refresh;
 		}
 		return refresh;
+	},
+
+	applyUserProfile: (profile) => {
+		const user = get().user;
+		if (!user) return;
+
+		profileMutationGeneration += 1;
+		const nextUser = { ...user, profile };
+		setCachedUser(nextUser);
+		set({ user: nextUser });
 	},
 
 	setStorageEventStreamEnabled: (enabled) => {
