@@ -2058,9 +2058,14 @@ async fn test_declared_empty_upload_rejects_nonempty_field_with_stable_error() {
 
 #[actix_web::test]
 async fn test_declared_empty_upload_rejects_later_nonempty_file_before_creation() {
-    use aster_drive::db::repository::file_repo;
+    use aster_drive::db::repository::{file_repo, upload_session_repo};
 
     let state = common::setup().await;
+    let policy = install_probe_s3_policy(&state).await;
+    let driver = Arc::new(UploadDataPlaneProbe::default());
+    state
+        .driver_registry
+        .insert_for_test(policy.id, driver.clone());
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
     let (boundary, payload) = build_multi_file_multipart_payload(&[
@@ -2081,6 +2086,13 @@ async fn test_declared_empty_upload_rejects_later_nonempty_file_before_creation(
     assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
     let body: Value = test::read_body_json(resp).await;
     assert_upload_error_contract(&body, ApiErrorCode::UploadRequestSizeMismatch.as_str());
+    assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        upload_session_repo::count_by_policy(state.writer_db(), policy.id)
+            .await
+            .unwrap(),
+        0
+    );
     assert_eq!(
         file_repo::count_live_files(state.writer_db())
             .await
@@ -2091,9 +2103,14 @@ async fn test_declared_empty_upload_rejects_later_nonempty_file_before_creation(
 
 #[actix_web::test]
 async fn test_declared_empty_upload_rejects_multiple_empty_file_fields_before_creation() {
-    use aster_drive::db::repository::file_repo;
+    use aster_drive::db::repository::{file_repo, upload_session_repo};
 
     let state = common::setup().await;
+    let policy = install_probe_s3_policy(&state).await;
+    let driver = Arc::new(UploadDataPlaneProbe::default());
+    state
+        .driver_registry
+        .insert_for_test(policy.id, driver.clone());
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
     let (boundary, payload) =
@@ -2112,6 +2129,13 @@ async fn test_declared_empty_upload_rejects_multiple_empty_file_fields_before_cr
     assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
     let body: Value = test::read_body_json(resp).await;
     assert_upload_error_contract(&body, ApiErrorCode::BadRequest.as_str());
+    assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        upload_session_repo::count_by_policy(state.writer_db(), policy.id)
+            .await
+            .unwrap(),
+        0
+    );
     assert_eq!(
         file_repo::count_live_files(state.writer_db())
             .await
