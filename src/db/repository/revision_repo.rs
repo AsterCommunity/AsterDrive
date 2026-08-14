@@ -291,7 +291,7 @@ pub async fn create_initial_many<C: ConnectionTrait>(
     let snapshot_models: Vec<_> = properties
         .into_iter()
         .filter(|property| {
-            property.namespace != "DAV:" && !property.namespace.starts_with("system.")
+            !crate::services::content::property::is_protected_namespace(&property.namespace)
         })
         .map(|property| {
             let revision_id = revision_by_file_id

@@ -4691,7 +4691,10 @@ async fn test_webdav_copy_folder_batches_initial_revisions_and_property_snapshot
             .unwrap();
         assert_eq!(revisions.len(), 1);
         assert_eq!(revisions[0].reason, "copy");
+        assert_eq!(revisions[0].sequence, 1);
+        assert_eq!(revisions[0].predecessor_revision_id, None);
         assert_eq!(history.current_revision_id, Some(revisions[0].id));
+        assert_eq!(history.next_sequence, 2);
 
         if copied.name == "file-00.txt" || copied.name == "file-50.txt" {
             let snapshot =

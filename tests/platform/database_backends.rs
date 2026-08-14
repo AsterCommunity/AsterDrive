@@ -209,6 +209,70 @@ async fn assert_revision_expected_etag_serializes_concurrent_appends(
     ));
 }
 
+async fn assert_batched_folder_copy_initial_revisions(
+    state: &aster_drive::runtime::PrimaryAppState,
+    backend: DbBackend,
+) {
+    use aster_drive::services::files::{file, folder};
+
+    let suffix = match backend {
+        DbBackend::Postgres => "postgres",
+        DbBackend::MySql => "mysql",
+        _ => unreachable!("only postgres/mysql smoke tests use this helper"),
+    };
+    let user = common::create_test_account(
+        state,
+        &format!("batch-{suffix}"),
+        &format!("batch-{suffix}@example.com"),
+        "password123",
+    )
+    .await
+    .unwrap();
+    let source = folder::create(state, user.id, "Batch source", None)
+        .await
+        .unwrap();
+    for index in 0..51 {
+        file::create_empty(
+            state,
+            user.id,
+            Some(source.id),
+            &format!("file-{index:02}.txt"),
+        )
+        .await
+        .unwrap();
+    }
+
+    let copied = folder::copy_folder(state, source.id, user.id, None)
+        .await
+        .unwrap();
+    let copied_files = aster_drive::db::repository::file_repo::find_by_folder(
+        state.writer_db(),
+        user.id,
+        Some(copied.id),
+    )
+    .await
+    .unwrap();
+    assert_eq!(copied_files.len(), 51);
+    for copied_file in copied_files {
+        let history = aster_drive::db::repository::revision_repo::find_history_by_file_id(
+            state.writer_db(),
+            copied_file.id,
+        )
+        .await
+        .unwrap();
+        let revision = aster_drive::db::repository::revision_repo::find_current_by_file_id(
+            state.writer_db(),
+            copied_file.id,
+        )
+        .await
+        .unwrap();
+        assert_eq!(revision.sequence, 1);
+        assert_eq!(revision.predecessor_revision_id, None);
+        assert_eq!(history.current_revision_id, Some(revision.id));
+        assert_eq!(history.next_sequence, 2);
+    }
+}
+
 fn upload_named_file(name: &str, content: &str, mime: &str, boundary: &str) -> String {
     format!(
         "--{boundary}\r\n\
@@ -1139,6 +1203,8 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     assert_eq!(overview_body["data"]["stats"]["total_users"], 2);
     assert_eq!(overview_body["data"]["stats"]["total_files"], 3);
     assert_eq!(overview_body["data"]["stats"]["uploads_today"], 4);
+
+    assert_batched_folder_copy_initial_revisions(&state, backend).await;
 }
 
 #[actix_web::test]

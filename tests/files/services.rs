@@ -2670,8 +2670,54 @@ async fn test_folder_copy_creates_initial_revisions_across_batch_boundary() {
         .unwrap();
         assert_eq!(revisions.len(), 1);
         assert_eq!(revisions[0].reason, "copy");
+        assert_eq!(revisions[0].sequence, 1);
+        assert_eq!(revisions[0].predecessor_revision_id, None);
         assert_eq!(revisions[0].blob_id, Some(copied_file.blob_id));
         assert_eq!(history.current_revision_id, Some(revisions[0].id));
+        assert_eq!(history.next_sequence, 2);
+    }
+}
+
+#[actix_web::test]
+async fn test_property_batch_insert_empty_and_chunk_boundaries() {
+    use aster_drive::db::repository::property_repo::NewEntityProperty;
+    use aster_drive_model::entities::entity_property;
+    use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
+
+    let state = common::setup().await;
+    aster_drive::db::repository::property_repo::insert_many(state.writer_db(), Vec::new())
+        .await
+        .unwrap();
+    assert_eq!(
+        entity_property::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        0
+    );
+
+    for count in [499usize, 500, 501] {
+        let namespace = format!("urn:batch:{count}");
+        let properties = (0..count)
+            .map(|index| NewEntityProperty {
+                entity_type: aster_drive_model::types::EntityType::File,
+                entity_id: index as i64 + 1,
+                namespace: namespace.clone(),
+                name: "marker".to_string(),
+                value: Some(index.to_string()),
+            })
+            .collect();
+        aster_drive::db::repository::property_repo::insert_many(state.writer_db(), properties)
+            .await
+            .unwrap();
+        assert_eq!(
+            entity_property::Entity::find()
+                .filter(entity_property::Column::Namespace.eq(&namespace))
+                .count(state.writer_db())
+                .await
+                .unwrap(),
+            count as u64
+        );
     }
 }
 
