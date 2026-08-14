@@ -568,19 +568,29 @@ pub async fn activate_deltav<C: ConnectionTrait>(
     db: &C,
     file_id: i64,
 ) -> Result<file_revision_history::Model> {
-    let history = lock_history_by_file_id(db, file_id).await?;
-    if history.deltav_controlled_at.is_some() {
-        return Ok(history);
+    FileRevisionHistory::update_many()
+        .col_expr(
+            file_revision_history::Column::DeltavControlledAt,
+            Expr::value(Some(Utc::now())),
+        )
+        .col_expr(
+            file_revision_history::Column::DeltavRootRevisionId,
+            Expr::col(file_revision_history::Column::CurrentRevisionId),
+        )
+        .filter(file_revision_history::Column::FileId.eq(file_id))
+        .filter(file_revision_history::Column::DeltavControlledAt.is_null())
+        .filter(file_revision_history::Column::CurrentRevisionId.is_not_null())
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+
+    let history = find_history_by_file_id(db, file_id).await?;
+    if history.deltav_controlled_at.is_none() || history.deltav_root_revision_id.is_none() {
+        return Err(AsterError::internal_error(format!(
+            "file #{file_id} revision history has no activatable current revision"
+        )));
     }
-    let root_revision_id = history.current_revision_id.ok_or_else(|| {
-        AsterError::internal_error(format!(
-            "file #{file_id} revision history has no current revision"
-        ))
-    })?;
-    let mut active: file_revision_history::ActiveModel = history.into();
-    active.deltav_controlled_at = Set(Some(Utc::now()));
-    active.deltav_root_revision_id = Set(Some(root_revision_id));
-    active.update(db).await.map_err(AsterError::from)
+    Ok(history)
 }
 
 async fn deltav_root_sequence<C: ConnectionTrait>(
@@ -654,6 +664,7 @@ pub async fn find_deltav_revisions<C: ConnectionTrait>(
         .filter(file_revision::Column::Sequence.gte(root_sequence))
         .filter(file_revision::Column::RetiredAt.is_null())
         .filter(file_revision::Column::PurgedAt.is_null())
+        .filter(file_revision::Column::BlobId.is_not_null())
         .order_by_asc(file_revision::Column::Sequence)
         .limit(limit)
         .all(db)
@@ -1177,7 +1188,74 @@ pub async fn replace_blob_refs<C: ConnectionTrait>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm::{Database, EntityTrait, QueryFilter};
+    use sea_orm::{ConnectOptions, Database, EntityTrait, QueryFilter};
+    use std::sync::Arc;
+    use tokio::sync::Barrier;
+
+    async fn activate_deltav_with_retry(
+        db: &sea_orm::DatabaseConnection,
+        file_id: i64,
+    ) -> Result<file_revision_history::Model> {
+        aster_forge_db::transaction::with_transaction_retry(
+            db,
+            &aster_forge_db::retry::RetryConfig::deadlock(),
+            move |txn| Box::pin(async move { activate_deltav(txn, file_id).await }),
+            |error: &AsterError| {
+                error
+                    .database_error_kind()
+                    .is_some_and(aster_forge_db::DatabaseErrorKind::is_transient_locking)
+            },
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn concurrent_deltav_activation_preserves_one_root_and_timestamp() {
+        let path = std::env::temp_dir().join(format!(
+            "asterdrive-deltav-activation-{}.sqlite3",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let mut options = ConnectOptions::new(format!("sqlite://{}?mode=rwc", path.display()));
+        options.max_connections(4).min_connections(1);
+        let db = Database::connect(options).await.unwrap();
+        db.execute_unprepared(
+            "CREATE TABLE file_revision_histories (id INTEGER PRIMARY KEY, public_id TEXT NOT NULL, file_id INTEGER, current_revision_id INTEGER, next_sequence INTEGER NOT NULL, deltav_controlled_at TEXT, deltav_root_revision_id INTEGER, created_at TEXT NOT NULL, retired_at TEXT); \
+             CREATE TABLE file_revisions (id INTEGER PRIMARY KEY, public_id TEXT NOT NULL, history_id INTEGER NOT NULL, sequence INTEGER NOT NULL, predecessor_revision_id INTEGER, blob_id INTEGER, logical_size INTEGER NOT NULL, mime_type TEXT, etag TEXT NOT NULL, content_sha256 TEXT, creator_user_id INTEGER, creator_display_name TEXT, comment TEXT, reason TEXT NOT NULL, created_at TEXT NOT NULL, retired_at TEXT, purged_at TEXT); \
+             INSERT INTO file_revision_histories VALUES (1, 'history', 7, 2, 3, NULL, NULL, '2026-08-01T00:00:00Z', NULL); \
+             INSERT INTO file_revisions VALUES (2, 'current', 1, 2, 1, 9, 5, 'text/plain', 'current-etag', NULL, NULL, NULL, NULL, 'overwrite', '2026-08-03T00:00:00Z', NULL, NULL);",
+        )
+        .await
+        .unwrap();
+
+        let barrier = Arc::new(Barrier::new(2));
+        let left_db = db.clone();
+        let left_barrier = barrier.clone();
+        let left = tokio::spawn(async move {
+            left_barrier.wait().await;
+            activate_deltav_with_retry(&left_db, 7).await
+        });
+        let right_db = db.clone();
+        let right = tokio::spawn(async move {
+            barrier.wait().await;
+            activate_deltav_with_retry(&right_db, 7).await
+        });
+        let (left, right) = tokio::join!(left, right);
+        let left = left.unwrap().unwrap();
+        let right = right.unwrap().unwrap();
+
+        assert_eq!(left.deltav_root_revision_id, Some(2));
+        assert_eq!(right.deltav_root_revision_id, Some(2));
+        assert_eq!(left.deltav_controlled_at, right.deltav_controlled_at);
+        let final_history = find_history_by_file_id(&db, 7).await.unwrap();
+        assert_eq!(final_history.deltav_root_revision_id, Some(2));
+        assert_eq!(
+            final_history.deltav_controlled_at,
+            left.deltav_controlled_at
+        );
+
+        db.close().await.unwrap();
+        std::fs::remove_file(&path).unwrap();
+    }
 
     #[tokio::test]
     async fn retire_histories_preserves_existing_tombstone_timestamps() {

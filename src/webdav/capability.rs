@@ -33,6 +33,7 @@ impl<'a> DriveDavCapabilityProvider<'a> {
                 (DavResourceState::File, DavVersioningState::Version) => &[
                     DavMethod::Options,
                     DavMethod::Get,
+                    DavMethod::Copy,
                     DavMethod::Propfind,
                     DavMethod::Report,
                 ][..],

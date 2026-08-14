@@ -236,7 +236,8 @@ pub async fn webdav_handler(
                 )
                 .await
             }
-            DavMethod::Get => {
+            DavMethod::Get | DavMethod::Head => {
+                let head_only = request_head.method == DavMethod::Head;
                 if capability_snapshot.declaration().versioning.state
                     == aster_forge_webdav::DavVersioningState::Version
                 {
@@ -245,7 +246,7 @@ pub async fn webdav_handler(
                         &request_head,
                         &dav_fs,
                         &webdav.prefix,
-                        false,
+                        head_only,
                     )
                     .await
                 } else {
@@ -255,32 +256,7 @@ pub async fn webdav_handler(
                         &dav_fs,
                         lock_system.as_ref(),
                         &webdav.prefix,
-                        false,
-                        &capability_snapshot,
-                    )
-                    .await
-                }
-            }
-            DavMethod::Head => {
-                if capability_snapshot.declaration().versioning.state
-                    == aster_forge_webdav::DavVersioningState::Version
-                {
-                    deltav::handle_version_get_head(
-                        &req,
-                        &request_head,
-                        &dav_fs,
-                        &webdav.prefix,
-                        true,
-                    )
-                    .await
-                } else {
-                    handlers::transfer::handle_get_head(
-                        &req,
-                        &request_head,
-                        &dav_fs,
-                        lock_system.as_ref(),
-                        &webdav.prefix,
-                        true,
+                        head_only,
                         &capability_snapshot,
                     )
                     .await

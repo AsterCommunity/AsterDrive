@@ -2,7 +2,7 @@ use aster_drive_model::entities::{file, file_blob, file_revision, file_revision_
 use aster_forge_webdav::{
     DavBackendError, DavBackendErrorKind, DavResourceState, DavVersioningState, FsError,
 };
-use sea_orm::TransactionTrait;
+use sea_orm::ConnectionTrait;
 
 use crate::db::repository::{file_repo, folder_repo, revision_repo};
 use crate::services::workspace::storage::WorkspaceStorageScope;
@@ -63,7 +63,11 @@ fn backend_error(error: impl std::fmt::Display) -> DavBackendError {
 }
 
 impl AsterDavFs {
-    async fn ensure_deltav_file_visible(&self, file: &file::Model) -> Result<(), DavBackendError> {
+    async fn ensure_deltav_file_visible_on<C: ConnectionTrait>(
+        &self,
+        db: &C,
+        file: &file::Model,
+    ) -> Result<(), DavBackendError> {
         crate::services::workspace::storage::ensure_active_file_scope(file, self.scope)
             .map_err(|_| DavBackendError::new(DavBackendErrorKind::NotFound))?;
         let Some(root_folder_id) = self.root_folder_id else {
@@ -74,11 +78,10 @@ impl AsterDavFs {
         };
         let ancestors = match self.scope {
             WorkspaceStorageScope::Personal { user_id } => {
-                folder_repo::find_ancestor_models(self.state.writer_db(), user_id, folder_id).await
+                folder_repo::find_ancestor_models(db, user_id, folder_id).await
             }
             WorkspaceStorageScope::Team { team_id, .. } => {
-                folder_repo::find_team_ancestor_models(self.state.writer_db(), team_id, folder_id)
-                    .await
+                folder_repo::find_team_ancestor_models(db, team_id, folder_id).await
             }
         }
         .map_err(backend_error)?;
@@ -150,19 +153,33 @@ impl AsterDavFs {
         &self,
         public_id: &str,
     ) -> Result<AuthorizedDeltavRevision, DavBackendError> {
-        let target =
-            revision_repo::find_deltav_revision_by_public_id(self.state.writer_db(), public_id)
-                .await
-                .map_err(backend_error)?
-                .ok_or_else(|| DavBackendError::new(DavBackendErrorKind::NotFound))?;
-        self.ensure_deltav_file_visible(&target.file).await?;
+        self.load_deltav_revision_on(self.state.writer_db(), public_id)
+            .await
+    }
+
+    pub(crate) async fn load_deltav_revision_on<C: ConnectionTrait>(
+        &self,
+        db: &C,
+        public_id: &str,
+    ) -> Result<AuthorizedDeltavRevision, DavBackendError> {
+        let target = revision_repo::find_deltav_revision_by_public_id(db, public_id)
+            .await
+            .map_err(backend_error)?
+            .ok_or_else(|| DavBackendError::new(DavBackendErrorKind::NotFound))?;
+        self.ensure_deltav_file_visible_on(db, &target.file).await?;
         let blob_id = target
             .revision
             .blob_id
             .ok_or_else(|| DavBackendError::new(DavBackendErrorKind::NotFound))?;
-        let blob = file_repo::find_blob_by_id(self.state.writer_db(), blob_id)
+        let blob = file_repo::find_blob_by_id(db, blob_id)
             .await
-            .map_err(|_| DavBackendError::new(DavBackendErrorKind::NotFound))?;
+            .map_err(|error| {
+                if matches!(error, crate::errors::AsterError::RecordNotFound(_)) {
+                    DavBackendError::new(DavBackendErrorKind::NotFound)
+                } else {
+                    backend_error(error)
+                }
+            })?;
         Ok(AuthorizedDeltavRevision {
             file: target.file,
             blob,
@@ -289,23 +306,36 @@ impl AsterDavFs {
         &self,
         path: &aster_forge_webdav::DavPath,
     ) -> Result<file_revision_history::Model, DavBackendError> {
-        let txn = self
-            .state
-            .writer_db()
-            .begin()
-            .await
-            .map_err(backend_error)?;
-        let node =
-            path_resolver::resolve_path_in_scope(&txn, self.scope, path, self.root_folder_id)
-                .await
-                .map_err(DavBackendError::from)?;
+        let node = path_resolver::resolve_path_in_scope(
+            self.state.writer_db(),
+            self.scope,
+            path,
+            self.root_folder_id,
+        )
+        .await
+        .map_err(DavBackendError::from)?;
         let ResolvedNode::File(file) = node else {
             return Err(DavBackendError::new(DavBackendErrorKind::NotFound));
         };
-        let history = revision_repo::activate_deltav(&txn, file.id)
-            .await
-            .map_err(backend_error)?;
-        txn.commit().await.map_err(backend_error)?;
-        Ok(history)
+        let file_id = file.id;
+        let scope = self.scope;
+        aster_forge_db::transaction::with_transaction_retry(
+            self.state.writer_db(),
+            &aster_forge_db::retry::RetryConfig::deadlock(),
+            move |txn| {
+                Box::pin(async move {
+                    let file = file_repo::find_by_id(txn, file_id).await?;
+                    crate::services::workspace::storage::ensure_active_file_scope(&file, scope)?;
+                    revision_repo::activate_deltav(txn, file_id).await
+                })
+            },
+            |error: &crate::errors::AsterError| {
+                error
+                    .database_error_kind()
+                    .is_some_and(aster_forge_db::DatabaseErrorKind::is_transient_locking)
+            },
+        )
+        .await
+        .map_err(backend_error)
     }
 }

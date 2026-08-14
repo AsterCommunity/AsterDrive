@@ -223,9 +223,12 @@ pub(crate) async fn live_extension_values_for_path(
         let revisions = filesystem
             .deltav_revisions(
                 &target.history,
-                REPORT_LIMITS.multistatus.maximum_items as u64,
+                REPORT_LIMITS.multistatus.maximum_items as u64 + 1,
             )
             .await?;
+        if revisions.len() > REPORT_LIMITS.multistatus.maximum_items {
+            return Err(DavBackendError::new(DavBackendErrorKind::PayloadTooLarge));
+        }
         let ids = revisions
             .iter()
             .map(|revision| revision.id)
@@ -274,9 +277,7 @@ pub(crate) fn immutable_method_rejection(
         return None;
     }
     let precondition = match method {
-        DavMethod::Put | DavMethod::Proppatch | DavMethod::Copy => {
-            DavVersioningPrecondition::CannotModifyVersion
-        }
+        DavMethod::Put | DavMethod::Proppatch => DavVersioningPrecondition::CannotModifyVersion,
         DavMethod::Move => DavVersioningPrecondition::CannotRenameVersion,
         DavMethod::Delete => DavVersioningPrecondition::NoVersionDelete,
         _ => return None,
@@ -549,6 +550,11 @@ pub(crate) async fn handle_report(
             Ok(plan) => plan,
             Err(error) => return report_error_response(&error),
         };
+    if let DavReportRequest::Other { report, .. } = &plan {
+        return aster_forge_webdav::actix::into_response(
+            ReportResponsePolicy.not_available(*report),
+        );
+    }
     let (items, root_href, root_values) =
         match load_history_report(filesystem, &request_head.target, prefix).await {
             Ok(value) => value,

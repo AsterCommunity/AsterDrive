@@ -392,11 +392,23 @@ pub(crate) async fn handle_copy_move(
         return aster_forge_webdav::actix::into_response(response);
     }
 
-    let source_meta = match dav_fs.metadata_for_write(&source).await {
-        Ok(meta) => meta,
-        Err(err) => return fs_error_response(err),
+    let source_meta: Box<dyn DavMetaData> = if matches!(
+        crate::webdav::deltav::classify_reserved_path(&source),
+        crate::webdav::deltav::ReservedDeltavPath::Version(_)
+    ) {
+        match DavFileSystem::metadata(dav_fs, &source).await {
+            Ok(meta) => meta,
+            Err(err) => return fs_error_response(err),
+        }
+    } else {
+        match dav_fs.metadata_for_write(&source).await {
+            Ok(meta) => Box::new(meta),
+            Err(err) => return fs_error_response(err),
+        }
     };
-    if let Err(resp) = enforce_http_conditionals(req.headers(), request_head.method, &source_meta) {
+    if let Err(resp) =
+        enforce_http_conditionals(req.headers(), request_head.method, source_meta.as_ref())
+    {
         return resp;
     }
     if let Err(resp) = aster_forge_webdav::actix::enforce_if_header_with_backends(

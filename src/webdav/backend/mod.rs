@@ -75,6 +75,24 @@ pub(crate) struct DavMutationConditions<'a> {
     pub(crate) http_target: &'a aster_forge_webdav::DavPath,
 }
 
+fn deltav_backend_to_fs_error(error: DavBackendError) -> FsError {
+    match error.kind {
+        DavBackendErrorKind::NotFound => FsError::NotFound,
+        DavBackendErrorKind::Forbidden => FsError::Forbidden,
+        DavBackendErrorKind::AlreadyExists => FsError::Exists,
+        DavBackendErrorKind::InsufficientStorage => FsError::InsufficientStorage,
+        DavBackendErrorKind::PayloadTooLarge => FsError::TooLarge,
+        DavBackendErrorKind::InvalidInput => FsError::BadRequest,
+        DavBackendErrorKind::Conflict
+        | DavBackendErrorKind::Locked
+        | DavBackendErrorKind::Unsupported
+        | DavBackendErrorKind::Internal => {
+            tracing::warn!(kind = ?error.kind, "DeltaV backend failure crossed the filesystem adapter");
+            FsError::GeneralFailure
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) enum AsterDavMutationError {
     FileSystem(FsError),
@@ -669,7 +687,7 @@ impl DavFileSystem for AsterDavFs {
                     .deltav_metadata(path)
                     .await
                     .map(|metadata| Box::new(metadata) as Box<dyn DavMetaData>)
-                    .map_err(|_| FsError::GeneralFailure);
+                    .map_err(deltav_backend_to_fs_error);
             }
             let node = path_resolver::resolve_path_cached_for_read_in_scope(
                 &self.state,
@@ -1044,11 +1062,13 @@ impl DavFileSystem for AsterDavFs {
                 crate::webdav::deltav::classify_reserved_path(path),
                 crate::webdav::deltav::ReservedDeltavPath::Version(_)
             ) {
-                return self
-                    .deltav_dead_properties(path)
-                    .await
-                    .map(|properties| !properties.is_empty())
-                    .unwrap_or(false);
+                return match self.deltav_dead_properties(path).await {
+                    Ok(properties) => !properties.is_empty(),
+                    Err(error) => {
+                        tracing::warn!(kind = ?error.kind, "DeltaV dead-property existence lookup failed");
+                        false
+                    }
+                };
             }
             let (entity_type, entity_id) =
                 match resolve_entity_for_read(&self.state, self.scope, path, self.root_folder_id)
@@ -1077,7 +1097,7 @@ impl DavFileSystem for AsterDavFs {
                 return self
                     .deltav_dead_properties(path)
                     .await
-                    .map_err(|_| FsError::NotFound);
+                    .map_err(deltav_backend_to_fs_error);
             }
             let (entity_type, entity_id) =
                 resolve_entity_for_read(&self.state, self.scope, path, self.root_folder_id)
@@ -1111,7 +1131,7 @@ impl DavFileSystem for AsterDavFs {
                         path.clone(),
                         self.deltav_dead_properties(path)
                             .await
-                            .map_err(|_| FsError::GeneralFailure)?,
+                            .map_err(deltav_backend_to_fs_error)?,
                     );
                     continue;
                 }
@@ -1175,10 +1195,22 @@ impl DavFileSystem for AsterDavFs {
                 .await
                 .map_err(|_| FsError::GeneralFailure)?;
 
+            let mut changed = false;
+
             for (set, prop) in &patches {
                 let ns = prop.namespace.as_deref().unwrap_or("");
+                let current =
+                    property_repo::find_by_key(&txn, entity_type, entity_id, ns, &prop.name)
+                        .await
+                        .map_err(|_| FsError::GeneralFailure)?;
                 if *set {
                     let value = prop.xml.as_ref().map(|x| String::from_utf8_lossy(x));
+                    if current
+                        .as_ref()
+                        .is_some_and(|current| current.value.as_deref() == value.as_deref())
+                    {
+                        continue;
+                    }
                     property_repo::upsert(
                         &txn,
                         entity_type,
@@ -1189,43 +1221,54 @@ impl DavFileSystem for AsterDavFs {
                     )
                     .await
                     .map_err(|_| FsError::GeneralFailure)?;
+                    changed = true;
                 } else {
+                    if current.is_none() {
+                        continue;
+                    }
                     property_repo::delete_prop(&txn, entity_type, entity_id, ns, &prop.name)
                         .await
                         .map_err(|_| FsError::GeneralFailure)?;
+                    changed = true;
                 }
             }
 
-            if matches!(entity_type, EntityType::File) {
+            if changed && matches!(entity_type, EntityType::File) {
                 let file = file_repo::find_by_id(&txn, entity_id)
                     .await
                     .map_err(|_| FsError::GeneralFailure)?;
-                let actor_username =
-                    crate::services::workspace::storage::load_scope_actor_username(
-                        &txn, self.scope,
+                let history =
+                    crate::db::repository::revision_repo::find_history_by_file_id(&txn, file.id)
+                        .await
+                        .map_err(|_| FsError::GeneralFailure)?;
+                if history.deltav_controlled_at.is_some() {
+                    let actor_username =
+                        crate::services::workspace::storage::load_scope_actor_username(
+                            &txn, self.scope,
+                        )
+                        .await
+                        .map_err(|_| FsError::GeneralFailure)?;
+                    crate::db::repository::revision_repo::append(
+                        &txn,
+                        file.id,
+                        None,
+                        crate::db::repository::revision_repo::NewRevision {
+                            blob_id: file.blob_id,
+                            logical_size: file.size,
+                            mime_type: &file.mime_type,
+                            content_sha256: None,
+                            creator_user_id: Some(self.scope.actor_user_id()),
+                            creator_display_name: &actor_username,
+                            comment: None,
+                            reason:
+                                crate::db::repository::revision_repo::RevisionReason::PropertyChange,
+                            created_at: Utc::now(),
+                            etag: None,
+                        },
                     )
                     .await
                     .map_err(|_| FsError::GeneralFailure)?;
-                crate::db::repository::revision_repo::append(
-                    &txn,
-                    file.id,
-                    None,
-                    crate::db::repository::revision_repo::NewRevision {
-                        blob_id: file.blob_id,
-                        logical_size: file.size,
-                        mime_type: &file.mime_type,
-                        content_sha256: None,
-                        creator_user_id: Some(self.scope.actor_user_id()),
-                        creator_display_name: &actor_username,
-                        comment: None,
-                        reason:
-                            crate::db::repository::revision_repo::RevisionReason::PropertyChange,
-                        created_at: Utc::now(),
-                        etag: None,
-                    },
-                )
-                .await
-                .map_err(|_| FsError::GeneralFailure)?;
+                }
             }
 
             transaction::commit(txn)

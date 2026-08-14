@@ -589,7 +589,11 @@ async fn test_webdav_real_http_deltav_rfc3253_workflow() {
             .and_then(|value| value.to_str().ok()),
         Some("private, max-age=31536000, immutable")
     );
-    assert!(immutable_get.headers().contains_key("ETag"));
+    let immutable_etag = immutable_get
+        .headers()
+        .get("ETag")
+        .expect("immutable version GET should expose an ETag")
+        .clone();
     assert_eq!(
         immutable_get
             .bytes()
@@ -598,6 +602,15 @@ async fn test_webdav_real_http_deltav_rfc3253_workflow() {
             .as_ref(),
         initial_content
     );
+
+    let not_modified = client
+        .get(&initial_version_url)
+        .basic_auth(&username, Some(&password))
+        .header("If-None-Match", immutable_etag)
+        .send()
+        .await
+        .expect("immutable conditional GET should receive a response");
+    assert_eq!(not_modified.status(), reqwest::StatusCode::NOT_MODIFIED);
 
     let immutable_head = client
         .head(&initial_version_url)
@@ -626,6 +639,13 @@ async fn test_webdav_real_http_deltav_rfc3253_workflow() {
     assert_eq!(
         immutable_range.status(),
         reqwest::StatusCode::PARTIAL_CONTENT
+    );
+    assert_eq!(
+        immutable_range
+            .headers()
+            .get("Content-Range")
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("bytes 11-18/{}", initial_content.len()).as_str())
     );
     assert_eq!(
         immutable_range
