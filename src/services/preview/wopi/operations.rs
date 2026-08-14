@@ -91,10 +91,13 @@ pub async fn get_file_contents(
     request_source: WopiRequestSource<'_>,
 ) -> Result<WopiGetFileResult> {
     let resolved = resolve_access_token(state, file_id, access_token, request_source).await?;
-    let blob = file_repo::find_blob_by_id(state.writer_db(), resolved.file.blob_id).await?;
+    let scope = scope_from_payload(&resolved.payload);
+    let (file, blob, revision) =
+        file::load_current_download_snapshot(state, resolved.file.id).await?;
+    crate::services::workspace::storage::ensure_active_file_scope(&file, scope)?;
     let max_expected_size = parse_wopi_max_expected_size(max_expected_size)?;
     if let Some(max_expected_size) = max_expected_size
-        && resolved.file.size > max_expected_size
+        && file.size > max_expected_size
     {
         return Err(precondition_failed_with_code(
             ApiErrorCode::WopiMaxExpectedSizeExceeded,
@@ -102,12 +105,10 @@ pub async fn get_file_contents(
         ));
     }
 
-    let item_version =
-        crate::db::repository::revision_repo::current_etag(state.writer_db(), resolved.file.id)
-            .await?;
+    let item_version = revision.etag;
     let outcome = file::build_stream_outcome_with_disposition(
         state,
-        &resolved.file,
+        &file,
         &blob,
         file::DownloadDisposition::Inline,
         if_none_match,
@@ -115,15 +116,14 @@ pub async fn get_file_contents(
     )
     .await?;
     let audit_ctx = request_info.to_context(resolved.payload.actor_user_id);
-    let scope = scope_from_payload(&resolved.payload);
-    let details = file::audit_location_details_for_model(state, scope, &resolved.file).await;
+    let details = file::audit_location_details_for_model(state, scope, &file).await;
     audit::log_with_details(
         state,
         &audit_ctx,
         audit::AuditAction::FileDownload,
         crate::services::ops::audit::AuditEntityType::File,
-        Some(resolved.file.id),
-        Some(&resolved.file.name),
+        Some(file.id),
+        Some(&file.name),
         || details.clone(),
     )
     .await;
@@ -254,6 +254,7 @@ pub async fn put_relative_file(
                             payload,
                         )
                         .declared_size(declared_size)
+                        .expect_missing()
                         .exact_name(),
                     )
                     .await?;
@@ -309,6 +310,12 @@ pub async fn put_relative_file(
                         }
                     }
 
+                    let current_revision =
+                        crate::db::repository::revision_repo::find_current_by_file_id(
+                            state.writer_db(),
+                            existing.id,
+                        )
+                        .await?;
                     let target = store_relative_target_from_stream(
                         state,
                         StoreRelativeTargetParams::new(
@@ -318,7 +325,7 @@ pub async fn put_relative_file(
                             payload,
                         )
                         .declared_size(declared_size)
-                        .overwrite(existing.id)
+                        .overwrite(&existing, current_revision.id)
                         .exact_name(),
                     )
                     .await?;

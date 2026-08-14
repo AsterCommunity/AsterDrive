@@ -8,7 +8,7 @@ use crate::services::files::file::{
     inline_sandbox_csp, requires_inline_sandbox,
 };
 use crate::services::workspace::storage::WorkspaceStorageScope;
-use aster_drive_model::entities::{file, file_blob};
+use aster_drive_model::entities::{file, file_blob, file_revision};
 use aster_drive_storage::PresignedDownloadOptions;
 use aster_forge_utils::numbers;
 
@@ -16,6 +16,28 @@ use super::range::ResolvedDownloadRange;
 use super::types::{DownloadOutcome, StreamedFile};
 
 const PRESIGNED_DOWNLOAD_TTL_SECS: u64 = 5 * 60;
+
+pub(crate) async fn load_current_download_snapshot(
+    state: &PrimaryAppState,
+    file_id: i64,
+) -> Result<(file::Model, file_blob::Model, file_revision::Model)> {
+    let (file, blob, revision) =
+        crate::db::repository::revision_repo::find_file_blob_and_current_revision(
+            state.writer_db(),
+            file_id,
+        )
+        .await?;
+    if revision.blob_id != Some(file.blob_id)
+        || revision.logical_size != file.size
+        || blob.id != file.blob_id
+        || blob.size != file.size
+    {
+        return Err(AsterError::internal_error(format!(
+            "file #{file_id} content projection does not match its current revision"
+        )));
+    }
+    Ok((file, blob, revision))
+}
 
 pub(crate) async fn download_in_scope_with_range_and_file(
     state: &PrimaryAppState,
@@ -33,13 +55,13 @@ pub(crate) async fn download_in_scope_with_range_and_file(
         has_range = range.is_some(),
         "starting file download"
     );
-    let file = match file {
+    let authorized = match file {
         Some(file) => file,
         None => get_info_in_scope(state, scope, id).await?,
     };
-    let blob = file_repo::find_blob_by_id(state.reader_db(), file.blob_id).await?;
-    let revision_etag =
-        crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id).await?;
+    crate::services::workspace::storage::ensure_active_file_scope(&authorized, scope)?;
+    let (file, blob, revision) = load_current_download_snapshot(state, authorized.id).await?;
+    crate::services::workspace::storage::ensure_active_file_scope(&file, scope)?;
     build_download_outcome_with_disposition_and_range(
         state,
         &file,
@@ -47,7 +69,7 @@ pub(crate) async fn download_in_scope_with_range_and_file(
         disposition,
         if_none_match,
         range,
-        &revision_etag,
+        &revision.etag,
     )
     .await
 }
@@ -88,10 +110,15 @@ async fn download_raw_unchecked_with_file(
     file: file::Model,
     if_none_match: Option<&str>,
 ) -> Result<DownloadOutcome> {
-    let blob = file_repo::find_blob_by_id(state.reader_db(), file.blob_id).await?;
-    let revision_etag =
-        crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id).await?;
-    build_stream_outcome(state, &file, &blob, if_none_match, None, &revision_etag).await
+    let (file, blob, revision) = load_current_download_snapshot(state, file.id).await?;
+    ensure_personal_file_scope(&file)?;
+    if file.deleted_at.is_some() {
+        return Err(AsterError::file_not_found(format!(
+            "file #{} is in trash",
+            file.id
+        )));
+    }
+    build_stream_outcome(state, &file, &blob, if_none_match, None, &revision.etag).await
 }
 
 /// 构建流式下载结果（Attachment disposition）

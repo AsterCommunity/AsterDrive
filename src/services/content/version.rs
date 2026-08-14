@@ -235,7 +235,9 @@ async fn restore_version_in_scope(
     {
         storage::require_team_management_access(state, team_id, actor_user_id).await?;
     }
-    restore_version_inner(state, scope, file, version_id).await
+    let restored = restore_version_inner(state, scope, file, version_id).await?;
+    cleanup_excess(state, file_id).await?;
+    Ok(restored)
 }
 
 async fn delete_version_in_scope(

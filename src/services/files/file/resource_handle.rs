@@ -39,10 +39,11 @@ pub(crate) async fn resolve_file_resource_handle(
     let authorized = get_info_in_scope(state, scope, file_id).await?;
     let (file, blob, revision) =
         crate::db::repository::revision_repo::find_file_blob_and_current_revision(
-            state.reader_db(),
+            state.writer_db(),
             file_id,
         )
         .await?;
+    crate::services::workspace::storage::ensure_active_file_scope(&file, scope)?;
     debug_assert_eq!(authorized.id, file.id);
     resolve_file_resource_handle_for_file(
         state,

@@ -156,21 +156,23 @@ impl AsterDavFs {
         )
         .await?;
 
-        let file = match node {
+        let authorized = match node {
             ResolvedNode::Root | ResolvedNode::Folder(_) => {
                 return Ok(None);
             }
             ResolvedNode::File(file) => file,
         };
 
-        let blob = file_repo::find_blob_by_id(self.state.reader_db(), file.blob_id)
-            .await
-            .map_err(|_| FsError::GeneralFailure)?;
-        let revision_etag =
-            crate::db::repository::revision_repo::current_etag(self.state.reader_db(), file.id)
+        let (file, blob, revision) =
+            file_ops::load_current_download_snapshot(&self.state, authorized.id)
                 .await
-                .map_err(|_| FsError::GeneralFailure)?;
-        let meta = AsterDavMeta::from_file(&file, revision_etag);
+                .map_err(to_fs_error)?;
+        crate::services::workspace::storage::ensure_active_file_scope(&file, self.scope)
+            .map_err(to_fs_error)?;
+        if file.folder_id != authorized.folder_id || file.name != authorized.name {
+            return Err(FsError::NotFound);
+        }
+        let meta = AsterDavMeta::from_file(&file, revision.etag);
 
         Ok(Some(AsterDavDownloadFile { file, blob, meta }))
     }
@@ -206,14 +208,17 @@ impl AsterDavFs {
         match node {
             ResolvedNode::Root => Ok(AsterDavMeta::root()),
             ResolvedNode::Folder(folder) => Ok(AsterDavMeta::from_folder(&folder)),
-            ResolvedNode::File(file) => {
-                let revision_etag = crate::db::repository::revision_repo::current_etag(
-                    self.state.writer_db(),
-                    file.id,
-                )
-                .await
-                .map_err(|_| FsError::GeneralFailure)?;
-                Ok(AsterDavMeta::from_file(&file, revision_etag))
+            ResolvedNode::File(authorized) => {
+                let (file, _, revision) =
+                    file_ops::load_current_download_snapshot(&self.state, authorized.id)
+                        .await
+                        .map_err(to_fs_error)?;
+                crate::services::workspace::storage::ensure_active_file_scope(&file, self.scope)
+                    .map_err(to_fs_error)?;
+                if file.folder_id != authorized.folder_id || file.name != authorized.name {
+                    return Err(FsError::NotFound);
+                }
+                Ok(AsterDavMeta::from_file(&file, revision.etag))
             }
         }
     }
@@ -677,14 +682,19 @@ impl DavFileSystem for AsterDavFs {
             let meta: Box<dyn DavMetaData> = match node {
                 ResolvedNode::Root => Box::new(AsterDavMeta::root()),
                 ResolvedNode::Folder(f) => Box::new(AsterDavMeta::from_folder(&f)),
-                ResolvedNode::File(f) => {
-                    let revision_etag = crate::db::repository::revision_repo::current_etag(
-                        self.state.reader_db(),
-                        f.id,
+                ResolvedNode::File(authorized) => {
+                    let (file, _, revision) =
+                        file_ops::load_current_download_snapshot(&self.state, authorized.id)
+                            .await
+                            .map_err(to_fs_error)?;
+                    crate::services::workspace::storage::ensure_active_file_scope(
+                        &file, self.scope,
                     )
-                    .await
-                    .map_err(|_| FsError::GeneralFailure)?;
-                    Box::new(AsterDavMeta::from_file(&f, revision_etag))
+                    .map_err(to_fs_error)?;
+                    if file.folder_id != authorized.folder_id || file.name != authorized.name {
+                        return Err(FsError::NotFound);
+                    }
+                    Box::new(AsterDavMeta::from_file(&file, revision.etag))
                 }
             };
 
@@ -939,16 +949,17 @@ impl DavFileSystem for AsterDavFs {
                     .await;
                 }
                 ResolvedNode::Folder(f) => {
-                    let (copied, storage_delta) = folder::copy_folder_tree_in_scope(
-                        &state,
-                        self.scope,
-                        f.id,
-                        dest_parent_id,
-                        &dest_name,
-                        Some(MUTATION_FOLDER_TREE_LIMITS),
-                    )
-                    .await
-                    .map_err(to_fs_error)?;
+                    let (copied, storage_delta) =
+                        folder::copy_folder_tree_in_scope_with_user_properties(
+                            &state,
+                            self.scope,
+                            f.id,
+                            dest_parent_id,
+                            &dest_name,
+                            Some(MUTATION_FOLDER_TREE_LIMITS),
+                        )
+                        .await
+                        .map_err(to_fs_error)?;
                     storage_change::publish(
                         &state,
                         storage_change::StorageChangeEvent::new(
@@ -960,8 +971,13 @@ impl DavFileSystem for AsterDavFs {
                         )
                         .with_storage_delta(storage_delta),
                     );
-                    copy_visible_properties_for_copied_tree(&state, self.scope(), f.id, copied.id)
-                        .await?;
+                    copy_visible_folder_properties_for_copied_tree(
+                        &state,
+                        self.scope(),
+                        f.id,
+                        copied.id,
+                    )
+                    .await?;
                     let details = folder::audit_transfer_details_for_models(
                         &state,
                         self.scope(),
@@ -1310,23 +1326,7 @@ async fn load_child_folders_in_scope(
     .map_err(|_| FsError::GeneralFailure)
 }
 
-async fn load_files_in_folders_in_scope(
-    state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
-    folder_ids: &[i64],
-) -> Result<Vec<aster_drive_model::entities::file::Model>, FsError> {
-    match scope {
-        WorkspaceStorageScope::Personal { user_id } => {
-            file_repo::find_by_folders(state.writer_db(), user_id, folder_ids).await
-        }
-        WorkspaceStorageScope::Team { team_id, .. } => {
-            file_repo::find_by_team_folders(state.writer_db(), team_id, folder_ids).await
-        }
-    }
-    .map_err(|_| FsError::GeneralFailure)
-}
-
-async fn copy_visible_properties_for_copied_tree(
+async fn copy_visible_folder_properties_for_copied_tree(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     src_root_id: i64,
@@ -1350,43 +1350,10 @@ async fn copy_visible_properties_for_copied_tree(
         let dest_folder_ids: Vec<i64> = frontier.iter().map(|(_, dest)| *dest).collect();
         let dest_parent_by_src: HashMap<i64, i64> = frontier.iter().copied().collect();
 
-        let (src_files, dest_files, src_children, dest_children) = tokio::try_join!(
-            load_files_in_folders_in_scope(state, scope, &src_folder_ids),
-            load_files_in_folders_in_scope(state, scope, &dest_folder_ids),
+        let (src_children, dest_children) = tokio::try_join!(
             load_child_folders_in_scope(state, scope, &src_folder_ids),
             load_child_folders_in_scope(state, scope, &dest_folder_ids),
         )?;
-
-        let dest_file_by_parent_and_name: HashMap<(i64, String), i64> = dest_files
-            .into_iter()
-            .filter_map(|file| {
-                file.folder_id
-                    .map(|folder_id| ((folder_id, file.name), file.id))
-            })
-            .collect();
-
-        for src_file in src_files {
-            let Some(src_parent_id) = src_file.folder_id else {
-                return Err(FsError::GeneralFailure);
-            };
-            let Some(dest_parent_id) = dest_parent_by_src.get(&src_parent_id).copied() else {
-                return Err(FsError::GeneralFailure);
-            };
-            let Some(dest_file_id) = dest_file_by_parent_and_name
-                .get(&(dest_parent_id, src_file.name.clone()))
-                .copied()
-            else {
-                return Err(FsError::GeneralFailure);
-            };
-            copy_visible_entity_properties(
-                state,
-                EntityType::File,
-                src_file.id,
-                EntityType::File,
-                dest_file_id,
-            )
-            .await?;
-        }
 
         let dest_child_by_parent_and_name: HashMap<(i64, String), i64> = dest_children
             .into_iter()

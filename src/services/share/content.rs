@@ -643,10 +643,18 @@ async fn download_share_resource_with_disposition(
         has_if_none_match = if_none_match.is_some(),
         "starting shared file download"
     );
-    let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id).await?;
-
-    let revision_etag =
-        crate::db::repository::revision_repo::current_etag(state.writer_db(), file.id).await?;
+    let (current_file, blob, revision) =
+        file_ops::load_current_download_snapshot(state, file.id).await?;
+    if current_file.deleted_at.is_some()
+        || current_file.owner_user_id != file.owner_user_id
+        || current_file.team_id != file.team_id
+        || current_file.folder_id != file.folder_id
+    {
+        return Err(AsterError::share_not_found(
+            "shared file changed location before download",
+        ));
+    }
+    let revision_etag = revision.etag;
     if let Some(if_none_match) = if_none_match
         && file_ops::if_none_match_matches(if_none_match, &revision_etag)
     {
@@ -657,7 +665,7 @@ async fn download_share_resource_with_disposition(
         );
         return file_ops::build_download_outcome_with_disposition_and_range(
             state,
-            file,
+            &current_file,
             &blob,
             disposition,
             Some(if_none_match),
@@ -671,7 +679,7 @@ async fn download_share_resource_with_disposition(
 
     match file_ops::build_download_outcome_with_disposition_and_range(
         state,
-        file,
+        &current_file,
         &blob,
         disposition,
         None,

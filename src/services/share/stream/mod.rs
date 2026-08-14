@@ -10,7 +10,7 @@ use std::time::Duration as StdDuration;
 use utoipa::ToSchema;
 
 use crate::config::{operations, site_url};
-use crate::db::repository::{file_repo, share_repo};
+use crate::db::repository::share_repo;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::{
@@ -125,10 +125,19 @@ pub(crate) async fn stream_file(
         | ResolvedShareStreamTarget::Marked { share, file } => (share, file),
     };
     direct_link::validate_public_file_name(&file, requested_name)?;
-
-    let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id).await?;
-    let revision_etag =
-        crate::db::repository::revision_repo::current_etag(state.writer_db(), file.id).await?;
+    let authorized = file;
+    let (file, blob, revision) =
+        file_ops::load_current_download_snapshot(state, authorized.id).await?;
+    if file.deleted_at.is_some()
+        || file.owner_user_id != authorized.owner_user_id
+        || file.team_id != authorized.team_id
+        || file.folder_id != authorized.folder_id
+    {
+        return Err(AsterError::share_not_found(
+            "shared stream target changed location before download",
+        ));
+    }
+    direct_link::validate_public_file_name(&file, requested_name)?;
     let count_reservation = ensure_counted_once(state, session_token, &payload).await?;
 
     if matches!(count_reservation, CountReservation::Reserved) {
@@ -159,7 +168,7 @@ pub(crate) async fn stream_file(
         file_ops::DownloadDisposition::Inline,
         None,
         range,
-        &revision_etag,
+        &revision.etag,
     )
     .await
     {

@@ -943,7 +943,8 @@ describe("VersionHistoryDialog", () => {
 		expect(
 			mockState.invalidateFileResourceCachesForMutation,
 		).toHaveBeenCalledTimes(1);
-		expect(screen.getByText("v2")).toBeInTheDocument();
+		expect(screen.queryByText("v2")).not.toBeInTheDocument();
+		expect(screen.getByText("version_empty")).toBeInTheDocument();
 	});
 
 	it("keeps successful delete state usable when refreshing history fails", async () => {
@@ -978,12 +979,8 @@ describe("VersionHistoryDialog", () => {
 			expect(mockState.handleApiError).toHaveBeenCalledWith(refreshError);
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("version_deleted");
-		expect(screen.getByText("v2")).toBeInTheDocument();
-		expect(
-			within(versionRow as HTMLTableRowElement).getByRole("button", {
-				name: "version_delete",
-			}),
-		).toBeEnabled();
+		expect(screen.queryByText("v2")).not.toBeInTheDocument();
+		expect(screen.getByText("version_empty")).toBeInTheDocument();
 	});
 
 	it("ignores an initial response that belongs to a previous file", async () => {

@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::config::site_url;
-use crate::db::repository::file_repo;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
@@ -131,24 +130,30 @@ pub(crate) async fn download_file(
     range: Option<ResolvedDownloadRange>,
 ) -> Result<file_ops::DownloadOutcome> {
     let resolved = resolve_token(state, token).await?;
-    let file = match &resolved {
+    let authorized = match &resolved {
         ResolvedPreviewTarget::File { file, .. } => file,
         ResolvedPreviewTarget::Shared { file, .. } => file,
     };
-
-    direct_link::validate_public_file_name(file, requested_name)?;
-
-    let blob = file_repo::find_blob_by_id(state.reader_db(), file.blob_id).await?;
-    let revision_etag =
-        crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id).await?;
+    let (file, blob, revision) =
+        file_ops::load_current_download_snapshot(state, authorized.id).await?;
+    if file.deleted_at.is_some()
+        || file.owner_user_id != authorized.owner_user_id
+        || file.team_id != authorized.team_id
+        || file.folder_id != authorized.folder_id
+    {
+        return Err(AsterError::share_not_found(
+            "preview target changed after token validation",
+        ));
+    }
+    direct_link::validate_public_file_name(&file, requested_name)?;
     file_ops::build_download_outcome_with_disposition_and_range(
         state,
-        file,
+        &file,
         &blob,
         file_ops::DownloadDisposition::Inline,
         if_none_match,
         range,
-        &revision_etag,
+        &revision.etag,
     )
     .await
 }

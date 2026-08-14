@@ -1,5 +1,6 @@
+use std::collections::HashMap;
 use std::sync::{
-    Arc,
+    Arc, RwLock,
     atomic::{AtomicUsize, Ordering},
 };
 use std::time::Duration;
@@ -28,11 +29,14 @@ use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
 use aster_forge_utils::numbers::usize_to_i64;
 
-use super::build::build_download_outcome_with_disposition_and_range;
+use super::build::{
+    build_download_outcome_with_disposition_and_range, download_in_scope_with_range_and_file,
+};
 use super::range::ResolvedDownloadRange;
 use super::response::outcome_to_response;
 use super::streaming::AbortAwareStream;
 use super::types::DownloadOutcome;
+use crate::services::workspace::storage::WorkspaceStorageScope;
 
 fn payload_len_i64(payload: &[u8]) -> i64 {
     usize_to_i64(payload.len(), "payload_len").expect("test payload length should fit in i64")
@@ -148,6 +152,76 @@ impl StorageDriver for CountingStreamDriver {
     async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         Ok(BlobMetadata {
             size: self.bytes.len() as u64,
+            content_type: Some("text/plain".to_string()),
+        })
+    }
+}
+
+#[derive(Clone, Default)]
+struct PathStreamDriver {
+    objects: Arc<RwLock<HashMap<String, Vec<u8>>>>,
+}
+
+impl PathStreamDriver {
+    fn insert(&self, path: impl Into<String>, bytes: impl Into<Vec<u8>>) {
+        self.objects
+            .write()
+            .unwrap()
+            .insert(path.into(), bytes.into());
+    }
+
+    fn bytes(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
+        self.objects
+            .read()
+            .unwrap()
+            .get(path)
+            .cloned()
+            .ok_or_else(|| {
+                aster_drive_storage::StorageError::new(
+                    aster_drive_storage::StorageErrorKind::NotFound,
+                    format!("missing path-aware test object {path}"),
+                )
+            })
+    }
+}
+
+#[async_trait]
+impl StorageDriver for PathStreamDriver {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
+        self.insert(path, data.to_vec());
+        Ok(path.to_string())
+    }
+
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
+        self.bytes(path)
+    }
+
+    async fn get_stream(
+        &self,
+        path: &str,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
+        let bytes = self.bytes(path)?;
+        let (mut writer, reader) = tokio::io::duplex(bytes.len().max(1));
+        tokio::spawn(async move {
+            writer.write_all(&bytes).await.unwrap();
+            writer.shutdown().await.unwrap();
+        });
+        Ok(Box::new(reader))
+    }
+
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
+        self.objects.write().unwrap().remove(path);
+        Ok(())
+    }
+
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
+        Ok(self.objects.read().unwrap().contains_key(path))
+    }
+
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
+        let bytes = self.bytes(path)?;
+        Ok(BlobMetadata {
+            size: bytes.len() as u64,
             content_type: Some("text/plain".to_string()),
         })
     }
@@ -497,6 +571,94 @@ async fn conditional_download_uses_revision_etag_instead_of_blob_hash() {
         other => panic!("matching revision ETag should return not-modified, got {other:?}"),
     }
     assert_eq!(get_stream_calls.load(Ordering::SeqCst), 0);
+}
+
+#[actix_web::test]
+async fn download_reloads_content_and_etag_from_one_current_snapshot() {
+    let driver = PathStreamDriver::default();
+    let driver_handle = driver.clone();
+    let stale_bytes = b"old".to_vec();
+    let current_bytes = b"new-current".to_vec();
+    let (state, stale_file, stale_blob, _) =
+        build_download_test_state(driver, payload_len_i64(&stale_bytes)).await;
+    driver_handle.insert(stale_blob.storage_path.clone(), stale_bytes);
+
+    let now = Utc::now() + chrono::Duration::seconds(1);
+    let current_blob = file_repo::create_blob(
+        state.writer_db(),
+        file_blob::ActiveModel {
+            hash: Set(format!("current-{}", uuid::Uuid::new_v4())),
+            size: Set(payload_len_i64(&current_bytes)),
+            policy_id: Set(stale_blob.policy_id),
+            storage_path: Set(format!("files/current-{}", uuid::Uuid::new_v4())),
+            ref_count: Set(1),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    driver_handle.insert(current_blob.storage_path.clone(), current_bytes.clone());
+
+    let txn = aster_forge_db::transaction::begin(state.writer_db())
+        .await
+        .unwrap();
+    let history =
+        crate::db::repository::revision_repo::lock_history_by_file_id(&txn, stale_file.id)
+            .await
+            .unwrap();
+    let mut current_file: file::ActiveModel = stale_file.clone().into();
+    current_file.blob_id = Set(current_blob.id);
+    current_file.size = Set(current_blob.size);
+    current_file.updated_at = Set(now);
+    current_file.update(&txn).await.unwrap();
+    let current_revision = crate::db::repository::revision_repo::append(
+        &txn,
+        stale_file.id,
+        history.current_revision_id,
+        crate::db::repository::revision_repo::NewRevision {
+            blob_id: current_blob.id,
+            logical_size: current_blob.size,
+            mime_type: &stale_file.mime_type,
+            content_sha256: None,
+            creator_user_id: stale_file.owner_user_id,
+            creator_display_name: &stale_file.created_by_username,
+            comment: None,
+            reason: crate::db::repository::revision_repo::RevisionReason::Overwrite,
+            created_at: now,
+            etag: None,
+        },
+    )
+    .await
+    .unwrap();
+    aster_forge_db::transaction::commit(txn).await.unwrap();
+
+    let outcome = download_in_scope_with_range_and_file(
+        &state,
+        WorkspaceStorageScope::Personal {
+            user_id: stale_file.owner_user_id.unwrap(),
+        },
+        stale_file.id,
+        Some(stale_file),
+        None,
+        None,
+        DownloadDisposition::Attachment,
+    )
+    .await
+    .unwrap();
+    let response = outcome_to_response(outcome);
+    assert_eq!(
+        response
+            .headers()
+            .get(actix_web::http::header::ETAG)
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        format!("\"{}\"", current_revision.etag)
+    );
+    let body = body::to_bytes(response.into_body()).await.unwrap();
+    assert_eq!(body.as_ref(), current_bytes.as_slice());
 }
 
 fn s3_presigned_download_policy() -> storage_policy::Model {

@@ -58,6 +58,7 @@ type VersionHistoryAction =
 	| { type: "load-more-end"; page?: FileVersionPage }
 	| { type: "load-more-start" }
 	| { type: "load-start" }
+	| { type: "mutation-refresh-start" }
 	| { type: "restore-end"; page?: FileVersionPage }
 	| { type: "restore-start"; versionId: number }
 	| { type: "set-inline-confirm"; inlineConfirm: VersionInlineConfirm | null };
@@ -115,6 +116,8 @@ function versionHistoryReducer(
 			return { ...state, loadingMore: true };
 		case "load-start":
 			return { ...state, loading: true };
+		case "mutation-refresh-start":
+			return { ...VERSION_HISTORY_INITIAL_STATE, loading: true };
 		case "restore-end":
 			return {
 				...state,
@@ -193,7 +196,7 @@ export function VersionHistoryDialog({
 			toast.success(t("version_restored"));
 			onRestored?.();
 			if (requestGeneration.current !== generation) return;
-			dispatch({ type: "restore-end" });
+			dispatch({ type: "mutation-refresh-start" });
 			try {
 				const page = await fileService.listVersions(targetFileId);
 				if (requestGeneration.current !== generation) return;
@@ -201,6 +204,7 @@ export function VersionHistoryDialog({
 			} catch (e) {
 				if (requestGeneration.current !== generation) return;
 				handleApiError(e);
+				dispatch({ type: "load-end" });
 			}
 		} catch (e) {
 			if (requestGeneration.current !== generation) return;
@@ -217,7 +221,7 @@ export function VersionHistoryDialog({
 			await fileService.deleteVersion(targetFileId, versionId);
 			toast.success(t("version_deleted"));
 			if (requestGeneration.current !== generation) return;
-			dispatch({ type: "delete-end" });
+			dispatch({ type: "mutation-refresh-start" });
 			try {
 				const page = await fileService.listVersions(targetFileId);
 				if (requestGeneration.current !== generation) return;
@@ -225,6 +229,7 @@ export function VersionHistoryDialog({
 			} catch (e) {
 				if (requestGeneration.current !== generation) return;
 				handleApiError(e);
+				dispatch({ type: "load-end" });
 			}
 		} catch (e) {
 			if (requestGeneration.current !== generation) return;

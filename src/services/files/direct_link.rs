@@ -72,10 +72,17 @@ pub(crate) async fn download_file(
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,
 ) -> Result<file_ops::DownloadOutcome> {
-    let file = resolve_file_for_download(state, token, requested_name).await?;
-    let blob = file_repo::find_blob_by_id(state.reader_db(), file.blob_id).await?;
-    let revision_etag =
-        crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id).await?;
+    let authorized = resolve_file_for_download(state, token, requested_name).await?;
+    let (file, blob, revision) =
+        file_ops::load_current_download_snapshot(state, authorized.id).await?;
+    validate_file_scope(state, &file).await?;
+    let parsed = parse_token(token)?;
+    if !verify_token_signature(&file, &parsed, &state.config().auth.direct_link_secret)? {
+        return Err(AsterError::share_not_found(
+            "direct link token signature mismatch",
+        ));
+    }
+    validate_public_file_name(&file, requested_name)?;
     let disposition = if force_download {
         file_ops::DownloadDisposition::Attachment
     } else {
@@ -89,7 +96,7 @@ pub(crate) async fn download_file(
         disposition,
         if_none_match,
         range,
-        &revision_etag,
+        &revision.etag,
     )
     .await
 }

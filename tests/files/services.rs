@@ -1242,6 +1242,103 @@ async fn test_version_cleanup_excess_reclaims_storage_used() {
     assert_eq!(versions[1].version, 2);
     assert_eq!(versions[1].size, 6);
     assert_eq!(user_storage_used(&state, user.id).await, 14);
+
+    let restored = aster_drive::services::content::version::restore_version(
+        &state,
+        file.id,
+        versions[1].id,
+        user.id,
+    )
+    .await
+    .unwrap();
+    assert_eq!(restored.size, 6);
+
+    let versions = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(versions.len(), 2, "restore must enforce the history limit");
+    assert_eq!(versions[0].version, 4);
+    assert!(versions[0].current);
+    assert_eq!(versions[0].size, 6);
+    assert_eq!(versions[1].version, 3);
+    assert_eq!(versions[1].size, 8);
+    assert_eq!(user_storage_used(&state, user.id).await, 14);
+}
+
+#[actix_web::test]
+async fn test_version_restore_honors_zero_history_limit() {
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "versionlimit0",
+        "versionlimit0@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+
+    let temp1 = write_service_fixture("limit-zero-v1.txt", "one");
+    let file = aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "limit-zero.txt", &temp1, 3),
+    )
+    .await
+    .unwrap();
+    let initial_revision =
+        aster_drive::db::repository::revision_repo::find_by_file_id(state.writer_db(), file.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|revision| revision.sequence == 1)
+            .unwrap();
+
+    let temp2 = write_service_fixture("limit-zero-v2.txt", "second");
+    aster_drive::services::files::file::store_from_temp(
+        &state,
+        user.id,
+        StoreFromTempRequest::new(None, "limit-zero.txt", &temp2, 6).overwrite(file.id),
+    )
+    .await
+    .unwrap();
+
+    let mut max_versions = aster_drive::db::repository::config_repo::find_by_key(
+        state.writer_db(),
+        "max_versions_per_file",
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    max_versions.value = "0".to_string();
+    state.runtime_config.apply(max_versions);
+
+    aster_drive::services::content::version::restore_version(
+        &state,
+        file.id,
+        initial_revision.id,
+        user.id,
+    )
+    .await
+    .unwrap();
+
+    let versions = aster_drive::services::content::version::list_versions(
+        &state,
+        file.id,
+        user.id,
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(versions.len(), 1);
+    assert!(versions[0].current);
+    assert_eq!(versions[0].version, 3);
+    assert_eq!(versions[0].size, 3);
+    assert_eq!(user_storage_used(&state, user.id).await, 3);
 }
 
 #[actix_web::test]
@@ -2455,6 +2552,56 @@ async fn test_folder_copy_preserves_multi_level_tree_and_storage_used() {
             .unwrap()
             .blob_id
     );
+
+    for copied_file in [
+        &copied_root_files[0],
+        &copied_child_a_files[0],
+        &copied_child_b_files[0],
+        &copied_grandchild_files[0],
+    ] {
+        let history = aster_drive::db::repository::revision_repo::find_history_by_file_id(
+            state.writer_db(),
+            copied_file.id,
+        )
+        .await
+        .expect("every recursively copied file must have a revision history");
+        let revisions = aster_drive::db::repository::revision_repo::find_by_file_id(
+            state.writer_db(),
+            copied_file.id,
+        )
+        .await
+        .unwrap();
+        assert_eq!(revisions.len(), 1);
+        assert_eq!(revisions[0].sequence, 1);
+        assert_eq!(revisions[0].reason, "copy");
+        assert_eq!(history.current_revision_id, Some(revisions[0].id));
+        assert_eq!(revisions[0].blob_id, Some(copied_file.blob_id));
+    }
+}
+
+#[actix_web::test]
+async fn test_empty_folder_copy_creates_no_revision_rows() {
+    let state = common::setup().await;
+    let user =
+        common::create_test_account(&state, "copyempty", "copyempty@example.com", "pass1234")
+            .await
+            .unwrap();
+    let source = aster_drive::services::files::folder::create(&state, user.id, "Empty", None)
+        .await
+        .unwrap();
+
+    let copied =
+        aster_drive::services::files::folder::copy_folder(&state, source.id, user.id, None)
+            .await
+            .unwrap();
+    let copied_files = aster_drive::db::repository::file_repo::find_by_folder(
+        state.writer_db(),
+        user.id,
+        Some(copied.id),
+    )
+    .await
+    .unwrap();
+    assert!(copied_files.is_empty());
 }
 
 #[actix_web::test]
