@@ -36,6 +36,7 @@ vi.mock("@/lib/uploadPersistence", () => ({
 }));
 
 import {
+	cancelUploadTask,
 	clearTerminalUploadTasks,
 	retryUploadTask,
 	runQueuedUploadTask,
@@ -60,6 +61,59 @@ function task(
 		progress: status === "completed" ? 100 : 0,
 		error: status === "failed" ? "failed" : null,
 		uploadId,
+	};
+}
+
+function createZeroByteTaskActionsFixture(taskId: string) {
+	let tasks = [task(taskId, "queued", null)];
+	tasks[0].file = new File([], `${taskId}.txt`);
+	tasks[0].mode = null;
+	const tasksRef = { current: tasks };
+	const directAbortRef = { current: new Map<string, AbortController>() };
+	const markFolderForRefresh = vi.fn();
+	const markTaskFailed = vi.fn();
+	const patchTask = vi.fn(
+		(currentTaskId: string, patch: Partial<UploadTask>) => {
+			tasks = tasks.map((item) =>
+				item.id === currentTaskId ? { ...item, ...patch } : item,
+			);
+			tasksRef.current = tasks;
+		},
+	);
+	const setTasks: Dispatch<SetStateAction<UploadTask[]>> = (update) => {
+		tasks = typeof update === "function" ? update(tasks) : update;
+		tasksRef.current = tasks;
+	};
+	const context = {
+		abortFlagsRef: { current: new Map<string, boolean>() },
+		cancelMultipartSession: vi.fn(),
+		directAbortRef,
+		markFolderForRefresh,
+		markTaskFailed,
+		patchTask,
+		resumeCompletionTask: vi.fn(),
+		runChunkedUpload: vi.fn(),
+		runDirectUpload: vi.fn(),
+		runMultipartUpload: vi.fn(),
+		runPresignedUpload: vi.fn(),
+		runProviderResumableUpload: vi.fn(),
+		setTasks,
+		setUploadPanelOpen: vi.fn(),
+		taskOperationLocks: new Map(),
+		t: vi.fn(),
+		tasksRef,
+		uploadRequestRef: { current: new Map() },
+		workspace: { kind: "personal" },
+	} as unknown as UploadTaskActionsContext & {
+		markFolderForRefresh: (task: UploadTask) => void;
+	};
+
+	return {
+		context,
+		directAbortRef,
+		markFolderForRefresh,
+		markTaskFailed,
+		tasksRef,
 	};
 }
 
@@ -419,6 +473,50 @@ describe("runQueuedUploadTask", () => {
 			expect.objectContaining({ mode: "direct", status: "completed" }),
 		);
 		expect(markFolderForRefresh).toHaveBeenCalledWith(queuedTask);
+	});
+
+	it("keeps cancelled zero-byte tasks terminal when abort rejects the request", async () => {
+		createEmptyFile.mockReset();
+		createEmptyFile.mockImplementation(
+			(
+				_name: string,
+				_folderId: number | null,
+				_relativePath: string | undefined,
+				options: { signal: AbortSignal },
+			) =>
+				new Promise((_resolve, reject) => {
+					options.signal.addEventListener(
+						"abort",
+						() => reject(new DOMException("Aborted", "AbortError")),
+						{ once: true },
+					);
+				}),
+		);
+		const fixture = createZeroByteTaskActionsFixture("cancelled-empty");
+
+		const runPromise = runQueuedUploadTask("cancelled-empty", fixture.context);
+		await vi.waitFor(() => expect(createEmptyFile).toHaveBeenCalledTimes(1));
+
+		await cancelUploadTask("cancelled-empty", fixture.context);
+		await runPromise;
+
+		expect(fixture.tasksRef.current[0]?.status).toBe("cancelled");
+		expect(fixture.markTaskFailed).not.toHaveBeenCalled();
+		expect(fixture.markFolderForRefresh).not.toHaveBeenCalled();
+		expect(fixture.directAbortRef.current).toEqual(new Map());
+	});
+
+	it("reports zero-byte creation failures and releases the abort controller", async () => {
+		const error = new Error("empty file creation failed");
+		createEmptyFile.mockReset();
+		createEmptyFile.mockRejectedValue(error);
+		const fixture = createZeroByteTaskActionsFixture("failed-empty");
+
+		await runQueuedUploadTask("failed-empty", fixture.context);
+
+		expect(fixture.markTaskFailed).toHaveBeenCalledWith("failed-empty", error);
+		expect(fixture.markFolderForRefresh).not.toHaveBeenCalled();
+		expect(fixture.directAbortRef.current).toEqual(new Map());
 	});
 
 	it("passes the original initialization error to task failure handling", async () => {
