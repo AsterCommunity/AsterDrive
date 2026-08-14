@@ -112,6 +112,15 @@ fn avatar_revision_matches(
     base_version == current_version
 }
 
+fn next_avatar_version(current: Option<&user_profile::Model>) -> Result<i32> {
+    current.map_or(Ok(1), |profile| {
+        profile
+            .avatar_version
+            .checked_add(1)
+            .ok_or_else(|| AsterError::internal_error("avatar version exhausted"))
+    })
+}
+
 async fn write_staged_avatar_variants(
     avatar_root_dir: &std::path::Path,
     staged: &StagedAvatarUpload,
@@ -203,10 +212,7 @@ async fn publish_staged_avatar(
                 }
 
                 user_repo::check_quota(txn, transaction_user_id, output_size).await?;
-                let version = current_profile
-                    .as_ref()
-                    .map(|profile| profile.avatar_version.saturating_add(1))
-                    .unwrap_or(1);
+                let version = next_avatar_version(current_profile.as_ref())?;
                 let prefix_key = user_avatar_prefix(transaction_user_id, version);
                 let prefix = user_avatar_dir(&avatar_root_dir, transaction_user_id, version);
                 let Some(prefix_parent) = prefix.parent() else {
@@ -334,7 +340,7 @@ pub async fn set_avatar_source(
         let now = Utc::now();
         let saved = match existing.clone() {
             Some(current) => {
-                let next_version = current.avatar_version.saturating_add(1);
+                let next_version = next_avatar_version(Some(&current))?;
                 let mut active: user_profile::ActiveModel = current.into();
                 active.avatar_source = Set(source);
                 active.avatar_key = Set(None);
@@ -422,7 +428,7 @@ pub fn avatar_image_response(bytes: Vec<u8>) -> HttpResponse {
 mod tests {
     use chrono::Utc;
 
-    use super::avatar_revision_matches;
+    use super::{avatar_revision_matches, next_avatar_version};
     use aster_drive_model::entities::user_profile;
     use aster_drive_model::types::AvatarSource;
 
@@ -456,5 +462,15 @@ mod tests {
             Some(&profile_only),
             Some(&gravatar)
         ));
+    }
+
+    #[test]
+    fn avatar_version_increment_is_checked() {
+        assert_eq!(next_avatar_version(None).unwrap(), 1);
+        assert_eq!(
+            next_avatar_version(Some(&profile(41, AvatarSource::Upload))).unwrap(),
+            42
+        );
+        assert!(next_avatar_version(Some(&profile(i32::MAX, AvatarSource::Upload))).is_err());
     }
 }

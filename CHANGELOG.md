@@ -97,7 +97,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Changed
 
-- **头像上传资源边界与同步结果契约** — 内置前端将裁剪结果归一化为最大 1024×1024 WebP，服务端以流式 staging、10 MiB 默认/16 MiB 硬顶源文件限制、1024×1024 dimensions、32 MiB 解码 allocation 和每进程 2 路渲染并发约束头像峰值；上传同步返回 `profile + applied`，并发头像 mutation 覆盖候选或处理失败时保留当前头像，不创建后台任务。
+- **头像上传资源边界与同步结果契约** — 内置前端将裁剪结果归一化为最大 1024×1024 WebP，服务端以流式 staging、10 MiB 默认/16 MiB 硬顶源文件限制、1024×1024 dimensions、32 MiB 解码 allocation 和每进程 2 路渲染并发约束头像峰值；Images processor 复用同一 decoder 完成 dimensions 校验与像素解码，避免 JPEG 压缩源被完整读取两遍，并通过等待时长、waiting 和 active 指标区分正常排队与实际渲染；上传同步返回 `profile + applied`，并发头像 mutation 覆盖候选或处理失败时保留当前头像，不创建后台任务。
 - **存储策略持久化模型** — current `storage_policy` entity 收敛为 `id`、`name`、`connector_id`、`storage_config`、文件大小/类型/默认策略/chunk 行为与时间戳；运行时通过 connector projection 读取 endpoint、bucket、base path、远端绑定和 provider 行为，不再直接访问旧平铺列。
 - **存储策略 API 编排** — create、update、draft connection test、saved connection test、authorization 与 custom action 统一按 connector registry 查找和分发；请求中的 malformed / unknown connector 返回输入校验错误，数据库中未知 connector ID 则作为持久化配置损坏处理。
 - **Credential migration ownership** — 0.5.x 启动在 runtime config 和 encryption key 可用后、正式监听服务前，于 database migration lock 下执行幂等 legacy credential import；`database-migrate apply` 在目标数据复制校验完成后复用同一 importer。

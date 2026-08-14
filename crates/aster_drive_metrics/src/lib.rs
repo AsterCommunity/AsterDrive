@@ -88,6 +88,15 @@ pub trait MetricsRecorder: Send + Sync {
     /// Records synchronous avatar render latency.
     fn record_avatar_render_duration(&self, processor: &'static str, duration_seconds: f64) {}
 
+    /// Records time spent waiting for an avatar render concurrency permit.
+    fn record_avatar_render_wait_duration(&self, duration_seconds: f64) {}
+
+    /// Adjusts the number of avatar renders waiting for a concurrency permit.
+    fn adjust_avatar_render_waiting(&self, delta: i64) {}
+
+    /// Adjusts the number of avatar renders currently holding a concurrency permit.
+    fn adjust_avatar_render_active(&self, delta: i64) {}
+
     /// Records an avatar rejection at a stable boundary.
     fn record_avatar_rejection(&self, reason: &'static str) {}
 
@@ -257,6 +266,25 @@ mod product {
                 "Synchronous avatar render duration in seconds.",
                 &["processor"],
                 &[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 15.0],
+            ),
+            avatar_render_wait_duration: histogram_with_buckets(
+                "avatar",
+                "render_wait_duration_seconds",
+                "Time spent waiting for an avatar render concurrency permit.",
+                &[],
+                &[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 15.0, 30.0, 60.0],
+            ),
+            avatar_render_waiting: gauge(
+                "avatar",
+                "render_waiting",
+                "Avatar renders waiting for a concurrency permit.",
+                &[],
+            ),
+            avatar_render_active: gauge(
+                "avatar",
+                "render_active",
+                "Avatar renders currently holding a concurrency permit.",
+                &[],
             ),
             avatar_rejections: counter(
                 "avatar",
@@ -541,6 +569,26 @@ impl MetricsRecorder for DriveMetricsRecorder {
         }
     }
 
+    fn record_avatar_render_wait_duration(&self, duration_seconds: f64) {
+        if let Some(product) = self.product {
+            product
+                .avatar_render_wait_duration
+                .observe(&[], duration_seconds);
+        }
+    }
+
+    fn adjust_avatar_render_waiting(&self, delta: i64) {
+        if let Some(product) = self.product {
+            product.avatar_render_waiting.add(&[], delta as f64);
+        }
+    }
+
+    fn adjust_avatar_render_active(&self, delta: i64) {
+        if let Some(product) = self.product {
+            product.avatar_render_active.add(&[], delta as f64);
+        }
+    }
+
     fn record_avatar_rejection(&self, reason: &'static str) {
         if let Some(product) = self.product {
             product.avatar_rejections.inc(&[reason], 1);
@@ -634,6 +682,11 @@ mod tests {
         recorder.record_avatar_dimension("height", 768);
         recorder.set_avatar_budget_bytes("decode_allocation", 32 * 1024 * 1024);
         recorder.record_avatar_render_duration("images", 0.25);
+        recorder.record_avatar_render_wait_duration(0.125);
+        recorder.adjust_avatar_render_waiting(1);
+        recorder.adjust_avatar_render_waiting(-1);
+        recorder.adjust_avatar_render_active(1);
+        recorder.adjust_avatar_render_active(-1);
         recorder.record_avatar_rejection("dimension");
 
         let body = export_metrics().expect("Drive avatar metrics should export");
@@ -648,6 +701,10 @@ mod tests {
         assert!(body.contains("budget=\"decode_allocation\""));
         assert!(body.contains("avatar_render_duration_seconds_bucket"));
         assert!(body.contains("avatar_render_duration_seconds_count"));
+        assert!(body.contains("avatar_render_wait_duration_seconds_bucket"));
+        assert!(body.contains("avatar_render_wait_duration_seconds_count"));
+        assert!(body.contains("avatar_render_waiting 0"));
+        assert!(body.contains("avatar_render_active 0"));
         assert!(body.contains("avatar_rejections_total"));
         assert!(body.contains("reason=\"dimension\""));
     }
