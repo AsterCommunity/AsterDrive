@@ -37,6 +37,7 @@ title: "存储策略与策略组"
 | `asterdrive.storage.tencent_cos` | 腾讯云 COS | 静态密钥 | [腾讯云 COS](/admin/storage-backends/tencent-cos/) |
 | `asterdrive.storage.remote` | 远程节点 | 无 connector 凭据 | [远程节点](/admin/storage-backends/remote-follower/) |
 | `asterdrive.storage.onedrive` | OneDrive | 委托 OAuth | [OneDrive](/admin/storage-backends/onedrive/) |
+| `asterdrive.storage.qiniu` | 七牛云 Kodo | 静态密钥 | [七牛云 Kodo](/admin/storage-backends/qiniu-kodo/) |
 <!-- storage-connectors:policy-catalog:end -->
 
 ## 存储策略 vs 策略组

@@ -13,6 +13,7 @@ pub struct NormalizedS3Config {
 pub enum S3ConfigError {
     MissingBucket,
     InvalidEndpoint(String),
+    InvalidRegion,
 }
 
 impl S3ConfigError {
@@ -22,8 +23,24 @@ impl S3ConfigError {
                 AsterError::validation_error("bucket is required for S3-compatible storage")
             }
             Self::InvalidEndpoint(message) => AsterError::validation_error(message),
+            Self::InvalidRegion => AsterError::validation_error(
+                "s3_region must be 1-128 printable ASCII characters without whitespace or '/'",
+            ),
         }
     }
+}
+
+pub fn validate_s3_region(region: &str) -> std::result::Result<(), S3ConfigError> {
+    if region.is_empty()
+        || region.len() > 128
+        || !region.is_ascii()
+        || region
+            .bytes()
+            .any(|byte| !(b'!'..=b'~').contains(&byte) || byte == b'/')
+    {
+        return Err(S3ConfigError::InvalidRegion);
+    }
+    Ok(())
 }
 
 pub fn normalize_s3_endpoint_and_bucket(
@@ -75,7 +92,7 @@ pub fn normalize_s3_endpoint_and_bucket(
 
 #[cfg(test)]
 mod tests {
-    use super::{S3ConfigError, normalize_s3_endpoint_and_bucket};
+    use super::{S3ConfigError, normalize_s3_endpoint_and_bucket, validate_s3_region};
 
     #[test]
     fn allows_standard_s3_endpoint_without_rewriting() {
@@ -94,5 +111,16 @@ mod tests {
                 .expect_err("missing bucket should fail"),
             S3ConfigError::MissingBucket
         );
+    }
+
+    #[test]
+    fn rejects_invalid_sigv4_regions() {
+        for region in ["", "region with spaces", "region/name", "\u{4e2d}\u{56fd}"] {
+            assert_eq!(
+                validate_s3_region(region),
+                Err(S3ConfigError::InvalidRegion)
+            );
+        }
+        assert!(validate_s3_region("cn-east-1").is_ok());
     }
 }

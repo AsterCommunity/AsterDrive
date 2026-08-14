@@ -21,6 +21,7 @@ title: "存储后端"
 | 腾讯云 COS | `asterdrive.storage.tencent_cos` | Primary 间共享 | 腾讯云 COS 和按策略启用的 COS 数据万象 | [腾讯云 COS](/admin/storage-backends/tencent-cos/) |
 | 远程节点 | `asterdrive.storage.remote` | Primary 间共享 | 由另一台 AsterDrive follower 节点保存对象 | [远程节点](/admin/storage-backends/remote-follower/) |
 | OneDrive | `asterdrive.storage.onedrive` | Primary 间共享 | Microsoft 365、OneDrive、SharePoint 和 group drive | [OneDrive](/admin/storage-backends/onedrive/) |
+| 七牛云 Kodo | `asterdrive.storage.qiniu` | Primary 间共享 | 通过 S3 兼容 API 接入的七牛云 Kodo bucket | [七牛云 Kodo](/admin/storage-backends/qiniu-kodo/) |
 <!-- storage-connectors:index:end -->
 
 多 Primary（cluster profile）的默认策略必须由所有 Primary 访问，`local` 不能作为默认策略；详见 [存储策略与策略组](/admin/storage-policies/#第一次启动后默认会有什么)。

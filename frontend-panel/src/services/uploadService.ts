@@ -387,7 +387,6 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 				xhr.send(file);
 			});
 		},
-
 		providerResumableUpload: (
 			uploadUrl: string,
 			data: Blob,

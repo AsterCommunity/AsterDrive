@@ -297,6 +297,10 @@ fn rewrap_s3_config_error(error: S3ConfigError) -> aster_drive_storage::StorageE
     let message = match error {
         S3ConfigError::MissingBucket => "OSS bucket is required".to_string(),
         S3ConfigError::InvalidEndpoint(message) => message.replace("S3 endpoint", "OSS endpoint"),
+        S3ConfigError::InvalidRegion => {
+            "OSS region must be 1-128 printable ASCII characters without whitespace or '/'"
+                .to_string()
+        }
     };
     storage_driver_error(StorageErrorKind::Misconfigured, message)
 }

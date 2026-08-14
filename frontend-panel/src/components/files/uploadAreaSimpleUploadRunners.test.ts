@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { UploadTask } from "./uploadAreaManagerShared";
 import type { UploadModeRunnerContext } from "./uploadAreaUploadRunnerShared";
 
-const { completeUpload, presignedUpload } = vi.hoisted(() => ({
-	completeUpload: vi.fn(),
-	presignedUpload: vi.fn(),
-}));
+const { completeUpload, presignedUpload } = vi.hoisted(
+	() => ({
+		completeUpload: vi.fn(),
+		presignedUpload: vi.fn(),
+	}),
+);
 
 vi.mock("@/services/http", () => ({
 	api: {
@@ -123,4 +125,5 @@ describe("createSimpleUploadRunners", () => {
 		expect(markTaskFailed).toHaveBeenCalledWith("presigned", error);
 		expect(completeUpload).not.toHaveBeenCalled();
 	});
+
 });

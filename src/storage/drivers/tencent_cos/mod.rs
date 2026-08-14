@@ -156,6 +156,10 @@ impl TencentCosDriver {
                 "bucket is required for S3-compatible storage".to_string()
             }
             S3ConfigError::InvalidEndpoint(message) => message,
+            S3ConfigError::InvalidRegion => {
+                "S3 region must be 1-128 printable ASCII characters without whitespace or '/'"
+                    .to_string()
+            }
         };
         storage_driver_error(StorageErrorKind::Misconfigured, message)
     }

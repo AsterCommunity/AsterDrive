@@ -117,7 +117,7 @@ async fn init_presigned_object_storage_single_upload(
         }
 
         let (presigned_request, presigned_require_etag) =
-            match presigned_put_request(driver, &temp_key).await {
+            match presigned_upload_request(driver, &temp_key).await {
                 Ok(request) => request,
                 Err(error) => {
                     delete_upload_session_record_after_init_error(
@@ -144,8 +144,8 @@ async fn init_presigned_object_storage_single_upload(
             upload_id: Some(upload_id),
             chunk_size: None,
             total_chunks: None,
-            presigned_request: Some(presigned_request),
-            presigned_require_etag: Some(presigned_require_etag),
+            presigned_request,
+            presigned_require_etag,
             provider_resumable: None,
             upload_scheduling: None,
         }))
@@ -198,10 +198,13 @@ async fn init_relay_stream_object_storage_upload(
     .await
 }
 
-async fn presigned_put_request(
+async fn presigned_upload_request(
     driver: &dyn aster_drive_storage::StorageDriver,
     temp_key: &str,
-) -> Result<(aster_drive_storage::PresignedUploadRequest, bool)> {
+) -> Result<(
+    Option<aster_drive_storage::PresignedUploadRequest>,
+    Option<bool>,
+)> {
     let presigned_driver = driver
         .extensions()
         .presigned
@@ -211,7 +214,7 @@ async fn presigned_put_request(
         .await?
         .ok_or_else(|| AsterError::storage_driver_error("presigned PUT not supported by driver"))?;
     Ok((
-        request,
-        presigned_driver.presigned_single_put_requires_etag(),
+        Some(request),
+        Some(presigned_driver.presigned_single_put_requires_etag()),
     ))
 }

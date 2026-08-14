@@ -145,7 +145,7 @@ mod tests {
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.local")));
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.alibaba_oss")));
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
-        assert_eq!(drivers.len(), 8);
+        assert_eq!(drivers.len(), 9);
     }
 
     #[test]
@@ -158,7 +158,7 @@ mod tests {
         assert!(!drivers.contains(&ConnectorId::declared("asterdrive.storage.local")));
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.alibaba_oss")));
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
-        assert_eq!(drivers.len(), 7);
+        assert_eq!(drivers.len(), 8);
     }
 
     #[test]
@@ -168,7 +168,7 @@ mod tests {
         assert!(single_drivers.contains(&ConnectorId::declared("asterdrive.storage.local")));
         assert!(single_drivers.contains(&ConnectorId::declared("asterdrive.storage.alibaba_oss")));
         assert!(single_drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
-        assert_eq!(single_drivers.len(), 8);
+        assert_eq!(single_drivers.len(), 9);
 
         let mut cluster = Config::default();
         cluster.deployment.profile = DeploymentProfile::Cluster;
@@ -176,7 +176,7 @@ mod tests {
         assert!(!cluster_drivers.contains(&ConnectorId::declared("asterdrive.storage.local")));
         assert!(cluster_drivers.contains(&ConnectorId::declared("asterdrive.storage.alibaba_oss")));
         assert!(cluster_drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
-        assert_eq!(cluster_drivers.len(), 7);
+        assert_eq!(cluster_drivers.len(), 8);
     }
 
     #[test]
@@ -189,7 +189,7 @@ mod tests {
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.local")));
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.alibaba_oss")));
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
-        assert_eq!(drivers.len(), 8);
+        assert_eq!(drivers.len(), 9);
     }
 
     #[test]
@@ -209,7 +209,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(catalog.requested_locale, requested_locale);
-        assert_eq!(catalog.resources.len(), 7);
+        assert_eq!(catalog.resources.len(), 8);
         assert!(catalog.resources.iter().all(|resource| {
             resource.connector_id.as_str() != "asterdrive.storage.local"
                 && resource.resolved_locale.as_str() == "zh"

@@ -128,14 +128,14 @@ export function createSimpleUploadRunners({
 			await withTrackedUploadRequest(
 				uploadRequestRef,
 				task.id,
-				(onCreateXhr) => {
+				async (onCreateXhr) => {
 					const onProgress = (loaded: number, total: number) => {
 						patchTaskThrottled(task.id, {
 							progress: Math.round((loaded / total) * SERVER_FINALIZE_PROGRESS),
 							...speedTracker.sample(loaded),
 						});
 					};
-					return uploadService.presignedUpload(
+					await uploadService.presignedUpload(
 						presignedRequest.url,
 						file,
 						onProgress,

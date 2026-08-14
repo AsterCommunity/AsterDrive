@@ -18,6 +18,7 @@ use super::alibaba_oss::AlibabaOssConnectorConfigV1;
 use super::azure_blob::AzureBlobConnectorConfigV1;
 use super::local::LocalConnectorConfigV1;
 use super::onedrive::{OneDriveAccountMode, OneDriveConnectorConfigV1};
+use super::qiniu::QiniuConnectorConfigV1;
 use super::remote::RemoteConnectorConfigV1;
 use super::s3::S3ConnectorConfigV1;
 use super::sftp::SftpConnectorConfigV1;
@@ -201,9 +202,10 @@ fn registry_exposes_each_builtin_connector_once_in_stable_order() {
             TencentCosConnector::ID,
             RemoteConnector::ID,
             OneDriveConnector::ID,
+            QiniuConnector::ID,
         ]
     );
-    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 8);
+    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 9);
 }
 
 #[test]
@@ -609,6 +611,7 @@ fn descriptors_are_complete_and_keep_config_credentials_separate() {
     );
     for id in [
         S3Connector::ID,
+        QiniuConnector::ID,
         AlibabaOssConnector::ID,
         SftpConnector::ID,
         AzureBlobConnector::ID,
@@ -636,6 +639,7 @@ fn built_in_connector_capacity_claims_match_runtime_probe_support() {
         AzureBlobConnector::ID,
         TencentCosConnector::ID,
         SftpConnector::ID,
+        QiniuConnector::ID,
     ];
     let descriptors = registry().descriptors();
     assert_eq!(
@@ -1123,6 +1127,14 @@ fn upload_transport_is_resolved_by_connector_owned_typed_config() {
             StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
         ),
         (
+            QiniuConnector::ID,
+            policy(
+                QiniuConnector::ID,
+                qiniu_config(ObjectStorageUploadStrategy::Presigned),
+            ),
+            StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
+        ),
+        (
             AlibabaOssConnector::ID,
             policy(
                 AlibabaOssConnector::ID,
@@ -1358,4 +1370,81 @@ fn built_in_connector_descriptors_do_not_duplicate_core_native_behavior_state() 
         }
     }
     assert_eq!(descriptor(TencentCosConnector::ID).config_schema_version, 1);
+}
+
+fn qiniu_config(upload: ObjectStorageUploadStrategy) -> QiniuConnectorConfigV1 {
+    QiniuConnectorConfigV1 {
+        endpoint: "https://s3.example.qiniu.test".to_string(),
+        bucket: "archive".to_string(),
+        base_path: "tenant-a".to_string(),
+        s3_region: "cn-east-1".to_string(),
+        s3_path_style: true,
+        object_storage_upload_strategy: upload,
+        object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
+    }
+}
+
+#[test]
+fn qiniu_descriptor_declares_s3_compatible_capabilities() {
+    let descriptor = QiniuConnector::descriptor_definition();
+    assert_eq!(descriptor.connector_id.as_str(), QiniuConnector::ID);
+    assert_eq!(
+        descriptor.ui.icon_src.as_deref(),
+        Some("/static/storage/qiniuyun.svg")
+    );
+    assert!(descriptor.ui.icon_name.is_none());
+    assert_eq!(descriptor.config_schema_version, 1);
+    assert!(descriptor.capabilities.presigned_download);
+    assert!(descriptor.upload_workflows.presigned_upload);
+    assert!(descriptor.upload_workflows.object_multipart_upload);
+    assert!(
+        descriptor
+            .upload_workflows
+            .object_multipart_upload_capabilities
+            .is_some()
+    );
+    assert!(!descriptor.capabilities.storage_native_thumbnail);
+    assert!(!descriptor.capabilities.storage_native_media_metadata);
+    assert!(
+        descriptor
+            .fields
+            .iter()
+            .any(|field| field.name == "endpoint")
+    );
+    assert!(
+        descriptor
+            .fields
+            .iter()
+            .any(|field| field.name == "s3_region")
+    );
+    assert!(
+        descriptor
+            .fields
+            .iter()
+            .any(|field| field.name == "s3_path_style")
+    );
+    assert!(
+        descriptor
+            .fields
+            .iter()
+            .all(|field| field.name != "download_domain" && field.name != "object_prefix")
+    );
+}
+
+#[test]
+fn qiniu_connector_normalizes_initial_s3_configuration_schema() {
+    let qiniu = connector(QiniuConnector::ID);
+    let normalized = qiniu
+        .validate_connector_config(&super::test_support::connection_config(
+            QiniuConnector::ID,
+            1,
+            qiniu_config(ObjectStorageUploadStrategy::Presigned),
+        ))
+        .expect("initial Qiniu configuration should validate");
+    let config: QiniuConnectorConfigV1 = serde_json::from_value(
+        serde_json::to_value(normalized.values).expect("normalized values should serialize"),
+    )
+    .expect("normalized values should decode");
+    assert_eq!(config.endpoint, "https://s3.example.qiniu.test");
+    assert_eq!(config.bucket, "archive");
 }
