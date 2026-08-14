@@ -17,11 +17,12 @@ async fn property_audit_count(
     entity_id: i64,
 ) -> u64 {
     use aster_drive_model::entities::audit_log;
-    use aster_drive_model::types::AuditAction;
+    use aster_drive_model::types::{AuditAction, AuditEntityType};
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 
     audit_log::Entity::find()
         .filter(audit_log::Column::EntityId.eq(entity_id))
+        .filter(audit_log::Column::EntityType.eq(AuditEntityType::File.as_str()))
         .filter(
             audit_log::Column::Action
                 .is_in([AuditAction::PropertySet, AuditAction::PropertyDelete]),
@@ -29,6 +30,25 @@ async fn property_audit_count(
         .count(state.writer_db())
         .await
         .unwrap()
+}
+
+#[actix_web::test]
+async fn deltav_version_xml_parser_skips_empty_version_name_propstats() {
+    let xml = r#"<D:multistatus xmlns:D="DAV:">
+        <D:response>
+            <D:href>/webdav/.asterdrive-deltav/versions/00000000-0000-0000-0000-000000000001</D:href>
+            <D:propstat><D:prop><D:version-name/></D:prop><D:status>HTTP/1.1 404 Not Found</D:status></D:propstat>
+            <D:propstat><D:prop><D:version-name>1</D:version-name></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat>
+        </D:response>
+    </D:multistatus>"#;
+
+    assert_eq!(
+        common::deltav_version_entries(xml),
+        vec![(
+            "/webdav/.asterdrive-deltav/versions/00000000-0000-0000-0000-000000000001".to_owned(),
+            "1".to_owned(),
+        )]
+    );
 }
 
 async fn create_webdav_auth(

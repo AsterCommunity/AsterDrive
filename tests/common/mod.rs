@@ -60,8 +60,9 @@ pub fn deltav_version_entries(xml: &str) -> Vec<(String, String)> {
                         .find(|element| element.name == "prop")
                 })
                 .flat_map(Element::child_elements)
-                .find(|property| property.name == "version-name")
-                .and_then(Element::text)?;
+                .filter(|property| property.name == "version-name")
+                .filter_map(Element::text)
+                .find(|value| !value.is_empty())?;
             Some((href, version_name))
         })
         .collect()
