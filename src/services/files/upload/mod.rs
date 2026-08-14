@@ -138,6 +138,7 @@ pub(crate) async fn upload_in_scope_with_audit(
 }
 
 async fn consume_declared_empty_file(payload: &mut actix_multipart::Multipart) -> Result<String> {
+    let mut first_filename = None;
     while let Some(field) = payload.next().await {
         let mut field = field.map_aster_err_with(|| {
             file_upload_error_with_code(
@@ -178,13 +179,21 @@ async fn consume_declared_empty_file(payload: &mut actix_multipart::Multipart) -
                 format!("size mismatch: declared 0 bytes, received {actual_size} bytes"),
             ));
         }
-        return Ok(filename);
+        if first_filename.is_some() {
+            return Err(validation_error_with_code(
+                ApiErrorCode::BadRequest,
+                "multipart request contains multiple file fields",
+            ));
+        }
+        first_filename = Some(filename);
     }
 
-    Err(validation_error_with_code(
-        ApiErrorCode::UploadEmptyFile,
-        "multipart request does not contain a file field",
-    ))
+    first_filename.ok_or_else(|| {
+        validation_error_with_code(
+            ApiErrorCode::UploadEmptyFile,
+            "multipart request does not contain a file field",
+        )
+    })
 }
 
 fn record_direct_upload_metric(state: &impl SharedRuntimeState, status: &'static str) {

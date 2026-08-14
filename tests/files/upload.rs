@@ -1183,6 +1183,23 @@ fn build_multipart_payload(filename: &str, data: &[u8]) -> (String, Vec<u8>) {
     (boundary, payload)
 }
 
+fn build_multi_file_multipart_payload(fields: &[(&str, &[u8])]) -> (String, Vec<u8>) {
+    let boundary = format!("----AsterTestBoundary{}", uuid::Uuid::new_v4().simple());
+    let mut payload = Vec::new();
+    for (filename, data) in fields {
+        payload.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        payload.extend_from_slice(
+            format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n")
+                .as_bytes(),
+        );
+        payload.extend_from_slice(b"Content-Type: application/octet-stream\r\n\r\n");
+        payload.extend_from_slice(data);
+        payload.extend_from_slice(b"\r\n");
+    }
+    payload.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    (boundary, payload)
+}
+
 fn build_malformed_multipart_headers_over_parser_buffer() -> (String, Vec<u8>) {
     let boundary = format!(
         "----AsterMalformedBoundary{}",
@@ -2037,6 +2054,70 @@ async fn test_declared_empty_upload_rejects_nonempty_field_with_stable_error() {
     assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
     let body: Value = test::read_body_json(resp).await;
     assert_upload_error_contract(&body, ApiErrorCode::UploadRequestSizeMismatch.as_str());
+}
+
+#[actix_web::test]
+async fn test_declared_empty_upload_rejects_later_nonempty_file_before_creation() {
+    use aster_drive::db::repository::file_repo;
+
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let (boundary, payload) = build_multi_file_multipart_payload(&[
+        ("first-empty.txt", b""),
+        ("later-nonempty.txt", b"x"),
+    ]);
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload?declared_size=0")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
+    let body: Value = test::read_body_json(resp).await;
+    assert_upload_error_contract(&body, ApiErrorCode::UploadRequestSizeMismatch.as_str());
+    assert_eq!(
+        file_repo::count_live_files(state.writer_db())
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[actix_web::test]
+async fn test_declared_empty_upload_rejects_multiple_empty_file_fields_before_creation() {
+    use aster_drive::db::repository::file_repo;
+
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let (boundary, payload) =
+        build_multi_file_multipart_payload(&[("first-empty.txt", b""), ("second-empty.txt", b"")]);
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload?declared_size=0")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
+    let body: Value = test::read_body_json(resp).await;
+    assert_upload_error_contract(&body, ApiErrorCode::BadRequest.as_str());
+    assert_eq!(
+        file_repo::count_live_files(state.writer_db())
+            .await
+            .unwrap(),
+        0
+    );
 }
 
 #[actix_web::test]
