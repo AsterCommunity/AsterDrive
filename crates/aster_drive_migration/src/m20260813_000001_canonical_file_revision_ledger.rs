@@ -1,5 +1,7 @@
 //! Replace mutable file history with an immutable canonical revision ledger.
 
+use std::collections::HashSet;
+
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::sea_orm::{
     ConnectionTrait, DbBackend, TransactionTrait, prelude::DateTimeUtc,
@@ -15,18 +17,42 @@ pub struct Migration;
 
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
+    fn use_transaction(&self) -> Option<bool> {
+        // The backfill owns bounded page transactions. PostgreSQL's default migration-wide
+        // transaction would turn their commits into savepoints and retain all WAL/locks to the end.
+        Some(false)
+    }
+
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        let legacy_versions_exist = manager.has_table("file_versions").await?;
+        let ledger_schema_exists = manager.has_table("file_revision_histories").await?
+            || manager.has_table("file_revisions").await?
+            || manager.has_table("file_revision_properties").await?;
+        if !legacy_versions_exist && !ledger_schema_exists {
+            return Err(DbErr::Migration(
+                "canonical revision migration found neither file_versions nor a resumable ledger schema"
+                    .to_string(),
+            ));
+        }
+
         create_revision_histories(manager).await?;
         create_revisions(manager).await?;
         create_revision_properties(manager).await?;
         create_indexes(manager).await?;
         configure_mysql_case_sensitive_property_namespaces(manager).await?;
-        create_legacy_backfill_index(manager).await?;
-        backfill_ledger(manager).await?;
+        if legacy_versions_exist {
+            create_legacy_backfill_index(manager).await?;
+            backfill_ledger(manager).await?;
+        } else {
+            ensure_all_files_have_revision_histories(manager).await?;
+        }
         reset_postgres_sequences(manager).await?;
-        manager
-            .drop_table(Table::drop().table(FileVersions::Table).to_owned())
-            .await
+        if legacy_versions_exist {
+            manager
+                .drop_table(Table::drop().table(FileVersions::Table).to_owned())
+                .await?;
+        }
+        Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
@@ -50,6 +76,12 @@ impl MigrationTrait for Migration {
 }
 
 async fn create_legacy_backfill_index(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    if manager
+        .has_index("file_versions", "idx_file_versions_backfill_cursor")
+        .await?
+    {
+        return Ok(());
+    }
     manager
         .create_index(
             Index::create()
@@ -80,6 +112,9 @@ async fn reset_postgres_sequences(manager: &SchemaManager<'_>) -> Result<(), DbE
 }
 
 async fn create_revision_histories(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    if manager.has_table("file_revision_histories").await? {
+        return Ok(());
+    }
     manager
         .create_table(
             Table::create()
@@ -146,6 +181,9 @@ async fn create_revision_histories(manager: &SchemaManager<'_>) -> Result<(), Db
 }
 
 async fn create_revisions(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    if manager.has_table("file_revisions").await? {
+        return Ok(());
+    }
     manager
         .create_table(
             Table::create()
@@ -258,6 +296,9 @@ async fn create_revisions(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
 }
 
 async fn create_revision_properties(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    if manager.has_table("file_revision_properties").await? {
+        return Ok(());
+    }
     let mut table = Table::create();
     table
         .table(FileRevisionProperties::Table)
@@ -431,67 +472,121 @@ async fn restore_mysql_property_namespace_index(manager: &SchemaManager<'_>) -> 
 }
 
 async fn create_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
-    for index in [
-        Index::create()
-            .name("uq_file_revision_histories_public_id")
-            .table(FileRevisionHistories::Table)
-            .col(FileRevisionHistories::PublicId)
-            .unique()
-            .to_owned(),
-        Index::create()
-            .name("uq_file_revision_histories_file_id")
-            .table(FileRevisionHistories::Table)
-            .col(FileRevisionHistories::FileId)
-            .unique()
-            .to_owned(),
-        Index::create()
-            .name("uq_file_revisions_public_id")
-            .table(FileRevisions::Table)
-            .col(FileRevisions::PublicId)
-            .unique()
-            .to_owned(),
-        Index::create()
-            .name("uq_file_revisions_history_sequence")
-            .table(FileRevisions::Table)
-            .col(FileRevisions::HistoryId)
-            .col(FileRevisions::Sequence)
-            .unique()
-            .to_owned(),
-        Index::create()
-            .name("idx_file_revisions_history_created_id")
-            .table(FileRevisions::Table)
-            .col(FileRevisions::HistoryId)
-            .col(FileRevisions::CreatedAt)
-            .col(FileRevisions::Id)
-            .to_owned(),
-        Index::create()
-            .name("idx_file_revisions_blob_id")
-            .table(FileRevisions::Table)
-            .col(FileRevisions::BlobId)
-            .to_owned(),
+    for (table, name, index) in [
+        (
+            "file_revision_histories",
+            "uq_file_revision_histories_public_id",
+            Index::create()
+                .name("uq_file_revision_histories_public_id")
+                .table(FileRevisionHistories::Table)
+                .col(FileRevisionHistories::PublicId)
+                .unique()
+                .to_owned(),
+        ),
+        (
+            "file_revision_histories",
+            "uq_file_revision_histories_file_id",
+            Index::create()
+                .name("uq_file_revision_histories_file_id")
+                .table(FileRevisionHistories::Table)
+                .col(FileRevisionHistories::FileId)
+                .unique()
+                .to_owned(),
+        ),
+        (
+            "file_revisions",
+            "uq_file_revisions_public_id",
+            Index::create()
+                .name("uq_file_revisions_public_id")
+                .table(FileRevisions::Table)
+                .col(FileRevisions::PublicId)
+                .unique()
+                .to_owned(),
+        ),
+        (
+            "file_revisions",
+            "uq_file_revisions_history_sequence",
+            Index::create()
+                .name("uq_file_revisions_history_sequence")
+                .table(FileRevisions::Table)
+                .col(FileRevisions::HistoryId)
+                .col(FileRevisions::Sequence)
+                .unique()
+                .to_owned(),
+        ),
+        (
+            "file_revisions",
+            "idx_file_revisions_history_created_id",
+            Index::create()
+                .name("idx_file_revisions_history_created_id")
+                .table(FileRevisions::Table)
+                .col(FileRevisions::HistoryId)
+                .col(FileRevisions::CreatedAt)
+                .col(FileRevisions::Id)
+                .to_owned(),
+        ),
+        (
+            "file_revisions",
+            "idx_file_revisions_blob_id",
+            Index::create()
+                .name("idx_file_revisions_blob_id")
+                .table(FileRevisions::Table)
+                .col(FileRevisions::BlobId)
+                .to_owned(),
+        ),
     ] {
-        manager.create_index(index).await?;
+        if !manager.has_index(table, name).await? {
+            manager.create_index(index).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn ensure_all_files_have_revision_histories(
+    manager: &SchemaManager<'_>,
+) -> Result<(), DbErr> {
+    let mut select = Query::select();
+    select
+        .column((Files::Table, Files::Id))
+        .from(Files::Table)
+        .left_join(
+            FileRevisionHistories::Table,
+            Expr::col((Files::Table, Files::Id))
+                .equals((FileRevisionHistories::Table, FileRevisionHistories::FileId)),
+        )
+        .and_where(Expr::col((FileRevisionHistories::Table, FileRevisionHistories::Id)).is_null())
+        .limit(1);
+    if let Some(row) = manager.get_connection().query_one(&select).await? {
+        let file_id = row.try_get_by_index::<i64>(0)?;
+        return Err(DbErr::Migration(format!(
+            "legacy file_versions is absent but file {file_id} has no revision history"
+        )));
     }
     Ok(())
 }
 
 async fn backfill_ledger(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     let db = manager.get_connection();
-    let mut next_revision_id = find_max_legacy_revision_id(db)
-        .await?
-        .checked_add(1)
-        .ok_or_else(|| DbErr::Migration("file revision id space exhausted".to_string()))?;
-    let txn = db.begin().await?;
+    let mut next_revision_id = find_next_revision_id(db).await?;
     let mut after_file_id = None;
 
     loop {
-        let files = load_files_page(&txn, after_file_id, FILE_BACKFILL_BATCH_SIZE).await?;
+        let files = load_files_page(db, after_file_id, FILE_BACKFILL_BATCH_SIZE).await?;
         if files.is_empty() {
             break;
         }
         after_file_id = files.last().map(|file| file.id);
+        // Commit each bounded file page independently. A retry observes only whole committed
+        // batches, skips their histories, and continues revision IDs above both legacy and ledger
+        // rows; no partially written file chain can escape this transaction.
+        let txn = db.begin().await?;
+        let file_ids = files.iter().map(|file| file.id).collect::<Vec<_>>();
+        let completed_file_ids = load_backfilled_file_ids(&txn, &file_ids).await?;
 
         for file in files {
+            if completed_file_ids.contains(&file.id) {
+                continue;
+            }
             let history_id = file.id;
             let history_public_id = uuid::Uuid::new_v4().hyphenated().to_string();
             let mut predecessor = None;
@@ -571,9 +666,18 @@ async fn backfill_ledger(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
             )
             .await?;
         }
+        txn.commit().await?;
     }
 
-    txn.commit().await
+    Ok(())
+}
+
+async fn find_next_revision_id<C: ConnectionTrait>(db: &C) -> Result<i64, DbErr> {
+    let legacy_max = find_max_legacy_revision_id(db).await?;
+    let ledger_max = find_max_ledger_revision_id(db).await?;
+    Ord::max(legacy_max, ledger_max)
+        .checked_add(1)
+        .ok_or_else(|| DbErr::Migration("file revision id space exhausted".to_string()))
 }
 
 async fn find_max_legacy_revision_id<C: ConnectionTrait>(db: &C) -> Result<i64, DbErr> {
@@ -589,6 +693,40 @@ async fn find_max_legacy_revision_id<C: ConnectionTrait>(db: &C) -> Result<i64, 
         .map(|row| row.try_get_by_index::<i64>(0))
         .transpose()?
         .unwrap_or(0))
+}
+
+async fn find_max_ledger_revision_id<C: ConnectionTrait>(db: &C) -> Result<i64, DbErr> {
+    let mut select = Query::select();
+    select
+        .column(FileRevisions::Id)
+        .from(FileRevisions::Table)
+        .order_by(FileRevisions::Id, Order::Desc)
+        .limit(1);
+    Ok(db
+        .query_one(&select)
+        .await?
+        .map(|row| row.try_get_by_index::<i64>(0))
+        .transpose()?
+        .unwrap_or(0))
+}
+
+async fn load_backfilled_file_ids<C: ConnectionTrait>(
+    db: &C,
+    file_ids: &[i64],
+) -> Result<HashSet<i64>, DbErr> {
+    if file_ids.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let mut select = Query::select();
+    select
+        .column(FileRevisionHistories::FileId)
+        .from(FileRevisionHistories::Table)
+        .and_where(Expr::col(FileRevisionHistories::FileId).is_in(file_ids.iter().copied()));
+    db.query_all(&select)
+        .await?
+        .into_iter()
+        .map(|row| row.try_get_by_index(0))
+        .collect()
 }
 
 async fn load_legacy_revisions_page<C: ConnectionTrait>(
@@ -1121,6 +1259,45 @@ mod tests {
         db
     }
 
+    async fn install_backfill_ledger_fixture_schema(db: &DatabaseConnection) {
+        db.execute_unprepared(
+            "CREATE TABLE entity_properties (\
+                entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL, namespace TEXT NOT NULL, \
+                name TEXT NOT NULL, value TEXT NULL\
+             ); \
+             CREATE TABLE file_revision_histories (\
+                id INTEGER PRIMARY KEY, public_id TEXT NOT NULL, file_id INTEGER NULL, \
+                current_revision_id INTEGER NULL, next_sequence INTEGER NOT NULL, \
+                created_at TEXT NOT NULL\
+             ); \
+             CREATE TABLE file_revisions (\
+                id INTEGER PRIMARY KEY, public_id TEXT NOT NULL, history_id INTEGER NOT NULL, \
+                sequence INTEGER NOT NULL, predecessor_revision_id INTEGER NULL, \
+                blob_id INTEGER NULL, logical_size INTEGER NOT NULL, mime_type TEXT NULL, \
+                etag TEXT NOT NULL, creator_user_id INTEGER NULL, creator_display_name TEXT NULL, \
+                reason TEXT NOT NULL, created_at TEXT NOT NULL\
+             ); \
+             CREATE TABLE file_revision_properties (\
+                revision_id INTEGER NOT NULL, namespace TEXT NOT NULL, name TEXT NOT NULL, \
+                xml_value TEXT NULL\
+             );",
+        )
+        .await
+        .expect("backfill ledger fixture schema should apply");
+    }
+
+    async fn count_rows(db: &DatabaseConnection, table: &str) -> i64 {
+        db.query_one_raw(sea_orm_migration::sea_orm::Statement::from_string(
+            DbBackend::Sqlite,
+            format!("SELECT COUNT(*) FROM {table}"),
+        ))
+        .await
+        .expect("fixture row count should query")
+        .expect("fixture row count should return one row")
+        .try_get_by_index(0)
+        .expect("fixture row count should decode")
+    }
+
     #[tokio::test]
     async fn backfill_readers_bound_memory_and_preserve_composite_cursor_order() {
         let db = pagination_fixture().await;
@@ -1156,6 +1333,73 @@ mod tests {
         assert_eq!(final_revisions.len(), 1);
         assert_eq!(final_revisions[0].id, 1_001);
         assert_eq!(final_revisions[0].version, 501);
+    }
+
+    #[tokio::test]
+    async fn backfill_commits_each_file_batch_and_resumes_without_duplicate_rows() {
+        let db = pagination_fixture().await;
+        install_backfill_ledger_fixture_schema(&db).await;
+        db.execute_unprepared(
+            "CREATE TRIGGER fail_second_file_batch \
+             BEFORE INSERT ON file_revision_histories \
+             WHEN NEW.id = 501 \
+             BEGIN \
+                 SELECT RAISE(ABORT, 'injected second batch failure'); \
+             END;",
+        )
+        .await
+        .expect("failure trigger should install");
+        let manager = SchemaManager::new(&db);
+
+        let migration = Migration;
+        let error = migration
+            .up(&manager)
+            .await
+            .expect_err("the injected second batch failure should abort the migration");
+        assert!(error.to_string().contains("injected second batch failure"));
+        assert_eq!(
+            count_rows(&db, "file_revision_histories").await,
+            500,
+            "the completed first batch must remain committed"
+        );
+        assert_eq!(
+            count_rows(&db, "file_revisions").await,
+            1_501,
+            "the committed batch must contain all legacy rows plus 500 current revisions"
+        );
+
+        db.execute_unprepared("DROP TRIGGER fail_second_file_batch")
+            .await
+            .expect("failure trigger should drop");
+        migration
+            .up(&manager)
+            .await
+            .expect("migration should resume after the injected failure");
+
+        assert_eq!(count_rows(&db, "file_revision_histories").await, 501);
+        assert_eq!(count_rows(&db, "file_revisions").await, 1_502);
+        let final_revision_id = db
+            .query_one_raw(sea_orm_migration::sea_orm::Statement::from_string(
+                DbBackend::Sqlite,
+                "SELECT current_revision_id FROM file_revision_histories WHERE id = 501",
+            ))
+            .await
+            .expect("resumed history should query")
+            .expect("resumed history should exist")
+            .try_get_by_index::<i64>(0)
+            .expect("resumed current revision id should decode");
+        assert_eq!(final_revision_id, 1_502);
+        assert!(!manager.has_table("file_versions").await.unwrap());
+
+        migration
+            .up(&manager)
+            .await
+            .expect("migration should tolerate a completed ledger before its history record");
+    }
+
+    #[test]
+    fn backfill_migration_does_not_add_an_outer_postgres_transaction() {
+        assert_eq!(Migration.use_transaction(), Some(false));
     }
 
     #[tokio::test]

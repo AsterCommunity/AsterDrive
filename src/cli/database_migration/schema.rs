@@ -482,9 +482,9 @@ where
             .try_get_by_index::<String>(1)
             .map_aster_err(AsterError::database_operation)?;
         let generation_expression = row
-            .try_get_by_index::<String>(2)
+            .try_get_by_index::<Option<String>>(2)
             .map_aster_err(AsterError::database_operation)?;
-        if mysql_column_is_database_generated(&generation_expression) {
+        if mysql_column_is_database_generated(generation_expression.as_deref()) {
             continue;
         }
         columns.push(ColumnSchema {
@@ -497,8 +497,8 @@ where
     Ok(columns)
 }
 
-fn mysql_column_is_database_generated(generation_expression: &str) -> bool {
-    !generation_expression.is_empty()
+fn mysql_column_is_database_generated(generation_expression: Option<&str>) -> bool {
+    generation_expression.is_some_and(|expression| !expression.is_empty())
 }
 
 async fn load_primary_key_lookup<C>(
@@ -542,12 +542,54 @@ fn binding_kind_is_integer(kind: BindingKind) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::mysql_column_is_database_generated;
+    use std::collections::BTreeMap;
+
+    use sea_orm::{DbBackend, MockDatabase, Value};
+
+    use super::{load_mysql_columns, mysql_column_is_database_generated};
 
     #[test]
     fn mysql_copy_plan_excludes_database_generated_columns_only() {
-        assert!(!mysql_column_is_database_generated(""));
-        assert!(mysql_column_is_database_generated("`namespace`"));
-        assert!(mysql_column_is_database_generated("(`name`)"));
+        assert!(!mysql_column_is_database_generated(None));
+        assert!(!mysql_column_is_database_generated(Some("")));
+        assert!(mysql_column_is_database_generated(Some("`namespace`")));
+        assert!(mysql_column_is_database_generated(Some("(`name`)")));
+    }
+
+    #[tokio::test]
+    async fn mysql_schema_reader_accepts_mariadb_null_generation_expressions() {
+        let ordinary_null = BTreeMap::from([
+            ("column_name", Value::from("id")),
+            ("column_type", Value::from("bigint(20)")),
+            ("generation_expression", Value::String(None)),
+        ]);
+        let ordinary_empty = BTreeMap::from([
+            ("column_name", Value::from("namespace")),
+            ("column_type", Value::from("varchar(256)")),
+            ("generation_expression", Value::from("")),
+        ]);
+        let generated = BTreeMap::from([
+            ("column_name", Value::from("namespace_case_key")),
+            ("column_type", Value::from("varchar(256)")),
+            ("generation_expression", Value::from("`namespace`")),
+        ]);
+        let db = MockDatabase::new(DbBackend::MySql)
+            .append_query_results([
+                Vec::<BTreeMap<&str, Value>>::new(),
+                vec![ordinary_null, ordinary_empty, generated],
+            ])
+            .into_connection();
+
+        let columns = load_mysql_columns(&db, "entity_properties")
+            .await
+            .expect("MariaDB NULL generation metadata should remain readable");
+
+        assert_eq!(
+            columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>(),
+            ["id", "namespace"]
+        );
     }
 }

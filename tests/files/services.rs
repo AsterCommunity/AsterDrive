@@ -4183,7 +4183,7 @@ async fn test_team_archive_cleanup_keeps_team_when_upload_temp_delete_fails() {
 #[actix_web::test]
 async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() {
     use chrono::{Duration, Utc};
-    use sea_orm::{IntoActiveModel, Set};
+    use sea_orm::{ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter, Set};
 
     let state = common::setup().await;
     let owner = common::create_test_account(
@@ -4229,6 +4229,7 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
     .unwrap();
 
     let mut sample_file_ids = Vec::new();
+    let mut sample_history_ids = Vec::new();
     for idx in 0..1001 {
         let file = aster_drive::db::repository::file_repo::create(
             state.writer_db(),
@@ -4250,7 +4251,7 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
         )
         .await
         .unwrap();
-        aster_drive::db::repository::revision_repo::create_initial(
+        let history = aster_drive::db::repository::revision_repo::create_initial(
             state.writer_db(),
             &file,
             aster_drive::db::repository::revision_repo::RevisionReason::Create,
@@ -4259,6 +4260,7 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
         .unwrap();
         if idx == 0 || idx == 1000 {
             sample_file_ids.push(file.id);
+            sample_history_ids.push(history.history_id);
         }
     }
 
@@ -4336,6 +4338,43 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
                 .is_err()
         );
     }
+    for history_id in sample_history_ids {
+        let history =
+            aster_drive_model::entities::file_revision_history::Entity::find_by_id(history_id)
+                .one(state.writer_db())
+                .await
+                .unwrap()
+                .expect("archived team cleanup must preserve the revision history tombstone");
+        assert_eq!(history.file_id, None);
+        assert_eq!(history.current_revision_id, None);
+        assert!(history.retired_at.is_some());
+
+        let revisions = aster_drive_model::entities::file_revision::Entity::find()
+            .filter(aster_drive_model::entities::file_revision::Column::HistoryId.eq(history_id))
+            .all(state.writer_db())
+            .await
+            .unwrap();
+        assert_eq!(revisions.len(), 1);
+        assert_eq!(revisions[0].blob_id, None);
+        assert!(revisions[0].retired_at.is_some());
+        assert!(revisions[0].purged_at.is_some());
+    }
+    assert_eq!(
+        aster_drive_model::entities::file_revision_history::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        1_001,
+        "all batched histories must remain as retired identity tombstones"
+    );
+    assert_eq!(
+        aster_drive_model::entities::file_revision::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        1_001,
+        "all batched revisions must remain as purged sequence tombstones"
+    );
     for folder_id in sample_folder_ids {
         assert!(
             aster_drive::db::repository::folder_repo::find_by_id(state.writer_db(), folder_id)

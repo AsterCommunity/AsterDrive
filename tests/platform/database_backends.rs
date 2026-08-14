@@ -1378,6 +1378,37 @@ async fn test_postgres_smoke_search_and_admin_overview() {
     exercise_backend_smoke(&database_url, DbBackend::Postgres).await;
 }
 
+#[tokio::test]
+async fn test_postgres_migrations_keep_bounded_backfills_with_single_connection_pool() {
+    let database_url = common::postgres_empty_test_database_url().await;
+    let config = aster_drive::config::DatabaseConfig {
+        url: database_url.into(),
+        pool_size: 1,
+        retry_count: 0,
+    };
+    let database =
+        aster_drive::db::connect_with_metrics(&config, aster_drive_metrics::NoopMetrics::arc())
+            .await
+            .expect("single-connection PostgreSQL migration pool should connect");
+
+    aster_drive_migration::Migrator::up(&database, None)
+        .await
+        .expect("dedicated migration connection must not deadlock the lock pool");
+    let history = aster_drive_migration::inspect_migration_history(&database)
+        .await
+        .expect("single-connection PostgreSQL migration history should be readable");
+    assert_eq!(
+        history.applied,
+        aster_drive_migration::current_migration_names()
+    );
+    assert!(history.pending_current.is_empty());
+
+    database
+        .close()
+        .await
+        .expect("single-connection PostgreSQL migration pool should close");
+}
+
 #[actix_web::test]
 async fn test_mysql_smoke_search_and_admin_overview() {
     let database_url = common::mysql_test_database_url().await;

@@ -148,7 +148,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 ### Database Migrations
 
 - `m20260813_000001_canonical_file_revision_ledger`
-  - 分页 backfill `file_versions` 和每个文件当前内容，建立 immutable revision predecessor chain、stable public ID、current head / next sequence 与用户属性快照，完成后删除 legacy `file_versions`
+  - 以可恢复的 500 文件事务批次 backfill `file_versions` 和每个文件当前内容，建立 immutable revision predecessor chain、stable public ID、current head / next sequence 与用户属性快照，完成后删除 legacy `file_versions`；批次间故障重跑会跳过已提交 history，并从 legacy/ledger 最大 revision ID 之后继续
   - MySQL 使用 `utf8mb4_bin` virtual generated columns 维持 XML property `(namespace, name)` 大小写敏感唯一性，但不按服务端版本字符串设置全局门槛，也不依赖 8.0.23 的 invisible-column 语法
 - `m20260723_000001_require_upload_session_kind`
   - 升级前检查 legacy / invalid upload sessions，并将 `upload_sessions.session_kind` 收紧为 `NOT NULL`
