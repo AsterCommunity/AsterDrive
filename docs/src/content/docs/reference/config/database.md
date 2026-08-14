@@ -17,17 +17,18 @@ retry_count = 3
 ## 先选数据库类型
 
 - **SQLite** —— 单机、NAS、个人或小团队，最省心
-- **PostgreSQL** —— 你已经在跑 PG，或者想接入现有运维体系
+- **PostgreSQL 14 及以上** —— 你已经在跑 PG，或者想接入现有运维体系
 - **MySQL 8.0.13 及以上** —— 你已经在用 MySQL，想保持统一
 
 :::tip[第一次部署直接 SQLite]
 绝大多数场景 SQLite 够用。规模增长后可通过 AsterDrive 自带的跨数据库迁移工具切换，避免被初始选择限制。
 :::
 
-## MySQL / MariaDB 版本支持
+## 数据库版本支持
 
 | 后端 | 最低支持版本 | 当前验证范围 |
 | --- | --- | --- |
+| PostgreSQL | 14 | PostgreSQL 14.24 已通过完整全新 migration、revision ledger 升级/回滚/重跑、生产数据库 smoke 和真实服务启动；持续集成使用 PostgreSQL 16 运行完整集成测试。PostgreSQL 13.23 也能完成全新 migration，但其上游维护已于 2025-11-13 结束，因此项目支持基线从 14 开始。 |
 | MySQL | 8.0.13 | MySQL 8.0.13 的完整全新 migration 已通过；8.0.12 会在 baseline 使用的 functional key parts 处停止。持续集成使用 MySQL 8.4 运行完整 migration 和集成测试。 |
 | MariaDB | 尚未进入支持矩阵 | MariaDB 11.4.12 和 11.8.8 的完整全新 migration 都会在同一处停止：MariaDB 不接受 baseline 使用的 MySQL functional-key-part 索引语法，因此目前没有可声明的最低版本。 |
 
@@ -56,6 +57,8 @@ url = "sqlite:///data/asterdrive.db?mode=rwc"
 ```
 
 ### PostgreSQL
+
+使用 PostgreSQL 14 或更高版本；最低版本和当前验证范围见上方版本支持表。
 
 ```toml
 url = "postgres://user:password@localhost:5432/asterdrive"

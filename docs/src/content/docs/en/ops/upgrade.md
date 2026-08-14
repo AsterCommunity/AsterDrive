@@ -75,7 +75,7 @@ See [Operations CLI](./cli/).
 ## MySQL Large Table ALTER Notes
 
 :::caution[Large deployments need a maintenance window]
-Some version migrations execute `ALTER TABLE` on multiple tables. The database chooses a DDL algorithm according to its version and table shape, and some operations may still rebuild a table or hold a metadata lock for a long time. AsterDrive supports MySQL 8.0.13 and later, while continuous integration uses MySQL 8.4; rehearse upgrades against your actual data volume when using another supported MySQL release. See the [database version support table](/en/reference/config/database/#mysql--mariadb-version-support) for the full boundary.
+Some version migrations execute `ALTER TABLE` on multiple tables. The database chooses a DDL algorithm according to its version and table shape, and some operations may still rebuild a table or hold a metadata lock for a long time. AsterDrive supports MySQL 8.0.13 and later, while continuous integration uses MySQL 8.4; rehearse upgrades against your actual data volume when using another supported MySQL release. See the [database version support table](/en/reference/config/database/#database-version-support) for the full boundary.
 :::
 
 For large MySQL deployments:

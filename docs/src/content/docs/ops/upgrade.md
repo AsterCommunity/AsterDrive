@@ -75,7 +75,7 @@ sudo -u asterdrive ./aster_drive database-migrate
 ## MySQL 大表 ALTER 注意事项
 
 :::caution[数据量大的部署需要预留维护窗口]
-某些版本的 migration 会对多个表执行 `ALTER TABLE`。数据库会根据自身版本和表结构选择 DDL 算法，部分操作可能触发整表 rebuild 或持有较长时间的 metadata lock。AsterDrive 支持 MySQL 8.0.13 及以上版本，持续集成使用 MySQL 8.4；使用其他受支持的 MySQL 版本时，升级前应按实际数据量演练。完整边界见[数据库配置的版本支持表](/reference/config/database/#mysql--mariadb-%E7%89%88%E6%9C%AC%E6%94%AF%E6%8C%81)。
+某些版本的 migration 会对多个表执行 `ALTER TABLE`。数据库会根据自身版本和表结构选择 DDL 算法，部分操作可能触发整表 rebuild 或持有较长时间的 metadata lock。AsterDrive 支持 MySQL 8.0.13 及以上版本，持续集成使用 MySQL 8.4；使用其他受支持的 MySQL 版本时，升级前应按实际数据量演练。完整边界见[数据库配置的版本支持表](/reference/config/database/#%E6%95%B0%E6%8D%AE%E5%BA%93%E7%89%88%E6%9C%AC%E6%94%AF%E6%8C%81)。
 :::
 
 如果你的 MySQL 部署数据量较大：

@@ -17,17 +17,18 @@ retry_count = 3
 ## Choose a Database Type First
 
 - **SQLite** - Best for single-node, NAS, personal, or small-team deployments. It has the least operational overhead.
-- **PostgreSQL** - Use it if you already run PostgreSQL or want to integrate with an existing operations stack.
+- **PostgreSQL 14 or later** - Use it if you already run PostgreSQL or want to integrate with an existing operations stack.
 - **MySQL 8.0.13 or later** - Use it if you already use MySQL and want to keep the stack consistent.
 
 :::tip[Use SQLite for the first deployment]
 SQLite is enough for most scenarios. When the deployment grows, you can switch with AsterDrive's built-in cross-database migration tool instead of being locked into the initial choice.
 :::
 
-## MySQL / MariaDB Version Support
+## Database Version Support
 
 | Backend | Minimum Supported Version | Current Validation Coverage |
 | --- | --- | --- |
+| PostgreSQL | 14 | PostgreSQL 14.24 passes a complete fresh migration, revision-ledger upgrade/rollback/reapply coverage, the production-database smoke suite, and real server startup. Continuous integration runs the complete integration suite on PostgreSQL 16. PostgreSQL 13.23 also completes a fresh migration, but upstream support ended on November 13, 2025, so the project support baseline starts at 14. |
 | MySQL | 8.0.13 | A complete fresh migration passes on MySQL 8.0.13; 8.0.12 stops at the functional key parts used by the baseline. Continuous integration runs the complete migration and integration suites on MySQL 8.4. |
 | MariaDB | Not yet in the support matrix | Complete fresh migrations on MariaDB 11.4.12 and 11.8.8 both stop at the same point: MariaDB does not accept the MySQL functional-key-part index syntax used by the baseline, so there is no minimum version to declare yet. |
 
@@ -56,6 +57,8 @@ url = "sqlite:///data/asterdrive.db?mode=rwc"
 ```
 
 ### PostgreSQL
+
+Use PostgreSQL 14 or later; see the version-support table above for the minimum version and current validation coverage.
 
 ```toml
 url = "postgres://user:password@localhost:5432/asterdrive"
