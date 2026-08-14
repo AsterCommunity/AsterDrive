@@ -186,6 +186,39 @@ async fn deltav_version_control_report_and_immutable_resource_workflow() {
         .expect("version-tree should expose the property-change revision");
     assert_ne!(version_path, property_version_path);
 
+    for (body, expected_status, expected_message) in [
+        (
+            "<D:locate-by-history xmlns:D=\"DAV:\"/>",
+            409,
+            "REPORT locate-by-history is not available",
+        ),
+        (
+            "<D:unknown-report xmlns:D=\"DAV:\"/>",
+            422,
+            "unknown REPORT",
+        ),
+    ] {
+        let req = test::TestRequest::with_uri("/webdav/file.txt")
+            .method(actix_web::http::Method::from_bytes(b"REPORT").unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Content-Type", "application/xml"))
+            .set_payload(body)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), expected_status);
+        assert_eq!(
+            resp.headers()
+                .get("Cache-Control")
+                .and_then(|value| value.to_str().ok()),
+            Some("no-store")
+        );
+        assert!(
+            String::from_utf8(test::read_body(resp).await.to_vec())
+                .unwrap()
+                .contains(expected_message)
+        );
+    }
+
     let req = test::TestRequest::with_uri("/webdav/file.txt")
         .method(actix_web::http::Method::from_bytes(b"REPORT").unwrap())
         .insert_header(("Authorization", auth.clone()))
@@ -346,6 +379,20 @@ async fn deltav_version_control_report_and_immutable_resource_workflow() {
     assert!(propfind.contains("version-name"));
     assert!(propfind.contains("getetag"));
 
+    let req = test::TestRequest::with_uri(&property_version_path)
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Depth", "0"))
+        .set_payload(
+            "<D:propfind xmlns:D=\"DAV:\" xmlns:A=\"urn:test\"><D:prop><A:note/></D:prop></D:propfind>",
+        )
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 207);
+    let immutable_propfind = String::from_utf8(test::read_body(resp).await.to_vec()).unwrap();
+    assert!(immutable_propfind.contains("note"));
+    assert!(immutable_propfind.contains("one"));
+
     let req = test::TestRequest::default()
         .method(actix_web::http::Method::from_bytes(b"COPY").unwrap())
         .uri(&property_version_path)
@@ -401,6 +448,20 @@ async fn deltav_version_control_report_and_immutable_resource_workflow() {
         .uri(&version_path)
         .insert_header(("Authorization", auth.clone()))
         .set_payload("changed")
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 403);
+
+    let req = test::TestRequest::delete()
+        .uri(&version_path)
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 403);
+
+    let req = test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"MOVE").unwrap())
+        .uri(&version_path)
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Destination", "/webdav/moved-version.txt"))
         .to_request();
     assert_eq!(test::call_service(&app, req).await.status(), 403);
 
