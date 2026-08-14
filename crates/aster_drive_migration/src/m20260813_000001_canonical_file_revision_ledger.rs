@@ -2,14 +2,13 @@
 
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::sea_orm::{
-    ConnectionTrait, DbBackend, Statement, TransactionTrait, prelude::DateTimeUtc,
+    ConnectionTrait, DbBackend, TransactionTrait, prelude::DateTimeUtc,
 };
 
 const FILE_BACKFILL_BATCH_SIZE: u64 = 500;
 const LEGACY_REVISION_BATCH_SIZE: u64 = 1_000;
 const SYSTEM_PROPERTY_NAMESPACE_PREFIX: &str = "system.";
 const DAV_PROPERTY_NAMESPACE: &str = "DAV:";
-const MINIMUM_MYSQL_VERSION: (u64, u64, u64) = (8, 0, 23);
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
@@ -17,7 +16,6 @@ pub struct Migration;
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        ensure_mysql_version_supported(manager).await?;
         create_revision_histories(manager).await?;
         create_revisions(manager).await?;
         create_revision_properties(manager).await?;
@@ -48,51 +46,6 @@ impl MigrationTrait for Migration {
         manager
             .drop_table(Table::drop().table(FileRevisionHistories::Table).to_owned())
             .await
-    }
-}
-
-async fn ensure_mysql_version_supported(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
-    if manager.get_database_backend() != DbBackend::MySql {
-        return Ok(());
-    }
-    let row = manager
-        .get_connection()
-        .query_one_raw(Statement::from_string(DbBackend::MySql, "SELECT VERSION()"))
-        .await?
-        .ok_or_else(|| DbErr::Migration("MySQL did not report a server version".to_string()))?;
-    let version = row
-        .try_get_by_index::<String>(0)
-        .map_err(|error| DbErr::Migration(format!("failed to read MySQL version: {error}")))?;
-    if mysql_version_is_supported(&version) {
-        return Ok(());
-    }
-    Err(DbErr::Migration(format!(
-        "AsterDrive requires MySQL 8.0.23 or newer; detected {version}"
-    )))
-}
-
-fn mysql_version_is_supported(version: &str) -> bool {
-    if version.to_ascii_lowercase().contains("mariadb") {
-        return false;
-    }
-    let mut parts = version.split('.');
-    let parse_part = |part: &str| {
-        let digits: String = part
-            .chars()
-            .take_while(|character| character.is_ascii_digit())
-            .collect();
-        (!digits.is_empty())
-            .then(|| digits.parse::<u64>().ok())
-            .flatten()
-    };
-    let parsed = (
-        parts.next().and_then(parse_part),
-        parts.next().and_then(parse_part),
-        parts.next().and_then(parse_part),
-    );
-    match parsed {
-        (Some(major), Some(minor), Some(patch)) => (major, minor, patch) >= MINIMUM_MYSQL_VERSION,
-        _ => false,
     }
 }
 
@@ -1124,22 +1077,6 @@ enum EntityProperties {
 mod tests {
     use super::*;
     use sea_orm_migration::sea_orm::{Database, DatabaseConnection};
-
-    #[test]
-    fn mysql_version_floor_covers_supported_and_rejected_server_strings() {
-        for version in [
-            "8.0.23",
-            "8.0.23-0ubuntu0.22.04.1",
-            "8.4.0",
-            "9.0.1",
-            "8.0.34.mysql_aurora.3.08.2",
-        ] {
-            assert!(mysql_version_is_supported(version), "{version}");
-        }
-        for version in ["5.7.44", "8.0.22", "10.11.6-MariaDB", "not-a-version", ""] {
-            assert!(!mysql_version_is_supported(version), "{version}");
-        }
-    }
 
     async fn pagination_fixture() -> DatabaseConnection {
         let db = Database::connect("sqlite::memory:")
