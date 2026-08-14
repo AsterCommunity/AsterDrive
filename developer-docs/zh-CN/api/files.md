@@ -39,12 +39,14 @@
 
 上传的入口主要有两类：
 
+- `POST /files/new`：创建产品级空文件
 - `POST /files/upload/init`：先协商模式
 - `POST /files/upload`：直接走普通 multipart 上传
 - `GET /files/upload/sessions`：刷新页面后恢复仍未完成的上传 session
 
-这两条入口都支持目录上传语义：
+这些入口都支持目录上传语义：
 
+- `POST /files/new` 可在请求体里传 `folder_id` 和 `relative_path`
 - `POST /files/upload` 可通过 query 传 `folder_id`
 - `POST /files/upload` 可通过 query 传 `relative_path`
 - `POST /files/upload` 可通过 query 传 `declared_size`
@@ -76,8 +78,8 @@
 
 ### 直传、分片和完成阶段
 
-- `POST /files/upload`：普通 multipart 上传；空文件会报错，同目录同名文件不会覆盖。若命中的对象存储 / Remote 策略是 `relay_stream`，这里会直接把请求体中继到对应驱动
-- `POST /files/new`：创建一个 0 字节空文件，适合“新建文本文件”这类前端动作
+- `POST /files/new`：canonical 空文件创建 API；文件选择器和目录上传队列遇到 0 字节 `File` 时会直接调用它，不会初始化 upload session 或运行 direct/chunked/presigned/provider-resumable runner
+- `POST /files/upload`：普通 multipart 上传；`declared_size = 0` 且实际 file field 为空时，为兼容旧客户端完整消费 field 后委托同一个空文件 use case；声明为 0 但实际非空时，在任何存储对象变更前返回 `upload.request_size_mismatch`。非零文件同目录同名不会覆盖；命中对象存储 / Remote `relay_stream` 策略时会直接把请求体中继到对应驱动
 - `GET /files/upload/sessions`：列出当前用户个人空间下未过期、状态为 `uploading` / `assembling` / `presigned` 的 session，按 `updated_at` 和 `upload_id` 倒序返回；传 `frontend_client_id` 时只返回同一前端实例创建的 session
 - `PUT /files/upload/{upload_id}/{chunk_number}`：上传单个分片，`chunk_number` 从 `0` 开始
 - `POST /files/upload/{upload_id}/presign-parts`：只用于 `presigned_multipart`，请求体里传 `part_numbers`
@@ -116,6 +118,8 @@
 - 所有对象存储 / OneDrive / Remote 路径（`relay_stream` / `presigned` / `presigned_multipart` / provider resumable）：都会校验大小和配额，但不会做 Blob 去重；最终会使用上传 session 派生的占位 hash 和 `files/{upload_id}` 风格的对象路径为每次上传创建独立 Blob；这些路径都不会回读对象计算 SHA-256
 
 `POST /files/new` 创建空文件时也遵循同样规则：只有 local 显式开启 `content_dedup` 才会复用 0 字节 Blob，非本地 connector 始终创建独立 Blob。
+
+`POST /files/new` 和空 multipart compatibility 都属于产品级新建文件：它们统一负责 `relative_path`、缺失父目录创建、exact target、策略解析、Blob / file transaction、事件和失败清理。WebDAV PUT / LOCK staging、storage migration、internal storage ingress、remote follower object write 以及已准备 Blob 的恢复 / 复制仍使用 driver 的 `put(path, &[])` 或对应 stream/object primitive；这些低层零长度对象写入不会创建第二条产品文件元数据路径。
 
 `relay_stream` 的 multipart 场景下，服务端会把每个 part 的 `part_number + etag` 持久化到数据库；`complete` 时直接使用这些服务端记录完成对象存储 / Remote multipart，不依赖客户端再回传 `parts`。
 
