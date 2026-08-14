@@ -18,11 +18,20 @@ retry_count = 3
 
 - **SQLite** - Best for single-node, NAS, personal, or small-team deployments. It has the least operational overhead.
 - **PostgreSQL** - Use it if you already run PostgreSQL or want to integrate with an existing operations stack.
-- **MySQL** - Use it if you already use MySQL and want to keep the stack consistent.
+- **MySQL 8.0.13 or later** - Use it if you already use MySQL and want to keep the stack consistent.
 
 :::tip[Use SQLite for the first deployment]
 SQLite is enough for most scenarios. When the deployment grows, you can switch with AsterDrive's built-in cross-database migration tool instead of being locked into the initial choice.
 :::
+
+## MySQL / MariaDB Version Support
+
+| Backend | Minimum Supported Version | Current Validation Coverage |
+| --- | --- | --- |
+| MySQL | 8.0.13 | A complete fresh migration passes on MySQL 8.0.13; 8.0.12 stops at the functional key parts used by the baseline. Continuous integration runs the complete migration and integration suites on MySQL 8.4. |
+| MariaDB | Not yet in the support matrix | Complete fresh migrations on MariaDB 11.4.12 and 11.8.8 both stop at the same point: MariaDB does not accept the MySQL functional-key-part index syntax used by the baseline, so there is no minimum version to declare yet. |
+
+AsterDrive does not block startup based on the version string returned by the database. The table describes the boundary that the project actually supports and has validated, rather than a hard-coded runtime version allowlist. Even when a release meets the minimum version, rehearse production upgrades on a database copy, especially for large deployments.
 
 ## Options
 
@@ -60,7 +69,7 @@ url = { base_url = "postgres://localhost:5432/asterdrive", username = "RAW_USERN
 
 ### MySQL
 
-AsterDrive does not reject MySQL-compatible databases by server version string. Migrations execute the required generated-column, index, and constraint DDL directly, so support is determined by actual database capabilities. Continuous integration runs the complete migration and integration suites on MySQL 8.4; rehearse upgrades on a database copy when using another MySQL or MariaDB version.
+Use MySQL 8.0.13 or later. AsterDrive migrations execute the required generated-column, index, and constraint DDL directly; see the version-support table above for the minimum version and current validation coverage.
 
 ```toml
 url = "mysql://user:password@localhost:3306/asterdrive"
