@@ -79,6 +79,7 @@ pub(crate) async fn upload_in_scope_with_audit(
             params.folder_id,
             &filename,
             params.relative_path,
+            None,
             audit_ctx,
         )
         .await

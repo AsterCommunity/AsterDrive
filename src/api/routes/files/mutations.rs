@@ -19,11 +19,13 @@ use actix_web::{HttpRequest, HttpResponse, web};
     path = "/api/v1/files/new",
     tag = "files",
     operation_id = "create_empty_file",
+    params(("Idempotency-Key" = Option<String>, Header, description = "Optional opaque replay key, scoped to the authenticated actor and workspace")),
     request_body(content = CreateEmptyRequest, content_type = "application/json"),
     responses(
         (status = 201, description = "Empty file created", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 400, description = "Invalid name"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 409, description = "Idempotency key request mismatch or retained result was purged"),
     ),
     security(("bearer" = [])),
 )]
@@ -254,12 +256,16 @@ pub async fn copy_file(
     path = "/api/v1/teams/{team_id}/files/new",
     tag = "teams",
     operation_id = "create_empty_team_file",
-    params(("team_id" = i64, Path, description = "Team ID")),
+    params(
+        ("team_id" = i64, Path, description = "Team ID"),
+        ("Idempotency-Key" = Option<String>, Header, description = "Optional opaque replay key, scoped to the authenticated actor and workspace")
+    ),
     request_body = CreateEmptyRequest,
     responses(
         (status = 201, description = "Empty team file created", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
+        (status = 409, description = "Idempotency key request mismatch or retained result was purged"),
     ),
     security(("bearer" = [])),
 )]
@@ -510,6 +516,22 @@ pub(crate) async fn create_empty_response(
     body: &CreateEmptyRequest,
 ) -> Result<HttpResponse> {
     validate_request(body)?;
+    let idempotency_key = req
+        .headers()
+        .get("Idempotency-Key")
+        .map(|value| {
+            value.to_str().map_err(|_| {
+                crate::errors::AsterError::validation_error("Idempotency-Key must be valid ASCII")
+            })
+        })
+        .transpose()?;
+    if let Some(key) = idempotency_key
+        && (key.is_empty() || key.len() > 255 || key.bytes().any(|byte| byte.is_ascii_whitespace()))
+    {
+        return Err(crate::errors::AsterError::validation_error(
+            "Idempotency-Key must be a non-empty opaque token no longer than 255 bytes",
+        ));
+    }
     let ctx = AuditContext::from_request(req, claims);
     let file = file::create_empty_in_scope_with_audit(
         state,
@@ -517,6 +539,7 @@ pub(crate) async fn create_empty_response(
         body.folder_id,
         &body.name,
         body.relative_path.as_deref(),
+        idempotency_key,
         &ctx,
     )
     .await?;

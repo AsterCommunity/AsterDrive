@@ -80,6 +80,17 @@ mod tests {
     }
 
     #[test]
+    fn rejects_ranges_for_empty_content() {
+        for raw in ["bytes=0-0", "bytes=0-", "bytes=-1"] {
+            let header = HeaderValue::from_static(raw);
+            assert!(
+                parse_range_header(Some(&header), 0).is_err(),
+                "{raw} must be unsatisfiable for empty content"
+            );
+        }
+    }
+
+    #[test]
     fn rejects_malformed_ranges() {
         for raw in [
             "items=0-1",

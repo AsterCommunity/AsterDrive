@@ -10,6 +10,7 @@ pub mod auth;
 pub mod entity;
 pub mod external_auth_provider;
 mod facade;
+pub mod file_blob;
 pub mod media_metadata;
 pub mod passkey;
 pub mod preferences;

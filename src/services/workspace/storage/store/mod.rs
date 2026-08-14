@@ -4,21 +4,23 @@ mod empty;
 pub(crate) mod from_temp;
 mod preuploaded_contract;
 
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use sea_orm::{ActiveModelTrait, DbBackend, Set};
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::db::repository::file_repo;
+use crate::db::repository::{file_create_idempotency_repo, file_repo};
 use crate::errors::{AsterError, Result, precondition_failed_with_code};
 use crate::runtime::PrimaryAppState;
 use crate::services::events::storage_change;
 use aster_drive_model::entities::file;
 
 use super::{
-    NewFileMode, PreparedNonDedupBlobUpload, WorkspaceStorageScope, check_quota,
+    NewFileMode, ParsedUploadPath, PreparedNonDedupBlobUpload, WorkspaceStorageScope, check_quota,
     cleanup_preuploaded_blob_upload, create_new_file_from_blob,
-    create_new_file_from_blob_with_actor_username, lock_storage_usage, persist_preuploaded_blob,
-    update_storage_used, verify_file_access, verify_folder_access,
+    create_new_file_from_blob_with_actor_username, ensure_upload_parent_path_on,
+    lock_folder_access_on, lock_storage_usage, persist_preuploaded_blob,
+    resolve_policy_for_size_with_verified_folder_on, resolve_verified_folder_policy_hint_on,
+    update_storage_used, verify_file_access,
 };
 
 #[derive(Clone, Copy)]
@@ -45,7 +47,7 @@ impl FileWritePrecondition {
         })
     }
 }
-pub(crate) use empty::{EmptyFileNameMode, PreparedEmptyFile};
+pub(crate) use empty::{EmptyFileNameMode, PreparedEmptyFile, publish_empty_file_created};
 use preuploaded_contract::{
     VerifiedPreuploadedNondedupStoreBlob, cleanup_verified_preuploaded_nondedup_store_blob,
 };
@@ -148,6 +150,69 @@ pub(crate) async fn create_empty(
     filename: &str,
     name_mode: EmptyFileNameMode,
 ) -> Result<file::Model> {
+    Ok(
+        create_empty_with_idempotency(state, scope, folder_id, filename, name_mode, None)
+            .await?
+            .file,
+    )
+}
+
+#[derive(Debug)]
+pub(crate) struct EmptyFileCreateResult {
+    pub file: file::Model,
+    pub replayed: bool,
+}
+
+pub(crate) async fn create_empty_with_idempotency(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    folder_id: Option<i64>,
+    filename: &str,
+    name_mode: EmptyFileNameMode,
+    idempotency: Option<(&str, &str)>,
+) -> Result<EmptyFileCreateResult> {
+    create_empty_transactional(
+        state,
+        scope,
+        folder_id,
+        filename,
+        name_mode,
+        idempotency,
+        None,
+    )
+    .await
+}
+
+pub(crate) async fn create_empty_from_relative_path_with_idempotency(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    parsed: ParsedUploadPath,
+    actor_username: Option<String>,
+    idempotency: Option<(&str, &str)>,
+) -> Result<EmptyFileCreateResult> {
+    let base_folder_id = parsed.base_folder_id;
+    let filename = parsed.filename.clone();
+    create_empty_transactional(
+        state,
+        scope,
+        base_folder_id,
+        &filename,
+        EmptyFileNameMode::Exact,
+        idempotency,
+        Some((parsed, actor_username)),
+    )
+    .await
+}
+
+async fn create_empty_transactional(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    folder_id: Option<i64>,
+    filename: &str,
+    name_mode: EmptyFileNameMode,
+    idempotency: Option<(&str, &str)>,
+    relative_parent: Option<(ParsedUploadPath, Option<String>)>,
+) -> Result<EmptyFileCreateResult> {
     tracing::debug!(
         scope = ?scope,
         folder_id,
@@ -155,10 +220,7 @@ pub(crate) async fn create_empty(
         "creating empty file"
     );
 
-    if let Some(folder_id) = folder_id {
-        verify_folder_access(state, scope, folder_id).await?;
-    }
-    let prepared = PreparedEmptyFile::prepare(state, scope, folder_id, filename, name_mode).await?;
+    let filename = aster_forge_validation::filename::normalize_validate_name(filename)?;
     let workspace = match scope {
         WorkspaceStorageScope::Personal { user_id } => {
             crate::services::files::lock::LockWorkspace::Personal { user_id }
@@ -167,11 +229,85 @@ pub(crate) async fn create_empty(
             crate::services::files::lock::LockWorkspace::Team { team_id }
         }
     };
-    let transaction_prepared = prepared.clone();
+    let transaction_filename = filename.clone();
+    let transaction_idempotency =
+        idempotency.map(|(key_hash, fingerprint)| (key_hash.to_owned(), fingerprint.to_owned()));
     let result =
         aster_forge_db::transaction::with_transaction(state.writer_db(), async move |txn| {
             crate::services::files::lock::lock_workspace_for_mutation_on(txn, workspace).await?;
             lock_storage_usage(txn, scope).await?;
+            let idempotency_scope = match scope {
+                WorkspaceStorageScope::Personal { user_id } => {
+                    file_create_idempotency_repo::FileCreateIdempotencyScope {
+                        actor_user_id: user_id,
+                        workspace_kind: "personal",
+                        workspace_id: user_id,
+                    }
+                }
+                WorkspaceStorageScope::Team {
+                    team_id,
+                    actor_user_id,
+                } => file_create_idempotency_repo::FileCreateIdempotencyScope {
+                    actor_user_id,
+                    workspace_kind: "team",
+                    workspace_id: team_id,
+                },
+            };
+            let mut idempotency_claim = None;
+            if let Some((key_hash, fingerprint)) = &transaction_idempotency {
+                if let Some(existing) = file_create_idempotency_repo::find(
+                    txn,
+                    idempotency_scope,
+                    key_hash,
+                )
+                .await?
+                {
+                    if existing.expires_at <= Utc::now() {
+                        file_create_idempotency_repo::delete(txn, existing.id).await?;
+                    } else {
+                        if existing.request_fingerprint != *fingerprint {
+                            return Err(AsterError::conflict(
+                                "idempotency key was already used with a different create-empty request",
+                            ));
+                        }
+                        let result_file_id = existing.result_file_id.ok_or_else(|| {
+                            AsterError::conflict(
+                                "idempotency result file was purged during its retention window",
+                            )
+                        })?;
+                        let file = file_repo::find_by_id(txn, result_file_id)
+                            .await
+                            .map_err(|_| {
+                                AsterError::conflict(
+                                    "idempotency result file was purged during its retention window",
+                                )
+                            })?;
+                        return Ok(EmptyFileCreateResult {
+                            file,
+                            replayed: true,
+                        });
+                    }
+                }
+                let now = Utc::now();
+                idempotency_claim = Some(
+                    file_create_idempotency_repo::create_claim(
+                        txn,
+                        idempotency_scope,
+                        key_hash,
+                        fingerprint,
+                        now,
+                        now + Duration::hours(24),
+                    )
+                    .await?,
+                );
+            }
+            let base_folder = match folder_id {
+                Some(folder_id) => {
+                    let folder = lock_folder_access_on(txn, state, scope, folder_id).await?;
+                    Some(resolve_verified_folder_policy_hint_on(txn, scope, folder).await?)
+                }
+                None => None,
+            };
             crate::services::files::lock::enforce_collection_membership_mutation_on(
                 txn,
                 workspace,
@@ -179,27 +315,70 @@ pub(crate) async fn create_empty(
                 &crate::services::files::lock::SubmittedLockCredentials::none(),
             )
             .await?;
+            let (resolved_folder_id, resolved_folder) =
+                if let Some((parsed, actor_username)) = &relative_parent {
+                    let transaction_parsed = ParsedUploadPath {
+                        base_folder_id: parsed.base_folder_id,
+                        base_folder,
+                        parent_segments: parsed.parent_segments.clone(),
+                        filename: parsed.filename.clone(),
+                    };
+                    let parent = ensure_upload_parent_path_on(
+                        state,
+                        txn,
+                        scope,
+                        &transaction_parsed,
+                        actor_username.as_deref(),
+                    )
+                    .await?;
+                    if parent.folder_id != folder_id {
+                        crate::services::files::lock::enforce_collection_membership_mutation_on(
+                            txn,
+                            workspace,
+                            parent.folder_id,
+                            &crate::services::files::lock::SubmittedLockCredentials::none(),
+                        )
+                        .await?;
+                    }
+                    (parent.folder_id, parent.folder)
+                } else {
+                    (folder_id, base_folder)
+                };
+            let policy = resolve_policy_for_size_with_verified_folder_on(
+                state,
+                txn,
+                scope,
+                resolved_folder,
+                0,
+            )
+            .await?;
+            let transaction_prepared = PreparedEmptyFile::with_resolved_policy(
+                scope,
+                resolved_folder_id,
+                &transaction_filename,
+                name_mode,
+                policy.id,
+            )?;
             let blob = transaction_prepared.persist_blob_on(txn).await?;
-            transaction_prepared.create_file_on(txn, &blob).await
+            let file = transaction_prepared.create_file_on(txn, &blob).await?;
+            if let Some(claim) = idempotency_claim {
+                file_create_idempotency_repo::complete(txn, claim, file.id).await?;
+            }
+            Ok(EmptyFileCreateResult { file, replayed: false })
         })
         .await;
     let created = match result {
         Ok(created) => created,
-        Err(error) => {
-            if !error.database_commit_outcome_uncertain() {
-                prepared
-                    .cleanup_after_db_failure("empty file DB error")
-                    .await;
-            }
-            return Err(error);
-        }
+        Err(error) => return Err(error),
     };
-    prepared.publish_created(state, &created);
+    if !created.replayed {
+        publish_empty_file_created(state, scope, &created.file);
+    }
     tracing::debug!(
         scope = ?scope,
-        file_id = created.id,
-        blob_id = created.blob_id,
-        folder_id = created.folder_id,
+        file_id = created.file.id,
+        blob_id = created.file.blob_id,
+        folder_id = created.file.folder_id,
         "created empty file"
     );
     Ok(created)
@@ -339,7 +518,10 @@ pub(crate) async fn store_preuploaded_nondedup(
                 let blob = persist_preuploaded_blob(txn, verified_blob.prepared()).await?;
                 debug_assert_eq!(blob.size, verified_blob.size());
                 debug_assert_eq!(blob.policy_id, verified_blob.policy_id());
-                debug_assert_eq!(blob.storage_path, verified_blob.storage_path());
+                debug_assert_eq!(
+                    blob.storage_path.as_deref(),
+                    Some(verified_blob.storage_path())
+                );
 
                 let result = if let Some((old_file, old_blob)) = overwrite_ctx {
                     let current_file = revalidate_preuploaded_overwrite_target(

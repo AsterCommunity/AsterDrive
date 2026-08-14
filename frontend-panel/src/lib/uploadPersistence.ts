@@ -27,8 +27,20 @@ export interface ResumableSession {
 	completedParts?: { part_number: number; etag: string }[];
 }
 
+export interface PendingEmptyFileCreate {
+	taskId: string;
+	idempotencyKey: string;
+	filename: string;
+	baseFolderId: number | null;
+	baseFolderName: string;
+	relativePath: string | null;
+	savedAt: number;
+	workspace?: Workspace;
+}
+
 const STORAGE_KEY = "aster_resumable_uploads";
-/** 23h — 留 1h 余量，服务器 session 24h 过期 */
+const EMPTY_FILE_STORAGE_KEY = "aster_pending_empty_file_creates";
+/** 23h: leave one hour before the server's 24h idempotency retention expires. */
 const MAX_AGE_MS = 23 * 60 * 60 * 1000;
 
 function readAll(): ResumableSession[] {
@@ -38,6 +50,28 @@ function readAll(): ResumableSession[] {
 		return JSON.parse(raw) as ResumableSession[];
 	} catch {
 		return [];
+	}
+}
+
+function readPendingEmptyFiles(): PendingEmptyFileCreate[] {
+	try {
+		const raw = localStorage.getItem(EMPTY_FILE_STORAGE_KEY);
+		if (!raw) return [];
+		return JSON.parse(raw) as PendingEmptyFileCreate[];
+	} catch {
+		return [];
+	}
+}
+
+function writePendingEmptyFiles(entries: PendingEmptyFileCreate[]): void {
+	try {
+		if (entries.length === 0) {
+			localStorage.removeItem(EMPTY_FILE_STORAGE_KEY);
+			return;
+		}
+		localStorage.setItem(EMPTY_FILE_STORAGE_KEY, JSON.stringify(entries));
+	} catch (error) {
+		logger.warn("failed to persist pending empty-file creates", error);
 	}
 }
 
@@ -151,7 +185,40 @@ export function loadSessions(workspace?: Workspace): ResumableSession[] {
 	);
 }
 
+export function savePendingEmptyFile(entry: PendingEmptyFileCreate): void {
+	const all = readPendingEmptyFiles().filter(
+		(existing) => existing.taskId !== entry.taskId,
+	);
+	all.push({
+		...entry,
+		workspace: normalizeWorkspace(entry.workspace),
+	});
+	writePendingEmptyFiles(all);
+}
+
+export function removePendingEmptyFile(taskId: string): void {
+	writePendingEmptyFiles(
+		readPendingEmptyFiles().filter((entry) => entry.taskId !== taskId),
+	);
+}
+
+export function loadPendingEmptyFiles(
+	workspace?: Workspace,
+): PendingEmptyFileCreate[] {
+	const now = Date.now();
+	const all = readPendingEmptyFiles();
+	const valid = all.filter((entry) => now - entry.savedAt < MAX_AGE_MS);
+	if (valid.length !== all.length) {
+		writePendingEmptyFiles(valid);
+	}
+	if (!workspace) return valid;
+	return valid.filter((entry) =>
+		workspaceEquals(normalizeWorkspace(entry.workspace), workspace),
+	);
+}
+
 /** 清空所有 session */
 export function clearAllSessions(): void {
 	localStorage.removeItem(STORAGE_KEY);
+	localStorage.removeItem(EMPTY_FILE_STORAGE_KEY);
 }

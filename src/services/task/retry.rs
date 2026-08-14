@@ -35,6 +35,7 @@ pub(super) fn default_retry_class(error: &AsterError) -> TaskRetryClass {
             }
         },
         AsterError::ValidationError(_)
+        | AsterError::Conflict(_)
         | AsterError::RecordNotFound(_)
         | AsterError::MailNotConfigured(_)
         | AsterError::MailDeliveryFailed(_)

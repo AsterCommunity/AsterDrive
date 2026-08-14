@@ -147,6 +147,18 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
         .await;
     }
 
+    if blob.is_virtual_empty() {
+        return build_stream_outcome_with_disposition_and_range(
+            state,
+            file,
+            blob,
+            disposition,
+            None,
+            range,
+        )
+        .await;
+    }
+
     let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
     let requires_sandbox =
         disposition == DownloadDisposition::Inline && requires_inline_sandbox(&file.mime_type);
@@ -177,6 +189,12 @@ async fn build_presigned_redirect_outcome(
     blob: &file_blob::Model,
     disposition: DownloadDisposition,
 ) -> Result<Option<DownloadOutcome>> {
+    if blob.is_virtual_empty() {
+        return Ok(None);
+    }
+    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
+        AsterError::internal_error(format!("stored blob #{} is missing storage_path", blob.id))
+    })?;
     let driver = state.driver_registry().get_driver(policy)?;
     let presigned = driver.extensions().presigned.ok_or_else(|| {
         AsterError::storage_driver_error("presigned download not supported by driver")
@@ -184,7 +202,7 @@ async fn build_presigned_redirect_outcome(
 
     let url = presigned
         .presigned_url(
-            &blob.storage_path,
+            storage_path,
             Duration::from_secs(PRESIGNED_DOWNLOAD_TTL_SECS),
             PresignedDownloadOptions {
                 download_name: Some(file.name.clone()),
@@ -275,16 +293,23 @@ pub(crate) async fn build_stream_outcome_with_disposition_and_range(
         });
     }
 
-    let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
-    let driver = state.driver_registry().get_driver(&policy)?;
-    // 主下载链路必须保持流式读取；不要改回 driver.get() 的全量缓冲实现。
-    let stream = match range {
-        Some(range) => {
-            driver
-                .get_range(&blob.storage_path, range.start(), Some(range.length()))
-                .await?
+    let stream: Box<dyn tokio::io::AsyncRead + Unpin + Send> = if blob.is_virtual_empty() {
+        Box::new(tokio::io::empty())
+    } else {
+        let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
+            AsterError::internal_error(format!("stored blob #{} is missing storage_path", blob.id))
+        })?;
+        let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
+        let driver = state.driver_registry().get_driver(&policy)?;
+        // 主下载链路必须保持流式读取；不要改回 driver.get() 的全量缓冲实现。
+        match range {
+            Some(range) => {
+                driver
+                    .get_range(storage_path, range.start(), Some(range.length()))
+                    .await?
+            }
+            None => driver.get_stream(storage_path).await?,
         }
-        None => driver.get_stream(&blob.storage_path).await?,
     };
 
     let reader_stream = tokio_util::io::ReaderStream::with_capacity(

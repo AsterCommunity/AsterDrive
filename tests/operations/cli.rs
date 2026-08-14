@@ -8,10 +8,10 @@ use std::process::Command;
 use aster_drive::config::DatabaseConfig;
 use aster_drive::db;
 use aster_drive::db::repository::{
-    contact_verification_token_repo, file_repo, follower_enrollment_session_repo,
-    managed_follower_repo, master_binding_repo, mfa_factor_repo, mfa_login_flow_repo,
-    mfa_recovery_code_repo, mfa_totp_setup_flow_repo, policy_repo, property_repo,
-    storage_policy_connector_credential_repo, tag_repo, user_repo,
+    contact_verification_token_repo, file_create_idempotency_repo, file_repo,
+    follower_enrollment_session_repo, managed_follower_repo, master_binding_repo, mfa_factor_repo,
+    mfa_login_flow_repo, mfa_recovery_code_repo, mfa_totp_setup_flow_repo, policy_repo,
+    property_repo, storage_policy_connector_credential_repo, tag_repo, user_repo,
 };
 use aster_drive_migration::{CurrentMigrator, Migrator, MigratorTrait};
 use aster_drive_model::entities::{
@@ -45,6 +45,10 @@ const MIGRATION_TAG_COLOR: &str = "#2563eb";
 const MIGRATION_TAG_PROPERTY_NAMESPACE: &str = "system.tags";
 const MIGRATION_SCHEDULED_TASK_ID: &str = "aster_drive:migration_fixture";
 const MIGRATION_RUNTIME_LEASE_ID: &str = "aster_drive.migration_fixture";
+const MIGRATION_FILE_CREATE_KEY_HASH: &str =
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+const MIGRATION_FILE_CREATE_FINGERPRINT: &str =
+    "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
 
 async fn setup_database_url() -> String {
     let db_path =
@@ -299,6 +303,7 @@ async fn seed_migration_fixture(database_url: &str) -> i64 {
         .expect("folder id should exist");
 
     let file_id = upload_test_file_to_folder!(app, token, folder_id);
+    seed_file_create_idempotency_fixture(state.writer_db(), file_id).await;
     seed_passkey_fixture(state.writer_db()).await;
     seed_mfa_fixture(state.writer_db()).await;
     seed_remote_node_fixture(state.writer_db()).await;
@@ -306,6 +311,31 @@ async fn seed_migration_fixture(database_url: &str) -> i64 {
     seed_tag_fixture(state.writer_db(), file_id).await;
     seed_runtime_coordination_fixture(state.writer_db()).await;
     file_id
+}
+
+async fn seed_file_create_idempotency_fixture(db: &DatabaseConnection, file_id: i64) {
+    let user = user_repo::find_by_email(db, "test@example.com")
+        .await
+        .unwrap()
+        .expect("seed user should exist");
+    let now = Utc::now();
+    let claim = file_create_idempotency_repo::create_claim(
+        db,
+        file_create_idempotency_repo::FileCreateIdempotencyScope {
+            actor_user_id: user.id,
+            workspace_kind: "personal",
+            workspace_id: user.id,
+        },
+        MIGRATION_FILE_CREATE_KEY_HASH,
+        MIGRATION_FILE_CREATE_FINGERPRINT,
+        now,
+        now + Duration::hours(24),
+    )
+    .await
+    .expect("file-create idempotency claim should insert");
+    file_create_idempotency_repo::complete(db, claim, file_id)
+        .await
+        .expect("file-create idempotency claim should complete");
 }
 
 async fn seed_runtime_coordination_fixture(db: &DatabaseConnection) {
@@ -696,6 +726,17 @@ async fn assert_migrated_fixture(
     let users = scalar_i64(&target_db, target_backend, "SELECT COUNT(*) FROM users").await;
     let folders = scalar_i64(&target_db, target_backend, "SELECT COUNT(*) FROM folders").await;
     let files = scalar_i64(&target_db, target_backend, "SELECT COUNT(*) FROM files").await;
+    let file_create_idempotencies = scalar_i64(
+        &target_db,
+        target_backend,
+        &format!(
+            "SELECT COUNT(*) FROM file_create_idempotencies \
+             WHERE key_hash = '{MIGRATION_FILE_CREATE_KEY_HASH}' \
+               AND request_fingerprint = '{MIGRATION_FILE_CREATE_FINGERPRINT}' \
+               AND result_file_id = {file_id}"
+        ),
+    )
+    .await;
     let managed_followers = scalar_i64(
         &target_db,
         target_backend,
@@ -834,6 +875,7 @@ async fn assert_migrated_fixture(
     assert_eq!(users, 1);
     assert_eq!(folders, 1);
     assert_eq!(files, 1);
+    assert_eq!(file_create_idempotencies, 1);
     assert_eq!(passkeys, 1);
     assert_eq!(mfa_factors, 1);
     assert_eq!(mfa_recovery_codes, 2);

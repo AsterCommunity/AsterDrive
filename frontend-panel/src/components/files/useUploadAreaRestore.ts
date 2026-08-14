@@ -7,6 +7,7 @@ import {
 } from "@/components/files/uploadResume";
 import { logger } from "@/lib/logger";
 import {
+	loadPendingEmptyFiles,
 	loadSessions,
 	type ResumableSession,
 	removeSession,
@@ -173,6 +174,24 @@ export function useUploadAreaRestore({
 		const restoredServerUploadIds = new Set<string>();
 
 		const ghostTasks: UploadTask[] = [];
+		for (const pending of loadPendingEmptyFiles(workspace)) {
+			ghostTasks.push({
+				id: pending.taskId,
+				file: null,
+				filename: pending.filename,
+				relativePath: pending.relativePath,
+				baseFolderId: pending.baseFolderId,
+				baseFolderName: pending.baseFolderName,
+				totalBytes: 0,
+				mode: null,
+				status: "queued",
+				progress: 0,
+				uploadedBytes: 0,
+				error: null,
+				uploadId: null,
+				emptyFileIdempotencyKey: pending.idempotencyKey,
+			});
+		}
 		const completionTasks: Array<{
 			task: UploadTask;
 			parts?: CompletedPart[];
@@ -237,8 +256,6 @@ export function useUploadAreaRestore({
 
 			candidates.push(result.value);
 		}
-
-		if (candidates.length === 0) return;
 
 		for (const { progress, session } of candidates) {
 			if (!progress?.status) {

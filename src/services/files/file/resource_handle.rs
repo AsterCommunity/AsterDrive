@@ -7,7 +7,7 @@ use crate::api::dto::files::{
     FileResourceRequestInfo,
 };
 use crate::db::repository::file_repo;
-use crate::errors::Result;
+use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{media::processing, workspace::storage::WorkspaceStorageScope};
 use aster_drive_model::entities::{file, file_blob};
@@ -167,6 +167,9 @@ async fn presigned_original_url(
     file: &file::Model,
     blob: &file_blob::Model,
 ) -> Result<Option<String>> {
+    if blob.is_virtual_empty() {
+        return Ok(None);
+    }
     if requires_inline_sandbox(&file.mime_type) {
         return Ok(None);
     }
@@ -186,7 +189,12 @@ async fn presigned_original_url(
 
     presigned
         .presigned_url(
-            &blob.storage_path,
+            blob.storage_path_for_connector().ok_or_else(|| {
+                AsterError::internal_error(format!(
+                    "stored blob #{} is missing storage_path",
+                    blob.id
+                ))
+            })?,
             Duration::from_secs(PRESIGNED_PREVIEW_TTL_SECS),
             PresignedDownloadOptions {
                 download_name: Some(file.name.clone()),
@@ -666,7 +674,7 @@ mod tests {
                 hash: Set("resource-handle-hash".to_string()),
                 size: Set(123),
                 policy_id: Set(policy.id),
-                storage_path: Set("objects/resource.bin".to_string()),
+                storage_path: Set(Some("objects/resource.bin".to_string())),
                 thumbnail_path: Set(None),
                 thumbnail_processor: Set(None),
                 thumbnail_version: Set(None),

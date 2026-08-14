@@ -22,7 +22,7 @@ import {
 	enterStorageRefreshGate,
 	leaveStorageRefreshGate,
 } from "@/lib/storageRefreshGate";
-import { loadSessions } from "@/lib/uploadPersistence";
+import { loadSessions, savePendingEmptyFile } from "@/lib/uploadPersistence";
 import {
 	normalizeUploadConcurrency,
 	readUploadSettings,
@@ -432,10 +432,24 @@ export function useUploadAreaManager({
 					relativePath,
 				}),
 			);
+			for (const task of nextTasks) {
+				if (task.emptyFileIdempotencyKey) {
+					savePendingEmptyFile({
+						taskId: task.id,
+						idempotencyKey: task.emptyFileIdempotencyKey,
+						filename: task.filename,
+						baseFolderId: task.baseFolderId,
+						baseFolderName: task.baseFolderName,
+						relativePath: task.relativePath,
+						savedAt: Date.now(),
+						workspace,
+					});
+				}
+			}
 			setTasks((prev) => [...nextTasks, ...prev]);
 			setUploadPanelOpen(true);
 		},
-		[breadcrumb, setUploadPanelOpen, t],
+		[breadcrumb, setUploadPanelOpen, t, workspace],
 	);
 
 	const addFiles = useCallback(
@@ -452,10 +466,24 @@ export function useUploadAreaManager({
 					relativePath: null,
 				}),
 			);
+			for (const task of nextTasks) {
+				if (task.emptyFileIdempotencyKey) {
+					savePendingEmptyFile({
+						taskId: task.id,
+						idempotencyKey: task.emptyFileIdempotencyKey,
+						filename: task.filename,
+						baseFolderId: task.baseFolderId,
+						baseFolderName: task.baseFolderName,
+						relativePath: task.relativePath,
+						savedAt: Date.now(),
+						workspace,
+					});
+				}
+			}
 			setTasks((prev) => [...nextTasks, ...prev]);
 			setUploadPanelOpen(true);
 		},
-		[breadcrumb, setUploadPanelOpen, t],
+		[breadcrumb, setUploadPanelOpen, t, workspace],
 	);
 
 	const handleFileInputChange = useCallback(

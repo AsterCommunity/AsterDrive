@@ -46,7 +46,7 @@ fn postgres_find_or_create_blob_insert_sql_uses_valid_on_conflict() {
         hash: Set("hash".to_string()),
         size: Set(1),
         policy_id: Set(2),
-        storage_path: Set("files/hash".to_string()),
+        storage_path: Set(Some("files/hash".to_string())),
         thumbnail_path: Set(None),
         thumbnail_processor: Set(None),
         thumbnail_version: Set(None),

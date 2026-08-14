@@ -231,6 +231,27 @@ pub async fn move_blob_policy_if_current<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+pub async fn move_virtual_empty_blob_policy_if_current<C: ConnectionTrait>(
+    db: &C,
+    blob_id: i64,
+    source_policy_id: i64,
+    target_policy_id: i64,
+) -> Result<bool> {
+    let result = FileBlob::update_many()
+        .col_expr(file_blob::Column::PolicyId, Expr::value(target_policy_id))
+        .col_expr(file_blob::Column::UpdatedAt, Expr::value(Utc::now()))
+        .filter(file_blob::Column::Id.eq(blob_id))
+        .filter(file_blob::Column::PolicyId.eq(source_policy_id))
+        .filter(
+            file_blob::Column::Backing
+                .eq(aster_drive_model::types::file_blob::FileBlobBacking::VirtualEmpty),
+        )
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected == 1)
+}
+
 pub async fn delete_blob_by_id<C: ConnectionTrait>(db: &C, blob_id: i64) -> Result<bool> {
     let result = FileBlob::delete_by_id(blob_id)
         .exec(db)

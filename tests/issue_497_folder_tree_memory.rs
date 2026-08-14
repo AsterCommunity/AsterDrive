@@ -313,7 +313,9 @@ async fn insert_wide_files(
         hash: Set(format!("issue-497-benchmark-{revision}-{resource_count}")),
         size: Set(0),
         policy_id: Set(policy.id),
-        storage_path: Set(format!("issue-497-benchmark-{revision}-{resource_count}")),
+        storage_path: Set(Some(format!(
+            "issue-497-benchmark-{revision}-{resource_count}"
+        ))),
         ref_count: Set(i32::try_from(file_count).expect("file count should fit i32")),
         created_at: Set(now),
         updated_at: Set(now),

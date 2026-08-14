@@ -539,6 +539,7 @@ async fn test_team_space_delete_folder_and_non_member_forbidden() {
         .uri(&format!("/api/v1/teams/{team_id}/files/new"))
         .insert_header(("Cookie", common::access_cookie_header(&outsider_token)))
         .insert_header(common::csrf_header_for(&outsider_token))
+        .insert_header(("Idempotency-Key", "team-relative-empty-key"))
         .set_json(serde_json::json!({
             "name": "ignored.md",
             "relative_path": "member/docs/empty.md"
@@ -548,6 +549,61 @@ async fn test_team_space_delete_folder_and_non_member_forbidden() {
     assert_eq!(resp.status(), 201);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["name"], "empty.md");
+    let empty_file_id = body["data"]["id"].as_i64().unwrap();
+    let empty_blob_id = body["data"]["blob_id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/teams/{team_id}/files/new"))
+        .insert_header(("Cookie", common::access_cookie_header(&outsider_token)))
+        .insert_header(common::csrf_header_for(&outsider_token))
+        .insert_header(("Idempotency-Key", "team-relative-empty-key"))
+        .set_json(serde_json::json!({
+            "name": "ignored.md",
+            "relative_path": "member/docs/empty.md"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let replay: Value = test::read_body_json(resp).await;
+    assert_eq!(replay["data"]["id"], empty_file_id);
+    assert_eq!(replay["data"]["blob_id"], empty_blob_id);
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/teams/{team_id}/files/new"))
+        .insert_header(("Cookie", common::access_cookie_header(&outsider_token)))
+        .insert_header(common::csrf_header_for(&outsider_token))
+        .insert_header(("Idempotency-Key", "team-relative-empty-key"))
+        .set_json(serde_json::json!({
+            "name": "ignored.md",
+            "relative_path": "member/docs/drifted.md"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 409);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/new")
+        .insert_header(("Cookie", common::access_cookie_header(&outsider_token)))
+        .insert_header(common::csrf_header_for(&outsider_token))
+        .insert_header(("Idempotency-Key", "team-relative-empty-key"))
+        .set_json(serde_json::json!({ "name": "personal-empty.md" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let personal: Value = test::read_body_json(resp).await;
+    assert_ne!(personal["data"]["id"], empty_file_id);
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/teams/{team_id}/files/new"))
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .insert_header(("Idempotency-Key", "team-relative-empty-key"))
+        .set_json(serde_json::json!({ "name": "owner-empty.md" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let owner_empty: Value = test::read_body_json(resp).await;
+    assert_ne!(owner_empty["data"]["id"], empty_file_id);
 }
 
 #[actix_web::test]

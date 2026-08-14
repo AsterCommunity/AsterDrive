@@ -14,6 +14,7 @@ mod transfer;
 use std::future::Future;
 
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, StorageChangeRuntimeState};
@@ -75,36 +76,86 @@ pub(crate) async fn create_empty_in_scope_with_audit(
     folder_id: Option<i64>,
     name: &str,
     relative_path: Option<&str>,
+    idempotency_key: Option<&str>,
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
-    let (folder_id, name, name_mode) = match relative_path {
-        Some(path) => {
-            let parsed = storage::parse_relative_upload_path(state, scope, folder_id, path).await?;
-            let actor_username = if parsed.parent_segments.is_empty() {
-                None
-            } else {
-                Some(storage::load_scope_actor_username_cached(state, scope).await?)
-            };
-            let parent = storage::ensure_upload_parent_path(
+    let (parsed_path, name, name_mode, actor_username, canonical_relative_path) =
+        match relative_path {
+            Some(path) => {
+                let parsed =
+                    storage::parse_relative_upload_path(state, scope, folder_id, path).await?;
+                let actor_username = if parsed.parent_segments.is_empty() {
+                    None
+                } else {
+                    Some(storage::load_scope_actor_username_cached(state, scope).await?)
+                };
+                let canonical_relative_path = parsed
+                    .parent_segments
+                    .iter()
+                    .chain(std::iter::once(&parsed.filename))
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("/");
+                let parsed_name = parsed.filename.clone();
+                (
+                    Some(parsed),
+                    parsed_name,
+                    storage::EmptyFileNameMode::Exact,
+                    actor_username,
+                    canonical_relative_path,
+                )
+            }
+            None => {
+                let name = aster_forge_validation::filename::normalize_validate_name(name)?;
+                (
+                    None,
+                    name,
+                    storage::EmptyFileNameMode::ResolveUnique,
+                    None,
+                    String::new(),
+                )
+            }
+        };
+    let request_fingerprint = idempotency_key.map(|_| {
+        let scope_fingerprint = match scope {
+            WorkspaceStorageScope::Personal { user_id } => format!("personal:{user_id}"),
+            WorkspaceStorageScope::Team { team_id, .. } => format!("team:{team_id}"),
+        };
+        let material = format!(
+            "asterdrive:create-empty:v1\\0{scope_fingerprint}\\0{folder_id:?}\\0{name_mode:?}\\0{name}\\0{}",
+            canonical_relative_path,
+        );
+        hex::encode(Sha256::digest(material.as_bytes()))
+    });
+    let key_hash = idempotency_key.map(|key| hex::encode(Sha256::digest(key.as_bytes())));
+    let idempotency = key_hash.as_deref().zip(request_fingerprint.as_deref());
+    let created = match parsed_path {
+        Some(parsed) => {
+            storage::create_empty_from_relative_path_with_idempotency(
                 state,
                 scope,
-                &parsed,
-                actor_username.as_deref(),
+                parsed,
+                actor_username,
+                idempotency,
             )
-            .await?;
-            (
-                parent.folder_id,
-                parsed.filename,
-                storage::EmptyFileNameMode::Exact,
-            )
+            .await?
         }
-        None => (
-            folder_id,
-            name.to_string(),
-            storage::EmptyFileNameMode::ResolveUnique,
-        ),
+        None => {
+            storage::create_empty_with_idempotency(
+                state,
+                scope,
+                folder_id,
+                &name,
+                name_mode,
+                idempotency,
+            )
+            .await?
+        }
     };
-    let file = storage::create_empty(state, scope, folder_id, &name, name_mode).await?;
+    let file = created.file;
+    if created.replayed {
+        return Ok(file.into());
+    }
     let details = audit_location_details_for_model(state, scope, &file).await;
     audit::log_with_details(
         state,

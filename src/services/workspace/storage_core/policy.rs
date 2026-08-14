@@ -3,9 +3,10 @@ use crate::db::repository::{folder_repo, team_repo, user_repo};
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::workspace::scope::{
-    WorkspaceStorageScope, require_team_policy_group_id, verify_folder_access,
+    WorkspaceStorageScope, require_team_policy_group_id_with_db, verify_folder_access,
 };
 use aster_drive_model::entities::folder;
+use sea_orm::ConnectionTrait;
 
 pub(crate) async fn load_storage_limits(
     state: &PrimaryAppState,
@@ -72,8 +73,9 @@ impl From<folder::Model> for VerifiedFolderPolicyHint {
     }
 }
 
-async fn resolve_scope_policy_for_size(
+async fn resolve_scope_policy_for_size_on<C: ConnectionTrait>(
     state: &PrimaryAppState,
+    db: &C,
     scope: WorkspaceStorageScope,
     file_size: i64,
 ) -> Result<aster_drive_model::entities::storage_policy::Model> {
@@ -86,7 +88,7 @@ async fn resolve_scope_policy_for_size(
             actor_user_id,
         } => {
             let policy_group_id =
-                require_team_policy_group_id(state, team_id, actor_user_id).await?;
+                require_team_policy_group_id_with_db(state, db, team_id, actor_user_id).await?;
             state
                 .policy_snapshot
                 .resolve_policy_in_group(policy_group_id, file_size)
@@ -100,13 +102,30 @@ pub(crate) async fn resolve_policy_for_size_with_verified_folder(
     folder: Option<VerifiedFolderPolicyHint>,
     file_size: i64,
 ) -> Result<aster_drive_model::entities::storage_policy::Model> {
+    resolve_policy_for_size_with_verified_folder_on(
+        state,
+        state.reader_db(),
+        scope,
+        folder,
+        file_size,
+    )
+    .await
+}
+
+pub(crate) async fn resolve_policy_for_size_with_verified_folder_on<C: ConnectionTrait>(
+    state: &PrimaryAppState,
+    db: &C,
+    scope: WorkspaceStorageScope,
+    folder: Option<VerifiedFolderPolicyHint>,
+    file_size: i64,
+) -> Result<aster_drive_model::entities::storage_policy::Model> {
     if let Some(folder) = folder
         && let Some(policy_id) = folder.policy_id()
     {
         return resolve_bound_folder_policy(state, policy_id);
     }
 
-    resolve_scope_policy_for_size(state, scope, file_size).await
+    resolve_scope_policy_for_size_on(state, db, scope, file_size).await
 }
 
 pub(crate) async fn resolve_verified_folder_policy_hint(
@@ -114,8 +133,16 @@ pub(crate) async fn resolve_verified_folder_policy_hint(
     scope: WorkspaceStorageScope,
     folder: folder::Model,
 ) -> Result<VerifiedFolderPolicyHint> {
+    resolve_verified_folder_policy_hint_on(state.reader_db(), scope, folder).await
+}
+
+pub(crate) async fn resolve_verified_folder_policy_hint_on<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceStorageScope,
+    folder: folder::Model,
+) -> Result<VerifiedFolderPolicyHint> {
     Ok(VerifiedFolderPolicyHint {
-        policy_id: resolve_effective_folder_policy_id(state, scope, folder).await?,
+        policy_id: resolve_effective_folder_policy_id_on(db, scope, folder).await?,
     })
 }
 
@@ -149,18 +176,18 @@ fn resolve_bound_folder_policy(
     Ok(policy)
 }
 
-async fn resolve_effective_folder_policy_id(
-    state: &PrimaryAppState,
+async fn resolve_effective_folder_policy_id_on<C: ConnectionTrait>(
+    db: &C,
     scope: WorkspaceStorageScope,
     folder: folder::Model,
 ) -> Result<Option<i64>> {
     let folder_id = folder.id;
     let ancestors = match scope {
         WorkspaceStorageScope::Personal { user_id } => {
-            folder_repo::find_ancestor_models(state.reader_db(), user_id, folder_id).await?
+            folder_repo::find_ancestor_models(db, user_id, folder_id).await?
         }
         WorkspaceStorageScope::Team { team_id, .. } => {
-            folder_repo::find_team_ancestor_models(state.reader_db(), team_id, folder_id).await?
+            folder_repo::find_team_ancestor_models(db, team_id, folder_id).await?
         }
     };
 
@@ -204,10 +231,12 @@ pub(crate) async fn resolve_policy_for_size(
     if let Some(folder_id) = folder_id {
         let folder = verify_folder_access(state, scope, folder_id).await?;
 
-        if let Some(policy_id) = resolve_effective_folder_policy_id(state, scope, folder).await? {
+        if let Some(policy_id) =
+            resolve_effective_folder_policy_id_on(state.reader_db(), scope, folder).await?
+        {
             return resolve_bound_folder_policy(state, policy_id);
         }
     }
 
-    resolve_scope_policy_for_size(state, scope, file_size).await
+    resolve_scope_policy_for_size_on(state, state.reader_db(), scope, file_size).await
 }

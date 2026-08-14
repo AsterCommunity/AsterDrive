@@ -47,7 +47,7 @@ pub struct StorageUsageDrift {
 pub struct BlobRefCountDrift {
     pub blob_id: i64,
     pub policy_id: i64,
-    pub storage_path: String,
+    pub storage_path: Option<String>,
     pub recorded_ref_count: i32,
     pub actual_ref_count: i64,
 }
@@ -620,8 +620,10 @@ async fn load_blob_expectations_for_policy<C: ConnectionTrait>(
         last_blob_id = blobs.last().map(|blob| blob.id);
 
         for blob in blobs {
-            blob_ids_by_path.insert(blob.storage_path.clone(), blob.id);
-            tracked_blobs.insert(blob.storage_path.clone());
+            if let Some(storage_path) = blob.storage_path_for_connector() {
+                blob_ids_by_path.insert(storage_path.to_string(), blob.id);
+                tracked_blobs.insert(storage_path.to_string());
+            }
             tracked_thumbnails.extend(processing::known_thumbnail_cache_paths(
                 &blob.hash,
                 thumbnail_max_dimension,

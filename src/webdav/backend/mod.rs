@@ -218,6 +218,12 @@ impl AsterDavFs {
         offset: Option<u64>,
         length: Option<u64>,
     ) -> Result<Box<dyn AsyncRead + Unpin + Send>, FsError> {
+        if blob.is_virtual_empty() {
+            return Ok(Box::new(tokio::io::empty()));
+        }
+        let storage_path = blob
+            .storage_path_for_connector()
+            .ok_or(FsError::GeneralFailure)?;
         let policy = self
             .state
             .policy_snapshot
@@ -231,11 +237,11 @@ impl AsterDavFs {
 
         let stream = match offset {
             Some(offset) => driver
-                .get_range(&blob.storage_path, offset, length)
+                .get_range(storage_path, offset, length)
                 .await
                 .map_err(|_| FsError::NotFound)?,
             None => driver
-                .get_stream(&blob.storage_path)
+                .get_stream(storage_path)
                 .await
                 .map_err(|_| FsError::NotFound)?,
         };

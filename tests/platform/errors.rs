@@ -100,6 +100,15 @@ fn operation_resource_limit_is_distinct_from_storage_quota_and_uses_507() {
 }
 
 #[test]
+fn conflict_error_maps_to_http_409_and_stable_api_code() {
+    let err = AsterError::conflict("request conflicts with retained state");
+
+    assert_eq!(err.code(), "E064");
+    assert_eq!(err.http_status(), StatusCode::CONFLICT);
+    assert_eq!(err.api_error_code(), ApiErrorCode::Conflict);
+}
+
+#[test]
 fn internal_error_logs_error() {
     let err = AsterError::internal_error("db pool poisoned");
 

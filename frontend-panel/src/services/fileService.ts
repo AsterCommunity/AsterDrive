@@ -33,6 +33,9 @@ import {
 import { ApiError, type ApiRequestConfig, api } from "./http";
 
 type ServiceRequestOptions = Pick<ApiRequestConfig, "signal">;
+type CreateEmptyFileOptions = ServiceRequestOptions & {
+	idempotencyKey?: string;
+};
 
 interface ApiFileResourceHandle {
 	identity: {
@@ -213,7 +216,7 @@ export function createFileService(workspace: Workspace) {
 			name: string,
 			folderId?: number | null,
 			relativePath?: string,
-			options?: ServiceRequestOptions,
+			options?: CreateEmptyFileOptions,
 		) => {
 			const path = buildWorkspacePath(workspace, "/files/new");
 			const data = {
@@ -221,9 +224,18 @@ export function createFileService(workspace: Workspace) {
 				folder_id: folderId ?? null,
 				...(relativePath === undefined ? {} : { relative_path: relativePath }),
 			};
-			return options === undefined
+			const requestOptions =
+				options === undefined
+					? undefined
+					: {
+							signal: options.signal,
+							...(options.idempotencyKey === undefined
+								? {}
+								: { headers: { "Idempotency-Key": options.idempotencyKey } }),
+						};
+			return requestOptions === undefined
 				? api.post<FileInfo>(path, data)
-				: api.post<FileInfo>(path, data, options);
+				: api.post<FileInfo>(path, data, requestOptions);
 		},
 
 		copyFile: (id: number, folderId?: number | null) =>

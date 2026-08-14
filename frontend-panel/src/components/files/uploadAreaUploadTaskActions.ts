@@ -2,6 +2,7 @@ import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { getResumePlan } from "@/components/files/uploadResume";
 import {
 	loadSessions,
+	removePendingEmptyFile,
 	removeSession,
 	saveSession,
 } from "@/lib/uploadPersistence";
@@ -103,11 +104,13 @@ export async function runQueuedUploadTask(
 	}: RunQueuedUploadTaskContext,
 ) {
 	const task = tasksRef.current.find((item) => item.id === taskId);
-	if (task?.status !== "queued" || !task.file) return;
+	if (task?.status !== "queued") return;
 
+	const isEmptyFile = task.totalBytes === 0 || task.file?.size === 0;
+	if (!isEmptyFile && !task.file) return;
 	const file = task.file;
 	patchTask(taskId, {
-		...(file.size === 0 ? { mode: "direct" as const } : {}),
+		...(isEmptyFile ? { mode: "direct" as const } : {}),
 		status: "initializing",
 		error: null,
 		progress: 0,
@@ -116,15 +119,19 @@ export async function runQueuedUploadTask(
 	});
 
 	try {
-		if (file.size === 0) {
+		if (isEmptyFile) {
 			const controller = new AbortController();
 			directAbortRef.current.set(taskId, controller);
 			try {
 				await createFileService(workspace).createEmptyFile(
-					file.name,
+					file?.name ?? task.filename,
 					task.baseFolderId,
 					task.relativePath ?? undefined,
-					{ signal: controller.signal },
+					{
+						signal: controller.signal,
+						idempotencyKey:
+							task.emptyFileIdempotencyKey ?? `empty-upload:${task.id}`,
+					},
 				);
 				if (controller.signal.aborted) return;
 
@@ -136,6 +143,7 @@ export async function runQueuedUploadTask(
 					speedBps: 0,
 					error: null,
 				});
+				removePendingEmptyFile(task.id);
 				markFolderForRefresh(task);
 			} catch (error) {
 				if (!controller.signal.aborted) throw error;
@@ -243,8 +251,9 @@ export async function runQueuedUploadTask(
 		}
 
 		const init = await uploadService.initUpload({
-			filename: file.name,
-			total_size: file.size,
+			// `file` is proven above for every non-empty task.
+			filename: file?.name ?? task.filename,
+			total_size: file?.size ?? task.totalBytes,
 			folder_id: task.baseFolderId,
 			relative_path: task.relativePath ?? undefined,
 		});
@@ -294,6 +303,9 @@ export async function cancelUploadTask(
 ) {
 	const task = tasksRef.current.find((item) => item.id === taskId);
 	if (!task) return;
+	if (task.emptyFileIdempotencyKey) {
+		removePendingEmptyFile(task.id);
+	}
 
 	if (task.mode === "direct") {
 		directAbortRef.current.get(taskId)?.abort();
@@ -379,8 +391,11 @@ export async function clearTerminalUploadTasks(
 		);
 
 		for (const task of tasksToClear) {
-			if (clearedIds.has(task.id) && task.uploadId) {
-				removeSession(task.uploadId);
+			if (clearedIds.has(task.id)) {
+				if (task.uploadId) removeSession(task.uploadId);
+				if (task.emptyFileIdempotencyKey) {
+					removePendingEmptyFile(task.id);
+				}
 			}
 		}
 		if (clearedIds.size > 0) {

@@ -72,21 +72,25 @@ pub(crate) async fn ensure_upload_parent_path(
     parsed: &ParsedUploadPath,
     actor_username: Option<&str>,
 ) -> Result<ResolvedUploadParent> {
-    if parsed.parent_segments.is_empty() {
-        return Ok(ResolvedUploadParent {
-            folder_id: parsed.base_folder_id,
-            folder: parsed.base_folder,
-        });
-    }
-
     let txn = transaction::begin(state.writer_db()).await?;
+    let resolved = ensure_upload_parent_path_on(state, &txn, scope, parsed, actor_username).await?;
+    transaction::commit(txn).await?;
+    Ok(resolved)
+}
+
+pub(crate) async fn ensure_upload_parent_path_on<C: sea_orm::ConnectionTrait>(
+    state: &PrimaryAppState,
+    db: &C,
+    scope: WorkspaceStorageScope,
+    parsed: &ParsedUploadPath,
+    actor_username: Option<&str>,
+) -> Result<ResolvedUploadParent> {
     let mut current_parent = parsed.base_folder_id;
     let mut current_folder = parsed.base_folder;
 
-    // 整条父路径在一个事务里补齐，避免目录上传时只创建出半截层级。
     for segment in &parsed.parent_segments {
         let folder =
-            ensure_folder_in_parent(state, &txn, scope, current_parent, segment, actor_username)
+            ensure_folder_in_parent(state, db, scope, current_parent, segment, actor_username)
                 .await?;
         current_parent = Some(folder.id);
         current_folder = Some(match current_folder {
@@ -95,7 +99,6 @@ pub(crate) async fn ensure_upload_parent_path(
         });
     }
 
-    transaction::commit(txn).await?;
     Ok(ResolvedUploadParent {
         folder_id: current_parent,
         folder: current_folder,

@@ -389,7 +389,7 @@ where
             hash: Set(format!("download-stream-{}", uuid::Uuid::new_v4())),
             size: Set(payload_size),
             policy_id: Set(policy.id),
-            storage_path: Set(format!("files/{}", uuid::Uuid::new_v4())),
+            storage_path: Set(Some(format!("files/{}", uuid::Uuid::new_v4()))),
             ref_count: Set(1),
             created_at: Set(now),
             updated_at: Set(now),

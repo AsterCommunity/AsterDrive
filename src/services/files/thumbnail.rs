@@ -194,6 +194,9 @@ async fn materialize_thumbnail_source_stream(
     blob: &file_blob::Model,
     temp_root: &str,
 ) -> Result<TempFileGuard> {
+    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
+        thumbnail_source_stream_failed("virtual-empty blobs have no thumbnail source".to_string())
+    })?;
     let temp_dir = PathBuf::from(aster_forge_utils::paths::runtime_temp_dir(temp_root));
     tokio::fs::create_dir_all(&temp_dir)
         .await
@@ -203,7 +206,7 @@ async fn materialize_thumbnail_source_stream(
         "thumbnail source temp file",
     );
 
-    let mut stream = driver.get_stream(&blob.storage_path).await?;
+    let mut stream = driver.get_stream(storage_path).await?;
     let mut file = tokio::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -250,8 +253,11 @@ pub(crate) async fn render_thumbnail_bytes(
     temp_root: &str,
     max_dim: u32,
 ) -> Result<Vec<u8>> {
+    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
+        thumbnail_source_stream_failed("virtual-empty blobs have no thumbnail source".to_string())
+    })?;
     if let Some(local_path_driver) = driver.extensions().local_path {
-        let path = local_path_driver.resolve_local_path(&blob.storage_path)?;
+        let path = local_path_driver.resolve_local_path(storage_path)?;
         return tokio::task::spawn_blocking(move || {
             generate_thumbnail_from_local_path(path, max_dim)
         })
@@ -275,8 +281,13 @@ pub(crate) async fn render_webp_derivative_bytes(
     temp_root: &str,
     max_dim: u32,
 ) -> Result<Vec<u8>> {
+    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
+        thumbnail_source_stream_failed(
+            "virtual-empty blobs have no image-preview source".to_string(),
+        )
+    })?;
     if let Some(local_path_driver) = driver.extensions().local_path {
-        let path = local_path_driver.resolve_local_path(&blob.storage_path)?;
+        let path = local_path_driver.resolve_local_path(storage_path)?;
         return tokio::task::spawn_blocking(move || {
             generate_webp_derivative_from_local_path(path, max_dim)
         })
@@ -356,7 +367,8 @@ mod tests {
             hash: "abc".repeat(21) + "a",
             size,
             policy_id: 1,
-            storage_path: "files/test".to_string(),
+            storage_path: Some("files/test".to_string()),
+            backing: aster_drive_model::types::file_blob::FileBlobBacking::Stored,
             thumbnail_path: None,
             thumbnail_processor: None,
             thumbnail_version: None,

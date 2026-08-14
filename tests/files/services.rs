@@ -1810,8 +1810,8 @@ async fn test_share_download_failure_rolls_back_download_quota() {
         .policy_snapshot
         .get_policy_or_err(blob.policy_id)
         .unwrap();
-    let stored_path =
-        std::path::Path::new(&common::local_policy_base_path(&policy)).join(&blob.storage_path);
+    let stored_path = std::path::Path::new(&common::local_policy_base_path(&policy))
+        .join(blob.storage_path_for_connector().expect("stored blob path"));
     std::fs::remove_file(&stored_path).unwrap();
 
     let err = aster_drive::services::share::download_shared_file_with_range(
@@ -2586,7 +2586,7 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
             hash: Set(format!("cleanup-blob-{}", uuid::Uuid::new_v4())),
             size: Set(12),
             policy_id: Set(default_policy_id),
-            storage_path: Set(format!("files/{}", uuid::Uuid::new_v4())),
+            storage_path: Set(Some(format!("files/{}", uuid::Uuid::new_v4()))),
             ref_count: Set(1),
             created_at: Set(now),
             updated_at: Set(now),
@@ -2926,7 +2926,7 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
             hash: Set(format!("batch-cleanup-blob-{}", uuid::Uuid::new_v4())),
             size: Set(1),
             policy_id: Set(default_policy_id),
-            storage_path: Set(format!("files/{}", uuid::Uuid::new_v4())),
+            storage_path: Set(Some(format!("files/{}", uuid::Uuid::new_v4()))),
             ref_count: Set(1001),
             created_at: Set(now),
             updated_at: Set(now),

@@ -5,7 +5,9 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
 
-use crate::db::repository::{file_repo, upload_session_repo, version_repo};
+use crate::db::repository::{
+    file_create_idempotency_repo, file_repo, upload_session_repo, version_repo,
+};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use aster_drive_model::entities::{file_blob, upload_session};
@@ -20,6 +22,7 @@ const MULTIPART_ABORT_INITIAL_BACKOFF_MS: u64 = 200;
 pub struct UploadSessionMaintenanceStats {
     pub completed_sessions_deleted: u64,
     pub broken_completed_sessions_deleted: u64,
+    pub file_create_idempotencies_deleted: u64,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -33,7 +36,14 @@ pub async fn cleanup_expired_completed_upload_sessions(
 ) -> Result<UploadSessionMaintenanceStats> {
     let now = Utc::now();
     let mut last_id: Option<String> = None;
-    let mut stats = UploadSessionMaintenanceStats::default();
+    let mut stats = UploadSessionMaintenanceStats {
+        file_create_idempotencies_deleted: file_create_idempotency_repo::delete_expired(
+            state.writer_db(),
+            now,
+        )
+        .await?,
+        ..Default::default()
+    };
 
     loop {
         let sessions = upload_session_repo::find_expired_completed_paginated(

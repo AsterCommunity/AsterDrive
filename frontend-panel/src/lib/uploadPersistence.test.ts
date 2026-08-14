@@ -2,9 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	appendCompletedPart,
 	clearAllSessions,
+	loadPendingEmptyFiles,
 	loadSessions,
 	type ResumableSession,
+	removePendingEmptyFile,
 	removeSession,
+	savePendingEmptyFile,
 	saveSession,
 } from "@/lib/uploadPersistence";
 import type { Workspace } from "@/lib/workspace";
@@ -149,6 +152,61 @@ describe("uploadPersistence", () => {
 			expect.objectContaining({
 				uploadId: "team-1",
 			}),
+		]);
+	});
+
+	it("persists empty-file replay keys by workspace and removes them explicitly", () => {
+		savePendingEmptyFile({
+			taskId: "empty-personal",
+			idempotencyKey: "key-personal",
+			filename: "empty.txt",
+			baseFolderId: null,
+			baseFolderName: "Root",
+			relativePath: null,
+			savedAt: Date.now(),
+		});
+		savePendingEmptyFile({
+			taskId: "empty-team",
+			idempotencyKey: "key-team",
+			filename: "nested.txt",
+			baseFolderId: 5,
+			baseFolderName: "Docs",
+			relativePath: "nested/empty.txt",
+			savedAt: Date.now(),
+			workspace: TEAM_WORKSPACE,
+		});
+
+		expect(loadPendingEmptyFiles(TEAM_WORKSPACE)).toEqual([
+			expect.objectContaining({
+				taskId: "empty-team",
+				idempotencyKey: "key-team",
+			}),
+		]);
+		removePendingEmptyFile("empty-team");
+		expect(loadPendingEmptyFiles(TEAM_WORKSPACE)).toEqual([]);
+		expect(loadPendingEmptyFiles()).toHaveLength(1);
+	});
+
+	it("drops empty-file replay records before the server retention expires", () => {
+		const now = 50_000_000;
+		vi.spyOn(Date, "now").mockReturnValue(now);
+		for (const [taskId, savedAt] of [
+			["fresh-empty", now - (23 * 60 * 60 * 1000 - 1)],
+			["expired-empty", now - (23 * 60 * 60 * 1000 + 1)],
+		] as const) {
+			savePendingEmptyFile({
+				taskId,
+				idempotencyKey: `${taskId}-key`,
+				filename: `${taskId}.txt`,
+				baseFolderId: null,
+				baseFolderName: "Root",
+				relativePath: null,
+				savedAt,
+			});
+		}
+
+		expect(loadPendingEmptyFiles()).toEqual([
+			expect.objectContaining({ taskId: "fresh-empty" }),
 		]);
 	});
 

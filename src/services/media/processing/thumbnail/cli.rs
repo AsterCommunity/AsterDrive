@@ -28,6 +28,9 @@ pub(super) async fn render_thumbnail_with_vips_cli(
     command: &str,
     max_dim: u32,
 ) -> Result<Vec<u8>> {
+    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
+        AsterError::validation_error("virtual-empty blobs have no thumbnail source")
+    })?;
     let temp_root = aster_forge_utils::paths::runtime_temp_dir(&state.config().server.temp_dir);
     let temp_dir = PathBuf::from(temp_root).join(format!("media-vips-{}", uuid::Uuid::new_v4()));
     tokio::fs::create_dir_all(&temp_dir)
@@ -38,7 +41,7 @@ pub(super) async fn render_thumbnail_with_vips_cli(
     let output_path = temp_dir.path().join("thumbnail.webp");
     let prepared_input = prepare_cli_source(
         driver,
-        &blob.storage_path,
+        storage_path,
         source_file_name,
         source_mime_type,
         temp_dir.path(),
@@ -114,6 +117,9 @@ pub(super) async fn render_image_preview_with_vips_cli(
     command: &str,
     max_dim: u32,
 ) -> Result<Vec<u8>> {
+    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
+        AsterError::validation_error("virtual-empty blobs have no image-preview source")
+    })?;
     let temp_root = aster_forge_utils::paths::runtime_temp_dir(&state.config().server.temp_dir);
     let temp_dir =
         PathBuf::from(temp_root).join(format!("media-vips-preview-{}", uuid::Uuid::new_v4()));
@@ -125,7 +131,7 @@ pub(super) async fn render_image_preview_with_vips_cli(
     let output_path = temp_dir.path().join("preview.webp");
     let prepared_input = prepare_cli_source(
         driver,
-        &blob.storage_path,
+        storage_path,
         source_file_name,
         source_mime_type,
         temp_dir.path(),
@@ -204,6 +210,9 @@ pub(super) async fn render_thumbnail_with_ffmpeg_cli(
     command: &str,
     max_dim: u32,
 ) -> Result<Vec<u8>> {
+    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
+        AsterError::validation_error("virtual-empty blobs have no audio artwork source")
+    })?;
     let temp_root = aster_forge_utils::paths::runtime_temp_dir(&state.config().server.temp_dir);
     let temp_dir = PathBuf::from(temp_root).join(format!("media-ffmpeg-{}", uuid::Uuid::new_v4()));
     tokio::fs::create_dir_all(&temp_dir)
@@ -214,7 +223,7 @@ pub(super) async fn render_thumbnail_with_ffmpeg_cli(
     let output_path = temp_dir.path().join("thumbnail.png");
     let prepared_input = prepare_cli_source(
         driver,
-        &blob.storage_path,
+        storage_path,
         source_file_name,
         source_mime_type,
         temp_dir.path(),

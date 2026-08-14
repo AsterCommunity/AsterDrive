@@ -189,7 +189,7 @@ async fn create_root_file(
             hash: Set(format!("webdav-blob-{}", uuid::Uuid::new_v4())),
             size: Set(size),
             policy_id: Set(policy_id),
-            storage_path: Set(storage_path.to_string()),
+            storage_path: Set(Some(storage_path.to_string())),
             ref_count: Set(1),
             created_at: Set(now),
             updated_at: Set(now),

@@ -40,6 +40,149 @@ const STORAGE_POLICY_CONNECTOR_CONFIGS_MIGRATION: &str =
     "m20260803_000002_storage_policy_connector_configs";
 const ALLOW_CONNECTOR_POLICY_WRITES_WITH_LEGACY_SCHEMA_MIGRATION: &str =
     "m20260805_000001_allow_connector_policy_writes_with_legacy_schema";
+const VIRTUAL_EMPTY_FILE_BLOBS_MIGRATION: &str = "m20260815_000001_virtual_empty_file_blobs";
+
+#[tokio::test]
+async fn virtual_empty_blob_migration_backfills_stored_rows_and_enforces_backing_contract() {
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite memory database should connect");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(VIRTUAL_EMPTY_FILE_BLOBS_MIGRATION)),
+    )
+    .await
+    .expect("schema before virtual-empty migration should apply");
+    insert_current_storage_policy(&db, "virtual-empty-migration-policy")
+        .await
+        .expect("storage policy fixture should insert");
+    let policy_id: i64 = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT id FROM storage_policies WHERE name = 'virtual-empty-migration-policy'",
+        ))
+        .await
+        .expect("policy id should query")
+        .expect("policy should exist")
+        .try_get_by_index(0)
+        .expect("policy id should decode");
+    db.execute_unprepared(&format!(
+        "INSERT INTO file_blobs \
+         (id, hash, size, policy_id, storage_path, ref_count, created_at, updated_at) \
+         VALUES (401, 'legacy-stored-hash', 3, {policy_id}, 'objects/legacy.bin', 3, \
+                 '2026-08-15T00:00:00Z', '2026-08-15T00:00:00Z'); \
+         INSERT INTO files \
+         (id, name, folder_id, team_id, blob_id, size, owner_user_id, created_by_user_id, \
+          created_by_username, mime_type, extension, compound_extension, file_category, \
+          created_at, updated_at, deleted_at) \
+         VALUES (501, 'legacy.bin', NULL, NULL, 401, 3, NULL, NULL, '', \
+                 'application/octet-stream', 'bin', NULL, 'other', \
+                 '2026-08-15T00:00:00Z', '2026-08-15T00:00:00Z', NULL); \
+         INSERT INTO file_versions (file_id, blob_id, version, size, created_at) \
+         VALUES (501, 401, 1, 3, '2026-08-15T00:00:00Z'); \
+         INSERT INTO blob_media_metadata \
+         (blob_id, blob_hash, kind, status, metadata_json, error_message, parser, \
+          parser_version, created_at, updated_at) \
+         VALUES (401, 'legacy-stored-hash', 'audio', 'ready', '{{}}', NULL, 'fixture', \
+                 '1', '2026-08-15T00:00:00Z', '2026-08-15T00:00:00Z')"
+    ))
+    .await
+    .expect("referenced legacy stored blob should insert");
+
+    Migrator::up(&db, None)
+        .await
+        .expect("production virtual-empty migration should apply");
+    let stored = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT backing, storage_path FROM file_blobs WHERE hash = 'legacy-stored-hash'",
+        ))
+        .await
+        .expect("migrated blob should query")
+        .expect("migrated blob should exist");
+    assert_eq!(stored.try_get_by_index::<String>(0).unwrap(), "stored");
+    assert_eq!(
+        stored.try_get_by_index::<String>(1).unwrap(),
+        "objects/legacy.bin"
+    );
+    for (table, foreign_key_column) in [
+        ("files", "blob_id"),
+        ("file_versions", "blob_id"),
+        ("blob_media_metadata", "blob_id"),
+    ] {
+        let count = db
+            .query_one_raw(Statement::from_string(
+                DbBackend::Sqlite,
+                format!("SELECT COUNT(*) FROM {table} WHERE {foreign_key_column} = 401"),
+            ))
+            .await
+            .expect("referencing row count should query")
+            .expect("referencing row count should exist")
+            .try_get_by_index::<i64>(0)
+            .expect("referencing row count should decode");
+        assert_eq!(count, 1, "{table} reference should survive blob rebuild");
+    }
+    assert!(
+        db.query_all_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "PRAGMA foreign_key_check",
+        ))
+        .await
+        .expect("foreign key check should run")
+        .is_empty(),
+        "blob rebuild must not leave dangling references"
+    );
+
+    let empty_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    db.execute_unprepared(&format!(
+        "INSERT INTO file_blobs \
+         (hash, size, policy_id, storage_path, backing, ref_count, created_at, updated_at) \
+         VALUES ('{empty_hash}', 0, {policy_id}, 'objects/stored-empty', 'stored', 1, \
+                 '2026-08-15T00:00:00Z', '2026-08-15T00:00:00Z'); \
+         INSERT INTO file_blobs \
+         (hash, size, policy_id, storage_path, backing, ref_count, created_at, updated_at) \
+         VALUES ('{empty_hash}', 0, {policy_id}, NULL, 'virtual_empty', 1, \
+                 '2026-08-15T00:00:00Z', '2026-08-15T00:00:00Z')"
+    ))
+    .await
+    .expect("stored and virtual empty blobs should occupy distinct unique namespaces");
+
+    let invalid = db
+        .execute_unprepared(&format!(
+            "INSERT INTO file_blobs \
+             (hash, size, policy_id, storage_path, backing, ref_count, created_at, updated_at) \
+             VALUES ('invalid-virtual', 1, {policy_id}, NULL, 'virtual_empty', 1, \
+                     '2026-08-15T00:00:00Z', '2026-08-15T00:00:00Z')"
+        ))
+        .await;
+    assert!(
+        invalid.is_err(),
+        "backing CHECK should reject invalid virtual blobs"
+    );
+
+    db.execute_unprepared(
+        "INSERT INTO file_create_idempotencies \
+         (actor_user_id, workspace_kind, workspace_id, key_hash, request_fingerprint, \
+          result_file_id, created_at, expires_at) \
+         VALUES (1, 'personal', 1, 'key-hash', 'fingerprint', NULL, \
+                 '2026-08-15T00:00:00Z', '2026-08-16T00:00:00Z')",
+    )
+    .await
+    .expect("idempotency claim should allow a transaction-local null result");
+    let duplicate = db
+        .execute_unprepared(
+            "INSERT INTO file_create_idempotencies \
+             (actor_user_id, workspace_kind, workspace_id, key_hash, request_fingerprint, \
+              result_file_id, created_at, expires_at) \
+             VALUES (1, 'personal', 1, 'key-hash', 'fingerprint', NULL, \
+                     '2026-08-15T00:00:00Z', '2026-08-16T00:00:00Z')",
+        )
+        .await;
+    assert!(
+        duplicate.is_err(),
+        "scope/key uniqueness should serialize claims"
+    );
+}
 
 #[tokio::test]
 async fn resource_lock_migration_backfills_workspace_and_typed_root() {

@@ -295,6 +295,9 @@ define_errors! {
 
     // ========== E063: 单次操作资源预算 ==========
     OperationResourceLimitExceeded("E063", "Operation Resource Limit Exceeded"),
+
+    // ========== E064: 资源或请求语义冲突 ==========
+    Conflict("E064", "Conflict"),
 }
 
 impl AsterError {
@@ -330,6 +333,7 @@ impl AsterError {
             Self::RecordNotFound(_) => ApiErrorCode::NotFound,
             Self::RateLimited(_) => ApiErrorCode::RateLimited,
             Self::OperationResourceLimitExceeded(_) => ApiErrorCode::OperationResourceLimitExceeded,
+            Self::Conflict(_) => ApiErrorCode::Conflict,
             Self::MailNotConfigured(_) => ApiErrorCode::MailNotConfigured,
             Self::MailDeliveryFailed(_) => ApiErrorCode::MailDeliveryFailed,
             Self::AuthInvalidCredentials(_) => ApiErrorCode::CredentialsFailed,
@@ -411,6 +415,8 @@ impl AsterError {
             Self::AuthForbidden(_) | Self::AuthPendingActivation(_) => StatusCode::FORBIDDEN,
 
             Self::ResourceLocked(_) => StatusCode::LOCKED,
+
+            Self::Conflict(_) => StatusCode::CONFLICT,
 
             Self::PreconditionFailed(_) => StatusCode::PRECONDITION_FAILED,
 

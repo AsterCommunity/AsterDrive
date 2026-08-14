@@ -30,6 +30,8 @@ export interface UploadTask {
 	error: string | null;
 	retryable?: boolean;
 	uploadId: string | null;
+	/** Reused by zero-byte metadata-only creation across retries. */
+	emptyFileIdempotencyKey?: string;
 	completedChunks?: number;
 	totalChunks?: number;
 }
@@ -133,8 +135,9 @@ export function createQueuedUploadTask({
 	file: File;
 	relativePath: string | null;
 }): UploadTask {
+	const id = createTaskId();
 	return {
-		id: createTaskId(),
+		id,
 		file,
 		filename: file.name,
 		relativePath,
@@ -147,5 +150,8 @@ export function createQueuedUploadTask({
 		uploadedBytes: 0,
 		error: null,
 		uploadId: null,
+		...(file.size === 0
+			? { emptyFileIdempotencyKey: `empty-upload:${id}` }
+			: {}),
 	};
 }

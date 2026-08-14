@@ -17,12 +17,15 @@ pub(super) async fn prepare_media_metadata_source(
     source_mime_type: &str,
     allow_range: bool,
 ) -> Result<PreparedMediaMetadataSource> {
+    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
+        AsterError::validation_error("virtual-empty blobs have no media metadata source")
+    })?;
     let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
     let driver = state.driver_registry().get_driver(&policy)?;
 
     if let Some(local_path_driver) = driver.extensions().local_path {
         return Ok(PreparedMediaMetadataSource::Local(
-            local_path_driver.resolve_local_path(&blob.storage_path)?,
+            local_path_driver.resolve_local_path(storage_path)?,
         ));
     }
 
@@ -84,7 +87,14 @@ impl PreparedRangeMediaMetadataSource {
     ) -> Result<Self> {
         Ok(Self {
             driver,
-            storage_path: blob.storage_path.clone(),
+            storage_path: blob
+                .storage_path_for_connector()
+                .ok_or_else(|| {
+                    AsterError::validation_error(
+                        "virtual-empty blobs have no media metadata source",
+                    )
+                })?
+                .to_string(),
             size: aster_forge_utils::numbers::i64_to_u64(blob.size, "media metadata source size")?,
             source_file_name: source_file_name.to_string(),
             source_mime_type: source_mime_type.to_string(),
@@ -113,6 +123,9 @@ async fn stream_blob_to_temp_source(
     source_file_name: &str,
     source_mime_type: &str,
 ) -> Result<TempFileGuard> {
+    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
+        AsterError::validation_error("virtual-empty blobs have no media metadata source")
+    })?;
     let temp_dir = PathBuf::from(aster_forge_utils::paths::runtime_temp_dir(temp_root));
     tokio::fs::create_dir_all(&temp_dir)
         .await
@@ -130,7 +143,7 @@ async fn stream_blob_to_temp_source(
         "media metadata source temp file",
     );
 
-    let mut stream = driver.get_stream(&blob.storage_path).await?;
+    let mut stream = driver.get_stream(storage_path).await?;
     let mut file = tokio::fs::OpenOptions::new()
         .write(true)
         .create_new(true)

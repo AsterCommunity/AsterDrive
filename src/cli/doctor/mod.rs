@@ -507,7 +507,7 @@ async fn doctor_blob_ref_count_check(
         .into_iter()
         .map(|drift| {
             format!(
-                "blob#{} recorded={} actual={} policy_id={} path={}",
+                "blob#{} recorded={} actual={} policy_id={} path={:?}",
                 drift.blob_id,
                 drift.recorded_ref_count,
                 drift.actual_ref_count,

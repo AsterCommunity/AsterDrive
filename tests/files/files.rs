@@ -1592,7 +1592,7 @@ async fn test_folder_detail_storage_used_handles_paginated_file_batches() {
         hash: Set("storage-used-pagination-blob".to_string()),
         size: Set(3),
         policy_id: Set(policy.id),
-        storage_path: Set("storage-used-pagination-blob".to_string()),
+        storage_path: Set(Some("storage-used-pagination-blob".to_string())),
         ref_count: Set(501),
         created_at: Set(now),
         updated_at: Set(now),
@@ -1645,6 +1645,7 @@ async fn test_folder_detail_storage_used_handles_paginated_file_batches() {
 #[actix_web::test]
 async fn test_create_empty_file() {
     let state = common::setup().await;
+    let db = state.writer_db().clone();
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
@@ -1676,11 +1677,17 @@ async fn test_create_empty_file() {
     let body2: Value = test::read_body_json(resp).await;
     let name2 = body2["data"]["name"].as_str().unwrap();
     assert_ne!(name2, "empty.txt", "duplicate name should be auto-renamed");
-    assert_ne!(
+    assert_eq!(
         body2["data"]["blob_id"].as_i64().unwrap(),
         body["data"]["blob_id"].as_i64().unwrap(),
-        "local create_empty should not dedup by default"
+        "empty files in one policy should share its canonical virtual blob"
     );
+    let blob = file_repo::find_blob_by_id(&db, body["data"]["blob_id"].as_i64().unwrap())
+        .await
+        .expect("virtual-empty blob should exist");
+    assert!(blob.is_virtual_empty());
+    assert_eq!(blob.storage_path, None);
+    assert_eq!(blob.ref_count, 2);
 
     // 下载空文件应返回 200，内容为空
     let req = test::TestRequest::get()
@@ -1693,6 +1700,37 @@ async fn test_create_empty_file() {
     let bytes = test::read_body(resp).await;
     assert!(bytes.is_empty());
 
+    // 第一次非空覆盖应切换到 stored blob，并保留空内容历史版本。
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/{file_id}/content"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload("first nonempty content")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let updated: Value = test::read_body_json(resp).await;
+    assert_ne!(updated["data"]["blob_id"], body["data"]["blob_id"]);
+    let stored_blob = file_repo::find_blob_by_id(
+        &db,
+        updated["data"]["blob_id"].as_i64().expect("stored blob id"),
+    )
+    .await
+    .expect("stored replacement blob should exist");
+    assert!(!stored_blob.is_virtual_empty());
+    assert!(stored_blob.storage_path_for_connector().is_some());
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/files/{file_id}/versions"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let versions: Value = test::read_body_json(resp).await;
+    assert_eq!(versions["data"][0]["size"], 0);
+
     // 无效文件名应返回 400
     let req = test::TestRequest::post()
         .uri("/api/v1/files/new")
@@ -1703,6 +1741,38 @@ async fn test_create_empty_file() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
+}
+
+#[actix_web::test]
+async fn test_create_empty_file_idempotency_header_replays_and_rejects_drift() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let create = |name: &str, key: &str| {
+        test::TestRequest::post()
+            .uri("/api/v1/files/new")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .insert_header(("Idempotency-Key", key))
+            .set_json(serde_json::json!({ "name": name, "folder_id": null }))
+            .to_request()
+    };
+
+    let first = test::call_service(&app, create("idempotent-empty.txt", "stable-key")).await;
+    assert_eq!(first.status(), StatusCode::CREATED);
+    let first: Value = test::read_body_json(first).await;
+    let replay = test::call_service(&app, create("idempotent-empty.txt", "stable-key")).await;
+    assert_eq!(replay.status(), StatusCode::CREATED);
+    let replay: Value = test::read_body_json(replay).await;
+    assert_eq!(replay["data"]["id"], first["data"]["id"]);
+    assert_eq!(replay["data"]["blob_id"], first["data"]["blob_id"]);
+
+    let drift = test::call_service(&app, create("different-empty.txt", "stable-key")).await;
+    assert_eq!(drift.status(), StatusCode::CONFLICT);
+
+    let invalid = test::call_service(&app, create("invalid-key.txt", "contains space")).await;
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
 }
 
 #[actix_web::test]

@@ -362,7 +362,7 @@ async fn folder_tree_task_blocks_membership_changes_and_cleans_up_after_shutdown
         hash: Set("folder-tree-dispatch-blob".to_string()),
         size: Set(0),
         policy_id: Set(policy.id),
-        storage_path: Set("folder-tree-dispatch-blob".to_string()),
+        storage_path: Set(Some("folder-tree-dispatch-blob".to_string())),
         ref_count: Set(2),
         created_at: Set(now),
         updated_at: Set(now),

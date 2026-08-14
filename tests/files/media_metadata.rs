@@ -444,7 +444,7 @@ async fn insert_synthetic_media_file(
         hash: Set(hash),
         size: Set(bytes.len() as i64),
         policy_id: Set(policy.id),
-        storage_path: Set(storage_path),
+        storage_path: Set(Some(storage_path)),
         ref_count: Set(1),
         created_at: Set(now),
         updated_at: Set(now),

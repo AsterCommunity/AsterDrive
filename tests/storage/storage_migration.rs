@@ -24,7 +24,7 @@ use aster_drive::errors::{AsterError, MapAsterErr};
 use aster_drive::runtime::PrimaryAppState;
 use aster_drive::services::{storage_policy::policy, task};
 use aster_drive_model::entities::{file, file_blob, file_version, storage_policy};
-use aster_drive_model::types::BackgroundTaskStatus;
+use aster_drive_model::types::{BackgroundTaskStatus, file_blob::FileBlobBacking};
 use aster_drive_storage::{
     BlobMetadata, MultipartStorageDriver, Result, StorageDriver, StorageDriverExtensions,
     StorageErrorKind, StreamUploadDriver,
@@ -740,7 +740,7 @@ async fn create_blob_with_object(
         hash: Set(hash),
         size: Set(i64::try_from(bytes.len()).expect("test bytes len should fit i64")),
         policy_id: Set(policy.id),
-        storage_path: Set(storage_path),
+        storage_path: Set(Some(storage_path)),
         thumbnail_path: Set(Some("old-thumb".to_string())),
         thumbnail_processor: Set(Some("old-processor".to_string())),
         thumbnail_version: Set(Some("old-version".to_string())),
@@ -752,6 +752,31 @@ async fn create_blob_with_object(
     .insert(state.writer_db())
     .await
     .expect("blob row should insert")
+}
+
+async fn create_virtual_empty_blob(
+    state: &PrimaryAppState,
+    policy: &storage_policy::Model,
+    ref_count: i32,
+) -> file_blob::Model {
+    let now = Utc::now();
+    file_blob::ActiveModel {
+        hash: Set(file_blob::Model::EMPTY_SHA256.to_string()),
+        size: Set(0),
+        policy_id: Set(policy.id),
+        storage_path: Set(None),
+        backing: Set(FileBlobBacking::VirtualEmpty),
+        thumbnail_path: Set(None),
+        thumbnail_processor: Set(None),
+        thumbnail_version: Set(None),
+        ref_count: Set(ref_count),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("virtual-empty blob row should insert")
 }
 
 async fn create_blob_record_with_storage_path(
@@ -767,7 +792,7 @@ async fn create_blob_record_with_storage_path(
         hash: Set(hash.to_string()),
         size: Set(i64::try_from(bytes.len()).expect("test bytes len should fit i64")),
         policy_id: Set(policy.id),
-        storage_path: Set(storage_path.to_string()),
+        storage_path: Set(Some(storage_path.to_string())),
         thumbnail_path: Set(None),
         thumbnail_processor: Set(None),
         thumbnail_version: Set(None),
@@ -803,7 +828,7 @@ async fn create_opaque_blob_with_object(
         hash: Set(blob_key.to_string()),
         size: Set(i64::try_from(bytes.len()).expect("test bytes len should fit i64")),
         policy_id: Set(policy.id),
-        storage_path: Set(storage_path),
+        storage_path: Set(Some(storage_path)),
         thumbnail_path: Set(None),
         thumbnail_processor: Set(None),
         thumbnail_version: Set(None),
@@ -1225,8 +1250,11 @@ async fn test_storage_migration_resume_reuses_checkpoint_after_failed_task() {
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let second_path =
-        std::path::Path::new(&common::local_policy_base_path(&source)).join(&second.storage_path);
+    let second_path = std::path::Path::new(&common::local_policy_base_path(&source)).join(
+        second
+            .storage_path_for_connector()
+            .expect("stored blob path"),
+    );
     tokio::fs::write(&second_path, b"bad!!!")
         .await
         .expect("second source object should be tampered before migration starts");
@@ -1301,12 +1329,16 @@ async fn test_storage_migration_moves_blob_to_empty_target_policy() {
     assert_eq!(migrated.policy_id, target.id);
     assert_eq!(
         migrated.storage_path,
-        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap()
+        Some(aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap())
     );
     assert!(migrated.thumbnail_path.is_none());
     assert!(
         std::path::Path::new(&common::local_policy_base_path(&target))
-            .join(&migrated.storage_path)
+            .join(
+                migrated
+                    .storage_path_for_connector()
+                    .expect("stored blob path")
+            )
             .exists()
     );
     let checkpoint = storage_migration_checkpoint_repo::get_by_task_id(state.writer_db(), task_id)
@@ -1343,8 +1375,11 @@ async fn test_storage_migration_preserves_zero_length_blob() {
         .expect("zero-length blob should still exist");
     assert_eq!(migrated.policy_id, target.id);
     assert_eq!(migrated.size, 0);
-    let migrated_path =
-        std::path::Path::new(&common::local_policy_base_path(&target)).join(&migrated.storage_path);
+    let migrated_path = std::path::Path::new(&common::local_policy_base_path(&target)).join(
+        migrated
+            .storage_path_for_connector()
+            .expect("stored blob path"),
+    );
     let migrated_metadata = tokio::fs::metadata(&migrated_path)
         .await
         .expect("migrated zero-length object should exist");
@@ -1356,6 +1391,97 @@ async fn test_storage_migration_preserves_zero_length_blob() {
     assert_eq!(checkpoint.scanned_blobs, 1);
     assert_eq!(checkpoint.migrated_blobs, 1);
     assert_eq!(checkpoint.migrated_bytes, 0);
+}
+
+#[actix_web::test]
+async fn test_storage_migration_moves_virtual_empty_blob_without_copying_an_object() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-virtual-empty").await;
+    let target = create_local_policy(&state, "target-virtual-empty").await;
+    let blob = create_virtual_empty_blob(&state, &source, 1).await;
+    let created_file = create_file_for_blob(&state, blob.id, "virtual-empty.txt").await;
+    let mut active_file: file::ActiveModel = created_file.into();
+    active_file.size = Set(0);
+    active_file.update(state.writer_db()).await.unwrap();
+
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let task_id = body["data"]["id"].as_i64().expect("task id should exist");
+    let stats = task::drain(&state)
+        .await
+        .expect("virtual-empty migration should drain");
+    assert_eq!(stats.succeeded, 1);
+
+    let migrated = file_repo::find_blob_by_id(state.writer_db(), blob.id)
+        .await
+        .expect("virtual-empty blob should remain");
+    assert_eq!(migrated.policy_id, target.id);
+    assert!(migrated.is_virtual_empty());
+    assert_eq!(migrated.storage_path, None);
+    assert_eq!(
+        std::fs::read_dir(common::local_policy_base_path(&source))
+            .map(|entries| entries.count())
+            .unwrap_or(0),
+        0
+    );
+    assert_eq!(
+        std::fs::read_dir(common::local_policy_base_path(&target))
+            .map(|entries| entries.count())
+            .unwrap_or(0),
+        0
+    );
+    let checkpoint = storage_migration_checkpoint_repo::get_by_task_id(state.writer_db(), task_id)
+        .await
+        .expect("checkpoint should exist");
+    assert_eq!(checkpoint.migrated_blobs, 1);
+    assert_eq!(checkpoint.migrated_bytes, 0);
+}
+
+#[actix_web::test]
+async fn test_storage_migration_merges_canonical_virtual_empty_blobs() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-virtual-merge").await;
+    let target = create_local_policy(&state, "target-virtual-merge").await;
+    let source_blob = create_virtual_empty_blob(&state, &source, 1).await;
+    let target_blob = create_virtual_empty_blob(&state, &target, 1).await;
+    let source_file = create_file_for_blob(&state, source_blob.id, "source-empty.txt").await;
+    let target_file = create_file_for_blob(&state, target_blob.id, "target-empty.txt").await;
+
+    create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let stats = task::drain(&state)
+        .await
+        .expect("virtual-empty merge migration should drain");
+    assert_eq!(stats.succeeded, 1);
+
+    assert!(
+        file_repo::find_blob_by_id(state.writer_db(), source_blob.id)
+            .await
+            .is_err(),
+        "source canonical row should be merged away"
+    );
+    let merged = file_repo::find_blob_by_id(state.writer_db(), target_blob.id)
+        .await
+        .expect("target canonical row should remain");
+    assert!(merged.is_virtual_empty());
+    assert_eq!(merged.ref_count, 2);
+    assert_eq!(merged.storage_path, None);
+    assert_eq!(
+        file_repo::find_by_id(state.writer_db(), source_file.id)
+            .await
+            .expect("source file should remain")
+            .blob_id,
+        target_blob.id
+    );
+    assert_eq!(
+        file_repo::find_by_id(state.writer_db(), target_file.id)
+            .await
+            .expect("target file should remain")
+            .blob_id,
+        target_blob.id
+    );
 }
 
 #[actix_web::test]
@@ -1447,9 +1573,14 @@ async fn test_storage_migration_local_to_rustfs_s3_e2e() {
     assert_eq!(migrated.policy_id, target.id);
     assert_eq!(
         migrated.storage_path,
-        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap()
+        Some(aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap())
     );
-    let object_key = policy_object_key(&target, &migrated.storage_path);
+    let object_key = policy_object_key(
+        &target,
+        migrated
+            .storage_path_for_connector()
+            .expect("stored blob path"),
+    );
     let target_bytes = read_s3_object(&rustfs.endpoint, &rustfs.bucket, &object_key).await;
     assert_eq!(target_bytes, bytes);
 
@@ -1495,8 +1626,11 @@ async fn test_storage_migration_local_to_rustfs_s3_resume_after_partial_failure_
     assert_eq!(body["code"], "success");
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
 
-    let second_source_path =
-        std::path::Path::new(&common::local_policy_base_path(&source)).join(&second.storage_path);
+    let second_source_path = std::path::Path::new(&common::local_policy_base_path(&source)).join(
+        second
+            .storage_path_for_connector()
+            .expect("stored blob path"),
+    );
     tokio::fs::write(&second_source_path, tampered_second_bytes)
         .await
         .expect("second source object should be tampered before first run");
@@ -1529,7 +1663,12 @@ async fn test_storage_migration_local_to_rustfs_s3_resume_after_partial_failure_
         .await
         .expect("first blob should remain after first run");
     assert_eq!(first_after_failure.policy_id, target.id);
-    let first_key = policy_object_key(&target, &first_after_failure.storage_path);
+    let first_key = policy_object_key(
+        &target,
+        first_after_failure
+            .storage_path_for_connector()
+            .expect("stored blob path"),
+    );
     assert_eq!(
         read_s3_object(&rustfs.endpoint, &rustfs.bucket, &first_key).await,
         first_bytes
@@ -1567,7 +1706,12 @@ async fn test_storage_migration_local_to_rustfs_s3_resume_after_partial_failure_
         .await
         .expect("second blob should remain after resume");
     assert_eq!(second_after_resume.policy_id, target.id);
-    let second_key = policy_object_key(&target, &second_after_resume.storage_path);
+    let second_key = policy_object_key(
+        &target,
+        second_after_resume
+            .storage_path_for_connector()
+            .expect("stored blob path"),
+    );
     assert_eq!(
         read_s3_object(&rustfs.endpoint, &rustfs.bucket, &second_key).await,
         second_bytes
@@ -1645,8 +1789,11 @@ async fn test_storage_migration_crosses_batch_boundary_and_merges_existing_targe
             .expect("migrated source blob row should remain");
         assert_eq!(migrated.policy_id, target.id);
         let target_object = tokio::fs::read(
-            std::path::Path::new(&common::local_policy_base_path(&target))
-                .join(&migrated.storage_path),
+            std::path::Path::new(&common::local_policy_base_path(&target)).join(
+                migrated
+                    .storage_path_for_connector()
+                    .expect("stored blob path"),
+            ),
         )
         .await
         .expect("target object should exist for migrated blob");
@@ -1809,14 +1956,21 @@ async fn test_storage_migration_does_not_merge_opaque_blob_key_with_same_size() 
     assert!(migrated.hash.starts_with("migration-"));
     assert_ne!(migrated.storage_path, target_blob.storage_path);
     let migrated_bytes = tokio::fs::read(
-        std::path::Path::new(&common::local_policy_base_path(&target)).join(&migrated.storage_path),
+        std::path::Path::new(&common::local_policy_base_path(&target)).join(
+            migrated
+                .storage_path_for_connector()
+                .expect("stored blob path"),
+        ),
     )
     .await
     .expect("migrated opaque object should exist");
     assert_eq!(migrated_bytes, b"source");
     let target_bytes = tokio::fs::read(
-        std::path::Path::new(&common::local_policy_base_path(&target))
-            .join(&target_blob.storage_path),
+        std::path::Path::new(&common::local_policy_base_path(&target)).join(
+            target_blob
+                .storage_path_for_connector()
+                .expect("stored blob path"),
+        ),
     )
     .await
     .expect("existing opaque target object should remain");
@@ -1937,8 +2091,8 @@ async fn test_storage_migration_cleans_target_object_when_verification_fails() {
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let source_full_path =
-        std::path::Path::new(&common::local_policy_base_path(&source)).join(&blob.storage_path);
+    let source_full_path = std::path::Path::new(&common::local_policy_base_path(&source))
+        .join(blob.storage_path_for_connector().expect("stored blob path"));
     tokio::fs::write(&source_full_path, b"bad-data!!")
         .await
         .expect("source object should be tampered before migration starts");
@@ -2173,7 +2327,7 @@ async fn test_storage_migration_stream_upload_error_does_not_delete_referenced_t
         .await
         .expect("referenced target blob row should remain");
     assert_eq!(referenced_after.policy_id, target.id);
-    assert_eq!(referenced_after.storage_path, target_path);
+    assert_eq!(referenced_after.storage_path, Some(target_path));
 }
 
 #[actix_web::test]

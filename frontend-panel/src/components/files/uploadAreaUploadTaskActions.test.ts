@@ -8,6 +8,7 @@ const {
 	createFileService,
 	initUpload,
 	loadSessions,
+	removePendingEmptyFile,
 	removeSession,
 } = vi.hoisted(() => ({
 	cancelUpload: vi.fn(),
@@ -15,6 +16,7 @@ const {
 	createFileService: vi.fn(),
 	initUpload: vi.fn(),
 	loadSessions: vi.fn(() => []),
+	removePendingEmptyFile: vi.fn(),
 	removeSession: vi.fn(),
 }));
 
@@ -31,6 +33,7 @@ vi.mock("@/services/fileService", () => ({
 
 vi.mock("@/lib/uploadPersistence", () => ({
 	loadSessions,
+	removePendingEmptyFile,
 	removeSession,
 	saveSession: vi.fn(),
 }));
@@ -458,7 +461,10 @@ describe("runQueuedUploadTask", () => {
 			"empty.txt",
 			7,
 			"docs/empty.txt",
-			{ signal: expect.any(AbortSignal) },
+			{
+				signal: expect.any(AbortSignal),
+				idempotencyKey: "empty-upload:empty",
+			},
 		);
 		expect(createFileService).toHaveBeenCalledWith({ kind: "personal" });
 		expect(initUpload).not.toHaveBeenCalled();
@@ -473,6 +479,44 @@ describe("runQueuedUploadTask", () => {
 			expect.objectContaining({ mode: "direct", status: "completed" }),
 		);
 		expect(markFolderForRefresh).toHaveBeenCalledWith(queuedTask);
+		expect(removePendingEmptyFile).toHaveBeenCalledWith("empty");
+	});
+
+	it("replays a restored empty-file task without a browser File handle", async () => {
+		createEmptyFile.mockReset();
+		createEmptyFile.mockResolvedValue({ id: 43 });
+		removePendingEmptyFile.mockReset();
+		const restored = task("restored-empty", "queued", null);
+		restored.file = null;
+		restored.totalBytes = 0;
+		restored.mode = null;
+		restored.emptyFileIdempotencyKey = "persisted-key";
+
+		await runQueuedUploadTask("restored-empty", {
+			directAbortRef: { current: new Map() },
+			markFolderForRefresh: vi.fn(),
+			markTaskFailed: vi.fn(),
+			patchTask: vi.fn(),
+			runChunkedUpload: vi.fn(),
+			runDirectUpload: vi.fn(),
+			runMultipartUpload: vi.fn(),
+			runPresignedUpload: vi.fn(),
+			runProviderResumableUpload: vi.fn(),
+			resumeCompletionTask: vi.fn(),
+			tasksRef: { current: [restored] },
+			workspace: { kind: "personal" },
+		} as unknown as UploadTaskActionsContext);
+
+		expect(createEmptyFile).toHaveBeenCalledWith(
+			"restored-empty.bin",
+			null,
+			undefined,
+			{
+				signal: expect.any(AbortSignal),
+				idempotencyKey: "persisted-key",
+			},
+		);
+		expect(removePendingEmptyFile).toHaveBeenCalledWith("restored-empty");
 	});
 
 	it("keeps cancelled zero-byte tasks terminal when abort rejects the request", async () => {

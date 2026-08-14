@@ -492,21 +492,9 @@ impl DavLockSystem for DbLockSystem {
                         );
                     }
                     Err(LockAcquireTransactionError::LimitExceeded) => {
-                        if let Some(prepared) = &prepared_empty {
-                            prepared
-                                .cleanup_after_db_failure("WebDAV LOCK quota exceeded")
-                                .await;
-                        }
                         return Err(DavLockError::LimitExceeded);
                     }
                     Err(LockAcquireTransactionError::Product(error)) => {
-                        if !error.database_commit_outcome_uncertain()
-                            && let Some(prepared) = &prepared_empty
-                        {
-                            prepared
-                                .cleanup_after_db_failure("WebDAV LOCK transaction failure")
-                                .await;
-                        }
                         if matches!(error, crate::errors::AsterError::ResourceLocked(_)) {
                             let conflict =
                                 match find_lock_namespace(self.state.writer_db(), self.scope).await
@@ -538,13 +526,6 @@ impl DavLockSystem for DbLockSystem {
                     }
                 }
             };
-            if created.is_none()
-                && let Some(prepared) = &prepared_empty
-            {
-                prepared
-                    .cleanup_after_db_failure("WebDAV LOCK target won a concurrent create race")
-                    .await;
-            }
             if let Some(created) = &created {
                 if let Some(prepared) = &prepared_empty {
                     prepared.publish_created(&self.state, created);
