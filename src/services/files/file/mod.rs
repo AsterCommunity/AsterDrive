@@ -29,9 +29,7 @@ pub(crate) use common::{
     ensure_personal_file_scope, if_none_match_matches, if_none_match_matches_value,
     inline_sandbox_csp, requires_inline_sandbox,
 };
-pub use content::{
-    StoreFromTempRequest, create_empty, resolve_policy_for_size, store_from_temp, update_content,
-};
+pub use content::{StoreFromTempRequest, resolve_policy_for_size, store_from_temp, update_content};
 pub(crate) use content::{
     StreamedTempUpload, stream_request_body_to_temp_upload, update_content_stream_in_scope,
 };

@@ -3177,15 +3177,24 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
         "provider-side object should be deleted after purge"
     );
 
-    let empty_file = file::create_empty(
-        &consumer_state,
-        user.id,
-        Some(folder.id),
-        "empty-remote.txt",
-    )
-    .await
-    .expect("remote empty file should be created");
-    let empty_file = file_repo::find_by_id(consumer_state.writer_db(), empty_file.id)
+    let app = create_test_app!(consumer_state.clone());
+    let (token, _) = login_user!(app, "remoteuser", "pass1234");
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/new")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "empty-remote.txt",
+            "folder_id": folder.id,
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: serde_json::Value = test::read_body_json(resp).await;
+    let empty_file_id = body["data"]["id"]
+        .as_i64()
+        .expect("empty file response should contain an id");
+    let empty_file = file_repo::find_by_id(consumer_state.writer_db(), empty_file_id)
         .await
         .expect("empty remote file should exist");
     let empty_blob = file_repo::find_blob_by_id(consumer_state.writer_db(), empty_file.blob_id)
