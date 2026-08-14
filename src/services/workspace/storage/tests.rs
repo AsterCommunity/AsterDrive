@@ -8,7 +8,8 @@ use crate::storage::{DriverRegistry, PolicySnapshot};
 use crate::test_support::snapshot_dir_tree;
 use aster_drive_model::entities::{file, file_blob, storage_policy, team, user};
 use aster_drive_model::types::{
-    ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy, UserRole, UserStatus,
+    ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy, ProviderDownloadFilenameMode,
+    ProviderDownloadStrategy, UserRole, UserStatus,
 };
 use aster_drive_storage::{
     BlobMetadata, ListStorageDriver, LocalPathStorageDriver, StorageDriver, StoragePathVisitor,
@@ -31,9 +32,9 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::{Notify, oneshot};
 
 use super::{
-    FileWritePrecondition, StorageCancellationCheck, StorageOperationContext, StoreFromTempHints,
-    StoreFromTempParams, StorePreuploadedNondedupParams, WorkspaceStorageScope,
-    persist_preuploaded_blob, prepare_non_dedup_blob_upload,
+    EmptyFileNameMode, FileWritePrecondition, StorageCancellationCheck, StorageOperationContext,
+    StoreFromTempHints, StoreFromTempParams, StorePreuploadedNondedupParams, WorkspaceStorageScope,
+    create_empty, persist_preuploaded_blob, prepare_non_dedup_blob_upload,
     store_from_temp_exact_name_silent_with_hints, store_from_temp_exact_name_with_hints,
     store_from_temp_with_hints, store_preuploaded_nondedup, upload_temp_file_to_prepared_blob,
 };
@@ -199,6 +200,113 @@ impl StreamUploadDriver for CountingUploadDriver {
 
 fn enable_content_dedup(policy: &storage_policy::Model) -> storage_policy::Model {
     crate::storage::connectors::test_support::with_local_content_dedup(policy, true)
+}
+
+#[derive(Default)]
+struct RecordingEmptyDriver {
+    objects: Mutex<BTreeMap<String, Vec<u8>>>,
+    put_paths: Mutex<Vec<String>>,
+    delete_paths: Mutex<Vec<String>>,
+}
+
+impl RecordingEmptyDriver {
+    fn object_paths(&self) -> Vec<String> {
+        self.objects
+            .lock()
+            .expect("recording empty driver object lock should succeed")
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    fn put_paths(&self) -> Vec<String> {
+        self.put_paths
+            .lock()
+            .expect("recording empty driver put lock should succeed")
+            .clone()
+    }
+
+    fn delete_paths(&self) -> Vec<String> {
+        self.delete_paths
+            .lock()
+            .expect("recording empty driver delete lock should succeed")
+            .clone()
+    }
+}
+
+#[async_trait]
+impl StorageDriver for RecordingEmptyDriver {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
+        self.put_paths
+            .lock()
+            .expect("recording empty driver put lock should succeed")
+            .push(path.to_string());
+        self.objects
+            .lock()
+            .expect("recording empty driver object lock should succeed")
+            .insert(path.to_string(), data.to_vec());
+        Ok(path.to_string())
+    }
+
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
+        self.objects
+            .lock()
+            .expect("recording empty driver object lock should succeed")
+            .get(path)
+            .cloned()
+            .ok_or_else(|| {
+                aster_drive_storage::StorageError::new(
+                    aster_drive_storage::StorageErrorKind::NotFound,
+                    format!("missing test object {path}"),
+                )
+            })
+    }
+
+    async fn get_stream(
+        &self,
+        path: &str,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
+        Ok(Box::new(std::io::Cursor::new(self.get(path).await?)))
+    }
+
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
+        self.delete_paths
+            .lock()
+            .expect("recording empty driver delete lock should succeed")
+            .push(path.to_string());
+        self.objects
+            .lock()
+            .expect("recording empty driver object lock should succeed")
+            .remove(path);
+        Ok(())
+    }
+
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
+        Ok(self
+            .objects
+            .lock()
+            .expect("recording empty driver object lock should succeed")
+            .contains_key(path))
+    }
+
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
+        let size = self
+            .objects
+            .lock()
+            .expect("recording empty driver object lock should succeed")
+            .get(path)
+            .map(Vec::len)
+            .ok_or_else(|| {
+                aster_drive_storage::StorageError::new(
+                    aster_drive_storage::StorageErrorKind::NotFound,
+                    format!("missing test object {path}"),
+                )
+            })?;
+        Ok(BlobMetadata {
+            size: u64::try_from(size).expect("test object size should fit u64"),
+            content_type: None,
+        })
+    }
 }
 
 struct BlockingPutFileDriver {
@@ -866,6 +974,246 @@ async fn build_test_state() -> (
         policy,
         user,
     )
+}
+
+async fn replace_test_policy(
+    state: &PrimaryAppState,
+    current: &storage_policy::Model,
+    replacement: storage_policy::Model,
+) -> storage_policy::Model {
+    crate::services::storage_policy::policy::ensure_policy_groups_seeded(state.writer_db())
+        .await
+        .unwrap();
+    let mut active: storage_policy::ActiveModel = current.clone().into();
+    active.name = Set(replacement.name);
+    active.connector_id = Set(replacement.connector_id);
+    active.storage_config = Set(replacement.storage_config);
+    active.chunk_size = Set(replacement.chunk_size);
+    active.updated_at = Set(Utc::now());
+    let updated = active.update(state.writer_db()).await.unwrap();
+    state.driver_registry.invalidate(updated.id);
+    state
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
+        .await
+        .unwrap();
+    updated
+}
+
+fn empty_file_connector_policy_cases(
+    temp_root: &Path,
+) -> Vec<(&'static str, storage_policy::Model)> {
+    let behavior = aster_drive_storage::StoragePolicyBehaviorConfig::default();
+    vec![
+        (
+            "local",
+            crate::storage::connectors::test_support::local_policy(
+                temp_root.join("local").to_string_lossy(),
+            ),
+        ),
+        (
+            "s3",
+            crate::storage::connectors::test_support::s3_policy(
+                "https://s3.example.test",
+                "bucket",
+                "",
+                ObjectStorageUploadStrategy::Presigned,
+                ObjectStorageDownloadStrategy::RelayStream,
+            ),
+        ),
+        (
+            "azure_blob",
+            crate::storage::connectors::test_support::policy(
+                "asterdrive.storage.azure_blob",
+                1,
+                serde_json::json!({
+                    "endpoint": "https://account.blob.core.windows.net",
+                    "bucket": "container",
+                    "base_path": "",
+                    "object_storage_upload_strategy": "presigned",
+                    "object_storage_download_strategy": "relay_stream"
+                }),
+                behavior.clone(),
+            ),
+        ),
+        (
+            "tencent_cos",
+            crate::storage::connectors::test_support::policy(
+                "asterdrive.storage.tencent_cos",
+                1,
+                serde_json::json!({
+                    "endpoint": "https://bucket-123.cos.ap-guangzhou.myqcloud.com",
+                    "bucket": "bucket-123",
+                    "base_path": "",
+                    "object_storage_upload_strategy": "relay_stream",
+                    "object_storage_download_strategy": "relay_stream"
+                }),
+                behavior.clone(),
+            ),
+        ),
+        (
+            "onedrive",
+            crate::storage::connectors::test_support::onedrive_policy_with_download(
+                crate::storage::connectors::OneDriveAccountMode::Personal,
+                None,
+                None,
+                None,
+                ProviderDownloadStrategy::ServerRelay,
+                ProviderDownloadFilenameMode::ProviderNative,
+                behavior,
+            ),
+        ),
+        (
+            "sftp",
+            crate::storage::connectors::test_support::policy(
+                "asterdrive.storage.sftp",
+                1,
+                serde_json::json!({
+                    "endpoint": "sftp://storage.example.test:22",
+                    "base_path": "",
+                    "sftp_host_key_fingerprint": null
+                }),
+                aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+            ),
+        ),
+    ]
+}
+
+#[tokio::test]
+async fn canonical_empty_file_use_case_is_connector_independent() {
+    for connector in [
+        "local",
+        "s3",
+        "azure_blob",
+        "tencent_cos",
+        "onedrive",
+        "sftp",
+    ] {
+        let (state, temp_root, current_policy, user) = build_test_state().await;
+        let (_, replacement) = empty_file_connector_policy_cases(&temp_root)
+            .into_iter()
+            .find(|(name, _)| *name == connector)
+            .expect("connector policy fixture should exist");
+        let policy = replace_test_policy(&state, &current_policy, replacement).await;
+        let driver = Arc::new(RecordingEmptyDriver::default());
+        state
+            .driver_registry
+            .insert_for_test(policy.id, driver.clone());
+
+        let first = create_empty(
+            &state,
+            WorkspaceStorageScope::Personal { user_id: user.id },
+            None,
+            "first-empty.txt",
+            EmptyFileNameMode::Exact,
+        )
+        .await
+        .unwrap_or_else(|error| panic!("{connector} first empty file failed: {error}"));
+        let second = create_empty(
+            &state,
+            WorkspaceStorageScope::Personal { user_id: user.id },
+            None,
+            "second-empty.txt",
+            EmptyFileNameMode::Exact,
+        )
+        .await
+        .unwrap_or_else(|error| panic!("{connector} second empty file failed: {error}"));
+
+        assert_ne!(first.blob_id, second.blob_id, "{connector} blob namespace");
+        assert_eq!(driver.put_paths().len(), 2, "{connector} object writes");
+        assert_eq!(
+            driver.object_paths().len(),
+            2,
+            "{connector} object namespace"
+        );
+        for path in driver.object_paths() {
+            assert!(
+                driver.get(&path).await.unwrap().is_empty(),
+                "{connector} should store a zero-byte object"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn exact_name_conflict_cleans_only_the_owned_non_dedup_empty_object() {
+    for connector in ["s3", "onedrive"] {
+        let (state, temp_root, current_policy, user) = build_test_state().await;
+        let (_, replacement) = empty_file_connector_policy_cases(&temp_root)
+            .into_iter()
+            .find(|(name, _)| *name == connector)
+            .expect("connector policy fixture should exist");
+        let policy = replace_test_policy(&state, &current_policy, replacement).await;
+        let driver = Arc::new(RecordingEmptyDriver::default());
+        state
+            .driver_registry
+            .insert_for_test(policy.id, driver.clone());
+        let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+
+        create_empty(
+            &state,
+            scope,
+            None,
+            "conflict.txt",
+            EmptyFileNameMode::Exact,
+        )
+        .await
+        .unwrap_or_else(|error| panic!("{connector} first empty file failed: {error}"));
+        let retained_path = driver.object_paths().into_iter().next().unwrap();
+
+        create_empty(
+            &state,
+            scope,
+            None,
+            "conflict.txt",
+            EmptyFileNameMode::Exact,
+        )
+        .await
+        .expect_err("exact-name conflict should fail after preparing its owned object");
+
+        assert_eq!(driver.put_paths().len(), 2, "{connector} object writes");
+        assert_eq!(driver.delete_paths().len(), 1, "{connector} cleanup");
+        assert_eq!(
+            driver.object_paths(),
+            vec![retained_path],
+            "{connector} retained object"
+        );
+    }
+}
+
+#[tokio::test]
+async fn exact_name_conflict_does_not_delete_the_shared_local_empty_blob() {
+    let (state, _temp_root, current_policy, user) = build_test_state().await;
+    let dedup_policy = enable_content_dedup(&current_policy);
+    let policy = replace_test_policy(&state, &current_policy, dedup_policy).await;
+    let driver = Arc::new(RecordingEmptyDriver::default());
+    state
+        .driver_registry
+        .insert_for_test(policy.id, driver.clone());
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+
+    create_empty(
+        &state,
+        scope,
+        None,
+        "shared-conflict.txt",
+        EmptyFileNameMode::Exact,
+    )
+    .await
+    .unwrap();
+    create_empty(
+        &state,
+        scope,
+        None,
+        "shared-conflict.txt",
+        EmptyFileNameMode::Exact,
+    )
+    .await
+    .expect_err("exact-name conflict should fail without owning the shared object");
+
+    assert_eq!(driver.put_paths().len(), 1);
+    assert!(driver.delete_paths().is_empty());
+    assert_eq!(driver.object_paths().len(), 1);
 }
 
 #[tokio::test]

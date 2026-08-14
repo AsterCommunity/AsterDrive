@@ -15,6 +15,7 @@ pub struct CreateEmptyRequest {
     #[validate(custom(function = "crate::api::dto::validation::validate_name"))]
     pub name: String,
     pub folder_id: Option<i64>,
+    pub relative_path: Option<String>,
 }
 
 /// Extract an archive file.

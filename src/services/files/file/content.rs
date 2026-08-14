@@ -16,7 +16,6 @@ use crate::services::{
     workspace::models::FileInfo,
     workspace::storage::{
         self, NewFileMode, StoreFromTempHints, StoreFromTempParams, WorkspaceStorageScope,
-        WorkspaceUploadHints,
     },
 };
 
@@ -222,28 +221,6 @@ pub async fn store_from_temp(
         StoreFromTempHints::default(),
         NewFileMode::ResolveUnique,
         true,
-    )
-    .await
-    .map(Into::into)
-}
-
-/// 上传文件（REST API，multipart）
-pub async fn upload(
-    state: &PrimaryAppState,
-    user_id: i64,
-    payload: &mut actix_multipart::Multipart,
-    folder_id: Option<i64>,
-    relative_path: Option<&str>,
-    declared_size: Option<i64>,
-) -> Result<FileInfo> {
-    storage::upload_with_hints(
-        state,
-        WorkspaceStorageScope::Personal { user_id },
-        payload,
-        folder_id,
-        relative_path,
-        declared_size,
-        WorkspaceUploadHints::default(),
     )
     .await
     .map(Into::into)
@@ -479,27 +456,4 @@ pub async fn resolve_policy_for_size(
     )
     .await
     .and_then(StoragePolicy::try_from)
-}
-
-/// 直接创建空文件（0 字节），不走 multipart upload 流程。
-///
-/// - 校验文件名
-/// - 解析存储策略
-/// - 只有 local 显式开启 `content_dedup` 时才复用空文件固定 sha256
-/// - 其余路径都为每个文件分配独立 blob
-/// - 创建文件记录并更新配额（0 字节不影响配额）
-pub async fn create_empty(
-    state: &PrimaryAppState,
-    user_id: i64,
-    folder_id: Option<i64>,
-    filename: &str,
-) -> Result<FileInfo> {
-    storage::create_empty(
-        state,
-        WorkspaceStorageScope::Personal { user_id },
-        folder_id,
-        filename,
-    )
-    .await
-    .map(Into::into)
 }
