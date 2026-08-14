@@ -6,6 +6,7 @@ import {
 	saveSession,
 } from "@/lib/uploadPersistence";
 import type { Workspace } from "@/lib/workspace";
+import { createFileService } from "@/services/fileService";
 import {
 	type InitUploadResponse,
 	uploadService,
@@ -49,6 +50,10 @@ export interface UploadTaskActionsContext extends UploadModeRunners {
 	workspace: Workspace;
 }
 
+interface RunQueuedUploadTaskContext extends UploadTaskActionsContext {
+	markFolderForRefresh: (task: UploadTask) => void;
+}
+
 interface ClearTerminalUploadTasksContext {
 	setTasks: Dispatch<SetStateAction<UploadTask[]>>;
 	taskOperationLocks: UploadTaskOperationLocks;
@@ -84,6 +89,7 @@ export async function runQueuedUploadTask(
 	taskId: string,
 	{
 		markTaskFailed,
+		markFolderForRefresh,
 		patchTask,
 		resumeCompletionTask,
 		runChunkedUpload,
@@ -93,7 +99,7 @@ export async function runQueuedUploadTask(
 		runProviderResumableUpload,
 		tasksRef,
 		workspace,
-	}: UploadTaskActionsContext,
+	}: RunQueuedUploadTaskContext,
 ) {
 	const task = tasksRef.current.find((item) => item.id === taskId);
 	if (task?.status !== "queued" || !task.file) return;
@@ -108,6 +114,24 @@ export async function runQueuedUploadTask(
 	});
 
 	try {
+		if (file.size === 0) {
+			await createFileService(workspace).createEmptyFile(
+				file.name,
+				task.baseFolderId,
+				task.relativePath ?? undefined,
+			);
+			patchTask(taskId, {
+				mode: "direct",
+				status: "completed",
+				progress: 100,
+				uploadedBytes: 0,
+				speedBps: 0,
+				error: null,
+			});
+			markFolderForRefresh(task);
+			return;
+		}
+
 		if (
 			task.uploadId &&
 			(task.mode === "chunked" ||

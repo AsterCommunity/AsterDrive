@@ -499,6 +499,7 @@ pub async fn create_empty(
         WorkspaceStorageScope::Personal { user_id },
         folder_id,
         filename,
+        storage::EmptyFileNameMode::ResolveUnique,
     )
     .await
     .map(Into::into)

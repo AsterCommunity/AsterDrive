@@ -209,10 +209,15 @@ export function createFileService(workspace: Workspace) {
 				},
 			),
 
-		createEmptyFile: (name: string, folderId?: number | null) =>
+		createEmptyFile: (
+			name: string,
+			folderId?: number | null,
+			relativePath?: string,
+		) =>
 			api.post<FileInfo>(buildWorkspacePath(workspace, "/files/new"), {
 				name,
 				folder_id: folderId ?? null,
+				...(relativePath === undefined ? {} : { relative_path: relativePath }),
 			}),
 
 		copyFile: (id: number, folderId?: number | null) =>
