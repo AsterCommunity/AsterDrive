@@ -5629,6 +5629,10 @@ async fn test_concurrent_avatar_uploads_from_same_revision_apply_only_one_candid
         .to_request();
 
     let release_renderers = async move {
+        // upload_avatar reads base_profile before staging, then waits for a render
+        // permit. Two staging entries therefore prove that both requests captured
+        // the same revision and neither has published yet; releasing both permits
+        // must produce exactly one applied candidate.
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
                 let staged_submissions = std::fs::read_dir(avatar_root.join("staging"))
