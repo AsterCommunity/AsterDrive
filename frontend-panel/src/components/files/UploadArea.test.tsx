@@ -6,6 +6,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Workspace } from "@/lib/workspace";
 import { useTransferActivityStore } from "@/stores/transferActivityStore";
 import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import type { MeField } from "@/types/api";
@@ -14,6 +15,8 @@ import { ApiErrorCode } from "@/types/api-helpers";
 const appendCompletedPart = vi.fn();
 const cancelUpload = vi.fn();
 const completeUpload = vi.fn();
+const createEmptyFile = vi.fn();
+const createFileService = vi.fn(() => ({ createEmptyFile }));
 const getProgress = vi.fn();
 const initUpload = vi.fn();
 const listRecoverableSessions = vi.fn();
@@ -195,6 +198,10 @@ vi.mock("@/services/uploadService", () => ({
 	},
 }));
 
+vi.mock("@/services/fileService", () => ({
+	createFileService,
+}));
+
 vi.mock("@/services/http", () => ({
 	ApiError: MockApiError,
 	api: {
@@ -220,7 +227,10 @@ async function uploadOneFile() {
 	return file;
 }
 
-async function renderUploadAreaWithFiles(files: File[]) {
+async function renderUploadAreaWithFiles(
+	files: File[],
+	workspace: Workspace = { kind: "personal" },
+) {
 	const [{ UploadArea }, { UploadAreaHost }] = await Promise.all([
 		import("@/components/files/UploadArea"),
 		import("@/components/files/UploadAreaHost"),
@@ -228,7 +238,7 @@ async function renderUploadAreaWithFiles(files: File[]) {
 
 	const view = render(
 		<>
-			<UploadAreaHost workspace={{ kind: "personal" }} />
+			<UploadAreaHost workspace={workspace} />
 			<UploadArea>
 				<div>content</div>
 			</UploadArea>
@@ -295,6 +305,8 @@ describe("UploadArea", () => {
 		apiClientPost.mockReset();
 		cancelUpload.mockReset();
 		completeUpload.mockReset();
+		createEmptyFile.mockReset();
+		createFileService.mockClear();
 		getProgress.mockReset();
 		initUpload.mockReset();
 		listRecoverableSessions.mockReset();
@@ -383,6 +395,119 @@ describe("UploadArea", () => {
 		);
 		expect(completeUpload).not.toHaveBeenCalled();
 		expect(saveSession).not.toHaveBeenCalled();
+	});
+
+	it("creates empty picker files without initializing an upload session", async () => {
+		createEmptyFile.mockResolvedValue({ id: 1001 });
+
+		await renderUploadAreaWithFiles([new File([], "empty.txt")]);
+
+		await screen.findByText("empty.txt:Direct:files:upload_success");
+		expect(createEmptyFile).toHaveBeenCalledWith("empty.txt", 42, undefined, {
+			signal: expect.any(AbortSignal),
+		});
+		expect(initUpload).not.toHaveBeenCalled();
+		expect(apiClientPost).not.toHaveBeenCalled();
+		expect(uploadChunk).not.toHaveBeenCalled();
+		expect(presignedUpload).not.toHaveBeenCalled();
+	});
+
+	it("keeps empty file creation cancelled when the request finishes later", async () => {
+		const creation = createDeferred<{ id: number }>();
+		createEmptyFile.mockReturnValue(creation.promise);
+
+		await renderUploadAreaWithFiles([new File([], "cancel-empty.txt")]);
+
+		await screen.findByText("cancel-empty.txt:Direct:files:processing:0");
+		const signal = createEmptyFile.mock.calls[0]?.[3]?.signal as AbortSignal;
+		expect(signal.aborted).toBe(false);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "files:upload_dismiss" }),
+		);
+
+		await screen.findByText("cancel-empty.txt:Direct:files:upload_cancelled:0");
+		expect(signal.aborted).toBe(true);
+
+		await act(async () => {
+			creation.resolve({ id: 1002 });
+			await creation.promise;
+		});
+
+		expect(
+			screen.getByText("cancel-empty.txt:Direct:files:upload_cancelled:0"),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByText("cancel-empty.txt:Direct:files:upload_success:100"),
+		).not.toBeInTheDocument();
+		expect(refresh).not.toHaveBeenCalled();
+	});
+
+	it("creates empty picker files in the active team workspace", async () => {
+		createEmptyFile.mockResolvedValue({ id: 1002 });
+
+		await renderUploadAreaWithFiles([new File([], "team-empty.txt")], {
+			kind: "team",
+			teamId: 9,
+		});
+
+		await screen.findByText("team-empty.txt:Direct:files:upload_success");
+		expect(createFileService).toHaveBeenCalledWith({ kind: "team", teamId: 9 });
+		expect(createEmptyFile).toHaveBeenCalledWith(
+			"team-empty.txt",
+			42,
+			undefined,
+			{ signal: expect.any(AbortSignal) },
+		);
+		expect(initUpload).not.toHaveBeenCalled();
+	});
+
+	it("keeps relative paths when empty and nonempty folder files are mixed", async () => {
+		const emptyFile = new File([], "empty.txt");
+		Object.defineProperty(emptyFile, "webkitRelativePath", {
+			configurable: true,
+			value: "docs/empty.txt",
+		});
+		const contentFile = new File(["content"], "content.txt");
+		Object.defineProperty(contentFile, "webkitRelativePath", {
+			configurable: true,
+			value: "docs/content.txt",
+		});
+		createEmptyFile.mockResolvedValue({ id: 1002 });
+		initUpload.mockResolvedValue({ mode: "direct" });
+		apiClientPost.mockResolvedValue({});
+
+		const [{ UploadArea }, { UploadAreaHost }] = await Promise.all([
+			import("@/components/files/UploadArea"),
+			import("@/components/files/UploadAreaHost"),
+		]);
+		const view = render(
+			<>
+				<UploadAreaHost workspace={{ kind: "personal" }} />
+				<UploadArea>
+					<div>content</div>
+				</UploadArea>
+			</>,
+		);
+		const folderInput = view.container.querySelectorAll(
+			'input[type="file"]',
+		)[1] as HTMLInputElement;
+		fireEvent.change(folderInput, {
+			target: { files: [emptyFile, contentFile] },
+		});
+
+		await screen.findByText("empty.txt:Direct:files:upload_success");
+		await screen.findByText("content.txt:Direct:files:upload_success");
+		expect(createEmptyFile).toHaveBeenCalledWith(
+			"empty.txt",
+			42,
+			"docs/empty.txt",
+			{ signal: expect.any(AbortSignal) },
+		);
+		expect(initUpload).toHaveBeenCalledTimes(1);
+		expect(initUpload).toHaveBeenCalledWith(
+			expect.objectContaining({ relative_path: "docs/content.txt" }),
+		);
 	});
 
 	it("refreshes once after the whole upload queue settles", async () => {

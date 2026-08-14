@@ -7,9 +7,23 @@ use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::db::repository::policy_repo;
 use aster_drive::services::auth::local;
 use aster_drive_model::types::UploadSessionKind;
+use aster_drive_storage::{
+    BlobMetadata, MultipartStorageDriver, PresignedStorageDriver, PresignedUploadRequest,
+    ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
+    ProviderResumableUploadFragmentOutcome, ProviderResumableUploadSession,
+    ProviderResumableUploadStatus, StorageDriver, StorageDriverExtensions, StorageError,
+    StorageErrorKind, StreamUploadDriver, UploadedMultipartPart,
+};
 use aster_forge_utils::numbers::{i32_to_usize, i64_to_usize, usize_to_i32};
+use async_trait::async_trait;
 use serde_json::Value;
+use std::collections::BTreeMap;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
+use tokio::io::AsyncRead;
 use tokio::task::JoinSet;
 use tokio::time::{Duration, timeout};
 
@@ -17,6 +31,249 @@ const TEST_CHUNK_SIZE: usize = 5_242_880;
 const PERSONAL_FINALIZATION_CONCURRENCY: usize = 8;
 const TEAM_FINALIZATION_CONCURRENCY: usize = 4;
 const RUSTFS_TEST_IMAGE_TAG: &str = "1.0.0-alpha.90";
+
+#[derive(Default)]
+struct UploadDataPlaneProbe {
+    objects: Mutex<BTreeMap<String, Vec<u8>>>,
+    put_calls: AtomicUsize,
+    stream_calls: AtomicUsize,
+    multipart_calls: AtomicUsize,
+    presigned_calls: AtomicUsize,
+    provider_calls: AtomicUsize,
+}
+
+impl UploadDataPlaneProbe {
+    fn unexpected(&self, operation: &str) -> StorageError {
+        StorageError::new(
+            StorageErrorKind::Unsupported,
+            format!("unexpected zero-byte compatibility data-plane call: {operation}"),
+        )
+    }
+
+    fn assert_no_data_plane_calls(&self) {
+        assert_eq!(self.stream_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(self.multipart_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(self.presigned_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(self.provider_calls.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[async_trait]
+impl StorageDriver for UploadDataPlaneProbe {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
+        self.put_calls.fetch_add(1, Ordering::SeqCst);
+        self.objects
+            .lock()
+            .expect("upload probe object lock should succeed")
+            .insert(path.to_string(), data.to_vec());
+        Ok(path.to_string())
+    }
+
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
+        Ok(self
+            .objects
+            .lock()
+            .expect("upload probe object lock should succeed")
+            .get(path)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    async fn get_stream(
+        &self,
+        path: &str,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
+        Ok(Box::new(std::io::Cursor::new(self.get(path).await?)))
+    }
+
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
+        self.objects
+            .lock()
+            .expect("upload probe object lock should succeed")
+            .remove(path);
+        Ok(())
+    }
+
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
+        Ok(self
+            .objects
+            .lock()
+            .expect("upload probe object lock should succeed")
+            .contains_key(path))
+    }
+
+    async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
+        Ok(BlobMetadata {
+            size: 0,
+            content_type: None,
+        })
+    }
+
+    fn extensions(&self) -> StorageDriverExtensions<'_> {
+        StorageDriverExtensions {
+            presigned: Some(self),
+            stream_upload: Some(self),
+            provider_resumable: Some(self),
+            multipart: Some(self),
+            ..Default::default()
+        }
+    }
+}
+
+#[async_trait]
+impl StreamUploadDriver for UploadDataPlaneProbe {
+    async fn put_reader(
+        &self,
+        _storage_path: &str,
+        _reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+        _size: i64,
+    ) -> aster_drive_storage::Result<String> {
+        self.stream_calls.fetch_add(1, Ordering::SeqCst);
+        Err(self.unexpected("StreamUploadDriver::put_reader"))
+    }
+
+    async fn put_file(
+        &self,
+        _storage_path: &str,
+        _local_path: &str,
+    ) -> aster_drive_storage::Result<String> {
+        self.stream_calls.fetch_add(1, Ordering::SeqCst);
+        Err(self.unexpected("StreamUploadDriver::put_file"))
+    }
+}
+
+#[async_trait]
+impl PresignedStorageDriver for UploadDataPlaneProbe {
+    async fn presigned_url(
+        &self,
+        _path: &str,
+        _expires: Duration,
+        _options: aster_drive_storage::PresignedDownloadOptions,
+    ) -> aster_drive_storage::Result<Option<String>> {
+        self.presigned_calls.fetch_add(1, Ordering::SeqCst);
+        Err(self.unexpected("PresignedStorageDriver::presigned_url"))
+    }
+
+    async fn presigned_put_request(
+        &self,
+        _path: &str,
+        _expires: Duration,
+    ) -> aster_drive_storage::Result<Option<PresignedUploadRequest>> {
+        self.presigned_calls.fetch_add(1, Ordering::SeqCst);
+        Err(self.unexpected("PresignedStorageDriver::presigned_put_request"))
+    }
+}
+
+#[async_trait]
+impl MultipartStorageDriver for UploadDataPlaneProbe {
+    async fn create_multipart_upload(&self, _path: &str) -> aster_drive_storage::Result<String> {
+        self.multipart_calls.fetch_add(1, Ordering::SeqCst);
+        Err(self.unexpected("MultipartStorageDriver::create_multipart_upload"))
+    }
+
+    async fn presigned_upload_part_request(
+        &self,
+        _path: &str,
+        _upload_id: &str,
+        _part_number: i32,
+        _expires: Duration,
+    ) -> aster_drive_storage::Result<PresignedUploadRequest> {
+        self.multipart_calls.fetch_add(1, Ordering::SeqCst);
+        Err(self.unexpected("MultipartStorageDriver::presigned_upload_part_request"))
+    }
+
+    async fn complete_multipart_upload(
+        &self,
+        _path: &str,
+        _upload_id: &str,
+        _parts: Vec<(i32, String)>,
+    ) -> aster_drive_storage::Result<()> {
+        self.multipart_calls.fetch_add(1, Ordering::SeqCst);
+        Err(self.unexpected("MultipartStorageDriver::complete_multipart_upload"))
+    }
+
+    async fn upload_multipart_part(
+        &self,
+        _path: &str,
+        _upload_id: &str,
+        _part_number: i32,
+        _data: &[u8],
+    ) -> aster_drive_storage::Result<String> {
+        self.multipart_calls.fetch_add(1, Ordering::SeqCst);
+        Err(self.unexpected("MultipartStorageDriver::upload_multipart_part"))
+    }
+
+    async fn abort_multipart_upload(
+        &self,
+        _path: &str,
+        _upload_id: &str,
+    ) -> aster_drive_storage::Result<()> {
+        self.multipart_calls.fetch_add(1, Ordering::SeqCst);
+        Err(self.unexpected("MultipartStorageDriver::abort_multipart_upload"))
+    }
+
+    async fn list_uploaded_part_details(
+        &self,
+        _path: &str,
+        _upload_id: &str,
+    ) -> aster_drive_storage::Result<Vec<UploadedMultipartPart>> {
+        self.multipart_calls.fetch_add(1, Ordering::SeqCst);
+        Err(self.unexpected("MultipartStorageDriver::list_uploaded_part_details"))
+    }
+}
+
+#[async_trait]
+impl ProviderResumableUploadDriver for UploadDataPlaneProbe {
+    fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities {
+        self.provider_calls.fetch_add(1, Ordering::SeqCst);
+        ProviderResumableUploadCapabilities {
+            provider: "test",
+            session_label: "test",
+            min_fragment_size: 1,
+            default_fragment_size: 1,
+            max_fragment_size: 1,
+            fragment_alignment: 1,
+            max_simple_upload_size: None,
+            frontend_direct_upload: false,
+            implicit_completion: false,
+            abort_supported: true,
+            status_query_supported: true,
+        }
+    }
+
+    async fn create_upload_session(
+        &self,
+        _path: &str,
+    ) -> aster_drive_storage::Result<ProviderResumableUploadSession> {
+        self.provider_calls.fetch_add(1, Ordering::SeqCst);
+        Err(self.unexpected("ProviderResumableUploadDriver::create_upload_session"))
+    }
+
+    async fn query_upload_session(
+        &self,
+        _upload_url: &str,
+    ) -> aster_drive_storage::Result<ProviderResumableUploadStatus> {
+        self.provider_calls.fetch_add(1, Ordering::SeqCst);
+        Err(self.unexpected("ProviderResumableUploadDriver::query_upload_session"))
+    }
+
+    async fn abort_upload_session(&self, _upload_url: &str) -> aster_drive_storage::Result<()> {
+        self.provider_calls.fetch_add(1, Ordering::SeqCst);
+        Err(self.unexpected("ProviderResumableUploadDriver::abort_upload_session"))
+    }
+
+    async fn upload_session_fragment_reader(
+        &self,
+        _upload_url: &str,
+        _start: u64,
+        _total_size: u64,
+        _reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+        _fragment_size: i64,
+    ) -> aster_drive_storage::Result<ProviderResumableUploadFragmentOutcome> {
+        self.provider_calls.fetch_add(1, Ordering::SeqCst);
+        Err(self.unexpected("ProviderResumableUploadDriver::upload_session_fragment_reader"))
+    }
+}
 
 fn presigned_put_request(
     client: &reqwest::Client,
@@ -125,6 +382,40 @@ async fn set_default_local_content_dedup(
     active.storage_config = Set(common::with_local_content_dedup(&policy, enabled));
     active.update(state.writer_db()).await.unwrap();
     reload_policy_snapshot(state).await;
+}
+
+async fn install_probe_s3_policy(
+    state: &aster_drive::runtime::PrimaryAppState,
+) -> aster_drive_model::entities::storage_policy::Model {
+    use sea_orm::{ActiveModelTrait, Set};
+
+    let policy = policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .expect("default policy should exist in test setup");
+    let mut active: aster_drive_model::entities::storage_policy::ActiveModel = policy.into();
+    active.connector_id = Set("asterdrive.storage.s3".to_string());
+    active.storage_config = Set(common::encoded_policy_config(
+        "asterdrive.storage.s3",
+        common::TestS3ConnectorConfigV1 {
+            endpoint: "https://s3.example.test".to_string(),
+            bucket: "test-bucket".to_string(),
+            base_path: String::new(),
+            object_storage_upload_strategy:
+                aster_drive_model::types::ObjectStorageUploadStrategy::Presigned,
+            object_storage_download_strategy:
+                aster_drive_model::types::ObjectStorageDownloadStrategy::RelayStream,
+            s3_path_style: true,
+            s3_region: "us-east-1".to_string(),
+            s3_connect_timeout_secs: 5,
+            s3_read_timeout_secs: 30,
+            s3_operation_timeout_secs: 3_600,
+        },
+        aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+    ));
+    let policy = active.update(state.writer_db()).await.unwrap();
+    reload_policy_snapshot(state).await;
+    policy
 }
 
 async fn upload_same_content_direct_and_chunked(
@@ -892,6 +1183,23 @@ fn build_multipart_payload(filename: &str, data: &[u8]) -> (String, Vec<u8>) {
     (boundary, payload)
 }
 
+fn build_multi_file_multipart_payload(fields: &[(&str, &[u8])]) -> (String, Vec<u8>) {
+    let boundary = format!("----AsterTestBoundary{}", uuid::Uuid::new_v4().simple());
+    let mut payload = Vec::new();
+    for (filename, data) in fields {
+        payload.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        payload.extend_from_slice(
+            format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n")
+                .as_bytes(),
+        );
+        payload.extend_from_slice(b"Content-Type: application/octet-stream\r\n\r\n");
+        payload.extend_from_slice(data);
+        payload.extend_from_slice(b"\r\n");
+    }
+    payload.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    (boundary, payload)
+}
+
 fn build_malformed_multipart_headers_over_parser_buffer() -> (String, Vec<u8>) {
     let boundary = format!(
         "----AsterMalformedBoundary{}",
@@ -1603,6 +1911,284 @@ async fn test_empty_file_upload_flow_uses_direct_and_creates_file() {
     assert_eq!(resp.status(), 200);
     let bytes = test::read_body(resp).await;
     assert!(bytes.is_empty());
+}
+
+#[actix_web::test]
+async fn test_declared_empty_compatibility_bypasses_upload_data_planes_and_matches_create_empty() {
+    use aster_drive::services::events::storage_change::StorageChangeKind;
+
+    let state = common::setup().await;
+    let policy = install_probe_s3_policy(&state).await;
+    let driver = Arc::new(UploadDataPlaneProbe::default());
+    state
+        .driver_registry
+        .insert_for_test(policy.id, driver.clone());
+    let mut storage_events = state.storage_change_bus.subscribe();
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload/init")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "filename": "compat-empty.txt",
+            "total_size": 0
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["mode"], "direct");
+    assert!(body["data"]["upload_id"].is_null());
+    assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
+    driver.assert_no_data_plane_calls();
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/files/upload/sessions")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"], serde_json::json!([]));
+
+    let (boundary, payload) = build_multipart_payload("compat-empty.txt", b"x");
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload?declared_size=0")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
+    let body: Value = test::read_body_json(resp).await;
+    assert_upload_error_contract(&body, ApiErrorCode::UploadRequestSizeMismatch.as_str());
+    assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
+    driver.assert_no_data_plane_calls();
+
+    let (boundary, payload) = build_multipart_payload("compat-empty.txt", b"");
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload?declared_size=0")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let compatibility_file: Value = test::read_body_json(resp).await;
+    let compatibility_event = timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("multipart compatibility should publish a storage event")
+        .expect("storage event bus should stay open");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/new")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "canonical-empty.txt" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let canonical_file: Value = test::read_body_json(resp).await;
+    let canonical_event = timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("canonical empty creation should publish a storage event")
+        .expect("storage event bus should stay open");
+
+    assert_eq!(compatibility_file["data"]["name"], "compat-empty.txt");
+    assert_eq!(canonical_file["data"]["name"], "canonical-empty.txt");
+    assert_eq!(compatibility_file["data"]["size"], 0);
+    assert_eq!(canonical_file["data"]["size"], 0);
+    assert_ne!(
+        compatibility_file["data"]["blob_id"],
+        canonical_file["data"]["blob_id"]
+    );
+    assert_eq!(compatibility_event.kind, StorageChangeKind::FileCreated);
+    assert_eq!(canonical_event.kind, StorageChangeKind::FileCreated);
+    assert_eq!(compatibility_event.workspace, canonical_event.workspace);
+    assert_eq!(compatibility_event.storage_delta, Some(0));
+    assert_eq!(canonical_event.storage_delta, Some(0));
+    assert!(!compatibility_event.affects_quota);
+    assert!(!canonical_event.affects_quota);
+    assert_eq!(driver.put_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        driver
+            .objects
+            .lock()
+            .expect("upload probe object lock should succeed")
+            .values()
+            .filter(|data| data.is_empty())
+            .count(),
+        2
+    );
+    driver.assert_no_data_plane_calls();
+}
+
+#[actix_web::test]
+async fn test_declared_empty_upload_rejects_nonempty_field_with_stable_error() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let (boundary, payload) = build_multipart_payload("not-empty.txt", b"x");
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload?declared_size=0")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
+    let body: Value = test::read_body_json(resp).await;
+    assert_upload_error_contract(&body, ApiErrorCode::UploadRequestSizeMismatch.as_str());
+}
+
+#[actix_web::test]
+async fn test_declared_empty_upload_rejects_later_nonempty_file_before_creation() {
+    use aster_drive::db::repository::{file_repo, upload_session_repo};
+
+    let state = common::setup().await;
+    let policy = install_probe_s3_policy(&state).await;
+    let driver = Arc::new(UploadDataPlaneProbe::default());
+    state
+        .driver_registry
+        .insert_for_test(policy.id, driver.clone());
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let (boundary, payload) = build_multi_file_multipart_payload(&[
+        ("first-empty.txt", b""),
+        ("later-nonempty.txt", b"x"),
+    ]);
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload?declared_size=0")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
+    let body: Value = test::read_body_json(resp).await;
+    assert_upload_error_contract(&body, ApiErrorCode::UploadRequestSizeMismatch.as_str());
+    assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        upload_session_repo::count_by_policy(state.writer_db(), policy.id)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        file_repo::count_live_files(state.writer_db())
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[actix_web::test]
+async fn test_declared_empty_upload_rejects_multiple_empty_file_fields_before_creation() {
+    use aster_drive::db::repository::{file_repo, upload_session_repo};
+
+    let state = common::setup().await;
+    let policy = install_probe_s3_policy(&state).await;
+    let driver = Arc::new(UploadDataPlaneProbe::default());
+    state
+        .driver_registry
+        .insert_for_test(policy.id, driver.clone());
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let (boundary, payload) =
+        build_multi_file_multipart_payload(&[("first-empty.txt", b""), ("second-empty.txt", b"")]);
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload?declared_size=0")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
+    let body: Value = test::read_body_json(resp).await;
+    assert_upload_error_contract(&body, ApiErrorCode::BadRequest.as_str());
+    assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        upload_session_repo::count_by_policy(state.writer_db(), policy.id)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        file_repo::count_live_files(state.writer_db())
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[actix_web::test]
+async fn test_declared_empty_upload_rejects_missing_file_field() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let boundary = format!("----AsterTestBoundary{}", uuid::Uuid::new_v4().simple());
+    let payload = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\nempty\r\n--{boundary}--\r\n"
+    );
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload?declared_size=0")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
+    let body: Value = test::read_body_json(resp).await;
+    assert_upload_error_contract(&body, ApiErrorCode::UploadEmptyFile.as_str());
+}
+
+#[actix_web::test]
+async fn test_declared_empty_upload_rejects_empty_filename() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let (boundary, payload) = build_multipart_payload("", b"");
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload?declared_size=0")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
 }
 
 #[actix_web::test]

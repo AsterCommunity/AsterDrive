@@ -5,8 +5,9 @@ use tokio::io::{AsyncWriteExt, BufWriter};
 use crate::errors::{MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::workspace::storage::{
-    StoreFromTempHints, StoreFromTempParams, VerifiedFolderPolicyHint, WorkspaceStorageScope,
-    create_empty, resolve_policy_for_size_with_verified_folder, store_from_temp_with_hints,
+    EmptyFileNameMode, StoreFromTempHints, StoreFromTempParams, VerifiedFolderPolicyHint,
+    WorkspaceStorageScope, create_empty, resolve_policy_for_size_with_verified_folder,
+    store_from_temp_with_hints,
 };
 use aster_drive_model::entities::file;
 use aster_forge_utils::numbers::usize_to_i64;
@@ -108,7 +109,18 @@ pub(super) async fn upload_staged(
 
     if size == 0 {
         aster_forge_utils::fs::cleanup_temp_file(&temp_path).await;
-        return create_empty(state, scope, folder_id, &filename).await;
+        return create_empty(
+            state,
+            scope,
+            folder_id,
+            &filename,
+            if relative_path.is_some() {
+                EmptyFileNameMode::Exact
+            } else {
+                EmptyFileNameMode::ResolveUnique
+            },
+        )
+        .await;
     }
 
     let result = store_from_temp_with_hints(

@@ -29,10 +29,7 @@ pub(crate) use common::{
     ensure_personal_file_scope, if_none_match_matches, if_none_match_matches_value,
     inline_sandbox_csp, requires_inline_sandbox,
 };
-pub use content::{
-    StoreFromTempRequest, create_empty, resolve_policy_for_size, store_from_temp, update_content,
-    upload,
-};
+pub use content::{StoreFromTempRequest, resolve_policy_for_size, store_from_temp, update_content};
 pub(crate) use content::{
     StreamedTempUpload, stream_request_body_to_temp_upload, update_content_stream_in_scope,
 };
@@ -77,9 +74,37 @@ pub(crate) async fn create_empty_in_scope_with_audit(
     scope: WorkspaceStorageScope,
     folder_id: Option<i64>,
     name: &str,
+    relative_path: Option<&str>,
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
-    let file = storage::create_empty(state, scope, folder_id, name).await?;
+    let (folder_id, name, name_mode) = match relative_path {
+        Some(path) => {
+            let parsed = storage::parse_relative_upload_path(state, scope, folder_id, path).await?;
+            let actor_username = if parsed.parent_segments.is_empty() {
+                None
+            } else {
+                Some(storage::load_scope_actor_username_cached(state, scope).await?)
+            };
+            let parent = storage::ensure_upload_parent_path(
+                state,
+                scope,
+                &parsed,
+                actor_username.as_deref(),
+            )
+            .await?;
+            (
+                parent.folder_id,
+                parsed.filename,
+                storage::EmptyFileNameMode::Exact,
+            )
+        }
+        None => (
+            folder_id,
+            name.to_string(),
+            storage::EmptyFileNameMode::ResolveUnique,
+        ),
+    };
+    let file = storage::create_empty(state, scope, folder_id, &name, name_mode).await?;
     let details = audit_location_details_for_model(state, scope, &file).await;
     audit::log_with_details(
         state,

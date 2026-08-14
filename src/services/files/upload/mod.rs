@@ -19,7 +19,10 @@ mod staging;
 
 use std::time::Instant;
 
-use crate::errors::Result;
+use futures::StreamExt;
+
+use crate::api::api_error_code::ApiErrorCode;
+use crate::errors::{MapAsterErr, Result, file_upload_error_with_code, validation_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::models::FileInfo;
@@ -68,6 +71,28 @@ pub(crate) async fn upload_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
     let upload_started_at = Instant::now();
+    if params.declared_size == Some(0) {
+        let filename = consume_declared_empty_file(payload).await?;
+        let file = crate::services::files::file::create_empty_in_scope_with_audit(
+            state,
+            params.scope,
+            params.folder_id,
+            &filename,
+            params.relative_path,
+            audit_ctx,
+        )
+        .await
+        .inspect(|_| record_direct_upload_metric(state, "success"))
+        .inspect_err(|_| record_direct_upload_metric(state, "failure"))?;
+        tracing::debug!(
+            scope = ?params.scope,
+            file_id = file.id,
+            total_elapsed_ms = upload_started_at.elapsed().as_millis(),
+            "created empty file through multipart compatibility endpoint"
+        );
+        return Ok(file);
+    }
+
     let actor_username = storage::load_scope_actor_username_cached(state, params.scope).await?;
     let file = storage::upload_with_hints(
         state,
@@ -110,6 +135,65 @@ pub(crate) async fn upload_in_scope_with_audit(
         "direct upload completed"
     );
     Ok(file.into())
+}
+
+async fn consume_declared_empty_file(payload: &mut actix_multipart::Multipart) -> Result<String> {
+    let mut first_filename = None;
+    while let Some(field) = payload.next().await {
+        let mut field = field.map_aster_err_with(|| {
+            file_upload_error_with_code(
+                ApiErrorCode::UploadFieldReadFailed,
+                "failed to read multipart field",
+            )
+        })?;
+        let Some(filename) = field
+            .content_disposition()
+            .and_then(|content| content.get_filename().map(str::to_string))
+        else {
+            continue;
+        };
+
+        let mut actual_size = 0_i64;
+        while let Some(chunk) = field.next().await {
+            let chunk = chunk.map_aster_err_with(|| {
+                file_upload_error_with_code(
+                    ApiErrorCode::UploadFieldReadFailed,
+                    "failed to read multipart file field",
+                )
+            })?;
+            actual_size = actual_size
+                .checked_add(aster_forge_utils::numbers::usize_to_i64(
+                    chunk.len(),
+                    "multipart file field chunk length",
+                )?)
+                .ok_or_else(|| {
+                    file_upload_error_with_code(
+                        ApiErrorCode::UploadBodySizeOverflow,
+                        "multipart file field size overflows i64",
+                    )
+                })?;
+        }
+        if actual_size != 0 {
+            return Err(validation_error_with_code(
+                ApiErrorCode::UploadRequestSizeMismatch,
+                format!("size mismatch: declared 0 bytes, received {actual_size} bytes"),
+            ));
+        }
+        if first_filename.is_some() {
+            return Err(validation_error_with_code(
+                ApiErrorCode::BadRequest,
+                "multipart request contains multiple file fields",
+            ));
+        }
+        first_filename = Some(filename);
+    }
+
+    first_filename.ok_or_else(|| {
+        validation_error_with_code(
+            ApiErrorCode::UploadEmptyFile,
+            "multipart request does not contain a file field",
+        )
+    })
 }
 
 fn record_direct_upload_metric(state: &impl SharedRuntimeState, status: &'static str) {

@@ -6,6 +6,7 @@ import {
 	saveSession,
 } from "@/lib/uploadPersistence";
 import type { Workspace } from "@/lib/workspace";
+import { createFileService } from "@/services/fileService";
 import {
 	type InitUploadResponse,
 	uploadService,
@@ -49,6 +50,10 @@ export interface UploadTaskActionsContext extends UploadModeRunners {
 	workspace: Workspace;
 }
 
+interface RunQueuedUploadTaskContext extends UploadTaskActionsContext {
+	markFolderForRefresh: (task: UploadTask) => void;
+}
+
 interface ClearTerminalUploadTasksContext {
 	setTasks: Dispatch<SetStateAction<UploadTask[]>>;
 	taskOperationLocks: UploadTaskOperationLocks;
@@ -83,7 +88,9 @@ function createSavedSession(
 export async function runQueuedUploadTask(
 	taskId: string,
 	{
+		directAbortRef,
 		markTaskFailed,
+		markFolderForRefresh,
 		patchTask,
 		resumeCompletionTask,
 		runChunkedUpload,
@@ -93,13 +100,14 @@ export async function runQueuedUploadTask(
 		runProviderResumableUpload,
 		tasksRef,
 		workspace,
-	}: UploadTaskActionsContext,
+	}: RunQueuedUploadTaskContext,
 ) {
 	const task = tasksRef.current.find((item) => item.id === taskId);
 	if (task?.status !== "queued" || !task.file) return;
 
 	const file = task.file;
 	patchTask(taskId, {
+		...(file.size === 0 ? { mode: "direct" as const } : {}),
 		status: "initializing",
 		error: null,
 		progress: 0,
@@ -108,6 +116,35 @@ export async function runQueuedUploadTask(
 	});
 
 	try {
+		if (file.size === 0) {
+			const controller = new AbortController();
+			directAbortRef.current.set(taskId, controller);
+			try {
+				await createFileService(workspace).createEmptyFile(
+					file.name,
+					task.baseFolderId,
+					task.relativePath ?? undefined,
+					{ signal: controller.signal },
+				);
+				if (controller.signal.aborted) return;
+
+				patchTask(taskId, {
+					mode: "direct",
+					status: "completed",
+					progress: 100,
+					uploadedBytes: 0,
+					speedBps: 0,
+					error: null,
+				});
+				markFolderForRefresh(task);
+			} catch (error) {
+				if (!controller.signal.aborted) throw error;
+			} finally {
+				directAbortRef.current.delete(taskId);
+			}
+			return;
+		}
+
 		if (
 			task.uploadId &&
 			(task.mode === "chunked" ||
