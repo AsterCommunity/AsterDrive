@@ -710,7 +710,10 @@ mod tests {
         recorder.adjust_avatar_render_waiting(-1);
         recorder.adjust_avatar_render_active(1);
         recorder.adjust_avatar_render_active(-1);
-        recorder.record_avatar_rejection("dimension");
+        recorder.record_avatar_rejection("source");
+        recorder.record_avatar_rejection("dimensions");
+        recorder.record_avatar_rejection("decode_or_render");
+        recorder.record_avatar_rejection("processor_unavailable");
 
         let body = export_metrics().expect("Drive avatar metrics should export");
         assert!(body.contains("avatar_uploads_total"));
@@ -736,6 +739,9 @@ mod tests {
         assert!(body.contains("avatar_render_waiting 0"));
         assert!(body.contains("avatar_render_active 0"));
         assert!(body.contains("avatar_rejections_total"));
-        assert!(body.contains("reason=\"dimension\""));
+        assert!(body.contains("reason=\"source\""));
+        assert!(body.contains("reason=\"dimensions\""));
+        assert!(body.contains("reason=\"decode_or_render\""));
+        assert!(body.contains("reason=\"processor_unavailable\""));
     }
 }

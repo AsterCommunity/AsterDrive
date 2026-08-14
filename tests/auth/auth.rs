@@ -184,6 +184,19 @@ fn avatar_metadata_only_payload() -> (String, Vec<u8>) {
     (boundary, payload)
 }
 
+fn assert_avatar_staging_empty(avatar_root: &std::path::Path) {
+    let staging = avatar_root.join("staging");
+    assert!(
+        !staging.exists()
+            || std::fs::read_dir(&staging)
+                .expect("avatar staging should be readable")
+                .next()
+                .is_none(),
+        "avatar staging should be empty: {}",
+        staging.display()
+    );
+}
+
 fn configure_avatar_vips(state: &aster_drive::runtime::PrimaryAppState) {
     state.runtime_config.apply(common::system_config_model(
         aster_drive::config::media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY,
@@ -5371,14 +5384,7 @@ async fn test_avatar_publish_conflict_preserves_existing_version_directory() {
             .unwrap()
             .is_none()
     );
-    let staging = avatar_root.join("staging");
-    assert!(
-        !staging.exists()
-            || std::fs::read_dir(staging)
-                .expect("avatar staging should be readable")
-                .next()
-                .is_none()
-    );
+    assert_avatar_staging_empty(&avatar_root);
 }
 
 #[actix_web::test]
@@ -5424,14 +5430,7 @@ async fn test_avatar_publish_parent_failure_keeps_profile_unchanged() {
             .unwrap()
             .is_none()
     );
-    let staging = avatar_root.join("staging");
-    assert!(
-        !staging.exists()
-            || std::fs::read_dir(staging)
-                .expect("avatar staging should be readable")
-                .next()
-                .is_none()
-    );
+    assert_avatar_staging_empty(&avatar_root);
 }
 
 #[actix_web::test]
@@ -5832,14 +5831,7 @@ async fn test_avatar_rejection_preserves_current_profile_and_cleans_staging() {
         assert_eq!(body["data"]["profile"]["avatar"]["version"], 1);
     }
 
-    let staging = avatar_root.join("staging");
-    assert!(
-        !staging.exists()
-            || std::fs::read_dir(staging)
-                .expect("avatar staging should be readable")
-                .next()
-                .is_none()
-    );
+    assert_avatar_staging_empty(&avatar_root);
 }
 
 #[actix_web::test]
