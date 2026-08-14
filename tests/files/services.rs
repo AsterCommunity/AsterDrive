@@ -2715,19 +2715,20 @@ async fn test_folder_copy_creates_initial_revisions_across_batch_boundary() {
         common::create_test_account(&state, "copybatch", "copybatch@example.com", "pass1234")
             .await
             .unwrap();
+    let app = create_test_app!(state.clone());
+    let (token, _) = login_user!(app, "copybatch", "pass1234");
     let source = aster_drive::services::files::folder::create(&state, user.id, "Batch", None)
         .await
         .unwrap();
 
     for index in 0..51 {
-        aster_drive::services::files::file::create_empty(
-            &state,
-            user.id,
-            Some(source.id),
+        common::create_empty_file_via_api(
+            &app,
+            &token,
             &format!("file-{index:02}.txt"),
+            Some(source.id),
         )
-        .await
-        .unwrap();
+        .await;
     }
 
     let copied =

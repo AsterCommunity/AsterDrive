@@ -5136,6 +5136,7 @@ export interface components {
             /** Format: int64 */
             folder_id?: number | null;
             name: string;
+            relative_path?: string | null;
         };
         CreateExternalAuthProviderInput: {
             allowed_domains?: string[] | null;

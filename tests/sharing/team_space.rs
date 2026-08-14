@@ -453,6 +453,15 @@ async fn test_team_space_delete_folder_and_non_member_forbidden() {
     let body: Value = test::read_body_json(resp).await;
     let team_id = body["data"]["id"].as_i64().unwrap();
 
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/teams/{team_id}/files/new"))
+        .insert_header(("Cookie", common::access_cookie_header(&outsider_token)))
+        .insert_header(common::csrf_header_for(&outsider_token))
+        .set_json(serde_json::json!({ "name": "forbidden-empty.md" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/teams/{team_id}/folders"))
         .insert_header(("Cookie", common::access_cookie_header(&outsider_token)))
@@ -530,10 +539,15 @@ async fn test_team_space_delete_folder_and_non_member_forbidden() {
         .uri(&format!("/api/v1/teams/{team_id}/files/new"))
         .insert_header(("Cookie", common::access_cookie_header(&outsider_token)))
         .insert_header(common::csrf_header_for(&outsider_token))
-        .set_json(serde_json::json!({ "name": "empty.md" }))
+        .set_json(serde_json::json!({
+            "name": "ignored.md",
+            "relative_path": "member/docs/empty.md"
+        }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["name"], "empty.md");
 }
 
 #[actix_web::test]

@@ -975,12 +975,24 @@ async fn test_purge_all_processes_multiple_file_batches() {
         common::create_test_account(&state, "tbfiles", "trashbatchfiles@example.com", "pass1234")
             .await
             .unwrap();
+    let app = create_test_app!(state.clone());
+    let (token, _) = login_user!(app, "tbfiles", "pass1234");
 
     for idx in 0..120 {
-        let file = file::create_empty(&state, user.id, None, &format!("batch-{idx}.txt"))
-            .await
-            .unwrap();
-        file::delete(&state, file.id, user.id).await.unwrap();
+        let req = test::TestRequest::post()
+            .uri("/api/v1/files/new")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "name": format!("batch-{idx}.txt"),
+                "folder_id": null,
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+        let body: Value = test::read_body_json(resp).await;
+        let file_id = body["data"]["id"].as_i64().unwrap();
+        file::delete(&state, file_id, user.id).await.unwrap();
     }
 
     let purged = trash::purge_all(&state, user.id).await.unwrap();

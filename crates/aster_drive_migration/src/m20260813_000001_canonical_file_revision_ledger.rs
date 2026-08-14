@@ -310,9 +310,9 @@ async fn configure_mysql_case_sensitive_property_namespaces(
         return Ok(());
     }
 
-    // MySQL's default collation makes XML QName identity case-insensitive. Build binary
-    // projections and the replacement unique index online so large property tables avoid COPY.
-    // Each step probes current schema state so interrupted runs and down/re-up cycles converge.
+    // MySQL's default collation makes XML QName identity case-insensitive. Binary virtual
+    // projections preserve the original text columns while making the unique key case-sensitive.
+    // Avoid version-gated INVISIBLE/INSTANT syntax; the server chooses its supported DDL path.
     if !manager
         .has_column("entity_properties", "namespace_case_key")
         .await?
@@ -322,8 +322,7 @@ async fn configure_mysql_case_sensitive_property_namespaces(
             .execute_unprepared(
                 "ALTER TABLE entity_properties \
                  ADD COLUMN namespace_case_key VARCHAR(256) CHARACTER SET utf8mb4 \
-                 COLLATE utf8mb4_bin GENERATED ALWAYS AS (namespace) VIRTUAL INVISIBLE, \
-                 ALGORITHM=INSTANT",
+                 COLLATE utf8mb4_bin GENERATED ALWAYS AS (namespace) VIRTUAL",
             )
             .await?;
     }
@@ -336,22 +335,7 @@ async fn configure_mysql_case_sensitive_property_namespaces(
             .execute_unprepared(
                 "ALTER TABLE entity_properties \
                  ADD COLUMN name_case_key VARCHAR(255) CHARACTER SET utf8mb4 \
-                 COLLATE utf8mb4_bin GENERATED ALWAYS AS (name) VIRTUAL INVISIBLE, \
-                 ALGORITHM=INSTANT",
-            )
-            .await?;
-    }
-    if !manager
-        .has_index("entity_properties", "idx_entity_properties_namespace_case")
-        .await?
-    {
-        manager
-            .get_connection()
-            .execute_unprepared(
-                "ALTER TABLE entity_properties \
-                 ADD UNIQUE INDEX idx_entity_properties_namespace_case \
-                 (entity_type, entity_id, namespace_case_key, name_case_key), \
-                 ALGORITHM=INPLACE, LOCK=NONE",
+                 COLLATE utf8mb4_bin GENERATED ALWAYS AS (name) VIRTUAL",
             )
             .await?;
     }
@@ -363,20 +347,18 @@ async fn configure_mysql_case_sensitive_property_namespaces(
             .get_connection()
             .execute_unprepared(
                 "ALTER TABLE entity_properties \
-                 DROP INDEX idx_entity_properties_unique, ALGORITHM=INPLACE, LOCK=NONE",
+                 DROP INDEX idx_entity_properties_unique, \
+                 ADD UNIQUE INDEX idx_entity_properties_unique \
+                 (entity_type, entity_id, namespace_case_key, name_case_key)",
             )
             .await?;
-    }
-    if manager
-        .has_index("entity_properties", "idx_entity_properties_namespace_case")
-        .await?
-    {
+    } else {
         manager
             .get_connection()
             .execute_unprepared(
                 "ALTER TABLE entity_properties \
-                 RENAME INDEX idx_entity_properties_namespace_case \
-                 TO idx_entity_properties_unique, ALGORITHM=INPLACE, LOCK=NONE",
+                 ADD UNIQUE INDEX idx_entity_properties_unique \
+                 (entity_type, entity_id, namespace_case_key, name_case_key)",
             )
             .await?;
     }
@@ -398,8 +380,7 @@ async fn restore_mysql_property_namespace_index(manager: &SchemaManager<'_>) -> 
             .execute_unprepared(
                 "ALTER TABLE entity_properties \
                  ADD UNIQUE INDEX idx_entity_properties_legacy_unique \
-                 (entity_type, entity_id, namespace, name), \
-                 ALGORITHM=INPLACE, LOCK=NONE",
+                 (entity_type, entity_id, namespace, name)",
             )
             .await?;
     }
@@ -411,7 +392,18 @@ async fn restore_mysql_property_namespace_index(manager: &SchemaManager<'_>) -> 
             .get_connection()
             .execute_unprepared(
                 "ALTER TABLE entity_properties \
-                 DROP INDEX idx_entity_properties_unique, ALGORITHM=INPLACE, LOCK=NONE",
+                 DROP INDEX idx_entity_properties_unique, \
+                 ADD UNIQUE INDEX idx_entity_properties_unique \
+                 (entity_type, entity_id, namespace, name)",
+            )
+            .await?;
+    } else {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "ALTER TABLE entity_properties \
+                 ADD UNIQUE INDEX idx_entity_properties_unique \
+                 (entity_type, entity_id, namespace, name)",
             )
             .await?;
     }
@@ -420,8 +412,7 @@ async fn restore_mysql_property_namespace_index(manager: &SchemaManager<'_>) -> 
             .get_connection()
             .execute_unprepared(
                 "ALTER TABLE entity_properties \
-                 RENAME INDEX idx_entity_properties_legacy_unique \
-                 TO idx_entity_properties_unique, ALGORITHM=INPLACE, LOCK=NONE",
+                 DROP INDEX idx_entity_properties_legacy_unique",
             )
             .await?;
     }
@@ -431,8 +422,7 @@ async fn restore_mysql_property_namespace_index(manager: &SchemaManager<'_>) -> 
             manager
                 .get_connection()
                 .execute_unprepared(&format!(
-                    "ALTER TABLE entity_properties DROP COLUMN {column}, \
-                     ALGORITHM=INPLACE, LOCK=NONE"
+                    "ALTER TABLE entity_properties DROP COLUMN {column}"
                 ))
                 .await?;
         }

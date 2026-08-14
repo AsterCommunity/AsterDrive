@@ -39,18 +39,20 @@ The following paths are relative to `/api/v1` and require authentication.
 
 Primary upload entries:
 
+- `POST /files/new`: create a product-level empty file
 - `POST /files/upload/init`: negotiate mode first
 - `POST /files/upload`: ordinary multipart upload
 - `GET /files/upload/sessions`: recover unfinished sessions after refresh
 
-Directory-upload semantics are supported through:
+Creation and upload parameters include:
 
-- `folder_id`
-- `relative_path`
-- `declared_size`
-- `frontend_client_id`
+- `POST /files/new`: `folder_id` and `relative_path` request body fields
+- `POST /files/upload`: `folder_id`, `relative_path`, and `declared_size` query parameters
+- `POST /files/upload/init`: `relative_path` and `frontend_client_id`
 
 `folder_id = null` means root. Missing directories in `relative_path` are created automatically. Empty path segments such as `docs//bad.txt` are rejected.
+
+`GET /files/upload/sessions` is a separate recoverable-session listing endpoint. Its optional `frontend_client_id` query parameter filters sessions created by the same frontend instance; it does not accept `folder_id` or `relative_path` and does not perform directory uploads.
 
 Negotiation returns one of four modes:
 
@@ -73,8 +75,8 @@ Presigned browser uploads require usable CORS on the object storage or follower 
 
 ## Direct, chunked, and completion stages
 
-- `POST /files/upload`: ordinary multipart upload; empty files are rejected, and same-folder same-name files are not overwritten. With object-storage / Remote `relay_stream`, the body is relayed directly to the target driver.
-- `POST /files/new`: creates a 0-byte file for “new text file” style actions
+- `POST /files/new`: the canonical empty-file API. The file picker and folder-upload queue call it directly for 0-byte `File` values without initializing an upload session or running direct, chunked, presigned, or provider-resumable runners. Its body accepts `folder_id` and `relative_path`.
+- `POST /files/upload`: ordinary multipart upload. For legacy clients, `declared_size = 0` with an actually empty file field is fully consumed and delegated to the same empty-file use case. Declared zero with nonempty content returns `upload.request_size_mismatch` before any storage-object mutation. Nonempty same-folder same-name files are not overwritten. With object-storage / Remote `relay_stream`, the body is relayed directly to the target driver.
 - `GET /files/upload/sessions`: lists unexpired, recoverable sessions in `uploading` / `assembling` / `presigned` status; `frontend_client_id` can filter sessions created by the same frontend instance
 - `PUT /files/upload/{upload_id}/{chunk_number}`: uploads one chunk, with `chunk_number` starting at `0`
 - `POST /files/upload/{upload_id}/presign-parts`: used only for `presigned_multipart`
@@ -103,6 +105,8 @@ Completion behavior:
 - object-storage / OneDrive / Remote paths: validate size and quota but do not deduplicate; each upload creates an independent blob using an upload-session-derived opaque hash and `files/{upload_id}`-style object path
 
 `POST /files/new` follows the same rule: local content dedup can reuse the 0-byte blob, while non-local connectors always create an independent blob.
+
+`POST /files/new` and empty multipart compatibility are product-level file creation. They share relative-path parsing, missing-parent creation, exact-target handling, policy resolution, blob/file transactions, events, and failure cleanup. WebDAV PUT/LOCK staging, storage migration, internal-storage ingress, remote-follower object writes, and prepared-blob restore/copy paths continue to use `put(path, &[])` or the corresponding stream/object primitive. Those low-level zero-length object writes do not create a second product-file metadata path.
 
 `presigned_multipart` completion must include object-storage returned `parts`; other modes may omit the body.
 

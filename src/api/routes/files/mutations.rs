@@ -511,9 +511,15 @@ pub(crate) async fn create_empty_response(
 ) -> Result<HttpResponse> {
     validate_request(body)?;
     let ctx = AuditContext::from_request(req, claims);
-    let file =
-        file::create_empty_in_scope_with_audit(state, scope, body.folder_id, &body.name, &ctx)
-            .await?;
+    let file = file::create_empty_in_scope_with_audit(
+        state,
+        scope,
+        body.folder_id,
+        &body.name,
+        body.relative_path.as_deref(),
+        &ctx,
+    )
+    .await?;
     Ok(HttpResponse::Created().json(ApiResponse::ok(file)))
 }
 

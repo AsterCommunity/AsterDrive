@@ -60,7 +60,7 @@ url = { base_url = "postgres://localhost:5432/asterdrive", username = "RAW_USERN
 
 ### MySQL
 
-AsterDrive 要求 MySQL 8.0.23 或更新版本；持续集成使用 MySQL 8.4 验证完整 migration 和集成测试。MariaDB 不在当前支持矩阵中。启动时会在执行 MySQL 专用 DDL 前检查服务端版本，避免旧版本只应用一部分 schema 变更。
+AsterDrive 不按服务端版本字符串硬拒绝 MySQL-compatible 数据库；migration 会直接执行所需的 generated column、索引和约束 DDL，由数据库实际能力决定是否支持。持续集成使用 MySQL 8.4 验证完整 migration 和集成测试；使用其他 MySQL 或 MariaDB 版本时，应先在数据库副本上演练升级。
 
 ```toml
 url = "mysql://user:password@localhost:3306/asterdrive"

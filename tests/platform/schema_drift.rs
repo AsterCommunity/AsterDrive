@@ -183,9 +183,9 @@ fn expected_database_only_columns(backend: DbBackend, table_name: &str) -> BTree
         ]
         .into_iter()
         .collect(),
-        // MySQL's default text collation is case-insensitive. These virtual,
-        // invisible projections let the database enforce byte-sensitive XML
-        // property identity without exposing storage-only columns to SeaORM.
+        // MySQL's default text collation is case-insensitive. These generated
+        // projections let the database enforce byte-sensitive XML property
+        // identity; SeaORM and database-migrate select only business columns.
         (DbBackend::MySql, "entity_properties") => ["namespace_case_key", "name_case_key"]
             .into_iter()
             .collect(),

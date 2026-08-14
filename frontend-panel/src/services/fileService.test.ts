@@ -90,7 +90,7 @@ describe("fileService", () => {
 		fileService.renameFile(8, "notes.md");
 		fileService.setFileLock(8, true);
 		fileService.setFolderLock(7, false);
-		fileService.createEmptyFile("draft.md", 7);
+		fileService.createEmptyFile("draft.md", 7, "docs/draft.md");
 		fileService.copyFile(8, null);
 		fileService.moveFile(8, 12);
 		fileService.createArchiveExtractTask(8, 7, "bundle");
@@ -108,6 +108,11 @@ describe("fileService", () => {
 
 		expect(mockState.get).toHaveBeenNthCalledWith(1, "/folders", {
 			params: { file_limit: 50 },
+		});
+		expect(mockState.post).toHaveBeenCalledWith("/files/new", {
+			name: "draft.md",
+			folder_id: 7,
+			relative_path: "docs/draft.md",
 		});
 		expect(mockState.get).toHaveBeenNthCalledWith(2, "/folders/7", {
 			params: { sort_by: "updated_at" },
@@ -175,6 +180,7 @@ describe("fileService", () => {
 		expect(mockState.post).toHaveBeenNthCalledWith(6, "/files/new", {
 			name: "draft.md",
 			folder_id: 7,
+			relative_path: "docs/draft.md",
 		});
 		expect(mockState.post).toHaveBeenNthCalledWith(7, "/files/8/copy", {
 			folder_id: null,
@@ -259,6 +265,7 @@ describe("fileService", () => {
 			url: "https://example.com/team.bin",
 		});
 		teamFileService.listVersions(8);
+		teamFileService.createEmptyFile("empty.md", null, "docs/empty.md");
 
 		expect(mockState.get).toHaveBeenCalledWith("/teams/9/folders", {
 			params: undefined,
@@ -290,6 +297,11 @@ describe("fileService", () => {
 		expect(mockState.get).toHaveBeenCalledWith("/teams/9/files/8/versions", {
 			params: { after_sequence: undefined, limit: 101 },
 		});
+		expect(mockState.post).toHaveBeenCalledWith("/teams/9/files/new", {
+			name: "empty.md",
+			folder_id: null,
+			relative_path: "docs/empty.md",
+		});
 		expect(teamFileService.downloadPath(8)).toBe("/teams/9/files/8/download");
 		expect(teamFileService.downloadUrl(8)).toBe(
 			"/api/v1/teams/9/files/8/download",
@@ -297,6 +309,35 @@ describe("fileService", () => {
 		expect(teamFileService.thumbnailPath(8)).toBe("/teams/9/files/8/thumbnail");
 		expect(teamFileService.imagePreviewPath(8)).toBe(
 			"/teams/9/files/8/image-preview",
+		);
+	});
+
+	it("omits relative_path when creating an empty file without a relative path", async () => {
+		const { fileService } = await import("@/services/fileService");
+
+		fileService.createEmptyFile("plain-empty.md");
+
+		expect(mockState.post).toHaveBeenCalledWith("/files/new", {
+			name: "plain-empty.md",
+			folder_id: null,
+		});
+	});
+
+	it("forwards abort signals when creating empty files", async () => {
+		const { fileService } = await import("@/services/fileService");
+		const controller = new AbortController();
+
+		fileService.createEmptyFile("cancelable.md", null, undefined, {
+			signal: controller.signal,
+		});
+
+		expect(mockState.post).toHaveBeenCalledWith(
+			"/files/new",
+			{
+				name: "cancelable.md",
+				folder_id: null,
+			},
+			{ signal: controller.signal },
 		);
 	});
 

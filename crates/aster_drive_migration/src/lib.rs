@@ -76,7 +76,6 @@ const STORAGE_POLICY_CONNECTOR_CREDENTIALS_MIGRATION: &str =
 const POSTGRES_MIGRATION_LOCK_KEY: i64 = 0x4153_5445_5244_5249;
 const MYSQL_MIGRATION_LOCK_NAME: &str = "aster_drive:database_migrations";
 const MYSQL_MIGRATION_LOCK_TIMEOUT_SECONDS: u64 = 300;
-const MINIMUM_MYSQL_VERSION: (u64, u64, u64) = (8, 0, 23);
 const APPLICATION_SCHEMA_SENTINELS: &[&str] = &[
     "users",
     "storage_policies",
@@ -133,7 +132,6 @@ impl Migrator {
     pub async fn up(database: &DatabaseConnection, steps: Option<u32>) -> Result<(), DbErr> {
         match steps {
             Some(step_count) => {
-                ensure_supported_database_server(database).await?;
                 <CurrentMigrator as MigratorTrait>::up(database, Some(step_count)).await
             }
             None => apply_database_migrations(database).await,
@@ -322,9 +320,6 @@ where
 }
 
 pub async fn apply_database_migrations(database: &DatabaseConnection) -> Result<(), DbErr> {
-    // Reject unsupported servers before the migration lock or any schema inspection can reach
-    // backend-specific DDL. Individual migration modules must not become scattered version gates.
-    ensure_supported_database_server(database).await?;
     if database.get_database_backend() == DbBackend::Sqlite {
         return apply_sqlite_database_migrations(database).await;
     }
@@ -332,53 +327,6 @@ pub async fn apply_database_migrations(database: &DatabaseConnection) -> Result<
         Box::pin(apply_database_migrations_unlocked(connection))
     })
     .await
-}
-
-async fn ensure_supported_database_server(database: &DatabaseConnection) -> Result<(), DbErr> {
-    if database.get_database_backend() != DbBackend::MySql {
-        return Ok(());
-    }
-    let row = database
-        .query_one_raw(Statement::from_string(DbBackend::MySql, "SELECT VERSION()"))
-        .await?
-        .ok_or_else(|| DbErr::Migration("MySQL did not report a server version".to_string()))?;
-    let version = row
-        .try_get_by_index::<String>(0)
-        .map_err(|error| DbErr::Migration(format!("failed to read MySQL version: {error}")))?;
-    validate_mysql_server_version(&version)
-}
-
-fn validate_mysql_server_version(version: &str) -> Result<(), DbErr> {
-    if mysql_version_is_supported(version) {
-        return Ok(());
-    }
-    Err(DbErr::Migration(format!(
-        "AsterDrive requires MySQL 8.0.23 or newer; detected {version}"
-    )))
-}
-
-fn mysql_version_is_supported(version: &str) -> bool {
-    if version.to_ascii_lowercase().contains("mariadb") {
-        return false;
-    }
-    let mut parts = version.split('.');
-    let parse_part = |part: &str| {
-        let digits: String = part
-            .chars()
-            .take_while(|character| character.is_ascii_digit())
-            .collect();
-        (!digits.is_empty())
-            .then(|| digits.parse::<u64>().ok())
-            .flatten()
-    };
-    match (
-        parts.next().and_then(parse_part),
-        parts.next().and_then(parse_part),
-        parts.next().and_then(parse_part),
-    ) {
-        (Some(major), Some(minor), Some(patch)) => (major, minor, patch) >= MINIMUM_MYSQL_VERSION,
-        _ => false,
-    }
 }
 
 /// Run SQLite schema migrations with foreign keys disabled before Forge opens
@@ -683,23 +631,22 @@ mod tests {
     use sea_orm_migration::SchemaManager;
 
     #[test]
-    fn mysql_version_floor_covers_supported_and_rejected_server_strings() {
-        for version in [
-            "8.0.23",
-            "8.0.23-0ubuntu0.22.04.1",
-            "8.4.0",
-            "9.0.1",
-            "8.0.34.mysql_aurora.3.08.2",
-        ] {
-            assert!(mysql_version_is_supported(version), "{version}");
-            validate_mysql_server_version(version).expect("supported version should validate");
-        }
-        for version in ["5.7.44", "8.0.22", "10.11.6-MariaDB", "not-a-version", ""] {
-            assert!(!mysql_version_is_supported(version), "{version}");
-            let error = validate_mysql_server_version(version)
-                .expect_err("unsupported version should fail before migrations");
-            assert!(error.to_string().contains(version), "{error}");
-        }
+    fn mysql_migrations_do_not_install_a_global_version_gate() {
+        let source = include_str!("lib.rs");
+        let gate_symbol = ["ensure", "supported", "database", "server"].join("_");
+        let minimum_symbol = ["MINIMUM", "MYSQL", "VERSION"].join("_");
+        let version_query = ["SELECT", "VERSION()"].join(" ");
+
+        assert!(!source.contains(&gate_symbol));
+        assert!(!source.contains(&minimum_symbol));
+        assert!(!source.contains(&version_query));
+    }
+
+    #[test]
+    fn mysql_property_case_projection_avoids_version_specific_ddl() {
+        let source = include_str!("m20260813_000001_canonical_file_revision_ledger.rs");
+        assert!(!source.contains("VIRTUAL INVISIBLE"));
+        assert!(!source.contains("ALGORITHM=INSTANT"));
     }
 
     async fn record_applied_migration(db: &DatabaseConnection, migration_name: &str) {

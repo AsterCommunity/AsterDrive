@@ -1334,6 +1334,46 @@ async fn test_storage_migration_moves_blob_to_empty_target_policy() {
 }
 
 #[actix_web::test]
+async fn test_storage_migration_preserves_zero_length_blob() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-zero-length").await;
+    let target = create_local_policy(&state, "target-zero-length").await;
+    let blob = create_blob_with_object(&state, &source, b"", 1).await;
+    let created_file = create_file_for_blob(&state, blob.id, "empty.txt").await;
+    let mut active_file: file::ActiveModel = created_file.into();
+    active_file.size = Set(0);
+    active_file.update(state.writer_db()).await.unwrap();
+
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let task_id = body["data"]["id"].as_i64().expect("task id should exist");
+    let stats = task::drain(&state)
+        .await
+        .expect("zero-length blob migration should drain");
+    assert_eq!(stats.succeeded, 1);
+
+    let migrated = file_repo::find_blob_by_id(state.writer_db(), blob.id)
+        .await
+        .expect("zero-length blob should still exist");
+    assert_eq!(migrated.policy_id, target.id);
+    assert_eq!(migrated.size, 0);
+    let migrated_path =
+        std::path::Path::new(&common::local_policy_base_path(&target)).join(&migrated.storage_path);
+    let migrated_metadata = tokio::fs::metadata(&migrated_path)
+        .await
+        .expect("migrated zero-length object should exist");
+    assert_eq!(migrated_metadata.len(), 0);
+
+    let checkpoint = storage_migration_checkpoint_repo::get_by_task_id(state.writer_db(), task_id)
+        .await
+        .expect("zero-length migration checkpoint should exist");
+    assert_eq!(checkpoint.scanned_blobs, 1);
+    assert_eq!(checkpoint.migrated_blobs, 1);
+    assert_eq!(checkpoint.migrated_bytes, 0);
+}
+
+#[actix_web::test]
 async fn test_storage_migration_moves_opaque_local_blob_key_without_content_hash_mismatch() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());

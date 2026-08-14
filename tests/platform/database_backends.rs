@@ -209,45 +209,48 @@ async fn assert_revision_expected_etag_serializes_concurrent_appends(
     ));
 }
 
-async fn assert_batched_folder_copy_initial_revisions(
+async fn assert_batched_folder_copy_initial_revisions<S, B, E>(
     state: &aster_drive::runtime::PrimaryAppState,
     backend: DbBackend,
-) {
-    use aster_drive::services::files::{file, folder};
+    app: &S,
+    access_token: &str,
+    user_id: i64,
+) where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = E,
+        >,
+    B: actix_web::body::MessageBody,
+    B::Error: std::fmt::Debug,
+    E: std::fmt::Debug,
+{
+    use aster_drive::services::files::folder;
 
     let suffix = match backend {
         DbBackend::Postgres => "postgres",
         DbBackend::MySql => "mysql",
         _ => unreachable!("only postgres/mysql smoke tests use this helper"),
     };
-    let user = common::create_test_account(
-        state,
-        &format!("batch-{suffix}"),
-        &format!("batch-{suffix}@example.com"),
-        "password123",
-    )
-    .await
-    .unwrap();
-    let source = folder::create(state, user.id, "Batch source", None)
+    let source = folder::create(state, user_id, &format!("Batch source {suffix}"), None)
         .await
         .unwrap();
     for index in 0..51 {
-        file::create_empty(
-            state,
-            user.id,
-            Some(source.id),
+        common::create_empty_file_via_api(
+            app,
+            access_token,
             &format!("file-{index:02}.txt"),
+            Some(source.id),
         )
-        .await
-        .unwrap();
+        .await;
     }
 
-    let copied = folder::copy_folder(state, source.id, user.id, None)
+    let copied = folder::copy_folder(state, source.id, user_id, None)
         .await
         .unwrap();
     let copied_files = aster_drive::db::repository::file_repo::find_by_folder(
         state.writer_db(),
-        user.id,
+        user_id,
         Some(copied.id),
     )
     .await
@@ -275,34 +278,39 @@ async fn assert_batched_folder_copy_initial_revisions(
     }
 }
 
-async fn assert_revision_property_namespace_case_sensitivity(
+async fn assert_revision_property_namespace_case_sensitivity<S, B, E>(
     state: &aster_drive::runtime::PrimaryAppState,
     backend: DbBackend,
-) {
+    app: &S,
+    access_token: &str,
+    user: &aster_drive_model::entities::user::Model,
+) where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = E,
+        >,
+    B: actix_web::body::MessageBody,
+    B::Error: std::fmt::Debug,
+    E: std::fmt::Debug,
+{
     use aster_drive::db::repository::{file_repo, property_repo, revision_repo};
-    use aster_drive::services::files::file;
 
-    let (username_suffix, backend_name) = match backend {
-        DbBackend::Postgres => ("pg", "postgres"),
-        DbBackend::MySql => ("my", "mysql"),
+    let backend_name = match backend {
+        DbBackend::Postgres => "postgres",
+        DbBackend::MySql => "mysql",
         _ => unreachable!("only postgres/mysql smoke tests use this helper"),
     };
-    let user = common::create_test_account(
-        state,
-        &format!("revprop-{username_suffix}"),
-        &format!("revision-property-{backend_name}@example.com"),
-        "password123",
-    )
-    .await
-    .unwrap();
-    let file = file::create_empty(
-        state,
-        user.id,
-        None,
+    let file_id = common::create_empty_file_via_api(
+        app,
+        access_token,
         &format!("revision-property-{backend_name}.txt"),
+        None,
     )
-    .await
-    .unwrap();
+    .await;
+    let file = file_repo::find_by_id(state.writer_db(), file_id)
+        .await
+        .unwrap();
 
     for (namespace, name, value) in [
         ("System.preview", "cache", "case-sensitive-old"),
@@ -1353,8 +1361,14 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     assert_eq!(overview_body["data"]["stats"]["total_files"], 3);
     assert_eq!(overview_body["data"]["stats"]["uploads_today"], 4);
 
-    assert_revision_property_namespace_case_sensitivity(&state, backend).await;
-    assert_batched_folder_copy_initial_revisions(&state, backend).await;
+    let test_user =
+        aster_drive::db::repository::user_repo::find_by_username(state.writer_db(), "testuser")
+            .await
+            .unwrap()
+            .expect("backend smoke test user should exist");
+    assert_revision_property_namespace_case_sensitivity(&state, backend, &app, &token, &test_user)
+        .await;
+    assert_batched_folder_copy_initial_revisions(&state, backend, &app, &token, test_user.id).await;
 }
 
 #[actix_web::test]

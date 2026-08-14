@@ -161,6 +161,7 @@ pub(crate) async fn create_empty(
     scope: WorkspaceStorageScope,
     folder_id: Option<i64>,
     filename: &str,
+    name_mode: EmptyFileNameMode,
 ) -> Result<file::Model> {
     tracing::debug!(
         scope = ?scope,
@@ -172,14 +173,7 @@ pub(crate) async fn create_empty(
     if let Some(folder_id) = folder_id {
         verify_folder_access(state, scope, folder_id).await?;
     }
-    let prepared = PreparedEmptyFile::prepare(
-        state,
-        scope,
-        folder_id,
-        filename,
-        EmptyFileNameMode::ResolveUnique,
-    )
-    .await?;
+    let prepared = PreparedEmptyFile::prepare(state, scope, folder_id, filename, name_mode).await?;
     let workspace = match scope {
         WorkspaceStorageScope::Personal { user_id } => {
             crate::services::files::lock::LockWorkspace::Personal { user_id }
