@@ -5,6 +5,7 @@ use actix_web::HttpResponse;
 use aster_forge_db::transaction;
 use chrono::Utc;
 use sea_orm::Set;
+use std::time::{Duration, Instant};
 
 use crate::api::constants::YEAR_SECS;
 use crate::config::{avatar, operations};
@@ -12,6 +13,7 @@ use crate::db::repository::{user_profile_repo, user_repo};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::media::processing;
+use aster_drive_metrics::SharedMetricsRecorder;
 use aster_drive_model::entities::user_profile;
 use aster_drive_model::types::AvatarSource;
 
@@ -28,6 +30,8 @@ use super::info::{
 use super::shared::{
     AVATAR_SIZE_LG, AVATAR_SIZE_SM, default_profile_active_model, stored_avatar_prefix,
 };
+
+const SLOW_AVATAR_PUBLISH_THRESHOLD: Duration = Duration::from_millis(250);
 
 async fn write_local_avatar(path: &std::path::Path, data: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
@@ -135,6 +139,60 @@ async fn write_staged_avatar_variants(
     Ok(rendered_dir)
 }
 
+fn avatar_publish_status(result: &std::io::Result<()>) -> &'static str {
+    match result {
+        Ok(()) => "success",
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::DirectoryNotEmpty
+            ) =>
+        {
+            "conflict"
+        }
+        Err(_) => "failed",
+    }
+}
+
+struct AvatarPublishContext {
+    user_id: i64,
+    version: i32,
+    submission_id: uuid::Uuid,
+}
+
+async fn publish_avatar_directory(
+    rendered_dir: &std::path::Path,
+    destination: &std::path::Path,
+    context: &AvatarPublishContext,
+    metrics: &SharedMetricsRecorder,
+) -> Result<()> {
+    let started_at = Instant::now();
+    let result = tokio::fs::rename(rendered_dir, destination).await;
+    let elapsed = started_at.elapsed();
+    record_avatar_publish_observation(&result, elapsed, context, metrics);
+    result.map_aster_err_ctx("publish avatar variants", AsterError::storage_driver_error)
+}
+
+fn record_avatar_publish_observation(
+    result: &std::io::Result<()>,
+    elapsed: Duration,
+    context: &AvatarPublishContext,
+    metrics: &SharedMetricsRecorder,
+) {
+    let status = avatar_publish_status(result);
+    metrics.record_avatar_publish_duration(status, elapsed.as_secs_f64());
+    if elapsed >= SLOW_AVATAR_PUBLISH_THRESHOLD {
+        tracing::warn!(
+            user_id = context.user_id,
+            avatar_version = context.version,
+            submission_id = %context.submission_id,
+            status,
+            duration_ms = elapsed.as_millis(),
+            "slow avatar filesystem publish"
+        );
+    }
+}
+
 async fn publish_staged_avatar(
     state: &PrimaryAppState,
     user: &aster_drive_model::entities::user::Model,
@@ -167,6 +225,13 @@ async fn publish_staged_avatar(
         .avatar_render_runtime()
         .acquire_publish()
         .await;
+    let user_avatar_parent = avatar_root_dir.join("user").join(user.id.to_string());
+    tokio::fs::create_dir_all(&user_avatar_parent)
+        .await
+        .map_aster_err_ctx(
+            "create avatar user directory",
+            AsterError::storage_driver_error,
+        )?;
     enum PublishOutcome {
         Superseded {
             user: aster_drive_model::entities::user::Model,
@@ -181,7 +246,9 @@ async fn publish_staged_avatar(
 
     let published_prefix = std::sync::Arc::new(parking_lot::Mutex::new(None));
     let callback_published_prefix = published_prefix.clone();
+    let callback_metrics = state.metrics().clone();
     let transaction_user_id = user.id;
+    let transaction_submission_id = staged.submission_id;
     let transaction_base_profile = base_profile.cloned();
     let transaction_avatar_root_dir = avatar_root_dir.to_path_buf();
     let transaction_rendered_dir = rendered_dir.clone();
@@ -193,6 +260,7 @@ async fn publish_staged_avatar(
         },
         move |txn| {
             let callback_published_prefix = callback_published_prefix.clone();
+            let metrics = callback_metrics.clone();
             let base_profile = transaction_base_profile.clone();
             let avatar_root_dir = transaction_avatar_root_dir.clone();
             let rendered_dir = transaction_rendered_dir.clone();
@@ -212,26 +280,21 @@ async fn publish_staged_avatar(
                 let version = next_avatar_version(current_profile.as_ref())?;
                 let prefix_key = user_avatar_prefix(transaction_user_id, version);
                 let prefix = user_avatar_dir(&avatar_root_dir, transaction_user_id, version);
-                let prefix_parent = avatar_root_dir
-                    .join("user")
-                    .join(transaction_user_id.to_string());
-                debug_assert_eq!(prefix.parent(), Some(prefix_parent.as_path()));
-                cleanup_local_avatar_prefix(&prefix, &avatar_root_dir).await;
-                tokio::fs::create_dir_all(prefix_parent)
-                    .await
-                    .map_aster_err_ctx(
-                        "create avatar user directory",
-                        AsterError::storage_driver_error,
-                    )?;
                 // Keep publish before the profile row update while the row lock is held:
                 // committing first could expose a profile that points at a missing file.
-                // max_retries=0 above prevents replaying this cross-resource side effect.
-                tokio::fs::rename(&rendered_dir, &prefix)
-                    .await
-                    .map_aster_err_ctx(
-                        "publish avatar variants",
-                        AsterError::storage_driver_error,
-                    )?;
+                // The parent mkdir runs before the transaction, final destinations are never
+                // pre-deleted, and max_retries=0 prevents replaying this atomic rename.
+                publish_avatar_directory(
+                    &rendered_dir,
+                    &prefix,
+                    &AvatarPublishContext {
+                        user_id: transaction_user_id,
+                        version,
+                        submission_id: transaction_submission_id,
+                    },
+                    &metrics,
+                )
+                .await?;
                 *callback_published_prefix.lock() = Some(prefix);
 
                 let now = Utc::now();
@@ -425,9 +488,14 @@ pub fn avatar_image_response(bytes: Vec<u8>) -> HttpResponse {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use chrono::Utc;
 
-    use super::{avatar_revision_matches, next_avatar_version};
+    use super::{
+        AvatarPublishContext, SLOW_AVATAR_PUBLISH_THRESHOLD, avatar_publish_status,
+        avatar_revision_matches, next_avatar_version, record_avatar_publish_observation,
+    };
     use aster_drive_model::entities::user_profile;
     use aster_drive_model::types::AvatarSource;
 
@@ -471,5 +539,48 @@ mod tests {
             42
         );
         assert!(next_avatar_version(Some(&profile(i32::MAX, AvatarSource::Upload))).is_err());
+    }
+
+    #[test]
+    fn avatar_publish_status_distinguishes_conflicts_from_other_failures() {
+        assert_eq!(avatar_publish_status(&Ok(())), "success");
+        for kind in [
+            std::io::ErrorKind::AlreadyExists,
+            std::io::ErrorKind::DirectoryNotEmpty,
+        ] {
+            assert_eq!(
+                avatar_publish_status(&Err(std::io::Error::from(kind))),
+                "conflict"
+            );
+        }
+        assert_eq!(
+            avatar_publish_status(&Err(std::io::Error::from(
+                std::io::ErrorKind::PermissionDenied
+            ))),
+            "failed"
+        );
+    }
+
+    #[test]
+    fn avatar_publish_observation_accepts_fast_and_threshold_samples() {
+        let metrics = aster_drive_metrics::NoopMetrics::arc();
+        let context = AvatarPublishContext {
+            user_id: 42,
+            version: 7,
+            submission_id: uuid::Uuid::nil(),
+        };
+
+        record_avatar_publish_observation(
+            &Ok(()),
+            SLOW_AVATAR_PUBLISH_THRESHOLD - Duration::from_millis(1),
+            &context,
+            &metrics,
+        );
+        record_avatar_publish_observation(
+            &Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists)),
+            SLOW_AVATAR_PUBLISH_THRESHOLD,
+            &context,
+            &metrics,
+        );
     }
 }

@@ -5329,6 +5329,112 @@ async fn test_avatar_upload_uses_vips_processor_when_available() {
 }
 
 #[actix_web::test]
+async fn test_avatar_publish_conflict_preserves_existing_version_directory() {
+    let state = common::setup().await;
+    let avatar_root = std::path::PathBuf::from(
+        state
+            .runtime_config
+            .get(aster_drive::config::avatar::AVATAR_DIR_KEY)
+            .expect("avatar_dir should exist"),
+    );
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let user_id = testuser_id(state.writer_db()).await;
+    let conflicting_dir = avatar_root.join(format!("user/{user_id}/v1"));
+    let sentinel = conflicting_dir.join("existing-avatar.sentinel");
+    tokio::fs::create_dir_all(&conflicting_dir).await.unwrap();
+    tokio::fs::write(&sentinel, b"preserve existing version")
+        .await
+        .unwrap();
+    let (boundary, payload) = avatar_upload_payload();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/profile/avatar/upload")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 500);
+
+    assert_eq!(
+        tokio::fs::read(&sentinel).await.unwrap(),
+        b"preserve existing version"
+    );
+    assert!(
+        aster_drive::db::repository::user_profile_repo::find_by_user_id(state.writer_db(), user_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let staging = avatar_root.join("staging");
+    assert!(
+        !staging.exists()
+            || std::fs::read_dir(staging)
+                .expect("avatar staging should be readable")
+                .next()
+                .is_none()
+    );
+}
+
+#[actix_web::test]
+async fn test_avatar_publish_parent_failure_keeps_profile_unchanged() {
+    let state = common::setup().await;
+    let avatar_root = std::path::PathBuf::from(
+        state
+            .runtime_config
+            .get(aster_drive::config::avatar::AVATAR_DIR_KEY)
+            .expect("avatar_dir should exist"),
+    );
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let user_id = testuser_id(state.writer_db()).await;
+    let user_parent = avatar_root.join("user");
+    let conflicting_user_path = user_parent.join(user_id.to_string());
+    tokio::fs::create_dir_all(&user_parent).await.unwrap();
+    tokio::fs::write(&conflicting_user_path, b"not a directory")
+        .await
+        .unwrap();
+    let (boundary, payload) = avatar_upload_payload();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/profile/avatar/upload")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 500);
+
+    assert_eq!(
+        tokio::fs::read(&conflicting_user_path).await.unwrap(),
+        b"not a directory"
+    );
+    assert!(
+        aster_drive::db::repository::user_profile_repo::find_by_user_id(state.writer_db(), user_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let staging = avatar_root.join("staging");
+    assert!(
+        !staging.exists()
+            || std::fs::read_dir(staging)
+                .expect("avatar staging should be readable")
+                .next()
+                .is_none()
+    );
+}
+
+#[actix_web::test]
 async fn test_avatar_upload_and_source_switch() {
     let state = common::setup().await;
     let avatar_base_path = state

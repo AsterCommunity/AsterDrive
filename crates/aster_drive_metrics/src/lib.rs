@@ -88,6 +88,9 @@ pub trait MetricsRecorder: Send + Sync {
     /// Records synchronous avatar render latency.
     fn record_avatar_render_duration(&self, processor: &'static str, duration_seconds: f64) {}
 
+    /// Records filesystem publication latency for rendered avatar variants.
+    fn record_avatar_publish_duration(&self, status: &'static str, duration_seconds: f64) {}
+
     /// Records time spent waiting for an avatar render concurrency permit.
     fn record_avatar_render_wait_duration(&self, duration_seconds: f64) {}
 
@@ -266,6 +269,13 @@ mod product {
                 "Synchronous avatar render duration in seconds.",
                 &["processor"],
                 &[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 15.0],
+            ),
+            avatar_publish_duration: histogram_with_buckets(
+                "avatar",
+                "publish_duration_seconds",
+                "Filesystem publication duration for rendered avatar variants.",
+                &["status"],
+                &[0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 15.0],
             ),
             avatar_render_wait_duration: histogram_with_buckets(
                 "avatar",
@@ -569,6 +579,14 @@ impl MetricsRecorder for DriveMetricsRecorder {
         }
     }
 
+    fn record_avatar_publish_duration(&self, status: &'static str, duration_seconds: f64) {
+        if let Some(product) = self.product {
+            product
+                .avatar_publish_duration
+                .observe(&[status], duration_seconds);
+        }
+    }
+
     fn record_avatar_render_wait_duration(&self, duration_seconds: f64) {
         if let Some(product) = self.product {
             product
@@ -684,6 +702,9 @@ mod tests {
         recorder.set_avatar_budget_bytes("source_configured", 10 * 1024 * 1024);
         recorder.set_avatar_budget_bytes("source_hard_ceiling", 16 * 1024 * 1024);
         recorder.record_avatar_render_duration("images", 0.25);
+        recorder.record_avatar_publish_duration("success", 0.01);
+        recorder.record_avatar_publish_duration("conflict", 0.02);
+        recorder.record_avatar_publish_duration("failed", 0.03);
         recorder.record_avatar_render_wait_duration(0.125);
         recorder.adjust_avatar_render_waiting(1);
         recorder.adjust_avatar_render_waiting(-1);
@@ -705,6 +726,11 @@ mod tests {
         assert!(body.contains("budget=\"source_hard_ceiling\""));
         assert!(body.contains("avatar_render_duration_seconds_bucket"));
         assert!(body.contains("avatar_render_duration_seconds_count"));
+        assert!(body.contains("avatar_publish_duration_seconds_bucket"));
+        assert!(body.contains("avatar_publish_duration_seconds_count"));
+        assert!(body.contains("status=\"success\""));
+        assert!(body.contains("status=\"conflict\""));
+        assert!(body.contains("status=\"failed\""));
         assert!(body.contains("avatar_render_wait_duration_seconds_bucket"));
         assert!(body.contains("avatar_render_wait_duration_seconds_count"));
         assert!(body.contains("avatar_render_waiting 0"));
