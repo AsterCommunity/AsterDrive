@@ -32,6 +32,7 @@ impl MigrationTrait for Migration {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        restore_mysql_property_namespace_index(manager).await?;
         create_legacy_file_versions(manager).await?;
         restore_legacy_history(manager).await?;
         manager
@@ -425,6 +426,63 @@ async fn configure_mysql_case_sensitive_property_namespaces(
                  TO idx_entity_properties_unique, ALGORITHM=INPLACE, LOCK=NONE",
             )
             .await?;
+    }
+    Ok(())
+}
+
+async fn restore_mysql_property_namespace_index(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    if manager.get_database_backend() != DbBackend::MySql {
+        return Ok(());
+    }
+
+    // Build the legacy index before touching the revision tables. If properties created after
+    // the upgrade differ only by case, MySQL rejects this step and leaves the upgraded schema
+    // intact instead of partially downgrading data that the legacy unique key cannot represent.
+    const LEGACY_INDEX: &str = "idx_entity_properties_legacy_unique";
+    if !manager.has_index("entity_properties", LEGACY_INDEX).await? {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "ALTER TABLE entity_properties \
+                 ADD UNIQUE INDEX idx_entity_properties_legacy_unique \
+                 (entity_type, entity_id, namespace, name), \
+                 ALGORITHM=INPLACE, LOCK=NONE",
+            )
+            .await?;
+    }
+    if manager
+        .has_index("entity_properties", "idx_entity_properties_unique")
+        .await?
+    {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "ALTER TABLE entity_properties \
+                 DROP INDEX idx_entity_properties_unique, ALGORITHM=INPLACE, LOCK=NONE",
+            )
+            .await?;
+    }
+    if manager.has_index("entity_properties", LEGACY_INDEX).await? {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "ALTER TABLE entity_properties \
+                 RENAME INDEX idx_entity_properties_legacy_unique \
+                 TO idx_entity_properties_unique, ALGORITHM=INPLACE, LOCK=NONE",
+            )
+            .await?;
+    }
+
+    for column in ["namespace_case_key", "name_case_key"] {
+        if manager.has_column("entity_properties", column).await? {
+            manager
+                .get_connection()
+                .execute_unprepared(&format!(
+                    "ALTER TABLE entity_properties DROP COLUMN {column}, \
+                     ALGORITHM=INPLACE, LOCK=NONE"
+                ))
+                .await?;
+        }
     }
     Ok(())
 }

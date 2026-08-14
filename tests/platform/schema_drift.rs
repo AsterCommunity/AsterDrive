@@ -163,14 +163,14 @@ where
         .join(", ")
 }
 
-fn expected_database_only_compatibility_columns(table_name: &str) -> BTreeSet<&'static str> {
-    match table_name {
+fn expected_database_only_columns(backend: DbBackend, table_name: &str) -> BTreeSet<&'static str> {
+    match (backend, table_name) {
         // AsterDrive 0.5.x keeps these columns so the startup credential
         // importer can read pre-refactor policies. They remain required in the
         // 0.5 schema but deliberately stay out of the current SeaORM entity.
         // Issue #463 removes both the physical columns and this exact exception
         // in 0.6.0.
-        "storage_policies" => [
+        (_, "storage_policies") => [
             "driver_type",
             "endpoint",
             "bucket",
@@ -183,6 +183,12 @@ fn expected_database_only_compatibility_columns(table_name: &str) -> BTreeSet<&'
         ]
         .into_iter()
         .collect(),
+        // MySQL's default text collation is case-insensitive. These virtual,
+        // invisible projections let the database enforce byte-sensitive XML
+        // property identity without exposing storage-only columns to SeaORM.
+        (DbBackend::MySql, "entity_properties") => ["namespace_case_key", "name_case_key"]
+            .into_iter()
+            .collect(),
         _ => BTreeSet::new(),
     }
 }
@@ -203,7 +209,7 @@ async fn test_entity_columns_match_migrated_database_schema() {
             .map(|column| (*column).to_string())
             .collect::<BTreeSet<_>>();
         expected.extend(
-            expected_database_only_compatibility_columns(entity.table_name)
+            expected_database_only_columns(db.get_database_backend(), entity.table_name)
                 .into_iter()
                 .map(str::to_string),
         );

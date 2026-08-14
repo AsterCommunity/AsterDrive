@@ -26,6 +26,41 @@ pub(crate) fn is_protected_namespace(namespace: &str) -> bool {
     is_dav_namespace(namespace) || is_system_namespace(namespace)
 }
 
+fn case_sensitive_column_eq(
+    backend: DbBackend,
+    column: entity_property::Column,
+    value: &str,
+) -> sea_orm::sea_query::SimpleExpr {
+    let column = || Expr::col(column);
+    let value = || Expr::val(value.to_owned());
+    match backend {
+        DbBackend::Sqlite => {
+            Expr::cust_with_exprs("? COLLATE BINARY = ? COLLATE BINARY", [column(), value()])
+        }
+        DbBackend::MySql => Expr::cust_with_exprs("BINARY ? = BINARY ?", [column(), value()]),
+        _ => column().eq(value()),
+    }
+}
+
+/// Matches the persisted XML namespace identity with the same byte-sensitive
+/// semantics as the unique key on every supported database backend.
+pub(crate) fn namespace_eq_condition(
+    backend: DbBackend,
+    namespace: &str,
+) -> sea_orm::sea_query::SimpleExpr {
+    case_sensitive_column_eq(backend, entity_property::Column::Namespace, namespace)
+}
+
+fn property_key_condition(backend: DbBackend, namespace: &str, name: &str) -> sea_orm::Condition {
+    sea_orm::Condition::all()
+        .add(namespace_eq_condition(backend, namespace))
+        .add(case_sensitive_column_eq(
+            backend,
+            entity_property::Column::Name,
+            name,
+        ))
+}
+
 pub(crate) fn user_namespace_condition(backend: DbBackend) -> sea_orm::Condition {
     let column = || Expr::col(entity_property::Column::Namespace);
     let exact_not_match = |value: &'static str| match backend {
@@ -138,8 +173,11 @@ pub async fn find_by_key(
     EntityProperty::find()
         .filter(entity_property::Column::EntityType.eq(entity_type))
         .filter(entity_property::Column::EntityId.eq(entity_id))
-        .filter(entity_property::Column::Namespace.eq(namespace))
-        .filter(entity_property::Column::Name.eq(name))
+        .filter(property_key_condition(
+            db.get_database_backend(),
+            namespace,
+            name,
+        ))
         .one(db)
         .await
         .map_err(AsterError::from)
@@ -190,8 +228,11 @@ pub async fn upsert<C: ConnectionTrait>(
             )
             .filter(entity_property::Column::EntityType.eq(entity_type))
             .filter(entity_property::Column::EntityId.eq(entity_id))
-            .filter(entity_property::Column::Namespace.eq(namespace))
-            .filter(entity_property::Column::Name.eq(name))
+            .filter(property_key_condition(
+                db.get_database_backend(),
+                namespace,
+                name,
+            ))
             .exec(db)
             .await
             .map_err(AsterError::from)?;
@@ -206,8 +247,11 @@ pub async fn upsert<C: ConnectionTrait>(
     EntityProperty::find()
         .filter(entity_property::Column::EntityType.eq(entity_type))
         .filter(entity_property::Column::EntityId.eq(entity_id))
-        .filter(entity_property::Column::Namespace.eq(namespace))
-        .filter(entity_property::Column::Name.eq(name))
+        .filter(property_key_condition(
+            db.get_database_backend(),
+            namespace,
+            name,
+        ))
         .one(db)
         .await
         .map_err(AsterError::from)?
@@ -250,8 +294,11 @@ pub async fn delete_prop<C: ConnectionTrait>(
     EntityProperty::delete_many()
         .filter(entity_property::Column::EntityType.eq(entity_type))
         .filter(entity_property::Column::EntityId.eq(entity_id))
-        .filter(entity_property::Column::Namespace.eq(namespace))
-        .filter(entity_property::Column::Name.eq(name))
+        .filter(property_key_condition(
+            db.get_database_backend(),
+            namespace,
+            name,
+        ))
         .exec(db)
         .await
         .map_err(AsterError::from)?;
@@ -327,8 +374,11 @@ pub async fn delete_many_for_entities<C: ConnectionTrait>(
         EntityProperty::delete_many()
             .filter(entity_property::Column::EntityType.eq(entity_type))
             .filter(entity_property::Column::EntityId.is_in(chunk.iter().copied()))
-            .filter(entity_property::Column::Namespace.eq(namespace))
-            .filter(entity_property::Column::Name.eq(name))
+            .filter(property_key_condition(
+                db.get_database_backend(),
+                namespace,
+                name,
+            ))
             .exec(db)
             .await
             .map_err(AsterError::from)?;
@@ -377,8 +427,11 @@ pub async fn delete_by_namespace_and_name<C: ConnectionTrait>(
     name: &str,
 ) -> Result<()> {
     EntityProperty::delete_many()
-        .filter(entity_property::Column::Namespace.eq(namespace))
-        .filter(entity_property::Column::Name.eq(name))
+        .filter(property_key_condition(
+            db.get_database_backend(),
+            namespace,
+            name,
+        ))
         .exec(db)
         .await
         .map_err(AsterError::from)?;
@@ -395,7 +448,7 @@ pub async fn delete_namespace_for_entity<C: ConnectionTrait>(
     EntityProperty::delete_many()
         .filter(entity_property::Column::EntityType.eq(entity_type))
         .filter(entity_property::Column::EntityId.eq(entity_id))
-        .filter(entity_property::Column::Namespace.eq(namespace))
+        .filter(namespace_eq_condition(db.get_database_backend(), namespace))
         .exec(db)
         .await
         .map_err(AsterError::from)?;
@@ -437,7 +490,7 @@ pub async fn find_tag_bindings_for_entities(
     }
 
     EntityProperty::find()
-        .filter(entity_property::Column::Namespace.eq(namespace))
+        .filter(namespace_eq_condition(db.get_database_backend(), namespace))
         .filter(entity_filter)
         .select_only()
         .column(entity_property::Column::EntityType)
@@ -461,7 +514,7 @@ pub async fn find_entity_ids_by_tag_ids(
 
     let tag_names = tag_ids.iter().map(i64::to_string).collect::<Vec<_>>();
     let rows = EntityProperty::find()
-        .filter(entity_property::Column::Namespace.eq(namespace))
+        .filter(namespace_eq_condition(db.get_database_backend(), namespace))
         .filter(entity_property::Column::EntityType.eq(entity_type))
         .filter(entity_property::Column::Name.is_in(tag_names))
         .select_only()
@@ -485,7 +538,7 @@ pub async fn count_entities_by_tag_ids(
 
     let tag_names = tag_ids.iter().map(i64::to_string).collect::<Vec<_>>();
     let rows = EntityProperty::find()
-        .filter(entity_property::Column::Namespace.eq(namespace))
+        .filter(namespace_eq_condition(db.get_database_backend(), namespace))
         .filter(entity_property::Column::Name.is_in(tag_names))
         .select_only()
         .column(entity_property::Column::Name)
@@ -526,7 +579,10 @@ pub async fn has_properties<C: ConnectionTrait>(
 mod tests {
     use sea_orm::{DbBackend, EntityTrait, QueryFilter, QueryTrait};
 
-    use super::{EntityProperty, is_protected_namespace, user_namespace_condition};
+    use super::{
+        EntityProperty, is_protected_namespace, namespace_eq_condition, property_key_condition,
+        user_namespace_condition,
+    };
 
     #[test]
     fn protected_namespace_matching_has_exact_dav_and_system_prefix_boundaries() {
@@ -568,5 +624,35 @@ mod tests {
             .to_string();
         assert!(mysql.contains("BINARY"), "{mysql}");
         assert!(mysql.contains("NOT LIKE"), "{mysql}");
+    }
+
+    #[test]
+    fn property_identity_sql_uses_case_sensitive_backend_operators() {
+        for backend in [DbBackend::Sqlite, DbBackend::Postgres, DbBackend::MySql] {
+            let namespace = EntityProperty::find()
+                .filter(namespace_eq_condition(backend, "System.preview"))
+                .build(backend)
+                .to_string();
+            let key = EntityProperty::find()
+                .filter(property_key_condition(backend, "System.preview", "Cache"))
+                .build(backend)
+                .to_string();
+
+            match backend {
+                DbBackend::Sqlite => {
+                    assert!(namespace.contains("COLLATE BINARY"), "{namespace}");
+                    assert_eq!(key.matches("COLLATE BINARY").count(), 4, "{key}");
+                }
+                DbBackend::Postgres => {
+                    assert!(!namespace.contains("BINARY"), "{namespace}");
+                    assert!(!key.contains("BINARY"), "{key}");
+                }
+                DbBackend::MySql => {
+                    assert!(namespace.contains("BINARY"), "{namespace}");
+                    assert_eq!(key.matches("BINARY").count(), 4, "{key}");
+                }
+                _ => unreachable!(),
+            }
+        }
     }
 }

@@ -276,6 +276,20 @@ async fn assert_canonical_revision_ledger_upgrade_on_backend(db: &DatabaseConnec
     CurrentMigrator::up(db, Some(1))
         .await
         .expect("canonical revision ledger migration should apply");
+    if backend == DbBackend::MySql {
+        let columns = mysql_table_columns(db, "entity_properties").await;
+        assert!(has_column(&columns, "namespace_case_key"));
+        assert!(has_column(&columns, "name_case_key"));
+        assert_eq!(
+            mysql_index_columns(db, "entity_properties", "idx_entity_properties_unique").await,
+            [
+                "entity_type",
+                "entity_id",
+                "namespace_case_key",
+                "name_case_key",
+            ]
+        );
+    }
     let rows = db
         .query_all_raw(Statement::from_string(
             backend,
@@ -382,9 +396,32 @@ async fn assert_canonical_revision_ledger_upgrade_on_backend(db: &DatabaseConnec
         .try_get_by_index::<i64>(0)
         .unwrap();
     assert_eq!(legacy_count, 1);
+    if backend == DbBackend::MySql {
+        let columns = mysql_table_columns(db, "entity_properties").await;
+        assert!(!has_column(&columns, "namespace_case_key"));
+        assert!(!has_column(&columns, "name_case_key"));
+        assert_eq!(
+            mysql_index_columns(db, "entity_properties", "idx_entity_properties_unique").await,
+            ["entity_type", "entity_id", "namespace", "name"]
+        );
+    }
     CurrentMigrator::up(db, Some(1))
         .await
         .expect("canonical revision ledger should reapply");
+    if backend == DbBackend::MySql {
+        let columns = mysql_table_columns(db, "entity_properties").await;
+        assert!(has_column(&columns, "namespace_case_key"));
+        assert!(has_column(&columns, "name_case_key"));
+        assert_eq!(
+            mysql_index_columns(db, "entity_properties", "idx_entity_properties_unique").await,
+            [
+                "entity_type",
+                "entity_id",
+                "namespace_case_key",
+                "name_case_key",
+            ]
+        );
+    }
 }
 
 #[tokio::test]
@@ -399,6 +436,46 @@ async fn canonical_revision_ledger_upgrades_mysql() {
     let database_url = common::mysql_empty_test_database_url().await;
     let db = Database::connect(database_url).await.unwrap();
     assert_canonical_revision_ledger_upgrade_on_backend(&db).await;
+}
+
+#[tokio::test]
+async fn canonical_revision_ledger_mysql_downgrade_rejects_case_collisions_before_schema_changes() {
+    let database_url = common::mysql_empty_test_database_url().await;
+    let db = Database::connect(database_url).await.unwrap();
+    CurrentMigrator::up(&db, None)
+        .await
+        .expect("current MySQL schema should apply");
+    db.execute_unprepared(
+        "INSERT INTO entity_properties \
+         (entity_type, entity_id, namespace, name, value) VALUES \
+         ('file', 99101, 'urn:Case', 'name', 'upper'), \
+         ('file', 99101, 'urn:case', 'name', 'lower')",
+    )
+    .await
+    .expect("upgraded case-sensitive property key should accept both rows");
+
+    let error = CurrentMigrator::down(&db, Some(1))
+        .await
+        .expect_err("legacy case-insensitive key must reject an ambiguous downgrade");
+    assert!(
+        error.to_string().to_ascii_lowercase().contains("duplicate"),
+        "unexpected downgrade error: {error}"
+    );
+
+    let columns = mysql_table_columns(&db, "entity_properties").await;
+    assert!(has_column(&columns, "namespace_case_key"));
+    assert!(has_column(&columns, "name_case_key"));
+    assert_eq!(
+        mysql_index_columns(&db, "entity_properties", "idx_entity_properties_unique").await,
+        [
+            "entity_type",
+            "entity_id",
+            "namespace_case_key",
+            "name_case_key",
+        ]
+    );
+    assert!(mysql_table_exists(&db, "file_revisions").await);
+    assert!(!mysql_table_exists(&db, "file_versions").await);
 }
 
 #[tokio::test]
@@ -2094,6 +2171,57 @@ async fn mysql_table_index_exists(
     .await
     .expect("mysql index lookup should load")
     .is_some()
+}
+
+async fn mysql_table_columns(db: &DatabaseConnection, table_name: &str) -> Vec<String> {
+    db.query_all_raw(Statement::from_sql_and_values(
+        DbBackend::MySql,
+        "SELECT column_name FROM information_schema.columns \
+         WHERE table_schema = DATABASE() AND table_name = ? ORDER BY ordinal_position",
+        [table_name.into()],
+    ))
+    .await
+    .expect("mysql table column metadata should load")
+    .into_iter()
+    .map(|row| {
+        row.try_get_by_index::<String>(0)
+            .expect("mysql column metadata should include the column name")
+    })
+    .collect()
+}
+
+async fn mysql_table_exists(db: &DatabaseConnection, table_name: &str) -> bool {
+    db.query_one_raw(Statement::from_sql_and_values(
+        DbBackend::MySql,
+        "SELECT 1 FROM information_schema.tables \
+         WHERE table_schema = DATABASE() AND table_name = ? LIMIT 1",
+        [table_name.into()],
+    ))
+    .await
+    .expect("mysql table metadata should load")
+    .is_some()
+}
+
+async fn mysql_index_columns(
+    db: &DatabaseConnection,
+    table_name: &str,
+    index_name: &str,
+) -> Vec<String> {
+    db.query_all_raw(Statement::from_sql_and_values(
+        DbBackend::MySql,
+        "SELECT column_name FROM information_schema.statistics \
+         WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ? \
+         ORDER BY seq_in_index",
+        [table_name.into(), index_name.into()],
+    ))
+    .await
+    .expect("mysql index column metadata should load")
+    .into_iter()
+    .map(|row| {
+        row.try_get_by_index::<String>(0)
+            .expect("mysql index metadata should include the column name")
+    })
+    .collect()
 }
 
 async fn sqlite_table_columns(db: &DatabaseConnection, table_name: &str) -> Vec<String> {

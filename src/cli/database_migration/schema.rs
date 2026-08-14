@@ -447,7 +447,7 @@ where
     C: ConnectionTrait,
 {
     let sql = format!(
-        "SELECT column_name, column_type \
+        "SELECT column_name, column_type, generation_expression \
          FROM information_schema.columns \
          WHERE table_schema = DATABASE() AND table_name = {} \
          ORDER BY ordinal_position",
@@ -473,22 +473,32 @@ where
         .await
         .map_aster_err(AsterError::database_operation)?;
 
-    rows.into_iter()
-        .map(|row| {
-            let name = row
-                .try_get_by_index::<String>(0)
-                .map_aster_err(AsterError::database_operation)?;
-            let raw_type = row
-                .try_get_by_index::<String>(1)
-                .map_aster_err(AsterError::database_operation)?;
-            Ok(ColumnSchema {
-                pk_order: *pk_lookup.get(&name).unwrap_or(&0),
-                binding_kind: binding_kind_from_raw_type(DbBackend::MySql, &raw_type),
-                name,
-                raw_type,
-            })
-        })
-        .collect()
+    let mut columns = Vec::with_capacity(rows.len());
+    for row in rows {
+        let name = row
+            .try_get_by_index::<String>(0)
+            .map_aster_err(AsterError::database_operation)?;
+        let raw_type = row
+            .try_get_by_index::<String>(1)
+            .map_aster_err(AsterError::database_operation)?;
+        let generation_expression = row
+            .try_get_by_index::<String>(2)
+            .map_aster_err(AsterError::database_operation)?;
+        if mysql_column_is_database_generated(&generation_expression) {
+            continue;
+        }
+        columns.push(ColumnSchema {
+            pk_order: *pk_lookup.get(&name).unwrap_or(&0),
+            binding_kind: binding_kind_from_raw_type(DbBackend::MySql, &raw_type),
+            name,
+            raw_type,
+        });
+    }
+    Ok(columns)
+}
+
+fn mysql_column_is_database_generated(generation_expression: &str) -> bool {
+    !generation_expression.is_empty()
 }
 
 async fn load_primary_key_lookup<C>(
@@ -528,4 +538,16 @@ where
 
 fn binding_kind_is_integer(kind: BindingKind) -> bool {
     matches!(kind, BindingKind::Int32 | BindingKind::Int64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mysql_column_is_database_generated;
+
+    #[test]
+    fn mysql_copy_plan_excludes_database_generated_columns_only() {
+        assert!(!mysql_column_is_database_generated(""));
+        assert!(mysql_column_is_database_generated("`namespace`"));
+        assert!(mysql_column_is_database_generated("(`name`)"));
+    }
 }
