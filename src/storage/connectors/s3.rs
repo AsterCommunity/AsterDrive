@@ -150,21 +150,6 @@ impl S3Connector {
             secret_key: credentials.s3_secret_access_key,
         }
     }
-
-    fn validate_region(region: &str) -> Result<()> {
-        if region.is_empty()
-            || region.len() > 128
-            || !region.is_ascii()
-            || region
-                .bytes()
-                .any(|byte| !(b'!'..=b'~').contains(&byte) || byte == b'/')
-        {
-            return Err(AsterError::validation_error(
-                "s3_region must be 1-128 printable ASCII characters without whitespace or '/'",
-            ));
-        }
-        Ok(())
-    }
 }
 
 impl S3Connector {
@@ -233,7 +218,13 @@ impl StorageConnector for S3Connector {
         .map_err(|error| error.into_aster_error())?;
         config.endpoint = connection.endpoint;
         config.bucket = connection.bucket;
-        Self::validate_region(&config.s3_region)?;
+        crate::storage::drivers::s3_config::validate_sigv4_region(&config.s3_region).map_err(
+            |_| {
+                AsterError::validation_error(
+                    "s3_region must be 1-128 printable ASCII characters without whitespace or '/'",
+                )
+            },
+        )?;
         super::common::encode_normalized_connector_config(
             normalized.connector_id,
             normalized.schema_version,

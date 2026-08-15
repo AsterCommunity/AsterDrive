@@ -920,6 +920,56 @@ fn typed_connector_config_round_trips_and_rejects_unknown_fields() {
 }
 
 #[test]
+fn s3_connector_preserves_sigv4_region_validation_contract() {
+    let connector = connector(S3Connector::ID);
+
+    for region in [
+        "region with spaces".to_string(),
+        "region/name".to_string(),
+        "中国".to_string(),
+    ] {
+        let mut config = s3_config(ObjectStorageUploadStrategy::RelayStream);
+        config.s3_region = region;
+        let input = super::test_support::connection_config(S3Connector::ID, 1, config);
+        let error = connector
+            .validate_connector_config(&input)
+            .expect_err("invalid SigV4 region should fail");
+        assert!(
+            error.to_string().contains(
+                "s3_region must be 1-128 printable ASCII characters without whitespace or '/'"
+            ),
+            "unexpected validation error: {error}"
+        );
+    }
+
+    for region in ["".to_string(), "r".repeat(129)] {
+        let mut config = s3_config(ObjectStorageUploadStrategy::RelayStream);
+        config.s3_region = region;
+        let input = super::test_support::connection_config(S3Connector::ID, 1, config);
+        assert!(
+            connector.validate_connector_config(&input).is_err(),
+            "invalid region should retain its rejected API behavior"
+        );
+    }
+
+    for (region, expected) in [
+        ("auto".to_string(), "auto".to_string()),
+        (" us-east-1 ".to_string(), "us-east-1".to_string()),
+        ("r".repeat(128), "r".repeat(128)),
+    ] {
+        let mut config = s3_config(ObjectStorageUploadStrategy::RelayStream);
+        config.s3_region = region;
+        let input = super::test_support::connection_config(S3Connector::ID, 1, config);
+        let normalized = connector
+            .validate_connector_config(&input)
+            .expect("valid SigV4 region should normalize");
+        let values: S3ConnectorConfigV1 =
+            serde_json::from_value(serde_json::to_value(normalized.values).unwrap()).unwrap();
+        assert_eq!(values.s3_region, expected);
+    }
+}
+
+#[test]
 fn alibaba_oss_connector_validates_endpoint_region_and_cname_contract() {
     let connector = connector(AlibabaOssConnector::ID);
     let descriptor = connector.descriptor();
