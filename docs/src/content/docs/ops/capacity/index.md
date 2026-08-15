@@ -25,7 +25,7 @@ AsterDrive 的真实容量取决于数据库后端、存储策略、文件名长
 
 - 1 条 `files` 记录
 - 1 条或复用 1 条 `file_blobs` 记录
-- 可能有 0 到多条 `file_versions` 记录
+- 1 条 `file_revision_histories` 记录、至少 1 条 `file_revisions` 记录，并可能有用户 dead-property 快照
 - 可能有分享、锁、属性、缩略图、媒体元数据、后台任务和审计记录
 - 在 SQLite 下，还可能进入文件名 / 文件夹名搜索加速索引
 
@@ -207,7 +207,8 @@ UNION ALL SELECT 'teams', COUNT(*) FROM teams
 UNION ALL SELECT 'folders', COUNT(*) FROM folders
 UNION ALL SELECT 'files', COUNT(*) FROM files
 UNION ALL SELECT 'file_blobs', COUNT(*) FROM file_blobs
-UNION ALL SELECT 'file_versions', COUNT(*) FROM file_versions
+UNION ALL SELECT 'file_revision_histories', COUNT(*) FROM file_revision_histories
+UNION ALL SELECT 'file_revisions', COUNT(*) FROM file_revisions
 UNION ALL SELECT 'shares', COUNT(*) FROM shares
 UNION ALL SELECT 'upload_sessions', COUNT(*) FROM upload_sessions
 UNION ALL SELECT 'background_tasks', COUNT(*) FROM background_tasks

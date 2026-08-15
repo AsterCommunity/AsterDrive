@@ -59,6 +59,7 @@ pub const DEFAULT_REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS: u64 = 300;
 pub const DEFAULT_TEAM_MEMBER_LIST_MAX_LIMIT: u64 = 100;
 pub const DEFAULT_TASK_LIST_MAX_LIMIT: u64 = 100;
 pub const DEFAULT_AVATAR_MAX_UPLOAD_SIZE_BYTES: u64 = 10 * 1024 * 1024;
+pub const MAX_AVATAR_UPLOAD_SIZE_BYTES: u64 = 16 * 1024 * 1024;
 pub const DEFAULT_THUMBNAIL_MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
 pub const DEFAULT_THUMBNAIL_MAX_DIMENSION: u32 = 400;
 pub const DEFAULT_IMAGE_PREVIEW_MAX_DIMENSION: u32 = 1600;
@@ -170,6 +171,17 @@ pub fn normalize_attempts_config_value(key: &str, value: &str) -> Result<String>
 
 pub fn normalize_bytes_config_value(key: &str, value: &str) -> Result<String> {
     normalize_positive_u64_config_value(key, value)
+}
+
+pub fn normalize_avatar_upload_size_config_value(key: &str, value: &str) -> Result<String> {
+    let parsed = parse_positive_u64(value)
+        .ok_or_else(|| AsterError::validation_error(format!("{key} must be a positive integer")))?;
+    if parsed > MAX_AVATAR_UPLOAD_SIZE_BYTES {
+        return Err(AsterError::validation_error(format!(
+            "{key} cannot exceed {MAX_AVATAR_UPLOAD_SIZE_BYTES}"
+        )));
+    }
+    Ok(parsed.to_string())
 }
 
 pub fn normalize_derivative_dimension_config_value(key: &str, value: &str) -> Result<String> {
@@ -441,10 +453,12 @@ pub fn avatar_max_upload_size_bytes(runtime_config: &RuntimeConfig) -> usize {
         AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY,
     )
     .unwrap_or(usize::MAX);
-    usize::try_from(read_positive_u64(
+    usize::try_from(read_bounded_u64(
         runtime_config,
         AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY,
         DEFAULT_AVATAR_MAX_UPLOAD_SIZE_BYTES,
+        1,
+        MAX_AVATAR_UPLOAD_SIZE_BYTES,
     ))
     .unwrap_or_else(|_| {
         tracing::warn!(
@@ -1024,21 +1038,23 @@ mod tests {
         DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY, DEFAULT_SHARE_STREAM_SESSION_TTL_SECS,
         DEFAULT_TASK_LIST_MAX_LIMIT, DEFAULT_TEAM_MEMBER_LIST_MAX_LIMIT,
         DEFAULT_THUMBNAIL_MAX_DIMENSION, FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY,
-        IMAGE_PREVIEW_MAX_DIMENSION_KEY, MAX_BACKGROUND_TASK_CONCURRENCY,
-        MAX_DERIVATIVE_MAX_DIMENSION, MAX_SHARE_STREAM_SESSION_TTL_SECS,
-        MIN_SHARE_STREAM_SESSION_TTL_SECS, OFFLINE_DOWNLOAD_ENGINE_KEY,
-        OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY, OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY,
-        OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY, OFFLINE_DOWNLOAD_TEMP_DIR_KEY,
-        REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY, SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
-        SHARE_STREAM_SESSION_TTL_SECS_KEY, TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY,
-        THUMBNAIL_MAX_DIMENSION_KEY, archive_compress_enabled, archive_download_share_enabled,
-        archive_download_user_enabled, archive_extract_max_staging_bytes,
-        avatar_max_upload_size_bytes, background_task_archive_max_concurrency,
-        background_task_dispatch_idle_max_interval_secs, background_task_max_attempts,
-        background_task_max_concurrency, background_task_storage_migration_max_concurrency,
+        IMAGE_PREVIEW_MAX_DIMENSION_KEY, MAX_AVATAR_UPLOAD_SIZE_BYTES,
+        MAX_BACKGROUND_TASK_CONCURRENCY, MAX_DERIVATIVE_MAX_DIMENSION,
+        MAX_SHARE_STREAM_SESSION_TTL_SECS, MIN_SHARE_STREAM_SESSION_TTL_SECS,
+        OFFLINE_DOWNLOAD_ENGINE_KEY, OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY,
+        OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY, OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY,
+        OFFLINE_DOWNLOAD_TEMP_DIR_KEY, REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY,
+        SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY, SHARE_STREAM_SESSION_TTL_SECS_KEY,
+        TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY, THUMBNAIL_MAX_DIMENSION_KEY,
+        archive_compress_enabled, archive_download_share_enabled, archive_download_user_enabled,
+        archive_extract_max_staging_bytes, avatar_max_upload_size_bytes,
+        background_task_archive_max_concurrency, background_task_dispatch_idle_max_interval_secs,
+        background_task_max_attempts, background_task_max_concurrency,
+        background_task_storage_migration_max_concurrency,
         background_task_thumbnail_max_concurrency, blob_reconcile_interval_secs,
         frontend_image_preview_preference, image_preview_max_dimension,
-        normalize_attempts_config_value, normalize_bool_config_value, normalize_bytes_config_value,
+        normalize_attempts_config_value, normalize_avatar_upload_size_config_value,
+        normalize_bool_config_value, normalize_bytes_config_value,
         normalize_concurrency_config_value, normalize_derivative_dimension_config_value,
         normalize_frontend_image_preview_preference_config_value, normalize_interval_config_value,
         normalize_list_max_limit_config_value, normalize_non_negative_u64_config_value,
@@ -1885,6 +1901,38 @@ mod tests {
                 AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY,
             )
             .unwrap()
+        );
+
+        runtime_config.apply(config_model(
+            AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY,
+            &(MAX_AVATAR_UPLOAD_SIZE_BYTES + 1).to_string(),
+        ));
+        assert_eq!(
+            avatar_max_upload_size_bytes(&runtime_config),
+            aster_forge_utils::numbers::u64_to_usize(
+                DEFAULT_AVATAR_MAX_UPLOAD_SIZE_BYTES,
+                AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY,
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn avatar_upload_normalizer_accepts_hard_limit_and_rejects_above_it() {
+        assert_eq!(
+            normalize_avatar_upload_size_config_value(
+                AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY,
+                &MAX_AVATAR_UPLOAD_SIZE_BYTES.to_string(),
+            )
+            .unwrap(),
+            MAX_AVATAR_UPLOAD_SIZE_BYTES.to_string()
+        );
+        assert!(
+            normalize_avatar_upload_size_config_value(
+                AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY,
+                &(MAX_AVATAR_UPLOAD_SIZE_BYTES + 1).to_string(),
+            )
+            .is_err()
         );
     }
 

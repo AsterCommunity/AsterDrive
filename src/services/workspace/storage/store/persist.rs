@@ -39,6 +39,9 @@ pub(super) async fn persist_temp_store(
         actor_username,
         lock_credentials,
         file_precondition,
+        expected_current_revision_id,
+        expected_current_revision_etag,
+        revision_etag,
     } = prepared;
 
     operation_context.checkpoint()?;
@@ -94,6 +97,9 @@ pub(super) async fn persist_temp_store(
     let transaction_actor_username = actor_username.clone();
     let transaction_lock_credentials = lock_credentials.clone();
     let transaction_file_precondition = file_precondition;
+    let transaction_expected_current_revision_id = expected_current_revision_id;
+    let transaction_expected_current_revision_etag = expected_current_revision_etag;
+    let transaction_revision_etag = revision_etag;
     let transaction_now = now;
     let create_result = aster_forge_db::transaction::with_transaction_retry(
         state.writer_db(),
@@ -107,6 +113,9 @@ pub(super) async fn persist_temp_store(
             let actor_username = transaction_actor_username.clone();
             let lock_credentials = transaction_lock_credentials.clone();
             let file_precondition = transaction_file_precondition;
+            let expected_current_revision_id = transaction_expected_current_revision_id;
+            let expected_current_revision_etag = transaction_expected_current_revision_etag.clone();
+            let revision_etag = transaction_revision_etag.clone();
             let now = transaction_now;
             Box::pin(async move {
                 let workspace = match scope {
@@ -167,6 +176,9 @@ pub(super) async fn persist_temp_store(
                         actor_username: actor_username.as_deref(),
                         lock_credentials: &lock_credentials,
                         file_precondition: file_precondition.as_ref(),
+                        expected_current_revision_id,
+                        expected_current_revision_etag: expected_current_revision_etag.as_deref(),
+                        revision_etag: revision_etag.as_deref(),
                     },
                 )
                 .await?;

@@ -6,6 +6,7 @@ use std::time::Instant;
 pub mod auth;
 pub mod backend;
 mod capability;
+mod deltav;
 mod handlers;
 mod observation;
 mod responses;
@@ -148,6 +149,11 @@ pub async fn webdav_handler(
         Ok(snapshot) => snapshot,
         Err(response) => return response,
     };
+    if let Some(method) = DavMethod::from_name(req.method().as_str())
+        && let Some(response) = deltav::immutable_method_rejection(method, &capability_snapshot)
+    {
+        return response;
+    }
     let method = match aster_forge_webdav::actix::gate_request_method(&req, &capability_snapshot) {
         Ok(method) => method,
         Err(response) => return response,
@@ -230,29 +236,31 @@ pub async fn webdav_handler(
                 )
                 .await
             }
-            DavMethod::Get => {
-                handlers::transfer::handle_get_head(
-                    &req,
-                    &request_head,
-                    &dav_fs,
-                    lock_system.as_ref(),
-                    &webdav.prefix,
-                    false,
-                    &capability_snapshot,
-                )
-                .await
-            }
-            DavMethod::Head => {
-                handlers::transfer::handle_get_head(
-                    &req,
-                    &request_head,
-                    &dav_fs,
-                    lock_system.as_ref(),
-                    &webdav.prefix,
-                    true,
-                    &capability_snapshot,
-                )
-                .await
+            DavMethod::Get | DavMethod::Head => {
+                let head_only = request_head.method == DavMethod::Head;
+                if capability_snapshot.declaration().versioning.state
+                    == aster_forge_webdav::DavVersioningState::Version
+                {
+                    deltav::handle_version_get_head(
+                        &req,
+                        &request_head,
+                        &dav_fs,
+                        &webdav.prefix,
+                        head_only,
+                    )
+                    .await
+                } else {
+                    handlers::transfer::handle_get_head(
+                        &req,
+                        &request_head,
+                        &dav_fs,
+                        lock_system.as_ref(),
+                        &webdav.prefix,
+                        head_only,
+                        &capability_snapshot,
+                    )
+                    .await
+                }
             }
             DavMethod::Put => {
                 let system_file_policy = system_file::SystemFileBlockPolicy::from_runtime_config(
@@ -323,9 +331,29 @@ pub async fn webdav_handler(
             DavMethod::Unlock => {
                 handlers::locks::handle_unlock(&req, &request_head, lock_system.as_ref()).await
             }
-            DavMethod::Report
-            | DavMethod::VersionControl
-            | DavMethod::Patch
+            DavMethod::VersionControl => {
+                deltav::handle_version_control(
+                    &request_head,
+                    &dav_fs,
+                    lock_system.as_ref(),
+                    &webdav.prefix,
+                    request_body.xml(),
+                    &capability_snapshot,
+                )
+                .await
+            }
+            DavMethod::Report => {
+                deltav::handle_report(
+                    &request_head,
+                    &dav_fs,
+                    lock_system.as_ref(),
+                    &webdav.prefix,
+                    request_body.xml(),
+                    &capability_snapshot,
+                )
+                .await
+            }
+            DavMethod::Patch
             | DavMethod::Acl
             | DavMethod::Checkout
             | DavMethod::Checkin

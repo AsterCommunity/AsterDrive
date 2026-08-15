@@ -6,7 +6,8 @@ use sea_orm::Set;
 use aster_drive_model::entities::user_profile;
 use aster_drive_model::types::AvatarSource;
 
-pub(crate) const MAX_AVATAR_DECODE_ALLOC: u64 = 128 * 1024 * 1024;
+pub(crate) const MAX_AVATAR_DECODE_ALLOC: u64 = 32 * 1024 * 1024;
+pub(crate) const MAX_AVATAR_IMAGE_DIMENSION: u32 = 1024;
 pub(crate) const AVATAR_SIZE_SM: u32 = 512;
 pub(crate) const AVATAR_SIZE_LG: u32 = 1024;
 

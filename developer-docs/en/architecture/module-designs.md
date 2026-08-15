@@ -664,7 +664,9 @@ Migration is not alphabetical dump order. `COPY_TABLE_ORDER` fixes the sequence 
 - `file_blobs`
 - `blob_media_metadata`
 - `files`
-- `file_versions`
+- `file_revision_histories`
+- `file_revisions`
+- `file_revision_properties`
 - `shares`
 - `upload_sessions`
 - `upload_session_parts`

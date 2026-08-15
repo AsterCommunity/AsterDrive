@@ -55,7 +55,7 @@ pub use self::session::{
 pub use crate::services::user::account::{
     MePartialResponse, MeResponse, UpdatePreferencesReq, UserInfo, UserPreferences,
 };
-pub use crate::services::user::profile::{AvatarInfo, UserProfileInfo};
+pub use crate::services::user::profile::{AvatarInfo, AvatarUploadResult, UserProfileInfo};
 pub use aster_drive_model::types::{
     AvatarSource, BrowserOpenMode, ColorPreset, LocaleTag, PrefViewMode, ThemeMode,
 };

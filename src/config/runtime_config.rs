@@ -5,6 +5,7 @@ use parking_lot::RwLock;
 use sea_orm::ConnectionTrait;
 
 use crate::config::audit::{self, AuditLogRuntimeSettings};
+use crate::config::avatar_render::AvatarRenderRuntime;
 use crate::config::password_hash::PasswordHashRuntime;
 use crate::db::repository::config_repo;
 use crate::errors::Result;
@@ -14,6 +15,7 @@ pub struct RuntimeConfig {
     snapshot: SyncRuntimeConfig<system_config::Model>,
     audit_log_settings: RwLock<AuditLogRuntimeSettings>,
     password_hash_runtime: PasswordHashRuntime,
+    avatar_render_runtime: AvatarRenderRuntime,
 }
 
 impl RuntimeConfig {
@@ -22,6 +24,7 @@ impl RuntimeConfig {
             snapshot: SyncRuntimeConfig::new(),
             audit_log_settings: RwLock::new(AuditLogRuntimeSettings::default()),
             password_hash_runtime: PasswordHashRuntime::default(),
+            avatar_render_runtime: AvatarRenderRuntime::default(),
         }
     }
 
@@ -40,6 +43,7 @@ impl RuntimeConfig {
             snapshot: SyncRuntimeConfig::new(),
             audit_log_settings: RwLock::new(AuditLogRuntimeSettings::default()),
             password_hash_runtime: PasswordHashRuntime::with_policy(max_concurrency, policy)?,
+            avatar_render_runtime: AvatarRenderRuntime::default(),
         })
     }
 
@@ -89,6 +93,10 @@ impl RuntimeConfig {
 
     pub fn password_hash_runtime(&self) -> &PasswordHashRuntime {
         &self.password_hash_runtime
+    }
+
+    pub fn avatar_render_runtime(&self) -> &AvatarRenderRuntime {
+        &self.avatar_render_runtime
     }
 
     pub fn get_i64_or(&self, key: &str, default: i64) -> i64 {

@@ -219,6 +219,13 @@ async fn create_root_file(
     )
     .await
     .expect("webdav handler file should be inserted");
+    crate::db::repository::revision_repo::create_initial(
+        state.writer_db(),
+        &file,
+        crate::db::repository::revision_repo::RevisionReason::Create,
+    )
+    .await
+    .expect("webdav handler revision should be inserted");
 
     (file, blob)
 }

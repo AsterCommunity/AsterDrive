@@ -1342,9 +1342,9 @@ async fn empty_file_idempotency_conflicts_after_result_is_purged() {
     )
     .await
     .expect("initial create should succeed");
-    file_repo::delete(state.writer_db(), created.file.id)
+    crate::services::files::file::batch_purge_in_scope(&state, scope, vec![created.file.clone()])
         .await
-        .expect("result file metadata should be removable");
+        .expect("result file should be purged through the revision-aware lifecycle");
 
     let error = create_empty_with_idempotency(
         &state,

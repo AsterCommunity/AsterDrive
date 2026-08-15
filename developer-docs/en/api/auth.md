@@ -324,9 +324,28 @@ The `oidc` driver uses discovery, PKCE, nonce, and ID Token validation. The `gen
 
 - `PATCH /auth/preferences` updates structured user preferences
 - `PATCH /auth/profile` updates display profile fields
-- `POST /auth/profile/avatar/upload` stores an uploaded avatar image
+- `POST /auth/profile/avatar/upload` synchronously renders an uploaded avatar and returns
+  `AvatarUploadResult { profile, applied }`
 - `PUT /auth/profile/avatar/source` switches between uploaded / gravatar / none where supported
 - `GET /auth/profile/avatar/{size}` returns the uploaded avatar binary
 - `GET /auth/events/storage` is an SSE stream for storage-change events visible to the current user
 
-Uploaded avatars are raw binary responses and do not use the JSON wrapper.
+The built-in frontend crops and normalizes the selected image to a WebP no larger than
+`1024 × 1024` before upload. That client-side step improves the interaction but is not a server
+resource boundary. The server still detects the real image format from its contents and enforces:
+
+- chunk-by-chunk multipart staging without collecting the full source file in memory
+- a default `10 MiB` source limit and an absolute product ceiling of `16 MiB`
+- maximum source dimensions of `1024 × 1024`
+- a `32 MiB` decoder allocation limit
+- at most two concurrent renders per process, with the `1024` and `512` WebP variants produced
+  sequentially so both uncompressed resize buffers are not retained together
+
+The upload endpoint returns `200 OK`. `applied = true` means the candidate was published. If
+another avatar upload or source change advances `avatar_version` while rendering is in progress,
+the response contains `applied = false` and the current database `profile`; the stale candidate
+does not overwrite the newer avatar state. Avatar uploads do not create background tasks. A failed
+or superseded upload keeps the previous avatar readable and cleans its request staging files.
+
+Uploaded avatar resources returned by `GET /auth/profile/avatar/{size}` are raw WebP binary
+responses and do not use the JSON wrapper.

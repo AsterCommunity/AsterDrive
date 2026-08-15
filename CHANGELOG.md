@@ -27,6 +27,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Breaking
 
+- **文件版本数据库模型** — `m20260813_000001_canonical_file_revision_ledger` 将可变的 `file_versions` 表迁入 `file_revision_histories`、`file_revisions` 和 `file_revision_properties`，完成 backfill 后删除原表。直接查询旧表、依赖旧版本号主键或绕过 REST/service 写版本历史的外部脚本需要迁移；降级 migration 会重建可表示的 legacy history，但新 ledger 的 actor、comment、reason、property snapshot 和 stable public ID 没有旧表对应字段。
 - **存储策略 API / schema** — 存储策略不再暴露 `driver_type`、`endpoint`、`bucket`、`base_path`、`access_key`、`secret_key`、`options` 等 provider-specific 平铺字段；响应改用稳定 `connector_id`、`connector_config` 与 `behavior`，创建请求统一提交 `connection = { connector_config, behavior, credential }`，更新请求分别提交 connector config、behavior 和 tagged credential。依赖旧 DTO、`DriverType` 枚举或字段名的客户端需要按 connector descriptor 构造请求。
 - **存储凭据输入** — 静态密钥与授权应用配置改为互斥的 tagged credential channel（`none` / `static` / `authorization_application`），字段名称由 connector schema 定义，例如 S3 与 Tencent COS 使用各自命名空间，不再共享含糊的 `access_key` / `secret_key` 表单字段。
 - **存储 connector action** — 删除 S3-compatible policy promotion 专用 API 和 provider-specific action 枚举；管理端与 API 客户端应从 connector catalog 读取 action ID、endpoint、输入字段、是否要求已保存策略/授权以及远端副作用声明。
@@ -40,7 +41,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Added
 
-- **GitHub PR 与 CI 生命周期自动化** — 根据 changed files 幂等维护语言、文档、产品 scope 与高风险标签，联动 closing issue 的 PR 状态；聚合当前 PR HEAD 的 path-filtered workflow 为稳定 `PR Gate` 和单条可更新诊断评论，并为默认分支及定时任务失败维护带 fingerprint、连续恢复判定的故障 Issue。
+- **GitHub PR 与 CI 生命周期自动化** — 通过固定 revision 的组织共享 Action、仓库自有配置和 `AsterCommunity Automation` GitHub App 身份，根据 changed files 幂等维护语言、文档、产品 scope 与高风险标签，联动 closing issue 的 PR 状态；聚合当前 PR HEAD 的 path-filtered workflow 为稳定 `PR Gate` 和始终发布、原位更新的诊断评论，在 HEAD 被替代、PR 关闭或合并时终结全部历史未完成 Gate，并为默认分支及定时任务失败维护带 fingerprint、连续恢复判定的故障 Issue。
 
 - **多 Primary deployment profile**
   - 新增 `[deployment].profile = "single" | "cluster"`；cluster 模式要求共享 PostgreSQL / MySQL、Redis cache、Redis config sync 和共享对象存储
@@ -97,6 +98,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Changed
 
+- **头像上传资源边界与同步结果契约** — 内置前端将裁剪结果归一化为最大 1024×1024 WebP，服务端以流式 staging、10 MiB 默认/16 MiB 硬顶源文件限制、1024×1024 dimensions、32 MiB 解码 allocation 和每进程 2 路渲染并发约束头像峰值；Images processor 复用同一 decoder 完成 dimensions 校验与像素解码，避免 JPEG 压缩源被完整读取两遍，并通过等待时长、waiting 和 active 指标区分正常排队与实际渲染；发布前在数据库事务外准备用户目录，最终版本目录冲突时保留现场，事务内只执行一次原子 rename，并通过 publish duration 指标暴露慢存储延迟；上传同步返回 `profile + applied`，并发头像 mutation 覆盖候选或处理失败时保留当前头像，不创建后台任务。
 - **存储策略持久化模型** — current `storage_policy` entity 收敛为 `id`、`name`、`connector_id`、`storage_config`、文件大小/类型/默认策略/chunk 行为与时间戳；运行时通过 connector projection 读取 endpoint、bucket、base path、远端绑定和 provider 行为，不再直接访问旧平铺列。
 - **存储策略 API 编排** — create、update、draft connection test、saved connection test、authorization 与 custom action 统一按 connector registry 查找和分发；请求中的 malformed / unknown connector 返回输入校验错误，数据库中未知 connector ID 则作为持久化配置损坏处理。
 - **Credential migration ownership** — 0.5.x 启动在 runtime config 和 encryption key 可用后、正式监听服务前，于 database migration lock 下执行幂等 legacy credential import；`database-migrate apply` 在目标数据复制校验完成后复用同一 importer。
@@ -146,6 +148,9 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Database Migrations
 
+- `m20260813_000001_canonical_file_revision_ledger`
+  - 以可恢复的 500 文件事务批次 backfill `file_versions` 和每个文件当前内容，建立 immutable revision predecessor chain、stable public ID、current head / next sequence 与用户属性快照，完成后删除 legacy `file_versions`；批次间故障重跑会跳过已提交 history，并从 legacy/ledger 最大 revision ID 之后继续
+  - MySQL 使用 `utf8mb4_bin` virtual generated columns 维持 XML property `(namespace, name)` 大小写敏感唯一性，但不按服务端版本字符串设置全局门槛，也不依赖 8.0.23 的 invisible-column 语法
 - `m20260723_000001_require_upload_session_kind`
   - 升级前检查 legacy / invalid upload sessions，并将 `upload_sessions.session_kind` 收紧为 `NOT NULL`
 - `m20260725_000001_remote_tunnel_owners`

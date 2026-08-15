@@ -9,11 +9,11 @@ use crate::api::dto::admin::{
     AdminFileVersionSummary,
 };
 use crate::api::pagination::load_offset_page;
-use crate::db::repository::{file_repo, version_repo};
+use crate::db::repository::{file_repo, revision_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{files::lock, user::account, user::profile};
-use aster_drive_model::entities::{file, file_blob, file_version};
+use aster_drive_model::entities::{file, file_blob, file_revision, file_revision_history};
 use aster_forge_api::OffsetPage;
 
 pub async fn list_files(
@@ -71,10 +71,10 @@ pub async fn list_files(
 
 pub async fn get_file(state: &impl SharedRuntimeState, file_id: i64) -> Result<AdminFileDetail> {
     let (file, blob) = file_repo::find_admin_file_by_id(state.reader_db(), file_id).await?;
-    let versions = version_repo::find_by_file_id(state.reader_db(), file_id).await?;
+    let versions = revision_repo::find_by_file_id(state.reader_db(), file_id).await?;
     let version_blob_ids = versions
         .iter()
-        .map(|version| version.blob_id)
+        .filter_map(|version| version.blob_id)
         .collect::<HashSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
@@ -83,15 +83,20 @@ pub async fn get_file(state: &impl SharedRuntimeState, file_id: i64) -> Result<A
         .into_iter()
         .map(|version| {
             let blob = version_blobs
-                .get(&version.blob_id)
+                .get(&version.blob_id.ok_or_else(|| {
+                    AsterError::internal_error(format!(
+                        "active file revision #{} has no blob",
+                        version.id
+                    ))
+                })?)
                 .cloned()
                 .ok_or_else(|| {
                     AsterError::internal_error(format!(
-                        "file_version #{} references missing blob #{}",
-                        version.id, version.blob_id
+                        "file revision #{} references missing blob",
+                        version.id
                     ))
                 })?;
-            Ok(to_admin_version_summary(version, blob))
+            to_admin_version_summary(file_id, version, blob)
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -150,11 +155,16 @@ pub async fn get_blob(
 ) -> Result<AdminFileBlobDetail> {
     let blob = file_repo::find_blob_by_id(state.reader_db(), blob_id).await?;
     let files = file_repo::find_by_blob_id(state.reader_db(), blob_id).await?;
-    let versions = version_repo::find_by_blob_id(state.reader_db(), blob_id).await?;
+    let versions = revision_repo::find_by_blob_id(state.reader_db(), blob_id).await?;
     let file_ref_count = i64::try_from(files.len())
         .map_err(|_| AsterError::internal_error("blob file reference count overflow"))?;
-    let version_ref_count = i64::try_from(versions.len())
-        .map_err(|_| AsterError::internal_error("blob version reference count overflow"))?;
+    let version_ref_count = i64::try_from(
+        versions
+            .iter()
+            .filter(|(revision, history)| history.current_revision_id != Some(revision.id))
+            .count(),
+    )
+    .map_err(|_| AsterError::internal_error("blob version reference count overflow"))?;
     let uploader_ids = collect_file_uploader_ids(&files);
     let users =
         account::user_summaries_by_ids(state, &uploader_ids, profile::AvatarAudience::AdminUser)
@@ -177,8 +187,8 @@ pub async fn get_blob(
             .collect(),
         file_versions: versions
             .into_iter()
-            .map(to_blob_reference_version)
-            .collect(),
+            .map(|(revision, history)| to_blob_reference_version(revision, history))
+            .collect::<Result<Vec<_>>>()?,
     })
 }
 
@@ -214,18 +224,19 @@ fn to_admin_file_info(
 }
 
 fn to_admin_version_summary(
-    version: file_version::Model,
+    file_id: i64,
+    version: file_revision::Model,
     blob: file_blob::Model,
-) -> AdminFileVersionSummary {
-    AdminFileVersionSummary {
+) -> Result<AdminFileVersionSummary> {
+    Ok(AdminFileVersionSummary {
         id: version.id,
-        file_id: version.file_id,
-        blob_id: version.blob_id,
-        version: version.version,
-        size: version.size,
+        file_id,
+        blob_id: version.blob_id.unwrap_or(blob.id),
+        version: version.sequence,
+        size: version.logical_size,
         created_at: version.created_at,
         blob: to_blob_summary(blob),
-    }
+    })
 }
 
 fn to_blob_summary(blob: file_blob::Model) -> AdminFileBlobSummary {
@@ -280,7 +291,7 @@ async fn enrich_admin_blob_infos(
     let file_ref_counts =
         file_repo::count_blob_refs_from_files_for_blobs(state.reader_db(), &blob_ids).await?;
     let version_ref_counts =
-        version_repo::count_blob_refs_from_versions_for_blobs(state.reader_db(), &blob_ids).await?;
+        revision_repo::count_non_current_blob_refs_for_blobs(state.reader_db(), &blob_ids).await?;
     let uploader_refs =
         file_repo::find_admin_blob_uploader_refs_for_blobs(state.reader_db(), &blob_ids).await?;
     let uploader_ids = uploader_refs
@@ -386,14 +397,19 @@ fn to_blob_reference_file(
     }
 }
 
-fn to_blob_reference_version(version: file_version::Model) -> AdminFileBlobReferenceVersion {
-    AdminFileBlobReferenceVersion {
+fn to_blob_reference_version(
+    version: file_revision::Model,
+    history: file_revision_history::Model,
+) -> Result<AdminFileBlobReferenceVersion> {
+    Ok(AdminFileBlobReferenceVersion {
         id: version.id,
-        file_id: version.file_id,
-        version: version.version,
-        size: version.size,
+        file_id: history.file_id.ok_or_else(|| {
+            AsterError::internal_error("active revision references a retired file history")
+        })?,
+        version: version.sequence,
+        size: version.logical_size,
         created_at: version.created_at,
-    }
+    })
 }
 
 fn blob_hash_kind(hash: &str) -> AdminFileBlobHashKind {

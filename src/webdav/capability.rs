@@ -1,11 +1,13 @@
 //! AsterDrive product capability projection for the Forge WebDAV protocol engine.
 
 use aster_forge_webdav::{
-    DavBackendError, DavCapabilityContext, DavCapabilityDeclaration, DavCapabilityProvider,
-    DavCapabilitySnapshot, DavCapabilityTarget, DavClass1Support, DavClass2Profile,
-    DavClass2Support, DavCompatibilityCapabilities, DavComplianceClasses, DavExtensionPackage,
-    DavExtensionSet, DavLockingCapability, DavMethod, DavMethodSet, DavQuotaExtension,
-    DavQuotaSupport, DavResourceState, dav_capability_profile, plan_capabilities,
+    DavAutoVersion, DavBackendError, DavCapabilityContext, DavCapabilityDeclaration,
+    DavCapabilityProvider, DavCapabilitySnapshot, DavCapabilityTarget, DavClass1Support,
+    DavClass2Profile, DavClass2Support, DavCompatibilityCapabilities, DavComplianceClasses,
+    DavExtensionPackage, DavExtensionSet, DavLockingCapability, DavMethod, DavMethodSet,
+    DavQuotaExtension, DavQuotaSupport, DavResourceState, DavVersionControlExtension,
+    DavVersionControlSupport, DavVersioningCapabilities, DavVersioningState,
+    dav_capability_profile, plan_capabilities,
 };
 
 use crate::webdav::backend::AsterDavFs;
@@ -19,55 +21,105 @@ impl<'a> DriveDavCapabilityProvider<'a> {
         Self { filesystem }
     }
 
-    pub(crate) fn declaration_for(resource: DavResourceState) -> DavCapabilityDeclaration {
-        let methods = match resource {
-            DavResourceState::MountRoot => &[
-                DavMethod::Options,
-                DavMethod::Propfind,
-                DavMethod::Lock,
-                DavMethod::Unlock,
-            ][..],
-            DavResourceState::Collection => &[
-                DavMethod::Options,
-                DavMethod::Delete,
-                DavMethod::Copy,
-                DavMethod::Move,
-                DavMethod::Propfind,
-                DavMethod::Proppatch,
-                DavMethod::Lock,
-                DavMethod::Unlock,
-            ],
-            DavResourceState::File => &[
-                DavMethod::Options,
-                DavMethod::Get,
-                DavMethod::Put,
-                DavMethod::Delete,
-                DavMethod::Copy,
-                DavMethod::Move,
-                DavMethod::Propfind,
-                DavMethod::Proppatch,
-                DavMethod::Lock,
-                DavMethod::Unlock,
-            ],
-            DavResourceState::Unmapped => &[
-                DavMethod::Options,
-                DavMethod::Put,
-                DavMethod::Mkcol,
-                DavMethod::Lock,
-                DavMethod::Unlock,
-            ],
-            DavResourceState::Principal
-            | DavResourceState::RedirectReference
-            | DavResourceState::AddMemberEndpoint => &[DavMethod::Options],
+    pub(crate) fn declaration_for<T: Into<crate::webdav::backend::DeltavCapabilityTarget>>(
+        target: T,
+    ) -> DavCapabilityDeclaration {
+        let target = target.into();
+        let resource = target.resource;
+        let methods = if target.reserved_unmapped {
+            &[DavMethod::Options][..]
+        } else {
+            match (resource, target.versioning) {
+                (DavResourceState::File, DavVersioningState::Version) => &[
+                    DavMethod::Options,
+                    DavMethod::Get,
+                    DavMethod::Copy,
+                    DavMethod::Propfind,
+                    DavMethod::Report,
+                ][..],
+                (DavResourceState::MountRoot, _) => &[
+                    DavMethod::Options,
+                    DavMethod::Propfind,
+                    DavMethod::Lock,
+                    DavMethod::Unlock,
+                ][..],
+                (DavResourceState::Collection, _) => &[
+                    DavMethod::Options,
+                    DavMethod::Delete,
+                    DavMethod::Copy,
+                    DavMethod::Move,
+                    DavMethod::Propfind,
+                    DavMethod::Proppatch,
+                    DavMethod::Lock,
+                    DavMethod::Unlock,
+                ],
+                (DavResourceState::File, DavVersioningState::Versionable) => &[
+                    DavMethod::Options,
+                    DavMethod::Get,
+                    DavMethod::Put,
+                    DavMethod::Delete,
+                    DavMethod::Copy,
+                    DavMethod::Move,
+                    DavMethod::Propfind,
+                    DavMethod::Proppatch,
+                    DavMethod::Lock,
+                    DavMethod::Unlock,
+                    DavMethod::VersionControl,
+                ],
+                (DavResourceState::File, DavVersioningState::Unsupported) => &[
+                    DavMethod::Options,
+                    DavMethod::Get,
+                    DavMethod::Put,
+                    DavMethod::Delete,
+                    DavMethod::Copy,
+                    DavMethod::Move,
+                    DavMethod::Propfind,
+                    DavMethod::Proppatch,
+                    DavMethod::Lock,
+                    DavMethod::Unlock,
+                ],
+                (
+                    DavResourceState::File,
+                    DavVersioningState::CheckedIn | DavVersioningState::CheckedOut,
+                ) => &[
+                    DavMethod::Options,
+                    DavMethod::Get,
+                    DavMethod::Put,
+                    DavMethod::Delete,
+                    DavMethod::Copy,
+                    DavMethod::Move,
+                    DavMethod::Propfind,
+                    DavMethod::Proppatch,
+                    DavMethod::Lock,
+                    DavMethod::Unlock,
+                    DavMethod::Report,
+                    DavMethod::VersionControl,
+                ],
+                (DavResourceState::Unmapped, _) => &[
+                    DavMethod::Options,
+                    DavMethod::Put,
+                    DavMethod::Mkcol,
+                    DavMethod::Lock,
+                    DavMethod::Unlock,
+                ],
+                (
+                    DavResourceState::Principal
+                    | DavResourceState::RedirectReference
+                    | DavResourceState::AddMemberEndpoint,
+                    _,
+                ) => &[DavMethod::Options],
+            }
         };
         let mut declaration =
             DavCapabilityDeclaration::new(resource, DavMethodSet::from_methods(methods));
-        declaration.locking = if matches!(
-            resource,
-            DavResourceState::Principal
-                | DavResourceState::RedirectReference
-                | DavResourceState::AddMemberEndpoint
-        ) {
+        declaration.locking = if target.reserved_unmapped
+            || target.versioning == DavVersioningState::Version
+            || matches!(
+                resource,
+                DavResourceState::Principal
+                    | DavResourceState::RedirectReference
+                    | DavResourceState::AddMemberEndpoint
+            ) {
             DavLockingCapability::Disabled
         } else {
             DavLockingCapability::Class2
@@ -85,33 +137,71 @@ impl<'a> DriveDavCapabilityProvider<'a> {
         ) {
             declaration.extensions = DavExtensionSet::from_packages(&[DavExtensionPackage::Quota]);
         }
+        if target.versioning != DavVersioningState::Unsupported {
+            declaration.extensions =
+                declaration
+                    .extensions
+                    .union(DavExtensionSet::from_packages(&[
+                        DavExtensionPackage::VersionControl,
+                    ]));
+            declaration.versioning = DavVersioningCapabilities {
+                state: target.versioning,
+                auto_version: if target.versioning == DavVersioningState::CheckedIn {
+                    DavAutoVersion::CheckoutCheckin
+                } else {
+                    DavAutoVersion::None
+                },
+                write_locked: false,
+                auto_checkout_lock: false,
+                allow_version_delete: false,
+            };
+        }
         declaration
     }
 
+    #[cfg(test)]
     pub(crate) fn snapshot_for(
         resource: DavResourceState,
     ) -> Result<DavCapabilitySnapshot, aster_forge_webdav::DavCapabilityPlanError> {
-        plan_capabilities(Self::declaration_for(resource))
+        Self::snapshot_for_versioned(resource, DavVersioningState::Unsupported)
+    }
+
+    pub(crate) fn snapshot_for_versioned(
+        resource: DavResourceState,
+        versioning: DavVersioningState,
+    ) -> Result<DavCapabilitySnapshot, aster_forge_webdav::DavCapabilityPlanError> {
+        plan_capabilities(Self::declaration_for(
+            crate::webdav::backend::DeltavCapabilityTarget {
+                resource,
+                versioning,
+                reserved_unmapped: false,
+            },
+        ))
     }
 }
 
 impl DavClass1Support for DriveDavCapabilityProvider<'_> {}
 impl DavClass2Support for DriveDavCapabilityProvider<'_> {}
 impl DavQuotaSupport for DriveDavCapabilityProvider<'_> {}
+impl DavVersionControlSupport for DriveDavCapabilityProvider<'_> {}
 
 impl DavCapabilityProvider for DriveDavCapabilityProvider<'_> {
-    type Profile = dav_capability_profile!(DavClass2Profile; DavQuotaExtension);
+    type Profile = dav_capability_profile!(
+        DavClass2Profile;
+        DavQuotaExtension,
+        DavVersionControlExtension
+    );
 
     async fn capabilities(
         &self,
         target: &DavCapabilityTarget,
         _context: &DavCapabilityContext,
     ) -> Result<DavCapabilityDeclaration, DavBackendError> {
-        let resource = self
+        let target = self
             .filesystem
-            .capability_resource_state(&target.path)
+            .deltav_capability_target(&target.path)
             .await?;
-        Ok(Self::declaration_for(resource))
+        Ok(Self::declaration_for(target))
     }
 }
 

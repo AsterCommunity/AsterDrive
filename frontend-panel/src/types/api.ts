@@ -57,6 +57,7 @@ export type SystemInfoResponse = components["schemas"]["SystemInfoResponse"];
 
 // Auth and user
 export type AvatarInfo = components["schemas"]["AvatarInfo"];
+export type AvatarUploadResult = components["schemas"]["AvatarUploadResult"];
 export type AvatarSource = components["schemas"]["AvatarSource"];
 export type ActionMessageResp = components["schemas"]["ActionMessageResp"];
 export type AuthSessionInfo = components["schemas"]["AuthSessionInfo"];

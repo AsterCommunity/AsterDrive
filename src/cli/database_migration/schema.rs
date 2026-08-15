@@ -447,7 +447,7 @@ where
     C: ConnectionTrait,
 {
     let sql = format!(
-        "SELECT column_name, column_type \
+        "SELECT column_name, column_type, generation_expression \
          FROM information_schema.columns \
          WHERE table_schema = DATABASE() AND table_name = {} \
          ORDER BY ordinal_position",
@@ -473,22 +473,32 @@ where
         .await
         .map_aster_err(AsterError::database_operation)?;
 
-    rows.into_iter()
-        .map(|row| {
-            let name = row
-                .try_get_by_index::<String>(0)
-                .map_aster_err(AsterError::database_operation)?;
-            let raw_type = row
-                .try_get_by_index::<String>(1)
-                .map_aster_err(AsterError::database_operation)?;
-            Ok(ColumnSchema {
-                pk_order: *pk_lookup.get(&name).unwrap_or(&0),
-                binding_kind: binding_kind_from_raw_type(DbBackend::MySql, &raw_type),
-                name,
-                raw_type,
-            })
-        })
-        .collect()
+    let mut columns = Vec::with_capacity(rows.len());
+    for row in rows {
+        let name = row
+            .try_get_by_index::<String>(0)
+            .map_aster_err(AsterError::database_operation)?;
+        let raw_type = row
+            .try_get_by_index::<String>(1)
+            .map_aster_err(AsterError::database_operation)?;
+        let generation_expression = row
+            .try_get_by_index::<Option<String>>(2)
+            .map_aster_err(AsterError::database_operation)?;
+        if mysql_column_is_database_generated(generation_expression.as_deref()) {
+            continue;
+        }
+        columns.push(ColumnSchema {
+            pk_order: *pk_lookup.get(&name).unwrap_or(&0),
+            binding_kind: binding_kind_from_raw_type(DbBackend::MySql, &raw_type),
+            name,
+            raw_type,
+        });
+    }
+    Ok(columns)
+}
+
+fn mysql_column_is_database_generated(generation_expression: Option<&str>) -> bool {
+    generation_expression.is_some_and(|expression| !expression.is_empty())
 }
 
 async fn load_primary_key_lookup<C>(
@@ -528,4 +538,58 @@ where
 
 fn binding_kind_is_integer(kind: BindingKind) -> bool {
     matches!(kind, BindingKind::Int32 | BindingKind::Int64)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use sea_orm::{DbBackend, MockDatabase, Value};
+
+    use super::{load_mysql_columns, mysql_column_is_database_generated};
+
+    #[test]
+    fn mysql_copy_plan_excludes_database_generated_columns_only() {
+        assert!(!mysql_column_is_database_generated(None));
+        assert!(!mysql_column_is_database_generated(Some("")));
+        assert!(mysql_column_is_database_generated(Some("`namespace`")));
+        assert!(mysql_column_is_database_generated(Some("(`name`)")));
+    }
+
+    #[tokio::test]
+    async fn mysql_schema_reader_accepts_mariadb_null_generation_expressions() {
+        let ordinary_null = BTreeMap::from([
+            ("column_name", Value::from("id")),
+            ("column_type", Value::from("bigint(20)")),
+            ("generation_expression", Value::String(None)),
+        ]);
+        let ordinary_empty = BTreeMap::from([
+            ("column_name", Value::from("namespace")),
+            ("column_type", Value::from("varchar(256)")),
+            ("generation_expression", Value::from("")),
+        ]);
+        let generated = BTreeMap::from([
+            ("column_name", Value::from("namespace_case_key")),
+            ("column_type", Value::from("varchar(256)")),
+            ("generation_expression", Value::from("`namespace`")),
+        ]);
+        let db = MockDatabase::new(DbBackend::MySql)
+            .append_query_results([
+                Vec::<BTreeMap<&str, Value>>::new(),
+                vec![ordinary_null, ordinary_empty, generated],
+            ])
+            .into_connection();
+
+        let columns = load_mysql_columns(&db, "entity_properties")
+            .await
+            .expect("MariaDB NULL generation metadata should remain readable");
+
+        assert_eq!(
+            columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>(),
+            ["id", "namespace"]
+        );
+    }
 }

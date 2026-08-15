@@ -39,12 +39,18 @@ struct FolderTreeCopySnapshot {
     folders_by_parent: HashMap<i64, Vec<folder::Model>>,
 }
 
+struct FolderTreeCopyOptions {
+    traversal_limits: Option<FolderTreeTraversalLimits>,
+    copy_user_properties: bool,
+}
+
 async fn copy_frontier_files_between_scopes(
     state: &PrimaryAppState,
     source_scope: WorkspaceStorageScope,
     dest_scope: WorkspaceStorageScope,
     frontier: &[FrontierFolderCopy],
     snapshot: Option<&FolderTreeCopySnapshot>,
+    copy_user_properties: bool,
 ) -> Result<i64> {
     if frontier.is_empty() {
         return Ok(0);
@@ -97,7 +103,7 @@ async fn copy_frontier_files_between_scopes(
                     crate::services::files::file::BatchDuplicateFileRecordTargetSpec {
                         dest_name: Cow::Borrowed(file.name.as_str()),
                         src: file,
-                        dest_folder_id: Some(dest_folder_id),
+                        dest_folder_id,
                     },
                 )
             })
@@ -107,6 +113,11 @@ async fn copy_frontier_files_between_scopes(
         state,
         dest_scope,
         &copy_specs,
+        if copy_user_properties {
+            crate::services::files::file::CopiedFilePropertyMode::CopyUserProperties
+        } else {
+            crate::services::files::file::CopiedFilePropertyMode::None
+        },
     )
     .await
 }
@@ -251,6 +262,30 @@ async fn create_frontier_children_from_plans_in_scope(
         .collect()
 }
 
+pub(crate) async fn copy_folder_tree_in_scope_with_user_properties(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    src_folder_id: i64,
+    dest_parent_id: Option<i64>,
+    dest_name: &str,
+    traversal_limits: Option<FolderTreeTraversalLimits>,
+) -> Result<(folder::Model, i64)> {
+    copy_folder_tree_between_scopes(
+        state,
+        scope,
+        scope,
+        src_folder_id,
+        dest_parent_id,
+        dest_name,
+        FolderTreeCopyOptions {
+            traversal_limits,
+            copy_user_properties: true,
+        },
+    )
+    .await
+}
+
+#[cfg(test)]
 pub(crate) async fn copy_folder_tree_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
@@ -266,25 +301,28 @@ pub(crate) async fn copy_folder_tree_in_scope(
         src_folder_id,
         dest_parent_id,
         dest_name,
-        traversal_limits,
+        FolderTreeCopyOptions {
+            traversal_limits,
+            copy_user_properties: false,
+        },
     )
     .await
 }
 
-pub(crate) async fn copy_folder_tree_between_scopes(
+async fn copy_folder_tree_between_scopes(
     state: &PrimaryAppState,
     source_scope: WorkspaceStorageScope,
     dest_scope: WorkspaceStorageScope,
     src_folder_id: i64,
     dest_parent_id: Option<i64>,
     dest_name: &str,
-    traversal_limits: Option<FolderTreeTraversalLimits>,
+    options: FolderTreeCopyOptions,
 ) -> Result<(folder::Model, i64)> {
     let db = state.writer_db();
     let now = Utc::now();
     let src_folder = folder_repo::find_by_id(db, src_folder_id).await?;
     ensure_folder_model_in_scope(&src_folder, source_scope)?;
-    let snapshot = if let Some(limits) = traversal_limits {
+    let snapshot = if let Some(limits) = options.traversal_limits {
         let (files, folder_ids) =
             collect_folder_tree_in_scope(db, source_scope, src_folder_id, false, Some(limits))
                 .await?;
@@ -357,6 +395,7 @@ pub(crate) async fn copy_folder_tree_between_scopes(
                 dest_scope,
                 &frontier,
                 snapshot.as_ref(),
+                options.copy_user_properties,
             ),
             load_frontier_child_plans_between_scopes(
                 state,
@@ -447,7 +486,10 @@ pub(crate) async fn copy_folder_between_scopes(
             src_id,
             dest_parent_id,
             &dest_name,
-            None,
+            FolderTreeCopyOptions {
+                traversal_limits: None,
+                copy_user_properties: false,
+            },
         )
         .await
         {

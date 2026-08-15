@@ -30,6 +30,7 @@ pub mod policy_repo;
 pub mod property_repo;
 pub mod remote_storage_target_repo;
 pub mod remote_tunnel_owner_repo;
+pub mod revision_repo;
 pub mod search_repo;
 pub mod share_repo;
 #[deprecated(
@@ -54,6 +55,5 @@ pub mod upload_session_repo;
 pub mod user_invitation_repo;
 pub mod user_profile_repo;
 pub mod user_repo;
-pub mod version_repo;
 pub mod webdav_account_repo;
 pub mod wopi_session_repo;

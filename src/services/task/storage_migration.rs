@@ -9,7 +9,7 @@ use serde::Serialize;
 use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
 
 use crate::db::repository::{
-    background_task_repo, file_repo, policy_repo, storage_migration_checkpoint_repo, version_repo,
+    background_task_repo, file_repo, policy_repo, revision_repo, storage_migration_checkpoint_repo,
 };
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
@@ -765,7 +765,7 @@ async fn merge_blob_records(
             ));
         }
         file_repo::replace_file_blob_refs(txn, old_locked.id, target_locked.id).await?;
-        version_repo::replace_version_blob_refs(txn, old_locked.id, target_locked.id).await?;
+        revision_repo::replace_blob_refs(txn, old_locked.id, target_locked.id).await?;
         file_repo::increment_blob_ref_count_by(txn, target_locked.id, old_locked.ref_count).await?;
         file_repo::delete_blob_by_id(txn, old_locked.id).await?;
         let outcome = BlobMigrationOutcome {

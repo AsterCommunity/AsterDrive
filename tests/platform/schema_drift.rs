@@ -7,10 +7,11 @@ use std::collections::BTreeSet;
 use aster_drive_model::entities::{
     audit_log, auth_session, background_task, blob_media_metadata, contact_verification_token,
     entity_property, external_auth_email_verification_flow, external_auth_identity,
-    external_auth_login_flow, external_auth_provider, file, file_blob, file_version, folder,
-    follower_enrollment_session, managed_follower, master_binding, mfa_email_code, mfa_factor,
-    mfa_login_flow, mfa_recovery_code, mfa_totp_setup_flow, passkey, remote_storage_target,
-    resource_lock, resource_lock_namespace, share, storage_migration_checkpoint, storage_policy,
+    external_auth_login_flow, external_auth_provider, file, file_blob, file_revision,
+    file_revision_history, file_revision_property, folder, follower_enrollment_session,
+    managed_follower, master_binding, mfa_email_code, mfa_factor, mfa_login_flow,
+    mfa_recovery_code, mfa_totp_setup_flow, passkey, remote_storage_target, resource_lock,
+    resource_lock_namespace, share, storage_migration_checkpoint, storage_policy,
     storage_policy_group, storage_policy_group_item, tag, team, team_member, upload_session,
     upload_session_part, user, user_invitation, user_profile, webdav_account, wopi_session,
 };
@@ -55,7 +56,9 @@ fn all_entity_schemas() -> Vec<EntitySchema> {
         entity_schema!(external_auth_provider::Entity),
         entity_schema!(file::Entity),
         entity_schema!(file_blob::Entity),
-        entity_schema!(file_version::Entity),
+        entity_schema!(file_revision::Entity),
+        entity_schema!(file_revision_history::Entity),
+        entity_schema!(file_revision_property::Entity),
         entity_schema!(folder::Entity),
         entity_schema!(follower_enrollment_session::Entity),
         entity_schema!(aster_forge_db::mail_outbox::Entity),
@@ -160,14 +163,14 @@ where
         .join(", ")
 }
 
-fn expected_database_only_compatibility_columns(table_name: &str) -> BTreeSet<&'static str> {
-    match table_name {
+fn expected_database_only_columns(backend: DbBackend, table_name: &str) -> BTreeSet<&'static str> {
+    match (backend, table_name) {
         // AsterDrive 0.5.x keeps these columns so the startup credential
         // importer can read pre-refactor policies. They remain required in the
         // 0.5 schema but deliberately stay out of the current SeaORM entity.
         // Issue #463 removes both the physical columns and this exact exception
         // in 0.6.0.
-        "storage_policies" => [
+        (_, "storage_policies") => [
             "driver_type",
             "endpoint",
             "bucket",
@@ -180,6 +183,12 @@ fn expected_database_only_compatibility_columns(table_name: &str) -> BTreeSet<&'
         ]
         .into_iter()
         .collect(),
+        // MySQL's default text collation is case-insensitive. These generated
+        // projections let the database enforce byte-sensitive XML property
+        // identity; SeaORM and database-migrate select only business columns.
+        (DbBackend::MySql, "entity_properties") => ["namespace_case_key", "name_case_key"]
+            .into_iter()
+            .collect(),
         _ => BTreeSet::new(),
     }
 }
@@ -200,7 +209,7 @@ async fn test_entity_columns_match_migrated_database_schema() {
             .map(|column| (*column).to_string())
             .collect::<BTreeSet<_>>();
         expected.extend(
-            expected_database_only_compatibility_columns(entity.table_name)
+            expected_database_only_columns(db.get_database_backend(), entity.table_name)
                 .into_iter()
                 .map(str::to_string),
         );

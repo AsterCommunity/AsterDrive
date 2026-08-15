@@ -103,7 +103,15 @@ async fn create_file_from_blob_with_name_mode<C: ConnectionTrait>(
         .await;
 
         match created {
-            Ok(created) => return Ok(created),
+            Ok(created) => {
+                crate::db::repository::revision_repo::create_initial(
+                    db,
+                    &created,
+                    crate::db::repository::revision_repo::RevisionReason::Create,
+                )
+                .await?;
+                return Ok(created);
+            }
             Err(err) if file_repo::is_name_conflict_db_err(&err) => {
                 if matches!(name_mode, NewFileNameMode::Exact) {
                     return Err(file_repo::map_name_db_err(err, &final_name));

@@ -501,7 +501,7 @@ describe("AdminTeamDetailDialog", () => {
 			"quota",
 		)) as HTMLInputElement;
 		expect(quotaInput.value).toBe("1");
-		fireEvent.change(screen.getByDisplayValue("Team description"), {
+		fireEvent.change(await screen.findByDisplayValue("Team description"), {
 			target: { value: "Updated description" },
 		});
 		const saveButton = screen.getByRole("button", { name: "save_changes" });

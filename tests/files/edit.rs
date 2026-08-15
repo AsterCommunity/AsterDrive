@@ -4,6 +4,7 @@ use crate::common;
 
 use actix_web::body::to_bytes;
 use actix_web::test;
+use sea_orm::{ActiveModelTrait, Set};
 use serde_json::Value;
 
 const OVER_LIMIT_BODY_SIZE: usize = 10 * 1024 * 1024 + 1;
@@ -214,8 +215,16 @@ async fn test_restore_single_history_version_recovers_original_content() {
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     let versions = body["data"].as_array().unwrap();
-    assert_eq!(versions.len(), 1, "should have exactly one history version");
-    let version_id = versions[0]["id"].as_i64().unwrap();
+    assert_eq!(
+        versions.len(),
+        2,
+        "initial and current revisions must exist"
+    );
+    let version_id = versions
+        .iter()
+        .find(|version| version["current"] == false)
+        .and_then(|version| version["id"].as_i64())
+        .expect("initial historical revision should exist");
 
     let req = test::TestRequest::post()
         .uri(&format!(
@@ -246,10 +255,11 @@ async fn test_restore_single_history_version_recovers_original_content() {
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     let versions = body["data"].as_array().unwrap();
-    assert!(
-        versions.is_empty(),
-        "history should be empty after restoring v1"
-    );
+    assert_eq!(versions.len(), 3, "restore must append a new revision");
+    assert_eq!(versions[0]["version"], 3);
+    assert_eq!(versions[0]["current"], true);
+    assert_eq!(versions[1]["version"], 2);
+    assert_eq!(versions[2]["version"], 1);
 }
 
 // ── ETag 乐观锁：正确 ETag 通过 ────────────────────────────
@@ -327,6 +337,68 @@ async fn test_update_content_etag_match() {
         .to_request();
     let resp: actix_web::dev::ServiceResponse = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200, "matching ETag should succeed");
+}
+
+#[actix_web::test]
+async fn test_live_etag_comes_from_revision_and_survives_blob_relocation() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file!(app, token);
+
+    let revision_etag =
+        aster_drive::db::repository::revision_repo::current_etag(state.writer_db(), file_id)
+            .await
+            .expect("current revision ETag should load");
+    let file = aster_drive::db::repository::file_repo::find_by_id(state.writer_db(), file_id)
+        .await
+        .expect("file should load");
+    let blob =
+        aster_drive::db::repository::file_repo::find_blob_by_id(state.writer_db(), file.blob_id)
+            .await
+            .expect("blob should load");
+    assert_ne!(
+        revision_etag, blob.hash,
+        "revision ETag must not alias blob identity"
+    );
+
+    let mut relocated: aster_drive_model::entities::file_blob::ActiveModel = blob.into();
+    relocated.hash = Set(format!("opaque-storage-key-{}", uuid::Uuid::new_v4()));
+    relocated
+        .update(state.writer_db())
+        .await
+        .expect("physical blob identity should update");
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/files/{file_id}/download"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp: actix_web::dev::ServiceResponse = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers()
+            .get("ETag")
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("\"{revision_etag}\"").as_str())
+    );
+
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/{file_id}/content"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .insert_header(("If-Match", format!("\"{revision_etag}\"")))
+        .set_payload("revision etag remains authoritative")
+        .to_request();
+    let resp: actix_web::dev::ServiceResponse = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200, "revision ETag should satisfy If-Match");
+    let next_etag = resp
+        .headers()
+        .get("ETag")
+        .and_then(|value| value.to_str().ok())
+        .expect("overwrite should return a revision ETag");
+    assert_ne!(next_etag, format!("\"{revision_etag}\""));
 }
 
 // ── ETag 乐观锁：错误 ETag 返回 412 ────────────────────────

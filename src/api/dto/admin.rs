@@ -635,7 +635,7 @@ pub struct AdminFileVersionSummary {
     pub id: i64,
     pub file_id: i64,
     pub blob_id: i64,
-    pub version: i32,
+    pub version: i64,
     pub size: i64,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTime<Utc>,
@@ -719,7 +719,7 @@ pub struct AdminFileBlobReferenceFile {
 pub struct AdminFileBlobReferenceVersion {
     pub id: i64,
     pub file_id: i64,
-    pub version: i32,
+    pub version: i64,
     pub size: i64,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTime<Utc>,

@@ -9,7 +9,7 @@
 - AsterDrive 现在不是“只有一个运行模式的单体服务”，而是同一套代码支持两种节点模式：
   - `primary`：对外提供主 REST API、公开分享、WebDAV、前端页面，并负责运行时配置和后台任务
   - `follower`：只暴露健康检查和内部对象存储协议，给远端主节点当受管存储节点
-- 元数据主要在数据库里，文件内容主要在存储驱动里；两者通过 `files`、`file_blobs`、`file_versions`、`upload_sessions` 等表关联
+- 元数据主要在数据库里，文件内容主要在存储驱动里；两者通过 `files`、`file_blobs`、`file_revision_histories`、`file_revisions`、`upload_sessions` 等表关联。`files` 是 current revision 的物化投影，不是另一份版本事实
 - 个人空间和团队空间共用同一条文件主链路，只是在 route / service 层通过 `WorkspaceStorageScope` 切换作用域
 - 后端主线仍然是：
   `src/api/routes/*` -> `src/services/*` -> `src/db/repository/*` / `src/storage/*`

@@ -195,7 +195,7 @@ pub async fn patch_profile(
     operation_id = "upload_avatar",
     request_body(content = String, content_type = "multipart/form-data", description = "Avatar image to upload"),
     responses(
-        (status = 200, description = "Avatar uploaded", body = inline(ApiResponse<crate::api::routes::auth::UserProfileInfo>)),
+        (status = 200, description = "Avatar upload resolved", body = inline(ApiResponse<crate::api::routes::auth::AvatarUploadResult>)),
         (status = 400, description = "Invalid image upload"),
         (status = 401, description = "Not authenticated"),
     ),
@@ -207,7 +207,7 @@ pub async fn upload_avatar(
     claims: web::ReqData<Claims>,
     mut payload: actix_multipart::Multipart,
 ) -> Result<HttpResponse> {
-    let profile = profile::upload_avatar(state.get_ref(), claims.user_id, &mut payload).await?;
+    let result = profile::upload_avatar(state.get_ref(), claims.user_id, &mut payload).await?;
     let ctx = AuditContext::from_request(&req, &claims);
     audit::log_with_details(
         state.get_ref(),
@@ -218,13 +218,14 @@ pub async fn upload_avatar(
         None,
         || {
             audit::details(audit::UserAvatarUploadAuditDetails {
-                source: profile.avatar.source,
-                version: profile.avatar.version,
+                source: result.profile.avatar.source,
+                version: result.profile.avatar.version,
+                applied: result.applied,
             })
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(profile)))
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
 }
 
 #[aster_forge_api_docs_macros::path(

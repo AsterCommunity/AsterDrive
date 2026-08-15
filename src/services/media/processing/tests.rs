@@ -9,7 +9,7 @@ use chrono::Utc;
 use image::{GenericImageView, ImageFormat, Rgb, RgbImage};
 use std::io::Cursor;
 
-use super::avatar::generate_avatar_variants;
+use super::avatar::{generate_avatar_variants, validate_avatar_dimensions};
 use super::resolve::resolve_avatar_processor;
 use super::shared::{known_image_preview_cache_paths, known_thumbnail_cache_paths};
 
@@ -103,6 +103,14 @@ fn generate_avatar_variants_generates_expected_webp_variants() {
 fn generate_avatar_variants_rejects_invalid_image_bytes() {
     let error = generate_avatar_variants(b"not-an-image".to_vec()).unwrap_err();
     assert_eq!(error.status_code().as_u16(), 400);
+}
+
+#[test]
+fn avatar_dimensions_accept_exact_limit_and_reject_one_pixel_over() {
+    assert!(validate_avatar_dimensions((1024, 1024)).is_ok());
+    assert!(validate_avatar_dimensions((1025, 1024)).is_err());
+    assert!(validate_avatar_dimensions((1024, 1025)).is_err());
+    assert!(validate_avatar_dimensions((0, 1024)).is_err());
 }
 
 #[test]

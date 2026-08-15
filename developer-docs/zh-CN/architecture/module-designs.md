@@ -753,7 +753,9 @@ archive 和 thumbnail lane 会在单轮 dispatch 里快速继续捞下一批，�
 - `file_blobs`
 - `blob_media_metadata`
 - `files`
-- `file_versions`
+- `file_revision_histories`
+- `file_revisions`
+- `file_revision_properties`
 - `shares`
 - `upload_sessions`
 - `upload_session_parts`

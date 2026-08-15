@@ -44,6 +44,7 @@ pub enum DoctorDeepScope {
     BlobRefCounts,
     StorageObjects,
     FolderTree,
+    RevisionLedger,
 }
 
 impl DoctorDeepScope {
@@ -53,6 +54,7 @@ impl DoctorDeepScope {
             Self::BlobRefCounts => "blob_ref_counts",
             Self::StorageObjects => "storage_objects",
             Self::FolderTree => "folder_tree",
+            Self::RevisionLedger => "revision_ledger",
         }
     }
 }
@@ -171,6 +173,7 @@ fn effective_deep_scopes(args: &DoctorArgs) -> Vec<DoctorDeepScope> {
             DoctorDeepScope::BlobRefCounts,
             DoctorDeepScope::StorageObjects,
             DoctorDeepScope::FolderTree,
+            DoctorDeepScope::RevisionLedger,
         ];
     }
 

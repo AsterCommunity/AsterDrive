@@ -114,6 +114,415 @@ async fn current_schema_enforces_virtual_empty_and_file_create_idempotency_const
     );
 }
 
+async fn assert_revision_expected_head_serializes_concurrent_appends(
+    database_url: &str,
+    file_id: i64,
+) {
+    use aster_drive::db::repository::{file_repo, revision_repo};
+
+    let connect = || async {
+        let config = aster_drive::config::DatabaseConfig {
+            url: database_url.into(),
+            pool_size: 1,
+            retry_count: 0,
+        };
+        aster_drive::db::connect_with_metrics(&config, aster_drive_metrics::NoopMetrics::arc())
+            .await
+            .unwrap()
+    };
+    let (first_db, second_db) = tokio::join!(connect(), connect());
+    let file = file_repo::find_by_id(&first_db, file_id).await.unwrap();
+    let history = revision_repo::find_history_by_file_id(&first_db, file_id)
+        .await
+        .unwrap();
+    let expected_head = history.current_revision_id.unwrap();
+
+    let first_txn = aster_forge_db::transaction::begin(&first_db).await.unwrap();
+    file_repo::increment_blob_ref_count(&first_txn, file.blob_id)
+        .await
+        .unwrap();
+    let first_revision = revision_repo::append(
+        &first_txn,
+        file_id,
+        Some(expected_head),
+        revision_repo::NewRevision {
+            blob_id: file.blob_id,
+            logical_size: file.size,
+            mime_type: &file.mime_type,
+            content_sha256: None,
+            creator_user_id: file.created_by_user_id,
+            creator_display_name: &file.created_by_username,
+            comment: Some("database-backend concurrency winner"),
+            reason: revision_repo::RevisionReason::Overwrite,
+            created_at: chrono::Utc::now(),
+            etag: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(first_revision.sequence, 2);
+
+    let second_file = file.clone();
+    let loser = tokio::spawn(async move {
+        let txn = aster_forge_db::transaction::begin(&second_db)
+            .await
+            .unwrap();
+        let result = revision_repo::append(
+            &txn,
+            file_id,
+            Some(expected_head),
+            revision_repo::NewRevision {
+                blob_id: second_file.blob_id,
+                logical_size: second_file.size,
+                mime_type: &second_file.mime_type,
+                content_sha256: None,
+                creator_user_id: second_file.created_by_user_id,
+                creator_display_name: &second_file.created_by_username,
+                comment: Some("database-backend concurrency loser"),
+                reason: revision_repo::RevisionReason::Overwrite,
+                created_at: chrono::Utc::now(),
+                etag: None,
+            },
+        )
+        .await;
+        txn.rollback().await.unwrap();
+        result
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        !loser.is_finished(),
+        "the competing revision append must wait for the history row lock"
+    );
+    first_txn.commit().await.unwrap();
+
+    let error = timeout(Duration::from_secs(5), loser)
+        .await
+        .expect("competing append should finish after the winner commits")
+        .unwrap()
+        .expect_err("the stale expected head must lose after lock acquisition");
+    assert!(matches!(
+        error,
+        revision_repo::RevisionAppendError::HeadChanged
+    ));
+    let revisions = revision_repo::find_by_file_id(&first_db, file_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        revisions
+            .iter()
+            .map(|revision| revision.sequence)
+            .collect::<Vec<_>>(),
+        vec![2, 1]
+    );
+}
+
+async fn assert_revision_expected_etag_serializes_concurrent_appends(
+    database_url: &str,
+    file_id: i64,
+) {
+    use aster_drive::db::repository::{file_repo, revision_repo};
+
+    let connect = || async {
+        let config = aster_drive::config::DatabaseConfig {
+            url: database_url.into(),
+            pool_size: 1,
+            retry_count: 0,
+        };
+        aster_drive::db::connect_with_metrics(&config, aster_drive_metrics::NoopMetrics::arc())
+            .await
+            .unwrap()
+    };
+    let (first_db, second_db) = tokio::join!(connect(), connect());
+    let file = file_repo::find_by_id(&first_db, file_id).await.unwrap();
+    let expected_etag = revision_repo::current_etag(&first_db, file_id)
+        .await
+        .unwrap();
+    let new_revision = |comment: &'static str| revision_repo::NewRevision {
+        blob_id: file.blob_id,
+        logical_size: file.size,
+        mime_type: &file.mime_type,
+        content_sha256: None,
+        creator_user_id: file.created_by_user_id,
+        creator_display_name: &file.created_by_username,
+        comment: Some(comment),
+        reason: revision_repo::RevisionReason::Overwrite,
+        created_at: chrono::Utc::now(),
+        etag: None,
+    };
+
+    let first_txn = aster_forge_db::transaction::begin(&first_db).await.unwrap();
+    revision_repo::append_for_expected_etag(
+        &first_txn,
+        file_id,
+        Some(&expected_etag),
+        new_revision("ETag concurrency winner"),
+    )
+    .await
+    .unwrap();
+
+    let second_file = file.clone();
+    let second_etag = expected_etag.clone();
+    let loser = tokio::spawn(async move {
+        let txn = aster_forge_db::transaction::begin(&second_db)
+            .await
+            .unwrap();
+        let result = revision_repo::append_for_expected_etag(
+            &txn,
+            file_id,
+            Some(&second_etag),
+            revision_repo::NewRevision {
+                blob_id: second_file.blob_id,
+                logical_size: second_file.size,
+                mime_type: &second_file.mime_type,
+                content_sha256: None,
+                creator_user_id: second_file.created_by_user_id,
+                creator_display_name: &second_file.created_by_username,
+                comment: Some("ETag concurrency loser"),
+                reason: revision_repo::RevisionReason::Overwrite,
+                created_at: chrono::Utc::now(),
+                etag: None,
+            },
+        )
+        .await;
+        txn.rollback().await.unwrap();
+        result
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!loser.is_finished());
+    first_txn.commit().await.unwrap();
+
+    let error = timeout(Duration::from_secs(5), loser)
+        .await
+        .expect("competing ETag append should finish")
+        .unwrap()
+        .expect_err("the stale ETag must lose after lock acquisition");
+    assert!(matches!(
+        error,
+        revision_repo::RevisionAppendError::EtagMismatch
+    ));
+}
+
+async fn assert_batched_folder_copy_initial_revisions<S, B, E>(
+    state: &aster_drive::runtime::PrimaryAppState,
+    backend: DbBackend,
+    app: &S,
+    access_token: &str,
+    user_id: i64,
+) where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = E,
+        >,
+    B: actix_web::body::MessageBody,
+    B::Error: std::fmt::Debug,
+    E: std::fmt::Debug,
+{
+    use aster_drive::services::files::folder;
+
+    let suffix = match backend {
+        DbBackend::Postgres => "postgres",
+        DbBackend::MySql => "mysql",
+        _ => unreachable!("only postgres/mysql smoke tests use this helper"),
+    };
+    let source = folder::create(state, user_id, &format!("Batch source {suffix}"), None)
+        .await
+        .unwrap();
+    for index in 0..51 {
+        common::create_empty_file_via_api(
+            app,
+            access_token,
+            &format!("file-{index:02}.txt"),
+            Some(source.id),
+        )
+        .await;
+    }
+
+    let copied = folder::copy_folder(state, source.id, user_id, None)
+        .await
+        .unwrap();
+    let copied_files = aster_drive::db::repository::file_repo::find_by_folder(
+        state.writer_db(),
+        user_id,
+        Some(copied.id),
+    )
+    .await
+    .unwrap();
+    assert_eq!(copied_files.len(), 51);
+    for copied_file in copied_files {
+        let history = aster_drive::db::repository::revision_repo::find_history_by_file_id(
+            state.writer_db(),
+            copied_file.id,
+        )
+        .await
+        .unwrap();
+        let revision = aster_drive::db::repository::revision_repo::find_current_by_file_id(
+            state.writer_db(),
+            copied_file.id,
+        )
+        .await
+        .unwrap();
+        assert_eq!(revision.sequence, 1);
+        assert_eq!(revision.predecessor_revision_id, None);
+        assert_eq!(revision.reason, "copy");
+        assert_eq!(revision.blob_id, Some(copied_file.blob_id));
+        assert_eq!(history.current_revision_id, Some(revision.id));
+        assert_eq!(history.next_sequence, 2);
+    }
+}
+
+async fn assert_revision_property_namespace_case_sensitivity<S, B, E>(
+    state: &aster_drive::runtime::PrimaryAppState,
+    backend: DbBackend,
+    app: &S,
+    access_token: &str,
+    user: &aster_drive_model::entities::user::Model,
+) where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = E,
+        >,
+    B: actix_web::body::MessageBody,
+    B::Error: std::fmt::Debug,
+    E: std::fmt::Debug,
+{
+    use aster_drive::db::repository::{file_repo, property_repo, revision_repo};
+
+    let backend_name = match backend {
+        DbBackend::Postgres => "postgres",
+        DbBackend::MySql => "mysql",
+        _ => unreachable!("only postgres/mysql smoke tests use this helper"),
+    };
+    let file_id = common::create_empty_file_via_api(
+        app,
+        access_token,
+        &format!("revision-property-{backend_name}.txt"),
+        None,
+    )
+    .await;
+    let file = file_repo::find_by_id(state.writer_db(), file_id)
+        .await
+        .unwrap();
+
+    for (namespace, name, value) in [
+        ("System.preview", "cache", "case-sensitive-old"),
+        ("systemx.preview", "cache", "boundary-old"),
+        ("system.preview", "cache", "protected-old"),
+        ("urn:case-sensitive", "Color", "upper-name-old"),
+        ("urn:case-sensitive", "color", "lower-name-old"),
+    ] {
+        property_repo::upsert(
+            state.writer_db(),
+            EntityType::File,
+            file.id,
+            namespace,
+            name,
+            Some(value),
+        )
+        .await
+        .unwrap();
+    }
+
+    let file_model = file_repo::find_by_id(state.writer_db(), file.id)
+        .await
+        .unwrap();
+    let history = revision_repo::find_history_by_file_id(state.writer_db(), file.id)
+        .await
+        .unwrap();
+    let txn = aster_forge_db::transaction::begin(state.writer_db())
+        .await
+        .unwrap();
+    file_repo::increment_blob_ref_count(&txn, file_model.blob_id)
+        .await
+        .unwrap();
+    let revision = revision_repo::append(
+        &txn,
+        file.id,
+        history.current_revision_id,
+        revision_repo::NewRevision {
+            blob_id: file_model.blob_id,
+            logical_size: file_model.size,
+            mime_type: &file_model.mime_type,
+            content_sha256: None,
+            creator_user_id: Some(user.id),
+            creator_display_name: &user.username,
+            comment: Some("property namespace case-sensitivity fixture"),
+            reason: revision_repo::RevisionReason::Overwrite,
+            created_at: chrono::Utc::now(),
+            etag: None,
+        },
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let snapshot = revision_repo::find_properties(state.writer_db(), revision.id)
+        .await
+        .unwrap();
+    assert_eq!(snapshot.len(), 4);
+    assert!(snapshot.iter().any(|property| {
+        property.namespace == "System.preview"
+            && property.xml_value.as_deref() == Some("case-sensitive-old")
+    }));
+    assert!(snapshot.iter().any(|property| {
+        property.namespace == "systemx.preview"
+            && property.xml_value.as_deref() == Some("boundary-old")
+    }));
+    assert!(snapshot.iter().any(|property| {
+        property.namespace == "urn:case-sensitive"
+            && property.name == "Color"
+            && property.xml_value.as_deref() == Some("upper-name-old")
+    }));
+    assert!(snapshot.iter().any(|property| {
+        property.namespace == "urn:case-sensitive"
+            && property.name == "color"
+            && property.xml_value.as_deref() == Some("lower-name-old")
+    }));
+
+    for (namespace, name, value) in [
+        ("System.preview", "cache", "case-sensitive-current"),
+        ("systemx.preview", "cache", "boundary-current"),
+        ("system.preview", "cache", "protected-current"),
+        ("urn:case-sensitive", "Color", "upper-name-current"),
+        ("urn:case-sensitive", "color", "lower-name-current"),
+    ] {
+        property_repo::upsert(
+            state.writer_db(),
+            EntityType::File,
+            file.id,
+            namespace,
+            name,
+            Some(value),
+        )
+        .await
+        .unwrap();
+    }
+
+    let txn = aster_forge_db::transaction::begin(state.writer_db())
+        .await
+        .unwrap();
+    revision_repo::restore_user_properties(&txn, file.id, revision.id)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let properties = property_repo::find_by_entity(state.writer_db(), EntityType::File, file.id)
+        .await
+        .unwrap();
+    let value = |namespace: &str, name: &str| {
+        properties
+            .iter()
+            .find(|property| property.namespace == namespace && property.name == name)
+            .and_then(|property| property.value.as_deref())
+    };
+    assert_eq!(value("System.preview", "cache"), Some("case-sensitive-old"));
+    assert_eq!(value("systemx.preview", "cache"), Some("boundary-old"));
+    assert_eq!(value("system.preview", "cache"), Some("protected-current"));
+    assert_eq!(value("urn:case-sensitive", "Color"), Some("upper-name-old"));
+    assert_eq!(value("urn:case-sensitive", "color"), Some("lower-name-old"));
+}
+
 fn upload_named_file(name: &str, content: &str, mime: &str, boundary: &str) -> String {
     format!(
         "--{boundary}\r\n\
@@ -665,7 +1074,7 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     assert_current_storage_policy_ignores_retained_legacy_columns(state.writer_db(), backend).await;
     assert_folder_tree_staging_primary_key_and_task_cascade(state.writer_db()).await;
 
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
     let share_file_boundary = "----BackendShareBoundary123";
@@ -698,6 +1107,8 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     let share_file_id = share_upload_body["data"]["id"]
         .as_i64()
         .expect("share upload should return file id");
+    assert_revision_expected_head_serializes_concurrent_appends(database_url, share_file_id).await;
+    assert_revision_expected_etag_serializes_concurrent_appends(database_url, share_file_id).await;
 
     let create_share_req = test::TestRequest::post()
         .uri("/api/v1/shares")
@@ -1042,6 +1453,15 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     assert_eq!(overview_body["data"]["stats"]["total_users"], 2);
     assert_eq!(overview_body["data"]["stats"]["total_files"], 3);
     assert_eq!(overview_body["data"]["stats"]["uploads_today"], 4);
+
+    let test_user =
+        aster_drive::db::repository::user_repo::find_by_username(state.writer_db(), "testuser")
+            .await
+            .unwrap()
+            .expect("backend smoke test user should exist");
+    assert_revision_property_namespace_case_sensitivity(&state, backend, &app, &token, &test_user)
+        .await;
+    assert_batched_folder_copy_initial_revisions(&state, backend, &app, &token, test_user.id).await;
 }
 
 #[actix_web::test]
@@ -1049,6 +1469,37 @@ async fn test_postgres_smoke_search_and_admin_overview() {
     let database_url = common::postgres_test_database_url().await;
 
     exercise_backend_smoke(&database_url, DbBackend::Postgres).await;
+}
+
+#[tokio::test]
+async fn test_postgres_migrations_keep_bounded_backfills_with_single_connection_pool() {
+    let database_url = common::postgres_empty_test_database_url().await;
+    let config = aster_drive::config::DatabaseConfig {
+        url: database_url.into(),
+        pool_size: 1,
+        retry_count: 0,
+    };
+    let database =
+        aster_drive::db::connect_with_metrics(&config, aster_drive_metrics::NoopMetrics::arc())
+            .await
+            .expect("single-connection PostgreSQL migration pool should connect");
+
+    aster_drive_migration::Migrator::up(&database, None)
+        .await
+        .expect("dedicated migration connection must not deadlock the lock pool");
+    let history = aster_drive_migration::inspect_migration_history(&database)
+        .await
+        .expect("single-connection PostgreSQL migration history should be readable");
+    assert_eq!(
+        history.applied,
+        aster_drive_migration::current_migration_names()
+    );
+    assert!(history.pending_current.is_empty());
+
+    database
+        .close()
+        .await
+        .expect("single-connection PostgreSQL migration pool should close");
 }
 
 #[actix_web::test]

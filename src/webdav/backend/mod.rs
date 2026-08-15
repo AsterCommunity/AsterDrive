@@ -1,5 +1,6 @@
 //! AsterDrive storage, database, property, lock, and audit adapters for WebDAV.
 
+mod deltav;
 mod dir_entry;
 mod download_audit;
 pub mod file;
@@ -9,6 +10,7 @@ mod mutation;
 pub mod path_resolver;
 
 use aster_forge_db::transaction;
+use chrono::Utc;
 use std::{collections::HashMap, pin::Pin};
 
 use sea_orm::ConnectionTrait;
@@ -17,7 +19,6 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use crate::db::repository::{file_repo, folder_repo, property_repo, team_repo, user_repo};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    content::property,
     events::storage_change,
     files::{file as file_ops, folder},
     ops::audit::{self, AuditContext},
@@ -28,7 +29,6 @@ use crate::webdav::backend::download_audit::{
     WebdavDownloadAuditIdentity, WebdavDownloadRequestKind, record_download,
 };
 use crate::webdav::backend::file::{AsterDavWriteHandle, DavWriteOpenContext};
-use crate::webdav::backend::metadata::AsterDavMeta;
 use crate::webdav::backend::path_resolver::ResolvedNode;
 use crate::webdav::handlers::resources::MUTATION_FOLDER_TREE_LIMITS;
 use aster_drive_model::entities::{file as file_entity, file_blob};
@@ -62,6 +62,9 @@ pub(crate) struct AsterDavDownloadFile {
     pub(crate) meta: AsterDavMeta,
 }
 
+pub(crate) use deltav::{AuthorizedDeltavRevision, DeltavCapabilityTarget};
+pub(crate) use metadata::AsterDavMeta;
+
 pub(crate) struct DavMutationConditions<'a> {
     pub(crate) prefix: &'a str,
     pub(crate) if_header: Option<&'a IfHeader>,
@@ -70,6 +73,24 @@ pub(crate) struct DavMutationConditions<'a> {
     pub(crate) http_headers: &'a http::HeaderMap,
     pub(crate) http_method: aster_forge_webdav::DavMethod,
     pub(crate) http_target: &'a aster_forge_webdav::DavPath,
+}
+
+fn deltav_backend_to_fs_error(error: DavBackendError) -> FsError {
+    match error.kind {
+        DavBackendErrorKind::NotFound => FsError::NotFound,
+        DavBackendErrorKind::Forbidden => FsError::Forbidden,
+        DavBackendErrorKind::AlreadyExists => FsError::Exists,
+        DavBackendErrorKind::InsufficientStorage => FsError::InsufficientStorage,
+        DavBackendErrorKind::PayloadTooLarge => FsError::TooLarge,
+        DavBackendErrorKind::InvalidInput => FsError::BadRequest,
+        DavBackendErrorKind::Conflict
+        | DavBackendErrorKind::Locked
+        | DavBackendErrorKind::Unsupported
+        | DavBackendErrorKind::Internal => {
+            tracing::warn!(kind = ?error.kind, "DeltaV backend failure crossed the filesystem adapter");
+            FsError::GeneralFailure
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -156,39 +177,25 @@ impl AsterDavFs {
         )
         .await?;
 
-        let file = match node {
+        let authorized = match node {
             ResolvedNode::Root | ResolvedNode::Folder(_) => {
                 return Ok(None);
             }
             ResolvedNode::File(file) => file,
         };
 
-        let blob = file_repo::find_blob_by_id(self.state.reader_db(), file.blob_id)
-            .await
-            .map_err(|_| FsError::GeneralFailure)?;
-        let meta = AsterDavMeta::from_file(&file, &blob);
+        let (file, blob, revision) =
+            file_ops::load_current_download_snapshot(&self.state, authorized.id)
+                .await
+                .map_err(to_fs_error)?;
+        crate::services::workspace::storage::ensure_active_file_scope(&file, self.scope)
+            .map_err(to_fs_error)?;
+        if file.folder_id != authorized.folder_id || file.name != authorized.name {
+            return Err(FsError::NotFound);
+        }
+        let meta = AsterDavMeta::from_file(&file, revision.etag);
 
         Ok(Some(AsterDavDownloadFile { file, blob, meta }))
-    }
-
-    pub(crate) async fn capability_resource_state(
-        &self,
-        path: &DavPath,
-    ) -> Result<aster_forge_webdav::DavResourceState, DavBackendError> {
-        match path_resolver::resolve_path_cached_for_read_in_scope(
-            &self.state,
-            self.scope,
-            path,
-            self.root_folder_id,
-        )
-        .await
-        {
-            Ok(ResolvedNode::Root) => Ok(aster_forge_webdav::DavResourceState::MountRoot),
-            Ok(ResolvedNode::Folder(_)) => Ok(aster_forge_webdav::DavResourceState::Collection),
-            Ok(ResolvedNode::File(_)) => Ok(aster_forge_webdav::DavResourceState::File),
-            Err(FsError::NotFound) => Ok(aster_forge_webdav::DavResourceState::Unmapped),
-            Err(error) => Err(error.into()),
-        }
     }
 
     pub(crate) async fn metadata_for_write(&self, path: &DavPath) -> Result<AsterDavMeta, FsError> {
@@ -202,11 +209,17 @@ impl AsterDavFs {
         match node {
             ResolvedNode::Root => Ok(AsterDavMeta::root()),
             ResolvedNode::Folder(folder) => Ok(AsterDavMeta::from_folder(&folder)),
-            ResolvedNode::File(file) => {
-                let blob = file_repo::find_blob_by_id(self.state.writer_db(), file.blob_id)
-                    .await
-                    .map_err(|_| FsError::GeneralFailure)?;
-                Ok(AsterDavMeta::from_file(&file, &blob))
+            ResolvedNode::File(authorized) => {
+                let (file, _, revision) =
+                    file_ops::load_current_download_snapshot(&self.state, authorized.id)
+                        .await
+                        .map_err(to_fs_error)?;
+                crate::services::workspace::storage::ensure_active_file_scope(&file, self.scope)
+                    .map_err(to_fs_error)?;
+                if file.folder_id != authorized.folder_id || file.name != authorized.name {
+                    return Err(FsError::NotFound);
+                }
+                Ok(AsterDavMeta::from_file(&file, revision.etag))
             }
         }
     }
@@ -373,7 +386,9 @@ impl AsterDavFs {
                 let files = self
                     .file_page(folder_id, Some(*id), fetch_size, writer_authoritative)
                     .await?;
-                return Ok(file_only_page(files, request.maximum_entries));
+                return self
+                    .file_only_page(files, request.maximum_entries, writer_authoritative)
+                    .await;
             }
         };
 
@@ -427,14 +442,68 @@ impl AsterDavFs {
         let returned_files = files.into_iter().take(remaining).collect::<Vec<_>>();
         let last_file_id = returned_files.last().map(|file| file.id);
         entries.extend(
-            returned_files
-                .iter()
-                .map(AsterDavDirEntry::from_file_record),
+            self.file_entries(&returned_files, writer_authoritative)
+                .await?,
         );
         Ok(DavDirectoryPage {
             entries,
             next_cursor: has_more_files
                 .then(|| AsterDavDirectoryCursor::Files(last_file_id.unwrap_or_default())),
+        })
+    }
+
+    async fn file_entries(
+        &self,
+        files: &[file_entity::Model],
+        writer_authoritative: bool,
+    ) -> Result<Vec<AsterDavDirEntry>, DavBackendError> {
+        let db = if writer_authoritative {
+            self.state.writer_db()
+        } else {
+            self.state.reader_db()
+        };
+        let file_ids = files.iter().map(|file| file.id).collect::<Vec<_>>();
+        let revisions =
+            crate::db::repository::revision_repo::current_revision_snapshots_by_file_ids(
+                db, &file_ids,
+            )
+            .await
+            .map_err(|error| {
+                tracing::warn!(%error, "WebDAV current revision query failed");
+                DavBackendError::new(DavBackendErrorKind::Internal)
+            })?;
+        files
+            .iter()
+            .map(|file| {
+                let snapshot = revisions.get(&file.id).cloned().ok_or_else(|| {
+                    tracing::warn!(
+                        file_id = file.id,
+                        "WebDAV directory entry has no current revision"
+                    );
+                    DavBackendError::new(DavBackendErrorKind::Internal)
+                })?;
+                Ok(AsterDavDirEntry::from_file_record(
+                    file,
+                    snapshot.revision,
+                    snapshot.deltav_controlled,
+                ))
+            })
+            .collect()
+    }
+
+    async fn file_only_page(
+        &self,
+        files: Vec<file_entity::Model>,
+        maximum_entries: usize,
+        writer_authoritative: bool,
+    ) -> Result<DavDirectoryPage<AsterDavDirEntry, AsterDavDirectoryCursor>, DavBackendError> {
+        let has_more = files.len() > maximum_entries;
+        let returned = files.into_iter().take(maximum_entries).collect::<Vec<_>>();
+        let next_cursor = has_more
+            .then(|| AsterDavDirectoryCursor::Files(returned.last().map_or(0, |file| file.id)));
+        Ok(DavDirectoryPage {
+            entries: self.file_entries(&returned, writer_authoritative).await?,
+            next_cursor,
         })
     }
 }
@@ -463,23 +532,6 @@ impl DavDirectoryEnumerator for AsterDavWriteDirectoryEnumerator<'_> {
         self.dav_fs
             .read_directory_page_with_consistency(request, true)
             .await
-    }
-}
-
-fn file_only_page(
-    files: Vec<file_entity::Model>,
-    maximum_entries: usize,
-) -> DavDirectoryPage<AsterDavDirEntry, AsterDavDirectoryCursor> {
-    let has_more = files.len() > maximum_entries;
-    let returned = files.into_iter().take(maximum_entries).collect::<Vec<_>>();
-    let next_cursor =
-        has_more.then(|| AsterDavDirectoryCursor::Files(returned.last().map_or(0, |file| file.id)));
-    DavDirectoryPage {
-        entries: returned
-            .iter()
-            .map(AsterDavDirEntry::from_file_record)
-            .collect(),
-        next_cursor,
     }
 }
 
@@ -536,7 +588,7 @@ impl AsterDavFs {
     }
 }
 
-fn exact_length_stream(
+pub(crate) fn exact_length_stream(
     mut reader: Box<dyn AsyncRead + Unpin + Send>,
     expected_length: u64,
 ) -> DavContentStream {
@@ -633,6 +685,16 @@ impl DavWriteSystem for AsterDavFs {
 impl DavFileSystem for AsterDavFs {
     fn metadata<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, Box<dyn DavMetaData>> {
         Box::pin(async move {
+            if matches!(
+                crate::webdav::deltav::classify_reserved_path(path),
+                crate::webdav::deltav::ReservedDeltavPath::Version(_)
+            ) {
+                return self
+                    .deltav_metadata(path)
+                    .await
+                    .map(|metadata| Box::new(metadata) as Box<dyn DavMetaData>)
+                    .map_err(deltav_backend_to_fs_error);
+            }
             let node = path_resolver::resolve_path_cached_for_read_in_scope(
                 &self.state,
                 self.scope,
@@ -644,11 +706,19 @@ impl DavFileSystem for AsterDavFs {
             let meta: Box<dyn DavMetaData> = match node {
                 ResolvedNode::Root => Box::new(AsterDavMeta::root()),
                 ResolvedNode::Folder(f) => Box::new(AsterDavMeta::from_folder(&f)),
-                ResolvedNode::File(f) => {
-                    let blob = file_repo::find_blob_by_id(self.state.reader_db(), f.blob_id)
-                        .await
-                        .map_err(|_| FsError::GeneralFailure)?;
-                    Box::new(AsterDavMeta::from_file(&f, &blob))
+                ResolvedNode::File(authorized) => {
+                    let (file, _, revision) =
+                        file_ops::load_current_download_snapshot(&self.state, authorized.id)
+                            .await
+                            .map_err(to_fs_error)?;
+                    crate::services::workspace::storage::ensure_active_file_scope(
+                        &file, self.scope,
+                    )
+                    .map_err(to_fs_error)?;
+                    if file.folder_id != authorized.folder_id || file.name != authorized.name {
+                        return Err(FsError::NotFound);
+                    }
+                    Box::new(AsterDavMeta::from_file(&file, revision.etag))
                 }
             };
 
@@ -903,16 +973,17 @@ impl DavFileSystem for AsterDavFs {
                     .await;
                 }
                 ResolvedNode::Folder(f) => {
-                    let (copied, storage_delta) = folder::copy_folder_tree_in_scope(
-                        &state,
-                        self.scope,
-                        f.id,
-                        dest_parent_id,
-                        &dest_name,
-                        Some(MUTATION_FOLDER_TREE_LIMITS),
-                    )
-                    .await
-                    .map_err(to_fs_error)?;
+                    let (copied, storage_delta) =
+                        folder::copy_folder_tree_in_scope_with_user_properties(
+                            &state,
+                            self.scope,
+                            f.id,
+                            dest_parent_id,
+                            &dest_name,
+                            Some(MUTATION_FOLDER_TREE_LIMITS),
+                        )
+                        .await
+                        .map_err(to_fs_error)?;
                     storage_change::publish(
                         &state,
                         storage_change::StorageChangeEvent::new(
@@ -924,8 +995,13 @@ impl DavFileSystem for AsterDavFs {
                         )
                         .with_storage_delta(storage_delta),
                     );
-                    copy_visible_properties_for_copied_tree(&state, self.scope(), f.id, copied.id)
-                        .await?;
+                    copy_visible_folder_properties_for_copied_tree(
+                        &state,
+                        self.scope(),
+                        f.id,
+                        copied.id,
+                    )
+                    .await?;
                     let details = folder::audit_transfer_details_for_models(
                         &state,
                         self.scope(),
@@ -988,6 +1064,18 @@ impl DavFileSystem for AsterDavFs {
         path: &'a DavPath,
     ) -> Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
         Box::pin(async move {
+            if matches!(
+                crate::webdav::deltav::classify_reserved_path(path),
+                crate::webdav::deltav::ReservedDeltavPath::Version(_)
+            ) {
+                return match self.deltav_dead_properties(path).await {
+                    Ok(properties) => !properties.is_empty(),
+                    Err(error) => {
+                        tracing::warn!(kind = ?error.kind, "DeltaV dead-property existence lookup failed");
+                        false
+                    }
+                };
+            }
             let (entity_type, entity_id) =
                 match resolve_entity_for_read(&self.state, self.scope, path, self.root_folder_id)
                     .await
@@ -1000,7 +1088,7 @@ impl DavFileSystem for AsterDavFs {
                 .map(|props| {
                     props
                         .iter()
-                        .any(|prop| !property::is_protected_namespace(&prop.namespace))
+                        .any(|prop| !property_repo::is_protected_namespace(&prop.namespace))
                 })
                 .unwrap_or(false)
         })
@@ -1008,6 +1096,15 @@ impl DavFileSystem for AsterDavFs {
 
     fn get_props<'a>(&'a self, path: &'a DavPath, do_content: bool) -> FsFuture<'a, Vec<DavProp>> {
         Box::pin(async move {
+            if matches!(
+                crate::webdav::deltav::classify_reserved_path(path),
+                crate::webdav::deltav::ReservedDeltavPath::Version(_)
+            ) {
+                return self
+                    .deltav_dead_properties(path)
+                    .await
+                    .map_err(deltav_backend_to_fs_error);
+            }
             let (entity_type, entity_id) =
                 resolve_entity_for_read(&self.state, self.scope, path, self.root_folder_id)
                     .await
@@ -1030,7 +1127,20 @@ impl DavFileSystem for AsterDavFs {
         Box::pin(async move {
             let mut target_paths: HashMap<(EntityType, i64), Vec<DavPath>> = HashMap::new();
             let mut targets = Vec::new();
+            let mut result = HashMap::with_capacity(paths.len());
             for path in paths {
+                if matches!(
+                    crate::webdav::deltav::classify_reserved_path(path),
+                    crate::webdav::deltav::ReservedDeltavPath::Version(_)
+                ) {
+                    result.insert(
+                        path.clone(),
+                        self.deltav_dead_properties(path)
+                            .await
+                            .map_err(deltav_backend_to_fs_error)?,
+                    );
+                    continue;
+                }
                 let Some(target) =
                     resolve_entity_for_read(&self.state, self.scope, path, self.root_folder_id)
                         .await
@@ -1046,7 +1156,7 @@ impl DavFileSystem for AsterDavFs {
                 .map_err(|_| FsError::GeneralFailure)?;
             let mut props_by_target: HashMap<(EntityType, i64), Vec<DavProp>> = HashMap::new();
             for prop in props {
-                if property::is_protected_namespace(&prop.namespace) {
+                if property_repo::is_protected_namespace(&prop.namespace) {
                     continue;
                 }
                 props_by_target
@@ -1055,7 +1165,6 @@ impl DavFileSystem for AsterDavFs {
                     .push(entity_prop_to_dav_prop(prop, do_content));
             }
 
-            let mut result = HashMap::with_capacity(paths.len());
             for (target, paths) in target_paths {
                 let props = props_by_target.remove(&target).unwrap_or_default();
                 for path in paths {
@@ -1078,7 +1187,7 @@ impl DavFileSystem for AsterDavFs {
                     .ok_or(FsError::NotFound)?;
 
             let protocol_plan = plan_atomic_proppatch(patches.iter().map(|(_, prop)| {
-                property::is_protected_namespace(prop.namespace.as_deref().unwrap_or(""))
+                property_repo::is_protected_namespace(prop.namespace.as_deref().unwrap_or(""))
             }));
             if !protocol_plan.apply {
                 return Ok(patches
@@ -1092,10 +1201,23 @@ impl DavFileSystem for AsterDavFs {
                 .await
                 .map_err(|_| FsError::GeneralFailure)?;
 
+            let mut applied = Vec::with_capacity(patches.len());
+
             for (set, prop) in &patches {
                 let ns = prop.namespace.as_deref().unwrap_or("");
+                let current =
+                    property_repo::find_by_key(&txn, entity_type, entity_id, ns, &prop.name)
+                        .await
+                        .map_err(|_| FsError::GeneralFailure)?;
                 if *set {
                     let value = prop.xml.as_ref().map(|x| String::from_utf8_lossy(x));
+                    if current
+                        .as_ref()
+                        .is_some_and(|current| current.value.as_deref() == value.as_deref())
+                    {
+                        applied.push(false);
+                        continue;
+                    }
                     property_repo::upsert(
                         &txn,
                         entity_type,
@@ -1106,10 +1228,77 @@ impl DavFileSystem for AsterDavFs {
                     )
                     .await
                     .map_err(|_| FsError::GeneralFailure)?;
+                    applied.push(true);
                 } else {
+                    if current.is_none() {
+                        applied.push(false);
+                        continue;
+                    }
                     property_repo::delete_prop(&txn, entity_type, entity_id, ns, &prop.name)
                         .await
                         .map_err(|_| FsError::GeneralFailure)?;
+                    applied.push(true);
+                }
+            }
+
+            let changed = applied.iter().any(|applied| *applied);
+            let mut controlled_revision_file_id = None;
+            if changed && matches!(entity_type, EntityType::File) {
+                let file = file_repo::find_by_id(&txn, entity_id)
+                    .await
+                    .map_err(|_| FsError::GeneralFailure)?;
+                let history =
+                    crate::db::repository::revision_repo::find_history_by_file_id(&txn, file.id)
+                        .await
+                        .map_err(|_| FsError::GeneralFailure)?;
+                if history.deltav_controlled_at.is_some() {
+                    crate::services::workspace::storage::lock_storage_usage(&txn, self.scope)
+                        .await
+                        .map_err(to_fs_error)?;
+                    if file.size > 0 {
+                        crate::services::workspace::storage::check_quota(
+                            &txn, self.scope, file.size,
+                        )
+                        .await
+                        .map_err(to_fs_error)?;
+                    }
+                    let actor_username =
+                        crate::services::workspace::storage::load_scope_actor_username(
+                            &txn, self.scope,
+                        )
+                        .await
+                        .map_err(|_| FsError::GeneralFailure)?;
+                    file_repo::increment_blob_ref_count(&txn, file.blob_id)
+                        .await
+                        .map_err(to_fs_error)?;
+                    crate::db::repository::revision_repo::append(
+                        &txn,
+                        file.id,
+                        None,
+                        crate::db::repository::revision_repo::NewRevision {
+                            blob_id: file.blob_id,
+                            logical_size: file.size,
+                            mime_type: &file.mime_type,
+                            content_sha256: None,
+                            creator_user_id: Some(self.scope.actor_user_id()),
+                            creator_display_name: &actor_username,
+                            comment: None,
+                            reason:
+                                crate::db::repository::revision_repo::RevisionReason::PropertyChange,
+                            created_at: Utc::now(),
+                            etag: None,
+                        },
+                    )
+                    .await
+                    .map_err(|_| FsError::GeneralFailure)?;
+                    if file.size != 0 {
+                        crate::services::workspace::storage::update_storage_used(
+                            &txn, self.scope, file.size,
+                        )
+                        .await
+                        .map_err(to_fs_error)?;
+                    }
+                    controlled_revision_file_id = Some(file.id);
                 }
             }
 
@@ -1117,7 +1306,16 @@ impl DavFileSystem for AsterDavFs {
                 .await
                 .map_err(|_| FsError::GeneralFailure)?;
 
-            for (set, prop) in &patches {
+            if let Some(file_id) = controlled_revision_file_id {
+                crate::services::content::version::cleanup_excess(&self.state, file_id)
+                    .await
+                    .map_err(to_fs_error)?;
+            }
+
+            for ((set, prop), applied) in patches.iter().zip(applied.iter()) {
+                if !*applied {
+                    continue;
+                }
                 let ns = prop.namespace.as_deref().unwrap_or("");
                 let entity_type_label = entity_type.as_str();
                 audit::log_with_details(
@@ -1157,7 +1355,7 @@ fn entity_props_to_dav_props(
 ) -> Vec<DavProp> {
     props
         .into_iter()
-        .filter(|p| !property::is_protected_namespace(&p.namespace))
+        .filter(|p| !property_repo::is_protected_namespace(&p.namespace))
         .map(|p| entity_prop_to_dav_prop(p, do_content))
         .collect()
 }
@@ -1240,7 +1438,7 @@ async fn copy_visible_entity_properties_on<C: ConnectionTrait>(
         .map_err(|_| FsError::GeneralFailure)?;
 
     for prop in props {
-        if property::is_protected_namespace(&prop.namespace) {
+        if property_repo::is_protected_namespace(&prop.namespace) {
             continue;
         }
         property_repo::upsert(
@@ -1274,23 +1472,7 @@ async fn load_child_folders_in_scope(
     .map_err(|_| FsError::GeneralFailure)
 }
 
-async fn load_files_in_folders_in_scope(
-    state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
-    folder_ids: &[i64],
-) -> Result<Vec<aster_drive_model::entities::file::Model>, FsError> {
-    match scope {
-        WorkspaceStorageScope::Personal { user_id } => {
-            file_repo::find_by_folders(state.writer_db(), user_id, folder_ids).await
-        }
-        WorkspaceStorageScope::Team { team_id, .. } => {
-            file_repo::find_by_team_folders(state.writer_db(), team_id, folder_ids).await
-        }
-    }
-    .map_err(|_| FsError::GeneralFailure)
-}
-
-async fn copy_visible_properties_for_copied_tree(
+async fn copy_visible_folder_properties_for_copied_tree(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     src_root_id: i64,
@@ -1314,43 +1496,10 @@ async fn copy_visible_properties_for_copied_tree(
         let dest_folder_ids: Vec<i64> = frontier.iter().map(|(_, dest)| *dest).collect();
         let dest_parent_by_src: HashMap<i64, i64> = frontier.iter().copied().collect();
 
-        let (src_files, dest_files, src_children, dest_children) = tokio::try_join!(
-            load_files_in_folders_in_scope(state, scope, &src_folder_ids),
-            load_files_in_folders_in_scope(state, scope, &dest_folder_ids),
+        let (src_children, dest_children) = tokio::try_join!(
             load_child_folders_in_scope(state, scope, &src_folder_ids),
             load_child_folders_in_scope(state, scope, &dest_folder_ids),
         )?;
-
-        let dest_file_by_parent_and_name: HashMap<(i64, String), i64> = dest_files
-            .into_iter()
-            .filter_map(|file| {
-                file.folder_id
-                    .map(|folder_id| ((folder_id, file.name), file.id))
-            })
-            .collect();
-
-        for src_file in src_files {
-            let Some(src_parent_id) = src_file.folder_id else {
-                return Err(FsError::GeneralFailure);
-            };
-            let Some(dest_parent_id) = dest_parent_by_src.get(&src_parent_id).copied() else {
-                return Err(FsError::GeneralFailure);
-            };
-            let Some(dest_file_id) = dest_file_by_parent_and_name
-                .get(&(dest_parent_id, src_file.name.clone()))
-                .copied()
-            else {
-                return Err(FsError::GeneralFailure);
-            };
-            copy_visible_entity_properties(
-                state,
-                EntityType::File,
-                src_file.id,
-                EntityType::File,
-                dest_file_id,
-            )
-            .await?;
-        }
 
         let dest_child_by_parent_and_name: HashMap<(i64, String), i64> = dest_children
             .into_iter()
@@ -1536,7 +1685,11 @@ async fn revalidate_atomic_target<C: ConnectionTrait>(
             Some(metadata::to_system_time(folder.updated_at)),
         ),
         ResolvedNode::File(file) => (
-            Some(metadata::file_etag(&file)),
+            Some(
+                crate::db::repository::revision_repo::current_etag(db, file.id)
+                    .await
+                    .map_err(|_| AsterDavMutationError::Backend)?,
+            ),
             Some(metadata::to_system_time(file.updated_at)),
         ),
     };

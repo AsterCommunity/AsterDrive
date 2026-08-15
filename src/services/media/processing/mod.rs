@@ -10,7 +10,7 @@ mod shared;
 mod tests;
 mod thumbnail;
 
-pub use avatar::{probe_vips_cli_command, process_avatar_upload};
+pub use avatar::{probe_vips_cli_command, process_staged_avatar};
 pub(crate) use resolve::{map_thumbnail_request_error, resolve_thumbnail_processor_for_blob};
 pub use shared::{
     ImagePreviewData, ProcessedAvatar, StoredImagePreview, StoredThumbnail, ThumbnailData,

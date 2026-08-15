@@ -16,7 +16,8 @@ mod types;
 
 pub(crate) use build::{
     build_download_outcome_with_disposition_and_range, build_stream_outcome_with_disposition,
-    build_stream_outcome_with_disposition_and_range, download_in_scope_with_range_and_file,
+    build_stream_outcome_with_disposition_and_range, download_in_scope_with_range_header_and_file,
+    load_current_download_snapshot, resolve_range_for_download_snapshot,
 };
 pub use build::{download, download_raw};
 pub(crate) use response::outcome_to_response;

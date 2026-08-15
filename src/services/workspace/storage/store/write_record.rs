@@ -25,6 +25,9 @@ pub(super) struct WriteFileRecordFromTempParams<'a> {
     pub actor_username: Option<&'a str>,
     pub lock_credentials: &'a crate::services::files::lock::LockMutationCredentials,
     pub file_precondition: Option<&'a super::FileWritePrecondition>,
+    pub expected_current_revision_id: Option<i64>,
+    pub expected_current_revision_etag: Option<&'a str>,
+    pub revision_etag: Option<&'a str>,
 }
 
 pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
@@ -44,6 +47,9 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
         actor_username,
         lock_credentials,
         file_precondition,
+        expected_current_revision_id,
+        expected_current_revision_etag,
+        revision_etag,
     } = params;
     if overwrite_ctx.is_none() {
         let workspace = match scope {
@@ -60,7 +66,7 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
         )
         .await?;
     }
-    let result = if let Some(OverwriteContext { old_file, old_blob }) = overwrite_ctx {
+    let result = if let Some(OverwriteContext { old_file }) = overwrite_ctx {
         let current_file = super::revalidate_overwrite_target(
             txn,
             scope,
@@ -70,6 +76,10 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
         )
         .await?;
         let existing_id = current_file.id;
+        let locked_revision_id =
+            crate::db::repository::revision_repo::lock_history_by_file_id(txn, existing_id)
+                .await?
+                .current_revision_id;
         let current_name = current_file.name.clone();
         let mut active: file::ActiveModel = current_file.into();
         active.blob_id = Set(blob.id);
@@ -81,20 +91,44 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
         active.file_category = Set(classification.category);
         active.updated_at = Set(now);
         let updated = active.update(txn).await.map_err(AsterError::from)?;
+        let actor_username = match actor_username {
+            Some(username) => username.to_owned(),
+            None => {
+                crate::services::workspace::storage::load_scope_actor_username(txn, scope).await?
+            }
+        };
 
-        let next_ver = crate::db::repository::version_repo::next_version(txn, existing_id).await?;
-        crate::db::repository::version_repo::create(
-            txn,
-            aster_drive_model::entities::file_version::ActiveModel {
-                file_id: Set(existing_id),
-                blob_id: Set(old_blob.id),
-                version: Set(next_ver),
-                size: Set(old_blob.size),
-                created_at: Set(now),
-                ..Default::default()
-            },
-        )
-        .await?;
+        let revision_input = crate::db::repository::revision_repo::NewRevision {
+            blob_id: blob.id,
+            logical_size: blob.size,
+            mime_type: mime,
+            content_sha256: None,
+            creator_user_id: Some(scope.actor_user_id()),
+            creator_display_name: &actor_username,
+            comment: None,
+            reason: crate::db::repository::revision_repo::RevisionReason::Overwrite,
+            created_at: now,
+            etag: revision_etag,
+        };
+        if expected_current_revision_etag.is_some() {
+            crate::db::repository::revision_repo::append_for_expected_etag(
+                txn,
+                existing_id,
+                expected_current_revision_etag,
+                revision_input,
+            )
+            .await
+            .map_err(crate::services::content::revision::map_append_error)?;
+        } else {
+            crate::db::repository::revision_repo::append(
+                txn,
+                existing_id,
+                expected_current_revision_id.or(locked_revision_id),
+                revision_input,
+            )
+            .await
+            .map_err(crate::services::content::revision::map_append_error)?;
+        }
         updated
     } else {
         match new_file_mode {

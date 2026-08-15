@@ -15,7 +15,7 @@ use crate::services::workspace::storage::{
     resolve_policy_for_size, upload_temp_file_to_prepared_blob,
     upload_temp_file_to_prepared_blob_cancellable, verify_file_access,
 };
-use aster_drive_model::entities::{file, file_blob, storage_policy};
+use aster_drive_model::entities::{file, storage_policy};
 use aster_drive_storage::StorageDriver;
 
 pub(super) struct PreparedStoreFromTemp {
@@ -37,12 +37,14 @@ pub(super) struct PreparedStoreFromTemp {
     pub actor_username: Option<String>,
     pub lock_credentials: crate::services::files::lock::LockMutationCredentials,
     pub file_precondition: Option<super::FileWritePrecondition>,
+    pub expected_current_revision_id: Option<i64>,
+    pub expected_current_revision_etag: Option<String>,
+    pub revision_etag: Option<String>,
 }
 
 #[derive(Clone)]
 pub(super) struct OverwriteContext {
     pub old_file: file::Model,
-    pub old_blob: file_blob::Model,
 }
 
 fn upload_hash_temp_open_failed(message: String) -> AsterError {
@@ -67,12 +69,15 @@ pub(super) async fn prepare_store_from_temp(
         existing_file_id,
         lock_credentials,
         file_precondition,
+        expected_current_revision_id,
+        expected_current_revision_etag,
     } = params;
     let StoreFromTempHints {
         resolved_policy,
         precomputed_hash,
         actor_username,
         operation_context,
+        revision_etag,
     } = hints;
     operation_context.checkpoint()?;
 
@@ -183,6 +188,9 @@ pub(super) async fn prepare_store_from_temp(
         actor_username: actor_username.map(ToOwned::to_owned),
         lock_credentials,
         file_precondition,
+        expected_current_revision_id,
+        expected_current_revision_etag,
+        revision_etag: revision_etag.map(ToOwned::to_owned),
     })
 }
 
@@ -244,5 +252,5 @@ async fn load_overwrite_context(
         tracing::warn!("failed to delete thumbnail for blob {}: {err}", old_blob.id);
     }
 
-    Ok(Some(OverwriteContext { old_file, old_blob }))
+    Ok(Some(OverwriteContext { old_file }))
 }

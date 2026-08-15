@@ -696,7 +696,25 @@ mod tests {
             future_size < 16 * 1024,
             "archive extract copy future is {future_size} bytes"
         );
-        assert_eq!(allocations.count, 1);
-        assert_eq!(allocations.bytes, 64 * 1024);
+        // The copy owns one reusable 64 KiB buffer. The task shutdown listener may
+        // allocate a small fixed control object while it is first registered; that
+        // overhead must stay constant and must not scale with the number of chunks.
+        const COPY_BUFFER_BYTES: usize = 64 * 1024;
+        const CONTROL_PLANE_ALLOCATION_BUDGET: usize = 4 * 1024;
+        assert!(
+            allocations.count <= 2,
+            "archive extract copy allocated {} objects; expected one buffer plus fixed control-plane overhead",
+            allocations.count
+        );
+        assert!(
+            allocations.bytes >= COPY_BUFFER_BYTES,
+            "archive extract copy allocated only {} bytes; reusable buffer is missing",
+            allocations.bytes
+        );
+        assert!(
+            allocations.bytes <= COPY_BUFFER_BYTES + CONTROL_PLANE_ALLOCATION_BUDGET,
+            "archive extract copy allocated {} bytes; control-plane overhead is not bounded",
+            allocations.bytes
+        );
     }
 }

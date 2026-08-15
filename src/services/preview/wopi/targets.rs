@@ -43,6 +43,8 @@ pub(crate) struct StoreRelativeTargetParams<'a> {
     pub folder_id: Option<i64>,
     pub filename: &'a str,
     pub existing_file_id: Option<i64>,
+    pub file_precondition: Option<storage::FileWritePrecondition>,
+    pub expected_current_revision_id: Option<i64>,
     pub payload: &'a mut actix_web::web::Payload,
     pub declared_size: Option<i64>,
     pub exact_name: bool,
@@ -60,6 +62,8 @@ impl<'a> StoreRelativeTargetParams<'a> {
             folder_id,
             filename,
             existing_file_id: None,
+            file_precondition: None,
+            expected_current_revision_id: None,
             payload,
             declared_size: None,
             exact_name: false,
@@ -71,8 +75,15 @@ impl<'a> StoreRelativeTargetParams<'a> {
         self
     }
 
-    pub(crate) fn overwrite(mut self, existing_file_id: i64) -> Self {
-        self.existing_file_id = Some(existing_file_id);
+    pub(crate) fn overwrite(mut self, existing: &file::Model, current_revision_id: i64) -> Self {
+        self.existing_file_id = Some(existing.id);
+        self.file_precondition = Some(storage::FileWritePrecondition::existing(existing));
+        self.expected_current_revision_id = Some(current_revision_id);
+        self
+    }
+
+    pub(crate) fn expect_missing(mut self) -> Self {
+        self.file_precondition = Some(storage::FileWritePrecondition::Missing);
         self
     }
 
@@ -344,6 +355,8 @@ pub(crate) async fn store_relative_target_from_stream(
         folder_id,
         filename,
         existing_file_id,
+        file_precondition,
+        expected_current_revision_id,
         payload,
         declared_size,
         exact_name,
@@ -377,7 +390,9 @@ pub(crate) async fn store_relative_target_from_stream(
                 size,
                 existing_file_id,
                 lock_credentials: crate::services::files::lock::LockMutationCredentials::None,
-                file_precondition: None,
+                file_precondition,
+                expected_current_revision_id,
+                expected_current_revision_etag: None,
             },
             storage::StoreFromTempHints {
                 resolved_policy,
@@ -398,7 +413,9 @@ pub(crate) async fn store_relative_target_from_stream(
                 size,
                 existing_file_id,
                 lock_credentials: crate::services::files::lock::LockMutationCredentials::None,
-                file_precondition: None,
+                file_precondition,
+                expected_current_revision_id,
+                expected_current_revision_etag: None,
             },
             storage::StoreFromTempHints {
                 resolved_policy,

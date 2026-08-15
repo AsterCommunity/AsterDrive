@@ -40,6 +40,8 @@ const STORAGE_POLICY_CONNECTOR_CONFIGS_MIGRATION: &str =
     "m20260803_000002_storage_policy_connector_configs";
 const ALLOW_CONNECTOR_POLICY_WRITES_WITH_LEGACY_SCHEMA_MIGRATION: &str =
     "m20260805_000001_allow_connector_policy_writes_with_legacy_schema";
+const CANONICAL_FILE_REVISION_LEDGER_MIGRATION: &str =
+    "m20260813_000001_canonical_file_revision_ledger";
 const VIRTUAL_EMPTY_FILE_BLOBS_MIGRATION: &str = "m20260815_000001_virtual_empty_file_blobs";
 
 #[tokio::test]
@@ -78,8 +80,16 @@ async fn virtual_empty_blob_migration_backfills_stored_rows_and_enforces_backing
          VALUES (501, 'legacy.bin', NULL, NULL, 401, 3, NULL, NULL, '', \
                  'application/octet-stream', 'bin', NULL, 'other', \
                  '2026-08-15T00:00:00Z', '2026-08-15T00:00:00Z', NULL); \
-         INSERT INTO file_versions (file_id, blob_id, version, size, created_at) \
-         VALUES (501, 401, 1, 3, '2026-08-15T00:00:00Z'); \
+         INSERT INTO file_revision_histories \
+         (id, public_id, file_id, current_revision_id, next_sequence, created_at) \
+         VALUES (601, 'virtual-empty-history', 501, NULL, 2, '2026-08-15T00:00:00Z'); \
+         INSERT INTO file_revisions \
+         (id, public_id, history_id, sequence, predecessor_revision_id, blob_id, logical_size, \
+          mime_type, etag, reason, created_at) \
+         VALUES (701, 'virtual-empty-revision', 601, 1, NULL, 401, 3, \
+                 'application/octet-stream', 'virtual-empty-etag', 'create', \
+                 '2026-08-15T00:00:00Z'); \
+         UPDATE file_revision_histories SET current_revision_id = 701 WHERE id = 601; \
          INSERT INTO blob_media_metadata \
          (blob_id, blob_hash, kind, status, metadata_json, error_message, parser, \
           parser_version, created_at, updated_at) \
@@ -107,7 +117,7 @@ async fn virtual_empty_blob_migration_backfills_stored_rows_and_enforces_backing
     );
     for (table, foreign_key_column) in [
         ("files", "blob_id"),
-        ("file_versions", "blob_id"),
+        ("file_revisions", "blob_id"),
         ("blob_media_metadata", "blob_id"),
     ] {
         let count = db
@@ -182,6 +192,444 @@ async fn virtual_empty_blob_migration_backfills_stored_rows_and_enforces_backing
         duplicate.is_err(),
         "scope/key uniqueness should serialize claims"
     );
+}
+
+#[tokio::test]
+async fn canonical_revision_ledger_backfills_history_head_and_user_properties() {
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite memory database should connect");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(
+            CANONICAL_FILE_REVISION_LEDGER_MIGRATION,
+        )),
+    )
+    .await
+    .expect("mutable file-version schema should apply");
+
+    let created = "2026-08-01T00:00:00Z";
+    let updated = "2026-08-03T00:00:00Z";
+    db.execute_unprepared(&format!(
+        "INSERT INTO users (id, username, email, password_hash, role, status, storage_quota, storage_used, created_at, updated_at) \
+         VALUES (101, 'revision-owner', 'revision-owner@example.test', 'hash', 'user', 'active', 1000, 60, '{created}', '{updated}'); \
+         INSERT INTO storage_policies (id, name, driver_type, created_at, updated_at) \
+         VALUES (1, 'revision-test', 'local', '{created}', '{updated}'); \
+         INSERT INTO file_blobs (id, hash, storage_path, size, ref_count, policy_id, created_at, updated_at) VALUES \
+           (201, 'revision-old-1', 'revision-old-1', 10, 1, 1, '{created}', '{created}'), \
+           (202, 'revision-old-2', 'revision-old-2', 20, 1, 1, '{created}', '{created}'), \
+           (203, 'revision-current', 'revision-current', 30, 1, 1, '{created}', '{updated}'); \
+         INSERT INTO files (id, name, folder_id, team_id, blob_id, size, owner_user_id, created_by_user_id, created_by_username, mime_type, extension, compound_extension, file_category, created_at, updated_at, deleted_at) \
+         VALUES (301, 'ledger.txt', NULL, NULL, 203, 30, 101, 101, 'revision-owner', 'text/plain', 'txt', NULL, 'document', '{created}', '{updated}', NULL); \
+         INSERT INTO file_versions (id, file_id, blob_id, version, size, created_at) VALUES \
+           (401, 301, 201, 1, 10, '{created}'), \
+           (402, 301, 202, 2, 20, '2026-08-02T00:00:00Z'); \
+         INSERT INTO entity_properties (entity_type, entity_id, namespace, name, value) VALUES \
+           ('file', 301, 'urn:example:user', 'color', '<color>blue</color>'), \
+           ('file', 301, 'System.preview', 'cache', 'case-sensitive-user'), \
+           ('file', 301, 'systemx.preview', 'cache', 'prefix-boundary-user'), \
+           ('file', 301, 'DAVx:', 'displayname', 'dav-boundary-user'), \
+           ('file', 301, 'DAV:', 'getetag', 'protected'), \
+           ('file', 301, 'system.preview', 'cache', 'internal')"
+    ))
+    .await
+    .expect("legacy revision fixture should insert");
+
+    CurrentMigrator::up(&db, Some(1))
+        .await
+        .expect("canonical revision ledger migration should apply");
+
+    assert!(!sqlite_table_exists(&db, "file_versions").await);
+    let history = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT id, public_id, file_id, current_revision_id, next_sequence FROM file_revision_histories WHERE file_id = 301",
+        ))
+        .await
+        .expect("revision history should query")
+        .expect("revision history should exist");
+    assert_eq!(history.try_get_by_index::<i64>(0).unwrap(), 301);
+    assert!(uuid::Uuid::parse_str(&history.try_get_by_index::<String>(1).unwrap()).is_ok());
+    assert_eq!(history.try_get_by_index::<i64>(2).unwrap(), 301);
+    assert_eq!(history.try_get_by_index::<i64>(3).unwrap(), 403);
+    assert_eq!(history.try_get_by_index::<i64>(4).unwrap(), 4);
+
+    let revisions = db
+        .query_all_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT id, public_id, sequence, predecessor_revision_id, blob_id, logical_size, mime_type, creator_user_id, reason, etag \
+             FROM file_revisions WHERE history_id = 301 ORDER BY sequence",
+        ))
+        .await
+        .expect("backfilled revisions should query");
+    assert_eq!(revisions.len(), 3);
+    assert_eq!(revisions[0].try_get_by_index::<i64>(0).unwrap(), 401);
+    for revision in &revisions {
+        assert!(uuid::Uuid::parse_str(&revision.try_get_by_index::<String>(1).unwrap()).is_ok());
+        assert_eq!(revision.try_get_by_index::<String>(9).unwrap().len(), 32);
+    }
+    assert_eq!(revisions[0].try_get_by_index::<i64>(2).unwrap(), 1);
+    assert!(
+        revisions[0]
+            .try_get_by_index::<Option<i64>>(3)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(revisions[1].try_get_by_index::<i64>(3).unwrap(), 401);
+    assert_eq!(revisions[2].try_get_by_index::<i64>(3).unwrap(), 402);
+    assert_eq!(revisions[2].try_get_by_index::<i64>(4).unwrap(), 203);
+    assert_eq!(revisions[2].try_get_by_index::<i64>(5).unwrap(), 30);
+    assert_eq!(
+        revisions[2].try_get_by_index::<String>(6).unwrap(),
+        "text/plain"
+    );
+    assert_eq!(revisions[2].try_get_by_index::<i64>(7).unwrap(), 101);
+    assert_eq!(
+        revisions[2].try_get_by_index::<String>(8).unwrap(),
+        "migration_current"
+    );
+    assert!(
+        revisions[0]
+            .try_get_by_index::<Option<String>>(6)
+            .unwrap()
+            .is_none(),
+        "unknown historical MIME must remain unknown"
+    );
+
+    let properties = db
+        .query_all_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT namespace, name, xml_value FROM file_revision_properties ORDER BY namespace, name",
+        ))
+        .await
+        .expect("revision properties should query");
+    let mut properties: Vec<(String, String, Option<String>)> = properties
+        .iter()
+        .map(|property| {
+            (
+                property.try_get_by_index(0).unwrap(),
+                property.try_get_by_index(1).unwrap(),
+                property.try_get_by_index(2).unwrap(),
+            )
+        })
+        .collect();
+    properties.sort();
+    assert_eq!(
+        properties,
+        vec![
+            (
+                "DAVx:".to_string(),
+                "displayname".to_string(),
+                Some("dav-boundary-user".to_string()),
+            ),
+            (
+                "System.preview".to_string(),
+                "cache".to_string(),
+                Some("case-sensitive-user".to_string()),
+            ),
+            (
+                "systemx.preview".to_string(),
+                "cache".to_string(),
+                Some("prefix-boundary-user".to_string()),
+            ),
+            (
+                "urn:example:user".to_string(),
+                "color".to_string(),
+                Some("<color>blue</color>".to_string()),
+            ),
+        ]
+    );
+
+    let foreign_key_violations = db
+        .query_all_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "PRAGMA foreign_key_check",
+        ))
+        .await
+        .expect("foreign key check should run");
+    assert!(foreign_key_violations.is_empty());
+
+    db.execute_unprepared(&format!(
+        "INSERT INTO file_blobs (id, hash, storage_path, size, ref_count, policy_id, created_at, updated_at) \
+         VALUES (204, 'revision-post-migration', 'revision-post-migration', 40, 1, 1, '{created}', '{updated}'); \
+         INSERT INTO files (id, name, folder_id, team_id, blob_id, size, owner_user_id, created_by_user_id, created_by_username, mime_type, extension, compound_extension, file_category, created_at, updated_at, deleted_at) \
+         VALUES (302, 'post-migration.txt', NULL, NULL, 204, 40, 101, 101, 'revision-owner', 'text/plain', 'txt', NULL, 'document', '{created}', '{updated}', NULL)"
+    ))
+    .await
+    .expect("post-migration file fixture should insert");
+    let post_migration_file = aster_drive::db::repository::file_repo::find_by_id(&db, 302)
+        .await
+        .expect("post-migration file should load");
+    let post_migration_revision = aster_drive::db::repository::revision_repo::create_initial(
+        &db,
+        &post_migration_file,
+        aster_drive::db::repository::revision_repo::RevisionReason::Create,
+    )
+    .await
+    .expect("automatic history and revision ids must continue after backfill");
+    let post_migration_history =
+        aster_drive::db::repository::revision_repo::find_history_by_file_id(&db, 302)
+            .await
+            .expect("post-migration history should load");
+    assert!(post_migration_history.id > 301);
+    assert!(post_migration_revision.id > 403);
+
+    CurrentMigrator::down(&db, Some(1))
+        .await
+        .expect("canonical ledger should downgrade");
+    let legacy_versions = db
+        .query_all_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT id, version, blob_id FROM file_versions WHERE file_id = 301 ORDER BY version",
+        ))
+        .await
+        .expect("downgraded versions should query");
+    assert_eq!(legacy_versions.len(), 2);
+    assert_eq!(legacy_versions[0].try_get_by_index::<i64>(0).unwrap(), 401);
+    assert_eq!(legacy_versions[1].try_get_by_index::<i64>(0).unwrap(), 402);
+
+    CurrentMigrator::up(&db, Some(1))
+        .await
+        .expect("canonical ledger should reapply");
+    assert!(sqlite_table_exists(&db, "file_revision_histories").await);
+    assert!(!sqlite_table_exists(&db, "file_versions").await);
+}
+
+async fn assert_canonical_revision_ledger_upgrade_on_backend(db: &DatabaseConnection) {
+    CurrentMigrator::up(
+        db,
+        Some(steps_before_migration(
+            CANONICAL_FILE_REVISION_LEDGER_MIGRATION,
+        )),
+    )
+    .await
+    .expect("legacy file-version schema should apply");
+
+    let backend = db.get_database_backend();
+    for sql in [
+        "INSERT INTO storage_policies (id, name, driver_type, allowed_types, storage_config, created_at, updated_at) VALUES (9101, 'revision-upgrade', 'local', '{}', '{}', '2026-08-01 00:00:00', '2026-08-01 00:00:00')",
+        "INSERT INTO file_blobs (id, hash, storage_path, size, ref_count, policy_id, created_at, updated_at) VALUES (9201, 'revision-upgrade-old', 'revision-upgrade-old', 10, 1, 9101, '2026-08-01 00:00:00', '2026-08-01 00:00:00')",
+        "INSERT INTO file_blobs (id, hash, storage_path, size, ref_count, policy_id, created_at, updated_at) VALUES (9202, 'revision-upgrade-current', 'revision-upgrade-current', 20, 1, 9101, '2026-08-01 00:00:00', '2026-08-02 00:00:00')",
+        "INSERT INTO files (id, name, folder_id, team_id, blob_id, size, owner_user_id, created_by_user_id, created_by_username, mime_type, extension, compound_extension, file_category, created_at, updated_at, deleted_at) VALUES (9301, 'upgrade.txt', NULL, NULL, 9202, 20, NULL, NULL, 'migration', 'text/plain', 'txt', NULL, 'document', '2026-08-01 00:00:00', '2026-08-02 00:00:00', NULL)",
+        "INSERT INTO file_versions (id, file_id, blob_id, version, size, created_at) VALUES (9401, 9301, 9201, 7, 10, '2026-08-01 00:00:00')",
+        "INSERT INTO entity_properties (entity_type, entity_id, namespace, name, value) VALUES ('file', 9301, 'urn:test', 'color', 'blue')",
+        "INSERT INTO entity_properties (entity_type, entity_id, namespace, name, value) VALUES ('file', 9301, 'System.preview', 'user-case', 'case-sensitive-user')",
+        "INSERT INTO entity_properties (entity_type, entity_id, namespace, name, value) VALUES ('file', 9301, 'systemx.preview', 'boundary', 'prefix-boundary-user')",
+        "INSERT INTO entity_properties (entity_type, entity_id, namespace, name, value) VALUES ('file', 9301, 'DAVx:', 'boundary', 'dav-boundary-user')",
+        "INSERT INTO entity_properties (entity_type, entity_id, namespace, name, value) VALUES ('file', 9301, 'DAV:', 'getetag', 'protected')",
+        "INSERT INTO entity_properties (entity_type, entity_id, namespace, name, value) VALUES ('file', 9301, 'system.preview', 'cache', 'internal')",
+    ] {
+        db.execute_raw(Statement::from_string(backend, sql))
+            .await
+            .expect("legacy revision fixture statement should execute");
+    }
+
+    CurrentMigrator::up(db, Some(1))
+        .await
+        .expect("canonical revision ledger migration should apply");
+    if backend == DbBackend::MySql {
+        let columns = mysql_table_columns(db, "entity_properties").await;
+        assert!(has_column(&columns, "namespace_case_key"));
+        assert!(has_column(&columns, "name_case_key"));
+        assert_eq!(
+            mysql_index_columns(db, "entity_properties", "idx_entity_properties_unique").await,
+            [
+                "entity_type",
+                "entity_id",
+                "namespace_case_key",
+                "name_case_key",
+            ]
+        );
+    }
+    let rows = db
+        .query_all_raw(Statement::from_string(
+            backend,
+            "SELECT r.id, r.sequence, r.predecessor_revision_id, r.blob_id, r.reason, h.current_revision_id, h.next_sequence \
+             FROM file_revisions r JOIN file_revision_histories h ON h.id = r.history_id \
+             WHERE h.file_id = 9301 ORDER BY r.sequence",
+        ))
+        .await
+        .expect("backfilled revision chain should query");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].try_get_by_index::<i64>(0).unwrap(), 9401);
+    assert_eq!(rows[0].try_get_by_index::<i64>(1).unwrap(), 1);
+    assert_eq!(rows[1].try_get_by_index::<i64>(2).unwrap(), 9401);
+    assert_eq!(rows[1].try_get_by_index::<i64>(3).unwrap(), 9202);
+    assert_eq!(
+        rows[1].try_get_by_index::<String>(4).unwrap(),
+        "migration_current"
+    );
+    let current_revision_id = rows[1].try_get_by_index::<i64>(5).unwrap();
+    assert_eq!(
+        current_revision_id,
+        rows[1].try_get_by_index::<i64>(0).unwrap()
+    );
+    assert_eq!(rows[1].try_get_by_index::<i64>(6).unwrap(), 3);
+    let properties = db
+        .query_all_raw(Statement::from_string(
+            backend,
+            "SELECT namespace, name, xml_value FROM file_revision_properties",
+        ))
+        .await
+        .expect("backfilled revision properties should query");
+    let mut properties: Vec<(String, String, Option<String>)> = properties
+        .iter()
+        .map(|property| {
+            (
+                property.try_get_by_index(0).unwrap(),
+                property.try_get_by_index(1).unwrap(),
+                property.try_get_by_index(2).unwrap(),
+            )
+        })
+        .collect();
+    properties.sort();
+    assert_eq!(
+        properties,
+        vec![
+            (
+                "DAVx:".to_string(),
+                "boundary".to_string(),
+                Some("dav-boundary-user".to_string()),
+            ),
+            (
+                "System.preview".to_string(),
+                "user-case".to_string(),
+                Some("case-sensitive-user".to_string()),
+            ),
+            (
+                "systemx.preview".to_string(),
+                "boundary".to_string(),
+                Some("prefix-boundary-user".to_string()),
+            ),
+            (
+                "urn:test".to_string(),
+                "color".to_string(),
+                Some("blue".to_string()),
+            ),
+        ]
+    );
+
+    for sql in [
+        "INSERT INTO file_blobs (id, hash, storage_path, size, ref_count, policy_id, created_at, updated_at) VALUES (9203, 'revision-upgrade-new', 'revision-upgrade-new', 30, 1, 9101, '2026-08-03 00:00:00', '2026-08-03 00:00:00')",
+        "INSERT INTO files (id, name, folder_id, team_id, blob_id, size, owner_user_id, created_by_user_id, created_by_username, mime_type, extension, compound_extension, file_category, created_at, updated_at, deleted_at) VALUES (9302, 'post-upgrade.txt', NULL, NULL, 9203, 30, NULL, NULL, 'migration', 'text/plain', 'txt', NULL, 'document', '2026-08-03 00:00:00', '2026-08-03 00:00:00', NULL)",
+    ] {
+        db.execute_raw(Statement::from_string(backend, sql))
+            .await
+            .expect("post-upgrade fixture statement should execute");
+    }
+    let file = aster_drive::db::repository::file_repo::find_by_id(db, 9302)
+        .await
+        .expect("post-upgrade file should load");
+    let revision = aster_drive::db::repository::revision_repo::create_initial(
+        db,
+        &file,
+        aster_drive::db::repository::revision_repo::RevisionReason::Create,
+    )
+    .await
+    .expect("post-upgrade automatic revision ids should not collide with backfill");
+    let history = aster_drive::db::repository::revision_repo::find_history_by_file_id(db, 9302)
+        .await
+        .expect("post-upgrade history should load");
+    assert!(history.id > 9301);
+    assert!(revision.id > current_revision_id);
+
+    CurrentMigrator::down(db, Some(1))
+        .await
+        .expect("canonical revision ledger should downgrade");
+    let legacy_count = db
+        .query_one_raw(Statement::from_string(
+            backend,
+            "SELECT COUNT(*) FROM file_versions WHERE file_id = 9301",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get_by_index::<i64>(0)
+        .unwrap();
+    assert_eq!(legacy_count, 1);
+    if backend == DbBackend::MySql {
+        let columns = mysql_table_columns(db, "entity_properties").await;
+        assert!(!has_column(&columns, "namespace_case_key"));
+        assert!(!has_column(&columns, "name_case_key"));
+        assert_eq!(
+            mysql_index_columns(db, "entity_properties", "idx_entity_properties_unique").await,
+            ["entity_type", "entity_id", "namespace", "name"]
+        );
+    }
+    CurrentMigrator::up(db, Some(1))
+        .await
+        .expect("canonical revision ledger should reapply");
+    if backend == DbBackend::MySql {
+        let columns = mysql_table_columns(db, "entity_properties").await;
+        assert!(has_column(&columns, "namespace_case_key"));
+        assert!(has_column(&columns, "name_case_key"));
+        assert_eq!(
+            mysql_index_columns(db, "entity_properties", "idx_entity_properties_unique").await,
+            [
+                "entity_type",
+                "entity_id",
+                "namespace_case_key",
+                "name_case_key",
+            ]
+        );
+    }
+}
+
+#[tokio::test]
+async fn canonical_revision_ledger_upgrades_postgres() {
+    let database_url = common::postgres_empty_test_database_url().await;
+    let db = Database::connect(database_url).await.unwrap();
+    assert_canonical_revision_ledger_upgrade_on_backend(&db).await;
+}
+
+#[tokio::test]
+async fn canonical_revision_ledger_upgrades_mysql() {
+    let database_url = common::mysql_empty_test_database_url().await;
+    let db = Database::connect(database_url).await.unwrap();
+    assert_canonical_revision_ledger_upgrade_on_backend(&db).await;
+}
+
+#[tokio::test]
+async fn canonical_revision_ledger_mysql_downgrade_rejects_case_collisions_before_schema_changes() {
+    let database_url = common::mysql_empty_test_database_url().await;
+    let db = Database::connect(database_url).await.unwrap();
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(CANONICAL_FILE_REVISION_LEDGER_MIGRATION) + 1),
+    )
+    .await
+    .expect("current MySQL schema should apply");
+    db.execute_unprepared(
+        "INSERT INTO entity_properties \
+         (entity_type, entity_id, namespace, name, value) VALUES \
+         ('file', 99101, 'urn:Case', 'name', 'upper'), \
+         ('file', 99101, 'urn:case', 'name', 'lower')",
+    )
+    .await
+    .expect("upgraded case-sensitive property key should accept both rows");
+
+    let error = CurrentMigrator::down(&db, Some(1))
+        .await
+        .expect_err("legacy case-insensitive key must reject an ambiguous downgrade");
+    assert!(
+        error.to_string().to_ascii_lowercase().contains("duplicate"),
+        "unexpected downgrade error: {error}"
+    );
+
+    let columns = mysql_table_columns(&db, "entity_properties").await;
+    assert!(has_column(&columns, "namespace_case_key"));
+    assert!(has_column(&columns, "name_case_key"));
+    assert_eq!(
+        mysql_index_columns(&db, "entity_properties", "idx_entity_properties_unique").await,
+        [
+            "entity_type",
+            "entity_id",
+            "namespace_case_key",
+            "name_case_key",
+        ]
+    );
+    assert!(mysql_table_exists(&db, "file_revisions").await);
+    assert!(!mysql_table_exists(&db, "file_versions").await);
 }
 
 #[tokio::test]
@@ -1877,6 +2325,57 @@ async fn mysql_table_index_exists(
     .await
     .expect("mysql index lookup should load")
     .is_some()
+}
+
+async fn mysql_table_columns(db: &DatabaseConnection, table_name: &str) -> Vec<String> {
+    db.query_all_raw(Statement::from_sql_and_values(
+        DbBackend::MySql,
+        "SELECT column_name FROM information_schema.columns \
+         WHERE table_schema = DATABASE() AND table_name = ? ORDER BY ordinal_position",
+        [table_name.into()],
+    ))
+    .await
+    .expect("mysql table column metadata should load")
+    .into_iter()
+    .map(|row| {
+        row.try_get_by_index::<String>(0)
+            .expect("mysql column metadata should include the column name")
+    })
+    .collect()
+}
+
+async fn mysql_table_exists(db: &DatabaseConnection, table_name: &str) -> bool {
+    db.query_one_raw(Statement::from_sql_and_values(
+        DbBackend::MySql,
+        "SELECT 1 FROM information_schema.tables \
+         WHERE table_schema = DATABASE() AND table_name = ? LIMIT 1",
+        [table_name.into()],
+    ))
+    .await
+    .expect("mysql table metadata should load")
+    .is_some()
+}
+
+async fn mysql_index_columns(
+    db: &DatabaseConnection,
+    table_name: &str,
+    index_name: &str,
+) -> Vec<String> {
+    db.query_all_raw(Statement::from_sql_and_values(
+        DbBackend::MySql,
+        "SELECT column_name FROM information_schema.statistics \
+         WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ? \
+         ORDER BY seq_in_index",
+        [table_name.into(), index_name.into()],
+    ))
+    .await
+    .expect("mysql index column metadata should load")
+    .into_iter()
+    .map(|row| {
+        row.try_get_by_index::<String>(0)
+            .expect("mysql index metadata should include the column name")
+    })
+    .collect()
 }
 
 async fn sqlite_table_columns(db: &DatabaseConnection, table_name: &str) -> Vec<String> {

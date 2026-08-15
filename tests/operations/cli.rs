@@ -1231,7 +1231,7 @@ async fn test_root_binary_doctor_redacts_database_url_query_credentials() {
         uuid::Uuid::new_v4()
     ));
     let database_url = format!(
-        "sqlite://{}?mode=rwc&password=secret%2Fvalue&DB_TOKEN=abc",
+        "sqlite://{}?mode=rwc&password=secret%2Fvalue&DB_TOKEN=doctor-query-token-credential",
         database_path.display()
     );
 
@@ -1242,7 +1242,7 @@ async fn test_root_binary_doctor_redacts_database_url_query_credentials() {
     assert!(stdout.contains("password=***"));
     assert!(stdout.contains("DB_TOKEN=***"));
     assert!(!stdout.contains("secret%2Fvalue"));
-    assert!(!stdout.contains("abc"));
+    assert!(!stdout.contains("doctor-query-token-credential"));
 }
 
 #[tokio::test]

@@ -11,6 +11,7 @@ const mockState = vi.hoisted(() => ({
 	},
 	handleApiError: vi.fn(),
 	refreshUser: vi.fn(),
+	applyUserProfile: vi.fn(),
 	toastSuccess: vi.fn(),
 	user: null as MeResponse | null,
 }));
@@ -149,10 +150,14 @@ describe("ProfileSettingsView", () => {
 		mockState.authService.updateProfile.mockReset();
 		mockState.authService.updateProfile.mockResolvedValue(undefined);
 		mockState.authService.uploadAvatar.mockReset();
-		mockState.authService.uploadAvatar.mockResolvedValue(undefined);
+		mockState.authService.uploadAvatar.mockResolvedValue({
+			applied: true,
+			profile: user().profile,
+		});
 		mockState.handleApiError.mockReset();
 		mockState.refreshUser.mockReset();
 		mockState.refreshUser.mockResolvedValue(undefined);
+		mockState.applyUserProfile.mockReset();
 		mockState.toastSuccess.mockReset();
 		mockState.user = user();
 	});
@@ -188,6 +193,37 @@ describe("ProfileSettingsView", () => {
 		expect(mockState.toastSuccess).toHaveBeenCalledWith(
 			"settings:settings_profile_updated",
 		);
+	});
+
+	it("applies a superseding profile without showing a false success", async () => {
+		const currentProfile = user({
+			profile: {
+				avatar: {
+					source: "gravatar",
+					url_1024: "https://gravatar.example/avatar",
+					url_512: "https://gravatar.example/avatar",
+					version: 3,
+				},
+				display_name: "Alice",
+			},
+		}).profile;
+		mockState.authService.uploadAvatar.mockResolvedValueOnce({
+			applied: false,
+			profile: currentProfile,
+		});
+		render(<ProfileSettingsView />);
+
+		const avatar = new File(["avatar"], "avatar.png", { type: "image/png" });
+		fireEvent.change(
+			screen.getByLabelText("settings:settings_avatar_upload_and_crop"),
+			{ target: { files: [avatar] } },
+		);
+		fireEvent.click(screen.getByRole("button", { name: "confirm-avatar" }));
+
+		await waitFor(() => {
+			expect(mockState.applyUserProfile).toHaveBeenCalledWith(currentProfile);
+		});
+		expect(mockState.toastSuccess).not.toHaveBeenCalled();
 	});
 
 	it("updates avatar source and disables the current source action", async () => {
@@ -271,7 +307,8 @@ describe("ProfileSettingsView", () => {
 		await waitFor(() => {
 			expect(mockState.authService.uploadAvatar).toHaveBeenCalledWith(avatar);
 		});
-		expect(mockState.refreshUser).toHaveBeenCalledTimes(1);
+		expect(mockState.applyUserProfile).toHaveBeenCalledWith(user().profile);
+		expect(mockState.refreshUser).not.toHaveBeenCalled();
 		expect(mockState.toastSuccess).toHaveBeenCalledWith(
 			"settings:settings_avatar_updated",
 		);

@@ -2,19 +2,26 @@
 
 use crate::common;
 
-use actix_web::test;
+use actix_web::{FromRequest, test};
+use bytes::Bytes;
 use chrono::{DateTime, Duration, Utc};
 use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
+use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::config::{RuntimeConfig, site_url::PUBLIC_SITE_URL_KEY};
 use aster_drive::db::repository::{
     file_repo, lock_namespace_repo, lock_repo, user_repo, wopi_session_repo,
 };
+use aster_drive::services::files::file::StoreFromTempRequest;
+use aster_drive::services::ops::audit::AuditRequestInfo;
 use aster_drive::services::preview::apps::{
     PREVIEW_APPS_CONFIG_KEY, PreviewAppProvider, PreviewOpenMode, PublicPreviewAppConfig,
     PublicPreviewAppDefinition, default_public_preview_apps,
+};
+use aster_drive::services::preview::wopi::{
+    WopiPutRelativeRequest, WopiRequestSource, put_relative_file,
 };
 use aster_drive_model::entities::{resource_lock, wopi_session};
 use aster_drive_model::types::{
@@ -172,6 +179,41 @@ fn parse_wopi_result_url(url: &str) -> (i64, String) {
         .find_map(|(key, value)| (key == "access_token").then(|| value.into_owned()))
         .expect("put-relative url should carry access_token");
     (file_id, access_token)
+}
+
+fn nonempty_files_under(path: &std::path::Path) -> BTreeSet<std::path::PathBuf> {
+    fn collect(path: &std::path::Path, files: &mut BTreeSet<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(path) else {
+            return;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let entry_path = entry.path();
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            if metadata.is_dir() {
+                collect(&entry_path, files);
+            } else if metadata.len() > 0 {
+                files.insert(entry_path);
+            }
+        }
+    }
+
+    let mut files = BTreeSet::new();
+    collect(path, &mut files);
+    files
+}
+
+fn use_isolated_wopi_temp_root(
+    state: &mut aster_drive::runtime::PrimaryAppState,
+) -> (std::path::PathBuf, aster_forge_utils::raii::TempDirGuard) {
+    let root =
+        std::env::temp_dir().join(format!("asterdrive-wopi-runtime-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::sync::Arc::make_mut(&mut state.config).server.temp_dir =
+        root.join("temp").to_string_lossy().into_owned();
+    let guard = aster_forge_utils::raii::TempDirGuard::new(root.clone(), "wopi runtime temp root");
+    (root, guard)
 }
 
 fn stored_wopi_owner(lock_value: &str) -> StoredLockOwnerInfo {
@@ -381,11 +423,10 @@ async fn test_open_wopi_session_persists_token_and_check_file_info_succeeds() {
     assert_eq!(body["SupportsLocks"], true);
     assert_eq!(body["SupportsRename"], true);
     assert_eq!(body["SupportsUpdate"], true);
-    assert!(
-        body["Version"]
-            .as_str()
-            .is_some_and(|value| !value.is_empty())
-    );
+    let revision_etag = aster_drive::db::repository::revision_repo::current_etag(&db, file_id)
+        .await
+        .expect("current revision ETag should load");
+    assert_eq!(body["Version"], revision_etag);
 
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/wopi/files/{file_id}"))
@@ -1587,6 +1628,230 @@ async fn test_wopi_put_relative_overwrite_updates_existing_target() {
     assert_eq!(resp.status(), 200);
     let body = test::read_body(resp).await;
     assert_eq!(&body[..], b"replaced via put relative");
+}
+
+#[actix_web::test]
+async fn test_wopi_put_relative_rejects_target_changed_while_body_is_streaming() {
+    let mut state = common::setup().await;
+    let (_temp_root, _temp_root_guard) = use_isolated_wopi_temp_root(&mut state);
+    configure_test_wopi_runtime(&state);
+    let app = create_test_app!(state.clone());
+
+    let (access_cookie, _) = register_and_login!(app);
+    let user = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .unwrap();
+    let source_file_id = upload_test_file_named!(app, access_cookie, "stream-source.docx");
+    let target_file_id = upload_test_file_named!(app, access_cookie, "stream-target.docx");
+    let launch = open_wopi_session!(
+        app,
+        access_cookie,
+        &format!("/api/v1/files/{source_file_id}/wopi/open"),
+        TEST_WOPI_APP_KEY
+    );
+    let access_token = launch["data"]["access_token"].as_str().unwrap().to_string();
+
+    let request = test::TestRequest::default().to_http_request();
+    let audit_info = AuditRequestInfo::from_request(&request);
+    let (mut sender, payload) = actix_http::h1::Payload::create(false);
+    sender.feed_data(Bytes::from(vec![b'w'; 16 * 1024]));
+    let mut payload = actix_http::Payload::from(payload);
+    let mut payload = actix_web::web::Payload::from_request(&request, &mut payload)
+        .await
+        .unwrap();
+
+    let temp_dir = std::path::PathBuf::from(&state.config.server.temp_dir);
+    let fixture_dir =
+        std::env::temp_dir().join(format!("asterdrive-wopi-race-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let _fixture_guard =
+        aster_forge_utils::raii::TempDirGuard::new(fixture_dir.clone(), "wopi race fixture");
+    let concurrent_path = fixture_dir.join("winner.docx");
+    std::fs::write(&concurrent_path, b"concurrent winner").unwrap();
+    let baseline_temp_files = nonempty_files_under(&temp_dir);
+
+    let put_relative = put_relative_file(
+        &state,
+        WopiPutRelativeRequest {
+            file_id: source_file_id,
+            access_token: &access_token,
+            payload: &mut payload,
+            suggested_target: None,
+            relative_target: Some("stream-target.docx"),
+            overwrite_relative_target: Some("true"),
+            size_header: None,
+            content_length: None,
+            audit_info: &audit_info,
+            request_source: WopiRequestSource {
+                origin: Some(TEST_WOPI_ORIGIN),
+                ..Default::default()
+            },
+        },
+    );
+    let concurrent_update = async {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if nonempty_files_under(&temp_dir)
+                    .iter()
+                    .any(|path| !baseline_temp_files.contains(path))
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("PUT_RELATIVE should start consuming its request body");
+
+        aster_drive::services::files::file::store_from_temp(
+            &state,
+            user.id,
+            StoreFromTempRequest::new(
+                None,
+                "stream-target.docx",
+                concurrent_path.to_str().unwrap(),
+                17,
+            )
+            .overwrite(target_file_id),
+        )
+        .await
+        .unwrap();
+        let winning_etag = aster_drive::db::repository::revision_repo::current_etag(
+            state.writer_db(),
+            target_file_id,
+        )
+        .await
+        .unwrap();
+
+        sender.feed_data(Bytes::from_static(b"replacement"));
+        sender.feed_eof();
+        winning_etag
+    };
+
+    let (result, winning_etag) = tokio::join!(put_relative, concurrent_update);
+    let error = result.expect_err("a streamed overwrite must not erase a newer target revision");
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::FileModifiedDuringWrite
+    );
+    assert_eq!(
+        aster_drive::db::repository::revision_repo::current_etag(
+            state.writer_db(),
+            target_file_id,
+        )
+        .await
+        .unwrap(),
+        winning_etag
+    );
+}
+
+#[actix_web::test]
+async fn test_wopi_put_relative_rejects_target_created_while_body_is_streaming() {
+    let mut state = common::setup().await;
+    let (_temp_root, _temp_root_guard) = use_isolated_wopi_temp_root(&mut state);
+    configure_test_wopi_runtime(&state);
+    let app = create_test_app!(state.clone());
+
+    let (access_cookie, _) = register_and_login!(app);
+    let user = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .unwrap();
+    let source_file_id = upload_test_file_named!(app, access_cookie, "create-race-source.docx");
+    let launch = open_wopi_session!(
+        app,
+        access_cookie,
+        &format!("/api/v1/files/{source_file_id}/wopi/open"),
+        TEST_WOPI_APP_KEY
+    );
+    let access_token = launch["data"]["access_token"].as_str().unwrap().to_string();
+
+    let request = test::TestRequest::default().to_http_request();
+    let audit_info = AuditRequestInfo::from_request(&request);
+    let (mut sender, payload) = actix_http::h1::Payload::create(false);
+    sender.feed_data(Bytes::from(vec![b'w'; 16 * 1024]));
+    let mut payload = actix_http::Payload::from(payload);
+    let mut payload = actix_web::web::Payload::from_request(&request, &mut payload)
+        .await
+        .unwrap();
+
+    let temp_dir = std::path::PathBuf::from(&state.config.server.temp_dir);
+    let fixture_dir =
+        std::env::temp_dir().join(format!("asterdrive-wopi-race-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let _fixture_guard =
+        aster_forge_utils::raii::TempDirGuard::new(fixture_dir.clone(), "wopi race fixture");
+    let concurrent_path = fixture_dir.join("winner.docx");
+    std::fs::write(&concurrent_path, b"concurrent creator").unwrap();
+    let baseline_temp_files = nonempty_files_under(&temp_dir);
+
+    let put_relative = put_relative_file(
+        &state,
+        WopiPutRelativeRequest {
+            file_id: source_file_id,
+            access_token: &access_token,
+            payload: &mut payload,
+            suggested_target: None,
+            relative_target: Some("create-race-target.docx"),
+            overwrite_relative_target: Some("true"),
+            size_header: None,
+            content_length: None,
+            audit_info: &audit_info,
+            request_source: WopiRequestSource {
+                origin: Some(TEST_WOPI_ORIGIN),
+                ..Default::default()
+            },
+        },
+    );
+    let concurrent_create = async {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if nonempty_files_under(&temp_dir)
+                    .iter()
+                    .any(|path| !baseline_temp_files.contains(path))
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("PUT_RELATIVE should start consuming its request body");
+
+        let created = aster_drive::services::files::file::store_from_temp(
+            &state,
+            user.id,
+            StoreFromTempRequest::new(
+                None,
+                "create-race-target.docx",
+                concurrent_path.to_str().unwrap(),
+                18,
+            ),
+        )
+        .await
+        .unwrap();
+        sender.feed_data(Bytes::from_static(b"replacement"));
+        sender.feed_eof();
+        created.id
+    };
+
+    let (result, winner_id) = tokio::join!(put_relative, concurrent_create);
+    let error = result.expect_err("a streamed create must not replace a newer same-name file");
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::FileModifiedDuringWrite
+    );
+    let winner = file_repo::find_by_name_in_folder(
+        state.writer_db(),
+        user.id,
+        None,
+        "create-race-target.docx",
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(winner.id, winner_id);
 }
 
 #[actix_web::test]

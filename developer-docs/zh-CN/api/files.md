@@ -439,7 +439,7 @@
 
 ## 版本历史
 
-历史版本主要来自覆盖写入，例如：
+每个文件从创建起就有 canonical revision；覆盖写入会追加新的 immutable revision，例如：
 
 - `PUT /files/{id}/content`
 - WebDAV `PUT` 覆盖已有文件
@@ -450,4 +450,6 @@
 - `POST /files/{id}/versions/{version_id}/restore`
 - `DELETE /files/{id}/versions/{version_id}`
 
-当前语义要记住一条：恢复版本不会额外生成一条“回滚前版本”，被恢复的版本记录会直接消失，因为它已经重新变成当前版本。
+列表包含 current revision，可用 `limit`（默认 100，最大 1000）和 `after_sequence` 做稳定 keyset 分页。`version` 是 history 内单调递增且永不复用的 sequence，因此删除后允许出现空洞。
+
+恢复历史 revision 会追加一个新的 current head，predecessor 指向恢复前 head；原 current、恢复目标和其他历史全部保留。删除只允许作用于历史 revision：内容引用会被清理，但 public ID 和 sequence 保留为 tombstone，后继 predecessor 会修复。COPY 创建独立 history；MOVE/rename、软删除和回收站恢复保持原 history。

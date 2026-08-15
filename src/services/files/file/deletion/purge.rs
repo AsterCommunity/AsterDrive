@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use aster_forge_db::transaction;
 use futures::{StreamExt, stream};
 
-use crate::db::repository::{file_repo, share_repo};
+use crate::db::repository::{file_repo, revision_repo, share_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::{
@@ -98,15 +98,13 @@ async fn batch_purge_in_resource_scope_internal(
 
     let file_ids: Vec<i64> = files.iter().map(|file| file.id).collect();
     let parent_ids: Vec<Option<i64>> = files.iter().map(|file| file.folder_id).collect();
-    let blob_ids: Vec<i64> = files.iter().map(|file| file.blob_id).collect();
     let count = usize_to_u32(files.len(), "purged file count")?;
 
     let txn = transaction::begin(state.writer_db()).await?;
     storage::lock_storage_usage_for_resource_scope(&txn, scope).await?;
 
-    let version_blob_ids =
-        crate::db::repository::version_repo::delete_all_by_file_ids(&txn, &file_ids).await?;
-    let version_blob_count = version_blob_ids.len();
+    let revision_refs = revision_repo::retire_histories(&txn, &file_ids).await?;
+    let version_blob_count = revision_refs.len();
 
     crate::db::repository::property_repo::delete_all_for_entities(
         &txn,
@@ -119,11 +117,8 @@ async fn batch_purge_in_resource_scope_internal(
     file_repo::delete_many(&txn, &file_ids).await?;
 
     let mut blob_decrements = BTreeMap::<i64, i64>::new();
-    for &blob_id in &blob_ids {
+    for &(blob_id, _logical_size) in &revision_refs {
         *blob_decrements.entry(blob_id).or_default() += 1;
-    }
-    for &version_blob_id in &version_blob_ids {
-        *blob_decrements.entry(version_blob_id).or_default() += 1;
     }
 
     let blob_ids: Vec<i64> = blob_decrements.keys().copied().collect();
@@ -132,12 +127,17 @@ async fn batch_purge_in_resource_scope_internal(
     let mut ref_count_decrements = Vec::with_capacity(blob_decrements.len());
 
     for (&blob_id, &decrement) in &blob_decrements {
-        if let Some(blob) = blobs_by_id.get(&blob_id) {
-            let freed_bytes = blob.size.checked_mul(decrement).ok_or_else(|| {
-                AsterError::internal_error(format!(
-                    "freed byte count overflow for blob {blob_id} during batch purge"
-                ))
-            })?;
+        if blobs_by_id.contains_key(&blob_id) {
+            let freed_bytes = revision_refs
+                .iter()
+                .filter(|(revision_blob_id, _)| *revision_blob_id == blob_id)
+                .try_fold(0_i64, |total, (_, logical_size)| {
+                    total.checked_add(*logical_size).ok_or_else(|| {
+                        AsterError::internal_error(format!(
+                            "freed byte count overflow for blob {blob_id} during batch purge"
+                        ))
+                    })
+                })?;
             total_freed_bytes = total_freed_bytes.checked_add(freed_bytes).ok_or_else(|| {
                 AsterError::internal_error("total freed byte count overflow during batch purge")
             })?;

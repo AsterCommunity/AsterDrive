@@ -6,7 +6,6 @@ use crate::api::dto::files::{
     FileResourcePurpose, FileResourceRedirectPolicy, FileResourceRepresentation,
     FileResourceRequestInfo,
 };
-use crate::db::repository::file_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{media::processing, workspace::storage::WorkspaceStorageScope};
@@ -37,8 +36,15 @@ pub(crate) async fn resolve_file_resource_handle(
     paths: FileResourcePathSet,
     request: &FileResourceHandleRequest,
 ) -> Result<FileResourceHandle> {
-    let file = get_info_in_scope(state, scope, file_id).await?;
-    let blob = file_repo::find_blob_by_id(state.reader_db(), file.blob_id).await?;
+    let authorized = get_info_in_scope(state, scope, file_id).await?;
+    let (file, blob, revision) =
+        crate::db::repository::revision_repo::find_file_blob_and_current_revision(
+            state.writer_db(),
+            file_id,
+        )
+        .await?;
+    crate::services::workspace::storage::ensure_active_file_scope(&file, scope)?;
+    debug_assert_eq!(authorized.id, file.id);
     resolve_file_resource_handle_for_file(
         state,
         &file,
@@ -49,6 +55,7 @@ pub(crate) async fn resolve_file_resource_handle(
             WorkspaceStorageScope::Personal { .. } => "personal",
             WorkspaceStorageScope::Team { .. } => "team",
         }),
+        Some(&revision.etag),
     )
     .await
 }
@@ -60,6 +67,7 @@ pub(crate) async fn resolve_file_resource_handle_for_file(
     paths: FileResourcePathSet,
     request: &FileResourceHandleRequest,
     scope: Option<&str>,
+    revision_etag: Option<&str>,
 ) -> Result<FileResourceHandle> {
     let representation = resolve_representation(file, request);
 
@@ -72,6 +80,7 @@ pub(crate) async fn resolve_file_resource_handle_for_file(
                 blob,
                 request.delivery_mode,
                 scope,
+                revision_etag,
             )
             .await
         }
@@ -122,12 +131,19 @@ async fn original_handle(
     blob: &file_blob::Model,
     delivery_mode: FileResourceDeliveryMode,
     scope: Option<&str>,
+    revision_etag: Option<&str>,
 ) -> Result<FileResourceHandle> {
+    let revision_etag = match revision_etag {
+        Some(etag) => etag.to_string(),
+        None => {
+            crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id).await?
+        }
+    };
     if let Some(presigned_url) = presigned_original_url(state, file, blob).await? {
         return Ok(FileResourceHandle {
             identity: FileResourceIdentity {
                 cache_key: download_path,
-                etag: Some(format!("\"{}\"", blob.hash)),
+                etag: Some(format!("\"{revision_etag}\"")),
                 scope: scope.map(str::to_string),
             },
             request: FileResourceRequestInfo {
@@ -146,7 +162,7 @@ async fn original_handle(
     Ok(FileResourceHandle {
         identity: FileResourceIdentity {
             cache_key: download_path.clone(),
-            etag: Some(format!("\"{}\"", blob.hash)),
+            etag: Some(format!("\"{revision_etag}\"")),
             scope: scope.map(str::to_string),
         },
         request: FileResourceRequestInfo {
@@ -393,7 +409,7 @@ mod tests {
     };
     use crate::config::{Config, DatabaseConfig, RuntimeConfig};
     use crate::db::repository::file_repo;
-    use crate::runtime::PrimaryAppState;
+    use crate::runtime::{PrimaryAppState, SharedRuntimeState};
     use crate::services::{mail::sender, media::processing, storage_policy::policy};
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use aster_drive_model::entities::{file, file_blob, storage_policy, user};
@@ -707,6 +723,13 @@ mod tests {
         )
         .await
         .expect("resource handle file should be inserted");
+        crate::db::repository::revision_repo::create_initial(
+            &db,
+            &file,
+            crate::db::repository::revision_repo::RevisionReason::Create,
+        )
+        .await
+        .expect("resource handle file should have an initial revision");
 
         (state, file, blob)
     }
@@ -810,6 +833,10 @@ mod tests {
     async fn original_handle_uses_same_origin_when_presigned_download_is_disabled() {
         let (state, file, blob) =
             build_resource_handle_state(TestDriver, None, "report.txt", "text/plain").await;
+        let revision_etag =
+            crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id)
+                .await
+                .expect("current revision ETag should load");
 
         let handle = resolve_file_resource_handle_for_file(
             &state,
@@ -822,6 +849,7 @@ mod tests {
                 FileResourceRepresentation::Original,
             ),
             Some("personal"),
+            None,
         )
         .await
         .expect("same-origin original handle should resolve");
@@ -832,7 +860,7 @@ mod tests {
         );
         assert_eq!(
             handle.identity.etag.as_deref(),
-            Some("\"resource-handle-hash\"")
+            Some(format!("\"{revision_etag}\"").as_str())
         );
         assert_eq!(handle.identity.scope.as_deref(), Some("personal"));
         assert_eq!(
@@ -861,6 +889,10 @@ mod tests {
             "image/png",
         )
         .await;
+        let revision_etag =
+            crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id)
+                .await
+                .expect("current revision ETag should load");
 
         let handle = resolve_file_resource_handle_for_file(
             &state,
@@ -873,6 +905,7 @@ mod tests {
                 FileResourceRepresentation::Original,
             ),
             Some("team"),
+            None,
         )
         .await
         .expect("presigned original handle should resolve");
@@ -883,7 +916,7 @@ mod tests {
         );
         assert_eq!(
             handle.identity.etag.as_deref(),
-            Some("\"resource-handle-hash\"")
+            Some(format!("\"{revision_etag}\"").as_str())
         );
         assert_eq!(handle.identity.scope.as_deref(), Some("team"));
         assert_eq!(handle.request.credentials, FileResourceCredentials::Omit);
@@ -946,6 +979,7 @@ mod tests {
                 FileResourceRepresentation::Original,
             ),
             Some("personal"),
+            None,
         )
         .await
         .expect("OneDrive direct original handle should resolve");
@@ -991,6 +1025,7 @@ mod tests {
                 FileResourceRepresentation::Original,
             ),
             Some("personal"),
+            None,
         )
         .await
         .expect("OneDrive relay original handle should resolve");
@@ -1031,6 +1066,7 @@ mod tests {
                 FileResourceRepresentation::Original,
             ),
             None,
+            None,
         )
         .await
         .expect("sandboxed original handle should resolve");
@@ -1066,6 +1102,7 @@ mod tests {
                 FileResourceRepresentation::Auto,
             ),
             Some("personal"),
+            None,
         )
         .await
         .expect("auto image preview handle should resolve");
@@ -1111,6 +1148,7 @@ mod tests {
                 FileResourceRepresentation::Auto,
             ),
             Some("personal"),
+            None,
         )
         .await
         .expect("auto original image handle should resolve");
@@ -1152,6 +1190,7 @@ mod tests {
                 paths(),
                 &request(purpose, delivery_mode, FileResourceRepresentation::Auto),
                 Some("personal"),
+                None,
             )
             .await
             .expect("non preview blob auto request should keep original");
@@ -1185,6 +1224,7 @@ mod tests {
                 FileResourceRepresentation::Thumbnail,
             ),
             Some("team"),
+            None,
         )
         .await
         .expect("thumbnail handle should resolve");
@@ -1229,6 +1269,7 @@ mod tests {
                 FileResourceRepresentation::Thumbnail,
             ),
             Some("personal"),
+            None,
         )
         .await
         .expect_err("text thumbnail handle should fail validation");

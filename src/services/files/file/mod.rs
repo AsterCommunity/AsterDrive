@@ -40,13 +40,11 @@ pub(crate) use deletion::{
     delete_in_scope, delete_in_scope_on, ensure_blob_cleanup_if_unreferenced,
 };
 pub use deletion::{batch_purge, delete, purge};
-pub use download::range::ResolvedDownloadRange;
-pub(crate) use download::range::parse_range_header;
 pub use download::{DownloadOutcome, StreamedFile, download, download_raw};
 pub(crate) use download::{
     build_download_outcome_with_disposition_and_range, build_stream_outcome_with_disposition,
-    build_stream_outcome_with_disposition_and_range, download_in_scope_with_range_and_file,
-    outcome_to_response,
+    build_stream_outcome_with_disposition_and_range, download_in_scope_with_range_header_and_file,
+    load_current_download_snapshot, outcome_to_response, resolve_range_for_download_snapshot,
 };
 pub(crate) use download_audit::{
     WebdavDownloadAuditInput, WebdavDownloadRequestKind, record_webdav_download,
@@ -63,10 +61,10 @@ pub(crate) use thumbnail::{
     get_image_preview_data_in_scope, get_thumbnail_data_in_scope, image_preview_for_file,
 };
 pub(crate) use transfer::{
-    BatchDuplicateFileRecordSpec, BatchDuplicateFileRecordTargetSpec,
+    BatchDuplicateFileRecordSpec, BatchDuplicateFileRecordTargetSpec, CopiedFilePropertyMode,
     batch_duplicate_file_records_to_mixed_folders_in_scope,
     batch_duplicate_file_records_with_specs_in_scope, copy_file_in_scope,
-    duplicate_file_record_in_scope, duplicate_file_record_in_scope_on,
+    duplicate_file_record_in_scope, duplicate_file_record_without_initial_revision_in_scope_on,
 };
 pub use transfer::{batch_duplicate_file_records, copy_file, duplicate_file_record};
 
@@ -347,24 +345,24 @@ pub(crate) async fn download_in_scope_with_file_and_audit(
     file: aster_drive_model::entities::file::Model,
     disposition: DownloadDisposition,
     if_none_match: Option<&str>,
-    range: Option<download::range::ResolvedDownloadRange>,
+    range_header: Option<&actix_web::http::header::HeaderValue>,
     audit_ctx: &AuditContext,
 ) -> Result<DownloadOutcome> {
     let file_id = file.id;
     let entity_name = file.name.clone();
     let details = audit_location_details_for_model(state, scope, &file).await;
-    let has_range = range.is_some();
+    let has_range = range_header.is_some();
     let outcome = record_download_result(
         state,
         "authenticated",
         has_range,
-        download_in_scope_with_range_and_file(
+        download_in_scope_with_range_header_and_file(
             state,
             scope,
             file_id,
             Some(file),
             if_none_match,
-            range,
+            range_header,
             disposition,
         ),
     )

@@ -49,6 +49,7 @@ export function ProfileSettingsView() {
 	const { t } = useTranslation(["core", "files", "settings", "auth"]);
 	const user = useAuthStore((s) => s.user);
 	const refreshUser = useAuthStore((s) => s.refreshUser);
+	const applyUserProfile = useAuthStore((s) => s.applyUserProfile);
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const [avatarCropOpen, setAvatarCropOpen] = useState(false);
 	const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -95,9 +96,11 @@ export function ProfileSettingsView() {
 	const handleAvatarUpload = async (file: File) => {
 		const result = await runAvatarUploadAction(async () => {
 			try {
-				await authService.uploadAvatar(file);
-				await refreshUser();
-				toast.success(t("settings:settings_avatar_updated"));
+				const result = await authService.uploadAvatar(file);
+				applyUserProfile(result.profile);
+				if (result.applied) {
+					toast.success(t("settings:settings_avatar_updated"));
+				}
 				return true;
 			} catch (error) {
 				handleApiError(error);

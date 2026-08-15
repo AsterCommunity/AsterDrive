@@ -142,6 +142,7 @@ fn name_search_condition(
 }
 
 fn tag_search_condition(
+    backend: DbBackend,
     entity_id_column: impl sea_orm::sea_query::IntoColumnRef + Copy,
     entity_type: EntityType,
     filter: TagSearchFilter<'_>,
@@ -159,7 +160,12 @@ fn tag_search_condition(
     subquery
         .expr(Expr::col(entity_property::Column::EntityId))
         .from(EntityProperty)
-        .and_where(entity_property::Column::Namespace.eq(TAG_PROPERTY_NAMESPACE))
+        .and_where(
+            crate::db::repository::property_repo::namespace_eq_condition(
+                backend,
+                TAG_PROPERTY_NAMESPACE,
+            ),
+        )
         .and_where(entity_property::Column::EntityType.eq(entity_type))
         .and_where(entity_property::Column::Name.is_in(tag_names));
 
@@ -298,8 +304,12 @@ async fn search_files_in_scope<C: ConnectionTrait>(
     }
 
     if let Some(tag_filter) = filters.tag_filter
-        && let Some(condition) =
-            tag_search_condition((File, file::Column::Id), EntityType::File, tag_filter)
+        && let Some(condition) = tag_search_condition(
+            backend,
+            (File, file::Column::Id),
+            EntityType::File,
+            tag_filter,
+        )
     {
         file_condition = file_condition.add(condition);
     }
@@ -414,8 +424,12 @@ async fn search_folders_in_scope<C: ConnectionTrait>(
     }
 
     if let Some(tag_filter) = filters.tag_filter
-        && let Some(tag_condition) =
-            tag_search_condition((Folder, folder::Column::Id), EntityType::Folder, tag_filter)
+        && let Some(tag_condition) = tag_search_condition(
+            backend,
+            (Folder, folder::Column::Id),
+            EntityType::Folder,
+            tag_filter,
+        )
     {
         condition = condition.add(tag_condition);
     }

@@ -389,6 +389,10 @@ keyed_normalizer!(
 );
 keyed_normalizer!(normalize_bytes, operations::normalize_bytes_config_value);
 keyed_normalizer!(
+    normalize_avatar_upload_size,
+    operations::normalize_avatar_upload_size_config_value
+);
+keyed_normalizer!(
     normalize_non_negative_u64,
     operations::normalize_non_negative_u64_config_value
 );
@@ -1830,7 +1834,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         is_sensitive: false,
         category: CONFIG_CATEGORY_USER_AVATAR,
         description: "Maximum avatar upload size in bytes before the request is rejected",
-        normalize_fn: Some(normalize_bytes),
+        normalize_fn: Some(normalize_avatar_upload_size),
         ..aster_forge_config::ConfigDefinition::private_system()
     },
     ConfigDef {
