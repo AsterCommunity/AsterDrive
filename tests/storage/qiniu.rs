@@ -18,7 +18,6 @@ const REAL_KODO_ENV: &[&str] = &[
     "ASTER_TEST_QINIU_KODO_REGION",
     "ASTER_TEST_QINIU_KODO_ACCESS_KEY",
     "ASTER_TEST_QINIU_KODO_SECRET_KEY",
-    "ASTER_TEST_QINIU_KODO_PATH_STYLE",
     "ASTER_TEST_QINIU_KODO_CORS_ORIGIN",
 ];
 
@@ -28,7 +27,6 @@ struct RealKodoConfig {
     region: String,
     access_key: String,
     secret_key: String,
-    path_style: bool,
     cors_origin: String,
 }
 
@@ -58,19 +56,12 @@ impl RealKodoConfig {
             Some(format!("s3.{region}.qiniucs.com").as_str()),
             "Kodo smoke endpoint must be the official service endpoint matching the region"
         );
-        let path_style = match read("ASTER_TEST_QINIU_KODO_PATH_STYLE").as_str() {
-            "1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON" => true,
-            "0" | "false" | "FALSE" | "no" | "NO" | "off" | "OFF" => false,
-            _ => panic!("ASTER_TEST_QINIU_KODO_PATH_STYLE must be a boolean"),
-        };
-
         Some(Self {
             endpoint,
             bucket: read("ASTER_TEST_QINIU_KODO_BUCKET"),
             region,
             access_key: read("ASTER_TEST_QINIU_KODO_ACCESS_KEY"),
             secret_key: read("ASTER_TEST_QINIU_KODO_SECRET_KEY"),
-            path_style,
             cors_origin: read("ASTER_TEST_QINIU_KODO_CORS_ORIGIN"),
         })
     }
@@ -82,7 +73,7 @@ impl RealKodoConfig {
                 bucket: self.bucket.clone(),
                 base_path,
                 region: self.region.clone(),
-                path_style: self.path_style,
+                path_style: false,
                 connect_timeout: Duration::from_secs(5),
                 read_timeout: Duration::from_secs(30),
                 operation_timeout: Duration::from_secs(120),

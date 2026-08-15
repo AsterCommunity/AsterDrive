@@ -70,18 +70,6 @@ aster_drive_storage::storage_connector_schema! {
                 field.validation.max_length = Some(128);
                 field
             },
-            pub s3_path_style: bool => {
-                let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
-                    name: "s3_path_style", scope: StorageConnectorFieldScope::ConnectorConfig,
-                    kind: StorageConnectorFieldKind::Boolean, required: false, secret: false,
-                    label_key: "qiniu_s3_path_style", placeholder: None,
-                    help_key: Some("qiniu_s3_path_style_desc"), required_message_key: None,
-                    invalid_protocol_message_key: None, allowed_endpoint_protocols: Vec::new(),
-                    allow_endpoint_without_protocol: false, trim_on_blur: false,
-                });
-                field.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(true));
-                field
-            },
             pub object_storage_upload_strategy: ObjectStorageUploadStrategy => transfer_strategy_field(
                 "object_storage_upload_strategy", StorageTransferDirection::Upload,
             ),
@@ -115,7 +103,10 @@ impl QiniuConnector {
             bucket: config.bucket,
             base_path: config.base_path,
             region: config.s3_region,
-            path_style: config.s3_path_style,
+            // First-class provider connectors own addressing. `false` lets the
+            // AWS endpoint resolver select virtual-hosted style when the S3
+            // space name is DNS-compatible and fall back when required.
+            path_style: false,
             connect_timeout: Duration::from_secs(5),
             read_timeout: Duration::from_secs(30),
             operation_timeout: Duration::from_secs(3_600),
@@ -137,7 +128,7 @@ impl QiniuConnector {
             ui: StorageConnectorUiDescriptorInput {
                 label_key: "driver_type_qiniu",
                 description_key: "policy_wizard_qiniu_storage_desc",
-                icon_src: Some("/static/storage/qiniuyun.svg"),
+                icon_src: Some("/static/storage/qiniuyun-kodo.svg"),
                 icon_name: None,
                 badge_rgb: StorageConnectorBadgeRgb::new(0, 148, 255),
                 helper_key: "policy_wizard_qiniu_helper",
@@ -213,7 +204,8 @@ impl StorageConnector for QiniuConnector {
             },
         )
         .map_err(|error| AsterError::validation_error(error.message().to_string()))?;
-        config.endpoint = normalize_qiniu_s3_endpoint(&config.endpoint, &config.s3_region)?;
+        config.endpoint =
+            normalize_qiniu_s3_endpoint(&config.endpoint, &config.bucket, &config.s3_region)?;
         super::common::encode_normalized_connector_config(
             normalized.connector_id,
             normalized.schema_version,
@@ -298,7 +290,7 @@ impl StorageConnector for QiniuConnector {
     }
 }
 
-fn normalize_qiniu_s3_endpoint(endpoint: &str, region: &str) -> Result<String> {
+fn normalize_qiniu_s3_endpoint(endpoint: &str, bucket: &str, region: &str) -> Result<String> {
     let parsed = url::Url::parse(endpoint)
         .map_err(|_| AsterError::validation_error("invalid Qiniu Kodo S3 endpoint URL"))?;
     if parsed.scheme() != "https" {
@@ -311,8 +303,7 @@ fn normalize_qiniu_s3_endpoint(endpoint: &str, region: &str) -> Result<String> {
     })?;
     let expected_host = format!("s3.{region}.qiniucs.com");
     let uses_root_path = parsed.path().is_empty() || parsed.path() == "/";
-    if host != expected_host
-        || parsed.port().is_some()
+    if parsed.port().is_some()
         || !uses_root_path
         || parsed.query().is_some()
         || parsed.fragment().is_some()
@@ -320,8 +311,25 @@ fn normalize_qiniu_s3_endpoint(endpoint: &str, region: &str) -> Result<String> {
         || parsed.password().is_some()
     {
         return Err(AsterError::validation_error(format!(
-            "Qiniu Kodo S3 endpoint must use the service endpoint 'https://{expected_host}' that matches s3_region; bucket-prefixed hosts, custom CNAMEs, ports, paths, queries, and fragments are not supported"
+            "Qiniu Kodo S3 endpoint must use 'https://{expected_host}' or 'https://<S3-space-name>.{expected_host}' with no port, path, query, or fragment"
         )));
     }
+
+    if host == expected_host {
+        return Ok(format!("https://{expected_host}"));
+    }
+
+    let bucket_suffix = format!(".{expected_host}");
+    let Some(endpoint_bucket) = host.strip_suffix(&bucket_suffix) else {
+        return Err(AsterError::validation_error(format!(
+            "Qiniu Kodo S3 endpoint must use 'https://{expected_host}' or 'https://<S3-space-name>.{expected_host}'; custom CNAMEs are not accepted"
+        )));
+    };
+    if endpoint_bucket != bucket {
+        return Err(AsterError::validation_error(format!(
+            "Qiniu Kodo S3 endpoint identifies S3 space '{endpoint_bucket}', but the configured S3 space name is '{bucket}'"
+        )));
+    }
+
     Ok(format!("https://{expected_host}"))
 }

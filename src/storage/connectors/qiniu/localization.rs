@@ -13,13 +13,13 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_wizard_qiniu_helper",
-        "Enter the official Kodo S3 service endpoint, matching signing region, Qiniu S3 space name, and addressing style.",
-        "填写官方 Kodo S3 服务 endpoint、匹配的签名区域、七牛 S3 空间名和寻址方式。",
+        "Enter an official Kodo S3 service or S3-space endpoint, matching signing region, and Qiniu S3 space name. AsterDrive selects the addressing style.",
+        "填写官方 Kodo S3 服务或 S3 空间 endpoint、匹配的签名区域和七牛 S3 空间名；寻址方式由 AsterDrive 自动选择。",
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_wizard_step_qiniu_connection_desc",
-        "Set the Qiniu Kodo S3 service endpoint, S3 space name, matching SigV4 region, optional prefix, and AccessKey credentials.",
-        "填写七牛云 Kodo S3 服务 endpoint、S3 空间名、匹配的 SigV4 区域、可选前缀和 AccessKey 凭据。",
+        "Set an official Qiniu Kodo S3 endpoint, S3 space name, matching SigV4 region, optional prefix, and AccessKey credentials.",
+        "填写七牛云 Kodo S3 官方 endpoint、S3 空间名、匹配的 SigV4 区域、可选前缀和 AccessKey 凭据。",
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_edit_context_qiniu_desc",
@@ -33,8 +33,8 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_s3_endpoint_desc",
-        "The official service-level endpoint for the matching region, such as https://s3.cn-east-1.qiniucs.com. Do not include the S3 space name.",
-        "与区域匹配的官方服务级 endpoint，例如 https://s3.cn-east-1.qiniucs.com。不要在其中包含 S3 空间名。",
+        "An official endpoint for the matching region, such as https://s3.cn-east-1.qiniucs.com or https://<S3-space-name>.s3.cn-east-1.qiniucs.com. AsterDrive normalizes both forms and selects the addressing style automatically.",
+        "与区域匹配的官方 endpoint，例如 https://s3.cn-east-1.qiniucs.com 或 https://<S3-空间名>.s3.cn-east-1.qiniucs.com。AsterDrive 会规范化两种形式并自动选择寻址方式。",
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_s3_endpoint_protocol_error",
@@ -65,16 +65,6 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "qiniu_s3_region_desc",
         "The Region ID embedded in the official Kodo S3 service endpoint, such as cn-east-1. It must match the endpoint host.",
         "官方 Kodo S3 服务 endpoint 中的 Region ID，例如 cn-east-1；必须与 endpoint 主机名匹配。",
-    ),
-    aster_drive_storage::storage_connector_message!(
-        "qiniu_s3_path_style",
-        "Path-style addressing",
-        "Path-style 寻址",
-    ),
-    aster_drive_storage::storage_connector_message!(
-        "qiniu_s3_path_style_desc",
-        "When enabled, requests use /S3-space-name/key URLs. Qiniu also supports virtual-hosted-style S3-space-name.s3.<region>.qiniucs.com URLs.",
-        "启用后请求使用 /S3-空间名/key URL。七牛也支持 S3-空间名.s3.<region>.qiniucs.com 形式的 virtual-hosted-style URL。",
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_access_key",
