@@ -65,6 +65,18 @@ scheduled workflow 还维护 `Release readiness dashboard` Issue，按 milestone
 - 模型分析不参与合并门禁、产品优先级、Issue 自动关闭或发布决策。
 - GitHub Ruleset 负责强制 PR、Readiness 和 review conversation 约束；App 只计算和发布事实。
 
+## master ruleset
+
+仓库级 `master governance` ruleset 对 `refs/heads/master` 启用以下约束：
+
+- 常规变更必须通过 PR，并至少取得一个 approval。
+- 所有 review conversation 必须解决。
+- `PR Readiness` 必须由 `AsterCommunity Automation` App 成功发布，且分支必须与最新 `master` 同步。
+- 只允许 squash 或 rebase，要求线性历史，禁止删除和 non-fast-forward 更新。
+- repository admin 保留显式 always bypass，供经过人工判断的紧急维护和直接 master 修复使用。
+
+Ruleset 是强制执行层；automation 不自行合并、批准、dismiss review 或修改 ruleset。
+
 ## 本地验证
 
 共享引擎在 `AsterCommunity/aster-automation` 运行 Node.js 单元测试。AsterDrive 本地验证保留 workflow 静态检查：
