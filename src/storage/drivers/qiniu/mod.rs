@@ -18,7 +18,7 @@ use super::s3_compatible::{
     S3CompatibleDriver, delegate_s3_compatible_multipart_driver,
     delegate_s3_compatible_storage_driver,
 };
-use super::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket, validate_s3_region};
+use super::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket, validate_sigv4_region};
 
 pub struct QiniuDriver {
     storage: S3CompatibleDriver,
@@ -55,7 +55,7 @@ impl QiniuDriver {
                 "Qiniu S3 endpoint cannot be empty",
             ));
         }
-        validate_s3_region(&config.region).map_err(Self::rewrap_s3_config_error)?;
+        validate_sigv4_region(&config.region).map_err(|_| Self::invalid_region_error())?;
         S3Driver::validate_config(
             &Self::s3_config(config),
             &S3StaticCredentials {
@@ -114,16 +114,19 @@ impl QiniuDriver {
 
     fn rewrap_s3_config_error(error: S3ConfigError) -> aster_drive_storage::StorageError {
         let message = match error {
-            S3ConfigError::MissingBucket => "Qiniu bucket is required".to_string(),
+            S3ConfigError::MissingBucket => "Qiniu S3 space name is required".to_string(),
             S3ConfigError::InvalidEndpoint(message) => {
                 message.replace("S3 endpoint", "Qiniu S3 endpoint")
             }
-            S3ConfigError::InvalidRegion => {
-                "Qiniu S3 region must be 1-128 printable ASCII characters without whitespace or '/'"
-                    .to_string()
-            }
         };
         storage_driver_error(StorageErrorKind::Misconfigured, message)
+    }
+
+    fn invalid_region_error() -> aster_drive_storage::StorageError {
+        storage_driver_error(
+            StorageErrorKind::Misconfigured,
+            "Qiniu S3 region must be 1-128 printable ASCII characters without whitespace or '/'",
+        )
     }
 }
 

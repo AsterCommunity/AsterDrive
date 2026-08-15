@@ -218,8 +218,13 @@ impl StorageConnector for S3Connector {
         .map_err(|error| error.into_aster_error())?;
         config.endpoint = connection.endpoint;
         config.bucket = connection.bucket;
-        crate::storage::drivers::s3_config::validate_s3_region(&config.s3_region)
-            .map_err(|error| error.into_aster_error())?;
+        crate::storage::drivers::s3_config::validate_sigv4_region(&config.s3_region).map_err(
+            |_| {
+                AsterError::validation_error(
+                    "s3_region must be 1-128 printable ASCII characters without whitespace or '/'",
+                )
+            },
+        )?;
         super::common::encode_normalized_connector_config(
             normalized.connector_id,
             normalized.schema_version,
