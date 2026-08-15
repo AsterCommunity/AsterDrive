@@ -14,6 +14,8 @@ AsterDrive 使用固定 commit SHA 的 [`AsterCommunity/aster-automation`](https
 
 PR 使用 GitHub 原生 closing keyword（例如 `Fixes #123`）关联 Issue 后，自动化会为 Issue 增加 `Wait For PR`，并在没有其他状态时增加 `Status: In Progress`。合并或关闭后，在不存在另一个 open closing PR 时移除这两个临时状态；成功合并还会给 PR 增加 `Merged`。Issue 是否关闭仍由 GitHub 原生 closing 语义决定。
 
+仅用于验收跟踪、但合并 PR 不应关闭 Issue 时，在 PR 正文使用严格字段 `Tracking-Issue: #123`。scheduled reconciliation 会同步该 Issue 的 `Wait For PR` 和进行中状态，但不会关闭它；正文中的普通 `Related to #123` 不参与自动状态迁移。
+
 ## CI 聚合与 PR Gate
 
 `.github/workflows/ci-diagnostics.yml` 在各 CI workflow 完成后重新读取 PR 最新 HEAD 的检查状态：
@@ -26,6 +28,10 @@ PR 使用 GitHub 原生 closing keyword（例如 `Fixes #123`）关联 Issue 后
 6. 所有必要检查恢复后，评论更新为 resolved。
 
 `PR Gate` 只汇总已有 CI，不重新执行测试。添加或修改 path-filtered workflow 时，必须同步更新 `.github/aster-automation.json` 的 `workflows` 路径规则；共享状态机和路径匹配测试由 `AsterCommunity/aster-automation` 持有，AsterDrive 的 `Repository Automation` 验证本仓配置和 workflow 静态契约。
+
+独立的 `PR Readiness` Check 汇总 Gate 以外的合并事实：`codecov/patch`、draft、merge conflict、当前 HEAD 的人工 approval、仍有效且未解决的 review thread，以及 `Risk: High` 的人工批准要求。它不会 dismiss review、resolve thread 或执行合并。`CI: Failure`、`CI: Infrastructure`、`CI: Flaky` 只适用于故障 Issue；错误出现在 PR 上时 Readiness 只报告 applicability warning，不删除人工标签。
+
+`.github/workflows/repository-reconciliation.yml` 每小时运行一次，同时保留手动入口。它枚举 open PR 重新计算 Gate、Readiness、tracking Issue 和当前 incident 状态，作为漏事件、fork PR association 缺失或 App 身份切换后的最终一致性修复路径。事件 workflow 负责低延迟，scheduled sweep 负责自愈。
 
 PR 打开或更新时，PR automation 会立即为当前 HEAD 创建初始 Gate，并在 `synchronize` 事件中以 `cancelled` 终结被新 HEAD 取代但尚未完成的 Gate。没有任何 path-filtered CI 的变更直接成功；其余变更保持 pending，直到 CI diagnostics 根据 workflow 完成事件更新。`Repository Automation` workflow 负责验证本仓配置、固定 Action revision 和所有 Actions YAML，防止接入层成为盲区。
 
@@ -40,7 +46,11 @@ PR 已关闭或合并但任一历史 HEAD 的 Gate 仍停留在 pending 时，�
 - 首次失败创建带 `CI: Failure` 的 Issue。
 - 同一 fingerprint 再次失败更新原 Issue 和出现次数。
 - runner、Docker、网络、磁盘或超时信号同时增加 `CI: Infrastructure`。
+- 同一 fingerprint 达到三次后增加 `CI: Flaky`。
+- Issue 明确记录 `awaiting_verification`、`recovering` 或 `recovered`，以及该分支当前最新 commit。
 - 同一 workflow 与 branch 连续成功两次后关闭仍打开的故障 Issue。
+
+scheduled workflow 还维护 `Release readiness dashboard` Issue，按 milestone 和 `Status:*` 汇总开放事项。Dashboard 只维护视图，不改变 priority、assignee、milestone 或发布状态。
 
 故障 Issue 的分类是诊断入口，不代表已经证明根因。完整证据仍以链接的 workflow、job 和 artifact 为准。
 
@@ -53,6 +63,19 @@ PR 已关闭或合并但任一历史 HEAD 的 Gate 仍停留在 pending 时，�
 - App installation token 只请求 Actions 读、Checks 写、Contents 读、Issues 写和 Pull requests 写，不授予 administration、workflow、secret、member、deployment 或 contents 写权限。
 - 标题、正文、文件路径、日志、job 名称及外部链接均按不可信输入处理，不拼接为 shell 命令。
 - 模型分析不参与合并门禁、产品优先级、Issue 自动关闭或发布决策。
+- GitHub Ruleset 负责强制 PR、Readiness 和 review conversation 约束；App 只计算和发布事实。
+
+## master ruleset
+
+仓库级 `master governance` ruleset 对 `refs/heads/master` 启用以下约束：
+
+- 常规变更必须通过 PR，并至少取得一个 approval。
+- 所有 review conversation 必须解决。
+- `PR Readiness` 必须由 `AsterCommunity Automation` App 成功发布，且分支必须与最新 `master` 同步。
+- 只允许 squash 或 rebase，要求线性历史，禁止删除和 non-fast-forward 更新。
+- repository admin 保留显式 always bypass，供经过人工判断的紧急维护和直接 master 修复使用。
+
+Ruleset 是强制执行层；automation 不自行合并、批准、dismiss review 或修改 ruleset。
 
 ## 本地验证
 
