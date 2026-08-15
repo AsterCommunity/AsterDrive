@@ -24,6 +24,21 @@ Please read and follow the [Code of Conduct](CODE_OF_CONDUCT.md) before particip
 
 ## Development Workflow
 
+### AI-Assisted Contributions
+
+AsterCommunity welcomes responsible use of AI-assisted development tools. You may use them to read code, learn the architecture, explore an unfamiliar subsystem, draft an implementation, write tests, or review a change. We consider using these tools to understand the project better a productive part of contributing.
+
+The contributor remains responsible for every submitted change, regardless of which tools helped produce it. Before opening a pull request, you must:
+
+- understand the code you submit and be able to explain its behavior and architectural fit;
+- review generated suggestions against the current code, project contracts, and authoritative external specifications instead of accepting them blindly;
+- add and run tests that cover the changed behavior, including relevant failure, boundary, rollback, concurrency, permission, protocol, and compatibility cases;
+- verify that the change does not expose credentials, personal data, proprietary material, or content with incompatible licensing;
+- accurately report what was tested, what was not tested, and any remaining limitations;
+- address review feedback and maintain the contribution just as you would for code written without AI assistance.
+
+AI assistance does not lower the bar for correctness, security, maintainability, or test coverage. A generated patch without demonstrated understanding and appropriate verification is not ready to merge. The person submitting the pull request—not the tool—is accountable for the result.
+
 ### Branch Naming
 
 - `feat/<description>` - New features
