@@ -86,7 +86,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
   - 复用 AWS S3 operation/runtime，同时通过 OSS 原生 `OSS4-HMAC-SHA256` auth scheme 实现普通请求、presigned GET/PUT、UploadPart 和 multipart lifecycle
 - **七牛云 Kodo connector**
   - 新增 `asterdrive.storage.qiniu` V1 connector、独立静态凭据 schema、descriptor、本地化资源、catalog 投影，以及中英文管理与开发文档
-  - 仅使用 Kodo S3-compatible API 与 AWS SigV4；强制官方 HTTPS service endpoint、匹配的签名 region 和七牛 S3 空间名，不保留 QBox、UploadToken 或原生 form upload 数据面
+  - 仅使用 Kodo S3-compatible API 与 AWS SigV4；接受并规范化官方 HTTPS service endpoint 与 S3 空间级 endpoint，校验匹配的签名 region 和七牛 S3 空间名，并由 connector 自动选择寻址方式，不保留 QBox、UploadToken 或原生 form upload 数据面
   - 复用共享 S3 数据面，支持普通对象 I/O、Range、presigned GET/PUT、multipart、ETag、连接测试和稳定错误分类；提供受环境凭据保护的真实 Kodo smoke harness
 - **WebDAV provider Range 性能基线** — 新增覆盖 Local、S3、OneDrive、SFTP、Remote 与 fallback 路径的 `get_range` / `get_stream` benchmark、版本化 baseline、p95 TTFB / p50 throughput 回归策略、provider artifact 校验和定时 CI；缺少外部凭据时生成结构化 skipped artifact，上传 artifact 前按实际 secret 值脱敏。
 - **存储 connector 文档投影** — 新增 `make storage-docs` / `make storage-docs-check`，从运行时 descriptor 与本地化 catalog 生成可审查 manifest、后端矩阵、策略能力表和 sidebar，并在 CI 中阻止代码能力与文档漂移。

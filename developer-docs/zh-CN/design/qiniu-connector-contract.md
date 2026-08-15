@@ -17,10 +17,12 @@ connector ID 分支。
 这是未发布 connector 的第一个稳定 schema，配置版本为 **V1**，不保留分支内
 曾出现的原生协议或 V2 schema 兼容路径。策略必须提供：
 
-- `endpoint`：必填 HTTPS Kodo S3 官方服务级 endpoint，规范为
-  `https://s3.<region>.qiniucs.com`。首版不接受把 S3 空间名拼入 host 的 endpoint、
-  明文 HTTP、自定义 CNAME、非标准端口、path、query 或 fragment；配置值会规范化
-  为不带末尾 `/` 的服务 endpoint。
+- `endpoint`：必填 HTTPS Kodo S3 官方 endpoint，接受服务级
+  `https://s3.<region>.qiniucs.com` 和空间级
+  `https://<S3-space-name>.s3.<region>.qiniucs.com` 两种输入。空间级 host 中的名称
+  必须与 `bucket` 一致；两种输入都规范化为不带末尾 `/` 的服务 endpoint 供 AWS SDK
+  使用。明文 HTTP、自定义 CNAME、非标准端口、
+  path、query 或 fragment 仍作为配置错误。
 - `bucket`：必填**七牛 S3 空间名**。它遵循 S3 的全局唯一要求；普通 Kodo 空间
   名称全局唯一时两者相同，否则平台会生成另一个 S3 空间名。管理员从 Kodo 控制台
   的空间概览或 `Get Service` 获取该值，不能想当然地填普通空间名称。
@@ -28,8 +30,6 @@ connector ID 分支。
 - `s3_region`：必填 SigV4 签名区域，必须为 1–128 个可打印 ASCII 字符，且不含
   空白或 `/`；它同时必须等于 endpoint 中的 `<region>`。`cn-east-1` 仅为界面
   示例，不是代码中的区域 allow-list。
-- `s3_path_style`：默认 `true`，使用 `/bucket/key`；仅在实际 endpoint 支持
-  virtual-hosted-style bucket URL 时关闭。
 - 通用 object-storage 上传和下载策略，以及静态 Qiniu AccessKey / SecretKey。
 
 SecretKey 是 secret descriptor 字段，不能进入日志、错误、审计记录或 presigned
@@ -43,8 +43,13 @@ base path、region、静态凭据、超时和寻址方式构建 AWS SDK client�
 S3-compatible endpoint，请求 checksum 计算和响应 checksum 校验均限制为
 `WhenRequired`。
 
-首版独立 connector 的稳定价值是：强制官方 service endpoint 与 region 一致、
-明确七牛 S3 空间名而不是普通空间名称、设置 Kodo 兼容所需的 checksum 策略，并
+寻址方式是 connector-owned provider 策略，不作为管理员字段暴露。Qiniu connector
+解除 AWS SDK 的强制 path-style，让 endpoint resolver 对普通 DNS-compatible S3
+空间名使用 virtual-hosted-style，并在名称约束要求时选择兼容形式；管理员无需理解
+或同步 endpoint 与 SDK 寻址开关。
+
+首版独立 connector 的稳定价值是：强制官方 endpoint 与 region 一致、规范化服务级
+与空间级寻址、明确七牛 S3 空间名而不是普通空间名称、设置 Kodo 兼容所需的 checksum 策略，并
 提供七牛专属 descriptor、本地化、连接诊断、教程和真实服务验收入口。任意自建
 S3-compatible endpoint 继续使用 generic S3 connector，不借 Qiniu 品牌入口绕过
 供应商契约。

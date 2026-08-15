@@ -1429,7 +1429,6 @@ fn qiniu_config(upload: ObjectStorageUploadStrategy) -> QiniuConnectorConfigV1 {
         bucket: "archive-s3-global".to_string(),
         base_path: "tenant-a".to_string(),
         s3_region: "cn-east-1".to_string(),
-        s3_path_style: true,
         object_storage_upload_strategy: upload,
         object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
     }
@@ -1441,7 +1440,7 @@ fn qiniu_descriptor_declares_s3_compatible_capabilities() {
     assert_eq!(descriptor.connector_id.as_str(), QiniuConnector::ID);
     assert_eq!(
         descriptor.ui.icon_src.as_deref(),
-        Some("/static/storage/qiniuyun.svg")
+        Some("/static/storage/qiniuyun-kodo.svg")
     );
     assert!(descriptor.ui.icon_name.is_none());
     assert_eq!(descriptor.config_schema_version, 1);
@@ -1473,7 +1472,7 @@ fn qiniu_descriptor_declares_s3_compatible_capabilities() {
         descriptor
             .fields
             .iter()
-            .any(|field| field.name == "s3_path_style")
+            .all(|field| field.name != "s3_path_style")
     );
     assert!(
         descriptor
@@ -1534,11 +1533,12 @@ fn qiniu_connector_normalizes_initial_s3_configuration_schema() {
 }
 
 #[test]
-fn qiniu_connector_requires_an_official_service_endpoint_matching_the_region() {
+fn qiniu_connector_normalizes_official_service_and_bucket_endpoints() {
     let qiniu = connector(QiniuConnector::ID);
-    let validate = |endpoint: &str, region: &str| {
+    let validate = |endpoint: &str, bucket: &str, region: &str| {
         let mut config = qiniu_config(ObjectStorageUploadStrategy::RelayStream);
         config.endpoint = endpoint.to_string();
+        config.bucket = bucket.to_string();
         config.s3_region = region.to_string();
         qiniu.validate_connector_config(&super::test_support::connection_config(
             QiniuConnector::ID,
@@ -1547,16 +1547,38 @@ fn qiniu_connector_requires_an_official_service_endpoint_matching_the_region() {
         ))
     };
 
-    let normalized = validate("https://s3.cn-east-1.qiniucs.com/", "cn-east-1")
-        .expect("official service endpoint should validate");
+    let normalized = validate(
+        "https://s3.cn-east-1.qiniucs.com/",
+        "archive-s3-global",
+        "cn-east-1",
+    )
+    .expect("official service endpoint should validate");
     let config: QiniuConnectorConfigV1 = serde_json::from_value(
         serde_json::to_value(normalized.values).expect("normalized values should serialize"),
     )
     .expect("normalized values should decode");
     assert_eq!(config.endpoint, "https://s3.cn-east-1.qiniucs.com");
+    assert_eq!(config.bucket, "archive-s3-global");
 
-    let error = validate("http://s3.cn-east-1.qiniucs.com", "cn-east-1")
-        .expect_err("plaintext Qiniu endpoints should fail");
+    let normalized = validate(
+        "https://asterdrive-test.s3.cn-south-1.qiniucs.com/",
+        "asterdrive-test",
+        "cn-south-1",
+    )
+    .expect("official bucket-qualified endpoint should validate");
+    let config: QiniuConnectorConfigV1 = serde_json::from_value(
+        serde_json::to_value(normalized.values).expect("normalized values should serialize"),
+    )
+    .expect("normalized values should decode");
+    assert_eq!(config.endpoint, "https://s3.cn-south-1.qiniucs.com");
+    assert_eq!(config.bucket, "asterdrive-test");
+
+    let error = validate(
+        "http://s3.cn-east-1.qiniucs.com",
+        "archive-s3-global",
+        "cn-east-1",
+    )
+    .expect_err("plaintext Qiniu endpoints should fail");
     assert!(
         error.message().contains("must use HTTPS"),
         "unexpected endpoint protocol error: {error}"
@@ -1565,28 +1587,38 @@ fn qiniu_connector_requires_an_official_service_endpoint_matching_the_region() {
     for endpoint in [
         "https://s3.example.test",
         "https://objects.example.com",
-        "https://archive-s3-global.s3.cn-east-1.qiniucs.com",
         "https://s3.cn-east-1.qiniucs.com:8443",
         "https://s3.cn-east-1.qiniucs.com/custom-path",
         "https://s3.cn-east-1.qiniucs.com?bucket=archive-s3-global",
     ] {
-        let error = validate(endpoint, "cn-east-1")
-            .expect_err("non-service-level Qiniu endpoints should fail");
+        let error = validate(endpoint, "archive-s3-global", "cn-east-1")
+            .expect_err("non-official Qiniu endpoints should fail");
         assert!(
-            error
-                .message()
-                .contains("must use the service endpoint 'https://s3.cn-east-1.qiniucs.com'"),
+            error.message().contains("https://s3.cn-east-1.qiniucs.com"),
             "unexpected endpoint error: {error}"
         );
     }
 
-    let error = validate("https://s3.cn-east-1.qiniucs.com", "cn-south-1")
-        .expect_err("endpoint and region must match");
+    let error = validate(
+        "https://s3.cn-east-1.qiniucs.com",
+        "archive-s3-global",
+        "cn-south-1",
+    )
+    .expect_err("endpoint and region must match");
     assert!(
         error
             .message()
             .contains("https://s3.cn-south-1.qiniucs.com")
     );
+
+    let error = validate(
+        "https://another-space.s3.cn-east-1.qiniucs.com",
+        "archive-s3-global",
+        "cn-east-1",
+    )
+    .expect_err("endpoint S3 space name must match the bucket field");
+    assert!(error.message().contains("another-space"));
+    assert!(error.message().contains("archive-s3-global"));
 }
 
 #[tokio::test]
@@ -1620,6 +1652,20 @@ async fn qiniu_connector_builds_draft_driver_and_enforces_runtime_credential_bou
         .expect("valid Qiniu draft driver should build");
     assert!(draft.extensions().presigned.is_some());
     assert!(draft.extensions().multipart.is_some());
+    let presigned = draft
+        .extensions()
+        .presigned
+        .expect("Qiniu draft driver should expose presigned requests")
+        .presigned_put_request("reports/2026.txt", std::time::Duration::from_secs(60))
+        .await
+        .expect("Qiniu draft presigning should succeed")
+        .expect("Qiniu draft driver should return a presigned request");
+    let presigned = url::Url::parse(&presigned.url).expect("Qiniu presigned URL should parse");
+    assert_eq!(
+        presigned.host_str(),
+        Some("archive-s3-global.s3.cn-east-1.qiniucs.com")
+    );
+    assert_eq!(presigned.path(), "/tenant-a/reports/2026.txt");
     assert!(qiniu.presigned_download_enabled(&qiniu_policy).unwrap());
 
     let error = match qiniu.build_runtime_driver(&driver_registry, &qiniu_policy) {
