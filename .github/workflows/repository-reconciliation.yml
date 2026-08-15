@@ -1,44 +1,22 @@
-name: CI Diagnostics
+name: Repository Reconciliation
 
 on:
+  schedule:
+    - cron: '17 * * * *'
   workflow_dispatch:
-    inputs:
-      workflow_run_id:
-        description: Source workflow run ID to reconcile
-        required: true
-        type: string
-  workflow_run:
-    workflows:
-      - Repository Automation
-      - Rust CI
-      - Frontend CI
-      - E2E
-      - Security Audit
-      - Docs Check
-      - Kubernetes Manifests
-      - Multi-Primary E2E
-      - WebDAV Compatibility
-      - WebDAV Provider Range Baselines
-    types: [completed]
 
 concurrency:
-  group: ci-diagnostics-${{ github.event.workflow_run.head_sha }}
+  group: repository-reconciliation
   cancel-in-progress: false
 
 permissions:
-  actions: read
-  checks: write
   contents: read
-  issues: write
-  pull-requests: write
 
 jobs:
-  summarize:
-    name: Update PR gate and diagnostics
+  reconcile:
+    name: Reconcile repository governance
     runs-on: ubuntu-latest
     steps:
-      # workflow_run always executes the trusted default-branch implementation.
-      # CI logs and pull request metadata remain untrusted input to the script.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -55,9 +33,16 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
-      - name: Reconcile diagnostics
+      - name: Reconcile open pull requests and CI incidents
         uses: AsterCommunity/aster-automation@695d54ea66efb9131e8aa2f361c9d5b7e4537a09 # v0.1.0 candidate
         with:
-          mode: ci-diagnostics
+          mode: reconcile-repository
+          token: ${{ steps.app-token.outputs.token }}
+          config-path: .github/aster-automation.json
+
+      - name: Update release readiness dashboard
+        uses: AsterCommunity/aster-automation@695d54ea66efb9131e8aa2f361c9d5b7e4537a09 # v0.1.0 candidate
+        with:
+          mode: milestone-dashboard
           token: ${{ steps.app-token.outputs.token }}
           config-path: .github/aster-automation.json

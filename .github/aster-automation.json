@@ -8,6 +8,14 @@
     "runningLabel": "CI: Running",
     "passedLabel": "CI: Passed"
   },
+  "readiness": {
+    "name": "PR Readiness",
+    "commentMarker": "<!-- asterdrive-pr-readiness -->",
+    "requiredChecks": ["codecov/patch"],
+    "requireResolvedThreads": true,
+    "requireApproval": false,
+    "highRiskLabel": "Risk: High"
+  },
   "labels": {
     "definitions": {
       "Risk: High": {
@@ -29,7 +37,18 @@
       "CI: Infrastructure": {
         "color": "5319E7",
         "description": "CI failure appears to originate from runner or external infrastructure"
+      },
+      "CI: Flaky": {
+        "color": "D4C5F9",
+        "description": "The same CI failure fingerprint has recurred across runs"
       }
+    },
+    "applicability": {
+      "CI: Failure": ["issue"],
+      "CI: Infrastructure": ["issue"],
+      "CI: Flaky": ["issue"],
+      "CI: Running": ["pull_request"],
+      "CI: Passed": ["pull_request"]
     },
     "rules": [
       { "label": "Rust", "paths": ["**/*.rs", "**/Cargo.toml", "**/Cargo.lock", "rust-toolchain.toml"] },
@@ -87,12 +106,20 @@
     "readyLabel": "Status: Ready",
     "inProgressLabel": "Status: In Progress",
     "mergedLabel": "Merged",
-    "mergedPullLabelsToRemove": ["Status: In Progress", "Status: Needs Decision"]
+    "mergedPullLabelsToRemove": ["Status: In Progress", "Status: Needs Decision"],
+    "trackingPattern": "^Tracking-Issue:\\s*#(\\d+)\\s*$"
   },
   "incidents": {
     "failureLabel": "CI: Failure",
     "infrastructureLabel": "CI: Infrastructure",
-    "recoverySuccesses": 2
+    "recoverySuccesses": 2,
+    "flakyLabel": "CI: Flaky",
+    "flakyOccurrences": 3
+  },
+  "dashboard": {
+    "marker": "<!-- asterdrive-milestone-dashboard -->",
+    "title": "Release readiness dashboard",
+    "milestones": ["v0.5.0", "Post-v0.5.0"]
   },
   "diagnosticHints": [
     { "pattern": "openapi|generated|sdk drift|generated files", "message": "OpenAPI 或生成 SDK 存在漂移，请运行仓库正式生成流程并审查生成 diff。" },

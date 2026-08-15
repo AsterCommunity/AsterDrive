@@ -44,7 +44,7 @@ jobs:
           permission-pull-requests: write
 
       - name: Apply labels and linked-issue lifecycle
-        uses: AsterCommunity/aster-automation@445a78a0e9c997c7472a22eddb524f029d370ffd # v0.1.0 candidate
+        uses: AsterCommunity/aster-automation@695d54ea66efb9131e8aa2f361c9d5b7e4537a09 # v0.1.0 candidate
         with:
           mode: pr-automation
           token: ${{ steps.app-token.outputs.token }}
