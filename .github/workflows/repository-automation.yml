@@ -38,13 +38,13 @@ jobs:
           node-version: 24
 
       - name: Validate repository automation configuration
-        uses: AsterCommunity/aster-automation@6c047dd28d0684fbd4698ae2e2b87d942296836d # v0.1.0 candidate
+        uses: AsterCommunity/aster-automation@1168b6cbcdf5ab7e5360be9dc88b883c4cfa72f3 # v0.1.0 candidate
         with:
           mode: validate-config
           config-path: .github/aster-automation.json
 
       - name: Validate repository automation contract
-        uses: AsterCommunity/aster-automation@6c047dd28d0684fbd4698ae2e2b87d942296836d # v0.1.0 candidate
+        uses: AsterCommunity/aster-automation@1168b6cbcdf5ab7e5360be9dc88b883c4cfa72f3 # v0.1.0 candidate
         with:
           mode: validate-repository
           config-path: .github/aster-automation.json
