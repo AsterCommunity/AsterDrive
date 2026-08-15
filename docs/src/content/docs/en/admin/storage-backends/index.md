@@ -21,7 +21,7 @@ The two-layer concept of storage policies and policy groups itself lives in [Sto
 | Tencent COS | `asterdrive.storage.tencent_cos` | Shared across Primary instances | Tencent COS and per-policy COS CI processing | [Tencent COS](/en/admin/storage-backends/tencent-cos/) |
 | Remote | `asterdrive.storage.remote` | Shared across Primary instances | Objects stored by another AsterDrive follower node | [Remote](/en/admin/storage-backends/remote-follower/) |
 | OneDrive | `asterdrive.storage.onedrive` | Shared across Primary instances | Microsoft 365, OneDrive, SharePoint, and group drives | [OneDrive](/en/admin/storage-backends/onedrive/) |
-| Qiniu Kodo | `asterdrive.storage.qiniu` | Shared across Primary instances | Qiniu Cloud Kodo buckets through its S3-compatible API | [Qiniu Kodo](/en/admin/storage-backends/qiniu-kodo/) |
+| Qiniu Kodo | `asterdrive.storage.qiniu` | Shared across Primary instances | Qiniu Cloud Kodo S3 spaces with official endpoint diagnostics | [Qiniu Kodo](/en/admin/storage-backends/qiniu-kodo/) |
 <!-- storage-connectors:index:end -->
 
 For multi-Primary (cluster profile) deployments, the default policy must be reachable by every Primary, and `local` cannot be the default policy; see [Storage Policies and Policy Groups](/en/admin/storage-policies/#what-exists-after-first-start).

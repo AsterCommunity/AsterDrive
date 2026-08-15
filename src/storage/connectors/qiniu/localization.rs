@@ -13,13 +13,13 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_wizard_qiniu_helper",
-        "Enter the Kodo S3-compatible endpoint, signing region, bucket, and addressing style supplied for this storage space.",
-        "填写该存储空间使用的 Kodo S3 兼容 endpoint、签名区域、bucket 和寻址方式。",
+        "Enter the official Kodo S3 service endpoint, matching signing region, Qiniu S3 space name, and addressing style.",
+        "填写官方 Kodo S3 服务 endpoint、匹配的签名区域、七牛 S3 空间名和寻址方式。",
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_wizard_step_qiniu_connection_desc",
-        "Set the Qiniu Kodo S3-compatible endpoint, bucket, SigV4 region, optional prefix, and AccessKey credentials.",
-        "填写七牛云 Kodo S3 兼容 endpoint、bucket、SigV4 区域、可选前缀和 AccessKey 凭据。",
+        "Set the Qiniu Kodo S3 service endpoint, S3 space name, matching SigV4 region, optional prefix, and AccessKey credentials.",
+        "填写七牛云 Kodo S3 服务 endpoint、S3 空间名、匹配的 SigV4 区域、可选前缀和 AccessKey 凭据。",
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_edit_context_qiniu_desc",
@@ -33,18 +33,28 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_s3_endpoint_desc",
-        "The HTTP(S) S3-compatible endpoint supplied for this Kodo bucket. Keep the bucket name in the bucket field.",
-        "为该 Kodo bucket 提供的 HTTP(S) S3 兼容 endpoint。bucket 名称请单独填写。",
+        "The official service-level endpoint for the matching region, such as https://s3.cn-east-1.qiniucs.com. Do not include the S3 space name.",
+        "与区域匹配的官方服务级 endpoint，例如 https://s3.cn-east-1.qiniucs.com。不要在其中包含 S3 空间名。",
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_s3_endpoint_protocol_error",
-        "Kodo S3 endpoint must use HTTP or HTTPS.",
-        "Kodo S3 endpoint 必须使用 HTTP 或 HTTPS。",
+        "Kodo S3 endpoint must use HTTPS.",
+        "Kodo S3 endpoint 必须使用 HTTPS。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_s3_bucket",
+        "Qiniu S3 space name",
+        "七牛 S3 空间名",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_s3_bucket_desc",
+        "The globally unique S3 space name shown in the Kodo console or returned by Get Service. It can differ from the ordinary Kodo space name.",
+        "在 Kodo 控制台中显示或由 Get Service 返回的全局唯一 S3 空间名；它可能不同于普通 Kodo 空间名称。",
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_bucket_required",
-        "Qiniu Kodo bucket is required.",
-        "七牛云 Kodo bucket 不能为空。",
+        "Qiniu S3 space name is required.",
+        "七牛 S3 空间名不能为空。",
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_s3_region",
@@ -53,8 +63,8 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_s3_region_desc",
-        "The SigV4 signing region required by the configured Kodo S3 endpoint, such as cn-east-1.",
-        "当前 Kodo S3 endpoint 要求的 SigV4 签名区域，例如 cn-east-1。",
+        "The Region ID embedded in the official Kodo S3 service endpoint, such as cn-east-1. It must match the endpoint host.",
+        "官方 Kodo S3 服务 endpoint 中的 Region ID，例如 cn-east-1；必须与 endpoint 主机名匹配。",
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_s3_path_style",
@@ -63,8 +73,8 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_s3_path_style_desc",
-        "When enabled, requests use /bucket/key URLs. Disable only when the configured endpoint supports virtual-hosted-style bucket URLs.",
-        "启用后请求使用 /bucket/key URL。仅当当前 endpoint 支持 virtual-hosted-style bucket URL 时关闭。",
+        "When enabled, requests use /S3-space-name/key URLs. Qiniu also supports virtual-hosted-style S3-space-name.s3.<region>.qiniucs.com URLs.",
+        "启用后请求使用 /S3-空间名/key URL。七牛也支持 S3-空间名.s3.<region>.qiniucs.com 形式的 virtual-hosted-style URL。",
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_access_key",

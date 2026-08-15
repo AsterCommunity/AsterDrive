@@ -31,17 +31,21 @@ aster_drive_storage::storage_connector_schema! {
             pub endpoint: String => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
                 name: "endpoint", scope: StorageConnectorFieldScope::ConnectorConfig,
                 kind: StorageConnectorFieldKind::Text, required: true, secret: false,
-                label_key: "qiniu_s3_endpoint", placeholder: Some("https://s3.example.qiniu.com"),
+                label_key: "qiniu_s3_endpoint", placeholder: Some("https://s3.cn-east-1.qiniucs.com"),
                 help_key: Some("qiniu_s3_endpoint_desc"), required_message_key: None,
                 invalid_protocol_message_key: Some("qiniu_s3_endpoint_protocol_error"),
-                allowed_endpoint_protocols: vec!["http:", "https:"],
+                allowed_endpoint_protocols: vec!["https:"],
                 allow_endpoint_without_protocol: false, trim_on_blur: true,
             }),
             pub bucket: String => {
-                let mut field = storage_connector_field(
-                    "bucket", StorageConnectorFieldScope::ConnectorConfig,
-                    StorageConnectorFieldKind::Text, true, false,
-                );
+                let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                    name: "bucket", scope: StorageConnectorFieldScope::ConnectorConfig,
+                    kind: StorageConnectorFieldKind::Text, required: true, secret: false,
+                    label_key: "qiniu_s3_bucket", placeholder: Some("globally-unique-s3-space-name"),
+                    help_key: Some("qiniu_s3_bucket_desc"), required_message_key: None,
+                    invalid_protocol_message_key: None, allowed_endpoint_protocols: Vec::new(),
+                    allow_endpoint_without_protocol: false, trim_on_blur: true,
+                });
                 field.required_message_key = Some("qiniu_bucket_required".to_string());
                 field
             },
@@ -151,7 +155,7 @@ impl QiniuConnector {
             storage_native_processing: false,
             config_schema_version: 1,
             credential_schema_version: Some(1),
-            related_issues: Vec::new(),
+            related_issues: vec![519],
         })
     }
 
@@ -209,6 +213,7 @@ impl StorageConnector for QiniuConnector {
             },
         )
         .map_err(|error| AsterError::validation_error(error.message().to_string()))?;
+        config.endpoint = normalize_qiniu_s3_endpoint(&config.endpoint, &config.s3_region)?;
         super::common::encode_normalized_connector_config(
             normalized.connector_id,
             normalized.schema_version,
@@ -291,4 +296,32 @@ impl StorageConnector for QiniuConnector {
         let config = Self::decode_config(policy)?;
         Ok(config.object_storage_download_strategy == ObjectStorageDownloadStrategy::Presigned)
     }
+}
+
+fn normalize_qiniu_s3_endpoint(endpoint: &str, region: &str) -> Result<String> {
+    let parsed = url::Url::parse(endpoint)
+        .map_err(|_| AsterError::validation_error("invalid Qiniu Kodo S3 endpoint URL"))?;
+    if parsed.scheme() != "https" {
+        return Err(AsterError::validation_error(
+            "Qiniu Kodo S3 endpoint must use HTTPS",
+        ));
+    }
+    let host = parsed.host_str().ok_or_else(|| {
+        AsterError::validation_error("Qiniu Kodo S3 endpoint requires a hostname")
+    })?;
+    let expected_host = format!("s3.{region}.qiniucs.com");
+    let uses_root_path = parsed.path().is_empty() || parsed.path() == "/";
+    if host != expected_host
+        || parsed.port().is_some()
+        || !uses_root_path
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err(AsterError::validation_error(format!(
+            "Qiniu Kodo S3 endpoint must use the service endpoint 'https://{expected_host}' that matches s3_region; bucket-prefixed hosts, custom CNAMEs, ports, paths, queries, and fragments are not supported"
+        )));
+    }
+    Ok(format!("https://{expected_host}"))
 }

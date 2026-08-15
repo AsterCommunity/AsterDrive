@@ -82,8 +82,8 @@ const PRESENTATIONS: &[ConnectorDocumentationPresentation] = &[
     ConnectorDocumentationPresentation {
         connector_id: "asterdrive.storage.qiniu",
         tutorial_slug: "qiniu-kodo",
-        best_for_en: "Qiniu Cloud Kodo buckets through its S3-compatible API",
-        best_for_zh: "通过 S3 兼容 API 接入的七牛云 Kodo bucket",
+        best_for_en: "Qiniu Cloud Kodo S3 spaces with official endpoint diagnostics",
+        best_for_zh: "带官方 endpoint 诊断的七牛云 Kodo S3 空间",
     },
     ConnectorDocumentationPresentation {
         connector_id: "asterdrive.storage.alibaba_oss",

@@ -395,8 +395,8 @@
       "documentation": {
         "tutorial_slug": "qiniu-kodo",
         "best_for": {
-          "en": "Qiniu Cloud Kodo buckets through its S3-compatible API",
-          "zh": "通过 S3 兼容 API 接入的七牛云 Kodo bucket"
+          "en": "Qiniu Cloud Kodo S3 spaces with official endpoint diagnostics",
+          "zh": "带官方 endpoint 诊断的七牛云 Kodo S3 空间"
         }
       },
       "deployment_scope": "shared_across_primary_instances",

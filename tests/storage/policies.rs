@@ -325,6 +325,23 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     assert_eq!(qiniu["config_schema_version"], 1);
     assert_eq!(qiniu["capabilities"]["presigned_download"], true);
     assert_eq!(qiniu["upload_workflows"]["presigned_upload"], true);
+    let qiniu_actions = qiniu["actions"].as_array().expect("Qiniu actions");
+    assert!(qiniu_actions.iter().any(|action| {
+        action["action_id"] == "test_draft_connection"
+            && action["kind"] == "connection_test"
+            && action["endpoints"].as_array().is_some_and(|endpoints| {
+                endpoints.iter().any(|value| value == "test_policy_params")
+            })
+    }));
+    assert!(qiniu_actions.iter().any(|action| {
+        action["action_id"] == "test_saved_connection"
+            && action["kind"] == "connection_test"
+            && action["endpoints"].as_array().is_some_and(|endpoints| {
+                endpoints
+                    .iter()
+                    .any(|value| value == "test_policy_connection")
+            })
+    }));
     assert_eq!(onedrive["authorization_provider"], "microsoft_graph");
     assert_eq!(
         onedrive["credential_management"]["title_key"],
