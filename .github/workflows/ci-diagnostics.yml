@@ -56,7 +56,7 @@ jobs:
           permission-pull-requests: write
 
       - name: Reconcile diagnostics
-        uses: AsterCommunity/aster-automation@bd3a73cc0d2addddd62f15d20a20b19fac2b2e87 # v0.1.0 candidate
+        uses: AsterCommunity/aster-automation@6c047dd28d0684fbd4698ae2e2b87d942296836d # v0.1.0 candidate
         with:
           mode: ci-diagnostics
           token: ${{ steps.app-token.outputs.token }}
