@@ -18,6 +18,7 @@ use super::alibaba_oss::AlibabaOssConnectorConfigV1;
 use super::azure_blob::AzureBlobConnectorConfigV1;
 use super::local::LocalConnectorConfigV1;
 use super::onedrive::{OneDriveAccountMode, OneDriveConnectorConfigV1};
+use super::qiniu::QiniuConnectorConfigV1;
 use super::remote::RemoteConnectorConfigV1;
 use super::s3::S3ConnectorConfigV1;
 use super::sftp::SftpConnectorConfigV1;
@@ -201,9 +202,10 @@ fn registry_exposes_each_builtin_connector_once_in_stable_order() {
             TencentCosConnector::ID,
             RemoteConnector::ID,
             OneDriveConnector::ID,
+            QiniuConnector::ID,
         ]
     );
-    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 8);
+    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 9);
 }
 
 #[test]
@@ -609,6 +611,7 @@ fn descriptors_are_complete_and_keep_config_credentials_separate() {
     );
     for id in [
         S3Connector::ID,
+        QiniuConnector::ID,
         AlibabaOssConnector::ID,
         SftpConnector::ID,
         AzureBlobConnector::ID,
@@ -636,6 +639,7 @@ fn built_in_connector_capacity_claims_match_runtime_probe_support() {
         AzureBlobConnector::ID,
         TencentCosConnector::ID,
         SftpConnector::ID,
+        QiniuConnector::ID,
     ];
     let descriptors = registry().descriptors();
     assert_eq!(
@@ -857,6 +861,7 @@ fn credential_channels_are_mutually_exclusive_by_connector_contract() {
         SftpConnector::ID,
         AzureBlobConnector::ID,
         TencentCosConnector::ID,
+        QiniuConnector::ID,
     ] {
         let connector = connector(id);
         assert_eq!(
@@ -917,6 +922,56 @@ fn typed_connector_config_round_trips_and_rejects_unknown_fields() {
         .validate_connector_config(&unknown)
         .expect_err("unknown connector field must fail");
     assert!(error.to_string().contains("unknown"));
+}
+
+#[test]
+fn s3_connector_preserves_sigv4_region_validation_contract() {
+    let connector = connector(S3Connector::ID);
+
+    for region in [
+        "region with spaces".to_string(),
+        "region/name".to_string(),
+        "中国".to_string(),
+    ] {
+        let mut config = s3_config(ObjectStorageUploadStrategy::RelayStream);
+        config.s3_region = region;
+        let input = super::test_support::connection_config(S3Connector::ID, 1, config);
+        let error = connector
+            .validate_connector_config(&input)
+            .expect_err("invalid SigV4 region should fail");
+        assert!(
+            error.to_string().contains(
+                "s3_region must be 1-128 printable ASCII characters without whitespace or '/'"
+            ),
+            "unexpected validation error: {error}"
+        );
+    }
+
+    for region in ["".to_string(), "r".repeat(129)] {
+        let mut config = s3_config(ObjectStorageUploadStrategy::RelayStream);
+        config.s3_region = region;
+        let input = super::test_support::connection_config(S3Connector::ID, 1, config);
+        assert!(
+            connector.validate_connector_config(&input).is_err(),
+            "invalid region should retain its rejected API behavior"
+        );
+    }
+
+    for (region, expected) in [
+        ("auto".to_string(), "auto".to_string()),
+        (" us-east-1 ".to_string(), "us-east-1".to_string()),
+        ("r".repeat(128), "r".repeat(128)),
+    ] {
+        let mut config = s3_config(ObjectStorageUploadStrategy::RelayStream);
+        config.s3_region = region;
+        let input = super::test_support::connection_config(S3Connector::ID, 1, config);
+        let normalized = connector
+            .validate_connector_config(&input)
+            .expect("valid SigV4 region should normalize");
+        let values: S3ConnectorConfigV1 =
+            serde_json::from_value(serde_json::to_value(normalized.values).unwrap()).unwrap();
+        assert_eq!(values.s3_region, expected);
+    }
 }
 
 #[test]
@@ -1119,6 +1174,14 @@ fn upload_transport_is_resolved_by_connector_owned_typed_config() {
             policy(
                 S3Connector::ID,
                 s3_config(ObjectStorageUploadStrategy::Presigned),
+            ),
+            StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
+        ),
+        (
+            QiniuConnector::ID,
+            policy(
+                QiniuConnector::ID,
+                qiniu_config(ObjectStorageUploadStrategy::Presigned),
             ),
             StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
         ),
@@ -1358,4 +1421,234 @@ fn built_in_connector_descriptors_do_not_duplicate_core_native_behavior_state() 
         }
     }
     assert_eq!(descriptor(TencentCosConnector::ID).config_schema_version, 1);
+}
+
+fn qiniu_config(upload: ObjectStorageUploadStrategy) -> QiniuConnectorConfigV1 {
+    QiniuConnectorConfigV1 {
+        endpoint: "https://s3.cn-east-1.qiniucs.com".to_string(),
+        bucket: "archive-s3-global".to_string(),
+        base_path: "tenant-a".to_string(),
+        s3_region: "cn-east-1".to_string(),
+        s3_path_style: true,
+        object_storage_upload_strategy: upload,
+        object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
+    }
+}
+
+#[test]
+fn qiniu_descriptor_declares_s3_compatible_capabilities() {
+    let descriptor = QiniuConnector::descriptor_definition();
+    assert_eq!(descriptor.connector_id.as_str(), QiniuConnector::ID);
+    assert_eq!(
+        descriptor.ui.icon_src.as_deref(),
+        Some("/static/storage/qiniuyun.svg")
+    );
+    assert!(descriptor.ui.icon_name.is_none());
+    assert_eq!(descriptor.config_schema_version, 1);
+    assert_eq!(descriptor.related_issues, vec![519]);
+    assert!(descriptor.capabilities.presigned_download);
+    assert!(descriptor.upload_workflows.presigned_upload);
+    assert!(descriptor.upload_workflows.object_multipart_upload);
+    assert!(
+        descriptor
+            .upload_workflows
+            .object_multipart_upload_capabilities
+            .is_some()
+    );
+    assert!(!descriptor.capabilities.storage_native_thumbnail);
+    assert!(!descriptor.capabilities.storage_native_media_metadata);
+    assert!(
+        descriptor
+            .fields
+            .iter()
+            .any(|field| field.name == "endpoint")
+    );
+    assert!(
+        descriptor
+            .fields
+            .iter()
+            .any(|field| field.name == "s3_region")
+    );
+    assert!(
+        descriptor
+            .fields
+            .iter()
+            .any(|field| field.name == "s3_path_style")
+    );
+    assert!(
+        descriptor
+            .fields
+            .iter()
+            .all(|field| field.name != "download_domain" && field.name != "object_prefix")
+    );
+    let endpoint = descriptor
+        .fields
+        .iter()
+        .find(|field| field.name == "endpoint")
+        .expect("Qiniu endpoint field");
+    assert_eq!(
+        endpoint.placeholder.as_deref(),
+        Some("https://s3.cn-east-1.qiniucs.com")
+    );
+    assert_eq!(endpoint.allowed_endpoint_protocols, vec!["https:"]);
+    let bucket = descriptor
+        .fields
+        .iter()
+        .find(|field| field.name == "bucket")
+        .expect("Qiniu S3 space-name field");
+    assert_eq!(bucket.label_key, "qiniu_s3_bucket");
+    assert_eq!(bucket.help_key.as_deref(), Some("qiniu_s3_bucket_desc"));
+
+    let draft_connection_test = descriptor.actions.iter().any(|action| {
+        action.kind == StorageConnectorActionKind::ConnectionTest
+            && action
+                .endpoints
+                .contains(&StorageConnectorActionEndpoint::TestPolicyParams)
+    });
+    let saved_connection_test = descriptor.actions.iter().any(|action| {
+        action.kind == StorageConnectorActionKind::ConnectionTest
+            && action
+                .endpoints
+                .contains(&StorageConnectorActionEndpoint::TestPolicyConnection)
+    });
+    assert!(draft_connection_test);
+    assert!(saved_connection_test);
+}
+
+#[test]
+fn qiniu_connector_normalizes_initial_s3_configuration_schema() {
+    let qiniu = connector(QiniuConnector::ID);
+    let normalized = qiniu
+        .validate_connector_config(&super::test_support::connection_config(
+            QiniuConnector::ID,
+            1,
+            qiniu_config(ObjectStorageUploadStrategy::Presigned),
+        ))
+        .expect("initial Qiniu configuration should validate");
+    let config: QiniuConnectorConfigV1 = serde_json::from_value(
+        serde_json::to_value(normalized.values).expect("normalized values should serialize"),
+    )
+    .expect("normalized values should decode");
+    assert_eq!(config.endpoint, "https://s3.cn-east-1.qiniucs.com");
+    assert_eq!(config.bucket, "archive-s3-global");
+}
+
+#[test]
+fn qiniu_connector_requires_an_official_service_endpoint_matching_the_region() {
+    let qiniu = connector(QiniuConnector::ID);
+    let validate = |endpoint: &str, region: &str| {
+        let mut config = qiniu_config(ObjectStorageUploadStrategy::RelayStream);
+        config.endpoint = endpoint.to_string();
+        config.s3_region = region.to_string();
+        qiniu.validate_connector_config(&super::test_support::connection_config(
+            QiniuConnector::ID,
+            1,
+            config,
+        ))
+    };
+
+    let normalized = validate("https://s3.cn-east-1.qiniucs.com/", "cn-east-1")
+        .expect("official service endpoint should validate");
+    let config: QiniuConnectorConfigV1 = serde_json::from_value(
+        serde_json::to_value(normalized.values).expect("normalized values should serialize"),
+    )
+    .expect("normalized values should decode");
+    assert_eq!(config.endpoint, "https://s3.cn-east-1.qiniucs.com");
+
+    let error = validate("http://s3.cn-east-1.qiniucs.com", "cn-east-1")
+        .expect_err("plaintext Qiniu endpoints should fail");
+    assert!(
+        error.message().contains("must use HTTPS"),
+        "unexpected endpoint protocol error: {error}"
+    );
+
+    for endpoint in [
+        "https://s3.example.test",
+        "https://objects.example.com",
+        "https://archive-s3-global.s3.cn-east-1.qiniucs.com",
+        "https://s3.cn-east-1.qiniucs.com:8443",
+        "https://s3.cn-east-1.qiniucs.com/custom-path",
+        "https://s3.cn-east-1.qiniucs.com?bucket=archive-s3-global",
+    ] {
+        let error = validate(endpoint, "cn-east-1")
+            .expect_err("non-service-level Qiniu endpoints should fail");
+        assert!(
+            error
+                .message()
+                .contains("must use the service endpoint 'https://s3.cn-east-1.qiniucs.com'"),
+            "unexpected endpoint error: {error}"
+        );
+    }
+
+    let error = validate("https://s3.cn-east-1.qiniucs.com", "cn-south-1")
+        .expect_err("endpoint and region must match");
+    assert!(
+        error
+            .message()
+            .contains("https://s3.cn-south-1.qiniucs.com")
+    );
+}
+
+#[tokio::test]
+async fn qiniu_connector_builds_draft_driver_and_enforces_runtime_credential_boundaries() {
+    let qiniu = connector(QiniuConnector::ID);
+    let mut config = qiniu_config(ObjectStorageUploadStrategy::Presigned);
+    config.object_storage_download_strategy = ObjectStorageDownloadStrategy::Presigned;
+    let qiniu_policy = policy(QiniuConnector::ID, config);
+    let credential = StorageConnectorCredentialInput::Static(serde_json::json!({
+        "qiniu_access_key": "access-key",
+        "qiniu_secret_key": "secret-key"
+    }));
+    let db = sea_orm::Database::connect("sqlite::memory:")
+        .await
+        .expect("Qiniu connector test database");
+    let application_config = crate::config::Config::default();
+    let runtime_config = crate::config::RuntimeConfig::default();
+    let driver_registry =
+        crate::storage::DriverRegistry::noop().expect("built-in storage connector registry");
+    let context = StorageConnectorContext::new(
+        &db,
+        &application_config,
+        &runtime_config,
+        &driver_registry,
+        None,
+    );
+
+    let draft = qiniu
+        .build_draft_driver(&context, &qiniu_policy, &credential)
+        .await
+        .expect("valid Qiniu draft driver should build");
+    assert!(draft.extensions().presigned.is_some());
+    assert!(draft.extensions().multipart.is_some());
+    assert!(qiniu.presigned_download_enabled(&qiniu_policy).unwrap());
+
+    let error = match qiniu.build_runtime_driver(&driver_registry, &qiniu_policy) {
+        Ok(_) => panic!("runtime Qiniu driver should require a loaded credential"),
+        Err(error) => error,
+    };
+    assert_eq!(
+        error.storage_error_kind(),
+        Some(aster_drive_storage::StorageErrorKind::Auth)
+    );
+
+    let error = match qiniu
+        .build_cleanup_driver(
+            &context,
+            &qiniu_policy,
+            StoragePolicyCleanupSnapshots {
+                driver_snapshot: None,
+            },
+        )
+        .await
+    {
+        Ok(_) => panic!("cleanup Qiniu driver should require its credential snapshot"),
+        Err(error) => error,
+    };
+    assert!(error.message().contains("missing encrypted credentials"));
+
+    let relay_policy = policy(
+        QiniuConnector::ID,
+        qiniu_config(ObjectStorageUploadStrategy::RelayStream),
+    );
+    assert!(!qiniu.presigned_download_enabled(&relay_policy).unwrap());
 }

@@ -301,7 +301,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     let body: Value = test::read_body_json(resp).await;
     let descriptors = body["data"].as_array().expect("descriptor list");
 
-    assert_eq!(descriptors.len(), 8);
+    assert_eq!(descriptors.len(), 9);
 
     let descriptor = |connector_id: &str| {
         descriptors
@@ -319,6 +319,29 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     assert_eq!(onedrive["supports_initial_setup"], false);
     assert_eq!(onedrive["requires_authorization"], true);
     assert_eq!(onedrive["capabilities"]["presigned_download"], true);
+    let qiniu = descriptor("asterdrive.storage.qiniu");
+    assert_eq!(qiniu["credential_mode"], "static_secret");
+    assert_eq!(qiniu["deployment_scope"], "shared_across_primary_instances");
+    assert_eq!(qiniu["config_schema_version"], 1);
+    assert_eq!(qiniu["capabilities"]["presigned_download"], true);
+    assert_eq!(qiniu["upload_workflows"]["presigned_upload"], true);
+    let qiniu_actions = qiniu["actions"].as_array().expect("Qiniu actions");
+    assert!(qiniu_actions.iter().any(|action| {
+        action["action_id"] == "test_draft_connection"
+            && action["kind"] == "connection_test"
+            && action["endpoints"].as_array().is_some_and(|endpoints| {
+                endpoints.iter().any(|value| value == "test_policy_params")
+            })
+    }));
+    assert!(qiniu_actions.iter().any(|action| {
+        action["action_id"] == "test_saved_connection"
+            && action["kind"] == "connection_test"
+            && action["endpoints"].as_array().is_some_and(|endpoints| {
+                endpoints
+                    .iter()
+                    .any(|value| value == "test_policy_connection")
+            })
+    }));
     assert_eq!(onedrive["authorization_provider"], "microsoft_graph");
     assert_eq!(
         onedrive["credential_management"]["title_key"],
@@ -571,9 +594,9 @@ async fn test_storage_driver_catalog_contexts_are_backend_authoritative_in_singl
     let create = list_storage_driver_descriptors_via_admin(&app, &token, Some("create")).await;
     let setup = list_storage_driver_descriptors_via_admin(&app, &token, Some("setup")).await;
 
-    assert_eq!(manage.len(), 8);
-    assert_eq!(create.len(), 8);
-    assert_eq!(setup.len(), 8);
+    assert_eq!(manage.len(), 9);
+    assert_eq!(create.len(), 9);
+    assert_eq!(setup.len(), 9);
     assert!(
         setup
             .iter()
@@ -599,13 +622,13 @@ async fn test_cluster_storage_driver_catalog_hides_local_only_from_new_policy_fl
     let create = list_storage_driver_descriptors_via_admin(&app, &token, Some("create")).await;
     let setup = list_storage_driver_descriptors_via_admin(&app, &token, Some("setup")).await;
 
-    assert_eq!(manage.len(), 8);
+    assert_eq!(manage.len(), 9);
     assert!(
         manage
             .iter()
             .any(|item| item["connector_id"] == "asterdrive.storage.local")
     );
-    assert_eq!(create.len(), 7);
+    assert_eq!(create.len(), 8);
     assert!(
         !create
             .iter()
@@ -616,7 +639,7 @@ async fn test_cluster_storage_driver_catalog_hides_local_only_from_new_policy_fl
             .iter()
             .any(|item| item["connector_id"] == "asterdrive.storage.onedrive")
     );
-    assert_eq!(setup.len(), 7);
+    assert_eq!(setup.len(), 8);
     assert!(
         !setup
             .iter()
@@ -677,7 +700,7 @@ async fn test_storage_driver_localizations_are_admin_only_and_cacheable() {
     let resources = body["data"]["resources"]
         .as_array()
         .expect("connector localization resources");
-    assert_eq!(resources.len(), 8);
+    assert_eq!(resources.len(), 9);
     let local = resources
         .iter()
         .find(|resource| resource["connector_id"] == "asterdrive.storage.local")

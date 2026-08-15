@@ -15,6 +15,13 @@ pub enum S3ConfigError {
     InvalidEndpoint(String),
 }
 
+/// A SigV4 signing region that does not satisfy the shared S3-compatible format contract.
+///
+/// Provider-facing validation messages deliberately remain at the caller boundary so that
+/// reusing this validator does not couple provider error mappings to [`S3ConfigError`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidSigV4Region;
+
 impl S3ConfigError {
     pub fn into_aster_error(self) -> AsterError {
         match self {
@@ -24,6 +31,19 @@ impl S3ConfigError {
             Self::InvalidEndpoint(message) => AsterError::validation_error(message),
         }
     }
+}
+
+pub fn validate_sigv4_region(region: &str) -> std::result::Result<(), InvalidSigV4Region> {
+    if region.is_empty()
+        || region.len() > 128
+        || !region.is_ascii()
+        || region
+            .bytes()
+            .any(|byte| !(b'!'..=b'~').contains(&byte) || byte == b'/')
+    {
+        return Err(InvalidSigV4Region);
+    }
+    Ok(())
 }
 
 pub fn normalize_s3_endpoint_and_bucket(
@@ -75,7 +95,9 @@ pub fn normalize_s3_endpoint_and_bucket(
 
 #[cfg(test)]
 mod tests {
-    use super::{S3ConfigError, normalize_s3_endpoint_and_bucket};
+    use super::{
+        InvalidSigV4Region, S3ConfigError, normalize_s3_endpoint_and_bucket, validate_sigv4_region,
+    };
 
     #[test]
     fn allows_standard_s3_endpoint_without_rewriting() {
@@ -94,5 +116,40 @@ mod tests {
                 .expect_err("missing bucket should fail"),
             S3ConfigError::MissingBucket
         );
+    }
+
+    #[test]
+    fn accepts_valid_sigv4_regions_at_format_boundaries() {
+        for region in [
+            "a",
+            "auto",
+            "us-east-1",
+            "account-id.r2.cloudflarestorage.com:443~custom",
+            &"r".repeat(128),
+        ] {
+            assert_eq!(validate_sigv4_region(region), Ok(()), "region: {region}");
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_sigv4_regions() {
+        for region in [
+            "".to_string(),
+            "r".repeat(129),
+            " region".to_string(),
+            "region ".to_string(),
+            "region with spaces".to_string(),
+            "region\twith-tab".to_string(),
+            "region\nwith-newline".to_string(),
+            "region/name".to_string(),
+            "region\u{7f}".to_string(),
+            "中国".to_string(),
+        ] {
+            assert_eq!(
+                validate_sigv4_region(&region),
+                Err(InvalidSigV4Region),
+                "region: {region:?}"
+            );
+        }
     }
 }

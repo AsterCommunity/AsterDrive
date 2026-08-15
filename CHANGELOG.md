@@ -11,17 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 自 `v0.4.0` 以来，AsterDrive 主线完成了面向生产多 Primary 部署、WebDAV 协议边界、上传数据平面、存储 connector 平台和内部 crate 所有权的一轮大规模演进。新增显式 `single` / `cluster` 部署 profile、Redis 跨实例事件同步、反向隧道 owner lease 与转发、Kubernetes Kustomize / Helm 部署路径；初始化流程统一为 `needs_admin` / `needs_storage` / `ready` 三态，并要求管理员显式创建首个存储策略。
 
-WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、RFC 4331 配额属性、虚拟挂载根锁、目录分页、资源预算与请求级观测；资源锁系统改为数据库权威的 namespace / generation 模型，并补齐条件 PUT / COPY 与原子递归 DELETE。文件与目录 API 由布尔 `is_locked` 升级为结构化 `lock_state`。上传侧新增 OneDrive 服务端 relay resumable 模式，并收紧 0.5.0 session 边界，彻底移除旧的 payload-per-chunk 兼容路径。
+WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、RFC 4331 配额属性、虚拟挂载根锁、目录分页、资源预算与请求级观测；并在 canonical revision ledger 之上实现 RFC 3253 核心 DeltaV 版本控制，提供 `VERSION-CONTROL`、version-tree / expand-property `REPORT` 和只读 immutable version resource。资源锁系统改为数据库权威的 namespace / generation 模型，并补齐条件 PUT / COPY 与原子递归 DELETE。文件与目录 API 由布尔 `is_locked` 升级为结构化 `lock_state`。上传侧新增 OneDrive 服务端 relay resumable 模式，并收紧 0.5.0 session 边界，彻底移除旧的 payload-per-chunk 兼容路径。
 
 存储策略从内建 `DriverType` 分支和前后端平铺字段重构为 connector-owned contract：稳定的反向域名 `ConnectorId`、版本化 `storage_config`、独立凭据 schema、descriptor 驱动字段与 action、connector 自带本地化资源，以及由 registry 动态构造 driver。Local、S3、SFTP、OneDrive、Azure Blob、Tencent COS 和 Remote connector 均接入同一契约；旧凭据在 0.5.x 启动阶段于 migration lock 下转为加密的 connector-owned payload，同时保留旧数据库结构到 0.6.0 再统一移除。
 
 - **多 Primary 集群部署** — 共享 PostgreSQL / MySQL、Redis cache / config sync、跨实例 storage events、任务与调度 fencing、反向隧道 owner 路由
 - **Kubernetes 生产部署** — 提供 Kustomize base / overlays、Helm chart、StatefulSet、PDB、NetworkPolicy、RWX avatar 存储与多 Primary E2E
-- **WebDAV 与资源锁重构** — AsterForge WebDAV 0.2、多 Range、配额属性、条件写入、原子 mutation、虚拟根锁、结构化 `lock_state`、Litmus stress suites
+- **WebDAV、DeltaV 与资源锁重构** — AsterForge WebDAV 0.2、多 Range、配额属性、RFC 3253 核心版本控制、条件写入、原子 mutation、虚拟根锁、结构化 `lock_state`、Litmus stress suites
 - **存储 connector 平台化** — plugin-ready registry、版本化 typed config、descriptor / action / capability contract、独立 credential schema、connector-owned 本地化
 - **存储策略与凭据迁移** — current policy schema 收敛为 `connector_id` + `storage_config`，静态凭据和 OAuth 凭据迁入加密的 `storage_policy_connector_credentials`
 - **上传与对象存储增强** — OneDrive 服务端 relay resumable、并发 chunk claim、S3 SigV4 签名区域配置、Tencent COS 原生 Q-Sign
 - **Alibaba Cloud OSS 原生支持** — OSS V4 签名、公共/服务端 endpoint、CNAME、presigned PUT、multipart 和完整 connector 接入
+- **七牛云 Kodo 原生支持** — 官方 HTTPS S3 endpoint、AWS SigV4、七牛 S3 空间名、presigned GET/PUT、multipart 和完整 connector 接入
 - **初始化与配置收口** — 三态 setup、首个存储策略显式创建、数据库 / Redis 结构化凭据、Redis 故障不再静默降级
 - **内部所有权收口** — Drive 保留 model、migration、storage、metrics 四个领域 crates；通用 HTTP body limit 与密文封装复用 AsterForge
 
@@ -35,7 +36,6 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - **Presigned 上传响应** — upload init 不再分别返回 `presigned_url` 与 `presigned_headers`，multipart part presign 也不再返回纯 URL；两者统一返回 `PresignedUploadRequest { url, headers? }`。浏览器或第三方客户端必须原样转发 descriptor 中的请求头，不得自行补充 provider-specific header。
 - **上传 session 0.5.0 边界** — `upload_sessions.session_kind` 收紧为 `NOT NULL`，并删除 0.4.x payload-per-chunk `chunk_N`、`assembled` 拼装/relay、kind 推断和 assembly limiter。升级迁移遇到 null 或非法 kind 会停止且保留原行；部署方需要先清理已过期的旧上传 session。
 - **资源锁 API schema** — 文件、目录、搜索、回收站和管理端 DTO 的 `is_locked: boolean` 替换为结构化 `lock_state`，区分 `unlocked`、`direct` 和 `inherited`。依赖旧字段的 API 客户端需要更新。
-- **WebDAV DeltaV 子集移除** — 不再声明或处理 `VERSION-CONTROL` / `REPORT`，请求现在返回 `405 Method Not Allowed`；文件版本历史仍由 AsterDrive REST API 管理。
 - **初始化流程调整** — 新实例不再自动创建 `Local Default` 存储策略。创建首个管理员后系统进入 `needs_storage`，管理员需要显式创建首个默认存储策略，之后才进入 `ready`。
 - **Redis 启动语义** — 配置 Redis cache 后，连接或配置错误会终止启动，不再静默回退到进程内 memory cache；`/health/ready` 在 cache 不可用时返回 `503`。
 
@@ -84,6 +84,10 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
   - 新增 `asterdrive.storage.alibaba_oss` connector、独立配置/凭据 schema、descriptor、本地化资源和连接测试入口，并同步中英文管理/开发文档与 E2E 验证
   - 后端 I/O 支持可选服务端 endpoint，浏览器 presigned URL 固定使用公共 endpoint；支持标准 OSS endpoint 与 CNAME addressing
   - 复用 AWS S3 operation/runtime，同时通过 OSS 原生 `OSS4-HMAC-SHA256` auth scheme 实现普通请求、presigned GET/PUT、UploadPart 和 multipart lifecycle
+- **七牛云 Kodo connector**
+  - 新增 `asterdrive.storage.qiniu` V1 connector、独立静态凭据 schema、descriptor、本地化资源、catalog 投影，以及中英文管理与开发文档
+  - 仅使用 Kodo S3-compatible API 与 AWS SigV4；强制官方 HTTPS service endpoint、匹配的签名 region 和七牛 S3 空间名，不保留 QBox、UploadToken 或原生 form upload 数据面
+  - 复用共享 S3 数据面，支持普通对象 I/O、Range、presigned GET/PUT、multipart、ETag、连接测试和稳定错误分类；提供受环境凭据保护的真实 Kodo smoke harness
 - **WebDAV provider Range 性能基线** — 新增覆盖 Local、S3、OneDrive、SFTP、Remote 与 fallback 路径的 `get_range` / `get_stream` benchmark、版本化 baseline、p95 TTFB / p50 throughput 回归策略、provider artifact 校验和定时 CI；缺少外部凭据时生成结构化 skipped artifact，上传 artifact 前按实际 secret 值脱敏。
 - **存储 connector 文档投影** — 新增 `make storage-docs` / `make storage-docs-check`，从运行时 descriptor 与本地化 catalog 生成可审查 manifest、后端矩阵、策略能力表和 sidebar，并在 CI 中阻止代码能力与文档漂移。
 - **WebDAV 0.2 能力**
@@ -94,6 +98,11 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
   - 管理端锁列表显示文件、目录、workspace root 与未知 root 类型徽标，便于区分锁定范围
   - 新增 WebDAV operation observation，记录传输字节、Range 数、访问资源数、backend call、协议失败与 stream completion / cancellation
   - Litmus CI 拆分 baseline 与定时 stress suites，并扩展 curl、rclone、largefile、lockbomb 等兼容性覆盖
+- **RFC 3253 核心 DeltaV 版本控制**
+  - 支持对普通 WebDAV 文件执行 `VERSION-CONTROL`，并以 checked-in / checkout-checkin auto-version 模式将后续内容和 dead property mutation 记录为 canonical revision
+  - 支持 version-tree 与 expand-property `REPORT`，以及 `checked-in`、`auto-version` 和 `supported-report-set` live properties
+  - 通过 `/.asterdrive-deltav/versions/{public_id}` 暴露可授权访问的 immutable version resource；支持 `GET` / `HEAD` / `PROPFIND`，并拒绝 `PUT` / `DELETE` / `PROPPATCH`
+  - 新增 raw HTTP DeltaV workflow、version-tree / expand-property REPORT 与 cadaver 0.26 兼容性 E2E 覆盖
 - **运行诊断能力** — 新增构建 revision / profile / target / variant 身份并写入启动日志。
 
 ### Changed
@@ -181,17 +190,15 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - 使用存储策略管理 API 的客户端需要先读取 connector catalog，根据 descriptor 的 config / credential / action schema 构造请求，不再依赖内建 driver 枚举或固定 provider 字段。connector localization endpoint 仅面向已认证管理员，并支持 ETag 缓存。
 - Local connector 的默认数据目录现在是 `./data/uploads`；已有策略迁移时保留其显式 base path，只有缺失或空值才应用 connector default。
 - 使用文件 / 目录 REST DTO 的第三方客户端需要从 `is_locked` 迁移到 `lock_state.state`，并处理 inherited lock。
-- 使用 WebDAV `VERSION-CONTROL` / `REPORT` 的客户端需要改用普通 WebDAV 文件操作与 AsterDrive REST 版本历史接口。
+- WebDAV DeltaV 当前提供 RFC 3253 核心子集：`VERSION-CONTROL`、version-tree / expand-property `REPORT` 与 immutable version resource。版本历史的产品管理接口仍为 AsterDrive REST API；客户端不应假设已实现 RFC 3253 的全部 workspace / activity / merge 能力。
 - `single` 仍是默认 deployment profile；启用 `cluster` 前需要准备共享数据库、Redis、共享对象存储和 RWX avatar 存储，并通过 `aster_drive doctor` 检查拓扑。
 - 新安装实例创建管理员后会停留在 `needs_storage`，创建首个默认存储策略后才进入 `ready`；已有默认策略的升级实例不需要重复初始化。
 - Forge HTTP / secret envelope 接入不改变数据库 schema、公开 API 或现有密文格式，不需要额外 migration。
-- 自上次 `CHANGELOG.md` 更新（`f1e0dd89`, 2026-08-07 19:46:40 +08:00）以来，共有 9 个提交，涉及 139 个文件，净 diff 为 9283 行新增、1173 行删除；独立变化包括 #481 WebDAV Range 性能基线、#485 presigned request descriptor、#488 Future 体积优化、#503 存储原生 behavior 收口和 #507 connector 文档生成。
-
 ### Statistics
 
-- 1319 files changed, 106044 insertions(+), 62032 deletions(-)
-- 46 commits
-- 7 个数据库 migration
+- 1394 files changed, 135113 insertions(+), 66601 deletions(-)
+- 72 commits
+- 9 个数据库 migration
 
 ## [v0.4.0] - 2026-07-23
 
