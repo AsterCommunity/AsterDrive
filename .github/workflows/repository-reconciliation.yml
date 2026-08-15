@@ -1,32 +1,22 @@
-name: PR Automation
+name: Repository Reconciliation
 
 on:
-  pull_request_target:
-    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, closed]
+  schedule:
+    - cron: '17 * * * *'
   workflow_dispatch:
-    inputs:
-      pull_request_number:
-        description: Closed PR number whose historical pending gates should be finalized
-        required: true
-        type: string
 
 concurrency:
-  group: pr-automation-${{ github.event.pull_request.number || inputs.pull_request_number }}
-  cancel-in-progress: true
+  group: repository-reconciliation
+  cancel-in-progress: false
 
 permissions:
-  checks: write
   contents: read
-  issues: write
-  pull-requests: write
 
 jobs:
-  synchronize:
-    name: Synchronize PR metadata
+  reconcile:
+    name: Reconcile repository governance
     runs-on: ubuntu-latest
     steps:
-      # pull_request_target runs trusted default-branch code. Never change this
-      # checkout to the untrusted pull request head.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -43,9 +33,16 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
-      - name: Apply labels and linked-issue lifecycle
+      - name: Reconcile open pull requests and CI incidents
         uses: AsterCommunity/aster-automation@6c047dd28d0684fbd4698ae2e2b87d942296836d # v0.1.0 candidate
         with:
-          mode: pr-automation
+          mode: reconcile-repository
+          token: ${{ steps.app-token.outputs.token }}
+          config-path: .github/aster-automation.json
+
+      - name: Update release readiness dashboard
+        uses: AsterCommunity/aster-automation@6c047dd28d0684fbd4698ae2e2b87d942296836d # v0.1.0 candidate
+        with:
+          mode: milestone-dashboard
           token: ${{ steps.app-token.outputs.token }}
           config-path: .github/aster-automation.json
