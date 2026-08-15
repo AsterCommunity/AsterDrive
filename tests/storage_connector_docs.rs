@@ -80,6 +80,12 @@ const PRESENTATIONS: &[ConnectorDocumentationPresentation] = &[
         best_for_zh: "S3 兼容对象存储、外部 bucket 和大文件",
     },
     ConnectorDocumentationPresentation {
+        connector_id: "asterdrive.storage.qiniu",
+        tutorial_slug: "qiniu-kodo",
+        best_for_en: "Qiniu Cloud Kodo S3 spaces with official endpoint diagnostics",
+        best_for_zh: "带官方 endpoint 诊断的七牛云 Kodo S3 空间",
+    },
+    ConnectorDocumentationPresentation {
         connector_id: "asterdrive.storage.alibaba_oss",
         tutorial_slug: "alibaba-oss",
         best_for_en: "Alibaba Cloud OSS with native V4 signing, split endpoints, or CNAME",

@@ -37,6 +37,7 @@ When a system administrator creates a new team without specifying a policy group
 | `asterdrive.storage.tencent_cos` | Tencent COS | Static secret | [Tencent COS](/en/admin/storage-backends/tencent-cos/) |
 | `asterdrive.storage.remote` | Remote | None | [Remote](/en/admin/storage-backends/remote-follower/) |
 | `asterdrive.storage.onedrive` | OneDrive | Delegated OAuth | [OneDrive](/en/admin/storage-backends/onedrive/) |
+| `asterdrive.storage.qiniu` | Qiniu Kodo | Static secret | [Qiniu Kodo](/en/admin/storage-backends/qiniu-kodo/) |
 <!-- storage-connectors:policy-catalog:end -->
 
 ## Storage Policies vs Policy Groups

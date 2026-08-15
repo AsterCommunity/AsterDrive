@@ -7,6 +7,7 @@ mod common;
 mod azure_blob;
 mod local_driver_security;
 mod policies;
+mod qiniu;
 mod remote_enrollment;
 mod remote_storage;
 mod s3;

@@ -385,6 +385,56 @@
           "status_query_supported": true
         }
       }
+    },
+    {
+      "connector_id": "asterdrive.storage.qiniu",
+      "display_name": {
+        "en": "Qiniu Kodo",
+        "zh": "七牛云 Kodo"
+      },
+      "documentation": {
+        "tutorial_slug": "qiniu-kodo",
+        "best_for": {
+          "en": "Qiniu Cloud Kodo S3 spaces with official endpoint diagnostics",
+          "zh": "带官方 endpoint 诊断的七牛云 Kodo S3 空间"
+        }
+      },
+      "deployment_scope": "shared_across_primary_instances",
+      "supports_initial_setup": true,
+      "credential_mode": "static_secret",
+      "capabilities": {
+        "efficient_range": true,
+        "capacity": false,
+        "list": true,
+        "presigned_download": true,
+        "storage_native_thumbnail": false,
+        "storage_native_media_metadata": false,
+        "remote_node_binding": false,
+        "object_storage_transfer_strategy": true,
+        "object_naming": "opaque_uuid"
+      },
+      "upload_workflows": {
+        "simple_upload": true,
+        "simple_upload_capabilities": {
+          "server_side_relay": true,
+          "policy_limited": true
+        },
+        "stream_upload": true,
+        "object_multipart_upload": true,
+        "object_multipart_upload_capabilities": {
+          "min_part_size": 5242880,
+          "policy_limited_part_size": true,
+          "relay_part_upload": true,
+          "presigned_part_upload": true,
+          "presigned_part_etag_required": true,
+          "explicit_complete_required": true,
+          "abort_supported": true,
+          "list_parts_supported": true
+        },
+        "provider_resumable_upload": false,
+        "presigned_upload": true,
+        "frontend_direct_provider_resumable_upload": false
+      }
     }
   ]
 }
