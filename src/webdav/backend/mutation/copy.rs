@@ -2,7 +2,7 @@ use aster_drive_model::types::EntityType;
 use aster_forge_db::transaction;
 use aster_forge_webdav::{DavPath, FsError};
 
-use crate::db::repository::file_repo;
+use crate::db::repository::{file_repo, property_repo, revision_repo};
 use crate::services::{
     events::storage_change,
     files::{file as file_ops, folder},
@@ -12,8 +12,8 @@ use crate::webdav::handlers::resources::MUTATION_FOLDER_TREE_LIMITS;
 
 use super::super::{
     AsterDavFs, AsterDavMutationError, AtomicTargetRevalidation, DavMutationConditions,
-    DeletedResource, ResolvedNode, copy_visible_entity_properties_on, lock,
-    map_ancestor_lock_error, map_atomic_lock_error, path_resolver, revalidate_atomic_target,
+    DeletedResource, ResolvedNode, copy_visible_entity_properties_on, deltav_backend_to_fs_error,
+    lock, map_ancestor_lock_error, map_atomic_lock_error, path_resolver, revalidate_atomic_target,
     to_fs_error,
 };
 
@@ -35,34 +35,64 @@ impl AsterDavFs {
             .lock_ancestor_entities(self.scope, self.root_folder_id, destination)
             .await
             .map_err(map_ancestor_lock_error)?;
-        let source_file = match path_resolver::resolve_path_in_scope(
-            &txn,
-            self.scope,
-            source,
-            self.root_folder_id,
-        )
-        .await
-        .map_err(AsterDavMutationError::FileSystem)?
-        {
-            ResolvedNode::File(file) => file_repo::lock_by_id(&txn, file.id)
-                .await
-                .map_err(to_fs_error)
-                .map_err(AsterDavMutationError::FileSystem)?,
-            _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
-        };
-        revalidate_atomic_target(
-            &txn,
-            lock_mutation.namespace_id(),
-            self.scope,
-            self.root_folder_id,
-            AtomicTargetRevalidation {
-                path: source,
-                check_locks: false,
-                deep: false,
-            },
-            &conditions,
-        )
-        .await?;
+        let (source_file, version_properties) =
+            match crate::webdav::deltav::classify_reserved_path(source) {
+                crate::webdav::deltav::ReservedDeltavPath::Version(public_id) => {
+                    let target = self
+                        .load_deltav_revision_on(&txn, &public_id)
+                        .await
+                        .map_err(deltav_backend_to_fs_error)
+                        .map_err(AsterDavMutationError::FileSystem)?;
+                    let properties =
+                        revision_repo::find_properties_by_revision_ids(&txn, &[target.revision.id])
+                            .await
+                            .map_err(to_fs_error)
+                            .map_err(AsterDavMutationError::FileSystem)?
+                            .remove(&target.revision.id)
+                            .unwrap_or_default();
+                    let mut source_file = target.file;
+                    source_file.blob_id = target.blob.id;
+                    source_file.size = target.revision.logical_size;
+                    if let Some(mime_type) = target.revision.mime_type {
+                        source_file.mime_type = mime_type;
+                    }
+                    (source_file, Some(properties))
+                }
+                crate::webdav::deltav::ReservedDeltavPath::Ordinary => {
+                    let source_file = match path_resolver::resolve_path_in_scope(
+                        &txn,
+                        self.scope,
+                        source,
+                        self.root_folder_id,
+                    )
+                    .await
+                    .map_err(AsterDavMutationError::FileSystem)?
+                    {
+                        ResolvedNode::File(file) => file_repo::lock_by_id(&txn, file.id)
+                            .await
+                            .map_err(to_fs_error)
+                            .map_err(AsterDavMutationError::FileSystem)?,
+                        _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
+                    };
+                    revalidate_atomic_target(
+                        &txn,
+                        lock_mutation.namespace_id(),
+                        self.scope,
+                        self.root_folder_id,
+                        AtomicTargetRevalidation {
+                            path: source,
+                            check_locks: false,
+                            deep: false,
+                        },
+                        &conditions,
+                    )
+                    .await?;
+                    (source_file, None)
+                }
+                crate::webdav::deltav::ReservedDeltavPath::Reserved => {
+                    return Err(AsterDavMutationError::FileSystem(FsError::NotFound));
+                }
+            };
         let destination_node = match path_resolver::resolve_path_in_scope(
             &txn,
             self.scope,
@@ -164,15 +194,31 @@ impl AsterDavFs {
         .await
         .map_err(to_fs_error)
         .map_err(AsterDavMutationError::FileSystem)?;
-        copy_visible_entity_properties_on(
-            &txn,
-            EntityType::File,
-            source_file.id,
-            EntityType::File,
-            copied.id,
-        )
-        .await
-        .map_err(AsterDavMutationError::FileSystem)?;
+        if let Some(properties) = version_properties {
+            for property in properties {
+                property_repo::upsert(
+                    &txn,
+                    EntityType::File,
+                    copied.id,
+                    &property.namespace,
+                    &property.name,
+                    property.xml_value.as_deref(),
+                )
+                .await
+                .map_err(to_fs_error)
+                .map_err(AsterDavMutationError::FileSystem)?;
+            }
+        } else {
+            copy_visible_entity_properties_on(
+                &txn,
+                EntityType::File,
+                source_file.id,
+                EntityType::File,
+                copied.id,
+            )
+            .await
+            .map_err(AsterDavMutationError::FileSystem)?;
+        }
         crate::db::repository::revision_repo::create_initial(
             &txn,
             &copied,

@@ -163,8 +163,8 @@ pub async fn find_by_entities<C: ConnectionTrait>(
 }
 
 /// 查询实体的单个属性
-pub async fn find_by_key(
-    db: &DatabaseConnection,
+pub async fn find_by_key<C: ConnectionTrait>(
+    db: &C,
     entity_type: EntityType,
     entity_id: i64,
     namespace: &str,

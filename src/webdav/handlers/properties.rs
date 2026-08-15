@@ -9,11 +9,11 @@ use actix_web::http::StatusCode;
 use aster_forge_webdav::{
     DavBackendError, DavBackendErrorKind, DavCancellationToken, DavCapabilitySnapshot,
     DavDirectoryEntry, DavDirectoryPageLimits, DavDirectoryPageState, DavDirectoryReadError,
-    DavExtensionPackage, DavFileSystem, DavLivePropertyMetadata, DavLivePropertyRequirements,
-    DavLivePropertyValueSnapshot, DavLock, DavLockSystem, DavLockXml, DavMetaData,
-    DavMultiStatusItem, DavMultiStatusLimits, DavMultiStatusSourceError, DavPath, DavProp,
-    DavPropfindRequest, DavQuotaSnapshot, DavRequestHead, DavResourceState, DavXmlElement, Depth,
-    FsError, build_live_propfind_item, build_proppatch_item, dav_dead_property_element,
+    DavExtensionPackage, DavFileSystem, DavLiveProperty, DavLivePropertyMetadata,
+    DavLivePropertyRequirements, DavLivePropertyValueSnapshot, DavLock, DavLockSystem, DavLockXml,
+    DavMetaData, DavMultiStatusItem, DavMultiStatusLimits, DavMultiStatusSourceError, DavPath,
+    DavProp, DavPropfindRequest, DavQuotaSnapshot, DavRequestHead, DavResourceState, DavXmlElement,
+    Depth, FsError, build_live_propfind_item, build_proppatch_item, dav_dead_property_element,
     live_property_requirements, multistatus_stream_response_with_cancellation,
     property_multistatus_response, propfind_finite_depth_response, propfind_request_label,
     propfind_xml_error_response, proppatch_xml_error_response, read_next_directory_page,
@@ -90,6 +90,7 @@ struct PropfindValues {
     active_locks: Vec<DavLockXml>,
     dead_properties: Vec<DavProp>,
     quota: Option<DavQuotaSnapshot>,
+    extension_values: Vec<(DavLiveProperty, DavXmlElement)>,
 }
 
 struct PropfindMetadata {
@@ -106,6 +107,7 @@ struct PropfindPageResource {
     relative: String,
     metadata: PropfindMetadata,
     capabilities: DavCapabilitySnapshot,
+    extension_values: Vec<(DavLiveProperty, DavXmlElement)>,
 }
 
 impl DavLivePropertyValueSnapshot for PropfindValues {
@@ -131,6 +133,12 @@ impl DavLivePropertyValueSnapshot for PropfindValues {
 
     fn quota(&self) -> Option<DavQuotaSnapshot> {
         self.quota
+    }
+
+    fn extension_value(&self, property: DavLiveProperty) -> Option<&DavXmlElement> {
+        self.extension_values
+            .iter()
+            .find_map(|(candidate, value)| (*candidate == property).then_some(value))
     }
 }
 
@@ -229,12 +237,27 @@ where
         Ok(metadata) => metadata,
         Err(error) => return fs_error_response(error),
     };
+    let root_extension_values = if requirements.extension_values
+        && capability_snapshot.declaration().resource == DavResourceState::File
+    {
+        match crate::webdav::deltav::live_extension_values_for_path(dav_fs, &path, prefix).await {
+            Ok(values) => values,
+            Err(error) => {
+                return aster_forge_webdav::actix::into_response(
+                    aster_forge_webdav::backend_error_response(&error),
+                );
+            }
+        }
+    } else {
+        Vec::new()
+    };
     let root_values = values_for(
         path.clone(),
         root_metadata,
         &mut root_preload,
         quota,
         capability_snapshot,
+        root_extension_values,
     );
     let root_item = match build_live_propfind_item(
         href_for_relative(prefix, &relative),
@@ -445,7 +468,10 @@ where
                 } else {
                     DavResourceState::File
                 };
-                let capabilities = match DriveDavCapabilityProvider::snapshot_for(resource) {
+                let capabilities = match DriveDavCapabilityProvider::snapshot_for_versioned(
+                    resource,
+                    entry.versioning_state(),
+                ) {
                     Ok(snapshot) => snapshot,
                     Err(error) => {
                         tracing::warn!(error = %error, "failed to plan WebDAV child capabilities");
@@ -455,11 +481,23 @@ where
                         return;
                     }
                 };
+                let extension_values = if requirements.extension_values {
+                    entry.current_revision().map_or_else(Vec::new, |revision| {
+                        crate::webdav::deltav::live_extension_values(
+                            revision,
+                            entry.versioning_state() == aster_forge_webdav::DavVersioningState::CheckedIn,
+                            &prefix,
+                        )
+                    })
+                } else {
+                    Vec::new()
+                };
                 resources.push(PropfindPageResource {
                     path: child_path,
                     relative: child_relative,
                     metadata,
                     capabilities,
+                    extension_values,
                 });
             }
 
@@ -517,6 +555,7 @@ where
                     &mut preload,
                     quota,
                     &resource.capabilities,
+                    resource.extension_values,
                 );
                 match build_live_propfind_item(
                     href_for_relative(&prefix, &resource.relative),
@@ -648,12 +687,14 @@ fn values_for(
     preload: &mut PropfindPreload,
     quota: Option<DavQuotaSnapshot>,
     capabilities: &DavCapabilitySnapshot,
+    extension_values: Vec<(DavLiveProperty, DavXmlElement)>,
 ) -> PropfindValues {
     PropfindValues {
         metadata,
         active_locks: preload.locks.remove(&path).unwrap_or_default(),
         dead_properties: preload.dead_properties.remove(&path).unwrap_or_default(),
         quota: quota.filter(|_| capabilities.supports_extension(DavExtensionPackage::Quota)),
+        extension_values,
     }
 }
 

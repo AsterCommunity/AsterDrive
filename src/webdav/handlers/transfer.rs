@@ -22,7 +22,7 @@ const MULTI_RANGE_MAXIMUM_SEGMENTS: usize = 8;
 const MULTI_RANGE_MAXIMUM_AGGREGATE_BYTES: u64 = 64 * 1024 * 1024;
 const MULTI_RANGE_MAXIMUM_BACKEND_OPENS: usize = 8;
 const MULTI_RANGE_COALESCE_GAP_BYTES: u64 = 80;
-const MULTI_RANGE_POLICY: DavMultiRangePolicy = DavMultiRangePolicy::new(
+pub(crate) const MULTI_RANGE_POLICY: DavMultiRangePolicy = DavMultiRangePolicy::new(
     DavMultiRangeLimits::new(
         MULTI_RANGE_MAXIMUM_HEADER_BYTES,
         MULTI_RANGE_MAXIMUM_RAW_RANGES,
