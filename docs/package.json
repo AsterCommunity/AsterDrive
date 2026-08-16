@@ -5,7 +5,7 @@
     "docs:dev": "astro dev",
     "docs:build": "astro build",
     "docs:preview": "astro preview",
-    "developer-docs:generate-openapi": "cargo test --manifest-path ../Cargo.toml --features openapi --test generate_openapi generate_openapi -- --exact",
+    "developer-docs:generate-openapi": "cargo nextest run --profile ci --manifest-path ../Cargo.toml --features openapi --test generate_openapi generate_openapi -- --exact",
     "developer-docs:prepare": "node scripts/prepare-developer-docs.mjs",
     "developer-docs:dev": "bun run developer-docs:generate-openapi && bun run developer-docs:prepare && astro dev --config astro.developer.config.mts",
     "developer-docs:build": "bun run developer-docs:generate-openapi && bun run developer-docs:prepare && astro build --config astro.developer.config.mts"

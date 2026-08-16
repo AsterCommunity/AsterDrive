@@ -33,7 +33,7 @@ bun run generate-api     # 从 OpenAPI spec 生成 TypeScript SDK
 - biome 用 tab 缩进，double quote
 
 ### API SDK 自动生成
-- 后端跑 `cargo test --features openapi --test generate_openapi` → 生成 `generated/openapi.json`
+- 后端跑 `cargo nextest run --profile ci --features openapi --test generate_openapi` → 生成 `generated/openapi.json`
 - 前端跑 `bun run generate-api` → 生成 `src/services/api.generated.ts`
 - 所有后端 schema 类型从 `@/types/api.ts` re-export
 - **禁止手写重复的接口类型**，必须从 SDK schema 导入

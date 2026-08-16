@@ -6,6 +6,7 @@ on:
     paths:
       - 'docs/**'
       - 'developer-docs/**'
+      - '.config/nextest.toml'
       - 'crates/aster_drive_storage/src/connector_descriptor.rs'
       - 'src/storage/connectors/**'
       - 'tests/storage_connector_docs.rs'
@@ -16,6 +17,7 @@ on:
     paths:
       - 'docs/**'
       - 'developer-docs/**'
+      - '.config/nextest.toml'
       - 'crates/aster_drive_storage/src/connector_descriptor.rs'
       - 'src/storage/connectors/**'
       - 'tests/storage_connector_docs.rs'
@@ -37,6 +39,11 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.143
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
@@ -69,6 +76,11 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.143
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2

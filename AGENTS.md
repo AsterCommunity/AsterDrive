@@ -87,8 +87,8 @@ src/api/routes/*
 Rust 测试优先缩小 target：
 
 ```bash
-cargo test --lib <filter>
-cargo test --test <target> <module_or_test_filter>
+cargo nextest run --profile ci --lib <filter>
+cargo nextest run --profile ci --test <target> <module_or_test_filter>
 ```
 
 - API/schema 改动：导出 OpenAPI，重新生成前端 API，并检查生成 diff。

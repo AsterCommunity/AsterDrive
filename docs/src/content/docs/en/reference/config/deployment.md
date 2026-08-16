@@ -53,5 +53,5 @@ ASTER__DEPLOYMENT__PROFILE=cluster
 To reproduce the two-primary reverse-tunnel routing and failover acceptance tests locally, enable the dedicated test feature explicitly:
 
 ```bash
-cargo test --features multi-primary-e2e --test multi_primary cluster::reverse_tunnel_ -- --ignored
+cargo nextest run --profile external --features multi-primary-e2e --test multi_primary cluster::reverse_tunnel_ -- --ignored
 ```

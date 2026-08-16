@@ -16,6 +16,7 @@ on:
       - 'scripts/ci/webdav-compat/**'
       - '.github/actions/setup-litmus/**'
       - '.github/workflows/webdav-compatibility.yml'
+      - '.config/nextest.toml'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
@@ -34,6 +35,7 @@ on:
       - 'scripts/ci/webdav-compat/**'
       - '.github/actions/setup-litmus/**'
       - '.github/workflows/webdav-compatibility.yml'
+      - '.config/nextest.toml'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
@@ -73,7 +75,7 @@ jobs:
           ASTER_WEBDAV_COMPAT_ARTIFACT_DIR: ${{ github.workspace }}/artifacts
         run: |
           set -o pipefail
-          cargo test --test webdav litmus_compliance::test_litmus_ -- \
+          cargo nextest run --profile external --test webdav litmus_compliance::test_litmus_ -- \
             --ignored \
             --skip resource_litmus:: \
             --skip security_policy_litmus:: \
@@ -120,20 +122,20 @@ jobs:
           set -o pipefail
           case '${{ matrix.suite }}' in
             resource)
-              cargo test --test webdav \
+              cargo nextest run --profile external --test webdav \
                 litmus_compliance::resource_litmus::test_litmus_largefile -- \
                 --ignored --exact --nocapture --test-threads=1
-              cargo test --test webdav \
+              cargo nextest run --profile external --test webdav \
                 litmus_compliance::resource_litmus::test_litmus_lockbomb_single -- \
                 --ignored --exact --nocapture --test-threads=1
               ;;
             lockbomb)
-              cargo test --test webdav \
+              cargo nextest run --profile external --test webdav \
                 litmus_compliance::resource_litmus::test_litmus_lockbomb -- \
                 --ignored --exact --nocapture --test-threads=1
               ;;
             protected)
-              cargo test --test webdav \
+              cargo nextest run --profile external --test webdav \
                 litmus_compliance::security_policy_litmus::test_litmus_protected -- \
                 --ignored --exact --nocapture --test-threads=1
               ;;
@@ -164,6 +166,11 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.143
 
       - name: Install client build and runtime dependencies
         run: |
@@ -204,7 +211,7 @@ jobs:
       - name: Run real-client compatibility tests
         run: |
           set -o pipefail
-          cargo test --test webdav client_e2e:: -- \
+          cargo nextest run --profile external --test webdav client_e2e:: -- \
             --ignored --nocapture --test-threads=1 \
             2>&1 | tee artifacts/external-client-tests.log
 

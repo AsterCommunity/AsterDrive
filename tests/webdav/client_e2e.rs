@@ -3,7 +3,7 @@
 //! Tests that require external binaries are intentionally ignored by default.
 //! Run the complete client matrix with:
 //!
-//! `cargo test --test webdav client_e2e:: -- --ignored --nocapture`
+//! `cargo nextest run --profile external --test webdav client_e2e:: -- --ignored --nocapture`
 
 use crate::common;
 

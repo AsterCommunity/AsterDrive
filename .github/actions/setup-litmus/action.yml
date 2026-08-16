@@ -7,6 +7,11 @@ runs:
     - name: Setup Rust toolchain
       uses: dtolnay/rust-toolchain@stable
 
+    - name: Install cargo-nextest
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-nextest@0.9.143
+
     - name: Install pinned Litmus and runtime dependencies
       shell: bash
       env:

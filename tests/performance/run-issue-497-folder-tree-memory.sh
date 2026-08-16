@@ -36,7 +36,7 @@ run_scenario() {
   ISSUE497_RESOURCES="${resource_count}" \
   ISSUE497_REVISION="${revision}" \
   ISSUE497_DB_PATH="${database_path}" \
-    cargo test \
+    cargo nextest run --profile external \
       --features benchmarks \
       --test issue_497_folder_tree_memory \
       -- \

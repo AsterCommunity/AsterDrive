@@ -15,6 +15,7 @@ BACKEND ?=
 TEST_ARGS ?=
 E2E_ARGS ?=
 RUN_ARGS ?=
+NEXTEST_PROFILE ?= ci
 
 TEST_ENV = $(if $(strip $(BACKEND)),ASTER_TEST_DATABASE_BACKEND=$(BACKEND),)
 
@@ -25,6 +26,7 @@ TEST_ENV = $(if $(strip $(BACKEND)),ASTER_TEST_DATABASE_BACKEND=$(BACKEND),)
 	check check-backend check-frontend typecheck \
 	format format-check clippy \
 	test test-backend test-frontend test-lib test-integration test-e2e \
+	test-multi-primary \
 	coverage coverage-backend coverage-frontend \
 	openapi openapi-check \
 	storage-docs storage-docs-check docs-dev docs-build docs-preview \
@@ -36,7 +38,7 @@ help: ## Show available targets
 	@printf '\nExamples:\n'
 	@printf '  make test-lib FILTER=services::auth\n'
 	@printf '  make test-integration TEST=test_auth FILTER=test_login\n'
-	@printf '  make test-integration TEST=test_database_backends BACKEND=postgres\n'
+	@printf '  make test-integration TEST=test_database_backends BACKEND=postgres NEXTEST_PROFILE=database\n'
 
 setup: backend-deps frontend-deps ## Fetch backend and frontend dependencies
 
@@ -102,18 +104,21 @@ clippy: ## Run Clippy with the same strict settings as CI
 test: test-backend test-frontend ## Run the complete backend and frontend test suites
 
 test-backend: ## Run all Rust workspace tests
-	$(TEST_ENV) $(CARGO) test --workspace --no-fail-fast $(TEST_ARGS)
+	$(TEST_ENV) $(CARGO) nextest run --profile $(NEXTEST_PROFILE) --workspace $(TEST_ARGS)
 
 test-frontend: ## Run frontend unit tests
 	cd $(FRONTEND_DIR) && $(BUN) run test
 
 test-lib: ## Run a targeted Rust library test (requires FILTER)
 	@test -n "$(strip $(FILTER))" || { echo "FILTER is required, for example: make test-lib FILTER=services::auth"; exit 2; }
-	$(TEST_ENV) $(CARGO) test --lib $(FILTER) $(TEST_ARGS)
+	$(TEST_ENV) $(CARGO) nextest run --profile $(NEXTEST_PROFILE) --lib $(FILTER) $(TEST_ARGS)
 
 test-integration: ## Run a targeted integration test (requires TEST; optional FILTER/BACKEND)
 	@test -n "$(strip $(TEST))" || { echo "TEST is required, for example: make test-integration TEST=test_auth"; exit 2; }
-	$(TEST_ENV) $(CARGO) test --test $(TEST) $(FILTER) $(TEST_ARGS)
+	$(TEST_ENV) $(CARGO) nextest run --profile $(NEXTEST_PROFILE) --test $(TEST) $(FILTER) $(TEST_ARGS)
+
+test-multi-primary: ## Run ignored multi-primary E2E tests (requires Docker)
+	$(CARGO) nextest run --profile external --features multi-primary-e2e --test multi_primary $(FILTER) -- --ignored --nocapture $(TEST_ARGS)
 
 test-e2e: ## Run Playwright end-to-end tests (use E2E_ARGS for extra arguments)
 	cd $(FRONTEND_DIR) && $(BUN) run test:e2e -- $(E2E_ARGS)
@@ -122,14 +127,14 @@ coverage: coverage-backend coverage-frontend ## Generate backend and frontend co
 
 coverage-backend: ## Generate Rust LCOV and HTML coverage reports
 	mkdir -p coverage/rust
-	$(CARGO) llvm-cov --workspace --no-fail-fast --lcov --output-path coverage/rust/lcov.info
+	$(CARGO) llvm-cov nextest --profile $(NEXTEST_PROFILE) --workspace --no-fail-fast --lcov --output-path coverage/rust/lcov.info
 	$(CARGO) llvm-cov report --html --output-dir coverage/rust/html
 
 coverage-frontend: ## Generate frontend coverage reports
 	cd $(FRONTEND_DIR) && $(BUN) run test:coverage
 
 openapi: ## Regenerate the OpenAPI document and TypeScript SDK
-	$(CARGO) test --features openapi --test generate_openapi
+	$(CARGO) nextest run --profile $(NEXTEST_PROFILE) --features openapi --test generate_openapi
 	cd $(FRONTEND_DIR) && $(BUN) run generate-api
 
 openapi-check: openapi ## Verify generated OpenAPI and SDK files have no drift
@@ -138,10 +143,10 @@ openapi-check: openapi ## Verify generated OpenAPI and SDK files have no drift
 		$(FRONTEND_DIR)/src/services/api.generated.ts
 
 storage-docs: ## Regenerate the built-in storage connector manifest and documentation blocks
-	ASTER_UPDATE_STORAGE_CONNECTOR_DOCS=1 $(CARGO) test --test storage_connector_docs generated_storage_connector_docs_are_current -- --exact
+	ASTER_UPDATE_STORAGE_CONNECTOR_DOCS=1 $(CARGO) nextest run --profile $(NEXTEST_PROFILE) --test storage_connector_docs generated_storage_connector_docs_are_current -- --exact
 
 storage-docs-check: ## Verify storage connector documentation has no descriptor drift
-	env -u ASTER_UPDATE_STORAGE_CONNECTOR_DOCS $(CARGO) test --test storage_connector_docs generated_storage_connector_docs_are_current -- --exact
+	env -u ASTER_UPDATE_STORAGE_CONNECTOR_DOCS $(CARGO) nextest run --profile $(NEXTEST_PROFILE) --test storage_connector_docs generated_storage_connector_docs_are_current -- --exact
 
 docs-dev: ## Run the documentation development server
 	cd $(DOCS_DIR) && $(BUN) run docs:dev

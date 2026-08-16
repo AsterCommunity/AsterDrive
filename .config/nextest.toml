@@ -11,3 +11,7 @@ final-status-level = "slow"
 inherits = "ci"
 test-threads = 16
 slow-timeout = { period = "120s", terminate-after = 4 }
+
+[profile.external]
+inherits = "ci"
+test-threads = 1

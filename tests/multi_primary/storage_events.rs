@@ -2,7 +2,7 @@
 //!
 //! This test is intentionally ignored in the normal suite because it starts Docker-backed
 //! PostgreSQL/Redis services and two real AsterDrive processes. Run it explicitly with
-//! `cargo test --features multi-primary-e2e --test multi_primary storage_events:: -- --ignored --nocapture`.
+//! `cargo nextest run --profile external --features multi-primary-e2e --test multi_primary storage_events:: -- --ignored --nocapture`.
 
 use std::process::Command;
 use std::time::Duration;

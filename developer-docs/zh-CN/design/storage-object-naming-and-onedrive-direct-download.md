@@ -162,13 +162,13 @@ files/{upload_uuid}
 改动命名能力或 OneDrive 直链时，至少运行以下测试：
 
 ```bash
-cargo test --lib storage::connectors::tests
-cargo test --lib services::workspace::storage
-cargo test --lib storage::drivers::onedrive
-cargo test --lib services::files::upload
-cargo test --test files upload::
-cargo test --test webdav
-cargo test --features openapi --test generate_openapi
+cargo nextest run --profile ci --lib storage::connectors::tests
+cargo nextest run --profile ci --lib services::workspace::storage
+cargo nextest run --profile ci --lib storage::drivers::onedrive
+cargo nextest run --profile ci --lib services::files::upload
+cargo nextest run --profile ci --test files upload::
+cargo nextest run --profile ci --test webdav
+cargo nextest run --profile ci --features openapi --test generate_openapi
 ```
 
 行为覆盖要求：

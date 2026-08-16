@@ -34,19 +34,19 @@ The main implementation entry points for protocol debugging are:
 After changing WebDAV code, begin with the smallest relevant target instead of compiling an unnecessarily broad test matrix:
 
 ```bash
-cargo test --test webdav protocol::test_name -- --nocapture
+cargo nextest run --profile ci --test webdav protocol::test_name -- --nocapture
 ```
 
 For example, after changing `MKCOL`:
 
 ```bash
-cargo test --test webdav protocol::test_webdav_mkcol -- --nocapture
+cargo nextest run --profile ci --test webdav protocol::test_webdav_mkcol -- --nocapture
 ```
 
 After a change spans multiple WebDAV modules, run the complete target:
 
 ```bash
-cargo test --test webdav -- --nocapture
+cargo nextest run --profile ci --test webdav -- --nocapture
 ```
 
 This layer is suitable for exact AsterDrive behavior and for regression coverage around failures exposed by Litmus. When fixing a conformance issue, do not merely remove a Litmus baseline entry. Add a Rust regression test that does not depend on an external binary, then update the conformance baseline.
@@ -137,7 +137,7 @@ mkdir -p "$PWD/artifacts/webdav-local"
 
 LITMUS_BIN="$HOME/.local/webdav-compat/bin/litmus" \
 ASTER_WEBDAV_COMPAT_ARTIFACT_DIR="$PWD/artifacts/webdav-local" \
-cargo test --test webdav litmus_compliance::test_litmus_ -- \
+cargo nextest run --profile external --test webdav litmus_compliance::test_litmus_ -- \
   --ignored \
   --skip resource_litmus:: \
   --skip security_policy_litmus:: \
@@ -151,7 +151,7 @@ To reproduce one group, place the Rust test name before `--`:
 ```bash
 LITMUS_BIN="$HOME/.local/webdav-compat/bin/litmus" \
 ASTER_WEBDAV_COMPAT_ARTIFACT_DIR="$PWD/artifacts/webdav-local" \
-cargo test --test webdav litmus_compliance::test_litmus_basic -- \
+cargo nextest run --profile external --test webdav litmus_compliance::test_litmus_basic -- \
   --ignored --nocapture --test-threads=1
 ```
 
@@ -178,7 +178,7 @@ Run only `largefile`:
 ```bash
 LITMUS_BIN="$HOME/.local/webdav-compat/bin/litmus" \
 ASTER_WEBDAV_COMPAT_ARTIFACT_DIR="$PWD/artifacts/webdav-local" \
-cargo test --test webdav \
+cargo nextest run --profile external --test webdav \
   litmus_compliance::resource_litmus::test_litmus_largefile -- \
   --ignored --nocapture --test-threads=1
 ```
@@ -190,7 +190,7 @@ The `protected` security-policy probe lives in `tests/webdav/litmus/security_pol
 ```bash
 LITMUS_BIN="$HOME/.local/webdav-compat/bin/litmus" \
 ASTER_WEBDAV_COMPAT_ARTIFACT_DIR="$PWD/artifacts/webdav-local" \
-cargo test --test webdav \
+cargo nextest run --profile external --test webdav \
   litmus_compliance::security_policy_litmus::test_litmus_protected -- \
   --ignored --nocapture --test-threads=1
 ```
@@ -303,8 +303,8 @@ The `props::propextended` difference exposed by the 0.18 migration was fixed in 
 After editing the baseline, run at least:
 
 ```bash
-cargo test --test webdav litmus_compliance::committed_litmus_baseline_is_well_formed
-cargo test --test webdav litmus_compliance::litmus_baseline_requires_independent_tracking_issues
+cargo nextest run --profile ci --test webdav litmus_compliance::committed_litmus_baseline_is_well_formed
+cargo nextest run --profile ci --test webdav litmus_compliance::litmus_baseline_requires_independent_tracking_issues
 ```
 
 Then rerun the affected external group.
@@ -348,20 +348,20 @@ CI installs pinned releases through `scripts/ci/webdav-compat/install-clients.sh
 Once the required clients are available locally, run:
 
 ```bash
-cargo test --test webdav client_e2e:: -- \
+cargo nextest run --profile external --test webdav client_e2e:: -- \
   --ignored --nocapture --test-threads=1
 ```
 
 Run one client family:
 
 ```bash
-cargo test --test webdav client_e2e::webdav_rclone -- \
+cargo nextest run --profile external --test webdav client_e2e::webdav_rclone -- \
   --ignored --nocapture --test-threads=1
 
-cargo test --test webdav client_e2e::webdav_curl -- \
+cargo nextest run --profile external --test webdav client_e2e::webdav_curl -- \
   --ignored --nocapture --test-threads=1
 
-cargo test --test webdav client_e2e::webdav_cadaver -- \
+cargo nextest run --profile external --test webdav client_e2e::webdav_cadaver -- \
   --ignored --nocapture --test-threads=1
 ```
 

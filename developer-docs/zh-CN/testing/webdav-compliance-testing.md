@@ -34,19 +34,19 @@
 修改 WebDAV 后先跑最小目标，不要一上来编译整个测试矩阵：
 
 ```bash
-cargo test --test webdav protocol::test_name -- --nocapture
+cargo nextest run --profile ci --test webdav protocol::test_name -- --nocapture
 ```
 
 例如修改 `MKCOL`：
 
 ```bash
-cargo test --test webdav protocol::test_webdav_mkcol -- --nocapture
+cargo nextest run --profile ci --test webdav protocol::test_webdav_mkcol -- --nocapture
 ```
 
 修改范围覆盖多个 WebDAV 模块后，再跑完整目标：
 
 ```bash
-cargo test --test webdav -- --nocapture
+cargo nextest run --profile ci --test webdav -- --nocapture
 ```
 
 这一步适合验证精确的 AsterDrive 行为，也方便为 Litmus 暴露的问题补边界测试。修复合规问题时，不能只删 Litmus 基线项；应先补一个不依赖外部二进制的 Rust 回归测试，再更新合规基线。
@@ -134,7 +134,7 @@ mkdir -p "$PWD/artifacts/webdav-local"
 
 LITMUS_BIN="$HOME/.local/webdav-compat/bin/litmus" \
 ASTER_WEBDAV_COMPAT_ARTIFACT_DIR="$PWD/artifacts/webdav-local" \
-cargo test --test webdav litmus_compliance::test_litmus_ -- \
+cargo nextest run --profile external --test webdav litmus_compliance::test_litmus_ -- \
   --ignored \
   --skip resource_litmus:: \
   --skip security_policy_litmus:: \
@@ -148,7 +148,7 @@ cargo test --test webdav litmus_compliance::test_litmus_ -- \
 ```bash
 LITMUS_BIN="$HOME/.local/webdav-compat/bin/litmus" \
 ASTER_WEBDAV_COMPAT_ARTIFACT_DIR="$PWD/artifacts/webdav-local" \
-cargo test --test webdav litmus_compliance::test_litmus_basic -- \
+cargo nextest run --profile external --test webdav litmus_compliance::test_litmus_basic -- \
   --ignored --nocapture --test-threads=1
 ```
 
@@ -175,7 +175,7 @@ litmus_compliance::resource_litmus::test_litmus_lockbomb_single
 ```bash
 LITMUS_BIN="$HOME/.local/webdav-compat/bin/litmus" \
 ASTER_WEBDAV_COMPAT_ARTIFACT_DIR="$PWD/artifacts/webdav-local" \
-cargo test --test webdav \
+cargo nextest run --profile external --test webdav \
   litmus_compliance::resource_litmus::test_litmus_largefile -- \
   --ignored --nocapture --test-threads=1
 ```
@@ -187,7 +187,7 @@ cargo test --test webdav \
 ```bash
 LITMUS_BIN="$HOME/.local/webdav-compat/bin/litmus" \
 ASTER_WEBDAV_COMPAT_ARTIFACT_DIR="$PWD/artifacts/webdav-local" \
-cargo test --test webdav \
+cargo nextest run --profile external --test webdav \
   litmus_compliance::security_policy_litmus::test_litmus_protected -- \
   --ignored --nocapture --test-threads=1
 ```
@@ -300,8 +300,8 @@ locks | FAIL | TEST_NAME | https://github.com/AsterCommunity/AsterDrive/issues/I
 修改 baseline 后至少运行：
 
 ```bash
-cargo test --test webdav litmus_compliance::committed_litmus_baseline_is_well_formed
-cargo test --test webdav litmus_compliance::litmus_baseline_requires_independent_tracking_issues
+cargo nextest run --profile ci --test webdav litmus_compliance::committed_litmus_baseline_is_well_formed
+cargo nextest run --profile ci --test webdav litmus_compliance::litmus_baseline_requires_independent_tracking_issues
 ```
 
 然后重新运行受影响的外部分组。
@@ -345,20 +345,20 @@ CI 使用 `scripts/ci/webdav-compat/install-clients.sh` 安装固定版本。这
 本机已经具备所需客户端后，运行：
 
 ```bash
-cargo test --test webdav client_e2e:: -- \
+cargo nextest run --profile external --test webdav client_e2e:: -- \
   --ignored --nocapture --test-threads=1
 ```
 
 只跑某个客户端：
 
 ```bash
-cargo test --test webdav client_e2e::webdav_rclone -- \
+cargo nextest run --profile external --test webdav client_e2e::webdav_rclone -- \
   --ignored --nocapture --test-threads=1
 
-cargo test --test webdav client_e2e::webdav_curl -- \
+cargo nextest run --profile external --test webdav client_e2e::webdav_curl -- \
   --ignored --nocapture --test-threads=1
 
-cargo test --test webdav client_e2e::webdav_cadaver -- \
+cargo nextest run --profile external --test webdav client_e2e::webdav_cadaver -- \
   --ignored --nocapture --test-threads=1
 ```
 

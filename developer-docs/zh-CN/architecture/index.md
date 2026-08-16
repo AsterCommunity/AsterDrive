@@ -273,8 +273,8 @@ topic = "aster_drive.config_reload"
 所有实例必须连接同一份权威数据库，并使用相同 topic。Redis 不保存配置值，也不补偿丢失的历史通知；实例启动时总会从数据库加载完整 snapshot，运行期间通知只负责提示其他 runtime 再次全量 reload。配置同步相关回归至少运行：
 
 ```bash
-cargo test --lib services::ops::config:: -j 1
-cargo test --lib cli::config::tests -j 1
+cargo nextest run --profile ci --test-threads=1 --lib services::ops::config::
+cargo nextest run --profile ci --test-threads=1 --lib cli::config::tests
 cargo check --features cli -j 1
 cargo check --tests -j 1
 ```

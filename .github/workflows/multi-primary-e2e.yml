@@ -7,6 +7,7 @@ on:
       - 'src/**'
       - 'crates/**'
       - 'tests/multi_primary/**'
+      - '.config/nextest.toml'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
@@ -17,6 +18,7 @@ on:
       - 'src/**'
       - 'crates/**'
       - 'tests/multi_primary/**'
+      - '.config/nextest.toml'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
@@ -55,6 +57,11 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.143
+
       - name: Install media processing dependencies
         run: sudo apt-get update && sudo apt-get install -y libvips-tools ffmpeg
 
@@ -68,7 +75,8 @@ jobs:
 
       - name: Run ${{ matrix.name }}
         run: >-
-          cargo test
+          cargo nextest run
+          --profile external
           --features multi-primary-e2e
           --test multi_primary
           ${{ matrix.filter }}
