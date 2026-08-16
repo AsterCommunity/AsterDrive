@@ -197,6 +197,6 @@ For machine-readable and generated endpoint-level documentation, use any of thes
 
 - Browse the online [OpenAPI Reference](https://drive.astercosm.com/developer/openapi/) for operations grouped by tag, parameters, responses, authentication requirements, and request snippets.
 - In a `debug_assertions + openapi feature` build, open `/swagger-ui` or `/api-docs/openapi.json`.
-- In any checkout, run `cargo test --features openapi --test generate_openapi` to export the static specification to `frontend-panel/generated/openapi.json`. The file is a build artifact and is not committed to Git.
+- In any checkout, run `cargo nextest run --features openapi --test generate_openapi` to export the static specification to `frontend-panel/generated/openapi.json`. The file is a build artifact and is not committed to Git.
 
 OpenAPI registration lives in `src/api/openapi.rs`, but the actual runtime route registration still comes from `src/api/primary.rs`, `src/api/follower.rs`, and `src/api/routes/**`. If the OpenAPI spec and the route code disagree, trust the route code first and then repair the spec.

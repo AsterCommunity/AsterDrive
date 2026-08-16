@@ -214,7 +214,7 @@
 
 - 浏览在线 [OpenAPI Reference](https://drive.astercosm.com/developer/openapi/)，按 tag 查看接口、参数、响应和请求示例
 - `debug_assertions + openapi feature` 构建：访问 `/swagger-ui` 与 `/api-docs/openapi.json`
-- 任意构建：运行 `cargo test --features openapi --test generate_openapi` 导出静态规范到 `frontend-panel/generated/openapi.json`；该文件是构建产物，不提交到 Git
+- 任意构建：运行 `cargo nextest run --features openapi --test generate_openapi` 导出静态规范到 `frontend-panel/generated/openapi.json`；该文件是构建产物，不提交到 Git
 
 OpenAPI 注册列表维护在 `src/api/openapi.rs`，真实 HTTP 注册入口仍然以 `src/api/primary.rs`、`src/api/follower.rs` 和 `src/api/routes/**` 为准。新增 route 时如果忘了补 `openapi.rs`，运行时接口仍可能存在，但 Swagger、静态规范和生成的 SDK 会漏掉它；如果两者冲突，先按 route 源码确认实际行为，再修 OpenAPI 装配。
 

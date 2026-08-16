@@ -301,12 +301,12 @@ Generic OAuth2 默认 scope 也是 `openid email profile`，但不会在更新�
 
 重点测试：
 
-- `cargo test --test auth oauth2::`
-- `cargo test --test auth oidc::`
-- `cargo test --lib oauth2`
-- `cargo test --lib external_auth::providers::github`
-- `cargo test --lib external_auth::providers::google`
-- `cargo test --lib external_auth::providers::microsoft`
+- `cargo nextest run --test auth oauth2::`
+- `cargo nextest run --test auth oidc::`
+- `cargo nextest run --lib oauth2`
+- `cargo nextest run --lib external_auth::providers::github`
+- `cargo nextest run --lib external_auth::providers::google`
+- `cargo nextest run --lib external_auth::providers::microsoft`
 - `cargo clippy --lib --tests -- -D warnings`
 
 相关 mock 在 `tests/external_auth/oauth2/mock.rs`。前端 provider kind、默认 scope、表单和陈旧请求保护相关测试在：

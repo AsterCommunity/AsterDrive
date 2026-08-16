@@ -62,6 +62,6 @@
 - credential management 必须覆盖 missing、authorized 和需要重新授权的展示边界；action output 必须覆盖 draft/saved、缺失 output、未声明字段、类型不匹配字段和通用成功兜底。测试还必须证明失败 action 的 output 既不展示也不持久化，结果不写回 policy config，也不会保留到其他 action 或对话框会话。
 - normalization 必须覆盖 trim、空值、逃逸路径、prefix 首尾斜杠、storage policy 负数 `max_file_size`、同 driver secret preserve、显式 secret replace、driver 切换字段重置。
 - SFTP 必须覆盖裸 host、`host:port`、`sftp://host:port`、错误协议、host key 指纹格式、未知 host key 拒绝和已确认指纹通过。
-- storage policy descriptor 行为改变时，跑 `cargo test --lib storage::connectors` 或更小过滤；remote storage target 归一化改变时，跑 `cargo test --lib remote::storage_target::tests::<filter>`。
+- storage policy descriptor 行为改变时，跑 `cargo nextest run --lib storage::connectors` 或更小过滤；remote storage target 归一化改变时，跑 `cargo nextest run --lib remote::storage_target::tests::<filter>`。
 - 内置 connector 身份、localization 或上述文档事实改变时，运行 `make storage-docs` 更新生成产物，再运行 `make storage-docs-check` 验证无漂移。
 - 改 OpenAPI schema 后必须重新导出 OpenAPI、生成前端 SDK 并审查生成差异。

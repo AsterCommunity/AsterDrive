@@ -208,6 +208,7 @@ AsterDrive首次启动时会自动：
 ### 环境要求
 
 - Rust `1.95.0+`
+- cargo-nextest
 - Bun
 - Node.js `24+`（用于 Docker 前端构建阶段）
 
@@ -217,8 +218,8 @@ AsterDrive首次启动时会自动：
 # 后端
 cargo run
 cargo check
-cargo test
-cargo test --features openapi --test generate_openapi
+cargo nextest run
+cargo nextest run --features openapi --test generate_openapi
 
 # 前端
 cd frontend-panel
