@@ -105,6 +105,10 @@ pub async fn find_virtual_empty_blob_by_policy<C: ConnectionTrait>(
     policy_id: i64,
 ) -> Result<Option<file_blob::Model>> {
     FileBlob::find()
+        // `idx_file_blobs_hash_policy_backing` starts with hash. The backing CHECK
+        // guarantees every virtual-empty row uses this canonical hash, so include it
+        // here instead of making storage migration scan the entire blob table.
+        .filter(file_blob::Column::Hash.eq(file_blob::Model::EMPTY_SHA256))
         .filter(file_blob::Column::PolicyId.eq(policy_id))
         .filter(file_blob::Column::Backing.eq(FileBlobBacking::VirtualEmpty))
         .one(db)

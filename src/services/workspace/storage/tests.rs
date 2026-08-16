@@ -1086,6 +1086,22 @@ fn empty_file_connector_policy_cases(
             ),
         ),
         (
+            "qiniu",
+            crate::storage::connectors::test_support::policy(
+                "asterdrive.storage.qiniu",
+                1,
+                serde_json::json!({
+                    "endpoint": "https://s3.cn-east-1.qiniucs.com",
+                    "bucket": "bucket-name",
+                    "base_path": "",
+                    "s3_region": "cn-east-1",
+                    "object_storage_upload_strategy": "presigned",
+                    "object_storage_download_strategy": "relay_stream"
+                }),
+                behavior.clone(),
+            ),
+        ),
+        (
             "onedrive",
             crate::storage::connectors::test_support::onedrive_policy_with_download(
                 crate::storage::connectors::OneDriveAccountMode::Personal,
@@ -1120,6 +1136,7 @@ async fn canonical_empty_file_use_case_is_connector_independent() {
         "s3",
         "azure_blob",
         "tencent_cos",
+        "qiniu",
         "onedrive",
         "sftp",
     ] {

@@ -53,13 +53,61 @@ function readAll(): ResumableSession[] {
 	}
 }
 
-function readPendingEmptyFiles(): PendingEmptyFileCreate[] {
+interface PendingEmptyFileReadResult {
+	entries: PendingEmptyFileCreate[];
+	needsCleanup: boolean;
+}
+
+function isWorkspace(value: unknown): value is Workspace {
+	if (typeof value !== "object" || value === null || !("kind" in value)) {
+		return false;
+	}
+	if (value.kind === "personal") return true;
+	return (
+		value.kind === "team" &&
+		"teamId" in value &&
+		typeof value.teamId === "number" &&
+		Number.isFinite(value.teamId)
+	);
+}
+
+function isPendingEmptyFileCreate(
+	value: unknown,
+): value is PendingEmptyFileCreate {
+	if (typeof value !== "object" || value === null) return false;
+	const entry = value as Record<string, unknown>;
+	return (
+		typeof entry.taskId === "string" &&
+		entry.taskId.length > 0 &&
+		typeof entry.idempotencyKey === "string" &&
+		entry.idempotencyKey.length > 0 &&
+		typeof entry.filename === "string" &&
+		(entry.baseFolderId === null ||
+			(typeof entry.baseFolderId === "number" &&
+				Number.isFinite(entry.baseFolderId))) &&
+		typeof entry.baseFolderName === "string" &&
+		(entry.relativePath === null || typeof entry.relativePath === "string") &&
+		typeof entry.savedAt === "number" &&
+		Number.isFinite(entry.savedAt) &&
+		(entry.workspace === undefined || isWorkspace(entry.workspace))
+	);
+}
+
+function readPendingEmptyFiles(): PendingEmptyFileReadResult {
 	try {
 		const raw = localStorage.getItem(EMPTY_FILE_STORAGE_KEY);
-		if (!raw) return [];
-		return JSON.parse(raw) as PendingEmptyFileCreate[];
+		if (!raw) return { entries: [], needsCleanup: false };
+		const parsed: unknown = JSON.parse(raw);
+		if (!Array.isArray(parsed)) {
+			return { entries: [], needsCleanup: true };
+		}
+		const entries = parsed.filter(isPendingEmptyFileCreate);
+		return {
+			entries,
+			needsCleanup: entries.length !== parsed.length,
+		};
 	} catch {
-		return [];
+		return { entries: [], needsCleanup: true };
 	}
 }
 
@@ -185,20 +233,30 @@ export function loadSessions(workspace?: Workspace): ResumableSession[] {
 	);
 }
 
-export function savePendingEmptyFile(entry: PendingEmptyFileCreate): void {
-	const all = readPendingEmptyFiles().filter(
-		(existing) => existing.taskId !== entry.taskId,
+export function savePendingEmptyFiles(
+	entries: readonly PendingEmptyFileCreate[],
+): void {
+	if (entries.length === 0) return;
+
+	const nextByTaskId = new Map(
+		entries.map((entry) => [
+			entry.taskId,
+			{
+				...entry,
+				workspace: normalizeWorkspace(entry.workspace),
+			},
+		]),
 	);
-	all.push({
-		...entry,
-		workspace: normalizeWorkspace(entry.workspace),
-	});
+	const all = readPendingEmptyFiles().entries.filter(
+		(existing) => !nextByTaskId.has(existing.taskId),
+	);
+	all.push(...nextByTaskId.values());
 	writePendingEmptyFiles(all);
 }
 
 export function removePendingEmptyFile(taskId: string): void {
 	writePendingEmptyFiles(
-		readPendingEmptyFiles().filter((entry) => entry.taskId !== taskId),
+		readPendingEmptyFiles().entries.filter((entry) => entry.taskId !== taskId),
 	);
 }
 
@@ -206,9 +264,9 @@ export function loadPendingEmptyFiles(
 	workspace?: Workspace,
 ): PendingEmptyFileCreate[] {
 	const now = Date.now();
-	const all = readPendingEmptyFiles();
+	const { entries: all, needsCleanup } = readPendingEmptyFiles();
 	const valid = all.filter((entry) => now - entry.savedAt < MAX_AGE_MS);
-	if (valid.length !== all.length) {
+	if (needsCleanup || valid.length !== all.length) {
 		writePendingEmptyFiles(valid);
 	}
 	if (!workspace) return valid;

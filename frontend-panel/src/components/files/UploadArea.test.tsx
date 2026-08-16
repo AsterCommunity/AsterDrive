@@ -29,7 +29,7 @@ const refreshToken = vi.fn().mockResolvedValue(undefined);
 const refreshUser = vi.fn().mockResolvedValue(undefined);
 const removeSession = vi.fn();
 const removePendingEmptyFile = vi.fn();
-const savePendingEmptyFile = vi.fn();
+const savePendingEmptyFiles = vi.fn();
 const saveSession = vi.fn();
 const uploadChunk = vi.fn();
 const uploadPanelSpy = vi.fn();
@@ -181,7 +181,7 @@ vi.mock("@/lib/uploadPersistence", () => ({
 	loadSessions,
 	removePendingEmptyFile,
 	removeSession,
-	savePendingEmptyFile,
+	savePendingEmptyFiles,
 	saveSession,
 }));
 
@@ -322,7 +322,7 @@ describe("UploadArea", () => {
 		loadPendingEmptyFiles.mockReset();
 		loadPendingEmptyFiles.mockReturnValue([]);
 		removePendingEmptyFile.mockReset();
-		savePendingEmptyFile.mockReset();
+		savePendingEmptyFiles.mockReset();
 		presignedUpload.mockReset();
 		presignParts.mockReset();
 		refresh.mockReset();
@@ -417,13 +417,13 @@ describe("UploadArea", () => {
 			signal: expect.any(AbortSignal),
 			idempotencyKey: expect.stringMatching(/^empty-upload:/),
 		});
-		expect(savePendingEmptyFile).toHaveBeenCalledWith(
+		expect(savePendingEmptyFiles).toHaveBeenCalledWith([
 			expect.objectContaining({
 				filename: "empty.txt",
 				idempotencyKey: expect.stringMatching(/^empty-upload:/),
 				workspace: { kind: "personal" },
 			}),
-		);
+		]);
 		expect(removePendingEmptyFile).toHaveBeenCalledTimes(1);
 		expect(initUpload).not.toHaveBeenCalled();
 		expect(apiClientPost).not.toHaveBeenCalled();
@@ -803,7 +803,7 @@ describe("UploadArea", () => {
 			},
 		);
 		expect(removePendingEmptyFile).toHaveBeenCalledWith("restored-empty-task");
-		expect(savePendingEmptyFile).not.toHaveBeenCalled();
+		expect(savePendingEmptyFiles).not.toHaveBeenCalled();
 	});
 
 	it("removes a local terminal session when the backend no longer recovers it", async () => {

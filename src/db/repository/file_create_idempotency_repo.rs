@@ -1,10 +1,13 @@
 use chrono::{DateTime, Utc};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, IntoActiveModel, QueryFilter, Set,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, IntoActiveModel, QueryFilter,
+    QueryOrder, QuerySelect, Set,
 };
 
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::file_create_idempotency::{self, Entity as FileCreateIdempotency};
+
+const EXPIRED_DELETE_BATCH_SIZE: u64 = 1_000;
 
 #[derive(Clone, Copy, Debug)]
 pub struct FileCreateIdempotencyScope {
@@ -37,12 +40,35 @@ pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
 }
 
 pub async fn delete_expired<C: ConnectionTrait>(db: &C, now: DateTime<Utc>) -> Result<u64> {
-    FileCreateIdempotency::delete_many()
-        .filter(file_create_idempotency::Column::ExpiresAt.lte(now))
-        .exec(db)
-        .await
-        .map(|result| result.rows_affected)
-        .map_err(AsterError::from)
+    let mut total_deleted = 0_u64;
+    loop {
+        // Keep each delete bounded so a delayed maintenance run cannot turn a large
+        // idempotency backlog into one long table lock and transaction-log spike.
+        let ids = FileCreateIdempotency::find()
+            .select_only()
+            .column(file_create_idempotency::Column::Id)
+            .filter(file_create_idempotency::Column::ExpiresAt.lte(now))
+            .order_by_asc(file_create_idempotency::Column::ExpiresAt)
+            .order_by_asc(file_create_idempotency::Column::Id)
+            .limit(EXPIRED_DELETE_BATCH_SIZE)
+            .into_tuple::<i64>()
+            .all(db)
+            .await
+            .map_err(AsterError::from)?;
+        if ids.is_empty() {
+            return Ok(total_deleted);
+        }
+
+        let deleted = FileCreateIdempotency::delete_many()
+            .filter(file_create_idempotency::Column::Id.is_in(ids))
+            .exec(db)
+            .await
+            .map_err(AsterError::from)?
+            .rows_affected;
+        total_deleted = total_deleted.checked_add(deleted).ok_or_else(|| {
+            AsterError::internal_error("expired file-create idempotency delete count overflow")
+        })?;
+    }
 }
 
 pub async fn create_claim<C: ConnectionTrait>(

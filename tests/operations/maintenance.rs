@@ -643,15 +643,17 @@ async fn test_completed_upload_maintenance_prunes_only_expired_file_create_idemp
     .await
     .unwrap();
     let now = Utc::now();
-    for (key_hash, expires_at) in [
-        ("expired-key", now - Duration::seconds(1)),
-        ("retained-key", now + Duration::hours(1)),
-    ] {
+    for index in 0..=1_001 {
+        let (key_hash, expires_at) = if index == 1_001 {
+            ("retained-key".to_string(), now + Duration::hours(1))
+        } else {
+            (format!("expired-key-{index}"), now - Duration::seconds(1))
+        };
         file_create_idempotency::ActiveModel {
             actor_user_id: Set(user.id),
             workspace_kind: Set("personal".to_string()),
             workspace_id: Set(user.id),
-            key_hash: Set(key_hash.to_string()),
+            key_hash: Set(key_hash.clone()),
             request_fingerprint: Set(format!("{key_hash}-fingerprint")),
             result_file_id: Set(None),
             created_at: Set(now - Duration::hours(1)),
@@ -667,7 +669,7 @@ async fn test_completed_upload_maintenance_prunes_only_expired_file_create_idemp
         .await
         .unwrap();
 
-    assert_eq!(stats.file_create_idempotencies_deleted, 1);
+    assert_eq!(stats.file_create_idempotencies_deleted, 1_001);
     let retained = file_create_idempotency::Entity::find()
         .all(state.writer_db())
         .await

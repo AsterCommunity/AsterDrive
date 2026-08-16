@@ -148,6 +148,7 @@ impl MigrationTrait for Migration {
                     .name("idx_file_create_idempotencies_expiry")
                     .table(FileCreateIdempotencies::Table)
                     .col(FileCreateIdempotencies::ExpiresAt)
+                    .col(FileCreateIdempotencies::Id)
                     .to_owned(),
             )
             .await

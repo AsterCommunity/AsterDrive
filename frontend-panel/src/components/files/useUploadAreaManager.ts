@@ -22,7 +22,7 @@ import {
 	enterStorageRefreshGate,
 	leaveStorageRefreshGate,
 } from "@/lib/storageRefreshGate";
-import { loadSessions, savePendingEmptyFile } from "@/lib/uploadPersistence";
+import { loadSessions, savePendingEmptyFiles } from "@/lib/uploadPersistence";
 import {
 	normalizeUploadConcurrency,
 	readUploadSettings,
@@ -432,20 +432,25 @@ export function useUploadAreaManager({
 					relativePath,
 				}),
 			);
-			for (const task of nextTasks) {
-				if (task.emptyFileIdempotencyKey) {
-					savePendingEmptyFile({
-						taskId: task.id,
-						idempotencyKey: task.emptyFileIdempotencyKey,
-						filename: task.filename,
-						baseFolderId: task.baseFolderId,
-						baseFolderName: task.baseFolderName,
-						relativePath: task.relativePath,
-						savedAt: Date.now(),
-						workspace,
-					});
-				}
-			}
+			const savedAt = Date.now();
+			savePendingEmptyFiles(
+				nextTasks.flatMap((task) =>
+					task.emptyFileIdempotencyKey
+						? [
+								{
+									taskId: task.id,
+									idempotencyKey: task.emptyFileIdempotencyKey,
+									filename: task.filename,
+									baseFolderId: task.baseFolderId,
+									baseFolderName: task.baseFolderName,
+									relativePath: task.relativePath,
+									savedAt,
+									workspace,
+								},
+							]
+						: [],
+				),
+			);
 			setTasks((prev) => [...nextTasks, ...prev]);
 			setUploadPanelOpen(true);
 		},
@@ -466,20 +471,25 @@ export function useUploadAreaManager({
 					relativePath: null,
 				}),
 			);
-			for (const task of nextTasks) {
-				if (task.emptyFileIdempotencyKey) {
-					savePendingEmptyFile({
-						taskId: task.id,
-						idempotencyKey: task.emptyFileIdempotencyKey,
-						filename: task.filename,
-						baseFolderId: task.baseFolderId,
-						baseFolderName: task.baseFolderName,
-						relativePath: task.relativePath,
-						savedAt: Date.now(),
-						workspace,
-					});
-				}
-			}
+			const savedAt = Date.now();
+			savePendingEmptyFiles(
+				nextTasks.flatMap((task) =>
+					task.emptyFileIdempotencyKey
+						? [
+								{
+									taskId: task.id,
+									idempotencyKey: task.emptyFileIdempotencyKey,
+									filename: task.filename,
+									baseFolderId: task.baseFolderId,
+									baseFolderName: task.baseFolderName,
+									relativePath: task.relativePath,
+									savedAt,
+									workspace,
+								},
+							]
+						: [],
+				),
+			);
 			setTasks((prev) => [...nextTasks, ...prev]);
 			setUploadPanelOpen(true);
 		},

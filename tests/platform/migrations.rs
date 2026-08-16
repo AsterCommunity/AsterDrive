@@ -102,6 +102,11 @@ async fn virtual_empty_blob_migration_backfills_stored_rows_and_enforces_backing
     Migrator::up(&db, None)
         .await
         .expect("production virtual-empty migration should apply");
+    assert_eq!(
+        sqlite_index_columns(&db, "idx_file_create_idempotencies_expiry").await,
+        ["expires_at", "id"],
+        "expiry cleanup index must support stable bounded batches"
+    );
     let stored = db
         .query_one_raw(Statement::from_string(
             DbBackend::Sqlite,
