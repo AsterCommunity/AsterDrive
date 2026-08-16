@@ -107,6 +107,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Changed
 
+- **空文件 metadata-only 与事务幂等创建** — `/files/new` 和前端零字节文件流程改为复用不对应 connector object 的 canonical `virtual_empty` Blob，不再上传零字节对象；新增 `Idempotency-Key` 的 writer-transaction claim / replay 契约，并同步收紧下载、WebDAV 审计、预签名、缩略图/预览、归档、删除和完整性审计边界。
 - **头像上传资源边界与同步结果契约** — 内置前端将裁剪结果归一化为最大 1024×1024 WebP，服务端以流式 staging、10 MiB 默认/16 MiB 硬顶源文件限制、1024×1024 dimensions、32 MiB 解码 allocation 和每进程 2 路渲染并发约束头像峰值；Images processor 复用同一 decoder 完成 dimensions 校验与像素解码，避免 JPEG 压缩源被完整读取两遍，并通过等待时长、waiting 和 active 指标区分正常排队与实际渲染；发布前在数据库事务外准备用户目录，最终版本目录冲突时保留现场，事务内只执行一次原子 rename，并通过 publish duration 指标暴露慢存储延迟；上传同步返回 `profile + applied`，并发头像 mutation 覆盖候选或处理失败时保留当前头像，不创建后台任务。
 - **存储策略持久化模型** — current `storage_policy` entity 收敛为 `id`、`name`、`connector_id`、`storage_config`、文件大小/类型/默认策略/chunk 行为与时间戳；运行时通过 connector projection 读取 endpoint、bucket、base path、远端绑定和 provider 行为，不再直接访问旧平铺列。
 - **存储策略 API 编排** — create、update、draft connection test、saved connection test、authorization 与 custom action 统一按 connector registry 查找和分发；请求中的 malformed / unknown connector 返回输入校验错误，数据库中未知 connector ID 则作为持久化配置损坏处理。
