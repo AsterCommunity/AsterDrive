@@ -21,7 +21,7 @@ mfa_secret_key = "<首次生成的一串随机密钥>"
 storage_credential_secret_key = "<首次生成的一串随机密钥>"
 webdav_auth_cache_secret = "<首次生成的一串随机密钥>"
 password_hash_max_concurrency = 2
-bootstrap_insecure_cookies = false
+bootstrap_insecure_cookies = true
 ```
 
 ### `jwt_secret`
@@ -86,14 +86,16 @@ bootstrap_insecure_cookies = false
 
 ### `bootstrap_insecure_cookies`
 
-- **纯 HTTP 首次试跑** —— 临时设 `true`
-- **正式 HTTPS 部署** —— 保持 `false`
+- **默认 `true`** —— 新数据库先写入 `auth_cookie_secure = false`，允许 HTTP 首次登录；如果管理员从 HTTPS 来源创建，setup 会在自动登录前将其提升为 `true`
+- **显式 `false`** —— 要求数据库第一次初始化时就写入 `auth_cookie_secure = true`
 
-它**只影响第一次初始化** `auth_cookie_secure` 时写入的默认值。如果数据库里已经有这个运行时设置，再改这里不会回写旧值。首次试跑的整体流程见 [首次启动与第一个管理员](/start/first-admin/)。
+它**只影响第一次初始化** `auth_cookie_secure` 时写入的默认值，不是长期覆盖项。如果数据库里已经有这个运行时设置，再改这里不会回写旧值；setup 也只会在 HTTPS 首次初始化时从 `false` 提升为 `true`，不会因为 HTTP 请求把显式安全策略降级。整体流程见 [首次启动与第一个管理员](/start/first-admin/)。
 
 ## 常见写法
 
 ### 本地或内网 HTTP 试跑
+
+默认配置已经适合 HTTP 首次登录，无需额外覆盖：
 
 ```toml
 [auth]

@@ -77,14 +77,14 @@ https://panel.example.com
 - 第一个管理员账号密码已经更换为正式密码
 - 管理员账号不止一个，或者至少确认恢复流程里能重建管理员
 
-如果你最初用纯 HTTP 引导过：
+新安装默认采用以下首次引导值，让 HTTP 首次登录可以工作：
 
 ```toml
 [auth]
 bootstrap_insecure_cookies = true
 ```
 
-切到 HTTPS 后，要在后台系统设置里把 Cookie 安全要求改回开启。这个 bootstrap 配置只影响系统设置第一次初始化，后续以后台系统设置为准。
+如果管理员直接从 HTTPS 来源创建，setup 会在自动登录前自动开启 Cookie 安全要求；如果你最初用 HTTP 引导、之后才切到 HTTPS，则要在后台手动开启。这个 bootstrap 配置只影响系统设置第一次初始化，后续以后台系统设置为准。
 
 ## 4. 存储策略和策略组
 

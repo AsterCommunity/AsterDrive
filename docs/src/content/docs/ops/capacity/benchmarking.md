@@ -46,7 +46,7 @@ AsterDrive 的性能基准脚本放在仓库里的 `tests/performance/`。
 
 1. 用接近生产的方式启动服务，推荐 `cargo run --profile release-performance`
 2. 指向一个独立的数据库和独立的本地存储目录
-3. 打开 `ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES=true`，方便本地 HTTP 压测
+3. 新数据库默认允许本地 HTTP 首次登录；复用旧压测数据库时，确认后台 `auth_cookie_secure` 已关闭
 4. 安装 `k6`
 5. 先跑一次 seed
 

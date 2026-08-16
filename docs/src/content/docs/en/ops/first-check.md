@@ -71,7 +71,7 @@ A newly deployed instance usually also has these defaults:
 - after default-storage setup is complete, new users are automatically bound to the current default policy group
 - newly created teams also use the current default policy group unless a policy group is specified separately
 
-If you use `auth.bootstrap_insecure_cookies = true` during first plain HTTP bootstrap, the Cookie security requirement written by the system on first initialization follows that bootstrap value.
+`auth.bootstrap_insecure_cookies` defaults to `true`, so plain-HTTP first login works by default. When the administrator is created from an HTTPS origin, setup enables Secure cookies before automatic login. This static value only controls the first database write; restart does not overwrite an existing runtime setting.
 
 ## What Usually Appears in the Default Directory
 

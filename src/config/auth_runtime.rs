@@ -14,7 +14,8 @@ pub use crate::config::definitions::{
     AUTH_REGISTER_ACTIVATION_TTL_SECS_KEY, AUTH_USER_INVITATION_TTL_SECS_KEY,
 };
 
-pub const DEFAULT_AUTH_COOKIE_SECURE: bool = true;
+pub const DEFAULT_AUTH_COOKIE_SECURE: bool = false;
+const FAILSAFE_AUTH_COOKIE_SECURE: bool = true;
 pub const DEFAULT_AUTH_ALLOW_USER_REGISTRATION: bool = true;
 pub const DEFAULT_AUTH_REGISTER_ACTIVATION_ENABLED: bool = true;
 pub const DEFAULT_AUTH_ACCESS_TOKEN_TTL_SECS: u64 = 900;
@@ -63,7 +64,7 @@ impl RuntimeAuthPolicy {
         let cookie_secure = read_bool(
             runtime_config,
             AUTH_COOKIE_SECURE_KEY,
-            DEFAULT_AUTH_COOKIE_SECURE,
+            FAILSAFE_AUTH_COOKIE_SECURE,
         );
         let allow_user_registration = read_bool(
             runtime_config,
@@ -297,7 +298,7 @@ mod tests {
         DEFAULT_AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS, DEFAULT_AUTH_EMAIL_CODE_LOGIN_TTL_SECS,
         DEFAULT_AUTH_PASSKEY_LOGIN_ENABLED, DEFAULT_AUTH_REFRESH_TOKEN_TTL_SECS,
         DEFAULT_AUTH_REGISTER_ACTIVATION_ENABLED, DEFAULT_AUTH_USER_INVITATION_TTL_SECS,
-        RuntimeAuthPolicy, RuntimeEmailCodeLoginPolicy,
+        FAILSAFE_AUTH_COOKIE_SECURE, RuntimeAuthPolicy, RuntimeEmailCodeLoginPolicy,
         normalize_email_code_login_bool_config_value, normalize_token_ttl_config_value,
         user_invitation_ttl_secs,
     };
@@ -326,11 +327,12 @@ mod tests {
     }
 
     #[test]
-    fn runtime_auth_policy_uses_defaults_when_config_missing() {
+    fn runtime_auth_policy_fails_secure_when_cookie_config_is_missing() {
         let runtime_config = RuntimeConfig::new();
         let policy = RuntimeAuthPolicy::from_runtime_config(&runtime_config);
 
-        assert_eq!(policy.cookie_secure, DEFAULT_AUTH_COOKIE_SECURE);
+        assert!(!DEFAULT_AUTH_COOKIE_SECURE);
+        assert_eq!(policy.cookie_secure, FAILSAFE_AUTH_COOKIE_SECURE);
         assert_eq!(
             policy.allow_user_registration,
             DEFAULT_AUTH_ALLOW_USER_REGISTRATION
@@ -386,7 +388,7 @@ mod tests {
 
         let policy = RuntimeAuthPolicy::from_runtime_config(&runtime_config);
 
-        assert_eq!(policy.cookie_secure, DEFAULT_AUTH_COOKIE_SECURE);
+        assert_eq!(policy.cookie_secure, FAILSAFE_AUTH_COOKIE_SECURE);
         assert_eq!(
             policy.allow_user_registration,
             DEFAULT_AUTH_ALLOW_USER_REGISTRATION

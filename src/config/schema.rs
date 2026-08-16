@@ -158,7 +158,7 @@ pub struct AuthConfig {
     pub webdav_auth_cache_secret: String,
     #[serde(default = "AuthConfig::default_password_hash_max_concurrency")]
     pub password_hash_max_concurrency: usize,
-    /// 首次初始化 system_config 时，是否把 auth_cookie_secure 设为 false。
+    /// 首次初始化 system_config 时，是否把 auth_cookie_secure 设为 false；默认允许 HTTP 首启。
     #[serde(default = "AuthConfig::default_bootstrap_insecure_cookies")]
     pub bootstrap_insecure_cookies: bool,
 }
@@ -207,7 +207,7 @@ impl AuthConfig {
         crate::config::password_hash::DEFAULT_PASSWORD_HASH_MAX_CONCURRENCY
     }
     fn default_bootstrap_insecure_cookies() -> bool {
-        false
+        true
     }
 }
 

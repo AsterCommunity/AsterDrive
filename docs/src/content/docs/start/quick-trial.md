@@ -33,16 +33,12 @@ docker run -d \
   --name asterdrive \
   -p 3000:3000 \
   -e ASTER__SERVER__HOST=0.0.0.0 \
-  -e ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES=true \
   -e ASTER__DATABASE__URL="sqlite:///data/asterdrive.db?mode=rwc" \
   -v "$(pwd)/data:/data" \
   ghcr.io/astercommunity/asterdrive:latest
 ```
 
-这条命令适合本机、内网或临时纯 HTTP 试跑环境。
-
-- 如果你已经准备好通过 HTTPS 对外访问，可以去掉 `ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES=true`
-- 正式上线时，建议保持 `bootstrap_insecure_cookies = false`，并让后台系统设置里的 Cookie 安全开关保持开启
+这条命令适合本机、内网或临时纯 HTTP 试跑环境。新安装默认允许 HTTP 首次登录；如果你直接从 HTTPS 来源创建管理员，AsterDrive 会在自动登录前开启 Secure Cookie。正式上线时仍要到后台确认 Cookie 安全开关已经开启。
 
 :::tip[为什么必须 chown 给 10001]
 镜像内部由 UID `10001` 的 `aster` 用户负责写入 `/data`。如果直接将一个属主为当前 shell 用户的目录 bind mount 进去，容器启动时将无法写入 `config.toml`、SQLite 文件和临时目录，会因权限错误直接退出。

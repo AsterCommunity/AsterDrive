@@ -71,7 +71,7 @@ single 可以在管理端创建 `local` 策略，例如把绝对路径设为 `/d
 - 完成默认存储初始化后，新用户会自动绑定当前默认策略组
 - 新创建团队如果没有单独指定策略组，也会使用当前默认策略组
 
-如果你把 `auth.bootstrap_insecure_cookies = true` 用在第一次纯 HTTP 引导上，系统第一次写入的 Cookie 安全要求也会跟着走这个引导值。
+`auth.bootstrap_insecure_cookies` 默认是 `true`，因此纯 HTTP 首次登录默认可用；如果管理员从 HTTPS 来源创建，setup 会在自动登录前开启 Secure Cookie。这个静态值只决定数据库第一次写入，已有运行时设置不会在重启时被覆盖。
 
 ## 默认目录通常会出现哪些内容
 

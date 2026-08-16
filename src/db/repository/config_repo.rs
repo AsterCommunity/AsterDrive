@@ -383,6 +383,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ensure_defaults_uses_http_compatible_auth_cookie_default() {
+        let db = setup_db().await;
+
+        ensure_defaults_with_env(&db, &|_| None)
+            .await
+            .expect("ensure_defaults should succeed");
+
+        let stored = find_by_key(&db, crate::config::auth_runtime::AUTH_COOKIE_SECURE_KEY)
+            .await
+            .expect("auth cookie config lookup should succeed")
+            .expect("auth cookie config should exist");
+        assert_eq!(stored.value, "false");
+    }
+
+    #[tokio::test]
     async fn ensure_defaults_bootstraps_cli_processors_without_losing_default_bindings() {
         let db = setup_db().await;
 

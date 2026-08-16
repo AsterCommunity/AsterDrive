@@ -77,7 +77,6 @@ docker run -d \
   --name asterdrive \
   -p 3000:3000 \
   -e ASTER__SERVER__HOST=0.0.0.0 \
-  -e ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES=true \
   -e "ASTER__DATABASE__URL=sqlite:///data/asterdrive.db?mode=rwc" \
   -v "$(pwd)/data:/data" \
   ghcr.io/astercommunity/asterdrive:latest
@@ -91,7 +90,7 @@ http://127.0.0.1:3000
 
 首次启动会进入初始化设置流程，在其中创建 `admin`。普通注册仅在设置完成后开放，且不会授予管理员角色。
 
-`ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES=true` 只适合本地或内网 HTTP 测试。正式环境请放到 HTTPS 后面，并保持安全 Cookie 开启。
+新安装默认允许通过 HTTP 完成首次登录；如果第一个管理员从 HTTPS 来源创建，AsterDrive 会在随后的自动登录前开启 Secure Cookie。正式环境仍应放到 HTTPS 后面，并在系统设置中确认“认证 Cookie 仅 HTTPS 发送”已经开启。
 
 也可以直接使用仓库里的 Compose 文件：
 

@@ -7,7 +7,10 @@ use super::{
     contact_verification_redirect_response, request_has_active_access_session,
 };
 use crate::api::response::ApiResponse;
-use crate::config::{auth_runtime::RuntimeAuthPolicy, cors, site_url};
+use crate::config::{
+    auth_runtime::{self, RuntimeAuthPolicy},
+    cors, site_url,
+};
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::ops::audit::AuditRequestInfo;
@@ -29,23 +32,36 @@ fn setup_request_public_origin(req: &HttpRequest) -> Option<String> {
     cors::normalize_origin(&format!("{}://{}", conn.scheme(), conn.host()), false).ok()
 }
 
-async fn bootstrap_public_site_url_from_setup(
+async fn promote_secure_auth_cookies_for_https_setup(
     state: &PrimaryAppState,
-    req: &HttpRequest,
+    origin: &str,
     user_id: i64,
 ) {
+    if !origin.starts_with("https://")
+        || RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).cookie_secure
+    {
+        return;
+    }
+
+    match config::set(state, auth_runtime::AUTH_COOKIE_SECURE_KEY, "true", user_id).await {
+        Ok(_) => tracing::info!(origin, "enabled secure auth cookies for HTTPS setup"),
+        Err(error) => tracing::warn!(
+            origin,
+            error = %error,
+            "failed to enable secure auth cookies for HTTPS setup"
+        ),
+    }
+}
+
+async fn bootstrap_public_site_url_from_setup(state: &PrimaryAppState, origin: &str, user_id: i64) {
     if !site_url::public_site_urls(state.runtime_config()).is_empty() {
         return;
     }
 
-    let Some(origin) = setup_request_public_origin(req) else {
-        return;
-    };
-
     match config::set(
         state,
         site_url::PUBLIC_SITE_URL_KEY,
-        vec![origin.clone()],
+        vec![origin.to_string()],
         user_id,
     )
     .await
@@ -57,6 +73,19 @@ async fn bootstrap_public_site_url_from_setup(
             "failed to bootstrap public_site_url from setup request"
         ),
     }
+}
+
+async fn bootstrap_runtime_config_from_setup(
+    state: &PrimaryAppState,
+    req: &HttpRequest,
+    user_id: i64,
+) {
+    let Some(origin) = setup_request_public_origin(req) else {
+        return;
+    };
+
+    promote_secure_auth_cookies_for_https_setup(state, &origin, user_id).await;
+    bootstrap_public_site_url_from_setup(state, &origin, user_id).await;
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -106,7 +135,7 @@ pub async fn setup(
             &audit_info,
         )
         .await?;
-        bootstrap_public_site_url_from_setup(state.get_ref(), &req, user.id).await;
+        bootstrap_runtime_config_from_setup(state.get_ref(), &req, user.id).await;
         let user_info = account::get_self_info(state.get_ref(), user.id).await?;
         Ok(HttpResponse::Created().json(ApiResponse::ok(user_info)))
     }

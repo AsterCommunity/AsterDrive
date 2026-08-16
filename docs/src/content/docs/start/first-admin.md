@@ -1,10 +1,10 @@
 ---
-description: "AsterDrive 首次启动与第一个管理员：登录页按状态自动判断、第一个账号直接成为管理员、纯 HTTP 试跑的 bootstrap_insecure_cookies，以及创建管理员后的下一步。"
+description: "AsterDrive 首次启动与第一个管理员：登录页按状态自动判断、第一个账号直接成为管理员、HTTP/HTTPS Cookie 引导策略，以及创建管理员后的下一步。"
 title: "首次启动与第一个管理员"
 ---
 
 :::tip[这一篇讲什么]
-部署完成后第一次打开站点会发生什么、第一个管理员怎么来、纯 HTTP 试跑要改哪个开关，以及创建管理员之后该做什么。
+部署完成后第一次打开站点会发生什么、第一个管理员怎么来、HTTP/HTTPS 首次登录如何选择 Cookie 策略，以及创建管理员之后该做什么。
 :::
 
 ## 登录页是按状态自动判断的
@@ -33,19 +33,20 @@ title: "首次启动与第一个管理员"
 3. 如果要开放注册、找回密码或外部认证，先配通 [邮件投递](/admin/mail/)
 4. 按 [首次启动检查](/ops/first-check/) 过一遍上线前状态
 
-## 纯 HTTP 首次试跑
+## 首次登录的 Cookie 策略
 
-`config.toml` 里的这个开关只影响第一次初始化 `auth_cookie_secure` 时写入的默认值：
+新安装默认允许直接通过 HTTP 创建管理员并登录，不需要额外添加环境变量：
 
 ```toml
 [auth]
 bootstrap_insecure_cookies = true
 ```
 
-- **纯 HTTP 首次试跑** —— 临时设 `true`
-- **正式 HTTPS 部署** —— 保持 `false`
+- **从 HTTP 来源创建管理员** —— 保持 `auth_cookie_secure = false`，随后的自动登录可以正常携带 Cookie
+- **从 HTTPS 来源创建管理员** —— 在随后的自动登录前自动把 `auth_cookie_secure` 提升为 `true`
+- **要求进程从首次启动起就只发 Secure Cookie** —— 在数据库首次初始化前显式设 `bootstrap_insecure_cookies = false`
 
-如果数据库里已经有这个运行时设置，再改这里不会回写旧值；正式切到 HTTPS 后到 `管理 -> 系统设置 -> 认证与 Cookie` 里调整。
+这个静态项**只影响数据库第一次写入** `auth_cookie_secure`。数据库里已经有运行时设置后，再改 `config.toml` 不会回写旧值；如果最初通过 HTTP 引导、后来切换到 HTTPS，请到 `管理 -> 系统设置 -> 认证与 Cookie` 开启“认证 Cookie 仅 HTTPS 发送”。
 
 ## 相关页面
 

@@ -22,8 +22,8 @@ AsterDrive 不内置 TLS 终端。
 ## 上线前先对齐这几个值
 
 - `管理 -> 系统设置 -> 站点配置 -> 公开站点地址` 填成真实的 `https://` 来源，多个公开域名逐项添加，例如 `https://drive.example.com`
-- 静态引导项 `auth.bootstrap_insecure_cookies` 只在纯 HTTP 首次引导时临时设成 `true`
-- 正式切到 HTTPS 后，把 `auth.bootstrap_insecure_cookies` 去掉，并确认运行时 `auth_cookie_secure` 已恢复为开启
+- 新安装默认允许 HTTP 首次登录；从 HTTPS 来源创建管理员时，setup 会在自动登录前开启运行时 `auth_cookie_secure`
+- 如果最初从 HTTP 引导、后来才切到 HTTPS，请在后台开启 `auth_cookie_secure`；修改静态 `auth.bootstrap_insecure_cookies` 不会回写已有数据库值
 - 首页响应头里能看到 AsterDrive 返回的页面基线 `Content-Security-Policy`，代理层没有删掉或覆盖成不兼容的策略
 - 不要把站点自己的基线 CSP 直接改成全站 `sandbox`
 - 代理层不要拦掉 WebDAV 的 `PROPFIND`、`MOVE`、`COPY`、`LOCK`、`UNLOCK`

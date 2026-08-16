@@ -130,7 +130,7 @@ One-time bootstrap inputs such as enrollment tokens can be removed after success
 - Before exposing the site publicly, set `Public Site URL`; add multiple public domains one by one and put the default origin first
 - Before enabling registration, password recovery, or email address changes, verify that mail can be sent
 - Before enabling external authentication, set `Public Site URL` correctly, then copy the redirect URI from `Admin -> External Authentication`; see [External Authentication](/en/reference/config/external-auth/) for details
-- Disable the HTTPS requirement for cookies only in plain-HTTP test environments
+- Fresh installations leave the cookie HTTPS requirement disabled for HTTP first login; confirm it is enabled before production HTTPS launch
 - When capacity is tight, shorten retention for trash, historical versions, and task artifacts
 - If thumbnails do not behave as expected, check `File Processing -> Media Processing`
 - If you need archive manifest preview, check `File Processing -> Archive Preview`

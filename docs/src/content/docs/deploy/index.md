@@ -59,15 +59,14 @@ AsterDrive 是单服务交付：
 
 ### 访问方式
 
-正式上线时，**必须**通过反向代理提供 HTTPS，并保持：
+正式上线时，**必须**通过反向代理提供 HTTPS。如果要求数据库初始化时就启用 Secure Cookie，可以显式设置：
 
 ```toml
 [auth]
 bootstrap_insecure_cookies = false
 ```
 
-如果只是本地或内网 HTTP 首次引导，可以临时设成 `true`，让系统把浏览器 Cookie 的 HTTPS 要求初始化成关闭。  
-等正式切到 HTTPS 后，再到后台系统设置里把它改回开启。
+默认值是 `true`，本地或内网 HTTP 首次引导不需要额外配置；如果管理员直接从 HTTPS 来源创建，setup 会在自动登录前开启 Secure Cookie。以后才从 HTTP 切到 HTTPS 时，再到后台系统设置里把它开启。
 
 如果站点要对外访问，最好同时确认：
 

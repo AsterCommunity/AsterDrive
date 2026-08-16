@@ -62,14 +62,12 @@ docker run -d \
   --name asterdrive \
   -p 3000:3000 \
   -e ASTER__SERVER__HOST=0.0.0.0 \
-  -e ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES=true \
   -e ASTER__DATABASE__URL="sqlite:///data/asterdrive.db?mode=rwc" \
   -v "$(pwd)/data:/data" \
   ghcr.io/astercommunity/asterdrive:latest
 ```
 
-This only disables the browser Cookie HTTPS requirement during first initialization.  
-After switching to HTTPS for production, change the corresponding system setting back to enabled in the admin panel, then remove this environment variable.
+Fresh installations disable the browser Cookie HTTPS requirement only for first initialization by default, so a plain-HTTP trial needs no extra environment variable. If the administrator is created directly from an HTTPS origin, setup enables Secure cookies before automatic login. If the instance moves from HTTP to HTTPS later, enable the corresponding system setting in the admin panel.
 
 After startup, use `docker ps` to check container status. Normally it becomes `healthy` after a short time.
 
@@ -82,14 +80,13 @@ After binding `./data` to `/data` with the command above, AsterDrive automatical
 ```toml
 [auth]
 jwt_secret = "replace-with-your-own-random-secret"
-bootstrap_insecure_cookies = false
 
 [server]
 temp_dir = "/data/.tmp"
 upload_temp_dir = "/data/.uploads"
 ```
 
-Restart the container after editing for changes to take effect.
+Restart the container after editing for changes to take effect. `bootstrap_insecure_cookies` is the exception: it only matters before the database is initialized for the first time. For an existing instance, change the cookie security requirement in the admin system settings.
 
 ## 3. Compose Example
 
@@ -190,8 +187,8 @@ See [Backup and Restore](/en/ops/backup/) for more complete backup / restore gui
 First deployment checks worth doing:
 
 - Whether `auth.jwt_secret` has been fixed.
-- If this is temporarily a plain HTTP test, whether `bootstrap_insecure_cookies = true` was set only for first bootstrap.
-- After switching to HTTPS, whether the Cookie security switch in system settings has been changed back to enabled.
+- Whether plain-HTTP first login works with the default `bootstrap_insecure_cookies = true`, without an extra environment variable.
+- Whether HTTPS initialization enabled the cookie security switch automatically; if HTTPS was added later, whether it was enabled manually in the admin panel.
 - Whether the home page response headers include the browser page baseline `Content-Security-Policy` returned by AsterDrive, and whether the proxy has removed it or replaced it with an incompatible policy.
 - If the site is publicly accessible, whether `Public Site URL` is set to a real `https://` origin. Add multiple public domains one by one, with the default origin first.
 - If public registration, password recovery, or email rebinding will be enabled, whether a test email has been sent successfully.

@@ -22,8 +22,8 @@ The examples on this page proxy to one Primary. Before distributing one public e
 ## Align These Values Before Launch
 
 - Set `Admin -> System Settings -> Site Configuration -> Public Site URL` to a real `https://` origin. Add multiple public domains one by one, for example `https://drive.example.com`.
-- Only set static bootstrap option `auth.bootstrap_insecure_cookies` to `true` temporarily during plain HTTP first bootstrap.
-- After switching to HTTPS, remove `auth.bootstrap_insecure_cookies` and confirm runtime `auth_cookie_secure` has been restored to enabled.
+- Fresh installations allow the first login over HTTP by default. When the administrator is created from an HTTPS origin, setup enables runtime `auth_cookie_secure` before automatic login.
+- If the instance was bootstrapped over HTTP and HTTPS is added later, enable `auth_cookie_secure` in the admin panel; changing static `auth.bootstrap_insecure_cookies` does not rewrite an existing database value.
 - The home page response headers should include the browser page baseline `Content-Security-Policy` returned by AsterDrive. The proxy must not remove it or overwrite it with an incompatible policy.
 - Do not rewrite the site's own baseline CSP into a site-wide `sandbox`.
 - The proxy must not block WebDAV methods such as `PROPFIND`, `MOVE`, `COPY`, `LOCK`, and `UNLOCK`.

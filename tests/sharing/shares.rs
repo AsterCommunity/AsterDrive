@@ -664,13 +664,13 @@ async fn test_legacy_share_password_rehashes_and_preserves_concurrent_updates() 
 }
 
 #[actix_web::test]
-async fn test_share_verify_cookie_scoped_and_secure_when_enabled() {
+async fn test_share_verify_cookie_scope_and_secure_attribute_follow_runtime_policy() {
     let state = common::setup().await;
     state.runtime_config.apply(common::system_config_model(
         aster_drive::config::auth_runtime::AUTH_COOKIE_SECURE_KEY,
         "true",
     ));
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
     let file_id = upload_test_file!(app, token);
 
@@ -706,6 +706,26 @@ async fn test_share_verify_cookie_scoped_and_secure_when_enabled() {
     assert_eq!(share_cookie.http_only(), Some(true));
     assert_eq!(share_cookie.same_site(), Some(SameSite::Lax));
     assert_eq!(share_cookie.secure(), Some(true));
+
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_COOKIE_SECURE_KEY,
+        "false",
+    ));
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/s/{share_token}/verify"))
+        .set_json(serde_json::json!({ "password": "secret123" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let share_cookie = resp
+        .response()
+        .cookies()
+        .find(|cookie| cookie.name() == format!("aster_share_{share_token}"))
+        .expect("share verification cookie should be set");
+    assert_eq!(share_cookie.path(), Some(expected_path.as_str()));
+    assert_eq!(share_cookie.http_only(), Some(true));
+    assert_eq!(share_cookie.same_site(), Some(SameSite::Lax));
+    assert_eq!(share_cookie.secure(), None);
 }
 
 #[actix_web::test]

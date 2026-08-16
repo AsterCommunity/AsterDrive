@@ -579,7 +579,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         label_i18n_key: "settings_item_auth_cookie_secure_label",
         description_i18n_key: "settings_item_auth_cookie_secure_desc",
         value_type: ConfigValueType::Boolean,
-        default_fn: || "true".to_string(),
+        default_fn: || auth_runtime::DEFAULT_AUTH_COOKIE_SECURE.to_string(),
         requires_restart: false,
         is_sensitive: false,
         category: CONFIG_CATEGORY_AUTH,

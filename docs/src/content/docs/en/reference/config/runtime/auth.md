@@ -7,7 +7,7 @@ Entry point: `Admin -> System Settings -> Authentication and Cookies`. For other
 
 This group decides browser login behavior and session safety.
 
-- **`Authentication Cookie Sent Only Over HTTPS`** - Keep enabled in production. Disable temporarily only for local or intranet plain-HTTP trial runs.
+- **`Authentication Cookie Sent Only Over HTTPS`** - Fresh installations start disabled so the first login can work over HTTP; creating the administrator from an HTTPS origin enables it before automatic login. Keep it enabled in production, and leave it disabled only for local or intranet plain-HTTP environments.
 - **`Access Token TTL`, `Refresh Token TTL`** - Control how long login state is maintained.
 - **`Registration Activation Link TTL`**
 - **`Email Address Change Link TTL`**
