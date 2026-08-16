@@ -6,7 +6,10 @@
 
 use aster_drive::runtime::PrimaryAppState;
 use aster_forge_test::{
-    mysql::MysqlTestContainer, postgres::PostgresTestContainer, suite::TestContainerSuite,
+    fixture::{SuiteFixtureLock, SuiteFixtureState},
+    mysql::MysqlTestContainer,
+    postgres::PostgresTestContainer,
+    suite::TestContainerSuite,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -476,22 +479,20 @@ enum TestDatabaseBackend {
     MySql,
 }
 
+#[derive(Clone)]
 struct MySqlSchemaTemplate {
-    database_name: String,
     create_table_sql: Vec<String>,
-}
-
-struct PostgresDatabaseTemplate {
-    database_name: String,
+    migration_rows: Vec<(String, i64)>,
 }
 
 static POSTGRES_TEST_CONTAINER: tokio::sync::OnceCell<PostgresTestContainer> =
     tokio::sync::OnceCell::const_new();
 static MYSQL_TEST_CONTAINER: tokio::sync::OnceCell<MysqlTestContainer> =
     tokio::sync::OnceCell::const_new();
-static POSTGRES_DATABASE_TEMPLATE: tokio::sync::OnceCell<PostgresDatabaseTemplate> =
-    tokio::sync::OnceCell::const_new();
-static MYSQL_SCHEMA_TEMPLATE: tokio::sync::OnceCell<MySqlSchemaTemplate> =
+const POSTGRES_TEMPLATE_FIXTURE: &str = "postgres-template";
+const MYSQL_TEMPLATE_FIXTURE: &str = "mysql-schema-template";
+const TEST_FIXTURE_PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
+static MYSQL_SCHEMA_TEMPLATE_CACHE: tokio::sync::OnceCell<MySqlSchemaTemplate> =
     tokio::sync::OnceCell::const_new();
 
 fn test_container_suite() -> &'static TestContainerSuite {
@@ -683,6 +684,7 @@ async fn start_mysql_test_container() -> MysqlTestContainer {
         container.stale_resources(),
     )
     .await;
+    container.forget_resources(container.stale_resources());
     container
 }
 
@@ -866,14 +868,86 @@ async fn provision_isolated_test_database_url(
     provision_isolated_test_database_url_with_template(admin_database_url, database_url, None).await
 }
 
-async fn build_postgres_database_template() -> PostgresDatabaseTemplate {
-    let (admin_database_url, database_url) =
-        shared_test_database_urls(TestDatabaseBackend::Postgres).await;
-    let template_database_url =
-        provision_isolated_test_database_url(&admin_database_url, &database_url).await;
+fn database_fixture_fingerprint() -> String {
+    env!("ASTER_TEST_SCHEMA_FINGERPRINT").to_string()
+}
+
+fn fixture_database_name(prefix: &str, fingerprint: &str, max_len: usize) -> String {
+    let suffix: String = fingerprint
+        .strip_prefix("migration-src-")
+        .unwrap_or(fingerprint)
+        .bytes()
+        .filter(u8::is_ascii_alphanumeric)
+        .take(16)
+        .map(char::from)
+        .collect();
+    let reserved = "_template_".len() + suffix.len();
+    let prefix_len = max_len.saturating_sub(reserved).max(1);
+    format!(
+        "{}_template_{suffix}",
+        sanitized_database_name_prefix(prefix)
+            .chars()
+            .take(prefix_len)
+            .collect::<String>()
+    )
+}
+
+async fn fixture_database_is_usable(database_url: &str) -> bool {
+    use sea_orm::{ConnectionTrait, Statement};
 
     let db_cfg = aster_drive::config::DatabaseConfig {
-        url: template_database_url.clone().into(),
+        url: database_url.into(),
+        pool_size: 1,
+        retry_count: 0,
+    };
+    let Ok(db) =
+        aster_drive::db::connect_with_metrics(&db_cfg, aster_drive_metrics::NoopMetrics::arc())
+            .await
+    else {
+        return false;
+    };
+    let backend = db.get_database_backend();
+    let usable = db
+        .query_one_raw(Statement::from_string(
+            backend,
+            "SELECT 1 FROM seaql_migrations LIMIT 1",
+        ))
+        .await
+        .is_ok();
+    let closed = db.close().await.is_ok();
+    usable && closed
+}
+
+async fn ensure_postgres_template_locked(
+    container: &PostgresTestContainer,
+    fixture_lock: &SuiteFixtureLock,
+    fingerprint: &str,
+) -> String {
+    let container_identity = container.container_identity();
+    if let Some(state) = fixture_lock.load() {
+        if state.matches(
+            POSTGRES_TEMPLATE_FIXTURE,
+            container_identity,
+            fingerprint,
+            TEST_FIXTURE_PRODUCER_VERSION,
+        ) && fixture_database_is_usable(&replace_database_name(
+            reqwest::Url::parse(container.admin_url())
+                .expect("PostgreSQL test admin URL should parse"),
+            state.resource(),
+        ))
+        .await
+        {
+            return state.resource().to_string();
+        }
+        container.drop_shared_database(state.resource()).await;
+        fixture_lock.clear();
+    }
+
+    let template_name = fixture_database_name("asterdrive_pg", fingerprint, 63);
+    container.drop_shared_database(&template_name).await;
+    let template = container.create_shared_database(&template_name).await;
+    let db_cfg = aster_drive::config::DatabaseConfig {
+        url: template.url().into(),
         pool_size: 1,
         retry_count: 0,
     };
@@ -881,7 +955,6 @@ async fn build_postgres_database_template() -> PostgresDatabaseTemplate {
         aster_drive::db::connect_with_metrics(&db_cfg, aster_drive_metrics::NoopMetrics::arc())
             .await
             .expect("postgres template database connection should succeed");
-
     use aster_drive_migration::Migrator;
     Migrator::up(&db, None)
         .await
@@ -890,27 +963,32 @@ async fn build_postgres_database_template() -> PostgresDatabaseTemplate {
         .await
         .expect("postgres template database should close cleanly");
 
-    let template_database_name = reqwest::Url::parse(&template_database_url)
-        .ok()
-        .and_then(|url| database_name_from_url(&url))
-        .expect("postgres template database name should exist");
-
-    PostgresDatabaseTemplate {
-        database_name: template_database_name,
-    }
+    fixture_lock.publish(&SuiteFixtureState::new(
+        POSTGRES_TEMPLATE_FIXTURE,
+        container_identity,
+        fingerprint,
+        &template_name,
+        TEST_FIXTURE_PRODUCER_VERSION,
+    ));
+    template_name
 }
 
 async fn resolve_test_database_url_for(backend: TestDatabaseBackend) -> String {
     let (admin_database_url, database_url) = shared_test_database_urls(backend).await;
     match backend {
         TestDatabaseBackend::Postgres => {
-            let template = POSTGRES_DATABASE_TEMPLATE
-                .get_or_init(build_postgres_database_template)
+            let container = POSTGRES_TEST_CONTAINER
+                .get_or_init(|| PostgresTestContainer::start(test_container_suite()))
                 .await;
+            let fixture_lock =
+                SuiteFixtureLock::acquire(test_container_suite(), POSTGRES_TEMPLATE_FIXTURE);
+            let fingerprint = database_fixture_fingerprint();
+            let template_name =
+                ensure_postgres_template_locked(container, &fixture_lock, &fingerprint).await;
             provision_isolated_test_database_url_with_template(
                 &admin_database_url,
                 &database_url,
-                Some(&template.database_name),
+                Some(&template_name),
             )
             .await
         }
@@ -1194,10 +1272,7 @@ fn should_use_mysql_schema_template(database_url: &str) -> bool {
         && std::env::var("ASTER_TEST_DISABLE_MYSQL_SCHEMA_TEMPLATE").as_deref() != Ok("1")
 }
 
-async fn load_mysql_schema_template(
-    db: &sea_orm::DatabaseConnection,
-    database_name: String,
-) -> MySqlSchemaTemplate {
+async fn load_mysql_schema_template(db: &sea_orm::DatabaseConnection) -> MySqlSchemaTemplate {
     use sea_orm::{ConnectionTrait, Statement};
 
     let tables = db
@@ -1237,20 +1312,75 @@ async fn load_mysql_schema_template(
         create_table_sql.push(ddl);
     }
 
+    let migration_rows = db
+        .query_all_raw(Statement::from_string(
+            sea_orm::DbBackend::MySql,
+            "SELECT version, applied_at FROM seaql_migrations ORDER BY version",
+        ))
+        .await
+        .expect("mysql schema template should load migration history")
+        .into_iter()
+        .map(|row| {
+            let version = row
+                .try_get_by_index(0)
+                .expect("mysql schema template migration version should exist");
+            let applied_at = row
+                .try_get_by_index(1)
+                .expect("mysql schema template migration timestamp should exist");
+            (version, applied_at)
+        })
+        .collect();
+
     MySqlSchemaTemplate {
-        database_name,
         create_table_sql,
+        migration_rows,
     }
 }
 
-async fn build_mysql_schema_template() -> MySqlSchemaTemplate {
-    let (admin_database_url, database_url) =
-        shared_test_database_urls(TestDatabaseBackend::MySql).await;
-    let template_database_url =
-        provision_isolated_test_database_url(&admin_database_url, &database_url).await;
+async fn ensure_mysql_schema_template_locked(
+    container: &MysqlTestContainer,
+    fixture_lock: &SuiteFixtureLock,
+    fingerprint: &str,
+) -> MySqlSchemaTemplate {
+    let container_identity = container.container_identity();
+    if let Some(state) = fixture_lock.load() {
+        if state.matches(
+            MYSQL_TEMPLATE_FIXTURE,
+            container_identity,
+            fingerprint,
+            TEST_FIXTURE_PRODUCER_VERSION,
+        ) && fixture_database_is_usable(&container.database_url(state.resource())).await
+        {
+            if let Some(template) = MYSQL_SCHEMA_TEMPLATE_CACHE.get() {
+                return template.clone();
+            }
+            let db_cfg = aster_drive::config::DatabaseConfig {
+                url: container.database_url(state.resource()).into(),
+                pool_size: 1,
+                retry_count: 0,
+            };
+            let db = aster_drive::db::connect_with_metrics(
+                &db_cfg,
+                aster_drive_metrics::NoopMetrics::arc(),
+            )
+            .await
+            .expect("mysql schema template connection should succeed");
+            let template = load_mysql_schema_template(&db).await;
+            db.close()
+                .await
+                .expect("mysql schema template connection should close");
+            let _ = MYSQL_SCHEMA_TEMPLATE_CACHE.set(template.clone());
+            return template;
+        }
+        container.drop_shared_database(state.resource()).await;
+        fixture_lock.clear();
+    }
 
+    let template_name = fixture_database_name("asterdrive_mysql", fingerprint, 64);
+    container.drop_shared_database(&template_name).await;
+    container.create_shared_database(&template_name).await;
     let db_cfg = aster_drive::config::DatabaseConfig {
-        url: template_database_url.clone().into(),
+        url: container.database_url(&template_name).into(),
         pool_size: 1,
         retry_count: 0,
     };
@@ -1258,26 +1388,35 @@ async fn build_mysql_schema_template() -> MySqlSchemaTemplate {
         aster_drive::db::connect_with_metrics(&db_cfg, aster_drive_metrics::NoopMetrics::arc())
             .await
             .expect("mysql schema template connection should succeed");
-
-    use aster_drive_migration::Migrator;
-    Migrator::up(&db, None)
+    aster_drive_migration::Migrator::up(&db, None)
         .await
         .expect("mysql schema template migrations should succeed");
-
-    let template_database_name = reqwest::Url::parse(&template_database_url)
-        .ok()
-        .and_then(|url| database_name_from_url(&url))
-        .expect("mysql schema template database name should exist");
-
-    load_mysql_schema_template(&db, template_database_name).await
+    let template = load_mysql_schema_template(&db).await;
+    db.close()
+        .await
+        .expect("mysql schema template connection should close");
+    fixture_lock.publish(&SuiteFixtureState::new(
+        MYSQL_TEMPLATE_FIXTURE,
+        container_identity,
+        fingerprint,
+        &template_name,
+        TEST_FIXTURE_PRODUCER_VERSION,
+    ));
+    let _ = MYSQL_SCHEMA_TEMPLATE_CACHE.set(template.clone());
+    template
 }
 
 async fn clone_mysql_schema_from_template(db: &sea_orm::DatabaseConnection) {
     use sea_orm::ConnectionTrait;
 
-    let template = MYSQL_SCHEMA_TEMPLATE
-        .get_or_init(build_mysql_schema_template)
+    let container = MYSQL_TEST_CONTAINER
+        .get_or_init(start_mysql_test_container)
         .await;
+    let fixture_lock = SuiteFixtureLock::acquire(test_container_suite(), MYSQL_TEMPLATE_FIXTURE);
+    let fingerprint = database_fixture_fingerprint();
+    let template =
+        ensure_mysql_schema_template_locked(container, &fixture_lock, &fingerprint).await;
+    drop(fixture_lock);
 
     set_foreign_key_checks(db, false)
         .await
@@ -1289,12 +1428,23 @@ async fn clone_mysql_schema_from_template(db: &sea_orm::DatabaseConnection) {
             .expect("mysql schema clone should create table");
     }
 
-    db.execute_unprepared(&format!(
-        "INSERT INTO seaql_migrations SELECT * FROM {}.seaql_migrations",
-        quote_database_identifier(sea_orm::DbBackend::MySql, &template.database_name)
-    ))
-    .await
-    .expect("mysql schema clone should copy seaql_migrations rows");
+    if !template.migration_rows.is_empty() {
+        let placeholders = std::iter::repeat_n("(?, ?)", template.migration_rows.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let values = template
+            .migration_rows
+            .iter()
+            .flat_map(|(version, applied_at)| [version.clone().into(), (*applied_at).into()])
+            .collect::<Vec<sea_orm::Value>>();
+        db.execute_raw(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DbBackend::MySql,
+            format!("INSERT INTO seaql_migrations (version, applied_at) VALUES {placeholders}"),
+            values,
+        ))
+        .await
+        .expect("mysql schema clone should restore seaql_migrations rows");
+    }
 
     set_foreign_key_checks(db, true)
         .await

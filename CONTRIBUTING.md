@@ -77,6 +77,13 @@ bun run build
 Replace `auth auth::` with the integration-test target and module that cover your change. Prefer a targeted
 `cargo nextest run --lib <filter>` or `cargo nextest run --test <name> <filter>` while iterating; run a
 broader suite when the change crosses service, database, storage, or protocol boundaries.
+For PostgreSQL or MySQL coverage, use the database profile rather than switching runners:
+
+```bash
+ASTER_TEST_DATABASE_BACKEND=postgres cargo nextest run --profile database --test auth auth::
+ASTER_TEST_DATABASE_BACKEND=mysql cargo nextest run --profile database --test auth auth::
+```
+
 If an OpenAPI schema changes, also run:
 
 ```bash

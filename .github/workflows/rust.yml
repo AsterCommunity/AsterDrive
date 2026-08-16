@@ -201,6 +201,11 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.143
+
       - name: Install media processing dependencies
         run: sudo apt-get update && sudo apt-get install -y libvips-tools ffmpeg
 
@@ -215,4 +220,4 @@ jobs:
 
       # 只跑集成测试（tests/ 下的），单元测试已在 coverage job 中覆盖
       - name: Run integration tests against ${{ matrix.backend }}
-        run: cargo test --tests --no-fail-fast
+        run: cargo nextest run --profile database --tests
