@@ -94,8 +94,8 @@ route / protocol entry
 每批运行能覆盖该批风险的最小检查。Rust 测试优先使用：
 
 ```bash
-cargo test --lib <filter>
-cargo test --test <target> <module_or_test_filter>
+cargo nextest run --lib <filter>
+cargo nextest run --test <target> <module_or_test_filter>
 ```
 
 不要用没有 target 的模糊 filter 触发无关包编译。高风险或公共边界改动完成后，再扩大到 `cargo check`、相关集成测试、Clippy、数据库矩阵或前端检查。

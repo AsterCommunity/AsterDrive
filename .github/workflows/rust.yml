@@ -7,6 +7,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
+      - '.config/nextest.toml'
       - 'frontend-panel/package.json'
       - 'frontend-panel/generated/openapi.json'
       - 'frontend-panel/src/services/api.generated.ts'
@@ -19,6 +20,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
+      - '.config/nextest.toml'
       - 'frontend-panel/package.json'
       - 'frontend-panel/generated/openapi.json'
       - 'frontend-panel/src/services/api.generated.ts'
@@ -80,6 +82,11 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.143
+
       - name: Install media processing dependencies
         run: sudo apt-get update && sudo apt-get install -y libvips-tools ffmpeg
 
@@ -89,7 +96,7 @@ jobs:
           shared-key: openapi-v1
 
       - name: Generate OpenAPI specification
-        run: cargo test --features openapi --test generate_openapi
+        run: cargo nextest run --profile ci --features openapi --test generate_openapi
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
@@ -133,6 +140,11 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.143
+
       - name: Prepare coverage output directory
         run: mkdir -p coverage/rust
 
@@ -140,7 +152,9 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - name: Run tests with coverage
-        run: cargo llvm-cov --workspace --no-fail-fast --lcov --output-path coverage/rust/lcov.info
+        env:
+          NEXTEST_PROFILE: ci
+        run: cargo llvm-cov nextest --workspace --no-fail-fast --lcov --output-path coverage/rust/lcov.info
 
       - name: Generate HTML coverage report
         if: success()

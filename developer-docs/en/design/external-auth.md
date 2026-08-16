@@ -276,11 +276,11 @@ Key tests cover:
 
 Useful commands:
 
-- `cargo test --test auth oauth2::`
-- `cargo test --test auth oidc::`
-- `cargo test --lib external_auth::providers::github`
-- `cargo test --lib external_auth::providers::google`
-- `cargo test --lib external_auth::providers::microsoft`
+- `cargo nextest run --test auth oauth2::`
+- `cargo nextest run --test auth oidc::`
+- `cargo nextest run --lib external_auth::providers::github`
+- `cargo nextest run --lib external_auth::providers::google`
+- `cargo nextest run --lib external_auth::providers::microsoft`
 - `cargo clippy --lib --tests -- -D warnings`
 
 Frontend provider-kind, form, summary, and stale-request tests live under:

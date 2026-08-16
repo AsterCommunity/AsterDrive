@@ -51,7 +51,7 @@
       "CI: Passed": ["pull_request"]
     },
     "rules": [
-      { "label": "Rust", "paths": ["**/*.rs", "**/Cargo.toml", "**/Cargo.lock", "rust-toolchain.toml"] },
+      { "label": "Rust", "paths": ["**/*.rs", "**/Cargo.toml", "**/Cargo.lock", "rust-toolchain.toml", ".config/nextest.toml"] },
       { "label": "TypeScript", "paths": ["frontend-panel/**", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.mjs"] },
       { "label": "Documentation", "paths": ["docs/**", "developer-docs/**", "README.md", "README.zh.md", "CONTRIBUTING.md", "CHANGELOG.md"] },
       { "label": "Dependencies", "paths": ["**/Cargo.toml", "**/Cargo.lock", "**/package.json", "**/bun.lock", ".github/dependabot.yml"] },
@@ -83,7 +83,7 @@
     },
     {
       "name": "Rust CI",
-      "paths": ["**/*.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "frontend-panel/package.json", "frontend-panel/generated/openapi.json", "frontend-panel/src/services/api.generated.ts", "scripts/coverage-summary.mjs", ".github/workflows/rust.yml"]
+      "paths": ["**/*.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".config/nextest.toml", "frontend-panel/package.json", "frontend-panel/generated/openapi.json", "frontend-panel/src/services/api.generated.ts", "scripts/coverage-summary.mjs", ".github/workflows/rust.yml"]
     },
     { "name": "Frontend CI", "paths": ["frontend-panel/**", "scripts/coverage-summary.mjs", ".github/workflows/frontend.yml"] },
     { "name": "E2E", "paths": ["frontend-panel/**", "src/**", "crates/**", "Cargo.toml", "Cargo.lock", ".github/workflows/frontend-e2e.yml"] },

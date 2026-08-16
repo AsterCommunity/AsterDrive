@@ -36,13 +36,15 @@ ASTER_TEST_DATABASE_BACKEND=sqlite
 - `webdav` / `wopi`：协议集成测试
 - `multi_primary`：需要 `multi-primary-e2e` feature 的多 Primary E2E
 
-使用 `cargo test --test <target> <module>::` 缩小范围，例如 `cargo test --test files search::`。
+使用 `cargo nextest run --test <target> <module>::` 缩小默认 SQLite 测试范围，例如 `cargo nextest run --test files search::`。
 
 默认 SQLite：
 
 ```bash
-cargo test
+cargo nextest run
 ```
+
+当前 nextest 切换只覆盖默认 SQLite 测试。PostgreSQL / MySQL 的测试容器、迁移模板和 schema template 仍依赖测试进程内缓存；其中 MySQL 在 process-per-test 调度下还会卡住。因此这两个数据库后端暂时继续使用 `cargo test`，跨进程 fixture 完成前不要把下面的命令机械替换为 nextest。
 
 切到 PostgreSQL：
 
@@ -143,7 +145,7 @@ ASTER_TEST_DATABASE_BACKEND=mysql cargo test --test operations admin::test_admin
 SFTP 驱动有单独的集成测试：
 
 ```bash
-cargo test --test storage sftp::
+cargo nextest run --test storage sftp::
 ```
 
 这个测试默认会通过 `testcontainers` 启动 `lscr.io/linuxserver/openssh-server` 容器，完成一次真实上传、下载、range 读取、删除和主机密钥指纹确认流程。它需要本机 Docker / 容器运行时可用。
@@ -151,7 +153,7 @@ cargo test --test storage sftp::
 如果当前环境不能跑 Docker，可以显式关闭：
 
 ```bash
-ASTER_SFTP_TEST_DOCKER=0 cargo test --test storage sftp::
+ASTER_SFTP_TEST_DOCKER=0 cargo nextest run --test storage sftp::
 ```
 
 关闭后测试会跳过容器 round-trip。不要把这个变量作为默认 CI 行为；SFTP 是真实存储驱动，PR 改到驱动、connector、descriptor 或上传下载链路时应优先保留默认 Docker 测试。

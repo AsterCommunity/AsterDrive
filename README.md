@@ -209,6 +209,7 @@ The user and deployment documentation is published with Astro Starlight at [driv
 ### Requirements
 
 - Rust `1.95.0+`
+- cargo-nextest
 - Bun
 - Node.js `24+` for the current Docker frontend build stage
 
@@ -218,8 +219,8 @@ The user and deployment documentation is published with Astro Starlight at [driv
 # Backend
 cargo run
 cargo check
-cargo test
-cargo test --features openapi --test generate_openapi
+cargo nextest run
+cargo nextest run --features openapi --test generate_openapi
 
 # Frontend
 cd frontend-panel

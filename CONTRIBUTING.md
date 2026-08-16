@@ -6,6 +6,8 @@ Please read and follow the [Code of Conduct](CODE_OF_CONDUCT.md) before particip
 
 ## Getting Started
 
+Backend tests use [cargo-nextest](https://nexte.st/). Install it before running the test commands below.
+
 1. Fork the repository
 2. Clone your fork:
    ```bash
@@ -63,7 +65,7 @@ docs: update API endpoint documentation
 # Backend checks
 cargo fmt --all -- --check
 cargo check
-cargo test --test auth auth::
+cargo nextest run --profile ci --test auth auth::
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 # Frontend checks
@@ -73,12 +75,12 @@ bun run build
 ```
 
 Replace `auth auth::` with the integration-test target and module that cover your change. Prefer a targeted
-`cargo test --lib <filter>` or `cargo test --test <name> <filter>` while iterating; run a
+`cargo nextest run --lib <filter>` or `cargo nextest run --test <name> <filter>` while iterating; run a
 broader suite when the change crosses service, database, storage, or protocol boundaries.
 If an OpenAPI schema changes, also run:
 
 ```bash
-cargo test --features openapi --test generate_openapi
+cargo nextest run --features openapi --test generate_openapi
 cd frontend-panel
 bun run generate-api
 ```

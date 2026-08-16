@@ -36,13 +36,15 @@ Integration tests are grouped into Cargo test targets by product domain:
 - `webdav` / `wopi`: protocol integration tests
 - `multi_primary`: multi-Primary E2E tests that require the `multi-primary-e2e` feature
 
-Use `cargo test --test <target> <module>::` to narrow a run, for example `cargo test --test files search::`.
+Use `cargo nextest run --test <target> <module>::` to narrow the default SQLite test suite, for example `cargo nextest run --test files search::`.
 
 Default SQLite:
 
 ```bash
-cargo test
+cargo nextest run
 ```
+
+The initial nextest switch covers the default SQLite suite only. The PostgreSQL and MySQL container, migrated-template, and schema-template fixtures still rely on process-local caches, and MySQL currently stalls under process-per-test scheduling. Keep using `cargo test` for those two database backends until their cross-process fixtures are in place.
 
 Switch to PostgreSQL:
 
@@ -143,7 +145,7 @@ If you suspect the test did not switch backends as expected, check these three t
 The SFTP driver has a dedicated integration test:
 
 ```bash
-cargo test --test storage sftp::
+cargo nextest run --test storage sftp::
 ```
 
 This test starts an `lscr.io/linuxserver/openssh-server` container through `testcontainers` by default and runs a real upload, download, range read, delete, and host-key fingerprint confirmation flow. It requires a local Docker / container runtime.
@@ -151,7 +153,7 @@ This test starts an `lscr.io/linuxserver/openssh-server` container through `test
 If the current environment cannot run Docker, disable it explicitly:
 
 ```bash
-ASTER_SFTP_TEST_DOCKER=0 cargo test --test storage sftp::
+ASTER_SFTP_TEST_DOCKER=0 cargo nextest run --test storage sftp::
 ```
 
 With that variable set, the container round trip is skipped. Do not make this the default CI behavior; SFTP is a real storage driver, so PRs touching the driver, connector, descriptor, or upload/download path should keep the default Docker test enabled.
