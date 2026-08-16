@@ -105,6 +105,7 @@ mod tests {
 
         for error in [
             AsterError::validation_error("invalid input"),
+            AsterError::conflict("request conflict"),
             AsterError::record_not_found("record missing"),
             AsterError::upload_assembling("upload is assembling"),
             AsterError::operation_resource_limit_exceeded("resource limit exceeded"),

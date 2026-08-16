@@ -53,13 +53,25 @@ impl Model {
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
     pub fn validate_backing(&self) -> Result<(), &'static str> {
-        match self.backing {
-            FileBlobBacking::Stored if self.storage_path.is_some() => Ok(()),
+        Self::validate_backing_fields(
+            self.backing,
+            self.storage_path.as_deref(),
+            self.size,
+            &self.hash,
+        )
+    }
+
+    pub fn validate_backing_fields(
+        backing: FileBlobBacking,
+        storage_path: Option<&str>,
+        size: i64,
+        hash: &str,
+    ) -> Result<(), &'static str> {
+        match backing {
+            FileBlobBacking::Stored if storage_path.is_some() => Ok(()),
             FileBlobBacking::Stored => Err("stored blob is missing storage_path"),
             FileBlobBacking::VirtualEmpty
-                if self.storage_path.is_none()
-                    && self.size == 0
-                    && self.hash == Self::EMPTY_SHA256 =>
+                if storage_path.is_none() && size == 0 && hash == Self::EMPTY_SHA256 =>
             {
                 Ok(())
             }

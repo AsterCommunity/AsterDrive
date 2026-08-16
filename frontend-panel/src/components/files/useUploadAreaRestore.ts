@@ -46,6 +46,17 @@ interface RestoreCandidate {
 	session: ResumableSession;
 }
 
+export function mergeRestoredUploadTasks(
+	restored: readonly UploadTask[],
+	current: readonly UploadTask[],
+): UploadTask[] {
+	const currentTaskIds = new Set(current.map((task) => task.id));
+	return [
+		...restored.filter((task) => !currentTaskIds.has(task.id)),
+		...current,
+	];
+}
+
 function recoverableSessionMode(
 	mode: RecoverableUploadSession["mode"],
 ): NonNullable<ResumableSession["mode"]> | null {
@@ -327,7 +338,7 @@ export function useUploadAreaRestore({
 		}
 
 		if (ghostTasks.length > 0) {
-			setTasks((prev) => [...ghostTasks, ...prev]);
+			setTasks((prev) => mergeRestoredUploadTasks(ghostTasks, prev));
 			setUploadPanelOpen(true);
 			for (const completionTask of completionTasks) {
 				void resumeCompletionTask(completionTask.task, completionTask.parts);

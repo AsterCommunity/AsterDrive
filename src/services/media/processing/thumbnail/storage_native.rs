@@ -198,6 +198,16 @@ mod tests {
         }
     }
 
+    fn virtual_empty_blob() -> file_blob::Model {
+        file_blob::Model {
+            hash: file_blob::Model::EMPTY_SHA256.to_string(),
+            size: 0,
+            storage_path: None,
+            backing: aster_drive_model::types::file_blob::FileBlobBacking::VirtualEmpty,
+            ..blob()
+        }
+    }
+
     #[tokio::test]
     async fn storage_native_thumbnail_request_uses_configured_max_dimension() {
         let driver = CapturingNativeDriver::new();
@@ -236,5 +246,45 @@ mod tests {
                 max_height: 2048,
             }]
         );
+    }
+
+    #[tokio::test]
+    async fn virtual_empty_thumbnail_is_rejected_before_driver_request() {
+        let driver = CapturingNativeDriver::new();
+
+        let error = render_thumbnail_with_storage_native(
+            &virtual_empty_blob(),
+            &driver,
+            "application/octet-stream",
+            320,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(
+            error.api_error_code(),
+            crate::api::api_error_code::ApiErrorCode::ThumbnailProcessorUnavailable
+        );
+        assert!(driver.requests().is_empty());
+    }
+
+    #[tokio::test]
+    async fn virtual_empty_image_preview_is_rejected_before_driver_request() {
+        let driver = CapturingNativeDriver::new();
+
+        let error = render_image_preview_with_storage_native(
+            &virtual_empty_blob(),
+            &driver,
+            "application/octet-stream",
+            2048,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(
+            error.api_error_code(),
+            crate::api::api_error_code::ApiErrorCode::ThumbnailProcessorUnavailable
+        );
+        assert!(driver.requests().is_empty());
     }
 }

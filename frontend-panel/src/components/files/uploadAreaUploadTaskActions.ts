@@ -1,5 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { getResumePlan } from "@/components/files/uploadResume";
+import { createPendingEmptyFile } from "@/lib/emptyFileCreateCoordinator";
 import {
 	loadSessions,
 	removePendingEmptyFile,
@@ -7,7 +8,6 @@ import {
 	saveSession,
 } from "@/lib/uploadPersistence";
 import type { Workspace } from "@/lib/workspace";
-import { createFileService } from "@/services/fileService";
 import {
 	type InitUploadResponse,
 	uploadService,
@@ -120,36 +120,27 @@ export async function runQueuedUploadTask(
 
 	try {
 		if (isEmptyFile) {
-			const controller = new AbortController();
-			directAbortRef.current.set(taskId, controller);
-			try {
-				await createFileService(workspace).createEmptyFile(
-					file?.name ?? task.filename,
-					task.baseFolderId,
-					task.relativePath ?? undefined,
-					{
-						signal: controller.signal,
-						idempotencyKey:
-							task.emptyFileIdempotencyKey ?? `empty-upload:${task.id}`,
-					},
-				);
-				if (controller.signal.aborted) return;
+			const result = await createPendingEmptyFile({
+				taskId: task.id,
+				idempotencyKey:
+					task.emptyFileIdempotencyKey ?? `empty-upload:${task.id}`,
+				filename: file?.name ?? task.filename,
+				baseFolderId: task.baseFolderId,
+				relativePath: task.relativePath,
+				workspace,
+				requests: directAbortRef.current,
+			});
+			if (result === "aborted") return;
 
-				patchTask(taskId, {
-					mode: "direct",
-					status: "completed",
-					progress: 100,
-					uploadedBytes: 0,
-					speedBps: 0,
-					error: null,
-				});
-				removePendingEmptyFile(task.id);
-				markFolderForRefresh(task);
-			} catch (error) {
-				if (!controller.signal.aborted) throw error;
-			} finally {
-				directAbortRef.current.delete(taskId);
-			}
+			patchTask(taskId, {
+				mode: "direct",
+				status: "completed",
+				progress: 100,
+				uploadedBytes: 0,
+				speedBps: 0,
+				error: null,
+			});
+			markFolderForRefresh(task);
 			return;
 		}
 

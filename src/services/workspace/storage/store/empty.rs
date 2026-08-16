@@ -7,7 +7,8 @@ use crate::runtime::PrimaryAppState;
 use crate::services::events::storage_change;
 use crate::services::workspace::storage::{
     WorkspaceStorageScope, create_exact_file_from_blob, create_new_file_from_blob,
-    resolve_policy_for_size,
+    lock_folder_access_on, resolve_policy_for_size_with_verified_folder_on,
+    resolve_verified_folder_policy_hint_on,
 };
 use aster_drive_model::entities::{file, file_blob};
 
@@ -25,19 +26,24 @@ pub(crate) struct PreparedEmptyFile {
     folder_id: Option<i64>,
     filename: String,
     name_mode: EmptyFileNameMode,
-    policy_id: i64,
+    policy_id: Option<i64>,
 }
 
 impl PreparedEmptyFile {
-    pub(crate) async fn prepare(
-        state: &PrimaryAppState,
+    pub(crate) fn prepare(
         scope: WorkspaceStorageScope,
         folder_id: Option<i64>,
         filename: &str,
         name_mode: EmptyFileNameMode,
     ) -> Result<Self> {
-        let policy = resolve_policy_for_size(state, scope, folder_id, EMPTY_SIZE).await?;
-        Self::with_resolved_policy(scope, folder_id, filename, name_mode, policy.id)
+        let filename = aster_forge_validation::filename::normalize_validate_name(filename)?;
+        Ok(Self {
+            scope,
+            folder_id,
+            filename,
+            name_mode,
+            policy_id: None,
+        })
     }
 
     pub(crate) fn with_resolved_policy(
@@ -53,8 +59,29 @@ impl PreparedEmptyFile {
             folder_id,
             filename,
             name_mode,
-            policy_id,
+            policy_id: Some(policy_id),
         })
+    }
+
+    pub(crate) async fn resolve_policy_on<C: ConnectionTrait>(
+        &self,
+        state: &PrimaryAppState,
+        txn: &C,
+    ) -> Result<Self> {
+        let folder = match self.folder_id {
+            Some(folder_id) => {
+                let folder = lock_folder_access_on(txn, state, self.scope, folder_id).await?;
+                Some(resolve_verified_folder_policy_hint_on(txn, self.scope, folder).await?)
+            }
+            None => None,
+        };
+        let policy = resolve_policy_for_size_with_verified_folder_on(
+            state, txn, self.scope, folder, EMPTY_SIZE,
+        )
+        .await?;
+        let mut resolved = self.clone();
+        resolved.policy_id = Some(policy.id);
+        Ok(resolved)
     }
 
     pub(crate) fn folder_id(&self) -> Option<i64> {
@@ -65,10 +92,15 @@ impl PreparedEmptyFile {
         &self,
         txn: &C,
     ) -> Result<file_blob::Model> {
+        let policy_id = self.policy_id.ok_or_else(|| {
+            crate::errors::AsterError::internal_error(
+                "empty file policy must be resolved in the writer transaction",
+            )
+        })?;
         Ok(file_repo::find_or_create_virtual_empty_blob(
             txn,
             file_blob::Model::EMPTY_SHA256,
-            self.policy_id,
+            policy_id,
         )
         .await?
         .model)

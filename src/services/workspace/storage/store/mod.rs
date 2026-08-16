@@ -52,6 +52,8 @@ use preuploaded_contract::{
     VerifiedPreuploadedNondedupStoreBlob, cleanup_verified_preuploaded_nondedup_store_blob,
 };
 
+const FILE_CREATE_IDEMPOTENCY_RETENTION: Duration = Duration::hours(24);
+
 #[derive(Clone)]
 pub(crate) struct StoreFromTempParams<'a> {
     pub scope: WorkspaceStorageScope,
@@ -247,8 +249,18 @@ async fn create_empty_transactional(
     let transaction_filename = filename.clone();
     let transaction_idempotency =
         idempotency.map(|(key_hash, fingerprint)| (key_hash.to_owned(), fingerprint.to_owned()));
-    let result =
-        aster_forge_db::transaction::with_transaction(state.writer_db(), async move |txn| {
+    let transaction_relative_parent = relative_parent;
+    let transaction_state = state.clone();
+    let retry_on_mysql_deadlock = state.writer_db().get_database_backend() == DbBackend::MySql;
+    let result = aster_forge_db::transaction::with_transaction_retry(
+        state.writer_db(),
+        &aster_forge_db::retry::RetryConfig::deadlock(),
+        move |txn| {
+            let transaction_filename = transaction_filename.clone();
+            let transaction_idempotency = transaction_idempotency.clone();
+            let relative_parent = transaction_relative_parent.clone();
+            let state = transaction_state.clone();
+            Box::pin(async move {
             crate::services::files::lock::lock_workspace_for_mutation_on(txn, workspace).await?;
             lock_storage_usage(txn, scope).await?;
             let idempotency_scope = match scope {
@@ -290,13 +302,15 @@ async fn create_empty_transactional(
                                 "idempotency result file was purged during its retention window",
                             )
                         })?;
-                        let file = file_repo::find_by_id(txn, result_file_id)
-                            .await
-                            .map_err(|_| {
-                                AsterError::conflict(
+                        let file = match file_repo::find_by_id(txn, result_file_id).await {
+                            Ok(file) => file,
+                            Err(AsterError::FileNotFound(_)) => {
+                                return Err(AsterError::conflict(
                                     "idempotency result file was purged during its retention window",
-                                )
-                            })?;
+                                ));
+                            }
+                            Err(error) => return Err(error),
+                        };
                         return Ok(EmptyFileCreateResult {
                             file,
                             replayed: true,
@@ -311,14 +325,14 @@ async fn create_empty_transactional(
                         key_hash,
                         fingerprint,
                         now,
-                        now + Duration::hours(24),
+                        now + FILE_CREATE_IDEMPOTENCY_RETENTION,
                     )
                     .await?,
                 );
             }
             let base_folder = match folder_id {
                 Some(folder_id) => {
-                    let folder = lock_folder_access_on(txn, state, scope, folder_id).await?;
+                    let folder = lock_folder_access_on(txn, &state, scope, folder_id).await?;
                     Some(resolve_verified_folder_policy_hint_on(txn, scope, folder).await?)
                 }
                 None => None,
@@ -339,7 +353,7 @@ async fn create_empty_transactional(
                         filename: parsed.filename.clone(),
                     };
                     let parent = ensure_upload_parent_path_on(
-                        state,
+                        &state,
                         txn,
                         scope,
                         &transaction_parsed,
@@ -360,7 +374,7 @@ async fn create_empty_transactional(
                     (folder_id, base_folder)
                 };
             let policy = resolve_policy_for_size_with_verified_folder_on(
-                state,
+                &state,
                 txn,
                 scope,
                 resolved_folder,
@@ -380,8 +394,14 @@ async fn create_empty_transactional(
                 file_create_idempotency_repo::complete(txn, claim, file.id).await?;
             }
             Ok(EmptyFileCreateResult { file, replayed: false })
-        })
-        .await;
+            })
+        },
+        move |error: &AsterError| {
+            retry_on_mysql_deadlock
+                && error.database_error_kind() == Some(aster_forge_db::DatabaseErrorKind::Deadlock)
+        },
+    )
+    .await;
     let created = match result {
         Ok(created) => created,
         Err(error) => return Err(error),

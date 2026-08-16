@@ -231,32 +231,33 @@ impl AsterDavFs {
         offset: Option<u64>,
         length: Option<u64>,
     ) -> Result<Box<dyn AsyncRead + Unpin + Send>, FsError> {
-        if blob.is_virtual_empty() {
-            return Ok(Box::new(tokio::io::empty()));
-        }
-        let storage_path = blob
-            .storage_path_for_connector()
-            .ok_or(FsError::GeneralFailure)?;
-        let policy = self
-            .state
-            .policy_snapshot
-            .get_policy(blob.policy_id)
-            .ok_or(FsError::GeneralFailure)?;
-        let driver = self
-            .state
-            .driver_registry
-            .get_driver(&policy)
-            .map_err(|_| FsError::GeneralFailure)?;
+        let stream: Box<dyn AsyncRead + Unpin + Send> = if blob.is_virtual_empty() {
+            Box::new(tokio::io::empty())
+        } else {
+            let storage_path = blob
+                .storage_path_for_connector()
+                .ok_or(FsError::GeneralFailure)?;
+            let policy = self
+                .state
+                .policy_snapshot
+                .get_policy(blob.policy_id)
+                .ok_or(FsError::GeneralFailure)?;
+            let driver = self
+                .state
+                .driver_registry
+                .get_driver(&policy)
+                .map_err(|_| FsError::GeneralFailure)?;
 
-        let stream = match offset {
-            Some(offset) => driver
-                .get_range(storage_path, offset, length)
-                .await
-                .map_err(|_| FsError::NotFound)?,
-            None => driver
-                .get_stream(storage_path)
-                .await
-                .map_err(|_| FsError::NotFound)?,
+            match offset {
+                Some(offset) => driver
+                    .get_range(storage_path, offset, length)
+                    .await
+                    .map_err(|_| FsError::NotFound)?,
+                None => driver
+                    .get_stream(storage_path)
+                    .await
+                    .map_err(|_| FsError::NotFound)?,
+            }
         };
         record_download(
             &self.state,

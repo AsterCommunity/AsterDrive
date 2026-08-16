@@ -1310,24 +1310,29 @@ async fn empty_file_idempotency_replays_before_revalidating_changed_folder_state
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn empty_file_idempotency_serializes_concurrent_replays() {
     let (state, _temp_root, policy, user) = build_test_state().await;
     replace_test_policy(&state, &policy, policy.clone()).await;
     let scope = WorkspaceStorageScope::Personal { user_id: user.id };
 
     let results = futures::future::join_all((0..8).map(|_| {
-        create_empty_with_idempotency(
-            &state,
-            scope,
-            None,
-            "concurrent-empty.txt",
-            EmptyFileNameMode::Exact,
-            Some(("concurrent-key", "concurrent-fingerprint")),
-        )
+        let state = state.clone();
+        tokio::spawn(async move {
+            create_empty_with_idempotency(
+                &state,
+                scope,
+                None,
+                "concurrent-empty.txt",
+                EmptyFileNameMode::Exact,
+                Some(("concurrent-key", "concurrent-fingerprint")),
+            )
+            .await
+        })
     }))
     .await
     .into_iter()
+    .map(|result| result.expect("concurrent create task should not panic"))
     .collect::<Result<Vec<_>, _>>()
     .expect("concurrent replays should all succeed");
 

@@ -247,8 +247,10 @@ export function savePendingEmptyFiles(
 			},
 		]),
 	);
+	const now = Date.now();
 	const all = readPendingEmptyFiles().entries.filter(
-		(existing) => !nextByTaskId.has(existing.taskId),
+		(existing) =>
+			now - existing.savedAt < MAX_AGE_MS && !nextByTaskId.has(existing.taskId),
 	);
 	all.push(...nextByTaskId.values());
 	writePendingEmptyFiles(all);

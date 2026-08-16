@@ -12,6 +12,7 @@ use aster_drive_model::entities::folder;
 
 use super::policy::{VerifiedFolderPolicyHint, resolve_verified_folder_policy_hint};
 
+#[derive(Clone)]
 pub(crate) struct ParsedUploadPath {
     pub base_folder_id: Option<i64>,
     pub base_folder: Option<VerifiedFolderPolicyHint>,
@@ -72,6 +73,12 @@ pub(crate) async fn ensure_upload_parent_path(
     parsed: &ParsedUploadPath,
     actor_username: Option<&str>,
 ) -> Result<ResolvedUploadParent> {
+    if parsed.parent_segments.is_empty() {
+        return Ok(ResolvedUploadParent {
+            folder_id: parsed.base_folder_id,
+            folder: parsed.base_folder,
+        });
+    }
     let txn = transaction::begin(state.writer_db()).await?;
     let resolved = ensure_upload_parent_path_on(state, &txn, scope, parsed, actor_username).await?;
     transaction::commit(txn).await?;

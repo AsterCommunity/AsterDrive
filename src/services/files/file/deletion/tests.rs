@@ -322,6 +322,41 @@ async fn ensure_blob_cleanup_if_unreferenced_deletes_zero_ref_blob() {
 }
 
 #[tokio::test]
+async fn ensure_blob_cleanup_if_unreferenced_deletes_virtual_empty_metadata_only() {
+    let (state, _user, policy, driver) = build_deletion_test_state().await;
+    let now = Utc::now();
+    let blob = file_blob::ActiveModel {
+        hash: Set(file_blob::Model::EMPTY_SHA256.to_string()),
+        size: Set(0),
+        policy_id: Set(policy.id),
+        storage_path: Set(None),
+        backing: Set(aster_drive_model::types::file_blob::FileBlobBacking::VirtualEmpty),
+        thumbnail_path: Set(None),
+        thumbnail_processor: Set(None),
+        thumbnail_version: Set(None),
+        ref_count: Set(0),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("virtual empty test blob should insert");
+
+    let cleaned = ensure_blob_cleanup_if_unreferenced(&state, blob.id).await;
+
+    assert!(cleaned);
+    assert_eq!(driver.delete_calls(), 0);
+    assert!(
+        file_blob::Entity::find_by_id(blob.id)
+            .one(state.writer_db())
+            .await
+            .expect("blob lookup should succeed")
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn ensure_blob_cleanup_if_unreferenced_skips_referenced_blob() {
     let (state, _user, policy, driver) = build_deletion_test_state().await;
     let blob = create_blob(state.writer_db(), policy.id, "files/in-use.bin", 9, 2).await;

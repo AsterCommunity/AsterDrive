@@ -1596,6 +1596,70 @@ async fn test_webdav_get_supports_binary_range_requests() {
 }
 
 #[actix_web::test]
+async fn test_webdav_virtual_empty_download_is_audited_without_storage_object() {
+    let state = common::setup().await;
+    let db1 = state.writer_db().clone();
+    let db2 = state.writer_db().clone();
+    let webdav_config = WebDavConfig::default();
+    let app = test::init_service(
+        App::new()
+            .wrap(aster_forge_actix_middleware::security_headers::default_headers())
+            .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
+            .app_data(web::JsonConfig::default().limit(1024 * 1024))
+            .app_data(web::Data::new(state.clone()))
+            .configure(move |cfg| {
+                aster_drive::webdav::configure(cfg, &webdav_config, &db2);
+                aster_drive::api::configure_primary(cfg, &db1);
+            }),
+    )
+    .await;
+
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+    let file_name = "virtual-empty-audit.txt";
+    let create = test::TestRequest::post()
+        .uri("/api/v1/files/new")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": file_name, "folder_id": null }))
+        .to_request();
+    let response = test::call_service(&app, create).await;
+    assert_eq!(response.status(), actix_web::http::StatusCode::CREATED);
+
+    let before = count_file_download_audit_rows(&state, file_name).await;
+    let request = test::TestRequest::get()
+        .uri(&format!("/webdav/{file_name}"))
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), actix_web::http::StatusCode::OK);
+    assert!(test::read_body(response).await.is_empty());
+    assert_eq!(
+        count_file_download_audit_rows(&state, file_name).await - before,
+        1
+    );
+
+    // A byte range over a zero-length representation is unsatisfiable and is
+    // rejected before a download stream is opened, so it must not fabricate a
+    // second audit event.
+    let before_range = count_file_download_audit_rows(&state, file_name).await;
+    let request = test::TestRequest::get()
+        .uri(&format!("/webdav/{file_name}"))
+        .insert_header(("Authorization", auth))
+        .insert_header(("Range", "bytes=0-0"))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(
+        response.status(),
+        actix_web::http::StatusCode::RANGE_NOT_SATISFIABLE
+    );
+    assert_eq!(
+        count_file_download_audit_rows(&state, file_name).await,
+        before_range
+    );
+}
+
+#[actix_web::test]
 async fn test_webdav_range_download_audit_is_coalesced_by_default() {
     let state = common::setup().await;
     let db1 = state.writer_db().clone();

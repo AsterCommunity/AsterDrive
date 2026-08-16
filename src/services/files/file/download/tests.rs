@@ -546,6 +546,40 @@ async fn build_stream_response_uses_get_stream_instead_of_get() {
 }
 
 #[actix_web::test]
+async fn virtual_empty_stream_response_has_empty_body_without_driver_reads() {
+    let driver = CountingStreamDriver::new(Vec::new());
+    let get_calls = driver.get_calls.clone();
+    let get_stream_calls = driver.get_stream_calls.clone();
+    let (state, mut file, mut blob, _) = build_download_test_state(driver, 0).await;
+    file.size = 0;
+    blob.hash = file_blob::Model::EMPTY_SHA256.to_string();
+    blob.size = 0;
+    blob.storage_path = None;
+    blob.backing = aster_drive_model::types::file_blob::FileBlobBacking::VirtualEmpty;
+
+    let outcome = build_download_outcome_with_disposition_and_range(
+        &state,
+        &file,
+        &blob,
+        DownloadDisposition::Inline,
+        None,
+        None,
+        "virtual-empty-etag",
+    )
+    .await
+    .expect("virtual empty download outcome should build");
+    let response = outcome_to_response(outcome);
+    assert!(
+        body::to_bytes(response.into_body())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(get_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(get_stream_calls.load(Ordering::SeqCst), 0);
+}
+
+#[actix_web::test]
 async fn conditional_download_uses_revision_etag_instead_of_blob_hash() {
     let payload = b"canonical revision validator".to_vec();
     let driver = CountingStreamDriver::new(payload.clone());

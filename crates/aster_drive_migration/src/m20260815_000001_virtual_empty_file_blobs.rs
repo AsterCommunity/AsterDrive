@@ -40,12 +40,27 @@ impl MigrationTrait for Migration {
                         .to_owned(),
                 )
                 .await?;
+            let add_check = if manager.get_database_backend() == DbBackend::Postgres {
+                format!(
+                    "ALTER TABLE file_blobs ADD CONSTRAINT {BLOB_BACKING_CHECK_NAME} CHECK ({BLOB_BACKING_PREDICATE}) NOT VALID"
+                )
+            } else {
+                format!(
+                    "ALTER TABLE file_blobs ADD CONSTRAINT {BLOB_BACKING_CHECK_NAME} CHECK ({BLOB_BACKING_PREDICATE})"
+                )
+            };
             manager
                 .get_connection()
-                .execute_unprepared(&format!(
-                    "ALTER TABLE file_blobs ADD CONSTRAINT {BLOB_BACKING_CHECK_NAME} CHECK ({BLOB_BACKING_PREDICATE})"
-                ))
+                .execute_unprepared(&add_check)
                 .await?;
+            if manager.get_database_backend() == DbBackend::Postgres {
+                manager
+                    .get_connection()
+                    .execute_unprepared(&format!(
+                        "ALTER TABLE file_blobs VALIDATE CONSTRAINT {BLOB_BACKING_CHECK_NAME}"
+                    ))
+                    .await?;
+            }
             aster_forge_db_migration::drop_index_if_exists(
                 manager.get_connection(),
                 "file_blobs",
@@ -166,14 +181,23 @@ impl MigrationTrait for Migration {
         if manager.get_database_backend() == DbBackend::Sqlite {
             return rebuild_sqlite_file_blobs_down(manager).await;
         }
-        manager
-            .alter_table(
-                Table::alter()
-                    .table(FileBlobs::Table)
-                    .drop_constraint(Alias::new(BLOB_BACKING_CHECK_NAME))
-                    .to_owned(),
-            )
-            .await?;
+        if manager.get_database_backend() == DbBackend::MySql {
+            manager
+                .get_connection()
+                .execute_unprepared(&format!(
+                    "ALTER TABLE file_blobs DROP CHECK {BLOB_BACKING_CHECK_NAME}"
+                ))
+                .await?;
+        } else {
+            manager
+                .alter_table(
+                    Table::alter()
+                        .table(FileBlobs::Table)
+                        .drop_constraint(Alias::new(BLOB_BACKING_CHECK_NAME))
+                        .to_owned(),
+                )
+                .await?;
+        }
         manager
             .drop_index(
                 Index::drop()
@@ -216,15 +240,19 @@ async fn rebuild_sqlite_file_blobs_down(manager: &SchemaManager<'_>) -> Result<(
 
 async fn ensure_no_virtual_or_pathless_blobs(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     let backend = manager.get_database_backend();
-    let virtual_count = manager
+    let row = manager
         .get_connection()
         .query_one_raw(Statement::from_string(
             backend,
             "SELECT COUNT(*) AS count FROM file_blobs WHERE backing <> 'stored' OR storage_path IS NULL",
         ))
         .await?
-        .and_then(|row| row.try_get_by_index::<i64>(0).ok())
-        .unwrap_or(0);
+        .ok_or_else(|| DbErr::Migration("file_blobs rollback guard returned no row".into()))?;
+    let virtual_count = row.try_get_by_index::<i64>(0).map_err(|error| {
+        DbErr::Migration(format!(
+            "failed to decode file_blobs rollback guard count: {error}"
+        ))
+    })?;
     if virtual_count > 0 {
         return Err(DbErr::Migration(format!(
             "cannot roll back virtual-empty blob schema while {virtual_count} virtual or pathless blob rows exist"

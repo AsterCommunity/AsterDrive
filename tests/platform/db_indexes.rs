@@ -58,7 +58,7 @@ fn assert_uses_virtual_table(plan: &[String], virtual_table: &str, base_table: &
 }
 
 #[actix_web::test]
-async fn test_virtual_empty_and_idempotency_maintenance_queries_use_covering_indexes() {
+async fn test_virtual_empty_and_idempotency_maintenance_queries_use_indexes() {
     let state = common::setup().await;
     if !skip_unless_sqlite(state.writer_db()) {
         return;
@@ -66,7 +66,9 @@ async fn test_virtual_empty_and_idempotency_maintenance_queries_use_covering_ind
 
     let virtual_empty_lookup = explain_query_plan(
         state.writer_db(),
-        "SELECT id FROM file_blobs \
+        "SELECT id, hash, size, policy_id, storage_path, backing, thumbnail_path, \
+                thumbnail_processor, thumbnail_version, ref_count, created_at, updated_at \
+         FROM file_blobs \
          WHERE hash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' \
            AND policy_id = 1 \
            AND backing = 'virtual_empty' \

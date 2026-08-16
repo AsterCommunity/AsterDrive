@@ -859,14 +859,16 @@ async fn load_blob_expectations_for_policy<C: ConnectionTrait>(
                 blob_ids_by_path.insert(storage_path.to_string(), blob.id);
                 tracked_blobs.insert(storage_path.to_string());
             }
-            tracked_thumbnails.extend(processing::known_thumbnail_cache_paths(
-                &blob.hash,
-                thumbnail_max_dimension,
-            ));
-            tracked_thumbnails.extend(processing::known_image_preview_cache_paths(
-                &blob.hash,
-                image_preview_max_dimension,
-            ));
+            if !blob.is_virtual_empty() {
+                tracked_thumbnails.extend(processing::known_thumbnail_cache_paths(
+                    &blob.hash,
+                    thumbnail_max_dimension,
+                ));
+                tracked_thumbnails.extend(processing::known_image_preview_cache_paths(
+                    &blob.hash,
+                    image_preview_max_dimension,
+                ));
+            }
         }
     }
 

@@ -1,8 +1,8 @@
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
-    ExprTrait, FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
-    TryInsertResult, sea_query::Expr,
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend,
+    EntityTrait, ExprTrait, FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    Set, TryInsertResult, sea_query::Expr,
 };
 
 use crate::api::pagination::AdminFileBlobSortBy;
@@ -354,7 +354,46 @@ pub async fn create_blob<C: ConnectionTrait>(
     db: &C,
     model: file_blob::ActiveModel,
 ) -> Result<file_blob::Model> {
+    validate_blob_active_model_backing(&model)?;
     model.insert(db).await.map_err(AsterError::from)
+}
+
+fn active_value<'a, T>(value: &'a ActiveValue<T>, field: &str) -> Result<&'a T>
+where
+    T: Into<sea_orm::Value>,
+{
+    match value {
+        ActiveValue::Set(value) | ActiveValue::Unchanged(value) => Ok(value),
+        ActiveValue::NotSet => Err(AsterError::internal_error(format!(
+            "file_blob active model missing {field}"
+        ))),
+    }
+}
+
+pub(super) fn validate_blob_backing(
+    backing: FileBlobBacking,
+    storage_path: Option<&str>,
+    size: i64,
+    hash: &str,
+) -> Result<()> {
+    file_blob::Model::validate_backing_fields(backing, storage_path, size, hash)
+        .map_err(AsterError::internal_error)
+}
+
+fn validate_blob_active_model_backing(model: &file_blob::ActiveModel) -> Result<()> {
+    let backing = match &model.backing {
+        ActiveValue::Set(value) | ActiveValue::Unchanged(value) => *value,
+        // Existing stored-blob callers rely on the schema default. Treat that
+        // default explicitly here so validation remains effective on MySQL
+        // versions that parse but do not enforce CHECK constraints.
+        ActiveValue::NotSet => FileBlobBacking::Stored,
+    };
+    validate_blob_backing(
+        backing,
+        active_value(&model.storage_path, "storage_path")?.as_deref(),
+        *active_value(&model.size, "size")?,
+        active_value(&model.hash, "hash")?,
+    )
 }
 
 /// Blob 去重：查找已有 blob 则原子递增 ref_count 并返回，否则新建 ref_count=1。
@@ -365,6 +404,7 @@ pub async fn find_or_create_blob<C: ConnectionTrait>(
     policy_id: i64,
     storage_path: &str,
 ) -> Result<FindOrCreateBlobResult> {
+    validate_blob_backing(FileBlobBacking::Stored, Some(storage_path), size, hash)?;
     for attempt in 0..FIND_OR_CREATE_BLOB_MAX_ATTEMPTS {
         if let Some(existing) = FileBlob::find()
             .filter(file_blob::Column::Hash.eq(hash))
@@ -471,6 +511,7 @@ pub async fn find_or_create_virtual_empty_blob<C: ConnectionTrait>(
     hash: &str,
     policy_id: i64,
 ) -> Result<FindOrCreateBlobResult> {
+    validate_blob_backing(FileBlobBacking::VirtualEmpty, None, 0, hash)?;
     for attempt in 0..FIND_OR_CREATE_BLOB_MAX_ATTEMPTS {
         if let Some(existing) = FileBlob::find()
             .filter(file_blob::Column::Hash.eq(hash))

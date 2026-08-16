@@ -329,8 +329,9 @@ mod tests {
         CURRENT_IMAGE_PREVIEW_VERSION, CURRENT_THUMBNAIL_VERSION,
         IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE, ensure_source_size_supported,
         image_preview_etag_value_for, image_preview_path_for, image_preview_version_for_dimension,
-        render_thumbnail_bytes, render_webp_derivative_from_image_bytes, thumb_path_for,
-        thumbnail_etag_value_for, thumbnail_version_for_dimension,
+        render_thumbnail_bytes, render_webp_derivative_bytes,
+        render_webp_derivative_from_image_bytes, thumb_path_for, thumbnail_etag_value_for,
+        thumbnail_version_for_dimension,
     };
     use crate::api::api_error_code::ApiErrorCode;
     use crate::config::operations::DEFAULT_THUMBNAIL_MAX_SOURCE_BYTES;
@@ -342,6 +343,10 @@ mod tests {
     use std::io::Cursor;
     use std::path::PathBuf;
     use std::pin::Pin;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
     use std::task::{Context, Poll};
     use tokio::io::{AsyncRead, ReadBuf};
 
@@ -375,6 +380,16 @@ mod tests {
             ref_count: 1,
             created_at: Utc::now(),
             updated_at: Utc::now(),
+        }
+    }
+
+    fn virtual_empty_blob() -> file_blob::Model {
+        file_blob::Model {
+            hash: file_blob::Model::EMPTY_SHA256.to_string(),
+            size: 0,
+            storage_path: None,
+            backing: aster_drive_model::types::file_blob::FileBlobBacking::VirtualEmpty,
+            ..blob_with_size(0)
         }
     }
 
@@ -427,6 +442,7 @@ mod tests {
 
     struct StreamingOnlyDriver {
         bytes: Vec<u8>,
+        stream_calls: Arc<AtomicUsize>,
     }
 
     #[async_trait]
@@ -443,6 +459,7 @@ mod tests {
             &self,
             _path: &str,
         ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
+            self.stream_calls.fetch_add(1, Ordering::SeqCst);
             Ok(Box::new(BytesReader {
                 bytes: self.bytes.clone(),
                 offset: 0,
@@ -519,6 +536,7 @@ mod tests {
         let source = tiny_png();
         let driver = StreamingOnlyDriver {
             bytes: source.clone(),
+            stream_calls: Arc::new(AtomicUsize::new(0)),
         };
         let source_size =
             aster_forge_utils::numbers::usize_to_i64(source.len(), "test thumbnail source size")
@@ -542,6 +560,33 @@ mod tests {
             "streaming thumbnail temp file should be cleaned up"
         );
         let _ = tokio::fs::remove_dir_all(temp_root).await;
+    }
+
+    #[tokio::test]
+    async fn virtual_empty_thumbnail_and_preview_reject_before_stream_reads() {
+        let stream_calls = Arc::new(AtomicUsize::new(0));
+        let driver = StreamingOnlyDriver {
+            bytes: tiny_png(),
+            stream_calls: stream_calls.clone(),
+        };
+        let blob = virtual_empty_blob();
+
+        let thumbnail_error = render_thumbnail_bytes(&driver, &blob, "", 320)
+            .await
+            .expect_err("virtual empty thumbnail should be rejected");
+        let preview_error = render_webp_derivative_bytes(&driver, &blob, "", 2048)
+            .await
+            .expect_err("virtual empty image preview should be rejected");
+
+        assert_eq!(
+            thumbnail_error.api_error_code(),
+            ApiErrorCode::ThumbnailSourceStreamFailed
+        );
+        assert_eq!(
+            preview_error.api_error_code(),
+            ApiErrorCode::ThumbnailSourceStreamFailed
+        );
+        assert_eq!(stream_calls.load(Ordering::SeqCst), 0);
     }
 
     #[test]

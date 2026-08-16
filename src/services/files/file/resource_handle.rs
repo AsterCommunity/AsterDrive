@@ -957,6 +957,77 @@ mod tests {
     }
 
     #[actix_web::test]
+    async fn virtual_empty_original_handle_stays_same_origin_when_presigning_is_enabled() {
+        let (state, file, mut blob) = build_resource_handle_state(
+            PresignedTestDriver,
+            Some(s3_presigned_download_policy()),
+            "empty.txt",
+            "text/plain",
+        )
+        .await;
+        blob.hash = file_blob::Model::EMPTY_SHA256.to_string();
+        blob.size = 0;
+        blob.storage_path = None;
+        blob.backing = aster_drive_model::types::file_blob::FileBlobBacking::VirtualEmpty;
+
+        let handle = resolve_file_resource_handle_for_file(
+            &state,
+            &file,
+            &blob,
+            paths(),
+            &request(
+                FileResourcePurpose::Preview,
+                FileResourceDeliveryMode::DirectUrl,
+                FileResourceRepresentation::Original,
+            ),
+            Some("personal"),
+            Some("virtual-empty-etag"),
+        )
+        .await
+        .expect("virtual empty handle should resolve without presigning");
+
+        assert_eq!(
+            handle.request.url,
+            "/files/42/download?existing=1&disposition=inline#frag"
+        );
+        assert_eq!(handle.request.credentials, FileResourceCredentials::Include);
+        assert_eq!(
+            handle.request.redirect_policy,
+            FileResourceRedirectPolicy::SameOriginOnly
+        );
+    }
+
+    #[actix_web::test]
+    async fn stored_original_handle_rejects_missing_storage_path_before_presigning() {
+        let (state, file, mut blob) = build_resource_handle_state(
+            PresignedTestDriver,
+            Some(s3_presigned_download_policy()),
+            "broken.txt",
+            "text/plain",
+        )
+        .await;
+        blob.storage_path = None;
+
+        let error = resolve_file_resource_handle_for_file(
+            &state,
+            &file,
+            &blob,
+            paths(),
+            &request(
+                FileResourcePurpose::Preview,
+                FileResourceDeliveryMode::DirectUrl,
+                FileResourceRepresentation::Original,
+            ),
+            Some("personal"),
+            Some("broken-etag"),
+        )
+        .await
+        .expect_err("stored blob without a connector path should fail");
+
+        assert!(matches!(error, crate::errors::AsterError::InternalError(_)));
+    }
+
+    #[actix_web::test]
     async fn onedrive_direct_original_handle_uses_cross_origin_resource_contract() {
         let (state, file, blob) = build_resource_handle_state(
             PresignedTestDriver,

@@ -338,6 +338,41 @@ describe("uploadPersistence", () => {
 		]);
 	});
 
+	it("prunes expired empty-file replay records while saving a new batch", () => {
+		const now = 50_000_000;
+		vi.spyOn(Date, "now").mockReturnValue(now);
+		localStorage.setItem(
+			"aster_pending_empty_file_creates",
+			JSON.stringify([
+				{
+					taskId: "expired-empty",
+					idempotencyKey: "expired-key",
+					filename: "expired.txt",
+					baseFolderId: null,
+					baseFolderName: "Root",
+					relativePath: null,
+					savedAt: now - (23 * 60 * 60 * 1000 + 1),
+				},
+			]),
+		);
+
+		savePendingEmptyFiles([
+			{
+				taskId: "fresh-empty",
+				idempotencyKey: "fresh-key",
+				filename: "fresh.txt",
+				baseFolderId: null,
+				baseFolderName: "Root",
+				relativePath: null,
+				savedAt: now,
+			},
+		]);
+
+		expect(loadPendingEmptyFiles()).toEqual([
+			expect.objectContaining({ taskId: "fresh-empty" }),
+		]);
+	});
+
 	it("trims older sessions when localStorage quota is exceeded", () => {
 		// 先正常存 4 个 session（按 savedAt 0/1/2/3 升序）
 		for (let i = 0; i < 4; i += 1) {

@@ -329,13 +329,11 @@ impl DavLockSystem for DbLockSystem {
                 })?;
                 Some(
                     PreparedEmptyFile::prepare(
-                        &self.state,
                         self.scope,
                         parent_id,
                         &filename,
                         EmptyFileNameMode::Exact,
                     )
-                    .await
                     .map_err(|error| {
                         tracing::warn!(error = %error, path = %path_str, "failed to stage WebDAV lock-null resource");
                         DavLockError::Backend
@@ -406,6 +404,10 @@ impl DavLockSystem for DbLockSystem {
                             )
                             .await
                             .map_err(LockAcquireTransactionError::from)?;
+                            let prepared = prepared
+                                .resolve_policy_on(&self.state, txn)
+                                .await
+                                .map_err(LockAcquireTransactionError::from)?;
                             let blob = prepared
                                 .persist_blob_on(txn)
                                 .await
@@ -478,13 +480,11 @@ impl DavLockSystem for DbLockSystem {
                         })?;
                         prepared_empty = Some(
                             PreparedEmptyFile::prepare(
-                                &self.state,
                                 self.scope,
                                 parent_id,
                                 &filename,
                                 EmptyFileNameMode::Exact,
                             )
-                            .await
                             .map_err(|error| {
                                 tracing::warn!(error = %error, path = %path_str, "failed to stage raced WebDAV lock-null resource");
                                 DavLockError::Backend

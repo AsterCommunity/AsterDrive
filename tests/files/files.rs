@@ -6,10 +6,11 @@ use actix_web::http::{StatusCode, header};
 use actix_web::test;
 use aster_drive::db::repository::{file_repo, policy_repo, user_repo};
 use aster_drive::services::events::storage_change::StorageChangeKind;
-use aster_drive_model::entities::{file, file_blob};
+use aster_drive_model::entities::{audit_log, file, file_blob};
+use aster_drive_model::types::AuditAction;
 use aster_forge_file_classification::FileCategory;
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 use serde_json::Value;
 use std::time::Duration;
 
@@ -1870,7 +1871,7 @@ async fn test_create_empty_file() {
 #[actix_web::test]
 async fn test_create_empty_file_idempotency_header_replays_and_rejects_drift() {
     let state = common::setup().await;
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
     let create = |name: &str, key: &str| {
@@ -1886,11 +1887,27 @@ async fn test_create_empty_file_idempotency_header_replays_and_rejects_drift() {
     let first = test::call_service(&app, create("idempotent-empty.txt", "stable-key")).await;
     assert_eq!(first.status(), StatusCode::CREATED);
     let first: Value = test::read_body_json(first).await;
+    aster_forge_audit::flush_global_audit_log_manager().await;
+    let audit_count_after_first = audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq(AuditAction::FileCreate))
+        .filter(audit_log::Column::EntityId.eq(first["data"]["id"].as_i64().unwrap()))
+        .count(state.writer_db())
+        .await
+        .expect("file-create audit count should query successfully");
+    assert_eq!(audit_count_after_first, 1);
     let replay = test::call_service(&app, create("idempotent-empty.txt", "stable-key")).await;
     assert_eq!(replay.status(), StatusCode::CREATED);
     let replay: Value = test::read_body_json(replay).await;
     assert_eq!(replay["data"]["id"], first["data"]["id"]);
     assert_eq!(replay["data"]["blob_id"], first["data"]["blob_id"]);
+    aster_forge_audit::flush_global_audit_log_manager().await;
+    let audit_count_after_replay = audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq(AuditAction::FileCreate))
+        .filter(audit_log::Column::EntityId.eq(first["data"]["id"].as_i64().unwrap()))
+        .count(state.writer_db())
+        .await
+        .expect("file-create audit count should query successfully");
+    assert_eq!(audit_count_after_replay, audit_count_after_first);
 
     let drift = test::call_service(&app, create("different-empty.txt", "stable-key")).await;
     assert_eq!(drift.status(), StatusCode::CONFLICT);

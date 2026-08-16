@@ -1222,6 +1222,19 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
         .put(&current_thumb_path(&orphan_thumb_hash), b"thumb")
         .await
         .unwrap();
+    let virtual_empty = file_repo::find_or_create_virtual_empty_blob(
+        state.writer_db(),
+        file_blob::Model::EMPTY_SHA256,
+        policy.id,
+    )
+    .await
+    .unwrap()
+    .model;
+    let virtual_empty_orphan_thumb = current_thumb_path(&virtual_empty.hash);
+    driver
+        .put(&virtual_empty_orphan_thumb, b"legacy virtual-empty thumb")
+        .await
+        .unwrap();
 
     let now = Utc::now();
     common::set_foreign_key_checks(state.writer_db(), false)
@@ -1333,6 +1346,12 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
             .orphan_thumbnails
             .iter()
             .any(|issue| issue.path == current_thumb_path(&orphan_thumb_hash))
+    );
+    assert!(
+        storage_report
+            .orphan_thumbnails
+            .iter()
+            .any(|issue| issue.path == virtual_empty_orphan_thumb)
     );
 
     let folder_issues = integrity::audit_folder_tree(state.writer_db())
