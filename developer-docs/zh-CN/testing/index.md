@@ -44,25 +44,25 @@ ASTER_TEST_DATABASE_BACKEND=sqlite
 cargo nextest run
 ```
 
-当前 nextest 切换只覆盖默认 SQLite 测试。PostgreSQL / MySQL 的测试容器、迁移模板和 schema template 仍依赖测试进程内缓存；其中 MySQL 在 process-per-test 调度下还会卡住。因此这两个数据库后端暂时继续使用 `cargo test`，跨进程 fixture 完成前不要把下面的命令机械替换为 nextest。
+PostgreSQL / MySQL 使用专用的 `database` profile。它保持 nextest 的 process-per-test 隔离，并为数据库初始化和异常回收提供更长的慢测试诊断窗口。
 
 切到 PostgreSQL：
 
 ```bash
-ASTER_TEST_DATABASE_BACKEND=postgres cargo test
+ASTER_TEST_DATABASE_BACKEND=postgres cargo nextest run --profile database
 ```
 
 切到 MySQL：
 
 ```bash
-ASTER_TEST_DATABASE_BACKEND=mysql cargo test
+ASTER_TEST_DATABASE_BACKEND=mysql cargo nextest run --profile database
 ```
 
 如果你只想复现某一组用例，和平时一样筛测试名即可：
 
 ```bash
-ASTER_TEST_DATABASE_BACKEND=postgres cargo test --test files search::test_search_by_name
-ASTER_TEST_DATABASE_BACKEND=mysql cargo test --test operations admin::test_admin_team_crud
+ASTER_TEST_DATABASE_BACKEND=postgres cargo nextest run --profile database --test files search::test_search_by_name
+ASTER_TEST_DATABASE_BACKEND=mysql cargo nextest run --profile database --test operations admin::test_admin_team_crud
 ```
 
 需要复用已经运行的外部 MySQL 数据库时，可把 `ASTER_TEST_MYSQL_DATABASE_URL` 指向专用测试库；若该库不是 testcontainers 管理的 schema-template 容器，同时设置 `ASTER_TEST_DISABLE_MYSQL_SCHEMA_TEMPLATE=1`，测试会直接在该库完成 migration 和验收。该开关只用于一次性的外部测试库，不要指向含有产品数据的实例。
@@ -74,28 +74,31 @@ ASTER_TEST_DATABASE_BACKEND=mysql cargo test --test operations admin::test_admin
 1. 读取 `ASTER_TEST_DATABASE_BACKEND`
 2. 如果是 `sqlite`，直接返回内存 SQLite 的 `AppState`
 3. 如果是 `postgres` 或 `mysql`，通过 `testcontainers` 启动一个共享容器
-4. 基于容器里的基础数据库，为当前测试实例创建一个唯一数据库名
-5. 用这个唯一数据库跑 migration、初始化默认策略和运行时配置，再返回 `AppState`
+4. 在 suite 级跨进程锁下验证 migration fingerprint；失效时只重建一次迁移完成的 PostgreSQL template database 或 MySQL schema template
+5. PostgreSQL 从 template clone 独立数据库；MySQL 从内存中的 DDL 与 migration history snapshot 构建独立 schema
+6. 在独立数据库中初始化默认策略和运行时配置，再返回 `AppState`
 
 这意味着：
 
 - PostgreSQL / MySQL 共享容器会尽量跨多次本地测试命令复用，不会每次都重新冷启动
 - 但数据库实例不会复用，所以并行集成测试不会互相污染数据
-- 已退出测试进程留下的独立数据库，会在下一次启动对应后端测试容器时自动清理
+- 同一个 nextest run 内已经退出的进程资源会按 `NEXTEST_RUN_ID` 延迟保留，避免 MySQL 同时创建和删除大量表；下一次 run 启动时会确定性回收
 
 ## PostgreSQL / MySQL 的差异
 
 ### PostgreSQL
 
 - 使用容器内的 `postgres` 管理账号启动基础库
-- 测试实例数据库也由这个管理连接创建
+- suite 只迁移一次 template database，每个测试实例由管理连接执行 `CREATE DATABASE ... TEMPLATE ...`
 - 业务测试连接直接使用对应的测试数据库
 
 ### MySQL
 
 - 业务测试默认仍使用容器内的 `aster` 用户
 - 独立数据库仍由 `root` 连接创建
-- 但普通测试用户的访问权限会在容器启动时一次性补齐，不再为每个测试库单独跑一次 `GRANT`
+- 普通测试用户的访问权限会在容器启动时一次性补齐，不再为每个测试库单独跑一次 `GRANT`
+- migration 只在 suite template 上执行一次；每个测试进程读取 DDL 和 migration history snapshot 后立即释放 fixture 锁，再并行构建自己的 schema
+- reusable container 会按 endpoint identity 配置 `table_definition_cache` 和 `max_connections`；配置契约变化时会重新探测并更新容器
 
 ## 什么时候该切后端
 

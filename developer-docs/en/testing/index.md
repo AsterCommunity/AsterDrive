@@ -44,25 +44,25 @@ Default SQLite:
 cargo nextest run
 ```
 
-The initial nextest switch covers the default SQLite suite only. The PostgreSQL and MySQL container, migrated-template, and schema-template fixtures still rely on process-local caches, and MySQL currently stalls under process-per-test scheduling. Keep using `cargo test` for those two database backends until their cross-process fixtures are in place.
+PostgreSQL and MySQL use the dedicated `database` profile. It preserves nextest's process-per-test isolation while allowing a longer diagnostic window for database bootstrap and abnormal-exit cleanup.
 
 Switch to PostgreSQL:
 
 ```bash
-ASTER_TEST_DATABASE_BACKEND=postgres cargo test
+ASTER_TEST_DATABASE_BACKEND=postgres cargo nextest run --profile database
 ```
 
 Switch to MySQL:
 
 ```bash
-ASTER_TEST_DATABASE_BACKEND=mysql cargo test
+ASTER_TEST_DATABASE_BACKEND=mysql cargo nextest run --profile database
 ```
 
 If you only want one test group, filter by name as usual:
 
 ```bash
-ASTER_TEST_DATABASE_BACKEND=postgres cargo test --test files search::test_search_by_name
-ASTER_TEST_DATABASE_BACKEND=mysql cargo test --test operations admin::test_admin_team_crud
+ASTER_TEST_DATABASE_BACKEND=postgres cargo nextest run --profile database --test files search::test_search_by_name
+ASTER_TEST_DATABASE_BACKEND=mysql cargo nextest run --profile database --test operations admin::test_admin_team_crud
 ```
 
 To reuse an already running external MySQL instance, point `ASTER_TEST_MYSQL_DATABASE_URL` at a dedicated test database. When that database is not the schema-template container managed by testcontainers, also set `ASTER_TEST_DISABLE_MYSQL_SCHEMA_TEMPLATE=1`; the test will migrate and exercise that database directly. This switch is only for disposable external test databases, never an instance containing product data.
@@ -74,28 +74,31 @@ To reuse an already running external MySQL instance, point `ASTER_TEST_MYSQL_DAT
 1. Read `ASTER_TEST_DATABASE_BACKEND`
 2. If it is `sqlite`, return the in-memory SQLite `AppState`
 3. If it is `postgres` or `mysql`, start a shared container through `testcontainers`
-4. Create a unique database name for the current test instance on top of the base database in the container
-5. Run migrations, initialize default policies and runtime config, and then return `AppState`
+4. Validate the migration fingerprint under a suite-scoped cross-process lock, rebuilding one migrated PostgreSQL template database or MySQL schema template only when it is stale
+5. Clone a PostgreSQL database from the template, or build an isolated MySQL schema from the in-memory DDL and migration-history snapshot
+6. Initialize default policies and runtime config in the isolated database, and then return `AppState`
 
 This means:
 
 - The shared PostgreSQL / MySQL container is reused across multiple local test runs whenever possible
 - The actual databases are not reused, so parallel integration tests do not pollute one another
-- Leftover databases from exited test processes are cleaned up automatically the next time that backend's container starts
+- Resources from processes that exit during one nextest run are retained under `NEXTEST_RUN_ID` to avoid interleaving large MySQL table creates and drops; the next run reclaims them deterministically
 
 ## PostgreSQL / MySQL differences
 
 ### PostgreSQL
 
 - Uses the container's `postgres` admin account to create the base database
-- The test-instance database is created through that admin connection
+- The suite migrates one template database and each test instance is created with `CREATE DATABASE ... TEMPLATE ...`
 - The business test connection uses the dedicated test database directly
 
 ### MySQL
 
 - Business tests still use the container's `aster` user by default
 - The isolated database is still created through `root`
-- But permissions for the normal test user are granted once at container startup instead of running a separate `GRANT` for each test database
+- Permissions for the normal test user are granted once at container startup instead of running a separate `GRANT` for each test database
+- Migrations run once on the suite template. Each process snapshots DDL and migration history, releases the fixture lock, and then builds its own schema in parallel
+- The reusable-container endpoint identity includes the configured `table_definition_cache` and `max_connections`, so a changed capacity contract is reprobed and applied
 
 ## When to switch backends
 

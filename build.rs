@@ -2,13 +2,15 @@
 
 use std::env;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const BUILD_TIME_ENV: &str = "ASTER_BUILD_TIME";
 const BUILD_REVISION_ENV: &str = "ASTER_BUILD_REVISION";
 const BUILD_PROFILE_ENV: &str = "ASTER_BUILD_PROFILE";
 const BUILD_TARGET_ENV: &str = "ASTER_BUILD_TARGET";
+const TEST_SCHEMA_FINGERPRINT_ENV: &str = "ASTER_TEST_SCHEMA_FINGERPRINT";
 const FRONTEND_DIST_ENV: &str = "ASTER_FRONTEND_DIST_DIR";
 const FALLBACK_MARKER_FILE: &str = ".asterdrive-frontend-fallback";
 const FALLBACK_MARKER_CONTENT: &str = "asterdrive-frontend-fallback-v1\n";
@@ -24,6 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR")
         .map_err(|error| io::Error::other(format!("missing CARGO_MANIFEST_DIR: {error}")))?;
+    configure_test_schema_fingerprint(Path::new(&manifest_dir))?;
     let dist_path = Path::new(&manifest_dir).join("frontend-panel/dist");
     let out_dir = env::var("OUT_DIR")
         .map_err(|error| io::Error::other(format!("missing OUT_DIR: {error}")))?;
@@ -63,6 +66,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
     println!("cargo:rustc-env={FRONTEND_DIST_ENV}={selected_dist_path}");
 
+    Ok(())
+}
+
+fn configure_test_schema_fingerprint(manifest_dir: &Path) -> io::Result<()> {
+    let migration_source = manifest_dir.join("crates/aster_drive_migration/src");
+    println!("cargo:rerun-if-changed={}", migration_source.display());
+
+    let mut source_files = Vec::new();
+    collect_rust_source_files(&migration_source, &mut source_files)?;
+    source_files.sort();
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for source_file in source_files {
+        source_file
+            .strip_prefix(manifest_dir)
+            .unwrap_or(&source_file)
+            .hash(&mut hasher);
+        fs::read(&source_file)?.hash(&mut hasher);
+    }
+    println!(
+        "cargo:rustc-env={TEST_SCHEMA_FINGERPRINT_ENV}=migration-src-{:016x}",
+        hasher.finish()
+    );
+    Ok(())
+}
+
+fn collect_rust_source_files(directory: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
+    for entry in fs::read_dir(directory)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            collect_rust_source_files(&path, files)?;
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            files.push(path);
+        }
+    }
     Ok(())
 }
 
