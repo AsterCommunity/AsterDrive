@@ -957,10 +957,6 @@ pub async fn setup() -> PrimaryAppState {
 pub async fn setup_with_pool_size(pool_size: u32) -> PrimaryAppState {
     init_test_process_state();
     let database_url = resolve_test_database_url().await;
-    let pool_size = match configured_test_database_backend() {
-        TestDatabaseBackend::Sqlite => 1,
-        TestDatabaseBackend::Postgres | TestDatabaseBackend::MySql => pool_size,
-    };
     setup_with_database_url_and_pool_size(&database_url, pool_size).await
 }
 
@@ -1323,6 +1319,11 @@ async fn setup_with_database_url_and_pool_size(
     pool_size: u32,
 ) -> PrimaryAppState {
     init_test_process_state();
+    let pool_size = if database_url.starts_with("sqlite:") {
+        1
+    } else {
+        pool_size
+    };
     let db_cfg = aster_drive::config::DatabaseConfig {
         url: database_url.into(),
         pool_size,
