@@ -947,9 +947,21 @@ pub async fn mysql_empty_test_database_url() -> String {
 /// 默认使用内存 SQLite。若设置 `ASTER_TEST_DATABASE_BACKEND=postgres|mysql`，
 /// 会自动启动一个共享 testcontainers 容器，并为当前测试实例分配独立数据库。
 pub async fn setup() -> PrimaryAppState {
+    setup_with_pool_size(1).await
+}
+
+/// 构建一个干净的测试 PrimaryAppState，并为支持并发连接的数据库配置 writer pool。
+///
+/// SQLite 的生产连接适配器会固定为单 writer connection；PostgreSQL/MySQL 使用调用方
+/// 指定的连接数，以便集成测试覆盖真实并发事务。
+pub async fn setup_with_pool_size(pool_size: u32) -> PrimaryAppState {
     init_test_process_state();
     let database_url = resolve_test_database_url().await;
-    setup_with_database_url(&database_url).await
+    let pool_size = match configured_test_database_backend() {
+        TestDatabaseBackend::Sqlite => 1,
+        TestDatabaseBackend::Postgres | TestDatabaseBackend::MySql => pool_size,
+    };
+    setup_with_database_url_and_pool_size(&database_url, pool_size).await
 }
 
 /// 构建使用内存缓存的测试 PrimaryAppState。
@@ -1303,26 +1315,51 @@ async fn clone_mysql_schema_from_template(db: &sea_orm::DatabaseConnection) {
 
 /// 构建一个干净的测试 PrimaryAppState（指定数据库 URL）
 pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
+    setup_with_database_url_and_pool_size(database_url, 1).await
+}
+
+async fn setup_with_database_url_and_pool_size(
+    database_url: &str,
+    pool_size: u32,
+) -> PrimaryAppState {
     init_test_process_state();
     let db_cfg = aster_drive::config::DatabaseConfig {
+        url: database_url.into(),
+        pool_size,
+        retry_count: 0,
+    };
+    let schema_db_cfg = aster_drive::config::DatabaseConfig {
         url: database_url.into(),
         pool_size: 1,
         retry_count: 0,
     };
-    let db =
-        aster_drive::db::connect_with_metrics(&db_cfg, aster_drive_metrics::NoopMetrics::arc())
-            .await
-            .unwrap();
+    let schema_db = aster_drive::db::connect_with_metrics(
+        &schema_db_cfg,
+        aster_drive_metrics::NoopMetrics::arc(),
+    )
+    .await
+    .unwrap();
 
     // 跑迁移
     let used_mysql_schema_template = should_use_mysql_schema_template(database_url);
     if used_mysql_schema_template {
-        clone_mysql_schema_from_template(&db).await;
+        clone_mysql_schema_from_template(&schema_db).await;
     } else {
-        aster_drive_migration::Migrator::up(&db, None)
+        aster_drive_migration::Migrator::up(&schema_db, None)
             .await
             .unwrap();
     }
+    let db = if pool_size == 1 {
+        schema_db
+    } else {
+        schema_db
+            .close()
+            .await
+            .expect("schema setup connection should close before opening concurrent writer pool");
+        aster_drive::db::connect_with_metrics(&db_cfg, aster_drive_metrics::NoopMetrics::arc())
+            .await
+            .expect("concurrent test writer pool should connect")
+    };
     // 每个测试用独立临时目录避免并行竞争
     let test_dir = format!("/tmp/asterdrive-test-{}", uuid::Uuid::new_v4());
     let temp_dir = format!("{test_dir}/temp");

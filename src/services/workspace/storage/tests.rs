@@ -1311,7 +1311,7 @@ async fn empty_file_idempotency_replays_before_revalidating_changed_folder_state
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn empty_file_idempotency_serializes_concurrent_replays() {
+async fn empty_file_idempotency_replays_parallel_tasks_on_the_single_sqlite_writer() {
     let (state, _temp_root, policy, user) = build_test_state().await;
     replace_test_policy(&state, &policy, policy.clone()).await;
     let scope = WorkspaceStorageScope::Personal { user_id: user.id };

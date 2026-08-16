@@ -1337,6 +1337,13 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
     );
     assert!(
         storage_report
+            .missing_blob_objects
+            .iter()
+            .all(|issue| issue.blob_id != Some(virtual_empty.id)),
+        "virtual-empty blobs must not be audited as missing connector objects"
+    );
+    assert!(
+        storage_report
             .untracked_objects
             .iter()
             .any(|issue| issue.path == "stray/untracked.bin")

@@ -1917,6 +1917,91 @@ async fn test_create_empty_file_idempotency_header_replays_and_rejects_drift() {
 }
 
 #[actix_web::test]
+async fn test_create_empty_file_idempotency_concurrent_replays_across_connections() {
+    let state = common::setup_with_pool_size(8).await;
+    match state.writer_db().get_database_backend() {
+        sea_orm::DbBackend::Sqlite => {
+            eprintln!(
+                "skipping multi-connection create-empty replay coverage on SQLite's single-writer pool"
+            );
+            return;
+        }
+        sea_orm::DbBackend::Postgres => {
+            let pool = state.writer_db().get_postgres_connection_pool();
+            let first = pool
+                .acquire()
+                .await
+                .expect("first PostgreSQL writer connection should acquire");
+            let second = pool
+                .acquire()
+                .await
+                .expect("second PostgreSQL writer connection should acquire");
+            assert!(
+                pool.size() >= 2,
+                "concurrent replay coverage requires multiple PostgreSQL writer connections"
+            );
+            drop((first, second));
+        }
+        sea_orm::DbBackend::MySql => {
+            let pool = state.writer_db().get_mysql_connection_pool();
+            let first = pool
+                .acquire()
+                .await
+                .expect("first MySQL writer connection should acquire");
+            let second = pool
+                .acquire()
+                .await
+                .expect("second MySQL writer connection should acquire");
+            assert!(
+                pool.size() >= 2,
+                "concurrent replay coverage requires multiple MySQL writer connections"
+            );
+            drop((first, second));
+        }
+        backend => panic!("unsupported database backend for concurrent replay test: {backend:?}"),
+    }
+
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let requests = (0..8)
+        .map(|_| {
+            test::TestRequest::post()
+                .uri("/api/v1/files/new")
+                .insert_header(("Cookie", common::access_cookie_header(&token)))
+                .insert_header(common::csrf_header_for(&token))
+                .insert_header(("Idempotency-Key", "concurrent-stable-key"))
+                .set_json(serde_json::json!({
+                    "name": "concurrent-idempotent-empty.txt",
+                    "folder_id": null
+                }))
+                .to_request()
+        })
+        .collect::<Vec<_>>();
+    let responses = futures::future::join_all(
+        requests
+            .into_iter()
+            .map(|request| test::call_service(&app, request)),
+    )
+    .await;
+
+    let mut created = Vec::with_capacity(responses.len());
+    for response in responses {
+        assert_eq!(response.status(), StatusCode::CREATED);
+        created.push(test::read_body_json::<Value, _>(response).await);
+    }
+    assert!(
+        created
+            .iter()
+            .all(|body| body["data"]["id"] == created[0]["data"]["id"])
+    );
+    assert!(
+        created
+            .iter()
+            .all(|body| body["data"]["blob_id"] == created[0]["data"]["blob_id"])
+    );
+}
+
+#[actix_web::test]
 async fn test_create_empty_file_normalizes_nfd_and_rejects_windows_reserved_name() {
     let state = common::setup().await;
     let app = create_test_app!(state);
