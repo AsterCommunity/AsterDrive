@@ -18,7 +18,8 @@ import { adminSystemService } from "@/services/adminService";
 
 const REPOSITORY_URL = "https://github.com/AsterCommunity/AsterDrive";
 const DOCS_URL = "https://drive.astercosm.com/";
-const LICENSE_URL = `${REPOSITORY_URL}/blob/master/LICENSE`;
+const MIT_LICENSE_URL = `${REPOSITORY_URL}/blob/master/LICENSE-MIT`;
+const APACHE_LICENSE_URL = `${REPOSITORY_URL}/blob/master/LICENSE-APACHE`;
 const VERSION_EASTER_EGG_CLICKS = 5;
 const VERSION_EASTER_EGG_MESSAGES = [
 	"ESAP-TY-0001 initialized.",
@@ -272,9 +273,15 @@ export default function AdminAboutPage() {
 			icon: "Github",
 		},
 		{
-			href: LICENSE_URL,
-			label: t("about_view_license"),
-			description: t("about_view_license_desc"),
+			href: MIT_LICENSE_URL,
+			label: t("about_view_mit_license"),
+			description: t("about_view_mit_license_desc"),
+			icon: "Scale",
+		},
+		{
+			href: APACHE_LICENSE_URL,
+			label: t("about_view_apache_license"),
+			description: t("about_view_apache_license_desc"),
 			icon: "Scale",
 		},
 	];
@@ -322,7 +329,7 @@ export default function AdminAboutPage() {
 		},
 		{
 			label: t("about_license"),
-			value: "MIT",
+			value: "MIT OR Apache-2.0",
 			icon: "Scroll",
 		},
 		{

@@ -17,7 +17,7 @@ If this is your first self-hosted service, AsterDrive's default configuration ca
 
 If you already know Docker and reverse proxies, you can jump directly to [Deployment Overview](/en/deploy/).
 
-AsterDrive does not have a paid edition, Pro edition, or feature wall. Every feature is open source under the MIT license, and everyone gets the same capabilities. For the project's tradeoffs and future direction, read [About AsterDrive](/en/reference/about/).
+AsterDrive does not have a paid edition, Pro edition, or feature wall. Every feature is open source under the MIT or Apache 2.0 dual license, and everyone gets the same capabilities. For the project's tradeoffs and future direction, read [About AsterDrive](/en/reference/about/).
 
 Let's start.
 

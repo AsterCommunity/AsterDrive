@@ -133,4 +133,4 @@ See the [developer documentation](developer-docs/README.md) and
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under either the Apache License, Version 2.0 or the MIT license, at the recipient's option.

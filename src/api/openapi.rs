@@ -11,7 +11,7 @@ use utoipa::{Modify, OpenApi};
         title = "AsterDrive API",
         version = env!("CARGO_PKG_VERSION"),
         description = "Self-hosted cloud storage API",
-        license(name = "MIT"),
+        license(name = "MIT OR Apache 2.0"),
     ),
     modifiers(&SecurityAddon),
     paths(

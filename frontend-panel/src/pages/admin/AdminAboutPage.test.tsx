@@ -126,6 +126,19 @@ describe("AdminAboutPage", () => {
 		expect(
 			screen.getByRole("link", { name: /about_view_repository/i }),
 		).toHaveAttribute("href", "https://github.com/AsterCommunity/AsterDrive");
+		expect(
+			screen.getByRole("link", { name: /about_view_mit_license/i }),
+		).toHaveAttribute(
+			"href",
+			"https://github.com/AsterCommunity/AsterDrive/blob/master/LICENSE-MIT",
+		);
+		expect(
+			screen.getByRole("link", { name: /about_view_apache_license/i }),
+		).toHaveAttribute(
+			"href",
+			"https://github.com/AsterCommunity/AsterDrive/blob/master/LICENSE-APACHE",
+		);
+		expect(screen.getByText("MIT OR Apache-2.0")).toBeInTheDocument();
 	});
 
 	it("loads backend version and build time from admin system info", async () => {

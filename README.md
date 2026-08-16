@@ -8,7 +8,7 @@
 <p align="center">
   Self-hosted file infrastructure in Rust for small teams that need storage control, reliable large-file uploads, WebDAV/WOPI, and operations visibility without adopting a full private-cloud suite.
   <br />
-  Route files across local, S3-compatible, and remote-node backends with one MIT-licensed Rust + React service built for deployment, auditability, and modification.
+  Route files across local, S3-compatible, and remote-node backends with one dual-licensed Rust + React service built for deployment, auditability, and modification.
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@
 
 ## What is AsterDrive?
 
-AsterDrive is an MIT-licensed self-hosted file service for people who want control over where files live and how they move through the system. It is built around the core drive workflow: upload reliably, organize folders, recover mistakes, share access, connect WebDAV clients, open Office files through WOPI-compatible services, and route objects to the right storage backend.
+AsterDrive is a self-hosted file service, dual-licensed under MIT or Apache 2.0, for people who want control over where files live and how they move through the system. It is built around the core drive workflow: upload reliably, organize folders, recover mistakes, share access, connect WebDAV clients, open Office files through WOPI-compatible services, and route objects to the right storage backend.
 
 It is not trying to become a full private-cloud suite. AsterDrive focuses on file infrastructure: storage policies, large-file upload paths, team and personal workspaces, sharing, version history, WebDAV, WOPI, auditability, and deployment/operations tooling.
 
@@ -252,4 +252,9 @@ tests/                           Integration tests
 
 ## License
 
-[MIT](LICENSE) - Copyright (c) 2026 AsterCommunity & AptS-1547
+Licensed under either of:
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option. Copyright (c) 2026 AsterCommunity & AptS-1547.

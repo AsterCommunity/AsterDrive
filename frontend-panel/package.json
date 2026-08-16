@@ -1,10 +1,10 @@
 {
 	"name": "asterdrive-panel",
 	"private": true,
-	"version": "0.4.0",
+	"version": "0.5.0-rc.1",
 	"author": "AptS:1547 <apts-1547@esaps.net>",
 	"description": "The web-based control panel for AsterDrive",
-	"license": "MIT",
+	"license": "MIT OR Apache-2.0",
 	"type": "module",
 	"scripts": {
 		"extract:pdfjs-cmaps": "node ./scripts/extract-pdfjs-cmaps.mjs",

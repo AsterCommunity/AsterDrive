@@ -17,7 +17,7 @@ title: "快速开始"
 
 如果你已经熟悉 Docker、反向代理这些，可以直接跳到 [部署概览](/deploy/)。
 
-AsterDrive 不会有付费版、Pro 版或功能墙——所有功能在 MIT 协议下开源，每个人能用到的东西完全一样。关于这个项目的取舍和后续路线，可以看 [关于 AsterDrive](/reference/about/)。
+AsterDrive 不会有付费版、Pro 版或功能墙——所有功能均以 MIT 或 Apache 2.0 双许可证开源，每个人能用到的东西完全一样。关于这个项目的取舍和后续路线，可以看 [关于 AsterDrive](/reference/about/)。
 
 来吧，开始。
 

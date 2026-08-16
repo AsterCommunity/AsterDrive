@@ -8,7 +8,7 @@
 <p align="center">
   面向小团队的 Rust 自托管文件基础设施：在不引入完整私有云套件的前提下，提供存储控制、可靠大文件上传、WebDAV/WOPI 和运维可观测性。
   <br />
-  用一个 MIT 协议的 Rust + React 服务，把文件路由到本地、S3 兼容存储或远程节点，并保留清晰的部署、审计和二开边界。
+  用一个采用双许可证的 Rust + React 服务，把文件路由到本地、S3 兼容存储或远程节点，并保留清晰的部署、审计和二开边界。
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@
 
 ## AsterDrive 是什么？
 
-AsterDrive 是一个 MIT 协议的自托管文件服务，适合想掌控文件存放位置、传输路径和运维边界的人。它围绕云盘最核心的工作流设计：可靠上传、整理文件夹、误删恢复、分享访问、接入 WebDAV 客户端、通过 WOPI 兼容服务打开 Office 文件，并把对象路由到合适的存储后端。
+AsterDrive 是一个采用 MIT 或 Apache 2.0 双许可证的自托管文件服务，适合想掌控文件存放位置、传输路径和运维边界的人。它围绕云盘最核心的工作流设计：可靠上传、整理文件夹、误删恢复、分享访问、接入 WebDAV 客户端、通过 WOPI 兼容服务打开 Office 文件，并把对象路由到合适的存储后端。
 
 相比起实现完整的私有云套件，AsterDrive 更关注文件基础设施：存储策略、大文件上传路径、个人和团队空间、分享、版本历史、WebDAV、WOPI、审计能力，以及部署和运维工具。
 
@@ -249,4 +249,9 @@ tests/                           集成测试
 
 ## 许可证
 
-[MIT](LICENSE) - Copyright (c) 2026 AsterCommunity & AptS-1547
+可任选以下一种许可证使用：
+
+- Apache License, Version 2.0（[LICENSE-APACHE](LICENSE-APACHE)）
+- MIT license（[LICENSE-MIT](LICENSE-MIT)）
+
+Copyright (c) 2026 AsterCommunity & AptS-1547。

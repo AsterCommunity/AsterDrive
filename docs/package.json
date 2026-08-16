@@ -28,5 +28,5 @@
     "mermaid": "^11.16.1",
     "playwright": "^1.62.1"
   },
-  "license": "MIT"
+  "license": "MIT OR Apache-2.0"
 }
