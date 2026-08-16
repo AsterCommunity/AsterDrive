@@ -141,10 +141,10 @@ cargo nextest run --profile external --test webdav litmus_compliance::test_litmu
   --ignored \
   --skip resource_litmus:: \
   --skip security_policy_litmus:: \
-  --nocapture --test-threads=1
+  --nocapture
 ```
 
-`--test-threads=1` is required. Each group starts an independent local HTTP server, creates temporary WebDAV credentials, and uses its own working directory. Serial execution keeps output and artifact ownership deterministic.
+The `external` nextest profile fixes test concurrency at one worker. Each group starts an independent local HTTP server, creates temporary WebDAV credentials, and uses its own working directory. Serial execution keeps output and artifact ownership deterministic.
 
 To reproduce one group, place the Rust test name before `--`:
 
@@ -152,7 +152,7 @@ To reproduce one group, place the Rust test name before `--`:
 LITMUS_BIN="$HOME/.local/webdav-compat/bin/litmus" \
 ASTER_WEBDAV_COMPAT_ARTIFACT_DIR="$PWD/artifacts/webdav-local" \
 cargo nextest run --profile external --test webdav litmus_compliance::test_litmus_basic -- \
-  --ignored --nocapture --test-threads=1
+  --ignored --nocapture
 ```
 
 Available test names:
@@ -180,10 +180,10 @@ LITMUS_BIN="$HOME/.local/webdav-compat/bin/litmus" \
 ASTER_WEBDAV_COMPAT_ARTIFACT_DIR="$PWD/artifacts/webdav-local" \
 cargo nextest run --profile external --test webdav \
   litmus_compliance::resource_litmus::test_litmus_largefile -- \
-  --ignored --nocapture --test-threads=1
+  --ignored --nocapture
 ```
 
-Use `litmus_compliance::resource_litmus::` as the filter to run all three resource-intensive suites. `largefile` transfers about 2 GiB and has a 30-minute timeout. `lockbomb` runs 20 threads with 20,000 LOCK/UNLOCK iterations per thread and has a two-hour timeout. `lockbomb-single` runs 20,000 iterations in one thread and has a one-hour timeout. Reserve sufficient temporary-storage, database, and artifact capacity before running them, and keep `--test-threads=1`.
+Use `litmus_compliance::resource_litmus::` as the filter to run all three resource-intensive suites. `largefile` transfers about 2 GiB and has a 30-minute timeout. `lockbomb` runs 20 threads with 20,000 LOCK/UNLOCK iterations per thread and has a two-hour timeout. `lockbomb-single` runs 20,000 iterations in one thread and has a one-hour timeout. Reserve sufficient temporary-storage, database, and artifact capacity before running them, and keep the `external` profile's one-worker setting.
 
 The `protected` security-policy probe lives in `tests/webdav/litmus/security_policy.rs`. It pins both the 25-case count and `TEST_PROTECTED=.DAV`, so the namespace under test does not silently vary with the caller's environment:
 
@@ -192,7 +192,7 @@ LITMUS_BIN="$HOME/.local/webdav-compat/bin/litmus" \
 ASTER_WEBDAV_COMPAT_ARTIFACT_DIR="$PWD/artifacts/webdav-local" \
 cargo nextest run --profile external --test webdav \
   litmus_compliance::security_policy_litmus::test_litmus_protected -- \
-  --ignored --nocapture --test-threads=1
+  --ignored --nocapture
 ```
 
 This command observes the difference between the current architecture and a server-reserved `.DAV` metadata-directory model. The current product decision is to keep `.DAV` available as an ordinary user directory and to omit these 15 model differences from the RFC known-difference baseline. AsterDrive's native protocol tests remain authoritative for blocking ordinary operating-system metadata names. Revisit the decision if the property-storage architecture changes.
@@ -349,20 +349,20 @@ Once the required clients are available locally, run:
 
 ```bash
 cargo nextest run --profile external --test webdav client_e2e:: -- \
-  --ignored --nocapture --test-threads=1
+  --ignored --nocapture
 ```
 
 Run one client family:
 
 ```bash
 cargo nextest run --profile external --test webdav client_e2e::webdav_rclone -- \
-  --ignored --nocapture --test-threads=1
+  --ignored --nocapture
 
 cargo nextest run --profile external --test webdav client_e2e::webdav_curl -- \
-  --ignored --nocapture --test-threads=1
+  --ignored --nocapture
 
 cargo nextest run --profile external --test webdav client_e2e::webdav_cadaver -- \
-  --ignored --nocapture --test-threads=1
+  --ignored --nocapture
 ```
 
 When local versions differ from the CI-pinned versions, use local results for fast diagnosis and the pinned CI job for the final compatibility result.

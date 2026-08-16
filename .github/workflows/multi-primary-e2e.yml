@@ -82,5 +82,4 @@ jobs:
           ${{ matrix.filter }}
           --
           --ignored
-          --test-threads=1
           --nocapture

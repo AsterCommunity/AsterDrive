@@ -79,7 +79,7 @@ jobs:
             --ignored \
             --skip resource_litmus:: \
             --skip security_policy_litmus:: \
-            --nocapture --test-threads=1 \
+            --nocapture \
             2>&1 | tee artifacts/litmus-baseline-test.log
 
       - name: Upload Litmus results and request logs
@@ -124,20 +124,20 @@ jobs:
             resource)
               cargo nextest run --profile external --test webdav \
                 litmus_compliance::resource_litmus::test_litmus_largefile -- \
-                --ignored --exact --nocapture --test-threads=1
+                --ignored --exact --nocapture
               cargo nextest run --profile external --test webdav \
                 litmus_compliance::resource_litmus::test_litmus_lockbomb_single -- \
-                --ignored --exact --nocapture --test-threads=1
+                --ignored --exact --nocapture
               ;;
             lockbomb)
               cargo nextest run --profile external --test webdav \
                 litmus_compliance::resource_litmus::test_litmus_lockbomb -- \
-                --ignored --exact --nocapture --test-threads=1
+                --ignored --exact --nocapture
               ;;
             protected)
               cargo nextest run --profile external --test webdav \
                 litmus_compliance::security_policy_litmus::test_litmus_protected -- \
-                --ignored --exact --nocapture --test-threads=1
+                --ignored --exact --nocapture
               ;;
             *)
               echo "unknown Litmus suite: ${{ matrix.suite }}" >&2
@@ -212,7 +212,7 @@ jobs:
         run: |
           set -o pipefail
           cargo nextest run --profile external --test webdav client_e2e:: -- \
-            --ignored --nocapture --test-threads=1 \
+            --ignored --nocapture \
             2>&1 | tee artifacts/external-client-tests.log
 
       - name: Upload external-client results

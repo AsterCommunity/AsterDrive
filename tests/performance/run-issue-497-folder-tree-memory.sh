@@ -42,8 +42,7 @@ run_scenario() {
       -- \
       --ignored \
       --exact measure_folder_delete_restore_memory \
-      --nocapture \
-      --test-threads=1 2>&1 | tee "${log_path}"
+      --nocapture 2>&1 | tee "${log_path}"
 
   if [[ "${ASTER_ISSUE497_KEEP_DATABASES:-0}" != "1" ]]; then
     rm -f \

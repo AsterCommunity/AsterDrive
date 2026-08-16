@@ -138,10 +138,10 @@ cargo nextest run --profile external --test webdav litmus_compliance::test_litmu
   --ignored \
   --skip resource_litmus:: \
   --skip security_policy_litmus:: \
-  --nocapture --test-threads=1
+  --nocapture
 ```
 
-`--test-threads=1` 是固定要求。每个分组都会启动独立的本地 HTTP 服务、创建临时 WebDAV 用户和账号，并使用自己的工作目录；串行执行可以让输出和产物归属保持清楚。
+`external` nextest profile 固定使用一个 test worker。每个分组都会启动独立的本地 HTTP 服务、创建临时 WebDAV 用户和账号，并使用自己的工作目录；串行执行可以让输出和产物归属保持清楚。
 
 只复现一个分组时，把测试名放在 `--` 之前：
 
@@ -149,7 +149,7 @@ cargo nextest run --profile external --test webdav litmus_compliance::test_litmu
 LITMUS_BIN="$HOME/.local/webdav-compat/bin/litmus" \
 ASTER_WEBDAV_COMPAT_ARTIFACT_DIR="$PWD/artifacts/webdav-local" \
 cargo nextest run --profile external --test webdav litmus_compliance::test_litmus_basic -- \
-  --ignored --nocapture --test-threads=1
+  --ignored --nocapture
 ```
 
 可用测试名：
@@ -177,10 +177,10 @@ LITMUS_BIN="$HOME/.local/webdav-compat/bin/litmus" \
 ASTER_WEBDAV_COMPAT_ARTIFACT_DIR="$PWD/artifacts/webdav-local" \
 cargo nextest run --profile external --test webdav \
   litmus_compliance::resource_litmus::test_litmus_largefile -- \
-  --ignored --nocapture --test-threads=1
+  --ignored --nocapture
 ```
 
-三个资源密集型套件一起运行时，可以把过滤器缩短为 `litmus_compliance::resource_litmus::`。`largefile` 传输约 2 GiB，超时为 30 分钟；`lockbomb` 使用 20 个线程、每个线程执行 20,000 次 LOCK/UNLOCK，超时为 2 小时；`lockbomb-single` 单线程执行 20,000 次，超时为 1 小时。运行前应为临时存储、数据库和产物目录预留足够空间，并继续保持 `--test-threads=1`。
+三个资源密集型套件一起运行时，可以把过滤器缩短为 `litmus_compliance::resource_litmus::`。`largefile` 传输约 2 GiB，超时为 30 分钟；`lockbomb` 使用 20 个线程、每个线程执行 20,000 次 LOCK/UNLOCK，超时为 2 小时；`lockbomb-single` 单线程执行 20,000 次，超时为 1 小时。运行前应为临时存储、数据库和产物目录预留足够空间，并保持 `external` profile 的单 worker 设置。
 
 `protected` 安全策略探针放在 `tests/webdav/litmus/security_policy.rs`，固定 25 个用例和 `TEST_PROTECTED=.DAV`，避免调用方环境静默改变被测命名空间：
 
@@ -189,7 +189,7 @@ LITMUS_BIN="$HOME/.local/webdav-compat/bin/litmus" \
 ASTER_WEBDAV_COMPAT_ARTIFACT_DIR="$PWD/artifacts/webdav-local" \
 cargo nextest run --profile external --test webdav \
   litmus_compliance::security_policy_litmus::test_litmus_protected -- \
-  --ignored --nocapture --test-threads=1
+  --ignored --nocapture
 ```
 
 该命令用于观察当前架构与“服务器保留 `.DAV` 元数据目录”模型的差异。当前产品决定是不建立服务器专用 `.DAV` 目录，也不为这 15 项模型差异创建 RFC known-difference baseline；普通系统垃圾文件名的写入拦截继续由 AsterDrive 原生协议测试覆盖。若未来属性存储架构发生变化，再重新审查该决定。
@@ -346,20 +346,20 @@ CI 使用 `scripts/ci/webdav-compat/install-clients.sh` 安装固定版本。这
 
 ```bash
 cargo nextest run --profile external --test webdav client_e2e:: -- \
-  --ignored --nocapture --test-threads=1
+  --ignored --nocapture
 ```
 
 只跑某个客户端：
 
 ```bash
 cargo nextest run --profile external --test webdav client_e2e::webdav_rclone -- \
-  --ignored --nocapture --test-threads=1
+  --ignored --nocapture
 
 cargo nextest run --profile external --test webdav client_e2e::webdav_curl -- \
-  --ignored --nocapture --test-threads=1
+  --ignored --nocapture
 
 cargo nextest run --profile external --test webdav client_e2e::webdav_cadaver -- \
-  --ignored --nocapture --test-threads=1
+  --ignored --nocapture
 ```
 
 本地工具版本和 CI 固定版本不一致时，本地结果用于快速定位，最终兼容性结论以固定版本 CI 为准。
