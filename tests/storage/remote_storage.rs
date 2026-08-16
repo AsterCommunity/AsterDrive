@@ -3114,7 +3114,12 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
         .expect("uploaded blob should be queryable");
 
     assert!(created_blob.hash.starts_with("remote-"));
-    assert!(created_blob.storage_path.starts_with("files/"));
+    assert!(
+        created_blob
+            .storage_path_for_connector()
+            .expect("stored blob path")
+            .starts_with("files/")
+    );
 
     let remote_driver = consumer_state
         .driver_registry
@@ -3122,7 +3127,11 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
         .expect("remote policy driver should resolve");
     assert!(
         remote_driver
-            .exists(&created_blob.storage_path)
+            .exists(
+                created_blob
+                    .storage_path_for_connector()
+                    .expect("stored blob path")
+            )
             .await
             .expect("remote HEAD should succeed")
     );
@@ -3135,7 +3144,11 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
         .await
         .expect("remote list should succeed");
     assert!(
-        listed_paths.contains(&created_blob.storage_path),
+        listed_paths.iter().any(|path| {
+            path == created_blob
+                .storage_path_for_connector()
+                .expect("stored blob path")
+        }),
         "remote list should include uploaded blob path"
     );
 
@@ -3144,7 +3157,9 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
         &provider_binding.access_key,
         &provider_binding.storage_namespace,
         &common::remote_policy_config(&remote_policy).base_path,
-        &created_blob.storage_path,
+        created_blob
+            .storage_path_for_connector()
+            .expect("stored blob path"),
     );
     let provider_uploaded_bytes = tokio::fs::read(&provider_uploaded_path)
         .await
@@ -3168,7 +3183,11 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
 
     assert!(
         !remote_driver
-            .exists(&created_blob.storage_path)
+            .exists(
+                created_blob
+                    .storage_path_for_connector()
+                    .expect("stored blob path")
+            )
             .await
             .expect("remote HEAD after purge should succeed")
     );
@@ -3201,33 +3220,23 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
         .await
         .expect("empty remote blob should exist");
 
-    assert!(empty_blob.hash.starts_with("remote-"));
-    assert!(empty_blob.storage_path.starts_with("files/"));
-    assert!(
-        remote_driver
-            .exists(&empty_blob.storage_path)
-            .await
-            .expect("remote HEAD for empty blob should succeed")
-    );
-
-    let provider_empty_path = managed_ingress_object_path(
-        &provider_state,
-        &provider_binding.access_key,
-        &provider_binding.storage_namespace,
-        &common::remote_policy_config(&remote_policy).base_path,
-        &empty_blob.storage_path,
-    );
-    let empty_meta = tokio::fs::metadata(&provider_empty_path)
-        .await
-        .expect("provider-side empty object should exist");
-    assert_eq!(empty_meta.len(), 0);
+    assert!(empty_blob.is_virtual_empty());
+    assert_eq!(empty_blob.storage_path, None);
+    assert_eq!(empty_blob.size, 0);
 
     file::purge(&consumer_state, empty_file.id, user.id)
         .await
         .expect("empty remote file purge should succeed");
     assert!(
-        tokio::fs::metadata(&provider_empty_path).await.is_err(),
-        "provider-side empty object should be deleted after purge"
+        remote_driver
+            .extensions()
+            .list
+            .expect("remote driver should support list")
+            .list_paths(None)
+            .await
+            .expect("remote list after empty-file purge should succeed")
+            .is_empty(),
+        "metadata-only empty create and purge must not leave a connector object"
     );
 
     provider_server.stop().await;
@@ -5652,7 +5661,8 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
         .await
         .expect("uploaded blob should be queryable");
     assert_ne!(
-        created_blob.storage_path, temp_key,
+        created_blob.storage_path.as_deref(),
+        Some(temp_key.as_str()),
         "completed remote presigned uploads must be copied away from the still-valid PUT key"
     );
     assert!(
@@ -5672,7 +5682,9 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
         &consumer_node_model.access_key,
         &provider_binding.storage_namespace,
         &common::remote_policy_config(&remote_policy).base_path,
-        &created_blob.storage_path,
+        created_blob
+            .storage_path_for_connector()
+            .expect("stored blob path"),
     );
     let stored = tokio::fs::read(&stored_path)
         .await
@@ -5997,14 +6009,21 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
         .await
         .expect("uploaded blob should be queryable");
     assert!(created_blob.hash.starts_with("remote-"));
-    assert!(created_blob.storage_path.starts_with("files/"));
+    assert!(
+        created_blob
+            .storage_path_for_connector()
+            .expect("stored blob path")
+            .starts_with("files/")
+    );
 
     let provider_path = managed_ingress_object_path(
         &provider_state,
         &consumer_node_model.access_key,
         &provider_binding.storage_namespace,
         &common::remote_policy_config(&remote_policy).base_path,
-        &created_blob.storage_path,
+        created_blob
+            .storage_path_for_connector()
+            .expect("stored blob path"),
     );
     let stored = tokio::fs::read(&provider_path)
         .await
@@ -6800,14 +6819,19 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
     let created_blob = file_repo::find_blob_by_id(consumer_state.writer_db(), created_file.blob_id)
         .await
         .expect("uploaded blob should be queryable");
-    assert_eq!(created_blob.storage_path, format!("files/{upload_id}"));
+    assert_eq!(
+        created_blob.storage_path,
+        Some(format!("files/{upload_id}"))
+    );
 
     let stored_path = managed_ingress_object_path(
         &provider_state,
         &consumer_node_model.access_key,
         &provider_binding.storage_namespace,
         &common::remote_policy_config(&remote_policy).base_path,
-        &created_blob.storage_path,
+        created_blob
+            .storage_path_for_connector()
+            .expect("stored blob path"),
     );
     let stored = tokio::fs::read(&stored_path)
         .await
@@ -7596,7 +7620,9 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
         &consumer_node_model.access_key,
         &provider_binding.storage_namespace,
         &common::remote_policy_config(&remote_policy).base_path,
-        &created_blob.storage_path,
+        created_blob
+            .storage_path_for_connector()
+            .expect("stored blob path"),
     );
     let stored = tokio::fs::read(&stored_path)
         .await

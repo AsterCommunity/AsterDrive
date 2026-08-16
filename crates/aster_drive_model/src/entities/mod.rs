@@ -12,6 +12,7 @@ pub mod external_auth_login_flow;
 pub mod external_auth_provider;
 pub mod file;
 pub mod file_blob;
+pub mod file_create_idempotency;
 pub mod file_revision;
 pub mod file_revision_history;
 pub mod file_revision_property;

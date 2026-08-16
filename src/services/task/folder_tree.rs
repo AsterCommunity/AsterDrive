@@ -1962,7 +1962,7 @@ mod tests {
             hash: Set(format!("folder-tree-memory-blob-{child_count}")),
             size: Set(0),
             policy_id: Set(policy.id),
-            storage_path: Set(format!("folder-tree-memory-blob-{child_count}")),
+            storage_path: Set(Some(format!("folder-tree-memory-blob-{child_count}"))),
             ref_count: Set(1),
             created_at: Set(now),
             updated_at: Set(now),

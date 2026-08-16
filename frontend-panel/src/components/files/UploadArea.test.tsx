@@ -20,6 +20,7 @@ const createFileService = vi.fn(() => ({ createEmptyFile }));
 const getProgress = vi.fn();
 const initUpload = vi.fn();
 const listRecoverableSessions = vi.fn();
+const loadPendingEmptyFiles = vi.fn(() => []);
 const loadSessions = vi.fn(() => []);
 const presignedUpload = vi.fn();
 const presignParts = vi.fn();
@@ -27,6 +28,8 @@ const refresh = vi.fn().mockResolvedValue(undefined);
 const refreshToken = vi.fn().mockResolvedValue(undefined);
 const refreshUser = vi.fn().mockResolvedValue(undefined);
 const removeSession = vi.fn();
+const removePendingEmptyFile = vi.fn();
+const savePendingEmptyFiles = vi.fn();
 const saveSession = vi.fn();
 const uploadChunk = vi.fn();
 const uploadPanelSpy = vi.fn();
@@ -174,8 +177,11 @@ vi.mock("@/stores/authStore", () => ({
 
 vi.mock("@/lib/uploadPersistence", () => ({
 	appendCompletedPart,
+	loadPendingEmptyFiles,
 	loadSessions,
+	removePendingEmptyFile,
 	removeSession,
+	savePendingEmptyFiles,
 	saveSession,
 }));
 
@@ -313,6 +319,10 @@ describe("UploadArea", () => {
 		listRecoverableSessions.mockResolvedValue([]);
 		loadSessions.mockReset();
 		loadSessions.mockReturnValue([]);
+		loadPendingEmptyFiles.mockReset();
+		loadPendingEmptyFiles.mockReturnValue([]);
+		removePendingEmptyFile.mockReset();
+		savePendingEmptyFiles.mockReset();
 		presignedUpload.mockReset();
 		presignParts.mockReset();
 		refresh.mockReset();
@@ -405,7 +415,16 @@ describe("UploadArea", () => {
 		await screen.findByText("empty.txt:Direct:files:upload_success");
 		expect(createEmptyFile).toHaveBeenCalledWith("empty.txt", 42, undefined, {
 			signal: expect.any(AbortSignal),
+			idempotencyKey: expect.stringMatching(/^empty-upload:/),
 		});
+		expect(savePendingEmptyFiles).toHaveBeenCalledWith([
+			expect.objectContaining({
+				filename: "empty.txt",
+				idempotencyKey: expect.stringMatching(/^empty-upload:/),
+				workspace: { kind: "personal" },
+			}),
+		]);
+		expect(removePendingEmptyFile).toHaveBeenCalledTimes(1);
 		expect(initUpload).not.toHaveBeenCalled();
 		expect(apiClientPost).not.toHaveBeenCalled();
 		expect(uploadChunk).not.toHaveBeenCalled();
@@ -457,7 +476,10 @@ describe("UploadArea", () => {
 			"team-empty.txt",
 			42,
 			undefined,
-			{ signal: expect.any(AbortSignal) },
+			{
+				signal: expect.any(AbortSignal),
+				idempotencyKey: expect.stringMatching(/^empty-upload:/),
+			},
 		);
 		expect(initUpload).not.toHaveBeenCalled();
 	});
@@ -502,7 +524,10 @@ describe("UploadArea", () => {
 			"empty.txt",
 			42,
 			"docs/empty.txt",
-			{ signal: expect.any(AbortSignal) },
+			{
+				signal: expect.any(AbortSignal),
+				idempotencyKey: expect.stringMatching(/^empty-upload:/),
+			},
 		);
 		expect(initUpload).toHaveBeenCalledTimes(1);
 		expect(initUpload).toHaveBeenCalledWith(
@@ -749,6 +774,36 @@ describe("UploadArea", () => {
 		await screen.findByText("server.bin:Chunked:files:upload_pending_file");
 		expect(listRecoverableSessions).toHaveBeenCalledTimes(1);
 		expect(getProgress).not.toHaveBeenCalled();
+	});
+
+	it("replays a persisted empty-file create with its original key after reload", async () => {
+		loadPendingEmptyFiles.mockReturnValue([
+			{
+				taskId: "restored-empty-task",
+				idempotencyKey: "restored-empty-key",
+				filename: "restored-empty.txt",
+				baseFolderId: 42,
+				baseFolderName: "Projects",
+				relativePath: "nested/restored-empty.txt",
+				savedAt: Date.now(),
+				workspace: { kind: "personal" },
+			},
+		]);
+		createEmptyFile.mockResolvedValue({ id: 2001 });
+
+		await renderUploadAreaWithRestoreTimer();
+		await screen.findByText("restored-empty.txt:Direct:files:upload_success");
+		expect(createEmptyFile).toHaveBeenCalledWith(
+			"restored-empty.txt",
+			42,
+			"nested/restored-empty.txt",
+			{
+				signal: expect.any(AbortSignal),
+				idempotencyKey: "restored-empty-key",
+			},
+		);
+		expect(removePendingEmptyFile).toHaveBeenCalledWith("restored-empty-task");
+		expect(savePendingEmptyFiles).not.toHaveBeenCalled();
 	});
 
 	it("removes a local terminal session when the backend no longer recovers it", async () => {

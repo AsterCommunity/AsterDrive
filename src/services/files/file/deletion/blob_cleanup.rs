@@ -146,6 +146,33 @@ where
         }
     }
 
+    if current_blob.is_virtual_empty() {
+        return match file_repo::delete_blob_if_cleanup_claimed(state.writer_db(), current_blob.id)
+            .await
+        {
+            Ok(deleted) => deleted,
+            Err(error) => {
+                tracing::warn!(
+                    blob_id = current_blob.id,
+                    "failed to delete virtual-empty blob metadata: {error}"
+                );
+                restore_cleanup_claim(
+                    state,
+                    current_blob.id,
+                    "virtual-empty metadata delete error",
+                )
+                .await;
+                false
+            }
+        };
+    }
+
+    let Some(storage_path) = current_blob.storage_path_for_connector() else {
+        tracing::warn!(blob_id = current_blob.id, backing = ?current_blob.backing, "stored blob has no connector storage path");
+        restore_cleanup_claim(state, current_blob.id, "stored blob missing storage path").await;
+        return false;
+    };
+
     let Some(policy) = state.policy_snapshot().get_policy(current_blob.policy_id) else {
         tracing::warn!(
             blob_id = current_blob.id,
@@ -184,13 +211,13 @@ where
         return false;
     }
 
-    let object_deleted = match driver.delete(&current_blob.storage_path).await {
+    let object_deleted = match driver.delete(storage_path).await {
         Ok(()) => true,
-        Err(error) => match driver.exists(&current_blob.storage_path).await {
+        Err(error) => match driver.exists(storage_path).await {
             Ok(false) => {
                 tracing::warn!(
                     blob_id = current_blob.id,
-                    path = %current_blob.storage_path,
+                    path = %storage_path,
                     "blob delete returned error but object is already absent: {error}"
                 );
                 true
@@ -198,7 +225,7 @@ where
             Ok(true) => {
                 tracing::warn!(
                     blob_id = current_blob.id,
-                    path = %current_blob.storage_path,
+                    path = %storage_path,
                     "failed to delete blob object, keeping blob row for retry: {error}"
                 );
                 restore_cleanup_claim(state, current_blob.id, "delete error").await;
@@ -207,7 +234,7 @@ where
             Err(exists_error) => {
                 tracing::warn!(
                     blob_id = current_blob.id,
-                    path = %current_blob.storage_path,
+                    path = %storage_path,
                     "failed to delete blob object and verify existence, keeping blob row for retry: delete_error={error}, exists_error={exists_error}"
                 );
                 restore_cleanup_claim(state, current_blob.id, "delete verification error").await;

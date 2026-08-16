@@ -1,5 +1,6 @@
 //! SeaORM 实体定义：`file_blob`。
 
+use crate::types::file_blob::FileBlobBacking;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +12,8 @@ pub struct Model {
     pub hash: String, // sha256 or synthetic blob key
     pub size: i64,
     pub policy_id: i64,
-    pub storage_path: String,
+    pub storage_path: Option<String>,
+    pub backing: FileBlobBacking,
     pub thumbnail_path: Option<String>,
     pub thumbnail_processor: Option<String>,
     pub thumbnail_version: Option<String>,
@@ -45,3 +47,48 @@ impl Related<super::file::Entity> for Entity {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+impl Model {
+    pub const EMPTY_SHA256: &'static str =
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+    pub fn validate_backing(&self) -> Result<(), &'static str> {
+        Self::validate_backing_fields(
+            self.backing,
+            self.storage_path.as_deref(),
+            self.size,
+            &self.hash,
+        )
+    }
+
+    pub fn validate_backing_fields(
+        backing: FileBlobBacking,
+        storage_path: Option<&str>,
+        size: i64,
+        hash: &str,
+    ) -> Result<(), &'static str> {
+        match backing {
+            FileBlobBacking::Stored if storage_path.is_some() => Ok(()),
+            FileBlobBacking::Stored => Err("stored blob is missing storage_path"),
+            FileBlobBacking::VirtualEmpty
+                if storage_path.is_none() && size == 0 && hash == Self::EMPTY_SHA256 =>
+            {
+                Ok(())
+            }
+            FileBlobBacking::VirtualEmpty => Err(
+                "virtual_empty blob must have zero size, canonical empty SHA-256, and no storage_path",
+            ),
+        }
+    }
+
+    pub fn storage_path_for_connector(&self) -> Option<&str> {
+        self.backing
+            .has_connector_object()
+            .then_some(self.storage_path.as_deref())
+            .flatten()
+    }
+
+    pub fn is_virtual_empty(&self) -> bool {
+        self.backing == FileBlobBacking::VirtualEmpty
+    }
+}

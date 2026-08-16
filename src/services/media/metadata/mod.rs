@@ -253,6 +253,9 @@ async fn try_extract_storage_native_metadata(
     source_mime_type: &str,
     kind: MediaMetadataKind,
 ) -> Result<Option<ExtractedMediaMetadata>> {
+    if blob.is_virtual_empty() {
+        return Ok(None);
+    }
     if kind == MediaMetadataKind::Image {
         return Ok(None);
     }
@@ -277,7 +280,15 @@ async fn try_extract_storage_native_metadata(
     };
     let Some(result) = native
         .get_native_media_metadata(&aster_drive_storage::NativeMediaMetadataRequest {
-            storage_path: blob.storage_path.clone(),
+            storage_path: blob
+                .storage_path_for_connector()
+                .ok_or_else(|| {
+                    AsterError::internal_error(format!(
+                        "stored blob #{} is missing storage_path",
+                        blob.id
+                    ))
+                })?
+                .to_string(),
             source_file_name: source_file_name.to_string(),
             source_mime_type: source_mime_type.to_string(),
             kind,

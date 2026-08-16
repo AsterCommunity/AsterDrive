@@ -65,6 +65,7 @@ const COPY_TABLE_ORDER: &[&str] = &[
     "file_blobs",
     "blob_media_metadata",
     "files",
+    "file_create_idempotencies",
     "file_revision_histories",
     "file_revisions",
     "file_revision_properties",

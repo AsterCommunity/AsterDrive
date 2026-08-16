@@ -233,7 +233,7 @@ async fn create_blob(
         hash: Set(format!("blob-{}", uuid::Uuid::new_v4())),
         size: Set(size),
         policy_id: Set(policy_id),
-        storage_path: Set(storage_path.to_string()),
+        storage_path: Set(Some(storage_path.to_string())),
         thumbnail_path: Set(None),
         thumbnail_processor: Set(None),
         thumbnail_version: Set(None),
@@ -301,14 +301,14 @@ async fn set_user_storage_used(
 async fn ensure_blob_cleanup_if_unreferenced_deletes_zero_ref_blob() {
     let (state, _user, policy, driver) = build_deletion_test_state().await;
     let blob = create_blob(state.writer_db(), policy.id, "files/orphan.bin", 7, 0).await;
-    driver.insert_object(&blob.storage_path);
+    driver.insert_object(blob.storage_path.as_deref().expect("stored fixture path"));
 
     let cleaned = ensure_blob_cleanup_if_unreferenced(&state, blob.id).await;
 
     assert!(cleaned, "zero-ref blob should be cleaned");
     assert_eq!(driver.delete_calls(), 1, "object delete should run once");
     assert!(
-        !driver.contains(&blob.storage_path),
+        !driver.contains(blob.storage_path.as_deref().expect("stored fixture path")),
         "blob object should be removed from the mock driver"
     );
     assert!(
@@ -322,10 +322,45 @@ async fn ensure_blob_cleanup_if_unreferenced_deletes_zero_ref_blob() {
 }
 
 #[tokio::test]
+async fn ensure_blob_cleanup_if_unreferenced_deletes_virtual_empty_metadata_only() {
+    let (state, _user, policy, driver) = build_deletion_test_state().await;
+    let now = Utc::now();
+    let blob = file_blob::ActiveModel {
+        hash: Set(file_blob::Model::EMPTY_SHA256.to_string()),
+        size: Set(0),
+        policy_id: Set(policy.id),
+        storage_path: Set(None),
+        backing: Set(aster_drive_model::types::file_blob::FileBlobBacking::VirtualEmpty),
+        thumbnail_path: Set(None),
+        thumbnail_processor: Set(None),
+        thumbnail_version: Set(None),
+        ref_count: Set(0),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("virtual empty test blob should insert");
+
+    let cleaned = ensure_blob_cleanup_if_unreferenced(&state, blob.id).await;
+
+    assert!(cleaned);
+    assert_eq!(driver.delete_calls(), 0);
+    assert!(
+        file_blob::Entity::find_by_id(blob.id)
+            .one(state.writer_db())
+            .await
+            .expect("blob lookup should succeed")
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn ensure_blob_cleanup_if_unreferenced_skips_referenced_blob() {
     let (state, _user, policy, driver) = build_deletion_test_state().await;
     let blob = create_blob(state.writer_db(), policy.id, "files/in-use.bin", 9, 2).await;
-    driver.insert_object(&blob.storage_path);
+    driver.insert_object(blob.storage_path.as_deref().expect("stored fixture path"));
 
     let cleaned = ensure_blob_cleanup_if_unreferenced(&state, blob.id).await;
 
@@ -359,7 +394,7 @@ async fn ensure_blob_cleanup_if_unreferenced_skips_cleanup_claimed_blob() {
         file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT,
     )
     .await;
-    driver.insert_object(&blob.storage_path);
+    driver.insert_object(blob.storage_path.as_deref().expect("stored fixture path"));
 
     let cleaned = ensure_blob_cleanup_if_unreferenced(&state, blob.id).await;
 
@@ -394,7 +429,7 @@ async fn cleanup_unreferenced_blob_skips_cleanup_claimed_blob() {
         file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT,
     )
     .await;
-    driver.insert_object(&blob.storage_path);
+    driver.insert_object(blob.storage_path.as_deref().expect("stored fixture path"));
 
     let cleaned = cleanup_unreferenced_blob(&state, &blob).await;
 
@@ -436,7 +471,7 @@ async fn cleanup_unreferenced_blob_keeps_row_and_primary_object_when_thumbnail_d
         .update(state.writer_db())
         .await
         .expect("test blob thumbnail metadata should update");
-    driver.insert_object(&blob.storage_path);
+    driver.insert_object(blob.storage_path.as_deref().expect("stored fixture path"));
     driver.insert_object(thumbnail_path);
     driver.fail_delete_for(thumbnail_path);
 
@@ -461,7 +496,7 @@ async fn cleanup_unreferenced_blob_keeps_row_and_primary_object_when_thumbnail_d
         "thumbnail metadata should remain so the next cleanup retry still knows the derived object"
     );
     assert!(
-        driver.contains(&blob.storage_path),
+        driver.contains(blob.storage_path.as_deref().expect("stored fixture path")),
         "primary blob object must remain when thumbnail cleanup fails"
     );
     assert!(
@@ -474,7 +509,9 @@ async fn cleanup_unreferenced_blob_keeps_row_and_primary_object_when_thumbnail_d
         "cleanup should attempt to delete the thumbnail object first"
     );
     assert!(
-        !attempts.iter().any(|path| path == &blob.storage_path),
+        !attempts
+            .iter()
+            .any(|path| Some(path.as_str()) == blob.storage_path.as_deref()),
         "primary object delete must not be attempted after thumbnail cleanup fails"
     );
 }
@@ -483,7 +520,7 @@ async fn cleanup_unreferenced_blob_keeps_row_and_primary_object_when_thumbnail_d
 async fn batch_purge_in_scope_deletes_last_blob_reference() {
     let (state, user, policy, driver) = build_deletion_test_state().await;
     let blob = create_blob(state.writer_db(), policy.id, "files/last-ref.bin", 11, 1).await;
-    driver.insert_object(&blob.storage_path);
+    driver.insert_object(blob.storage_path.as_deref().expect("stored fixture path"));
     let file = create_file(state.writer_db(), user.id, blob.id, 11, "last-ref.bin").await;
     set_user_storage_used(state.writer_db(), &user, 11).await;
 
@@ -532,7 +569,7 @@ async fn batch_purge_in_scope_deletes_last_blob_reference() {
 async fn batch_purge_in_scope_keeps_blob_when_other_file_still_references_it() {
     let (state, user, policy, driver) = build_deletion_test_state().await;
     let blob = create_blob(state.writer_db(), policy.id, "files/shared.bin", 13, 2).await;
-    driver.insert_object(&blob.storage_path);
+    driver.insert_object(blob.storage_path.as_deref().expect("stored fixture path"));
     let file_a = create_file(state.writer_db(), user.id, blob.id, 13, "shared-a.bin").await;
     let _file_b = create_file(state.writer_db(), user.id, blob.id, 13, "shared-b.bin").await;
     set_user_storage_used(state.writer_db(), &user, 26).await;

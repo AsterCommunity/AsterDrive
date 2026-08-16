@@ -252,9 +252,12 @@ pub(in crate::services) async fn download_blob_to_temp(
     blob: &file_blob::Model,
     temp_path: &Path,
 ) -> Result<()> {
+    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
+        AsterError::validation_error("virtual-empty blobs cannot be archive preview sources")
+    })?;
     let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
     let driver = state.driver_registry().get_driver(&policy)?;
-    let mut stream = driver.get_stream(&blob.storage_path).await?;
+    let mut stream = driver.get_stream(storage_path).await?;
     let mut output = tokio::fs::File::create(temp_path).await.map_aster_err_ctx(
         "create archive preview source temp file",
         AsterError::storage_driver_error,

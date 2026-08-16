@@ -6,10 +6,11 @@ use actix_web::http::{StatusCode, header};
 use actix_web::test;
 use aster_drive::db::repository::{file_repo, policy_repo, user_repo};
 use aster_drive::services::events::storage_change::StorageChangeKind;
-use aster_drive_model::entities::{file, file_blob};
+use aster_drive_model::entities::{audit_log, file, file_blob};
+use aster_drive_model::types::AuditAction;
 use aster_forge_file_classification::FileCategory;
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 use serde_json::Value;
 use std::time::Duration;
 
@@ -1687,7 +1688,7 @@ async fn test_folder_detail_storage_used_handles_paginated_file_batches() {
         hash: Set("storage-used-pagination-blob".to_string()),
         size: Set(3),
         policy_id: Set(policy.id),
-        storage_path: Set("storage-used-pagination-blob".to_string()),
+        storage_path: Set(Some("storage-used-pagination-blob".to_string())),
         ref_count: Set(501),
         created_at: Set(now),
         updated_at: Set(now),
@@ -1755,6 +1756,7 @@ async fn test_folder_detail_storage_used_handles_paginated_file_batches() {
 #[actix_web::test]
 async fn test_create_empty_file() {
     let state = common::setup().await;
+    let db = state.writer_db().clone();
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
@@ -1786,11 +1788,17 @@ async fn test_create_empty_file() {
     let body2: Value = test::read_body_json(resp).await;
     let name2 = body2["data"]["name"].as_str().unwrap();
     assert_ne!(name2, "empty.txt", "duplicate name should be auto-renamed");
-    assert_ne!(
+    assert_eq!(
         body2["data"]["blob_id"].as_i64().unwrap(),
         body["data"]["blob_id"].as_i64().unwrap(),
-        "local create_empty should not dedup by default"
+        "empty files in one policy should share its canonical virtual blob"
     );
+    let blob = file_repo::find_blob_by_id(&db, body["data"]["blob_id"].as_i64().unwrap())
+        .await
+        .expect("virtual-empty blob should exist");
+    assert!(blob.is_virtual_empty());
+    assert_eq!(blob.storage_path, None);
+    assert_eq!(blob.ref_count, 2);
 
     // 下载空文件应返回 200，内容为空
     let req = test::TestRequest::get()
@@ -1803,6 +1811,51 @@ async fn test_create_empty_file() {
     let bytes = test::read_body(resp).await;
     assert!(bytes.is_empty());
 
+    // 第一次非空覆盖应切换到 stored blob，并保留空内容历史版本。
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/{file_id}/content"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload("first nonempty content")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let updated: Value = test::read_body_json(resp).await;
+    assert_ne!(updated["data"]["blob_id"], body["data"]["blob_id"]);
+    let stored_blob = file_repo::find_blob_by_id(
+        &db,
+        updated["data"]["blob_id"].as_i64().expect("stored blob id"),
+    )
+    .await
+    .expect("stored replacement blob should exist");
+    assert!(!stored_blob.is_virtual_empty());
+    assert!(stored_blob.storage_path_for_connector().is_some());
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/files/{file_id}/versions"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let versions: Value = test::read_body_json(resp).await;
+    let revisions = versions["data"]
+        .as_array()
+        .expect("revision list should be an array");
+    let current = revisions
+        .iter()
+        .find(|revision| revision["current"] == true)
+        .expect("revision list should include the current stored head");
+    assert_eq!(current["size"], 22);
+    assert_eq!(current["blob_id"], updated["data"]["blob_id"]);
+    let virtual_empty_revision = revisions
+        .iter()
+        .find(|revision| revision["size"] == 0)
+        .expect("revision list should retain the virtual-empty predecessor");
+    assert_eq!(virtual_empty_revision["current"], false);
+    assert_eq!(virtual_empty_revision["blob_id"], body["data"]["blob_id"]);
+
     // 无效文件名应返回 400
     let req = test::TestRequest::post()
         .uri("/api/v1/files/new")
@@ -1813,6 +1866,139 @@ async fn test_create_empty_file() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
+}
+
+#[actix_web::test]
+async fn test_create_empty_file_idempotency_header_replays_and_rejects_drift() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let create = |name: &str, key: &str| {
+        test::TestRequest::post()
+            .uri("/api/v1/files/new")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .insert_header(("Idempotency-Key", key))
+            .set_json(serde_json::json!({ "name": name, "folder_id": null }))
+            .to_request()
+    };
+
+    let first = test::call_service(&app, create("idempotent-empty.txt", "stable-key")).await;
+    assert_eq!(first.status(), StatusCode::CREATED);
+    let first: Value = test::read_body_json(first).await;
+    aster_forge_audit::flush_global_audit_log_manager().await;
+    let audit_count_after_first = audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq(AuditAction::FileCreate))
+        .filter(audit_log::Column::EntityId.eq(first["data"]["id"].as_i64().unwrap()))
+        .count(state.writer_db())
+        .await
+        .expect("file-create audit count should query successfully");
+    assert_eq!(audit_count_after_first, 1);
+    let replay = test::call_service(&app, create("idempotent-empty.txt", "stable-key")).await;
+    assert_eq!(replay.status(), StatusCode::CREATED);
+    let replay: Value = test::read_body_json(replay).await;
+    assert_eq!(replay["data"]["id"], first["data"]["id"]);
+    assert_eq!(replay["data"]["blob_id"], first["data"]["blob_id"]);
+    aster_forge_audit::flush_global_audit_log_manager().await;
+    let audit_count_after_replay = audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq(AuditAction::FileCreate))
+        .filter(audit_log::Column::EntityId.eq(first["data"]["id"].as_i64().unwrap()))
+        .count(state.writer_db())
+        .await
+        .expect("file-create audit count should query successfully");
+    assert_eq!(audit_count_after_replay, audit_count_after_first);
+
+    let drift = test::call_service(&app, create("different-empty.txt", "stable-key")).await;
+    assert_eq!(drift.status(), StatusCode::CONFLICT);
+
+    let invalid = test::call_service(&app, create("invalid-key.txt", "contains space")).await;
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+}
+
+#[actix_web::test]
+async fn test_create_empty_file_idempotency_concurrent_replays_across_connections() {
+    let state = common::setup_with_pool_size(8).await;
+    match state.writer_db().get_database_backend() {
+        sea_orm::DbBackend::Sqlite => {
+            eprintln!(
+                "skipping multi-connection create-empty replay coverage on SQLite's single-writer pool"
+            );
+            return;
+        }
+        sea_orm::DbBackend::Postgres => {
+            let pool = state.writer_db().get_postgres_connection_pool();
+            let first = pool
+                .acquire()
+                .await
+                .expect("first PostgreSQL writer connection should acquire");
+            let second = pool
+                .acquire()
+                .await
+                .expect("second PostgreSQL writer connection should acquire");
+            assert!(
+                pool.size() >= 2,
+                "concurrent replay coverage requires multiple PostgreSQL writer connections"
+            );
+            drop((first, second));
+        }
+        sea_orm::DbBackend::MySql => {
+            let pool = state.writer_db().get_mysql_connection_pool();
+            let first = pool
+                .acquire()
+                .await
+                .expect("first MySQL writer connection should acquire");
+            let second = pool
+                .acquire()
+                .await
+                .expect("second MySQL writer connection should acquire");
+            assert!(
+                pool.size() >= 2,
+                "concurrent replay coverage requires multiple MySQL writer connections"
+            );
+            drop((first, second));
+        }
+        backend => panic!("unsupported database backend for concurrent replay test: {backend:?}"),
+    }
+
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let requests = (0..8)
+        .map(|_| {
+            test::TestRequest::post()
+                .uri("/api/v1/files/new")
+                .insert_header(("Cookie", common::access_cookie_header(&token)))
+                .insert_header(common::csrf_header_for(&token))
+                .insert_header(("Idempotency-Key", "concurrent-stable-key"))
+                .set_json(serde_json::json!({
+                    "name": "concurrent-idempotent-empty.txt",
+                    "folder_id": null
+                }))
+                .to_request()
+        })
+        .collect::<Vec<_>>();
+    let responses = futures::future::join_all(
+        requests
+            .into_iter()
+            .map(|request| test::call_service(&app, request)),
+    )
+    .await;
+
+    let mut created = Vec::with_capacity(responses.len());
+    for response in responses {
+        assert_eq!(response.status(), StatusCode::CREATED);
+        created.push(test::read_body_json::<Value, _>(response).await);
+    }
+    assert!(
+        created
+            .iter()
+            .all(|body| body["data"]["id"] == created[0]["data"]["id"])
+    );
+    assert!(
+        created
+            .iter()
+            .all(|body| body["data"]["blob_id"] == created[0]["data"]["blob_id"])
+    );
 }
 
 #[actix_web::test]

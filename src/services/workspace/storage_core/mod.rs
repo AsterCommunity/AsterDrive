@@ -20,11 +20,15 @@ pub(crate) use finalize::{
     FinalizeUploadSessionFileParams, finalize_upload_session_blob_with_actor_username,
     finalize_upload_session_file,
 };
-pub(crate) use path::{ensure_upload_parent_path, parse_relative_upload_path};
+pub(crate) use path::{
+    ParsedUploadPath, ensure_upload_parent_path, ensure_upload_parent_path_on,
+    parse_relative_upload_path,
+};
 pub(crate) use policy::{
     VerifiedFolderPolicyHint, ensure_policy_available_for_folder_binding, load_storage_limits,
     local_content_dedup_enabled, resolve_policy_for_size,
-    resolve_policy_for_size_with_verified_folder, resolve_verified_folder_policy_hint,
+    resolve_policy_for_size_with_verified_folder, resolve_policy_for_size_with_verified_folder_on,
+    resolve_verified_folder_policy_hint, resolve_verified_folder_policy_hint_on,
 };
 pub(crate) use quota::{
     check_quota, lock_storage_usage, lock_storage_usage_for_resource_scope, update_storage_used,

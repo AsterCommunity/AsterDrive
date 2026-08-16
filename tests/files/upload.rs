@@ -2008,7 +2008,7 @@ async fn test_declared_empty_compatibility_bypasses_upload_data_planes_and_match
     assert_eq!(canonical_file["data"]["name"], "canonical-empty.txt");
     assert_eq!(compatibility_file["data"]["size"], 0);
     assert_eq!(canonical_file["data"]["size"], 0);
-    assert_ne!(
+    assert_eq!(
         compatibility_file["data"]["blob_id"],
         canonical_file["data"]["blob_id"]
     );
@@ -2019,7 +2019,7 @@ async fn test_declared_empty_compatibility_bypasses_upload_data_planes_and_match
     assert_eq!(canonical_event.storage_delta, Some(0));
     assert!(!compatibility_event.affects_quota);
     assert!(!canonical_event.affects_quota);
-    assert_eq!(driver.put_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
     assert_eq!(
         driver
             .objects
@@ -2028,7 +2028,7 @@ async fn test_declared_empty_compatibility_bypasses_upload_data_planes_and_match
             .values()
             .filter(|data| data.is_empty())
             .count(),
-        2
+        0
     );
     driver.assert_no_data_plane_calls();
 }
@@ -2717,7 +2717,10 @@ async fn test_chunked_upload_offset_staging_preserves_content() {
             .await
             .unwrap();
     let driver = state.driver_registry.get_driver(&policy).unwrap();
-    let stored = driver.get(&blob.storage_path).await.unwrap();
+    let stored = driver
+        .get(blob.storage_path_for_connector().expect("stored blob path"))
+        .await
+        .unwrap();
 
     assert_eq!(stored, [chunk0.as_slice(), chunk1.as_slice()].concat());
     assert_eq!(blob.size, stored.len() as i64);
@@ -3256,7 +3259,17 @@ async fn test_concurrent_chunked_dedup_complete_reuses_blob_without_overwrite() 
 
     assert_eq!(first_blob.id, second_blob.id);
     assert_eq!(first_blob.ref_count, 2);
-    assert_eq!(driver.get(&first_blob.storage_path).await.unwrap(), content);
+    assert_eq!(
+        driver
+            .get(
+                first_blob
+                    .storage_path_for_connector()
+                    .expect("stored blob path")
+            )
+            .await
+            .unwrap(),
+        content
+    );
 }
 
 #[actix_web::test]
@@ -3757,7 +3770,10 @@ async fn test_local_direct_upload_with_declared_size_avoids_global_temp_dirs_and
 
     let policy = policy_repo::find_by_id(&db, blob.policy_id).await.unwrap();
     let driver = driver_registry.get_driver(&policy).unwrap();
-    let stored = driver.get(&blob.storage_path).await.unwrap();
+    let stored = driver
+        .get(blob.storage_path_for_connector().expect("stored blob path"))
+        .await
+        .unwrap();
     assert_eq!(stored, data);
 }
 
@@ -5896,10 +5912,14 @@ async fn test_presigned_upload_s3_e2e() {
             .await
             .unwrap();
     assert_ne!(
-        blob.storage_path, temp_key,
+        blob.storage_path.as_deref(),
+        Some(temp_key.as_str()),
         "completed presigned uploads must be copied away from the still-valid PUT key"
     );
-    let got = driver.get(&blob.storage_path).await.unwrap();
+    let got = driver
+        .get(blob.storage_path_for_connector().expect("stored blob path"))
+        .await
+        .unwrap();
     assert_eq!(got, data);
     assert!(
         !driver.exists(&temp_key).await.unwrap(),
@@ -6192,11 +6212,14 @@ async fn test_presigned_multipart_upload_s3_e2e() {
     let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id)
         .await
         .unwrap();
-    let stored = driver.get(&blob.storage_path).await.unwrap();
+    let stored = driver
+        .get(blob.storage_path_for_connector().expect("stored blob path"))
+        .await
+        .unwrap();
     assert_eq!(stored, data);
 }
 
-/// 任意 S3 策略下空文件都应创建独立 blob，而不是复用固定空文件 hash
+/// S3 policy 的 metadata-only 空文件应共享 virtual blob，且不创建任何对象。
 #[tokio::test]
 async fn test_create_empty_file_s3_no_dedup() {
     use aster_drive::db::repository::file_repo;
@@ -6272,21 +6295,20 @@ async fn test_create_empty_file_s3_no_dedup() {
         .await
         .unwrap();
 
-    assert_eq!(blob.ref_count, 1);
-    assert_eq!(blob2.ref_count, 1);
-    assert_ne!(blob.id, blob2.id);
-    assert!(blob.hash.starts_with("s3-"));
-    assert!(blob2.hash.starts_with("s3-"));
-    assert_ne!(blob.hash, blob2.hash);
-    assert!(blob.storage_path.starts_with("files/"));
-    assert!(blob2.storage_path.starts_with("files/"));
-    assert_ne!(blob.storage_path, blob2.storage_path);
+    assert_eq!(blob.id, blob2.id);
+    assert_eq!(blob.ref_count, 2);
+    assert!(blob.is_virtual_empty());
+    assert_eq!(blob.storage_path, None);
 
     let driver = driver_registry.get_driver(&policy).unwrap();
-    let stored = driver.get(&blob.storage_path).await.unwrap();
-    let stored2 = driver.get(&blob2.storage_path).await.unwrap();
-    assert!(stored.is_empty());
-    assert!(stored2.is_empty());
+    let stored_paths = driver
+        .extensions()
+        .list
+        .expect("S3 driver should list objects")
+        .list_paths(None)
+        .await
+        .unwrap();
+    assert!(stored_paths.is_empty());
 }
 
 /// S3 relay_stream 小文件直传：走 /files/upload，服务端直接中继到 S3，不做去重
@@ -6406,8 +6428,18 @@ async fn test_relay_stream_direct_upload_s3_e2e() {
     assert_ne!(blob.storage_path, blob2.storage_path);
 
     let driver = driver_registry.get_driver(&policy).unwrap();
-    let stored = driver.get(&blob.storage_path).await.unwrap();
-    let stored2 = driver.get(&blob2.storage_path).await.unwrap();
+    let stored = driver
+        .get(blob.storage_path_for_connector().expect("stored blob path"))
+        .await
+        .unwrap();
+    let stored2 = driver
+        .get(
+            blob2
+                .storage_path_for_connector()
+                .expect("stored blob path"),
+        )
+        .await
+        .unwrap();
     assert_eq!(stored, data);
     assert_eq!(stored2, data);
 }
@@ -6532,7 +6564,10 @@ async fn test_relay_stream_direct_upload_s3_exact_part_size_e2e() {
 
     let file = file_repo::find_by_id(&db, file_id).await.unwrap();
     let blob = file_repo::find_blob_by_id(&db, file.blob_id).await.unwrap();
-    let stored = driver.get(&blob.storage_path).await.unwrap();
+    let stored = driver
+        .get(blob.storage_path_for_connector().expect("stored blob path"))
+        .await
+        .unwrap();
     assert_eq!(stored, data);
     assert_eq!(
         upload_session::Entity::find()
@@ -6792,11 +6827,14 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
         .await
         .unwrap();
     assert_eq!(blob.hash, format!("s3-{upload_id}"));
-    assert_eq!(blob.storage_path, format!("files/{upload_id}"));
+    assert_eq!(blob.storage_path, Some(format!("files/{upload_id}")));
     assert_eq!(blob.ref_count, 1);
 
     let driver = state.driver_registry.get_driver(&policy).unwrap();
-    let stored = driver.get(&blob.storage_path).await.unwrap();
+    let stored = driver
+        .get(blob.storage_path_for_connector().expect("stored blob path"))
+        .await
+        .unwrap();
     assert_eq!(stored, data);
 
     let completed_progress = upload::get_progress(&state, &upload_id, user.id)

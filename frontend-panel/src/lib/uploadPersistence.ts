@@ -27,8 +27,20 @@ export interface ResumableSession {
 	completedParts?: { part_number: number; etag: string }[];
 }
 
+export interface PendingEmptyFileCreate {
+	taskId: string;
+	idempotencyKey: string;
+	filename: string;
+	baseFolderId: number | null;
+	baseFolderName: string;
+	relativePath: string | null;
+	savedAt: number;
+	workspace?: Workspace;
+}
+
 const STORAGE_KEY = "aster_resumable_uploads";
-/** 23h — 留 1h 余量，服务器 session 24h 过期 */
+const EMPTY_FILE_STORAGE_KEY = "aster_pending_empty_file_creates";
+/** 23h: leave one hour before the server's 24h idempotency retention expires. */
 const MAX_AGE_MS = 23 * 60 * 60 * 1000;
 
 function readAll(): ResumableSession[] {
@@ -38,6 +50,76 @@ function readAll(): ResumableSession[] {
 		return JSON.parse(raw) as ResumableSession[];
 	} catch {
 		return [];
+	}
+}
+
+interface PendingEmptyFileReadResult {
+	entries: PendingEmptyFileCreate[];
+	needsCleanup: boolean;
+}
+
+function isWorkspace(value: unknown): value is Workspace {
+	if (typeof value !== "object" || value === null || !("kind" in value)) {
+		return false;
+	}
+	if (value.kind === "personal") return true;
+	return (
+		value.kind === "team" &&
+		"teamId" in value &&
+		typeof value.teamId === "number" &&
+		Number.isFinite(value.teamId)
+	);
+}
+
+function isPendingEmptyFileCreate(
+	value: unknown,
+): value is PendingEmptyFileCreate {
+	if (typeof value !== "object" || value === null) return false;
+	const entry = value as Record<string, unknown>;
+	return (
+		typeof entry.taskId === "string" &&
+		entry.taskId.length > 0 &&
+		typeof entry.idempotencyKey === "string" &&
+		entry.idempotencyKey.length > 0 &&
+		typeof entry.filename === "string" &&
+		(entry.baseFolderId === null ||
+			(typeof entry.baseFolderId === "number" &&
+				Number.isFinite(entry.baseFolderId))) &&
+		typeof entry.baseFolderName === "string" &&
+		(entry.relativePath === null || typeof entry.relativePath === "string") &&
+		typeof entry.savedAt === "number" &&
+		Number.isFinite(entry.savedAt) &&
+		(entry.workspace === undefined || isWorkspace(entry.workspace))
+	);
+}
+
+function readPendingEmptyFiles(): PendingEmptyFileReadResult {
+	try {
+		const raw = localStorage.getItem(EMPTY_FILE_STORAGE_KEY);
+		if (!raw) return { entries: [], needsCleanup: false };
+		const parsed: unknown = JSON.parse(raw);
+		if (!Array.isArray(parsed)) {
+			return { entries: [], needsCleanup: true };
+		}
+		const entries = parsed.filter(isPendingEmptyFileCreate);
+		return {
+			entries,
+			needsCleanup: entries.length !== parsed.length,
+		};
+	} catch {
+		return { entries: [], needsCleanup: true };
+	}
+}
+
+function writePendingEmptyFiles(entries: PendingEmptyFileCreate[]): void {
+	try {
+		if (entries.length === 0) {
+			localStorage.removeItem(EMPTY_FILE_STORAGE_KEY);
+			return;
+		}
+		localStorage.setItem(EMPTY_FILE_STORAGE_KEY, JSON.stringify(entries));
+	} catch (error) {
+		logger.warn("failed to persist pending empty-file creates", error);
 	}
 }
 
@@ -151,7 +233,52 @@ export function loadSessions(workspace?: Workspace): ResumableSession[] {
 	);
 }
 
+export function savePendingEmptyFiles(
+	entries: readonly PendingEmptyFileCreate[],
+): void {
+	if (entries.length === 0) return;
+
+	const nextByTaskId = new Map(
+		entries.map((entry) => [
+			entry.taskId,
+			{
+				...entry,
+				workspace: normalizeWorkspace(entry.workspace),
+			},
+		]),
+	);
+	const now = Date.now();
+	const all = readPendingEmptyFiles().entries.filter(
+		(existing) =>
+			now - existing.savedAt < MAX_AGE_MS && !nextByTaskId.has(existing.taskId),
+	);
+	all.push(...nextByTaskId.values());
+	writePendingEmptyFiles(all);
+}
+
+export function removePendingEmptyFile(taskId: string): void {
+	writePendingEmptyFiles(
+		readPendingEmptyFiles().entries.filter((entry) => entry.taskId !== taskId),
+	);
+}
+
+export function loadPendingEmptyFiles(
+	workspace?: Workspace,
+): PendingEmptyFileCreate[] {
+	const now = Date.now();
+	const { entries: all, needsCleanup } = readPendingEmptyFiles();
+	const valid = all.filter((entry) => now - entry.savedAt < MAX_AGE_MS);
+	if (needsCleanup || valid.length !== all.length) {
+		writePendingEmptyFiles(valid);
+	}
+	if (!workspace) return valid;
+	return valid.filter((entry) =>
+		workspaceEquals(normalizeWorkspace(entry.workspace), workspace),
+	);
+}
+
 /** 清空所有 session */
 export function clearAllSessions(): void {
 	localStorage.removeItem(STORAGE_KEY);
+	localStorage.removeItem(EMPTY_FILE_STORAGE_KEY);
 }

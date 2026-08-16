@@ -1,8 +1,11 @@
-use super::lookup::{find_or_create_blob_retry_delay, sum_blob_size_as_i64_expr};
+use super::lookup::{
+    find_or_create_blob_retry_delay, sum_blob_size_as_i64_expr, validate_blob_backing,
+};
 use super::ref_count::{
     blob_ref_count_decrement_expr, blob_ref_count_increment_expr, normalize_blob_ref_count_deltas,
 };
 use aster_drive_model::entities::file_blob;
+use aster_drive_model::types::file_blob::FileBlobBacking;
 use chrono::Utc;
 use sea_orm::{
     ColumnTrait, DbBackend, EntityTrait, ExprTrait, QueryFilter, QuerySelect, QueryTrait, Set,
@@ -46,7 +49,8 @@ fn postgres_find_or_create_blob_insert_sql_uses_valid_on_conflict() {
         hash: Set("hash".to_string()),
         size: Set(1),
         policy_id: Set(2),
-        storage_path: Set("files/hash".to_string()),
+        storage_path: Set(Some("files/hash".to_string())),
+        backing: Set(FileBlobBacking::Stored),
         thumbnail_path: Set(None),
         thumbnail_processor: Set(None),
         thumbnail_version: Set(None),
@@ -55,15 +59,44 @@ fn postgres_find_or_create_blob_insert_sql_uses_valid_on_conflict() {
         updated_at: Set(now),
         ..Default::default()
     })
-    .on_conflict_do_nothing_on([file_blob::Column::Hash, file_blob::Column::PolicyId])
+    .on_conflict_do_nothing_on([
+        file_blob::Column::Hash,
+        file_blob::Column::PolicyId,
+        file_blob::Column::Backing,
+    ])
     .build(DbBackend::Postgres)
     .to_string();
 
     assert!(
-        sql.contains(r#"ON CONFLICT ("hash", "policy_id") DO NOTHING"#),
+        sql.contains(r#"ON CONFLICT ("hash", "policy_id", "backing") DO NOTHING"#),
         "{sql}"
     );
     assert!(!sql.contains(" WHERE "), "{sql}");
+}
+
+#[test]
+fn blob_insert_validation_enforces_stored_and_virtual_empty_backing_contracts() {
+    assert!(validate_blob_backing(FileBlobBacking::Stored, Some("files/hash"), 1, "hash").is_ok());
+    assert!(validate_blob_backing(FileBlobBacking::Stored, None, 1, "hash").is_err());
+    assert!(
+        validate_blob_backing(
+            FileBlobBacking::VirtualEmpty,
+            None,
+            0,
+            file_blob::Model::EMPTY_SHA256,
+        )
+        .is_ok()
+    );
+    assert!(validate_blob_backing(FileBlobBacking::VirtualEmpty, None, 0, "wrong-hash").is_err());
+    assert!(
+        validate_blob_backing(
+            FileBlobBacking::VirtualEmpty,
+            Some("files/empty"),
+            0,
+            file_blob::Model::EMPTY_SHA256,
+        )
+        .is_err()
+    );
 }
 
 #[test]

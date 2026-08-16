@@ -248,7 +248,7 @@ async fn run_integrity_check(
                     tracing::warn!(
                         blob_id = blob.id,
                         policy_id = blob.policy_id,
-                        path = %blob.storage_path,
+                        path = ?blob.storage_path,
                         "blob integrity check failed: {error}"
                     );
                     result.skipped_blobs += 1;
@@ -525,12 +525,18 @@ async fn check_blob_object(
     driver_cache: &mut MaintenanceDriverCache,
     blob: &file_blob::Model,
 ) -> Result<BlobObjectCheck> {
+    if blob.is_virtual_empty() {
+        return Ok(BlobObjectCheck::Present);
+    }
+    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
+        AsterError::internal_error(format!("stored blob #{} is missing storage_path", blob.id))
+    })?;
     let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
     let driver = driver_cache.driver_for_policy(state, &policy)?;
-    let metadata = match driver.metadata(&blob.storage_path).await {
+    let metadata = match driver.metadata(storage_path).await {
         Ok(metadata) => metadata,
         Err(error) => {
-            return match driver.exists(&blob.storage_path).await {
+            return match driver.exists(storage_path).await {
                 Ok(false) => Ok(BlobObjectCheck::Missing),
                 Ok(true) => Err(error.into()),
                 Err(exists_error) => Err(AsterError::storage_driver_error(format!(

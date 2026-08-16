@@ -1265,7 +1265,7 @@ mod tests {
                 )
                 .expect("share image preview route source size should fit i64")),
                 policy_id: Set(policy.id),
-                storage_path: Set(source_path.to_string()),
+                storage_path: Set(Some(source_path.to_string())),
                 thumbnail_path: Set(None),
                 thumbnail_processor: Set(None),
                 thumbnail_version: Set(None),

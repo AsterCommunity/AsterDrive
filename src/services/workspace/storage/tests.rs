@@ -2,11 +2,12 @@
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
+use crate::db::repository::{file_create_idempotency_repo, file_repo, folder_repo};
 use crate::runtime::PrimaryAppState;
 use crate::services::mail::sender;
 use crate::storage::{DriverRegistry, PolicySnapshot};
 use crate::test_support::snapshot_dir_tree;
-use aster_drive_model::entities::{file, file_blob, storage_policy, team, user};
+use aster_drive_model::entities::{file, file_blob, folder, storage_policy, team, user};
 use aster_drive_model::types::{
     ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy, ProviderDownloadFilenameMode,
     ProviderDownloadStrategy, UserRole, UserStatus,
@@ -19,7 +20,10 @@ use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
 use async_trait::async_trait;
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, IntoActiveModel, PaginatorTrait,
+    QueryFilter, Set,
+};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -34,7 +38,8 @@ use tokio::sync::{Notify, oneshot};
 use super::{
     EmptyFileNameMode, FileWritePrecondition, StorageCancellationCheck, StorageOperationContext,
     StoreFromTempHints, StoreFromTempParams, StorePreuploadedNondedupParams, WorkspaceStorageScope,
-    create_empty, persist_preuploaded_blob, prepare_non_dedup_blob_upload,
+    create_empty, create_empty_from_relative_path_with_idempotency, create_empty_with_idempotency,
+    parse_relative_upload_path, persist_preuploaded_blob, prepare_non_dedup_blob_upload,
     store_from_temp_exact_name_silent_with_hints, store_from_temp_exact_name_with_hints,
     store_from_temp_with_hints, store_preuploaded_nondedup, upload_temp_file_to_prepared_blob,
 };
@@ -206,7 +211,9 @@ fn enable_content_dedup(policy: &storage_policy::Model) -> storage_policy::Model
 struct RecordingEmptyDriver {
     objects: Mutex<BTreeMap<String, Vec<u8>>>,
     put_paths: Mutex<Vec<String>>,
+    get_paths: Mutex<Vec<String>>,
     delete_paths: Mutex<Vec<String>>,
+    exists_paths: Mutex<Vec<String>>,
 }
 
 impl RecordingEmptyDriver {
@@ -232,6 +239,25 @@ impl RecordingEmptyDriver {
             .expect("recording empty driver delete lock should succeed")
             .clone()
     }
+
+    fn assert_no_object_api_calls(&self) {
+        assert!(self.put_paths().is_empty(), "unexpected put call");
+        assert!(
+            self.get_paths
+                .lock()
+                .expect("recording empty driver get lock should succeed")
+                .is_empty(),
+            "unexpected get call"
+        );
+        assert!(self.delete_paths().is_empty(), "unexpected delete call");
+        assert!(
+            self.exists_paths
+                .lock()
+                .expect("recording empty driver exists lock should succeed")
+                .is_empty(),
+            "unexpected exists call"
+        );
+    }
 }
 
 #[async_trait]
@@ -249,6 +275,10 @@ impl StorageDriver for RecordingEmptyDriver {
     }
 
     async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
+        self.get_paths
+            .lock()
+            .expect("recording empty driver get lock should succeed")
+            .push(path.to_string());
         self.objects
             .lock()
             .expect("recording empty driver object lock should succeed")
@@ -282,6 +312,10 @@ impl StorageDriver for RecordingEmptyDriver {
     }
 
     async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
+        self.exists_paths
+            .lock()
+            .expect("recording empty driver exists lock should succeed")
+            .push(path.to_string());
         Ok(self
             .objects
             .lock()
@@ -1052,6 +1086,22 @@ fn empty_file_connector_policy_cases(
             ),
         ),
         (
+            "qiniu",
+            crate::storage::connectors::test_support::policy(
+                "asterdrive.storage.qiniu",
+                1,
+                serde_json::json!({
+                    "endpoint": "https://s3.cn-east-1.qiniucs.com",
+                    "bucket": "bucket-name",
+                    "base_path": "",
+                    "s3_region": "cn-east-1",
+                    "object_storage_upload_strategy": "presigned",
+                    "object_storage_download_strategy": "relay_stream"
+                }),
+                behavior.clone(),
+            ),
+        ),
+        (
             "onedrive",
             crate::storage::connectors::test_support::onedrive_policy_with_download(
                 crate::storage::connectors::OneDriveAccountMode::Personal,
@@ -1086,6 +1136,7 @@ async fn canonical_empty_file_use_case_is_connector_independent() {
         "s3",
         "azure_blob",
         "tencent_cos",
+        "qiniu",
         "onedrive",
         "sftp",
     ] {
@@ -1119,24 +1170,437 @@ async fn canonical_empty_file_use_case_is_connector_independent() {
         .await
         .unwrap_or_else(|error| panic!("{connector} second empty file failed: {error}"));
 
-        assert_ne!(first.blob_id, second.blob_id, "{connector} blob namespace");
-        assert_eq!(driver.put_paths().len(), 2, "{connector} object writes");
-        assert_eq!(
-            driver.object_paths().len(),
-            2,
+        assert_eq!(first.blob_id, second.blob_id, "{connector} canonical blob");
+        let blob = file_repo::find_blob_by_id(state.writer_db(), first.blob_id)
+            .await
+            .expect("virtual-empty blob should exist");
+        assert!(blob.is_virtual_empty(), "{connector} backing");
+        assert_eq!(blob.size, 0, "{connector} size");
+        assert_eq!(blob.storage_path, None, "{connector} storage path");
+        assert_eq!(blob.ref_count, 2, "{connector} shared ref count");
+        assert!(driver.put_paths().is_empty(), "{connector} object writes");
+        assert!(
+            driver.delete_paths().is_empty(),
+            "{connector} object deletes"
+        );
+        assert!(
+            driver.object_paths().is_empty(),
             "{connector} object namespace"
         );
-        for path in driver.object_paths() {
-            assert!(
-                driver.get(&path).await.unwrap().is_empty(),
-                "{connector} should store a zero-byte object"
-            );
-        }
+        driver.assert_no_object_api_calls();
     }
 }
 
 #[tokio::test]
-async fn exact_name_conflict_cleans_only_the_owned_non_dedup_empty_object() {
+async fn empty_file_idempotency_replays_same_result_and_rejects_request_drift() {
+    let (state, _temp_root, policy, user) = build_test_state().await;
+    let policy = replace_test_policy(&state, &policy, policy.clone()).await;
+    let driver = Arc::new(RecordingEmptyDriver::default());
+    state
+        .driver_registry
+        .insert_for_test(policy.id, driver.clone());
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+
+    let first = create_empty_with_idempotency(
+        &state,
+        scope,
+        None,
+        "idempotent.txt",
+        EmptyFileNameMode::Exact,
+        Some(("hashed-key", "request-fingerprint")),
+    )
+    .await
+    .expect("first idempotent create should succeed");
+    let replay = create_empty_with_idempotency(
+        &state,
+        scope,
+        None,
+        "idempotent.txt",
+        EmptyFileNameMode::Exact,
+        Some(("hashed-key", "request-fingerprint")),
+    )
+    .await
+    .expect("idempotent replay should succeed");
+
+    assert!(!first.replayed);
+    assert!(replay.replayed);
+    assert_eq!(first.file.id, replay.file.id);
+    assert_eq!(first.file.blob_id, replay.file.blob_id);
+    assert!(driver.put_paths().is_empty());
+
+    let error = create_empty_with_idempotency(
+        &state,
+        scope,
+        None,
+        "different.txt",
+        EmptyFileNameMode::Exact,
+        Some(("hashed-key", "different-fingerprint")),
+    )
+    .await
+    .expect_err("request drift must conflict");
+    assert_eq!(error.api_error_code(), ApiErrorCode::Conflict);
+}
+
+#[tokio::test]
+async fn empty_file_idempotency_replays_before_revalidating_changed_folder_state() {
+    let (state, _temp_root, policy, user) = build_test_state().await;
+    replace_test_policy(&state, &policy, policy.clone()).await;
+    let now = Utc::now();
+    let folder = folder::ActiveModel {
+        name: Set("idempotent-parent".to_string()),
+        owner_user_id: Set(Some(user.id)),
+        created_by_user_id: Set(Some(user.id)),
+        created_by_username: Set(user.username.clone()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("idempotent parent should insert");
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+    let mut storage_events = state.storage_change_bus.subscribe();
+
+    let first = create_empty_with_idempotency(
+        &state,
+        scope,
+        Some(folder.id),
+        "folder-replay.txt",
+        EmptyFileNameMode::Exact,
+        Some(("folder-replay-key", "folder-replay-fingerprint")),
+    )
+    .await
+    .expect("initial create should succeed");
+    let first_event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("initial create should publish a storage event")
+        .expect("storage change channel should stay open");
+    assert_eq!(first_event.file_ids, vec![first.file.id]);
+
+    folder_repo::soft_delete(state.writer_db(), folder.id)
+        .await
+        .expect("folder state should change after the committed create");
+    let blob_before = file_repo::find_blob_by_id(state.writer_db(), first.file.blob_id)
+        .await
+        .expect("virtual-empty blob should exist");
+
+    let replay = create_empty_with_idempotency(
+        &state,
+        scope,
+        Some(folder.id),
+        "folder-replay.txt",
+        EmptyFileNameMode::Exact,
+        Some(("folder-replay-key", "folder-replay-fingerprint")),
+    )
+    .await
+    .expect("replay should return the committed result before folder revalidation");
+
+    assert!(replay.replayed);
+    assert_eq!(replay.file.id, first.file.id);
+    assert_eq!(replay.file.blob_id, first.file.blob_id);
+    let blob_after = file_repo::find_blob_by_id(state.writer_db(), first.file.blob_id)
+        .await
+        .expect("replayed virtual-empty blob should still exist");
+    assert_eq!(blob_after.ref_count, blob_before.ref_count);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), storage_events.recv())
+            .await
+            .is_err(),
+        "idempotent replay should not publish a second storage event"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn empty_file_idempotency_replays_parallel_tasks_on_the_single_sqlite_writer() {
+    let (state, _temp_root, policy, user) = build_test_state().await;
+    replace_test_policy(&state, &policy, policy.clone()).await;
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+
+    let results = futures::future::join_all((0..8).map(|_| {
+        let state = state.clone();
+        tokio::spawn(async move {
+            create_empty_with_idempotency(
+                &state,
+                scope,
+                None,
+                "concurrent-empty.txt",
+                EmptyFileNameMode::Exact,
+                Some(("concurrent-key", "concurrent-fingerprint")),
+            )
+            .await
+        })
+    }))
+    .await
+    .into_iter()
+    .map(|result| result.expect("concurrent create task should not panic"))
+    .collect::<Result<Vec<_>, _>>()
+    .expect("concurrent replays should all succeed");
+
+    assert_eq!(results.iter().filter(|result| !result.replayed).count(), 1);
+    assert!(
+        results
+            .iter()
+            .all(|result| result.file.id == results[0].file.id)
+    );
+    assert!(
+        results
+            .iter()
+            .all(|result| result.file.blob_id == results[0].file.blob_id)
+    );
+}
+
+#[tokio::test]
+async fn empty_file_idempotency_conflicts_after_result_is_purged() {
+    let (state, _temp_root, policy, user) = build_test_state().await;
+    replace_test_policy(&state, &policy, policy.clone()).await;
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+    let created = create_empty_with_idempotency(
+        &state,
+        scope,
+        None,
+        "purged-empty.txt",
+        EmptyFileNameMode::Exact,
+        Some(("purged-key", "purged-fingerprint")),
+    )
+    .await
+    .expect("initial create should succeed");
+    crate::services::files::file::batch_purge_in_scope(&state, scope, vec![created.file.clone()])
+        .await
+        .expect("result file should be purged through the revision-aware lifecycle");
+
+    let error = create_empty_with_idempotency(
+        &state,
+        scope,
+        None,
+        "purged-empty.txt",
+        EmptyFileNameMode::Exact,
+        Some(("purged-key", "purged-fingerprint")),
+    )
+    .await
+    .expect_err("replay after result purge must conflict");
+    assert_eq!(error.api_error_code(), ApiErrorCode::Conflict);
+}
+
+#[tokio::test]
+async fn expired_empty_file_idempotency_key_can_be_reused() {
+    let (state, _temp_root, policy, user) = build_test_state().await;
+    replace_test_policy(&state, &policy, policy.clone()).await;
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+    let first = create_empty_with_idempotency(
+        &state,
+        scope,
+        None,
+        "first-expiring.txt",
+        EmptyFileNameMode::Exact,
+        Some(("expiring-key", "first-fingerprint")),
+    )
+    .await
+    .expect("initial create should succeed");
+    let idempotency_scope = file_create_idempotency_repo::FileCreateIdempotencyScope {
+        actor_user_id: user.id,
+        workspace_kind: "personal",
+        workspace_id: user.id,
+    };
+    let record =
+        file_create_idempotency_repo::find(state.writer_db(), idempotency_scope, "expiring-key")
+            .await
+            .expect("idempotency lookup should succeed")
+            .expect("idempotency record should exist");
+    let mut active = record.into_active_model();
+    active.expires_at = Set(Utc::now() - chrono::Duration::seconds(1));
+    active
+        .update(state.writer_db())
+        .await
+        .expect("idempotency record should expire");
+
+    let second = create_empty_with_idempotency(
+        &state,
+        scope,
+        None,
+        "second-expiring.txt",
+        EmptyFileNameMode::Exact,
+        Some(("expiring-key", "second-fingerprint")),
+    )
+    .await
+    .expect("expired key should be reusable");
+    assert_ne!(first.file.id, second.file.id);
+    assert!(!second.replayed);
+}
+
+#[tokio::test]
+async fn relative_empty_create_rolls_back_parent_blob_and_claim_on_file_insert_failure() {
+    let (state, _temp_root, policy, user) = build_test_state().await;
+    replace_test_policy(&state, &policy, policy.clone()).await;
+    state
+        .writer_db()
+        .execute_unprepared(
+            "CREATE TRIGGER fail_relative_empty_insert BEFORE INSERT ON files \
+             WHEN NEW.name = 'rollback-empty.txt' BEGIN SELECT RAISE(ABORT, 'forced insert failure'); END",
+        )
+        .await
+        .expect("failure trigger should install");
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+    let parsed = parse_relative_upload_path(&state, scope, None, "new-parent/rollback-empty.txt")
+        .await
+        .expect("relative path should parse");
+
+    create_empty_from_relative_path_with_idempotency(
+        &state,
+        scope,
+        parsed,
+        Some(user.username.clone()),
+        Some(("rollback-key", "rollback-fingerprint")),
+    )
+    .await
+    .expect_err("forced file insert failure should roll back the transaction");
+
+    assert_eq!(
+        folder_repo::find_by_name_in_parent(state.writer_db(), user.id, None, "new-parent")
+            .await
+            .expect("folder lookup should succeed"),
+        None
+    );
+    assert_eq!(
+        file_repo::find_virtual_empty_blob_by_policy(state.writer_db(), policy.id)
+            .await
+            .expect("blob lookup should succeed"),
+        None
+    );
+    let idempotency_scope = file_create_idempotency_repo::FileCreateIdempotencyScope {
+        actor_user_id: user.id,
+        workspace_kind: "personal",
+        workspace_id: user.id,
+    };
+    assert_eq!(
+        file_create_idempotency_repo::find(state.writer_db(), idempotency_scope, "rollback-key",)
+            .await
+            .expect("idempotency lookup should succeed"),
+        None
+    );
+}
+
+#[tokio::test]
+async fn relative_empty_create_uses_the_final_parent_policy_override() {
+    let (state, temp_root, default_policy, user) = build_test_state().await;
+    crate::services::storage_policy::policy::ensure_policy_groups_seeded(state.writer_db())
+        .await
+        .expect("policy groups should seed");
+    let mut override_policy = crate::storage::connectors::test_support::local_policy(
+        temp_root.join("override-policy").to_string_lossy(),
+    );
+    override_policy.name = "Relative path override policy".to_string();
+    override_policy.is_default = false;
+    let override_policy =
+        crate::storage::connectors::test_support::insertable_policy(override_policy)
+            .insert(state.writer_db())
+            .await
+            .expect("override policy should insert");
+    state
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
+        .await
+        .expect("policy snapshot should reload");
+
+    let now = Utc::now();
+    folder::ActiveModel {
+        name: Set("bound-parent".to_string()),
+        owner_user_id: Set(Some(user.id)),
+        created_by_user_id: Set(Some(user.id)),
+        created_by_username: Set(user.username.clone()),
+        policy_id: Set(Some(override_policy.id)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("bound parent should insert");
+
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+    let parsed = parse_relative_upload_path(
+        &state,
+        scope,
+        None,
+        "bound-parent/generated-child/empty.txt",
+    )
+    .await
+    .expect("relative path should parse");
+    let created = create_empty_from_relative_path_with_idempotency(
+        &state,
+        scope,
+        parsed,
+        Some(user.username.clone()),
+        Some(("override-key", "override-fingerprint")),
+    )
+    .await
+    .expect("relative empty file should be created");
+    let blob = file_repo::find_blob_by_id(state.writer_db(), created.file.blob_id)
+        .await
+        .expect("virtual empty blob should exist");
+
+    assert_eq!(blob.policy_id, override_policy.id);
+    assert_ne!(blob.policy_id, default_policy.id);
+    assert!(blob.is_virtual_empty());
+}
+
+#[tokio::test]
+async fn direct_empty_create_resolves_folder_policy_inside_the_writer_transaction() {
+    let (state, temp_root, default_policy, user) = build_test_state().await;
+    crate::services::storage_policy::policy::ensure_policy_groups_seeded(state.writer_db())
+        .await
+        .expect("policy groups should seed");
+    let mut override_policy = crate::storage::connectors::test_support::local_policy(
+        temp_root.join("direct-override-policy").to_string_lossy(),
+    );
+    override_policy.name = "Direct folder override policy".to_string();
+    override_policy.is_default = false;
+    let override_policy =
+        crate::storage::connectors::test_support::insertable_policy(override_policy)
+            .insert(state.writer_db())
+            .await
+            .expect("override policy should insert");
+    state
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
+        .await
+        .expect("policy snapshot should reload");
+
+    let now = Utc::now();
+    let folder = folder::ActiveModel {
+        name: Set("direct-bound-parent".to_string()),
+        owner_user_id: Set(Some(user.id)),
+        created_by_user_id: Set(Some(user.id)),
+        created_by_username: Set(user.username.clone()),
+        policy_id: Set(Some(override_policy.id)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("bound folder should insert");
+
+    let created = create_empty_with_idempotency(
+        &state,
+        WorkspaceStorageScope::Personal { user_id: user.id },
+        Some(folder.id),
+        "direct-empty.txt",
+        EmptyFileNameMode::Exact,
+        Some(("direct-override-key", "direct-override-fingerprint")),
+    )
+    .await
+    .expect("direct empty file should be created");
+    let blob = file_repo::find_blob_by_id(state.writer_db(), created.file.blob_id)
+        .await
+        .expect("virtual empty blob should exist");
+
+    assert_eq!(blob.policy_id, override_policy.id);
+    assert_ne!(blob.policy_id, default_policy.id);
+    assert!(blob.is_virtual_empty());
+}
+
+#[tokio::test]
+async fn exact_name_conflict_never_creates_or_cleans_connector_objects() {
     for connector in ["s3", "onedrive"] {
         let (state, temp_root, current_policy, user) = build_test_state().await;
         let (_, replacement) = empty_file_connector_policy_cases(&temp_root)
@@ -1159,8 +1623,6 @@ async fn exact_name_conflict_cleans_only_the_owned_non_dedup_empty_object() {
         )
         .await
         .unwrap_or_else(|error| panic!("{connector} first empty file failed: {error}"));
-        let retained_path = driver.object_paths().into_iter().next().unwrap();
-
         create_empty(
             &state,
             scope,
@@ -1169,20 +1631,20 @@ async fn exact_name_conflict_cleans_only_the_owned_non_dedup_empty_object() {
             EmptyFileNameMode::Exact,
         )
         .await
-        .expect_err("exact-name conflict should fail after preparing its owned object");
+        .expect_err("exact-name conflict should fail without connector mutation");
 
-        assert_eq!(driver.put_paths().len(), 2, "{connector} object writes");
-        assert_eq!(driver.delete_paths().len(), 1, "{connector} cleanup");
-        assert_eq!(
-            driver.object_paths(),
-            vec![retained_path],
-            "{connector} retained object"
+        assert!(driver.put_paths().is_empty(), "{connector} object writes");
+        assert!(driver.delete_paths().is_empty(), "{connector} cleanup");
+        assert!(
+            driver.object_paths().is_empty(),
+            "{connector} object namespace"
         );
+        driver.assert_no_object_api_calls();
     }
 }
 
 #[tokio::test]
-async fn exact_name_conflict_does_not_delete_the_shared_local_empty_blob() {
+async fn exact_name_conflict_keeps_virtual_empty_metadata_only() {
     let (state, _temp_root, current_policy, user) = build_test_state().await;
     let dedup_policy = enable_content_dedup(&current_policy);
     let policy = replace_test_policy(&state, &current_policy, dedup_policy).await;
@@ -1211,9 +1673,10 @@ async fn exact_name_conflict_does_not_delete_the_shared_local_empty_blob() {
     .await
     .expect_err("exact-name conflict should fail without owning the shared object");
 
-    assert_eq!(driver.put_paths().len(), 1);
+    assert!(driver.put_paths().is_empty());
     assert!(driver.delete_paths().is_empty());
-    assert_eq!(driver.object_paths().len(), 1);
+    assert!(driver.object_paths().is_empty());
+    driver.assert_no_object_api_calls();
 }
 
 #[tokio::test]
@@ -1259,8 +1722,8 @@ async fn persist_preuploaded_blob_keeps_prepared_named_storage_path() {
 
     assert_eq!(blob.hash, "onedrive-550e8400-e29b-41d4-a716-446655440000");
     assert_eq!(
-        blob.storage_path,
-        "files/550e8400-e29b-41d4-a716-446655440000/report.txt"
+        blob.storage_path.as_deref(),
+        Some("files/550e8400-e29b-41d4-a716-446655440000/report.txt")
     );
 }
 
@@ -1724,7 +2187,7 @@ async fn conditional_create_rejects_file_appearing_while_body_is_staged() {
         hash: Set(format!("conditional-race-{}", uuid::Uuid::new_v4())),
         size: Set(1),
         policy_id: Set(policy.id),
-        storage_path: Set(format!("files/{}", uuid::Uuid::new_v4())),
+        storage_path: Set(Some(format!("files/{}", uuid::Uuid::new_v4()))),
         thumbnail_path: Set(None),
         thumbnail_processor: Set(None),
         thumbnail_version: Set(None),
@@ -1856,7 +2319,7 @@ async fn conditional_team_create_rejects_file_appearing_while_body_is_staged() {
         hash: Set(format!("conditional-team-race-{}", uuid::Uuid::new_v4())),
         size: Set(1),
         policy_id: Set(policy.id),
-        storage_path: Set(format!("files/{}", uuid::Uuid::new_v4())),
+        storage_path: Set(Some(format!("files/{}", uuid::Uuid::new_v4()))),
         thumbnail_path: Set(None),
         thumbnail_processor: Set(None),
         thumbnail_version: Set(None),
@@ -2335,7 +2798,13 @@ async fn cancelled_during_stream_upload_can_resume_from_same_temp_file() {
     let blob = crate::db::repository::file_repo::find_blob_by_id(state.writer_db(), stored.blob_id)
         .await
         .unwrap();
-    assert_eq!(driver.get(&blob.storage_path).await.unwrap(), payload);
+    assert_eq!(
+        driver
+            .get(blob.storage_path.as_deref().expect("stored blob path"))
+            .await
+            .unwrap(),
+        payload
+    );
     assert_eq!(
         file::Entity::find().count(state.writer_db()).await.unwrap(),
         1
@@ -2392,7 +2861,10 @@ async fn cancellable_local_temp_store_uses_local_fast_path_without_driver_stream
         .await
         .unwrap();
     assert_eq!(
-        driver.get(&blob.storage_path).await.unwrap(),
+        driver
+            .get(blob.storage_path.as_deref().expect("stored blob path"))
+            .await
+            .unwrap(),
         payload,
         "stored local blob should contain original payload"
     );
@@ -2472,7 +2944,13 @@ async fn cancelled_after_local_preupload_staging_can_resume_from_same_temp_file(
     let blob = crate::db::repository::file_repo::find_blob_by_id(state.writer_db(), stored.blob_id)
         .await
         .unwrap();
-    assert_eq!(driver.get(&blob.storage_path).await.unwrap(), payload);
+    assert_eq!(
+        driver
+            .get(blob.storage_path.as_deref().expect("stored blob path"))
+            .await
+            .unwrap(),
+        payload
+    );
     assert_eq!(
         file::Entity::find().count(state.writer_db()).await.unwrap(),
         1
@@ -2615,7 +3093,13 @@ async fn cancelled_after_dedup_staging_can_resume_from_same_temp_file() {
     let blob = crate::db::repository::file_repo::find_blob_by_id(state.writer_db(), stored.blob_id)
         .await
         .unwrap();
-    assert_eq!(driver.get(&blob.storage_path).await.unwrap(), payload);
+    assert_eq!(
+        driver
+            .get(blob.storage_path.as_deref().expect("stored blob path"))
+            .await
+            .unwrap(),
+        payload
+    );
     assert_eq!(
         file::Entity::find().count(state.writer_db()).await.unwrap(),
         1

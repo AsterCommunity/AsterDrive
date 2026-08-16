@@ -285,15 +285,21 @@ async fn run_primary_runtime_group(
             )
             .await
             {
-                Ok(stats) if stats.completed_sessions_deleted > 0 => {
+                Ok(stats)
+                    if stats.completed_sessions_deleted > 0
+                        || stats.file_create_idempotencies_deleted > 0 =>
+                {
                     tracing::info!(
                         deleted = stats.completed_sessions_deleted,
                         broken = stats.broken_completed_sessions_deleted,
-                        "cleaned up expired completed upload sessions"
+                        file_create_idempotencies_deleted = stats.file_create_idempotencies_deleted,
+                        "cleaned up expired completed uploads and file-create idempotencies"
                     );
                     crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
-                        "deleted {} completed sessions ({} broken)",
-                        stats.completed_sessions_deleted, stats.broken_completed_sessions_deleted
+                        "deleted {} completed sessions ({} broken) and {} file-create idempotencies",
+                        stats.completed_sessions_deleted,
+                        stats.broken_completed_sessions_deleted,
+                        stats.file_create_idempotencies_deleted,
                     )))
                 }
                 Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),

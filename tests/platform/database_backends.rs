@@ -12,7 +12,11 @@ use tokio::time::{Duration, timeout};
 
 use aster_drive::db::repository::background_task_repo;
 use aster_drive_migration::{CurrentMigrator, Migrator, MigratorTrait};
-use aster_drive_model::entities::{background_task, folder_tree_operation_member, storage_policy};
+use aster_drive_model::entities::{
+    background_task, file_blob, file_create_idempotency, folder_tree_operation_member,
+    storage_policy,
+};
+use aster_drive_model::types::file_blob::FileBlobBacking;
 use aster_drive_model::types::{
     BackgroundTaskKind, BackgroundTaskStatus, EntityType, StoredStoragePolicyAllowedTypes,
     StoredStoragePolicyConfig, StoredTaskPayload, StoredTaskResult,
@@ -20,6 +24,95 @@ use aster_drive_model::types::{
 
 const OLD_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 255;
 const EXPANDED_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 512;
+
+#[actix_web::test]
+async fn current_schema_enforces_virtual_empty_and_file_create_idempotency_constraints() {
+    let state = common::setup().await;
+    let policy = aster_drive::db::repository::policy_repo::find_default(state.writer_db())
+        .await
+        .expect("default policy lookup should succeed")
+        .expect("default policy should exist");
+    let now = chrono::Utc::now();
+
+    let invalid_virtual = file_blob::ActiveModel {
+        hash: Set(file_blob::Model::EMPTY_SHA256.to_string()),
+        size: Set(1),
+        policy_id: Set(policy.id),
+        storage_path: Set(None),
+        backing: Set(FileBlobBacking::VirtualEmpty),
+        ref_count: Set(1),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await;
+    assert!(
+        invalid_virtual.is_err(),
+        "cross-column backing CHECK must reject non-empty virtual blobs"
+    );
+
+    for (backing, storage_path) in [
+        (FileBlobBacking::Stored, Some("objects/stored-empty")),
+        (FileBlobBacking::VirtualEmpty, None),
+    ] {
+        file_blob::ActiveModel {
+            hash: Set(file_blob::Model::EMPTY_SHA256.to_string()),
+            size: Set(0),
+            policy_id: Set(policy.id),
+            storage_path: Set(storage_path.map(str::to_string)),
+            backing: Set(backing),
+            ref_count: Set(1),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(state.writer_db())
+        .await
+        .expect("stored and virtual empty blobs should use distinct unique namespaces");
+    }
+
+    let claim = || file_create_idempotency::ActiveModel {
+        actor_user_id: Set(1),
+        workspace_kind: Set("personal".to_string()),
+        workspace_id: Set(1),
+        key_hash: Set("database-backend-key".to_string()),
+        request_fingerprint: Set("database-backend-request".to_string()),
+        result_file_id: Set(None),
+        created_at: Set(now),
+        expires_at: Set(now + chrono::Duration::hours(24)),
+        ..Default::default()
+    };
+    claim()
+        .insert(state.writer_db())
+        .await
+        .expect("first idempotency claim should insert");
+    assert!(
+        claim().insert(state.writer_db()).await.is_err(),
+        "scope/key uniqueness must reject a duplicate claim"
+    );
+
+    CurrentMigrator::down(state.writer_db(), Some(1))
+        .await
+        .expect_err("down migration must reject a live virtual-empty blob before changing schema");
+    assert_eq!(
+        file_create_idempotency::Entity::find()
+            .count(state.writer_db())
+            .await
+            .expect("idempotency table should remain queryable after rejected rollback"),
+        1,
+        "rejected rollback must not drop the idempotency table"
+    );
+    assert_eq!(
+        file_blob::Entity::find()
+            .filter(file_blob::Column::Backing.eq(FileBlobBacking::VirtualEmpty))
+            .count(state.writer_db())
+            .await
+            .expect("backing column should remain queryable after rejected rollback"),
+        1,
+        "rejected rollback must preserve the virtual-empty schema and row"
+    );
+}
 
 async fn assert_revision_expected_head_serializes_concurrent_appends(
     database_url: &str,

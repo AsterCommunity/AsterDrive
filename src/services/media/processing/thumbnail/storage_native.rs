@@ -10,6 +10,12 @@ pub(super) async fn render_thumbnail_with_storage_native(
     source_mime_type: &str,
     max_dim: u32,
 ) -> Result<Vec<u8>> {
+    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
+        precondition_failed_with_code(
+            ApiErrorCode::ThumbnailProcessorUnavailable,
+            "virtual-empty blobs have no storage-native thumbnail source",
+        )
+    })?;
     let native = driver.extensions().native_thumbnail.ok_or_else(|| {
         precondition_failed_with_code(
             ApiErrorCode::ThumbnailProcessorUnavailable,
@@ -18,7 +24,7 @@ pub(super) async fn render_thumbnail_with_storage_native(
     })?;
     let bytes = native
         .get_native_thumbnail(&NativeThumbnailRequest {
-            storage_path: blob.storage_path.clone(),
+            storage_path: storage_path.to_string(),
             source_mime_type: source_mime_type.to_string(),
             max_width: max_dim,
             max_height: max_dim,
@@ -45,6 +51,12 @@ pub(super) async fn render_image_preview_with_storage_native(
     source_mime_type: &str,
     max_dim: u32,
 ) -> Result<Vec<u8>> {
+    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
+        precondition_failed_with_code(
+            ApiErrorCode::ThumbnailProcessorUnavailable,
+            "virtual-empty blobs have no storage-native image preview source",
+        )
+    })?;
     let native = driver.extensions().native_thumbnail.ok_or_else(|| {
         precondition_failed_with_code(
             ApiErrorCode::ThumbnailProcessorUnavailable,
@@ -53,7 +65,7 @@ pub(super) async fn render_image_preview_with_storage_native(
     })?;
     let bytes = native
         .get_native_thumbnail(&NativeThumbnailRequest {
-            storage_path: blob.storage_path.clone(),
+            storage_path: storage_path.to_string(),
             source_mime_type: source_mime_type.to_string(),
             max_width: max_dim,
             max_height: max_dim,
@@ -175,13 +187,24 @@ mod tests {
             hash: "abc".repeat(21) + "a",
             size: 10,
             policy_id: 1,
-            storage_path: "objects/source.png".to_string(),
+            storage_path: Some("objects/source.png".to_string()),
+            backing: aster_drive_model::types::file_blob::FileBlobBacking::Stored,
             thumbnail_path: None,
             thumbnail_processor: None,
             thumbnail_version: None,
             ref_count: 1,
             created_at: Utc::now(),
             updated_at: Utc::now(),
+        }
+    }
+
+    fn virtual_empty_blob() -> file_blob::Model {
+        file_blob::Model {
+            hash: file_blob::Model::EMPTY_SHA256.to_string(),
+            size: 0,
+            storage_path: None,
+            backing: aster_drive_model::types::file_blob::FileBlobBacking::VirtualEmpty,
+            ..blob()
         }
     }
 
@@ -223,5 +246,45 @@ mod tests {
                 max_height: 2048,
             }]
         );
+    }
+
+    #[tokio::test]
+    async fn virtual_empty_thumbnail_is_rejected_before_driver_request() {
+        let driver = CapturingNativeDriver::new();
+
+        let error = render_thumbnail_with_storage_native(
+            &virtual_empty_blob(),
+            &driver,
+            "application/octet-stream",
+            320,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(
+            error.api_error_code(),
+            crate::api::api_error_code::ApiErrorCode::ThumbnailProcessorUnavailable
+        );
+        assert!(driver.requests().is_empty());
+    }
+
+    #[tokio::test]
+    async fn virtual_empty_image_preview_is_rejected_before_driver_request() {
+        let driver = CapturingNativeDriver::new();
+
+        let error = render_image_preview_with_storage_native(
+            &virtual_empty_blob(),
+            &driver,
+            "application/octet-stream",
+            2048,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(
+            error.api_error_code(),
+            crate::api::api_error_code::ApiErrorCode::ThumbnailProcessorUnavailable
+        );
+        assert!(driver.requests().is_empty());
     }
 }

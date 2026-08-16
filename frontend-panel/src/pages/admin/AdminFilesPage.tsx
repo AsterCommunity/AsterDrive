@@ -525,7 +525,7 @@ function BlobDetailDialog({
 							</div>
 							<DetailRow
 								label={t("admin_storage_path")}
-								value={blob.storage_path}
+								value={displayValue(blob.storage_path)}
 							/>
 						</div>
 						<div className="grid gap-4 md:grid-cols-2">
@@ -1324,7 +1324,7 @@ function BlobRow({
 			<TableCell>
 				<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
 					<span className="truncate text-xs text-muted-foreground">
-						{blob.storage_path}
+						{displayValue(blob.storage_path)}
 					</span>
 				</div>
 			</TableCell>

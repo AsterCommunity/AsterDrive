@@ -6,7 +6,7 @@ use crate::api::dto::files::{
     FileResourcePurpose, FileResourceRedirectPolicy, FileResourceRepresentation,
     FileResourceRequestInfo,
 };
-use crate::errors::Result;
+use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{media::processing, workspace::storage::WorkspaceStorageScope};
 use aster_drive_model::entities::{file, file_blob};
@@ -183,6 +183,9 @@ async fn presigned_original_url(
     file: &file::Model,
     blob: &file_blob::Model,
 ) -> Result<Option<String>> {
+    if blob.is_virtual_empty() {
+        return Ok(None);
+    }
     if requires_inline_sandbox(&file.mime_type) {
         return Ok(None);
     }
@@ -202,7 +205,12 @@ async fn presigned_original_url(
 
     presigned
         .presigned_url(
-            &blob.storage_path,
+            blob.storage_path_for_connector().ok_or_else(|| {
+                AsterError::internal_error(format!(
+                    "stored blob #{} is missing storage_path",
+                    blob.id
+                ))
+            })?,
             Duration::from_secs(PRESIGNED_PREVIEW_TTL_SECS),
             PresignedDownloadOptions {
                 download_name: Some(file.name.clone()),
@@ -682,7 +690,7 @@ mod tests {
                 hash: Set("resource-handle-hash".to_string()),
                 size: Set(123),
                 policy_id: Set(policy.id),
-                storage_path: Set("objects/resource.bin".to_string()),
+                storage_path: Set(Some("objects/resource.bin".to_string())),
                 thumbnail_path: Set(None),
                 thumbnail_processor: Set(None),
                 thumbnail_version: Set(None),
@@ -946,6 +954,77 @@ mod tests {
             query.get("response-content-type").map(String::as_str),
             Some("image/png")
         );
+    }
+
+    #[actix_web::test]
+    async fn virtual_empty_original_handle_stays_same_origin_when_presigning_is_enabled() {
+        let (state, file, mut blob) = build_resource_handle_state(
+            PresignedTestDriver,
+            Some(s3_presigned_download_policy()),
+            "empty.txt",
+            "text/plain",
+        )
+        .await;
+        blob.hash = file_blob::Model::EMPTY_SHA256.to_string();
+        blob.size = 0;
+        blob.storage_path = None;
+        blob.backing = aster_drive_model::types::file_blob::FileBlobBacking::VirtualEmpty;
+
+        let handle = resolve_file_resource_handle_for_file(
+            &state,
+            &file,
+            &blob,
+            paths(),
+            &request(
+                FileResourcePurpose::Preview,
+                FileResourceDeliveryMode::DirectUrl,
+                FileResourceRepresentation::Original,
+            ),
+            Some("personal"),
+            Some("virtual-empty-etag"),
+        )
+        .await
+        .expect("virtual empty handle should resolve without presigning");
+
+        assert_eq!(
+            handle.request.url,
+            "/files/42/download?existing=1&disposition=inline#frag"
+        );
+        assert_eq!(handle.request.credentials, FileResourceCredentials::Include);
+        assert_eq!(
+            handle.request.redirect_policy,
+            FileResourceRedirectPolicy::SameOriginOnly
+        );
+    }
+
+    #[actix_web::test]
+    async fn stored_original_handle_rejects_missing_storage_path_before_presigning() {
+        let (state, file, mut blob) = build_resource_handle_state(
+            PresignedTestDriver,
+            Some(s3_presigned_download_policy()),
+            "broken.txt",
+            "text/plain",
+        )
+        .await;
+        blob.storage_path = None;
+
+        let error = resolve_file_resource_handle_for_file(
+            &state,
+            &file,
+            &blob,
+            paths(),
+            &request(
+                FileResourcePurpose::Preview,
+                FileResourceDeliveryMode::DirectUrl,
+                FileResourceRepresentation::Original,
+            ),
+            Some("personal"),
+            Some("broken-etag"),
+        )
+        .await
+        .expect_err("stored blob without a connector path should fail");
+
+        assert!(matches!(error, crate::errors::AsterError::InternalError(_)));
     }
 
     #[actix_web::test]

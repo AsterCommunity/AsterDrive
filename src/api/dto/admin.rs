@@ -599,7 +599,7 @@ pub struct AdminFileBlobSummary {
     pub hash: String,
     pub size: i64,
     pub policy_id: i64,
-    pub storage_path: String,
+    pub storage_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -675,7 +675,7 @@ pub struct AdminFileBlobInfo {
     pub hash: String,
     pub size: i64,
     pub policy_id: i64,
-    pub storage_path: String,
+    pub storage_path: Option<String>,
     pub thumbnail_path: Option<String>,
     pub thumbnail_processor: Option<String>,
     pub thumbnail_version: Option<String>,

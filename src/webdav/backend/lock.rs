@@ -329,13 +329,11 @@ impl DavLockSystem for DbLockSystem {
                 })?;
                 Some(
                     PreparedEmptyFile::prepare(
-                        &self.state,
                         self.scope,
                         parent_id,
                         &filename,
                         EmptyFileNameMode::Exact,
                     )
-                    .await
                     .map_err(|error| {
                         tracing::warn!(error = %error, path = %path_str, "failed to stage WebDAV lock-null resource");
                         DavLockError::Backend
@@ -406,6 +404,10 @@ impl DavLockSystem for DbLockSystem {
                             )
                             .await
                             .map_err(LockAcquireTransactionError::from)?;
+                            let prepared = prepared
+                                .resolve_policy_on(&self.state, txn)
+                                .await
+                                .map_err(LockAcquireTransactionError::from)?;
                             let blob = prepared
                                 .persist_blob_on(txn)
                                 .await
@@ -478,13 +480,11 @@ impl DavLockSystem for DbLockSystem {
                         })?;
                         prepared_empty = Some(
                             PreparedEmptyFile::prepare(
-                                &self.state,
                                 self.scope,
                                 parent_id,
                                 &filename,
                                 EmptyFileNameMode::Exact,
                             )
-                            .await
                             .map_err(|error| {
                                 tracing::warn!(error = %error, path = %path_str, "failed to stage raced WebDAV lock-null resource");
                                 DavLockError::Backend
@@ -492,21 +492,9 @@ impl DavLockSystem for DbLockSystem {
                         );
                     }
                     Err(LockAcquireTransactionError::LimitExceeded) => {
-                        if let Some(prepared) = &prepared_empty {
-                            prepared
-                                .cleanup_after_db_failure("WebDAV LOCK quota exceeded")
-                                .await;
-                        }
                         return Err(DavLockError::LimitExceeded);
                     }
                     Err(LockAcquireTransactionError::Product(error)) => {
-                        if !error.database_commit_outcome_uncertain()
-                            && let Some(prepared) = &prepared_empty
-                        {
-                            prepared
-                                .cleanup_after_db_failure("WebDAV LOCK transaction failure")
-                                .await;
-                        }
                         if matches!(error, crate::errors::AsterError::ResourceLocked(_)) {
                             let conflict =
                                 match find_lock_namespace(self.state.writer_db(), self.scope).await
@@ -538,13 +526,6 @@ impl DavLockSystem for DbLockSystem {
                     }
                 }
             };
-            if created.is_none()
-                && let Some(prepared) = &prepared_empty
-            {
-                prepared
-                    .cleanup_after_db_failure("WebDAV LOCK target won a concurrent create race")
-                    .await;
-            }
             if let Some(created) = &created {
                 if let Some(prepared) = &prepared_empty {
                     prepared.publish_created(&self.state, created);

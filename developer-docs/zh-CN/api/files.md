@@ -47,6 +47,7 @@
 创建和上传入口的相关参数如下：
 
 - `POST /files/new` 可在请求体里传 `folder_id` 和 `relative_path`
+- `POST /files/new` 和团队对应入口可传可选 `Idempotency-Key` header；key 最长 255 字节，不能包含 ASCII 空白
 - `POST /files/upload` 可通过 query 传 `folder_id`
 - `POST /files/upload` 可通过 query 传 `relative_path`
 - `POST /files/upload` 可通过 query 传 `declared_size`
@@ -118,9 +119,13 @@
 - 本地路径：会校验全部本地 chunk receipt、staging 总大小和配额；若 local 策略开启了 `content_dedup`，还会从 staging file 流式计算 SHA-256 并做 Blob 去重，否则直接 promote/上传 staging file 创建独立 Blob，不再额外生成完整 assembled 副本
 - 所有对象存储 / OneDrive / Remote 路径（`relay_stream` / `presigned` / `presigned_multipart` / provider resumable）：都会校验大小和配额，但不会做 Blob 去重；最终会使用上传 session 派生的占位 hash 和 `files/{upload_id}` 风格的对象路径为每次上传创建独立 Blob；这些路径都不会回读对象计算 SHA-256
 
-`POST /files/new` 创建空文件时也遵循同样规则：只有 local 显式开启 `content_dedup` 才会复用 0 字节 Blob，非本地 connector 始终创建独立 Blob。
+`POST /files/new` 是 metadata-only 空文件创建：`files.blob_id` 始终非空，但指向当前 storage policy 的 canonical `virtual_empty` blob。该 blob 的 `size = 0`、hash 为标准空内容 SHA-256、`storage_path = NULL`，不会调用 connector 的 `exists`、`put`、`get` 或 `delete`。同一 policy 下的多个空文件共享该 blob；下载和 Range 直接从内存返回确定的空内容，最后一个引用 purge 时只删 blob metadata。第一次覆盖为非空内容后，现有上传完成事务会切换到普通 `stored` blob。
 
-`POST /files/new` 和空 multipart compatibility 都属于产品级新建文件：它们统一负责 `relative_path`、缺失父目录创建、exact target、策略解析、Blob / file transaction、事件和失败清理。WebDAV PUT / LOCK staging、storage migration、internal storage ingress、remote follower object write 以及已准备 Blob 的恢复 / 复制仍使用 driver 的 `put(path, &[])` 或对应 stream/object primitive；这些低层零长度对象写入不会创建第二条产品文件元数据路径。
+带 `Idempotency-Key` 的 personal/team 创建以 authenticated actor、workspace kind/id 和 operation 隔离。key 只以 SHA-256 持久化；同 key、同规范化请求在 24 小时内返回首次创建的相同 file/blob ID，不重复发布 file-created event 或 audit。filename、base folder、规范化 `relative_path` 或命名模式发生漂移时返回 `409`。父目录补齐、canonical virtual blob、file metadata 和幂等 result 都在同一个 writer transaction 内；提交结果未知时客户端直接用原 key 重放。结果文件在保留期内已被 purge 时也返回稳定 `409`。不带 key 的旧客户端继续使用自动重命名语义。
+
+浏览器对零字节 upload task 生成并持久化一次 key，记录保留 23 小时；retry、token refresh、请求超时和页面恢复复用该 key，成功、取消或明确清理 terminal task 时删除记录。
+
+空 multipart compatibility 仍委托同一个产品级空文件 use case。WebDAV PUT/LOCK staging、storage migration、internal storage ingress、remote follower object write 以及已准备 Blob 的恢复/复制若协议明确要求真实对象，继续使用 driver 的零长度 object primitive。
 
 `relay_stream` 的 multipart 场景下，服务端会把每个 part 的 `part_number + etag` 持久化到数据库；`complete` 时直接使用这些服务端记录完成对象存储 / Remote multipart，不依赖客户端再回传 `parts`。
 

@@ -58,6 +58,46 @@ fn assert_uses_virtual_table(plan: &[String], virtual_table: &str, base_table: &
 }
 
 #[actix_web::test]
+async fn test_virtual_empty_and_idempotency_maintenance_queries_use_indexes() {
+    let state = common::setup().await;
+    if !skip_unless_sqlite(state.writer_db()) {
+        return;
+    }
+
+    let virtual_empty_lookup = explain_query_plan(
+        state.writer_db(),
+        "SELECT id, hash, size, policy_id, storage_path, backing, thumbnail_path, \
+                thumbnail_processor, thumbnail_version, ref_count, created_at, updated_at \
+         FROM file_blobs \
+         WHERE hash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' \
+           AND policy_id = 1 \
+           AND backing = 'virtual_empty' \
+         LIMIT 1",
+    )
+    .await;
+    assert_uses_index(
+        &virtual_empty_lookup,
+        "idx_file_blobs_hash_policy_backing",
+        "file_blobs",
+    );
+
+    let expired_idempotency_batch = explain_query_plan(
+        state.writer_db(),
+        "SELECT id FROM file_create_idempotencies \
+         WHERE expires_at <= '2099-01-01T00:00:00Z' \
+         ORDER BY expires_at, id \
+         LIMIT 1000",
+    )
+    .await;
+    assert_uses_index(
+        &expired_idempotency_batch,
+        "idx_file_create_idempotencies_expiry",
+        "file_create_idempotencies",
+    );
+    assert_no_temp_btree(&expired_idempotency_batch);
+}
+
+#[actix_web::test]
 async fn test_directory_lookup_indexes_cover_listing_and_duplicate_name_queries() {
     let state = common::setup().await;
     if !skip_unless_sqlite(state.writer_db()) {

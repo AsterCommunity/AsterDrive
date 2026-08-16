@@ -119,7 +119,7 @@ async fn test_large_folder_delete_and_restore_dispatch_bounded_tasks() {
         hash: Set("folder-tree-task-fixture".to_string()),
         size: Set(0),
         policy_id: Set(policy.id),
-        storage_path: Set("folder-tree-task-fixture".to_string()),
+        storage_path: Set(Some("folder-tree-task-fixture".to_string())),
         ref_count: Set(i32::try_from(FILE_COUNT).unwrap()),
         created_at: Set(now),
         updated_at: Set(now),

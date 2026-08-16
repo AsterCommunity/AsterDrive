@@ -467,7 +467,7 @@ where
             hash: Set(format!("download-stream-{}", uuid::Uuid::new_v4())),
             size: Set(payload_size),
             policy_id: Set(policy.id),
-            storage_path: Set(format!("files/{}", uuid::Uuid::new_v4())),
+            storage_path: Set(Some(format!("files/{}", uuid::Uuid::new_v4()))),
             ref_count: Set(1),
             created_at: Set(now),
             updated_at: Set(now),
@@ -546,6 +546,40 @@ async fn build_stream_response_uses_get_stream_instead_of_get() {
 }
 
 #[actix_web::test]
+async fn virtual_empty_stream_response_has_empty_body_without_driver_reads() {
+    let driver = CountingStreamDriver::new(Vec::new());
+    let get_calls = driver.get_calls.clone();
+    let get_stream_calls = driver.get_stream_calls.clone();
+    let (state, mut file, mut blob, _) = build_download_test_state(driver, 0).await;
+    file.size = 0;
+    blob.hash = file_blob::Model::EMPTY_SHA256.to_string();
+    blob.size = 0;
+    blob.storage_path = None;
+    blob.backing = aster_drive_model::types::file_blob::FileBlobBacking::VirtualEmpty;
+
+    let outcome = build_download_outcome_with_disposition_and_range(
+        &state,
+        &file,
+        &blob,
+        DownloadDisposition::Inline,
+        None,
+        None,
+        "virtual-empty-etag",
+    )
+    .await
+    .expect("virtual empty download outcome should build");
+    let response = outcome_to_response(outcome);
+    assert!(
+        body::to_bytes(response.into_body())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(get_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(get_stream_calls.load(Ordering::SeqCst), 0);
+}
+
+#[actix_web::test]
 async fn conditional_download_uses_revision_etag_instead_of_blob_hash() {
     let payload = b"canonical revision validator".to_vec();
     let driver = CountingStreamDriver::new(payload.clone());
@@ -585,7 +619,12 @@ async fn download_reloads_content_and_etag_from_one_current_snapshot() {
     let current_bytes = b"new-current".to_vec();
     let (state, stale_file, stale_blob, _) =
         build_download_test_state(driver, payload_len_i64(&stale_bytes)).await;
-    driver_handle.insert(stale_blob.storage_path.clone(), stale_bytes);
+    driver_handle.insert(
+        stale_blob
+            .storage_path_for_connector()
+            .expect("stale stored blob path"),
+        stale_bytes,
+    );
 
     let now = Utc::now() + chrono::Duration::seconds(1);
     let current_blob = file_repo::create_blob(
@@ -594,7 +633,7 @@ async fn download_reloads_content_and_etag_from_one_current_snapshot() {
             hash: Set(format!("current-{}", uuid::Uuid::new_v4())),
             size: Set(payload_len_i64(&current_bytes)),
             policy_id: Set(stale_blob.policy_id),
-            storage_path: Set(format!("files/current-{}", uuid::Uuid::new_v4())),
+            storage_path: Set(Some(format!("files/current-{}", uuid::Uuid::new_v4()))),
             ref_count: Set(1),
             created_at: Set(now),
             updated_at: Set(now),
@@ -603,7 +642,12 @@ async fn download_reloads_content_and_etag_from_one_current_snapshot() {
     )
     .await
     .unwrap();
-    driver_handle.insert(current_blob.storage_path.clone(), current_bytes.clone());
+    driver_handle.insert(
+        current_blob
+            .storage_path_for_connector()
+            .expect("current stored blob path"),
+        current_bytes.clone(),
+    );
 
     let txn = aster_forge_db::transaction::begin(state.writer_db())
         .await

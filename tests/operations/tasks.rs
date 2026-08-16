@@ -1638,7 +1638,7 @@ async fn test_blob_maintenance_integrity_check_reports_missing_and_size_mismatch
         hash: Set("missing-integrity-hash".to_string()),
         size: Set(12),
         policy_id: Set(healthy_blob.policy_id),
-        storage_path: Set("admin-maintenance/missing.bin".to_string()),
+        storage_path: Set(Some("admin-maintenance/missing.bin".to_string())),
         thumbnail_path: Set(None),
         thumbnail_processor: Set(None),
         thumbnail_version: Set(None),
@@ -1723,7 +1723,7 @@ async fn test_blob_maintenance_uses_uncached_driver_without_replacing_existing_h
         .expect("driver should resolve before maintenance");
     assert!(
         driver_before
-            .exists(&blob.storage_path)
+            .exists(blob.storage_path_for_connector().expect("stored blob path"))
             .await
             .expect("old driver should read object before maintenance")
     );
@@ -1756,14 +1756,14 @@ async fn test_blob_maintenance_uses_uncached_driver_without_replacing_existing_h
     );
     assert!(
         driver_before
-            .exists(&blob.storage_path)
+            .exists(blob.storage_path_for_connector().expect("stored blob path"))
             .await
             .expect("old Arc handle should remain usable after registry invalidation"),
         "registry invalidation must not break in-flight users that already cloned the driver"
     );
     assert!(
         driver_after
-            .exists(&blob.storage_path)
+            .exists(blob.storage_path_for_connector().expect("stored blob path"))
             .await
             .expect("cached driver should read object after maintenance"),
         "cached driver should keep working after maintenance"
@@ -1977,7 +1977,7 @@ async fn test_blob_maintenance_orphan_cleanup_does_not_warm_shared_driver_cache(
         hash: Set(format!("orphan-cache-cold-{}", uuid::Uuid::new_v4())),
         size: Set(6),
         policy_id: Set(policy.id),
-        storage_path: Set(blob_path),
+        storage_path: Set(Some(blob_path)),
         ref_count: Set(0),
         created_at: Set(now),
         updated_at: Set(now),
@@ -2208,7 +2208,7 @@ async fn test_blob_maintenance_orphan_cleanup_removes_unreferenced_blob_only() {
         hash: Set("orphan-cleanup-hash".to_string()),
         size: Set(14),
         policy_id: Set(referenced_blob.policy_id),
-        storage_path: Set(orphan_path.to_string()),
+        storage_path: Set(Some(orphan_path.to_string())),
         thumbnail_path: Set(None),
         thumbnail_processor: Set(None),
         thumbnail_version: Set(None),

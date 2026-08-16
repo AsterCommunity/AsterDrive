@@ -28,6 +28,11 @@ pub(super) async fn render_thumbnail_bytes(
     driver: &Arc<dyn StorageDriver>,
     processor: &ResolvedMediaProcessor,
 ) -> Result<Vec<u8>> {
+    if blob.is_virtual_empty() {
+        return Err(AsterError::validation_error(
+            "virtual-empty blobs have no thumbnail source",
+        ));
+    }
     match processor.kind() {
         MediaProcessorKind::Images => {
             tracing::debug!(
@@ -141,6 +146,9 @@ async fn render_thumbnail_with_lofty(
     driver: &dyn StorageDriver,
     max_dim: u32,
 ) -> Result<Vec<u8>> {
+    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
+        AsterError::validation_error("virtual-empty blobs have no audio artwork source")
+    })?;
     let temp_root = aster_forge_utils::paths::runtime_temp_dir(&state.config().server.temp_dir);
     let temp_dir =
         std::path::PathBuf::from(temp_root).join(format!("media-lofty-{}", uuid::Uuid::new_v4()));
@@ -153,7 +161,7 @@ async fn render_thumbnail_with_lofty(
     );
     let prepared_input = prepare_cli_source(
         driver,
-        &blob.storage_path,
+        storage_path,
         source_file_name,
         source_mime_type,
         temp_dir.path(),

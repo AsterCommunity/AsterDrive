@@ -35,6 +35,7 @@ pub(super) fn default_retry_class(error: &AsterError) -> TaskRetryClass {
             }
         },
         AsterError::ValidationError(_)
+        | AsterError::Conflict(_)
         | AsterError::RecordNotFound(_)
         | AsterError::MailNotConfigured(_)
         | AsterError::MailDeliveryFailed(_)
@@ -104,6 +105,7 @@ mod tests {
 
         for error in [
             AsterError::validation_error("invalid input"),
+            AsterError::conflict("request conflict"),
             AsterError::record_not_found("record missing"),
             AsterError::upload_assembling("upload is assembling"),
             AsterError::operation_resource_limit_exceeded("resource limit exceeded"),

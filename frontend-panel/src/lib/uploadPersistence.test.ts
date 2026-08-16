@@ -2,9 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	appendCompletedPart,
 	clearAllSessions,
+	loadPendingEmptyFiles,
 	loadSessions,
 	type ResumableSession,
+	removePendingEmptyFile,
 	removeSession,
+	savePendingEmptyFiles,
 	saveSession,
 } from "@/lib/uploadPersistence";
 import type { Workspace } from "@/lib/workspace";
@@ -149,6 +152,224 @@ describe("uploadPersistence", () => {
 			expect.objectContaining({
 				uploadId: "team-1",
 			}),
+		]);
+	});
+
+	it("persists empty-file replay keys by workspace and removes them explicitly", () => {
+		savePendingEmptyFiles([
+			{
+				taskId: "empty-personal",
+				idempotencyKey: "key-personal",
+				filename: "empty.txt",
+				baseFolderId: null,
+				baseFolderName: "Root",
+				relativePath: null,
+				savedAt: Date.now(),
+			},
+		]);
+		savePendingEmptyFiles([
+			{
+				taskId: "empty-team",
+				idempotencyKey: "key-team",
+				filename: "nested.txt",
+				baseFolderId: 5,
+				baseFolderName: "Docs",
+				relativePath: "nested/empty.txt",
+				savedAt: Date.now(),
+				workspace: TEAM_WORKSPACE,
+			},
+		]);
+
+		expect(loadPendingEmptyFiles(TEAM_WORKSPACE)).toEqual([
+			expect.objectContaining({
+				taskId: "empty-team",
+				idempotencyKey: "key-team",
+			}),
+		]);
+		removePendingEmptyFile("empty-team");
+		expect(loadPendingEmptyFiles(TEAM_WORKSPACE)).toEqual([]);
+		expect(loadPendingEmptyFiles()).toHaveLength(1);
+	});
+
+	it("persists a large empty-file batch with one storage write", () => {
+		localStorage.setItem(
+			"aster_pending_empty_file_creates",
+			JSON.stringify([
+				{
+					taskId: "preserved",
+					idempotencyKey: "preserved-key",
+					filename: "preserved.txt",
+					baseFolderId: null,
+					baseFolderName: "Root",
+					relativePath: null,
+					savedAt: Date.now(),
+					workspace: { kind: "personal" },
+				},
+				{
+					taskId: "empty-0",
+					idempotencyKey: "stale-key",
+					filename: "stale.txt",
+					baseFolderId: null,
+					baseFolderName: "Root",
+					relativePath: null,
+					savedAt: Date.now(),
+					workspace: { kind: "personal" },
+				},
+			]),
+		);
+		const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
+		const savedAt = Date.now();
+		const batch = Array.from({ length: 1_000 }, (_, index) => ({
+			taskId: `empty-${index}`,
+			idempotencyKey: `key-${index}`,
+			filename: `${index}.txt`,
+			baseFolderId: null,
+			baseFolderName: "Root",
+			relativePath: null,
+			savedAt,
+		}));
+
+		savePendingEmptyFiles(batch);
+
+		expect(setItemSpy).toHaveBeenCalledTimes(1);
+		expect(loadPendingEmptyFiles()).toHaveLength(1_001);
+		expect(
+			loadPendingEmptyFiles().find((entry) => entry.taskId === "empty-0"),
+		).toEqual(expect.objectContaining({ idempotencyKey: "key-0" }));
+	});
+
+	it("drops malformed pending empty-file records before workspace filtering", () => {
+		localStorage.setItem(
+			"aster_pending_empty_file_creates",
+			JSON.stringify([
+				{
+					taskId: "valid",
+					idempotencyKey: "valid-key",
+					filename: "valid.txt",
+					baseFolderId: null,
+					baseFolderName: "Root",
+					relativePath: null,
+					savedAt: Date.now(),
+				},
+				{
+					taskId: "missing-key",
+					filename: "missing-key.txt",
+					baseFolderId: null,
+					baseFolderName: "Root",
+					relativePath: null,
+					savedAt: Date.now(),
+				},
+				{
+					taskId: "invalid-workspace",
+					idempotencyKey: "invalid-workspace-key",
+					filename: "invalid-workspace.txt",
+					baseFolderId: null,
+					baseFolderName: "Root",
+					relativePath: null,
+					savedAt: Date.now(),
+					workspace: "personal",
+				},
+				null,
+			]),
+		);
+
+		expect(loadPendingEmptyFiles({ kind: "personal" })).toEqual([
+			expect.objectContaining({
+				taskId: "valid",
+				idempotencyKey: "valid-key",
+			}),
+		]);
+		expect(
+			JSON.parse(
+				localStorage.getItem("aster_pending_empty_file_creates") ?? "[]",
+			),
+		).toEqual([expect.objectContaining({ taskId: "valid" })]);
+	});
+
+	it("clears malformed pending empty-file payloads without interrupting uploads", () => {
+		localStorage.setItem("aster_pending_empty_file_creates", "{}");
+		expect(loadPendingEmptyFiles()).toEqual([]);
+		expect(localStorage.getItem("aster_pending_empty_file_creates")).toBeNull();
+
+		localStorage.setItem("aster_pending_empty_file_creates", "{");
+		expect(loadPendingEmptyFiles()).toEqual([]);
+		expect(localStorage.getItem("aster_pending_empty_file_creates")).toBeNull();
+
+		vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+			throw new DOMException("storage unavailable", "InvalidStateError");
+		});
+		expect(() =>
+			savePendingEmptyFiles([
+				{
+					taskId: "write-failure",
+					idempotencyKey: "write-failure-key",
+					filename: "write-failure.txt",
+					baseFolderId: null,
+					baseFolderName: "Root",
+					relativePath: null,
+					savedAt: Date.now(),
+				},
+			]),
+		).not.toThrow();
+	});
+
+	it("drops empty-file replay records before the server retention expires", () => {
+		const now = 50_000_000;
+		vi.spyOn(Date, "now").mockReturnValue(now);
+		for (const [taskId, savedAt] of [
+			["fresh-empty", now - (23 * 60 * 60 * 1000 - 1)],
+			["expired-empty", now - (23 * 60 * 60 * 1000 + 1)],
+		] as const) {
+			savePendingEmptyFiles([
+				{
+					taskId,
+					idempotencyKey: `${taskId}-key`,
+					filename: `${taskId}.txt`,
+					baseFolderId: null,
+					baseFolderName: "Root",
+					relativePath: null,
+					savedAt,
+				},
+			]);
+		}
+
+		expect(loadPendingEmptyFiles()).toEqual([
+			expect.objectContaining({ taskId: "fresh-empty" }),
+		]);
+	});
+
+	it("prunes expired empty-file replay records while saving a new batch", () => {
+		const now = 50_000_000;
+		vi.spyOn(Date, "now").mockReturnValue(now);
+		localStorage.setItem(
+			"aster_pending_empty_file_creates",
+			JSON.stringify([
+				{
+					taskId: "expired-empty",
+					idempotencyKey: "expired-key",
+					filename: "expired.txt",
+					baseFolderId: null,
+					baseFolderName: "Root",
+					relativePath: null,
+					savedAt: now - (23 * 60 * 60 * 1000 + 1),
+				},
+			]),
+		);
+
+		savePendingEmptyFiles([
+			{
+				taskId: "fresh-empty",
+				idempotencyKey: "fresh-key",
+				filename: "fresh.txt",
+				baseFolderId: null,
+				baseFolderName: "Root",
+				relativePath: null,
+				savedAt: now,
+			},
+		]);
+
+		expect(loadPendingEmptyFiles()).toEqual([
+			expect.objectContaining({ taskId: "fresh-empty" }),
 		]);
 	});
 

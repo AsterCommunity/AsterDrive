@@ -242,9 +242,21 @@ where
 
                 let stream = ctx.handle.block_on(async {
                     let blob = file_repo::find_blob_by_id(ctx.db, file.blob_id).await?;
+                    if blob.is_virtual_empty() {
+                        return Ok(Box::new(tokio::io::empty())
+                            as Box<dyn tokio::io::AsyncRead + Unpin + Send>);
+                    }
+                    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
+                        AsterError::internal_error(format!(
+                            "stored blob #{} is missing storage_path",
+                            blob.id
+                        ))
+                    })?;
                     let policy = ctx.policy_snapshot.get_policy_or_err(blob.policy_id)?;
                     let driver = ctx.driver_registry.get_driver(&policy)?;
-                    driver.get_stream(&blob.storage_path).await
+                    Ok::<Box<dyn tokio::io::AsyncRead + Unpin + Send>, AsterError>(
+                        driver.get_stream(storage_path).await?,
+                    )
                 })?;
 
                 let mut reader = tokio_util::io::SyncIoBridge::new(stream);

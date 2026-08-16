@@ -25,16 +25,18 @@ pub(crate) use crate::services::workspace::scope::{
     verify_folder_access_for_read,
 };
 pub(crate) use crate::services::workspace::storage_core::{
-    FinalizeUploadSessionFileParams, VerifiedFolderPolicyHint, check_quota,
+    FinalizeUploadSessionFileParams, ParsedUploadPath, VerifiedFolderPolicyHint, check_quota,
     create_exact_file_from_blob, create_exact_file_from_blob_with_actor_username,
     create_new_file_from_blob, create_new_file_from_blob_with_actor_username,
     create_nondedup_blob_with_key, create_opaque_nondedup_blob,
     ensure_policy_available_for_folder_binding, ensure_upload_parent_path,
-    finalize_upload_session_blob_with_actor_username, finalize_upload_session_file,
-    load_storage_limits, local_content_dedup_enabled, lock_storage_usage,
-    lock_storage_usage_for_resource_scope, parse_relative_upload_path, resolve_policy_for_size,
-    resolve_policy_for_size_with_verified_folder, resolve_verified_folder_policy_hint,
-    update_storage_used, update_storage_used_for_resource_scope,
+    ensure_upload_parent_path_on, finalize_upload_session_blob_with_actor_username,
+    finalize_upload_session_file, load_storage_limits, local_content_dedup_enabled,
+    lock_storage_usage, lock_storage_usage_for_resource_scope, parse_relative_upload_path,
+    resolve_policy_for_size, resolve_policy_for_size_with_verified_folder,
+    resolve_policy_for_size_with_verified_folder_on, resolve_verified_folder_policy_hint,
+    resolve_verified_folder_policy_hint_on, update_storage_used,
+    update_storage_used_for_resource_scope,
 };
 
 pub(crate) use crate::services::workspace::scope::load_scope_actor_username_cached;
@@ -53,6 +55,7 @@ pub(crate) use store::from_temp::store_from_temp_internal;
 pub(crate) use store::{
     EmptyFileNameMode, FileWritePrecondition, PreparedEmptyFile, StoreFromTempHints,
     StoreFromTempParams, StorePreuploadedNondedupParams, create_empty,
+    create_empty_from_relative_path_with_idempotency, create_empty_with_idempotency,
     store_from_temp_exact_name_silent_with_hints, store_from_temp_exact_name_with_hints,
     store_from_temp_with_hints, store_preuploaded_nondedup,
 };

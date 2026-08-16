@@ -60,7 +60,12 @@ pub(crate) async fn scan_manifest_from_storage_range(
 ) -> Result<ArchiveRawManifest> {
     let source_size =
         aster_forge_utils::numbers::i64_to_u64(source_file.size, "source archive size")?;
-    let storage_path = blob.storage_path.clone();
+    let storage_path = blob
+        .storage_path_for_connector()
+        .ok_or_else(|| {
+            AsterError::validation_error("virtual-empty blobs cannot be archive preview sources")
+        })?
+        .to_string();
     let handle = tokio::runtime::Handle::current();
     scan_manifest_with_reader(
         source_file.id,

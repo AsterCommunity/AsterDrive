@@ -590,6 +590,64 @@ async fn migrate_one_blob(
         .await;
     }
 
+    if latest.is_virtual_empty() {
+        if let Some(target) =
+            file_repo::find_virtual_empty_blob_by_policy(state.writer_db(), target_policy_id)
+                .await?
+        {
+            return merge_blob_records(state, task_id, latest, target).await;
+        }
+
+        let move_result = transaction::with_transaction(state.writer_db(), async |txn| {
+            let moved = file_repo::move_virtual_empty_blob_policy_if_current(
+                txn,
+                latest.id,
+                source_policy_id,
+                target_policy_id,
+            )
+            .await?;
+            let outcome = if moved {
+                BlobMigrationOutcome {
+                    scanned: 1,
+                    migrated: 1,
+                    ..Default::default()
+                }
+            } else {
+                BlobMigrationOutcome {
+                    scanned: 1,
+                    skipped: 1,
+                    ..Default::default()
+                }
+            };
+            storage_migration_checkpoint_repo::advance(
+                txn,
+                task_id,
+                CHECKPOINT_STAGE_MIGRATE_BLOBS,
+                latest.id,
+                checkpoint_delta(outcome),
+                None,
+            )
+            .await?;
+            Ok(outcome)
+        })
+        .await;
+        return match move_result {
+            Ok(outcome) => Ok(outcome),
+            Err(move_error) => {
+                if let Some(target) = file_repo::find_virtual_empty_blob_by_policy(
+                    state.writer_db(),
+                    target_policy_id,
+                )
+                .await?
+                {
+                    merge_blob_records(state, task_id, latest, target).await
+                } else {
+                    Err(move_error)
+                }
+            }
+        };
+    }
+
     let content_hash = is_content_sha256_blob_key(&latest.hash);
     let existing_target_blob =
         file_repo::find_blob_by_hash(state.writer_db(), &latest.hash, target_policy_id).await?;
@@ -778,6 +836,9 @@ async fn copy_blob_streaming(
         ..
     } = *migration;
     context.ensure_active()?;
+    let source_path = blob.storage_path_for_connector().ok_or_else(|| {
+        AsterError::validation_error("virtual-empty blobs must migrate as metadata-only records")
+    })?;
     if let Some(multipart) = target_driver.extensions().multipart
         && should_use_multipart_migration(blob.size, target_multipart_part_size)?
     {
@@ -788,7 +849,7 @@ async fn copy_blob_streaming(
         return copy_blob_multipart(migration, multipart, blob, target_path).await;
     }
 
-    let source_stream = source_driver.get_stream(&blob.storage_path).await?;
+    let source_stream = source_driver.get_stream(source_path).await?;
     context.ensure_active()?;
     let hashing_reader = HashingReader::new(source_stream, context.clone());
     let digest = hashing_reader.digest_handle();
@@ -846,7 +907,10 @@ async fn copy_blob_multipart(
         ..
     } = *migration;
     context.ensure_active()?;
-    let mut source_stream = source_driver.get_stream(&blob.storage_path).await?;
+    let source_path = blob.storage_path_for_connector().ok_or_else(|| {
+        AsterError::validation_error("virtual-empty blobs must migrate as metadata-only records")
+    })?;
+    let mut source_stream = source_driver.get_stream(source_path).await?;
     let part_size = migration_multipart_part_size(blob.size, target_multipart_part_size)?;
     let upload_id = multipart.create_multipart_upload(target_path).await?;
     let mut completed_parts = Vec::new();
@@ -1147,7 +1211,9 @@ async fn verify_existing_target(
     verify_target_object(
         context,
         target_driver,
-        &target_blob.storage_path,
+        target_blob.storage_path_for_connector().ok_or_else(|| {
+            AsterError::validation_error("virtual-empty blobs have no target object to verify")
+        })?,
         source_hash,
         source_size,
     )

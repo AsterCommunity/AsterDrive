@@ -341,6 +341,23 @@ describe("fileService", () => {
 		);
 	});
 
+	it("sends empty-file idempotency keys without exposing them in the payload", async () => {
+		const { fileService } = await import("@/services/fileService");
+
+		fileService.createEmptyFile("replay.md", 7, undefined, {
+			idempotencyKey: "stable-empty-key",
+		});
+
+		expect(mockState.post).toHaveBeenCalledWith(
+			"/files/new",
+			{ name: "replay.md", folder_id: 7 },
+			{
+				signal: undefined,
+				headers: { "Idempotency-Key": "stable-empty-key" },
+			},
+		);
+	});
+
 	it("uses metadata PATCH endpoints for single-item moves", async () => {
 		const { createFileService } = await import("@/services/fileService");
 		const personal = createFileService(PERSONAL_WORKSPACE);

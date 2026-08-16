@@ -1,18 +1,19 @@
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
-    ExprTrait, FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
-    TryInsertResult, sea_query::Expr,
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend,
+    EntityTrait, ExprTrait, FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    Set, TryInsertResult, sea_query::Expr,
 };
 
 use crate::api::pagination::AdminFileBlobSortBy;
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::file_blob::{self, Entity as FileBlob};
+use aster_drive_model::types::file_blob::FileBlobBacking;
 use aster_forge_api::SortOrder;
 use aster_forge_db::search_query::lower_like_condition;
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
 
-use super::ref_count::{find_active_blob_by_hash, increment_blob_ref_count};
+use super::ref_count::increment_blob_ref_count;
 
 pub struct FindOrCreateBlobResult {
     pub model: file_blob::Model,
@@ -93,6 +94,23 @@ pub async fn find_blob_by_hash<C: ConnectionTrait>(
     FileBlob::find()
         .filter(file_blob::Column::Hash.eq(hash))
         .filter(file_blob::Column::PolicyId.eq(policy_id))
+        .filter(file_blob::Column::Backing.eq(FileBlobBacking::Stored))
+        .one(db)
+        .await
+        .map_err(AsterError::from)
+}
+
+pub async fn find_virtual_empty_blob_by_policy<C: ConnectionTrait>(
+    db: &C,
+    policy_id: i64,
+) -> Result<Option<file_blob::Model>> {
+    FileBlob::find()
+        // `idx_file_blobs_hash_policy_backing` starts with hash. The backing CHECK
+        // guarantees every virtual-empty row uses this canonical hash, so include it
+        // here instead of making storage migration scan the entire blob table.
+        .filter(file_blob::Column::Hash.eq(file_blob::Model::EMPTY_SHA256))
+        .filter(file_blob::Column::PolicyId.eq(policy_id))
+        .filter(file_blob::Column::Backing.eq(FileBlobBacking::VirtualEmpty))
         .one(db)
         .await
         .map_err(AsterError::from)
@@ -196,8 +214,9 @@ pub async fn count_matching_hashes_between_policies<C: ConnectionTrait>(
                 r#"SELECT COUNT(*) AS count
                FROM file_blobs source
                INNER JOIN file_blobs target
-                 ON target.hash = source.hash
+                ON target.hash = source.hash
                 AND target.size = source.size
+                AND target.backing = source.backing
                 AND target.policy_id = $2
                WHERE source.policy_id = $1 AND {content_hash_condition}"#
             )
@@ -207,8 +226,9 @@ pub async fn count_matching_hashes_between_policies<C: ConnectionTrait>(
                 r#"SELECT COUNT(*) AS count
                FROM file_blobs source
                INNER JOIN file_blobs target
-                 ON target.hash = source.hash
+                ON target.hash = source.hash
                 AND target.size = source.size
+                AND target.backing = source.backing
                 AND target.policy_id = ?
                WHERE source.policy_id = ? AND {content_hash_condition}"#
             )
@@ -251,6 +271,7 @@ pub async fn count_opaque_hash_conflicts_between_policies<C: ConnectionTrait>(
                     SELECT 1 FROM file_blobs target
                     WHERE target.policy_id = $2
                       AND target.hash = source.hash
+                      AND target.backing = source.backing
                  )"#
         ),
         DbBackend::MySql | DbBackend::Sqlite | _ => format!(
@@ -262,6 +283,7 @@ pub async fn count_opaque_hash_conflicts_between_policies<C: ConnectionTrait>(
                     SELECT 1 FROM file_blobs target
                     WHERE target.policy_id = ?
                       AND target.hash = source.hash
+                      AND target.backing = source.backing
                  )"#
         ),
     };
@@ -296,6 +318,7 @@ pub async fn summarize_missing_blobs_between_policies<C: ConnectionTrait>(
                     WHERE target.policy_id = $2
                       AND target.hash = source.hash
                       AND target.size = source.size
+                      AND target.backing = source.backing
                       AND {content_hash_condition}
                  )"#
             )
@@ -310,6 +333,7 @@ pub async fn summarize_missing_blobs_between_policies<C: ConnectionTrait>(
                     WHERE target.policy_id = ?
                       AND target.hash = source.hash
                       AND target.size = source.size
+                      AND target.backing = source.backing
                       AND {content_hash_condition}
                  )"#
             )
@@ -330,7 +354,46 @@ pub async fn create_blob<C: ConnectionTrait>(
     db: &C,
     model: file_blob::ActiveModel,
 ) -> Result<file_blob::Model> {
+    validate_blob_active_model_backing(&model)?;
     model.insert(db).await.map_err(AsterError::from)
+}
+
+fn active_value<'a, T>(value: &'a ActiveValue<T>, field: &str) -> Result<&'a T>
+where
+    T: Into<sea_orm::Value>,
+{
+    match value {
+        ActiveValue::Set(value) | ActiveValue::Unchanged(value) => Ok(value),
+        ActiveValue::NotSet => Err(AsterError::internal_error(format!(
+            "file_blob active model missing {field}"
+        ))),
+    }
+}
+
+pub(super) fn validate_blob_backing(
+    backing: FileBlobBacking,
+    storage_path: Option<&str>,
+    size: i64,
+    hash: &str,
+) -> Result<()> {
+    file_blob::Model::validate_backing_fields(backing, storage_path, size, hash)
+        .map_err(AsterError::internal_error)
+}
+
+fn validate_blob_active_model_backing(model: &file_blob::ActiveModel) -> Result<()> {
+    let backing = match &model.backing {
+        ActiveValue::Set(value) | ActiveValue::Unchanged(value) => *value,
+        // Existing stored-blob callers rely on the schema default. Treat that
+        // default explicitly here so validation remains effective on MySQL
+        // versions that parse but do not enforce CHECK constraints.
+        ActiveValue::NotSet => FileBlobBacking::Stored,
+    };
+    validate_blob_backing(
+        backing,
+        active_value(&model.storage_path, "storage_path")?.as_deref(),
+        *active_value(&model.size, "size")?,
+        active_value(&model.hash, "hash")?,
+    )
 }
 
 /// Blob 去重：查找已有 blob 则原子递增 ref_count 并返回，否则新建 ref_count=1。
@@ -341,8 +404,17 @@ pub async fn find_or_create_blob<C: ConnectionTrait>(
     policy_id: i64,
     storage_path: &str,
 ) -> Result<FindOrCreateBlobResult> {
+    validate_blob_backing(FileBlobBacking::Stored, Some(storage_path), size, hash)?;
     for attempt in 0..FIND_OR_CREATE_BLOB_MAX_ATTEMPTS {
-        if let Some(existing) = find_active_blob_by_hash(db, hash, policy_id).await? {
+        if let Some(existing) = FileBlob::find()
+            .filter(file_blob::Column::Hash.eq(hash))
+            .filter(file_blob::Column::PolicyId.eq(policy_id))
+            .filter(file_blob::Column::Backing.eq(FileBlobBacking::Stored))
+            .filter(file_blob::Column::RefCount.gte(0))
+            .one(db)
+            .await
+            .map_err(AsterError::from)?
+        {
             let blob_id = existing.id;
             existing.ref_count.checked_add(1).ok_or_else(|| {
                 AsterError::internal_error(format!(
@@ -373,7 +445,8 @@ pub async fn find_or_create_blob<C: ConnectionTrait>(
             hash: Set(hash.to_string()),
             size: Set(size),
             policy_id: Set(policy_id),
-            storage_path: Set(storage_path.to_string()),
+            storage_path: Set(Some(storage_path.to_string())),
+            backing: Set(FileBlobBacking::Stored),
             thumbnail_path: Set(None),
             thumbnail_processor: Set(None),
             thumbnail_version: Set(None),
@@ -382,7 +455,11 @@ pub async fn find_or_create_blob<C: ConnectionTrait>(
             updated_at: Set(now),
             ..Default::default()
         })
-        .on_conflict_do_nothing_on([file_blob::Column::Hash, file_blob::Column::PolicyId])
+        .on_conflict_do_nothing_on([
+            file_blob::Column::Hash,
+            file_blob::Column::PolicyId,
+            file_blob::Column::Backing,
+        ])
         .exec(db)
         .await
         .map_err(AsterError::from)?
@@ -398,7 +475,14 @@ pub async fn find_or_create_blob<C: ConnectionTrait>(
 
         if inserted {
             return Ok(FindOrCreateBlobResult {
-                model: find_blob_by_hash(db, hash, policy_id).await?.ok_or_else(|| {
+                model: FileBlob::find()
+                    .filter(file_blob::Column::Hash.eq(hash))
+                    .filter(file_blob::Column::PolicyId.eq(policy_id))
+                    .filter(file_blob::Column::Backing.eq(FileBlobBacking::Stored))
+                    .one(db)
+                    .await
+                    .map_err(AsterError::from)?
+                    .ok_or_else(|| {
                     AsterError::internal_error(format!(
                         "find_or_create_blob could not reload inserted blob for hash={hash}, policy_id={policy_id}"
                     ))
@@ -415,6 +499,95 @@ pub async fn find_or_create_blob<C: ConnectionTrait>(
 
     Err(AsterError::internal_error(format!(
         "find_or_create_blob exceeded contention retry budget after {FIND_OR_CREATE_BLOB_MAX_ATTEMPTS} attempts for hash={hash}, policy_id={policy_id}"
+    )))
+}
+
+/// Returns the one canonical metadata-only empty blob for a storage policy.
+///
+/// The row has no connector path. `ref_count` is incremented atomically for
+/// every file that adopts it, exactly like a content-addressed stored blob.
+pub async fn find_or_create_virtual_empty_blob<C: ConnectionTrait>(
+    db: &C,
+    hash: &str,
+    policy_id: i64,
+) -> Result<FindOrCreateBlobResult> {
+    validate_blob_backing(FileBlobBacking::VirtualEmpty, None, 0, hash)?;
+    for attempt in 0..FIND_OR_CREATE_BLOB_MAX_ATTEMPTS {
+        if let Some(existing) = FileBlob::find()
+            .filter(file_blob::Column::Hash.eq(hash))
+            .filter(file_blob::Column::PolicyId.eq(policy_id))
+            .filter(file_blob::Column::Backing.eq(FileBlobBacking::VirtualEmpty))
+            .filter(file_blob::Column::RefCount.gte(0))
+            .one(db)
+            .await
+            .map_err(AsterError::from)?
+        {
+            existing.ref_count.checked_add(1).ok_or_else(|| {
+                AsterError::internal_error(format!(
+                    "virtual empty file_blob #{} ref_count overflow: {}",
+                    existing.id, existing.ref_count
+                ))
+            })?;
+            match increment_blob_ref_count(db, existing.id).await {
+                Ok(()) => {
+                    return Ok(FindOrCreateBlobResult {
+                        model: find_blob_by_id(db, existing.id).await?,
+                        inserted: false,
+                    });
+                }
+                Err(error)
+                    if error.code() == "E006" && attempt + 1 < FIND_OR_CREATE_BLOB_MAX_ATTEMPTS =>
+                {
+                    tokio::time::sleep(find_or_create_blob_retry_delay(attempt)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        } else {
+            let now = Utc::now();
+            let inserted = FileBlob::insert(file_blob::ActiveModel {
+                hash: Set(hash.to_string()),
+                size: Set(0),
+                policy_id: Set(policy_id),
+                storage_path: Set(None),
+                backing: Set(FileBlobBacking::VirtualEmpty),
+                thumbnail_path: Set(None),
+                thumbnail_processor: Set(None),
+                thumbnail_version: Set(None),
+                ref_count: Set(1),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            })
+            .on_conflict_do_nothing_on([
+                file_blob::Column::Hash,
+                file_blob::Column::PolicyId,
+                file_blob::Column::Backing,
+            ])
+            .exec(db)
+            .await
+            .map_err(AsterError::from)?;
+            if matches!(inserted, TryInsertResult::Inserted(_)) {
+                return Ok(FindOrCreateBlobResult {
+                    model: FileBlob::find()
+                        .filter(file_blob::Column::Hash.eq(hash))
+                        .filter(file_blob::Column::PolicyId.eq(policy_id))
+                        .filter(file_blob::Column::Backing.eq(FileBlobBacking::VirtualEmpty))
+                        .one(db)
+                        .await
+                        .map_err(AsterError::from)?
+                        .ok_or_else(|| {
+                            AsterError::internal_error(
+                                "inserted virtual empty blob could not be reloaded",
+                            )
+                        })?,
+                    inserted: true,
+                });
+            }
+            tokio::time::sleep(find_or_create_blob_retry_delay(attempt)).await;
+        }
+    }
+    Err(AsterError::internal_error(format!(
+        "find_or_create_virtual_empty_blob exceeded contention retry budget for policy_id={policy_id}"
     )))
 }
 

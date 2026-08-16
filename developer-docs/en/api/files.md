@@ -47,6 +47,7 @@ Primary upload entries:
 Creation and upload parameters include:
 
 - `POST /files/new`: `folder_id` and `relative_path` request body fields
+- `POST /files/new` and its team counterpart accept an optional `Idempotency-Key` header. Keys are limited to 255 bytes and cannot contain ASCII whitespace.
 - `POST /files/upload`: `folder_id`, `relative_path`, and `declared_size` query parameters
 - `POST /files/upload/init`: `relative_path` and `frontend_client_id`
 
@@ -104,9 +105,13 @@ Completion behavior:
 - local path: validates size and quota; if local `content_dedup` is enabled, computes SHA-256 and deduplicates blobs
 - object-storage / OneDrive / Remote paths: validate size and quota but do not deduplicate; each upload creates an independent blob using an upload-session-derived opaque hash and `files/{upload_id}`-style object path
 
-`POST /files/new` follows the same rule: local content dedup can reuse the 0-byte blob, while non-local connectors always create an independent blob.
+`POST /files/new` is metadata-only empty-file creation. `files.blob_id` remains non-null and points to the current storage policy's canonical `virtual_empty` blob. That blob has `size = 0`, the standard empty-content SHA-256, and `storage_path = NULL`; creation does not call connector `exists`, `put`, `get`, or `delete`. Empty files in one policy share the blob. Downloads and ranges return deterministic empty content from memory, and purging the last reference removes only blob metadata. The first nonempty overwrite switches the file to an ordinary `stored` blob through the existing upload-finalization transaction.
 
-`POST /files/new` and empty multipart compatibility are product-level file creation. They share relative-path parsing, missing-parent creation, exact-target handling, policy resolution, blob/file transactions, events, and failure cleanup. WebDAV PUT/LOCK staging, storage migration, internal-storage ingress, remote-follower object writes, and prepared-blob restore/copy paths continue to use `put(path, &[])` or the corresponding stream/object primitive. Those low-level zero-length object writes do not create a second product-file metadata path.
+An `Idempotency-Key` is isolated by authenticated actor, workspace kind/id, and operation, and only its SHA-256 is persisted. Replaying the same normalized request within 24 hours returns the original file/blob IDs without republishing the file-created event or audit. A different filename, base folder, normalized relative path, or target-name mode returns `409`. Missing-parent creation, the canonical virtual blob, file metadata, and the idempotency result commit in one writer transaction. A replay whose retained result file was already purged also returns stable `409`. Requests without a key preserve automatic rename behavior.
+
+The browser persists one key per zero-byte upload task for 23 hours. Retries, token refresh, request timeout, and page restore reuse it; success, cancellation, and explicit terminal-task cleanup remove the record.
+
+Empty multipart compatibility still delegates to the same product-level empty-file use case. WebDAV PUT/LOCK staging, storage migration, internal-storage ingress, remote-follower writes, and prepared-blob restore/copy paths continue using zero-length object primitives when their protocols explicitly require a real object.
 
 `presigned_multipart` completion must include object-storage returned `parts`; other modes may omit the body.
 

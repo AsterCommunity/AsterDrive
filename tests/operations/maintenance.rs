@@ -208,7 +208,7 @@ async fn create_blob(
             hash: Set(hash.to_string()),
             size: Set(bytes.len() as i64),
             policy_id: Set(policy.id),
-            storage_path: Set(storage_path.to_string()),
+            storage_path: Set(Some(storage_path.to_string())),
             ref_count: Set(ref_count),
             created_at: Set(now),
             updated_at: Set(now),
@@ -420,7 +420,10 @@ async fn test_cleanup_expired_completed_upload_sessions_keeps_live_blob() {
             aster_drive_model::types::UploadSessionStatus::Completed,
             Utc::now() - Duration::hours(1),
         )
-        .object_upload(Some(&blob.storage_path), None)
+        .object_upload(
+            Some(blob.storage_path_for_connector().expect("stored blob path")),
+            None,
+        )
         .file_id(file.id),
     )
     .await;
@@ -446,7 +449,12 @@ async fn test_cleanup_expired_completed_upload_sessions_keeps_live_blob() {
             .await
             .is_ok()
     );
-    assert!(driver.exists(&blob.storage_path).await.unwrap());
+    assert!(
+        driver
+            .exists(blob.storage_path_for_connector().expect("stored blob path"))
+            .await
+            .unwrap()
+    );
 }
 
 #[actix_web::test]
@@ -497,7 +505,12 @@ async fn test_cleanup_expired_completed_upload_sessions_removes_stale_temp_for_c
             .await
             .is_ok()
     );
-    assert!(driver.exists(&blob.storage_path).await.unwrap());
+    assert!(
+        driver
+            .exists(blob.storage_path_for_connector().expect("stored blob path"))
+            .await
+            .unwrap()
+    );
     assert!(!driver.exists(temp_key).await.unwrap());
 }
 
@@ -613,6 +626,56 @@ async fn test_cleanup_expired_completed_upload_sessions_processes_all_batches() 
             .unwrap(),
         0
     );
+}
+
+#[actix_web::test]
+async fn test_completed_upload_maintenance_prunes_only_expired_file_create_idempotencies() {
+    use aster_drive::services::ops::maintenance;
+    use aster_drive_model::entities::file_create_idempotency;
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "idem-maint",
+        "idempotency-maintenance@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let now = Utc::now();
+    for index in 0..=1_001 {
+        let (key_hash, expires_at) = if index == 1_001 {
+            ("retained-key".to_string(), now + Duration::hours(1))
+        } else {
+            (format!("expired-key-{index}"), now - Duration::seconds(1))
+        };
+        file_create_idempotency::ActiveModel {
+            actor_user_id: Set(user.id),
+            workspace_kind: Set("personal".to_string()),
+            workspace_id: Set(user.id),
+            key_hash: Set(key_hash.clone()),
+            request_fingerprint: Set(format!("{key_hash}-fingerprint")),
+            result_file_id: Set(None),
+            created_at: Set(now - Duration::hours(1)),
+            expires_at: Set(expires_at),
+            ..Default::default()
+        }
+        .insert(state.writer_db())
+        .await
+        .unwrap();
+    }
+
+    let stats = maintenance::cleanup_expired_completed_upload_sessions(&state)
+        .await
+        .unwrap();
+
+    assert_eq!(stats.file_create_idempotencies_deleted, 1_001);
+    let retained = file_create_idempotency::Entity::find()
+        .all(state.writer_db())
+        .await
+        .unwrap();
+    assert_eq!(retained.len(), 1);
+    assert_eq!(retained[0].key_hash, "retained-key");
 }
 
 #[actix_web::test]
@@ -865,7 +928,7 @@ async fn test_purge_keeps_blob_row_when_storage_delete_fails_then_maintenance_re
         .unwrap();
 
     let object_parent = std::path::Path::new(&common::local_policy_base_path(&policy))
-        .join(&blob.storage_path)
+        .join(blob.storage_path_for_connector().expect("stored blob path"))
         .parent()
         .unwrap()
         .to_path_buf();
@@ -882,7 +945,12 @@ async fn test_purge_keeps_blob_row_when_storage_delete_fails_then_maintenance_re
         .await
         .unwrap();
     assert_eq!(blob_after_purge.ref_count, 0);
-    assert!(driver.exists(&blob.storage_path).await.unwrap());
+    assert!(
+        driver
+            .exists(blob.storage_path_for_connector().expect("stored blob path"))
+            .await
+            .unwrap()
+    );
 
     drop(_guard);
 
@@ -894,7 +962,12 @@ async fn test_purge_keeps_blob_row_when_storage_delete_fails_then_maintenance_re
             .await
             .is_err()
     );
-    assert!(!driver.exists(&blob.storage_path).await.unwrap());
+    assert!(
+        !driver
+            .exists(blob.storage_path_for_connector().expect("stored blob path"))
+            .await
+            .unwrap()
+    );
 }
 
 #[actix_web::test]
@@ -1134,12 +1207,32 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
     blob_active.updated_at = Set(Utc::now());
     blob_active.update(state.writer_db()).await.unwrap();
 
-    driver.delete(&live_blob.storage_path).await.unwrap();
+    driver
+        .delete(
+            live_blob
+                .storage_path_for_connector()
+                .expect("stored blob path"),
+        )
+        .await
+        .unwrap();
     driver.put("stray/untracked.bin", b"stray").await.unwrap();
 
     let orphan_thumb_hash = "d".repeat(64);
     driver
         .put(&current_thumb_path(&orphan_thumb_hash), b"thumb")
+        .await
+        .unwrap();
+    let virtual_empty = file_repo::find_or_create_virtual_empty_blob(
+        state.writer_db(),
+        file_blob::Model::EMPTY_SHA256,
+        policy.id,
+    )
+    .await
+    .unwrap()
+    .model;
+    let virtual_empty_orphan_thumb = current_thumb_path(&virtual_empty.hash);
+    driver
+        .put(&virtual_empty_orphan_thumb, b"legacy virtual-empty thumb")
         .await
         .unwrap();
 
@@ -1244,6 +1337,13 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
     );
     assert!(
         storage_report
+            .missing_blob_objects
+            .iter()
+            .all(|issue| issue.blob_id != Some(virtual_empty.id)),
+        "virtual-empty blobs must not be audited as missing connector objects"
+    );
+    assert!(
+        storage_report
             .untracked_objects
             .iter()
             .any(|issue| issue.path == "stray/untracked.bin")
@@ -1253,6 +1353,12 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
             .orphan_thumbnails
             .iter()
             .any(|issue| issue.path == current_thumb_path(&orphan_thumb_hash))
+    );
+    assert!(
+        storage_report
+            .orphan_thumbnails
+            .iter()
+            .any(|issue| issue.path == virtual_empty_orphan_thumb)
     );
 
     let folder_issues = integrity::audit_folder_tree(state.writer_db())

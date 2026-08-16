@@ -170,13 +170,24 @@ fn preview_test_blob(size: i64) -> file_blob::Model {
         hash: "hash".to_string(),
         size,
         policy_id: 1,
-        storage_path: "blob.zip".to_string(),
+        storage_path: Some("blob.zip".to_string()),
+        backing: aster_drive_model::types::file_blob::FileBlobBacking::Stored,
         thumbnail_path: None,
         thumbnail_processor: None,
         thumbnail_version: None,
         ref_count: 1,
         created_at: now,
         updated_at: now,
+    }
+}
+
+fn preview_test_virtual_empty_blob() -> file_blob::Model {
+    file_blob::Model {
+        hash: file_blob::Model::EMPTY_SHA256.to_string(),
+        size: 0,
+        storage_path: None,
+        backing: aster_drive_model::types::file_blob::FileBlobBacking::VirtualEmpty,
+        ..preview_test_blob(0)
     }
 }
 
@@ -832,4 +843,22 @@ async fn range_manifest_scan_uses_get_range_without_full_stream() {
     assert_eq!(manifest.directory_count, 1);
     assert_eq!(driver.stream_calls.load(Ordering::SeqCst), 0);
     assert!(driver.range_calls.load(Ordering::SeqCst) > 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn virtual_empty_archive_range_scan_is_rejected_before_storage_reads() {
+    let driver = Arc::new(PreviewMemoryRangeDriver::new(Vec::new()));
+
+    let error = scan_manifest_from_storage_range(
+        &preview_test_file(0),
+        &preview_test_virtual_empty_blob(),
+        driver.clone(),
+        &preview_test_limits(),
+    )
+    .await
+    .expect_err("virtual empty blobs are not archive preview sources");
+
+    assert!(error.message().contains("virtual-empty"));
+    assert_eq!(driver.stream_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(driver.range_calls.load(Ordering::SeqCst), 0);
 }

@@ -4254,7 +4254,7 @@ export interface components {
             ref_count: number;
             /** Format: int64 */
             size: number;
-            storage_path: string;
+            storage_path?: string | null;
             thumbnail_path?: string | null;
             thumbnail_processor?: string | null;
             thumbnail_version?: string | null;
@@ -4323,7 +4323,7 @@ export interface components {
             policy_id: number;
             /** Format: int64 */
             size: number;
-            storage_path: string;
+            storage_path?: string | null;
         };
         AdminFileDetail: components["schemas"]["AdminFileInfo"] & {
             versions: components["schemas"]["AdminFileVersionSummary"][];
@@ -6309,7 +6309,7 @@ export interface components {
                 ref_count: number;
                 /** Format: int64 */
                 size: number;
-                storage_path: string;
+                storage_path?: string | null;
                 thumbnail_path?: string | null;
                 thumbnail_processor?: string | null;
                 thumbnail_version?: string | null;
@@ -10249,7 +10249,7 @@ export interface operations {
                                 ref_count: number;
                                 /** Format: int64 */
                                 size: number;
-                                storage_path: string;
+                                storage_path?: string | null;
                                 thumbnail_path?: string | null;
                                 thumbnail_processor?: string | null;
                                 thumbnail_version?: string | null;
@@ -17165,7 +17165,10 @@ export interface operations {
     create_empty_file: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional opaque replay key, scoped to the authenticated actor and workspace */
+                "Idempotency-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -17230,6 +17233,13 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Idempotency key request mismatch or retained result was purged */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -23029,7 +23039,10 @@ export interface operations {
     create_empty_team_file: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional opaque replay key, scoped to the authenticated actor and workspace */
+                "Idempotency-Key"?: string | null;
+            };
             path: {
                 /** @description Team ID */
                 team_id: number;
@@ -23097,6 +23110,13 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Idempotency key request mismatch or retained result was purged */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
