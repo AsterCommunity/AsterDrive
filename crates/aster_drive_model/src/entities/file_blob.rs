@@ -72,7 +72,7 @@ impl Model {
     pub fn storage_path_for_connector(&self) -> Option<&str> {
         self.backing
             .has_connector_object()
-            .then(|| self.storage_path.as_deref())
+            .then_some(self.storage_path.as_deref())
             .flatten()
     }
 
