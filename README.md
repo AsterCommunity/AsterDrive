@@ -75,7 +75,7 @@ sudo chown -R 10001:10001 ./data
 
 docker run -d \
   --name asterdrive \
-  -p 3000:3000 \
+  -p 127.0.0.1:3000:3000 \
   -e ASTER__SERVER__HOST=0.0.0.0 \
   -e "ASTER__DATABASE__URL=sqlite:///data/asterdrive.db?mode=rwc" \
   -v "$(pwd)/data:/data" \

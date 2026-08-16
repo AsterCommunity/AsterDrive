@@ -52,7 +52,7 @@ If you want to attach another AsterDrive instance as a follower node with Docker
 
 ## 1. Try It First
 
-If you are still in a plain HTTP test environment, you can run:
+If you are still in a plain HTTP test environment, you can run the following command. The `-p 3000:3000` mapping listens on every host interface and is only appropriate on an isolated, trusted network. For host-local access, use `-p 127.0.0.1:3000:3000` instead, and never expose this HTTP entry directly to the public Internet.
 
 ```bash
 mkdir -p ./data

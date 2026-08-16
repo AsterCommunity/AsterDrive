@@ -95,12 +95,7 @@ bootstrap_insecure_cookies = true
 
 ### 本地或内网 HTTP 试跑
 
-默认配置已经适合 HTTP 首次登录，无需额外覆盖：
-
-```toml
-[auth]
-bootstrap_insecure_cookies = true
-```
+默认配置已经适合 HTTP 首次登录，无需额外覆盖。`bootstrap_insecure_cookies = true` 只是默认值的显式写法，不是必需配置。
 
 ### 正式 HTTPS 部署
 

@@ -42,7 +42,7 @@ Fresh installations allow the administrator to be created and logged in directly
 bootstrap_insecure_cookies = true
 ```
 
-- **Administrator created from an HTTP origin** — keep `auth_cookie_secure = false`, so the following automatic login can carry cookies
+- **Administrator created from an HTTP origin** — keep `auth_cookie_secure = false` when `bootstrap_insecure_cookies` retains its default `true`; an explicit `false` or existing database value of `true` is never downgraded
 - **Administrator created from an HTTPS origin** — automatically promote `auth_cookie_secure` to `true` before the following login
 - **Require Secure cookies from process startup** — explicitly set `bootstrap_insecure_cookies = false` before the database is initialized
 

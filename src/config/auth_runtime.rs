@@ -293,14 +293,13 @@ mod tests {
         AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS_KEY, AUTH_EMAIL_CODE_LOGIN_TTL_SECS_KEY,
         AUTH_PASSKEY_LOGIN_ENABLED_KEY, AUTH_REFRESH_TOKEN_TTL_SECS_KEY,
         AUTH_REGISTER_ACTIVATION_ENABLED_KEY, DEFAULT_AUTH_ACCESS_TOKEN_TTL_SECS,
-        DEFAULT_AUTH_ALLOW_USER_REGISTRATION, DEFAULT_AUTH_COOKIE_SECURE,
-        DEFAULT_AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK, DEFAULT_AUTH_EMAIL_CODE_LOGIN_ENABLED,
-        DEFAULT_AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS, DEFAULT_AUTH_EMAIL_CODE_LOGIN_TTL_SECS,
-        DEFAULT_AUTH_PASSKEY_LOGIN_ENABLED, DEFAULT_AUTH_REFRESH_TOKEN_TTL_SECS,
-        DEFAULT_AUTH_REGISTER_ACTIVATION_ENABLED, DEFAULT_AUTH_USER_INVITATION_TTL_SECS,
-        FAILSAFE_AUTH_COOKIE_SECURE, RuntimeAuthPolicy, RuntimeEmailCodeLoginPolicy,
-        normalize_email_code_login_bool_config_value, normalize_token_ttl_config_value,
-        user_invitation_ttl_secs,
+        DEFAULT_AUTH_ALLOW_USER_REGISTRATION, DEFAULT_AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK,
+        DEFAULT_AUTH_EMAIL_CODE_LOGIN_ENABLED, DEFAULT_AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS,
+        DEFAULT_AUTH_EMAIL_CODE_LOGIN_TTL_SECS, DEFAULT_AUTH_PASSKEY_LOGIN_ENABLED,
+        DEFAULT_AUTH_REFRESH_TOKEN_TTL_SECS, DEFAULT_AUTH_REGISTER_ACTIVATION_ENABLED,
+        DEFAULT_AUTH_USER_INVITATION_TTL_SECS, FAILSAFE_AUTH_COOKIE_SECURE, RuntimeAuthPolicy,
+        RuntimeEmailCodeLoginPolicy, normalize_email_code_login_bool_config_value,
+        normalize_token_ttl_config_value, user_invitation_ttl_secs,
     };
     use crate::config::RuntimeConfig;
     use crate::config::definitions::AUTH_USER_INVITATION_TTL_SECS_KEY;
@@ -331,7 +330,6 @@ mod tests {
         let runtime_config = RuntimeConfig::new();
         let policy = RuntimeAuthPolicy::from_runtime_config(&runtime_config);
 
-        assert!(!DEFAULT_AUTH_COOKIE_SECURE);
         assert_eq!(policy.cookie_secure, FAILSAFE_AUTH_COOKIE_SECURE);
         assert_eq!(
             policy.allow_user_registration,

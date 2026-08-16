@@ -42,7 +42,7 @@ title: "首次启动与第一个管理员"
 bootstrap_insecure_cookies = true
 ```
 
-- **从 HTTP 来源创建管理员** —— 保持 `auth_cookie_secure = false`，随后的自动登录可以正常携带 Cookie
+- **从 HTTP 来源创建管理员** —— 默认 `bootstrap_insecure_cookies = true` 时保持 `auth_cookie_secure = false`；显式设为 `false` 或数据库已有 `true` 时不会降级
 - **从 HTTPS 来源创建管理员** —— 在随后的自动登录前自动把 `auth_cookie_secure` 提升为 `true`
 - **要求进程从首次启动起就只发 Secure Cookie** —— 在数据库首次初始化前显式设 `bootstrap_insecure_cookies = false`
 

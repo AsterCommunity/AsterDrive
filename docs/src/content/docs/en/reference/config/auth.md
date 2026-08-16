@@ -95,12 +95,7 @@ It **only affects the default value written when `auth_cookie_secure` is initial
 
 ### Local or Intranet HTTP Trial Run
 
-The default configuration already supports the first login over HTTP; no extra override is required:
-
-```toml
-[auth]
-bootstrap_insecure_cookies = true
-```
+The default configuration already supports the first login over HTTP; no extra override is required. Writing `bootstrap_insecure_cookies = true` explicitly is equivalent to the default, not a required setting.
 
 ### Production HTTPS Deployment
 
