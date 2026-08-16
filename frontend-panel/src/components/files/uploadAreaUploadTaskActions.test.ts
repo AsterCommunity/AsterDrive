@@ -124,6 +124,7 @@ describe("clearTerminalUploadTasks", () => {
 	it("clears every terminal state, preserves active work, and tolerates cleanup errors", async () => {
 		cancelUpload.mockReset();
 		cancelUpload.mockRejectedValue(new Error("cleanup unavailable"));
+		removePendingEmptyFile.mockReset();
 		removeSession.mockReset();
 		let tasks = [
 			task("completed", "completed", "completed-session"),
@@ -132,6 +133,7 @@ describe("clearTerminalUploadTasks", () => {
 			task("cancelled", "cancelled", "cancelled-session"),
 			task("active", "uploading", "active-session"),
 		];
+		tasks[0].emptyFileIdempotencyKey = "completed-empty-key";
 		const tasksRef = { current: tasks };
 		const setTasksMock = vi.fn((update: SetStateAction<UploadTask[]>) => {
 			tasks = typeof update === "function" ? update(tasks) : update;
@@ -152,6 +154,7 @@ describe("clearTerminalUploadTasks", () => {
 			"failed-session",
 			"cancelled-session",
 		]);
+		expect(removePendingEmptyFile).toHaveBeenCalledWith("completed");
 		expect(tasks.map((item) => item.id)).toEqual(["active"]);
 
 		await clearTerminalUploadTasks(["active"], {

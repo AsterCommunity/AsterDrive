@@ -267,7 +267,7 @@ describe("uploadPersistence", () => {
 					baseFolderName: "Root",
 					relativePath: null,
 					savedAt: Date.now(),
-					workspace: { kind: "team", teamId: "9" },
+					workspace: "personal",
 				},
 				null,
 			]),
@@ -284,6 +284,33 @@ describe("uploadPersistence", () => {
 				localStorage.getItem("aster_pending_empty_file_creates") ?? "[]",
 			),
 		).toEqual([expect.objectContaining({ taskId: "valid" })]);
+	});
+
+	it("clears malformed pending empty-file payloads without interrupting uploads", () => {
+		localStorage.setItem("aster_pending_empty_file_creates", "{}");
+		expect(loadPendingEmptyFiles()).toEqual([]);
+		expect(localStorage.getItem("aster_pending_empty_file_creates")).toBeNull();
+
+		localStorage.setItem("aster_pending_empty_file_creates", "{");
+		expect(loadPendingEmptyFiles()).toEqual([]);
+		expect(localStorage.getItem("aster_pending_empty_file_creates")).toBeNull();
+
+		vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+			throw new DOMException("storage unavailable", "InvalidStateError");
+		});
+		expect(() =>
+			savePendingEmptyFiles([
+				{
+					taskId: "write-failure",
+					idempotencyKey: "write-failure-key",
+					filename: "write-failure.txt",
+					baseFolderId: null,
+					baseFolderName: "Root",
+					relativePath: null,
+					savedAt: Date.now(),
+				},
+			]),
+		).not.toThrow();
 	});
 
 	it("drops empty-file replay records before the server retention expires", () => {
