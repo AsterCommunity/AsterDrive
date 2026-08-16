@@ -86,8 +86,7 @@ Environment=RUST_LOG=info
 WantedBy=multi-user.target
 ```
 
-如果你现在还是内网 HTTP 测试环境，可以先在 `config.toml` 里把 `auth.bootstrap_insecure_cookies` 设成 `true`。
-它只会影响第一次初始化时 Cookie 的 HTTPS 要求。正式切到 HTTPS 后，把后台对应设置改回开启，再把这个静态引导项去掉。
+内网 HTTP 测试环境默认就能完成首次登录，不需要额外设置 `auth.bootstrap_insecure_cookies`。它默认是 `true`，只影响数据库第一次初始化时 Cookie 的 HTTPS 要求；如果管理员从 HTTPS 来源创建，setup 会自动开启 Secure Cookie。以后才切到 HTTPS 时，请在后台开启对应设置。
 
 ## 5. 启动服务
 

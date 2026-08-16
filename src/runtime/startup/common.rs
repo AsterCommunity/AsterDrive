@@ -238,11 +238,7 @@ mod tests {
             )
             .await
             .unwrap();
-            let config = crate::config::Config {
-                auth: crate::config::AuthConfig {
-                    bootstrap_insecure_cookies: true,
-                    ..Default::default()
-                },
+            let mut config = crate::config::Config {
                 deployment: crate::config::DeploymentConfig {
                     profile,
                     ..Default::default()
@@ -266,6 +262,17 @@ mod tests {
                     .unwrap()
                     .unwrap();
             assert_eq!(auth_cookie_secure.value, "false");
+
+            config.auth.bootstrap_insecure_cookies = false;
+            initialize_database_state(&db, &config, NodeRuntimeMode::Primary)
+                .await
+                .unwrap();
+            let preserved_auth_cookie_secure =
+                crate::db::repository::config_repo::find_by_key(&db, AUTH_COOKIE_SECURE_KEY)
+                    .await
+                    .unwrap()
+                    .unwrap();
+            assert_eq!(preserved_auth_cookie_secure.value, "false");
 
             let groups = aster_drive_model::entities::storage_policy_group::Entity::find()
                 .all(&db)
@@ -307,5 +314,37 @@ mod tests {
             .await
             .expect("current storage policy entity should ignore retained legacy columns");
         }
+    }
+
+    #[tokio::test]
+    async fn initialize_database_state_honors_explicit_secure_cookie_bootstrap() {
+        let db = crate::db::connect_with_metrics(
+            &crate::config::DatabaseConfig {
+                url: "sqlite::memory:".into(),
+                pool_size: 1,
+                retry_count: 0,
+            },
+            aster_drive_metrics::NoopMetrics::arc(),
+        )
+        .await
+        .unwrap();
+        let config = crate::config::Config {
+            auth: crate::config::AuthConfig {
+                bootstrap_insecure_cookies: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        initialize_database_state(&db, &config, NodeRuntimeMode::Primary)
+            .await
+            .unwrap();
+
+        let auth_cookie_secure =
+            crate::db::repository::config_repo::find_by_key(&db, AUTH_COOKIE_SECURE_KEY)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(auth_cookie_secure.value, "true");
     }
 }

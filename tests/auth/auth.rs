@@ -26,6 +26,7 @@ use webauthn_rs_proto::{AllowCredentials, Mediation, ResidentKeyRequirement};
 
 const TEST_BROWSER_ORIGIN: &str = "http://localhost:8080";
 const TEST_PUBLIC_SITE_ORIGIN: &str = "https://pan.esaps.net";
+const TEST_HTTP_SETUP_ORIGIN: &str = "http://192.0.2.10:3000";
 const ONE_SECOND_WINDOW_ELAPSED: Duration = Duration::from_millis(1100);
 
 struct RefreshHookGuard {
@@ -1953,7 +1954,7 @@ async fn test_setup_still_works_when_public_registration_is_disabled() {
 }
 
 #[actix_web::test]
-async fn test_setup_bootstraps_public_site_url_from_request_origin() {
+async fn test_https_setup_bootstraps_public_site_url_and_secure_auth_cookies() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
 
@@ -1979,6 +1980,95 @@ async fn test_setup_bootstraps_public_site_url_from_request_origin() {
     .expect("public_site_url should exist");
     assert_eq!(stored.value, format!(r#"["{TEST_PUBLIC_SITE_ORIGIN}"]"#));
     assert_eq!(stored.updated_by, Some(1));
+
+    let cookie_config = aster_drive::db::repository::config_repo::find_by_key(
+        state.writer_db(),
+        aster_drive::config::auth_runtime::AUTH_COOKIE_SECURE_KEY,
+    )
+    .await
+    .unwrap()
+    .expect("auth_cookie_secure should exist");
+    assert_eq!(cookie_config.value, "true");
+    assert!(
+        aster_drive::config::auth_runtime::RuntimeAuthPolicy::from_runtime_config(
+            state.runtime_config()
+        )
+        .cookie_secure
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/login")
+        .set_json(serde_json::json!({
+            "identifier": "admin@example.com",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    for name in ["aster_access", "aster_refresh", "aster_csrf"] {
+        let cookie = resp
+            .response()
+            .cookies()
+            .find(|cookie| cookie.name() == name)
+            .unwrap_or_else(|| panic!("{name} cookie should exist"));
+        assert_eq!(cookie.secure(), Some(true), "{name} should be Secure");
+    }
+}
+
+#[actix_web::test]
+async fn test_http_setup_keeps_auth_cookies_http_compatible() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/setup")
+        .insert_header(("Origin", TEST_HTTP_SETUP_ORIGIN))
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "adminuser",
+            "email": "admin@example.com",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let cookie_config = aster_drive::db::repository::config_repo::find_by_key(
+        state.writer_db(),
+        aster_drive::config::auth_runtime::AUTH_COOKIE_SECURE_KEY,
+    )
+    .await
+    .unwrap()
+    .expect("auth_cookie_secure should exist");
+    assert_eq!(cookie_config.value, "false");
+    assert!(
+        !aster_drive::config::auth_runtime::RuntimeAuthPolicy::from_runtime_config(
+            state.runtime_config()
+        )
+        .cookie_secure
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/login")
+        .set_json(serde_json::json!({
+            "identifier": "admin@example.com",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    for name in ["aster_access", "aster_refresh", "aster_csrf"] {
+        let cookie = resp
+            .response()
+            .cookies()
+            .find(|cookie| cookie.name() == name)
+            .unwrap_or_else(|| panic!("{name} cookie should exist"));
+        assert_eq!(
+            cookie.secure(),
+            None,
+            "{name} should omit Secure and remain available over HTTP"
+        );
+    }
 }
 
 #[actix_web::test]
@@ -2015,6 +2105,15 @@ async fn test_setup_does_not_overwrite_existing_public_site_url() {
     .unwrap()
     .expect("public_site_url should exist");
     assert_eq!(stored.value, r#"["https://pan-cloudreve.esaps.net"]"#);
+
+    let cookie_config = aster_drive::db::repository::config_repo::find_by_key(
+        state.writer_db(),
+        aster_drive::config::auth_runtime::AUTH_COOKIE_SECURE_KEY,
+    )
+    .await
+    .unwrap()
+    .expect("auth_cookie_secure should exist");
+    assert_eq!(cookie_config.value, "true");
 }
 
 #[actix_web::test]

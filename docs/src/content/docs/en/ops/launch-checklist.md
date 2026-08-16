@@ -77,14 +77,14 @@ Before launch, confirm:
 - the first administrator account password has been changed to a production password
 - there is more than one administrator account, or at least the recovery flow can recreate an administrator
 
-If you initially bootstrapped over plain HTTP:
+Fresh installations use this first-bootstrap default so the first login can work over HTTP:
 
 ```toml
 [auth]
 bootstrap_insecure_cookies = true
 ```
 
-After switching to HTTPS, change the Cookie security requirement back to enabled in the admin system settings. This bootstrap configuration only affects first initialization of system settings; later behavior follows the admin system setting.
+If the administrator is created directly from an HTTPS origin, setup enables the cookie security requirement before automatic login. If the instance was bootstrapped over HTTP and HTTPS is added later, enable it manually in the admin system settings. This bootstrap configuration only affects first initialization; later behavior follows the runtime setting.
 
 ## 4. Storage Policies and Policy Groups
 

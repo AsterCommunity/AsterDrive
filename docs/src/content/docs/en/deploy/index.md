@@ -59,15 +59,14 @@ These two directories usually do not need backup, but the local disk must have a
 
 ### Access Method
 
-For production launch, you **must** serve HTTPS through a reverse proxy, and keep:
+For production launch, you **must** serve HTTPS through a reverse proxy. To require Secure cookies from the first database initialization, explicitly set:
 
 ```toml
 [auth]
 bootstrap_insecure_cookies = false
 ```
 
-If this is only local or intranet HTTP first bootstrap, you may temporarily set it to `true` so the system initializes the browser Cookie HTTPS requirement as disabled.  
-After switching to HTTPS in production, change it back to enabled in the admin system settings.
+The default is `true`, so local or intranet HTTP first bootstrap needs no extra configuration. If the administrator is created directly from an HTTPS origin, setup enables Secure cookies before automatic login. If HTTPS is added after an HTTP bootstrap, enable the setting in the admin system settings.
 
 If the site will be externally accessible, also confirm:
 

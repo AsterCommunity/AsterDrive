@@ -29,7 +29,7 @@ mfa_secret_key = "change-me-in-production-mfa"
 storage_credential_secret_key = "change-me-in-production-storage-credential"
 webdav_auth_cache_secret = "change-me-in-production-webdav-auth-cache"
 password_hash_max_concurrency = 2  # 每个进程同时执行的 Argon2 任务上限；默认最多约占用 128 MiB 工作内存
-bootstrap_insecure_cookies = false  # 仅首次初始化 auth_cookie_secure 时生效；纯 HTTP 首启可临时设为 true
+bootstrap_insecure_cookies = true   # 仅适合本机或受信内网首次引导；公网必须使用 HTTPS，并在 setup 后确认 auth_cookie_secure=true
 
 [cache]
 backend = "memory"   # "memory" | "redis"

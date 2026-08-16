@@ -52,7 +52,7 @@ sudo chown -R 10001:10001 ./data
 
 ## 1. 先试跑一遍
 
-如果你现在还是纯 HTTP 测试环境，可以先直接运行：
+如果你现在还是纯 HTTP 测试环境，可以先直接运行。下面的 `-p 3000:3000` 会监听宿主机所有接口，只能放在受信任的隔离内网；只从本机访问时请改成 `-p 127.0.0.1:3000:3000`，不要把这个 HTTP 入口直接暴露到公网。
 
 ```bash
 mkdir -p ./data
@@ -62,14 +62,12 @@ docker run -d \
   --name asterdrive \
   -p 3000:3000 \
   -e ASTER__SERVER__HOST=0.0.0.0 \
-  -e ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES=true \
   -e ASTER__DATABASE__URL="sqlite:///data/asterdrive.db?mode=rwc" \
   -v "$(pwd)/data:/data" \
   ghcr.io/astercommunity/asterdrive:latest
 ```
 
-这只会在第一次初始化时把浏览器 Cookie 的 HTTPS 要求设成关闭。  
-正式切到 HTTPS 后，到后台把对应系统设置改回开启，然后把这个环境变量去掉。
+新安装默认只在第一次初始化时把浏览器 Cookie 的 HTTPS 要求设成关闭，因此纯 HTTP 试跑不需要额外环境变量。如果管理员直接从 HTTPS 来源创建，setup 会在自动登录前开启 Secure Cookie；如果之后才从 HTTP 切到 HTTPS，请到后台开启对应系统设置。
 
 启动后可以用 `docker ps` 看容器状态，正常情况下会在短时间内变成 `healthy`。
 
@@ -82,14 +80,13 @@ docker run -d \
 ```toml
 [auth]
 jwt_secret = "replace-with-your-own-random-secret"
-bootstrap_insecure_cookies = false
 
 [server]
 temp_dir = "/data/.tmp"
 upload_temp_dir = "/data/.uploads"
 ```
 
-修改完成后，重启容器即可生效。
+修改完成后，重启容器即可生效。`bootstrap_insecure_cookies` 是例外：它只在数据库第一次初始化前有意义，已有实例请在后台系统设置中修改 Cookie 安全要求。
 
 ## 3. Compose 示例
 
@@ -190,8 +187,8 @@ docker compose exec asterdrive /usr/local/bin/aster_drive \
 第一次部署最值得先确认的项：
 
 - `auth.jwt_secret` 是否已经固定
-- 如果暂时是纯 HTTP 测试，是否只在首次引导时设置了 `bootstrap_insecure_cookies = true`
-- 切到 HTTPS 后，后台系统设置里的 Cookie 安全开关是否已经改回开启
+- 纯 HTTP 首次登录是否正常；它默认使用 `bootstrap_insecure_cookies = true`，无需额外环境变量
+- 如果直接从 HTTPS 初始化，Cookie 安全开关是否已自动开启；如果之后才切到 HTTPS，是否已在后台手动开启
 - 首页响应头里是否能看到 AsterDrive 返回的页面基线 `Content-Security-Policy`，代理层有没有删掉或覆盖成不兼容的策略
 - 如果站点对外访问，`公开站点地址` 是否已经填成真实 `https://` 来源；多个公开域名逐项添加，默认来源放在最前面
 - 如果要开放注册、找回密码或邮箱改绑，测试邮件是否已经发通

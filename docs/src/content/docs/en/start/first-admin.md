@@ -1,10 +1,10 @@
 ---
-description: "AsterDrive first start and the first admin: how the login page adapts to system state, why the first account becomes admin directly, the bootstrap_insecure_cookies switch for plain-HTTP trials, and what to do after creating the admin."
+description: "AsterDrive first start and the first admin: how the login page adapts to system state, why the first account becomes admin directly, HTTP/HTTPS cookie bootstrap behavior, and what to do after creating the admin."
 title: "First Start and the First Admin"
 ---
 
 :::tip[What this page covers]
-What happens when you open the site for the first time after deployment, where the first administrator comes from, which switch a plain-HTTP trial needs, and what to do after creating the admin.
+What happens when you open the site for the first time after deployment, where the first administrator comes from, how HTTP/HTTPS first login selects the cookie policy, and what to do after creating the admin.
 :::
 
 ## The Login Page Adapts to System State
@@ -33,19 +33,20 @@ Once the first administrator is created, the system enters the `needs_storage` s
 3. If you plan to open registration, password reset, or external auth, set up [Mail Delivery](/en/admin/mail/) first
 4. Walk through the [First-Start Checklist](/en/ops/first-check/) before going live
 
-## Plain-HTTP First Trial
+## Cookie Policy for the First Login
 
-This switch in `config.toml` only affects the default value written for `auth_cookie_secure` during first initialization:
+Fresh installations allow the administrator to be created and logged in directly over HTTP without an extra environment variable:
 
 ```toml
 [auth]
 bootstrap_insecure_cookies = true
 ```
 
-- **Plain-HTTP first trial** — set `true` temporarily
-- **Production HTTPS deployment** — keep `false`
+- **Administrator created from an HTTP origin** — keep `auth_cookie_secure = false` when `bootstrap_insecure_cookies` retains its default `true`; an explicit `false` or existing database value of `true` is never downgraded
+- **Administrator created from an HTTPS origin** — automatically promote `auth_cookie_secure` to `true` before the following login
+- **Require Secure cookies from process startup** — explicitly set `bootstrap_insecure_cookies = false` before the database is initialized
 
-If the runtime setting already exists in the database, changing this later does not rewrite the old value; after moving to HTTPS for real, adjust it under `Admin -> System Settings -> Auth and Cookies`.
+This static option **only affects the first database write** of `auth_cookie_secure`. Once the runtime setting exists, changing `config.toml` does not rewrite it. If the instance was bootstrapped over HTTP and later moves to HTTPS, enable `Authentication Cookie Sent Only Over HTTPS` under `Admin -> System Settings -> Authentication and Cookies`.
 
 ## Related Pages
 

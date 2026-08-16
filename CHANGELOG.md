@@ -140,6 +140,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Fixed
 
+- **首次登录 Cookie 引导** — 新安装默认允许 HTTP 首次登录；HTTPS setup 会在后续自动登录前启用 Secure Cookie，已有运行时设置不被升级或重启覆盖。
 - **上传失败与重试编排** — 非 retryable 的 upload-stage failure 现在会终止并清理 session；可修正、认证、数据库和可重试错误继续保留 session 供恢复。前端按 retryability 区分单项/批量重试与 terminal task 清理，并串行化 cleanup/retry，避免同一任务并发清理和重试。
 - **WebDAV 锁与 mutation 一致性** — 修复深度集合锁继承、parent/member lock root 混淆、MOVE 后 destination lock rebind、unlock 部分提交和 backend 错误被吞掉等问题。
 - **WebDAV 条件写入与 COPY** — PUT 在接收请求体后于 writer transaction 内重新校验目标文件快照、ETag、Last-Modified 与锁状态，拒绝并发覆盖和创建竞争；COPY 与 MOVE 均执行 DAV `If` state-token / ETag 条件。

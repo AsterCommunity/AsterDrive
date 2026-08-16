@@ -21,7 +21,7 @@ mfa_secret_key = "<random secret generated on first startup>"
 storage_credential_secret_key = "<random secret generated on first startup>"
 webdav_auth_cache_secret = "<random secret generated on first startup>"
 password_hash_max_concurrency = 2
-bootstrap_insecure_cookies = false
+bootstrap_insecure_cookies = true
 ```
 
 ### `jwt_secret`
@@ -86,19 +86,16 @@ The service continues to verify password hashes created with the previous lower 
 
 ### `bootstrap_insecure_cookies`
 
-- **First plain-HTTP trial run** - temporarily set it to `true`
-- **Production HTTPS deployment** - keep it `false`
+- **Default `true`** - a new database first stores `auth_cookie_secure = false` so HTTP first login works; setup promotes it to `true` before automatic login when the administrator is created from an HTTPS origin
+- **Explicit `false`** - require the first database initialization to store `auth_cookie_secure = true`
 
-It **only affects the default value written when `auth_cookie_secure` is initialized for the first time**. If this runtime system setting already exists in the database, changing this value will not rewrite the old value. For the overall first-run flow, see [First Start and the First Admin](/en/start/first-admin/).
+It **only affects the default value written when `auth_cookie_secure` is initialized for the first time**; it is not a persistent override. If the runtime setting already exists, changing this value does not rewrite it. Setup only promotes `false` to `true` for HTTPS first initialization and never downgrades an explicit secure policy because of an HTTP request. See [First Start and the First Admin](/en/start/first-admin/) for the full flow.
 
 ## Common Examples
 
 ### Local or Intranet HTTP Trial Run
 
-```toml
-[auth]
-bootstrap_insecure_cookies = true
-```
+The default configuration already supports the first login over HTTP; no extra override is required. Writing `bootstrap_insecure_cookies = true` explicitly is equivalent to the default, not a required setting.
 
 ### Production HTTPS Deployment
 

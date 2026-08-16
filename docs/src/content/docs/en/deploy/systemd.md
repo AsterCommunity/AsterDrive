@@ -86,8 +86,7 @@ Environment=RUST_LOG=info
 WantedBy=multi-user.target
 ```
 
-If you are still in an intranet HTTP test environment, you can temporarily set `auth.bootstrap_insecure_cookies` to `true` in `config.toml`.
-It only affects the Cookie HTTPS requirement during first initialization. After switching to HTTPS in production, change the corresponding admin setting back to enabled, then remove this static bootstrap option.
+An intranet HTTP test environment supports first login by default, without an extra `auth.bootstrap_insecure_cookies` override. Its default is `true`, and it only affects the Cookie HTTPS requirement during the first database initialization. Setup enables Secure cookies automatically when the administrator is created from an HTTPS origin; if HTTPS is added later, enable the corresponding admin setting.
 
 ## 5. Start the Service
 

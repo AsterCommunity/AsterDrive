@@ -46,7 +46,7 @@ Current benchmarks cover the core scenarios listed in issue `#120`:
 
 1. Start the service in a production-like way. `cargo run --profile release-performance` is recommended.
 2. Point it at an independent database and independent local storage directory.
-3. Enable `ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES=true` for convenient local HTTP benchmarking.
+3. A new database allows local HTTP first login by default; when reusing an older benchmark database, confirm runtime `auth_cookie_secure` is disabled.
 4. Install `k6`.
 5. Run seed once first.
 

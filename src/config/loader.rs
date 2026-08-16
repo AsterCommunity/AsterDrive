@@ -362,6 +362,8 @@ mod tests {
         assert!(generated.contains("webdav_auth_cache_secret"));
         assert!(generated.contains("password_hash_max_concurrency = 2"));
         assert_eq!(cfg.auth.password_hash_max_concurrency, 2);
+        assert!(cfg.auth.bootstrap_insecure_cookies);
+        assert!(generated.contains("bootstrap_insecure_cookies = true"));
         assert!(
             messages
                 .iter()

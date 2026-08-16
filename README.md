@@ -75,9 +75,8 @@ sudo chown -R 10001:10001 ./data
 
 docker run -d \
   --name asterdrive \
-  -p 3000:3000 \
+  -p 127.0.0.1:3000:3000 \
   -e ASTER__SERVER__HOST=0.0.0.0 \
-  -e ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES=true \
   -e "ASTER__DATABASE__URL=sqlite:///data/asterdrive.db?mode=rwc" \
   -v "$(pwd)/data:/data" \
   ghcr.io/astercommunity/asterdrive:latest
@@ -92,7 +91,7 @@ http://127.0.0.1:3000
 Complete the first-start setup screen to create the initial `admin`. Ordinary registration is
 available only after setup and never grants the administrator role.
 
-`ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES=true` is only for local or internal HTTP testing. For production, put AsterDrive behind HTTPS and keep secure cookies enabled.
+Fresh installations allow the first login over HTTP by default. When the first administrator is created through an HTTPS origin, AsterDrive automatically enables Secure cookies before the following login. For production, keep AsterDrive behind HTTPS and confirm HTTPS-only cookies are enabled in System Settings.
 
 You can also use the included Compose file:
 

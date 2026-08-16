@@ -33,16 +33,12 @@ docker run -d \
   --name asterdrive \
   -p 3000:3000 \
   -e ASTER__SERVER__HOST=0.0.0.0 \
-  -e ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES=true \
   -e ASTER__DATABASE__URL="sqlite:///data/asterdrive.db?mode=rwc" \
   -v "$(pwd)/data:/data" \
   ghcr.io/astercommunity/asterdrive:latest
 ```
 
-This command is suitable for local, LAN, or temporary HTTP-only trials.
-
-- If you already have HTTPS ready for public access, you can remove `ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES=true`
-- In production, keep `bootstrap_insecure_cookies = false` and keep the Cookie security switch enabled in backend system settings
+This command is suitable for local, LAN, or temporary HTTP-only trials. Fresh installations allow the first login over HTTP by default. If you create the administrator directly from an HTTPS origin, AsterDrive enables Secure cookies before automatic login. For production, still confirm the cookie security switch is enabled in the admin system settings.
 
 :::tip[Why chown to 10001 is required]
 Inside the image, the `aster` user with UID `10001` writes to `/data`. If you bind mount a directory owned by the current shell user directly into the container, the container cannot write `config.toml`, the SQLite file, or temporary directories, and it will exit with a permission error.
