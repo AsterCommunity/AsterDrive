@@ -68,7 +68,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
   - 新增 `storage_policy_connector_credentials`，用 connector ID、独立 credential schema version、revision 与加密 payload 保存静态凭据、OAuth 应用配置和 delegated credential
   - credential schema 与 config schema 独立演进；加密 AAD 绑定 policy ID、connector ID 与 credential schema version
 - **Connector descriptor 驱动的管理端**
-  - 存储策略创建、编辑、连接测试和 action UI 改为统一字段 renderer，按 descriptor 渲染 text、secret、boolean、number、select、默认值、说明、badge、confirmation 和 saved-policy gate
+  - 存储策略创建、编辑、连接测试和 action UI 改为统一字段 renderer，按 descriptor 渲染 text、secret、boolean、number、select、自动/预设/自定义字符串选项、条件可见性/必填/选项、联动默认值、失活值清理、折叠高级字段、placeholder、说明、badge、confirmation 和 saved-policy gate
   - action select 支持 `remote_nodes` 与依赖 node 的 `remote_storage_targets` 动态数据源
 - **Connector-owned 管理端本地化**
   - 新增 `StorageConnectorLocalization` contract，内建 connector 将字段、action、授权状态和 credential management 文案与 connector 实现放在一起，并在 registry 注册时校验 message ID、locale 和 key coverage

@@ -47,6 +47,8 @@ vi.mock("@/components/ui/select", () => ({
 }));
 
 const labels: Record<string, string> = {
+	account_mode: "Account mode",
+	advanced_target: "Advanced target",
 	base_path: "Base path",
 	boolean_field: "Boolean field",
 	empty_select: "Empty select",
@@ -55,14 +57,23 @@ const labels: Record<string, string> = {
 	mode_direct_desc: "Provider direct transfer",
 	mode_relay: "Relay",
 	mode_relay_desc: "Relay through AsterDrive",
+	personal: "Personal",
 	number_field: "Number field",
 	policy_connector_field_required: "{{field}} is required",
 	remote_node_id: "Remote node",
 	remote_storage_target_key: "Remote target",
 	secret_field: "Secret field",
+	site_id: "Site ID",
+	tenant: "Tenant",
+	tenant_auto: "Automatic (recommended)",
+	tenant_common: "Personal and organization accounts",
+	tenant_consumers: "Personal accounts only",
+	tenant_custom: "Custom tenant",
+	tenant_organizations: "Work or school accounts only",
 	text_field: "Text field",
 	text_field_help: "Text field help",
 	text_field_required: "Text field is connector-required",
+	work_or_school: "Work or school",
 };
 
 const t: Translate = (key, values) =>
@@ -164,16 +175,17 @@ describe("StorageConnectorFieldsPanel", () => {
 
 	it("lets a single field fill its parent and only splits multiple fields into columns", () => {
 		const single = renderPanel({ fields: [field("base_path", "text")] });
-		expect(single.container.firstElementChild).toHaveClass("grid", "gap-4");
-		expect(single.container.firstElementChild).not.toHaveClass(
-			"md:grid-cols-2",
-		);
+		const singleGrid = single.container.querySelector(".grid");
+		expect(singleGrid).toHaveClass("grid", "gap-4");
+		expect(singleGrid).not.toHaveClass("md:grid-cols-2");
 		single.unmount();
 
 		const multiple = renderPanel({
 			fields: [field("base_path", "text"), field("text_field", "text")],
 		});
-		expect(multiple.container.firstElementChild).toHaveClass("md:grid-cols-2");
+		expect(multiple.container.querySelector(".grid")).toHaveClass(
+			"md:grid-cols-2",
+		);
 	});
 
 	it("renders scalar controls with defaults, validation attributes, and required feedback", () => {
@@ -548,5 +560,237 @@ describe("StorageConnectorFieldsPanel", () => {
 		expect(onFieldChange).toHaveBeenCalledWith("connector_config_values", {
 			remote_node_id: null,
 		});
+	});
+
+	it("keeps connector-owned advanced fields collapsed and applies conditional UI rules", () => {
+		const fields = [
+			field("account_mode", "select", {
+				advanced_group_key: "advanced_target",
+				select: {
+					options: [
+						{
+							available_when: [{ field: "cloud", value: "global" }],
+							label_key: "personal",
+							value: "personal",
+						},
+						{
+							label_key: "work_or_school",
+							value: "work_or_school",
+						},
+					],
+					value_kind: "string",
+				},
+			}),
+			field("cloud", "text"),
+			field("site_id", "text", {
+				advanced_group_key: "advanced_target",
+				required_when: [{ field: "account_mode", value: "sharepoint_site" }],
+				visible_when: [{ field: "account_mode", value: "sharepoint_site" }],
+			}),
+		];
+		renderPanel({
+			fields,
+			form: {
+				...emptyForm,
+				connector_config_values: {
+					account_mode: "sharepoint_site",
+					cloud: "china",
+				},
+			},
+			showRequiredErrors: true,
+		});
+
+		expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /Advanced target/ }));
+
+		expect(screen.getByRole("combobox")).toBeInTheDocument();
+		expect(screen.queryByRole("option", { name: "Personal" })).toBeNull();
+		expect(screen.getByLabelText("Site ID")).toBeRequired();
+		expect(screen.getByText("Site ID is required")).toBeInTheDocument();
+	});
+
+	it("displays dependent defaults and clearing a custom value returns to automatic mode", () => {
+		const fields = [
+			field("cloud", "text", { default_value: "global" }),
+			field("account_mode", "text", { default_value: "personal" }),
+			field("tenant", "text", {
+				default_rules: [
+					{
+						conditions: [{ field: "account_mode", value: "personal" }],
+						value: "consumers",
+					},
+				],
+				default_value: "common",
+				trim_on_blur: true,
+			}),
+		];
+		const { onFieldChange } = renderPanel({
+			fields,
+			form: {
+				...emptyForm,
+				connector_config_values: {
+					account_mode: "personal",
+					cloud: "global",
+				},
+			},
+		});
+
+		expect(screen.getByLabelText("Tenant")).toHaveValue("consumers");
+		fireEvent.blur(screen.getByLabelText("Tenant"), {
+			target: { value: "   " },
+		});
+		expect(onFieldChange).toHaveBeenCalledWith("connector_config_values", {
+			account_mode: "personal",
+			cloud: "global",
+			tenant: "consumers",
+		});
+	});
+
+	it("renders automatic tenant presets and a connector-owned custom value input", () => {
+		const fields = [
+			field("cloud", "text", { default_value: "global" }),
+			field("account_mode", "text", { default_value: "personal" }),
+			field("tenant", "select", {
+				default_rules: [
+					{
+						conditions: [{ field: "account_mode", value: "personal" }],
+						value: "consumers",
+					},
+				],
+				default_value: "common",
+				placeholder: "tenant-id-or-domain",
+				required: true,
+				select: {
+					allow_custom_value: true,
+					automatic_default_label_key: "tenant_auto",
+					custom_value_label_key: "tenant_custom",
+					options: [
+						{ label_key: "tenant_consumers", value: "consumers" },
+						{ label_key: "tenant_organizations", value: "organizations" },
+						{ label_key: "tenant_common", value: "common" },
+					],
+					value_kind: "string",
+				},
+				trim_on_blur: true,
+			}),
+		];
+		const automatic = renderPanel({
+			fields,
+			form: {
+				...emptyForm,
+				connector_config_values: {
+					account_mode: "personal",
+					cloud: "global",
+				},
+			},
+		});
+
+		expect(screen.getByRole("combobox")).toHaveValue(
+			"__asterdrive_automatic_default__",
+		);
+		expect(
+			screen.getByRole("option", { name: "Automatic (recommended)" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("option", { name: "Custom tenant" }),
+		).toBeInTheDocument();
+		fireEvent.change(screen.getByRole("combobox"), {
+			target: { value: "consumers" },
+		});
+		expect(automatic.onFieldChange).toHaveBeenCalledWith(
+			"connector_config_explicit_fields",
+			["tenant"],
+		);
+		expect(automatic.onFieldChange).toHaveBeenCalledWith(
+			"connector_config_values",
+			expect.objectContaining({ tenant: "consumers" }),
+		);
+		fireEvent.change(screen.getByRole("combobox"), {
+			target: { value: "__asterdrive_custom_value__" },
+		});
+		expect(automatic.onFieldChange).toHaveBeenCalledWith(
+			"connector_config_values",
+			expect.objectContaining({ tenant: "" }),
+		);
+		automatic.unmount();
+
+		const explicitPreset = renderPanel({
+			fields,
+			form: {
+				...emptyForm,
+				connector_config_explicit_fields: ["tenant"],
+				connector_config_values: {
+					account_mode: "personal",
+					cloud: "global",
+					tenant: "consumers",
+				},
+			},
+		});
+		expect(screen.getByRole("combobox")).toHaveValue("consumers");
+		explicitPreset.unmount();
+
+		const custom = renderPanel({
+			fields,
+			form: {
+				...emptyForm,
+				connector_config_values: {
+					account_mode: "personal",
+					cloud: "global",
+					tenant: "contoso.onmicrosoft.com",
+				},
+			},
+		});
+		const customInput = screen.getByLabelText("Custom tenant");
+		expect(customInput).toHaveValue("contoso.onmicrosoft.com");
+		expect(customInput).toHaveAttribute("placeholder", "tenant-id-or-domain");
+		fireEvent.change(customInput, {
+			target: { value: "fabrikam.onmicrosoft.com" },
+		});
+		fireEvent.blur(customInput, {
+			target: { value: " fabrikam.onmicrosoft.com " },
+		});
+		expect(custom.onFieldChange).toHaveBeenCalledWith(
+			"connector_config_values",
+			{
+				account_mode: "personal",
+				cloud: "global",
+				tenant: "fabrikam.onmicrosoft.com",
+			},
+		);
+
+		fireEvent.change(screen.getByRole("combobox"), {
+			target: { value: "__asterdrive_automatic_default__" },
+		});
+		expect(custom.onFieldChange).toHaveBeenCalledWith(
+			"connector_config_values",
+			{
+				account_mode: "personal",
+				cloud: "global",
+			},
+		);
+		expect(custom.onFieldChange).toHaveBeenCalledWith(
+			"connector_config_explicit_fields",
+			[],
+		);
+		custom.unmount();
+
+		renderPanel({
+			fields,
+			form: {
+				...emptyForm,
+				connector_config_explicit_fields: ["tenant"],
+				connector_config_values: {
+					account_mode: "personal",
+					cloud: "global",
+					tenant: "",
+				},
+			},
+			showRequiredErrors: true,
+		});
+		expect(screen.getByLabelText("Custom tenant")).toHaveAttribute(
+			"aria-invalid",
+			"true",
+		);
+		expect(screen.getByText("Custom tenant is required")).toBeVisible();
 	});
 });

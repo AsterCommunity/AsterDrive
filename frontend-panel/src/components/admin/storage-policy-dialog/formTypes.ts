@@ -14,6 +14,7 @@ export interface PolicyFormData {
 	name: string;
 	connector_id: string;
 	connector_config_values: Record<string, ConnectorFormValue>;
+	connector_config_explicit_fields?: string[];
 	credential_values: Record<string, string>;
 	max_file_size: string;
 	chunk_size: string;
@@ -61,6 +62,7 @@ export const emptyForm: PolicyFormData = {
 	name: "",
 	connector_id: "",
 	connector_config_values: {},
+	connector_config_explicit_fields: [],
 	credential_values: {},
 	max_file_size: "",
 	chunk_size: "5",

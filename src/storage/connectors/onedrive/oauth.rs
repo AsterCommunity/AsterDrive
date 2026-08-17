@@ -92,7 +92,13 @@ pub(super) async fn exchange_microsoft_graph_code(
             "failed to build Microsoft Graph OAuth HTTP client",
             AsterError::internal_error,
         )?;
-    let token_endpoint = context.cloud.token_endpoint(&context.tenant);
+    let token_endpoint = context
+        .cloud
+        .token_endpoint(&context.tenant)
+        .map_aster_err_ctx(
+            "invalid Microsoft Graph tenant for token exchange",
+            AsterError::config_error,
+        )?;
     let body = {
         let mut form = url::form_urlencoded::Serializer::new(String::new());
         form.append_pair("grant_type", "authorization_code");
@@ -148,7 +154,10 @@ pub(super) async fn refresh_microsoft_graph_token(
             "failed to build Microsoft Graph OAuth HTTP client",
             AsterError::internal_error,
         )?;
-    let token_endpoint = cloud.token_endpoint(tenant);
+    let token_endpoint = cloud.token_endpoint(tenant).map_aster_err_ctx(
+        "invalid Microsoft Graph tenant for token refresh",
+        AsterError::config_error,
+    )?;
     let body = {
         let mut form = url::form_urlencoded::Serializer::new(String::new());
         form.append_pair("grant_type", "refresh_token");
@@ -249,7 +258,11 @@ pub(super) fn microsoft_authorization_url(
     state: &str,
     pkce_challenge: &str,
 ) -> Result<String> {
-    let mut url = url::Url::parse(&cloud.authorization_endpoint(tenant)).map_aster_err_ctx(
+    let authorization_endpoint = cloud.authorization_endpoint(tenant).map_aster_err_ctx(
+        "invalid Microsoft Graph tenant for authorization",
+        AsterError::config_error,
+    )?;
+    let mut url = url::Url::parse(&authorization_endpoint).map_aster_err_ctx(
         "invalid Microsoft Graph authorization endpoint",
         AsterError::config_error,
     )?;
