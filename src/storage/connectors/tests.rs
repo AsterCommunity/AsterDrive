@@ -407,6 +407,32 @@ fn registry_rejects_invalid_cross_connector_promotion_contracts() {
     };
     assert!(error.to_string().contains("maps incompatible"));
 
+    let mut secret_config_target = target.clone();
+    secret_config_target.fields.push(
+        aster_drive_storage::connector_descriptor::storage_connector_field(
+            "config_secret",
+            StorageConnectorFieldScope::ConnectorConfig,
+            aster_drive_storage::connector_descriptor::StorageConnectorFieldKind::Secret,
+            false,
+            true,
+        ),
+    );
+    secret_config_target.promotions[0].config_mappings.push(
+        aster_drive_storage::StorageConnectorPromotionFieldMapping {
+            source_field: "endpoint".to_string(),
+            target_field: "config_secret".to_string(),
+            preserve_value: false,
+        },
+    );
+    let error = match StorageConnectorRegistry::new(vec![
+        Arc::new(S3Connector),
+        contract_connector(secret_config_target),
+    ]) {
+        Ok(_) => panic!("Text to Secret config mapping must fail registration"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("maps incompatible"));
+
     let mut missing_required_config = target.clone();
     missing_required_config.promotions[0]
         .config_mappings
@@ -485,6 +511,20 @@ fn registry_accepts_credential_free_and_string_select_promotion_contracts() {
         contract_connector(credential_free_target),
     ])
     .expect("credential-free promotion contract should register");
+
+    let mut secret_credential_target = descriptor(TencentCosConnector::ID);
+    let target_access_key = secret_credential_target
+        .fields
+        .iter_mut()
+        .find(|field| field.name == "tencent_cos_secret_id")
+        .expect("COS access-key credential field");
+    target_access_key.kind = StorageConnectorFieldKind::Secret;
+    target_access_key.secret = true;
+    StorageConnectorRegistry::new(vec![
+        Arc::new(S3Connector),
+        contract_connector(secret_credential_target),
+    ])
+    .expect("Text to Secret credential mapping should remain compatible");
 
     let mut select_source = descriptor(LocalConnector::ID);
     select_source.connector_id = ConnectorId::declared("com.example.select_source");

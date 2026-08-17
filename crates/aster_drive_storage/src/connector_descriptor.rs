@@ -469,6 +469,15 @@ impl StorageConnectorPromotionDescriptor {
                     self.promotion_id.as_str()
                 )));
             }
+            if let StorageConnectorPromotionValueMatcher::UrlHostSuffix { suffix } =
+                &requirement.matcher
+                && (!(suffix.starts_with('.') || suffix.starts_with('-')) || suffix.len() == 1)
+            {
+                return Err(StorageConnectorDescriptorError(format!(
+                    "promotion '{}' URL host suffix matcher must start with a DNS label boundary marker '.' or '-'",
+                    self.promotion_id.as_str()
+                )));
+            }
         }
         if self.config_mappings.is_empty() {
             return Err(StorageConnectorDescriptorError(format!(
@@ -3224,6 +3233,19 @@ mod tests {
                 .expect_err("empty matcher must fail")
                 .to_string()
                 .contains("matcher must not be empty")
+        );
+
+        let mut bare_url_host_suffix = valid.clone();
+        bare_url_host_suffix.promotions[0].requirements[0].matcher =
+            StorageConnectorPromotionValueMatcher::UrlHostSuffix {
+                suffix: "example.com".to_string(),
+            };
+        assert!(
+            bare_url_host_suffix
+                .validate()
+                .expect_err("URL host suffix without a label boundary must fail")
+                .to_string()
+                .contains("DNS label boundary marker")
         );
 
         let mut invalid_source_id = valid.clone();

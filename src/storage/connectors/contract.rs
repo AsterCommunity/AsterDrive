@@ -886,7 +886,7 @@ fn validate_promotion_field_mappings(
             &mapping.target_field,
             false,
         )?;
-        if !promotion_field_kinds_compatible(source_field, target_field) {
+        if !promotion_field_kinds_compatible(scope, source_field, target_field) {
             return Err(AsterError::internal_error(format!(
                 "storage connector '{}' promotion '{}' maps incompatible {:?} field '{}' to {:?} field '{}'",
                 target.connector_id,
@@ -927,6 +927,7 @@ fn require_promotion_field<'a>(
 }
 
 fn promotion_field_kinds_compatible(
+    scope: StorageConnectorFieldScope,
     source: &StorageConnectorFieldDescriptor,
     target: &StorageConnectorFieldDescriptor,
 ) -> bool {
@@ -935,6 +936,9 @@ fn promotion_field_kinds_compatible(
     {
         return source.select.as_ref().map(|select| select.value_kind)
             == target.select.as_ref().map(|select| select.value_kind);
+    }
+    if scope != StorageConnectorFieldScope::StaticCredential {
+        return source.kind == target.kind;
     }
     source.kind == target.kind
         || matches!(

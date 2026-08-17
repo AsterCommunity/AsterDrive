@@ -498,11 +498,26 @@ fn promotion_requirements_match(
                 url::Url::parse(value)
                     .ok()
                     .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
-                    .is_some_and(|host| host.ends_with(&suffix.to_ascii_lowercase()))
+                    .is_some_and(|host| {
+                        promotion_url_host_suffix_matches(&host, &suffix.to_ascii_lowercase())
+                    })
             }
         };
         matches != requirement.negate
     })
+}
+
+fn promotion_url_host_suffix_matches(host: &str, suffix: &str) -> bool {
+    if let Some(label_suffix) = suffix
+        .strip_prefix('.')
+        .or_else(|| suffix.strip_prefix('-'))
+    {
+        return !label_suffix.is_empty() && host.ends_with(suffix);
+    }
+    host == suffix
+        || host
+            .strip_suffix(suffix)
+            .is_some_and(|prefix| prefix.ends_with('.'))
 }
 
 fn compare_promotion_text(
@@ -860,6 +875,27 @@ mod tests {
             invalid.insert("endpoint".to_string(), serde_json::json!(endpoint));
             assert!(!promotion_requirements_match(&promotion, &invalid));
         }
+
+        assert!(promotion_url_host_suffix_matches(
+            "archive.aliyuncs.com",
+            "aliyuncs.com"
+        ));
+        assert!(promotion_url_host_suffix_matches(
+            "aliyuncs.com",
+            "aliyuncs.com"
+        ));
+        assert!(!promotion_url_host_suffix_matches(
+            "evilaliyuncs.com",
+            "aliyuncs.com"
+        ));
+        assert!(!promotion_url_host_suffix_matches(
+            "aliyuncs.com",
+            ".aliyuncs.com"
+        ));
+        assert!(promotion_url_host_suffix_matches(
+            "oss-cn-hangzhou-internal.aliyuncs.com",
+            "-internal.aliyuncs.com"
+        ));
     }
 
     fn requirement(
