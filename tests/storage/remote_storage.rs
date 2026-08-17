@@ -3931,16 +3931,9 @@ async fn test_reverse_tunnel_follower_worker_rejects_non_storage_paths() {
         response.body.as_ref(),
         b"reverse tunnel can only proxy internal storage paths"
     );
-    let info = remote_node::get(&consumer_state, consumer_node.id)
-        .await
-        .expect("remote node info should load after forbidden tunnel target");
-    assert!(
-        info.tunnel
-            .last_error
-            .contains("reverse tunnel can only proxy internal storage paths"),
-        "forbidden tunnel target should be visible in tunnel diagnostics, got '{}'",
-        info.tunnel.last_error
-    );
+    // `tunnel.last_error` is transient runtime telemetry. The production follower can complete
+    // the next successful poll before this test reads the node, which intentionally clears it.
+    // The offline-error lifecycle test below covers immediate visibility and persistence.
 
     stop_test_reverse_tunnel_http_worker(tunnel_worker).await;
     primary_server.stop().await;
@@ -4213,9 +4206,18 @@ async fn test_reverse_tunnel_records_offline_error_and_clears_on_poll() {
     )
     .await
     .expect("reverse node should be created");
+    managed_follower_repo::touch_probe_result(
+        state.writer_db(),
+        node.id,
+        "{}".to_string(),
+        "capability probe failed".to_string(),
+        Some(chrono::Utc::now()),
+    )
+    .await
+    .expect("probe result should be persisted before tunnel lifecycle test");
     let node_model = managed_follower_repo::find_by_id(state.writer_db(), node.id)
         .await
-        .expect("reverse node should be queryable");
+        .expect("remote node should be queryable after probe result");
 
     let error = state
         .remote_protocol
@@ -4239,6 +4241,10 @@ async fn test_reverse_tunnel_records_offline_error_and_clears_on_poll() {
         info.tunnel.last_error.contains("reverse tunnel is offline"),
         "runtime tunnel error should be visible immediately, got '{}'",
         info.tunnel.last_error
+    );
+    assert_eq!(
+        info.last_error, "capability probe failed",
+        "tunnel runtime errors must not overwrite probe errors"
     );
     wait_for_tunnel_error_persisted(&state, node.id, "reverse tunnel is offline").await;
 
@@ -4295,6 +4301,10 @@ async fn test_reverse_tunnel_records_offline_error_and_clears_on_poll() {
         .await
         .expect("remote node info should load after poll");
     assert_eq!(cleared.tunnel.last_error, "");
+    assert_eq!(
+        cleared.last_error, "capability probe failed",
+        "clearing tunnel runtime state must not clear probe state"
+    );
 }
 
 #[actix_web::test]

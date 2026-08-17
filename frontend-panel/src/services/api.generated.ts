@@ -6555,19 +6555,35 @@ export interface components {
         OffsetPage_RemoteNodeInfo: {
             /** @description Items in the current page. */
             items: {
+                /** @description Direct transport base URL, or empty when reverse tunnel is selected. */
                 base_url: string;
+                /** @description Capabilities returned by the most recent explicit probe. */
                 capabilities: components["schemas"]["RemoteStorageCapabilities"];
+                /** @description Time at which the remote node was created. */
                 created_at: string;
+                /** @description Current enrollment lifecycle state. */
                 enrollment_status: components["schemas"]["RemoteNodeEnrollmentStatus"];
-                /** Format: int64 */
+                /**
+                 * Format: int64
+                 * @description Stable database identifier of the remote node.
+                 */
                 id: number;
+                /** @description Whether the remote node is enabled for administration and transport. */
                 is_enabled: boolean;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description Timestamp of the most recent explicit capability probe.
+                 */
                 last_checked_at?: string | null;
+                /** @description Result of the most recent explicit capability probe or connection test. */
                 last_error: string;
+                /** @description Administrative display name. */
                 name: string;
+                /** @description Configured transport choice; `auto` is resolved from `base_url` at runtime. */
                 transport_mode: components["schemas"]["RemoteNodeTransportMode"];
+                /** @description Runtime reverse-tunnel health telemetry, separate from probe state above. */
                 tunnel: components["schemas"]["RemoteTunnelInfo"];
+                /** @description Time of the latest administrative remote-node change. */
                 updated_at: string;
             }[];
             /**
@@ -7315,19 +7331,35 @@ export interface components {
         /** @enum {string} */
         RemoteNodeEnrollmentStatus: "not_started" | "pending" | "redeemed" | "completed" | "expired";
         RemoteNodeInfo: {
+            /** @description Direct transport base URL, or empty when reverse tunnel is selected. */
             base_url: string;
+            /** @description Capabilities returned by the most recent explicit probe. */
             capabilities: components["schemas"]["RemoteStorageCapabilities"];
+            /** @description Time at which the remote node was created. */
             created_at: string;
+            /** @description Current enrollment lifecycle state. */
             enrollment_status: components["schemas"]["RemoteNodeEnrollmentStatus"];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Stable database identifier of the remote node.
+             */
             id: number;
+            /** @description Whether the remote node is enabled for administration and transport. */
             is_enabled: boolean;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Timestamp of the most recent explicit capability probe.
+             */
             last_checked_at?: string | null;
+            /** @description Result of the most recent explicit capability probe or connection test. */
             last_error: string;
+            /** @description Administrative display name. */
             name: string;
+            /** @description Configured transport choice; `auto` is resolved from `base_url` at runtime. */
             transport_mode: components["schemas"]["RemoteNodeTransportMode"];
+            /** @description Runtime reverse-tunnel health telemetry, separate from probe state above. */
             tunnel: components["schemas"]["RemoteTunnelInfo"];
+            /** @description Time of the latest administrative remote-node change. */
             updated_at: string;
         };
         /**
@@ -7412,8 +7444,14 @@ export interface components {
             updated_at: string;
         };
         RemoteTunnelInfo: {
+            /**
+             * @description Transient runtime error from the tunnel control/data path. The next successful poll or
+             *     stream handshake clears it; it is not a historical error log.
+             */
             last_error: string;
+            /** @description Last successful poll or stream handshake persisted by the primary. */
             last_seen_at?: string | null;
+            /** @description Online status derived from recent successful tunnel handshakes and the online TTL. */
             status: components["schemas"]["RemoteTunnelOnlineStatus"];
         };
         /** @enum {string} */
@@ -12260,19 +12298,35 @@ export interface operations {
                         data?: {
                             /** @description Items in the current page. */
                             items: {
+                                /** @description Direct transport base URL, or empty when reverse tunnel is selected. */
                                 base_url: string;
+                                /** @description Capabilities returned by the most recent explicit probe. */
                                 capabilities: components["schemas"]["RemoteStorageCapabilities"];
+                                /** @description Time at which the remote node was created. */
                                 created_at: string;
+                                /** @description Current enrollment lifecycle state. */
                                 enrollment_status: components["schemas"]["RemoteNodeEnrollmentStatus"];
-                                /** Format: int64 */
+                                /**
+                                 * Format: int64
+                                 * @description Stable database identifier of the remote node.
+                                 */
                                 id: number;
+                                /** @description Whether the remote node is enabled for administration and transport. */
                                 is_enabled: boolean;
-                                /** Format: date-time */
+                                /**
+                                 * Format: date-time
+                                 * @description Timestamp of the most recent explicit capability probe.
+                                 */
                                 last_checked_at?: string | null;
+                                /** @description Result of the most recent explicit capability probe or connection test. */
                                 last_error: string;
+                                /** @description Administrative display name. */
                                 name: string;
+                                /** @description Configured transport choice; `auto` is resolved from `base_url` at runtime. */
                                 transport_mode: components["schemas"]["RemoteNodeTransportMode"];
+                                /** @description Runtime reverse-tunnel health telemetry, separate from probe state above. */
                                 tunnel: components["schemas"]["RemoteTunnelInfo"];
+                                /** @description Time of the latest administrative remote-node change. */
                                 updated_at: string;
                             }[];
                             /**
@@ -12334,19 +12388,35 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
+                            /** @description Direct transport base URL, or empty when reverse tunnel is selected. */
                             base_url: string;
+                            /** @description Capabilities returned by the most recent explicit probe. */
                             capabilities: components["schemas"]["RemoteStorageCapabilities"];
+                            /** @description Time at which the remote node was created. */
                             created_at: string;
+                            /** @description Current enrollment lifecycle state. */
                             enrollment_status: components["schemas"]["RemoteNodeEnrollmentStatus"];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Stable database identifier of the remote node.
+                             */
                             id: number;
+                            /** @description Whether the remote node is enabled for administration and transport. */
                             is_enabled: boolean;
-                            /** Format: date-time */
+                            /**
+                             * Format: date-time
+                             * @description Timestamp of the most recent explicit capability probe.
+                             */
                             last_checked_at?: string | null;
+                            /** @description Result of the most recent explicit capability probe or connection test. */
                             last_error: string;
+                            /** @description Administrative display name. */
                             name: string;
+                            /** @description Configured transport choice; `auto` is resolved from `base_url` at runtime. */
                             transport_mode: components["schemas"]["RemoteNodeTransportMode"];
+                            /** @description Runtime reverse-tunnel health telemetry, separate from probe state above. */
                             tunnel: components["schemas"]["RemoteTunnelInfo"];
+                            /** @description Time of the latest administrative remote-node change. */
                             updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -12453,19 +12523,35 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
+                            /** @description Direct transport base URL, or empty when reverse tunnel is selected. */
                             base_url: string;
+                            /** @description Capabilities returned by the most recent explicit probe. */
                             capabilities: components["schemas"]["RemoteStorageCapabilities"];
+                            /** @description Time at which the remote node was created. */
                             created_at: string;
+                            /** @description Current enrollment lifecycle state. */
                             enrollment_status: components["schemas"]["RemoteNodeEnrollmentStatus"];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Stable database identifier of the remote node.
+                             */
                             id: number;
+                            /** @description Whether the remote node is enabled for administration and transport. */
                             is_enabled: boolean;
-                            /** Format: date-time */
+                            /**
+                             * Format: date-time
+                             * @description Timestamp of the most recent explicit capability probe.
+                             */
                             last_checked_at?: string | null;
+                            /** @description Result of the most recent explicit capability probe or connection test. */
                             last_error: string;
+                            /** @description Administrative display name. */
                             name: string;
+                            /** @description Configured transport choice; `auto` is resolved from `base_url` at runtime. */
                             transport_mode: components["schemas"]["RemoteNodeTransportMode"];
+                            /** @description Runtime reverse-tunnel health telemetry, separate from probe state above. */
                             tunnel: components["schemas"]["RemoteTunnelInfo"];
+                            /** @description Time of the latest administrative remote-node change. */
                             updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -12563,19 +12649,35 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
+                            /** @description Direct transport base URL, or empty when reverse tunnel is selected. */
                             base_url: string;
+                            /** @description Capabilities returned by the most recent explicit probe. */
                             capabilities: components["schemas"]["RemoteStorageCapabilities"];
+                            /** @description Time at which the remote node was created. */
                             created_at: string;
+                            /** @description Current enrollment lifecycle state. */
                             enrollment_status: components["schemas"]["RemoteNodeEnrollmentStatus"];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Stable database identifier of the remote node.
+                             */
                             id: number;
+                            /** @description Whether the remote node is enabled for administration and transport. */
                             is_enabled: boolean;
-                            /** Format: date-time */
+                            /**
+                             * Format: date-time
+                             * @description Timestamp of the most recent explicit capability probe.
+                             */
                             last_checked_at?: string | null;
+                            /** @description Result of the most recent explicit capability probe or connection test. */
                             last_error: string;
+                            /** @description Administrative display name. */
                             name: string;
+                            /** @description Configured transport choice; `auto` is resolved from `base_url` at runtime. */
                             transport_mode: components["schemas"]["RemoteNodeTransportMode"];
+                            /** @description Runtime reverse-tunnel health telemetry, separate from probe state above. */
                             tunnel: components["schemas"]["RemoteTunnelInfo"];
+                            /** @description Time of the latest administrative remote-node change. */
                             updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -12999,19 +13101,35 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
+                            /** @description Direct transport base URL, or empty when reverse tunnel is selected. */
                             base_url: string;
+                            /** @description Capabilities returned by the most recent explicit probe. */
                             capabilities: components["schemas"]["RemoteStorageCapabilities"];
+                            /** @description Time at which the remote node was created. */
                             created_at: string;
+                            /** @description Current enrollment lifecycle state. */
                             enrollment_status: components["schemas"]["RemoteNodeEnrollmentStatus"];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Stable database identifier of the remote node.
+                             */
                             id: number;
+                            /** @description Whether the remote node is enabled for administration and transport. */
                             is_enabled: boolean;
-                            /** Format: date-time */
+                            /**
+                             * Format: date-time
+                             * @description Timestamp of the most recent explicit capability probe.
+                             */
                             last_checked_at?: string | null;
+                            /** @description Result of the most recent explicit capability probe or connection test. */
                             last_error: string;
+                            /** @description Administrative display name. */
                             name: string;
+                            /** @description Configured transport choice; `auto` is resolved from `base_url` at runtime. */
                             transport_mode: components["schemas"]["RemoteNodeTransportMode"];
+                            /** @description Runtime reverse-tunnel health telemetry, separate from probe state above. */
                             tunnel: components["schemas"]["RemoteTunnelInfo"];
+                            /** @description Time of the latest administrative remote-node change. */
                             updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
