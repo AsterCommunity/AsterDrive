@@ -29,7 +29,7 @@ If you are new to the repository, read this page first and then [`module-designs
 | How operational CLI commands run | `src/main.rs`, `src/cli/**` | Subcommands under the `cli` feature are dispatched before HTTP startup |
 | Which routes the primary node registers | `src/api/primary.rs`, `src/api/routes/` | This decides the registration order for `/api/v1`, `/health`, `/d`, `/pv`, WebDAV, and the frontend fallback |
 | What the follower exposes | `src/api/follower.rs`, `src/api/routes/internal_storage.rs` | The follower only serves the internal storage protocol and health checks |
-| How the remote-node reverse tunnel works | `src/api/routes/remote_tunnel.rs`, `src/storage/remote_protocol/tunnel/` | The primary exposes the tunnel control plane, and the follower connects back to it |
+| How remote-node binding and reverse tunnels work | `src/api/routes/remote_node_control.rs`, `src/services/remote/binding_control.rs`, `src/api/routes/remote_tunnel.rs`, `src/storage/remote_protocol/tunnel/` | The follower pulls binding desired state over an independent control plane and starts data-plane workers only for an effective reverse-tunnel transport |
 | How a REST endpoint is implemented | The corresponding `src/api/routes/**` file | Route handlers parse parameters, wrap auth, and adapt responses |
 | Where file, team, share, and upload rules live | `src/services/**` | Business semantics are centralized in the service layer |
 | How data is queried and written | `src/db/repository/**` | Repository code encapsulates database access and cross-database compatibility details |
@@ -51,6 +51,7 @@ When you are chasing a specific feature, the fastest path is usually:
 The primary node registers:
 
 - REST API: `/api/v1/*`
+- Remote-node binding control plane: `/api/v1/internal/remote-node-control/*`
 - Remote-node reverse tunnel internal API: `/api/v1/internal/remote-tunnel/*`
 - Health checks: `/health*`
 - Public sharing and direct links:
@@ -72,7 +73,7 @@ The follower does not serve normal user APIs, WebDAV, or frontend pages. It only
 
 This internal protocol is currently used for object writes, object assembly, object listing, binding synchronization, and remote storage target control between the primary node and managed remote nodes. The current protocol is `v5` with a `v4` compatibility floor, and the primary / follower supported ranges must overlap. Since `0.4.0`, the control plane only exposes `/targets`; the legacy `/ingress-profiles` compatibility routes have been removed.
 
-If a remote node uses `reverse_tunnel` or `auto` and has no directly reachable `base_url`, the follower does not expose an additional direct entry for the primary. Instead, the tunnel worker inside the follower process actively connects to the primary's `/api/v1/internal/remote-tunnel/*`.
+The follower periodically calls the primary's `/api/v1/internal/remote-node-control/*` for every master binding and independently converges on the transport resolved by the primary. It starts a tunnel worker for `/api/v1/internal/remote-tunnel/*` only when the node uses `reverse_tunnel`, or uses `auto` without a directly reachable `base_url`. Direct and disabled bindings keep control-plane synchronization running without starting tunnel data-plane workers.
 
 ## How a request flows
 

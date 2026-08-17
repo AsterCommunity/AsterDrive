@@ -1,6 +1,6 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::Result;
-use aster_drive_model::types::RemoteStorageTargetDriverKind;
+use aster_drive_model::types::{RemoteStorageTargetDriverKind, ResolvedRemoteTransport};
 use aster_drive_storage::StorageCapacityInfo;
 use aster_drive_storage::StorageErrorKind;
 use serde::{Deserialize, Serialize};
@@ -224,6 +224,8 @@ impl RemoteStorageTargetDriverType {
 #[derive(Default)]
 pub struct RemoteStorageFeatureFlags {
     #[serde(default)]
+    pub binding_state_pull: bool,
+    #[serde(default)]
     pub object_get: bool,
     #[serde(default)]
     pub object_head: bool,
@@ -248,6 +250,7 @@ pub struct RemoteStorageFeatureFlags {
 impl RemoteStorageFeatureFlags {
     pub fn current() -> Self {
         Self {
+            binding_state_pull: true,
             object_get: true,
             object_head: true,
             object_put: true,
@@ -361,12 +364,22 @@ pub struct RemoteStorageObjectMetadata {
 pub struct RemoteBindingSyncRequest {
     pub name: String,
     pub is_enabled: bool,
-    #[serde(default = "default_reverse_tunnel_enabled")]
-    pub reverse_tunnel_enabled: bool,
+    #[serde(default)]
+    pub resolved_transport: ResolvedRemoteTransport,
+    #[serde(default = "default_binding_revision")]
+    pub desired_revision: i64,
 }
 
-const fn default_reverse_tunnel_enabled() -> bool {
-    true
+const fn default_binding_revision() -> i64 {
+    1
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RemoteBindingDesiredState {
+    pub name: String,
+    pub is_enabled: bool,
+    pub resolved_transport: ResolvedRemoteTransport,
+    pub desired_revision: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -496,16 +509,28 @@ pub(super) struct ApiEnvelope<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::RemoteBindingSyncRequest;
+    use super::{RemoteBindingSyncRequest, RemoteStorageFeatureFlags};
 
     #[test]
-    fn binding_sync_defaults_legacy_payloads_to_reverse_tunnel_enabled() {
+    fn binding_sync_defaults_legacy_payloads_to_reverse_tunnel_state() {
         let request: RemoteBindingSyncRequest = serde_json::from_value(serde_json::json!({
             "name": "legacy-primary",
             "is_enabled": true
         }))
         .expect("legacy binding sync payload should remain readable");
 
-        assert!(request.reverse_tunnel_enabled);
+        assert_eq!(
+            request.resolved_transport,
+            aster_drive_model::types::ResolvedRemoteTransport::ReverseTunnel
+        );
+        assert_eq!(request.desired_revision, 1);
+    }
+
+    #[test]
+    fn binding_state_pull_requires_an_explicit_current_capability() {
+        let legacy: RemoteStorageFeatureFlags =
+            serde_json::from_value(serde_json::json!({})).expect("legacy features should decode");
+        assert!(!legacy.binding_state_pull);
+        assert!(RemoteStorageFeatureFlags::current().binding_state_pull);
     }
 }

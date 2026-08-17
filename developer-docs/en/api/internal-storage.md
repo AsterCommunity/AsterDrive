@@ -2,7 +2,7 @@
 
 These endpoints are the internal object storage protocol between the primary node and follower nodes. They are not public browser or third-party client APIs.
 
-This page describes the follower-side `/api/v1/internal/storage/*` endpoints that actually perform object reads and writes. The primary also exposes `/api/v1/internal/remote-tunnel/*` for followers that cannot be reached directly by the primary.
+This page describes the follower-side `/api/v1/internal/storage/*` endpoints that actually perform object reads and writes. The primary separately exposes `/api/v1/internal/remote-node-control/*` as the binding control plane and `/api/v1/internal/remote-tunnel/*` as the transport used by followers that cannot be reached directly.
 
 All paths below are relative to:
 
@@ -14,12 +14,28 @@ and are registered only on `follower` nodes.
 
 ## Direct vs. Reverse Tunnel
 
-Remote-node object protocol has two layers:
+The remote-node protocol has three layers:
 
 - `/api/v1/internal/storage/*` exists only on the follower and performs object access, binding sync, and remote storage target management
-- `/api/v1/internal/remote-tunnel/*` exists only on the primary and is the reverse-tunnel control and transport entry
+- `/api/v1/internal/remote-node-control/*` exists only on the primary and is the independent control plane from which followers pull binding desired state
+- `/api/v1/internal/remote-tunnel/*` exists only on the primary and transports object requests over the reverse tunnel; it does not reconcile binding state
 
 In `direct` mode, the primary directly calls the follower's `/api/v1/internal/storage/*`. In `reverse_tunnel` mode, the primary registers the same internal storage request in the tunnel registry; the follower polls or opens a WebSocket to the primary, runs the internal storage logic locally, and returns the response.
+
+For `auto`, the primary resolves the current `base_url` into an explicit `resolved_transport`: a non-empty `base_url` selects `direct`, while an empty `base_url` selects `reverse_tunnel`. The follower periodically polls the independent control plane for every binding, including disabled and effectively direct bindings, so transport transitions do not depend on either the old or the new object-data path.
+
+Binding state converges by revision:
+
+1. The primary owns `name`, `is_enabled`, `resolved_transport`, and a monotonically increasing `desired_revision`. The revision changes only when one of those follower-visible values changes.
+2. The follower calls `GET /api/v1/internal/remote-node-control/binding-state?applied_revision=N`, treats the primary response as authoritative, and persists that desired state locally.
+3. The follower refreshes its runtime binding registry and then starts, stops, or replaces reverse-tunnel workers. It marks the local `applied_revision` only after both the registry and worker topology have been reconciled.
+4. The next pull sends the new `applied_revision` as an implicit ACK. The primary accepts ACKs only up to its current desired revision. A higher stale follower revision does not override primary state; the follower is brought back to the primary's current revision.
+
+Primary-side binding control entry:
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/api/v1/internal/remote-node-control/binding-state` | Pull desired state and report the applied revision through the `applied_revision` query |
 
 Primary-side reverse-tunnel entries:
 
@@ -29,7 +45,9 @@ Primary-side reverse-tunnel entries:
 | `POST` | `/api/v1/internal/remote-tunnel/complete` | Follower returns a polled request result |
 | `GET` | `/api/v1/internal/remote-tunnel/connect` | Follower opens a streaming WebSocket tunnel |
 
-These reverse-tunnel endpoints also use remote-node signature auth.
+Both the binding control plane and reverse-tunnel endpoints use remote-node signature auth. Direct, reverse-tunnel, and disabled nodes may access the binding control plane. The reverse-tunnel data plane additionally requires the node to be enabled and currently resolved to `reverse_tunnel`, so an effectively direct node cannot use `poll`, `complete`, or `connect` even with a valid signature.
+
+This binding control extension does not change the tunnel frame wire format: the WebSocket frame version remains `1`. It also does not raise the internal-storage protocol version, which remains `v5` with a `v4` compatibility floor; rolling upgrades are handled through an optional capability and JSON defaults.
 
 ## Authentication
 
@@ -53,7 +71,7 @@ Control-plane endpoints require signed headers. Object GET / PUT can support pre
 | --- | --- | --- |
 | `GET` | `/capabilities` | Read follower protocol capabilities |
 | `GET` | `/capacity` | Read capacity status for the current follower receiving target |
-| `PUT` | `/binding` | Sync remote-node binding information maintained by the primary |
+| `PUT` | `/binding` | Push binding state to legacy followers without the binding control pull capability |
 | `GET` | `/targets` | List remote storage targets available to the current binding |
 | `POST` | `/targets` | Create a remote storage target |
 | `PATCH` | `/targets/{target_key}` | Update a remote storage target |
@@ -84,6 +102,12 @@ Typical fields include:
 - `supports_capacity`
 
 The current protocol version is `v5`, with `v4` as the compatibility floor, so the current local supported range is `v4-v5`. `v4` / `v5` are not wire-compatible with `v2` or `v3`: internal storage JSON envelopes now use the stable string `ApiErrorCode` in the top-level `code` field instead of the old numeric code. Upgrade both primary and follower before binding remote policies across this boundary.
+
+Current followers explicitly advertise `features.binding_state_pull`. The capability defaults to `false`, which defines the rolling-upgrade boundary:
+
+- With `binding_state_pull = true`, the primary stops pushing binding state and relies entirely on follower pull reconciliation.
+- When the capability is absent or `false`, the primary retains the legacy `PUT /binding` push.
+- When a new follower calls an old primary and receives `404` for binding-state, it keeps its locally persisted legacy push state.
 
 Protocol `v5` adds remote-storage-target driver capabilities. The Rust model field is named `remote_storage_target`, but the `v4` / `v5` wire JSON still serializes it as `managed_ingress` and also accepts `remote_storage_target` as a deserialization alias. The legacy wire key is a compatibility detail, not a separate product model.
 
@@ -125,12 +149,14 @@ Local targets usually return real filesystem capacity. S3 targets explicitly ret
 
 ## `PUT /binding`
 
-The primary uses this endpoint to sync follower binding metadata. Request fields include:
+This endpoint is retained only for legacy followers that do not advertise `features.binding_state_pull`. A new primary pushes these desired-state fields to such followers:
 
 - `name`
 - `is_enabled`
+- `resolved_transport`: `direct` or `reverse_tunnel`; omission defaults to `reverse_tunnel`
+- `desired_revision`: the primary desired-state revision; omission defaults to `1`
 
-This updates binding metadata only; it does not move object data.
+This updates binding metadata only; it does not move object data. The primary attempts a legacy push only when the current or pre-transition data path is actually usable. When no such path exists, it skips the push; followers that support the new control plane still converge through pull. The compatibility push can be removed once the minimum supported follower version explicitly advertises `binding_state_pull`.
 
 ## Remote storage target management
 

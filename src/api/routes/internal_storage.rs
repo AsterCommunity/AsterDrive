@@ -336,14 +336,16 @@ async fn sync_binding(
         master_binding::SyncMasterBindingInput {
             name: body.name.clone(),
             is_enabled: body.is_enabled,
-            reverse_tunnel_enabled: body.reverse_tunnel_enabled,
+            resolved_transport: body.resolved_transport,
+            desired_revision: body.desired_revision,
         },
     )
     .await?;
     tracing::info!(
         binding_id = synced.id,
         is_enabled = synced.is_enabled,
-        reverse_tunnel_enabled = synced.reverse_tunnel_enabled,
+        resolved_transport = synced.resolved_transport.as_str(),
+        desired_revision = synced.desired_revision,
         "follower binding synchronized"
     );
     audit::log_with_details(

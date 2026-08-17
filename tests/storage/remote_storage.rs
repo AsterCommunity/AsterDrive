@@ -36,7 +36,7 @@ use aster_drive::storage::remote_protocol::{
 use aster_drive_model::entities::{follower_enrollment_session, storage_policy};
 use aster_drive_model::types::{
     RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteStorageTargetDriverKind,
-    RemoteUploadStrategy,
+    RemoteUploadStrategy, ResolvedRemoteTransport,
 };
 use bytes::Bytes;
 use chrono::{Duration as ChronoDuration, Utc};
@@ -161,7 +161,9 @@ async fn spawn_reverse_tunnel_primary_server(
             .app_data(web::JsonConfig::default().limit(REMOTE_TUNNEL_JSON_LIMIT))
             .app_data(web::Data::new(state_for_server.clone()))
             .service(
-                web::scope("/api/v1").service(aster_drive::api::routes::remote_tunnel::routes()),
+                web::scope("/api/v1")
+                    .service(aster_drive::api::routes::remote_node_control::routes())
+                    .service(aster_drive::api::routes::remote_tunnel::routes()),
             )
     })
     .listen(listener)
@@ -397,6 +399,13 @@ async fn start_production_reverse_tunnel_worker(
 
 async fn stop_test_reverse_tunnel_http_worker(worker: TestReverseTunnelHttpWorker) {
     stop_test_reverse_tunnel_worker(worker.shutdown, worker.handle).await;
+}
+
+async fn reconcile_and_ack_binding_control(state: &aster_drive::runtime::FollowerAppState) {
+    let client = reqwest::Client::new();
+    aster_drive::services::remote::binding_control::reconcile_all(state, &client).await;
+    aster_drive::services::remote::binding_control::mark_all_applied(state).await;
+    aster_drive::services::remote::binding_control::reconcile_all(state, &client).await;
 }
 
 async fn send_signed_tunnel_json_raw(
@@ -2006,7 +2015,8 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
         .sync_binding(&RemoteBindingSyncRequest {
             name: "profile-audit-renamed".to_string(),
             is_enabled: false,
-            reverse_tunnel_enabled: false,
+            resolved_transport: ResolvedRemoteTransport::Direct,
+            desired_revision: 2,
         })
         .await
         .expect("binding sync should succeed");
@@ -2015,7 +2025,10 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
             .await
             .expect("synced binding lookup should succeed")
             .expect("synced binding should exist");
-    assert!(!synced_binding.reverse_tunnel_enabled);
+    assert_eq!(
+        synced_binding.resolved_transport,
+        ResolvedRemoteTransport::Direct
+    );
     let sync_entry = latest_audit_log(
         provider_state.writer_db(),
         aster_drive_model::types::AuditAction::FollowerBindingSync,
@@ -2036,7 +2049,8 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
         .sync_binding(&RemoteBindingSyncRequest {
             name: "profile-audit-renamed".to_string(),
             is_enabled: true,
-            reverse_tunnel_enabled: true,
+            resolved_transport: ResolvedRemoteTransport::ReverseTunnel,
+            desired_revision: 3,
         })
         .await
         .expect("binding should be re-enabled for profile operations");
@@ -2045,7 +2059,10 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
             .await
             .expect("re-enabled binding lookup should succeed")
             .expect("re-enabled binding should exist");
-    assert!(reenabled_binding.reverse_tunnel_enabled);
+    assert_eq!(
+        reenabled_binding.resolved_transport,
+        ResolvedRemoteTransport::ReverseTunnel
+    );
 
     let profile = client
         .create_storage_target(&RemoteCreateStorageTargetRequest::Local(
@@ -4720,10 +4737,85 @@ async fn test_remote_node_update_rejects_reverse_tunnel_when_referenced_policy_u
 }
 
 #[actix_web::test]
-async fn test_direct_and_auto_to_reverse_sync_uses_previous_direct_transport() {
+async fn test_binding_control_primary_state_overrides_higher_local_revision_while_disabled() {
+    let follower_database_state = common::setup().await;
+    let primary_state = common::setup().await;
+    let primary_server = spawn_reverse_tunnel_primary_server(primary_state.clone()).await;
+
+    let node = remote_node::create(
+        &primary_state,
+        remote_node::CreateRemoteNodeInput {
+            name: "authoritative-disabled-node".to_string(),
+            base_url: String::new(),
+            transport_mode: RemoteNodeTransportMode::Direct,
+            is_enabled: false,
+        },
+    )
+    .await
+    .expect("disabled direct node should be created");
+    let node_model = managed_follower_repo::find_by_id(primary_state.writer_db(), node.id)
+        .await
+        .expect("primary node should be queryable");
+    let (binding, _) = master_binding::upsert_from_enrollment(
+        follower_database_state.writer_db(),
+        master_binding::UpsertMasterBindingInput {
+            name: "stale-local-name".to_string(),
+            master_url: primary_server.base_url.clone(),
+            access_key: node_model.access_key.clone(),
+            secret_key: node_model.secret_key.clone(),
+            is_enabled: true,
+        },
+    )
+    .await
+    .expect("follower binding should be created");
+    master_binding::sync_from_primary(
+        &follower_database_state.follower_view(),
+        &binding.access_key,
+        master_binding::SyncMasterBindingInput {
+            name: "stale-local-name".to_string(),
+            is_enabled: true,
+            resolved_transport: ResolvedRemoteTransport::ReverseTunnel,
+            desired_revision: 9,
+        },
+    )
+    .await
+    .expect("higher stale local revision should be seeded");
+
+    let follower_state = follower_database_state.follower_view();
+    reconcile_and_ack_binding_control(&follower_state).await;
+    let reconciled = master_binding_repo::find_by_access_key(
+        follower_database_state.writer_db(),
+        &binding.access_key,
+    )
+    .await
+    .expect("reconciled binding lookup should succeed")
+    .expect("reconciled binding should exist");
+    assert_eq!(reconciled.name, "authoritative-disabled-node");
+    assert!(!reconciled.is_enabled);
+    assert_eq!(
+        reconciled.resolved_transport,
+        ResolvedRemoteTransport::Direct
+    );
+    assert_eq!(reconciled.desired_revision, node_model.binding_revision);
+    assert_eq!(reconciled.applied_revision, node_model.binding_revision);
+
+    let acknowledged = managed_follower_repo::find_by_id(primary_state.writer_db(), node.id)
+        .await
+        .expect("acknowledged primary node should be queryable");
+    assert_eq!(
+        acknowledged.binding_applied_revision,
+        acknowledged.binding_revision
+    );
+
+    primary_server.stop().await;
+}
+
+#[actix_web::test]
+async fn test_direct_and_auto_to_reverse_converges_over_binding_control_plane() {
     let provider_state = common::setup().await;
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
+    let primary_server = spawn_reverse_tunnel_primary_server(consumer_state.clone()).await;
 
     let node = remote_node::create(
         &consumer_state,
@@ -4743,7 +4835,7 @@ async fn test_direct_and_auto_to_reverse_sync_uses_previous_direct_transport() {
         provider_state.writer_db(),
         master_binding::UpsertMasterBindingInput {
             name: node_model.name.clone(),
-            master_url: "http://master.example.com".to_string(),
+            master_url: primary_server.base_url.clone(),
             access_key: node_model.access_key.clone(),
             secret_key: node_model.secret_key.clone(),
             is_enabled: true,
@@ -4757,12 +4849,20 @@ async fn test_direct_and_auto_to_reverse_sync_uses_previous_direct_transport() {
         master_binding::SyncMasterBindingInput {
             name: node_model.name.clone(),
             is_enabled: true,
-            reverse_tunnel_enabled: false,
+            resolved_transport: ResolvedRemoteTransport::Direct,
+            desired_revision: 2,
         },
     )
     .await
     .expect("direct binding state should be seeded");
-    mark_remote_node_enrollment_completed(&consumer_state, node.id).await;
+    seed_remote_capabilities(
+        &consumer_state,
+        node.id,
+        RemoteStorageCapabilities::current(),
+    )
+    .await;
+    let follower_state = provider_state.follower_view();
+    reconcile_and_ack_binding_control(&follower_state).await;
 
     remote_node::update(
         &consumer_state,
@@ -4773,13 +4873,24 @@ async fn test_direct_and_auto_to_reverse_sync_uses_previous_direct_transport() {
         },
     )
     .await
-    .expect("auto with a base URL should sync as effective direct transport");
+    .expect("auto with a base URL should resolve to direct transport");
+    reconcile_and_ack_binding_control(&follower_state).await;
+    let auto_primary = managed_follower_repo::find_by_id(consumer_state.writer_db(), node.id)
+        .await
+        .expect("auto primary node should be queryable");
+    assert_eq!(
+        auto_primary.binding_revision, node_model.binding_revision,
+        "changing configured mode without changing resolved transport must not create a binding revision"
+    );
     let auto_binding =
         master_binding_repo::find_by_access_key(provider_state.writer_db(), &node_model.access_key)
             .await
             .expect("provider binding lookup should succeed")
             .expect("provider binding should exist");
-    assert!(!auto_binding.reverse_tunnel_enabled);
+    assert_eq!(
+        auto_binding.resolved_transport,
+        ResolvedRemoteTransport::Direct
+    );
 
     remote_node::update(
         &consumer_state,
@@ -4790,23 +4901,41 @@ async fn test_direct_and_auto_to_reverse_sync_uses_previous_direct_transport() {
         },
     )
     .await
-    .expect("direct to reverse transition should sync over the previous direct path");
+    .expect("direct to reverse transition should update primary desired state");
+    reconcile_and_ack_binding_control(&follower_state).await;
 
     let binding =
         master_binding_repo::find_by_access_key(provider_state.writer_db(), &node_model.access_key)
             .await
             .expect("provider binding lookup should succeed")
             .expect("provider binding should exist");
-    assert!(binding.reverse_tunnel_enabled);
+    assert_eq!(
+        binding.resolved_transport,
+        ResolvedRemoteTransport::ReverseTunnel
+    );
 
+    let primary_node = managed_follower_repo::find_by_id(consumer_state.writer_db(), node.id)
+        .await
+        .expect("primary node should remain queryable");
+    assert_eq!(
+        primary_node.binding_applied_revision,
+        primary_node.binding_revision
+    );
+    assert_eq!(
+        primary_node.binding_revision,
+        node_model.binding_revision + 1
+    );
+
+    primary_server.stop().await;
     provider_server.stop().await;
 }
 
 #[actix_web::test]
-async fn test_remote_node_reverse_to_direct_syncs_effective_transport_over_previous_tunnel() {
+async fn test_remote_node_reverse_to_direct_converges_over_binding_control_plane() {
     let provider_state = common::setup().await;
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
+    let primary_server = spawn_reverse_tunnel_primary_server(consumer_state.clone()).await;
 
     let node = remote_node::create(
         &consumer_state,
@@ -4826,7 +4955,7 @@ async fn test_remote_node_reverse_to_direct_syncs_effective_transport_over_previ
         provider_state.writer_db(),
         master_binding::UpsertMasterBindingInput {
             name: node_model.name.clone(),
-            master_url: "http://master.example.com".to_string(),
+            master_url: primary_server.base_url.clone(),
             access_key: node_model.access_key.clone(),
             secret_key: node_model.secret_key.clone(),
             is_enabled: true,
@@ -4834,18 +4963,14 @@ async fn test_remote_node_reverse_to_direct_syncs_effective_transport_over_previ
     )
     .await
     .expect("provider binding should be created");
-    provider_state
-        .driver_registry
-        .reload_master_bindings(provider_state.writer_db())
-        .await
-        .expect("provider binding registry should reload");
-    mark_remote_node_enrollment_completed(&consumer_state, node.id).await;
-    let (tunnel_shutdown, tunnel_handle) = start_test_reverse_tunnel_worker(
-        consumer_state.clone(),
-        node_model.clone(),
-        provider_server.base_url.clone(),
+    seed_remote_capabilities(
+        &consumer_state,
+        node.id,
+        RemoteStorageCapabilities::current(),
     )
     .await;
+    let follower_state = provider_state.follower_view();
+    reconcile_and_ack_binding_control(&follower_state).await;
 
     remote_node::update(
         &consumer_state,
@@ -4857,24 +4982,25 @@ async fn test_remote_node_reverse_to_direct_syncs_effective_transport_over_previ
         },
     )
     .await
-    .expect("reverse to direct transition should sync over the previous tunnel");
+    .expect("reverse to direct transition should update primary desired state");
+    reconcile_and_ack_binding_control(&follower_state).await;
 
     let binding =
         master_binding_repo::find_by_access_key(provider_state.writer_db(), &node_model.access_key)
             .await
             .expect("provider binding lookup should succeed")
             .expect("provider binding should exist");
-    assert!(!binding.reverse_tunnel_enabled);
+    assert_eq!(binding.resolved_transport, ResolvedRemoteTransport::Direct);
 
-    stop_test_reverse_tunnel_worker(tunnel_shutdown, tunnel_handle).await;
+    primary_server.stop().await;
     provider_server.stop().await;
 }
 
 #[actix_web::test]
-async fn test_direct_without_base_url_to_reverse_syncs_over_updated_tunnel() {
+async fn test_direct_without_base_url_to_reverse_converges_without_data_path() {
     let provider_state = common::setup().await;
     let consumer_state = common::setup().await;
-    let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
+    let primary_server = spawn_reverse_tunnel_primary_server(consumer_state.clone()).await;
 
     let node = remote_node::create(
         &consumer_state,
@@ -4894,7 +5020,7 @@ async fn test_direct_without_base_url_to_reverse_syncs_over_updated_tunnel() {
         provider_state.writer_db(),
         master_binding::UpsertMasterBindingInput {
             name: node_model.name.clone(),
-            master_url: "http://master.example.com".to_string(),
+            master_url: primary_server.base_url.clone(),
             access_key: node_model.access_key.clone(),
             secret_key: node_model.secret_key.clone(),
             is_enabled: true,
@@ -4908,21 +5034,20 @@ async fn test_direct_without_base_url_to_reverse_syncs_over_updated_tunnel() {
         master_binding::SyncMasterBindingInput {
             name: node_model.name.clone(),
             is_enabled: true,
-            reverse_tunnel_enabled: false,
+            resolved_transport: ResolvedRemoteTransport::Direct,
+            desired_revision: 2,
         },
     )
     .await
     .expect("direct binding state should be seeded");
-    mark_remote_node_enrollment_completed(&consumer_state, node.id).await;
-
-    let mut updated_transport_node = node_model.clone();
-    updated_transport_node.transport_mode = RemoteNodeTransportMode::ReverseTunnel;
-    let (tunnel_shutdown, tunnel_handle) = start_test_reverse_tunnel_worker(
-        consumer_state.clone(),
-        updated_transport_node,
-        provider_server.base_url.clone(),
+    seed_remote_capabilities(
+        &consumer_state,
+        node.id,
+        RemoteStorageCapabilities::current(),
     )
     .await;
+    let follower_state = provider_state.follower_view();
+    reconcile_and_ack_binding_control(&follower_state).await;
 
     remote_node::update(
         &consumer_state,
@@ -4933,17 +5058,20 @@ async fn test_direct_without_base_url_to_reverse_syncs_over_updated_tunnel() {
         },
     )
     .await
-    .expect("direct node without a base URL should sync over the updated reverse tunnel");
+    .expect("direct node without a base URL should update primary desired state");
+    reconcile_and_ack_binding_control(&follower_state).await;
 
     let binding =
         master_binding_repo::find_by_access_key(provider_state.writer_db(), &node_model.access_key)
             .await
             .expect("provider binding lookup should succeed")
             .expect("provider binding should exist");
-    assert!(binding.reverse_tunnel_enabled);
+    assert_eq!(
+        binding.resolved_transport,
+        ResolvedRemoteTransport::ReverseTunnel
+    );
 
-    stop_test_reverse_tunnel_worker(tunnel_shutdown, tunnel_handle).await;
-    provider_server.stop().await;
+    primary_server.stop().await;
 }
 
 #[actix_web::test]
@@ -5306,7 +5434,8 @@ async fn test_saved_remote_node_connection_endpoint_returns_precondition_failed_
         master_binding::SyncMasterBindingInput {
             name: "consumer-access".to_string(),
             is_enabled: false,
-            reverse_tunnel_enabled: false,
+            resolved_transport: ResolvedRemoteTransport::Direct,
+            desired_revision: 2,
         },
     )
     .await
@@ -7405,7 +7534,8 @@ async fn test_remote_presigned_upload_browser_cors_rejects_disabled_binding() {
         master_binding::SyncMasterBindingInput {
             name: binding.name.clone(),
             is_enabled: false,
-            reverse_tunnel_enabled: false,
+            resolved_transport: ResolvedRemoteTransport::Direct,
+            desired_revision: binding.desired_revision + 1,
         },
     )
     .await

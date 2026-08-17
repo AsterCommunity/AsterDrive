@@ -29,7 +29,7 @@
 | 运维 CLI 怎么执行 | `src/main.rs`、`src/cli/**` | `cli` feature 下的子命令在进入 HTTP 启动前分派 |
 | 主节点挂了哪些路由 | `src/api/primary.rs`、`src/api/routes/` | 这里决定 `/api/v1`、`/health`、`/d`、`/pv`、WebDAV 和前端兜底的注册顺序 |
 | 从节点到底暴露什么 | `src/api/follower.rs`、`src/api/routes/internal_storage.rs` | follower 只负责内部存储协议和健康检查 |
-| 远端节点反向隧道怎么走 | `src/api/routes/remote_tunnel.rs`、`src/storage/remote_protocol/tunnel/` | primary 暴露 tunnel 控制面，follower 主动连回 primary |
+| 远端节点 binding 与反向隧道怎么走 | `src/api/routes/remote_node_control.rs`、`src/services/remote/binding_control.rs`、`src/api/routes/remote_tunnel.rs`、`src/storage/remote_protocol/tunnel/` | follower 通过独立控制面拉取 binding desired state，只在有效 transport 为 reverse tunnel 时启动数据面 worker |
 | 一个 REST 接口怎么实现 | 对应 `src/api/routes/**` 文件 | route 层做参数解析、鉴权包装和响应适配 |
 | 文件 / 团队 / 分享 / 上传的业务规则在哪 | `src/services/**` | 业务语义集中在 service 层，不应散落在 route 里 |
 | 数据怎么查怎么写 | `src/db/repository/**` | repo 层封装数据库访问和跨库兼容细节 |
@@ -51,6 +51,7 @@
 primary 会注册这些入口：
 
 - REST API：`/api/v1/*`
+- 远端节点 binding 控制面：`/api/v1/internal/remote-node-control/*`
 - 远端节点反向隧道内部接口：`/api/v1/internal/remote-tunnel/*`
 - 健康检查：`/health*`
 - 公开分享与直链：
@@ -72,7 +73,7 @@ follower 不提供普通用户 API、WebDAV 或前端页面，只注册：
 
 这条内部协议当前用于主节点和受管远端节点之间的对象写入、对象拼接、对象列举、绑定同步与远端存储目标控制面。当前协议版本为 `v5`、兼容下限为 `v4`，primary 与 follower 声明的支持区间必须有交集。`0.4.0` 起控制面只保留 `/targets` 路径，旧 `/ingress-profiles` 兼容路由已经移除。
 
-如果远端节点使用 `reverse_tunnel` 或 `auto` 且没有可直连的 `base_url`，follower 不会额外暴露 primary 可直连的入口，而是由 follower 进程里的 tunnel worker 主动连接 primary 的 `/api/v1/internal/remote-tunnel/*`。
+follower 对所有 master binding 周期性请求 primary 的 `/api/v1/internal/remote-node-control/*`，独立收敛 primary 解析后的有效 transport。只有远端节点使用 `reverse_tunnel`，或 `auto` 且没有可直连的 `base_url` 时，follower 才启动 tunnel worker 主动连接 `/api/v1/internal/remote-tunnel/*`；direct 和 disabled binding 不启动 tunnel 数据面 worker，但仍保持控制面同步。
 
 ## 一个请求如何流转
 

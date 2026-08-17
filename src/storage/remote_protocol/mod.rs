@@ -3,7 +3,9 @@
 mod auth;
 mod client;
 mod errors;
+mod follower_auth;
 mod models;
+mod primary_auth;
 mod runtime;
 #[cfg(test)]
 mod tests;
@@ -13,22 +15,27 @@ pub mod tunnel;
 pub(crate) use auth::internal_request_mac;
 pub use auth::{normalize_remote_base_url, sign_internal_request, sign_presigned_request};
 pub use client::RemoteStorageClient;
+pub(crate) use follower_auth::send_signed_master_request;
 pub use models::{
     INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION,
     INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION_LABEL, INTERNAL_STORAGE_PROTOCOL_VERSION,
     INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL, REMOTE_BROWSER_PRESIGNED_CORS_ALLOWED_HEADERS,
     REMOTE_BROWSER_PRESIGNED_CORS_GET_EXPOSE_HEADERS,
-    REMOTE_BROWSER_PRESIGNED_CORS_PUT_EXPOSE_HEADERS, RemoteBindingSyncRequest,
-    RemoteCreateLocalStorageTargetRequest, RemoteCreateS3StorageTargetRequest,
-    RemoteCreateStorageTargetRequest, RemoteStorageBrowserCorsContract, RemoteStorageCapabilities,
-    RemoteStorageCapacityResponse, RemoteStorageComposeRequest, RemoteStorageComposeResponse,
-    RemoteStorageFeatureFlags, RemoteStorageListResponse, RemoteStorageObjectMetadata,
-    RemoteStorageProtocolLimits, RemoteStorageTargetCapabilities, RemoteStorageTargetInfo,
-    RemoteUpdateStorageTargetRequest,
+    REMOTE_BROWSER_PRESIGNED_CORS_PUT_EXPOSE_HEADERS, RemoteBindingDesiredState,
+    RemoteBindingSyncRequest, RemoteCreateLocalStorageTargetRequest,
+    RemoteCreateS3StorageTargetRequest, RemoteCreateStorageTargetRequest,
+    RemoteStorageBrowserCorsContract, RemoteStorageCapabilities, RemoteStorageCapacityResponse,
+    RemoteStorageComposeRequest, RemoteStorageComposeResponse, RemoteStorageFeatureFlags,
+    RemoteStorageListResponse, RemoteStorageObjectMetadata, RemoteStorageProtocolLimits,
+    RemoteStorageTargetCapabilities, RemoteStorageTargetInfo, RemoteUpdateStorageTargetRequest,
 };
+pub(crate) use primary_auth::authorize_remote_node_request;
 pub use runtime::RemoteProtocolRuntime;
+pub(crate) use transport::read_reqwest_response_body_limited;
 
 pub const INTERNAL_STORAGE_BASE_PATH: &str = "/api/v1/internal/storage";
+pub const REMOTE_NODE_BINDING_STATE_PATH: &str =
+    "/api/v1/internal/remote-node-control/binding-state";
 pub const INTERNAL_AUTH_ACCESS_KEY_HEADER: &str = "x-aster-access-key";
 pub const INTERNAL_AUTH_TIMESTAMP_HEADER: &str = "x-aster-timestamp";
 pub const INTERNAL_AUTH_NONCE_HEADER: &str = "x-aster-nonce";

@@ -2,7 +2,7 @@
 
 这组接口是主节点和 follower 节点之间的内部对象存储协议，不是给浏览器前端或第三方普通客户端用的公开 API。
 
-这页描述的是 follower 侧实际执行对象读写的 `/api/v1/internal/storage/*`。primary 侧还有一组 reverse tunnel 内部入口 `/api/v1/internal/remote-tunnel/*`，用于让不能被 primary 直连的 follower 主动连回 primary。
+这页描述的是 follower 侧实际执行对象读写的 `/api/v1/internal/storage/*`。primary 侧另外提供独立的 binding 控制面 `/api/v1/internal/remote-node-control/*`，以及让不能被 primary 直连的 follower 主动连回来的 reverse tunnel 传输入口 `/api/v1/internal/remote-tunnel/*`。
 
 以下路径都相对于：
 
@@ -14,14 +14,28 @@
 
 ## Direct 与 Reverse Tunnel
 
-远端节点的对象协议有两层，别混在一起看：
+远端节点协议分成三层，别混在一起看：
 
 - `/api/v1/internal/storage/*` 只在 follower 注册，是实际对象读写、绑定同步、远程存储目标管理的协议。
-- `/api/v1/internal/remote-tunnel/*` 只在 primary 注册，是 reverse tunnel 的控制面和传输入口。
+- `/api/v1/internal/remote-node-control/*` 只在 primary 注册，是 follower 主动拉取 binding desired state 的独立控制面。
+- `/api/v1/internal/remote-tunnel/*` 只在 primary 注册，是 reverse tunnel 的对象请求传输入口，不承担 binding 状态收敛。
 
 `direct` 模式下，primary 直接请求 follower 的 `/api/v1/internal/storage/*`。`reverse_tunnel` 模式下，primary 把同样的内部存储请求登记到 tunnel registry，follower 主动向 primary 轮询或建立 WebSocket 连接取走请求，再在本地调用内部存储处理逻辑并回传响应。
 
-`auto` 由 primary 按当前 `base_url` 解析成明确的有效 transport：非空 `base_url` 使用 direct，空 `base_url` 使用 reverse tunnel。primary 会通过 `PUT /binding` 把有效的 `reverse_tunnel_enabled` 决策同步并持久化到 follower；follower 只为启用且该字段为 `true` 的 binding 启动 polling 和 WebSocket worker。transport 切换时，primary 沿切换前仍可用的 transport 发送新决策，follower reconciliation 随后启动或正常关闭对应 worker。
+`auto` 由 primary 按当前 `base_url` 解析成明确的 `resolved_transport`：非空 `base_url` 使用 `direct`，空 `base_url` 使用 `reverse_tunnel`。follower 会为所有 binding 周期性请求独立控制面，包括 disabled 和解析为 direct 的 binding；因此 transport 切换不依赖切换前或切换后的对象数据路径。
+
+binding 状态按 revision 收敛：
+
+1. primary 持有 `name`、`is_enabled`、`resolved_transport` 和单调递增的 `desired_revision`；只有这些 follower 可观察状态变化时才递增 revision。
+2. follower 通过 `GET /api/v1/internal/remote-node-control/binding-state?applied_revision=N` 拉取 primary 的 desired state，并以 primary 返回值为权威持久化本地 binding。
+3. follower 刷新运行时 binding registry，再启动、停止或替换 reverse tunnel worker；只有 registry 和 worker topology 都完成后，才把本地 `applied_revision` 标记为当前 `desired_revision`。
+4. 下一轮 pull 携带新的 `applied_revision`，作为对 primary 的隐式 ACK。primary 只接受不高于当前 desired revision 的 ACK；即使 follower 本地 revision 更高，primary 当前状态仍会覆盖本地状态并重新收敛。
+
+当前 binding 控制面入口：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/v1/internal/remote-node-control/binding-state` | follower 拉取 desired state，并通过 `applied_revision` query 回报已应用 revision |
 
 primary 侧 reverse tunnel 当前入口：
 
@@ -31,7 +45,9 @@ primary 侧 reverse tunnel 当前入口：
 | `POST` | `/api/v1/internal/remote-tunnel/complete` | follower 回传轮询请求的处理结果 |
 | `GET` | `/api/v1/internal/remote-tunnel/connect` | follower 建立 WebSocket 流式 tunnel |
 
-这组 reverse tunnel 接口同样使用远端节点签名鉴权，不是浏览器或第三方客户端 API。primary 还会按远端节点当前有效 transport 校验入口；解析为 direct 的节点即使签名有效，也不能访问 `poll`、`complete` 或 `connect`。
+binding 控制面和 reverse tunnel 接口都使用远端节点签名鉴权，不是浏览器或第三方客户端 API。binding 控制面允许 direct、reverse tunnel 和 disabled 节点访问；reverse tunnel 数据面还会校验节点已启用且当前 `resolved_transport` 为 `reverse_tunnel`，因此解析为 direct 的节点即使签名有效，也不能访问 `poll`、`complete` 或 `connect`。
+
+这次 binding 控制面扩展没有改变 tunnel frame wire format：WebSocket frame version 仍为 `1`。它也没有抬高 internal storage 协议版本，当前仍是 `v5`、最低兼容 `v4`；滚动升级通过 optional capability 和 JSON 字段默认值处理。
 
 ## 认证方式
 
@@ -55,7 +71,7 @@ primary 侧 reverse tunnel 当前入口：
 | --- | --- | --- |
 | `GET` | `/capabilities` | 读取 follower 声明的协议能力 |
 | `GET` | `/capacity` | 读取 follower 当前远端存储目标的容量观测状态 |
-| `PUT` | `/binding` | 同步主节点维护的远端节点绑定信息 |
+| `PUT` | `/binding` | 向未声明 binding control pull capability 的 legacy follower 推送绑定信息 |
 | `GET` | `/targets` | 列出当前绑定可用的远程存储目标 |
 | `POST` | `/targets` | 创建远程存储目标 |
 | `PATCH` | `/targets/{target_key}` | 更新远程存储目标 |
@@ -86,6 +102,12 @@ primary 侧 reverse tunnel 当前入口：
 - `supports_capacity`
 
 当前协议版本是 `v5`，最低兼容版本是 `v4`，所以当前节点声明的本地支持区间是 `v4-v5`。`v4` / `v5` 和 `v2` / `v3` 不再 wire-compatible：内部存储 JSON 包装里的顶层 `code` 已经从旧数字码改成稳定字符串 `ApiErrorCode`。跨过这个边界时，先同时升级 primary 和 follower，再绑定 remote 策略。
+
+当前 follower 在 `features.binding_state_pull` 显式声明支持独立 binding control pull。该 capability 缺省为 `false`，所以 primary 可以区分滚动升级边界：
+
+- capability 为 `true`：primary 不再主动 push binding state，完全由 follower pull 收敛。
+- capability 缺失或为 `false`：primary 保留 legacy `PUT /binding` push。
+- 新 follower 对旧 primary 请求 binding-state 得到 `404` 时，保留本地 legacy push 状态并继续运行。
 
 `v5` 在能力响应中增加了远程存储目标 driver 能力。Rust 模型字段名是 `remote_storage_target`，但为了兼容 `v4` / `v5` 节点，wire JSON 仍序列化为 `managed_ingress`，同时接受 `remote_storage_target` 作为反序列化 alias。不要根据 wire 字段的旧名字把它重新解释成另一套产品模型。
 
@@ -134,13 +156,16 @@ primary 侧 reverse tunnel 当前入口：
 
 ## `PUT /binding`
 
-主节点会用这条接口把 follower 绑定信息同步过去，请求体字段包括：
+这条接口只服务于没有声明 `features.binding_state_pull` 的 legacy follower。新 primary 会用它把 binding desired state push 到旧 follower，请求体字段包括：
 
 - `name`
 - `is_enabled`
-- `reverse_tunnel_enabled`：primary 解析出的有效 transport 决策；字段缺省时按 `true` 处理，以保持旧版 primary 载荷兼容
+- `resolved_transport`：`direct` 或 `reverse_tunnel`；字段缺省时按 `reverse_tunnel` 处理
+- `desired_revision`：primary desired state revision；字段缺省时按 `1` 处理
 
 这条接口只更新绑定元信息，不直接搬运对象数据。对象命名空间来自 follower 本地保存的 master binding，不由这条请求体传入。
+
+legacy push 只在当前或切换前确实存在可用数据路径时尝试；没有可用路径时跳过，支持新控制面的 follower 仍会自行 pull 收敛。兼容 push 的删除条件是最低支持 follower 版本都显式声明 `binding_state_pull`。
 
 ## 远程存储目标管理
 

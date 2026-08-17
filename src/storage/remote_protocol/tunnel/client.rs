@@ -18,9 +18,11 @@ use crate::runtime::FollowerAppState;
 use crate::storage::remote_protocol::transport::read_reqwest_response_body_limited;
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER,
-    INTERNAL_AUTH_TIMESTAMP_HEADER, REMOTE_CONTROL_PLANE_BODY_LIMIT, sign_internal_request,
+    INTERNAL_AUTH_TIMESTAMP_HEADER, REMOTE_CONTROL_PLANE_BODY_LIMIT, send_signed_master_request,
+    sign_internal_request,
 };
 use aster_drive_model::entities::master_binding;
+use aster_drive_model::types::ResolvedRemoteTransport;
 use aster_drive_storage::StorageErrorKind;
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
@@ -80,7 +82,9 @@ pub async fn run_follower_tunnel_worker(
         if shutdown_token.is_cancelled() {
             break;
         }
-        reconcile_binding_workers(
+        let binding_registry_ready =
+            crate::services::remote::binding_control::reconcile_all(state.get_ref(), &client).await;
+        let binding_workers_ready = reconcile_binding_workers(
             state.get_ref(),
             &client,
             &local_base_url,
@@ -88,6 +92,9 @@ pub async fn run_follower_tunnel_worker(
             &mut workers,
         )
         .await;
+        if binding_registry_ready && binding_workers_ready {
+            crate::services::remote::binding_control::mark_all_applied(state.get_ref()).await;
+        }
 
         tokio::select! {
             biased;
@@ -105,12 +112,12 @@ async fn reconcile_binding_workers(
     local_base_url: &str,
     parent_shutdown: &CancellationToken,
     workers: &mut HashMap<i64, BindingTunnelWorker>,
-) {
+) -> bool {
     let bindings = match master_binding_repo::find_all(state.writer_db()).await {
         Ok(bindings) => bindings,
         Err(error) => {
             tracing::warn!("failed to load master bindings for reverse tunnel polling: {error}");
-            return;
+            return false;
         }
     };
 
@@ -162,6 +169,7 @@ async fn reconcile_binding_workers(
             },
         );
     }
+    true
 }
 
 async fn stop_all_binding_workers(workers: HashMap<i64, BindingTunnelWorker>) {
@@ -345,7 +353,7 @@ async fn poll_once(
     let poll_url = format!("{}{}", binding.master_url, REMOTE_TUNNEL_POLL_PATH);
     let body = serde_json::to_vec(&serde_json::json!({ "access_key": binding.access_key }))
         .map_err(|error| AsterError::internal_error(format!("encode tunnel poll: {error}")))?;
-    let response = signed_master_request(
+    let response = send_signed_master_request(
         client,
         binding,
         Method::POST,
@@ -933,7 +941,7 @@ async fn complete_request(
     let body = serde_json::to_vec(&response).map_err(|error| {
         AsterError::internal_error(format!("encode tunnel completion: {error}"))
     })?;
-    let response = signed_master_request(
+    let response = send_signed_master_request(
         client,
         binding,
         Method::POST,
@@ -958,58 +966,6 @@ async fn mark_tunnel_error(
         body: error.as_bytes().to_vec(),
     };
     complete_request(client, binding, response).await
-}
-
-async fn signed_master_request(
-    client: &reqwest::Client,
-    binding: &master_binding::Model,
-    method: Method,
-    url: &str,
-    path_and_query: &str,
-    body: Option<Vec<u8>>,
-) -> Result<reqwest::Response> {
-    let content_length = body
-        .as_ref()
-        .map(|body| {
-            u64::try_from(body.len()).map_err(|_| {
-                crate::errors::storage_driver_error(
-                    StorageErrorKind::Precondition,
-                    "reverse tunnel request body length overflow",
-                )
-            })
-        })
-        .transpose()?;
-    let timestamp = chrono::Utc::now().timestamp();
-    let nonce = aster_forge_utils::id::new_uuid();
-    let signature = sign_internal_request(
-        &binding.secret_key,
-        method.as_str(),
-        path_and_query,
-        timestamp,
-        &nonce,
-        content_length,
-    );
-
-    let mut builder = client
-        .request(method, url)
-        .header(INTERNAL_AUTH_ACCESS_KEY_HEADER, &binding.access_key)
-        .header(INTERNAL_AUTH_TIMESTAMP_HEADER, timestamp.to_string())
-        .header(INTERNAL_AUTH_NONCE_HEADER, nonce)
-        .header(INTERNAL_AUTH_SIGNATURE_HEADER, signature)
-        .header(reqwest::header::CONTENT_TYPE, "application/json");
-    if let Some(content_length) = content_length {
-        builder = builder.header(reqwest::header::CONTENT_LENGTH, content_length);
-    }
-    if let Some(body) = body {
-        builder = builder.body(body);
-    }
-
-    builder.send().await.map_err(|error| {
-        crate::errors::storage_driver_error(
-            StorageErrorKind::Transient,
-            format!("send reverse tunnel master request: {error}"),
-        )
-    })
 }
 
 fn signed_master_ws_request(
@@ -1172,12 +1128,12 @@ fn binding_worker_fingerprint(binding: &master_binding::Model) -> String {
         binding.access_key,
         binding.secret_key,
         binding.is_enabled,
-        binding.reverse_tunnel_enabled
+        binding.resolved_transport.as_str()
     )
 }
 
 fn binding_needs_reverse_tunnel(binding: &master_binding::Model) -> bool {
-    binding.is_enabled && binding.reverse_tunnel_enabled
+    binding.is_enabled && binding.resolved_transport == ResolvedRemoteTransport::ReverseTunnel
 }
 
 #[cfg(test)]
@@ -1605,7 +1561,9 @@ mod tests {
             access_key: "binding-access".to_string(),
             secret_key: "binding-secret".to_string(),
             is_enabled: true,
-            reverse_tunnel_enabled: true,
+            resolved_transport: aster_drive_model::types::ResolvedRemoteTransport::ReverseTunnel,
+            desired_revision: 1,
+            applied_revision: 1,
             storage_namespace: "namespace".to_string(),
             created_at: now,
             updated_at: now,
@@ -1632,10 +1590,11 @@ mod tests {
         let mut binding = build_binding();
         assert!(binding_needs_reverse_tunnel(&binding));
 
-        binding.reverse_tunnel_enabled = false;
+        binding.resolved_transport = aster_drive_model::types::ResolvedRemoteTransport::Direct;
         assert!(!binding_needs_reverse_tunnel(&binding));
 
-        binding.reverse_tunnel_enabled = true;
+        binding.resolved_transport =
+            aster_drive_model::types::ResolvedRemoteTransport::ReverseTunnel;
         binding.is_enabled = false;
         assert!(!binding_needs_reverse_tunnel(&binding));
     }

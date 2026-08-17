@@ -75,11 +75,15 @@ pub async fn enroll(
             },
         )
         .await?;
-        let binding = if binding.reverse_tunnel_enabled == bootstrap.reverse_tunnel_enabled {
+        let binding = if binding.resolved_transport == bootstrap.resolved_transport
+            && binding.desired_revision == bootstrap.desired_revision
+        {
             binding
         } else {
             let mut active: master_binding_entity::ActiveModel = binding.into();
-            active.reverse_tunnel_enabled = Set(bootstrap.reverse_tunnel_enabled);
+            active.resolved_transport = Set(bootstrap.resolved_transport);
+            active.desired_revision = Set(bootstrap.desired_revision);
+            active.applied_revision = Set(0);
             master_binding_repo::update(txn, active).await?
         };
         Ok::<_, AsterError>((binding, action))
@@ -491,7 +495,8 @@ mod tests {
                     "access_key": "ak_test",
                     "secret_key": "sk_test",
                     "is_enabled": true,
-                    "reverse_tunnel_enabled": false,
+                    "resolved_transport": "direct",
+                    "desired_revision": 4,
                     "ack_token": "enr_ack_mock"
                 }
             }),
@@ -520,7 +525,11 @@ mod tests {
         assert_eq!(stored[0].name, "docker-follower");
         assert_eq!(stored[0].access_key, "ak_test");
         assert!(stored[0].storage_namespace.starts_with("mb_"));
-        assert!(!stored[0].reverse_tunnel_enabled);
+        assert_eq!(
+            stored[0].resolved_transport,
+            aster_drive_model::types::ResolvedRemoteTransport::Direct
+        );
+        assert_eq!(stored[0].desired_revision, 4);
 
         server.stop().await;
     }
