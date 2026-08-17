@@ -9,8 +9,8 @@ use crate::api::response::ApiErrorDiagnostic;
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::parse_storage_policy_allowed_types;
 use aster_drive_storage::{
-    ConnectorConfigEnvelope, StorageConnectorActionId, StoragePolicyBehaviorConfig,
-    StoragePolicyConfigEnvelope,
+    ConnectorConfigEnvelope, ConnectorId, StorageConnectorActionId, StorageConnectorPromotionId,
+    StoragePolicyBehaviorConfig, StoragePolicyConfigEnvelope,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -209,6 +209,12 @@ pub struct UpdateStoragePolicyInput {
     pub chunk_size: Option<i64>,
     pub is_default: Option<bool>,
     pub allowed_types: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PromoteStoragePolicyConnectorInput {
+    pub target_connector_id: ConnectorId,
+    pub promotion_id: StorageConnectorPromotionId,
 }
 
 #[derive(Debug, Clone)]

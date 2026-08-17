@@ -15,8 +15,10 @@ use aster_drive_storage::connector_descriptor::{
     StorageConnectorActionOutputFieldDescriptor, StorageConnectorActionOutputValueKind,
     StorageConnectorBadgeRgb, StorageConnectorCustomActionDescriptorInput,
     StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorFieldDisplayInput,
-    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorUiDescriptorInput,
-    custom_action_descriptor, object_storage_connector_descriptor, storage_connector_field,
+    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorPromotionDescriptor,
+    StorageConnectorPromotionRequirement, StorageConnectorPromotionValueMatcher,
+    StorageConnectorUiDescriptorInput, custom_action_descriptor,
+    object_storage_connector_descriptor, storage_connector_field,
     storage_connector_field_with_display,
 };
 use aster_drive_storage::{
@@ -39,6 +41,7 @@ mod localization;
 pub struct TencentCosConnector;
 
 const CONFIGURE_CORS_ACTION_ID: &str = "configure_tencent_cos_cors";
+const PROMOTE_FROM_S3_ID: &str = "promote_from_s3";
 
 aster_drive_storage::storage_connector_action_schema! {
     struct ConfigureTencentCosCorsActionInput {}
@@ -91,6 +94,24 @@ fn configure_cors_action_descriptor() -> aster_drive_storage::StorageConnectorAc
         requires_authorization: false,
         mutates_remote_state: true,
         requires_confirmation: true,
+    })
+}
+
+fn promote_from_s3_descriptor() -> StorageConnectorPromotionDescriptor {
+    super::s3::s3_compatible_promotion_descriptor(super::s3::S3CompatiblePromotionDescriptorInput {
+        promotion_id: PROMOTE_FROM_S3_ID,
+        description_key: "policy_cos_promote_from_s3_desc",
+        confirmation_key: "policy_cos_promote_from_s3_confirm",
+        requirements: vec![StorageConnectorPromotionRequirement {
+            source_field: "endpoint".to_string(),
+            matcher: StorageConnectorPromotionValueMatcher::UrlHostSuffix {
+                suffix: ".myqcloud.com".to_string(),
+            },
+            negate: false,
+        }],
+        target_region_field: None,
+        target_access_key_field: "tencent_cos_secret_id",
+        target_secret_key_field: "tencent_cos_secret_key",
     })
 }
 
@@ -251,9 +272,10 @@ impl TencentCosConnector {
                 storage_native_processing: true,
                 config_schema_version: 1,
                 credential_schema_version: Some(1),
-                related_issues: vec![328, 329],
+                related_issues: vec![328, 329, 474],
             });
         descriptor.actions.push(configure_cors_action_descriptor());
+        descriptor.promotions.push(promote_from_s3_descriptor());
         descriptor
     }
 }

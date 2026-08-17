@@ -3,8 +3,8 @@
 use crate::api::dto::admin::{
     AdminPolicyGroupListQuery, AdminPolicyListQuery, CreatePolicyGroupReq, CreatePolicyReq,
     DeletePolicyQuery, MigratePolicyGroupAssignmentsReq, PatchPolicyGroupReq, PatchPolicyReq,
-    PolicyGroupItemReq, StorageConnectorCatalogQuery, StorageConnectorLocalizationCatalogQuery,
-    TestPolicyParamsReq,
+    PolicyGroupItemReq, PromoteStoragePolicyConnectorReq, StorageConnectorCatalogQuery,
+    StorageConnectorLocalizationCatalogQuery, TestPolicyParamsReq,
 };
 use crate::api::dto::validate_request;
 use crate::api::response::{ApiEmptyData, ApiResponse};
@@ -44,6 +44,15 @@ impl From<PatchPolicyReq> for policy::UpdateStoragePolicyInput {
             chunk_size: value.chunk_size,
             is_default: value.is_default,
             allowed_types: value.allowed_types,
+        }
+    }
+}
+
+impl From<PromoteStoragePolicyConnectorReq> for policy::PromoteStoragePolicyConnectorInput {
+    fn from(value: PromoteStoragePolicyConnectorReq) -> Self {
+        Self {
+            target_connector_id: value.target_connector_id,
+            promotion_id: value.promotion_id,
         }
     }
 }
@@ -410,6 +419,40 @@ pub async fn execute_saved_storage_policy_action(
         policy::execute_saved_action_with_audit(state.get_ref(), *path, body.into_inner(), &ctx)
             .await?;
     Ok(storage_policy_action_response(result))
+}
+
+#[aster_forge_api_docs_macros::path(
+    post,
+    path = "/api/v1/admin/policies/{id}/promote-connector",
+    tag = "admin",
+    operation_id = "promote_storage_policy_connector",
+    params(("id" = i64, Path, description = "Policy ID")),
+    request_body = PromoteStoragePolicyConnectorReq,
+    responses(
+        (status = 200, description = "Storage policy connector promoted", body = inline(ApiResponse<policy::StoragePolicy>)),
+        (status = 400, description = "Promotion rejected"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Policy not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn promote_storage_policy_connector(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    path: web::Path<i64>,
+    req: HttpRequest,
+    body: web::Json<PromoteStoragePolicyConnectorReq>,
+) -> Result<HttpResponse> {
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    let result = policy::promote_connector_with_audit(
+        state.get_ref(),
+        *path,
+        body.into_inner().into(),
+        &ctx,
+    )
+    .await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
 }
 
 #[aster_forge_api_docs_macros::path(

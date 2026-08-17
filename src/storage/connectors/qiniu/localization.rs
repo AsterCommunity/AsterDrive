@@ -17,6 +17,16 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "填写官方 Kodo S3 服务或 S3 空间 endpoint、匹配的签名区域和七牛 S3 空间名；寻址方式由 AsterDrive 自动选择。",
     ),
     aster_drive_storage::storage_connector_message!(
+        "policy_qiniu_promote_from_s3_desc",
+        "This generic S3 policy already uses an official HTTPS Qiniu Kodo endpoint and explicit SigV4 region. Switch the draft or promote the saved policy in place without copying objects.",
+        "这个通用 S3 策略已经使用七牛云 Kodo 官方 HTTPS endpoint 和显式 SigV4 区域。可以切换草稿，或将已保存策略就地提升，无需复制对象。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_qiniu_promote_from_s3_confirm",
+        "The Qiniu S3 space name, base path, endpoint, and signing region remain bound to the same object namespace. Addressing becomes connector-owned.",
+        "七牛 S3 空间名、基础路径、endpoint 和签名区域继续绑定同一对象 namespace；寻址方式改由 connector 管理。",
+    ),
+    aster_drive_storage::storage_connector_message!(
         "policy_wizard_step_qiniu_connection_desc",
         "Set an official Qiniu Kodo S3 endpoint, S3 space name, matching SigV4 region, optional prefix, and AccessKey credentials.",
         "填写七牛云 Kodo S3 官方 endpoint、S3 空间名、匹配的 SigV4 区域、可选前缀和 AccessKey 凭据。",

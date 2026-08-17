@@ -117,6 +117,111 @@ where
     body["data"]["id"].as_i64().unwrap()
 }
 
+async fn create_s3_policy_via_admin<S, B>(app: &S, token: &str, name: &str, endpoint: &str) -> i64
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = actix_web::Error,
+        >,
+    B: actix_web::body::MessageBody + 'static,
+{
+    create_s3_policy_for_promotion(
+        app,
+        token,
+        name,
+        endpoint,
+        "media-1250000000",
+        "tenant/files",
+        "us-east-1",
+    )
+    .await
+}
+
+async fn create_s3_policy_for_promotion<S, B>(
+    app: &S,
+    token: &str,
+    name: &str,
+    endpoint: &str,
+    bucket: &str,
+    base_path: &str,
+    region: &str,
+) -> i64
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = actix_web::Error,
+        >,
+    B: actix_web::body::MessageBody + 'static,
+{
+    let mut connection =
+        s3_connection_json(endpoint, bucket, base_path, "AKIDEXAMPLE", "SECRETEXAMPLE");
+    connection["connector_config"]["values"]["s3_region"] = serde_json::json!(region);
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(token)))
+        .insert_header(common::csrf_header_for(token))
+        .set_json(serde_json::json!({
+            "name": name,
+            "connection": connection,
+            "max_file_size": 0,
+            "is_default": false
+        }))
+        .to_request();
+    let resp = test::call_service(app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    body["data"]["id"].as_i64().unwrap()
+}
+
+async fn promote_policy_to_connector<S, B>(
+    app: &S,
+    token: &str,
+    policy_id: i64,
+    target_connector_id: &str,
+) -> actix_web::dev::ServiceResponse<B>
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = actix_web::Error,
+        >,
+    B: actix_web::body::MessageBody + 'static,
+{
+    test::call_service(
+        app,
+        test::TestRequest::post()
+            .uri(&format!(
+                "/api/v1/admin/policies/{policy_id}/promote-connector"
+            ))
+            .insert_header(("Cookie", common::access_cookie_header(token)))
+            .insert_header(common::csrf_header_for(token))
+            .set_json(serde_json::json!({
+                "target_connector_id": target_connector_id,
+                "promotion_id": "promote_from_s3"
+            }))
+            .to_request(),
+    )
+    .await
+}
+
+async fn promote_policy_to_tencent_cos<S, B>(
+    app: &S,
+    token: &str,
+    policy_id: i64,
+) -> actix_web::dev::ServiceResponse<B>
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = actix_web::Error,
+        >,
+    B: actix_web::body::MessageBody + 'static,
+{
+    promote_policy_to_connector(app, token, policy_id, "asterdrive.storage.tencent_cos").await
+}
+
 fn local_action_connection() -> Value {
     serde_json::json!({
         "connector_config": {
@@ -333,6 +438,38 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
                 endpoints.iter().any(|value| value == "test_policy_params")
             })
     }));
+    let qiniu_promotion = qiniu["promotions"]
+        .as_array()
+        .expect("Qiniu promotions")
+        .iter()
+        .find(|promotion| promotion["promotion_id"] == "promote_from_s3")
+        .expect("Qiniu should declare generic S3 promotion");
+    assert!(
+        qiniu_promotion["requirements"]
+            .as_array()
+            .is_some_and(|requirements| requirements.iter().any(|requirement| {
+                requirement["source_field"] == "endpoint"
+                    && requirement["matcher"]["kind"] == "string_prefix"
+                    && requirement["matcher"]["prefix"] == "https://"
+            }))
+    );
+    assert!(
+        qiniu_promotion["requirements"]
+            .as_array()
+            .is_some_and(|requirements| requirements.iter().any(|requirement| {
+                requirement["source_field"] == "s3_region"
+                    && requirement["matcher"]["kind"] == "string_equals"
+                    && requirement["matcher"]["value"] == "auto"
+                    && requirement["negate"] == true
+            }))
+    );
+    assert!(
+        qiniu_promotion["config_mappings"]
+            .as_array()
+            .is_some_and(|mappings| mappings.iter().any(|mapping| {
+                mapping["source_field"] == "s3_region" && mapping["target_field"] == "s3_region"
+            }))
+    );
     assert!(qiniu_actions.iter().any(|action| {
         action["action_id"] == "test_saved_connection"
             && action["kind"] == "connection_test"
@@ -478,6 +615,37 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
             "missing OSS descriptor field {field}"
         );
     }
+    let oss_promotion = alibaba_oss["promotions"]
+        .as_array()
+        .expect("OSS promotions")
+        .iter()
+        .find(|promotion| promotion["promotion_id"] == "promote_from_s3")
+        .expect("OSS should declare generic S3 promotion");
+    assert!(
+        oss_promotion["requirements"]
+            .as_array()
+            .is_some_and(|requirements| requirements.iter().any(|requirement| {
+                requirement["source_field"] == "endpoint"
+                    && requirement["matcher"]["kind"] == "url_host_suffix"
+                    && requirement["matcher"]["suffix"] == "-internal.aliyuncs.com"
+                    && requirement["negate"] == true
+            }))
+    );
+    assert!(
+        oss_promotion["config_mappings"]
+            .as_array()
+            .is_some_and(|mappings| mappings.iter().any(|mapping| {
+                mapping["source_field"] == "s3_region" && mapping["target_field"] == "oss_region"
+            }))
+    );
+    assert!(
+        oss_promotion["credential_mappings"]
+            .as_array()
+            .is_some_and(|mappings| mappings.iter().any(|mapping| {
+                mapping["source_field"] == "s3_access_key_id"
+                    && mapping["target_field"] == "aliyun_oss_access_key_id"
+            }))
+    );
 
     let azure_blob = descriptor("asterdrive.storage.azure_blob");
     assert_eq!(
@@ -498,6 +666,38 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     assert_eq!(
         tencent_cos["capabilities"]["storage_native_media_metadata"],
         true
+    );
+    let cos_promotion = tencent_cos["promotions"]
+        .as_array()
+        .expect("COS promotions")
+        .iter()
+        .find(|promotion| promotion["promotion_id"] == "promote_from_s3")
+        .expect("COS should declare generic S3 promotion");
+    assert_eq!(
+        cos_promotion["source_connector_id"],
+        "asterdrive.storage.s3"
+    );
+    let endpoint_requirement = cos_promotion["requirements"]
+        .as_array()
+        .expect("COS promotion requirements")
+        .iter()
+        .find(|requirement| requirement["source_field"] == "endpoint")
+        .expect("COS promotion should constrain the source endpoint");
+    assert_eq!(
+        endpoint_requirement["matcher"],
+        serde_json::json!({
+            "kind": "url_host_suffix",
+            "suffix": ".myqcloud.com"
+        })
+    );
+    assert!(
+        cos_promotion["config_mappings"]
+            .as_array()
+            .is_some_and(|mappings| mappings.iter().any(|mapping| {
+                mapping["source_field"] == "bucket"
+                    && mapping["target_field"] == "bucket"
+                    && mapping["preserve_value"] == true
+            }))
     );
     for descriptor in descriptors {
         let fields = descriptor["fields"].as_array().expect("connector fields");
@@ -582,6 +782,617 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     let remote = descriptor("asterdrive.storage.remote");
     assert_eq!(remote["upload_workflows"]["object_multipart_upload"], true);
     assert_eq!(remote["capabilities"]["remote_node_binding"], true);
+}
+
+#[actix_web::test]
+async fn test_policy_connector_promotion_preserves_namespace_and_rekeys_credential() {
+    use aster_drive::db::repository::{policy_repo, storage_policy_connector_credential_repo};
+    use aster_drive_model::entities::audit_log;
+    use aster_drive_model::types::AuditAction;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let policy_id = create_s3_policy_via_admin(
+        &app,
+        &token,
+        "Promote COS",
+        "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+    )
+    .await;
+    let credential_before =
+        storage_policy_connector_credential_repo::find_by_policy(&db, policy_id)
+            .await
+            .unwrap()
+            .expect("S3 credential should exist");
+
+    let resp = promote_policy_to_tencent_cos(&app, &token, policy_id).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["data"]["connector_id"],
+        "asterdrive.storage.tencent_cos"
+    );
+    assert_eq!(
+        body["data"]["connector_config"]["values"]["bucket"],
+        "media-1250000000"
+    );
+    assert_eq!(
+        body["data"]["connector_config"]["values"]["base_path"],
+        "tenant/files"
+    );
+    assert_eq!(
+        body["data"]["connector_config"]["values"]["endpoint"],
+        "https://media-1250000000.cos.ap-guangzhou.myqcloud.com"
+    );
+    assert!(
+        body["data"]["connector_config"]["values"]
+            .get("s3_path_style")
+            .is_none()
+    );
+
+    let stored = policy_repo::find_by_id(&db, policy_id).await.unwrap();
+    assert_eq!(stored.connector_id, "asterdrive.storage.tencent_cos");
+    state
+        .driver_registry()
+        .get_driver(&stored)
+        .expect("promoted runtime driver should use re-keyed COS credentials");
+    let credential_after = storage_policy_connector_credential_repo::find_by_policy(&db, policy_id)
+        .await
+        .unwrap()
+        .expect("promoted credential should exist");
+    assert_eq!(
+        credential_after.connector_id,
+        "asterdrive.storage.tencent_cos"
+    );
+    assert_eq!(credential_after.schema_version, 1);
+    assert_eq!(credential_after.revision, credential_before.revision + 1);
+    assert_ne!(credential_after.ciphertext, credential_before.ciphertext);
+
+    let audit = audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq(AuditAction::AdminUpdatePolicy.as_str()))
+        .filter(audit_log::Column::EntityId.eq(policy_id))
+        .order_by_desc(audit_log::Column::CreatedAt)
+        .one(&db)
+        .await
+        .unwrap()
+        .expect("promotion should write an atomic policy audit row");
+    let details: Value = serde_json::from_str(audit.details.as_deref().unwrap()).unwrap();
+    assert_eq!(details["promotion_id"], "promote_from_s3");
+    assert_eq!(details["source_connector_id"], "asterdrive.storage.s3");
+    assert_eq!(
+        details["target_connector_id"],
+        "asterdrive.storage.tencent_cos"
+    );
+    assert_eq!(details["verified_blob_count"], 0);
+}
+
+#[actix_web::test]
+async fn test_policy_connector_promotion_supports_oss_and_qiniu_kodo() {
+    use aster_drive::db::repository::{policy_repo, storage_policy_connector_credential_repo};
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    for (
+        name,
+        endpoint,
+        bucket,
+        region,
+        target_connector_id,
+        target_region_field,
+        expected_endpoint,
+    ) in [
+        (
+            "Promote OSS",
+            "https://archive-bucket.oss-cn-hangzhou.aliyuncs.com",
+            "archive-bucket",
+            "cn-hangzhou",
+            "asterdrive.storage.alibaba_oss",
+            "oss_region",
+            "https://archive-bucket.oss-cn-hangzhou.aliyuncs.com",
+        ),
+        (
+            "Promote Kodo",
+            "https://kodo-space.s3.cn-east-1.qiniucs.com",
+            "kodo-space",
+            "cn-east-1",
+            "asterdrive.storage.qiniu",
+            "s3_region",
+            "https://s3.cn-east-1.qiniucs.com",
+        ),
+    ] {
+        let policy_id = create_s3_policy_for_promotion(
+            &app,
+            &token,
+            name,
+            endpoint,
+            bucket,
+            "tenant/files",
+            region,
+        )
+        .await;
+        let credential_before =
+            storage_policy_connector_credential_repo::find_by_policy(&db, policy_id)
+                .await
+                .unwrap()
+                .expect("source credential should exist");
+
+        let resp = promote_policy_to_connector(&app, &token, policy_id, target_connector_id).await;
+        assert_eq!(resp.status(), 200, "{target_connector_id}");
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["data"]["connector_id"], target_connector_id);
+        assert_eq!(body["data"]["connector_config"]["values"]["bucket"], bucket);
+        assert_eq!(
+            body["data"]["connector_config"]["values"]["base_path"],
+            "tenant/files"
+        );
+        assert_eq!(
+            body["data"]["connector_config"]["values"][target_region_field],
+            region
+        );
+        assert_eq!(
+            body["data"]["connector_config"]["values"]["endpoint"],
+            expected_endpoint
+        );
+        assert!(
+            body["data"]["connector_config"]["values"]
+                .get("s3_path_style")
+                .is_none()
+        );
+        if target_connector_id == "asterdrive.storage.alibaba_oss" {
+            assert_eq!(
+                body["data"]["connector_config"]["values"]["oss_server_side_endpoint"],
+                ""
+            );
+            assert_eq!(
+                body["data"]["connector_config"]["values"]["oss_use_cname"],
+                false
+            );
+        }
+
+        let stored = policy_repo::find_by_id(&db, policy_id).await.unwrap();
+        state
+            .driver_registry()
+            .get_driver(&stored)
+            .expect("promoted runtime driver should use target credentials");
+        let credential_after =
+            storage_policy_connector_credential_repo::find_by_policy(&db, policy_id)
+                .await
+                .unwrap()
+                .expect("target credential should exist");
+        assert_eq!(credential_after.connector_id, target_connector_id);
+        assert_eq!(credential_after.revision, credential_before.revision + 1);
+        assert_ne!(credential_after.ciphertext, credential_before.ciphertext);
+    }
+}
+
+#[actix_web::test]
+async fn test_policy_connector_promotion_returns_success_when_post_commit_reload_fails() {
+    use aster_drive::db::repository::policy_repo;
+    use aster_drive_model::entities::storage_policy;
+    use sea_orm::{NotSet, Set};
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let policy_id = create_s3_policy_via_admin(
+        &app,
+        &token,
+        "COS post-commit reload",
+        "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+    )
+    .await;
+    let source = policy_repo::find_by_id(&db, policy_id).await.unwrap();
+    let mut invalid: storage_policy::ActiveModel = source.into();
+    invalid.id = NotSet;
+    invalid.name = Set("Invalid snapshot policy".to_string());
+    invalid.connector_id = Set("com.example.missing".to_string());
+    invalid.is_default = Set(false);
+    policy_repo::create(&db, invalid)
+        .await
+        .expect("invalid unrelated policy should be persisted for reload failure coverage");
+
+    let resp = promote_policy_to_tencent_cos(&app, &token, policy_id).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        policy_repo::find_by_id(&db, policy_id)
+            .await
+            .unwrap()
+            .connector_id,
+        "asterdrive.storage.tencent_cos"
+    );
+}
+
+#[actix_web::test]
+async fn test_policy_connector_promotion_rejects_oss_and_kodo_ineligible_sources() {
+    use aster_drive::db::repository::policy_repo;
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for (endpoint, bucket, region, target_connector_id) in [
+        (
+            "http://oss-cn-hangzhou.aliyuncs.com",
+            "archive-bucket",
+            "cn-hangzhou",
+            "asterdrive.storage.alibaba_oss",
+        ),
+        (
+            "https://oss-cn-hangzhou-internal.aliyuncs.com",
+            "archive-bucket",
+            "cn-hangzhou",
+            "asterdrive.storage.alibaba_oss",
+        ),
+        (
+            "https://oss-cn-hangzhou.aliyuncs.com",
+            "archive-bucket",
+            "auto",
+            "asterdrive.storage.alibaba_oss",
+        ),
+        (
+            "http://s3.cn-east-1.qiniucs.com",
+            "kodo-space",
+            "cn-east-1",
+            "asterdrive.storage.qiniu",
+        ),
+        (
+            "https://s3.cn-east-1.qiniucs.com",
+            "kodo-space",
+            "auto",
+            "asterdrive.storage.qiniu",
+        ),
+        (
+            "https://s3.cn-east-1.qiniucs.com",
+            "kodo-space",
+            "cn-south-1",
+            "asterdrive.storage.qiniu",
+        ),
+    ] {
+        let policy_id = create_s3_policy_for_promotion(
+            &app,
+            &token,
+            "Ineligible provider source",
+            endpoint,
+            bucket,
+            "tenant/files",
+            region,
+        )
+        .await;
+        let resp = promote_policy_to_connector(&app, &token, policy_id, target_connector_id).await;
+        assert_eq!(resp.status(), 400, "{endpoint} -> {target_connector_id}");
+        assert_eq!(
+            policy_repo::find_by_id(&db, policy_id)
+                .await
+                .unwrap()
+                .connector_id,
+            "asterdrive.storage.s3"
+        );
+    }
+}
+
+#[actix_web::test]
+async fn test_policy_connector_promotion_rejects_unknown_target_promotion_and_source() {
+    use aster_drive::db::repository::policy_repo;
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let s3_policy_id = create_s3_policy_via_admin(
+        &app,
+        &token,
+        "COS target validation",
+        "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+    )
+    .await;
+
+    for payload in [
+        serde_json::json!({
+            "target_connector_id": "asterdrive.storage.tencent_cos",
+            "promotion_id": "missing_promotion"
+        }),
+        serde_json::json!({
+            "target_connector_id": "asterdrive.storage.local",
+            "promotion_id": "promote_from_s3"
+        }),
+        serde_json::json!({
+            "target_connector_id": "com.example.missing",
+            "promotion_id": "promote_from_s3"
+        }),
+    ] {
+        let req = test::TestRequest::post()
+            .uri(&format!(
+                "/api/v1/admin/policies/{s3_policy_id}/promote-connector"
+            ))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(payload)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400);
+        assert_eq!(
+            policy_repo::find_by_id(&db, s3_policy_id)
+                .await
+                .unwrap()
+                .connector_id,
+            "asterdrive.storage.s3"
+        );
+    }
+
+    let local_policy_id = create_local_policy_via_admin(&app, &token, "Local source").await;
+    let resp = promote_policy_to_tencent_cos(&app, &token, local_policy_id).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyPromotionSourceUnsupported.as_str()
+    );
+    assert_eq!(
+        policy_repo::find_by_id(&db, local_policy_id)
+            .await
+            .unwrap()
+            .connector_id,
+        "asterdrive.storage.local"
+    );
+}
+
+#[actix_web::test]
+async fn test_policy_connector_promotion_rejects_non_matching_source_config() {
+    use aster_drive::db::repository::policy_repo;
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let policy_id =
+        create_s3_policy_via_admin(&app, &token, "Generic S3", "https://s3.example.test").await;
+
+    let resp = promote_policy_to_tencent_cos(&app, &token, policy_id).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyPromotionSourceConfigUnsupported.as_str()
+    );
+    assert_eq!(
+        policy_repo::find_by_id(&db, policy_id)
+            .await
+            .unwrap()
+            .connector_id,
+        "asterdrive.storage.s3"
+    );
+}
+
+#[actix_web::test]
+async fn test_policy_connector_promotion_rejects_active_upload_sessions() {
+    use aster_drive::db::repository::policy_repo;
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let policy_id = create_s3_policy_via_admin(
+        &app,
+        &token,
+        "COS with upload",
+        "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+    )
+    .await;
+    let user = aster_drive::db::repository::user_repo::find_by_username(&db, "testuser")
+        .await
+        .unwrap()
+        .expect("registered user should exist");
+    create_policy_upload_session(
+        &state,
+        PolicyUploadSessionSpec {
+            upload_id: "promotion-active-upload",
+            policy_id,
+            user_id: user.id,
+            object_temp_key: None,
+            status: None,
+            expires_at: None,
+        },
+    )
+    .await;
+
+    let resp = promote_policy_to_tencent_cos(&app, &token, policy_id).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyUploadSessionsExist.as_str()
+    );
+    assert_eq!(
+        policy_repo::find_by_id(&db, policy_id)
+            .await
+            .unwrap()
+            .connector_id,
+        "asterdrive.storage.s3"
+    );
+}
+
+#[actix_web::test]
+async fn test_policy_connector_promotion_ignores_expired_uploads_and_virtual_empty_blobs() {
+    use aster_drive::db::repository::{file_repo, policy_repo};
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let policy_id = create_s3_policy_via_admin(
+        &app,
+        &token,
+        "COS expired upload",
+        "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+    )
+    .await;
+    let user = aster_drive::db::repository::user_repo::find_by_username(&db, "testuser")
+        .await
+        .unwrap()
+        .expect("registered user should exist");
+    create_policy_upload_session(
+        &state,
+        PolicyUploadSessionSpec {
+            upload_id: "promotion-expired-upload",
+            policy_id,
+            user_id: user.id,
+            object_temp_key: None,
+            status: None,
+            expires_at: Some(Utc::now() - Duration::minutes(1)),
+        },
+    )
+    .await;
+    file_repo::find_or_create_virtual_empty_blob(
+        &db,
+        aster_drive_model::entities::file_blob::Model::EMPTY_SHA256,
+        policy_id,
+    )
+    .await
+    .expect("virtual empty blob should be created");
+
+    let resp = promote_policy_to_tencent_cos(&app, &token, policy_id).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        policy_repo::find_by_id(&db, policy_id)
+            .await
+            .unwrap()
+            .connector_id,
+        "asterdrive.storage.tencent_cos"
+    );
+}
+
+#[actix_web::test]
+async fn test_policy_connector_promotion_rejects_missing_credential_without_mutation() {
+    use aster_drive::db::repository::{policy_repo, storage_policy_connector_credential_repo};
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let policy_id = create_s3_policy_via_admin(
+        &app,
+        &token,
+        "COS missing credential",
+        "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+    )
+    .await;
+    storage_policy_connector_credential_repo::delete_by_policy(&db, policy_id)
+        .await
+        .unwrap();
+
+    let resp = promote_policy_to_tencent_cos(&app, &token, policy_id).await;
+    assert_eq!(resp.status(), 500);
+    assert_eq!(
+        policy_repo::find_by_id(&db, policy_id)
+            .await
+            .unwrap()
+            .connector_id,
+        "asterdrive.storage.s3"
+    );
+    assert!(
+        storage_policy_connector_credential_repo::find_by_policy(&db, policy_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[actix_web::test]
+async fn test_policy_connector_promotion_requires_admin() {
+    use aster_drive::db::repository::policy_repo;
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+    let policy_id = create_s3_policy_via_admin(
+        &app,
+        &admin_token,
+        "COS admin only",
+        "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+    )
+    .await;
+    admin_create_user!(
+        app,
+        admin_token,
+        "promotion_user",
+        "promotion-user@example.com",
+        "password123"
+    );
+    let (user_token, _) = login_user!(app, "promotion_user", "password123");
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/policies/{policy_id}/promote-connector"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&user_token)))
+        .insert_header(common::csrf_header_for(&user_token))
+        .set_json(serde_json::json!({
+            "target_connector_id": "asterdrive.storage.tencent_cos",
+            "promotion_id": "promote_from_s3"
+        }))
+        .to_request();
+    assert_service_status!(app, req, 403);
+    assert_eq!(
+        policy_repo::find_by_id(&db, policy_id)
+            .await
+            .unwrap()
+            .connector_id,
+        "asterdrive.storage.s3"
+    );
+}
+
+#[actix_web::test]
+async fn test_connector_credential_promotion_cas_rejects_stale_revision() {
+    use aster_drive::db::repository::storage_policy_connector_credential_repo;
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let policy_id = create_s3_policy_via_admin(
+        &app,
+        &token,
+        "Credential CAS",
+        "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+    )
+    .await;
+    let before = storage_policy_connector_credential_repo::find_by_policy(&db, policy_id)
+        .await
+        .unwrap()
+        .expect("credential should exist");
+
+    let updated = storage_policy_connector_credential_repo::promote_if_revision(
+        &db,
+        storage_policy_connector_credential_repo::ConnectorCredentialPromotion {
+            policy_id,
+            source_connector_id: &before.connector_id,
+            source_schema_version: before.schema_version,
+            expected_revision: before.revision + 1,
+            target_connector_id: "asterdrive.storage.tencent_cos".to_string(),
+            target_schema_version: 1,
+            ciphertext: "replacement".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(!updated);
+
+    let after = storage_policy_connector_credential_repo::find_by_policy(&db, policy_id)
+        .await
+        .unwrap()
+        .expect("credential should remain");
+    assert_eq!(after.connector_id, before.connector_id);
+    assert_eq!(after.revision, before.revision);
+    assert_eq!(after.ciphertext, before.ciphertext);
 }
 
 #[actix_web::test]

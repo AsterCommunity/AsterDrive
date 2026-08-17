@@ -25,19 +25,19 @@ pub use details::{
     RemoteIngressProfileDeleteAuditDetails, RemoteNodeAuditDetails,
     RemoteNodeEnrollmentTokenAuditDetails, RemoteNodeParamTestAuditDetails,
     ShareBatchDeleteDetails, ShareCreateAuditDetails, ShareDeleteAuditDetails, ShareUpdateDetails,
-    StoragePolicyActionAuditDetails, StoragePolicyAuditDetails, TagAssignmentAuditDetails,
-    TagAuditDetails, TaskRetryAuditDetails, TeamAuditDetails, TeamCleanupAuditDetails,
-    TeamMemberAddAuditDetails, TeamMemberRemoveAuditDetails, TeamMemberUpdateAuditDetails,
-    TrashPurgeAllAuditDetails, UploadCancelAuditDetails, UserAvatarSourceAuditDetails,
-    UserAvatarUploadAuditDetails, UserLoginAuditDetails, UserMfaManageAuditDetails,
-    UserPreferencesAuditDetails, UserProfileAuditDetails, UserWopiInfoAuditDetails,
-    WorkspaceTransferCopyDetails, WorkspaceTransferMoveDetails, WorkspaceTransferScopeDetails,
-    details,
+    StoragePolicyActionAuditDetails, StoragePolicyAuditDetails, StoragePolicyPromotionAuditDetails,
+    TagAssignmentAuditDetails, TagAuditDetails, TaskRetryAuditDetails, TeamAuditDetails,
+    TeamCleanupAuditDetails, TeamMemberAddAuditDetails, TeamMemberRemoveAuditDetails,
+    TeamMemberUpdateAuditDetails, TrashPurgeAllAuditDetails, UploadCancelAuditDetails,
+    UserAvatarSourceAuditDetails, UserAvatarUploadAuditDetails, UserLoginAuditDetails,
+    UserMfaManageAuditDetails, UserPreferencesAuditDetails, UserProfileAuditDetails,
+    UserWopiInfoAuditDetails, WorkspaceTransferCopyDetails, WorkspaceTransferMoveDetails,
+    WorkspaceTransferScopeDetails, details,
 };
 pub use filters::{AuditLogFilterQuery, AuditLogFilters};
 pub use manager::{
-    AuditLogInput, log, log_with_db_and_config, log_with_details, should_record,
-    should_record_with_config,
+    AuditLogInput, log, log_with_db_and_config, log_with_details, log_with_transaction,
+    should_record, should_record_with_config,
 };
 pub use models::{AuditLogEntry, AuditPresentation, AuditPresentationMessage, TeamAuditEntryInfo};
 pub use query::{cleanup_expired, query, query_team_entries};

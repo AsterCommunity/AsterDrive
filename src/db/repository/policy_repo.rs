@@ -143,6 +143,19 @@ pub async fn set_only_default<C: ConnectionTrait>(db: &C, id: i64) -> Result<()>
     Ok(())
 }
 
+pub async fn promote_connector<C: ConnectionTrait>(
+    db: &C,
+    policy: storage_policy::Model,
+    target_connector_id: String,
+    storage_config: aster_drive_model::types::StoredStoragePolicyConfig,
+) -> Result<storage_policy::Model> {
+    let mut active: storage_policy::ActiveModel = policy.into();
+    active.connector_id = Set(target_connector_id);
+    active.storage_config = Set(storage_config);
+    active.updated_at = Set(chrono::Utc::now());
+    active.update(db).await.map_err(AsterError::from)
+}
+
 pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     let result = StoragePolicy::delete_by_id(id)
         .exec(db)

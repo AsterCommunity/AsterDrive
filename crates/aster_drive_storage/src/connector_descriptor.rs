@@ -290,15 +290,7 @@ impl StorageConnectorActionId {
     }
 
     pub fn validate(&self) -> Result<(), StorageConnectorActionIdError> {
-        let value = self.as_str();
-        if !(3..=128).contains(&value.len())
-            || value.starts_with(['.', '-', '_'])
-            || value.ends_with(['.', '-', '_'])
-            || value.contains("..")
-            || !value.bytes().all(|byte| {
-                byte.is_ascii_lowercase() || byte.is_ascii_digit() || b".-_".contains(&byte)
-            })
-        {
+        if !is_valid_stable_descriptor_id(self.as_str()) {
             return Err(StorageConnectorActionIdError);
         }
         Ok(())
@@ -317,6 +309,208 @@ impl fmt::Display for StorageConnectorActionIdError {
 }
 
 impl std::error::Error for StorageConnectorActionIdError {}
+
+/// Stable identity for one target-owned in-place connector promotion.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(ToSchema),
+    schema(value_type = String)
+)]
+pub struct StorageConnectorPromotionId(String);
+
+impl StorageConnectorPromotionId {
+    pub fn declared(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn validate(&self) -> Result<(), StorageConnectorPromotionIdError> {
+        if !is_valid_stable_descriptor_id(self.as_str()) {
+            return Err(StorageConnectorPromotionIdError);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StorageConnectorPromotionIdError;
+
+impl fmt::Display for StorageConnectorPromotionIdError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(
+            "promotion id must be 3-128 lowercase ASCII letters, digits, '.', '-' or '_' and may not start or end with punctuation",
+        )
+    }
+}
+
+impl std::error::Error for StorageConnectorPromotionIdError {}
+
+fn is_valid_stable_descriptor_id(value: &str) -> bool {
+    (3..=128).contains(&value.len())
+        && !value.starts_with(['.', '-', '_'])
+        && !value.ends_with(['.', '-', '_'])
+        && !value.contains("..")
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b".-_".contains(&byte)
+        })
+}
+
+/// Descriptor-visible source-value matcher used for promotion discovery.
+///
+/// These matchers intentionally stay portable across Rust and browser URL
+/// implementations. Provider-specific semantic validation still runs through
+/// the target connector before any policy row is changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum StorageConnectorPromotionValueMatcher {
+    StringEquals {
+        value: String,
+        #[serde(default)]
+        case_sensitive: bool,
+    },
+    StringSuffix {
+        suffix: String,
+        #[serde(default)]
+        case_sensitive: bool,
+    },
+    StringPrefix {
+        prefix: String,
+        #[serde(default)]
+        case_sensitive: bool,
+    },
+    UrlHostSuffix {
+        suffix: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StorageConnectorPromotionRequirement {
+    /// Source connector config field inspected by the generic recommendation
+    /// and server-side eligibility checks.
+    pub source_field: String,
+    pub matcher: StorageConnectorPromotionValueMatcher,
+    /// Negate the matcher result. This keeps exclusions composable without
+    /// adding a second inverse variant for every matcher kind.
+    #[serde(default)]
+    pub negate: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StorageConnectorPromotionFieldMapping {
+    pub source_field: String,
+    pub target_field: String,
+    /// Require the target connector's normalized value to remain exactly equal
+    /// to the normalized source value. Use this for object-namespace fields.
+    #[serde(default)]
+    pub preserve_value: bool,
+}
+
+/// Target-owned contract for promoting a compatible saved policy in place.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StorageConnectorPromotionDescriptor {
+    pub promotion_id: StorageConnectorPromotionId,
+    pub source_connector_id: ConnectorId,
+    /// Target-owned recommendation copy rendered by the generic UI.
+    pub description_key: String,
+    /// Target-owned confirmation copy rendered before mutating a saved policy.
+    pub confirmation_key: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requirements: Vec<StorageConnectorPromotionRequirement>,
+    pub config_mappings: Vec<StorageConnectorPromotionFieldMapping>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub credential_mappings: Vec<StorageConnectorPromotionFieldMapping>,
+}
+
+impl StorageConnectorPromotionDescriptor {
+    fn validate(&self) -> Result<(), StorageConnectorDescriptorError> {
+        self.promotion_id.validate().map_err(|error| {
+            StorageConnectorDescriptorError(format!(
+                "promotion '{}' has invalid id: {error}",
+                self.promotion_id.as_str()
+            ))
+        })?;
+        self.source_connector_id.validate().map_err(|error| {
+            StorageConnectorDescriptorError(format!(
+                "promotion '{}' has invalid source connector id: {error}",
+                self.promotion_id.as_str()
+            ))
+        })?;
+        if self.description_key.trim().is_empty() || self.confirmation_key.trim().is_empty() {
+            return Err(StorageConnectorDescriptorError(format!(
+                "promotion '{}' requires non-empty description and confirmation keys",
+                self.promotion_id.as_str()
+            )));
+        }
+        for requirement in &self.requirements {
+            if requirement.source_field.trim().is_empty() {
+                return Err(StorageConnectorDescriptorError(format!(
+                    "promotion '{}' requirement source field must not be empty",
+                    self.promotion_id.as_str()
+                )));
+            }
+            let matcher_value = match &requirement.matcher {
+                StorageConnectorPromotionValueMatcher::StringEquals { value, .. } => value,
+                StorageConnectorPromotionValueMatcher::StringSuffix { suffix, .. }
+                | StorageConnectorPromotionValueMatcher::UrlHostSuffix { suffix } => suffix,
+                StorageConnectorPromotionValueMatcher::StringPrefix { prefix, .. } => prefix,
+            };
+            if matcher_value.trim().is_empty() {
+                return Err(StorageConnectorDescriptorError(format!(
+                    "promotion '{}' requirement matcher must not be empty",
+                    self.promotion_id.as_str()
+                )));
+            }
+            if let StorageConnectorPromotionValueMatcher::UrlHostSuffix { suffix } =
+                &requirement.matcher
+                && (!(suffix.starts_with('.') || suffix.starts_with('-')) || suffix.len() == 1)
+            {
+                return Err(StorageConnectorDescriptorError(format!(
+                    "promotion '{}' URL host suffix matcher must start with a DNS label boundary marker '.' or '-'",
+                    self.promotion_id.as_str()
+                )));
+            }
+        }
+        if self.config_mappings.is_empty() {
+            return Err(StorageConnectorDescriptorError(format!(
+                "promotion '{}' must declare at least one config mapping",
+                self.promotion_id.as_str()
+            )));
+        }
+        validate_promotion_mappings(self.promotion_id.as_str(), &self.config_mappings)?;
+        validate_promotion_mappings(self.promotion_id.as_str(), &self.credential_mappings)?;
+        Ok(())
+    }
+}
+
+fn validate_promotion_mappings(
+    promotion_id: &str,
+    mappings: &[StorageConnectorPromotionFieldMapping],
+) -> Result<(), StorageConnectorDescriptorError> {
+    let mut target_fields = HashSet::with_capacity(mappings.len());
+    for mapping in mappings {
+        if mapping.source_field.trim().is_empty() || mapping.target_field.trim().is_empty() {
+            return Err(StorageConnectorDescriptorError(format!(
+                "promotion '{promotion_id}' field mappings must use non-empty names"
+            )));
+        }
+        if !target_fields.insert(mapping.target_field.as_str()) {
+            return Err(StorageConnectorDescriptorError(format!(
+                "promotion '{promotion_id}' maps target field '{}' more than once",
+                mapping.target_field
+            )));
+        }
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1945,6 +2139,9 @@ pub struct StorageConnectorDescriptor {
     pub credential_schema_version: Option<u32>,
     /// 管理端/服务端可执行动作声明。
     pub actions: Vec<StorageConnectorActionDescriptor>,
+    /// Target-owned in-place promotion contracts from compatible connectors.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub promotions: Vec<StorageConnectorPromotionDescriptor>,
     /// 用于开发追踪的相关 issue 编号，不参与业务逻辑。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub related_issues: Vec<u16>,
@@ -2101,6 +2298,46 @@ impl StorageConnectorDescriptor {
                 )));
             }
         }
+        let mut promotion_ids = HashSet::with_capacity(self.promotions.len());
+        for promotion in &self.promotions {
+            promotion.validate()?;
+            if promotion.source_connector_id == self.connector_id {
+                return Err(StorageConnectorDescriptorError(format!(
+                    "promotion '{}' source connector must differ from target connector",
+                    promotion.promotion_id.as_str()
+                )));
+            }
+            if !promotion_ids.insert(promotion.promotion_id.clone()) {
+                return Err(StorageConnectorDescriptorError(format!(
+                    "promotion '{}' is declared more than once",
+                    promotion.promotion_id.as_str()
+                )));
+            }
+            for mapping in &promotion.config_mappings {
+                if !self.fields.iter().any(|field| {
+                    field.scope == StorageConnectorFieldScope::ConnectorConfig
+                        && field.name == mapping.target_field
+                }) {
+                    return Err(StorageConnectorDescriptorError(format!(
+                        "promotion '{}' maps undeclared target config field '{}'",
+                        promotion.promotion_id.as_str(),
+                        mapping.target_field
+                    )));
+                }
+            }
+            for mapping in &promotion.credential_mappings {
+                if !self.fields.iter().any(|field| {
+                    field.scope == StorageConnectorFieldScope::StaticCredential
+                        && field.name == mapping.target_field
+                }) {
+                    return Err(StorageConnectorDescriptorError(format!(
+                        "promotion '{}' maps undeclared target credential field '{}'",
+                        promotion.promotion_id.as_str(),
+                        mapping.target_field
+                    )));
+                }
+            }
+        }
         if let Some(credential_management) = &self.credential_management {
             credential_management.validate()?;
         }
@@ -2152,6 +2389,10 @@ impl StorageConnectorDescriptor {
                         .flatten(),
                 );
             }
+        }
+        for promotion in &self.promotions {
+            message_ids.insert(promotion.description_key.as_str());
+            message_ids.insert(promotion.confirmation_key.as_str());
         }
         if let Some(credential_management) = &self.credential_management {
             credential_management.localization_message_ids(&mut message_ids);
@@ -2361,6 +2602,7 @@ pub fn object_storage_connector_descriptor(
             draft_connection_test_action_descriptor(),
             saved_connection_test_action_descriptor(false),
         ],
+        promotions: Vec::new(),
         related_issues: input.related_issues,
     }
 }
@@ -2722,12 +2964,14 @@ mod tests {
         StorageConnectorFieldDefaultMode, StorageConnectorFieldDefaultRule,
         StorageConnectorFieldDefaultValue, StorageConnectorFieldDisplayInput,
         StorageConnectorFieldKind, StorageConnectorFieldScope,
-        StorageConnectorOptionsValidationError, StorageConnectorSelectDataSource,
-        StorageConnectorSelectOption, StorageConnectorSelectOptionInput,
-        StorageConnectorSelectOptionValue, StorageConnectorSelectValueKind,
-        StorageConnectorUiDescriptorInput, custom_action_descriptor,
-        normalize_storage_connector_action_input, normalize_storage_connector_config,
-        normalize_storage_connector_custom_action_invocation,
+        StorageConnectorOptionsValidationError, StorageConnectorPromotionDescriptor,
+        StorageConnectorPromotionFieldMapping, StorageConnectorPromotionId,
+        StorageConnectorPromotionRequirement, StorageConnectorPromotionValueMatcher,
+        StorageConnectorSelectDataSource, StorageConnectorSelectOption,
+        StorageConnectorSelectOptionInput, StorageConnectorSelectOptionValue,
+        StorageConnectorSelectValueKind, StorageConnectorUiDescriptorInput,
+        custom_action_descriptor, normalize_storage_connector_action_input,
+        normalize_storage_connector_config, normalize_storage_connector_custom_action_invocation,
         normalize_storage_connector_field_values, object_storage_connector_descriptor,
         start_authorization_action_descriptor, storage_connector_dynamic_select_field,
         storage_connector_field, storage_connector_field_with_display,
@@ -2882,6 +3126,28 @@ mod tests {
         })
     }
 
+    fn promotion_descriptor() -> StorageConnectorPromotionDescriptor {
+        StorageConnectorPromotionDescriptor {
+            promotion_id: StorageConnectorPromotionId::declared("promote_from_source"),
+            source_connector_id: ConnectorId::declared("com.example.source"),
+            description_key: "promotion_desc".to_string(),
+            confirmation_key: "promotion_confirm".to_string(),
+            requirements: vec![StorageConnectorPromotionRequirement {
+                source_field: "endpoint".to_string(),
+                matcher: StorageConnectorPromotionValueMatcher::UrlHostSuffix {
+                    suffix: ".example.com".to_string(),
+                },
+                negate: false,
+            }],
+            config_mappings: vec![StorageConnectorPromotionFieldMapping {
+                source_field: "region".to_string(),
+                target_field: "s3_region".to_string(),
+                preserve_value: false,
+            }],
+            credential_mappings: Vec::new(),
+        }
+    }
+
     #[test]
     fn badge_rgb_uses_structured_channels_and_rejects_out_of_range_values() {
         let color = StorageConnectorBadgeRgb::new(16, 185, 129);
@@ -2905,6 +3171,175 @@ mod tests {
                 "blue": 0
             }))
             .is_err()
+        );
+    }
+
+    #[test]
+    fn promotion_descriptor_rejects_invalid_local_contracts() {
+        let mut valid = s3_descriptor();
+        valid.promotions.push(promotion_descriptor());
+        valid.validate().expect("valid promotion descriptor");
+        assert!(
+            valid
+                .localization_message_ids()
+                .contains("promotion_confirm")
+        );
+
+        let mut self_promotion = valid.clone();
+        self_promotion.promotions[0].source_connector_id = self_promotion.connector_id.clone();
+        assert!(
+            self_promotion
+                .validate()
+                .expect_err("self promotion must fail")
+                .to_string()
+                .contains("must differ")
+        );
+
+        let mut duplicate_target = valid.clone();
+        duplicate_target.promotions[0].config_mappings.push(
+            StorageConnectorPromotionFieldMapping {
+                source_field: "other_region".to_string(),
+                target_field: "s3_region".to_string(),
+                preserve_value: false,
+            },
+        );
+        assert!(
+            duplicate_target
+                .validate()
+                .expect_err("duplicate target mapping must fail")
+                .to_string()
+                .contains("more than once")
+        );
+
+        let mut missing_target = valid.clone();
+        missing_target.promotions[0].config_mappings[0].target_field = "missing".to_string();
+        assert!(
+            missing_target
+                .validate()
+                .expect_err("missing target field must fail")
+                .to_string()
+                .contains("undeclared target config field")
+        );
+
+        let mut empty_matcher = valid.clone();
+        empty_matcher.promotions[0].requirements[0].matcher =
+            StorageConnectorPromotionValueMatcher::StringSuffix {
+                suffix: " ".to_string(),
+                case_sensitive: false,
+            };
+        assert!(
+            empty_matcher
+                .validate()
+                .expect_err("empty matcher must fail")
+                .to_string()
+                .contains("matcher must not be empty")
+        );
+
+        let mut bare_url_host_suffix = valid.clone();
+        bare_url_host_suffix.promotions[0].requirements[0].matcher =
+            StorageConnectorPromotionValueMatcher::UrlHostSuffix {
+                suffix: "example.com".to_string(),
+            };
+        assert!(
+            bare_url_host_suffix
+                .validate()
+                .expect_err("URL host suffix without a label boundary must fail")
+                .to_string()
+                .contains("DNS label boundary marker")
+        );
+
+        let mut invalid_source_id = valid.clone();
+        invalid_source_id.promotions[0].source_connector_id = ConnectorId::declared("INVALID ID");
+        assert!(
+            invalid_source_id
+                .validate()
+                .expect_err("invalid source connector id must fail")
+                .to_string()
+                .contains("invalid source connector id")
+        );
+
+        for clear_description in [true, false] {
+            let mut empty_copy = valid.clone();
+            if clear_description {
+                empty_copy.promotions[0].description_key = " ".to_string();
+            } else {
+                empty_copy.promotions[0].confirmation_key = String::new();
+            }
+            assert!(
+                empty_copy
+                    .validate()
+                    .expect_err("empty promotion copy key must fail")
+                    .to_string()
+                    .contains("non-empty description and confirmation")
+            );
+        }
+
+        let mut empty_requirement_field = valid.clone();
+        empty_requirement_field.promotions[0].requirements[0].source_field = " ".to_string();
+        assert!(
+            empty_requirement_field
+                .validate()
+                .expect_err("empty requirement source field must fail")
+                .to_string()
+                .contains("source field must not be empty")
+        );
+
+        let mut no_config_mapping = valid.clone();
+        no_config_mapping.promotions[0].config_mappings.clear();
+        assert!(
+            no_config_mapping
+                .validate()
+                .expect_err("promotion without config mapping must fail")
+                .to_string()
+                .contains("at least one config mapping")
+        );
+
+        let mut empty_mapping_name = valid.clone();
+        empty_mapping_name.promotions[0].config_mappings[0].source_field = String::new();
+        assert!(
+            empty_mapping_name
+                .validate()
+                .expect_err("empty mapping field name must fail")
+                .to_string()
+                .contains("non-empty names")
+        );
+
+        let mut duplicate_promotion = valid.clone();
+        duplicate_promotion
+            .promotions
+            .push(duplicate_promotion.promotions[0].clone());
+        assert!(
+            duplicate_promotion
+                .validate()
+                .expect_err("duplicate promotion id must fail")
+                .to_string()
+                .contains("declared more than once")
+        );
+
+        let mut missing_credential_target = valid.clone();
+        missing_credential_target.promotions[0]
+            .credential_mappings
+            .push(StorageConnectorPromotionFieldMapping {
+                source_field: "source_secret".to_string(),
+                target_field: "missing_secret".to_string(),
+                preserve_value: false,
+            });
+        assert!(
+            missing_credential_target
+                .validate()
+                .expect_err("undeclared target credential field must fail")
+                .to_string()
+                .contains("undeclared target credential field")
+        );
+
+        let mut invalid_id = valid;
+        invalid_id.promotions[0].promotion_id = StorageConnectorPromotionId::declared("INVALID ID");
+        assert!(
+            invalid_id
+                .validate()
+                .expect_err("invalid promotion id must fail")
+                .to_string()
+                .contains("invalid id")
         );
     }
 

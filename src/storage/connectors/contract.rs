@@ -14,7 +14,9 @@ use aster_drive_storage::StorageConnectorLocalization;
 use aster_drive_storage::StoragePolicyBehaviorConfig;
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionId,
-    StorageConnectorActionKind, StorageConnectorDescriptor, StorageConnectorObjectNamingMode,
+    StorageConnectorActionKind, StorageConnectorDescriptor, StorageConnectorFieldDescriptor,
+    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
+    StorageConnectorPromotionDescriptor, StorageConnectorPromotionId,
 };
 use aster_drive_storage::{ConnectorId, MultipartStorageDriver, StorageDriver, StorageErrorKind};
 
@@ -629,6 +631,7 @@ impl StorageConnectorRegistry {
                 })?;
             localizations.insert(descriptor.connector_id.clone(), localization);
         }
+        validate_promotion_contracts(&connectors, &by_connector_id)?;
         Ok(Self {
             ordered: connectors,
             by_connector_id,
@@ -746,6 +749,19 @@ impl StorageConnectorRegistry {
             }))
     }
 
+    pub(crate) fn promotion_descriptor(
+        &self,
+        target_connector_id: &ConnectorId,
+        promotion_id: &StorageConnectorPromotionId,
+    ) -> Result<Option<StorageConnectorPromotionDescriptor>> {
+        Ok(self
+            .require_connector(target_connector_id)?
+            .descriptor()
+            .promotions
+            .into_iter()
+            .find(|candidate| &candidate.promotion_id == promotion_id))
+    }
+
     pub(crate) fn object_naming(
         &self,
         policy: &storage_policy::Model,
@@ -756,4 +772,218 @@ impl StorageConnectorRegistry {
             .capabilities
             .object_naming)
     }
+}
+
+fn validate_promotion_contracts(
+    connectors: &[Arc<dyn StorageConnector>],
+    by_connector_id: &HashMap<ConnectorId, Arc<dyn StorageConnector>>,
+) -> Result<()> {
+    for target_connector in connectors {
+        let target = target_connector.descriptor();
+        for promotion in &target.promotions {
+            let source = by_connector_id
+                .get(&promotion.source_connector_id)
+                .ok_or_else(|| {
+                    AsterError::internal_error(format!(
+                        "storage connector '{}' promotion '{}' references unavailable source connector '{}'",
+                        target.connector_id,
+                        promotion.promotion_id.as_str(),
+                        promotion.source_connector_id,
+                    ))
+                })?
+                .descriptor();
+            match (source.credential_mode, target.credential_mode) {
+                (
+                    aster_drive_storage::StorageConnectorCredentialMode::StaticSecret,
+                    aster_drive_storage::StorageConnectorCredentialMode::StaticSecret,
+                ) if !promotion.credential_mappings.is_empty() => {}
+                (
+                    aster_drive_storage::StorageConnectorCredentialMode::None,
+                    aster_drive_storage::StorageConnectorCredentialMode::None,
+                ) if promotion.credential_mappings.is_empty() => {}
+                _ => {
+                    return Err(AsterError::internal_error(format!(
+                        "storage connector '{}' promotion '{}' must map compatible static credentials or connect two credential-free connectors",
+                        target.connector_id,
+                        promotion.promotion_id.as_str(),
+                    )));
+                }
+            }
+            validate_promotion_requirements(&target, &source, promotion)?;
+            validate_promotion_field_mappings(
+                &target,
+                &source,
+                promotion,
+                StorageConnectorFieldScope::ConnectorConfig,
+                &promotion.config_mappings,
+            )?;
+            validate_promotion_field_mappings(
+                &target,
+                &source,
+                promotion,
+                StorageConnectorFieldScope::StaticCredential,
+                &promotion.credential_mappings,
+            )?;
+            validate_required_promotion_targets(&target, promotion)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_promotion_requirements(
+    target: &StorageConnectorDescriptor,
+    source: &StorageConnectorDescriptor,
+    promotion: &StorageConnectorPromotionDescriptor,
+) -> Result<()> {
+    for requirement in &promotion.requirements {
+        let field = require_promotion_field(
+            target,
+            source,
+            promotion,
+            StorageConnectorFieldScope::ConnectorConfig,
+            &requirement.source_field,
+            true,
+        )?;
+        let string_compatible = matches!(field.kind, StorageConnectorFieldKind::Text)
+            || field.kind == StorageConnectorFieldKind::Select
+                && field.select.as_ref().is_some_and(|select| {
+                    select.value_kind
+                        == aster_drive_storage::StorageConnectorSelectValueKind::String
+                });
+        if !string_compatible {
+            return Err(AsterError::internal_error(format!(
+                "storage connector '{}' promotion '{}' requirement field '{}' must be string-valued",
+                target.connector_id,
+                promotion.promotion_id.as_str(),
+                requirement.source_field,
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_promotion_field_mappings(
+    target: &StorageConnectorDescriptor,
+    source: &StorageConnectorDescriptor,
+    promotion: &StorageConnectorPromotionDescriptor,
+    scope: StorageConnectorFieldScope,
+    mappings: &[aster_drive_storage::StorageConnectorPromotionFieldMapping],
+) -> Result<()> {
+    for mapping in mappings {
+        let source_field = require_promotion_field(
+            target,
+            source,
+            promotion,
+            scope,
+            &mapping.source_field,
+            true,
+        )?;
+        let target_field = require_promotion_field(
+            target,
+            target,
+            promotion,
+            scope,
+            &mapping.target_field,
+            false,
+        )?;
+        if !promotion_field_kinds_compatible(scope, source_field, target_field) {
+            return Err(AsterError::internal_error(format!(
+                "storage connector '{}' promotion '{}' maps incompatible {:?} field '{}' to {:?} field '{}'",
+                target.connector_id,
+                promotion.promotion_id.as_str(),
+                source_field.kind,
+                mapping.source_field,
+                target_field.kind,
+                mapping.target_field,
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn require_promotion_field<'a>(
+    target: &StorageConnectorDescriptor,
+    descriptor: &'a StorageConnectorDescriptor,
+    promotion: &StorageConnectorPromotionDescriptor,
+    scope: StorageConnectorFieldScope,
+    name: &str,
+    source: bool,
+) -> Result<&'a StorageConnectorFieldDescriptor> {
+    descriptor
+        .fields
+        .iter()
+        .find(|field| field.scope == scope && field.name == name)
+        .ok_or_else(|| {
+            AsterError::internal_error(format!(
+                "storage connector '{}' promotion '{}' references undeclared {} {:?} field '{}' on connector '{}'",
+                target.connector_id,
+                promotion.promotion_id.as_str(),
+                if source { "source" } else { "target" },
+                scope,
+                name,
+                descriptor.connector_id,
+            ))
+        })
+}
+
+fn promotion_field_kinds_compatible(
+    scope: StorageConnectorFieldScope,
+    source: &StorageConnectorFieldDescriptor,
+    target: &StorageConnectorFieldDescriptor,
+) -> bool {
+    if source.kind == StorageConnectorFieldKind::Select
+        && target.kind == StorageConnectorFieldKind::Select
+    {
+        return source.select.as_ref().map(|select| select.value_kind)
+            == target.select.as_ref().map(|select| select.value_kind);
+    }
+    if scope != StorageConnectorFieldScope::StaticCredential {
+        return source.kind == target.kind;
+    }
+    source.kind == target.kind
+        || matches!(
+            (source.kind, target.kind),
+            (
+                StorageConnectorFieldKind::Text,
+                StorageConnectorFieldKind::Secret
+            ) | (
+                StorageConnectorFieldKind::Secret,
+                StorageConnectorFieldKind::Text
+            )
+        )
+}
+
+fn validate_required_promotion_targets(
+    target: &StorageConnectorDescriptor,
+    promotion: &StorageConnectorPromotionDescriptor,
+) -> Result<()> {
+    for field in target.fields.iter().filter(|field| {
+        field.required
+            && matches!(
+                field.scope,
+                StorageConnectorFieldScope::ConnectorConfig
+                    | StorageConnectorFieldScope::StaticCredential
+            )
+    }) {
+        let mappings = if field.scope == StorageConnectorFieldScope::ConnectorConfig {
+            &promotion.config_mappings
+        } else {
+            &promotion.credential_mappings
+        };
+        if mappings
+            .iter()
+            .any(|mapping| mapping.target_field == field.name)
+            || field.default_value.is_some()
+        {
+            continue;
+        }
+        return Err(AsterError::internal_error(format!(
+            "storage connector '{}' promotion '{}' does not populate required target {:?} field '{}' via a mapping or an unconditional default_value",
+            target.connector_id,
+            promotion.promotion_id.as_str(),
+            field.scope,
+            field.name,
+        )));
+    }
+    Ok(())
 }

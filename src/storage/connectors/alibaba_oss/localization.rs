@@ -58,6 +58,16 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "连接测试会验证 OSS V4 请求签名；presigned 上传和下载 URL 始终使用公网 endpoint。",
     ),
     aster_drive_storage::storage_connector_message!(
+        "policy_oss_promote_from_s3_desc",
+        "This generic S3 policy already uses a public Alibaba Cloud OSS endpoint and explicit signing region. Switch the draft or promote the saved policy in place to use native OSS V4 signing without copying objects.",
+        "这个通用 S3 策略已经使用阿里云 OSS 公网 endpoint 和显式签名地域。可以切换草稿，或将已保存策略就地提升为原生 OSS V4 签名，无需复制对象。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_oss_promote_from_s3_confirm",
+        "The bucket and base path remain unchanged. The public endpoint and signing region are preserved; optional server-side endpoint and CNAME mode start with their connector defaults.",
+        "bucket 和基础路径保持不变；公网 endpoint 与签名地域会保留，可选服务端 endpoint 和 CNAME 模式使用 connector 默认值。",
+    ),
+    aster_drive_storage::storage_connector_message!(
         "policy_wizard_alibaba_oss_storage_desc",
         "Store files in Alibaba Cloud Object Storage Service with native OSS V4 signing.",
         "使用原生 OSS V4 签名将文件存入阿里云对象存储 OSS。",

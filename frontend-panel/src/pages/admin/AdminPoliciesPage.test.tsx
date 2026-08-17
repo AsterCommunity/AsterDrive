@@ -48,6 +48,7 @@ const mockState = vi.hoisted(() => ({
 	createDescriptors: [] as unknown[],
 	setupDescriptors: [] as unknown[],
 	policies: [] as unknown[],
+	promoteConnector: vi.fn(),
 	remoteNodes: [] as unknown[],
 	searchParams: new URLSearchParams(),
 	setSearchParams: vi.fn(),
@@ -206,6 +207,8 @@ vi.mock("@/services/adminService", () => ({
 			mockState.executeDraftPolicyAction(...args),
 		executeSavedPolicyAction: (...args: unknown[]) =>
 			mockState.executeSavedPolicyAction(...args),
+		promoteConnector: (...args: unknown[]) =>
+			mockState.promoteConnector(...args),
 		get: (...args: unknown[]) => mockState.getPolicy(...args),
 		getCapacity: (...args: unknown[]) => mockState.getCapacity(...args),
 		list: (...args: unknown[]) => mockState.listPolicies(...args),
@@ -378,6 +381,88 @@ function descriptor(
 	};
 }
 
+function promotionDescriptors() {
+	const source = descriptor("asterdrive.storage.s3", {
+		credential_mode: "static_secret",
+		credential_schema_version: 1,
+		fields: [
+			field("endpoint", { required: true }),
+			field("bucket", { required: true }),
+			field("base_path", { default_value: "" }),
+			field("s3_access_key_id", {
+				required: true,
+				scope: "static_credential",
+			}),
+			field("s3_secret_access_key", {
+				kind: "secret",
+				required: true,
+				scope: "static_credential",
+				secret: true,
+			}),
+		],
+	});
+	const target = descriptor("asterdrive.storage.tencent_cos", {
+		credential_mode: "static_secret",
+		credential_schema_version: 1,
+		fields: [
+			field("endpoint", { required: true }),
+			field("bucket", { required: true }),
+			field("base_path", { default_value: "" }),
+			field("tencent_cos_secret_id", {
+				required: true,
+				scope: "static_credential",
+			}),
+			field("tencent_cos_secret_key", {
+				kind: "secret",
+				required: true,
+				scope: "static_credential",
+				secret: true,
+			}),
+		],
+		promotions: [
+			{
+				config_mappings: [
+					{ source_field: "endpoint", target_field: "endpoint" },
+					{
+						preserve_value: true,
+						source_field: "bucket",
+						target_field: "bucket",
+					},
+					{
+						preserve_value: true,
+						source_field: "base_path",
+						target_field: "base_path",
+					},
+				],
+				confirmation_key: "promotion_confirm",
+				credential_mappings: [
+					{
+						source_field: "s3_access_key_id",
+						target_field: "tencent_cos_secret_id",
+					},
+					{
+						source_field: "s3_secret_access_key",
+						target_field: "tencent_cos_secret_key",
+					},
+				],
+				description_key: "promotion_desc",
+				promotion_id: "promote_from_s3",
+				requirements: [
+					{
+						matcher: {
+							kind: "url_host_suffix",
+							suffix: ".myqcloud.com",
+						},
+						source_field: "endpoint",
+					},
+				],
+				source_connector_id: source.connector_id,
+			},
+		],
+	});
+	return { source, target };
+}
+
 function policy(
 	connectorId: string,
 	values: Record<string, boolean | number | string> = {},
@@ -542,6 +627,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.createDescriptors = [];
 		mockState.setupDescriptors = [];
 		mockState.policies = [];
+		mockState.promoteConnector.mockReset();
 		mockState.remoteNodes = [];
 		mockState.listPolicies.mockImplementation(async () => ({
 			items: mockState.policies,
@@ -761,6 +847,213 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			storage_native_thumbnail_extensions: ["jpg"],
 			storage_native_thumbnail_enabled: false,
 		});
+	});
+
+	it("applies target-owned promotion mappings to a create draft", async () => {
+		const { source, target } = promotionDescriptors();
+		mockState.manageDescriptors = [source, target];
+		mockState.createDescriptors = [source, target];
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog(source.connector_id);
+		openCreateDialog();
+		await setField("connector_config_values", {
+			endpoint: "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+			bucket: "media-1250000000",
+			base_path: "tenant/files",
+		});
+		await setField("credential_values", {
+			s3_access_key_id: "AKIDEXAMPLE",
+			s3_secret_access_key: "SECRETEXAMPLE",
+		});
+
+		await waitFor(() =>
+			expect(currentDialog().connectorPromotionCandidates).toHaveLength(1),
+		);
+		await act(async () =>
+			currentDialog().onApplyDraftConnectorPromotion(
+				currentDialog().connectorPromotionCandidates[0],
+			),
+		);
+
+		expect(currentDialog().form.connector_id).toBe(target.connector_id);
+		expect(currentDialog().form.connector_config_values).toMatchObject({
+			endpoint: "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+			bucket: "media-1250000000",
+			base_path: "tenant/files",
+		});
+		expect(currentDialog().form.credential_values).toEqual({
+			tencent_cos_secret_id: "AKIDEXAMPLE",
+			tencent_cos_secret_key: "SECRETEXAMPLE",
+		});
+	});
+
+	it("blocks dirty saved promotions and refreshes the editor after success", async () => {
+		const { source, target } = promotionDescriptors();
+		const saved = policy(source.connector_id, {
+			endpoint: "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+			bucket: "media-1250000000",
+			base_path: "tenant/files",
+		});
+		const promoted = policy(
+			target.connector_id,
+			{
+				endpoint: "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+				bucket: "media-1250000000",
+				base_path: "tenant/files",
+			},
+			{ updated_at: "2026-08-17T00:00:00Z" },
+		);
+		const untouched = policy(source.connector_id, {}, { id: 8, name: "Other" });
+		mockState.manageDescriptors = [source, target];
+		mockState.createDescriptors = [source, target];
+		mockState.policies = [saved, untouched];
+		mockState.promoteConnector.mockResolvedValue(promoted);
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog(source.connector_id);
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		await waitFor(() =>
+			expect(currentDialog().connectorPromotionCandidates).toHaveLength(1),
+		);
+		const candidate = currentDialog().connectorPromotionCandidates[0];
+
+		await setField("name", "Dirty policy");
+		expect(currentDialog().connectorPromotionBlocked).toBe(true);
+		await act(async () =>
+			currentDialog().onRequestConnectorPromotion(candidate),
+		);
+		expect(currentDialog().connectorPromotionConfirmKey).toBeNull();
+
+		await setField("name", saved.name);
+		await waitFor(() =>
+			expect(currentDialog().connectorPromotionBlocked).toBe(false),
+		);
+		await act(async () =>
+			currentDialog().onRequestConnectorPromotion(candidate),
+		);
+		expect(currentDialog().connectorPromotionConfirmKey).toBe(
+			`${target.connector_id}:promote_from_s3`,
+		);
+		await act(async () =>
+			currentDialog().onConfirmConnectorPromotion(candidate),
+		);
+
+		await waitFor(() =>
+			expect(mockState.promoteConnector).toHaveBeenCalledWith(7, {
+				target_connector_id: target.connector_id,
+				promotion_id: "promote_from_s3",
+			}),
+		);
+		expect(currentDialog().form.connector_id).toBe(target.connector_id);
+		expect(currentTable().policies[0].connector_id).toBe(target.connector_id);
+		expect(currentTable().policies[1]).toEqual(untouched);
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"policy_connector_promotion_success",
+		);
+	});
+
+	it("does not recommend promotion targets excluded from the create catalog", async () => {
+		const { source, target } = promotionDescriptors();
+		mockState.manageDescriptors = [source, target];
+		mockState.createDescriptors = [source];
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog(source.connector_id);
+		openCreateDialog();
+		await setField("connector_config_values", {
+			endpoint: "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+			bucket: "media-1250000000",
+			base_path: "tenant/files",
+		});
+
+		await waitFor(() =>
+			expect(currentDialog().connectorPromotionCandidates).toEqual([]),
+		);
+	});
+
+	it("blocks connector promotion while policy edits are dirty", async () => {
+		const { source, target } = promotionDescriptors();
+		const nonMatchingSaved = policy(source.connector_id, {
+			endpoint: "https://s3.example.test",
+			bucket: "archive",
+			base_path: "",
+		});
+		mockState.manageDescriptors = [source, target];
+		mockState.createDescriptors = [source, target];
+		mockState.policies = [nonMatchingSaved];
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog(source.connector_id);
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		await setField("connector_config_values", {
+			endpoint: "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+			bucket: "archive",
+			base_path: "",
+		});
+		await waitFor(() =>
+			expect(currentDialog().connectorPromotionCandidates).toHaveLength(1),
+		);
+		expect(currentDialog().connectorPromotionBlocked).toBe(true);
+		await act(async () =>
+			currentDialog().onRequestConnectorPromotion(
+				currentDialog().connectorPromotionCandidates[0],
+			),
+		);
+		expect(currentDialog().connectorPromotionConfirmKey).toBeNull();
+
+		const matchingSaved = policy(source.connector_id, {
+			endpoint: "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+			bucket: "archive",
+			base_path: "",
+		});
+		await act(async () => currentTable().onEditPolicy(matchingSaved));
+		await setField("connector_config_values", {
+			endpoint: "https://s3.example.test",
+			bucket: "archive",
+			base_path: "",
+		});
+		await waitFor(() =>
+			expect(currentDialog().connectorPromotionCandidates).toHaveLength(1),
+		);
+		expect(currentDialog().connectorPromotionBlocked).toBe(true);
+	});
+
+	it("keeps the source editor retryable when promotion fails", async () => {
+		const { source, target } = promotionDescriptors();
+		const saved = policy(source.connector_id, {
+			endpoint: "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+			bucket: "media-1250000000",
+			base_path: "tenant/files",
+		});
+		const promotionError = new Error("promotion failed");
+		mockState.manageDescriptors = [source, target];
+		mockState.createDescriptors = [source, target];
+		mockState.policies = [saved];
+		mockState.promoteConnector.mockRejectedValue(promotionError);
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog(source.connector_id);
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		await waitFor(() =>
+			expect(currentDialog().connectorPromotionCandidates).toHaveLength(1),
+		);
+		const candidate = currentDialog().connectorPromotionCandidates[0];
+		await act(async () =>
+			currentDialog().onRequestConnectorPromotion(candidate),
+		);
+		await act(async () =>
+			currentDialog().onConfirmConnectorPromotion(candidate),
+		);
+
+		await waitFor(() =>
+			expect(mockState.handleApiError).toHaveBeenCalledWith(promotionError),
+		);
+		expect(currentDialog().form.connector_id).toBe(source.connector_id);
+		expect(currentDialog().connectorPromotionSubmittingKey).toBeNull();
+		expect(currentDialog().connectorPromotionConfirmKey).toBe(
+			`${target.connector_id}:promote_from_s3`,
+		);
 	});
 
 	it("creates a policy from generic config and static credential fields", async () => {

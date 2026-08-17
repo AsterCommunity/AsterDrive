@@ -22,6 +22,16 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "向腾讯云 COS bucket 写入 AsterDrive 的 CORS 规则。AllowedOrigin 来自系统 public_site_url 配置，其他规则会保留。",
     ),
     aster_drive_storage::storage_connector_message!(
+        "policy_cos_promote_from_s3_desc",
+        "This generic S3 policy already points at a Tencent COS endpoint. Switch the draft or promote the saved policy in place to enable COS-owned capabilities without copying objects.",
+        "这个通用 S3 策略已经指向腾讯云 COS endpoint。可以切换草稿，或将已保存策略就地提升为 COS connector，无需复制对象即可启用 COS 专属能力。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_cos_promote_from_s3_confirm",
+        "Only the connector configuration and encrypted credential envelope will change. The bucket, base path, blob ownership, and stored object paths remain unchanged.",
+        "只会更新 connector 配置和加密凭据封装；bucket、基础路径、blob 归属和已存对象路径保持不变。",
+    ),
+    aster_drive_storage::storage_connector_message!(
         "policy_cos_cors_output_request_id",
         "Provider request ID",
         "服务商请求 ID",

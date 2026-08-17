@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { StoragePolicyDialog } from "@/components/admin/StoragePolicyDialog";
 import type { PolicyFormData } from "@/components/admin/storage-policy-dialog/formTypes";
+import type { StorageConnectorPromotionCandidate } from "@/components/admin/storage-policy-dialog/policyPromotion";
 import type { StorageConnectorActionValues } from "@/components/admin/storage-policy-dialog/StorageConnectorActionsPanel";
 import type { ConfirmDialogProps } from "@/components/common/ConfirmDialog";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
@@ -46,6 +47,10 @@ interface PolicyDialogsProps {
 	connectorActionConfirmId: string | null;
 	connectorActionSubmittingId: string | null;
 	connectorActionValues: StorageConnectorActionValues;
+	connectorPromotionBlocked: boolean;
+	connectorPromotionCandidates: StorageConnectorPromotionCandidate[];
+	connectorPromotionConfirmKey: string | null;
+	connectorPromotionSubmittingKey: string | null;
 	remoteNodes: RemoteNodeInfo[];
 	remoteStorageTargetDriverDescriptors: RemoteStorageTargetDriverDescriptor[];
 	remoteStorageTargetDriverDescriptorsError: string | null;
@@ -60,9 +65,16 @@ interface PolicyDialogsProps {
 	storageDialogPresentation?: "dialog" | "setup";
 	onStorageSetupLogout?: () => void;
 	onCancelConnectorAction: () => void;
+	onApplyDraftConnectorPromotion: (
+		candidate: StorageConnectorPromotionCandidate,
+	) => void;
+	onCancelConnectorPromotion: () => void;
 	onCancelSaveAnyway: () => void;
 	onConfirmSaveAnyway: () => void;
 	onConfirmConnectorAction: (actionId: string) => void;
+	onConfirmConnectorPromotion: (
+		candidate: StorageConnectorPromotionCandidate,
+	) => void;
 	onStartStorageAuthorization: () => void;
 	onValidateStorageCredential: () => void;
 	onCreateRemoteStorageTarget: (
@@ -83,6 +95,9 @@ interface PolicyDialogsProps {
 		value: StorageConnectorFieldValue | undefined,
 	) => void;
 	onRequestConnectorAction: (actionId: string) => void;
+	onRequestConnectorPromotion: (
+		candidate: StorageConnectorPromotionCandidate,
+	) => void;
 	onRunConnectionTest: () => Promise<boolean>;
 	onSubmit: () => void;
 }
@@ -112,6 +127,10 @@ export function PolicyDialogs({
 	connectorActionConfirmId,
 	connectorActionSubmittingId,
 	connectorActionValues,
+	connectorPromotionBlocked,
+	connectorPromotionCandidates,
+	connectorPromotionConfirmKey,
+	connectorPromotionSubmittingKey,
 	remoteNodes,
 	remoteStorageTargetDriverDescriptors,
 	remoteStorageTargetDriverDescriptorsError,
@@ -126,9 +145,12 @@ export function PolicyDialogs({
 	storageDialogPresentation = "dialog",
 	onStorageSetupLogout,
 	onCancelConnectorAction,
+	onApplyDraftConnectorPromotion,
+	onCancelConnectorPromotion,
 	onCancelSaveAnyway,
 	onConfirmSaveAnyway,
 	onConfirmConnectorAction,
+	onConfirmConnectorPromotion,
 	onStartStorageAuthorization,
 	onValidateStorageCredential,
 	onCreateRemoteStorageTarget,
@@ -140,6 +162,7 @@ export function PolicyDialogs({
 	onFieldChange,
 	onConnectorActionValueChange,
 	onRequestConnectorAction,
+	onRequestConnectorPromotion,
 	onRunConnectionTest,
 	onSubmit,
 }: PolicyDialogsProps) {
@@ -181,6 +204,10 @@ export function PolicyDialogs({
 				connectorActionConfirmId={connectorActionConfirmId}
 				connectorActionSubmittingId={connectorActionSubmittingId}
 				connectorActionValues={connectorActionValues}
+				connectorPromotionBlocked={connectorPromotionBlocked}
+				connectorPromotionCandidates={connectorPromotionCandidates}
+				connectorPromotionConfirmKey={connectorPromotionConfirmKey}
+				connectorPromotionSubmittingKey={connectorPromotionSubmittingKey}
 				remoteNodes={remoteNodes}
 				remoteStorageTargetDriverDescriptors={
 					remoteStorageTargetDriverDescriptors
@@ -200,10 +227,13 @@ export function PolicyDialogs({
 				endpointValidationMessage={endpointValidationMessage}
 				saveAnywayConfirmOpen={saveAnywayConfirmOpen}
 				onCancelConnectorAction={onCancelConnectorAction}
+				onApplyDraftConnectorPromotion={onApplyDraftConnectorPromotion}
+				onCancelConnectorPromotion={onCancelConnectorPromotion}
 				onOpenChange={onDialogOpenChange}
 				onCancelSaveAnyway={onCancelSaveAnyway}
 				onConfirmSaveAnyway={onConfirmSaveAnyway}
 				onConfirmConnectorAction={onConfirmConnectorAction}
+				onConfirmConnectorPromotion={onConfirmConnectorPromotion}
 				onStartStorageAuthorization={onStartStorageAuthorization}
 				onValidateStorageCredential={onValidateStorageCredential}
 				onCreateRemoteStorageTarget={onCreateRemoteStorageTarget}
@@ -212,6 +242,7 @@ export function PolicyDialogs({
 				onFieldChange={onFieldChange}
 				onConnectorActionValueChange={onConnectorActionValueChange}
 				onRequestConnectorAction={onRequestConnectorAction}
+				onRequestConnectorPromotion={onRequestConnectorPromotion}
 				onConnectorIdChange={onConnectorIdChange}
 				onCreateBack={onCreateBack}
 				onCreateStepChange={onCreateStepChange}
