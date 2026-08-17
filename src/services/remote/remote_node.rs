@@ -46,19 +46,31 @@ pub enum RemoteNodeEnrollmentStatus {
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RemoteNodeInfo {
+    /// Stable database identifier of the remote node.
     pub id: i64,
+    /// Administrative display name.
     pub name: String,
+    /// Direct transport base URL, or empty when reverse tunnel is selected.
     pub base_url: String,
+    /// Configured transport choice; `auto` is resolved from `base_url` at runtime.
     pub transport_mode: RemoteNodeTransportMode,
+    /// Whether the remote node is enabled for administration and transport.
     pub is_enabled: bool,
+    /// Current enrollment lifecycle state.
     pub enrollment_status: RemoteNodeEnrollmentStatus,
+    /// Result of the most recent explicit capability probe or connection test.
     pub last_error: String,
+    /// Capabilities returned by the most recent explicit probe.
     pub capabilities: RemoteStorageCapabilities,
+    /// Timestamp of the most recent explicit capability probe.
     pub last_checked_at: Option<chrono::DateTime<Utc>>,
+    /// Runtime reverse-tunnel health telemetry, separate from probe state above.
     pub tunnel: crate::storage::remote_protocol::tunnel::server::RemoteTunnelInfo,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
+    /// Time at which the remote node was created.
     pub created_at: chrono::DateTime<Utc>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
+    /// Time of the latest administrative remote-node change.
     pub updated_at: chrono::DateTime<Utc>,
 }
 

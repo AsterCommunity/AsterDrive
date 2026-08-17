@@ -141,6 +141,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Fixed
 
+- **远端节点 probe 与 reverse tunnel 遥测隔离** — 明确 `managed_followers.last_error` / `last_checked_at` 只表示最近一次显式 capability probe 或 connection test；`tunnel_last_error` / `tunnel_last_seen_at` 只表示可被下一次成功 poll 或 stream handshake 清空的运行态。修复集成测试把瞬时 tunnel 错误误当作历史错误、与 worker 下一轮 poll 竞争导致的失败，并补充字段注释和管理 API 语义说明。
 - **远端节点有效传输模式** — primary 将 `direct` / `reverse_tunnel` / `auto` 解析为强类型 `resolved_transport` desired state；follower 通过独立于对象数据路径的签名 binding 控制面持续 pull，以 revision 持久化、应用并在下一轮隐式 ACK。direct、disabled 和带可用 `base_url` 的 auto 节点不启动 polling / WebSocket worker，primary 同时拒绝其 tunnel poll、complete 与 connect；双向 transport 切换即使旧路径和新路径都不可用也能最终收敛。旧 follower 继续通过 capability 驱动的 `PUT /binding` push 兼容，WebSocket lane 停止时完成正常 close handshake，并在请求体或本地响应阻塞期间响应取消且收口全部子任务。Tunnel frame version 保持 `1`，internal storage 协议保持 `v5`、最低 `v4`。
 - **首次登录 Cookie 引导** — 新安装默认允许 HTTP 首次登录；HTTPS setup 会在后续自动登录前启用 Secure Cookie，已有运行时设置不被升级或重启覆盖。
 - **上传失败与重试编排** — 非 retryable 的 upload-stage failure 现在会终止并清理 session；可修正、认证、数据库和可重试错误继续保留 session 供恢复。前端按 retryability 区分单项/批量重试与 terminal task 清理，并串行化 cleanup/retry，避免同一任务并发清理和重试。
