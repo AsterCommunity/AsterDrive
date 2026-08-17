@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.0-rc.1] - 2026-08-18
+
 ### Release Highlights
 
 自 `v0.4.0` 以来，AsterDrive 主线完成了面向生产多 Primary 部署、WebDAV 协议边界、上传数据平面、存储 connector 平台和内部 crate 所有权的一轮大规模演进。新增显式 `single` / `cluster` 部署 profile、Redis 跨实例事件同步、反向隧道 owner lease 与转发、Kubernetes Kustomize / Helm 部署路径；初始化流程统一为 `needs_admin` / `needs_storage` / `ready` 三态，并要求管理员显式创建首个存储策略。
@@ -6083,7 +6085,8 @@ OneDrive 存储策略新增浏览器直连能力：上传可选 Microsoft Graph 
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.0-rc.1...HEAD
+[v0.5.0-rc.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0...v0.5.0-rc.1
 [v0.4.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-rc.2...v0.4.0
 [v0.4.0-rc.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-rc.1...v0.4.0-rc.2
 [v0.4.0-rc.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-beta.3...v0.4.0-rc.1
