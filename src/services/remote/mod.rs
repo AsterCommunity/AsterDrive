@@ -1,5 +1,6 @@
 //! 远端节点、主从绑定和 follower-side storage target 服务。
 
+pub mod binding_control;
 pub mod capability;
 pub mod enrollment;
 pub mod master_binding;

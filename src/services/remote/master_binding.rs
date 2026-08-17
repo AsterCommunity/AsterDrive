@@ -13,6 +13,7 @@ use crate::storage::remote_protocol::{
     sign_presigned_request,
 };
 use aster_drive_model::entities::master_binding;
+use aster_drive_model::types::ResolvedRemoteTransport;
 use aster_drive_storage::StorageDriver;
 use chrono::Utc;
 use hmac::{Hmac, KeyInit, Mac};
@@ -42,6 +43,8 @@ pub struct UpsertMasterBindingInput {
 pub struct SyncMasterBindingInput {
     pub name: String,
     pub is_enabled: bool,
+    pub resolved_transport: ResolvedRemoteTransport,
+    pub desired_revision: i64,
 }
 
 pub async fn upsert_from_enrollment<C: ConnectionTrait>(
@@ -198,10 +201,15 @@ pub async fn sync_from_primary<S: FollowerRuntimeState>(
         .await?
         .ok_or_else(|| AsterError::auth_invalid_credentials("unknown internal access_key"))?;
     let normalized = normalize_sync_input(input)?;
+    if normalized.desired_revision < existing.desired_revision {
+        return Ok(existing);
+    }
 
     let mut active: master_binding::ActiveModel = existing.into();
     active.name = Set(normalized.name);
     active.is_enabled = Set(normalized.is_enabled);
+    active.resolved_transport = Set(normalized.resolved_transport);
+    active.desired_revision = Set(normalized.desired_revision);
     active.updated_at = Set(Utc::now());
 
     let updated = master_binding_repo::update(state.writer_db(), active).await?;
@@ -409,6 +417,8 @@ fn normalize_sync_input(input: SyncMasterBindingInput) -> Result<SyncMasterBindi
     Ok(SyncMasterBindingInput {
         name: normalize_non_blank("name", &input.name)?,
         is_enabled: input.is_enabled,
+        resolved_transport: input.resolved_transport,
+        desired_revision: input.desired_revision,
     })
 }
 
@@ -570,6 +580,9 @@ mod tests {
             secret_key: "sk".to_string(),
             storage_namespace: "mb_test".to_string(),
             is_enabled: true,
+            resolved_transport: ResolvedRemoteTransport::ReverseTunnel,
+            desired_revision: 1,
+            applied_revision: 1,
             created_at: now,
             updated_at: now,
         }

@@ -25,9 +25,38 @@ fn build_remote_node(id: i64, access_key: &str) -> managed_follower::Model {
         last_checked_at: None,
         tunnel_last_error: String::new(),
         tunnel_last_seen_at: None,
+        binding_revision: 1,
+        binding_applied_revision: 0,
         created_at: now,
         updated_at: now,
     }
+}
+
+#[test]
+fn reverse_tunnel_transport_gate_uses_effective_mode() {
+    let mut node = build_remote_node(1, "transport-gate");
+    assert!(ensure_reverse_tunnel_transport(&node).is_ok());
+
+    node.transport_mode = aster_drive_model::types::RemoteNodeTransportMode::Auto;
+    assert!(ensure_reverse_tunnel_transport(&node).is_ok());
+
+    node.base_url = "http://follower.example.com".to_string();
+    let auto_direct = ensure_reverse_tunnel_transport(&node)
+        .expect_err("auto with a base URL should resolve to direct transport");
+    assert!(
+        auto_direct
+            .message()
+            .contains("does not resolve to reverse tunnel")
+    );
+
+    node.transport_mode = aster_drive_model::types::RemoteNodeTransportMode::Direct;
+    let direct = ensure_reverse_tunnel_transport(&node)
+        .expect_err("direct nodes should be rejected by tunnel endpoints");
+    assert!(
+        direct
+            .message()
+            .contains("does not resolve to reverse tunnel")
+    );
 }
 
 fn stream_response_start_frame(request_id: &str, status: StatusCode) -> RemoteTunnelStreamFrame {

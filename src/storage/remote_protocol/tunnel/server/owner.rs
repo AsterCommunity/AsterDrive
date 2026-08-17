@@ -459,6 +459,8 @@ mod tests {
             last_checked_at: Set(None),
             tunnel_last_error: Set(String::new()),
             tunnel_last_seen_at: Set(None),
+            binding_revision: Set(1),
+            binding_applied_revision: Set(0),
             created_at: Set(Utc::now()),
             updated_at: Set(Utc::now()),
         }

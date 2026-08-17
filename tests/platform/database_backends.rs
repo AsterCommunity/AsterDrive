@@ -24,6 +24,7 @@ use aster_drive_model::types::{
 
 const OLD_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 255;
 const EXPANDED_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 512;
+const VIRTUAL_EMPTY_FILE_BLOBS_MIGRATION: &str = "m20260815_000001_virtual_empty_file_blobs";
 
 #[actix_web::test]
 async fn current_schema_enforces_virtual_empty_and_file_create_idempotency_constraints() {
@@ -92,7 +93,14 @@ async fn current_schema_enforces_virtual_empty_and_file_create_idempotency_const
         "scope/key uniqueness must reject a duplicate claim"
     );
 
-    CurrentMigrator::down(state.writer_db(), Some(1))
+    let migrations = CurrentMigrator::migrations();
+    let migration_position = migrations
+        .iter()
+        .position(|migration| migration.name() == VIRTUAL_EMPTY_FILE_BLOBS_MIGRATION)
+        .expect("virtual-empty file blob migration should be registered");
+    let rollback_steps = u32::try_from(migrations.len() - migration_position)
+        .expect("migration rollback step count should fit u32");
+    CurrentMigrator::down(state.writer_db(), Some(rollback_steps))
         .await
         .expect_err("down migration must reject a live virtual-empty blob before changing schema");
     assert_eq!(

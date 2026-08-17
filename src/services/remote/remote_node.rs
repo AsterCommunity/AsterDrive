@@ -9,8 +9,8 @@ use crate::errors::{
 use crate::runtime::RemoteProtocolRuntimeState;
 use crate::services::remote::capability::RemoteCapabilityResolver;
 use crate::storage::remote_protocol::{
-    RemoteBindingSyncRequest, RemoteStorageCapabilities, RemoteStorageClient,
-    normalize_remote_base_url,
+    RemoteBindingDesiredState, RemoteBindingSyncRequest, RemoteStorageCapabilities,
+    RemoteStorageClient, normalize_remote_base_url,
 };
 use aster_drive_model::entities::{follower_enrollment_session, managed_follower};
 use aster_drive_model::types::{
@@ -195,6 +195,8 @@ pub async fn create<S: RemoteProtocolRuntimeState>(
         last_checked_at: Set(None),
         tunnel_last_error: Set(String::new()),
         tunnel_last_seen_at: Set(None),
+        binding_revision: Set(1),
+        binding_applied_revision: Set(0),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -227,6 +229,7 @@ pub async fn update<S: RemoteProtocolRuntimeState>(
         .unwrap_or(existing.base_url.as_str());
     let next_transport_mode = normalized.transport_mode.unwrap_or(existing.transport_mode);
     let next_is_enabled = normalized.is_enabled.unwrap_or(existing.is_enabled);
+    let next_name = normalized.name.as_deref().unwrap_or(existing.name.as_str());
     crate::services::ops::deployment::validate_remote_node_transport(
         state.config(),
         next_transport_mode,
@@ -241,6 +244,11 @@ pub async fn update<S: RemoteProtocolRuntimeState>(
     )
     .await?;
 
+    let previous = existing.clone();
+    let binding_state_changed = next_name != existing.name
+        || next_is_enabled != existing.is_enabled
+        || next_transport_mode.resolve(next_base_url)
+            != existing.transport_mode.resolve(&existing.base_url);
     let mut active: managed_follower::ActiveModel = existing.into();
     if let Some(value) = normalized.name {
         active.name = Set(value);
@@ -253,6 +261,12 @@ pub async fn update<S: RemoteProtocolRuntimeState>(
     }
     if let Some(value) = normalized.is_enabled {
         active.is_enabled = Set(value);
+    }
+    if binding_state_changed {
+        active.binding_revision = Set(previous
+            .binding_revision
+            .checked_add(1)
+            .ok_or_else(|| AsterError::internal_error("remote node binding_revision overflow"))?);
     }
     active.updated_at = Set(Utc::now());
 
@@ -268,17 +282,44 @@ pub async fn update<S: RemoteProtocolRuntimeState>(
         updated.id,
     )
     .await;
-    if enrollment_status_for_node(state, updated.id).await? == RemoteNodeEnrollmentStatus::Completed
-        && let Err(error) =
-            sync_remote_binding_config_with_timeout(state, &updated, REMOTE_BINDING_SYNC_TIMEOUT)
-                .await
+    // Legacy followers only understand primary-pushed binding metadata. New
+    // followers reconcile desired state over their independent control plane.
+    if !parse_capabilities(&updated.last_capabilities)
+        .features
+        .binding_state_pull
+        && enrollment_status_for_node(state, updated.id).await?
+            == RemoteNodeEnrollmentStatus::Completed
+        && let Some(transport_node) = legacy_binding_sync_transport(&previous, &updated)
+        && let Err(error) = sync_remote_binding_config_with_timeout(
+            state,
+            transport_node,
+            &updated,
+            REMOTE_BINDING_SYNC_TIMEOUT,
+        )
+        .await
     {
         tracing::warn!(
             remote_node_id = updated.id,
-            "failed to sync remote binding config to follower: {error}"
+            "failed to sync remote binding config to legacy follower: {error}"
         );
     }
     remote_node_info(state, updated).await
+}
+
+fn legacy_binding_sync_transport<'a>(
+    previous: &'a managed_follower::Model,
+    updated: &'a managed_follower::Model,
+) -> Option<&'a managed_follower::Model> {
+    let effective_transport_changed = previous.transport_mode.resolve(&previous.base_url)
+        != updated.transport_mode.resolve(&updated.base_url);
+    if effective_transport_changed && transport_available(previous) {
+        return Some(previous);
+    }
+    transport_available(updated).then_some(updated)
+}
+
+fn transport_available(node: &managed_follower::Model) -> bool {
+    !node.transport_mode.requires_direct_base_url() || !node.base_url.trim().is_empty()
 }
 
 pub async fn delete<S: RemoteProtocolRuntimeState>(state: &S, id: i64) -> Result<()> {
@@ -482,6 +523,34 @@ pub(crate) fn remote_storage_client_for_node<S: RemoteProtocolRuntimeState>(
     state.remote_protocol().client_for_node(node)
 }
 
+pub async fn binding_desired_state<S: RemoteProtocolRuntimeState>(
+    state: &S,
+    remote_node: &managed_follower::Model,
+    applied_revision: i64,
+) -> Result<RemoteBindingDesiredState> {
+    if applied_revision < 0 {
+        return Err(AsterError::validation_error(
+            "applied binding revision cannot be negative",
+        ));
+    }
+    if applied_revision <= remote_node.binding_revision
+        && applied_revision > remote_node.binding_applied_revision
+    {
+        managed_follower_repo::acknowledge_binding_revision(
+            state.writer_db(),
+            remote_node.id,
+            applied_revision,
+        )
+        .await?;
+    }
+    Ok(RemoteBindingDesiredState {
+        name: remote_node.name.clone(),
+        is_enabled: remote_node.is_enabled,
+        resolved_transport: remote_node.transport_mode.resolve(&remote_node.base_url),
+        desired_revision: remote_node.binding_revision,
+    })
+}
+
 async fn policy_requirements_for_node<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
@@ -630,7 +699,8 @@ async fn run_health_test_for_node<S: RemoteProtocolRuntimeState>(
     }
 
     if let Err(error) =
-        sync_remote_binding_config_with_timeout(state, &node, REMOTE_BINDING_SYNC_TIMEOUT).await
+        sync_remote_binding_config_with_timeout(state, &node, &node, REMOTE_BINDING_SYNC_TIMEOUT)
+            .await
     {
         tracing::warn!(
             remote_node_id = node.id,
@@ -708,37 +778,44 @@ async fn refresh_registry<S: RemoteProtocolRuntimeState>(state: &S) -> Result<()
 
 async fn sync_remote_binding_config<S: RemoteProtocolRuntimeState>(
     state: &S,
-    node: &managed_follower::Model,
+    transport_node: &managed_follower::Model,
+    desired_node: &managed_follower::Model,
 ) -> Result<()> {
-    if node.transport_mode.requires_direct_base_url() && node.base_url.trim().is_empty() {
+    if !transport_available(transport_node) {
         return Ok(());
     }
 
-    let client = remote_storage_client_for_node(state, node)?;
+    let client = remote_storage_client_for_node(state, transport_node)?;
     client
         .sync_binding(&RemoteBindingSyncRequest {
-            name: node.name.clone(),
-            is_enabled: node.is_enabled,
+            name: desired_node.name.clone(),
+            is_enabled: desired_node.is_enabled,
+            resolved_transport: desired_node.transport_mode.resolve(&desired_node.base_url),
+            desired_revision: desired_node.binding_revision,
         })
         .await
 }
 
 async fn sync_remote_binding_config_with_timeout<S: RemoteProtocolRuntimeState>(
     state: &S,
-    node: &managed_follower::Model,
+    transport_node: &managed_follower::Model,
+    desired_node: &managed_follower::Model,
     timeout: Duration,
 ) -> Result<()> {
-    tokio::time::timeout(timeout, sync_remote_binding_config(state, node))
-        .await
-        .map_err(|_| {
-            crate::errors::storage_driver_error(
-                StorageErrorKind::Transient,
-                format!(
-                    "sync remote binding config timed out after {}s",
-                    timeout.as_secs()
-                ),
-            )
-        })?
+    tokio::time::timeout(
+        timeout,
+        sync_remote_binding_config(state, transport_node, desired_node),
+    )
+    .await
+    .map_err(|_| {
+        crate::errors::storage_driver_error(
+            StorageErrorKind::Transient,
+            format!(
+                "sync remote binding config timed out after {}s",
+                timeout.as_secs()
+            ),
+        )
+    })?
 }
 
 fn map_remote_node_db_err(error: DbErr) -> AsterError {
@@ -756,7 +833,8 @@ fn map_remote_node_db_err(error: DbErr) -> AsterError {
 mod tests {
     use super::{
         CreateRemoteNodeInput, UpdateRemoteNodeInput, create, delete, generate_managed_credentials,
-        normalize_create_input, normalize_update_input, remote_capabilities_changed, update,
+        legacy_binding_sync_transport, normalize_create_input, normalize_update_input,
+        remote_capabilities_changed, update,
     };
     use crate::config::{Config, DatabaseConfig, RuntimeConfig};
     use crate::db;
@@ -964,5 +1042,39 @@ mod tests {
                 .is_err(),
             "deleted remote node must stay deleted"
         );
+    }
+
+    #[tokio::test]
+    async fn legacy_transport_falls_back_to_new_reverse_path_when_old_direct_path_is_unavailable() {
+        let state = setup_state(aster_forge_config::ConfigSyncRuntime::disabled_for_test(
+            "aster_drive",
+        ))
+        .await;
+        let created = create(
+            &state,
+            CreateRemoteNodeInput {
+                name: "Legacy transition".to_string(),
+                base_url: String::new(),
+                transport_mode: RemoteNodeTransportMode::Direct,
+                is_enabled: true,
+            },
+        )
+        .await
+        .expect("direct node without a base URL should be created");
+        let previous =
+            crate::db::repository::managed_follower_repo::find_by_id(state.writer_db(), created.id)
+                .await
+                .expect("created node should be queryable");
+        let mut updated = previous.clone();
+        updated.transport_mode = RemoteNodeTransportMode::ReverseTunnel;
+
+        let selected = legacy_binding_sync_transport(&previous, &updated)
+            .expect("updated reverse transport should remain available for legacy binding sync");
+
+        assert_eq!(
+            selected.transport_mode,
+            RemoteNodeTransportMode::ReverseTunnel
+        );
+        assert!(selected.base_url.is_empty());
     }
 }
