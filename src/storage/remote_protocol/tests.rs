@@ -781,6 +781,7 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
         .sync_binding(&RemoteBindingSyncRequest {
             name: "Follower A".to_string(),
             is_enabled: true,
+            reverse_tunnel_enabled: true,
         })
         .await
         .expect("binding sync should succeed");

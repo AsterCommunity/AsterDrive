@@ -361,6 +361,12 @@ pub struct RemoteStorageObjectMetadata {
 pub struct RemoteBindingSyncRequest {
     pub name: String,
     pub is_enabled: bool,
+    #[serde(default = "default_reverse_tunnel_enabled")]
+    pub reverse_tunnel_enabled: bool,
+}
+
+const fn default_reverse_tunnel_enabled() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -486,4 +492,20 @@ pub(super) struct ApiEnvelope<T> {
     pub(super) code: ApiErrorCode,
     pub(super) msg: String,
     pub(super) data: Option<T>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RemoteBindingSyncRequest;
+
+    #[test]
+    fn binding_sync_defaults_legacy_payloads_to_reverse_tunnel_enabled() {
+        let request: RemoteBindingSyncRequest = serde_json::from_value(serde_json::json!({
+            "name": "legacy-primary",
+            "is_enabled": true
+        }))
+        .expect("legacy binding sync payload should remain readable");
+
+        assert!(request.reverse_tunnel_enabled);
+    }
 }

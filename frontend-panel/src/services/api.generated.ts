@@ -4599,6 +4599,7 @@ export interface components {
                 /** Format: int64 */
                 remote_node_id: number;
                 remote_node_name: string;
+                reverse_tunnel_enabled?: boolean;
                 secret_key: string;
             };
             error?: null | components["schemas"]["ApiErrorInfo"];
@@ -7274,6 +7275,7 @@ export interface components {
             /** Format: int64 */
             remote_node_id: number;
             remote_node_name: string;
+            reverse_tunnel_enabled?: boolean;
             secret_key: string;
         };
         RemoteEnrollmentCommandInfo: {

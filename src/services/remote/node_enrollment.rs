@@ -10,7 +10,7 @@ use crate::errors::{AsterError, Result};
 use crate::services::{remote::enrollment, remote::master_binding};
 use crate::storage::remote_protocol::normalize_remote_base_url;
 use aster_drive_model::entities::master_binding as master_binding_entity;
-use sea_orm::DatabaseConnection;
+use sea_orm::{DatabaseConnection, Set};
 use serde::Deserialize;
 
 pub const BOOTSTRAP_REMOTE_MASTER_URL_ENV: &str = "ASTER_BOOTSTRAP_REMOTE_MASTER_URL";
@@ -64,7 +64,7 @@ pub async fn enroll(
     let bootstrap = redeem_enrollment(&master_url, &input.token).await?;
 
     let (binding, action) = transaction::with_transaction(db, async |txn| {
-        master_binding::upsert_from_enrollment(
+        let (binding, action) = master_binding::upsert_from_enrollment(
             txn,
             master_binding::UpsertMasterBindingInput {
                 name: bootstrap.remote_node_name.clone(),
@@ -74,7 +74,15 @@ pub async fn enroll(
                 is_enabled: bootstrap.is_enabled,
             },
         )
-        .await
+        .await?;
+        let binding = if binding.reverse_tunnel_enabled == bootstrap.reverse_tunnel_enabled {
+            binding
+        } else {
+            let mut active: master_binding_entity::ActiveModel = binding.into();
+            active.reverse_tunnel_enabled = Set(bootstrap.reverse_tunnel_enabled);
+            master_binding_repo::update(txn, active).await?
+        };
+        Ok::<_, AsterError>((binding, action))
     })
     .await?;
 
@@ -483,6 +491,7 @@ mod tests {
                     "access_key": "ak_test",
                     "secret_key": "sk_test",
                     "is_enabled": true,
+                    "reverse_tunnel_enabled": false,
                     "ack_token": "enr_ack_mock"
                 }
             }),
@@ -511,6 +520,7 @@ mod tests {
         assert_eq!(stored[0].name, "docker-follower");
         assert_eq!(stored[0].access_key, "ak_test");
         assert!(stored[0].storage_namespace.starts_with("mb_"));
+        assert!(!stored[0].reverse_tunnel_enabled);
 
         server.stop().await;
     }

@@ -44,7 +44,13 @@ pub struct RemoteEnrollmentBootstrap {
     pub access_key: String,
     pub secret_key: String,
     pub is_enabled: bool,
+    #[serde(default = "default_reverse_tunnel_enabled")]
+    pub reverse_tunnel_enabled: bool,
     pub ack_token: String,
+}
+
+const fn default_reverse_tunnel_enabled() -> bool {
+    true
 }
 
 #[derive(Debug, Clone)]
@@ -157,6 +163,9 @@ pub async fn redeem_enrollment_token<S: SharedRuntimeState>(
             access_key: remote_node.access_key,
             secret_key: remote_node.secret_key,
             is_enabled: remote_node.is_enabled,
+            reverse_tunnel_enabled: remote_node
+                .transport_mode
+                .resolves_to_reverse_tunnel(&remote_node.base_url),
             ack_token: format!("enr_ack_{}", enrollment.ack_token_hash),
         })
     })
@@ -246,4 +255,25 @@ fn redeem_claim_error(
     }
 
     AsterError::validation_error("enrollment token is no longer redeemable")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RemoteEnrollmentBootstrap;
+
+    #[test]
+    fn enrollment_bootstrap_defaults_legacy_payloads_to_reverse_tunnel_enabled() {
+        let bootstrap: RemoteEnrollmentBootstrap = serde_json::from_value(serde_json::json!({
+            "remote_node_id": 1,
+            "remote_node_name": "legacy-node",
+            "master_url": "https://master.example.com",
+            "access_key": "access",
+            "secret_key": "secret",
+            "is_enabled": true,
+            "ack_token": "ack"
+        }))
+        .expect("legacy enrollment payload should remain readable");
+
+        assert!(bootstrap.reverse_tunnel_enabled);
+    }
 }

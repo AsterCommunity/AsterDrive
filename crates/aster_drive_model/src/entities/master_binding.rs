@@ -19,6 +19,7 @@ pub struct Model {
     pub secret_key: String,
     pub storage_namespace: String,
     pub is_enabled: bool,
+    pub reverse_tunnel_enabled: bool,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
@@ -35,6 +36,7 @@ impl fmt::Debug for Model {
             .field("secret_key", &"***REDACTED***")
             .field("storage_namespace", &self.storage_namespace)
             .field("is_enabled", &self.is_enabled)
+            .field("reverse_tunnel_enabled", &self.reverse_tunnel_enabled)
             .field("created_at", &self.created_at)
             .field("updated_at", &self.updated_at)
             .finish()
@@ -70,6 +72,7 @@ mod tests {
             secret_key: "plain-secret-key".to_string(),
             storage_namespace: "namespace".to_string(),
             is_enabled: true,
+            reverse_tunnel_enabled: true,
             created_at: now,
             updated_at: now,
         };

@@ -38,6 +38,7 @@ pub async fn authorize_tunnel_request<S: SharedRuntimeState>(
     if !remote_node.is_enabled {
         return Err(AsterError::validation_error("remote node is disabled"));
     }
+    super::ensure_reverse_tunnel_transport(&remote_node)?;
 
     let expected = sign_internal_request(
         &remote_node.secret_key,

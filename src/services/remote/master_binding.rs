@@ -42,6 +42,7 @@ pub struct UpsertMasterBindingInput {
 pub struct SyncMasterBindingInput {
     pub name: String,
     pub is_enabled: bool,
+    pub reverse_tunnel_enabled: bool,
 }
 
 pub async fn upsert_from_enrollment<C: ConnectionTrait>(
@@ -202,6 +203,7 @@ pub async fn sync_from_primary<S: FollowerRuntimeState>(
     let mut active: master_binding::ActiveModel = existing.into();
     active.name = Set(normalized.name);
     active.is_enabled = Set(normalized.is_enabled);
+    active.reverse_tunnel_enabled = Set(normalized.reverse_tunnel_enabled);
     active.updated_at = Set(Utc::now());
 
     let updated = master_binding_repo::update(state.writer_db(), active).await?;
@@ -409,6 +411,7 @@ fn normalize_sync_input(input: SyncMasterBindingInput) -> Result<SyncMasterBindi
     Ok(SyncMasterBindingInput {
         name: normalize_non_blank("name", &input.name)?,
         is_enabled: input.is_enabled,
+        reverse_tunnel_enabled: input.reverse_tunnel_enabled,
     })
 }
 
@@ -570,6 +573,7 @@ mod tests {
             secret_key: "sk".to_string(),
             storage_namespace: "mb_test".to_string(),
             is_enabled: true,
+            reverse_tunnel_enabled: true,
             created_at: now,
             updated_at: now,
         }

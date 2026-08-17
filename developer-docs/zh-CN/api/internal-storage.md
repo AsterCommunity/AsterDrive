@@ -21,6 +21,8 @@
 
 `direct` 模式下，primary 直接请求 follower 的 `/api/v1/internal/storage/*`。`reverse_tunnel` 模式下，primary 把同样的内部存储请求登记到 tunnel registry，follower 主动向 primary 轮询或建立 WebSocket 连接取走请求，再在本地调用内部存储处理逻辑并回传响应。
 
+`auto` 由 primary 按当前 `base_url` 解析成明确的有效 transport：非空 `base_url` 使用 direct，空 `base_url` 使用 reverse tunnel。primary 会通过 `PUT /binding` 把有效的 `reverse_tunnel_enabled` 决策同步并持久化到 follower；follower 只为启用且该字段为 `true` 的 binding 启动 polling 和 WebSocket worker。transport 切换时，primary 沿切换前仍可用的 transport 发送新决策，follower reconciliation 随后启动或正常关闭对应 worker。
+
 primary 侧 reverse tunnel 当前入口：
 
 | 方法 | 路径 | 说明 |
@@ -29,7 +31,7 @@ primary 侧 reverse tunnel 当前入口：
 | `POST` | `/api/v1/internal/remote-tunnel/complete` | follower 回传轮询请求的处理结果 |
 | `GET` | `/api/v1/internal/remote-tunnel/connect` | follower 建立 WebSocket 流式 tunnel |
 
-这组 reverse tunnel 接口同样使用远端节点签名鉴权，不是浏览器或第三方客户端 API。
+这组 reverse tunnel 接口同样使用远端节点签名鉴权，不是浏览器或第三方客户端 API。primary 还会按远端节点当前有效 transport 校验入口；解析为 direct 的节点即使签名有效，也不能访问 `poll`、`complete` 或 `connect`。
 
 ## 认证方式
 

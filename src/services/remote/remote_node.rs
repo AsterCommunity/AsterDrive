@@ -241,6 +241,7 @@ pub async fn update<S: RemoteProtocolRuntimeState>(
     )
     .await?;
 
+    let previous = existing.clone();
     let mut active: managed_follower::ActiveModel = existing.into();
     if let Some(value) = normalized.name {
         active.name = Set(value);
@@ -268,10 +269,27 @@ pub async fn update<S: RemoteProtocolRuntimeState>(
         updated.id,
     )
     .await;
+    // A transport transition must deliver the new decision over the path that
+    // was usable before the follower starts or stops its tunnel worker.
+    let transport_node = if previous
+        .transport_mode
+        .resolves_to_reverse_tunnel(&previous.base_url)
+        != updated
+            .transport_mode
+            .resolves_to_reverse_tunnel(&updated.base_url)
+    {
+        &previous
+    } else {
+        &updated
+    };
     if enrollment_status_for_node(state, updated.id).await? == RemoteNodeEnrollmentStatus::Completed
-        && let Err(error) =
-            sync_remote_binding_config_with_timeout(state, &updated, REMOTE_BINDING_SYNC_TIMEOUT)
-                .await
+        && let Err(error) = sync_remote_binding_config_with_timeout(
+            state,
+            transport_node,
+            &updated,
+            REMOTE_BINDING_SYNC_TIMEOUT,
+        )
+        .await
     {
         tracing::warn!(
             remote_node_id = updated.id,
@@ -630,7 +648,8 @@ async fn run_health_test_for_node<S: RemoteProtocolRuntimeState>(
     }
 
     if let Err(error) =
-        sync_remote_binding_config_with_timeout(state, &node, REMOTE_BINDING_SYNC_TIMEOUT).await
+        sync_remote_binding_config_with_timeout(state, &node, &node, REMOTE_BINDING_SYNC_TIMEOUT)
+            .await
     {
         tracing::warn!(
             remote_node_id = node.id,
@@ -708,37 +727,47 @@ async fn refresh_registry<S: RemoteProtocolRuntimeState>(state: &S) -> Result<()
 
 async fn sync_remote_binding_config<S: RemoteProtocolRuntimeState>(
     state: &S,
-    node: &managed_follower::Model,
+    transport_node: &managed_follower::Model,
+    desired_node: &managed_follower::Model,
 ) -> Result<()> {
-    if node.transport_mode.requires_direct_base_url() && node.base_url.trim().is_empty() {
+    if transport_node.transport_mode.requires_direct_base_url()
+        && transport_node.base_url.trim().is_empty()
+    {
         return Ok(());
     }
 
-    let client = remote_storage_client_for_node(state, node)?;
+    let client = remote_storage_client_for_node(state, transport_node)?;
     client
         .sync_binding(&RemoteBindingSyncRequest {
-            name: node.name.clone(),
-            is_enabled: node.is_enabled,
+            name: desired_node.name.clone(),
+            is_enabled: desired_node.is_enabled,
+            reverse_tunnel_enabled: desired_node
+                .transport_mode
+                .resolves_to_reverse_tunnel(&desired_node.base_url),
         })
         .await
 }
 
 async fn sync_remote_binding_config_with_timeout<S: RemoteProtocolRuntimeState>(
     state: &S,
-    node: &managed_follower::Model,
+    transport_node: &managed_follower::Model,
+    desired_node: &managed_follower::Model,
     timeout: Duration,
 ) -> Result<()> {
-    tokio::time::timeout(timeout, sync_remote_binding_config(state, node))
-        .await
-        .map_err(|_| {
-            crate::errors::storage_driver_error(
-                StorageErrorKind::Transient,
-                format!(
-                    "sync remote binding config timed out after {}s",
-                    timeout.as_secs()
-                ),
-            )
-        })?
+    tokio::time::timeout(
+        timeout,
+        sync_remote_binding_config(state, transport_node, desired_node),
+    )
+    .await
+    .map_err(|_| {
+        crate::errors::storage_driver_error(
+            StorageErrorKind::Transient,
+            format!(
+                "sync remote binding config timed out after {}s",
+                timeout.as_secs()
+            ),
+        )
+    })?
 }
 
 fn map_remote_node_db_err(error: DbErr) -> AsterError {

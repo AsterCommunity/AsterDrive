@@ -110,7 +110,7 @@ async fn reconcile_binding_workers(
 
     let enabled = bindings
         .into_iter()
-        .filter(|binding| binding.is_enabled)
+        .filter(binding_needs_reverse_tunnel)
         .collect::<Vec<_>>();
 
     let enabled_ids = enabled.iter().map(|binding| binding.id).collect::<Vec<_>>();
@@ -363,10 +363,13 @@ async fn connect_stream_lane_once(
     );
 
     let (mut write, mut read) = ws.split();
-    while !shutdown_token.is_cancelled() {
+    loop {
         let message = tokio::select! {
             biased;
-            _ = shutdown_token.cancelled() => break,
+            _ = shutdown_token.cancelled() => {
+                close_stream_lane(&mut write, &mut read).await?;
+                break;
+            },
             message = read.next() => message,
         };
         let Some(message) = message else {
@@ -402,6 +405,31 @@ async fn connect_stream_lane_once(
         execute_stream_tunnel_request(client, local_base_url, frame, &mut read, &mut write).await?;
     }
 
+    Ok(())
+}
+
+async fn close_stream_lane<R, W>(write: &mut W, read: &mut R) -> Result<()>
+where
+    R: futures::Stream<
+            Item = std::result::Result<WsMessage, tokio_tungstenite::tungstenite::Error>,
+        > + Unpin,
+    W: futures::Sink<WsMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    write.send(WsMessage::Close(None)).await.map_err(|error| {
+        crate::errors::storage_driver_error(
+            StorageErrorKind::Transient,
+            format!("close reverse tunnel streaming lane: {error}"),
+        )
+    })?;
+    let _ = tokio::time::timeout(FOLLOWER_TUNNEL_WORKER_JOIN_TIMEOUT, async {
+        while let Some(message) = read.next().await {
+            match message {
+                Ok(WsMessage::Close(_)) | Err(_) => break,
+                _ => {}
+            }
+        }
+    })
+    .await;
     Ok(())
 }
 
@@ -1039,16 +1067,24 @@ fn tunnel_http_client() -> Result<reqwest::Client> {
 
 fn binding_worker_fingerprint(binding: &master_binding::Model) -> String {
     format!(
-        "{}\n{}\n{}\n{}",
-        binding.master_url, binding.access_key, binding.secret_key, binding.is_enabled
+        "{}\n{}\n{}\n{}\n{}",
+        binding.master_url,
+        binding.access_key,
+        binding.secret_key,
+        binding.is_enabled,
+        binding.reverse_tunnel_enabled
     )
+}
+
+fn binding_needs_reverse_tunnel(binding: &master_binding::Model) -> bool {
+    binding.is_enabled && binding.reverse_tunnel_enabled
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        execute_stream_tunnel_request, is_allowed_tunnel_target, signed_master_ws_request,
-        stream_connect_url,
+        binding_needs_reverse_tunnel, close_stream_lane, execute_stream_tunnel_request,
+        is_allowed_tunnel_target, signed_master_ws_request, stream_connect_url,
     };
     use crate::storage::remote_protocol::tunnel::server::{
         RemoteTunnelStreamFrame, RemoteTunnelStreamFrameKind, decode_stream_frame,
@@ -1430,9 +1466,36 @@ mod tests {
             access_key: "binding-access".to_string(),
             secret_key: "binding-secret".to_string(),
             is_enabled: true,
+            reverse_tunnel_enabled: true,
             storage_namespace: "namespace".to_string(),
             created_at: now,
             updated_at: now,
         }
+    }
+
+    #[test]
+    fn binding_worker_requires_enabled_reverse_tunnel_decision() {
+        let mut binding = build_binding();
+        assert!(binding_needs_reverse_tunnel(&binding));
+
+        binding.reverse_tunnel_enabled = false;
+        assert!(!binding_needs_reverse_tunnel(&binding));
+
+        binding.reverse_tunnel_enabled = true;
+        binding.is_enabled = false;
+        assert!(!binding_needs_reverse_tunnel(&binding));
+    }
+
+    #[tokio::test]
+    async fn stopping_stream_lane_sends_normal_websocket_close() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut sink = ChannelSink { tx };
+        let mut stream = futures::stream::iter(vec![Ok(WsMessage::Close(None))]);
+
+        close_stream_lane(&mut sink, &mut stream)
+            .await
+            .expect("stream lane should close cleanly");
+
+        assert!(matches!(rx.recv().await, Some(WsMessage::Close(None))));
     }
 }

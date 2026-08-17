@@ -336,6 +336,7 @@ async fn sync_binding(
         master_binding::SyncMasterBindingInput {
             name: body.name.clone(),
             is_enabled: body.is_enabled,
+            reverse_tunnel_enabled: body.reverse_tunnel_enabled,
         },
     )
     .await?;
