@@ -9,6 +9,25 @@ use super::context::{
 };
 use aster_drive_model::entities::audit_log;
 
+#[test]
+fn storage_policy_promotion_details_keep_connector_transition_evidence() {
+    let details = super::details(super::StoragePolicyPromotionAuditDetails {
+        promotion_id: "promote_from_s3",
+        source_connector_id: "asterdrive.storage.s3",
+        target_connector_id: "asterdrive.storage.alibaba_oss",
+        verified_blob_count: 10,
+    })
+    .expect("promotion audit details should serialize");
+
+    assert_eq!(details["promotion_id"], "promote_from_s3");
+    assert_eq!(details["source_connector_id"], "asterdrive.storage.s3");
+    assert_eq!(
+        details["target_connector_id"],
+        "asterdrive.storage.alibaba_oss"
+    );
+    assert_eq!(details["verified_blob_count"], 10);
+}
+
 async fn in_memory_db() -> sea_orm::DatabaseConnection {
     let db = sea_orm::Database::connect("sqlite::memory:")
         .await

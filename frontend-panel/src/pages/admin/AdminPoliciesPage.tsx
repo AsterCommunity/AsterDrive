@@ -45,6 +45,7 @@ import { useStoragePolicyDescriptorController } from "./admin-policies-page/useS
 import { useStoragePolicyEditorController } from "./admin-policies-page/useStoragePolicyEditorController";
 import { useStoragePolicyListController } from "./admin-policies-page/useStoragePolicyListController";
 import { useStoragePolicyMigrationController } from "./admin-policies-page/useStoragePolicyMigrationController";
+import { useStoragePolicyPromotionController } from "./admin-policies-page/useStoragePolicyPromotionController";
 
 function getStorageAuthorizationCallbackUrl() {
 	const apiBaseUrl = new URL(config.apiBaseUrl, window.location.origin);
@@ -285,6 +286,31 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 		submitting,
 		syncNormalizedPolicyForm,
 	});
+	const promotionController = useStoragePolicyPromotionController({
+		currentDescriptor: currentStorageDriverDescriptor,
+		editingId,
+		editingPolicy,
+		form,
+		loadPolicyCapacity,
+		onDraftApplied: () => {
+			actionController.resetActionState();
+			credentialController.reset();
+			setSaveAnywayConfirmOpen(false);
+			setCreateStepTouched(false);
+		},
+		onPromoted: () => {
+			actionController.resetActionState();
+			credentialController.reset();
+			setSaveAnywayConfirmOpen(false);
+		},
+		setEditingPolicy,
+		setForm,
+		setPolicies: policyList.setPolicies,
+		storageDriverDescriptors:
+			editingId !== null
+				? descriptorController.storageDriverDescriptors
+				: descriptorController.creatableStorageDriverDescriptors,
+	});
 
 	const resetDialogState = useCallback(() => {
 		policyCapacityRequestSerial.current += 1;
@@ -293,10 +319,16 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 		setPolicyCapacityLoading(false);
 		credentialController.reset();
 		actionController.resetActionState();
+		promotionController.reset();
 		descriptorController.resetRemoteStorageTargets();
 		setCreateStep(0);
 		setCreateStepTouched(false);
-	}, [actionController, credentialController, descriptorController]);
+	}, [
+		actionController,
+		credentialController,
+		descriptorController,
+		promotionController,
+	]);
 
 	const openCreate = () => {
 		setEditingId(null);
@@ -481,6 +513,10 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 			connectorActionConfirmId={actionController.connectorActionConfirmId}
 			connectorActionSubmittingId={actionController.connectorActionSubmittingId}
 			connectorActionValues={actionController.connectorActionValues}
+			connectorPromotionBlocked={promotionController.blocked}
+			connectorPromotionCandidates={promotionController.candidates}
+			connectorPromotionConfirmKey={promotionController.confirmKey}
+			connectorPromotionSubmittingKey={promotionController.submittingKey}
 			remoteNodes={descriptorController.remoteNodes}
 			remoteStorageTargetConnectorDescriptors={
 				descriptorController.remoteStorageTargetConnectorDescriptors
@@ -506,6 +542,8 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 			storageDialogPresentation={setupMode ? "setup" : "dialog"}
 			onStorageSetupLogout={setupMode ? () => void logout() : undefined}
 			onCancelConnectorAction={actionController.cancelConnectorAction}
+			onApplyDraftConnectorPromotion={promotionController.applyDraft}
+			onCancelConnectorPromotion={promotionController.cancel}
 			onCancelSaveAnyway={editorController.cancelSaveAnyway}
 			onConfirmSaveAnyway={() =>
 				editorController.confirmSaveAnyway(actionController)
@@ -513,6 +551,9 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 			onConfirmConnectorAction={(actionId) => {
 				setSaveAnywayConfirmOpen(false);
 				void actionController.executeConnectorAction(actionId);
+			}}
+			onConfirmConnectorPromotion={(candidate) => {
+				void promotionController.confirm(candidate);
 			}}
 			onStartStorageAuthorization={credentialController.startAuthorization}
 			onValidateStorageCredential={credentialController.validate}
@@ -526,6 +567,7 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 				setSaveAnywayConfirmOpen(false);
 				actionController.requestConnectorAction(actionId);
 			}}
+			onRequestConnectorPromotion={promotionController.request}
 			onRunConnectionTest={() => actionController.runConnectionTest()}
 			onFieldChange={setField}
 			onConnectorIdChange={setConnectorId}

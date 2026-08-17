@@ -80,3 +80,22 @@ pub async fn update<C: ConnectionTrait>(
 ) -> Result<master_binding::Model> {
     model.update(db).await.map_err(AsterError::from)
 }
+
+pub async fn mark_applied_revision<C: ConnectionTrait>(
+    db: &C,
+    id: i64,
+    desired_revision: i64,
+) -> Result<()> {
+    MasterBinding::update_many()
+        .col_expr(
+            master_binding::Column::AppliedRevision,
+            sea_orm::sea_query::Expr::value(desired_revision),
+        )
+        .filter(master_binding::Column::Id.eq(id))
+        .filter(master_binding::Column::DesiredRevision.eq(desired_revision))
+        .filter(master_binding::Column::AppliedRevision.lt(desired_revision))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(())
+}

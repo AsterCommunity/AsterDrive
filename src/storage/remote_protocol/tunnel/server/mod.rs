@@ -94,6 +94,7 @@ pub async fn poll<S: RemoteProtocolRuntimeState>(
     if !remote_node.is_enabled {
         return Err(AsterError::validation_error("remote node is disabled"));
     }
+    ensure_reverse_tunnel_transport(remote_node)?;
 
     claim_tunnel_ownership(state, remote_node).await?;
 
@@ -124,6 +125,7 @@ pub async fn complete<S: RemoteProtocolRuntimeState>(
     remote_node: &managed_follower::Model,
     response: RemoteTunnelResponse,
 ) -> Result<()> {
+    ensure_reverse_tunnel_transport(remote_node)?;
     if response.body.len() > REMOTE_TUNNEL_BODY_LIMIT {
         return Err(crate::errors::storage_driver_error(
             StorageErrorKind::Unsupported,
@@ -161,6 +163,7 @@ pub async fn connect_stream<S: RemoteProtocolRuntimeState>(
     if !remote_node.is_enabled {
         return Err(AsterError::validation_error("remote node is disabled"));
     }
+    ensure_reverse_tunnel_transport(&remote_node)?;
 
     let owner_release_guard = claim_stream_tunnel_ownership(state, &remote_node).await?;
     let owner_directory = owner_release_guard.directory();
@@ -366,7 +369,11 @@ pub fn tunnel_info_for_node<S: RemoteProtocolRuntimeState>(
     node: &managed_follower::Model,
 ) -> RemoteTunnelInfo {
     RemoteTunnelInfo {
-        status: if state.remote_protocol().tunnel_registry().is_online(node) {
+        status: if node
+            .transport_mode
+            .resolves_to_reverse_tunnel(&node.base_url)
+            && state.remote_protocol().tunnel_registry().is_online(node)
+        {
             RemoteTunnelOnlineStatus::Online
         } else {
             RemoteTunnelOnlineStatus::Offline
@@ -379,6 +386,19 @@ pub fn tunnel_info_for_node<S: RemoteProtocolRuntimeState>(
             .last_error(node.id)
             .unwrap_or_else(|| node.tunnel_last_error.clone()),
         last_seen_at: node.tunnel_last_seen_at,
+    }
+}
+
+pub(crate) fn ensure_reverse_tunnel_transport(remote_node: &managed_follower::Model) -> Result<()> {
+    if remote_node
+        .transport_mode
+        .resolves_to_reverse_tunnel(&remote_node.base_url)
+    {
+        Ok(())
+    } else {
+        Err(AsterError::validation_error(
+            "remote node transport does not resolve to reverse tunnel",
+        ))
     }
 }
 

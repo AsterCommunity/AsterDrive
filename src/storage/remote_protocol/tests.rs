@@ -778,6 +778,8 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
         .sync_binding(&RemoteBindingSyncRequest {
             name: "Follower A".to_string(),
             is_enabled: true,
+            resolved_transport: aster_drive_model::types::ResolvedRemoteTransport::ReverseTunnel,
+            desired_revision: 2,
         })
         .await
         .expect("binding sync should succeed");
@@ -845,6 +847,16 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
             .all(|request| request.access_key.as_deref() == Some("access-key")),
         "all signed requests should use trimmed access key: {requests:?}"
     );
+    let binding_request = requests
+        .iter()
+        .find(|request| {
+            request.method == "PUT" && request.path_and_query == "/api/v1/internal/storage/binding"
+        })
+        .expect("binding synchronization request should be recorded");
+    let binding_body: serde_json::Value = serde_json::from_slice(&binding_request.body)
+        .expect("binding synchronization request body should be JSON");
+    assert_eq!(binding_body["resolved_transport"], "reverse_tunnel");
+    assert_eq!(binding_body["desired_revision"], 2);
     assert!(requests.iter().any(|request| {
         request.method == "PUT"
             && request

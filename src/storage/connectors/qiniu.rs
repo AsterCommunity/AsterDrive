@@ -9,9 +9,10 @@ use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploa
 use aster_drive_storage::connector_descriptor::{
     ObjectStorageConnectorDescriptorInput, StorageConnectorBadgeRgb,
     StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorFieldDisplayInput,
-    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorUiDescriptorInput,
-    object_storage_connector_descriptor, storage_connector_field,
-    storage_connector_field_with_display,
+    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorPromotionDescriptor,
+    StorageConnectorPromotionRequirement, StorageConnectorPromotionValueMatcher,
+    StorageConnectorUiDescriptorInput, object_storage_connector_descriptor,
+    storage_connector_field, storage_connector_field_with_display,
 };
 use aster_drive_storage::{
     StorageConnectorConfigSchema, StorageConnectorFieldDefaultMode,
@@ -24,6 +25,44 @@ use super::{StorageConnector, StorageConnectorCredentialInput, StorageConnectorU
 mod localization;
 
 pub struct QiniuConnector;
+
+const PROMOTE_FROM_S3_ID: &str = "promote_from_s3";
+
+fn promote_from_s3_descriptor() -> StorageConnectorPromotionDescriptor {
+    super::s3::s3_compatible_promotion_descriptor(super::s3::S3CompatiblePromotionDescriptorInput {
+        promotion_id: PROMOTE_FROM_S3_ID,
+        description_key: "policy_qiniu_promote_from_s3_desc",
+        confirmation_key: "policy_qiniu_promote_from_s3_confirm",
+        requirements: vec![
+            StorageConnectorPromotionRequirement {
+                source_field: "endpoint".to_string(),
+                matcher: StorageConnectorPromotionValueMatcher::StringPrefix {
+                    prefix: "https://".to_string(),
+                    case_sensitive: false,
+                },
+                negate: false,
+            },
+            StorageConnectorPromotionRequirement {
+                source_field: "endpoint".to_string(),
+                matcher: StorageConnectorPromotionValueMatcher::UrlHostSuffix {
+                    suffix: ".qiniucs.com".to_string(),
+                },
+                negate: false,
+            },
+            StorageConnectorPromotionRequirement {
+                source_field: "s3_region".to_string(),
+                matcher: StorageConnectorPromotionValueMatcher::StringEquals {
+                    value: "auto".to_string(),
+                    case_sensitive: false,
+                },
+                negate: true,
+            },
+        ],
+        target_region_field: Some("s3_region"),
+        target_access_key_field: "qiniu_access_key",
+        target_secret_key_field: "qiniu_secret_key",
+    })
+}
 
 aster_drive_storage::storage_connector_schema! {
     pub struct QiniuConnectorConfigV1 {
@@ -121,33 +160,36 @@ impl QiniuConnector {
     }
 
     pub(super) fn descriptor_definition() -> StorageConnectorDescriptor {
-        object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
-            connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
-            label: "Qiniu Kodo",
-            description: "Qiniu Cloud Kodo S3-compatible object storage policy",
-            ui: StorageConnectorUiDescriptorInput {
-                label_key: "driver_type_qiniu",
-                description_key: "policy_wizard_qiniu_storage_desc",
-                icon_src: Some("/static/storage/qiniuyun-kodo.svg"),
-                icon_name: None,
-                badge_rgb: StorageConnectorBadgeRgb::new(0, 148, 255),
-                helper_key: "policy_wizard_qiniu_helper",
-                config_step_title_key: "policy_wizard_step_connection_title",
-                config_step_description_key: "policy_wizard_step_qiniu_connection_desc",
-                edit_context_key: "policy_edit_context_qiniu_desc",
-                base_path_empty_display: "core:root",
-                base_path_placeholder: "tenant/prefix",
-            },
-            deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
-            supports_initial_setup: true,
-            credential_mode: QiniuConnectorConfigV1::credential_mode(),
-            fields: QiniuConnectorConfigV1::descriptor_fields(),
-            presigned_part_etag_required: true,
-            storage_native_processing: false,
-            config_schema_version: 1,
-            credential_schema_version: Some(1),
-            related_issues: vec![519],
-        })
+        let mut descriptor =
+            object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
+                connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
+                label: "Qiniu Kodo",
+                description: "Qiniu Cloud Kodo S3-compatible object storage policy",
+                ui: StorageConnectorUiDescriptorInput {
+                    label_key: "driver_type_qiniu",
+                    description_key: "policy_wizard_qiniu_storage_desc",
+                    icon_src: Some("/static/storage/qiniuyun-kodo.svg"),
+                    icon_name: None,
+                    badge_rgb: StorageConnectorBadgeRgb::new(0, 148, 255),
+                    helper_key: "policy_wizard_qiniu_helper",
+                    config_step_title_key: "policy_wizard_step_connection_title",
+                    config_step_description_key: "policy_wizard_step_qiniu_connection_desc",
+                    edit_context_key: "policy_edit_context_qiniu_desc",
+                    base_path_empty_display: "core:root",
+                    base_path_placeholder: "tenant/prefix",
+                },
+                deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
+                supports_initial_setup: true,
+                credential_mode: QiniuConnectorConfigV1::credential_mode(),
+                fields: QiniuConnectorConfigV1::descriptor_fields(),
+                presigned_part_etag_required: true,
+                storage_native_processing: false,
+                config_schema_version: 1,
+                credential_schema_version: Some(1),
+                related_issues: vec![519, 474],
+            });
+        descriptor.promotions.push(promote_from_s3_descriptor());
+        descriptor
     }
 
     fn build_driver(

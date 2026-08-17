@@ -83,6 +83,31 @@ fn descriptor(id: &'static str) -> StorageConnectorDescriptor {
     connector(id).descriptor()
 }
 
+fn localization_for_descriptor(
+    descriptor: &StorageConnectorDescriptor,
+) -> aster_drive_storage::StorageConnectorLocalization {
+    let locale = aster_drive_model::types::LocaleTag::parse("en").expect("English locale");
+    let messages = descriptor
+        .localization_message_ids()
+        .into_iter()
+        .map(|message_id| (message_id.to_string(), message_id.to_string()))
+        .collect();
+    aster_drive_storage::StorageConnectorLocalization::new(
+        descriptor.connector_id.clone(),
+        locale.clone(),
+        "test",
+        BTreeMap::from([(locale, messages)]),
+    )
+    .expect("generated promotion localization")
+}
+
+fn contract_connector(descriptor: StorageConnectorDescriptor) -> Arc<dyn StorageConnector> {
+    Arc::new(LocalizationContractConnector {
+        localization: localization_for_descriptor(&descriptor),
+        descriptor,
+    })
+}
+
 fn local_config(base_path: &str) -> LocalConnectorConfigV1 {
     LocalConnectorConfigV1 {
         base_path: base_path.to_string(),
@@ -347,6 +372,219 @@ fn registry_rejects_duplicate_and_unknown_connector_ids() {
         .err()
         .expect("invalid request connector id must be rejected as input");
     assert_eq!(invalid_input_error.code(), "E005");
+}
+
+#[test]
+fn registry_rejects_invalid_cross_connector_promotion_contracts() {
+    let target = descriptor(TencentCosConnector::ID);
+
+    let error = match StorageConnectorRegistry::new(vec![contract_connector(target.clone())]) {
+        Ok(_) => panic!("missing promotion source must fail registration"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("unavailable source connector"));
+
+    let mut missing_source_field = target.clone();
+    missing_source_field.promotions[0].requirements[0].source_field = "missing".to_string();
+    let error = match StorageConnectorRegistry::new(vec![
+        Arc::new(S3Connector),
+        contract_connector(missing_source_field),
+    ]) {
+        Ok(_) => panic!("missing source requirement field must fail registration"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("undeclared source"));
+
+    let mut incompatible_mapping = target.clone();
+    incompatible_mapping.promotions[0].config_mappings[0].source_field =
+        "s3_path_style".to_string();
+    let error = match StorageConnectorRegistry::new(vec![
+        Arc::new(S3Connector),
+        contract_connector(incompatible_mapping),
+    ]) {
+        Ok(_) => panic!("incompatible field mapping must fail registration"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("maps incompatible"));
+
+    let mut secret_config_target = target.clone();
+    secret_config_target.fields.push(
+        aster_drive_storage::connector_descriptor::storage_connector_field(
+            "config_secret",
+            StorageConnectorFieldScope::ConnectorConfig,
+            aster_drive_storage::connector_descriptor::StorageConnectorFieldKind::Secret,
+            false,
+            true,
+        ),
+    );
+    secret_config_target.promotions[0].config_mappings.push(
+        aster_drive_storage::StorageConnectorPromotionFieldMapping {
+            source_field: "endpoint".to_string(),
+            target_field: "config_secret".to_string(),
+            preserve_value: false,
+        },
+    );
+    let error = match StorageConnectorRegistry::new(vec![
+        Arc::new(S3Connector),
+        contract_connector(secret_config_target),
+    ]) {
+        Ok(_) => panic!("Text to Secret config mapping must fail registration"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("maps incompatible"));
+
+    let mut missing_required_config = target.clone();
+    missing_required_config.promotions[0]
+        .config_mappings
+        .retain(|mapping| mapping.target_field != "bucket");
+    let error = match StorageConnectorRegistry::new(vec![
+        Arc::new(S3Connector),
+        contract_connector(missing_required_config),
+    ]) {
+        Ok(_) => panic!("missing required target config must fail registration"),
+        Err(error) => error,
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("does not populate required target")
+    );
+    assert!(error.to_string().contains("bucket"));
+
+    let mut missing_required_credential = target.clone();
+    missing_required_credential.promotions[0]
+        .credential_mappings
+        .retain(|mapping| mapping.target_field != "tencent_cos_secret_key");
+    let error = match StorageConnectorRegistry::new(vec![
+        Arc::new(S3Connector),
+        contract_connector(missing_required_credential),
+    ]) {
+        Ok(_) => panic!("missing required target credential must fail registration"),
+        Err(error) => error,
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("does not populate required target")
+    );
+    assert!(error.to_string().contains("tencent_cos_secret_key"));
+
+    let mut incompatible_credentials = target;
+    incompatible_credentials.promotions[0].source_connector_id =
+        ConnectorId::declared(LocalConnector::ID);
+    let error = match StorageConnectorRegistry::new(vec![
+        Arc::new(LocalConnector),
+        contract_connector(incompatible_credentials),
+    ]) {
+        Ok(_) => panic!("incompatible credential modes must fail registration"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("compatible static credentials"));
+}
+
+#[test]
+fn registry_accepts_credential_free_and_string_select_promotion_contracts() {
+    use aster_drive_storage::connector_descriptor::{
+        StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorPromotionDescriptor,
+        StorageConnectorPromotionFieldMapping, StorageConnectorPromotionId,
+        StorageConnectorPromotionRequirement, StorageConnectorPromotionValueMatcher,
+        storage_connector_field, storage_connector_field_with_options,
+    };
+
+    let mut credential_free_target = descriptor(LocalConnector::ID);
+    credential_free_target.connector_id = ConnectorId::declared("com.example.local_target");
+    credential_free_target.promotions = vec![StorageConnectorPromotionDescriptor {
+        promotion_id: StorageConnectorPromotionId::declared("promote_local"),
+        source_connector_id: ConnectorId::declared(LocalConnector::ID),
+        description_key: "promotion_desc".to_string(),
+        confirmation_key: "promotion_confirm".to_string(),
+        requirements: Vec::new(),
+        config_mappings: vec![StorageConnectorPromotionFieldMapping {
+            source_field: "base_path".to_string(),
+            target_field: "base_path".to_string(),
+            preserve_value: true,
+        }],
+        credential_mappings: Vec::new(),
+    }];
+    StorageConnectorRegistry::new(vec![
+        Arc::new(LocalConnector),
+        contract_connector(credential_free_target),
+    ])
+    .expect("credential-free promotion contract should register");
+
+    let mut secret_credential_target = descriptor(TencentCosConnector::ID);
+    let target_access_key = secret_credential_target
+        .fields
+        .iter_mut()
+        .find(|field| field.name == "tencent_cos_secret_id")
+        .expect("COS access-key credential field");
+    target_access_key.kind = StorageConnectorFieldKind::Secret;
+    target_access_key.secret = true;
+    StorageConnectorRegistry::new(vec![
+        Arc::new(S3Connector),
+        contract_connector(secret_credential_target),
+    ])
+    .expect("Text to Secret credential mapping should remain compatible");
+
+    let mut select_source = descriptor(LocalConnector::ID);
+    select_source.connector_id = ConnectorId::declared("com.example.select_source");
+    select_source
+        .fields
+        .push(storage_connector_field_with_options(
+            "provider_mode",
+            StorageConnectorFieldScope::ConnectorConfig,
+            StorageConnectorFieldKind::Select,
+            false,
+            false,
+            vec!["standard", "archive"],
+        ));
+    let mut select_target = descriptor(LocalConnector::ID);
+    select_target.connector_id = ConnectorId::declared("com.example.select_target");
+    select_target.promotions = vec![StorageConnectorPromotionDescriptor {
+        promotion_id: StorageConnectorPromotionId::declared("promote_select"),
+        source_connector_id: select_source.connector_id.clone(),
+        description_key: "promotion_desc".to_string(),
+        confirmation_key: "promotion_confirm".to_string(),
+        requirements: vec![StorageConnectorPromotionRequirement {
+            source_field: "provider_mode".to_string(),
+            matcher: StorageConnectorPromotionValueMatcher::StringEquals {
+                value: "archive".to_string(),
+                case_sensitive: false,
+            },
+            negate: false,
+        }],
+        config_mappings: vec![StorageConnectorPromotionFieldMapping {
+            source_field: "base_path".to_string(),
+            target_field: "base_path".to_string(),
+            preserve_value: true,
+        }],
+        credential_mappings: Vec::new(),
+    }];
+    StorageConnectorRegistry::new(vec![
+        contract_connector(select_source.clone()),
+        contract_connector(select_target.clone()),
+    ])
+    .expect("string select requirement should register");
+
+    let mut numeric_source = select_source;
+    numeric_source.fields.push(storage_connector_field(
+        "priority",
+        StorageConnectorFieldScope::ConnectorConfig,
+        StorageConnectorFieldKind::Number,
+        false,
+        false,
+    ));
+    let mut invalid_target = select_target;
+    invalid_target.promotions[0].source_connector_id = numeric_source.connector_id.clone();
+    invalid_target.promotions[0].requirements[0].source_field = "priority".to_string();
+    let error = match StorageConnectorRegistry::new(vec![
+        contract_connector(numeric_source),
+        contract_connector(invalid_target),
+    ]) {
+        Ok(_) => panic!("numeric promotion requirement must fail registration"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("must be string-valued"));
 }
 
 #[test]
@@ -978,6 +1216,24 @@ fn s3_connector_preserves_sigv4_region_validation_contract() {
 fn alibaba_oss_connector_validates_endpoint_region_and_cname_contract() {
     let connector = connector(AlibabaOssConnector::ID);
     let descriptor = connector.descriptor();
+    assert_eq!(descriptor.related_issues, vec![450, 474]);
+    assert!(descriptor.promotions.iter().any(|promotion| {
+        promotion.promotion_id.as_str() == "promote_from_s3"
+            && promotion.source_connector_id.as_str() == S3Connector::ID
+            && promotion
+                .config_mappings
+                .iter()
+                .any(|mapping| mapping.target_field == "oss_region")
+            && promotion.requirements.iter().any(|requirement| {
+                matches!(
+                    &requirement.matcher,
+                    aster_drive_storage::connector_descriptor::StorageConnectorPromotionValueMatcher::StringPrefix {
+                        prefix,
+                        case_sensitive: false,
+                    } if prefix == "https://"
+                )
+            })
+    }));
     for field_name in [
         "endpoint",
         "oss_server_side_endpoint",
@@ -1444,7 +1700,15 @@ fn qiniu_descriptor_declares_s3_compatible_capabilities() {
     );
     assert!(descriptor.ui.icon_name.is_none());
     assert_eq!(descriptor.config_schema_version, 1);
-    assert_eq!(descriptor.related_issues, vec![519]);
+    assert_eq!(descriptor.related_issues, vec![519, 474]);
+    assert!(descriptor.promotions.iter().any(|promotion| {
+        promotion.promotion_id.as_str() == "promote_from_s3"
+            && promotion.source_connector_id.as_str() == S3Connector::ID
+            && promotion
+                .requirements
+                .iter()
+                .any(|requirement| requirement.negate)
+    }));
     assert!(descriptor.capabilities.presigned_download);
     assert!(descriptor.upload_workflows.presigned_upload);
     assert!(descriptor.upload_workflows.object_multipart_upload);

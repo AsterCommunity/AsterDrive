@@ -182,6 +182,7 @@ impl RemoteConnector {
                 draft_connection_test_action_descriptor(),
                 saved_connection_test_action_descriptor(false),
             ],
+            promotions: Vec::new(),
             related_issues: vec![328, 329],
         }
     }
@@ -420,6 +421,8 @@ impl StorageConnector for RemoteConnector {
             last_checked_at: None,
             tunnel_last_error: String::new(),
             tunnel_last_seen_at: None,
+            binding_revision: 1,
+            binding_applied_revision: 0,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };

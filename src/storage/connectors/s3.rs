@@ -9,7 +9,9 @@ use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
     ObjectStorageConnectorDescriptorInput, StorageConnectorBadgeRgb,
     StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorFieldDisplayInput,
-    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorUiDescriptorInput,
+    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorPromotionDescriptor,
+    StorageConnectorPromotionFieldMapping, StorageConnectorPromotionId,
+    StorageConnectorPromotionRequirement, StorageConnectorUiDescriptorInput,
     object_storage_connector_descriptor, storage_connector_field,
     storage_connector_field_with_display,
 };
@@ -21,6 +23,58 @@ use super::{StorageConnector, StorageConnectorCredentialInput, StorageConnectorU
 mod localization;
 
 pub struct S3Connector;
+
+pub(super) struct S3CompatiblePromotionDescriptorInput {
+    pub promotion_id: &'static str,
+    pub description_key: &'static str,
+    pub confirmation_key: &'static str,
+    pub requirements: Vec<StorageConnectorPromotionRequirement>,
+    pub target_region_field: Option<&'static str>,
+    pub target_access_key_field: &'static str,
+    pub target_secret_key_field: &'static str,
+}
+
+pub(super) fn s3_compatible_promotion_descriptor(
+    input: S3CompatiblePromotionDescriptorInput,
+) -> StorageConnectorPromotionDescriptor {
+    let mapping = |source_field: &str, target_field: &str, preserve_value: bool| {
+        StorageConnectorPromotionFieldMapping {
+            source_field: source_field.to_string(),
+            target_field: target_field.to_string(),
+            preserve_value,
+        }
+    };
+    let mut config_mappings = vec![
+        mapping("endpoint", "endpoint", false),
+        mapping("bucket", "bucket", true),
+        mapping("base_path", "base_path", true),
+        mapping(
+            "object_storage_upload_strategy",
+            "object_storage_upload_strategy",
+            false,
+        ),
+        mapping(
+            "object_storage_download_strategy",
+            "object_storage_download_strategy",
+            false,
+        ),
+    ];
+    if let Some(target_region_field) = input.target_region_field {
+        config_mappings.push(mapping("s3_region", target_region_field, false));
+    }
+    StorageConnectorPromotionDescriptor {
+        promotion_id: StorageConnectorPromotionId::declared(input.promotion_id),
+        source_connector_id: aster_drive_storage::ConnectorId::declared(S3Connector::ID),
+        description_key: input.description_key.to_string(),
+        confirmation_key: input.confirmation_key.to_string(),
+        requirements: input.requirements,
+        config_mappings,
+        credential_mappings: vec![
+            mapping("s3_access_key_id", input.target_access_key_field, false),
+            mapping("s3_secret_access_key", input.target_secret_key_field, false),
+        ],
+    }
+}
 
 aster_drive_storage::storage_connector_schema! {
     pub struct S3ConnectorConfigV1 {

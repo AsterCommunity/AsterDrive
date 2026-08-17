@@ -8,9 +8,9 @@ use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::db::repository::master_binding_repo;
 use crate::errors::{AsterError, Result};
 use crate::services::{remote::enrollment, remote::master_binding};
-use crate::storage::remote_protocol::normalize_remote_base_url;
+use crate::storage::remote_protocol::{ApiEnvelope, normalize_remote_base_url};
 use aster_drive_model::entities::master_binding as master_binding_entity;
-use sea_orm::DatabaseConnection;
+use sea_orm::{DatabaseConnection, Set};
 use serde::Deserialize;
 
 pub const BOOTSTRAP_REMOTE_MASTER_URL_ENV: &str = "ASTER_BOOTSTRAP_REMOTE_MASTER_URL";
@@ -36,13 +36,6 @@ pub enum NodeEnrollmentBootstrapOutcome {
     AlreadyConfigured,
 }
 
-#[derive(Debug, Deserialize)]
-struct ApiEnvelope<T> {
-    code: ApiErrorCode,
-    msg: String,
-    data: Option<T>,
-}
-
 pub fn follower_seed_config() -> crate::config::Config {
     let mut default = crate::config::Config::default();
     default.server.start_mode = crate::config::node_mode::NodeRuntimeMode::Follower;
@@ -64,7 +57,7 @@ pub async fn enroll(
     let bootstrap = redeem_enrollment(&master_url, &input.token).await?;
 
     let (binding, action) = transaction::with_transaction(db, async |txn| {
-        master_binding::upsert_from_enrollment(
+        let (binding, action) = master_binding::upsert_from_enrollment(
             txn,
             master_binding::UpsertMasterBindingInput {
                 name: bootstrap.remote_node_name.clone(),
@@ -74,7 +67,19 @@ pub async fn enroll(
                 is_enabled: bootstrap.is_enabled,
             },
         )
-        .await
+        .await?;
+        let binding = if binding.resolved_transport == bootstrap.resolved_transport
+            && binding.desired_revision == bootstrap.desired_revision
+        {
+            binding
+        } else {
+            let mut active: master_binding_entity::ActiveModel = binding.into();
+            active.resolved_transport = Set(bootstrap.resolved_transport);
+            active.desired_revision = Set(bootstrap.desired_revision);
+            active.applied_revision = Set(0);
+            master_binding_repo::update(txn, active).await?
+        };
+        Ok::<_, AsterError>((binding, action))
     })
     .await?;
 
@@ -483,6 +488,8 @@ mod tests {
                     "access_key": "ak_test",
                     "secret_key": "sk_test",
                     "is_enabled": true,
+                    "resolved_transport": "direct",
+                    "desired_revision": 4,
                     "ack_token": "enr_ack_mock"
                 }
             }),
@@ -511,6 +518,11 @@ mod tests {
         assert_eq!(stored[0].name, "docker-follower");
         assert_eq!(stored[0].access_key, "ak_test");
         assert!(stored[0].storage_namespace.starts_with("mb_"));
+        assert_eq!(
+            stored[0].resolved_transport,
+            aster_drive_model::types::ResolvedRemoteTransport::Direct
+        );
+        assert_eq!(stored[0].desired_revision, 4);
 
         server.stop().await;
     }

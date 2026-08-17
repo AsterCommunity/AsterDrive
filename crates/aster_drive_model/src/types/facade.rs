@@ -33,8 +33,9 @@ pub use super::storage_policy::{
     MediaProcessorKind, OBJECT_MULTIPART_MIN_PART_SIZE, ObjectStorageDownloadStrategy,
     ObjectStorageUploadStrategy, ProviderDownloadFilenameMode, ProviderDownloadStrategy,
     ProviderResumableUploadStrategy, RemoteDownloadStrategy, RemoteNodeTransportMode,
-    RemoteUploadStrategy, StoredStoragePolicyAllowedTypes, StoredStoragePolicyConfig, UploadMode,
-    UploadSessionStatus, effective_object_multipart_chunk_size, parse_storage_policy_allowed_types,
+    RemoteUploadStrategy, ResolvedRemoteTransport, StoredStoragePolicyAllowedTypes,
+    StoredStoragePolicyConfig, UploadMode, UploadSessionStatus,
+    effective_object_multipart_chunk_size, parse_storage_policy_allowed_types,
     serialize_storage_policy_allowed_types,
 };
 pub use super::tag::TagScopeType;

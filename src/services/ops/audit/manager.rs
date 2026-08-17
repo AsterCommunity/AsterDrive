@@ -1,5 +1,5 @@
 use chrono::Utc;
-use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseConnection};
 
 use crate::config::RuntimeConfig;
 use crate::runtime::SharedRuntimeState;
@@ -121,6 +121,37 @@ pub async fn log_with_db_and_config<F>(
         details,
     )
     .await;
+}
+
+/// Writes audit details on the caller's transaction connection.
+///
+/// Unlike the normal best-effort writer, this helper propagates persistence
+/// errors so a product mutation can roll back when its audit contract is
+/// explicitly part of the same atomic operation.
+pub async fn log_with_transaction<C, F>(
+    db: &C,
+    runtime_config: &RuntimeConfig,
+    input: AuditLogInput<'_>,
+    details: F,
+) -> aster_forge_db::Result<()>
+where
+    C: ConnectionTrait,
+    F: FnOnce() -> Option<serde_json::Value>,
+{
+    if !should_record_with_config(runtime_config, input.action) {
+        return Ok(());
+    }
+    let request = audit_log_request(
+        input.ctx,
+        input.action,
+        input.entity_type,
+        input.entity_id,
+        input.entity_name,
+        details(),
+    );
+    aster_forge_db::create_audit_log_row(db, request)
+        .await
+        .map(|_| ())
 }
 
 pub async fn log_with_details<S, F>(

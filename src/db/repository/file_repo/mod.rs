@@ -18,12 +18,12 @@ pub use blob::{
     delete_blobs, find_active_blob_by_hash, find_admin_blobs_paginated, find_blob_by_hash,
     find_blob_by_id, find_blob_storage_paths_by_storage_paths, find_blobs_by_ids,
     find_blobs_by_policy_paginated, find_blobs_paginated, find_or_create_blob,
-    find_or_create_virtual_empty_blob, find_virtual_empty_blob_by_policy, increment_blob_ref_count,
-    increment_blob_ref_count_by, increment_blob_ref_counts_by, lock_blob_by_id,
-    move_blob_policy_if_current, move_virtual_empty_blob_policy_if_current,
-    reset_blob_ref_count_to_zero, restore_blob_cleanup_claim, set_blob_ref_count,
-    set_thumbnail_metadata, sum_blob_bytes, sum_blob_bytes_by_policy,
-    summarize_blob_hash_kinds_by_policy, summarize_blobs_by_policy,
+    find_or_create_virtual_empty_blob, find_stored_blobs_by_policy_paginated,
+    find_virtual_empty_blob_by_policy, increment_blob_ref_count, increment_blob_ref_count_by,
+    increment_blob_ref_counts_by, lock_blob_by_id, move_blob_policy_if_current,
+    move_virtual_empty_blob_policy_if_current, reset_blob_ref_count_to_zero,
+    restore_blob_cleanup_claim, set_blob_ref_count, set_thumbnail_metadata, sum_blob_bytes,
+    sum_blob_bytes_by_policy, summarize_blob_hash_kinds_by_policy, summarize_blobs_by_policy,
     summarize_missing_blobs_between_policies,
 };
 pub(crate) use common::FileScope;

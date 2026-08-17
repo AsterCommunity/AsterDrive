@@ -33,7 +33,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - **存储策略 API / schema** — 存储策略不再暴露 `driver_type`、`endpoint`、`bucket`、`base_path`、`access_key`、`secret_key`、`options` 等 provider-specific 平铺字段；响应改用稳定 `connector_id`、`connector_config` 与 `behavior`，创建请求统一提交 `connection = { connector_config, behavior, credential }`，更新请求分别提交 connector config、behavior 和 tagged credential。依赖旧 DTO、`DriverType` 枚举或字段名的客户端需要按 connector descriptor 构造请求。
 - **存储凭据输入** — 静态密钥与授权应用配置改为互斥的 tagged credential channel（`none` / `static` / `authorization_application`），字段名称由 connector schema 定义，例如 S3 与 Tencent COS 使用各自命名空间，不再共享含糊的 `access_key` / `secret_key` 表单字段。
 - **远程存储目标 API / internal protocol** — follower target 请求和响应从固定 Local/S3 平铺字段迁移为 `connector_id`、版本化 `ConnectorConfigEnvelope` 与独立 credential；管理端 descriptor endpoint 改为 `/api/v1/admin/remote-nodes/{id}/storage-target-connectors`，不保留 `/storage-target-drivers`；internal storage protocol 直接升级为 V6-only，并通过 `remote_storage_target.connector_ids` 协商可用 connector。
-- **存储 connector action** — 删除 S3-compatible policy promotion 专用 API 和 provider-specific action 枚举；管理端与 API 客户端应从 connector catalog 读取 action ID、endpoint、输入字段、是否要求已保存策略/授权以及远端副作用声明。
+- **存储 connector action / promotion** — 删除旧的 `promote-s3-driver` 专用 API 和 provider-specific action 枚举；通用 action 继续从 connector catalog 读取 action ID、endpoint、输入字段与副作用声明，就地提升改用 `promote-connector`，由目标 connector 的 `promotions` descriptor 声明允许的 source connector、配置匹配要求、config / credential 字段映射和必须保持不变的对象 namespace 字段。
 - **存储原生处理 behavior** — `thumbnail_processor`、`thumbnail_extensions`、`media_metadata_extensions` 收敛为 `storage_native_thumbnail_enabled` / `storage_native_thumbnail_extensions` 与 `storage_native_media_metadata_enabled` / `storage_native_media_metadata_extensions` 四个字段。关闭原生处理只移除 provider-native candidate，不会关闭全局缩略图或媒体元数据处理链。
 - **Presigned 上传响应** — upload init 不再分别返回 `presigned_url` 与 `presigned_headers`，multipart part presign 也不再返回纯 URL；两者统一返回 `PresignedUploadRequest { url, headers? }`。浏览器或第三方客户端必须原样转发 descriptor 中的请求头，不得自行补充 provider-specific header。
 - **上传 session 0.5.0 边界** — `upload_sessions.session_kind` 收紧为 `NOT NULL`，并删除 0.4.x payload-per-chunk `chunk_N`、`assembled` 拼装/relay、kind 推断和 assembly limiter。升级迁移遇到 null 或非法 kind 会停止且保留原行；部署方需要先清理已过期的旧上传 session。
@@ -117,7 +117,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - **空文件 metadata-only 与事务幂等创建** — `/files/new` 和前端零字节文件流程改为复用不对应 connector object 的 canonical `virtual_empty` Blob，不再上传零字节对象；新增 `Idempotency-Key` 的 writer-transaction claim / replay 契约，并同步收紧下载、WebDAV 审计、预签名、缩略图/预览、归档、删除和完整性审计边界。
 - **头像上传资源边界与同步结果契约** — 内置前端将裁剪结果归一化为最大 1024×1024 WebP，服务端以流式 staging、10 MiB 默认/16 MiB 硬顶源文件限制、1024×1024 dimensions、32 MiB 解码 allocation 和每进程 2 路渲染并发约束头像峰值；Images processor 复用同一 decoder 完成 dimensions 校验与像素解码，避免 JPEG 压缩源被完整读取两遍，并通过等待时长、waiting 和 active 指标区分正常排队与实际渲染；发布前在数据库事务外准备用户目录，最终版本目录冲突时保留现场，事务内只执行一次原子 rename，并通过 publish duration 指标暴露慢存储延迟；上传同步返回 `profile + applied`，并发头像 mutation 覆盖候选或处理失败时保留当前头像，不创建后台任务。
 - **存储策略持久化模型** — current `storage_policy` entity 收敛为 `id`、`name`、`connector_id`、`storage_config`、文件大小/类型/默认策略/chunk 行为与时间戳；运行时通过 connector projection 读取 endpoint、bucket、base path、远端绑定和 provider 行为，不再直接访问旧平铺列。
-- **存储策略 API 编排** — create、update、draft connection test、saved connection test、authorization 与 custom action 统一按 connector registry 查找和分发；请求中的 malformed / unknown connector 返回输入校验错误，数据库中未知 connector ID 则作为持久化配置损坏处理。
+- **存储策略 API 编排** — create、update、draft connection test、saved connection test、authorization、custom action 与 connector promotion 统一按 connector registry 查找和分发；promotion 由目标 connector 声明 source / requirement / mapping 契约，内建支持将匹配的通用 S3 策略就地提升为 Tencent COS、Alibaba Cloud OSS 或 Qiniu Kodo；服务端在事务前后拒绝活动上传 session，通过候选 target driver 抽样验证既有对象，原子替换 policy config 和重加密 credential，记录 source / target / promotion / sample 审计详情，并刷新 driver、snapshot、media capability 与跨实例 topology；请求中的 malformed / unknown connector 返回输入校验错误，数据库中未知 connector ID 则作为持久化配置损坏处理。
 - **Credential migration ownership** — 0.5.x 启动在 runtime config 和 encryption key 可用后、正式监听服务前，于 database migration lock 下执行幂等 legacy credential import；`database-migrate apply` 在目标数据复制校验完成后复用同一 importer。
 - **存储管理 UI 数据所有权** — 前端不再维护 Local / S3 / SFTP / OneDrive / Azure Blob / Tencent COS / Remote 的硬编码表单、action、account mode 和 provider 文案矩阵；connector catalog 和 localization resource 成为配置管理 UI 的事实源，同时保留既有策略列表、编辑对话框、字段说明和徽标视觉层级。
 - **存储原生处理语义** — 缩略图与媒体元数据分别使用显式 enabled flag 和 extension list；关闭开关时保留扩展名作为 dormant configuration，空扩展列表即使在开启时也不匹配任何文件。
@@ -147,6 +147,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Fixed
 
+- **远端节点有效传输模式** — primary 将 `direct` / `reverse_tunnel` / `auto` 解析为强类型 `resolved_transport` desired state；follower 通过独立于对象数据路径的签名 binding 控制面持续 pull，以 revision 持久化、应用并在下一轮隐式 ACK。direct、disabled 和带可用 `base_url` 的 auto 节点不启动 polling / WebSocket worker，primary 同时拒绝其 tunnel poll、complete 与 connect；双向 transport 切换即使旧路径和新路径都不可用也能最终收敛。旧 follower 继续通过 capability 驱动的 `PUT /binding` push 兼容，WebSocket lane 停止时完成正常 close handshake，并在请求体或本地响应阻塞期间响应取消且收口全部子任务。Tunnel frame version 保持 `1`，internal storage 协议保持 `v6`、最低 `v6`。
 - **首次登录 Cookie 引导** — 新安装默认允许 HTTP 首次登录；HTTPS setup 会在后续自动登录前启用 Secure Cookie，已有运行时设置不被升级或重启覆盖。
 - **上传失败与重试编排** — 非 retryable 的 upload-stage failure 现在会终止并清理 session；可修正、认证、数据库和可重试错误继续保留 session 供恢复。前端按 retryability 区分单项/批量重试与 terminal task 清理，并串行化 cleanup/retry，避免同一任务并发清理和重试。
 - **WebDAV 锁与 mutation 一致性** — 修复深度集合锁继承、parent/member lock root 混淆、MOVE 后 destination lock rebind、unlock 部分提交和 backend 错误被吞掉等问题。
@@ -166,12 +167,14 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Database Migrations
 
-- `m20260813_000001_canonical_file_revision_ledger`
-  - 以可恢复的 500 文件事务批次 backfill `file_versions` 和每个文件当前内容，建立 immutable revision predecessor chain、stable public ID、current head / next sequence 与用户属性快照，完成后删除 legacy `file_versions`；批次间故障重跑会跳过已提交 history，并从 legacy/ledger 最大 revision ID 之后继续
-  - MySQL 使用 `utf8mb4_bin` virtual generated columns 维持 XML property `(namespace, name)` 大小写敏感唯一性，但不按服务端版本字符串设置全局门槛，也不依赖 8.0.23 的 invisible-column 语法
+- `m20260817_000001_add_remote_binding_control_state`
+  - 为 primary 的 `managed_followers` 新增 binding desired / applied revision，为 follower 的 `master_bindings` 新增 `resolved_transport`、desired revision 与 applied revision；默认 transport 为 `reverse_tunnel`、revision 为 `1`，使旧载荷按原有 tunnel 行为读取，并支持独立 control pull、运行时 reconciliation 和持久化 ACK
 - `m20260817_000001_remote_storage_target_connector_configs`
   - 为 `remote_storage_targets` 新增 `connector_id` 与版本化 `connector_config`，并创建每个 target 唯一的 `remote_storage_target_credentials` 加密凭据表
   - 0.5.x 启动阶段在 migration lock 下原子转换 Local/S3 legacy row、加密 S3 明文凭据并清空旧字段；未知 driver、畸形或冲突数据会终止并回滚整批转换
+- `m20260813_000001_canonical_file_revision_ledger`
+  - 以可恢复的 500 文件事务批次 backfill `file_versions` 和每个文件当前内容，建立 immutable revision predecessor chain、stable public ID、current head / next sequence 与用户属性快照，完成后删除 legacy `file_versions`；批次间故障重跑会跳过已提交 history，并从 legacy/ledger 最大 revision ID 之后继续
+  - MySQL 使用 `utf8mb4_bin` virtual generated columns 维持 XML property `(namespace, name)` 大小写敏感唯一性，但不按服务端版本字符串设置全局门槛，也不依赖 8.0.23 的 invisible-column 语法
 - `m20260723_000001_require_upload_session_kind`
   - 升级前检查 legacy / invalid upload sessions，并将 `upload_sessions.session_kind` 收紧为 `NOT NULL`
 - `m20260725_000001_remote_tunnel_owners`

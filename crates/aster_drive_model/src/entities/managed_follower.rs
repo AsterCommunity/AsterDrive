@@ -32,6 +32,8 @@ pub struct Model {
     pub last_checked_at: Option<DateTimeUtc>,
     /// Transient reverse-tunnel runtime error; a successful poll or stream handshake clears it.
     pub tunnel_last_error: String,
+    pub binding_revision: i64,
+    pub binding_applied_revision: i64,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     /// Last successful reverse-tunnel poll or stream handshake observed by this primary.
     pub tunnel_last_seen_at: Option<DateTimeUtc>,
@@ -55,6 +57,8 @@ impl fmt::Debug for Model {
             .field("last_error", &self.last_error)
             .field("last_checked_at", &self.last_checked_at)
             .field("tunnel_last_error", &self.tunnel_last_error)
+            .field("binding_revision", &self.binding_revision)
+            .field("binding_applied_revision", &self.binding_applied_revision)
             .field("tunnel_last_seen_at", &self.tunnel_last_seen_at)
             .field("created_at", &self.created_at)
             .field("updated_at", &self.updated_at)
@@ -114,6 +118,8 @@ mod tests {
             last_error: String::new(),
             last_checked_at: None,
             tunnel_last_error: String::new(),
+            binding_revision: 1,
+            binding_applied_revision: 0,
             tunnel_last_seen_at: None,
             created_at: now,
             updated_at: now,

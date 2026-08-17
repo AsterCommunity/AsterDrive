@@ -44,13 +44,13 @@ hex = "0.4"
 language-tags = { version = "0.3.2", features = ["serde"] }
 rand = { version = "0.10.2", default-features = false, features = ["std", "std_rng", "thread_rng"] }
 reqwest = "0.13"
-sea-orm = { version = "2.0.1", default-features = false, features = [
+sea-orm = { version = "2.0.2", default-features = false, features = [
     "macros",
     "runtime-tokio-rustls",
     "with-chrono",
     "with-json",
 ] }
-sea-orm-migration = { version = "2.0.1", default-features = false }
+sea-orm-migration = { version = "2.0.2", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.11"
@@ -250,7 +250,7 @@ serde_json = { workspace = true }
 secrecy = "0.10"
 sha1 = "0.11"
 sha2 = { workspace = true }
-russh = "0.62.6"
+russh = "0.62.7"
 russh-sftp = "2.4.0"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "fs", "io-util"] }
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
@@ -271,7 +271,7 @@ webauthn-rs = { version = "0.6.1-dev", default-features = false, features = ["co
 webauthn-rs-proto = "0.6.1-dev"
 
 zip = { version = "8", default-features = false, features = ["deflate"] }
-lofty = "0.25.0"
+lofty = "0.25.1"
 
 [dev-dependencies]
 aes-gcm = "0.11"

@@ -94,6 +94,60 @@ fn validate_config_rejects_invalid_bucket_and_region() {
 }
 
 #[test]
+fn validate_config_requires_region_to_match_standard_endpoint() {
+    let mut config = sample_config();
+    config.region = "cn-beijing".to_string();
+    let error = AlibabaOssDriver::validate_config(&config, &sample_credentials())
+        .expect_err("mismatched standard endpoint region must fail");
+    assert_eq!(error.kind(), StorageErrorKind::Misconfigured);
+    assert!(
+        error
+            .message()
+            .contains("does not match public endpoint region")
+    );
+    assert!(error.message().contains("cn-hangzhou"));
+
+    config.endpoint = "https://oss-accelerate.aliyuncs.com".to_string();
+    AlibabaOssDriver::validate_config(&config, &sample_credentials())
+        .expect("accelerate endpoint should not be interpreted as a region");
+
+    config.endpoint = "https://oss-accelerate-overseas.aliyuncs.com".to_string();
+    AlibabaOssDriver::validate_config(&config, &sample_credentials())
+        .expect("overseas accelerate endpoint should not be interpreted as a region");
+
+    config.endpoint = "https://oss-cn-hangzhou-internal.aliyuncs.com".to_string();
+    config.region = "cn-hangzhou".to_string();
+    AlibabaOssDriver::validate_config(&config, &sample_credentials())
+        .expect("internal endpoint region should match after suffix removal");
+
+    config.endpoint = "https://oss-cn-hangzhou.aliyuncs.com".to_string();
+    config.region = "CN-HANGZHOU".to_string();
+    AlibabaOssDriver::validate_config(&config, &sample_credentials())
+        .expect("official OSS region comparison should be case-insensitive");
+}
+
+#[test]
+fn official_endpoint_region_parser_handles_nonregional_and_invalid_hosts() {
+    assert!(official_oss_endpoint_region("not a url").is_err());
+    assert_eq!(
+        official_oss_endpoint_region("https://files.example.test").unwrap(),
+        None
+    );
+    assert_eq!(
+        official_oss_endpoint_region("file:///tmp/oss").unwrap(),
+        None
+    );
+    assert_eq!(
+        official_oss_endpoint_region("https://oss-.aliyuncs.com").unwrap(),
+        None
+    );
+    assert_eq!(
+        official_oss_endpoint_region("https://oss-cn-hangzhou-internal.aliyuncs.com").unwrap(),
+        Some("cn-hangzhou".to_string())
+    );
+}
+
+#[test]
 fn driver_exposes_s3_compatible_capabilities_with_public_presigning() {
     let driver = AlibabaOssDriver::new(sample_config(), sample_credentials())
         .expect("OSS driver should build");

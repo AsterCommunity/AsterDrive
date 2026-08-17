@@ -138,6 +138,33 @@ pub enum RemoteNodeTransportMode {
     Auto,
 }
 
+/// Transport selected by the primary after resolving a remote node's mode and base URL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::N(32))")]
+#[serde(rename_all = "snake_case")]
+#[derive(Default)]
+pub enum ResolvedRemoteTransport {
+    #[sea_orm(string_value = "direct")]
+    Direct,
+    #[sea_orm(string_value = "reverse_tunnel")]
+    #[default]
+    ReverseTunnel,
+}
+
+impl ResolvedRemoteTransport {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::ReverseTunnel => "reverse_tunnel",
+        }
+    }
+
+    pub const fn uses_reverse_tunnel(self) -> bool {
+        matches!(self, Self::ReverseTunnel)
+    }
+}
+
 impl RemoteNodeTransportMode {
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -152,10 +179,15 @@ impl RemoteNodeTransportMode {
     }
 
     pub fn resolves_to_reverse_tunnel(self, base_url: &str) -> bool {
+        self.resolve(base_url).uses_reverse_tunnel()
+    }
+
+    pub fn resolve(self, base_url: &str) -> ResolvedRemoteTransport {
         match self {
-            Self::Direct => false,
-            Self::ReverseTunnel => true,
-            Self::Auto => base_url.trim().is_empty(),
+            Self::Direct => ResolvedRemoteTransport::Direct,
+            Self::ReverseTunnel => ResolvedRemoteTransport::ReverseTunnel,
+            Self::Auto if base_url.trim().is_empty() => ResolvedRemoteTransport::ReverseTunnel,
+            Self::Auto => ResolvedRemoteTransport::Direct,
         }
     }
 }

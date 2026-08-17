@@ -3,6 +3,7 @@
 mod groups;
 mod models;
 mod policies;
+mod promotion;
 mod shared;
 
 use crate::errors::Result;
@@ -25,9 +26,10 @@ pub use groups::{
 };
 pub use models::{
     CreateStoragePolicyGroupInput, CreateStoragePolicyInput, PolicyGroupAssignmentMigrationResult,
-    StoragePolicy, StoragePolicyActionResult, StoragePolicyCapacityInfo, StoragePolicyDiagnostic,
-    StoragePolicyGroupInfo, StoragePolicyGroupItemInfo, StoragePolicyGroupItemInput,
-    StoragePolicySummaryInfo, UpdateStoragePolicyGroupInput, UpdateStoragePolicyInput,
+    PromoteStoragePolicyConnectorInput, StoragePolicy, StoragePolicyActionResult,
+    StoragePolicyCapacityInfo, StoragePolicyDiagnostic, StoragePolicyGroupInfo,
+    StoragePolicyGroupItemInfo, StoragePolicyGroupItemInput, StoragePolicySummaryInfo,
+    UpdateStoragePolicyGroupInput, UpdateStoragePolicyInput,
 };
 pub(crate) use policies::capacity_info_or_status;
 pub use policies::{
@@ -123,6 +125,15 @@ pub async fn update_with_audit(
     )
     .await;
     Ok(policy)
+}
+
+pub async fn promote_connector_with_audit(
+    state: &(impl RemoteProtocolRuntimeState + Sync),
+    id: i64,
+    input: PromoteStoragePolicyConnectorInput,
+    audit_ctx: &AuditContext,
+) -> Result<StoragePolicy> {
+    promotion::execute_connector_promotion(state, id, input, audit_ctx).await
 }
 
 pub async fn delete_with_audit(

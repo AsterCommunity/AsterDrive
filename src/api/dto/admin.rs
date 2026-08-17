@@ -136,6 +136,15 @@ pub struct PatchPolicyReq {
     pub allowed_types: Option<Vec<String>>,
 }
 
+/// Promote one saved policy to a compatible target connector in place.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct PromoteStoragePolicyConnectorReq {
+    pub target_connector_id: aster_drive_storage::ConnectorId,
+    pub promotion_id: aster_drive_storage::StorageConnectorPromotionId,
+}
+
 /// Query parameters for deleting a storage policy.
 #[derive(Debug, Deserialize)]
 #[cfg_attr(

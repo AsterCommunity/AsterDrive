@@ -378,6 +378,8 @@ export type ExecuteDraftStoragePolicyActionRequest =
 	components["schemas"]["ExecuteDraftStorageConnectorActionInput"];
 export type ExecuteSavedStoragePolicyActionRequest =
 	components["schemas"]["ExecuteSavedStorageConnectorActionInput"];
+export type PromoteStoragePolicyConnectorRequest =
+	components["schemas"]["PromoteStoragePolicyConnectorReq"];
 export type StoragePolicyActionResult =
 	OperationData<"execute_draft_storage_policy_action">;
 export type StoragePolicyConnectionTestResult =
@@ -397,6 +399,12 @@ export type StoragePolicy = components["schemas"]["StoragePolicy"];
 export type StoragePolicyCapacityInfo = OperationData<"get_policy_capacity">;
 export type StorageConnectorDescriptor =
 	OperationData<"list_storage_driver_descriptors">[number];
+export type StorageConnectorPromotionDescriptor =
+	components["schemas"]["StorageConnectorPromotionDescriptor"];
+export type StorageConnectorPromotionFieldMapping =
+	components["schemas"]["StorageConnectorPromotionFieldMapping"];
+export type StorageConnectorPromotionId =
+	components["schemas"]["StorageConnectorPromotionId"];
 export type StorageConnectorCatalogQuery =
 	OperationQuery<"list_storage_driver_descriptors">;
 export type StorageConnectorCatalogContext =

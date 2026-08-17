@@ -160,3 +160,22 @@ pub async fn touch_tunnel_result(
     // 保持 updated_at 只用于名称、base_url、transport_mode 等管理面变更。
     update(db, active).await
 }
+
+pub async fn acknowledge_binding_revision<C: ConnectionTrait>(
+    db: &C,
+    id: i64,
+    applied_revision: i64,
+) -> Result<()> {
+    ManagedFollower::update_many()
+        .col_expr(
+            managed_follower::Column::BindingAppliedRevision,
+            sea_orm::sea_query::Expr::value(applied_revision),
+        )
+        .filter(managed_follower::Column::Id.eq(id))
+        .filter(managed_follower::Column::BindingAppliedRevision.lt(applied_revision))
+        .filter(managed_follower::Column::BindingRevision.gte(applied_revision))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(())
+}

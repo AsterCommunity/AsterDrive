@@ -27,6 +27,7 @@
 	"policy_native_thumbnail_unsupported": "Storage-native thumbnail processing is not supported by this policy driver",
 	"policy_native_media_metadata_unsupported": "Storage-native media metadata processing is not supported by this policy driver",
 	"policy_promotion_source_unsupported": "Only generic S3-compatible storage policies can be promoted",
+	"policy_promotion_source_config_unsupported": "This storage policy configuration does not satisfy the selected promotion requirements",
 	"policy_promotion_target_unsupported": "This storage policy cannot be promoted to the selected target driver",
 	"policy_promotion_bucket_change_denied": "Changing the bucket while promoting this storage policy is not allowed"
 }
