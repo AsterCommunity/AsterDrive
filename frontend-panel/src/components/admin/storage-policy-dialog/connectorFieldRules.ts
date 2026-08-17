@@ -178,6 +178,7 @@ function reconcileConditionalState(
 		if (
 			field.kind === "select" &&
 			(field.select?.options?.length ?? 0) > 0 &&
+			field.select?.allow_custom_value !== true &&
 			values[field.name] !== undefined &&
 			!connectorSelectOptions(field, values).some(
 				(option) => option.value === values[field.name],

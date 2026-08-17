@@ -146,6 +146,20 @@ pub struct StorageConnectorSelectDescriptor {
     /// Field whose current value scopes the dynamic catalog.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub depends_on: Option<String>,
+    /// Connector-owned label for a synthetic option that clears the explicit
+    /// value and resumes descriptor default resolution.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub automatic_default_label_key: Option<String>,
+    /// Whether a string select may accept a value outside its fixed presets.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub allow_custom_value: bool,
+    /// Connector-owned label for the synthetic custom-value option.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_value_label_key: Option<String>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Descriptor 可声明的 JSON 标量默认值。
@@ -829,6 +843,53 @@ impl StorageConnectorFieldDescriptor {
                         self.name
                     )));
                 }
+                if select
+                    .automatic_default_label_key
+                    .as_deref()
+                    .is_some_and(|key| key.trim().is_empty())
+                {
+                    return Err(StorageConnectorFieldDescriptorError(format!(
+                        "select field '{}' automatic_default_label_key must not be empty",
+                        self.name
+                    )));
+                }
+                if select.automatic_default_label_key.is_some()
+                    && self.default_value.is_none()
+                    && self.default_rules.is_empty()
+                {
+                    return Err(StorageConnectorFieldDescriptorError(format!(
+                        "select field '{}' automatic default option requires a default value or default rule",
+                        self.name
+                    )));
+                }
+                if select.allow_custom_value
+                    && (select.value_kind != StorageConnectorSelectValueKind::String
+                        || !has_static_options)
+                {
+                    return Err(StorageConnectorFieldDescriptorError(format!(
+                        "select field '{}' custom values require fixed string options",
+                        self.name
+                    )));
+                }
+                match (
+                    select.allow_custom_value,
+                    select.custom_value_label_key.as_deref(),
+                ) {
+                    (true, Some(key)) if !key.trim().is_empty() => {}
+                    (true, _) => {
+                        return Err(StorageConnectorFieldDescriptorError(format!(
+                            "select field '{}' custom values require custom_value_label_key",
+                            self.name
+                        )));
+                    }
+                    (false, Some(_)) => {
+                        return Err(StorageConnectorFieldDescriptorError(format!(
+                            "select field '{}' custom_value_label_key requires custom values",
+                            self.name
+                        )));
+                    }
+                    (false, None) => {}
+                }
                 match select.data_source {
                     Some(StorageConnectorSelectDataSource::RemoteNodes)
                         if select.value_kind != StorageConnectorSelectValueKind::Integer
@@ -1451,7 +1512,29 @@ fn normalize_and_validate_connector_field_value(
                             expected: field.kind,
                         });
                     };
-                    StorageConnectorSelectOptionValue::String(text.to_string())
+                    let normalized = if field.trim_on_blur {
+                        text.trim()
+                    } else {
+                        text
+                    }
+                    .to_string();
+                    if field.required && normalized.is_empty() {
+                        return Err(
+                            StorageConnectorOptionsValidationError::MissingRequiredField(
+                                field.name.clone(),
+                            ),
+                        );
+                    }
+                    if let Some(maximum) = field.validation.max_length
+                        && normalized.chars().count() > maximum as usize
+                    {
+                        return Err(StorageConnectorOptionsValidationError::StringTooLong {
+                            field: field.name.clone(),
+                            maximum,
+                        });
+                    }
+                    *value = serde_json::Value::String(normalized.clone());
+                    StorageConnectorSelectOptionValue::String(normalized)
                 }
                 StorageConnectorSelectValueKind::Integer => {
                     let Some(integer) = value.as_i64() else {
@@ -1464,6 +1547,7 @@ fn normalize_and_validate_connector_field_value(
                 }
             };
             if !select.options.is_empty()
+                && !select.allow_custom_value
                 && !select
                     .options
                     .iter()
@@ -2102,6 +2186,16 @@ fn collect_field_localization_message_ids<'a>(
     if let Some(message_id) = field.advanced_group_key.as_deref() {
         message_ids.insert(message_id);
     }
+    if let Some(select) = &field.select {
+        message_ids.extend(
+            [
+                select.automatic_default_label_key.as_deref(),
+                select.custom_value_label_key.as_deref(),
+            ]
+            .into_iter()
+            .flatten(),
+        );
+    }
     for option in field
         .select
         .as_ref()
@@ -2476,6 +2570,9 @@ pub fn storage_connector_field_with_options(
                 .collect(),
             data_source: None,
             depends_on: None,
+            automatic_default_label_key: None,
+            allow_custom_value: false,
+            custom_value_label_key: None,
         }),
         ..storage_connector_field(name, scope, kind, required, secret)
     }
@@ -2507,6 +2604,9 @@ pub fn storage_connector_select_field(
                 .collect(),
             data_source: None,
             depends_on: None,
+            automatic_default_label_key: None,
+            allow_custom_value: false,
+            custom_value_label_key: None,
         }),
         ..storage_connector_field(
             name,
@@ -2532,6 +2632,9 @@ pub fn storage_connector_dynamic_select_field(
             options: Vec::new(),
             data_source: Some(data_source),
             depends_on: depends_on.map(ToOwned::to_owned),
+            automatic_default_label_key: None,
+            allow_custom_value: false,
+            custom_value_label_key: None,
         }),
         ..storage_connector_field(
             name,
@@ -3160,6 +3263,45 @@ mod tests {
     }
 
     #[test]
+    fn string_select_accepts_trimmed_custom_values_when_declared() {
+        let mut tenant = storage_connector_select_field(
+            "tenant",
+            StorageConnectorFieldScope::ConnectorConfig,
+            true,
+            vec![StorageConnectorSelectOptionInput {
+                value: "common",
+                label_key: "tenant_common",
+                description_key: None,
+            }],
+        );
+        tenant.default_value = Some(StorageConnectorFieldDefaultValue::String(
+            "common".to_string(),
+        ));
+        tenant.trim_on_blur = true;
+        tenant.validation.max_length = Some(256);
+        let select = tenant.select.as_mut().unwrap();
+        select.automatic_default_label_key = Some("tenant_auto".to_string());
+        select.allow_custom_value = true;
+        select.custom_value_label_key = Some("tenant_custom".to_string());
+        tenant.validate().unwrap();
+
+        let mut descriptor = s3_descriptor();
+        descriptor.fields = vec![tenant];
+        let input = ConnectorConfigEnvelope {
+            format_version: CONNECTOR_CONFIG_FORMAT_VERSION,
+            connector_id: descriptor.connector_id.clone(),
+            schema_version: descriptor.config_schema_version,
+            values: BTreeMap::from([(
+                "tenant".to_string(),
+                serde_json::json!(" contoso.onmicrosoft.com "),
+            )]),
+        };
+
+        let normalized = normalize_storage_connector_config(&descriptor, &input).unwrap();
+        assert_eq!(normalized.values["tenant"], "contoso.onmicrosoft.com");
+    }
+
+    #[test]
     fn select_field_validation_rejects_ambiguous_and_incoherent_contracts() {
         let valid = storage_connector_select_field(
             "mode",
@@ -3218,6 +3360,28 @@ mod tests {
         cases.push((
             invalid_conditional_default,
             "conditional default is not a declared option",
+        ));
+
+        let mut automatic_without_default = valid.clone();
+        automatic_without_default
+            .select
+            .as_mut()
+            .unwrap()
+            .automatic_default_label_key = Some("automatic".to_string());
+        cases.push((
+            automatic_without_default,
+            "automatic default option requires a default value or default rule",
+        ));
+
+        let mut custom_without_label = valid.clone();
+        custom_without_label
+            .select
+            .as_mut()
+            .unwrap()
+            .allow_custom_value = true;
+        cases.push((
+            custom_without_label,
+            "custom values require custom_value_label_key",
         ));
 
         let wrong_dynamic_type = storage_connector_dynamic_select_field(

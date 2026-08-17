@@ -3,6 +3,11 @@ use aster_drive_storage::StorageConnectorLocalizationMessage;
 pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     aster_drive_storage::storage_connector_message!("account_mode", "Account mode", "账户模式",),
     aster_drive_storage::storage_connector_message!(
+        "onedrive_account_mode_desc",
+        "Controls how AsterDrive resolves the target drive in Microsoft Graph.",
+        "决定 AsterDrive 如何通过 Microsoft Graph 定位目标 drive。",
+    ),
+    aster_drive_storage::storage_connector_message!(
         "client_id",
         "Application (client) ID",
         "应用程序（客户端）ID",
@@ -14,6 +19,11 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "Microsoft Graph 云",
     ),
     aster_drive_storage::storage_connector_message!("drive_id", "Drive ID", "Drive ID"),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_drive_id_desc",
+        "Usually leave this empty. Fill it only to target a specific drive or document library.",
+        "通常留空。只有需要指定特定 drive 或文档库时再填写。",
+    ),
     aster_drive_storage::storage_connector_message!("driver_type_onedrive", "OneDrive", "OneDrive",),
     aster_drive_storage::storage_connector_message!(
         "onedrive_advanced_target",
@@ -24,6 +34,11 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "group_id",
         "Microsoft 365 group ID",
         "Microsoft 365 组 ID",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_group_id_desc",
+        "Required when the account mode targets a Microsoft 365 group drive.",
+        "账户模式为 Microsoft 365 组 drive 时必填。",
     ),
     aster_drive_storage::storage_connector_message!(
         "onedrive_account_mode_group_drive",
@@ -51,6 +66,11 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "中国版（世纪互联）",
     ),
     aster_drive_storage::storage_connector_message!("onedrive_cloud_global", "Global", "国际版",),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_cloud_desc",
+        "Global uses graph.microsoft.com. China uses microsoftgraph.chinacloudapi.cn; personal Microsoft accounts require Global.",
+        "国际版使用 graph.microsoft.com；中国版使用 microsoftgraph.chinacloudapi.cn。个人 Microsoft 账号必须使用国际版。",
+    ),
     aster_drive_storage::storage_connector_message!(
         "onedrive_authorization_started",
         "Microsoft authorization opened",
@@ -327,11 +347,66 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "浏览器把文件上传到 AsterDrive，再由服务端写入 Microsoft Graph。兼容性最好，也是默认方式。",
     ),
     aster_drive_storage::storage_connector_message!("root_item_id", "Root item ID", "根项目 ID",),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_root_item_id_desc",
+        "Use root for the drive root, or enter a folder item ID to use that folder as the policy root.",
+        "填写 root 表示 drive 根目录，也可以填写文件夹项目 ID，把该文件夹作为策略根目录。",
+    ),
     aster_drive_storage::storage_connector_message!("scopes", "OAuth scopes", "OAuth 权限范围"),
     aster_drive_storage::storage_connector_message!(
         "site_id",
         "SharePoint site ID",
         "SharePoint 站点 ID",
     ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_site_id_desc",
+        "Required when the account mode targets a SharePoint site drive.",
+        "账户模式为 SharePoint 站点 drive 时必填。",
+    ),
     aster_drive_storage::storage_connector_message!("tenant", "Microsoft tenant", "Microsoft 租户",),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_tenant_auto",
+        "Automatic (recommended)",
+        "自动（推荐）",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_tenant_common",
+        "Personal and organization accounts",
+        "个人和组织账号",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_tenant_common_desc",
+        "Use the Microsoft common tenant.",
+        "使用 Microsoft common 租户。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_tenant_consumers",
+        "Personal Microsoft accounts only",
+        "仅个人 Microsoft 账号",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_tenant_consumers_desc",
+        "Use the Microsoft consumers tenant.",
+        "使用 Microsoft consumers 租户。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_tenant_custom",
+        "Custom tenant",
+        "自定义租户",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_tenant_desc",
+        "Automatic follows the cloud and account mode. Choose a preset to restrict sign-in, or enter a tenant ID or verified tenant domain.",
+        "自动模式会跟随云和账户模式；也可以选择预设登录范围，或填写租户 ID / 已验证租户域名。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_tenant_organizations",
+        "Work or school accounts only",
+        "仅工作或学校账号",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "onedrive_tenant_organizations_desc",
+        "Use the Microsoft organizations tenant.",
+        "使用 Microsoft organizations 租户。",
+    ),
 ];

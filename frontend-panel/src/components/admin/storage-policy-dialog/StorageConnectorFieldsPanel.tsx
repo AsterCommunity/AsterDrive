@@ -33,6 +33,9 @@ import {
 import { connectorFormValue, type PolicyFormData } from "./formTypes";
 import type { Translate } from "./StoragePolicyFieldTypes";
 
+const CONNECTOR_SELECT_AUTOMATIC_VALUE = "__asterdrive_automatic_default__";
+const CONNECTOR_SELECT_CUSTOM_VALUE = "__asterdrive_custom_value__";
+
 interface StorageConnectorFieldsPanelProps {
 	descriptor: StorageConnectorDescriptor | null;
 	fields?: StorageConnectorFieldDescriptor[];
@@ -250,40 +253,139 @@ function ConnectorField({
 			? fieldValueByName(form, descriptor, field.select.depends_on) == null ||
 				fieldValueByName(form, descriptor, field.select.depends_on) === ""
 			: false;
-		const selectedValue = selectValue(value ?? resolvedDefault);
+		const resolvedValue = selectValue(value ?? resolvedDefault);
+		const automaticSelected = Boolean(
+			field.select?.automatic_default_label_key &&
+				(value == null || value === resolvedDefault),
+		);
+		const presetSelected = options.some(
+			(option) => option.value === selectValue(value),
+		);
+		const customSelected = Boolean(
+			field.select?.allow_custom_value &&
+				!automaticSelected &&
+				value != null &&
+				!presetSelected,
+		);
+		const selectedValue = automaticSelected
+			? CONNECTOR_SELECT_AUTOMATIC_VALUE
+			: customSelected
+				? CONNECTOR_SELECT_CUSTOM_VALUE
+				: resolvedValue;
+		const renderedOptions = [
+			...(field.select?.automatic_default_label_key
+				? [
+						{
+							description: undefined,
+							label: connectorT(field.select.automatic_default_label_key),
+							value: CONNECTOR_SELECT_AUTOMATIC_VALUE,
+						},
+					]
+				: []),
+			...options,
+			...(field.select?.allow_custom_value &&
+			field.select.custom_value_label_key
+				? [
+						{
+							description: undefined,
+							label: connectorT(field.select.custom_value_label_key),
+							value: CONNECTOR_SELECT_CUSTOM_VALUE,
+						},
+					]
+				: []),
+		];
 		const selectedDescription = options.find(
-			(option) => option.value === selectedValue,
+			(option) => option.value === resolvedValue,
 		)?.description;
+		const customValueMissing =
+			showRequiredErrors &&
+			customSelected &&
+			(typeof value !== "string" || value.trim() === "");
+		const selectErrorMessage = customValueMissing
+			? t("policy_connector_field_required", {
+					field: connectorT(
+						field.select?.custom_value_label_key ?? field.label_key,
+					),
+				})
+			: errorMessage;
 		return (
 			<div className="space-y-2">
 				<Label htmlFor={inputId}>{connectorT(field.label_key)}</Label>
 				<Select
-					items={options}
+					items={renderedOptions}
 					value={selectedValue}
 					disabled={dependencyMissing}
 					onValueChange={(nextValue) => {
+						if (nextValue === CONNECTOR_SELECT_AUTOMATIC_VALUE) {
+							setFieldValue(form, descriptor, field, undefined, onFieldChange);
+							return;
+						}
+						if (nextValue === CONNECTOR_SELECT_CUSTOM_VALUE) {
+							setFieldValue(form, descriptor, field, "", onFieldChange);
+							return;
+						}
 						const normalized = normalizeSelectValue(field, nextValue);
 						setFieldValue(form, descriptor, field, normalized, onFieldChange);
 					}}
 				>
-					<SelectTrigger id={inputId} aria-invalid={missing || undefined}>
+					<SelectTrigger
+						id={inputId}
+						aria-invalid={missing || customValueMissing || undefined}
+					>
 						<SelectValue placeholder={field.placeholder ?? undefined} />
 					</SelectTrigger>
 					<SelectContent>
-						{options.map((option) => (
+						{renderedOptions.map((option) => (
 							<SelectItem key={option.value} value={option.value}>
 								{option.label}
 							</SelectItem>
 						))}
 					</SelectContent>
 				</Select>
+				{customSelected ? (
+					<div className="space-y-2 pt-1">
+						<Label htmlFor={`${inputId}-custom`}>
+							{connectorT(
+								field.select?.custom_value_label_key ?? field.label_key,
+							)}
+						</Label>
+						<Input
+							id={`${inputId}-custom`}
+							value={typeof value === "string" ? value : ""}
+							placeholder={field.placeholder ?? undefined}
+							maxLength={field.validation?.max_length ?? undefined}
+							required
+							aria-invalid={customValueMissing || undefined}
+							autoComplete="off"
+							className={ADMIN_CONTROL_HEIGHT_CLASS}
+							onChange={(event) =>
+								setFieldValue(
+									form,
+									descriptor,
+									field,
+									event.target.value,
+									onFieldChange,
+								)
+							}
+							onBlur={(event) =>
+								setFieldValue(
+									form,
+									descriptor,
+									field,
+									normalizeConnectorFieldValue(field, event.target.value),
+									onFieldChange,
+								)
+							}
+						/>
+					</div>
+				) : null}
 				{selectedDescription ? (
 					<p className="text-xs leading-5 text-muted-foreground">
 						{selectedDescription}
 					</p>
 				) : null}
 				<FieldMessages
-					errorMessage={errorMessage}
+					errorMessage={selectErrorMessage}
 					field={field}
 					t={connectorT}
 				/>

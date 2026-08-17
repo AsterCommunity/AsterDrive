@@ -219,4 +219,31 @@ describe("connector field rules", () => {
 			isConnectorFieldRequired(site, { account_mode: "sharepoint_site" }),
 		).toBe(true);
 	});
+
+	it("preserves connector-declared custom select values during normalization", () => {
+		const descriptor = oneDriveDescriptor();
+		const tenant = descriptorField(descriptor, "tenant");
+		tenant.kind = "select";
+		tenant.select = {
+			allow_custom_value: true,
+			custom_value_label_key: "tenant_custom",
+			options: [
+				{ label_key: "common", value: "common" },
+				{ label_key: "organizations", value: "organizations" },
+				{ label_key: "consumers", value: "consumers" },
+			],
+			value_kind: "string",
+		};
+
+		expect(
+			normalizeConnectorConfigValues(
+				{
+					account_mode: "work_or_school",
+					cloud: "global",
+					tenant: "contoso.onmicrosoft.com",
+				},
+				descriptor,
+			).tenant,
+		).toBe("contoso.onmicrosoft.com");
+	});
 });

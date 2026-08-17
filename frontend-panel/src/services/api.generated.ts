@@ -8075,6 +8075,15 @@ export interface components {
          */
         StorageConnectorSelectDataSource: "remote_nodes" | "remote_storage_targets";
         StorageConnectorSelectDescriptor: {
+            /** @description Whether a string select may accept a value outside its fixed presets. */
+            allow_custom_value?: boolean;
+            /**
+             * @description Connector-owned label for a synthetic option that clears the explicit
+             *     value and resumes descriptor default resolution.
+             */
+            automatic_default_label_key?: string | null;
+            /** @description Connector-owned label for the synthetic custom-value option. */
+            custom_value_label_key?: string | null;
             data_source?: null | components["schemas"]["StorageConnectorSelectDataSource"];
             /** @description Field whose current value scopes the dynamic catalog. */
             depends_on?: string | null;

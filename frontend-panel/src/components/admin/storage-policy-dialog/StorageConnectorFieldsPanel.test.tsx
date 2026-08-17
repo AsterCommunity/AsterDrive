@@ -65,6 +65,11 @@ const labels: Record<string, string> = {
 	secret_field: "Secret field",
 	site_id: "Site ID",
 	tenant: "Tenant",
+	tenant_auto: "Automatic (recommended)",
+	tenant_common: "Personal and organization accounts",
+	tenant_consumers: "Personal accounts only",
+	tenant_custom: "Custom tenant",
+	tenant_organizations: "Work or school accounts only",
 	text_field: "Text field",
 	text_field_help: "Text field help",
 	text_field_required: "Text field is connector-required",
@@ -639,5 +644,93 @@ describe("StorageConnectorFieldsPanel", () => {
 			cloud: "global",
 			tenant: "consumers",
 		});
+	});
+
+	it("renders automatic tenant presets and a connector-owned custom value input", () => {
+		const fields = [
+			field("cloud", "text", { default_value: "global" }),
+			field("account_mode", "text", { default_value: "personal" }),
+			field("tenant", "select", {
+				default_rules: [
+					{
+						conditions: [{ field: "account_mode", value: "personal" }],
+						value: "consumers",
+					},
+				],
+				default_value: "common",
+				placeholder: "tenant-id-or-domain",
+				required: true,
+				select: {
+					allow_custom_value: true,
+					automatic_default_label_key: "tenant_auto",
+					custom_value_label_key: "tenant_custom",
+					options: [
+						{ label_key: "tenant_consumers", value: "consumers" },
+						{ label_key: "tenant_organizations", value: "organizations" },
+						{ label_key: "tenant_common", value: "common" },
+					],
+					value_kind: "string",
+				},
+				trim_on_blur: true,
+			}),
+		];
+		const automatic = renderPanel({
+			fields,
+			form: {
+				...emptyForm,
+				connector_config_values: {
+					account_mode: "personal",
+					cloud: "global",
+				},
+			},
+		});
+
+		expect(screen.getByRole("combobox")).toHaveValue(
+			"__asterdrive_automatic_default__",
+		);
+		expect(
+			screen.getByRole("option", { name: "Automatic (recommended)" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("option", { name: "Custom tenant" }),
+		).toBeInTheDocument();
+		automatic.unmount();
+
+		const custom = renderPanel({
+			fields,
+			form: {
+				...emptyForm,
+				connector_config_values: {
+					account_mode: "personal",
+					cloud: "global",
+					tenant: "contoso.onmicrosoft.com",
+				},
+			},
+		});
+		const customInput = screen.getByLabelText("Custom tenant");
+		expect(customInput).toHaveValue("contoso.onmicrosoft.com");
+		expect(customInput).toHaveAttribute("placeholder", "tenant-id-or-domain");
+		fireEvent.blur(customInput, {
+			target: { value: " fabrikam.onmicrosoft.com " },
+		});
+		expect(custom.onFieldChange).toHaveBeenCalledWith(
+			"connector_config_values",
+			{
+				account_mode: "personal",
+				cloud: "global",
+				tenant: "fabrikam.onmicrosoft.com",
+			},
+		);
+
+		fireEvent.change(screen.getByRole("combobox"), {
+			target: { value: "__asterdrive_automatic_default__" },
+		});
+		expect(custom.onFieldChange).toHaveBeenCalledWith(
+			"connector_config_values",
+			{
+				account_mode: "personal",
+				cloud: "global",
+			},
+		);
 	});
 });

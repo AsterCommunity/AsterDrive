@@ -182,14 +182,18 @@ aster_drive_storage::storage_connector_schema! {
             ],
             "provider_native",
         ),
-        pub cloud: MicrosoftGraphCloud => onedrive_select_field(
-            "cloud",
-            vec![
-                select_option("global", "onedrive_cloud_global", None),
-                select_option("china", "onedrive_cloud_china", None),
-            ],
-            "global",
-        ),
+        pub cloud: MicrosoftGraphCloud => {
+            let mut field = onedrive_select_field(
+                "cloud",
+                vec![
+                    select_option("global", "onedrive_cloud_global", None),
+                    select_option("china", "onedrive_cloud_china", None),
+                ],
+                "global",
+            );
+            field.help_key = Some("onedrive_cloud_desc".to_string());
+            field
+        },
         pub account_mode: OneDriveAccountMode => onedrive_account_mode_field(),
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub tenant: Option<String> => onedrive_tenant_field(),
@@ -256,13 +260,15 @@ const fn select_option(
 fn onedrive_optional_text_field(
     name: &str,
 ) -> aster_drive_storage::StorageConnectorFieldDescriptor {
-    storage_connector_field(
+    let mut field = storage_connector_field(
         name,
         StorageConnectorFieldScope::ConnectorConfig,
         StorageConnectorFieldKind::Text,
         false,
         false,
-    )
+    );
+    field.trim_on_blur = true;
+    field
 }
 
 fn onedrive_condition(field: &str, value: &str) -> StorageConnectorFieldCondition {
@@ -293,7 +299,24 @@ fn mark_onedrive_advanced(
 fn onedrive_advanced_text_field(
     name: &str,
 ) -> aster_drive_storage::StorageConnectorFieldDescriptor {
-    mark_onedrive_advanced(onedrive_optional_text_field(name))
+    let mut field = onedrive_optional_text_field(name);
+    match name {
+        "drive_id" => {
+            field.placeholder = Some("b!xxxxxxxxxxxxxxxx".to_string());
+            field.help_key = Some("onedrive_drive_id_desc".to_string());
+        }
+        "root_item_id" => {
+            field.placeholder = Some("root".to_string());
+            field.help_key = Some("onedrive_root_item_id_desc".to_string());
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String(
+                "root".to_string(),
+            ));
+            field.default_mode =
+                aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
+        }
+        _ => {}
+    }
+    mark_onedrive_advanced(field)
 }
 
 fn onedrive_account_mode_field() -> aster_drive_storage::StorageConnectorFieldDescriptor {
@@ -316,6 +339,7 @@ fn onedrive_account_mode_field() -> aster_drive_storage::StorageConnectorFieldDe
         "personal",
     );
     field.default_rules = vec![onedrive_default_rule("cloud", "china", "work_or_school")];
+    field.help_key = Some("onedrive_account_mode_desc".to_string());
     field
         .select
         .as_mut()
@@ -326,7 +350,27 @@ fn onedrive_account_mode_field() -> aster_drive_storage::StorageConnectorFieldDe
 }
 
 fn onedrive_tenant_field() -> aster_drive_storage::StorageConnectorFieldDescriptor {
-    let mut field = onedrive_advanced_text_field("tenant");
+    let mut field = onedrive_select_field(
+        "tenant",
+        vec![
+            select_option(
+                "consumers",
+                "onedrive_tenant_consumers",
+                Some("onedrive_tenant_consumers_desc"),
+            ),
+            select_option(
+                "organizations",
+                "onedrive_tenant_organizations",
+                Some("onedrive_tenant_organizations_desc"),
+            ),
+            select_option(
+                "common",
+                "onedrive_tenant_common",
+                Some("onedrive_tenant_common_desc"),
+            ),
+        ],
+        "common",
+    );
     field.default_value = Some(StorageConnectorFieldDefaultValue::String(
         "common".to_string(),
     ));
@@ -337,7 +381,17 @@ fn onedrive_tenant_field() -> aster_drive_storage::StorageConnectorFieldDescript
         onedrive_default_rule("account_mode", "sharepoint_site", "organizations"),
         onedrive_default_rule("account_mode", "group_drive", "organizations"),
     ];
-    field
+    field.placeholder = Some("11111111-2222-3333-4444-555555555555".to_string());
+    field.help_key = Some("onedrive_tenant_desc".to_string());
+    field.trim_on_blur = true;
+    field.validation.max_length = Some(256);
+    let select = field.select.as_mut().expect("OneDrive tenant is a select");
+    select.automatic_default_label_key = Some("onedrive_tenant_auto".to_string());
+    select.allow_custom_value = true;
+    select.custom_value_label_key = Some("onedrive_tenant_custom".to_string());
+    select.options[0].available_when = vec![onedrive_condition("cloud", "global")];
+    select.options[2].available_when = vec![onedrive_condition("cloud", "global")];
+    mark_onedrive_advanced(field)
 }
 
 fn onedrive_target_text_field(
@@ -349,6 +403,17 @@ fn onedrive_target_text_field(
     field.visible_when = vec![condition.clone()];
     field.required_when = vec![condition];
     field.inactive_value_behavior = StorageConnectorInactiveValueBehavior::Clear;
+    match name {
+        "site_id" => {
+            field.placeholder = Some("contoso.sharepoint.com,site-id,web-id".to_string());
+            field.help_key = Some("onedrive_site_id_desc".to_string());
+        }
+        "group_id" => {
+            field.placeholder = Some("00000000-0000-0000-0000-000000000000".to_string());
+            field.help_key = Some("onedrive_group_id_desc".to_string());
+        }
+        _ => {}
+    }
     field
 }
 
@@ -2151,12 +2216,51 @@ mod tests {
             .find(|field| field.name == "tenant")
             .unwrap();
         assert_eq!(tenant.default_rules.len(), 5);
+        assert_eq!(tenant.kind, StorageConnectorFieldKind::Select);
+        let tenant_select = tenant.select.as_ref().unwrap();
+        assert_eq!(
+            tenant_select.automatic_default_label_key.as_deref(),
+            Some("onedrive_tenant_auto")
+        );
+        assert!(tenant_select.allow_custom_value);
+        assert_eq!(
+            tenant_select.custom_value_label_key.as_deref(),
+            Some("onedrive_tenant_custom")
+        );
+        assert_eq!(
+            tenant.placeholder.as_deref(),
+            Some("11111111-2222-3333-4444-555555555555")
+        );
         assert_eq!(
             tenant.advanced_group_key.as_deref(),
             Some("onedrive_advanced_target")
         );
 
-        for (name, mode) in [("site_id", "sharepoint_site"), ("group_id", "group_drive")] {
+        let root_item_id = descriptor
+            .fields
+            .iter()
+            .find(|field| field.name == "root_item_id")
+            .unwrap();
+        assert_eq!(
+            root_item_id.default_value,
+            Some(StorageConnectorFieldDefaultValue::String(
+                "root".to_string()
+            ))
+        );
+        assert_eq!(root_item_id.placeholder.as_deref(), Some("root"));
+
+        for (name, mode, placeholder) in [
+            (
+                "site_id",
+                "sharepoint_site",
+                "contoso.sharepoint.com,site-id,web-id",
+            ),
+            (
+                "group_id",
+                "group_drive",
+                "00000000-0000-0000-0000-000000000000",
+            ),
+        ] {
             let field = descriptor
                 .fields
                 .iter()
@@ -2165,6 +2269,7 @@ mod tests {
             let condition = vec![onedrive_condition("account_mode", mode)];
             assert_eq!(field.visible_when, condition);
             assert_eq!(field.required_when, condition);
+            assert_eq!(field.placeholder.as_deref(), Some(placeholder));
             assert_eq!(
                 field.inactive_value_behavior,
                 StorageConnectorInactiveValueBehavior::Clear
@@ -2253,6 +2358,29 @@ mod tests {
         let decoded: OneDriveConnectorConfigV1 =
             super::super::common::decode_normalized_connector_config(&normalized).unwrap();
         assert_eq!(decoded.tenant.as_deref(), Some("organizations"));
+        assert_eq!(decoded.root_item_id.as_deref(), Some("root"));
+    }
+
+    #[test]
+    fn backend_accepts_and_trims_a_custom_microsoft_tenant() {
+        let connector = OneDriveConnector;
+        let config = connector_config(
+            OneDriveAccountMode::WorkOrSchool,
+            Some(" contoso.onmicrosoft.com "),
+            None,
+            None,
+            None,
+        );
+        let input = crate::storage::connectors::test_support::connection_config(
+            OneDriveConnector::ID,
+            1,
+            config,
+        );
+
+        let normalized = connector.validate_connector_config(&input).unwrap();
+        let decoded: OneDriveConnectorConfigV1 =
+            super::super::common::decode_normalized_connector_config(&normalized).unwrap();
+        assert_eq!(decoded.tenant.as_deref(), Some("contoso.onmicrosoft.com"));
     }
 
     #[test]
