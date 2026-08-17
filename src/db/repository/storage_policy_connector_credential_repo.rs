@@ -167,3 +167,30 @@ pub async fn delete_by_policy<C: ConnectionTrait>(db: &C, policy_id: i64) -> Res
         .map(|_| ())
         .map_err(AsterError::from)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn promotion_revision_overflow_fails_before_database_update() {
+        let db = sea_orm::Database::connect("sqlite::memory:")
+            .await
+            .expect("test database should connect");
+        let error = promote_if_revision(
+            &db,
+            ConnectorCredentialPromotion {
+                policy_id: 1,
+                source_connector_id: "asterdrive.storage.s3",
+                source_schema_version: 1,
+                expected_revision: i64::MAX,
+                target_connector_id: "asterdrive.storage.tencent_cos".to_string(),
+                target_schema_version: 1,
+                ciphertext: "ciphertext".to_string(),
+            },
+        )
+        .await
+        .expect_err("revision overflow must fail");
+        assert!(error.message().contains("revision overflow"));
+    }
+}

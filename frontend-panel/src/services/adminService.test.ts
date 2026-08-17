@@ -300,6 +300,10 @@ describe("adminService", () => {
 		adminPolicyService.executeSavedPolicyAction(3, {
 			action: "configure_tencent_cos_cors",
 		});
+		adminPolicyService.promoteConnector(3, {
+			promotion_id: "promote_from_s3",
+			target_connector_id: "asterdrive.storage.tencent_cos",
+		});
 
 		expect(mockState.post).toHaveBeenNthCalledWith(
 			1,
@@ -316,6 +320,14 @@ describe("adminService", () => {
 			"/admin/policies/3/action",
 			{
 				action: "configure_tencent_cos_cors",
+			},
+		);
+		expect(mockState.post).toHaveBeenNthCalledWith(
+			3,
+			"/admin/policies/3/promote-connector",
+			{
+				promotion_id: "promote_from_s3",
+				target_connector_id: "asterdrive.storage.tencent_cos",
 			},
 		);
 	});

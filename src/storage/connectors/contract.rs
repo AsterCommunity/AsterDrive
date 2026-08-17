@@ -961,10 +961,10 @@ fn validate_required_promotion_targets(
                     | StorageConnectorFieldScope::StaticCredential
             )
     }) {
-        let mappings = match field.scope {
-            StorageConnectorFieldScope::ConnectorConfig => &promotion.config_mappings,
-            StorageConnectorFieldScope::StaticCredential => &promotion.credential_mappings,
-            _ => continue,
+        let mappings = if field.scope == StorageConnectorFieldScope::ConnectorConfig {
+            &promotion.config_mappings
+        } else {
+            &promotion.credential_mappings
         };
         if mappings
             .iter()

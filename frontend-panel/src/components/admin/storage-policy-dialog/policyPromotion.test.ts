@@ -263,4 +263,44 @@ describe("storage connector promotion", () => {
 			candidates.map((item) => item.targetDescriptor.connector_id),
 		).toEqual([target.connector_id, secondTarget.connector_id]);
 	});
+
+	it("handles omitted requirements, explicit fields, and credential mappings", () => {
+		const targetWithoutOptionalPromotionFields = structuredClone(target);
+		const promotion = targetWithoutOptionalPromotionFields.promotions?.[0];
+		if (!promotion) {
+			throw new Error("promotion fixture is missing");
+		}
+		delete promotion.requirements;
+		delete promotion.credential_mappings;
+
+		const form = s3Form("https://unmatched.example.test");
+		form.connector_config_explicit_fields = undefined;
+		const [candidate] = findStorageConnectorPromotionCandidates(
+			[targetWithoutOptionalPromotionFields],
+			form,
+		);
+		const promoted = applyStorageConnectorPromotion(form, candidate);
+		expect(promoted.connector_config_explicit_fields).toEqual([
+			"endpoint",
+			"bucket",
+			"base_path",
+		]);
+		expect(promoted.credential_values).toEqual({});
+
+		const missingCredentialForm = s3Form(
+			"https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+		);
+		delete missingCredentialForm.credential_values.s3_secret_access_key;
+		const [credentialCandidate] = findStorageConnectorPromotionCandidates(
+			[target],
+			missingCredentialForm,
+		);
+		const partiallyMapped = applyStorageConnectorPromotion(
+			missingCredentialForm,
+			credentialCandidate,
+		);
+		expect(partiallyMapped.credential_values).toEqual({
+			tencent_cos_secret_id: "AKIDEXAMPLE",
+		});
+	});
 });

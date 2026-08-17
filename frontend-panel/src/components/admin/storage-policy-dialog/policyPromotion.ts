@@ -43,9 +43,7 @@ export function applyStorageConnectorPromotion(
 	const connectorConfigValues = {
 		...transitioned.connector_config_values,
 	};
-	const explicitFields = new Set(
-		transitioned.connector_config_explicit_fields ?? [],
-	);
+	const explicitFields = new Set(transitioned.connector_config_explicit_fields);
 	for (const mapping of candidate.promotion.config_mappings) {
 		const value = form.connector_config_values[mapping.source_field];
 		if (value === undefined) {

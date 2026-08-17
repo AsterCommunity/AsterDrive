@@ -457,6 +457,97 @@ fn registry_rejects_invalid_cross_connector_promotion_contracts() {
 }
 
 #[test]
+fn registry_accepts_credential_free_and_string_select_promotion_contracts() {
+    use aster_drive_storage::connector_descriptor::{
+        StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorPromotionDescriptor,
+        StorageConnectorPromotionFieldMapping, StorageConnectorPromotionId,
+        StorageConnectorPromotionRequirement, StorageConnectorPromotionValueMatcher,
+        storage_connector_field, storage_connector_field_with_options,
+    };
+
+    let mut credential_free_target = descriptor(LocalConnector::ID);
+    credential_free_target.connector_id = ConnectorId::declared("com.example.local_target");
+    credential_free_target.promotions = vec![StorageConnectorPromotionDescriptor {
+        promotion_id: StorageConnectorPromotionId::declared("promote_local"),
+        source_connector_id: ConnectorId::declared(LocalConnector::ID),
+        description_key: "promotion_desc".to_string(),
+        confirmation_key: "promotion_confirm".to_string(),
+        requirements: Vec::new(),
+        config_mappings: vec![StorageConnectorPromotionFieldMapping {
+            source_field: "base_path".to_string(),
+            target_field: "base_path".to_string(),
+            preserve_value: true,
+        }],
+        credential_mappings: Vec::new(),
+    }];
+    StorageConnectorRegistry::new(vec![
+        Arc::new(LocalConnector),
+        contract_connector(credential_free_target),
+    ])
+    .expect("credential-free promotion contract should register");
+
+    let mut select_source = descriptor(LocalConnector::ID);
+    select_source.connector_id = ConnectorId::declared("com.example.select_source");
+    select_source
+        .fields
+        .push(storage_connector_field_with_options(
+            "provider_mode",
+            StorageConnectorFieldScope::ConnectorConfig,
+            StorageConnectorFieldKind::Select,
+            false,
+            false,
+            vec!["standard", "archive"],
+        ));
+    let mut select_target = descriptor(LocalConnector::ID);
+    select_target.connector_id = ConnectorId::declared("com.example.select_target");
+    select_target.promotions = vec![StorageConnectorPromotionDescriptor {
+        promotion_id: StorageConnectorPromotionId::declared("promote_select"),
+        source_connector_id: select_source.connector_id.clone(),
+        description_key: "promotion_desc".to_string(),
+        confirmation_key: "promotion_confirm".to_string(),
+        requirements: vec![StorageConnectorPromotionRequirement {
+            source_field: "provider_mode".to_string(),
+            matcher: StorageConnectorPromotionValueMatcher::StringEquals {
+                value: "archive".to_string(),
+                case_sensitive: false,
+            },
+            negate: false,
+        }],
+        config_mappings: vec![StorageConnectorPromotionFieldMapping {
+            source_field: "base_path".to_string(),
+            target_field: "base_path".to_string(),
+            preserve_value: true,
+        }],
+        credential_mappings: Vec::new(),
+    }];
+    StorageConnectorRegistry::new(vec![
+        contract_connector(select_source.clone()),
+        contract_connector(select_target.clone()),
+    ])
+    .expect("string select requirement should register");
+
+    let mut numeric_source = select_source;
+    numeric_source.fields.push(storage_connector_field(
+        "priority",
+        StorageConnectorFieldScope::ConnectorConfig,
+        StorageConnectorFieldKind::Number,
+        false,
+        false,
+    ));
+    let mut invalid_target = select_target;
+    invalid_target.promotions[0].source_connector_id = numeric_source.connector_id.clone();
+    invalid_target.promotions[0].requirements[0].source_field = "priority".to_string();
+    let error = match StorageConnectorRegistry::new(vec![
+        contract_connector(numeric_source),
+        contract_connector(invalid_target),
+    ]) {
+        Ok(_) => panic!("numeric promotion requirement must fail registration"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("must be string-valued"));
+}
+
+#[test]
 fn registry_rejects_localization_for_another_connector() {
     let descriptor = descriptor(LocalConnector::ID);
     let source = connector(LocalConnector::ID)

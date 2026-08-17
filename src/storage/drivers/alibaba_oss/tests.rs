@@ -113,6 +113,27 @@ fn validate_config_requires_region_to_match_standard_endpoint() {
 }
 
 #[test]
+fn official_endpoint_region_parser_handles_nonregional_and_invalid_hosts() {
+    assert!(official_oss_endpoint_region("not a url").is_err());
+    assert_eq!(
+        official_oss_endpoint_region("https://files.example.test").unwrap(),
+        None
+    );
+    assert_eq!(
+        official_oss_endpoint_region("file:///tmp/oss").unwrap(),
+        None
+    );
+    assert_eq!(
+        official_oss_endpoint_region("https://oss-.aliyuncs.com").unwrap(),
+        None
+    );
+    assert_eq!(
+        official_oss_endpoint_region("https://oss-cn-hangzhou-internal.aliyuncs.com").unwrap(),
+        Some("cn-hangzhou".to_string())
+    );
+}
+
+#[test]
 fn driver_exposes_s3_compatible_capabilities_with_public_presigning() {
     let driver = AlibabaOssDriver::new(sample_config(), sample_credentials())
         .expect("OSS driver should build");

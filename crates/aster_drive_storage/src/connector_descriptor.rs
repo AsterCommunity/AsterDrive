@@ -3226,6 +3226,90 @@ mod tests {
                 .contains("matcher must not be empty")
         );
 
+        let mut invalid_source_id = valid.clone();
+        invalid_source_id.promotions[0].source_connector_id = ConnectorId::declared("INVALID ID");
+        assert!(
+            invalid_source_id
+                .validate()
+                .expect_err("invalid source connector id must fail")
+                .to_string()
+                .contains("invalid source connector id")
+        );
+
+        for clear_description in [true, false] {
+            let mut empty_copy = valid.clone();
+            if clear_description {
+                empty_copy.promotions[0].description_key = " ".to_string();
+            } else {
+                empty_copy.promotions[0].confirmation_key = String::new();
+            }
+            assert!(
+                empty_copy
+                    .validate()
+                    .expect_err("empty promotion copy key must fail")
+                    .to_string()
+                    .contains("non-empty description and confirmation")
+            );
+        }
+
+        let mut empty_requirement_field = valid.clone();
+        empty_requirement_field.promotions[0].requirements[0].source_field = " ".to_string();
+        assert!(
+            empty_requirement_field
+                .validate()
+                .expect_err("empty requirement source field must fail")
+                .to_string()
+                .contains("source field must not be empty")
+        );
+
+        let mut no_config_mapping = valid.clone();
+        no_config_mapping.promotions[0].config_mappings.clear();
+        assert!(
+            no_config_mapping
+                .validate()
+                .expect_err("promotion without config mapping must fail")
+                .to_string()
+                .contains("at least one config mapping")
+        );
+
+        let mut empty_mapping_name = valid.clone();
+        empty_mapping_name.promotions[0].config_mappings[0].source_field = String::new();
+        assert!(
+            empty_mapping_name
+                .validate()
+                .expect_err("empty mapping field name must fail")
+                .to_string()
+                .contains("non-empty names")
+        );
+
+        let mut duplicate_promotion = valid.clone();
+        duplicate_promotion
+            .promotions
+            .push(duplicate_promotion.promotions[0].clone());
+        assert!(
+            duplicate_promotion
+                .validate()
+                .expect_err("duplicate promotion id must fail")
+                .to_string()
+                .contains("declared more than once")
+        );
+
+        let mut missing_credential_target = valid.clone();
+        missing_credential_target.promotions[0]
+            .credential_mappings
+            .push(StorageConnectorPromotionFieldMapping {
+                source_field: "source_secret".to_string(),
+                target_field: "missing_secret".to_string(),
+                preserve_value: false,
+            });
+        assert!(
+            missing_credential_target
+                .validate()
+                .expect_err("undeclared target credential field must fail")
+                .to_string()
+                .contains("undeclared target credential field")
+        );
+
         let mut invalid_id = valid;
         invalid_id.promotions[0].promotion_id = StorageConnectorPromotionId::declared("INVALID ID");
         assert!(

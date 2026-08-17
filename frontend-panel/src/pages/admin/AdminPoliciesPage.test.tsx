@@ -904,9 +904,10 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			},
 			{ updated_at: "2026-08-17T00:00:00Z" },
 		);
+		const untouched = policy(source.connector_id, {}, { id: 8, name: "Other" });
 		mockState.manageDescriptors = [source, target];
 		mockState.createDescriptors = [source, target];
-		mockState.policies = [saved];
+		mockState.policies = [saved, untouched];
 		mockState.promoteConnector.mockResolvedValue(promoted);
 
 		render(<AdminPoliciesPage />);
@@ -946,6 +947,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		);
 		expect(currentDialog().form.connector_id).toBe(target.connector_id);
 		expect(currentTable().policies[0].connector_id).toBe(target.connector_id);
+		expect(currentTable().policies[1]).toEqual(untouched);
 		expect(mockState.toastSuccess).toHaveBeenCalledWith(
 			"policy_connector_promotion_success",
 		);

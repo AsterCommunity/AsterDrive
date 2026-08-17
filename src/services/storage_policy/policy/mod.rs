@@ -36,7 +36,6 @@ pub use policies::{
     capacity_info, create, delete, execute_draft_action, execute_saved_action, get, list_paginated,
     test_connection, test_connection_params, test_default_connection, update,
 };
-pub use promotion::promote_connector;
 
 fn policy_audit_details(policy: &StoragePolicy) -> Option<serde_json::Value> {
     audit::details(audit::StoragePolicyAuditDetails {

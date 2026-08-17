@@ -36,19 +36,18 @@ struct PromotionCommit {
     target_connector_id: ConnectorId,
     target_descriptor: aster_drive_storage::StorageConnectorDescriptor,
     encoded_storage_config: aster_drive_model::types::StoredStoragePolicyConfig,
-    source_credential:
-        Option<aster_drive_model::entities::storage_policy_connector_credential::Model>,
-    target_credential_payload: Option<serde_json::Value>,
+    credential: Option<CredentialPromotionCommit>,
 }
 
-pub async fn promote_connector(
-    state: &(impl RemoteProtocolRuntimeState + Sync),
-    id: i64,
-    input: PromoteStoragePolicyConnectorInput,
-) -> Result<StoragePolicy> {
-    execute_connector_promotion(state, id, input)
-        .await
-        .map(|execution| execution.policy)
+struct CredentialPromotionCommit {
+    source: aster_drive_model::entities::storage_policy_connector_credential::Model,
+    target_payload: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PromotionCredentialPath {
+    Static,
+    None,
 }
 
 pub(super) async fn execute_connector_promotion(
@@ -59,14 +58,8 @@ pub(super) async fn execute_connector_promotion(
     let existing = policy_repo::find_by_id(state.writer_db(), id).await?;
     let source_storage_config = decode_policy_storage_config(&existing)?;
     let source_connector_id = source_storage_config.connector.connector_id.clone();
-    let source_config_values: BTreeMap<String, serde_json::Value> = serde_json::from_value(
-        source_storage_config.connector.values.clone(),
-    )
-    .map_err(|error| {
-        AsterError::database_operation(format!(
-            "storage policy {id} connector config must be an object: {error}"
-        ))
-    })?;
+    let source_config_values =
+        decode_source_config_values(id, &source_storage_config.connector.values)?;
     let target_connector_id = input.target_connector_id.clone();
     let promotion_id = input.promotion_id.clone();
     let connectors = state.driver_registry().connectors();
@@ -114,48 +107,55 @@ pub(super) async fn execute_connector_promotion(
     let source_descriptor = connectors.require_policy(&existing)?.descriptor();
     let source_credential =
         storage_policy_connector_credential_repo::find_by_policy(state.writer_db(), id).await?;
-    let (target_credential, target_credential_payload) = match target_descriptor.credential_mode {
-        StorageConnectorCredentialMode::StaticSecret => {
-            let source_credential = source_credential.as_ref().ok_or_else(|| {
-                AsterError::database_operation(format!(
-                    "storage policy #{id} has no connector credential to promote"
-                ))
-            })?;
-            let source_schema_version =
-                crate::storage::connectors::credential_schema_version(&source_descriptor)?;
-            let source_values = crate::storage::connectors::decode_connector_credential(
-                &state.config().auth.storage_credential_secret_key,
-                source_credential,
-                &source_connector_id,
-                source_schema_version,
-            )?;
-            let target_values =
-                map_promotion_credential_values(&promotion.credential_mappings, &source_values)?;
-            let credential = StorageConnectorCredentialInput::Static(target_values.clone());
-            crate::storage::connectors::validate_credential_input(
-                connectors,
-                &target_connector_id,
-                &credential,
-            )?;
-            (credential, Some(target_values))
-        }
-        StorageConnectorCredentialMode::None => (StorageConnectorCredentialInput::None, None),
-        _ => {
-            return Err(validation_error_with_code(
-                ApiErrorCode::PolicyPromotionTargetUnsupported,
-                "connector promotions currently require compatible static credentials or credential-free connectors",
-            ));
-        }
-    };
+    let (target_credential, credential_commit) =
+        match promotion_credential_path(target_descriptor.credential_mode)? {
+            PromotionCredentialPath::Static => {
+                let source_credential = source_credential.as_ref().ok_or_else(|| {
+                    AsterError::database_operation(format!(
+                        "storage policy #{id} has no connector credential to promote"
+                    ))
+                })?;
+                let source_schema_version =
+                    crate::storage::connectors::credential_schema_version(&source_descriptor)?;
+                let source_values = crate::storage::connectors::decode_connector_credential(
+                    &state.config().auth.storage_credential_secret_key,
+                    source_credential,
+                    &source_connector_id,
+                    source_schema_version,
+                )?;
+                let target_values = map_promotion_credential_values(
+                    &promotion.credential_mappings,
+                    &source_values,
+                )?;
+                let credential = StorageConnectorCredentialInput::Static(target_values.clone());
+                crate::storage::connectors::validate_credential_input(
+                    connectors,
+                    &target_connector_id,
+                    &credential,
+                )?;
+                (
+                    credential,
+                    Some(CredentialPromotionCommit {
+                        source: source_credential.clone(),
+                        target_payload: target_values,
+                    }),
+                )
+            }
+            PromotionCredentialPath::None => (StorageConnectorCredentialInput::None, None),
+        };
 
     let behavior = source_storage_config.behavior.values;
     target_connector.validate_policy_behavior(&behavior)?;
     let persisted_target_config = ConnectorConfigEnvelope::new(
         target_config.connector_id.clone(),
         target_config.schema_version,
-        serde_json::to_value(&target_config.values).map_err(|error| {
-            AsterError::internal_error(format!("serialize promoted connector config: {error}"))
-        })?,
+        serde_json::Value::Object(
+            target_config
+                .values
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+        ),
     );
     let encoded_storage_config =
         aster_drive_storage::encode_storage_policy_config(persisted_target_config, behavior)
@@ -193,8 +193,7 @@ pub(super) async fn execute_connector_promotion(
             target_connector_id: target_connector_id.clone(),
             target_descriptor,
             encoded_storage_config,
-            source_credential,
-            target_credential_payload,
+            credential: credential_commit,
         },
     )
     .await?;
@@ -224,22 +223,11 @@ async fn commit_connector_promotion(
         commit.encoded_storage_config,
     )
     .await?;
-    if let Some(target_credential_payload) = commit.target_credential_payload {
-        let source_credential = commit.source_credential.as_ref().ok_or_else(|| {
-            AsterError::database_operation("source connector credential disappeared")
-        })?;
+    if let Some(credential) = commit.credential {
         let target_schema_version =
             crate::storage::connectors::credential_schema_version(&commit.target_descriptor)?;
-        let target_schema_version_i32 = i32::try_from(target_schema_version).map_err(|_| {
-            AsterError::validation_error(
-                "connector credential schema version exceeds database range",
-            )
-        })?;
-        let plaintext = serde_json::to_string(&target_credential_payload).map_err(|error| {
-            AsterError::validation_error(format!(
-                "serialize promoted connector credential payload: {error}"
-            ))
-        })?;
+        let target_schema_version_i32 = database_schema_version(target_schema_version)?;
+        let plaintext = credential.target_payload.to_string();
         let ciphertext =
             crate::services::storage_policy::credential::crypto::encrypt_connector_credential(
                 &state.config().auth.storage_credential_secret_key,
@@ -252,23 +240,47 @@ async fn commit_connector_promotion(
             &txn,
             storage_policy_connector_credential_repo::ConnectorCredentialPromotion {
                 policy_id,
-                source_connector_id: &source_credential.connector_id,
-                source_schema_version: source_credential.schema_version,
-                expected_revision: source_credential.revision,
+                source_connector_id: &credential.source.connector_id,
+                source_schema_version: credential.source.schema_version,
+                expected_revision: credential.source.revision,
                 target_connector_id: commit.target_connector_id.as_str().to_string(),
                 target_schema_version: target_schema_version_i32,
                 ciphertext,
             },
         )
         .await?;
-        if !promoted {
-            return Err(AsterError::validation_error(
-                "storage connector credential changed while promotion was being validated; retry the operation",
-            ));
-        }
+        require_credential_promotion(promoted)?;
     }
     transaction::commit(txn).await?;
     Ok(result)
+}
+
+fn require_credential_promotion(promoted: bool) -> Result<()> {
+    if promoted {
+        return Ok(());
+    }
+    Err(AsterError::validation_error(
+        "storage connector credential changed while promotion was being validated; retry the operation",
+    ))
+}
+
+fn database_schema_version(schema_version: u32) -> Result<i32> {
+    i32::try_from(schema_version).map_err(|_| {
+        AsterError::validation_error("connector credential schema version exceeds database range")
+    })
+}
+
+fn promotion_credential_path(
+    mode: StorageConnectorCredentialMode,
+) -> Result<PromotionCredentialPath> {
+    match mode {
+        StorageConnectorCredentialMode::StaticSecret => Ok(PromotionCredentialPath::Static),
+        StorageConnectorCredentialMode::None => Ok(PromotionCredentialPath::None),
+        _ => Err(validation_error_with_code(
+            ApiErrorCode::PolicyPromotionTargetUnsupported,
+            "connector promotions currently require compatible static credentials or credential-free connectors",
+        )),
+    }
 }
 
 async fn reload_promoted_policy(
@@ -386,6 +398,17 @@ fn decode_policy_storage_config(
         )));
     }
     Ok(config)
+}
+
+fn decode_source_config_values(
+    policy_id: i64,
+    values: &serde_json::Value,
+) -> Result<BTreeMap<String, serde_json::Value>> {
+    serde_json::from_value(values.clone()).map_err(|error| {
+        AsterError::database_operation(format!(
+            "storage policy {policy_id} connector config must be an object: {error}"
+        ))
+    })
 }
 
 fn promotion_requirements_match(
@@ -633,6 +656,31 @@ mod tests {
             .expect_err("metadata failure must block promotion");
         assert!(error.message().contains("verify existing object"));
         assert!(error.message().contains("blob id 7"));
+
+        let mut missing_path = promotion_blob(12);
+        missing_path.storage_path = None;
+        let error = verify_promotion_blob_sample(
+            &PromotionMetadataDriver { size: Some(12) },
+            &[missing_path],
+        )
+        .await
+        .expect_err("stored blob without path must fail");
+        assert!(
+            error
+                .message()
+                .contains("stored blob 7 has no storage path")
+        );
+    }
+
+    #[tokio::test]
+    async fn metadata_test_driver_rejects_unexpected_operations() {
+        let driver = PromotionMetadataDriver { size: Some(1) };
+        assert!(driver.put("path", b"data").await.is_err());
+        assert!(driver.get("path").await.is_err());
+        assert!(driver.get_stream("path").await.is_err());
+        assert!(driver.delete("path").await.is_err());
+        assert!(driver.exists("path").await.is_err());
+        assert!(unexpected_driver_call("probe").message().contains("probe"));
     }
 
     #[test]
@@ -688,6 +736,26 @@ mod tests {
             ),
         ]);
         assert!(promotion_requirements_match(&promotion, &values));
+
+        let case_sensitive = promotion_with_requirements(vec![requirement(
+            "provider",
+            StorageConnectorPromotionValueMatcher::StringEquals {
+                value: "alibaba-oss".to_string(),
+                case_sensitive: true,
+            },
+            false,
+        )]);
+        assert!(!promotion_requirements_match(&case_sensitive, &values));
+
+        let missing = promotion_with_requirements(vec![requirement(
+            "missing",
+            StorageConnectorPromotionValueMatcher::StringEquals {
+                value: "value".to_string(),
+                case_sensitive: false,
+            },
+            false,
+        )]);
+        assert!(!promotion_requirements_match(&missing, &values));
 
         let mut automatic_region = values.clone();
         automatic_region.insert("region".to_string(), serde_json::json!("AUTO"));
@@ -763,5 +831,42 @@ mod tests {
         let mut changed_revision = expected.clone();
         changed_revision.updated_at += chrono::Duration::seconds(1);
         assert!(ensure_promotion_policy_unchanged(&expected, &changed_revision).is_err());
+        require_credential_promotion(true).unwrap();
+        assert!(require_credential_promotion(false).is_err());
+        assert_eq!(database_schema_version(1).unwrap(), 1);
+        assert!(database_schema_version(u32::MAX).is_err());
+        assert_eq!(
+            promotion_credential_path(StorageConnectorCredentialMode::StaticSecret).unwrap(),
+            PromotionCredentialPath::Static
+        );
+        assert_eq!(
+            promotion_credential_path(StorageConnectorCredentialMode::None).unwrap(),
+            PromotionCredentialPath::None
+        );
+        assert!(promotion_credential_path(StorageConnectorCredentialMode::OauthDelegated).is_err());
+        assert!(promotion_credential_path(StorageConnectorCredentialMode::RemoteNode).is_err());
+    }
+
+    #[test]
+    fn policy_config_decoder_rejects_invalid_json_and_connector_mismatch() {
+        let mut invalid_json =
+            crate::storage::connectors::test_support::local_policy("data/uploads");
+        invalid_json.storage_config =
+            aster_drive_model::types::StoredStoragePolicyConfig("not-json".to_string());
+        assert!(decode_policy_storage_config(&invalid_json).is_err());
+
+        let mut mismatch = crate::storage::connectors::test_support::local_policy("data/uploads");
+        mismatch.connector_id = "com.example.mismatch".to_string();
+        let error =
+            decode_policy_storage_config(&mismatch).expect_err("connector mismatch must fail");
+        assert!(error.message().contains("does not match storage_config"));
+
+        let error = decode_source_config_values(7, &serde_json::json!("not-an-object"))
+            .expect_err("non-object connector values must fail");
+        assert!(
+            error
+                .message()
+                .contains("connector config must be an object")
+        );
     }
 }
