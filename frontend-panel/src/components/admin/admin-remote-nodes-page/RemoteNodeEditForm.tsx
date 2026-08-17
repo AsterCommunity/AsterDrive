@@ -7,7 +7,7 @@ import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
 	RemoteCreateStorageTargetRequest,
 	RemoteNodeInfo,
-	RemoteStorageTargetDriverDescriptor,
+	RemoteStorageTargetConnectorDescriptor,
 	RemoteStorageTargetInfo,
 	RemoteUpdateStorageTargetRequest,
 } from "@/types/api";
@@ -31,9 +31,9 @@ interface RemoteNodeEditFormProps {
 	editingNode: RemoteNodeInfo | null;
 	enabledToneClass: string;
 	form: RemoteNodeFormData;
-	remoteStorageTargetDriverDescriptors: RemoteStorageTargetDriverDescriptor[];
-	remoteStorageTargetDriverDescriptorsError: string | null;
-	remoteStorageTargetDriverDescriptorsLoading: boolean;
+	remoteStorageTargetConnectorDescriptors: RemoteStorageTargetConnectorDescriptor[];
+	remoteStorageTargetConnectorDescriptorsError: string | null;
+	remoteStorageTargetConnectorDescriptorsLoading: boolean;
 	remoteStorageTargets: RemoteStorageTargetInfo[];
 	remoteStorageTargetsEnabled: boolean;
 	remoteStorageTargetsError: string | null;
@@ -59,9 +59,9 @@ export function RemoteNodeEditForm({
 	editingNode,
 	enabledToneClass,
 	form,
-	remoteStorageTargetDriverDescriptors,
-	remoteStorageTargetDriverDescriptorsError,
-	remoteStorageTargetDriverDescriptorsLoading,
+	remoteStorageTargetConnectorDescriptors,
+	remoteStorageTargetConnectorDescriptorsError,
+	remoteStorageTargetConnectorDescriptorsLoading,
 	remoteStorageTargets,
 	remoteStorageTargetsEnabled,
 	remoteStorageTargetsError,
@@ -151,15 +151,15 @@ export function RemoteNodeEditForm({
 				onDeleteRemoteStorageTarget ? (
 					<RemoteNodeRemoteStorageTargetSection
 						targets={remoteStorageTargets}
-						driverDescriptors={remoteStorageTargetDriverDescriptors}
+						connectorDescriptors={remoteStorageTargetConnectorDescriptors}
 						listViewportClassName="max-h-[min(52vh,28rem)] overflow-y-auto pr-1"
 						loading={
 							remoteStorageTargetsLoading ||
-							remoteStorageTargetDriverDescriptorsLoading
+							remoteStorageTargetConnectorDescriptorsLoading
 						}
 						errorMessage={
 							remoteStorageTargetsError ??
-							remoteStorageTargetDriverDescriptorsError
+							remoteStorageTargetConnectorDescriptorsError
 						}
 						onCreateTarget={onCreateRemoteStorageTarget}
 						onUpdateTarget={onUpdateRemoteStorageTarget}

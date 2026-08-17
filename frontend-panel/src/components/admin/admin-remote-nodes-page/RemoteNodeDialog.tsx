@@ -13,7 +13,7 @@ import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
 	RemoteCreateStorageTargetRequest,
 	RemoteNodeInfo,
-	RemoteStorageTargetDriverDescriptor,
+	RemoteStorageTargetConnectorDescriptor,
 	RemoteStorageTargetInfo,
 	RemoteUpdateStorageTargetRequest,
 } from "@/types/api";
@@ -34,7 +34,7 @@ import {
 } from "./shared";
 
 const EMPTY_REMOTE_STORAGE_TARGETS: RemoteStorageTargetInfo[] = [];
-const EMPTY_REMOTE_STORAGE_TARGET_DRIVER_DESCRIPTORS: RemoteStorageTargetDriverDescriptor[] =
+const EMPTY_REMOTE_STORAGE_TARGET_DRIVER_DESCRIPTORS: RemoteStorageTargetConnectorDescriptor[] =
 	[];
 
 interface RemoteNodeDialogProps {
@@ -42,9 +42,9 @@ interface RemoteNodeDialogProps {
 	createStepTouched: boolean;
 	editingNode: RemoteNodeInfo | null;
 	form: RemoteNodeFormData;
-	remoteStorageTargetDriverDescriptors?: RemoteStorageTargetDriverDescriptor[];
-	remoteStorageTargetDriverDescriptorsError?: string | null;
-	remoteStorageTargetDriverDescriptorsLoading?: boolean;
+	remoteStorageTargetConnectorDescriptors?: RemoteStorageTargetConnectorDescriptor[];
+	remoteStorageTargetConnectorDescriptorsError?: string | null;
+	remoteStorageTargetConnectorDescriptorsLoading?: boolean;
 	remoteStorageTargets?: RemoteStorageTargetInfo[];
 	remoteStorageTargetsEnabled?: boolean;
 	remoteStorageTargetsError?: string | null;
@@ -79,9 +79,9 @@ export function RemoteNodeDialog({
 	createStepTouched,
 	editingNode,
 	form,
-	remoteStorageTargetDriverDescriptors = EMPTY_REMOTE_STORAGE_TARGET_DRIVER_DESCRIPTORS,
-	remoteStorageTargetDriverDescriptorsError = null,
-	remoteStorageTargetDriverDescriptorsLoading = false,
+	remoteStorageTargetConnectorDescriptors = EMPTY_REMOTE_STORAGE_TARGET_DRIVER_DESCRIPTORS,
+	remoteStorageTargetConnectorDescriptorsError = null,
+	remoteStorageTargetConnectorDescriptorsLoading = false,
 	remoteStorageTargets = EMPTY_REMOTE_STORAGE_TARGETS,
 	remoteStorageTargetsEnabled = false,
 	remoteStorageTargetsError = null,
@@ -273,14 +273,14 @@ export function RemoteNodeDialog({
 								enabledToneClass={enabledToneClass}
 								form={form}
 								remoteStorageTargets={remoteStorageTargets}
-								remoteStorageTargetDriverDescriptors={
-									remoteStorageTargetDriverDescriptors
+								remoteStorageTargetConnectorDescriptors={
+									remoteStorageTargetConnectorDescriptors
 								}
-								remoteStorageTargetDriverDescriptorsError={
-									remoteStorageTargetDriverDescriptorsError
+								remoteStorageTargetConnectorDescriptorsError={
+									remoteStorageTargetConnectorDescriptorsError
 								}
-								remoteStorageTargetDriverDescriptorsLoading={
-									remoteStorageTargetDriverDescriptorsLoading
+								remoteStorageTargetConnectorDescriptorsLoading={
+									remoteStorageTargetConnectorDescriptorsLoading
 								}
 								remoteStorageTargetsEnabled={remoteStorageTargetsEnabled}
 								remoteStorageTargetsError={remoteStorageTargetsError}

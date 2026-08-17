@@ -7,7 +7,7 @@ import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import type {
 	RemoteCreateStorageTargetRequest,
 	RemoteNodeInfo,
-	RemoteStorageTargetDriverDescriptor,
+	RemoteStorageTargetConnectorDescriptor,
 	RemoteStorageTargetInfo,
 	StorageConnectorCredentialInfo,
 	StorageConnectorDescriptor,
@@ -47,9 +47,9 @@ interface PolicyDialogsProps {
 	connectorActionSubmittingId: string | null;
 	connectorActionValues: StorageConnectorActionValues;
 	remoteNodes: RemoteNodeInfo[];
-	remoteStorageTargetDriverDescriptors: RemoteStorageTargetDriverDescriptor[];
-	remoteStorageTargetDriverDescriptorsError: string | null;
-	remoteStorageTargetDriverDescriptorsLoading: boolean;
+	remoteStorageTargetConnectorDescriptors: RemoteStorageTargetConnectorDescriptor[];
+	remoteStorageTargetConnectorDescriptorsError: string | null;
+	remoteStorageTargetConnectorDescriptorsLoading: boolean;
 	remoteStorageTargets: RemoteStorageTargetInfo[];
 	remoteStorageTargetsError: string | null;
 	remoteStorageTargetsLoading: boolean;
@@ -113,9 +113,9 @@ export function PolicyDialogs({
 	connectorActionSubmittingId,
 	connectorActionValues,
 	remoteNodes,
-	remoteStorageTargetDriverDescriptors,
-	remoteStorageTargetDriverDescriptorsError,
-	remoteStorageTargetDriverDescriptorsLoading,
+	remoteStorageTargetConnectorDescriptors,
+	remoteStorageTargetConnectorDescriptorsError,
+	remoteStorageTargetConnectorDescriptorsLoading,
 	remoteStorageTargets,
 	remoteStorageTargetsError,
 	remoteStorageTargetsLoading,
@@ -182,14 +182,14 @@ export function PolicyDialogs({
 				connectorActionSubmittingId={connectorActionSubmittingId}
 				connectorActionValues={connectorActionValues}
 				remoteNodes={remoteNodes}
-				remoteStorageTargetDriverDescriptors={
-					remoteStorageTargetDriverDescriptors
+				remoteStorageTargetConnectorDescriptors={
+					remoteStorageTargetConnectorDescriptors
 				}
-				remoteStorageTargetDriverDescriptorsError={
-					remoteStorageTargetDriverDescriptorsError
+				remoteStorageTargetConnectorDescriptorsError={
+					remoteStorageTargetConnectorDescriptorsError
 				}
-				remoteStorageTargetDriverDescriptorsLoading={
-					remoteStorageTargetDriverDescriptorsLoading
+				remoteStorageTargetConnectorDescriptorsLoading={
+					remoteStorageTargetConnectorDescriptorsLoading
 				}
 				remoteStorageTargets={remoteStorageTargets}
 				remoteStorageTargetsError={remoteStorageTargetsError}

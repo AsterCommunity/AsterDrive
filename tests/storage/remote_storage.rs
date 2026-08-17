@@ -28,16 +28,15 @@ use aster_drive::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER,
     INTERNAL_AUTH_TIMESTAMP_HEADER, INTERNAL_STORAGE_BASE_PATH,
     INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION_LABEL, INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL,
-    RemoteBindingSyncRequest, RemoteCreateLocalStorageTargetRequest,
-    RemoteCreateS3StorageTargetRequest, RemoteCreateStorageTargetRequest,
-    RemoteStorageCapabilities, RemoteStorageClient, RemoteStorageComposeRequest,
+    RemoteBindingSyncRequest, RemoteCreateStorageTargetRequest, RemoteStorageCapabilities,
+    RemoteStorageClient, RemoteStorageComposeRequest, RemoteStorageTargetCredentialInput,
     RemoteUpdateStorageTargetRequest, sign_internal_request, sign_presigned_request,
 };
 use aster_drive_model::entities::{follower_enrollment_session, storage_policy};
 use aster_drive_model::types::{
-    RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteStorageTargetDriverKind,
-    RemoteUploadStrategy,
+    RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteUploadStrategy,
 };
+use aster_drive_storage::{ConnectorConfigEnvelope, ConnectorId};
 use bytes::Bytes;
 use chrono::{Duration as ChronoDuration, Utc};
 use futures::TryStreamExt;
@@ -89,6 +88,95 @@ impl TestHttpServer {
         self.handle.stop(true).await;
         let _ = self.task.await;
     }
+}
+
+const LOCAL_TARGET_CONNECTOR_ID: &str = "asterdrive.remote-target.local";
+const S3_TARGET_CONNECTOR_ID: &str = "asterdrive.remote-target.s3";
+
+fn local_target_request(
+    name: impl Into<String>,
+    base_path: impl Into<String>,
+    is_default: bool,
+) -> RemoteCreateStorageTargetRequest {
+    RemoteCreateStorageTargetRequest {
+        name: name.into(),
+        connector_config: local_target_config(base_path),
+        credential: None,
+        is_default,
+    }
+}
+
+fn local_target_config(base_path: impl Into<String>) -> ConnectorConfigEnvelope {
+    ConnectorConfigEnvelope::new(
+        ConnectorId::declared(LOCAL_TARGET_CONNECTOR_ID),
+        1,
+        std::collections::BTreeMap::from([(
+            "base_path".to_string(),
+            serde_json::Value::String(base_path.into()),
+        )]),
+    )
+}
+
+fn s3_target_request(
+    name: impl Into<String>,
+    endpoint: impl Into<String>,
+    bucket: impl Into<String>,
+    access_key: impl Into<String>,
+    secret_key: impl Into<String>,
+    base_path: impl Into<String>,
+    is_default: bool,
+) -> RemoteCreateStorageTargetRequest {
+    RemoteCreateStorageTargetRequest {
+        name: name.into(),
+        connector_config: s3_target_config(endpoint, bucket, base_path),
+        credential: Some(RemoteStorageTargetCredentialInput {
+            mode: "static".to_string(),
+            values: std::collections::BTreeMap::from([
+                (
+                    "s3_access_key_id".to_string(),
+                    serde_json::Value::String(access_key.into()),
+                ),
+                (
+                    "s3_secret_access_key".to_string(),
+                    serde_json::Value::String(secret_key.into()),
+                ),
+            ]),
+        }),
+        is_default,
+    }
+}
+
+fn s3_target_config(
+    endpoint: impl Into<String>,
+    bucket: impl Into<String>,
+    base_path: impl Into<String>,
+) -> ConnectorConfigEnvelope {
+    ConnectorConfigEnvelope::new(
+        ConnectorId::declared(S3_TARGET_CONNECTOR_ID),
+        1,
+        std::collections::BTreeMap::from([
+            (
+                "endpoint".to_string(),
+                serde_json::Value::String(endpoint.into()),
+            ),
+            (
+                "bucket".to_string(),
+                serde_json::Value::String(bucket.into()),
+            ),
+            (
+                "base_path".to_string(),
+                serde_json::Value::String(base_path.into()),
+            ),
+        ]),
+    )
+}
+
+fn target_base_path(
+    target: &aster_drive::storage::remote_protocol::RemoteStorageTargetInfo,
+) -> &str {
+    target.connector_config.values["base_path"]
+        .as_str()
+        .expect("remote target base_path should be text")
 }
 
 async fn spawn_internal_storage_server(
@@ -720,11 +808,7 @@ async fn create_managed_local_ingress_for_binding(
     storage_target::create(
         &provider_state.follower_view(),
         &binding,
-        RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
-            name: format!("Managed {base_path}"),
-            base_path: base_path.to_string(),
-            is_default: true,
-        }),
+        local_target_request(format!("Managed {base_path}"), base_path, true),
     )
     .await
     .expect("provider managed remote storage target should be created")
@@ -782,9 +866,9 @@ async fn setup_reverse_tunnel_ingress_profile_target(
     seed_remote_capabilities(
         &consumer_state,
         consumer_node.id,
-        RemoteStorageCapabilities::current().with_remote_storage_target_driver_types(vec![
-            RemoteStorageTargetDriverKind::Local,
-            RemoteStorageTargetDriverKind::S3,
+        RemoteStorageCapabilities::current().with_remote_storage_target_connector_ids(vec![
+            LOCAL_TARGET_CONNECTOR_ID.to_string(),
+            S3_TARGET_CONNECTOR_ID.to_string(),
         ]),
     )
     .await;
@@ -832,11 +916,7 @@ async fn test_remote_ingress_profiles_use_reverse_tunnel_without_base_url() {
     let created = storage_target::create_remote(
         &consumer_state,
         consumer_node_model.id,
-        RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
-            name: "Reverse Landing".to_string(),
-            base_path: "reverse-landing".to_string(),
-            is_default: true,
-        }),
+        local_target_request("Reverse Landing", "reverse-landing", true),
     )
     .await
     .expect("reverse tunnel remote storage target create should not require base_url");
@@ -855,14 +935,14 @@ async fn test_remote_ingress_profiles_use_reverse_tunnel_without_base_url() {
         &created.target_key,
         RemoteUpdateStorageTargetRequest {
             name: Some("Reverse Landing Updated".to_string()),
-            base_path: Some("reverse-landing-updated".to_string()),
+            connector_config: Some(local_target_config("reverse-landing-updated")),
             ..Default::default()
         },
     )
     .await
     .expect("reverse tunnel remote storage target update should not require base_url");
     assert_eq!(updated.name, "Reverse Landing Updated");
-    assert_eq!(updated.base_path, "reverse-landing-updated");
+    assert_eq!(target_base_path(&updated), "reverse-landing-updated");
 
     let client = RemoteStorageClient::new(
         &provider_server.base_url,
@@ -918,11 +998,7 @@ async fn test_remote_ingress_profiles_auto_empty_base_url_uses_reverse_tunnel() 
     let profile = storage_target::create_remote(
         &consumer_state,
         consumer_node_model.id,
-        RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
-            name: "Auto Tunnel Landing".to_string(),
-            base_path: "auto-tunnel-landing".to_string(),
-            is_default: true,
-        }),
+        local_target_request("Auto Tunnel Landing", "auto-tunnel-landing", true),
     )
     .await
     .expect("auto remote storage target create should use reverse tunnel when base_url is empty");
@@ -956,22 +1032,22 @@ async fn test_remote_ingress_profile_create_rejects_driver_missing_from_capabili
         &consumer_state,
         consumer_node.id,
         RemoteStorageCapabilities::current()
-            .with_remote_storage_target_driver_types(vec![RemoteStorageTargetDriverKind::Local]),
+            .with_remote_storage_target_connector_ids(vec![LOCAL_TARGET_CONNECTOR_ID.to_string()]),
     )
     .await;
 
     let error = storage_target::create_remote(
         &consumer_state,
         consumer_node.id,
-        RemoteCreateStorageTargetRequest::S3(RemoteCreateS3StorageTargetRequest {
-            name: "Unsupported S3".to_string(),
-            endpoint: "https://s3.example.com".to_string(),
-            bucket: "bucket".to_string(),
-            access_key: "access".to_string(),
-            secret_key: "secret".to_string(),
-            base_path: "unsupported-s3".to_string(),
-            is_default: true,
-        }),
+        s3_target_request(
+            "Unsupported S3",
+            "https://s3.example.com",
+            "bucket",
+            "access",
+            "secret",
+            "unsupported-s3",
+            true,
+        ),
     )
     .await
     .expect_err("primary should reject S3 when remote capabilities only declare local ingress");
@@ -981,9 +1057,9 @@ async fn test_remote_ingress_profile_create_rejects_driver_missing_from_capabili
         ApiErrorCode::ManagedIngressDriverUnsupported
     );
     assert!(
-        error
-            .message()
-            .contains("does not declare remote storage target support for the s3 driver"),
+        error.message().contains(
+            "does not declare remote storage target connector 'asterdrive.remote-target.s3'"
+        ),
         "unexpected error message: {}",
         error.message()
     );
@@ -1008,7 +1084,7 @@ async fn test_remote_ingress_profile_update_rejects_driver_missing_from_capabili
         &consumer_state,
         consumer_node.id,
         RemoteStorageCapabilities::current()
-            .with_remote_storage_target_driver_types(vec![RemoteStorageTargetDriverKind::Local]),
+            .with_remote_storage_target_connector_ids(vec![LOCAL_TARGET_CONNECTOR_ID.to_string()]),
     )
     .await;
 
@@ -1017,12 +1093,21 @@ async fn test_remote_ingress_profile_update_rejects_driver_missing_from_capabili
         consumer_node.id,
         "profile-a",
         RemoteUpdateStorageTargetRequest {
-            driver_type: Some(RemoteStorageTargetDriverKind::S3),
-            endpoint: Some("https://s3.example.com".to_string()),
-            bucket: Some("bucket".to_string()),
-            access_key: Some("access".to_string()),
-            secret_key: Some("secret".to_string()),
-            base_path: Some("unsupported-s3".to_string()),
+            connector_config: Some(s3_target_config(
+                "https://s3.example.com",
+                "bucket",
+                "unsupported-s3",
+            )),
+            credential: Some(RemoteStorageTargetCredentialInput {
+                mode: "static".to_string(),
+                values: std::collections::BTreeMap::from([
+                    ("s3_access_key_id".to_string(), serde_json::json!("access")),
+                    (
+                        "s3_secret_access_key".to_string(),
+                        serde_json::json!("secret"),
+                    ),
+                ]),
+            }),
             ..Default::default()
         },
     )
@@ -1036,9 +1121,9 @@ async fn test_remote_ingress_profile_update_rejects_driver_missing_from_capabili
         ApiErrorCode::ManagedIngressDriverUnsupported
     );
     assert!(
-        error
-            .message()
-            .contains("does not declare remote storage target support for the s3 driver"),
+        error.message().contains(
+            "does not declare remote storage target connector 'asterdrive.remote-target.s3'"
+        ),
         "unexpected error message: {}",
         error.message()
     );
@@ -1062,7 +1147,7 @@ async fn test_remote_ingress_profile_update_without_driver_change_keeps_remote_a
     seed_remote_capabilities(
         &consumer_state,
         consumer_node.id,
-        RemoteStorageCapabilities::current().with_remote_storage_target_driver_types(vec![]),
+        RemoteStorageCapabilities::current().with_remote_storage_target_connector_ids(vec![]),
     )
     .await;
 
@@ -1091,7 +1176,7 @@ async fn test_remote_ingress_profile_update_without_driver_change_keeps_remote_a
 }
 
 #[actix_web::test]
-async fn test_remote_storage_target_driver_descriptors_follow_remote_capabilities() {
+async fn test_remote_storage_target_connector_descriptors_follow_remote_capabilities() {
     let consumer_state = common::setup().await;
     let consumer_node = remote_node::create(
         &consumer_state,
@@ -1109,14 +1194,14 @@ async fn test_remote_storage_target_driver_descriptors_follow_remote_capabilitie
         &consumer_state,
         consumer_node.id,
         RemoteStorageCapabilities::current()
-            .with_remote_storage_target_driver_types(vec![RemoteStorageTargetDriverKind::Local]),
+            .with_remote_storage_target_connector_ids(vec![LOCAL_TARGET_CONNECTOR_ID.to_string()]),
     )
     .await;
 
     let app = create_test_app!(consumer_state.clone());
     let (token, _) = register_and_login!(app);
     let path = format!(
-        "/api/v1/admin/remote-nodes/{}/storage-target-drivers",
+        "/api/v1/admin/remote-nodes/{}/storage-target-connectors",
         consumer_node.id
     );
     let req = test::TestRequest::get()
@@ -1129,9 +1214,14 @@ async fn test_remote_storage_target_driver_descriptors_follow_remote_capabilitie
     let body: serde_json::Value = test::read_body_json(resp).await;
     let descriptors = body["data"]
         .as_array()
-        .expect("driver descriptors response should contain data array");
+        .expect("connector descriptors response should contain data array");
     assert_eq!(descriptors.len(), 1);
-    assert_eq!(descriptors[0]["driver_type"], "local");
+    assert_eq!(descriptors[0]["connector_id"], LOCAL_TARGET_CONNECTOR_ID);
+    assert_eq!(descriptors[0]["config_schema_version"], 1);
+    assert_eq!(
+        descriptors[0]["credential_schema_version"],
+        serde_json::Value::Null
+    );
     assert_eq!(
         descriptors[0]["fields"]
             .as_array()
@@ -1139,7 +1229,7 @@ async fn test_remote_storage_target_driver_descriptors_follow_remote_capabilitie
             .iter()
             .map(|field| field["name"].as_str().unwrap_or_default())
             .collect::<Vec<_>>(),
-        vec!["base_path", "is_default"]
+        vec!["base_path"]
     );
 
     for (method, path) in [
@@ -1675,11 +1765,7 @@ async fn test_remote_storage_target_handles_remote_writes_without_legacy_binding
     let profile = storage_target::create_remote(
         &consumer_state,
         consumer_node.id,
-        RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
-            name: "Managed Local".to_string(),
-            base_path: "managed-a".to_string(),
-            is_default: true,
-        }),
+        local_target_request("Managed Local", "managed-a", true),
     )
     .await
     .expect("managed remote storage target should be created through primary");
@@ -1773,11 +1859,7 @@ async fn test_remote_policy_uses_selected_remote_storage_target_key() {
     let selected_target = storage_target::create_remote(
         &consumer_state,
         consumer_node.id,
-        RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
-            name: "Selected Target".to_string(),
-            base_path: "selected-target".to_string(),
-            is_default: false,
-        }),
+        local_target_request("Selected Target", "selected-target", false),
     )
     .await
     .expect("selected remote storage target should be created through primary");
@@ -2034,12 +2116,10 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
         .expect("binding should be re-enabled for profile operations");
 
     let profile = client
-        .create_storage_target(&RemoteCreateStorageTargetRequest::Local(
-            RemoteCreateLocalStorageTargetRequest {
-                name: "Profile Audit Local".to_string(),
-                base_path: "profile-audit-a".to_string(),
-                is_default: true,
-            },
+        .create_storage_target(&local_target_request(
+            "Profile Audit Local",
+            "profile-audit-a",
+            true,
         ))
         .await
         .expect("remote storage target create should succeed");
@@ -2055,7 +2135,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
     let create_details = audit_details(&create_entry);
     assert_eq!(create_details["binding_id"], binding.id);
     assert_eq!(create_details["target_key"], profile.target_key);
-    assert_eq!(create_details["driver_type"], "local");
+    assert_eq!(create_details["driver_type"], LOCAL_TARGET_CONNECTOR_ID);
     assert_eq!(create_details["is_default"], true);
 
     let updated = client
@@ -2063,7 +2143,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
             &profile.target_key,
             &RemoteUpdateStorageTargetRequest {
                 name: Some("Profile Audit Updated".to_string()),
-                base_path: Some("profile-audit-b".to_string()),
+                connector_config: Some(local_target_config("profile-audit-b")),
                 ..Default::default()
             },
         )
@@ -2081,7 +2161,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
     let update_details = audit_details(&update_entry);
     assert_eq!(update_details["binding_id"], binding.id);
     assert_eq!(update_details["target_key"], updated.target_key);
-    assert_eq!(update_details["driver_type"], "local");
+    assert_eq!(update_details["driver_type"], LOCAL_TARGET_CONNECTOR_ID);
     assert_eq!(update_details["is_default"], true);
 
     client
@@ -2100,7 +2180,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
     let delete_details = audit_details(&delete_entry);
     assert_eq!(delete_details["binding_id"], binding.id);
     assert_eq!(delete_details["target_key"], profile.target_key);
-    assert_eq!(delete_details["driver_type"], "local");
+    assert_eq!(delete_details["driver_type"], LOCAL_TARGET_CONNECTOR_ID);
     assert_eq!(delete_details["is_default"], true);
 
     provider_server.stop().await;
@@ -2152,17 +2232,11 @@ async fn test_remote_storage_target_api_isolates_multiple_primary_bindings() {
 
     for (client, name) in [(&client_a, "Managed A"), (&client_b, "Managed B")] {
         let profile = client
-            .create_storage_target(&RemoteCreateStorageTargetRequest::Local(
-                RemoteCreateLocalStorageTargetRequest {
-                    name: name.to_string(),
-                    base_path: "shared-profile".to_string(),
-                    is_default: true,
-                },
-            ))
+            .create_storage_target(&local_target_request(name, "shared-profile", true))
             .await
             .expect("managed remote storage target should be created for its binding");
         assert!(profile.is_default);
-        assert_eq!(profile.base_path, "shared-profile");
+        assert_eq!(target_base_path(&profile), "shared-profile");
     }
 
     client_a
@@ -2239,11 +2313,7 @@ async fn test_remote_storage_target_api_isolates_multiple_primary_bindings() {
     let profile_a = storage_target::create(
         &provider_state.follower_view(),
         &binding_a,
-        RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
-            name: "Second A".to_string(),
-            base_path: "secondary-a".to_string(),
-            is_default: false,
-        }),
+        local_target_request("Second A", "secondary-a", false),
     )
     .await
     .expect("binding a should allow additional scoped profiles");
@@ -2251,9 +2321,9 @@ async fn test_remote_storage_target_api_isolates_multiple_primary_bindings() {
         .list_storage_targets()
         .await
         .expect("binding b profiles should list");
-    assert_eq!(profile_a.base_path, "secondary-a");
+    assert_eq!(target_base_path(&profile_a), "secondary-a");
     assert_eq!(profiles_b.len(), 1);
-    assert_eq!(profiles_b[0].base_path, "shared-profile");
+    assert_eq!(target_base_path(&profiles_b[0]), "shared-profile");
 
     provider_server.stop().await;
 }
@@ -2797,10 +2867,10 @@ async fn test_internal_storage_capabilities_probe_does_not_require_ingress_profi
     assert_eq!(body["data"]["features"]["object_head"], true);
     assert_eq!(body["data"]["features"]["browser_presigned_cors"], true);
     assert_eq!(body["data"]["supports_range_read"], true);
-    assert_eq!(body["data"]["managed_ingress"]["enabled"], true);
+    assert_eq!(body["data"]["remote_storage_target"]["enabled"], true);
     assert_eq!(
-        body["data"]["managed_ingress"]["driver_types"],
-        serde_json::json!(["local", "s3"])
+        body["data"]["remote_storage_target"]["connector_ids"],
+        serde_json::json!([LOCAL_TARGET_CONNECTOR_ID, S3_TARGET_CONNECTOR_ID])
     );
 }
 

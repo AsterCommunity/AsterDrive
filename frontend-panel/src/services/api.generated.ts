@@ -628,14 +628,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/remote-nodes/{id}/storage-target-drivers": {
+    "/api/v1/admin/remote-nodes/{id}/storage-target-connectors": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["list_remote_node_storage_target_drivers"];
+        get: operations["list_remote_node_storage_target_connectors"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7240,27 +7240,12 @@ export interface components {
             password: string;
             username: string;
         };
-        RemoteCreateLocalStorageTargetRequest: {
-            base_path: string;
+        RemoteCreateStorageTargetRequest: {
+            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
+            credential?: null | components["schemas"]["RemoteStorageTargetCredentialInput"];
             is_default?: boolean;
             name: string;
         };
-        RemoteCreateS3StorageTargetRequest: {
-            access_key: string;
-            base_path: string;
-            bucket: string;
-            endpoint: string;
-            is_default?: boolean;
-            name: string;
-            secret_key: string;
-        };
-        RemoteCreateStorageTargetRequest: (components["schemas"]["RemoteCreateLocalStorageTargetRequest"] & {
-            /** @enum {string} */
-            driver_type: "local";
-        }) | (components["schemas"]["RemoteCreateS3StorageTargetRequest"] & {
-            /** @enum {string} */
-            driver_type: "s3";
-        });
         /**
          * @description Remote 下载传输策略（存储策略 options JSON）
          * @enum {string}
@@ -7316,9 +7301,9 @@ export interface components {
             browser_cors?: components["schemas"]["RemoteStorageBrowserCorsContract"];
             features?: components["schemas"]["RemoteStorageFeatureFlags"];
             limits?: components["schemas"]["RemoteStorageProtocolLimits"];
-            managed_ingress?: null | components["schemas"]["RemoteStorageTargetCapabilities"];
             min_supported_protocol_version?: string;
             protocol_version?: string;
+            remote_storage_target?: null | components["schemas"]["RemoteStorageTargetCapabilities"];
             server_version?: string | null;
             supports_capacity?: boolean;
             supports_list?: boolean;
@@ -7346,37 +7331,25 @@ export interface components {
             max_ingress_size?: number | null;
         };
         RemoteStorageTargetCapabilities: {
-            driver_types?: components["schemas"]["RemoteStorageTargetDriverType"][];
+            connector_ids?: string[];
             enabled: boolean;
         };
-        RemoteStorageTargetDriverFieldDescriptor: {
-            help_key?: string | null;
-            kind: components["schemas"]["RemoteStorageTargetDriverFieldKind"];
-            label_key: string;
-            name: string;
-            placeholder?: string | null;
-            required: boolean;
-            secret: boolean;
-            validation?: null | components["schemas"]["RemoteStorageTargetDriverFieldValidation"];
+        RemoteStorageTargetCredentialInput: {
+            mode: string;
+            values: {
+                [key: string]: unknown;
+            };
         };
-        /** @enum {string} */
-        RemoteStorageTargetDriverFieldKind: "text" | "secret" | "boolean" | "number";
-        RemoteStorageTargetDriverFieldValidation: {
-            relative_local_path: boolean;
-        };
-        /** @enum {string} */
-        RemoteStorageTargetDriverKind: "local" | "s3";
-        RemoteStorageTargetDriverType: string;
         RemoteStorageTargetInfo: {
             /** Format: int64 */
             applied_revision: number;
-            base_path: string;
-            bucket: string;
+            connector_available: boolean;
+            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
+            connector_id: string;
             created_at: string;
+            credential_configured: boolean;
             /** Format: int64 */
             desired_revision: number;
-            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
-            endpoint: string;
             is_default: boolean;
             last_error: string;
             name: string;
@@ -7391,14 +7364,10 @@ export interface components {
         /** @enum {string} */
         RemoteTunnelOnlineStatus: "online" | "offline";
         RemoteUpdateStorageTargetRequest: {
-            access_key?: string | null;
-            base_path?: string | null;
-            bucket?: string | null;
-            driver_type?: null | components["schemas"]["RemoteStorageTargetDriverKind"];
-            endpoint?: string | null;
+            connector_config?: null | components["schemas"]["ConnectorConfigEnvelope"];
+            credential?: null | components["schemas"]["RemoteStorageTargetCredentialInput"];
             is_default?: boolean | null;
             name?: string | null;
-            secret_key?: string | null;
         };
         RemovedCountResponse: {
             /** Format: int64 */
@@ -12222,9 +12191,9 @@ export interface operations {
                             browser_cors?: components["schemas"]["RemoteStorageBrowserCorsContract"];
                             features?: components["schemas"]["RemoteStorageFeatureFlags"];
                             limits?: components["schemas"]["RemoteStorageProtocolLimits"];
-                            managed_ingress?: null | components["schemas"]["RemoteStorageTargetCapabilities"];
                             min_supported_protocol_version?: string;
                             protocol_version?: string;
+                            remote_storage_target?: null | components["schemas"]["RemoteStorageTargetCapabilities"];
                             server_version?: string | null;
                             supports_capacity?: boolean;
                             supports_list?: boolean;
@@ -12477,7 +12446,7 @@ export interface operations {
             };
         };
     };
-    list_remote_node_storage_target_drivers: {
+    list_remote_node_storage_target_connectors: {
         parameters: {
             query?: never;
             header?: never;
@@ -12489,7 +12458,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description List remote node storage target driver descriptors */
+            /** @description List remote node storage target connector descriptors */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12498,9 +12467,13 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
+                            /** Format: int32 */
+                            config_schema_version: number;
+                            connector_id: components["schemas"]["ConnectorId"];
+                            /** Format: int32 */
+                            credential_schema_version?: number | null;
                             description_key: string;
-                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
-                            fields: components["schemas"]["RemoteStorageTargetDriverFieldDescriptor"][];
+                            fields: components["schemas"]["StorageConnectorFieldDescriptor"][];
                             label_key: string;
                         }[];
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -12554,13 +12527,13 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             applied_revision: number;
-                            base_path: string;
-                            bucket: string;
+                            connector_available: boolean;
+                            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
+                            connector_id: string;
                             created_at: string;
+                            credential_configured: boolean;
                             /** Format: int64 */
                             desired_revision: number;
-                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
-                            endpoint: string;
                             is_default: boolean;
                             last_error: string;
                             name: string;
@@ -12629,13 +12602,13 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             applied_revision: number;
-                            base_path: string;
-                            bucket: string;
+                            connector_available: boolean;
+                            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
+                            connector_id: string;
                             created_at: string;
+                            credential_configured: boolean;
                             /** Format: int64 */
                             desired_revision: number;
-                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
-                            endpoint: string;
                             is_default: boolean;
                             last_error: string;
                             name: string;
@@ -12757,13 +12730,13 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             applied_revision: number;
-                            base_path: string;
-                            bucket: string;
+                            connector_available: boolean;
+                            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
+                            connector_id: string;
                             created_at: string;
+                            credential_configured: boolean;
                             /** Format: int64 */
                             desired_revision: number;
-                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
-                            endpoint: string;
                             is_default: boolean;
                             last_error: string;
                             name: string;

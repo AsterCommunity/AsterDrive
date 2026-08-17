@@ -42,6 +42,8 @@ const ALLOW_CONNECTOR_POLICY_WRITES_WITH_LEGACY_SCHEMA_MIGRATION: &str =
     "m20260805_000001_allow_connector_policy_writes_with_legacy_schema";
 const CANONICAL_FILE_REVISION_LEDGER_MIGRATION: &str =
     "m20260813_000001_canonical_file_revision_ledger";
+const REMOTE_STORAGE_TARGET_CONNECTOR_CONFIGS_MIGRATION: &str =
+    "m20260817_000001_remote_storage_target_connector_configs";
 const VIRTUAL_EMPTY_FILE_BLOBS_MIGRATION: &str = "m20260815_000001_virtual_empty_file_blobs";
 
 #[tokio::test]
@@ -636,7 +638,6 @@ async fn canonical_revision_ledger_mysql_downgrade_rejects_case_collisions_befor
     assert!(mysql_table_exists(&db, "file_revisions").await);
     assert!(!mysql_table_exists(&db, "file_versions").await);
 }
-
 #[tokio::test]
 async fn resource_lock_migration_backfills_workspace_and_typed_root() {
     let db = Database::connect("sqlite::memory:")
@@ -3070,6 +3071,48 @@ async fn remote_storage_target_max_file_size_migration_removes_target_level_limi
         !has_column(&reapplied_columns, "max_file_size"),
         "reapply should remove target-level max_file_size again"
     );
+}
+
+#[tokio::test]
+async fn remote_storage_target_connector_config_migration_round_trips_schema() {
+    assert!(
+        CurrentMigrator::migrations().iter().any(|migration| {
+            migration.name() == REMOTE_STORAGE_TARGET_CONNECTOR_CONFIGS_MIGRATION
+        }),
+        "remote target connector config migration should be registered"
+    );
+
+    let db = setup_current_schema().await;
+    let columns = sqlite_table_columns(&db, "remote_storage_targets").await;
+    assert!(has_column(&columns, "connector_id"));
+    assert!(has_column(&columns, "connector_config"));
+    assert!(sqlite_table_exists(&db, "remote_storage_target_credentials").await);
+    assert!(
+        sqlite_table_index_exists(
+            &db,
+            "remote_storage_target_credentials",
+            "idx_remote_storage_target_credentials_target",
+        )
+        .await
+    );
+
+    let rollback_steps =
+        steps_to_roll_back_migration(REMOTE_STORAGE_TARGET_CONNECTOR_CONFIGS_MIGRATION);
+    CurrentMigrator::down(&db, Some(rollback_steps))
+        .await
+        .expect("remote target connector config migration should roll back");
+    let rolled_back = sqlite_table_columns(&db, "remote_storage_targets").await;
+    assert!(!has_column(&rolled_back, "connector_id"));
+    assert!(!has_column(&rolled_back, "connector_config"));
+    assert!(!sqlite_table_exists(&db, "remote_storage_target_credentials").await);
+
+    CurrentMigrator::up(&db, Some(rollback_steps))
+        .await
+        .expect("remote target connector config migration should reapply");
+    let reapplied = sqlite_table_columns(&db, "remote_storage_targets").await;
+    assert!(has_column(&reapplied, "connector_id"));
+    assert!(has_column(&reapplied, "connector_config"));
+    assert!(sqlite_table_exists(&db, "remote_storage_target_credentials").await);
 }
 
 #[tokio::test]

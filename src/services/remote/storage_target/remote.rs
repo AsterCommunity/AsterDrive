@@ -1,3 +1,4 @@
+use super::driver::RemoteStorageTargetConnectorDescriptor;
 use crate::errors::Result;
 use crate::runtime::RemoteProtocolRuntimeState;
 use crate::services::remote::capability::RemoteCapabilityResolver;
@@ -6,9 +7,6 @@ use crate::storage::remote_protocol::{
     RemoteCreateStorageTargetRequest, RemoteStorageTargetInfo, RemoteUpdateStorageTargetRequest,
 };
 use aster_drive_model::entities::managed_follower;
-use aster_drive_model::types::RemoteStorageTargetDriverKind;
-
-use super::driver::RemoteStorageTargetDriverDescriptor;
 
 pub async fn list_remote<S: RemoteProtocolRuntimeState>(
     state: &S,
@@ -20,12 +18,12 @@ pub async fn list_remote<S: RemoteProtocolRuntimeState>(
         .await
 }
 
-pub async fn list_remote_driver_descriptors<S: RemoteProtocolRuntimeState>(
+pub async fn list_remote_connector_descriptors<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
-) -> Result<Vec<RemoteStorageTargetDriverDescriptor>> {
+) -> Result<Vec<RemoteStorageTargetConnectorDescriptor>> {
     let node = remote_node_for_storage_target_write(state, remote_node_id).await?;
-    Ok(remote_capability_resolver(&node).remote_storage_target_driver_descriptors())
+    Ok(remote_capability_resolver(&node).remote_storage_target_connector_descriptors())
 }
 
 pub async fn create_remote<S: RemoteProtocolRuntimeState>(
@@ -34,7 +32,10 @@ pub async fn create_remote<S: RemoteProtocolRuntimeState>(
     input: RemoteCreateStorageTargetRequest,
 ) -> Result<RemoteStorageTargetInfo> {
     let node = remote_node_for_storage_target_write(state, remote_node_id).await?;
-    ensure_remote_storage_target_driver_supported(&node, input.driver_type())?;
+    ensure_remote_storage_target_connector_supported(
+        &node,
+        input.connector_config.connector_id.as_str(),
+    )?;
     remote_node::remote_storage_client_for_node(state, &node)?
         .create_storage_target(&input)
         .await
@@ -47,8 +48,8 @@ pub async fn update_remote<S: RemoteProtocolRuntimeState>(
     input: RemoteUpdateStorageTargetRequest,
 ) -> Result<RemoteStorageTargetInfo> {
     let node = remote_node_for_storage_target_write(state, remote_node_id).await?;
-    if let Some(driver_type) = input.driver_type {
-        ensure_remote_storage_target_driver_supported(&node, driver_type)?;
+    if let Some(config) = &input.connector_config {
+        ensure_remote_storage_target_connector_supported(&node, config.connector_id.as_str())?;
     }
     remote_node::remote_storage_client_for_node(state, &node)?
         .update_storage_target(target_key, &input)
@@ -92,11 +93,11 @@ async fn remote_node_for_storage_target_write<S: RemoteProtocolRuntimeState>(
     remote_node::require_completed_enrollment(state, remote_node_id).await
 }
 
-fn ensure_remote_storage_target_driver_supported(
+fn ensure_remote_storage_target_connector_supported(
     node: &managed_follower::Model,
-    driver_type: RemoteStorageTargetDriverKind,
+    connector_id: &str,
 ) -> Result<()> {
-    remote_capability_resolver(node).ensure_remote_storage_target_driver_supported(driver_type)
+    remote_capability_resolver(node).ensure_remote_storage_target_connector_supported(connector_id)
 }
 
 fn remote_capability_resolver(node: &managed_follower::Model) -> RemoteCapabilityResolver {

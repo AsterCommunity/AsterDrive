@@ -482,14 +482,14 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 			connectorActionSubmittingId={actionController.connectorActionSubmittingId}
 			connectorActionValues={actionController.connectorActionValues}
 			remoteNodes={descriptorController.remoteNodes}
-			remoteStorageTargetDriverDescriptors={
-				descriptorController.remoteStorageTargetDriverDescriptors
+			remoteStorageTargetConnectorDescriptors={
+				descriptorController.remoteStorageTargetConnectorDescriptors
 			}
-			remoteStorageTargetDriverDescriptorsError={
-				descriptorController.remoteStorageTargetDriverDescriptorsError
+			remoteStorageTargetConnectorDescriptorsError={
+				descriptorController.remoteStorageTargetConnectorDescriptorsError
 			}
-			remoteStorageTargetDriverDescriptorsLoading={
-				descriptorController.remoteStorageTargetDriverDescriptorsLoading
+			remoteStorageTargetConnectorDescriptorsLoading={
+				descriptorController.remoteStorageTargetConnectorDescriptorsLoading
 			}
 			remoteStorageTargets={descriptorController.remoteStorageTargets}
 			remoteStorageTargetsError={descriptorController.remoteStorageTargetsError}

@@ -26,7 +26,7 @@ const adminRemoteNodeServiceMocks = vi.hoisted(() => ({
 	deleteStorageTarget: vi.fn(),
 	get: vi.fn(),
 	list: vi.fn(),
-	listStorageTargetDrivers: vi.fn(),
+	listStorageTargetConnectors: vi.fn(),
 	listStorageTargets: vi.fn(),
 	testConnection: vi.fn(),
 	update: vi.fn(),
@@ -65,8 +65,8 @@ vi.mock("@/components/admin/admin-remote-nodes-page/RemoteNodeDialog", () => ({
 	RemoteNodeDialog: ({
 		editingNode,
 		form,
-		remoteStorageTargetDriverDescriptors = [],
-		remoteStorageTargetDriverDescriptorsError = null,
+		remoteStorageTargetConnectorDescriptors = [],
+		remoteStorageTargetConnectorDescriptorsError = null,
 		remoteStorageTargets = [],
 		remoteStorageTargetsEnabled,
 		remoteStorageTargetsError,
@@ -85,8 +85,8 @@ vi.mock("@/components/admin/admin-remote-nodes-page/RemoteNodeDialog", () => ({
 	}: {
 		editingNode: { id: number; name: string } | null;
 		form: { base_url: string; is_enabled: boolean; name: string };
-		remoteStorageTargetDriverDescriptors?: unknown[];
-		remoteStorageTargetDriverDescriptorsError?: string | null;
+		remoteStorageTargetConnectorDescriptors?: unknown[];
+		remoteStorageTargetConnectorDescriptorsError?: string | null;
 		remoteStorageTargets?: unknown[];
 		remoteStorageTargetsEnabled: boolean;
 		remoteStorageTargetsError: string | null;
@@ -126,10 +126,10 @@ vi.mock("@/components/admin/admin-remote-nodes-page/RemoteNodeDialog", () => ({
 					{remoteStorageTargets.length}
 				</div>
 				<div data-testid="managed-ingress-driver-count">
-					{remoteStorageTargetDriverDescriptors.length}
+					{remoteStorageTargetConnectorDescriptors.length}
 				</div>
 				<div data-testid="managed-ingress-driver-error">
-					{remoteStorageTargetDriverDescriptorsError ?? ""}
+					{remoteStorageTargetConnectorDescriptorsError ?? ""}
 				</div>
 				<div data-testid="editing-node-name">{editingNode?.name ?? ""}</div>
 				<button
@@ -476,7 +476,7 @@ describe("AdminRemoteNodesPage", () => {
 			items: [],
 			total: 0,
 		});
-		adminRemoteNodeServiceMocks.listStorageTargetDrivers.mockResolvedValue([
+		adminRemoteNodeServiceMocks.listStorageTargetConnectors.mockResolvedValue([
 			{
 				description_key: "remote_node_ingress_profile_local_scope_hint",
 				driver_type: "local",
@@ -491,7 +491,7 @@ describe("AdminRemoteNodesPage", () => {
 						secret: false,
 					},
 				],
-				label_key: "remote_node_ingress_profile_driver_local",
+				label_key: "remote_node_storage_target_connector_local",
 			},
 		]);
 		adminRemoteNodeServiceMocks.listStorageTargets.mockResolvedValue([
@@ -630,7 +630,7 @@ describe("AdminRemoteNodesPage", () => {
 			).toHaveBeenCalledWith(7);
 		});
 		expect(
-			adminRemoteNodeServiceMocks.listStorageTargetDrivers,
+			adminRemoteNodeServiceMocks.listStorageTargetConnectors,
 		).toHaveBeenCalledWith(7);
 		expect(screen.getByTestId("remote-node-dialog")).toHaveTextContent("edit");
 		expect(screen.getByTestId("managed-ingress-enabled")).toHaveTextContent(
@@ -704,7 +704,7 @@ describe("AdminRemoteNodesPage", () => {
 			adminRemoteNodeServiceMocks.listStorageTargets,
 		).not.toHaveBeenCalled();
 		expect(
-			adminRemoteNodeServiceMocks.listStorageTargetDrivers,
+			adminRemoteNodeServiceMocks.listStorageTargetConnectors,
 		).not.toHaveBeenCalled();
 	});
 
@@ -741,7 +741,7 @@ describe("AdminRemoteNodesPage", () => {
 			).toHaveBeenCalledWith(7);
 		});
 		expect(
-			adminRemoteNodeServiceMocks.listStorageTargetDrivers,
+			adminRemoteNodeServiceMocks.listStorageTargetConnectors,
 		).toHaveBeenCalledWith(7);
 		expect(screen.getByTestId("managed-ingress-enabled")).toHaveTextContent(
 			"true",
@@ -782,7 +782,7 @@ describe("AdminRemoteNodesPage", () => {
 			).toHaveBeenCalledWith(7);
 		});
 		expect(
-			adminRemoteNodeServiceMocks.listStorageTargetDrivers,
+			adminRemoteNodeServiceMocks.listStorageTargetConnectors,
 		).toHaveBeenCalledWith(7);
 		expect(screen.getByTestId("managed-ingress-enabled")).toHaveTextContent(
 			"true",
@@ -822,8 +822,8 @@ describe("AdminRemoteNodesPage", () => {
 		expect(mockState.handleApiError).toHaveBeenCalledWith(expect.any(Error));
 	});
 
-	it("surfaces managed ingress driver descriptor errors without canceling profile loading", async () => {
-		adminRemoteNodeServiceMocks.listStorageTargetDrivers.mockRejectedValueOnce(
+	it("surfaces storage target connector descriptor errors without canceling target loading", async () => {
+		adminRemoteNodeServiceMocks.listStorageTargetConnectors.mockRejectedValueOnce(
 			new Error("descriptor failed"),
 		);
 		mockState.useApiList.mockReturnValue({
@@ -851,7 +851,7 @@ describe("AdminRemoteNodesPage", () => {
 				adminRemoteNodeServiceMocks.listStorageTargets,
 			).toHaveBeenCalledWith(7);
 			expect(
-				adminRemoteNodeServiceMocks.listStorageTargetDrivers,
+				adminRemoteNodeServiceMocks.listStorageTargetConnectors,
 			).toHaveBeenCalledWith(7);
 		});
 		await waitFor(() => {

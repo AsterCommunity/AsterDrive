@@ -38,7 +38,7 @@ import type {
 	RemoteCreateStorageTargetRequest,
 	RemoteEnrollmentCommandInfo,
 	RemoteNodeInfo,
-	RemoteStorageTargetDriverDescriptor,
+	RemoteStorageTargetConnectorDescriptor,
 	RemoteStorageTargetInfo,
 	RemoteUpdateStorageTargetRequest,
 } from "@/types/api";
@@ -150,23 +150,23 @@ export function useAdminRemoteNodesPageController() {
 		string | null
 	>(null);
 	const [
-		remoteStorageTargetDriverDescriptors,
-		setRemoteStorageTargetDriverDescriptors,
-	] = useState<RemoteStorageTargetDriverDescriptor[]>([]);
+		remoteStorageTargetConnectorDescriptors,
+		setRemoteStorageTargetConnectorDescriptors,
+	] = useState<RemoteStorageTargetConnectorDescriptor[]>([]);
 	const [
-		remoteStorageTargetDriverDescriptorsLoading,
-		setRemoteStorageTargetDriverDescriptorsLoading,
+		remoteStorageTargetConnectorDescriptorsLoading,
+		setRemoteStorageTargetConnectorDescriptorsLoading,
 	] = useState(false);
 	const [
-		remoteStorageTargetDriverDescriptorsError,
-		setRemoteStorageTargetDriverDescriptorsError,
+		remoteStorageTargetConnectorDescriptorsError,
+		setRemoteStorageTargetConnectorDescriptorsError,
 	] = useState<string | null>(null);
 	const {
 		pendingId: deletingRemoteNodeId,
 		runWithPending: runWithDeletingRemoteNode,
 	} = usePendingId<number>();
 	const remoteStorageTargetRequestIdRef = useRef(0);
-	const remoteStorageTargetDriverDescriptorsRequestIdRef = useRef(0);
+	const remoteStorageTargetConnectorDescriptorsRequestIdRef = useRef(0);
 	const createButtonTitle = primarySiteUrl
 		? undefined
 		: t("remote_node_primary_site_url_required");
@@ -197,51 +197,56 @@ export function useAdminRemoteNodesPageController() {
 
 	const resetRemoteStorageTargetState = () => {
 		remoteStorageTargetRequestIdRef.current += 1;
-		remoteStorageTargetDriverDescriptorsRequestIdRef.current += 1;
+		remoteStorageTargetConnectorDescriptorsRequestIdRef.current += 1;
 		setRemoteStorageTargets([]);
 		setRemoteStorageTargetsLoading(false);
 		setRemoteStorageTargetsError(null);
-		setRemoteStorageTargetDriverDescriptors([]);
-		setRemoteStorageTargetDriverDescriptorsLoading(false);
-		setRemoteStorageTargetDriverDescriptorsError(null);
+		setRemoteStorageTargetConnectorDescriptors([]);
+		setRemoteStorageTargetConnectorDescriptorsLoading(false);
+		setRemoteStorageTargetConnectorDescriptorsError(null);
 	};
 
-	const loadRemoteStorageTargetDriverDescriptors = async (
+	const loadRemoteStorageTargetConnectorDescriptors = async (
 		remoteNodeId: number,
 		{ showErrorToast = true }: { showErrorToast?: boolean } = {},
 	) => {
 		const requestId =
-			remoteStorageTargetDriverDescriptorsRequestIdRef.current + 1;
-		remoteStorageTargetDriverDescriptorsRequestIdRef.current = requestId;
-		setRemoteStorageTargetDriverDescriptorsLoading(true);
-		setRemoteStorageTargetDriverDescriptorsError(null);
+			remoteStorageTargetConnectorDescriptorsRequestIdRef.current + 1;
+		remoteStorageTargetConnectorDescriptorsRequestIdRef.current = requestId;
+		setRemoteStorageTargetConnectorDescriptorsLoading(true);
+		setRemoteStorageTargetConnectorDescriptorsError(null);
 
 		try {
 			const descriptors =
-				await adminRemoteNodeService.listStorageTargetDrivers(remoteNodeId);
+				await adminRemoteNodeService.listStorageTargetConnectors(remoteNodeId);
 			if (
-				remoteStorageTargetDriverDescriptorsRequestIdRef.current !== requestId
+				remoteStorageTargetConnectorDescriptorsRequestIdRef.current !==
+				requestId
 			) {
 				return;
 			}
-			setRemoteStorageTargetDriverDescriptors(descriptors);
-			setRemoteStorageTargetDriverDescriptorsError(null);
+			setRemoteStorageTargetConnectorDescriptors(descriptors);
+			setRemoteStorageTargetConnectorDescriptorsError(null);
 		} catch (error) {
 			if (
-				remoteStorageTargetDriverDescriptorsRequestIdRef.current !== requestId
+				remoteStorageTargetConnectorDescriptorsRequestIdRef.current !==
+				requestId
 			) {
 				return;
 			}
-			setRemoteStorageTargetDriverDescriptors([]);
-			setRemoteStorageTargetDriverDescriptorsError(getApiErrorMessage(error));
+			setRemoteStorageTargetConnectorDescriptors([]);
+			setRemoteStorageTargetConnectorDescriptorsError(
+				getApiErrorMessage(error),
+			);
 			if (showErrorToast) {
 				handleApiError(error);
 			}
 		} finally {
 			if (
-				remoteStorageTargetDriverDescriptorsRequestIdRef.current === requestId
+				remoteStorageTargetConnectorDescriptorsRequestIdRef.current ===
+				requestId
 			) {
-				setRemoteStorageTargetDriverDescriptorsLoading(false);
+				setRemoteStorageTargetConnectorDescriptorsLoading(false);
 			}
 		}
 	};
@@ -306,10 +311,10 @@ export function useAdminRemoteNodesPageController() {
 			);
 		} else if (hasCompletedRemoteNodeEnrollment(node)) {
 			void loadRemoteStorageTargets(node.id);
-			void loadRemoteStorageTargetDriverDescriptors(node.id);
+			void loadRemoteStorageTargetConnectorDescriptors(node.id);
 		} else {
 			setRemoteStorageTargetsError(null);
-			setRemoteStorageTargetDriverDescriptorsError(null);
+			setRemoteStorageTargetConnectorDescriptorsError(null);
 		}
 		setDialogOpen(true);
 	};
@@ -659,9 +664,9 @@ export function useAdminRemoteNodesPageController() {
 		handleVerifyEnrollmentConnection,
 		loading,
 		remoteStorageTargets,
-		remoteStorageTargetDriverDescriptors,
-		remoteStorageTargetDriverDescriptorsError,
-		remoteStorageTargetDriverDescriptorsLoading,
+		remoteStorageTargetConnectorDescriptors,
+		remoteStorageTargetConnectorDescriptorsError,
+		remoteStorageTargetConnectorDescriptorsLoading,
 		remoteStorageTargetsError,
 		remoteStorageTargetsLoading,
 		nextPageDisabled,

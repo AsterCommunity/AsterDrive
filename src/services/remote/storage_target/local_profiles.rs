@@ -3,7 +3,7 @@ use chrono::Utc;
 use sea_orm::Set;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::db::repository::remote_storage_target_repo;
+use crate::db::repository::{remote_storage_target_credential_repo, remote_storage_target_repo};
 use crate::errors::{AsterError, Result, precondition_failed_with_code};
 use crate::runtime::FollowerRuntimeState;
 use crate::storage::remote_protocol::{
@@ -11,6 +11,9 @@ use crate::storage::remote_protocol::{
 };
 use aster_drive_model::entities::{master_binding, remote_storage_target};
 
+use super::credential;
+use super::driver::load_credential;
+use super::models::present_target;
 use super::normalization::{new_target_key, normalize_create_input, normalize_update_input};
 use super::reconciliation::reconcile_target;
 
@@ -18,13 +21,17 @@ pub async fn list<S: FollowerRuntimeState>(
     state: &S,
     binding: &master_binding::Model,
 ) -> Result<Vec<RemoteStorageTargetInfo>> {
-    Ok(
-        remote_storage_target_repo::find_all_by_binding(state.writer_db(), binding.id)
-            .await?
-            .into_iter()
-            .map(Into::into)
-            .collect(),
-    )
+    let targets =
+        remote_storage_target_repo::find_all_by_binding(state.writer_db(), binding.id).await?;
+    let mut presented = Vec::with_capacity(targets.len());
+    for target in targets {
+        let configured =
+            remote_storage_target_credential_repo::find_by_target(state.writer_db(), target.id)
+                .await?
+                .is_some();
+        presented.push(present_target(target, configured)?);
+    }
+    Ok(presented)
 }
 
 pub async fn create<S: FollowerRuntimeState>(
@@ -33,22 +40,33 @@ pub async fn create<S: FollowerRuntimeState>(
     input: RemoteCreateStorageTargetRequest,
 ) -> Result<RemoteStorageTargetInfo> {
     let normalized = normalize_create_input(input)?;
+    let encryption_key = state.config().auth.storage_credential_secret_key.clone();
     let target_id = transaction::with_transaction(state.writer_db(), async |txn| {
         let should_set_default = normalized.is_default == Some(true)
             || remote_storage_target_repo::count_by_binding(txn, binding.id).await? == 0;
         let now = Utc::now();
+        let connector_id = normalized
+            .connector
+            .config
+            .connector_id
+            .as_str()
+            .to_string();
+        let connector_config = serde_json::to_string(&normalized.connector.config)
+            .map_err(|error| AsterError::internal_error(error.to_string()))?;
         let created = remote_storage_target_repo::create(
             txn,
             remote_storage_target::ActiveModel {
                 master_binding_id: Set(binding.id),
                 target_key: Set(new_target_key()),
                 name: Set(normalized.name),
-                driver_type: Set(normalized.driver_type),
-                endpoint: Set(normalized.endpoint),
-                bucket: Set(normalized.bucket),
-                access_key: Set(normalized.access_key),
-                secret_key: Set(normalized.secret_key),
-                base_path: Set(normalized.base_path),
+                connector_id: Set(connector_id.clone()),
+                connector_config: Set(connector_config),
+                driver_type: Set(String::new()),
+                endpoint: Set(String::new()),
+                bucket: Set(String::new()),
+                access_key: Set(String::new()),
+                secret_key: Set(String::new()),
+                base_path: Set(String::new()),
                 is_default: Set(false),
                 desired_revision: Set(1),
                 applied_revision: Set(0),
@@ -59,6 +77,32 @@ pub async fn create<S: FollowerRuntimeState>(
             },
         )
         .await?;
+        if let Some(plaintext) = normalized.connector.credential_json {
+            let schema_version =
+                normalized
+                    .connector
+                    .credential_schema_version
+                    .ok_or_else(|| {
+                        AsterError::internal_error(
+                            "remote storage target credential is missing its schema version",
+                        )
+                    })?;
+            let ciphertext = credential::encrypt(
+                &encryption_key,
+                created.id,
+                &connector_id,
+                schema_version,
+                &plaintext,
+            )?;
+            remote_storage_target_credential_repo::upsert(
+                txn,
+                created.id,
+                connector_id,
+                schema_version as i32,
+                ciphertext,
+            )
+            .await?;
+        }
         if should_set_default {
             remote_storage_target_repo::set_only_default_for_binding(txn, binding.id, created.id)
                 .await?;
@@ -66,8 +110,7 @@ pub async fn create<S: FollowerRuntimeState>(
         Ok::<_, AsterError>(created.id)
     })
     .await?;
-    let target = remote_storage_target_repo::find_by_id(state.writer_db(), target_id).await?;
-    Ok(reconcile_target(state, target).await?.into())
+    reconcile_and_present(state, target_id).await
 }
 
 pub async fn update<S: FollowerRuntimeState>(
@@ -77,30 +120,71 @@ pub async fn update<S: FollowerRuntimeState>(
     input: RemoteUpdateStorageTargetRequest,
 ) -> Result<RemoteStorageTargetInfo> {
     let existing = find_target_or_err(state, binding.id, target_key).await?;
-    let normalized = normalize_update_input(existing.clone(), input)?;
-
+    let saved_credential = load_credential(state, &existing, &existing.connector_id).await?;
+    let normalized = normalize_update_input(&existing, input, saved_credential)?;
     if existing.is_default && normalized.is_default == Some(false) {
         return Err(precondition_failed_with_code(
             ApiErrorCode::ManagedIngressDefaultUpdateRequiresReplacement,
             "cannot unset the default remote storage target directly; set another target as default first",
         ));
     }
-
+    let encryption_key = state.config().auth.storage_credential_secret_key.clone();
     let target_id = transaction::with_transaction(state.writer_db(), async |txn| {
+        let connector_id = normalized
+            .connector
+            .config
+            .connector_id
+            .as_str()
+            .to_string();
+        let connector_config = serde_json::to_string(&normalized.connector.config)
+            .map_err(|error| AsterError::internal_error(error.to_string()))?;
         let mut active: remote_storage_target::ActiveModel = existing.clone().into();
         active.name = Set(normalized.name);
-        active.driver_type = Set(normalized.driver_type);
-        active.endpoint = Set(normalized.endpoint);
-        active.bucket = Set(normalized.bucket);
-        active.access_key = Set(normalized.access_key);
-        active.secret_key = Set(normalized.secret_key);
-        active.base_path = Set(normalized.base_path);
+        active.connector_id = Set(connector_id.clone());
+        active.connector_config = Set(connector_config);
+        active.driver_type = Set(String::new());
+        active.endpoint = Set(String::new());
+        active.bucket = Set(String::new());
+        active.access_key = Set(String::new());
+        active.secret_key = Set(String::new());
+        active.base_path = Set(String::new());
         active.desired_revision =
             Set(existing.desired_revision.checked_add(1).ok_or_else(|| {
                 AsterError::internal_error("remote storage target desired_revision overflow")
             })?);
         active.updated_at = Set(Utc::now());
         let updated = remote_storage_target_repo::update(txn, active).await?;
+        match normalized.connector.credential_json {
+            Some(plaintext) => {
+                let schema_version =
+                    normalized
+                        .connector
+                        .credential_schema_version
+                        .ok_or_else(|| {
+                            AsterError::internal_error(
+                                "remote storage target credential is missing its schema version",
+                            )
+                        })?;
+                let ciphertext = credential::encrypt(
+                    &encryption_key,
+                    updated.id,
+                    &connector_id,
+                    schema_version,
+                    &plaintext,
+                )?;
+                remote_storage_target_credential_repo::upsert(
+                    txn,
+                    updated.id,
+                    connector_id,
+                    schema_version as i32,
+                    ciphertext,
+                )
+                .await?;
+            }
+            None => {
+                remote_storage_target_credential_repo::delete_by_target(txn, updated.id).await?
+            }
+        }
         if normalized.is_default == Some(true) {
             remote_storage_target_repo::set_only_default_for_binding(txn, binding.id, updated.id)
                 .await?;
@@ -108,8 +192,7 @@ pub async fn update<S: FollowerRuntimeState>(
         Ok::<_, AsterError>(updated.id)
     })
     .await?;
-    let target = remote_storage_target_repo::find_by_id(state.writer_db(), target_id).await?;
-    Ok(reconcile_target(state, target).await?.into())
+    reconcile_and_present(state, target_id).await
 }
 
 pub async fn delete<S: FollowerRuntimeState>(
@@ -118,12 +201,10 @@ pub async fn delete<S: FollowerRuntimeState>(
     target_key: &str,
 ) -> Result<RemoteStorageTargetInfo> {
     let existing = find_target_or_err(state, binding.id, target_key).await?;
-    tracing::debug!(
-        binding_id = binding.id,
-        target_key = %existing.target_key,
-        is_default = existing.is_default,
-        "deleting managed remote storage target"
-    );
+    let configured =
+        remote_storage_target_credential_repo::find_by_target(state.writer_db(), existing.id)
+            .await?
+            .is_some();
     let count = remote_storage_target_repo::count_by_binding(state.writer_db(), binding.id).await?;
     if existing.is_default && count > 1 {
         return Err(precondition_failed_with_code(
@@ -137,12 +218,20 @@ pub async fn delete<S: FollowerRuntimeState>(
         &existing.target_key,
     )
     .await?;
-    tracing::info!(
-        binding_id = binding.id,
-        target_key = %existing.target_key,
-        "deleted managed remote storage target"
-    );
-    Ok(existing.into())
+    present_target(existing, configured)
+}
+
+async fn reconcile_and_present<S: FollowerRuntimeState>(
+    state: &S,
+    target_id: i64,
+) -> Result<RemoteStorageTargetInfo> {
+    let target = remote_storage_target_repo::find_by_id(state.writer_db(), target_id).await?;
+    let target = reconcile_target(state, target).await?;
+    let configured =
+        remote_storage_target_credential_repo::find_by_target(state.writer_db(), target_id)
+            .await?
+            .is_some();
+    present_target(target, configured)
 }
 
 async fn find_target_or_err<S: FollowerRuntimeState>(

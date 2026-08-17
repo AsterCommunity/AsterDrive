@@ -20,6 +20,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - **WebDAV、DeltaV 与资源锁重构** — AsterForge WebDAV 0.2、多 Range、配额属性、RFC 3253 核心版本控制、条件写入、原子 mutation、虚拟根锁、结构化 `lock_state`、Litmus stress suites
 - **存储 connector 平台化** — plugin-ready registry、版本化 typed config、descriptor / action / capability contract、独立 credential schema、connector-owned 本地化
 - **存储策略与凭据迁移** — current policy schema 收敛为 `connector_id` + `storage_config`，静态凭据和 OAuth 凭据迁入加密的 `storage_policy_connector_credentials`
+- **Follower 存储目标 connector 化** — remote storage target 使用独立 registry、版本化 connector config、加密 credential 和 descriptor 驱动管理界面，新增 provider 不再要求修改 core 枚举或前端分支
 - **上传与对象存储增强** — OneDrive 服务端 relay resumable、并发 chunk claim、S3 SigV4 签名区域配置、Tencent COS 原生 Q-Sign
 - **Alibaba Cloud OSS 原生支持** — OSS V4 签名、公共/服务端 endpoint、CNAME、presigned PUT、multipart 和完整 connector 接入
 - **七牛云 Kodo 原生支持** — 官方 HTTPS S3 endpoint、AWS SigV4、七牛 S3 空间名、presigned GET/PUT、multipart 和完整 connector 接入
@@ -31,6 +32,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - **文件版本数据库模型** — `m20260813_000001_canonical_file_revision_ledger` 将可变的 `file_versions` 表迁入 `file_revision_histories`、`file_revisions` 和 `file_revision_properties`，完成 backfill 后删除原表。直接查询旧表、依赖旧版本号主键或绕过 REST/service 写版本历史的外部脚本需要迁移；降级 migration 会重建可表示的 legacy history，但新 ledger 的 actor、comment、reason、property snapshot 和 stable public ID 没有旧表对应字段。
 - **存储策略 API / schema** — 存储策略不再暴露 `driver_type`、`endpoint`、`bucket`、`base_path`、`access_key`、`secret_key`、`options` 等 provider-specific 平铺字段；响应改用稳定 `connector_id`、`connector_config` 与 `behavior`，创建请求统一提交 `connection = { connector_config, behavior, credential }`，更新请求分别提交 connector config、behavior 和 tagged credential。依赖旧 DTO、`DriverType` 枚举或字段名的客户端需要按 connector descriptor 构造请求。
 - **存储凭据输入** — 静态密钥与授权应用配置改为互斥的 tagged credential channel（`none` / `static` / `authorization_application`），字段名称由 connector schema 定义，例如 S3 与 Tencent COS 使用各自命名空间，不再共享含糊的 `access_key` / `secret_key` 表单字段。
+- **远程存储目标 API / internal protocol** — follower target 请求和响应从固定 Local/S3 平铺字段迁移为 `connector_id`、版本化 `ConnectorConfigEnvelope` 与独立 credential；管理端 descriptor endpoint 改为 `/api/v1/admin/remote-nodes/{id}/storage-target-connectors`，不保留 `/storage-target-drivers`；internal storage protocol 直接升级为 V6-only，并通过 `remote_storage_target.connector_ids` 协商可用 connector。
 - **存储 connector action** — 删除 S3-compatible policy promotion 专用 API 和 provider-specific action 枚举；管理端与 API 客户端应从 connector catalog 读取 action ID、endpoint、输入字段、是否要求已保存策略/授权以及远端副作用声明。
 - **存储原生处理 behavior** — `thumbnail_processor`、`thumbnail_extensions`、`media_metadata_extensions` 收敛为 `storage_native_thumbnail_enabled` / `storage_native_thumbnail_extensions` 与 `storage_native_media_metadata_enabled` / `storage_native_media_metadata_extensions` 四个字段。关闭原生处理只移除 provider-native candidate，不会关闭全局缩略图或媒体元数据处理链。
 - **Presigned 上传响应** — upload init 不再分别返回 `presigned_url` 与 `presigned_headers`，multipart part presign 也不再返回纯 URL；两者统一返回 `PresignedUploadRequest { url, headers? }`。浏览器或第三方客户端必须原样转发 descriptor 中的请求头，不得自行补充 provider-specific header。
@@ -67,6 +69,10 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - **Connector-owned credential lifecycle**
   - 新增 `storage_policy_connector_credentials`，用 connector ID、独立 credential schema version、revision 与加密 payload 保存静态凭据、OAuth 应用配置和 delegated credential
   - credential schema 与 config schema 独立演进；加密 AAD 绑定 policy ID、connector ID 与 credential schema version
+- **Connector-owned follower storage targets**
+  - 新增 object-safe `RemoteStorageTargetConnector` 与 registry，由 connector 负责 descriptor、配置/凭据 normalization、legacy import、持久化校验和 runtime driver construction
+  - target config 使用稳定 connector ID 和版本化 envelope；凭据独立保存于 `remote_storage_target_credentials`，密文 AAD 绑定 target ID、connector ID 与 credential schema version
+  - 管理端表单、列表和 policy quick-create 流程统一消费 connector descriptor，保留暂时不可用的未知 connector 数据，不维护 Local/S3 前端能力矩阵
 - **Connector descriptor 驱动的管理端**
   - 存储策略创建、编辑、连接测试和 action UI 改为统一字段 renderer，按 descriptor 渲染 text、secret、boolean、number、select、自动/预设/自定义字符串选项、条件可见性/必填/选项、联动默认值、失活值清理、折叠高级字段、placeholder、说明、badge、confirmation 和 saved-policy gate
   - action select 支持 `remote_nodes` 与依赖 node 的 `remote_storage_targets` 动态数据源
@@ -163,6 +169,9 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 - `m20260813_000001_canonical_file_revision_ledger`
   - 以可恢复的 500 文件事务批次 backfill `file_versions` 和每个文件当前内容，建立 immutable revision predecessor chain、stable public ID、current head / next sequence 与用户属性快照，完成后删除 legacy `file_versions`；批次间故障重跑会跳过已提交 history，并从 legacy/ledger 最大 revision ID 之后继续
   - MySQL 使用 `utf8mb4_bin` virtual generated columns 维持 XML property `(namespace, name)` 大小写敏感唯一性，但不按服务端版本字符串设置全局门槛，也不依赖 8.0.23 的 invisible-column 语法
+- `m20260817_000001_remote_storage_target_connector_configs`
+  - 为 `remote_storage_targets` 新增 `connector_id` 与版本化 `connector_config`，并创建每个 target 唯一的 `remote_storage_target_credentials` 加密凭据表
+  - 0.5.x 启动阶段在 migration lock 下原子转换 Local/S3 legacy row、加密 S3 明文凭据并清空旧字段；未知 driver、畸形或冲突数据会终止并回滚整批转换
 - `m20260723_000001_require_upload_session_kind`
   - 升级前检查 legacy / invalid upload sessions，并将 `upload_sessions.session_kind` 收紧为 `NOT NULL`
 - `m20260725_000001_remote_tunnel_owners`

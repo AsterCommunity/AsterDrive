@@ -1,156 +1,144 @@
-import { normalizeObjectStorageConnectionFields } from "@/lib/objectStorageConnectionFields";
 import type {
 	RemoteCreateStorageTargetRequest,
-	RemoteStorageTargetDriverDescriptor,
+	RemoteStorageTargetConnectorDescriptor,
 	RemoteStorageTargetInfo,
 	RemoteUpdateStorageTargetRequest,
 } from "@/types/api";
 
-export type RemoteStorageTargetDriverType = "local" | "s3";
-
-export function isRemoteStorageTargetDriverType(
-	driverType: unknown,
-): driverType is RemoteStorageTargetDriverType {
-	return driverType === "local" || driverType === "s3";
-}
-
+export type RemoteStorageTargetFieldValue = string | number | boolean;
 export interface RemoteStorageTargetFormData {
 	name: string;
-	driver_type: RemoteStorageTargetDriverType;
-	endpoint: string;
-	bucket: string;
-	access_key: string;
-	secret_key: string;
-	base_path: string;
+	connector_id: string;
+	values: Record<string, RemoteStorageTargetFieldValue>;
 	is_default: boolean;
 }
 
-export type RemoteStorageTargetSupportedFields =
-	| ReadonlySet<string>
-	| Pick<RemoteStorageTargetDriverDescriptor, "fields">;
+const valueForField = (
+	field: RemoteStorageTargetConnectorDescriptor["fields"][number],
+	values: Record<string, RemoteStorageTargetFieldValue>,
+): RemoteStorageTargetFieldValue =>
+	values[field.name] ??
+	field.default_value ??
+	(field.kind === "boolean" ? false : field.kind === "number" ? 0 : "");
 
-function toRemoteStorageTargetFieldSet(
-	supportedFields: RemoteStorageTargetSupportedFields,
-): ReadonlySet<string> {
-	return "fields" in supportedFields
-		? new Set(supportedFields.fields.map((field) => field.name))
-		: supportedFields;
-}
-
-function supportedFieldValue(
-	form: RemoteStorageTargetFormData,
-	fieldNames: ReadonlySet<string>,
-	fieldName: "access_key" | "bucket" | "endpoint" | "secret_key",
-): string {
-	return fieldNames.has(fieldName) ? form[fieldName].trim() : "";
-}
-
-export function getRemoteStorageTargetForm(
-	profile: RemoteStorageTargetInfo,
+export function createRemoteStorageTargetForm(
+	descriptor: RemoteStorageTargetConnectorDescriptor,
+	isDefault: boolean,
 ): RemoteStorageTargetFormData {
 	return {
-		name: profile.name,
-		driver_type: profile.driver_type === "s3" ? "s3" : "local",
-		endpoint: profile.endpoint,
-		bucket: profile.bucket,
-		access_key: "",
-		secret_key: "",
-		base_path: profile.base_path,
-		is_default: profile.is_default,
+		name: "",
+		connector_id: descriptor.connector_id,
+		values: Object.fromEntries(
+			descriptor.fields.map((field) => [field.name, valueForField(field, {})]),
+		),
+		is_default: isDefault,
 	};
 }
 
-function normalizeRemoteStorageTargetForm(
-	form: RemoteStorageTargetFormData,
-	supportedFields: RemoteStorageTargetSupportedFields,
+export function getRemoteStorageTargetForm(
+	target: RemoteStorageTargetInfo,
+	descriptor?: RemoteStorageTargetConnectorDescriptor,
 ): RemoteStorageTargetFormData {
-	const fieldNames = toRemoteStorageTargetFieldSet(supportedFields);
-	const endpoint = supportedFieldValue(form, fieldNames, "endpoint");
-	const bucket = supportedFieldValue(form, fieldNames, "bucket");
-	const shouldNormalizeObjectStorageFields =
-		fieldNames.has("endpoint") && fieldNames.has("bucket");
-
-	const normalized = shouldNormalizeObjectStorageFields
-		? normalizeObjectStorageConnectionFields(endpoint, bucket)
-		: { endpoint, bucket };
+	const saved = target.connector_config.values;
 	return {
-		...form,
-		name: form.name.trim(),
-		endpoint: normalized.endpoint,
-		bucket: normalized.bucket,
-		access_key: supportedFieldValue(form, fieldNames, "access_key"),
-		secret_key: supportedFieldValue(form, fieldNames, "secret_key"),
-		base_path: form.base_path.trim(),
+		name: target.name,
+		connector_id: target.connector_id,
+		values: descriptor
+			? Object.fromEntries(
+					descriptor.fields.map((field) => [
+						field.name,
+						field.scope === "connector_config"
+							? valueForField(field, saved)
+							: valueForField(field, {}),
+					]),
+				)
+			: { ...saved },
+		is_default: target.is_default,
+	};
+}
+
+function normalizedValue(value: RemoteStorageTargetFieldValue) {
+	return typeof value === "string" ? value.trim() : value;
+}
+
+function splitValues(
+	form: RemoteStorageTargetFormData,
+	descriptor: RemoteStorageTargetConnectorDescriptor,
+	preserveEmptyCredential: boolean,
+) {
+	const configValues: Record<string, RemoteStorageTargetFieldValue> = {};
+	const credentialValues: Record<string, RemoteStorageTargetFieldValue> = {};
+	for (const field of descriptor.fields) {
+		const value = normalizedValue(valueForField(field, form.values));
+		if (field.scope === "connector_config") {
+			configValues[field.name] = value;
+		} else if (
+			field.scope === "static_credential" &&
+			!(preserveEmptyCredential && value === "")
+		) {
+			credentialValues[field.name] = value;
+		}
+	}
+	return { configValues, credentialValues };
+}
+
+function connectorConfig(
+	descriptor: RemoteStorageTargetConnectorDescriptor,
+	values: Record<string, RemoteStorageTargetFieldValue>,
+) {
+	return {
+		format_version: 1,
+		connector_id: descriptor.connector_id,
+		schema_version: descriptor.config_schema_version,
+		values,
 	};
 }
 
 export function buildCreateRemoteStorageTargetPayload(
 	form: RemoteStorageTargetFormData,
-	supportedFields: RemoteStorageTargetSupportedFields,
+	descriptor: RemoteStorageTargetConnectorDescriptor,
 ): RemoteCreateStorageTargetRequest {
-	const normalized = normalizeRemoteStorageTargetForm(form, supportedFields);
-
+	const { configValues, credentialValues } = splitValues(
+		form,
+		descriptor,
+		false,
+	);
 	return {
-		name: normalized.name,
-		driver_type: normalized.driver_type,
-		endpoint: normalized.endpoint,
-		bucket: normalized.bucket,
-		access_key: normalized.access_key,
-		secret_key: normalized.secret_key,
-		base_path: normalized.base_path,
-		is_default: normalized.is_default,
+		name: form.name.trim(),
+		connector_config: connectorConfig(descriptor, configValues),
+		credential:
+			Object.keys(credentialValues).length > 0
+				? { mode: "static", values: credentialValues }
+				: undefined,
+		is_default: form.is_default,
 	};
 }
 
 export function buildUpdateRemoteStorageTargetPayload(
 	form: RemoteStorageTargetFormData,
-	supportedFields: RemoteStorageTargetSupportedFields,
+	descriptor: RemoteStorageTargetConnectorDescriptor,
 	editingTarget: RemoteStorageTargetInfo,
 ): RemoteUpdateStorageTargetRequest {
-	const fieldNames = toRemoteStorageTargetFieldSet(supportedFields);
-	const normalized = normalizeRemoteStorageTargetForm(form, fieldNames);
-	const supportsAccessKey = fieldNames.has("access_key");
-	const supportsSecretKey = fieldNames.has("secret_key");
-	const sameDriverType = editingTarget.driver_type === normalized.driver_type;
-	const payload: RemoteUpdateStorageTargetRequest = {
-		name: normalized.name,
-		driver_type: normalized.driver_type,
-		base_path: normalized.base_path,
-		is_default: normalized.is_default,
+	const sameConnector = editingTarget.connector_id === descriptor.connector_id;
+	const { configValues, credentialValues } = splitValues(
+		form,
+		descriptor,
+		sameConnector,
+	);
+	return {
+		name: form.name.trim(),
+		connector_config: connectorConfig(descriptor, configValues),
+		credential:
+			Object.keys(credentialValues).length > 0
+				? { mode: "static", values: credentialValues }
+				: undefined,
+		is_default: form.is_default,
 	};
-
-	payload.endpoint = normalized.endpoint;
-	payload.bucket = normalized.bucket;
-
-	if (!supportsAccessKey) {
-		payload.access_key = "";
-	}
-	if (!supportsSecretKey) {
-		payload.secret_key = "";
-	}
-	if (!supportsAccessKey && !supportsSecretKey) {
-		return payload;
-	}
-
-	const accessKey = normalized.access_key;
-	const secretKey = normalized.secret_key;
-	if (supportsAccessKey && (!sameDriverType || accessKey)) {
-		payload.access_key = accessKey;
-	}
-	if (supportsSecretKey && (!sameDriverType || secretKey)) {
-		payload.secret_key = secretKey;
-	}
-
-	return payload;
 }
 
 export const emptyRemoteStorageTargetForm: RemoteStorageTargetFormData = {
 	name: "",
-	driver_type: "local",
-	endpoint: "",
-	bucket: "",
-	access_key: "",
-	secret_key: "",
-	base_path: ".",
+	connector_id: "",
+	values: {},
 	is_default: false,
 };

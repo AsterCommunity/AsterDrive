@@ -22,7 +22,6 @@ pub use super::preferences::{
     BrowserOpenMode, ColorPreset, LocaleTag, PrefViewMode, StoredUserConfig, ThemeMode, UserConfig,
     UserPreferences,
 };
-pub use super::remote_storage_target::RemoteStorageTargetDriverKind;
 pub use super::resource_lock::{LockDepth, LockMode, LockOrigin, LockRootKind, LockWorkspaceType};
 pub use super::sort::SortBy;
 pub use super::storage_credential::{

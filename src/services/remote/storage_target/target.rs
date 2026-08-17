@@ -38,7 +38,7 @@ pub async fn resolve_effective_target<S: FollowerRuntimeState>(
                 "remote storage targets exist but no default target is configured",
             )
         })?;
-    build_resolved_target(state, target)
+    build_resolved_target(state, target).await
 }
 
 pub async fn resolve_target_by_key<S: FollowerRuntimeState>(
@@ -58,10 +58,10 @@ pub async fn resolve_target_by_key<S: FollowerRuntimeState>(
             format!("remote storage target '{target_key}' is not configured"),
         )
     })?;
-    build_resolved_target(state, target)
+    build_resolved_target(state, target).await
 }
 
-fn build_resolved_target<S: FollowerRuntimeState>(
+async fn build_resolved_target<S: FollowerRuntimeState>(
     state: &S,
     target: aster_drive_model::entities::remote_storage_target::Model,
 ) -> Result<ResolvedRemoteStorageTarget> {
@@ -83,6 +83,6 @@ fn build_resolved_target<S: FollowerRuntimeState>(
             ),
         ));
     }
-    let driver = build_driver_from_target(state, &target)?;
+    let driver = build_driver_from_target(state, &target).await?;
     Ok(ResolvedRemoteStorageTarget { driver })
 }

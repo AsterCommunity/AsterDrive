@@ -6,8 +6,6 @@ use std::fmt;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::types::RemoteStorageTargetDriverKind;
-
 #[derive(Clone, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[sea_orm(table_name = "remote_storage_targets")]
@@ -17,13 +15,21 @@ pub struct Model {
     pub master_binding_id: i64,
     pub target_key: String,
     pub name: String,
-    pub driver_type: RemoteStorageTargetDriverKind,
+    pub connector_id: String,
+    pub connector_config: String,
+    // AsterDrive 0.5.0-only conversion source. Runtime target code never reads
+    // these flattened fields and always writes them empty.
+    #[serde(skip)]
+    pub driver_type: String,
+    #[serde(skip)]
     pub endpoint: String,
+    #[serde(skip)]
     pub bucket: String,
-    #[serde(skip_serializing)]
+    #[serde(skip)]
     pub access_key: String,
-    #[serde(skip_serializing)]
+    #[serde(skip)]
     pub secret_key: String,
+    #[serde(skip)]
     pub base_path: String,
     pub is_default: bool,
     pub desired_revision: i64,
@@ -42,12 +48,8 @@ impl fmt::Debug for Model {
             .field("master_binding_id", &self.master_binding_id)
             .field("target_key", &self.target_key)
             .field("name", &self.name)
-            .field("driver_type", &self.driver_type)
-            .field("endpoint", &self.endpoint)
-            .field("bucket", &self.bucket)
-            .field("access_key", &"***REDACTED***")
-            .field("secret_key", &"***REDACTED***")
-            .field("base_path", &self.base_path)
+            .field("connector_id", &self.connector_id)
+            .field("connector_config", &self.connector_config)
             .field("is_default", &self.is_default)
             .field("desired_revision", &self.desired_revision)
             .field("applied_revision", &self.applied_revision)
@@ -90,7 +92,9 @@ mod tests {
             master_binding_id: 2,
             target_key: "profile".to_string(),
             name: "ingress".to_string(),
-            driver_type: RemoteStorageTargetDriverKind::S3,
+            connector_id: "asterdrive.remote-target.s3".to_string(),
+            connector_config: r#"{"format_version":1}"#.to_string(),
+            driver_type: "".to_string(),
             endpoint: "https://s3.example.test".to_string(),
             bucket: "bucket".to_string(),
             access_key: "plain-access-key".to_string(),
@@ -105,8 +109,6 @@ mod tests {
         };
 
         let debug = format!("{model:?}");
-        assert!(debug.contains(r#"access_key: "***REDACTED***""#));
-        assert!(debug.contains(r#"secret_key: "***REDACTED***""#));
         assert!(!debug.contains("plain-access-key"));
         assert!(!debug.contains("plain-secret-key"));
     }

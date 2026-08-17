@@ -2,180 +2,135 @@ import { describe, expect, it } from "vitest";
 import {
 	buildCreateRemoteStorageTargetPayload,
 	buildUpdateRemoteStorageTargetPayload,
+	createRemoteStorageTargetForm,
 	getRemoteStorageTargetForm,
 } from "@/components/admin/remoteStorageTargetDialogShared";
-import type { RemoteStorageTargetInfo } from "@/types/api";
+import type {
+	RemoteStorageTargetConnectorDescriptor,
+	RemoteStorageTargetInfo,
+} from "@/types/api";
 
-const localFields = new Set(["base_path", "is_default"]);
-const s3Fields = new Set([
-	"endpoint",
-	"bucket",
-	"access_key",
-	"secret_key",
-	"base_path",
-	"is_default",
-]);
+const descriptor: RemoteStorageTargetConnectorDescriptor = {
+	connector_id: "plugin.example.archive",
+	config_schema_version: 3,
+	credential_schema_version: 2,
+	label_key: "archive",
+	description_key: "archive_desc",
+	fields: [
+		{
+			name: "path",
+			scope: "connector_config",
+			kind: "text",
+			label_key: "path",
+			required: true,
+			secret: false,
+		},
+		{
+			name: "enabled",
+			scope: "connector_config",
+			kind: "boolean",
+			label_key: "enabled",
+			required: false,
+			secret: false,
+			default_value: true,
+		},
+		{
+			name: "limit",
+			scope: "connector_config",
+			kind: "number",
+			label_key: "limit",
+			required: false,
+			secret: false,
+			default_value: 5,
+		},
+		{
+			name: "token",
+			scope: "static_credential",
+			kind: "secret",
+			label_key: "token",
+			required: true,
+			secret: true,
+		},
+	],
+};
+const target: RemoteStorageTargetInfo = {
+	target_key: "target",
+	name: "Archive",
+	connector_id: descriptor.connector_id,
+	connector_config: {
+		format_version: 1,
+		connector_id: descriptor.connector_id,
+		schema_version: 3,
+		values: { path: "saved", enabled: false, limit: 9 },
+	},
+	credential_configured: true,
+	connector_available: true,
+	is_default: false,
+	desired_revision: 1,
+	applied_revision: 1,
+	last_error: "",
+	created_at: "",
+	updated_at: "",
+};
 
 describe("remoteStorageTargetDialogShared", () => {
-	it("maps an existing remote storage target into form state", () => {
-		expect(
-			getRemoteStorageTargetForm({
-				target_key: "igp_demo",
-				name: "Follower Cache",
-				driver_type: "local",
-				endpoint: "",
-				bucket: "",
-				base_path: "cache/inbox",
-				is_default: true,
-				desired_revision: 3,
-				applied_revision: 3,
-				last_error: "",
-				created_at: "",
-				updated_at: "",
-			} as RemoteStorageTargetInfo),
-		).toEqual({
-			name: "Follower Cache",
-			driver_type: "local",
-			endpoint: "",
-			bucket: "",
-			access_key: "",
-			secret_key: "",
-			base_path: "cache/inbox",
+	it("applies descriptor defaults to generic create state", () => {
+		expect(createRemoteStorageTargetForm(descriptor, true)).toEqual({
+			name: "",
+			connector_id: descriptor.connector_id,
+			values: { path: "", enabled: true, limit: 5, token: "" },
 			is_default: true,
 		});
 	});
-
-	it("builds create payloads with trimmed s3 fields", () => {
-		expect(
-			buildCreateRemoteStorageTargetPayload(
-				{
-					name: "Archive",
-					driver_type: "s3",
-					endpoint: " https://s3.example.test/uploads ",
-					bucket: " uploads ",
-					access_key: "ACCESS",
-					secret_key: "SECRET",
-					base_path: "tenant-a/incoming",
-					is_default: false,
-				},
-				s3Fields,
-			),
-		).toEqual({
+	it("loads saved config without echoing credentials", () => {
+		expect(getRemoteStorageTargetForm(target, descriptor).values).toEqual({
+			path: "saved",
+			enabled: false,
+			limit: 9,
+			token: "",
+		});
+	});
+	it("splits config and credential maps generically", () => {
+		const form = {
+			name: " Archive ",
+			connector_id: descriptor.connector_id,
+			values: { path: " next ", enabled: true, limit: 7, token: " secret " },
+			is_default: true,
+		};
+		expect(buildCreateRemoteStorageTargetPayload(form, descriptor)).toEqual({
 			name: "Archive",
-			driver_type: "s3",
-			endpoint: "https://s3.example.test/uploads",
-			bucket: "uploads",
-			access_key: "ACCESS",
-			secret_key: "SECRET",
-			base_path: "tenant-a/incoming",
-			is_default: false,
-		});
-	});
-
-	it("omits unchanged s3 credentials from update payloads", () => {
-		expect(
-			buildUpdateRemoteStorageTargetPayload(
-				{
-					name: "Archive",
-					driver_type: "s3",
-					endpoint: "https://s3.example.test/uploads",
-					bucket: "uploads",
-					access_key: "",
-					secret_key: "",
-					base_path: "tenant-a/incoming",
-					is_default: true,
-				},
-				s3Fields,
-				{
-					target_key: "igp_archive",
-					name: "Archive",
-					driver_type: "s3",
-					endpoint: "https://s3.example.test",
-					bucket: "uploads",
-					base_path: "tenant-a/incoming",
-					is_default: false,
-					desired_revision: 2,
-					applied_revision: 2,
-					last_error: "",
-					created_at: "",
-					updated_at: "",
-				} as RemoteStorageTargetInfo,
-			),
-		).toEqual({
-			name: "Archive",
-			driver_type: "s3",
-			endpoint: "https://s3.example.test/uploads",
-			bucket: "uploads",
-			base_path: "tenant-a/incoming",
+			connector_config: {
+				format_version: 1,
+				connector_id: descriptor.connector_id,
+				schema_version: 3,
+				values: { path: "next", enabled: true, limit: 7 },
+			},
+			credential: { mode: "static", values: { token: "secret" } },
 			is_default: true,
 		});
 	});
-
-	it("requires explicit credentials when switching from local to s3", () => {
+	it("preserves saved credentials when same connector submits blank secret", () => {
+		const form = getRemoteStorageTargetForm(target, descriptor);
 		expect(
-			buildUpdateRemoteStorageTargetPayload(
-				{
-					name: "Promoted",
-					driver_type: "s3",
-					endpoint: "https://s3.example.com",
-					bucket: "bucket-a",
-					access_key: "ROTATED",
-					secret_key: "SECRET",
-					base_path: "tenant-a/incoming",
-					is_default: false,
-				},
-				s3Fields,
-				{
-					target_key: "igp_local",
-					name: "Promoted",
-					driver_type: "local",
-					endpoint: "",
-					bucket: "",
-					base_path: ".",
-					is_default: true,
-					desired_revision: 1,
-					applied_revision: 1,
-					last_error: "",
-					created_at: "",
-					updated_at: "",
-				} as RemoteStorageTargetInfo,
-			),
-		).toEqual({
-			name: "Promoted",
-			driver_type: "s3",
-			endpoint: "https://s3.example.com",
-			bucket: "bucket-a",
-			access_key: "ROTATED",
-			secret_key: "SECRET",
-			base_path: "tenant-a/incoming",
-			is_default: false,
-		});
+			buildUpdateRemoteStorageTargetPayload(form, descriptor, target)
+				.credential,
+		).toBeUndefined();
 	});
-
-	it("clears unsupported connection fields from local payloads", () => {
+	it("sends explicit credentials when switching connector", () => {
+		const other = {
+			...target,
+			connector_id: "plugin.example.other",
+			connector_config: {
+				...target.connector_config,
+				connector_id: "plugin.example.other",
+			},
+		};
+		const form = {
+			...getRemoteStorageTargetForm(target, descriptor),
+			values: { path: "next", enabled: true, limit: 5, token: "new" },
+		};
 		expect(
-			buildCreateRemoteStorageTargetPayload(
-				{
-					name: "Local",
-					driver_type: "local",
-					endpoint: "https://unused.example.com",
-					bucket: "unused",
-					access_key: "unused-access",
-					secret_key: "unused-secret",
-					base_path: "tenant-a/local",
-					is_default: true,
-				},
-				localFields,
-			),
-		).toEqual({
-			name: "Local",
-			driver_type: "local",
-			endpoint: "",
-			bucket: "",
-			access_key: "",
-			secret_key: "",
-			base_path: "tenant-a/local",
-			is_default: true,
-		});
+			buildUpdateRemoteStorageTargetPayload(form, descriptor, other).credential,
+		).toEqual({ mode: "static", values: { token: "new" } });
 	});
 });

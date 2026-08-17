@@ -44,7 +44,7 @@ fn remote_storage_target_audit_details(
     // remote ingress profile strings for stored audit compatibility.
     audit::details(audit::RemoteIngressProfileAuditDetails {
         target_key: &target.target_key,
-        driver_type: target.driver_type.as_str(),
+        driver_type: &target.connector_id,
         is_default: target.is_default,
     })
 }
@@ -391,24 +391,24 @@ pub async fn list_remote_node_storage_targets(
 
 #[aster_forge_api_docs_macros::path(
     get,
-    path = "/api/v1/admin/remote-nodes/{id}/storage-target-drivers",
+    path = "/api/v1/admin/remote-nodes/{id}/storage-target-connectors",
     tag = "admin",
-    operation_id = "list_remote_node_storage_target_drivers",
+    operation_id = "list_remote_node_storage_target_connectors",
     params(("id" = i64, Path, description = "Remote node ID")),
     responses(
-        (status = 200, description = "List remote node storage target driver descriptors", body = inline(ApiResponse<Vec<crate::services::remote::storage_target::RemoteStorageTargetDriverDescriptor>>)),
+        (status = 200, description = "List remote node storage target connector descriptors", body = inline(ApiResponse<Vec<crate::services::remote::storage_target::RemoteStorageTargetConnectorDescriptor>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Remote node not found"),
     ),
     security(("bearer" = [])),
 )]
-pub async fn list_remote_node_storage_target_drivers(
+pub async fn list_remote_node_storage_target_connectors(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let descriptors =
-        storage_target::list_remote_driver_descriptors(state.get_ref(), *path).await?;
+        storage_target::list_remote_connector_descriptors(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(descriptors)))
 }
 

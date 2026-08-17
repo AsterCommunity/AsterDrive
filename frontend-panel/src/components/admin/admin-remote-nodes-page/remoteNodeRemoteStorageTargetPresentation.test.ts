@@ -1,66 +1,58 @@
 import { describe, expect, it } from "vitest";
-import {
-	getRemoteNodeRemoteStorageTargetDriverBadgeTone,
-	getRemoteNodeRemoteStorageTargetProfileStatus,
-} from "@/components/admin/admin-remote-nodes-page/remoteNodeRemoteStorageTargetPresentation";
 import type { RemoteStorageTargetInfo } from "@/types/api";
+import {
+	getRemoteNodeRemoteStorageTargetConnectorBadgeTone,
+	getRemoteNodeRemoteStorageTargetProfileStatus,
+} from "./remoteNodeRemoteStorageTargetPresentation";
 
-const profile = (
+const target = (
 	overrides: Partial<RemoteStorageTargetInfo> = {},
 ): RemoteStorageTargetInfo => ({
-	applied_revision: 3,
-	base_path: "incoming",
-	bucket: "",
-	created_at: "2026-05-01T00:00:00Z",
-	desired_revision: 3,
-	driver_type: "local",
-	endpoint: "",
+	target_key: "target",
+	name: "Target",
+	connector_id: "plugin.example.archive",
+	connector_config: {
+		format_version: 1,
+		connector_id: "plugin.example.archive",
+		schema_version: 1,
+		values: {},
+	},
+	credential_configured: false,
+	connector_available: true,
 	is_default: false,
+	desired_revision: 3,
+	applied_revision: 3,
 	last_error: "",
-	name: "Default",
-	target_key: "default",
-	updated_at: "2026-05-02T00:00:00Z",
+	created_at: "",
+	updated_at: "",
 	...overrides,
 });
-
-describe("remoteNodeRemoteStorageTargetPresentation", () => {
-	it("prioritizes error status over revision drift", () => {
+describe("remote target presentation", () => {
+	it("prioritizes unavailable, error, pending, and ready states", () => {
 		expect(
 			getRemoteNodeRemoteStorageTargetProfileStatus(
-				profile({
-					applied_revision: 1,
-					desired_revision: 3,
-					last_error: "sync failed",
-				}),
-			),
-		).toMatchObject({
-			labelKey: "remote_node_ingress_profile_status_error",
-			toneClass: expect.stringContaining("destructive"),
-		});
-	});
-
-	it("detects pending and ready profile statuses", () => {
+				target({ connector_available: false }),
+			).labelKey,
+		).toContain("unavailable");
 		expect(
 			getRemoteNodeRemoteStorageTargetProfileStatus(
-				profile({ applied_revision: 1, desired_revision: 2 }),
-			),
-		).toMatchObject({
-			labelKey: "remote_node_ingress_profile_status_pending",
-			toneClass: expect.stringContaining("amber"),
-		});
+				target({ last_error: "failed" }),
+			).labelKey,
+		).toContain("error");
 		expect(
-			getRemoteNodeRemoteStorageTargetProfileStatus(profile()),
-		).toMatchObject({
-			labelKey: "remote_node_ingress_profile_status_ready",
-			toneClass: expect.stringContaining("emerald"),
-		});
+			getRemoteNodeRemoteStorageTargetProfileStatus(
+				target({ applied_revision: 1 }),
+			).labelKey,
+		).toContain("pending");
+		expect(
+			getRemoteNodeRemoteStorageTargetProfileStatus(target()).labelKey,
+		).toContain("ready");
 	});
-
-	it("maps driver types to badge tones", () => {
-		expect(getRemoteNodeRemoteStorageTargetDriverBadgeTone("s3")).toContain(
+	it("uses availability rather than connector identity for badge tone", () => {
+		expect(getRemoteNodeRemoteStorageTargetConnectorBadgeTone(true)).toContain(
 			"blue",
 		);
-		expect(getRemoteNodeRemoteStorageTargetDriverBadgeTone("local")).toContain(
+		expect(getRemoteNodeRemoteStorageTargetConnectorBadgeTone(false)).toContain(
 			"slate",
 		);
 	});

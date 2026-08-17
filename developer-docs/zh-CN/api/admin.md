@@ -123,7 +123,7 @@
 - `POST /admin/policies/{id}/promote-s3-driver` 当前支持把通用 `s3` 策略提升为 `tencent_cos`。请求体必须包含目标驱动和当前 endpoint / bucket，例如 `{ "target_driver_type": "tencent_cos", "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com", "bucket": "bucket-1250000000" }`。提升时不允许改变 bucket；若该策略还有活动上传 session，或目标驱动不能接受当前 endpoint / bucket 组合，会直接拒绝。
 - REST 已经可以通过 `allowed_types` 管理策略允许的 MIME / 类型列表；不传时创建会使用空列表，更新会保持原值
 - 新建 `driver_type = "remote"` 策略时必须同时提供 `remote_node_id` 和 `remote_storage_target_key`。target 必须属于所选节点的当前 binding、没有 `last_error`，并满足 `applied_revision >= desired_revision`
-- 策略创建 / 编辑 UI 会在选择节点后加载该节点的 target 列表和 driver descriptors；管理员可以在同一流程快速创建 target，成功后新 target 会被自动选中。字段和 capability 仍以后端 descriptor 为准
+- 策略创建 / 编辑 UI 会在选择节点后加载该节点的 target 列表和 connector descriptors；管理员可以在同一流程快速创建 target，成功后新 target 会被自动选中。字段和 capability 仍以后端 descriptor 为准
 - 旧 remote policy 若 target key 为空，且本次编辑没有改变 remote binding，可以暂时保留空值；运行时会回退 follower binding 的 default target。新建策略或改变 remote binding 时必须补齐显式 target key
 - 当前 `PATCH` 不能修改 `driver_type`
 - `GET /admin/policies` 支持 `limit`、`offset`、`sort_by`、`sort_order`
@@ -345,13 +345,13 @@ POST /api/v1/admin/policies/action
 | `POST` | `/admin/remote-nodes/{id}/test` | 测试已保存远端节点连接 |
 | `POST` | `/admin/remote-nodes/test` | 用临时参数测试远端节点连接 |
 | `POST` | `/admin/remote-nodes/{id}/enrollment-token` | 生成 follower enrollment 命令 |
-| `GET` | `/admin/remote-nodes/{id}/storage-target-drivers` | 列出 follower 侧远程存储目标可用 driver descriptor |
+| `GET` | `/admin/remote-nodes/{id}/storage-target-connectors` | 列出 follower 侧远程存储目标可用 connector descriptor |
 | `GET` | `/admin/remote-nodes/{id}/storage-targets` | 列出 follower 侧远程存储目标 |
 | `POST` | `/admin/remote-nodes/{id}/storage-targets` | 创建 follower 侧远程存储目标 |
 | `PATCH` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | 更新 follower 侧远程存储目标 |
 | `DELETE` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | 删除 follower 侧远程存储目标 |
 
-`0.4.0` 已移除旧 `/ingress-profile-drivers` 和 `/ingress-profiles` 兼容路径；客户端必须使用 `/storage-target-drivers` 和 `/storage-targets`。DTO 字段名使用 `target_key`。
+`0.4.0` 已移除旧 `/ingress-profile-drivers` 和 `/ingress-profiles` 兼容路径；当前接口进一步统一为 `/storage-target-connectors` 和 `/storage-targets`，不保留 `/storage-target-drivers` 别名。DTO 字段名使用 `target_key`。
 
 创建远端节点示例：
 

@@ -118,6 +118,12 @@ pub async fn initialize_database_state(
             )
             .await
             .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;
+            crate::services::remote::storage_target::migrate_legacy_remote_storage_targets(
+                &credential_transaction,
+                &upgrade_config.auth.storage_credential_secret_key,
+            )
+            .await
+            .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;
             credential_transaction.commit().await?;
             Ok(())
         })

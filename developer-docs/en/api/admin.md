@@ -107,7 +107,7 @@ Current notes:
 - legacy `{"presigned_upload":true}` remains compatible with object-storage presigned upload
 - `allowed_types` can be managed through REST
 - Creating a `driver_type = "remote"` policy requires both `remote_node_id` and `remote_storage_target_key`. The target must belong to that node's current binding, have no `last_error`, and satisfy `applied_revision >= desired_revision`.
-- After a node is selected, the policy create/edit UI loads its target list and driver descriptors. An admin can quick-create a target in the same flow, after which the new target is selected automatically. Fields and capabilities remain backend-descriptor driven.
+- After a node is selected, the policy create/edit UI loads its target list and connector descriptors. An admin can quick-create a target in the same flow, after which the new target is selected automatically. Fields and capabilities remain backend-descriptor driven.
 - A legacy remote policy with an empty target key may retain it only when an edit does not change the remote binding; runtime access then falls back to the follower binding's default target. New policies and remote-binding changes require an explicit target key.
 - `PATCH` cannot change `driver_type`
 - `POST /admin/policies/{id}/promote-s3-driver` currently supports promoting a generic `s3` policy to `tencent_cos`. The body must include the target driver and current endpoint / bucket, for example `{ "target_driver_type": "tencent_cos", "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com", "bucket": "bucket-1250000000" }`. Promotion is rejected unless the bucket stays unchanged, there are no active upload sessions for the policy, and the target driver validates the endpoint / bucket combination.
@@ -326,13 +326,13 @@ Remote nodes are follower storage nodes managed by the primary, mainly for `driv
 | `POST` | `/admin/remote-nodes/{id}/test` | Test saved remote-node connection |
 | `POST` | `/admin/remote-nodes/test` | Test draft remote-node connection |
 | `POST` | `/admin/remote-nodes/{id}/enrollment-token` | Generate follower enrollment command |
-| `GET` | `/admin/remote-nodes/{id}/storage-target-drivers` | List follower remote storage target driver descriptors |
+| `GET` | `/admin/remote-nodes/{id}/storage-target-connectors` | List follower remote storage target connector descriptors |
 | `GET` | `/admin/remote-nodes/{id}/storage-targets` | List follower remote storage targets |
 | `POST` | `/admin/remote-nodes/{id}/storage-targets` | Create follower remote storage target |
 | `PATCH` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | Update follower remote storage target |
 | `DELETE` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | Delete follower remote storage target |
 
-Version `0.4.0` removed the legacy `/ingress-profile-drivers` and `/ingress-profiles` compatibility paths. Clients must use `/storage-target-drivers` and `/storage-targets`; DTO field names use `target_key`.
+Version `0.4.0` removed the legacy `/ingress-profile-drivers` and `/ingress-profiles` compatibility paths. The current API further standardizes on `/storage-target-connectors` and `/storage-targets` without a `/storage-target-drivers` alias; DTO field names use `target_key`.
 
 Create example:
 
