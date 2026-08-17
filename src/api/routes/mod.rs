@@ -12,6 +12,7 @@ pub mod health;
 pub mod internal_storage;
 pub mod properties;
 pub mod public;
+pub mod remote_node_control;
 pub mod remote_tunnel;
 pub mod search;
 pub mod share_public;

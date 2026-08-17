@@ -159,3 +159,22 @@ pub async fn touch_tunnel_result(
     // 需要按 tunnel 活跃度排序时应显式使用 tunnel_last_seen_at。
     update(db, active).await
 }
+
+pub async fn acknowledge_binding_revision<C: ConnectionTrait>(
+    db: &C,
+    id: i64,
+    applied_revision: i64,
+) -> Result<()> {
+    ManagedFollower::update_many()
+        .col_expr(
+            managed_follower::Column::BindingAppliedRevision,
+            sea_orm::sea_query::Expr::value(applied_revision),
+        )
+        .filter(managed_follower::Column::Id.eq(id))
+        .filter(managed_follower::Column::BindingAppliedRevision.lt(applied_revision))
+        .filter(managed_follower::Column::BindingRevision.gte(applied_revision))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(())
+}

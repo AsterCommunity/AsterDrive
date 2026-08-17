@@ -6,6 +6,7 @@ use crate::db::repository::{follower_enrollment_session_repo, managed_follower_r
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
 use aster_drive_model::entities::follower_enrollment_session;
+use aster_drive_model::types::ResolvedRemoteTransport;
 use aster_forge_db::transaction;
 use chrono::{Duration, Utc};
 use sea_orm::Set;
@@ -44,7 +45,15 @@ pub struct RemoteEnrollmentBootstrap {
     pub access_key: String,
     pub secret_key: String,
     pub is_enabled: bool,
+    #[serde(default)]
+    pub resolved_transport: ResolvedRemoteTransport,
+    #[serde(default = "default_binding_revision")]
+    pub desired_revision: i64,
     pub ack_token: String,
+}
+
+const fn default_binding_revision() -> i64 {
+    1
 }
 
 #[derive(Debug, Clone)]
@@ -157,6 +166,8 @@ pub async fn redeem_enrollment_token<S: SharedRuntimeState>(
             access_key: remote_node.access_key,
             secret_key: remote_node.secret_key,
             is_enabled: remote_node.is_enabled,
+            resolved_transport: remote_node.transport_mode.resolve(&remote_node.base_url),
+            desired_revision: remote_node.binding_revision,
             ack_token: format!("enr_ack_{}", enrollment.ack_token_hash),
         })
     })
@@ -246,4 +257,29 @@ fn redeem_claim_error(
     }
 
     AsterError::validation_error("enrollment token is no longer redeemable")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RemoteEnrollmentBootstrap;
+
+    #[test]
+    fn enrollment_bootstrap_defaults_legacy_payloads_to_reverse_tunnel() {
+        let bootstrap: RemoteEnrollmentBootstrap = serde_json::from_value(serde_json::json!({
+            "remote_node_id": 1,
+            "remote_node_name": "legacy-node",
+            "master_url": "https://master.example.com",
+            "access_key": "access",
+            "secret_key": "secret",
+            "is_enabled": true,
+            "ack_token": "ack"
+        }))
+        .expect("legacy enrollment payload should remain readable");
+
+        assert_eq!(
+            bootstrap.resolved_transport,
+            aster_drive_model::types::ResolvedRemoteTransport::ReverseTunnel
+        );
+        assert_eq!(bootstrap.desired_revision, 1);
+    }
 }

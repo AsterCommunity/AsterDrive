@@ -4594,11 +4594,14 @@ export interface components {
             data?: {
                 access_key: string;
                 ack_token: string;
+                /** Format: int64 */
+                desired_revision?: number;
                 is_enabled: boolean;
                 master_url: string;
                 /** Format: int64 */
                 remote_node_id: number;
                 remote_node_name: string;
+                resolved_transport?: components["schemas"]["ResolvedRemoteTransport"];
                 secret_key: string;
             };
             error?: null | components["schemas"]["ApiErrorInfo"];
@@ -7269,11 +7272,14 @@ export interface components {
         RemoteEnrollmentBootstrap: {
             access_key: string;
             ack_token: string;
+            /** Format: int64 */
+            desired_revision?: number;
             is_enabled: boolean;
             master_url: string;
             /** Format: int64 */
             remote_node_id: number;
             remote_node_name: string;
+            resolved_transport?: components["schemas"]["ResolvedRemoteTransport"];
             secret_key: string;
         };
         RemoteEnrollmentCommandInfo: {
@@ -7327,6 +7333,7 @@ export interface components {
         };
         RemoteStorageFeatureFlags: {
             accept_ranges_header?: boolean;
+            binding_state_pull?: boolean;
             browser_presigned_cors?: boolean;
             compose?: boolean;
             list?: boolean;
@@ -7419,6 +7426,11 @@ export interface components {
         ResetUserPasswordReq: {
             password: string;
         };
+        /**
+         * @description Transport selected by the primary after resolving a remote node's mode and base URL.
+         * @enum {string}
+         */
+        ResolvedRemoteTransport: "direct" | "reverse_tunnel";
         ResourceLock: {
             created_at: string;
             depth: components["schemas"]["LockDepth"];
