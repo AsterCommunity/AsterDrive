@@ -68,16 +68,22 @@ pub const REMOTE_TUNNEL_STREAM_FRAME_LIMIT: usize = 256 * 1024;
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum RemoteTunnelOnlineStatus {
+    /// A recent poll or stream handshake is within the online TTL.
     Online,
+    /// No successful handshake has been observed within the online TTL.
     Offline,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct RemoteTunnelInfo {
+    /// Whether a poll or stream handshake has been observed within the runtime online TTL.
     pub status: RemoteTunnelOnlineStatus,
+    /// Transient runtime error from the tunnel control/data path. This is cleared by the next
+    /// successful poll or stream handshake and is not a historical error log.
     pub last_error: String,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
+    /// Last successful poll or stream handshake persisted by the primary.
     pub last_seen_at: Option<chrono::DateTime<Utc>>,
 }
 
@@ -100,6 +106,8 @@ pub async fn poll<S: RemoteProtocolRuntimeState>(
         Some(Utc::now()),
     )
     .await?;
+    // A successful control-plane handshake means the runtime path recovered. This clears the
+    // transient tunnel health error; it does not erase the separate probe `last_error` field.
     registry.clear_error(remote_node.id);
 
     let request = tokio::time::timeout(REMOTE_TUNNEL_POLL_TIMEOUT, request_rx)
@@ -200,6 +208,8 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
         Some(Utc::now()),
     )
     .await?;
+    // Stream registration is the same successful tunnel handshake as poll registration, so it
+    // clears only transient tunnel telemetry and leaves capability-probe state untouched.
     registry.clear_error(remote_node.id);
 
     let mut owner_renewal = tokio::time::interval(REMOTE_TUNNEL_OWNER_RENEW_INTERVAL);
@@ -361,6 +371,8 @@ pub fn tunnel_info_for_node<S: RemoteProtocolRuntimeState>(
         } else {
             RemoteTunnelOnlineStatus::Offline
         },
+        // Prefer the in-memory value so a newly observed runtime failure is visible before the
+        // asynchronous persistence task commits it; the database value survives process restart.
         last_error: state
             .remote_protocol()
             .tunnel_registry()

@@ -110,6 +110,11 @@ impl RemoteCapabilityResolver {
         &self,
         connector_id: &str,
     ) -> Result<()> {
+        let context = format!(
+            "remote storage target write on remote node #{}",
+            self.remote_node_id
+        );
+        self.ensure_protocol_compatible(&context)?;
         if self.supports_remote_storage_target_connector(connector_id) {
             return Ok(());
         }

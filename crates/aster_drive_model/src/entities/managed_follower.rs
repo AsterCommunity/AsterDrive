@@ -21,13 +21,19 @@ pub struct Model {
     #[serde(skip_serializing)]
     pub secret_key: String,
     pub is_enabled: bool,
+    /// Configured transport selection used to reach this remote node.
     pub transport_mode: RemoteNodeTransportMode,
+    /// Capabilities returned by the most recent explicit remote-node probe.
     pub last_capabilities: String,
+    /// Error from the most recent explicit remote-node probe or connection test.
     pub last_error: String,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
+    /// When the capability probe represented by `last_capabilities`/`last_error` ran.
     pub last_checked_at: Option<DateTimeUtc>,
+    /// Transient reverse-tunnel runtime error; a successful poll or stream handshake clears it.
     pub tunnel_last_error: String,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
+    /// Last successful reverse-tunnel poll or stream handshake observed by this primary.
     pub tunnel_last_seen_at: Option<DateTimeUtc>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,

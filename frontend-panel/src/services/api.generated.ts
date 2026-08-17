@@ -6543,11 +6543,17 @@ export interface components {
                 /** Format: int64 */
                 id: number;
                 is_enabled: boolean;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description Timestamp of the most recent explicit capability probe.
+                 */
                 last_checked_at?: string | null;
+                /** @description Result of the most recent explicit capability probe or connection test. */
                 last_error: string;
                 name: string;
+                /** @description The configured transport choice; `auto` is resolved from `base_url` at runtime. */
                 transport_mode: components["schemas"]["RemoteNodeTransportMode"];
+                /** @description Runtime reverse-tunnel health telemetry, separate from probe state above. */
                 tunnel: components["schemas"]["RemoteTunnelInfo"];
                 updated_at: string;
             }[];
@@ -7280,11 +7286,17 @@ export interface components {
             /** Format: int64 */
             id: number;
             is_enabled: boolean;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Timestamp of the most recent explicit capability probe.
+             */
             last_checked_at?: string | null;
+            /** @description Result of the most recent explicit capability probe or connection test. */
             last_error: string;
             name: string;
+            /** @description The configured transport choice; `auto` is resolved from `base_url` at runtime. */
             transport_mode: components["schemas"]["RemoteNodeTransportMode"];
+            /** @description Runtime reverse-tunnel health telemetry, separate from probe state above. */
             tunnel: components["schemas"]["RemoteTunnelInfo"];
             updated_at: string;
         };
@@ -7357,8 +7369,14 @@ export interface components {
             updated_at: string;
         };
         RemoteTunnelInfo: {
+            /**
+             * @description Transient runtime error from the tunnel control/data path. This is cleared by the next
+             *     successful poll or stream handshake and is not a historical error log.
+             */
             last_error: string;
+            /** @description Last successful poll or stream handshake persisted by the primary. */
             last_seen_at?: string | null;
+            /** @description Whether a poll or stream handshake has been observed within the runtime online TTL. */
             status: components["schemas"]["RemoteTunnelOnlineStatus"];
         };
         /** @enum {string} */
@@ -12063,11 +12081,17 @@ export interface operations {
                                 /** Format: int64 */
                                 id: number;
                                 is_enabled: boolean;
-                                /** Format: date-time */
+                                /**
+                                 * Format: date-time
+                                 * @description Timestamp of the most recent explicit capability probe.
+                                 */
                                 last_checked_at?: string | null;
+                                /** @description Result of the most recent explicit capability probe or connection test. */
                                 last_error: string;
                                 name: string;
+                                /** @description The configured transport choice; `auto` is resolved from `base_url` at runtime. */
                                 transport_mode: components["schemas"]["RemoteNodeTransportMode"];
+                                /** @description Runtime reverse-tunnel health telemetry, separate from probe state above. */
                                 tunnel: components["schemas"]["RemoteTunnelInfo"];
                                 updated_at: string;
                             }[];
@@ -12137,11 +12161,17 @@ export interface operations {
                             /** Format: int64 */
                             id: number;
                             is_enabled: boolean;
-                            /** Format: date-time */
+                            /**
+                             * Format: date-time
+                             * @description Timestamp of the most recent explicit capability probe.
+                             */
                             last_checked_at?: string | null;
+                            /** @description Result of the most recent explicit capability probe or connection test. */
                             last_error: string;
                             name: string;
+                            /** @description The configured transport choice; `auto` is resolved from `base_url` at runtime. */
                             transport_mode: components["schemas"]["RemoteNodeTransportMode"];
+                            /** @description Runtime reverse-tunnel health telemetry, separate from probe state above. */
                             tunnel: components["schemas"]["RemoteTunnelInfo"];
                             updated_at: string;
                         };
@@ -12256,11 +12286,17 @@ export interface operations {
                             /** Format: int64 */
                             id: number;
                             is_enabled: boolean;
-                            /** Format: date-time */
+                            /**
+                             * Format: date-time
+                             * @description Timestamp of the most recent explicit capability probe.
+                             */
                             last_checked_at?: string | null;
+                            /** @description Result of the most recent explicit capability probe or connection test. */
                             last_error: string;
                             name: string;
+                            /** @description The configured transport choice; `auto` is resolved from `base_url` at runtime. */
                             transport_mode: components["schemas"]["RemoteNodeTransportMode"];
+                            /** @description Runtime reverse-tunnel health telemetry, separate from probe state above. */
                             tunnel: components["schemas"]["RemoteTunnelInfo"];
                             updated_at: string;
                         };
@@ -12366,11 +12402,17 @@ export interface operations {
                             /** Format: int64 */
                             id: number;
                             is_enabled: boolean;
-                            /** Format: date-time */
+                            /**
+                             * Format: date-time
+                             * @description Timestamp of the most recent explicit capability probe.
+                             */
                             last_checked_at?: string | null;
+                            /** @description Result of the most recent explicit capability probe or connection test. */
                             last_error: string;
                             name: string;
+                            /** @description The configured transport choice; `auto` is resolved from `base_url` at runtime. */
                             transport_mode: components["schemas"]["RemoteNodeTransportMode"];
+                            /** @description Runtime reverse-tunnel health telemetry, separate from probe state above. */
                             tunnel: components["schemas"]["RemoteTunnelInfo"];
                             updated_at: string;
                         };
@@ -12806,11 +12848,17 @@ export interface operations {
                             /** Format: int64 */
                             id: number;
                             is_enabled: boolean;
-                            /** Format: date-time */
+                            /**
+                             * Format: date-time
+                             * @description Timestamp of the most recent explicit capability probe.
+                             */
                             last_checked_at?: string | null;
+                            /** @description Result of the most recent explicit capability probe or connection test. */
                             last_error: string;
                             name: string;
+                            /** @description The configured transport choice; `auto` is resolved from `base_url` at runtime. */
                             transport_mode: components["schemas"]["RemoteNodeTransportMode"];
+                            /** @description Runtime reverse-tunnel health telemetry, separate from probe state above. */
                             tunnel: components["schemas"]["RemoteTunnelInfo"];
                             updated_at: string;
                         };

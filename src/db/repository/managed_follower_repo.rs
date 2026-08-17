@@ -155,7 +155,8 @@ pub async fn touch_tunnel_result(
     active.tunnel_last_error = Set(tunnel_last_error);
     active.tunnel_last_seen_at = Set(tunnel_last_seen_at);
     // Tunnel 心跳和错误是运行态遥测，不代表远端节点配置被修改。
-    // 保持 updated_at 只用于名称、base_url、transport_mode 等管理面变更；
-    // 需要按 tunnel 活跃度排序时应显式使用 tunnel_last_seen_at。
+    // `tunnel_last_error` 是暂时的健康状态：成功 poll/stream handshake 会写入空字符串，
+    // 所以它不是历史错误日志；需要按 tunnel 活跃度排序时应显式使用 `tunnel_last_seen_at`。
+    // 保持 updated_at 只用于名称、base_url、transport_mode 等管理面变更。
     update(db, active).await
 }

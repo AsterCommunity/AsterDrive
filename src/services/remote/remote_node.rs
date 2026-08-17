@@ -49,12 +49,16 @@ pub struct RemoteNodeInfo {
     pub id: i64,
     pub name: String,
     pub base_url: String,
+    /// The configured transport choice; `auto` is resolved from `base_url` at runtime.
     pub transport_mode: RemoteNodeTransportMode,
     pub is_enabled: bool,
     pub enrollment_status: RemoteNodeEnrollmentStatus,
+    /// Result of the most recent explicit capability probe or connection test.
     pub last_error: String,
     pub capabilities: RemoteStorageCapabilities,
+    /// Timestamp of the most recent explicit capability probe.
     pub last_checked_at: Option<chrono::DateTime<Utc>>,
+    /// Runtime reverse-tunnel health telemetry, separate from probe state above.
     pub tunnel: crate::storage::remote_protocol::tunnel::server::RemoteTunnelInfo,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: chrono::DateTime<Utc>,

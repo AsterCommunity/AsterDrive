@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -370,7 +370,7 @@ impl RemoteStorageTargetConnector for LocalRemoteStorageTargetConnector {
                 .remote_storage_target_local_root,
             &config.base_path,
         )?;
-        std::fs::create_dir_all(&path).map_aster_err_ctx(
+        tokio::fs::create_dir_all(&path).await.map_aster_err_ctx(
             &format!(
                 "create remote storage target local path '{}'",
                 path.display()
@@ -565,7 +565,7 @@ impl RemoteStorageTargetConnector for S3RemoteStorageTargetConnector {
     ) -> Result<Arc<dyn StorageDriver>> {
         let config: S3ConfigV1 = values(decode_config(target, S3_CONNECTOR_ID)?.values)?;
         let credential =
-            load_credential_from_context(context, target, S3_CONNECTOR_ID, SCHEMA_VERSION)
+            load_credential(context.writer_db, context.config, target, S3_CONNECTOR_ID)
                 .await?
                 .ok_or_else(|| {
                     AsterError::validation_error("S3 remote target credential is missing")
@@ -714,17 +714,16 @@ pub(crate) fn connector_available(connector_id: &str) -> bool {
         .is_ok_and(|registry| registry.connector(connector_id).is_some())
 }
 
-pub(in crate::services::remote::storage_target) async fn load_credential<
-    S: FollowerRuntimeState,
->(
-    state: &S,
+pub(in crate::services::remote::storage_target) async fn load_credential<C: ConnectionTrait>(
+    db: &C,
+    config: &Config,
     target: &remote_storage_target::Model,
     connector_id: &str,
 ) -> Result<Option<String>> {
     let connector = builtin_remote_storage_target_connector_registry()?
         .require_input_connector(&ConnectorId::declared(connector_id))?;
     let Some(schema_version) = connector.descriptor().credential_schema_version else {
-        if remote_storage_target_credential_repo::find_by_target(state.writer_db(), target.id)
+        if remote_storage_target_credential_repo::find_by_target(db, target.id)
             .await?
             .is_some()
         {
@@ -734,26 +733,17 @@ pub(in crate::services::remote::storage_target) async fn load_credential<
         }
         return Ok(None);
     };
-    load_credential_from_context(
-        &RemoteStorageTargetConnectorContext {
-            writer_db: state.writer_db(),
-            config: state.config().as_ref(),
-        },
-        target,
-        connector_id,
-        schema_version,
-    )
-    .await
+    load_credential_from_connection(db, config, target, connector_id, schema_version).await
 }
 
-async fn load_credential_from_context(
-    context: &RemoteStorageTargetConnectorContext<'_>,
+async fn load_credential_from_connection<C: ConnectionTrait>(
+    db: &C,
+    config: &Config,
     target: &remote_storage_target::Model,
     connector_id: &str,
     schema_version: u32,
 ) -> Result<Option<String>> {
-    let Some(record) =
-        remote_storage_target_credential_repo::find_by_target(context.writer_db, target.id).await?
+    let Some(record) = remote_storage_target_credential_repo::find_by_target(db, target.id).await?
     else {
         return Ok(None);
     };
@@ -763,7 +753,7 @@ async fn load_credential_from_context(
         ));
     }
     credential::decrypt(
-        &context.config.auth.storage_credential_secret_key,
+        &config.auth.storage_credential_secret_key,
         target.id,
         connector_id,
         schema_version,

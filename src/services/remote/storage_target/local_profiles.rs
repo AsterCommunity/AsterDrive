@@ -1,6 +1,6 @@
 use aster_forge_db::transaction;
 use chrono::Utc;
-use sea_orm::Set;
+use sea_orm::{ConnectionTrait, Set};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{remote_storage_target_credential_repo, remote_storage_target_repo};
@@ -29,7 +29,7 @@ pub async fn list<S: FollowerRuntimeState>(
             remote_storage_target_credential_repo::find_by_target(state.writer_db(), target.id)
                 .await?
                 .is_some();
-        presented.push(present_target(target, configured)?);
+        presented.push(present_target(target, configured));
     }
     Ok(presented)
 }
@@ -119,17 +119,23 @@ pub async fn update<S: FollowerRuntimeState>(
     target_key: &str,
     input: RemoteUpdateStorageTargetRequest,
 ) -> Result<RemoteStorageTargetInfo> {
-    let existing = find_target_or_err(state, binding.id, target_key).await?;
-    let saved_credential = load_credential(state, &existing, &existing.connector_id).await?;
-    let normalized = normalize_update_input(&existing, input, saved_credential)?;
-    if existing.is_default && normalized.is_default == Some(false) {
-        return Err(precondition_failed_with_code(
-            ApiErrorCode::ManagedIngressDefaultUpdateRequiresReplacement,
-            "cannot unset the default remote storage target directly; set another target as default first",
-        ));
-    }
     let encryption_key = state.config().auth.storage_credential_secret_key.clone();
     let target_id = transaction::with_transaction(state.writer_db(), async |txn| {
+        let existing = find_target_or_err(txn, binding.id, target_key).await?;
+        let saved_credential = load_credential(
+            txn,
+            state.config().as_ref(),
+            &existing,
+            &existing.connector_id,
+        )
+        .await?;
+        let normalized = normalize_update_input(&existing, input, saved_credential)?;
+        if existing.is_default && normalized.is_default == Some(false) {
+            return Err(precondition_failed_with_code(
+                ApiErrorCode::ManagedIngressDefaultUpdateRequiresReplacement,
+                "cannot unset the default remote storage target directly; set another target as default first",
+            ));
+        }
         let connector_id = normalized
             .connector
             .config
@@ -200,7 +206,7 @@ pub async fn delete<S: FollowerRuntimeState>(
     binding: &master_binding::Model,
     target_key: &str,
 ) -> Result<RemoteStorageTargetInfo> {
-    let existing = find_target_or_err(state, binding.id, target_key).await?;
+    let existing = find_target_or_err(state.writer_db(), binding.id, target_key).await?;
     let configured =
         remote_storage_target_credential_repo::find_by_target(state.writer_db(), existing.id)
             .await?
@@ -218,7 +224,7 @@ pub async fn delete<S: FollowerRuntimeState>(
         &existing.target_key,
     )
     .await?;
-    present_target(existing, configured)
+    Ok(present_target(existing, configured))
 }
 
 async fn reconcile_and_present<S: FollowerRuntimeState>(
@@ -231,19 +237,17 @@ async fn reconcile_and_present<S: FollowerRuntimeState>(
         remote_storage_target_credential_repo::find_by_target(state.writer_db(), target_id)
             .await?
             .is_some();
-    present_target(target, configured)
+    Ok(present_target(target, configured))
 }
 
-async fn find_target_or_err<S: FollowerRuntimeState>(
-    state: &S,
+async fn find_target_or_err<C: ConnectionTrait>(
+    db: &C,
     master_binding_id: i64,
     target_key: &str,
 ) -> Result<remote_storage_target::Model> {
-    remote_storage_target_repo::find_by_binding_and_target_key(
-        state.writer_db(),
-        master_binding_id,
-        target_key,
-    )
-    .await?
-    .ok_or_else(|| AsterError::record_not_found(format!("remote_storage_target '{target_key}'")))
+    remote_storage_target_repo::find_by_binding_and_target_key(db, master_binding_id, target_key)
+        .await?
+        .ok_or_else(|| {
+            AsterError::record_not_found(format!("remote_storage_target '{target_key}'"))
+        })
 }

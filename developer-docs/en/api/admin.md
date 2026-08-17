@@ -353,6 +353,9 @@ Notes:
 - `auto` uses direct when `base_url` is non-empty and reverse tunnel otherwise
 - empty `base_url` usually means the enrollment flow will complete binding later
 - remote-node details include `transport_mode`, `enrollment_status`, `last_error`, `capabilities`, `last_checked_at`, and `tunnel`
+- `last_error` and `last_checked_at` belong to the explicit capability probe or connection test; they describe the most recent probe rather than reverse-tunnel runtime health
+- `tunnel.status` is derived from recent poll / stream handshakes and the online TTL; `tunnel.last_seen_at` is the primary's most recent successful handshake time
+- `tunnel.last_error` is transient reverse-tunnel runtime telemetry. The next successful poll / stream handshake clears it; it is not a historical error log and must not be conflated with the node probe `last_error`
 - reverse tunnel cannot be combined with remote browser presigned upload / download strategies
 - remote storage target request bodies match the follower internal storage protocol; see [Internal storage protocol](./internal-storage.md)
 

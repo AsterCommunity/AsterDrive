@@ -177,8 +177,12 @@ fn validate_current_row(
             schema_version,
             &row.ciphertext,
         )?;
-        let values: BTreeMap<String, Value> = serde_json::from_str(&plaintext)
-            .map_err(|error| AsterError::database_operation(error.to_string()))?;
+        let values: BTreeMap<String, Value> = serde_json::from_str(&plaintext).map_err(|_| {
+            AsterError::database_operation(format!(
+                "remote storage target #{} credential payload is not a valid value map",
+                target.id
+            ))
+        })?;
         credential_values = Some((schema_version, values));
     }
     validate_registered_persisted_connector(
