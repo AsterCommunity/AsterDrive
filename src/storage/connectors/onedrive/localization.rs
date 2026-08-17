@@ -16,6 +16,11 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     aster_drive_storage::storage_connector_message!("drive_id", "Drive ID", "Drive ID"),
     aster_drive_storage::storage_connector_message!("driver_type_onedrive", "OneDrive", "OneDrive",),
     aster_drive_storage::storage_connector_message!(
+        "onedrive_advanced_target",
+        "Advanced target",
+        "高级目标",
+    ),
+    aster_drive_storage::storage_connector_message!(
         "group_id",
         "Microsoft 365 group ID",
         "Microsoft 365 组 ID",

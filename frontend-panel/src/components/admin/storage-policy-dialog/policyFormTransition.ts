@@ -1,5 +1,5 @@
 import type { StorageConnectorDescriptor } from "@/types/api";
-import { normalizeConnectorFieldValue } from "./connectionNormalization";
+import { normalizeConnectorConfigValues } from "./connectorFieldRules";
 import {
 	type ConnectorFormValue,
 	DEFAULT_STORAGE_NATIVE_THUMBNAIL_EXTENSIONS,
@@ -63,15 +63,8 @@ function defaultStorageNativeThumbnailExtensions(): string[] {
 function descriptorDefaultValues(
 	descriptor: StorageConnectorDescriptor | null | undefined,
 ): Record<string, ConnectorFormValue> {
-	const values: Record<string, ConnectorFormValue> = {};
-	for (const field of descriptor?.fields ?? []) {
-		if (field.scope !== "connector_config") {
-			continue;
-		}
-		const value = normalizeConnectorFieldValue(field, undefined);
-		if (value !== undefined) {
-			values[field.name] = value;
-		}
+	if (!descriptor) {
+		return {};
 	}
-	return values;
+	return normalizeConnectorConfigValues({}, descriptor);
 }

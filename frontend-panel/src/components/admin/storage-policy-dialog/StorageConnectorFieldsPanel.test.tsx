@@ -47,6 +47,8 @@ vi.mock("@/components/ui/select", () => ({
 }));
 
 const labels: Record<string, string> = {
+	account_mode: "Account mode",
+	advanced_target: "Advanced target",
 	base_path: "Base path",
 	boolean_field: "Boolean field",
 	empty_select: "Empty select",
@@ -55,14 +57,18 @@ const labels: Record<string, string> = {
 	mode_direct_desc: "Provider direct transfer",
 	mode_relay: "Relay",
 	mode_relay_desc: "Relay through AsterDrive",
+	personal: "Personal",
 	number_field: "Number field",
 	policy_connector_field_required: "{{field}} is required",
 	remote_node_id: "Remote node",
 	remote_storage_target_key: "Remote target",
 	secret_field: "Secret field",
+	site_id: "Site ID",
+	tenant: "Tenant",
 	text_field: "Text field",
 	text_field_help: "Text field help",
 	text_field_required: "Text field is connector-required",
+	work_or_school: "Work or school",
 };
 
 const t: Translate = (key, values) =>
@@ -164,16 +170,17 @@ describe("StorageConnectorFieldsPanel", () => {
 
 	it("lets a single field fill its parent and only splits multiple fields into columns", () => {
 		const single = renderPanel({ fields: [field("base_path", "text")] });
-		expect(single.container.firstElementChild).toHaveClass("grid", "gap-4");
-		expect(single.container.firstElementChild).not.toHaveClass(
-			"md:grid-cols-2",
-		);
+		const singleGrid = single.container.querySelector(".grid");
+		expect(singleGrid).toHaveClass("grid", "gap-4");
+		expect(singleGrid).not.toHaveClass("md:grid-cols-2");
 		single.unmount();
 
 		const multiple = renderPanel({
 			fields: [field("base_path", "text"), field("text_field", "text")],
 		});
-		expect(multiple.container.firstElementChild).toHaveClass("md:grid-cols-2");
+		expect(multiple.container.querySelector(".grid")).toHaveClass(
+			"md:grid-cols-2",
+		);
 	});
 
 	it("renders scalar controls with defaults, validation attributes, and required feedback", () => {
@@ -547,6 +554,90 @@ describe("StorageConnectorFieldsPanel", () => {
 		});
 		expect(onFieldChange).toHaveBeenCalledWith("connector_config_values", {
 			remote_node_id: null,
+		});
+	});
+
+	it("keeps connector-owned advanced fields collapsed and applies conditional UI rules", () => {
+		const fields = [
+			field("account_mode", "select", {
+				advanced_group_key: "advanced_target",
+				select: {
+					options: [
+						{
+							available_when: [{ field: "cloud", value: "global" }],
+							label_key: "personal",
+							value: "personal",
+						},
+						{
+							label_key: "work_or_school",
+							value: "work_or_school",
+						},
+					],
+					value_kind: "string",
+				},
+			}),
+			field("cloud", "text"),
+			field("site_id", "text", {
+				advanced_group_key: "advanced_target",
+				required_when: [{ field: "account_mode", value: "sharepoint_site" }],
+				visible_when: [{ field: "account_mode", value: "sharepoint_site" }],
+			}),
+		];
+		renderPanel({
+			fields,
+			form: {
+				...emptyForm,
+				connector_config_values: {
+					account_mode: "sharepoint_site",
+					cloud: "china",
+				},
+			},
+			showRequiredErrors: true,
+		});
+
+		expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /Advanced target/ }));
+
+		expect(screen.getByRole("combobox")).toBeInTheDocument();
+		expect(screen.queryByRole("option", { name: "Personal" })).toBeNull();
+		expect(screen.getByLabelText("Site ID")).toBeRequired();
+		expect(screen.getByText("Site ID is required")).toBeInTheDocument();
+	});
+
+	it("displays dependent defaults and clearing a custom value returns to automatic mode", () => {
+		const fields = [
+			field("cloud", "text", { default_value: "global" }),
+			field("account_mode", "text", { default_value: "personal" }),
+			field("tenant", "text", {
+				default_rules: [
+					{
+						conditions: [{ field: "account_mode", value: "personal" }],
+						value: "consumers",
+					},
+				],
+				default_value: "common",
+				trim_on_blur: true,
+			}),
+		];
+		const { onFieldChange } = renderPanel({
+			fields,
+			form: {
+				...emptyForm,
+				connector_config_values: {
+					account_mode: "personal",
+					cloud: "global",
+				},
+			},
+		});
+
+		expect(screen.getByLabelText("Tenant")).toHaveValue("consumers");
+		fireEvent.blur(screen.getByLabelText("Tenant"), {
+			target: { value: "   " },
+		});
+		expect(onFieldChange).toHaveBeenCalledWith("connector_config_values", {
+			account_mode: "personal",
+			cloud: "global",
+			tenant: "consumers",
 		});
 	});
 });

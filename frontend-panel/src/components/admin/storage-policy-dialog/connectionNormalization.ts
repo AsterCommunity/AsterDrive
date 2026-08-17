@@ -3,6 +3,10 @@ import type {
 	StorageConnectorFieldDescriptor,
 	StoragePolicy,
 } from "@/types/api";
+import {
+	isConnectorFieldVisible,
+	normalizeConnectorConfigValues as normalizeConnectorConfigValuesByRules,
+} from "./connectorFieldRules";
 import type { ConnectorFormValue, PolicyFormData } from "./formTypes";
 
 interface ConnectorSelection {
@@ -149,12 +153,25 @@ function normalizeFieldValues(
 	descriptor: StorageConnectorDescriptor,
 	scope: "connector_config",
 ) {
+	const conditionedValues = normalizeConnectorConfigValuesByRules(
+		values,
+		descriptor,
+	);
 	const normalized: Record<string, ConnectorFormValue> = {};
 	for (const field of descriptor.fields) {
 		if (field.scope !== scope) {
 			continue;
 		}
-		const value = normalizeConnectorFieldValue(field, values[field.name]);
+		if (
+			field.inactive_value_behavior === "clear" &&
+			!isConnectorFieldVisible(field, conditionedValues)
+		) {
+			continue;
+		}
+		const value = normalizeConnectorFieldValue(
+			field,
+			conditionedValues[field.name],
+		);
 		if (value === undefined) {
 			continue;
 		}

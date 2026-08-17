@@ -6,8 +6,9 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
+use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::storage_policy_connector_credential_repo;
-use crate::errors::{AsterError, Result, storage_driver_error};
+use crate::errors::{AsterError, Result, storage_driver_error, validation_error_with_code};
 use crate::storage::drivers::onedrive::{
     MicrosoftGraphAccessTokenProvider, MicrosoftGraphClient, MicrosoftGraphClientConfig,
     OneDriveDriver, microsoft_graph_upload_capabilities,
@@ -32,7 +33,8 @@ use aster_drive_storage::connector_descriptor::{
     validate_credential_action_descriptor,
 };
 use aster_drive_storage::{
-    StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue,
+    StorageConnectorConfigSchema, StorageConnectorFieldCondition, StorageConnectorFieldDefaultRule,
+    StorageConnectorFieldDefaultValue, StorageConnectorInactiveValueBehavior,
     StorageConnectorSelectOptionInput,
 };
 use aster_forge_utils::id;
@@ -188,34 +190,21 @@ aster_drive_storage::storage_connector_schema! {
             ],
             "global",
         ),
-        pub account_mode: OneDriveAccountMode => onedrive_select_field(
-            "account_mode",
-            vec![
-                select_option("personal", "onedrive_account_mode_personal", None),
-                select_option(
-                    "work_or_school",
-                    "onedrive_account_mode_work_or_school",
-                    None,
-                ),
-                select_option(
-                    "sharepoint_site",
-                    "onedrive_account_mode_sharepoint_site",
-                    None,
-                ),
-                select_option("group_drive", "onedrive_account_mode_group_drive", None),
-            ],
-            "personal",
+        pub account_mode: OneDriveAccountMode => onedrive_account_mode_field(),
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub tenant: Option<String> => onedrive_tenant_field(),
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub drive_id: Option<String> => onedrive_advanced_text_field("drive_id"),
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub root_item_id: Option<String> => onedrive_advanced_text_field("root_item_id"),
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub site_id: Option<String> => onedrive_target_text_field(
+            "site_id", "sharepoint_site"
         ),
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub tenant: Option<String> => onedrive_optional_text_field("tenant"),
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub drive_id: Option<String> => onedrive_optional_text_field("drive_id"),
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub root_item_id: Option<String> => onedrive_optional_text_field("root_item_id"),
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub site_id: Option<String> => onedrive_optional_text_field("site_id"),
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub group_id: Option<String> => onedrive_optional_text_field("group_id"),
+        pub group_id: Option<String> => onedrive_target_text_field(
+            "group_id", "group_drive"
+        ),
         }
         credentials authorization_application OneDriveAuthorizationApplicationV1 {
             pub client_id: String => storage_connector_field(
@@ -274,6 +263,93 @@ fn onedrive_optional_text_field(
         false,
         false,
     )
+}
+
+fn onedrive_condition(field: &str, value: &str) -> StorageConnectorFieldCondition {
+    StorageConnectorFieldCondition {
+        field: field.to_string(),
+        value: StorageConnectorFieldDefaultValue::String(value.to_string()),
+    }
+}
+
+fn onedrive_default_rule(
+    field: &str,
+    condition_value: &str,
+    default_value: &str,
+) -> StorageConnectorFieldDefaultRule {
+    StorageConnectorFieldDefaultRule {
+        conditions: vec![onedrive_condition(field, condition_value)],
+        value: StorageConnectorFieldDefaultValue::String(default_value.to_string()),
+    }
+}
+
+fn mark_onedrive_advanced(
+    mut field: aster_drive_storage::StorageConnectorFieldDescriptor,
+) -> aster_drive_storage::StorageConnectorFieldDescriptor {
+    field.advanced_group_key = Some("onedrive_advanced_target".to_string());
+    field
+}
+
+fn onedrive_advanced_text_field(
+    name: &str,
+) -> aster_drive_storage::StorageConnectorFieldDescriptor {
+    mark_onedrive_advanced(onedrive_optional_text_field(name))
+}
+
+fn onedrive_account_mode_field() -> aster_drive_storage::StorageConnectorFieldDescriptor {
+    let mut field = onedrive_select_field(
+        "account_mode",
+        vec![
+            select_option("personal", "onedrive_account_mode_personal", None),
+            select_option(
+                "work_or_school",
+                "onedrive_account_mode_work_or_school",
+                None,
+            ),
+            select_option(
+                "sharepoint_site",
+                "onedrive_account_mode_sharepoint_site",
+                None,
+            ),
+            select_option("group_drive", "onedrive_account_mode_group_drive", None),
+        ],
+        "personal",
+    );
+    field.default_rules = vec![onedrive_default_rule("cloud", "china", "work_or_school")];
+    field
+        .select
+        .as_mut()
+        .expect("OneDrive account mode is a select")
+        .options[0]
+        .available_when = vec![onedrive_condition("cloud", "global")];
+    mark_onedrive_advanced(field)
+}
+
+fn onedrive_tenant_field() -> aster_drive_storage::StorageConnectorFieldDescriptor {
+    let mut field = onedrive_advanced_text_field("tenant");
+    field.default_value = Some(StorageConnectorFieldDefaultValue::String(
+        "common".to_string(),
+    ));
+    field.default_rules = vec![
+        onedrive_default_rule("cloud", "china", "organizations"),
+        onedrive_default_rule("account_mode", "personal", "consumers"),
+        onedrive_default_rule("account_mode", "work_or_school", "common"),
+        onedrive_default_rule("account_mode", "sharepoint_site", "organizations"),
+        onedrive_default_rule("account_mode", "group_drive", "organizations"),
+    ];
+    field
+}
+
+fn onedrive_target_text_field(
+    name: &str,
+    account_mode: &str,
+) -> aster_drive_storage::StorageConnectorFieldDescriptor {
+    let mut field = onedrive_advanced_text_field(name);
+    let condition = onedrive_condition("account_mode", account_mode);
+    field.visible_when = vec![condition.clone()];
+    field.required_when = vec![condition];
+    field.inactive_value_behavior = StorageConnectorInactiveValueBehavior::Clear;
+    field
 }
 
 impl OneDriveConnector {
@@ -423,14 +499,24 @@ impl OneDriveConnector {
     fn validate_semantics(config: &OneDriveConnectorConfigV1) -> Result<()> {
         let non_empty =
             |value: Option<&String>| value.is_some_and(|value| !value.trim().is_empty());
+        if config.cloud == MicrosoftGraphCloud::China
+            && config.account_mode == OneDriveAccountMode::Personal
+        {
+            return Err(validation_error_with_code(
+                ApiErrorCode::PolicyOneDrivePersonalChinaCloudUnsupported,
+                "personal OneDrive accounts must use the global Microsoft Graph cloud",
+            ));
+        }
         match config.account_mode {
             OneDriveAccountMode::SharepointSite if !non_empty(config.site_id.as_ref()) => {
-                return Err(AsterError::validation_error(
+                return Err(validation_error_with_code(
+                    ApiErrorCode::PolicyOneDriveSharePointSiteRequired,
                     "OneDrive sharepoint_site configuration requires site_id",
                 ));
             }
             OneDriveAccountMode::GroupDrive if !non_empty(config.group_id.as_ref()) => {
-                return Err(AsterError::validation_error(
+                return Err(validation_error_with_code(
+                    ApiErrorCode::PolicyOneDriveGroupRequired,
                     "OneDrive group_drive configuration requires group_id",
                 ));
             }
@@ -439,14 +525,16 @@ impl OneDriveConnector {
         if config.account_mode != OneDriveAccountMode::SharepointSite
             && non_empty(config.site_id.as_ref())
         {
-            return Err(AsterError::validation_error(
+            return Err(validation_error_with_code(
+                ApiErrorCode::PolicyOneDriveOptionsUnsupported,
                 "OneDrive site_id is only valid for sharepoint_site account mode",
             ));
         }
         if config.account_mode != OneDriveAccountMode::GroupDrive
             && non_empty(config.group_id.as_ref())
         {
-            return Err(AsterError::validation_error(
+            return Err(validation_error_with_code(
+                ApiErrorCode::PolicyOneDriveOptionsUnsupported,
                 "OneDrive group_id is only valid for group_drive account mode",
             ));
         }
@@ -796,7 +884,7 @@ impl OneDriveConnector {
                 validate_credential_action_descriptor(),
                 saved_connection_test_action_descriptor(true),
             ],
-            related_issues: vec![328, 329, 330, 349],
+            related_issues: vec![328, 329, 330, 349, 475],
         }
     }
 }
@@ -876,6 +964,12 @@ impl StorageConnector for OneDriveConnector {
         &self,
         input: &aster_drive_storage::ConnectorConfigEnvelope,
     ) -> Result<aster_drive_storage::ConnectorConfigEnvelope> {
+        if !input.values.contains_key("account_mode") {
+            return Err(validation_error_with_code(
+                ApiErrorCode::PolicyOneDriveAccountModeRequired,
+                "OneDrive storage policies require account_mode",
+            ));
+        }
         let normalized =
             aster_drive_storage::connector_descriptor::normalize_storage_connector_config(
                 &self.descriptor(),
@@ -2017,6 +2111,148 @@ mod tests {
             normalized_option(Some(" organizations ".to_string())),
             Some("organizations".to_string())
         );
+    }
+
+    #[test]
+    fn descriptor_declares_conditional_onedrive_form_semantics() {
+        let descriptor = OneDriveConnector::descriptor_definition();
+        descriptor.validate().unwrap();
+
+        let account_mode = descriptor
+            .fields
+            .iter()
+            .find(|field| field.name == "account_mode")
+            .unwrap();
+        assert_eq!(
+            account_mode.default_rules,
+            vec![onedrive_default_rule("cloud", "china", "work_or_school")]
+        );
+        let personal = account_mode
+            .select
+            .as_ref()
+            .unwrap()
+            .options
+            .iter()
+            .find(|option| {
+                option.value
+                    == aster_drive_storage::StorageConnectorSelectOptionValue::String(
+                        "personal".to_string(),
+                    )
+            })
+            .unwrap();
+        assert_eq!(
+            personal.available_when,
+            vec![onedrive_condition("cloud", "global")]
+        );
+
+        let tenant = descriptor
+            .fields
+            .iter()
+            .find(|field| field.name == "tenant")
+            .unwrap();
+        assert_eq!(tenant.default_rules.len(), 5);
+        assert_eq!(
+            tenant.advanced_group_key.as_deref(),
+            Some("onedrive_advanced_target")
+        );
+
+        for (name, mode) in [("site_id", "sharepoint_site"), ("group_id", "group_drive")] {
+            let field = descriptor
+                .fields
+                .iter()
+                .find(|field| field.name == name)
+                .unwrap();
+            let condition = vec![onedrive_condition("account_mode", mode)];
+            assert_eq!(field.visible_when, condition);
+            assert_eq!(field.required_when, condition);
+            assert_eq!(
+                field.inactive_value_behavior,
+                StorageConnectorInactiveValueBehavior::Clear
+            );
+        }
+    }
+
+    #[test]
+    fn semantic_validation_returns_typed_onedrive_api_errors() {
+        let mut china_personal =
+            connector_config(OneDriveAccountMode::Personal, None, None, None, None);
+        china_personal.cloud = MicrosoftGraphCloud::China;
+        assert_eq!(
+            OneDriveConnector::validate_semantics(&china_personal)
+                .unwrap_err()
+                .api_error_code(),
+            ApiErrorCode::PolicyOneDrivePersonalChinaCloudUnsupported
+        );
+
+        let missing_site =
+            connector_config(OneDriveAccountMode::SharepointSite, None, None, None, None);
+        assert_eq!(
+            OneDriveConnector::validate_semantics(&missing_site)
+                .unwrap_err()
+                .api_error_code(),
+            ApiErrorCode::PolicyOneDriveSharePointSiteRequired
+        );
+
+        let missing_group =
+            connector_config(OneDriveAccountMode::GroupDrive, None, None, None, None);
+        assert_eq!(
+            OneDriveConnector::validate_semantics(&missing_group)
+                .unwrap_err()
+                .api_error_code(),
+            ApiErrorCode::PolicyOneDriveGroupRequired
+        );
+
+        let stale_site = connector_config(
+            OneDriveAccountMode::WorkOrSchool,
+            None,
+            None,
+            Some("stale-site"),
+            None,
+        );
+        assert_eq!(
+            OneDriveConnector::validate_semantics(&stale_site)
+                .unwrap_err()
+                .api_error_code(),
+            ApiErrorCode::PolicyOneDriveOptionsUnsupported
+        );
+    }
+
+    #[test]
+    fn missing_account_mode_uses_the_existing_typed_error() {
+        let connector = OneDriveConnector;
+        let config = connector_config(OneDriveAccountMode::WorkOrSchool, None, None, None, None);
+        let mut input = crate::storage::connectors::test_support::connection_config(
+            OneDriveConnector::ID,
+            1,
+            config,
+        );
+        input.values.remove("account_mode");
+
+        assert_eq!(
+            connector
+                .validate_connector_config(&input)
+                .unwrap_err()
+                .api_error_code(),
+            ApiErrorCode::PolicyOneDriveAccountModeRequired
+        );
+    }
+
+    #[test]
+    fn backend_resolves_connector_owned_dependent_tenant_defaults() {
+        let connector = OneDriveConnector;
+        let mut config =
+            connector_config(OneDriveAccountMode::WorkOrSchool, None, None, None, None);
+        config.cloud = MicrosoftGraphCloud::China;
+        let input = crate::storage::connectors::test_support::connection_config(
+            OneDriveConnector::ID,
+            1,
+            config,
+        );
+
+        let normalized = connector.validate_connector_config(&input).unwrap();
+        let decoded: OneDriveConnectorConfigV1 =
+            super::super::common::decode_normalized_connector_config(&normalized).unwrap();
+        assert_eq!(decoded.tenant.as_deref(), Some("organizations"));
     }
 
     #[test]

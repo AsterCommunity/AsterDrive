@@ -1,3 +1,7 @@
+import { type ReactNode, useState } from "react";
+import { AnimatedCollapsible } from "@/components/common/AnimatedCollapsible";
+import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -19,6 +23,13 @@ import type {
 	StorageConnectorFieldValue,
 } from "@/types/api";
 import { normalizeConnectorFieldValue } from "./connectionNormalization";
+import {
+	applyConnectorConfigFieldTransition,
+	connectorSelectOptions,
+	isConnectorFieldRequired,
+	isConnectorFieldVisible,
+	resolvedConnectorFieldDefault,
+} from "./connectorFieldRules";
 import { connectorFormValue, type PolicyFormData } from "./formTypes";
 import type { Translate } from "./StoragePolicyFieldTypes";
 
@@ -53,26 +64,115 @@ export function StorageConnectorFieldsPanel({
 		declaredFields ??
 		descriptor?.fields.filter((field) => field.scope !== "action_input") ??
 		[];
+	const visibleFields = fields.filter((field) =>
+		isConnectorFieldVisible(field, fieldScopeValues(form, field.scope)),
+	);
+	if (visibleFields.length === 0) {
+		return null;
+	}
+	const regularFields = visibleFields.filter(
+		(field) => !field.advanced_group_key,
+	);
+	const advancedGroups = new Map<string, StorageConnectorFieldDescriptor[]>();
+	for (const field of visibleFields) {
+		if (!field.advanced_group_key) {
+			continue;
+		}
+		const group = advancedGroups.get(field.advanced_group_key) ?? [];
+		group.push(field);
+		advancedGroups.set(field.advanced_group_key, group);
+	}
+
+	return (
+		<div className="space-y-4">
+			<FieldGrid
+				fields={regularFields}
+				descriptor={descriptor}
+				form={form}
+				mode={mode}
+				remoteNodes={remoteNodes}
+				remoteStorageTargets={remoteStorageTargets}
+				showRequiredErrors={showRequiredErrors}
+				t={t}
+				onFieldChange={onFieldChange}
+			/>
+			{[...advancedGroups].map(([labelKey, groupFields]) => (
+				<AdvancedFieldGroup
+					key={labelKey}
+					labelKey={labelKey}
+					descriptor={descriptor}
+					t={t}
+				>
+					<FieldGrid
+						fields={groupFields}
+						descriptor={descriptor}
+						form={form}
+						mode={mode}
+						remoteNodes={remoteNodes}
+						remoteStorageTargets={remoteStorageTargets}
+						showRequiredErrors={showRequiredErrors}
+						t={t}
+						onFieldChange={onFieldChange}
+					/>
+				</AdvancedFieldGroup>
+			))}
+		</div>
+	);
+}
+
+function FieldGrid({
+	fields,
+	...props
+}: StorageConnectorFieldsPanelProps & {
+	fields: StorageConnectorFieldDescriptor[];
+}) {
 	if (fields.length === 0) {
 		return null;
 	}
-
 	return (
 		<div className={cn("grid gap-4", fields.length > 1 && "md:grid-cols-2")}>
 			{fields.map((field) => (
 				<ConnectorField
 					key={`${field.scope}:${field.name}`}
-					descriptor={descriptor}
+					{...props}
 					field={field}
-					form={form}
-					mode={mode}
-					remoteNodes={remoteNodes}
-					remoteStorageTargets={remoteStorageTargets}
-					showRequiredErrors={showRequiredErrors}
-					t={t}
-					onFieldChange={onFieldChange}
 				/>
 			))}
+		</div>
+	);
+}
+
+function AdvancedFieldGroup({
+	children,
+	descriptor,
+	labelKey,
+	t,
+}: {
+	children: ReactNode;
+	descriptor: StorageConnectorDescriptor | null;
+	labelKey: string;
+	t: Translate;
+}) {
+	const [open, setOpen] = useState(false);
+	const label = translateStorageConnectorMessage(
+		t,
+		descriptor?.connector_id,
+		labelKey,
+	);
+	return (
+		<div className="space-y-3 border-t border-border/70 pt-4">
+			<Button
+				type="button"
+				variant="outline"
+				aria-expanded={open}
+				className={cn(ADMIN_CONTROL_HEIGHT_CLASS, "w-fit")}
+				onClick={() => setOpen((value) => !value)}
+			>
+				<Icon name="Gear" className="mr-1 size-3.5" />
+				{label}
+				<Icon name={open ? "CaretUp" : "CaretDown"} className="ml-1 size-3.5" />
+			</Button>
+			<AnimatedCollapsible open={open}>{children}</AnimatedCollapsible>
 		</div>
 	);
 }
@@ -100,11 +200,14 @@ function ConnectorField({
 		? `storage-connector-${field.scope}-${field.name}`
 		: field.name;
 	const value = fieldValue(form, field);
+	const scopeValues = fieldScopeValues(form, field.scope);
+	const resolvedDefault = resolvedConnectorFieldDefault(field, scopeValues);
+	const required = isConnectorFieldRequired(field, scopeValues);
 	const missing =
 		showRequiredErrors &&
-		field.required &&
+		required &&
 		(() => {
-			const resolved = value ?? field.default_value;
+			const resolved = value ?? resolvedDefault;
 			return resolved === undefined || resolved === null || resolved === "";
 		})();
 	const errorMessage = missing
@@ -124,7 +227,7 @@ function ConnectorField({
 					<Label htmlFor={inputId}>{connectorT(field.label_key)}</Label>
 					<Switch
 						id={inputId}
-						checked={(value ?? field.default_value) === true}
+						checked={(value ?? resolvedDefault) === true}
 						onCheckedChange={(checked) =>
 							setFieldValue(form, descriptor, field, checked, onFieldChange)
 						}
@@ -137,6 +240,7 @@ function ConnectorField({
 
 	const options = fieldOptions(
 		field,
+		scopeValues,
 		remoteNodes,
 		remoteStorageTargets,
 		connectorT,
@@ -146,7 +250,7 @@ function ConnectorField({
 			? fieldValueByName(form, descriptor, field.select.depends_on) == null ||
 				fieldValueByName(form, descriptor, field.select.depends_on) === ""
 			: false;
-		const selectedValue = selectValue(value ?? field.default_value);
+		const selectedValue = selectValue(value ?? resolvedDefault);
 		const selectedDescription = options.find(
 			(option) => option.value === selectedValue,
 		)?.description;
@@ -187,7 +291,7 @@ function ConnectorField({
 		);
 	}
 
-	const displayedValue = value ?? field.default_value ?? "";
+	const displayedValue = value ?? resolvedDefault ?? "";
 	return (
 		<div className="space-y-2">
 			<Label htmlFor={inputId}>{connectorT(field.label_key)}</Label>
@@ -209,7 +313,7 @@ function ConnectorField({
 				min={field.validation?.min_integer ?? undefined}
 				max={field.validation?.max_integer ?? undefined}
 				maxLength={field.validation?.max_length ?? undefined}
-				required={field.required}
+				required={required}
 				aria-invalid={missing || undefined}
 				placeholder={
 					mode === "edit" && field.scope !== "connector_config"
@@ -229,10 +333,13 @@ function ConnectorField({
 				}}
 				onBlur={(event) => {
 					if (field.kind !== "number") {
-						const normalized = normalizeConnectorFieldValue(
+						let normalized = normalizeConnectorFieldValue(
 							field,
 							event.target.value,
 						);
+						if (normalized === "" && (field.default_rules?.length ?? 0) > 0) {
+							normalized = resolvedDefault;
+						}
 						setFieldValue(form, descriptor, field, normalized, onFieldChange);
 					}
 				}}
@@ -253,6 +360,15 @@ function fieldValueByName(
 	return field ? fieldValue(form, field) : undefined;
 }
 
+function fieldScopeValues(
+	form: PolicyFormData,
+	scope: StorageConnectorFieldDescriptor["scope"],
+) {
+	return scope === "connector_config"
+		? form.connector_config_values
+		: form.credential_values;
+}
+
 function fieldValue(
 	form: PolicyFormData,
 	field: StorageConnectorFieldDescriptor,
@@ -271,11 +387,20 @@ function setFieldValue(
 ) {
 	const dependentNames = collectDependentFieldNames(descriptor, field);
 	if (field.scope === "connector_config") {
-		const values = { ...form.connector_config_values };
-		if (value === undefined) {
-			delete values[field.name];
-		} else {
-			values[field.name] = value;
+		const values = descriptor
+			? applyConnectorConfigFieldTransition(
+					form.connector_config_values,
+					descriptor,
+					field.name,
+					value,
+				)
+			: { ...form.connector_config_values };
+		if (!descriptor) {
+			if (value === undefined) {
+				delete values[field.name];
+			} else {
+				values[field.name] = value;
+			}
 		}
 		for (const name of dependentNames) {
 			delete values[name];
@@ -295,6 +420,7 @@ function setFieldValue(
 
 function fieldOptions(
 	field: StorageConnectorFieldDescriptor,
+	values: Record<string, StorageConnectorFieldValue | null | undefined>,
 	remoteNodes: RemoteNodeInfo[],
 	remoteStorageTargets: RemoteStorageTargetInfo[],
 	t: Translate,
@@ -313,7 +439,7 @@ function fieldOptions(
 				value: target.target_key,
 			}));
 	}
-	return (field.select?.options ?? []).map((option) => ({
+	return connectorSelectOptions(field, values).map((option) => ({
 		description: option.description_key ? t(option.description_key) : undefined,
 		label: t(option.label_key),
 		value: String(option.value),

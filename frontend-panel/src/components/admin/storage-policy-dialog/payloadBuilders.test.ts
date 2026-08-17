@@ -299,4 +299,50 @@ describe("storage policy payload builders", () => {
 			});
 		}
 	});
+
+	it("omits conditionally inactive connector fields from every outgoing payload", () => {
+		const schema = {
+			config_schema_version: 1,
+			connector_id: "plugin.conditional",
+			credential_mode: "none",
+			fields: [
+				field("cloud", "connector_config", { default_value: "global" }),
+				field("account_mode", "connector_config", {
+					default_value: "work_or_school",
+					required: true,
+				}),
+				field("site_id", "connector_config", {
+					inactive_value_behavior: "clear",
+					visible_when: [{ field: "account_mode", value: "sharepoint_site" }],
+				}),
+				field("group_id", "connector_config", {
+					inactive_value_behavior: "clear",
+					visible_when: [{ field: "account_mode", value: "group_drive" }],
+				}),
+			],
+		} as StorageConnectorDescriptor;
+		const input = form({
+			connector_config_values: {
+				account_mode: "work_or_school",
+				cloud: "global",
+				group_id: "stale-group",
+				site_id: "stale-site",
+			},
+			credential_values: {},
+		});
+
+		const create = buildCreatePolicyPayload(input, schema);
+		const update = buildUpdatePolicyPayload(input, schema);
+		const connectionTest = buildPolicyTestPayload(input, schema);
+		for (const values of [
+			create.connection.connector_config.values,
+			update.connector_config.values,
+			connectionTest.connection.connector_config.values,
+		]) {
+			expect(values).toEqual({
+				account_mode: "work_or_school",
+				cloud: "global",
+			});
+		}
+	});
 });

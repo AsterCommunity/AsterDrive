@@ -7882,6 +7882,17 @@ export interface components {
          */
         StorageConnectorDeploymentScope: "instance_local" | "shared_across_primary_instances";
         /**
+         * @description One connector field equals one scalar value.
+         *
+         *     Conditions deliberately stay small and inspectable. Multiple conditions on
+         *     one rule are ANDed; connectors can declare multiple ordered rules when they
+         *     need OR behavior.
+         */
+        StorageConnectorFieldCondition: {
+            field: string;
+            value: components["schemas"]["StorageConnectorFieldDefaultValue"];
+        };
+        /**
          * @description Controls when a connector-declared field default is applied.
          *
          *     Missing values use the descriptor default in both modes. Empty text is
@@ -7891,6 +7902,11 @@ export interface components {
          * @enum {string}
          */
         StorageConnectorFieldDefaultMode: "missing_only" | "missing_or_empty_text";
+        /** @description Ordered connector-owned default selected from the current field values. */
+        StorageConnectorFieldDefaultRule: {
+            conditions: components["schemas"]["StorageConnectorFieldCondition"][];
+            value: components["schemas"]["StorageConnectorFieldDefaultValue"];
+        };
         /**
          * @description Descriptor 可声明的 JSON 标量默认值。
          *
@@ -7899,6 +7915,8 @@ export interface components {
          */
         StorageConnectorFieldDefaultValue: boolean | number | string;
         StorageConnectorFieldDescriptor: {
+            /** @description Connector localization key for a collapsed advanced field group. */
+            advanced_group_key?: string | null;
             /** @description true 表示 endpoint 可以省略 URL scheme，由 connector 在后端补齐或解释。 */
             allow_endpoint_without_protocol?: boolean;
             /** @description endpoint 允许的 URL protocol，取值与浏览器 `URL.protocol` 一致，例如 `https:`。 */
@@ -7908,9 +7926,16 @@ export interface components {
              *     resolves to `default_value`.
              */
             default_mode?: components["schemas"]["StorageConnectorFieldDefaultMode"];
+            /**
+             * @description Ordered conditional defaults. The first matching rule wins; when none
+             *     matches, `default_value` remains the fallback.
+             */
+            default_rules?: components["schemas"]["StorageConnectorFieldDefaultRule"][];
             default_value?: null | components["schemas"]["StorageConnectorFieldDefaultValue"];
             /** @description 可选 help 文案 key。 */
             help_key?: string | null;
+            /** @description What the form/payload normalizer does when `visible_when` is false. */
+            inactive_value_behavior?: components["schemas"]["StorageConnectorInactiveValueBehavior"];
             /** @description endpoint 协议不合法时的前端文案 key。 */
             invalid_protocol_message_key?: string | null;
             /** @description 前端可用的基础控件类型。 */
@@ -7925,6 +7950,8 @@ export interface components {
             required: boolean;
             /** @description 字段必填校验失败时的前端文案 key。 */
             required_message_key?: string | null;
+            /** @description Conditions that make an otherwise optional field required in the UI. */
+            required_when?: components["schemas"]["StorageConnectorFieldCondition"][];
             /** @description 字段进入哪个配置域。 */
             scope: components["schemas"]["StorageConnectorFieldScope"];
             /** @description 是否是敏感字段，前端应按 secret input 处理，后端不应明文回显。 */
@@ -7934,6 +7961,8 @@ export interface components {
             trim_on_blur?: boolean;
             /** @description 可被前端用于即时反馈、且必须由后端再次执行的基础约束。 */
             validation?: components["schemas"]["StorageConnectorFieldValidation"];
+            /** @description Conditions that must all match for the field to be rendered. */
+            visible_when?: components["schemas"]["StorageConnectorFieldCondition"][];
         };
         /** @enum {string} */
         StorageConnectorFieldKind: "text" | "secret" | "select" | "boolean" | "number";
@@ -7954,6 +7983,8 @@ export interface components {
          *     admin UI and backend validator share an inspectable schema.
          */
         StorageConnectorFieldValue: boolean | number | string;
+        /** @enum {string} */
+        StorageConnectorInactiveValueBehavior: "preserve" | "clear";
         StorageConnectorLocalizationBundle: {
             connector_id: components["schemas"]["ConnectorId"];
             messages: {
@@ -8052,6 +8083,11 @@ export interface components {
             value_kind: components["schemas"]["StorageConnectorSelectValueKind"];
         };
         StorageConnectorSelectOption: {
+            /**
+             * @description Conditions that must all match before this option is offered by the UI.
+             *     The connector still performs authoritative semantic validation.
+             */
+            available_when?: components["schemas"]["StorageConnectorFieldCondition"][];
             /** @description Optional connector-owned explanation for richer selectors. */
             description_key?: string | null;
             /** @description Connector-owned frontend localization key. */
