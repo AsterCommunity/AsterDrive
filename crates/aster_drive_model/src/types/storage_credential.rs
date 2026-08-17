@@ -1,5 +1,6 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
@@ -156,26 +157,75 @@ impl MicrosoftGraphCloud {
         }
     }
 
-    pub fn authorization_endpoint(self, tenant: &str) -> String {
-        format!(
+    pub fn authorization_endpoint(self, tenant: &str) -> Result<String, MicrosoftGraphTenantError> {
+        Ok(format!(
             "{}/{}/oauth2/v2.0/authorize",
             self.login_base_url(),
-            normalize_tenant_segment(tenant)
-        )
+            validate_microsoft_graph_tenant(tenant)?
+        ))
     }
 
-    pub fn token_endpoint(self, tenant: &str) -> String {
-        format!(
+    pub fn token_endpoint(self, tenant: &str) -> Result<String, MicrosoftGraphTenantError> {
+        Ok(format!(
             "{}/{}/oauth2/v2.0/token",
             self.login_base_url(),
-            normalize_tenant_segment(tenant)
+            validate_microsoft_graph_tenant(tenant)?
+        ))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MicrosoftGraphTenantError;
+
+impl fmt::Display for MicrosoftGraphTenantError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(
+            "Microsoft Graph tenant must be common, consumers, organizations, a tenant GUID, or a verified domain",
         )
     }
 }
 
-fn normalize_tenant_segment(tenant: &str) -> &str {
+impl std::error::Error for MicrosoftGraphTenantError {}
+
+pub fn validate_microsoft_graph_tenant(tenant: &str) -> Result<&str, MicrosoftGraphTenantError> {
     let tenant = tenant.trim();
-    if tenant.is_empty() { "common" } else { tenant }
+    let tenant = if tenant.is_empty() { "common" } else { tenant };
+    if matches!(tenant, "common" | "consumers" | "organizations")
+        || is_microsoft_tenant_guid(tenant)
+        || is_verified_domain_name(tenant)
+    {
+        Ok(tenant)
+    } else {
+        Err(MicrosoftGraphTenantError)
+    }
+}
+
+fn is_microsoft_tenant_guid(tenant: &str) -> bool {
+    tenant.len() == 36
+        && tenant.bytes().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => byte == b'-',
+            _ => byte.is_ascii_hexdigit(),
+        })
+}
+
+fn is_verified_domain_name(tenant: &str) -> bool {
+    tenant.len() <= 253
+        && tenant.contains('.')
+        && tenant.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && label
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && label
+                    .as_bytes()
+                    .last()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
 }
 
 #[cfg(test)]
@@ -188,11 +238,11 @@ mod tests {
 
         assert_eq!(cloud.graph_base_url(), "https://graph.microsoft.com");
         assert_eq!(
-            cloud.authorization_endpoint("organizations"),
+            cloud.authorization_endpoint("organizations").unwrap(),
             "https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize"
         );
         assert_eq!(
-            cloud.token_endpoint(""),
+            cloud.token_endpoint("").unwrap(),
             "https://login.microsoftonline.com/common/oauth2/v2.0/token"
         );
     }
@@ -206,12 +256,59 @@ mod tests {
             "https://microsoftgraph.chinacloudapi.cn"
         );
         assert_eq!(
-            cloud.authorization_endpoint("common"),
+            cloud.authorization_endpoint("common").unwrap(),
             "https://login.chinacloudapi.cn/common/oauth2/v2.0/authorize"
         );
         assert_eq!(
-            cloud.token_endpoint("tenant-id"),
-            "https://login.chinacloudapi.cn/tenant-id/oauth2/v2.0/token"
+            cloud
+                .token_endpoint("11111111-2222-3333-4444-555555555555")
+                .unwrap(),
+            "https://login.chinacloudapi.cn/11111111-2222-3333-4444-555555555555/oauth2/v2.0/token"
         );
+    }
+
+    #[test]
+    fn microsoft_graph_tenant_validation_accepts_supported_identifiers() {
+        for tenant in [
+            "common",
+            "consumers",
+            "organizations",
+            "11111111-2222-3333-4444-555555555555",
+            "contoso.onmicrosoft.com",
+            "contoso.partner.onmschina.cn",
+            " verified.example ",
+        ] {
+            assert!(
+                super::validate_microsoft_graph_tenant(tenant).is_ok(),
+                "{tenant}"
+            );
+        }
+    }
+
+    #[test]
+    fn microsoft_graph_tenant_validation_rejects_endpoint_control_characters() {
+        for tenant in [
+            "common/../../evil",
+            "common?redirect_uri=https://evil.example",
+            "common#fragment",
+            "//evil.example",
+            "tenant-id",
+            ".contoso.com",
+            "contoso..com",
+            "contoso.com.",
+            "-contoso.com",
+            "contoso_.com",
+        ] {
+            assert!(
+                MicrosoftGraphCloud::Global
+                    .authorization_endpoint(tenant)
+                    .is_err(),
+                "{tenant}"
+            );
+            assert!(
+                MicrosoftGraphCloud::Global.token_endpoint(tenant).is_err(),
+                "{tenant}"
+            );
+        }
     }
 }

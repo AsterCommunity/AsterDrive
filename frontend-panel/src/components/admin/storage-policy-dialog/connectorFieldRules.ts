@@ -60,7 +60,11 @@ export function normalizeConnectorConfigValues(
 	const fields = connectorConfigFields(descriptor);
 	const working = declaredValues(values, fields);
 	applyMissingDefaults(working, fields);
-	reconcileConditionalState(working, fields);
+	for (let iteration = 0; iteration <= fields.length; iteration += 1) {
+		if (!reconcileConditionalState(working, fields)) {
+			break;
+		}
+	}
 	return working;
 }
 
@@ -69,6 +73,7 @@ export function applyConnectorConfigFieldTransition(
 	descriptor: StorageConnectorDescriptor,
 	fieldName: string,
 	value: ConnectorFormValue | undefined,
+	explicitDefaultFields: ReadonlySet<string> = new Set(),
 ) {
 	const fields = connectorConfigFields(descriptor);
 	const previous = { ...values };
@@ -96,9 +101,16 @@ export function applyConnectorConfigFieldTransition(
 			);
 			const nextDefault = resolvedConnectorFieldDefault(field, nextEvaluation);
 			const previousValue = previous[field.name];
+			const tracksAutomaticDefault = Boolean(
+				field.select?.automatic_default_label_key,
+			);
+			const previousValueWasAutomatic = tracksAutomaticDefault
+				? !explicitDefaultFields.has(field.name) &&
+					(previousValue === undefined || previousValue === previousDefault)
+				: previousValue === undefined || previousValue === previousDefault;
 			if (
 				nextDefault !== previousDefault &&
-				(previousValue === undefined || previousValue === previousDefault) &&
+				previousValueWasAutomatic &&
 				next[field.name] !== nextDefault
 			) {
 				if (nextDefault === undefined) {

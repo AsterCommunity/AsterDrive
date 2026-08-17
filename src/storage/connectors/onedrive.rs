@@ -17,7 +17,7 @@ use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
     MicrosoftGraphCloud, ProviderDownloadFilenameMode, ProviderDownloadStrategy,
     ProviderResumableUploadStrategy, StorageCredentialKind, StorageCredentialProvider,
-    StorageCredentialStatus,
+    StorageCredentialStatus, validate_microsoft_graph_tenant,
 };
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
@@ -289,6 +289,24 @@ fn onedrive_default_rule(
     }
 }
 
+fn restrict_onedrive_option_to_global(
+    field: &mut aster_drive_storage::StorageConnectorFieldDescriptor,
+    value: &str,
+) {
+    let Some(option) = field.select.as_mut().and_then(|select| {
+        select.options.iter_mut().find(|option| {
+            matches!(
+                &option.value,
+                aster_drive_storage::StorageConnectorSelectOptionValue::String(candidate)
+                    if candidate == value
+            )
+        })
+    }) else {
+        return;
+    };
+    option.available_when = vec![onedrive_condition("cloud", "global")];
+}
+
 fn mark_onedrive_advanced(
     mut field: aster_drive_storage::StorageConnectorFieldDescriptor,
 ) -> aster_drive_storage::StorageConnectorFieldDescriptor {
@@ -340,12 +358,7 @@ fn onedrive_account_mode_field() -> aster_drive_storage::StorageConnectorFieldDe
     );
     field.default_rules = vec![onedrive_default_rule("cloud", "china", "work_or_school")];
     field.help_key = Some("onedrive_account_mode_desc".to_string());
-    field
-        .select
-        .as_mut()
-        .expect("OneDrive account mode is a select")
-        .options[0]
-        .available_when = vec![onedrive_condition("cloud", "global")];
+    restrict_onedrive_option_to_global(&mut field, "personal");
     mark_onedrive_advanced(field)
 }
 
@@ -385,12 +398,13 @@ fn onedrive_tenant_field() -> aster_drive_storage::StorageConnectorFieldDescript
     field.help_key = Some("onedrive_tenant_desc".to_string());
     field.trim_on_blur = true;
     field.validation.max_length = Some(256);
-    let select = field.select.as_mut().expect("OneDrive tenant is a select");
-    select.automatic_default_label_key = Some("onedrive_tenant_auto".to_string());
-    select.allow_custom_value = true;
-    select.custom_value_label_key = Some("onedrive_tenant_custom".to_string());
-    select.options[0].available_when = vec![onedrive_condition("cloud", "global")];
-    select.options[2].available_when = vec![onedrive_condition("cloud", "global")];
+    if let Some(select) = field.select.as_mut() {
+        select.automatic_default_label_key = Some("onedrive_tenant_auto".to_string());
+        select.allow_custom_value = true;
+        select.custom_value_label_key = Some("onedrive_tenant_custom".to_string());
+    }
+    restrict_onedrive_option_to_global(&mut field, "consumers");
+    restrict_onedrive_option_to_global(&mut field, "common");
     mark_onedrive_advanced(field)
 }
 
@@ -564,6 +578,14 @@ impl OneDriveConnector {
     fn validate_semantics(config: &OneDriveConnectorConfigV1) -> Result<()> {
         let non_empty =
             |value: Option<&String>| value.is_some_and(|value| !value.trim().is_empty());
+        validate_microsoft_graph_tenant(config.tenant.as_deref().unwrap_or("common")).map_err(
+            |_| {
+                validation_error_with_code(
+                    ApiErrorCode::PolicyOneDriveOptionsUnsupported,
+                    "OneDrive tenant must be a Microsoft tenant GUID, verified domain, or supported preset",
+                )
+            },
+        )?;
         if config.cloud == MicrosoftGraphCloud::China
             && config.account_mode == OneDriveAccountMode::Personal
         {
@@ -1029,12 +1051,6 @@ impl StorageConnector for OneDriveConnector {
         &self,
         input: &aster_drive_storage::ConnectorConfigEnvelope,
     ) -> Result<aster_drive_storage::ConnectorConfigEnvelope> {
-        if !input.values.contains_key("account_mode") {
-            return Err(validation_error_with_code(
-                ApiErrorCode::PolicyOneDriveAccountModeRequired,
-                "OneDrive storage policies require account_mode",
-            ));
-        }
         let normalized =
             aster_drive_storage::connector_descriptor::normalize_storage_connector_config(
                 &self.descriptor(),
@@ -2235,6 +2251,35 @@ mod tests {
             tenant.advanced_group_key.as_deref(),
             Some("onedrive_advanced_target")
         );
+        for value in ["consumers", "common"] {
+            let option = tenant_select
+                .options
+                .iter()
+                .find(|option| {
+                    matches!(
+                        &option.value,
+                        aster_drive_storage::StorageConnectorSelectOptionValue::String(candidate)
+                            if candidate == value
+                    )
+                })
+                .unwrap();
+            assert_eq!(
+                option.available_when,
+                vec![onedrive_condition("cloud", "global")]
+            );
+        }
+        let organizations = tenant_select
+            .options
+            .iter()
+            .find(|option| {
+                matches!(
+                    &option.value,
+                    aster_drive_storage::StorageConnectorSelectOptionValue::String(candidate)
+                        if candidate == "organizations"
+                )
+            })
+            .unwrap();
+        assert!(organizations.available_when.is_empty());
 
         let root_item_id = descriptor
             .fields
@@ -2323,7 +2368,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_account_mode_uses_the_existing_typed_error() {
+    fn missing_account_mode_uses_the_connector_owned_default() {
         let connector = OneDriveConnector;
         let config = connector_config(OneDriveAccountMode::WorkOrSchool, None, None, None, None);
         let mut input = crate::storage::connectors::test_support::connection_config(
@@ -2333,13 +2378,11 @@ mod tests {
         );
         input.values.remove("account_mode");
 
-        assert_eq!(
-            connector
-                .validate_connector_config(&input)
-                .unwrap_err()
-                .api_error_code(),
-            ApiErrorCode::PolicyOneDriveAccountModeRequired
-        );
+        let normalized = connector.validate_connector_config(&input).unwrap();
+        let decoded: OneDriveConnectorConfigV1 =
+            super::super::common::decode_normalized_connector_config(&normalized).unwrap();
+        assert_eq!(decoded.account_mode, OneDriveAccountMode::Personal);
+        assert_eq!(decoded.tenant.as_deref(), Some("consumers"));
     }
 
     #[test]
@@ -2381,6 +2424,40 @@ mod tests {
         let decoded: OneDriveConnectorConfigV1 =
             super::super::common::decode_normalized_connector_config(&normalized).unwrap();
         assert_eq!(decoded.tenant.as_deref(), Some("contoso.onmicrosoft.com"));
+    }
+
+    #[test]
+    fn backend_rejects_tenant_values_that_can_change_oauth_endpoints() {
+        let connector = OneDriveConnector;
+        for tenant in [
+            "common/../../evil",
+            "common?redirect_uri=https://evil.example",
+            "common#fragment",
+            "//evil.example",
+            "tenant-id",
+        ] {
+            let config = connector_config(
+                OneDriveAccountMode::WorkOrSchool,
+                Some(tenant),
+                None,
+                None,
+                None,
+            );
+            let input = crate::storage::connectors::test_support::connection_config(
+                OneDriveConnector::ID,
+                1,
+                config,
+            );
+
+            assert_eq!(
+                connector
+                    .validate_connector_config(&input)
+                    .unwrap_err()
+                    .api_error_code(),
+                ApiErrorCode::PolicyOneDriveOptionsUnsupported,
+                "{tenant}"
+            );
+        }
     }
 
     #[test]

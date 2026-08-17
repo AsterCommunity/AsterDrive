@@ -256,6 +256,7 @@ function ConnectorField({
 		const resolvedValue = selectValue(value ?? resolvedDefault);
 		const automaticSelected = Boolean(
 			field.select?.automatic_default_label_key &&
+				!form.connector_config_explicit_fields?.includes(field.name) &&
 				(value == null || value === resolvedDefault),
 		);
 		const presetSelected = options.some(
@@ -317,15 +318,29 @@ function ConnectorField({
 					disabled={dependencyMissing}
 					onValueChange={(nextValue) => {
 						if (nextValue === CONNECTOR_SELECT_AUTOMATIC_VALUE) {
-							setFieldValue(form, descriptor, field, undefined, onFieldChange);
+							setFieldValue(
+								form,
+								descriptor,
+								field,
+								undefined,
+								onFieldChange,
+								true,
+							);
 							return;
 						}
 						if (nextValue === CONNECTOR_SELECT_CUSTOM_VALUE) {
-							setFieldValue(form, descriptor, field, "", onFieldChange);
+							setFieldValue(form, descriptor, field, "", onFieldChange, false);
 							return;
 						}
 						const normalized = normalizeSelectValue(field, nextValue);
-						setFieldValue(form, descriptor, field, normalized, onFieldChange);
+						setFieldValue(
+							form,
+							descriptor,
+							field,
+							normalized,
+							onFieldChange,
+							false,
+						);
 					}}
 				>
 					<SelectTrigger
@@ -486,15 +501,33 @@ function setFieldValue(
 	field: StorageConnectorFieldDescriptor,
 	value: StorageConnectorFieldValue | null | undefined,
 	onFieldChange: StorageConnectorFieldsPanelProps["onFieldChange"],
+	automaticSelection?: boolean,
 ) {
 	const dependentNames = collectDependentFieldNames(descriptor, field);
 	if (field.scope === "connector_config") {
+		const explicitDefaultFields = new Set(
+			form.connector_config_explicit_fields ?? [],
+		);
+		if (
+			field.select?.automatic_default_label_key &&
+			automaticSelection !== undefined
+		) {
+			if (automaticSelection) {
+				explicitDefaultFields.delete(field.name);
+			} else {
+				explicitDefaultFields.add(field.name);
+			}
+			onFieldChange("connector_config_explicit_fields", [
+				...explicitDefaultFields,
+			]);
+		}
 		const values = descriptor
 			? applyConnectorConfigFieldTransition(
 					form.connector_config_values,
 					descriptor,
 					field.name,
 					value,
+					explicitDefaultFields,
 				)
 			: { ...form.connector_config_values };
 		if (!descriptor) {

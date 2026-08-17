@@ -49,6 +49,7 @@ export function applyPolicyConnectorTransition(
 		...form,
 		connector_id: connectorId,
 		connector_config_values: descriptorDefaultValues(descriptor),
+		connector_config_explicit_fields: [],
 		credential_values: {},
 		storage_native_thumbnail_enabled: false,
 		storage_native_thumbnail_extensions: thumbnailExtensions,

@@ -230,6 +230,30 @@ fn authorization_url_contains_pkce_state_and_selected_cloud() {
     assert_eq!(query["scope"], "offline_access Files.ReadWrite.All");
 }
 
+#[test]
+fn authorization_url_rejects_tenants_that_change_endpoint_parsing() {
+    for tenant in [
+        "common/../../evil",
+        "common?redirect_uri=https://evil.example/callback",
+        "common#fragment",
+        "//evil.example",
+    ] {
+        assert!(
+            microsoft_authorization_url(
+                MicrosoftGraphCloud::Global,
+                tenant,
+                "client-id",
+                "https://drive.example/callback",
+                &["offline_access".to_string()],
+                "state-token",
+                "pkce-challenge",
+            )
+            .is_err(),
+            "{tenant}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn cached_access_token_does_not_refresh_before_expiry() {
     let payload = credential_payload(

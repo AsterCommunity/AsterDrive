@@ -202,6 +202,34 @@ describe("connector field rules", () => {
 		expect(normalized).not.toHaveProperty("group_id");
 	});
 
+	it("reconciles chained inactive fields to a fixed point regardless of order", () => {
+		const descriptor = oneDriveDescriptor();
+		const site = descriptorField(descriptor, "site_id");
+		const leaf = field("site_child", {
+			inactive_value_behavior: "clear",
+			visible_when: [condition("site_id", "site-1")],
+		});
+		descriptor.fields = [
+			leaf,
+			site,
+			...descriptor.fields.filter((item) => item !== site),
+		];
+
+		const normalized = normalizeConnectorConfigValues(
+			{
+				account_mode: "work_or_school",
+				cloud: "global",
+				site_child: "stale-child",
+				site_id: "site-1",
+				tenant: "common",
+			},
+			descriptor,
+		);
+
+		expect(normalized).not.toHaveProperty("site_id");
+		expect(normalized).not.toHaveProperty("site_child");
+	});
+
 	it("filters options and evaluates conditional visibility and requiredness", () => {
 		const descriptor = oneDriveDescriptor();
 		const account = descriptorField(descriptor, "account_mode");
@@ -245,5 +273,89 @@ describe("connector field rules", () => {
 				descriptor,
 			).tenant,
 		).toBe("contoso.onmicrosoft.com");
+	});
+
+	it("preserves an explicitly selected preset even when it equals the previous automatic default", () => {
+		const descriptor = oneDriveDescriptor();
+		const tenant = descriptorField(descriptor, "tenant");
+		tenant.kind = "select";
+		tenant.select = {
+			automatic_default_label_key: "tenant_auto",
+			options: [
+				{ label_key: "common", value: "common" },
+				{ label_key: "organizations", value: "organizations" },
+				{ label_key: "consumers", value: "consumers" },
+			],
+			value_kind: "string",
+		};
+
+		const next = applyConnectorConfigFieldTransition(
+			{
+				account_mode: "personal",
+				cloud: "global",
+				tenant: "consumers",
+			},
+			descriptor,
+			"account_mode",
+			"work_or_school",
+			new Set(["tenant"]),
+		);
+
+		expect(next.tenant).toBe("consumers");
+	});
+
+	it("removes an automatic value when its conditional default stops applying", () => {
+		const descriptor = oneDriveDescriptor();
+		const tenant = descriptorField(descriptor, "tenant");
+		tenant.default_value = undefined;
+		tenant.default_rules = [
+			{
+				conditions: [condition("account_mode", "personal")],
+				value: "consumers",
+			},
+		];
+		tenant.kind = "select";
+		tenant.select = {
+			automatic_default_label_key: "tenant_auto",
+			options: [
+				{ label_key: "consumers", value: "consumers" },
+				{ label_key: "common", value: "common" },
+			],
+			value_kind: "string",
+		};
+
+		const next = applyConnectorConfigFieldTransition(
+			{
+				account_mode: "personal",
+				cloud: "global",
+				tenant: "consumers",
+			},
+			descriptor,
+			"account_mode",
+			"work_or_school",
+		);
+
+		expect(next).not.toHaveProperty("tenant");
+	});
+
+	it("reconciles unavailable select values to a default or removes them", () => {
+		const descriptor = oneDriveDescriptor();
+		const account = descriptorField(descriptor, "account_mode");
+		account.default_rules = [];
+		account.default_value = "work_or_school";
+
+		expect(
+			normalizeConnectorConfigValues(
+				{ account_mode: "personal", cloud: "china" },
+				descriptor,
+			).account_mode,
+		).toBe("work_or_school");
+
+		account.default_value = undefined;
+		const withoutDefault = normalizeConnectorConfigValues(
+			{ account_mode: "personal", cloud: "china" },
+			descriptor,
+		);
+		expect(withoutDefault).not.toHaveProperty("account_mode");
 	});
 });

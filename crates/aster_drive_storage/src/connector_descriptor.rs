@@ -990,7 +990,10 @@ impl StorageConnectorFieldDescriptor {
                             StorageConnectorSelectOptionValue::Integer(*value)
                         }
                         StorageConnectorFieldDefaultValue::Boolean(_) => {
-                            unreachable!("select conditional default kind was validated above")
+                            return Err(StorageConnectorFieldDescriptorError(format!(
+                                "select field '{}' conditional default value does not match value_kind",
+                                self.name
+                            )));
                         }
                     };
                     if !select.options.is_empty()
@@ -1049,10 +1052,21 @@ fn field_value_matches_kind(
         ) | (
             StorageConnectorFieldKind::Number,
             StorageConnectorFieldDefaultValue::Integer(_)
+        )
+    ) || matches!(
+        (
+            field.kind,
+            field.select.as_ref().map(|select| select.value_kind),
+            value,
+        ),
+        (
+            StorageConnectorFieldKind::Select,
+            Some(StorageConnectorSelectValueKind::String),
+            StorageConnectorFieldDefaultValue::String(_)
         ) | (
             StorageConnectorFieldKind::Select,
-            StorageConnectorFieldDefaultValue::String(_)
-                | StorageConnectorFieldDefaultValue::Integer(_)
+            Some(StorageConnectorSelectValueKind::Integer),
+            StorageConnectorFieldDefaultValue::Integer(_)
         )
     )
 }
@@ -1981,9 +1995,9 @@ impl StorageConnectorDescriptor {
         }
         for field in &self.fields {
             let mut visiting = HashSet::new();
-            if has_conditional_default_cycle(&self.fields, field, &mut visiting) {
+            if has_conditional_field_cycle(&self.fields, field, &mut visiting) {
                 return Err(StorageConnectorDescriptorError(format!(
-                    "field '{}' participates in a conditional default cycle",
+                    "field '{}' participates in a conditional field cycle",
                     field.name
                 )));
             }
@@ -2146,7 +2160,7 @@ impl StorageConnectorDescriptor {
     }
 }
 
-fn has_conditional_default_cycle<'a>(
+fn has_conditional_field_cycle<'a>(
     fields: &'a [StorageConnectorFieldDescriptor],
     field: &'a StorageConnectorFieldDescriptor,
     visiting: &mut HashSet<(StorageConnectorFieldScope, &'a str)>,
@@ -2155,16 +2169,30 @@ fn has_conditional_default_cycle<'a>(
     if !visiting.insert(key) {
         return true;
     }
-    let has_cycle = field
-        .default_rules
+    let conditions = field
+        .visible_when
         .iter()
-        .flat_map(|rule| rule.conditions.iter())
+        .chain(field.required_when.iter())
+        .chain(
+            field
+                .default_rules
+                .iter()
+                .flat_map(|rule| rule.conditions.iter()),
+        )
+        .chain(
+            field
+                .select
+                .iter()
+                .flat_map(|select| select.options.iter())
+                .flat_map(|option| option.available_when.iter()),
+        );
+    let has_cycle = conditions
         .filter_map(|condition| {
             fields.iter().find(|candidate| {
                 candidate.scope == field.scope && candidate.name == condition.field
             })
         })
-        .any(|dependency| has_conditional_default_cycle(fields, dependency, visiting));
+        .any(|dependency| has_conditional_field_cycle(fields, dependency, visiting));
     visiting.remove(&key);
     has_cycle
 }
@@ -3502,7 +3530,72 @@ mod tests {
                 .validate()
                 .unwrap_err()
                 .to_string()
-                .contains("conditional default cycle")
+                .contains("conditional field cycle")
+        );
+
+        let conditional_visibility = |name: &str, dependency: &str| {
+            let mut field = storage_connector_field(
+                name,
+                StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Text,
+                false,
+                false,
+            );
+            field.visible_when = vec![StorageConnectorFieldCondition {
+                field: dependency.to_string(),
+                value: StorageConnectorFieldDefaultValue::String("value".to_string()),
+            }];
+            field
+        };
+        let mut visibility_cycle = s3_descriptor();
+        visibility_cycle.fields = vec![
+            conditional_visibility("field_a", "field_b"),
+            conditional_visibility("field_b", "field_a"),
+        ];
+        assert!(
+            visibility_cycle
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("conditional field cycle")
+        );
+    }
+
+    #[test]
+    fn descriptor_condition_values_match_select_value_kind() {
+        let mut string_select = storage_connector_select_field(
+            "mode",
+            StorageConnectorFieldScope::ConnectorConfig,
+            true,
+            vec![StorageConnectorSelectOptionInput {
+                value: "check",
+                label_key: "plugin_mode_check",
+                description_key: None,
+            }],
+        );
+        string_select.default_value = Some(StorageConnectorFieldDefaultValue::String(
+            "check".to_string(),
+        ));
+        let mut dependent = storage_connector_field(
+            "dependent",
+            StorageConnectorFieldScope::ConnectorConfig,
+            StorageConnectorFieldKind::Text,
+            false,
+            false,
+        );
+        dependent.visible_when = vec![StorageConnectorFieldCondition {
+            field: "mode".to_string(),
+            value: StorageConnectorFieldDefaultValue::Integer(1),
+        }];
+
+        let mut descriptor = s3_descriptor();
+        descriptor.fields = vec![string_select, dependent];
+        assert!(
+            descriptor
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("condition value does not match referenced field 'mode' kind")
         );
     }
 

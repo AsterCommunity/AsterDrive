@@ -694,7 +694,40 @@ describe("StorageConnectorFieldsPanel", () => {
 		expect(
 			screen.getByRole("option", { name: "Custom tenant" }),
 		).toBeInTheDocument();
+		fireEvent.change(screen.getByRole("combobox"), {
+			target: { value: "consumers" },
+		});
+		expect(automatic.onFieldChange).toHaveBeenCalledWith(
+			"connector_config_explicit_fields",
+			["tenant"],
+		);
+		expect(automatic.onFieldChange).toHaveBeenCalledWith(
+			"connector_config_values",
+			expect.objectContaining({ tenant: "consumers" }),
+		);
+		fireEvent.change(screen.getByRole("combobox"), {
+			target: { value: "__asterdrive_custom_value__" },
+		});
+		expect(automatic.onFieldChange).toHaveBeenCalledWith(
+			"connector_config_values",
+			expect.objectContaining({ tenant: "" }),
+		);
 		automatic.unmount();
+
+		const explicitPreset = renderPanel({
+			fields,
+			form: {
+				...emptyForm,
+				connector_config_explicit_fields: ["tenant"],
+				connector_config_values: {
+					account_mode: "personal",
+					cloud: "global",
+					tenant: "consumers",
+				},
+			},
+		});
+		expect(screen.getByRole("combobox")).toHaveValue("consumers");
+		explicitPreset.unmount();
 
 		const custom = renderPanel({
 			fields,
@@ -710,6 +743,9 @@ describe("StorageConnectorFieldsPanel", () => {
 		const customInput = screen.getByLabelText("Custom tenant");
 		expect(customInput).toHaveValue("contoso.onmicrosoft.com");
 		expect(customInput).toHaveAttribute("placeholder", "tenant-id-or-domain");
+		fireEvent.change(customInput, {
+			target: { value: "fabrikam.onmicrosoft.com" },
+		});
 		fireEvent.blur(customInput, {
 			target: { value: " fabrikam.onmicrosoft.com " },
 		});
@@ -732,5 +768,29 @@ describe("StorageConnectorFieldsPanel", () => {
 				cloud: "global",
 			},
 		);
+		expect(custom.onFieldChange).toHaveBeenCalledWith(
+			"connector_config_explicit_fields",
+			[],
+		);
+		custom.unmount();
+
+		renderPanel({
+			fields,
+			form: {
+				...emptyForm,
+				connector_config_explicit_fields: ["tenant"],
+				connector_config_values: {
+					account_mode: "personal",
+					cloud: "global",
+					tenant: "",
+				},
+			},
+			showRequiredErrors: true,
+		});
+		expect(screen.getByLabelText("Custom tenant")).toHaveAttribute(
+			"aria-invalid",
+			"true",
+		);
+		expect(screen.getByText("Custom tenant is required")).toBeVisible();
 	});
 });

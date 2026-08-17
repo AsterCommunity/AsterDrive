@@ -26,8 +26,9 @@ pub use super::remote_storage_target::RemoteStorageTargetDriverKind;
 pub use super::resource_lock::{LockDepth, LockMode, LockOrigin, LockRootKind, LockWorkspaceType};
 pub use super::sort::SortBy;
 pub use super::storage_credential::{
-    MicrosoftGraphCloud, StorageAuthorizationFlowStatus, StorageCredentialKind,
-    StorageCredentialProvider, StorageCredentialStatus,
+    MicrosoftGraphCloud, MicrosoftGraphTenantError, StorageAuthorizationFlowStatus,
+    StorageCredentialKind, StorageCredentialProvider, StorageCredentialStatus,
+    validate_microsoft_graph_tenant,
 };
 pub use super::storage_policy::{
     MediaProcessorKind, OBJECT_MULTIPART_MIN_PART_SIZE, ObjectStorageDownloadStrategy,
