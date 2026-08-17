@@ -8,7 +8,7 @@ use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::db::repository::master_binding_repo;
 use crate::errors::{AsterError, Result};
 use crate::services::{remote::enrollment, remote::master_binding};
-use crate::storage::remote_protocol::normalize_remote_base_url;
+use crate::storage::remote_protocol::{ApiEnvelope, normalize_remote_base_url};
 use aster_drive_model::entities::master_binding as master_binding_entity;
 use sea_orm::{DatabaseConnection, Set};
 use serde::Deserialize;
@@ -34,13 +34,6 @@ pub enum NodeEnrollmentBootstrapOutcome {
     NotConfigured,
     Enrolled { action: &'static str },
     AlreadyConfigured,
-}
-
-#[derive(Debug, Deserialize)]
-struct ApiEnvelope<T> {
-    code: ApiErrorCode,
-    msg: String,
-    data: Option<T>,
 }
 
 pub fn follower_seed_config() -> crate::config::Config {

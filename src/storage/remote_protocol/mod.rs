@@ -16,6 +16,7 @@ pub(crate) use auth::internal_request_mac;
 pub use auth::{normalize_remote_base_url, sign_internal_request, sign_presigned_request};
 pub use client::RemoteStorageClient;
 pub(crate) use follower_auth::send_signed_master_request;
+pub(crate) use models::ApiEnvelope;
 pub use models::{
     INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION,
     INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION_LABEL, INTERNAL_STORAGE_PROTOCOL_VERSION,

@@ -501,10 +501,10 @@ pub struct RemoteStorageComposeResponse {
 }
 
 #[derive(Debug, Deserialize)]
-pub(super) struct ApiEnvelope<T> {
-    pub(super) code: ApiErrorCode,
-    pub(super) msg: String,
-    pub(super) data: Option<T>,
+pub(crate) struct ApiEnvelope<T> {
+    pub(crate) code: ApiErrorCode,
+    pub(crate) msg: String,
+    pub(crate) data: Option<T>,
 }
 
 #[cfg(test)]

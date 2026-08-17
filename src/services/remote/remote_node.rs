@@ -312,15 +312,14 @@ fn legacy_binding_sync_transport<'a>(
 ) -> Option<&'a managed_follower::Model> {
     let effective_transport_changed = previous.transport_mode.resolve(&previous.base_url)
         != updated.transport_mode.resolve(&updated.base_url);
-    let previous_transport_available =
-        !previous.transport_mode.requires_direct_base_url() || !previous.base_url.trim().is_empty();
-    if effective_transport_changed {
-        previous_transport_available.then_some(previous)
-    } else {
-        let updated_transport_available = !updated.transport_mode.requires_direct_base_url()
-            || !updated.base_url.trim().is_empty();
-        updated_transport_available.then_some(updated)
+    if effective_transport_changed && transport_available(previous) {
+        return Some(previous);
     }
+    transport_available(updated).then_some(updated)
+}
+
+fn transport_available(node: &managed_follower::Model) -> bool {
+    !node.transport_mode.requires_direct_base_url() || !node.base_url.trim().is_empty()
 }
 
 pub async fn delete<S: RemoteProtocolRuntimeState>(state: &S, id: i64) -> Result<()> {
@@ -782,9 +781,7 @@ async fn sync_remote_binding_config<S: RemoteProtocolRuntimeState>(
     transport_node: &managed_follower::Model,
     desired_node: &managed_follower::Model,
 ) -> Result<()> {
-    if transport_node.transport_mode.requires_direct_base_url()
-        && transport_node.base_url.trim().is_empty()
-    {
+    if !transport_available(transport_node) {
         return Ok(());
     }
 
@@ -836,7 +833,8 @@ fn map_remote_node_db_err(error: DbErr) -> AsterError {
 mod tests {
     use super::{
         CreateRemoteNodeInput, UpdateRemoteNodeInput, create, delete, generate_managed_credentials,
-        normalize_create_input, normalize_update_input, remote_capabilities_changed, update,
+        legacy_binding_sync_transport, normalize_create_input, normalize_update_input,
+        remote_capabilities_changed, update,
     };
     use crate::config::{Config, DatabaseConfig, RuntimeConfig};
     use crate::db;
@@ -1044,5 +1042,39 @@ mod tests {
                 .is_err(),
             "deleted remote node must stay deleted"
         );
+    }
+
+    #[tokio::test]
+    async fn legacy_transport_falls_back_to_new_reverse_path_when_old_direct_path_is_unavailable() {
+        let state = setup_state(aster_forge_config::ConfigSyncRuntime::disabled_for_test(
+            "aster_drive",
+        ))
+        .await;
+        let created = create(
+            &state,
+            CreateRemoteNodeInput {
+                name: "Legacy transition".to_string(),
+                base_url: String::new(),
+                transport_mode: RemoteNodeTransportMode::Direct,
+                is_enabled: true,
+            },
+        )
+        .await
+        .expect("direct node without a base URL should be created");
+        let previous =
+            crate::db::repository::managed_follower_repo::find_by_id(state.writer_db(), created.id)
+                .await
+                .expect("created node should be queryable");
+        let mut updated = previous.clone();
+        updated.transport_mode = RemoteNodeTransportMode::ReverseTunnel;
+
+        let selected = legacy_binding_sync_transport(&previous, &updated)
+            .expect("updated reverse transport should remain available for legacy binding sync");
+
+        assert_eq!(
+            selected.transport_mode,
+            RemoteNodeTransportMode::ReverseTunnel
+        );
+        assert!(selected.base_url.is_empty());
     }
 }

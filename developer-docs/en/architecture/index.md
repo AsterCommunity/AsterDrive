@@ -73,7 +73,7 @@ The follower does not serve normal user APIs, WebDAV, or frontend pages. It only
 
 This internal protocol is currently used for object writes, object assembly, object listing, binding synchronization, and remote storage target control between the primary node and managed remote nodes. The current protocol is `v5` with a `v4` compatibility floor, and the primary / follower supported ranges must overlap. Since `0.4.0`, the control plane only exposes `/targets`; the legacy `/ingress-profiles` compatibility routes have been removed.
 
-The follower periodically calls the primary's `/api/v1/internal/remote-node-control/*` for every master binding and independently converges on the transport resolved by the primary. It starts a tunnel worker for `/api/v1/internal/remote-tunnel/*` only when the node uses `reverse_tunnel`, or uses `auto` without a directly reachable `base_url`. Direct and disabled bindings keep control-plane synchronization running without starting tunnel data-plane workers.
+The follower periodically calls the primary's `/api/v1/internal/remote-node-control/*` for every master binding and independently converges on the transport resolved by the primary. It starts a tunnel worker for `/api/v1/internal/remote-tunnel/*` only when the binding is enabled and the primary-provided `resolved_transport` is `reverse_tunnel`. Direct and disabled bindings keep control-plane synchronization running without starting tunnel data-plane workers.
 
 ## How a request flows
 

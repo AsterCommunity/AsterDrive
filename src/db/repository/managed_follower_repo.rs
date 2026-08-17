@@ -160,8 +160,8 @@ pub async fn touch_tunnel_result(
     update(db, active).await
 }
 
-pub async fn acknowledge_binding_revision(
-    db: &DatabaseConnection,
+pub async fn acknowledge_binding_revision<C: ConnectionTrait>(
+    db: &C,
     id: i64,
     applied_revision: i64,
 ) -> Result<()> {

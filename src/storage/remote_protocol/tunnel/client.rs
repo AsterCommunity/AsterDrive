@@ -17,9 +17,9 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::FollowerAppState;
 use crate::storage::remote_protocol::transport::read_reqwest_response_body_limited;
 use crate::storage::remote_protocol::{
-    INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER,
-    INTERNAL_AUTH_TIMESTAMP_HEADER, REMOTE_CONTROL_PLANE_BODY_LIMIT, send_signed_master_request,
-    sign_internal_request,
+    ApiEnvelope, INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER,
+    INTERNAL_AUTH_SIGNATURE_HEADER, INTERNAL_AUTH_TIMESTAMP_HEADER,
+    REMOTE_CONTROL_PLANE_BODY_LIMIT, send_signed_master_request, sign_internal_request,
 };
 use aster_drive_model::entities::master_binding;
 use aster_drive_model::types::ResolvedRemoteTransport;
@@ -44,13 +44,6 @@ const FOLLOWER_TUNNEL_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const FOLLOWER_TUNNEL_OPERATION_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 const FORBIDDEN_TUNNEL_TARGET_BODY: &[u8] = b"reverse tunnel can only proxy internal storage paths";
 const REVERSE_TUNNEL_STREAM_REQUEST_BODY_CHANNEL_CAPACITY: usize = 16;
-
-#[derive(Debug, serde::Deserialize)]
-struct ApiEnvelope<T> {
-    code: ApiErrorCode,
-    msg: String,
-    data: Option<T>,
-}
 
 struct BindingTunnelWorker {
     fingerprint: String,
@@ -139,37 +132,53 @@ async fn reconcile_binding_workers(
     }
 
     for binding in enabled {
-        let binding_id = binding.id;
-        let fingerprint = binding_worker_fingerprint(&binding);
-        if workers
-            .get(&binding_id)
-            .map(|worker| worker.fingerprint == fingerprint)
-            .unwrap_or(false)
-        {
-            continue;
-        }
-
-        if let Some(worker) = workers.remove(&binding_id) {
-            stop_binding_worker(worker).await;
-        }
-
-        let client = client.clone();
-        let local_base_url = local_base_url.to_string();
-        let worker_shutdown = parent_shutdown.child_token();
-        let loop_shutdown = worker_shutdown.clone();
-        let handle = tokio::spawn(async move {
-            run_binding_tunnel_loop(client, binding, local_base_url, loop_shutdown).await;
-        });
-        workers.insert(
-            binding_id,
-            BindingTunnelWorker {
-                fingerprint,
-                shutdown_token: worker_shutdown,
-                handle,
-            },
-        );
+        ensure_binding_worker(client, local_base_url, parent_shutdown, workers, binding).await;
     }
     true
+}
+
+async fn ensure_binding_worker(
+    client: &reqwest::Client,
+    local_base_url: &str,
+    parent_shutdown: &CancellationToken,
+    workers: &mut HashMap<i64, BindingTunnelWorker>,
+    binding: master_binding::Model,
+) {
+    let binding_id = binding.id;
+    let fingerprint = binding_worker_fingerprint(&binding);
+    if workers
+        .get(&binding_id)
+        .map(|worker| worker.fingerprint == fingerprint && !worker.handle.is_finished())
+        .unwrap_or(false)
+    {
+        return;
+    }
+
+    if let Some(worker) = workers.remove(&binding_id) {
+        if worker.handle.is_finished() {
+            tracing::warn!(
+                binding_id,
+                "reverse tunnel binding worker exited unexpectedly; restarting"
+            );
+        }
+        stop_binding_worker(worker).await;
+    }
+
+    let client = client.clone();
+    let local_base_url = local_base_url.to_string();
+    let worker_shutdown = parent_shutdown.child_token();
+    let loop_shutdown = worker_shutdown.clone();
+    let handle = tokio::spawn(async move {
+        run_binding_tunnel_loop(client, binding, local_base_url, loop_shutdown).await;
+    });
+    workers.insert(
+        binding_id,
+        BindingTunnelWorker {
+            fingerprint,
+            shutdown_token: worker_shutdown,
+            handle,
+        },
+    );
 }
 
 async fn stop_all_binding_workers(workers: HashMap<i64, BindingTunnelWorker>) {
@@ -299,12 +308,18 @@ async fn stop_binding_tunnel_tasks(tasks: &mut JoinSet<()>, timeout: Duration) {
     }
 
     tasks.abort_all();
-    while let Some(result) = tasks.join_next().await {
-        if let Err(error) = result
-            && !error.is_cancelled()
-        {
-            tracing::warn!("reverse tunnel binding task failed after abort: {error}");
+    let drained = tokio::time::timeout(timeout, async {
+        while let Some(result) = tasks.join_next().await {
+            if let Err(error) = result
+                && !error.is_cancelled()
+            {
+                tracing::warn!("reverse tunnel binding task failed after abort: {error}");
+            }
         }
+    })
+    .await;
+    if drained.is_err() {
+        tracing::warn!("reverse tunnel binding tasks did not finish after abort");
     }
 }
 
@@ -1139,10 +1154,11 @@ fn binding_needs_reverse_tunnel(binding: &master_binding::Model) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        StreamRequestOutcome, binding_needs_reverse_tunnel, close_stream_lane,
+        BindingTunnelWorker, StreamRequestOutcome, binding_needs_reverse_tunnel,
+        binding_worker_fingerprint, close_stream_lane, ensure_binding_worker,
         execute_stream_tunnel_request, execute_stream_tunnel_request_or_close,
-        is_allowed_tunnel_target, signed_master_ws_request, stop_binding_tunnel_tasks,
-        stream_connect_url,
+        is_allowed_tunnel_target, signed_master_ws_request, stop_all_binding_workers,
+        stop_binding_tunnel_tasks, stream_connect_url,
     };
     use crate::storage::remote_protocol::tunnel::server::{
         RemoteTunnelStreamFrame, RemoteTunnelStreamFrameKind, decode_stream_frame,
@@ -1157,6 +1173,7 @@ mod tests {
     use aster_drive_model::entities::master_binding;
     use bytes::Bytes;
     use futures::{Sink, Stream};
+    use std::collections::HashMap;
     use std::pin::Pin;
     use std::sync::{
         Arc,
@@ -1597,6 +1614,47 @@ mod tests {
             aster_drive_model::types::ResolvedRemoteTransport::ReverseTunnel;
         binding.is_enabled = false;
         assert!(!binding_needs_reverse_tunnel(&binding));
+    }
+
+    #[tokio::test]
+    async fn reconcile_restarts_completed_binding_worker() {
+        let binding = build_binding();
+        let binding_id = binding.id;
+        let fingerprint = binding_worker_fingerprint(&binding);
+        let completed_handle = tokio::spawn(async {});
+        while !completed_handle.is_finished() {
+            tokio::task::yield_now().await;
+        }
+
+        let mut workers = HashMap::from([(
+            binding_id,
+            BindingTunnelWorker {
+                fingerprint,
+                shutdown_token: CancellationToken::new(),
+                handle: completed_handle,
+            },
+        )]);
+        let parent_shutdown = CancellationToken::new();
+
+        ensure_binding_worker(
+            &reqwest::Client::new(),
+            "http://127.0.0.1:9",
+            &parent_shutdown,
+            &mut workers,
+            binding,
+        )
+        .await;
+
+        assert!(
+            !workers
+                .get(&binding_id)
+                .expect("replacement binding worker should exist")
+                .handle
+                .is_finished(),
+            "completed binding worker should be replaced even when its fingerprint is unchanged"
+        );
+
+        stop_all_binding_workers(workers).await;
     }
 
     #[tokio::test]

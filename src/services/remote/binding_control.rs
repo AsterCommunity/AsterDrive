@@ -2,25 +2,17 @@
 
 use reqwest::Method;
 use sea_orm::Set;
-use serde::Deserialize;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::master_binding_repo;
 use crate::errors::Result;
 use crate::runtime::FollowerRuntimeState;
 use crate::storage::remote_protocol::{
-    REMOTE_CONTROL_PLANE_BODY_LIMIT, REMOTE_NODE_BINDING_STATE_PATH, RemoteBindingDesiredState,
-    read_reqwest_response_body_limited, send_signed_master_request,
+    ApiEnvelope, REMOTE_CONTROL_PLANE_BODY_LIMIT, REMOTE_NODE_BINDING_STATE_PATH,
+    RemoteBindingDesiredState, read_reqwest_response_body_limited, send_signed_master_request,
 };
 use aster_drive_model::entities::master_binding;
 use aster_drive_storage::StorageErrorKind;
-
-#[derive(Debug, Deserialize)]
-struct ApiEnvelope<T> {
-    code: ApiErrorCode,
-    msg: String,
-    data: Option<T>,
-}
 
 /// Pull every primary-owned desired state and refresh the follower's runtime
 /// binding projection. Returns `true` only when the persisted bindings are
@@ -34,20 +26,25 @@ pub async fn reconcile_all<S: FollowerRuntimeState>(state: &S, client: &reqwest:
             return false;
         }
     };
+    let mut all_reconciled = true;
     for binding in bindings {
         match pull_desired_state(client, &binding).await {
             Ok(Some(desired)) => match apply_desired_state(state, binding, desired).await {
                 Ok(()) => {}
                 Err(error) => {
+                    all_reconciled = false;
                     tracing::warn!("failed to persist remote binding desired state: {error}")
                 }
             },
             Ok(None) => {}
-            Err(error) => tracing::warn!(
-                binding_id = binding.id,
-                master_url = %binding.master_url,
-                "failed to pull remote binding desired state: {error}"
-            ),
+            Err(error) => {
+                all_reconciled = false;
+                tracing::warn!(
+                    binding_id = binding.id,
+                    master_url = %binding.master_url,
+                    "failed to pull remote binding desired state: {error}"
+                );
+            }
         }
     }
     if let Err(error) = state
@@ -58,7 +55,7 @@ pub async fn reconcile_all<S: FollowerRuntimeState>(state: &S, client: &reqwest:
         tracing::warn!("failed to reload master bindings after control reconciliation: {error}");
         return false;
     }
-    true
+    all_reconciled
 }
 
 pub async fn mark_all_applied<S: FollowerRuntimeState>(state: &S) {
@@ -134,6 +131,12 @@ async fn pull_desired_state(
         REMOTE_CONTROL_PLANE_BODY_LIMIT,
     )
     .await?;
+    if !status.is_success() {
+        return Err(crate::errors::storage_driver_error(
+            StorageErrorKind::Transient,
+            format!("pull remote binding desired state failed with HTTP {status}"),
+        ));
+    }
     let envelope: ApiEnvelope<RemoteBindingDesiredState> =
         serde_json::from_slice(&body).map_err(|error| {
             crate::errors::storage_driver_error(
@@ -141,7 +144,7 @@ async fn pull_desired_state(
                 format!("failed to parse remote binding desired state: {error}"),
             )
         })?;
-    if !status.is_success() || envelope.code != ApiErrorCode::Success {
+    if envelope.code != ApiErrorCode::Success {
         return Err(crate::errors::storage_driver_error(
             StorageErrorKind::Transient,
             if envelope.msg.trim().is_empty() {
@@ -157,4 +160,66 @@ async fn pull_desired_state(
             "remote binding desired state response missing data",
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pull_desired_state;
+    use actix_web::{App, HttpResponse, HttpServer, web};
+    use aster_drive_model::entities::master_binding;
+    use aster_drive_model::types::ResolvedRemoteTransport;
+    use aster_drive_storage::StorageErrorKind;
+
+    #[tokio::test]
+    async fn non_success_html_response_remains_transient_http_failure() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .expect("binding control test listener should bind");
+        let address = listener
+            .local_addr()
+            .expect("binding control test listener should expose address");
+        let server = HttpServer::new(|| {
+            App::new().route(
+                "/api/v1/internal/remote-node-control/binding-state",
+                web::get().to(|| async {
+                    HttpResponse::BadGateway()
+                        .content_type("text/html")
+                        .body("<html>bad gateway</html>")
+                }),
+            )
+        })
+        .listen(listener)
+        .expect("binding control test server should listen")
+        .run();
+        let handle = server.handle();
+        let task = tokio::spawn(server);
+        let now = chrono::Utc::now();
+        let binding = master_binding::Model {
+            id: 1,
+            name: "binding".to_string(),
+            master_url: format!("http://127.0.0.1:{}", address.port()),
+            access_key: "access-key".to_string(),
+            secret_key: "secret-key".to_string(),
+            is_enabled: true,
+            resolved_transport: ResolvedRemoteTransport::ReverseTunnel,
+            desired_revision: 1,
+            applied_revision: 0,
+            storage_namespace: "namespace".to_string(),
+            created_at: now,
+            updated_at: now,
+        };
+
+        let error = pull_desired_state(&reqwest::Client::new(), &binding)
+            .await
+            .expect_err("non-success binding control response should fail");
+
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(StorageErrorKind::Transient)
+        );
+        assert!(error.message().contains("HTTP 502 Bad Gateway"));
+        assert!(!error.message().contains("failed to parse"));
+
+        handle.stop(true).await;
+        let _ = task.await;
+    }
 }

@@ -73,7 +73,7 @@ follower 不提供普通用户 API、WebDAV 或前端页面，只注册：
 
 这条内部协议当前用于主节点和受管远端节点之间的对象写入、对象拼接、对象列举、绑定同步与远端存储目标控制面。当前协议版本为 `v5`、兼容下限为 `v4`，primary 与 follower 声明的支持区间必须有交集。`0.4.0` 起控制面只保留 `/targets` 路径，旧 `/ingress-profiles` 兼容路由已经移除。
 
-follower 对所有 master binding 周期性请求 primary 的 `/api/v1/internal/remote-node-control/*`，独立收敛 primary 解析后的有效 transport。只有远端节点使用 `reverse_tunnel`，或 `auto` 且没有可直连的 `base_url` 时，follower 才启动 tunnel worker 主动连接 `/api/v1/internal/remote-tunnel/*`；direct 和 disabled binding 不启动 tunnel 数据面 worker，但仍保持控制面同步。
+follower 对所有 master binding 周期性请求 primary 的 `/api/v1/internal/remote-node-control/*`，独立收敛 primary 解析后的有效 transport。只有 binding 已启用且 primary 下发的 `resolved_transport` 为 `reverse_tunnel` 时，follower 才启动 tunnel worker 主动连接 `/api/v1/internal/remote-tunnel/*`；direct 和 disabled binding 不启动 tunnel 数据面 worker，但仍保持控制面同步。
 
 ## 一个请求如何流转
 
