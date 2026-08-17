@@ -133,26 +133,7 @@ pub async fn promote_connector_with_audit(
     input: PromoteStoragePolicyConnectorInput,
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicy> {
-    let execution = promotion::execute_connector_promotion(state, id, input).await?;
-    let policy = &execution.policy;
-    audit::log_with_details(
-        state,
-        audit_ctx,
-        audit::AuditAction::AdminUpdatePolicy,
-        crate::services::ops::audit::AuditEntityType::StoragePolicy,
-        Some(policy.id),
-        Some(&policy.name),
-        || {
-            audit::details(audit::StoragePolicyPromotionAuditDetails {
-                promotion_id: execution.promotion_id.as_str(),
-                source_connector_id: execution.source_connector_id.as_str(),
-                target_connector_id: execution.target_connector_id.as_str(),
-                verified_blob_count: execution.verified_blob_count,
-            })
-        },
-    )
-    .await;
-    Ok(execution.policy)
+    promotion::execute_connector_promotion(state, id, input, audit_ctx).await
 }
 
 pub async fn delete_with_audit(

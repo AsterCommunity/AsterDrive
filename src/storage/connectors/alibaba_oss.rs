@@ -35,6 +35,14 @@ fn promote_from_s3_descriptor() -> StorageConnectorPromotionDescriptor {
         requirements: vec![
             StorageConnectorPromotionRequirement {
                 source_field: "endpoint".to_string(),
+                matcher: StorageConnectorPromotionValueMatcher::StringPrefix {
+                    prefix: "https://".to_string(),
+                    case_sensitive: false,
+                },
+                negate: false,
+            },
+            StorageConnectorPromotionRequirement {
+                source_field: "endpoint".to_string(),
                 matcher: StorageConnectorPromotionValueMatcher::UrlHostSuffix {
                     suffix: ".aliyuncs.com".to_string(),
                 },

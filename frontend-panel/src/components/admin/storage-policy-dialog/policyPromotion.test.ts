@@ -111,6 +111,7 @@ describe("storage connector promotion", () => {
 			[source, target],
 			form,
 		);
+		expect(candidate).toBeDefined();
 		const promoted = applyStorageConnectorPromotion(form, candidate);
 
 		expect(promoted.name).toBe("Existing policy");
@@ -218,6 +219,21 @@ describe("storage connector promotion", () => {
 		expect(
 			findStorageConnectorPromotionCandidates([matcherTarget], form),
 		).toHaveLength(0);
+
+		const nonStringSource = structuredClone(matcherTarget);
+		const nonStringPromotion = nonStringSource.promotions?.[0];
+		if (!nonStringPromotion) {
+			throw new Error("non-string promotion fixture is missing");
+		}
+		nonStringPromotion.requirements = [
+			{
+				source_field: "s3_path_style",
+				matcher: { kind: "string_equals", value: "true" },
+			},
+		];
+		expect(
+			findStorageConnectorPromotionCandidates([nonStringSource], form),
+		).toHaveLength(0);
 	});
 
 	it("rejects invalid and lookalike URL hosts", () => {
@@ -240,6 +256,7 @@ describe("storage connector promotion", () => {
 		form.storage_native_media_metadata_enabled = true;
 		delete form.connector_config_values.base_path;
 		const [candidate] = findStorageConnectorPromotionCandidates([target], form);
+		expect(candidate).toBeDefined();
 		const promoted = applyStorageConnectorPromotion(form, candidate);
 
 		expect(promoted.connector_config_values.base_path).toBe("");
@@ -279,6 +296,7 @@ describe("storage connector promotion", () => {
 			[targetWithoutOptionalPromotionFields],
 			form,
 		);
+		expect(candidate).toBeDefined();
 		const promoted = applyStorageConnectorPromotion(form, candidate);
 		expect(promoted.connector_config_explicit_fields).toEqual([
 			"endpoint",
@@ -295,6 +313,7 @@ describe("storage connector promotion", () => {
 			[target],
 			missingCredentialForm,
 		);
+		expect(credentialCandidate).toBeDefined();
 		const partiallyMapped = applyStorageConnectorPromotion(
 			missingCredentialForm,
 			credentialCandidate,

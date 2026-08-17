@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -49,6 +49,8 @@ export function useStoragePolicyPromotionController({
 	const { t } = useTranslation("admin");
 	const [confirmKey, setConfirmKey] = useState<string | null>(null);
 	const [submittingKey, setSubmittingKey] = useState<string | null>(null);
+	const requestSerialRef = useRef(0);
+	const generationRef = useRef(0);
 	const draftCandidates = useMemo(
 		() =>
 			findStorageConnectorPromotionCandidates(storageDriverDescriptors, form),
@@ -82,6 +84,8 @@ export function useStoragePolicyPromotionController({
 	}, [candidates, confirmKey]);
 
 	const reset = () => {
+		generationRef.current += 1;
+		requestSerialRef.current += 1;
 		setConfirmKey(null);
 		setSubmittingKey(null);
 	};
@@ -112,6 +116,11 @@ export function useStoragePolicyPromotionController({
 		if (!savedCandidate) {
 			return;
 		}
+		const generation = generationRef.current;
+		const requestSerial = ++requestSerialRef.current;
+		const isCurrentRequest = () =>
+			generationRef.current === generation &&
+			requestSerialRef.current === requestSerial;
 		setSubmittingKey(key);
 		try {
 			const updated = await adminPolicyService.promoteConnector(editingId, {
@@ -119,11 +128,14 @@ export function useStoragePolicyPromotionController({
 				promotion_id: savedCandidate.promotion.promotion_id,
 			});
 			invalidateAdminPolicyLookup();
-			setEditingPolicy(updated);
-			setForm(getPolicyForm(updated));
 			setPolicies((current) =>
 				current.map((policy) => (policy.id === updated.id ? updated : policy)),
 			);
+			if (!isCurrentRequest()) {
+				return;
+			}
+			setEditingPolicy(updated);
+			setForm(getPolicyForm(updated));
 			loadPolicyCapacity(updated.id);
 			onPromoted();
 			const targetLabel = translateStorageConnectorMessage(
@@ -138,9 +150,13 @@ export function useStoragePolicyPromotionController({
 			);
 			setConfirmKey(null);
 		} catch (error) {
-			handleApiError(error);
+			if (isCurrentRequest()) {
+				handleApiError(error);
+			}
 		} finally {
-			setSubmittingKey(null);
+			if (isCurrentRequest()) {
+				setSubmittingKey(null);
+			}
 		}
 	};
 

@@ -1,6 +1,7 @@
 //! Descriptor-driven in-place storage connector promotion.
 
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use aster_drive_model::entities::storage_policy;
 use aster_drive_storage::{
@@ -17,26 +18,24 @@ use crate::db::repository::{
 };
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::RemoteProtocolRuntimeState;
+use crate::services::ops::audit::{self, AuditContext};
 use crate::storage::StorageConnectorCredentialInput;
 
 use super::models::{PromoteStoragePolicyConnectorInput, StoragePolicy};
 
 const PROMOTION_SAMPLE_SIZE: u64 = 10;
+const PROMOTION_SAMPLE_TIMEOUT: Duration = Duration::from_secs(60);
 
-pub(super) struct StoragePolicyPromotionExecution {
-    pub policy: StoragePolicy,
-    pub source_connector_id: ConnectorId,
-    pub target_connector_id: ConnectorId,
-    pub promotion_id: StorageConnectorPromotionId,
-    pub verified_blob_count: usize,
-}
-
-struct PromotionCommit {
+struct PromotionCommit<'a> {
     existing: storage_policy::Model,
     target_connector_id: ConnectorId,
     target_descriptor: aster_drive_storage::StorageConnectorDescriptor,
     encoded_storage_config: aster_drive_model::types::StoredStoragePolicyConfig,
     credential: Option<CredentialPromotionCommit>,
+    audit_context: &'a AuditContext,
+    promotion_id: StorageConnectorPromotionId,
+    source_connector_id: ConnectorId,
+    verified_blob_count: usize,
 }
 
 struct CredentialPromotionCommit {
@@ -54,7 +53,8 @@ pub(super) async fn execute_connector_promotion(
     state: &(impl RemoteProtocolRuntimeState + Sync),
     id: i64,
     input: PromoteStoragePolicyConnectorInput,
-) -> Result<StoragePolicyPromotionExecution> {
+    audit_context: &AuditContext,
+) -> Result<StoragePolicy> {
     let existing = policy_repo::find_by_id(state.writer_db(), id).await?;
     let source_storage_config = decode_policy_storage_config(&existing)?;
     let source_connector_id = source_storage_config.connector.connector_id.clone();
@@ -194,23 +194,20 @@ pub(super) async fn execute_connector_promotion(
             target_descriptor,
             encoded_storage_config,
             credential: credential_commit,
+            audit_context,
+            promotion_id: promotion_id.clone(),
+            source_connector_id: source_connector_id.clone(),
+            verified_blob_count,
         },
     )
     .await?;
-    let policy = reload_promoted_policy(state, result.id).await?;
-    Ok(StoragePolicyPromotionExecution {
-        policy,
-        source_connector_id,
-        target_connector_id,
-        promotion_id,
-        verified_blob_count,
-    })
+    reload_promoted_policy(state, result.id).await
 }
 
 async fn commit_connector_promotion(
     state: &(impl RemoteProtocolRuntimeState + Sync),
     policy_id: i64,
-    commit: PromotionCommit,
+    commit: PromotionCommit<'_>,
 ) -> Result<storage_policy::Model> {
     let txn = transaction::begin(state.writer_db()).await?;
     let locked = policy_repo::lock_by_id(&txn, policy_id).await?;
@@ -251,6 +248,27 @@ async fn commit_connector_promotion(
         .await?;
         require_credential_promotion(promoted)?;
     }
+    audit::log_with_transaction(
+        &txn,
+        state.runtime_config(),
+        audit::AuditLogInput {
+            ctx: commit.audit_context,
+            action: audit::AuditAction::AdminUpdatePolicy,
+            entity_type: audit::AuditEntityType::StoragePolicy,
+            entity_id: Some(policy_id),
+            entity_name: Some(&commit.existing.name),
+        },
+        || {
+            audit::details(audit::StoragePolicyPromotionAuditDetails {
+                promotion_id: commit.promotion_id.as_str(),
+                source_connector_id: commit.source_connector_id.as_str(),
+                target_connector_id: commit.target_connector_id.as_str(),
+                verified_blob_count: commit.verified_blob_count,
+            })
+        },
+    )
+    .await
+    .map_err(|error| AsterError::database_operation(format!("write promotion audit: {error}")))?;
     transaction::commit(txn).await?;
     Ok(result)
 }
@@ -287,15 +305,29 @@ async fn reload_promoted_policy(
     state: &(impl RemoteProtocolRuntimeState + Sync),
     policy_id: i64,
 ) -> Result<StoragePolicy> {
-    state
+    if let Err(error) = state
         .driver_registry()
         .reload_storage_policy_credentials(state.writer_db(), state.config())
-        .await?;
+        .await
+    {
+        tracing::warn!(
+            policy_id,
+            error = %error,
+            "reload storage policy credentials after connector promotion failed"
+        );
+    }
     state.driver_registry().invalidate(policy_id);
-    state
+    if let Err(error) = state
         .driver_registry()
         .reload_policy_snapshot(state.policy_snapshot(), state.writer_db())
-        .await?;
+        .await
+    {
+        tracing::warn!(
+            policy_id,
+            error = %error,
+            "reload policy snapshot after connector promotion failed"
+        );
+    }
     crate::services::ops::config::invalidate_public_thumbnail_support_cache();
     crate::services::ops::config::invalidate_public_media_data_support_cache();
     crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
@@ -331,7 +363,7 @@ fn validate_promotion_source(
         return Ok(());
     }
     Err(validation_error_with_code(
-        ApiErrorCode::PolicyPromotionTargetUnsupported,
+        ApiErrorCode::PolicyPromotionSourceConfigUnsupported,
         format!(
             "storage policy #{policy_id} does not satisfy promotion '{}' requirements",
             promotion.promotion_id.as_str()
@@ -356,6 +388,27 @@ async fn ensure_no_active_uploads<C: sea_orm::ConnectionTrait>(
 }
 
 async fn verify_promotion_blob_sample(
+    driver: &dyn aster_drive_storage::StorageDriver,
+    blobs: &[aster_drive_model::entities::file_blob::Model],
+) -> Result<()> {
+    verify_promotion_blob_sample_with_timeout(driver, blobs, PROMOTION_SAMPLE_TIMEOUT).await
+}
+
+async fn verify_promotion_blob_sample_with_timeout(
+    driver: &dyn aster_drive_storage::StorageDriver,
+    blobs: &[aster_drive_model::entities::file_blob::Model],
+    timeout: Duration,
+) -> Result<()> {
+    tokio::time::timeout(timeout, async {
+        verify_promotion_blob_sample_without_timeout(driver, blobs).await
+    })
+    .await
+    .map_err(|_| {
+        AsterError::storage_driver_error("connector promotion object verification timed out")
+    })?
+}
+
+async fn verify_promotion_blob_sample_without_timeout(
     driver: &dyn aster_drive_storage::StorageDriver,
     blobs: &[aster_drive_model::entities::file_blob::Model],
 ) -> Result<()> {
@@ -555,6 +608,7 @@ mod tests {
 
     struct PromotionMetadataDriver {
         size: Option<u64>,
+        delay: Option<Duration>,
     }
 
     #[async_trait]
@@ -583,6 +637,9 @@ mod tests {
         }
 
         async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
+            if let Some(delay) = self.delay {
+                tokio::time::sleep(delay).await;
+            }
             self.size
                 .map(|size| BlobMetadata {
                     size,
@@ -637,30 +694,45 @@ mod tests {
     async fn sample_verifies_metadata_and_size() {
         let blob = promotion_blob(12);
         verify_promotion_blob_sample(
-            &PromotionMetadataDriver { size: Some(12) },
+            &PromotionMetadataDriver {
+                size: Some(12),
+                delay: None,
+            },
             std::slice::from_ref(&blob),
         )
         .await
         .expect("matching metadata should pass");
 
         let error = verify_promotion_blob_sample(
-            &PromotionMetadataDriver { size: Some(11) },
+            &PromotionMetadataDriver {
+                size: Some(11),
+                delay: None,
+            },
             std::slice::from_ref(&blob),
         )
         .await
         .expect_err("size mismatch must block promotion");
         assert!(error.message().contains("size mismatch"));
 
-        let error = verify_promotion_blob_sample(&PromotionMetadataDriver { size: None }, &[blob])
-            .await
-            .expect_err("metadata failure must block promotion");
+        let error = verify_promotion_blob_sample(
+            &PromotionMetadataDriver {
+                size: None,
+                delay: None,
+            },
+            &[blob],
+        )
+        .await
+        .expect_err("metadata failure must block promotion");
         assert!(error.message().contains("verify existing object"));
         assert!(error.message().contains("blob id 7"));
 
         let mut missing_path = promotion_blob(12);
         missing_path.storage_path = None;
         let error = verify_promotion_blob_sample(
-            &PromotionMetadataDriver { size: Some(12) },
+            &PromotionMetadataDriver {
+                size: Some(12),
+                delay: None,
+            },
             &[missing_path],
         )
         .await
@@ -673,8 +745,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sample_verification_has_a_total_timeout() {
+        let error = verify_promotion_blob_sample_with_timeout(
+            &PromotionMetadataDriver {
+                size: Some(12),
+                delay: Some(Duration::from_millis(20)),
+            },
+            &[promotion_blob(12)],
+            Duration::from_millis(1),
+        )
+        .await
+        .expect_err("slow metadata must hit the total sample timeout");
+        assert!(error.message().contains("timed out"));
+    }
+
+    #[tokio::test]
     async fn metadata_test_driver_rejects_unexpected_operations() {
-        let driver = PromotionMetadataDriver { size: Some(1) };
+        let driver = PromotionMetadataDriver {
+            size: Some(1),
+            delay: None,
+        };
         assert!(driver.put("path", b"data").await.is_err());
         assert!(driver.get("path").await.is_err());
         assert!(driver.get_stream("path").await.is_err());

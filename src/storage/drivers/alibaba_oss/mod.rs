@@ -59,7 +59,7 @@ impl AlibabaOssDriver {
         validate_oss_region(&config.region)?;
         if !config.use_cname
             && let Some(endpoint_region) = official_oss_endpoint_region(&public.endpoint)?
-            && endpoint_region != config.region.trim()
+            && !endpoint_region.eq_ignore_ascii_case(config.region.trim())
         {
             return Err(storage_driver_error(
                 StorageErrorKind::Misconfigured,

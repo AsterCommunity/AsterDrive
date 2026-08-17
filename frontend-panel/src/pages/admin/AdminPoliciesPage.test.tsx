@@ -967,10 +967,12 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			base_path: "tenant/files",
 		});
 
-		expect(currentDialog().connectorPromotionCandidates).toEqual([]);
+		await waitFor(() =>
+			expect(currentDialog().connectorPromotionCandidates).toEqual([]),
+		);
 	});
 
-	it("shows draft or saved eligibility but blocks either while edits are dirty", async () => {
+	it("blocks connector promotion while policy edits are dirty", async () => {
 		const { source, target } = promotionDescriptors();
 		const nonMatchingSaved = policy(source.connector_id, {
 			endpoint: "https://s3.example.test",
@@ -1005,7 +1007,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			bucket: "archive",
 			base_path: "",
 		});
-		act(() => currentTable().onEditPolicy(matchingSaved));
+		await act(async () => currentTable().onEditPolicy(matchingSaved));
 		await setField("connector_config_values", {
 			endpoint: "https://s3.example.test",
 			bucket: "archive",

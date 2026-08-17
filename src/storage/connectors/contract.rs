@@ -974,7 +974,7 @@ fn validate_required_promotion_targets(
             continue;
         }
         return Err(AsterError::internal_error(format!(
-            "storage connector '{}' promotion '{}' does not populate required target {:?} field '{}'",
+            "storage connector '{}' promotion '{}' does not populate required target {:?} field '{}' via a mapping or an unconditional default_value",
             target.connector_id,
             promotion.promotion_id.as_str(),
             field.scope,

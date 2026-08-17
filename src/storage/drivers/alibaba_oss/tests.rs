@@ -110,6 +110,20 @@ fn validate_config_requires_region_to_match_standard_endpoint() {
     config.endpoint = "https://oss-accelerate.aliyuncs.com".to_string();
     AlibabaOssDriver::validate_config(&config, &sample_credentials())
         .expect("accelerate endpoint should not be interpreted as a region");
+
+    config.endpoint = "https://oss-accelerate-overseas.aliyuncs.com".to_string();
+    AlibabaOssDriver::validate_config(&config, &sample_credentials())
+        .expect("overseas accelerate endpoint should not be interpreted as a region");
+
+    config.endpoint = "https://oss-cn-hangzhou-internal.aliyuncs.com".to_string();
+    config.region = "cn-hangzhou".to_string();
+    AlibabaOssDriver::validate_config(&config, &sample_credentials())
+        .expect("internal endpoint region should match after suffix removal");
+
+    config.endpoint = "https://oss-cn-hangzhou.aliyuncs.com".to_string();
+    config.region = "CN-HANGZHOU".to_string();
+    AlibabaOssDriver::validate_config(&config, &sample_credentials())
+        .expect("official OSS region comparison should be case-insensitive");
 }
 
 #[test]

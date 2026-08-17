@@ -1184,6 +1184,15 @@ fn alibaba_oss_connector_validates_endpoint_region_and_cname_contract() {
                 .config_mappings
                 .iter()
                 .any(|mapping| mapping.target_field == "oss_region")
+            && promotion.requirements.iter().any(|requirement| {
+                matches!(
+                    &requirement.matcher,
+                    aster_drive_storage::connector_descriptor::StorageConnectorPromotionValueMatcher::StringPrefix {
+                        prefix,
+                        case_sensitive: false,
+                    } if prefix == "https://"
+                )
+            })
     }));
     for field_name in [
         "endpoint",

@@ -108,6 +108,80 @@ function controllerInput(props: HookProps) {
 }
 
 describe("useStoragePolicyPromotionController guards", () => {
+	it("does not let a stale response overwrite a newly opened policy", async () => {
+		let resolvePromotionA!: (policy: StoragePolicy) => void;
+		let resolvePromotionB!: (policy: StoragePolicy) => void;
+		const promotionA = new Promise<StoragePolicy>((resolve) => {
+			resolvePromotionA = resolve;
+		});
+		const promotionB = new Promise<StoragePolicy>((resolve) => {
+			resolvePromotionB = resolve;
+		});
+		mockState.promoteConnector.mockReset();
+		mockState.promoteConnector
+			.mockReturnValueOnce(promotionA)
+			.mockReturnValueOnce(promotionB);
+		const setEditingPolicy = vi.fn() as Dispatch<
+			SetStateAction<StoragePolicy | null>
+		>;
+		const setForm = vi.fn() as Dispatch<SetStateAction<PolicyFormData>>;
+		const setPolicies = vi.fn() as Dispatch<SetStateAction<StoragePolicy[]>>;
+		const initialProps: HookProps = {
+			editingId: 7,
+			editingPolicy: savedPolicy,
+			form: getPolicyForm(savedPolicy),
+			descriptors: [source, target],
+		};
+		const { result, rerender } = renderHook(
+			(props: HookProps) =>
+				useStoragePolicyPromotionController({
+					...controllerInput(props),
+					setEditingPolicy,
+					setForm,
+					setPolicies,
+				}),
+			{ initialProps },
+		);
+		let confirmationA!: Promise<void>;
+		act(() => {
+			confirmationA = result.current.confirm(result.current.candidates[0]);
+		});
+
+		act(() => result.current.reset());
+		const policyB = { ...savedPolicy, id: 8, name: "Policy B" };
+		rerender({
+			...initialProps,
+			editingId: 8,
+			editingPolicy: policyB,
+			form: getPolicyForm(policyB),
+		});
+		let confirmationB!: Promise<void>;
+		act(() => {
+			confirmationB = result.current.confirm(result.current.candidates[0]);
+		});
+		await act(async () => {
+			resolvePromotionA({ ...savedPolicy, name: "Promoted A" });
+			await confirmationA;
+		});
+
+		expect(setEditingPolicy).not.toHaveBeenCalled();
+		expect(setForm).not.toHaveBeenCalled();
+		expect(setPolicies).toHaveBeenCalledTimes(1);
+		expect(result.current.submittingKey).toBe(
+			`${target.connector_id}:promote_from_s3`,
+		);
+
+		await act(async () => {
+			resolvePromotionB({ ...policyB, name: "Promoted B" });
+			await confirmationB;
+		});
+		expect(setEditingPolicy).toHaveBeenCalledWith({
+			...policyB,
+			name: "Promoted B",
+		});
+		expect(result.current.submittingKey).toBeNull();
+	});
+
 	it("clears confirmation when the candidate disappears", async () => {
 		const initialProps: HookProps = {
 			editingId: 7,

@@ -221,6 +221,7 @@ define_api_error_codes! {
     PolicyActionParameterRequired => "policy.action_parameter_required",
     PolicyActionParameterInvalid => "policy.action_parameter_invalid",
     PolicyPromotionSourceUnsupported => "policy.promotion_source_unsupported",
+    PolicyPromotionSourceConfigUnsupported => "policy.promotion_source_config_unsupported",
     PolicyPromotionTargetUnsupported => "policy.promotion_target_unsupported",
 
     // workspace services: workspace scope authorization.

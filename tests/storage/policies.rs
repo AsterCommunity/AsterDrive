@@ -677,8 +677,14 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
         cos_promotion["source_connector_id"],
         "asterdrive.storage.s3"
     );
+    let endpoint_requirement = cos_promotion["requirements"]
+        .as_array()
+        .expect("COS promotion requirements")
+        .iter()
+        .find(|requirement| requirement["source_field"] == "endpoint")
+        .expect("COS promotion should constrain the source endpoint");
     assert_eq!(
-        cos_promotion["requirements"][0]["matcher"],
+        endpoint_requirement["matcher"],
         serde_json::json!({
             "kind": "url_host_suffix",
             "suffix": ".myqcloud.com"
@@ -781,6 +787,9 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
 #[actix_web::test]
 async fn test_policy_connector_promotion_preserves_namespace_and_rekeys_credential() {
     use aster_drive::db::repository::{policy_repo, storage_policy_connector_credential_repo};
+    use aster_drive_model::entities::audit_log;
+    use aster_drive_model::types::AuditAction;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 
     let state = common::setup().await;
     let db = state.writer_db().clone();
@@ -841,6 +850,23 @@ async fn test_policy_connector_promotion_preserves_namespace_and_rekeys_credenti
     assert_eq!(credential_after.schema_version, 1);
     assert_eq!(credential_after.revision, credential_before.revision + 1);
     assert_ne!(credential_after.ciphertext, credential_before.ciphertext);
+
+    let audit = audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq(AuditAction::AdminUpdatePolicy.as_str()))
+        .filter(audit_log::Column::EntityId.eq(policy_id))
+        .order_by_desc(audit_log::Column::CreatedAt)
+        .one(&db)
+        .await
+        .unwrap()
+        .expect("promotion should write an atomic policy audit row");
+    let details: Value = serde_json::from_str(audit.details.as_deref().unwrap()).unwrap();
+    assert_eq!(details["promotion_id"], "promote_from_s3");
+    assert_eq!(details["source_connector_id"], "asterdrive.storage.s3");
+    assert_eq!(
+        details["target_connector_id"],
+        "asterdrive.storage.tencent_cos"
+    );
+    assert_eq!(details["verified_blob_count"], 0);
 }
 
 #[actix_web::test]
@@ -946,6 +972,44 @@ async fn test_policy_connector_promotion_supports_oss_and_qiniu_kodo() {
 }
 
 #[actix_web::test]
+async fn test_policy_connector_promotion_returns_success_when_post_commit_reload_fails() {
+    use aster_drive::db::repository::policy_repo;
+    use aster_drive_model::entities::storage_policy;
+    use sea_orm::{NotSet, Set};
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let policy_id = create_s3_policy_via_admin(
+        &app,
+        &token,
+        "COS post-commit reload",
+        "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+    )
+    .await;
+    let source = policy_repo::find_by_id(&db, policy_id).await.unwrap();
+    let mut invalid: storage_policy::ActiveModel = source.into();
+    invalid.id = NotSet;
+    invalid.name = Set("Invalid snapshot policy".to_string());
+    invalid.connector_id = Set("com.example.missing".to_string());
+    invalid.is_default = Set(false);
+    policy_repo::create(&db, invalid)
+        .await
+        .expect("invalid unrelated policy should be persisted for reload failure coverage");
+
+    let resp = promote_policy_to_tencent_cos(&app, &token, policy_id).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        policy_repo::find_by_id(&db, policy_id)
+            .await
+            .unwrap()
+            .connector_id,
+        "asterdrive.storage.tencent_cos"
+    );
+}
+
+#[actix_web::test]
 async fn test_policy_connector_promotion_rejects_oss_and_kodo_ineligible_sources() {
     use aster_drive::db::repository::policy_repo;
 
@@ -955,6 +1019,12 @@ async fn test_policy_connector_promotion_rejects_oss_and_kodo_ineligible_sources
     let (token, _) = register_and_login!(app);
 
     for (endpoint, bucket, region, target_connector_id) in [
+        (
+            "http://oss-cn-hangzhou.aliyuncs.com",
+            "archive-bucket",
+            "cn-hangzhou",
+            "asterdrive.storage.alibaba_oss",
+        ),
         (
             "https://oss-cn-hangzhou-internal.aliyuncs.com",
             "archive-bucket",
@@ -1090,7 +1160,7 @@ async fn test_policy_connector_promotion_rejects_non_matching_source_config() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(
         body["code"],
-        ApiErrorCode::PolicyPromotionTargetUnsupported.as_str()
+        ApiErrorCode::PolicyPromotionSourceConfigUnsupported.as_str()
     );
     assert_eq!(
         policy_repo::find_by_id(&db, policy_id)
