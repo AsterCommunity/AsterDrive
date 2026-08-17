@@ -57,6 +57,18 @@ impl AlibabaOssDriver {
         )?;
         validate_oss_bucket(&public.bucket)?;
         validate_oss_region(&config.region)?;
+        if !config.use_cname
+            && let Some(endpoint_region) = official_oss_endpoint_region(&public.endpoint)?
+            && endpoint_region != config.region.trim()
+        {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                format!(
+                    "OSS region '{}' does not match public endpoint region '{endpoint_region}'",
+                    config.region.trim()
+                ),
+            ));
+        }
 
         if !config.server_side_endpoint.trim().is_empty() {
             normalize_oss_endpoint(
@@ -125,6 +137,26 @@ impl AlibabaOssDriver {
     pub fn public_s3_driver(&self) -> Arc<S3Driver> {
         self.public_driver.clone()
     }
+}
+
+fn official_oss_endpoint_region(endpoint: &str) -> Result<Option<String>> {
+    let url = Url::parse(endpoint).map_err(|error| {
+        storage_driver_error(
+            StorageErrorKind::Misconfigured,
+            format!("invalid OSS endpoint while resolving region: {error}"),
+        )
+    })?;
+    let Some(label) = url.host_str().and_then(|host| host.split('.').next()) else {
+        return Ok(None);
+    };
+    let Some(region) = label.strip_prefix("oss-") else {
+        return Ok(None);
+    };
+    let region = region.strip_suffix("-internal").unwrap_or(region);
+    if matches!(region, "accelerate" | "accelerate-overseas") || region.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(region.to_string()))
 }
 
 fn build_oss_s3_driver(

@@ -90,31 +90,43 @@ function promotionRequirementsMatch(
 			return false;
 		}
 		const matcher = requirement.matcher;
+		let matches: boolean;
 		switch (matcher.kind) {
 			case "string_equals":
-				return compareText(
+				matches = compareText(
 					value,
 					matcher.value,
 					matcher.case_sensitive === true,
 					(left, right) => left === right,
 				);
+				break;
 			case "string_suffix":
-				return compareText(
+				matches = compareText(
 					value,
 					matcher.suffix,
 					matcher.case_sensitive === true,
 					(left, right) => left.endsWith(right),
 				);
+				break;
+			case "string_prefix":
+				matches = compareText(
+					value,
+					matcher.prefix,
+					matcher.case_sensitive === true,
+					(left, right) => left.startsWith(right),
+				);
+				break;
 			case "url_host_suffix":
 				try {
-					return new URL(value).hostname
+					matches = new URL(value).hostname
 						.toLowerCase()
 						.endsWith(matcher.suffix.toLowerCase());
 				} catch {
-					return false;
+					matches = false;
 				}
+				break;
 		}
-		return false;
+		return matches !== (requirement.negate === true);
 	});
 }
 

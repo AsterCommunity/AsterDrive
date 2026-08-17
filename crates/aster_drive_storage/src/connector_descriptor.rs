@@ -379,6 +379,11 @@ pub enum StorageConnectorPromotionValueMatcher {
         #[serde(default)]
         case_sensitive: bool,
     },
+    StringPrefix {
+        prefix: String,
+        #[serde(default)]
+        case_sensitive: bool,
+    },
     UrlHostSuffix {
         suffix: String,
     },
@@ -391,6 +396,10 @@ pub struct StorageConnectorPromotionRequirement {
     /// and server-side eligibility checks.
     pub source_field: String,
     pub matcher: StorageConnectorPromotionValueMatcher,
+    /// Negate the matcher result. This keeps exclusions composable without
+    /// adding a second inverse variant for every matcher kind.
+    #[serde(default)]
+    pub negate: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -452,6 +461,7 @@ impl StorageConnectorPromotionDescriptor {
                 StorageConnectorPromotionValueMatcher::StringEquals { value, .. } => value,
                 StorageConnectorPromotionValueMatcher::StringSuffix { suffix, .. }
                 | StorageConnectorPromotionValueMatcher::UrlHostSuffix { suffix } => suffix,
+                StorageConnectorPromotionValueMatcher::StringPrefix { prefix, .. } => prefix,
             };
             if matcher_value.trim().is_empty() {
                 return Err(StorageConnectorDescriptorError(format!(
@@ -3118,6 +3128,7 @@ mod tests {
                 matcher: StorageConnectorPromotionValueMatcher::UrlHostSuffix {
                     suffix: ".example.com".to_string(),
                 },
+                negate: false,
             }],
             config_mappings: vec![StorageConnectorPromotionFieldMapping {
                 source_field: "region".to_string(),

@@ -8085,6 +8085,11 @@ export interface components {
         StorageConnectorPromotionRequirement: {
             matcher: components["schemas"]["StorageConnectorPromotionValueMatcher"];
             /**
+             * @description Negate the matcher result. This keeps exclusions composable without
+             *     adding a second inverse variant for every matcher kind.
+             */
+            negate?: boolean;
+            /**
              * @description Source connector config field inspected by the generic recommendation
              *     and server-side eligibility checks.
              */
@@ -8107,6 +8112,11 @@ export interface components {
             /** @enum {string} */
             kind: "string_suffix";
             suffix: string;
+        } | {
+            case_sensitive?: boolean;
+            /** @enum {string} */
+            kind: "string_prefix";
+            prefix: string;
         } | {
             /** @enum {string} */
             kind: "url_host_suffix";

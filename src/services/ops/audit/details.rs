@@ -104,6 +104,14 @@ pub struct StoragePolicyAuditDetails<'a> {
 }
 
 #[derive(Serialize)]
+pub struct StoragePolicyPromotionAuditDetails<'a> {
+    pub promotion_id: &'a str,
+    pub source_connector_id: &'a str,
+    pub target_connector_id: &'a str,
+    pub verified_blob_count: usize,
+}
+
+#[derive(Serialize)]
 pub struct StoragePolicyActionAuditDetails<'a> {
     pub action: &'a str,
     pub connector_id: &'a str,

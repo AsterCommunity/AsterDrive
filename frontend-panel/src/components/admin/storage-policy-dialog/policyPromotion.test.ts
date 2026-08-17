@@ -140,6 +140,13 @@ describe("storage connector promotion", () => {
 				promotion_id: "match_strings",
 				requirements: [
 					{
+						source_field: "endpoint",
+						matcher: {
+							kind: "string_prefix",
+							prefix: "https://",
+						},
+					},
+					{
 						source_field: "provider",
 						matcher: {
 							kind: "string_equals",
@@ -153,6 +160,22 @@ describe("storage connector promotion", () => {
 							suffix: "-prod",
 						},
 					},
+					{
+						source_field: "region",
+						matcher: {
+							kind: "string_equals",
+							value: "auto",
+						},
+						negate: true,
+					},
+					{
+						source_field: "endpoint",
+						matcher: {
+							kind: "url_host_suffix",
+							suffix: "-internal.example.test",
+						},
+						negate: true,
+					},
 				],
 				source_connector_id: source.connector_id,
 			},
@@ -160,21 +183,38 @@ describe("storage connector promotion", () => {
 		const form = s3Form("https://s3.example.test");
 		form.connector_config_values.provider = "Tencent-COS";
 		form.connector_config_values.bucket = "archive-PROD";
+		form.connector_config_values.region = "cn-east-1";
 		expect(
 			findStorageConnectorPromotionCandidates([matcherTarget], form),
 		).toHaveLength(1);
 
 		const caseSensitive = structuredClone(matcherTarget);
-		const firstMatcher =
-			caseSensitive.promotions?.[0]?.requirements?.[0]?.matcher;
-		if (firstMatcher?.kind === "string_equals") {
-			firstMatcher.case_sensitive = true;
+		const providerRequirement =
+			caseSensitive.promotions?.[0]?.requirements?.find(
+				(requirement) =>
+					requirement.source_field === "provider" &&
+					requirement.matcher.kind === "string_equals",
+			);
+		if (providerRequirement?.matcher.kind === "string_equals") {
+			providerRequirement.matcher.case_sensitive = true;
 		}
 		expect(
 			findStorageConnectorPromotionCandidates([caseSensitive], form),
 		).toHaveLength(0);
 
 		form.connector_config_values.bucket = "archive-dev";
+		expect(
+			findStorageConnectorPromotionCandidates([matcherTarget], form),
+		).toHaveLength(0);
+
+		form.connector_config_values.bucket = "archive-prod";
+		form.connector_config_values.region = "AUTO";
+		expect(
+			findStorageConnectorPromotionCandidates([matcherTarget], form),
+		).toHaveLength(0);
+
+		form.connector_config_values.region = "cn-east-1";
+		form.connector_config_values.endpoint = "https://s3-internal.example.test";
 		expect(
 			findStorageConnectorPromotionCandidates([matcherTarget], form),
 		).toHaveLength(0);

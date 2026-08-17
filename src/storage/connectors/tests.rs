@@ -1085,6 +1085,15 @@ fn s3_connector_preserves_sigv4_region_validation_contract() {
 fn alibaba_oss_connector_validates_endpoint_region_and_cname_contract() {
     let connector = connector(AlibabaOssConnector::ID);
     let descriptor = connector.descriptor();
+    assert_eq!(descriptor.related_issues, vec![450, 474]);
+    assert!(descriptor.promotions.iter().any(|promotion| {
+        promotion.promotion_id.as_str() == "promote_from_s3"
+            && promotion.source_connector_id.as_str() == S3Connector::ID
+            && promotion
+                .config_mappings
+                .iter()
+                .any(|mapping| mapping.target_field == "oss_region")
+    }));
     for field_name in [
         "endpoint",
         "oss_server_side_endpoint",
@@ -1551,7 +1560,15 @@ fn qiniu_descriptor_declares_s3_compatible_capabilities() {
     );
     assert!(descriptor.ui.icon_name.is_none());
     assert_eq!(descriptor.config_schema_version, 1);
-    assert_eq!(descriptor.related_issues, vec![519]);
+    assert_eq!(descriptor.related_issues, vec![519, 474]);
+    assert!(descriptor.promotions.iter().any(|promotion| {
+        promotion.promotion_id.as_str() == "promote_from_s3"
+            && promotion.source_connector_id.as_str() == S3Connector::ID
+            && promotion
+                .requirements
+                .iter()
+                .any(|requirement| requirement.negate)
+    }));
     assert!(descriptor.capabilities.presigned_download);
     assert!(descriptor.upload_workflows.presigned_upload);
     assert!(descriptor.upload_workflows.object_multipart_upload);

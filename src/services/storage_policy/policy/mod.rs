@@ -3,6 +3,7 @@
 mod groups;
 mod models;
 mod policies;
+mod promotion;
 mod shared;
 
 use crate::errors::Result;
@@ -33,8 +34,9 @@ pub use models::{
 pub(crate) use policies::capacity_info_or_status;
 pub use policies::{
     capacity_info, create, delete, execute_draft_action, execute_saved_action, get, list_paginated,
-    promote_connector, test_connection, test_connection_params, test_default_connection, update,
+    test_connection, test_connection_params, test_default_connection, update,
 };
+pub use promotion::promote_connector;
 
 fn policy_audit_details(policy: &StoragePolicy) -> Option<serde_json::Value> {
     audit::details(audit::StoragePolicyAuditDetails {
@@ -132,7 +134,8 @@ pub async fn promote_connector_with_audit(
     input: PromoteStoragePolicyConnectorInput,
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicy> {
-    let policy = promote_connector(state, id, input).await?;
+    let execution = promotion::execute_connector_promotion(state, id, input).await?;
+    let policy = &execution.policy;
     audit::log_with_details(
         state,
         audit_ctx,
@@ -140,10 +143,17 @@ pub async fn promote_connector_with_audit(
         crate::services::ops::audit::AuditEntityType::StoragePolicy,
         Some(policy.id),
         Some(&policy.name),
-        || policy_audit_details(&policy),
+        || {
+            audit::details(audit::StoragePolicyPromotionAuditDetails {
+                promotion_id: execution.promotion_id.as_str(),
+                source_connector_id: execution.source_connector_id.as_str(),
+                target_connector_id: execution.target_connector_id.as_str(),
+                verified_blob_count: execution.verified_blob_count,
+            })
+        },
     )
     .await;
-    Ok(policy)
+    Ok(execution.policy)
 }
 
 pub async fn delete_with_audit(

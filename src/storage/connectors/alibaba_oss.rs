@@ -11,9 +11,10 @@ use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
     ObjectStorageConnectorDescriptorInput, StorageConnectorBadgeRgb,
     StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorFieldDisplayInput,
-    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorUiDescriptorInput,
-    object_storage_connector_descriptor, storage_connector_field,
-    storage_connector_field_with_display,
+    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorPromotionDescriptor,
+    StorageConnectorPromotionRequirement, StorageConnectorPromotionValueMatcher,
+    StorageConnectorUiDescriptorInput, object_storage_connector_descriptor,
+    storage_connector_field, storage_connector_field_with_display,
 };
 use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
 
@@ -23,6 +24,43 @@ use super::{StorageConnector, StorageConnectorCredentialInput, StorageConnectorU
 mod localization;
 
 pub struct AlibabaOssConnector;
+
+const PROMOTE_FROM_S3_ID: &str = "promote_from_s3";
+
+fn promote_from_s3_descriptor() -> StorageConnectorPromotionDescriptor {
+    super::s3::s3_compatible_promotion_descriptor(super::s3::S3CompatiblePromotionDescriptorInput {
+        promotion_id: PROMOTE_FROM_S3_ID,
+        description_key: "policy_oss_promote_from_s3_desc",
+        confirmation_key: "policy_oss_promote_from_s3_confirm",
+        requirements: vec![
+            StorageConnectorPromotionRequirement {
+                source_field: "endpoint".to_string(),
+                matcher: StorageConnectorPromotionValueMatcher::UrlHostSuffix {
+                    suffix: ".aliyuncs.com".to_string(),
+                },
+                negate: false,
+            },
+            StorageConnectorPromotionRequirement {
+                source_field: "endpoint".to_string(),
+                matcher: StorageConnectorPromotionValueMatcher::UrlHostSuffix {
+                    suffix: "-internal.aliyuncs.com".to_string(),
+                },
+                negate: true,
+            },
+            StorageConnectorPromotionRequirement {
+                source_field: "s3_region".to_string(),
+                matcher: StorageConnectorPromotionValueMatcher::StringEquals {
+                    value: "auto".to_string(),
+                    case_sensitive: false,
+                },
+                negate: true,
+            },
+        ],
+        target_region_field: Some("oss_region"),
+        target_access_key_field: "aliyun_oss_access_key_id",
+        target_secret_key_field: "aliyun_oss_access_key_secret",
+    })
+}
 
 aster_drive_storage::storage_connector_schema! {
     pub struct AlibabaOssConnectorConfigV1 {
@@ -138,33 +176,36 @@ impl AlibabaOssConnector {
     }
 
     fn descriptor_definition() -> StorageConnectorDescriptor {
-        object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
-            connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
-            label: "Alibaba Cloud OSS",
-            description: "Alibaba Cloud Object Storage Service policy",
-            ui: StorageConnectorUiDescriptorInput {
-                label_key: "driver_type_alibaba_oss",
-                description_key: "policy_wizard_alibaba_oss_storage_desc",
-                icon_src: Some("/static/storage/aliyun-oss.svg"),
-                icon_name: None,
-                badge_rgb: StorageConnectorBadgeRgb::new(255, 106, 0),
-                helper_key: "policy_wizard_alibaba_oss_helper",
-                config_step_title_key: "policy_wizard_step_connection_title",
-                config_step_description_key: "policy_wizard_step_alibaba_oss_connection_desc",
-                edit_context_key: "policy_edit_context_object_storage_desc",
-                base_path_empty_display: "core:root",
-                base_path_placeholder: "tenant/prefix",
-            },
-            deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
-            supports_initial_setup: true,
-            credential_mode: AlibabaOssConnectorConfigV1::credential_mode(),
-            fields: AlibabaOssConnectorConfigV1::descriptor_fields(),
-            presigned_part_etag_required: true,
-            storage_native_processing: false,
-            config_schema_version: 1,
-            credential_schema_version: Some(1),
-            related_issues: vec![450],
-        })
+        let mut descriptor =
+            object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
+                connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
+                label: "Alibaba Cloud OSS",
+                description: "Alibaba Cloud Object Storage Service policy",
+                ui: StorageConnectorUiDescriptorInput {
+                    label_key: "driver_type_alibaba_oss",
+                    description_key: "policy_wizard_alibaba_oss_storage_desc",
+                    icon_src: Some("/static/storage/aliyun-oss.svg"),
+                    icon_name: None,
+                    badge_rgb: StorageConnectorBadgeRgb::new(255, 106, 0),
+                    helper_key: "policy_wizard_alibaba_oss_helper",
+                    config_step_title_key: "policy_wizard_step_connection_title",
+                    config_step_description_key: "policy_wizard_step_alibaba_oss_connection_desc",
+                    edit_context_key: "policy_edit_context_object_storage_desc",
+                    base_path_empty_display: "core:root",
+                    base_path_placeholder: "tenant/prefix",
+                },
+                deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
+                supports_initial_setup: true,
+                credential_mode: AlibabaOssConnectorConfigV1::credential_mode(),
+                fields: AlibabaOssConnectorConfigV1::descriptor_fields(),
+                presigned_part_etag_required: true,
+                storage_native_processing: false,
+                config_schema_version: 1,
+                credential_schema_version: Some(1),
+                related_issues: vec![450, 474],
+            });
+        descriptor.promotions.push(promote_from_s3_descriptor());
+        descriptor
     }
 }
 
