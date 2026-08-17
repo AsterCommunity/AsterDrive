@@ -43,7 +43,7 @@ const ALLOW_CONNECTOR_POLICY_WRITES_WITH_LEGACY_SCHEMA_MIGRATION: &str =
 const CANONICAL_FILE_REVISION_LEDGER_MIGRATION: &str =
     "m20260813_000001_canonical_file_revision_ledger";
 const REMOTE_STORAGE_TARGET_CONNECTOR_CONFIGS_MIGRATION: &str =
-    "m20260817_000001_remote_storage_target_connector_configs";
+    "m20260817_000002_remote_storage_target_connector_configs";
 const VIRTUAL_EMPTY_FILE_BLOBS_MIGRATION: &str = "m20260815_000001_virtual_empty_file_blobs";
 
 #[tokio::test]

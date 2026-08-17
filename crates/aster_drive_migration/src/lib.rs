@@ -69,7 +69,7 @@ mod m20260810_000001_folder_tree_operation_members;
 mod m20260813_000001_canonical_file_revision_ledger;
 mod m20260815_000001_virtual_empty_file_blobs;
 mod m20260817_000001_add_remote_binding_control_state;
-mod m20260817_000001_remote_storage_target_connector_configs;
+mod m20260817_000002_remote_storage_target_connector_configs;
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
@@ -210,10 +210,10 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20260813_000001_canonical_file_revision_ledger::Migration),
             Box::new(m20260815_000001_virtual_empty_file_blobs::Migration),
             Box::new(
-                m20260817_000001_remote_storage_target_connector_configs::Migration,
+                m20260817_000001_add_remote_binding_control_state::Migration,
             ),
             Box::new(
-                m20260817_000001_add_remote_binding_control_state::Migration,
+                m20260817_000002_remote_storage_target_connector_configs::Migration,
             ),
         ]
     }

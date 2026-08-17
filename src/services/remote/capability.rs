@@ -114,18 +114,17 @@ impl RemoteCapabilityResolver {
             "remote storage target write on remote node #{}",
             self.remote_node_id
         );
-        self.ensure_protocol_compatible(&context)?;
-        if self.supports_remote_storage_target_connector(connector_id) {
-            return Ok(());
+        if !self.supports_remote_storage_target_connector(connector_id) {
+            return Err(validation_error_with_code(
+                ApiErrorCode::ManagedIngressDriverUnsupported,
+                format!(
+                    "remote node #{} does not declare remote storage target connector '{}'",
+                    self.remote_node_id, connector_id
+                ),
+            ));
         }
 
-        Err(validation_error_with_code(
-            ApiErrorCode::ManagedIngressDriverUnsupported,
-            format!(
-                "remote node #{} does not declare remote storage target connector '{}'",
-                self.remote_node_id, connector_id
-            ),
-        ))
+        self.ensure_protocol_compatible(&context)
     }
 
     pub fn supports_remote_storage_target_connector(&self, connector_id: &str) -> bool {

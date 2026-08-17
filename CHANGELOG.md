@@ -169,7 +169,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 - `m20260817_000001_add_remote_binding_control_state`
   - 为 primary 的 `managed_followers` 新增 binding desired / applied revision，为 follower 的 `master_bindings` 新增 `resolved_transport`、desired revision 与 applied revision；默认 transport 为 `reverse_tunnel`、revision 为 `1`，使旧载荷按原有 tunnel 行为读取，并支持独立 control pull、运行时 reconciliation 和持久化 ACK
-- `m20260817_000001_remote_storage_target_connector_configs`
+- `m20260817_000002_remote_storage_target_connector_configs`
   - 为 `remote_storage_targets` 新增 `connector_id` 与版本化 `connector_config`，并创建每个 target 唯一的 `remote_storage_target_credentials` 加密凭据表
   - 0.5.x 启动阶段在 migration lock 下原子转换 Local/S3 legacy row、加密 S3 明文凭据并清空旧字段；未知 driver、畸形或冲突数据会终止并回滚整批转换
 - `m20260813_000001_canonical_file_revision_ledger`
