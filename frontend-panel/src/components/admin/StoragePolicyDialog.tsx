@@ -47,9 +47,11 @@ import {
 	connectorStringValue,
 	type PolicyFormData,
 } from "./storage-policy-dialog/formTypes";
+import type { StorageConnectorPromotionCandidate } from "./storage-policy-dialog/policyPromotion";
 import type { StorageConnectorActionValues } from "./storage-policy-dialog/StorageConnectorActionsPanel";
 import { StorageConnectorActionsPanel } from "./storage-policy-dialog/StorageConnectorActionsPanel";
 import { StorageConnectorFieldsPanel } from "./storage-policy-dialog/StorageConnectorFieldsPanel";
+import { StorageConnectorPromotionPanel } from "./storage-policy-dialog/StorageConnectorPromotionPanel";
 import { StoragePolicyTestConnectionButton } from "./storage-policy-dialog/StoragePolicyTestConnectionButton";
 
 interface StoragePolicyDialogProps {
@@ -81,12 +83,23 @@ interface StoragePolicyDialogProps {
 	connectorActionConfirmId: string | null;
 	connectorActionSubmittingId: string | null;
 	connectorActionValues: StorageConnectorActionValues;
+	connectorPromotionBlocked: boolean;
+	connectorPromotionCandidates: StorageConnectorPromotionCandidate[];
+	connectorPromotionConfirmKey: string | null;
+	connectorPromotionSubmittingKey: string | null;
 	saveAnywayConfirmOpen: boolean;
 	onCancelConnectorAction: () => void;
+	onApplyDraftConnectorPromotion: (
+		candidate: StorageConnectorPromotionCandidate,
+	) => void;
+	onCancelConnectorPromotion: () => void;
 	onOpenChange: (open: boolean) => void;
 	onCancelSaveAnyway: () => void;
 	onConfirmSaveAnyway: () => void;
 	onConfirmConnectorAction: (actionId: string) => void;
+	onConfirmConnectorPromotion: (
+		candidate: StorageConnectorPromotionCandidate,
+	) => void;
 	onStartStorageAuthorization: () => void;
 	onValidateStorageCredential: () => void;
 	onCreateRemoteStorageTarget: (
@@ -104,6 +117,9 @@ interface StoragePolicyDialogProps {
 		value: StorageConnectorFieldValue | undefined,
 	) => void;
 	onRequestConnectorAction: (actionId: string) => void;
+	onRequestConnectorPromotion: (
+		candidate: StorageConnectorPromotionCandidate,
+	) => void;
 	onConnectorIdChange: (connectorId: string) => void;
 	onCreateBack: () => void;
 	onCreateStepChange: (step: number) => void;
@@ -143,12 +159,19 @@ export function StoragePolicyDialog({
 	connectorActionConfirmId,
 	connectorActionSubmittingId,
 	connectorActionValues,
+	connectorPromotionBlocked = false,
+	connectorPromotionCandidates = [],
+	connectorPromotionConfirmKey = null,
+	connectorPromotionSubmittingKey = null,
 	saveAnywayConfirmOpen,
 	onCancelConnectorAction,
+	onApplyDraftConnectorPromotion,
+	onCancelConnectorPromotion,
 	onOpenChange,
 	onCancelSaveAnyway,
 	onConfirmSaveAnyway,
 	onConfirmConnectorAction,
+	onConfirmConnectorPromotion,
 	onStartStorageAuthorization,
 	onValidateStorageCredential,
 	onCreateRemoteStorageTarget,
@@ -157,6 +180,7 @@ export function StoragePolicyDialog({
 	onFieldChange,
 	onConnectorActionValueChange,
 	onRequestConnectorAction,
+	onRequestConnectorPromotion,
 	onConnectorIdChange,
 	onCreateBack,
 	onCreateStepChange,
@@ -381,6 +405,18 @@ export function StoragePolicyDialog({
 																{endpointValidationMessage}
 															</p>
 														) : null}
+														<StorageConnectorPromotionPanel
+															blocked={false}
+															candidates={connectorPromotionCandidates}
+															confirmKey={connectorPromotionConfirmKey}
+															mode="create"
+															submittingKey={connectorPromotionSubmittingKey}
+															t={t}
+															onApplyDraft={onApplyDraftConnectorPromotion}
+															onCancel={onCancelConnectorPromotion}
+															onConfirm={onConfirmConnectorPromotion}
+															onRequest={onRequestConnectorPromotion}
+														/>
 														{remoteNodeId ? (
 															<RemoteTargets
 																driverDescriptors={
@@ -453,6 +489,18 @@ export function StoragePolicyDialog({
 									descriptor={storageDriverDescriptor}
 									form={form}
 									loading={policyCapacityLoading}
+								/>
+								<StorageConnectorPromotionPanel
+									blocked={connectorPromotionBlocked}
+									candidates={connectorPromotionCandidates}
+									confirmKey={connectorPromotionConfirmKey}
+									mode="edit"
+									submittingKey={connectorPromotionSubmittingKey}
+									t={t}
+									onApplyDraft={onApplyDraftConnectorPromotion}
+									onCancel={onCancelConnectorPromotion}
+									onConfirm={onConfirmConnectorPromotion}
+									onRequest={onRequestConnectorPromotion}
 								/>
 								<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
 									<SectionTitle

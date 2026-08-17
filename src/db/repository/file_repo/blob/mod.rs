@@ -18,9 +18,9 @@ pub use lookup::{
     count_matching_hashes_between_policies, count_opaque_hash_conflicts_between_policies,
     create_blob, find_admin_blobs_paginated, find_blob_by_hash, find_blob_by_id, find_blobs_by_ids,
     find_blobs_by_policy_paginated, find_blobs_paginated, find_or_create_blob,
-    find_or_create_virtual_empty_blob, find_virtual_empty_blob_by_policy, lock_blob_by_id,
-    summarize_blob_hash_kinds_by_policy, summarize_blobs_by_policy,
-    summarize_missing_blobs_between_policies,
+    find_or_create_virtual_empty_blob, find_stored_blobs_by_policy_paginated,
+    find_virtual_empty_blob_by_policy, lock_blob_by_id, summarize_blob_hash_kinds_by_policy,
+    summarize_blobs_by_policy, summarize_missing_blobs_between_policies,
 };
 pub use maintenance::{
     blob_storage_path_exists_for_policy, clear_thumbnail_metadata, count_all_blobs,

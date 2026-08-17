@@ -103,6 +103,62 @@ pub async fn update_if_revision<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+pub struct ConnectorCredentialPromotion<'a> {
+    pub policy_id: i64,
+    pub source_connector_id: &'a str,
+    pub source_schema_version: i32,
+    pub expected_revision: i64,
+    pub target_connector_id: String,
+    pub target_schema_version: i32,
+    pub ciphertext: String,
+}
+
+pub async fn promote_if_revision<C: ConnectionTrait>(
+    db: &C,
+    promotion: ConnectorCredentialPromotion<'_>,
+) -> Result<bool> {
+    let next_revision = promotion.expected_revision.checked_add(1).ok_or_else(|| {
+        AsterError::database_operation("storage connector credential revision overflow")
+    })?;
+    let result = StoragePolicyConnectorCredential::update_many()
+        .col_expr(
+            storage_policy_connector_credential::Column::ConnectorId,
+            Expr::value(promotion.target_connector_id),
+        )
+        .col_expr(
+            storage_policy_connector_credential::Column::SchemaVersion,
+            Expr::value(promotion.target_schema_version),
+        )
+        .col_expr(
+            storage_policy_connector_credential::Column::Ciphertext,
+            Expr::value(promotion.ciphertext),
+        )
+        .col_expr(
+            storage_policy_connector_credential::Column::Revision,
+            Expr::value(next_revision),
+        )
+        .col_expr(
+            storage_policy_connector_credential::Column::UpdatedAt,
+            Expr::value(Utc::now()),
+        )
+        .filter(storage_policy_connector_credential::Column::PolicyId.eq(promotion.policy_id))
+        .filter(
+            storage_policy_connector_credential::Column::ConnectorId
+                .eq(promotion.source_connector_id),
+        )
+        .filter(
+            storage_policy_connector_credential::Column::SchemaVersion
+                .eq(promotion.source_schema_version),
+        )
+        .filter(
+            storage_policy_connector_credential::Column::Revision.eq(promotion.expected_revision),
+        )
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected == 1)
+}
+
 pub async fn delete_by_policy<C: ConnectionTrait>(db: &C, policy_id: i64) -> Result<()> {
     StoragePolicyConnectorCredential::delete_many()
         .filter(storage_policy_connector_credential::Column::PolicyId.eq(policy_id))

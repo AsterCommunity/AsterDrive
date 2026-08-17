@@ -220,6 +220,8 @@ define_api_error_codes! {
     PolicyActionUnsupported => "policy.action_unsupported",
     PolicyActionParameterRequired => "policy.action_parameter_required",
     PolicyActionParameterInvalid => "policy.action_parameter_invalid",
+    PolicyPromotionSourceUnsupported => "policy.promotion_source_unsupported",
+    PolicyPromotionTargetUnsupported => "policy.promotion_target_unsupported",
 
     // workspace services: workspace scope authorization.
     WorkspaceScopeDenied => "workspace.scope_denied",

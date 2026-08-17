@@ -185,6 +185,7 @@ impl SftpConnector {
                 draft_connection_test_action_descriptor(),
                 saved_connection_test_action_descriptor(false),
             ],
+            promotions: Vec::new(),
             related_issues: vec![125],
         }
     }

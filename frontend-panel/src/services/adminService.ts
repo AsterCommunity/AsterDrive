@@ -58,6 +58,7 @@ import type {
 	LockPage,
 	MigratePolicyGroupAssignmentsRequest,
 	PolicyGroupAssignmentMigrationResult,
+	PromoteStoragePolicyConnectorRequest,
 	RemoteCreateStorageTargetRequest,
 	RemoteEnrollmentCommandInfo,
 	RemoteNodeInfo,
@@ -361,6 +362,9 @@ export const adminPolicyService = {
 		data: ExecuteSavedStoragePolicyActionRequest,
 	) =>
 		api.post<StoragePolicyActionResult>(`/admin/policies/${id}/action`, data),
+
+	promoteConnector: (id: number, data: PromoteStoragePolicyConnectorRequest) =>
+		api.post<StoragePolicy>(`/admin/policies/${id}/promote-connector`, data),
 
 	startStorageAuthorization: (id: number) =>
 		api.post<StorageAuthorizationStartResponse>(

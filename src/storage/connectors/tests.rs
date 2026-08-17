@@ -83,6 +83,31 @@ fn descriptor(id: &'static str) -> StorageConnectorDescriptor {
     connector(id).descriptor()
 }
 
+fn localization_for_descriptor(
+    descriptor: &StorageConnectorDescriptor,
+) -> aster_drive_storage::StorageConnectorLocalization {
+    let locale = aster_drive_model::types::LocaleTag::parse("en").expect("English locale");
+    let messages = descriptor
+        .localization_message_ids()
+        .into_iter()
+        .map(|message_id| (message_id.to_string(), message_id.to_string()))
+        .collect();
+    aster_drive_storage::StorageConnectorLocalization::new(
+        descriptor.connector_id.clone(),
+        locale.clone(),
+        "test",
+        BTreeMap::from([(locale, messages)]),
+    )
+    .expect("generated promotion localization")
+}
+
+fn contract_connector(descriptor: StorageConnectorDescriptor) -> Arc<dyn StorageConnector> {
+    Arc::new(LocalizationContractConnector {
+        localization: localization_for_descriptor(&descriptor),
+        descriptor,
+    })
+}
+
 fn local_config(base_path: &str) -> LocalConnectorConfigV1 {
     LocalConnectorConfigV1 {
         base_path: base_path.to_string(),
@@ -347,6 +372,88 @@ fn registry_rejects_duplicate_and_unknown_connector_ids() {
         .err()
         .expect("invalid request connector id must be rejected as input");
     assert_eq!(invalid_input_error.code(), "E005");
+}
+
+#[test]
+fn registry_rejects_invalid_cross_connector_promotion_contracts() {
+    let target = descriptor(TencentCosConnector::ID);
+
+    let error = match StorageConnectorRegistry::new(vec![contract_connector(target.clone())]) {
+        Ok(_) => panic!("missing promotion source must fail registration"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("unavailable source connector"));
+
+    let mut missing_source_field = target.clone();
+    missing_source_field.promotions[0].requirements[0].source_field = "missing".to_string();
+    let error = match StorageConnectorRegistry::new(vec![
+        Arc::new(S3Connector),
+        contract_connector(missing_source_field),
+    ]) {
+        Ok(_) => panic!("missing source requirement field must fail registration"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("undeclared source"));
+
+    let mut incompatible_mapping = target.clone();
+    incompatible_mapping.promotions[0].config_mappings[0].source_field =
+        "s3_path_style".to_string();
+    let error = match StorageConnectorRegistry::new(vec![
+        Arc::new(S3Connector),
+        contract_connector(incompatible_mapping),
+    ]) {
+        Ok(_) => panic!("incompatible field mapping must fail registration"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("maps incompatible"));
+
+    let mut missing_required_config = target.clone();
+    missing_required_config.promotions[0]
+        .config_mappings
+        .retain(|mapping| mapping.target_field != "bucket");
+    let error = match StorageConnectorRegistry::new(vec![
+        Arc::new(S3Connector),
+        contract_connector(missing_required_config),
+    ]) {
+        Ok(_) => panic!("missing required target config must fail registration"),
+        Err(error) => error,
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("does not populate required target")
+    );
+    assert!(error.to_string().contains("bucket"));
+
+    let mut missing_required_credential = target.clone();
+    missing_required_credential.promotions[0]
+        .credential_mappings
+        .retain(|mapping| mapping.target_field != "tencent_cos_secret_key");
+    let error = match StorageConnectorRegistry::new(vec![
+        Arc::new(S3Connector),
+        contract_connector(missing_required_credential),
+    ]) {
+        Ok(_) => panic!("missing required target credential must fail registration"),
+        Err(error) => error,
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("does not populate required target")
+    );
+    assert!(error.to_string().contains("tencent_cos_secret_key"));
+
+    let mut incompatible_credentials = target;
+    incompatible_credentials.promotions[0].source_connector_id =
+        ConnectorId::declared(LocalConnector::ID);
+    let error = match StorageConnectorRegistry::new(vec![
+        Arc::new(LocalConnector),
+        contract_connector(incompatible_credentials),
+    ]) {
+        Ok(_) => panic!("incompatible credential modes must fail registration"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("compatible static credentials"));
 }
 
 #[test]

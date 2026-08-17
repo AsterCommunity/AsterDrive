@@ -15,8 +15,11 @@ use aster_drive_storage::connector_descriptor::{
     StorageConnectorActionOutputFieldDescriptor, StorageConnectorActionOutputValueKind,
     StorageConnectorBadgeRgb, StorageConnectorCustomActionDescriptorInput,
     StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorFieldDisplayInput,
-    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorUiDescriptorInput,
-    custom_action_descriptor, object_storage_connector_descriptor, storage_connector_field,
+    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorPromotionDescriptor,
+    StorageConnectorPromotionFieldMapping, StorageConnectorPromotionId,
+    StorageConnectorPromotionRequirement, StorageConnectorPromotionValueMatcher,
+    StorageConnectorUiDescriptorInput, custom_action_descriptor,
+    object_storage_connector_descriptor, storage_connector_field,
     storage_connector_field_with_display,
 };
 use aster_drive_storage::{
@@ -39,6 +42,7 @@ mod localization;
 pub struct TencentCosConnector;
 
 const CONFIGURE_CORS_ACTION_ID: &str = "configure_tencent_cos_cors";
+const PROMOTE_FROM_S3_ID: &str = "promote_from_s3";
 
 aster_drive_storage::storage_connector_action_schema! {
     struct ConfigureTencentCosCorsActionInput {}
@@ -92,6 +96,47 @@ fn configure_cors_action_descriptor() -> aster_drive_storage::StorageConnectorAc
         mutates_remote_state: true,
         requires_confirmation: true,
     })
+}
+
+fn promote_from_s3_descriptor() -> StorageConnectorPromotionDescriptor {
+    let config_mapping = |source_field: &str, target_field: &str, preserve_value: bool| {
+        StorageConnectorPromotionFieldMapping {
+            source_field: source_field.to_string(),
+            target_field: target_field.to_string(),
+            preserve_value,
+        }
+    };
+    StorageConnectorPromotionDescriptor {
+        promotion_id: StorageConnectorPromotionId::declared(PROMOTE_FROM_S3_ID),
+        source_connector_id: aster_drive_storage::ConnectorId::declared(super::s3::S3Connector::ID),
+        description_key: "policy_cos_promote_from_s3_desc".to_string(),
+        confirmation_key: "policy_cos_promote_from_s3_confirm".to_string(),
+        requirements: vec![StorageConnectorPromotionRequirement {
+            source_field: "endpoint".to_string(),
+            matcher: StorageConnectorPromotionValueMatcher::UrlHostSuffix {
+                suffix: ".myqcloud.com".to_string(),
+            },
+        }],
+        config_mappings: vec![
+            config_mapping("endpoint", "endpoint", false),
+            config_mapping("bucket", "bucket", true),
+            config_mapping("base_path", "base_path", true),
+            config_mapping(
+                "object_storage_upload_strategy",
+                "object_storage_upload_strategy",
+                false,
+            ),
+            config_mapping(
+                "object_storage_download_strategy",
+                "object_storage_download_strategy",
+                false,
+            ),
+        ],
+        credential_mappings: vec![
+            config_mapping("s3_access_key_id", "tencent_cos_secret_id", false),
+            config_mapping("s3_secret_access_key", "tencent_cos_secret_key", false),
+        ],
+    }
 }
 
 fn action_output_field(
@@ -251,9 +296,10 @@ impl TencentCosConnector {
                 storage_native_processing: true,
                 config_schema_version: 1,
                 credential_schema_version: Some(1),
-                related_issues: vec![328, 329],
+                related_issues: vec![328, 329, 474],
             });
         descriptor.actions.push(configure_cors_action_descriptor());
+        descriptor.promotions.push(promote_from_s3_descriptor());
         descriptor
     }
 }

@@ -25,14 +25,15 @@ pub use groups::{
 };
 pub use models::{
     CreateStoragePolicyGroupInput, CreateStoragePolicyInput, PolicyGroupAssignmentMigrationResult,
-    StoragePolicy, StoragePolicyActionResult, StoragePolicyCapacityInfo, StoragePolicyDiagnostic,
-    StoragePolicyGroupInfo, StoragePolicyGroupItemInfo, StoragePolicyGroupItemInput,
-    StoragePolicySummaryInfo, UpdateStoragePolicyGroupInput, UpdateStoragePolicyInput,
+    PromoteStoragePolicyConnectorInput, StoragePolicy, StoragePolicyActionResult,
+    StoragePolicyCapacityInfo, StoragePolicyDiagnostic, StoragePolicyGroupInfo,
+    StoragePolicyGroupItemInfo, StoragePolicyGroupItemInput, StoragePolicySummaryInfo,
+    UpdateStoragePolicyGroupInput, UpdateStoragePolicyInput,
 };
 pub(crate) use policies::capacity_info_or_status;
 pub use policies::{
     capacity_info, create, delete, execute_draft_action, execute_saved_action, get, list_paginated,
-    test_connection, test_connection_params, test_default_connection, update,
+    promote_connector, test_connection, test_connection_params, test_default_connection, update,
 };
 
 fn policy_audit_details(policy: &StoragePolicy) -> Option<serde_json::Value> {
@@ -112,6 +113,26 @@ pub async fn update_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicy> {
     let policy = update(state, id, input).await?;
+    audit::log_with_details(
+        state,
+        audit_ctx,
+        audit::AuditAction::AdminUpdatePolicy,
+        crate::services::ops::audit::AuditEntityType::StoragePolicy,
+        Some(policy.id),
+        Some(&policy.name),
+        || policy_audit_details(&policy),
+    )
+    .await;
+    Ok(policy)
+}
+
+pub async fn promote_connector_with_audit(
+    state: &(impl RemoteProtocolRuntimeState + Sync),
+    id: i64,
+    input: PromoteStoragePolicyConnectorInput,
+    audit_ctx: &AuditContext,
+) -> Result<StoragePolicy> {
+    let policy = promote_connector(state, id, input).await?;
     audit::log_with_details(
         state,
         audit_ctx,
