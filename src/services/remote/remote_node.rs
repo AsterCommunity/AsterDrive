@@ -271,13 +271,15 @@ pub async fn update<S: RemoteProtocolRuntimeState>(
     .await;
     // A transport transition must deliver the new decision over the path that
     // was usable before the follower starts or stops its tunnel worker.
-    let transport_node = if previous
+    let effective_transport_changed = previous
         .transport_mode
         .resolves_to_reverse_tunnel(&previous.base_url)
         != updated
             .transport_mode
-            .resolves_to_reverse_tunnel(&updated.base_url)
-    {
+            .resolves_to_reverse_tunnel(&updated.base_url);
+    let previous_transport_available =
+        !previous.transport_mode.requires_direct_base_url() || !previous.base_url.trim().is_empty();
+    let transport_node = if effective_transport_changed && previous_transport_available {
         &previous
     } else {
         &updated

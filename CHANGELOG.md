@@ -141,6 +141,7 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Fixed
 
+- **远端节点有效传输模式** — primary 将 `direct` / `reverse_tunnel` / `auto` 解析后的 `reverse_tunnel_enabled` 决策同步并持久化到 follower；direct 和带可用 `base_url` 的 auto 节点不再启动 polling / WebSocket worker，primary 同时拒绝其 tunnel poll、complete 与 connect。双向 transport 切换沿切换前仍可用的路径交付新决策，WebSocket lane 停止时完成正常 close handshake，并在请求体或本地响应阻塞期间响应取消且收口全部子任务。
 - **首次登录 Cookie 引导** — 新安装默认允许 HTTP 首次登录；HTTPS setup 会在后续自动登录前启用 Secure Cookie，已有运行时设置不被升级或重启覆盖。
 - **上传失败与重试编排** — 非 retryable 的 upload-stage failure 现在会终止并清理 session；可修正、认证、数据库和可重试错误继续保留 session 供恢复。前端按 retryability 区分单项/批量重试与 terminal task 清理，并串行化 cleanup/retry，避免同一任务并发清理和重试。
 - **WebDAV 锁与 mutation 一致性** — 修复深度集合锁继承、parent/member lock root 混淆、MOVE 后 destination lock rebind、unlock 部分提交和 backend 错误被吞掉等问题。
@@ -160,6 +161,8 @@ WebDAV 迁移到 AsterForge WebDAV 0.2 协议引擎，加入多 Range 下载、R
 
 ### Database Migrations
 
+- `m20260817_000001_add_master_binding_reverse_tunnel_enabled`
+  - 为 follower 的 `master_bindings` 新增 `reverse_tunnel_enabled`，用于持久化 primary 解析后的有效 transport 决策；升级默认值为 `true`，使旧 primary 载荷和滚动升级节点继续保持原有 reverse tunnel 行为，新 primary 随后同步明确值
 - `m20260813_000001_canonical_file_revision_ledger`
   - 以可恢复的 500 文件事务批次 backfill `file_versions` 和每个文件当前内容，建立 immutable revision predecessor chain、stable public ID、current head / next sequence 与用户属性快照，完成后删除 legacy `file_versions`；批次间故障重跑会跳过已提交 history，并从 legacy/ledger 最大 revision ID 之后继续
   - MySQL 使用 `utf8mb4_bin` virtual generated columns 维持 XML property `(namespace, name)` 大小写敏感唯一性，但不按服务端版本字符串设置全局门槛，也不依赖 8.0.23 的 invisible-column 语法

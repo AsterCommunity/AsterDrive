@@ -343,6 +343,7 @@ async fn sync_binding(
     tracing::info!(
         binding_id = synced.id,
         is_enabled = synced.is_enabled,
+        reverse_tunnel_enabled = synced.reverse_tunnel_enabled,
         "follower binding synchronized"
     );
     audit::log_with_details(

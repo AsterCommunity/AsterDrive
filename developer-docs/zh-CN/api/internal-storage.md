@@ -138,6 +138,7 @@ primary 侧 reverse tunnel 当前入口：
 
 - `name`
 - `is_enabled`
+- `reverse_tunnel_enabled`：primary 解析出的有效 transport 决策；字段缺省时按 `true` 处理，以保持旧版 primary 载荷兼容
 
 这条接口只更新绑定元信息，不直接搬运对象数据。对象命名空间来自 follower 本地保存的 master binding，不由这条请求体传入。
 

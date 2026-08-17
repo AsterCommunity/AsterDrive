@@ -4305,7 +4305,7 @@ async fn test_reverse_tunnel_polls_do_not_touch_updated_at() {
 }
 
 #[actix_web::test]
-async fn test_effective_direct_nodes_reject_tunnel_poll_without_touching_last_seen() {
+async fn test_effective_direct_nodes_reject_tunnel_http_endpoints_without_touching_last_seen() {
     for (name, transport_mode) in [
         ("direct-tunnel-rejected", RemoteNodeTransportMode::Direct),
         ("auto-direct-tunnel-rejected", RemoteNodeTransportMode::Auto),
@@ -4334,6 +4334,27 @@ async fn test_effective_direct_nodes_reject_tunnel_poll_without_touching_last_se
             &primary_server.base_url,
             REMOTE_TUNNEL_POLL_PATH,
             serde_json::json!({ "access_key": node_model.access_key }),
+        )
+        .await;
+        assert_eq!(status, reqwest::StatusCode::BAD_REQUEST);
+        assert!(
+            response["msg"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("does not resolve to reverse tunnel")
+        );
+
+        let (status, response) = send_signed_tunnel_json_raw(
+            &client,
+            &node_model,
+            &primary_server.base_url,
+            REMOTE_TUNNEL_COMPLETE_PATH,
+            serde_json::json!({
+                "request_id": "not-pending",
+                "status": 200,
+                "headers": [],
+                "body": [],
+            }),
         )
         .await;
         assert_eq!(status, reqwest::StatusCode::BAD_REQUEST);
@@ -4844,6 +4865,82 @@ async fn test_remote_node_reverse_to_direct_syncs_effective_transport_over_previ
             .expect("provider binding lookup should succeed")
             .expect("provider binding should exist");
     assert!(!binding.reverse_tunnel_enabled);
+
+    stop_test_reverse_tunnel_worker(tunnel_shutdown, tunnel_handle).await;
+    provider_server.stop().await;
+}
+
+#[actix_web::test]
+async fn test_direct_without_base_url_to_reverse_syncs_over_updated_tunnel() {
+    let provider_state = common::setup().await;
+    let consumer_state = common::setup().await;
+    let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
+
+    let node = remote_node::create(
+        &consumer_state,
+        remote_node::CreateRemoteNodeInput {
+            name: "direct-without-base-url".to_string(),
+            base_url: String::new(),
+            transport_mode: RemoteNodeTransportMode::Direct,
+            is_enabled: true,
+        },
+    )
+    .await
+    .expect("direct remote node without a base URL should be created");
+    let node_model = managed_follower_repo::find_by_id(consumer_state.writer_db(), node.id)
+        .await
+        .expect("direct remote node should be queryable");
+    master_binding::upsert_from_enrollment(
+        provider_state.writer_db(),
+        master_binding::UpsertMasterBindingInput {
+            name: node_model.name.clone(),
+            master_url: "http://master.example.com".to_string(),
+            access_key: node_model.access_key.clone(),
+            secret_key: node_model.secret_key.clone(),
+            is_enabled: true,
+        },
+    )
+    .await
+    .expect("provider binding should be created");
+    master_binding::sync_from_primary(
+        &provider_state.follower_view(),
+        &node_model.access_key,
+        master_binding::SyncMasterBindingInput {
+            name: node_model.name.clone(),
+            is_enabled: true,
+            reverse_tunnel_enabled: false,
+        },
+    )
+    .await
+    .expect("direct binding state should be seeded");
+    mark_remote_node_enrollment_completed(&consumer_state, node.id).await;
+
+    let mut updated_transport_node = node_model.clone();
+    updated_transport_node.transport_mode = RemoteNodeTransportMode::ReverseTunnel;
+    let (tunnel_shutdown, tunnel_handle) = start_test_reverse_tunnel_worker(
+        consumer_state.clone(),
+        updated_transport_node,
+        provider_server.base_url.clone(),
+    )
+    .await;
+
+    remote_node::update(
+        &consumer_state,
+        node.id,
+        remote_node::UpdateRemoteNodeInput {
+            transport_mode: Some(RemoteNodeTransportMode::ReverseTunnel),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("direct node without a base URL should sync over the updated reverse tunnel");
+
+    let binding =
+        master_binding_repo::find_by_access_key(provider_state.writer_db(), &node_model.access_key)
+            .await
+            .expect("provider binding lookup should succeed")
+            .expect("provider binding should exist");
+    assert!(binding.reverse_tunnel_enabled);
 
     stop_test_reverse_tunnel_worker(tunnel_shutdown, tunnel_handle).await;
     provider_server.stop().await;
