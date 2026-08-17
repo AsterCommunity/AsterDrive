@@ -28,16 +28,14 @@ use aster_drive::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER,
     INTERNAL_AUTH_SKEW_SECS, INTERNAL_AUTH_TIMESTAMP_HEADER, INTERNAL_STORAGE_BASE_PATH,
     INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION_LABEL, INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL,
-    REMOTE_NODE_BINDING_STATE_PATH, RemoteBindingSyncRequest,
-    RemoteCreateLocalStorageTargetRequest, RemoteCreateS3StorageTargetRequest,
-    RemoteCreateStorageTargetRequest, RemoteStorageCapabilities, RemoteStorageClient,
-    RemoteStorageComposeRequest, RemoteStorageTargetCredentialInput,
-    RemoteUpdateStorageTargetRequest, sign_internal_request, sign_presigned_request,
+    REMOTE_NODE_BINDING_STATE_PATH, RemoteBindingSyncRequest, RemoteCreateStorageTargetRequest,
+    RemoteStorageCapabilities, RemoteStorageClient, RemoteStorageComposeRequest,
+    RemoteStorageTargetCredentialInput, RemoteUpdateStorageTargetRequest, sign_internal_request,
+    sign_presigned_request,
 };
 use aster_drive_model::entities::{follower_enrollment_session, storage_policy};
 use aster_drive_model::types::{
-    RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteStorageTargetDriverKind,
-    RemoteUploadStrategy, ResolvedRemoteTransport,
+    RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteUploadStrategy, ResolvedRemoteTransport,
 };
 use aster_drive_storage::{ConnectorConfigEnvelope, ConnectorId};
 use bytes::Bytes;
