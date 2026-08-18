@@ -8,7 +8,7 @@ use aster_drive_storage::StorageErrorKind;
 use chrono::Utc;
 use futures::StreamExt as _;
 use serde::Serialize;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod auth;
 mod frame;
@@ -52,7 +52,9 @@ pub const REMOTE_TUNNEL_COMPLETE_PATH: &str = "/api/v1/internal/remote-tunnel/co
 pub const REMOTE_TUNNEL_CONNECT_PATH: &str = "/api/v1/internal/remote-tunnel/connect";
 
 const REMOTE_TUNNEL_POLL_TIMEOUT: Duration = Duration::from_secs(25);
-const REMOTE_TUNNEL_STREAM_READ_TIMEOUT: Duration = Duration::from_secs(60);
+const REMOTE_TUNNEL_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
+const REMOTE_TUNNEL_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(45);
+const REMOTE_TUNNEL_CLOSE_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 pub const REMOTE_TUNNEL_BODY_LIMIT: usize = 64 * 1024 * 1024;
 pub const REMOTE_TUNNEL_JSON_LIMIT: usize = REMOTE_TUNNEL_BODY_LIMIT * 2 + 1024 * 1024;
 pub const REMOTE_TUNNEL_POLL_METADATA_BUDGET: usize = 64 * 1024;
@@ -218,6 +220,10 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
     let mut owner_renewal = tokio::time::interval(REMOTE_TUNNEL_OWNER_RENEW_INTERVAL);
     owner_renewal.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     owner_renewal.tick().await;
+    let mut heartbeat = tokio::time::interval(REMOTE_TUNNEL_HEARTBEAT_INTERVAL);
+    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    heartbeat.tick().await;
+    let mut liveness = TunnelHeartbeat::new(Instant::now());
 
     loop {
         tokio::select! {
@@ -228,9 +234,6 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                 };
                 match directory.renew(remote_node.id).await {
                     Ok(true) => {
-                        if session.ping(b"owner-renew".as_slice()).await.is_err() {
-                            break;
-                        }
                     }
                     Ok(false) => {
                         tracing::warn!(
@@ -250,19 +253,23 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                     }
                 }
             }
-            message = tokio::time::timeout(REMOTE_TUNNEL_STREAM_READ_TIMEOUT, stream.next()) => {
-                let Some(message) = (match message {
-                    Ok(message) => message,
-                    Err(_) => {
-                        tracing::warn!(
-                            remote_node_id = remote_node.id,
-                            lane_id = %lane_id,
-                            timeout_secs = REMOTE_TUNNEL_STREAM_READ_TIMEOUT.as_secs(),
-                            "reverse tunnel streaming lane timed out waiting for follower frames"
-                        );
-                        break;
-                    }
-                }) else {
+            _ = heartbeat.tick() => {
+                let now = Instant::now();
+                if liveness.is_timed_out(now) {
+                    tracing::warn!(
+                        remote_node_id = remote_node.id,
+                        lane_id = %lane_id,
+                        timeout_secs = REMOTE_TUNNEL_HEARTBEAT_TIMEOUT.as_secs(),
+                        "reverse tunnel streaming lane heartbeat timed out waiting for follower activity"
+                    );
+                    break;
+                }
+                if session.ping(b"aster-tunnel-heartbeat").await.is_err() {
+                    break;
+                }
+            }
+            message = stream.next() => {
+                let Some(message) = message else {
                     break;
                 };
                 let message = match message {
@@ -278,6 +285,7 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                 };
                 match message {
                     actix_ws::Message::Binary(bytes) => {
+                        liveness.record_activity(Instant::now());
                         match decode_stream_frame(bytes) {
                             Ok(frame) => {
                                 registry.update_last_seen(remote_node.id);
@@ -306,9 +314,11 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                         if session.pong(&bytes).await.is_err() {
                             break;
                         }
+                        liveness.record_activity(Instant::now());
                         registry.update_last_seen(remote_node.id);
                     }
                     actix_ws::Message::Pong(_) => {
+                        liveness.record_activity(Instant::now());
                         registry.update_last_seen(remote_node.id);
                     }
                     actix_ws::Message::Close(_) => break,
@@ -327,7 +337,42 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
         }
     }
 
+    close_connected_stream(session, stream).await;
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TunnelHeartbeat {
+    last_activity_at: Instant,
+}
+
+impl TunnelHeartbeat {
+    fn new(now: Instant) -> Self {
+        Self {
+            last_activity_at: now,
+        }
+    }
+
+    fn record_activity(&mut self, now: Instant) {
+        self.last_activity_at = now;
+    }
+
+    fn is_timed_out(&self, now: Instant) -> bool {
+        now.duration_since(self.last_activity_at) >= REMOTE_TUNNEL_HEARTBEAT_TIMEOUT
+    }
+}
+
+async fn close_connected_stream(session: actix_ws::Session, mut stream: actix_ws::MessageStream) {
+    let _ = session.close(None).await;
+    let _ = tokio::time::timeout(REMOTE_TUNNEL_CLOSE_HANDSHAKE_TIMEOUT, async {
+        while let Some(message) = stream.next().await {
+            match message {
+                Ok(actix_ws::Message::Close(_)) | Err(_) => break,
+                Ok(_) => {}
+            }
+        }
+    })
+    .await;
 }
 
 async fn claim_tunnel_ownership<S: RemoteProtocolRuntimeState>(

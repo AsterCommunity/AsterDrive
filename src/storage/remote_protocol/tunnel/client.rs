@@ -226,13 +226,13 @@ async fn run_binding_poll_loop(
                 if let Err(mark_error) = mark_tunnel_error(&client, &binding, error.message()).await
                 {
                     tracing::warn!(
-                        access_key = %binding.access_key,
+                        binding_id = binding.id,
                         master_url = %binding.master_url,
                         "failed to report reverse tunnel error to primary: {mark_error}"
                     );
                 }
                 tracing::warn!(
-                    access_key = %binding.access_key,
+                    binding_id = binding.id,
                     master_url = %binding.master_url,
                     "reverse tunnel poll failed: {error}"
                 );
@@ -344,7 +344,7 @@ async fn run_binding_stream_lane_loop(
             }
             Err(error) => {
                 tracing::warn!(
-                    access_key = %binding.access_key,
+                    binding_id = binding.id,
                     master_url = %binding.master_url,
                     lane_index,
                     "reverse tunnel streaming lane failed: {error}"
@@ -402,7 +402,7 @@ async fn connect_stream_lane_once(
         )
     })?;
     tracing::debug!(
-        access_key = %binding.access_key,
+        binding_id = binding.id,
         master_url = %binding.master_url,
         lane_index,
         "reverse tunnel streaming lane connected"
@@ -439,7 +439,10 @@ async fn connect_stream_lane_once(
                 continue;
             }
             WsMessage::Pong(_) => continue,
-            WsMessage::Close(_) => break,
+            WsMessage::Close(_) => {
+                acknowledge_stream_lane_close(&mut write).await?;
+                break;
+            }
             _ => continue,
         };
         if frame.kind != RemoteTunnelStreamFrameKind::RequestStart {
@@ -513,6 +516,18 @@ where
     })
     .await;
     Ok(())
+}
+
+async fn acknowledge_stream_lane_close<W>(write: &mut W) -> Result<()>
+where
+    W: futures::Sink<WsMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    write.flush().await.map_err(|error| {
+        crate::errors::storage_driver_error(
+            StorageErrorKind::Transient,
+            format!("acknowledge reverse tunnel streaming lane close: {error}"),
+        )
+    })
 }
 
 async fn execute_stream_tunnel_request<R, W>(
@@ -1154,11 +1169,11 @@ fn binding_needs_reverse_tunnel(binding: &master_binding::Model) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        BindingTunnelWorker, StreamRequestOutcome, binding_needs_reverse_tunnel,
-        binding_worker_fingerprint, close_stream_lane, ensure_binding_worker,
-        execute_stream_tunnel_request, execute_stream_tunnel_request_or_close,
-        is_allowed_tunnel_target, signed_master_ws_request, stop_all_binding_workers,
-        stop_binding_tunnel_tasks, stream_connect_url,
+        BindingTunnelWorker, StreamRequestOutcome, acknowledge_stream_lane_close,
+        binding_needs_reverse_tunnel, binding_worker_fingerprint, close_stream_lane,
+        ensure_binding_worker, execute_stream_tunnel_request,
+        execute_stream_tunnel_request_or_close, is_allowed_tunnel_target, signed_master_ws_request,
+        stop_all_binding_workers, stop_binding_tunnel_tasks, stream_connect_url,
     };
     use crate::storage::remote_protocol::tunnel::server::{
         RemoteTunnelStreamFrame, RemoteTunnelStreamFrameKind, decode_stream_frame,
@@ -1668,6 +1683,18 @@ mod tests {
             .expect("stream lane should close cleanly");
 
         assert!(matches!(rx.recv().await, Some(WsMessage::Close(None))));
+    }
+
+    #[tokio::test]
+    async fn peer_close_flushes_automatic_reply_without_sending_another_close() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut sink = ChannelSink { tx };
+
+        acknowledge_stream_lane_close(&mut sink)
+            .await
+            .expect("peer close reply should flush cleanly");
+
+        assert!(rx.try_recv().is_err());
     }
 
     #[tokio::test]

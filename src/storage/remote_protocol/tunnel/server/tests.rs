@@ -7,7 +7,7 @@ use crate::storage::remote_protocol::{
 use bytes::Bytes;
 use http::{Method, StatusCode};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::AsyncReadExt as _;
 
 fn build_remote_node(id: i64, access_key: &str) -> managed_follower::Model {
@@ -30,6 +30,26 @@ fn build_remote_node(id: i64, access_key: &str) -> managed_follower::Model {
         created_at: now,
         updated_at: now,
     }
+}
+
+#[test]
+fn tunnel_heartbeat_tracks_activity_and_missed_pongs() {
+    let started = Instant::now();
+    let mut heartbeat = TunnelHeartbeat::new(started);
+
+    for elapsed in [15, 30, 45, 60, 75].map(Duration::from_secs) {
+        let pong_at = started + elapsed;
+        assert!(!heartbeat.is_timed_out(pong_at));
+        heartbeat.record_activity(pong_at);
+    }
+
+    let last_pong_at = started + Duration::from_secs(75);
+    assert!(
+        !heartbeat.is_timed_out(
+            last_pong_at + REMOTE_TUNNEL_HEARTBEAT_TIMEOUT - Duration::from_millis(1)
+        )
+    );
+    assert!(heartbeat.is_timed_out(last_pong_at + REMOTE_TUNNEL_HEARTBEAT_TIMEOUT));
 }
 
 #[test]
