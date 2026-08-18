@@ -7,7 +7,7 @@ use crate::storage::remote_protocol::{
 use bytes::Bytes;
 use http::{Method, StatusCode};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::AsyncReadExt as _;
 
 fn build_remote_node(id: i64, access_key: &str) -> managed_follower::Model {
@@ -30,6 +30,26 @@ fn build_remote_node(id: i64, access_key: &str) -> managed_follower::Model {
         created_at: now,
         updated_at: now,
     }
+}
+
+#[test]
+fn tunnel_heartbeat_tracks_activity_and_missed_pongs() {
+    let started = Instant::now();
+    let mut heartbeat = TunnelHeartbeat::new(started);
+
+    for elapsed in [15, 30, 45, 60, 75].map(Duration::from_secs) {
+        let pong_at = started + elapsed;
+        assert!(!heartbeat.is_timed_out(pong_at));
+        heartbeat.record_activity(pong_at);
+    }
+
+    let last_pong_at = started + Duration::from_secs(75);
+    assert!(
+        !heartbeat.is_timed_out(
+            last_pong_at + REMOTE_TUNNEL_HEARTBEAT_TIMEOUT - Duration::from_millis(1)
+        )
+    );
+    assert!(heartbeat.is_timed_out(last_pong_at + REMOTE_TUNNEL_HEARTBEAT_TIMEOUT));
 }
 
 #[test]
@@ -739,6 +759,63 @@ fn registry_tracks_stream_lane_until_registration_guard_drops() {
 
     drop(guard);
     assert!(!registry.has_stream_lane(&node));
+}
+
+#[tokio::test]
+async fn registry_reports_stream_lane_busy_only_for_matching_in_flight_request() {
+    let registry = Arc::new(RemoteTunnelRegistry::new());
+    let node = build_remote_node(45, "stream-busy");
+    let (lane_id, mut request_rx, _guard) = registry.register_stream_lane(&node);
+    let send_handle = tokio::spawn({
+        let registry = registry.clone();
+        let node = node.clone();
+        async move {
+            registry
+                .send_stream(
+                    &node,
+                    Method::GET,
+                    "/api/v1/internal/storage/objects/busy.bin".to_string(),
+                    Some(0),
+                    Vec::new(),
+                    Box::new(std::io::Cursor::new(Bytes::new())),
+                )
+                .await
+        }
+    });
+
+    let start = request_rx
+        .recv()
+        .await
+        .expect("stream lane should receive request start");
+    assert!(registry.stream_lane_is_busy(&node, &lane_id));
+    assert!(!registry.stream_lane_is_busy(&node, "other-lane"));
+
+    let end = request_rx
+        .recv()
+        .await
+        .expect("stream lane should receive request end");
+    assert_eq!(end.kind, RemoteTunnelStreamFrameKind::RequestEnd);
+    registry
+        .complete_stream_frame(
+            &node,
+            &lane_id,
+            stream_response_start_frame(&start.request_id, StatusCode::OK),
+        )
+        .await
+        .expect("stream response start should complete");
+    registry
+        .complete_stream_frame(
+            &node,
+            &lane_id,
+            stream_response_end_frame(&start.request_id),
+        )
+        .await
+        .expect("stream response end should complete");
+    send_handle
+        .await
+        .expect("stream send task should join")
+        .expect("stream send should complete");
+    assert!(!registry.stream_lane_is_busy(&node, &lane_id));
 }
 
 #[tokio::test]

@@ -510,6 +510,23 @@ impl RemoteTunnelRegistry {
             .unwrap_or(false)
     }
 
+    pub(crate) fn stream_lane_is_busy(
+        &self,
+        remote_node: &managed_follower::Model,
+        lane_id: &str,
+    ) -> bool {
+        self.stream_lanes
+            .get(&remote_node.access_key)
+            .map(|lanes| {
+                lanes.iter().any(|lane| {
+                    lane.remote_node_id == remote_node.id
+                        && lane.lane_id == lane_id
+                        && lane.busy.load(Ordering::Acquire)
+                })
+            })
+            .unwrap_or(false)
+    }
+
     #[cfg(test)]
     pub(crate) fn has_pending_stream_response(&self, request_id: &str) -> bool {
         self.stream_pending.contains_key(request_id)

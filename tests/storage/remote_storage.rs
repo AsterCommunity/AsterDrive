@@ -53,6 +53,7 @@ struct TestHttpServer {
     base_url: String,
     handle: actix_web::dev::ServerHandle,
     task: tokio::task::JoinHandle<std::io::Result<()>>,
+    shutdown_token: Option<CancellationToken>,
 }
 
 struct TestReverseTunnelHttpWorker {
@@ -87,6 +88,9 @@ impl RemotePolicyTransferOptions {
 
 impl TestHttpServer {
     async fn stop(self) {
+        if let Some(shutdown_token) = self.shutdown_token {
+            shutdown_token.cancel();
+        }
         self.handle.stop(true).await;
         let _ = self.task.await;
     }
@@ -125,6 +129,7 @@ async fn spawn_internal_storage_server_on_listener(
         base_url: format!("http://127.0.0.1:{}", addr.port()),
         handle,
         task,
+        shutdown_token: None,
     }
 }
 
@@ -156,11 +161,14 @@ async fn spawn_reverse_tunnel_primary_server(
         .local_addr()
         .expect("test reverse tunnel primary listener should expose local addr");
     let state_for_server = state.clone();
+    let shutdown_token = CancellationToken::new();
+    let shutdown_data = web::Data::new(shutdown_token.clone());
     let server = HttpServer::new(move || {
         App::new()
             .app_data(web::PayloadConfig::new(REMOTE_TUNNEL_JSON_LIMIT))
             .app_data(web::JsonConfig::default().limit(REMOTE_TUNNEL_JSON_LIMIT))
             .app_data(web::Data::new(state_for_server.clone()))
+            .app_data(shutdown_data.clone())
             .service(
                 web::scope("/api/v1")
                     .service(aster_drive::api::routes::remote_node_control::routes())
@@ -177,6 +185,7 @@ async fn spawn_reverse_tunnel_primary_server(
         base_url: format!("http://127.0.0.1:{}", addr.port()),
         handle,
         task,
+        shutdown_token: Some(shutdown_token),
     }
 }
 
@@ -217,6 +226,7 @@ async fn spawn_reverse_tunnel_poll_only_primary_server(
         base_url: format!("http://127.0.0.1:{}", addr.port()),
         handle,
         task,
+        shutdown_token: None,
     }
 }
 
@@ -255,6 +265,7 @@ async fn spawn_capabilities_server(capabilities: serde_json::Value) -> TestHttpS
         base_url: format!("http://127.0.0.1:{}", addr.port()),
         handle,
         task,
+        shutdown_token: None,
     }
 }
 
@@ -292,6 +303,7 @@ async fn spawn_counting_internal_storage_server(
             base_url: format!("http://127.0.0.1:{}", addr.port()),
             handle,
             task,
+            shutdown_token: None,
         },
         request_count,
     )

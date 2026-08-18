@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Reverse tunnel 空闲连接保活与关闭握手** — single 与 cluster Primary 统一使用 WebSocket Ping/Pong 判断 streaming lane 存活，不再把 60 秒无业务帧误判为断链并触发四 lane 重连风暴；Primary shutdown 会停止接收新请求、在有界时间内排空 lane 上的在途请求后发送 Close，正常 Close 记录 info 而不告警，EOF/ConnectionReset 等异常掉线保留 WARN；心跳失联仍会记录一次可操作告警，Primary 离线期间的 lane / poll 重试只在故障开始时告警并在恢复后记录，运行日志改用 binding ID，避免输出完整 access key。
+
 ## [v0.5.0-rc.1] - 2026-08-18
 
 ### Release Highlights
