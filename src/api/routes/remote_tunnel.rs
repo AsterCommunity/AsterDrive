@@ -10,6 +10,7 @@ use crate::storage::remote_protocol::tunnel::server::{
 };
 use actix_web::{HttpRequest, HttpResponse, web};
 use actix_ws::MessageStream;
+use tokio_util::sync::CancellationToken;
 use validator::Validate;
 
 #[derive(Debug, serde::Deserialize, Validate)]
@@ -101,6 +102,7 @@ pub async fn complete_remote_tunnel(
 
 pub async fn connect_remote_tunnel(
     state: web::Data<PrimaryAppState>,
+    shutdown_token: web::Data<CancellationToken>,
     req: HttpRequest,
     body: web::Payload,
 ) -> Result<HttpResponse> {
@@ -117,9 +119,16 @@ pub async fn connect_remote_tunnel(
             AsterError::validation_error(format!("upgrade reverse tunnel websocket: {error}"))
         })?;
     let stream = stream.max_frame_size(REMOTE_TUNNEL_STREAM_FRAME_LIMIT);
+    let shutdown_token = shutdown_token.get_ref().clone();
     actix_web::rt::spawn(async move {
-        if let Err(error) =
-            tunnel::connect_stream(state.get_ref(), remote_node, session, stream).await
+        if let Err(error) = tunnel::connect_stream(
+            state.get_ref(),
+            remote_node,
+            session,
+            stream,
+            shutdown_token,
+        )
+        .await
         {
             tracing::warn!("reverse tunnel streaming connection ended with error: {error}");
         }

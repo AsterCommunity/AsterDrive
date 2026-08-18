@@ -9,6 +9,7 @@ use chrono::Utc;
 use futures::StreamExt as _;
 use serde::Serialize;
 use std::time::{Duration, Instant};
+use tokio_util::sync::CancellationToken;
 
 mod auth;
 mod frame;
@@ -55,6 +56,7 @@ const REMOTE_TUNNEL_POLL_TIMEOUT: Duration = Duration::from_secs(25);
 const REMOTE_TUNNEL_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 const REMOTE_TUNNEL_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(45);
 const REMOTE_TUNNEL_CLOSE_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+const REMOTE_TUNNEL_SHUTDOWN_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 pub const REMOTE_TUNNEL_BODY_LIMIT: usize = 64 * 1024 * 1024;
 pub const REMOTE_TUNNEL_JSON_LIMIT: usize = REMOTE_TUNNEL_BODY_LIMIT * 2 + 1024 * 1024;
 pub const REMOTE_TUNNEL_POLL_METADATA_BUDGET: usize = 64 * 1024;
@@ -161,6 +163,7 @@ pub async fn connect_stream<S: RemoteProtocolRuntimeState>(
     remote_node: managed_follower::Model,
     session: actix_ws::Session,
     stream: actix_ws::MessageStream,
+    shutdown_token: CancellationToken,
 ) -> Result<()> {
     if !remote_node.is_enabled {
         return Err(AsterError::validation_error("remote node is disabled"));
@@ -177,6 +180,7 @@ pub async fn connect_stream<S: RemoteProtocolRuntimeState>(
             session,
             stream,
             owner_directory,
+            shutdown_token,
         ))
         .await
 }
@@ -203,6 +207,7 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
     mut session: actix_ws::Session,
     mut stream: actix_ws::MessageStream,
     owner_directory: Option<std::sync::Arc<RemoteTunnelOwnerDirectory>>,
+    shutdown_token: CancellationToken,
 ) -> Result<()> {
     let registry = state.remote_protocol().tunnel_registry().clone();
     let (lane_id, mut request_rx, _registration) = registry.register_stream_lane(&remote_node);
@@ -224,10 +229,42 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     heartbeat.tick().await;
     let mut liveness = TunnelHeartbeat::new(Instant::now());
+    let mut draining = false;
+    let mut drain_deadline = Box::pin(tokio::time::sleep(Duration::from_secs(24 * 60 * 60)));
 
     loop {
         tokio::select! {
             biased;
+            _ = shutdown_token.cancelled(), if !draining => {
+                draining = true;
+                if registry.stream_lane_is_busy(&remote_node, &lane_id) {
+                    tracing::info!(
+                        remote_node_id = remote_node.id,
+                        lane_id = %lane_id,
+                        timeout_secs = REMOTE_TUNNEL_SHUTDOWN_DRAIN_TIMEOUT.as_secs(),
+                        "reverse tunnel primary shutdown draining in-flight streaming request"
+                    );
+                    drain_deadline.as_mut().reset(
+                        tokio::time::Instant::now() + REMOTE_TUNNEL_SHUTDOWN_DRAIN_TIMEOUT,
+                    );
+                } else {
+                    tracing::info!(
+                        remote_node_id = remote_node.id,
+                        lane_id = %lane_id,
+                        "reverse tunnel streaming lane closing for primary shutdown"
+                    );
+                    break;
+                }
+            }
+            _ = &mut drain_deadline, if draining => {
+                tracing::warn!(
+                    remote_node_id = remote_node.id,
+                    lane_id = %lane_id,
+                    timeout_secs = REMOTE_TUNNEL_SHUTDOWN_DRAIN_TIMEOUT.as_secs(),
+                    "reverse tunnel shutdown drain timed out; closing streaming lane with in-flight request"
+                );
+                break;
+            }
             _ = owner_renewal.tick(), if owner_directory.is_some() => {
                 let Some(directory) = owner_directory.as_ref() else {
                     continue;
@@ -321,11 +358,19 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                         liveness.record_activity(Instant::now());
                         registry.update_last_seen(remote_node.id);
                     }
-                    actix_ws::Message::Close(_) => break,
+                    actix_ws::Message::Close(reason) => {
+                        tracing::info!(
+                            remote_node_id = remote_node.id,
+                            lane_id = %lane_id,
+                            close_reason = ?reason,
+                            "reverse tunnel streaming lane closed by follower"
+                        );
+                        break;
+                    }
                     _ => {}
                 }
             }
-            frame = request_rx.recv() => {
+            frame = request_rx.recv(), if !draining => {
                 let Some(frame) = frame else {
                     break;
                 };
@@ -335,9 +380,17 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                 }
             }
         }
+        if draining && !registry.stream_lane_is_busy(&remote_node, &lane_id) {
+            tracing::info!(
+                remote_node_id = remote_node.id,
+                lane_id = %lane_id,
+                "reverse tunnel streaming lane drained before primary shutdown"
+            );
+            break;
+        }
     }
 
-    close_connected_stream(session, stream).await;
+    close_connected_stream(session, stream, remote_node.id, &lane_id).await;
     Ok(())
 }
 
@@ -362,17 +415,45 @@ impl TunnelHeartbeat {
     }
 }
 
-async fn close_connected_stream(session: actix_ws::Session, mut stream: actix_ws::MessageStream) {
-    let _ = session.close(None).await;
-    let _ = tokio::time::timeout(REMOTE_TUNNEL_CLOSE_HANDSHAKE_TIMEOUT, async {
+async fn close_connected_stream(
+    session: actix_ws::Session,
+    mut stream: actix_ws::MessageStream,
+    remote_node_id: i64,
+    lane_id: &str,
+) {
+    if let Err(error) = session.close(None).await {
+        tracing::warn!(
+            remote_node_id,
+            lane_id,
+            "failed to send reverse tunnel streaming lane close frame: {error}"
+        );
+        return;
+    }
+    let handshake = tokio::time::timeout(REMOTE_TUNNEL_CLOSE_HANDSHAKE_TIMEOUT, async {
         while let Some(message) = stream.next().await {
             match message {
-                Ok(actix_ws::Message::Close(_)) | Err(_) => break,
+                Ok(actix_ws::Message::Close(_)) => return Ok(()),
+                Err(error) => return Err(error),
                 Ok(_) => {}
             }
         }
+        Ok(())
     })
     .await;
+    match handshake {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::warn!(
+            remote_node_id,
+            lane_id,
+            "reverse tunnel streaming lane close handshake read failed: {error}"
+        ),
+        Err(_) => tracing::warn!(
+            remote_node_id,
+            lane_id,
+            timeout_secs = REMOTE_TUNNEL_CLOSE_HANDSHAKE_TIMEOUT.as_secs(),
+            "reverse tunnel streaming lane close handshake timed out"
+        ),
+    }
 }
 
 async fn claim_tunnel_ownership<S: RemoteProtocolRuntimeState>(

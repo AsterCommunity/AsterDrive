@@ -39,6 +39,7 @@ const FOLLOWER_TUNNEL_BASE_BACKOFF: Duration = Duration::from_secs(1);
 const FOLLOWER_TUNNEL_MAX_BACKOFF: Duration = Duration::from_secs(30);
 const FOLLOWER_TUNNEL_RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
 const FOLLOWER_TUNNEL_WORKER_JOIN_TIMEOUT: Duration = Duration::from_secs(5);
+const FOLLOWER_TUNNEL_CLOSE_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 const FOLLOWER_TUNNEL_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const FOLLOWER_TUNNEL_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const FOLLOWER_TUNNEL_OPERATION_TIMEOUT: Duration = Duration::from_secs(60 * 60);
@@ -55,6 +56,34 @@ struct BindingTunnelWorker {
 enum StreamRequestOutcome {
     Completed,
     Shutdown,
+    PeerClosed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RequestBodyReadOutcome {
+    End,
+    RemoteCancelled,
+    PeerClosed,
+}
+
+#[derive(Debug, Default)]
+struct RetryWarningState {
+    reported: bool,
+}
+
+impl RetryWarningState {
+    fn record_failure(&mut self) -> bool {
+        if self.reported {
+            false
+        } else {
+            self.reported = true;
+            true
+        }
+    }
+
+    fn record_success(&mut self) -> bool {
+        std::mem::take(&mut self.reported)
+    }
 }
 
 pub async fn run_follower_tunnel_worker(
@@ -211,6 +240,7 @@ async fn run_binding_poll_loop(
     shutdown_token: CancellationToken,
 ) {
     let mut backoff = FOLLOWER_TUNNEL_BASE_BACKOFF;
+    let mut warning_state = RetryWarningState::default();
     loop {
         let result = tokio::select! {
             biased;
@@ -220,22 +250,37 @@ async fn run_binding_poll_loop(
 
         match result {
             Ok(()) => {
+                if warning_state.record_success() {
+                    tracing::info!(
+                        binding_id = binding.id,
+                        master_url = %binding.master_url,
+                        "reverse tunnel polling connection recovered"
+                    );
+                }
                 backoff = FOLLOWER_TUNNEL_BASE_BACKOFF;
             }
             Err(error) => {
                 if let Err(mark_error) = mark_tunnel_error(&client, &binding, error.message()).await
                 {
-                    tracing::warn!(
+                    tracing::debug!(
                         binding_id = binding.id,
                         master_url = %binding.master_url,
                         "failed to report reverse tunnel error to primary: {mark_error}"
                     );
                 }
-                tracing::warn!(
-                    binding_id = binding.id,
-                    master_url = %binding.master_url,
-                    "reverse tunnel poll failed: {error}"
-                );
+                if warning_state.record_failure() {
+                    tracing::warn!(
+                        binding_id = binding.id,
+                        master_url = %binding.master_url,
+                        "reverse tunnel polling connection unavailable; retrying: {error}"
+                    );
+                } else {
+                    tracing::debug!(
+                        binding_id = binding.id,
+                        master_url = %binding.master_url,
+                        "reverse tunnel poll retry failed: {error}"
+                    );
+                }
                 tokio::select! {
                     biased;
                     _ = shutdown_token.cancelled() => break,
@@ -331,24 +376,44 @@ async fn run_binding_stream_lane_loop(
     shutdown_token: CancellationToken,
 ) {
     let mut backoff = FOLLOWER_TUNNEL_BASE_BACKOFF;
+    let mut warning_state = RetryWarningState::default();
     loop {
-        let result = tokio::select! {
-            biased;
-            _ = shutdown_token.cancelled() => break,
-            result = connect_stream_lane_once(&client, &binding, &local_base_url, lane_index, &shutdown_token) => result,
-        };
+        if shutdown_token.is_cancelled() {
+            break;
+        }
+        let result = connect_stream_lane_once(
+            &client,
+            &binding,
+            &local_base_url,
+            lane_index,
+            &shutdown_token,
+            &mut warning_state,
+        )
+        .await;
+        if shutdown_token.is_cancelled() {
+            break;
+        }
 
         match result {
             Ok(()) => {
+                warning_state.record_success();
                 backoff = FOLLOWER_TUNNEL_BASE_BACKOFF;
             }
             Err(error) => {
-                tracing::warn!(
-                    binding_id = binding.id,
-                    master_url = %binding.master_url,
-                    lane_index,
-                    "reverse tunnel streaming lane failed: {error}"
-                );
+                if lane_index == 0 && warning_state.record_failure() {
+                    tracing::warn!(
+                        binding_id = binding.id,
+                        master_url = %binding.master_url,
+                        "reverse tunnel streaming connection unavailable; retrying: {error}"
+                    );
+                } else {
+                    tracing::debug!(
+                        binding_id = binding.id,
+                        master_url = %binding.master_url,
+                        lane_index,
+                        "reverse tunnel streaming lane retry failed: {error}"
+                    );
+                }
                 tokio::select! {
                     biased;
                     _ = shutdown_token.cancelled() => break,
@@ -392,10 +457,16 @@ async fn connect_stream_lane_once(
     local_base_url: &str,
     lane_index: usize,
     shutdown_token: &CancellationToken,
+    warning_state: &mut RetryWarningState,
 ) -> Result<()> {
     let connect_url = stream_connect_url(&binding.master_url)?;
     let request = signed_master_ws_request(binding, &connect_url)?;
-    let (ws, _) = connect_async(request).await.map_err(|error| {
+    let connected = tokio::select! {
+        biased;
+        _ = shutdown_token.cancelled() => return Ok(()),
+        result = connect_async(request) => result,
+    };
+    let (ws, _) = connected.map_err(|error| {
         crate::errors::storage_driver_error(
             StorageErrorKind::Transient,
             format!("connect reverse tunnel streaming lane: {error}"),
@@ -407,6 +478,13 @@ async fn connect_stream_lane_once(
         lane_index,
         "reverse tunnel streaming lane connected"
     );
+    if lane_index == 0 && warning_state.record_success() {
+        tracing::info!(
+            binding_id = binding.id,
+            master_url = %binding.master_url,
+            "reverse tunnel streaming connection recovered"
+        );
+    }
 
     let (mut write, mut read) = ws.split();
     loop {
@@ -490,6 +568,7 @@ where
             close_stream_lane(write, read).await?;
             Ok(false)
         }
+        StreamRequestOutcome::PeerClosed => Ok(false),
     }
 }
 
@@ -506,7 +585,7 @@ where
             format!("close reverse tunnel streaming lane: {error}"),
         )
     })?;
-    let _ = tokio::time::timeout(FOLLOWER_TUNNEL_WORKER_JOIN_TIMEOUT, async {
+    let _ = tokio::time::timeout(FOLLOWER_TUNNEL_CLOSE_HANDSHAKE_TIMEOUT, async {
         while let Some(message) = read.next().await {
             match message {
                 Ok(WsMessage::Close(_)) | Err(_) => break,
@@ -528,6 +607,29 @@ where
             format!("acknowledge reverse tunnel streaming lane close: {error}"),
         )
     })
+}
+
+async fn handle_stream_control_message<W>(message: WsMessage, write: &mut W) -> Result<bool>
+where
+    W: futures::Sink<WsMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    match message {
+        WsMessage::Ping(bytes) => {
+            write.send(WsMessage::Pong(bytes)).await.map_err(|error| {
+                crate::errors::storage_driver_error(
+                    StorageErrorKind::Transient,
+                    format!("pong reverse tunnel streaming lane: {error}"),
+                )
+            })?;
+            Ok(true)
+        }
+        WsMessage::Pong(_) => Ok(true),
+        WsMessage::Close(_) => {
+            acknowledge_stream_lane_close(write).await?;
+            Ok(false)
+        }
+        _ => Ok(true),
+    }
 }
 
 async fn execute_stream_tunnel_request<R, W>(
@@ -561,13 +663,7 @@ where
             FORBIDDEN_TUNNEL_TARGET_BODY,
         )
         .await?;
-        let drain_result = tokio::select! {
-            biased;
-            _ = shutdown_token.cancelled() => return Ok(StreamRequestOutcome::Shutdown),
-            result = drain_stream_request_body(&request_id, read) => result,
-        };
-        drain_result?;
-        return Ok(StreamRequestOutcome::Completed);
+        return drain_stream_request_body(&request_id, read, write, shutdown_token).await;
     }
 
     let method = Method::from_bytes(method.as_bytes()).map_err(|error| {
@@ -628,9 +724,11 @@ where
                             }
                             RemoteTunnelStreamFrameKind::RequestEnd => {
                                 body_tx = None;
-                                return Ok(false);
+                                return Ok(RequestBodyReadOutcome::End);
                             }
-                            RemoteTunnelStreamFrameKind::Error => return Ok(true),
+                            RemoteTunnelStreamFrameKind::Error => {
+                                return Ok(RequestBodyReadOutcome::RemoteCancelled);
+                            }
                             _ => {
                                 return Err(AsterError::validation_error(
                                     "unexpected reverse tunnel streaming request body frame",
@@ -638,22 +736,15 @@ where
                             }
                         }
                     }
-                    WsMessage::Ping(bytes) => {
-                        write.send(WsMessage::Pong(bytes)).await.map_err(|error| {
-                            crate::errors::storage_driver_error(
-                                StorageErrorKind::Transient,
-                                format!("pong reverse tunnel streaming request body: {error}"),
-                            )
-                        })?;
-                    }
-                    WsMessage::Pong(_) => {}
                     WsMessage::Close(_) => {
-                        return Err(crate::errors::storage_driver_error(
-                            StorageErrorKind::Transient,
-                            "reverse tunnel streaming lane closed during request",
-                        ));
+                        acknowledge_stream_lane_close(write).await?;
+                        return Ok(RequestBodyReadOutcome::PeerClosed);
                     }
-                    _ => {}
+                    message => {
+                        if !handle_stream_control_message(message, write).await? {
+                            return Ok(RequestBodyReadOutcome::PeerClosed);
+                        }
+                    }
                 }
             }
         } => Some(result),
@@ -664,7 +755,13 @@ where
             let _ = response_task.await;
             return Ok(StreamRequestOutcome::Shutdown);
         }
-        Some(Ok(remote_cancelled)) => remote_cancelled,
+        Some(Ok(RequestBodyReadOutcome::End)) => false,
+        Some(Ok(RequestBodyReadOutcome::RemoteCancelled)) => true,
+        Some(Ok(RequestBodyReadOutcome::PeerClosed)) => {
+            response_task.abort();
+            let _ = response_task.await;
+            return Ok(StreamRequestOutcome::PeerClosed);
+        }
         Some(Err(error)) => {
             response_task.abort();
             let _ = response_task.await;
@@ -678,14 +775,41 @@ where
     }
     drop(body_tx);
 
-    let response_result = tokio::select! {
-        biased;
-        _ = shutdown_token.cancelled() => {
-            response_task.abort();
-            let _ = response_task.await;
-            return Ok(StreamRequestOutcome::Shutdown);
+    let mut read_open = true;
+    let response_result = loop {
+        tokio::select! {
+            biased;
+            _ = shutdown_token.cancelled() => {
+                response_task.abort();
+                let _ = response_task.await;
+                return Ok(StreamRequestOutcome::Shutdown);
+            }
+            result = &mut response_task => break result,
+            message = read.next(), if read_open => {
+                let Some(message) = message else {
+                    read_open = false;
+                    continue;
+                };
+                let message = message.map_err(|error| {
+                    crate::errors::storage_driver_error(
+                        StorageErrorKind::Transient,
+                        format!("read reverse tunnel streaming lane control frame: {error}"),
+                    )
+                })?;
+                if let WsMessage::Binary(_) = message {
+                    response_task.abort();
+                    let _ = response_task.await;
+                    return Err(AsterError::validation_error(
+                        "reverse tunnel streaming lane received interleaved request while waiting for local response",
+                    ));
+                }
+                if !handle_stream_control_message(message, write).await? {
+                    response_task.abort();
+                    let _ = response_task.await;
+                    return Ok(StreamRequestOutcome::PeerClosed);
+                }
+            }
         }
-        result = &mut response_task => result,
     };
     let response = match response_result {
         Ok(Ok(response)) => response,
@@ -712,24 +836,29 @@ where
             return Ok(StreamRequestOutcome::Completed);
         }
     };
-    tokio::select! {
-        biased;
-        _ = shutdown_token.cancelled() => Ok(StreamRequestOutcome::Shutdown),
-        result = send_stream_response(write, &request_id, response) => {
-            result.map(|()| StreamRequestOutcome::Completed)
-        }
-    }
+    send_stream_response(read, write, &request_id, response, shutdown_token).await
 }
 
-async fn drain_stream_request_body<R>(request_id: &str, read: &mut R) -> Result<()>
+async fn drain_stream_request_body<R, W>(
+    request_id: &str,
+    read: &mut R,
+    write: &mut W,
+    shutdown_token: &CancellationToken,
+) -> Result<StreamRequestOutcome>
 where
     R: futures::Stream<
             Item = std::result::Result<WsMessage, tokio_tungstenite::tungstenite::Error>,
         > + Unpin,
+    W: futures::Sink<WsMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
 {
     loop {
-        let Some(message) = read.next().await else {
-            return Ok(());
+        let message = tokio::select! {
+            biased;
+            _ = shutdown_token.cancelled() => return Ok(StreamRequestOutcome::Shutdown),
+            message = read.next() => message,
+        };
+        let Some(message) = message else {
+            return Ok(StreamRequestOutcome::Completed);
         };
         let message = message.map_err(|error| {
             crate::errors::storage_driver_error(
@@ -738,6 +867,9 @@ where
             )
         })?;
         let WsMessage::Binary(bytes) = message else {
+            if !handle_stream_control_message(message, write).await? {
+                return Ok(StreamRequestOutcome::PeerClosed);
+            }
             continue;
         };
         let frame = decode_stream_frame(bytes)?;
@@ -748,7 +880,7 @@ where
         }
         match frame.kind {
             RemoteTunnelStreamFrameKind::RequestEnd | RemoteTunnelStreamFrameKind::Error => {
-                return Ok(());
+                return Ok(StreamRequestOutcome::Completed);
             }
             RemoteTunnelStreamFrameKind::RequestBody => {}
             _ => {
@@ -809,12 +941,17 @@ where
     .await
 }
 
-async fn send_stream_response<W>(
+async fn send_stream_response<R, W>(
+    read: &mut R,
     write: &mut W,
     request_id: &str,
     response: reqwest::Response,
-) -> Result<()>
+    shutdown_token: &CancellationToken,
+) -> Result<StreamRequestOutcome>
 where
+    R: futures::Stream<
+            Item = std::result::Result<WsMessage, tokio_tungstenite::tungstenite::Error>,
+        > + Unpin,
     W: futures::Sink<WsMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
 {
     let status = response.status();
@@ -836,17 +973,45 @@ where
     .await?;
 
     let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|error| {
-            crate::errors::storage_driver_error(
-                StorageErrorKind::Transient,
-                format!("read reverse tunnel streaming local response body: {error}"),
-            )
-        })?;
-        if chunk.is_empty() {
-            continue;
+    let mut read_open = true;
+    loop {
+        tokio::select! {
+            biased;
+            _ = shutdown_token.cancelled() => return Ok(StreamRequestOutcome::Shutdown),
+            message = read.next(), if read_open => {
+                let Some(message) = message else {
+                    read_open = false;
+                    continue;
+                };
+                let message = message.map_err(|error| {
+                    crate::errors::storage_driver_error(
+                        StorageErrorKind::Transient,
+                        format!("read reverse tunnel streaming lane control frame: {error}"),
+                    )
+                })?;
+                if let WsMessage::Binary(_) = message {
+                    return Err(AsterError::validation_error(
+                        "reverse tunnel streaming lane received interleaved request while sending local response",
+                    ));
+                }
+                if !handle_stream_control_message(message, write).await? {
+                    return Ok(StreamRequestOutcome::PeerClosed);
+                }
+            }
+            chunk = stream.next() => {
+                let Some(chunk) = chunk else { break; };
+                let chunk = chunk.map_err(|error| {
+                    crate::errors::storage_driver_error(
+                        StorageErrorKind::Transient,
+                        format!("read reverse tunnel streaming local response body: {error}"),
+                    )
+                })?;
+                if chunk.is_empty() {
+                    continue;
+                }
+                send_stream_body_chunks(write, request_id, chunk).await?;
+            }
         }
-        send_stream_body_chunks(write, request_id, chunk).await?;
     }
 
     send_stream_frame(
@@ -863,7 +1028,8 @@ where
             body: Bytes::new(),
         },
     )
-    .await
+    .await?;
+    Ok(StreamRequestOutcome::Completed)
 }
 
 async fn send_stream_frame<W>(write: &mut W, frame: RemoteTunnelStreamFrame) -> Result<()>
@@ -1169,9 +1335,9 @@ fn binding_needs_reverse_tunnel(binding: &master_binding::Model) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        BindingTunnelWorker, StreamRequestOutcome, acknowledge_stream_lane_close,
-        binding_needs_reverse_tunnel, binding_worker_fingerprint, close_stream_lane,
-        ensure_binding_worker, execute_stream_tunnel_request,
+        BindingTunnelWorker, RetryWarningState, StreamRequestOutcome,
+        acknowledge_stream_lane_close, binding_needs_reverse_tunnel, binding_worker_fingerprint,
+        close_stream_lane, ensure_binding_worker, execute_stream_tunnel_request,
         execute_stream_tunnel_request_or_close, is_allowed_tunnel_target, signed_master_ws_request,
         stop_all_binding_workers, stop_binding_tunnel_tasks, stream_connect_url,
     };
@@ -1685,6 +1851,17 @@ mod tests {
         assert!(matches!(rx.recv().await, Some(WsMessage::Close(None))));
     }
 
+    #[test]
+    fn retry_warning_state_reports_once_until_recovery() {
+        let mut state = RetryWarningState::default();
+
+        assert!(state.record_failure());
+        assert!(!state.record_failure());
+        assert!(state.record_success());
+        assert!(!state.record_success());
+        assert!(state.record_failure());
+    }
+
     #[tokio::test]
     async fn peer_close_flushes_automatic_reply_without_sending_another_close() {
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -1695,6 +1872,37 @@ mod tests {
             .expect("peer close reply should flush cleanly");
 
         assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn peer_close_during_request_is_a_clean_lane_shutdown() {
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("test client should build without proxy");
+        let (read_tx, mut read) = websocket_channel_stream();
+        read_tx
+            .send(WsMessage::Close(None))
+            .expect("peer close should be delivered");
+        let (mut write, mut written_rx) = channel_sink();
+
+        let outcome = execute_stream_tunnel_request_or_close(
+            &client,
+            "http://127.0.0.1:9",
+            request_start_frame(
+                "peer-close-during-request",
+                "PUT",
+                "/api/v1/internal/storage/objects/peer-close.bin",
+            ),
+            &mut read,
+            &mut write,
+            &CancellationToken::new(),
+        )
+        .await
+        .expect("peer close should not become a lane error");
+
+        assert!(!outcome);
+        assert!(written_rx.try_recv().is_err());
     }
 
     #[tokio::test]
