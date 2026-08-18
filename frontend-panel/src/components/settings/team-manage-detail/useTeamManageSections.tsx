@@ -2,7 +2,7 @@ import type { FormEvent } from "react";
 import {
 	TEAM_MANAGE_AUDIT_PAGE_SIZE,
 	TEAM_MANAGE_MEMBER_PAGE_SIZE,
-} from "@/components/settings/team-manage-detail/teamManageDialogState";
+} from "@/components/settings/team-manage-detail/teamManageDetailState";
 import type {
 	TeamAuditEntryInfo,
 	TeamInfo,

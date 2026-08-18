@@ -4,7 +4,7 @@ import type { TeamInfo, TeamMemberRole, UserStatus } from "@/types/api";
 import {
 	TEAM_MANAGE_AUDIT_PAGE_SIZE,
 	TEAM_MANAGE_MEMBER_PAGE_SIZE,
-} from "./teamManageDialogState";
+} from "./teamManageDetailState";
 
 interface UseTeamManageViewModelArgs {
 	activeTeamId: number | null;

@@ -7,7 +7,7 @@ const mockState = vi.hoisted(() => ({
 	ensureLoaded: vi.fn(),
 	navigate: vi.fn(),
 	reload: vi.fn(),
-	teamManageDialogProps: null as null | {
+	teamManageDetailProps: null as null | {
 		onPageTabChange?: (tab: string, options?: { replace?: boolean }) => void;
 	},
 }));
@@ -27,12 +27,12 @@ vi.mock("@/components/layout/AppLayout", () => ({
 	),
 }));
 
-vi.mock("@/components/settings/TeamManageDialog", () => ({
-	TeamManageDialog: (props: {
+vi.mock("@/components/settings/team-manage-detail/TeamManageDetail", () => ({
+	TeamManageDetail: (props: {
 		onPageTabChange?: (tab: string, options?: { replace?: boolean }) => void;
 	}) => {
-		mockState.teamManageDialogProps = props;
-		return <div data-testid="team-manage-dialog">team-manage-dialog</div>;
+		mockState.teamManageDetailProps = props;
+		return <div data-testid="team-manage-detail">team-manage-detail</div>;
 	},
 }));
 
@@ -61,7 +61,7 @@ describe("TeamManagePage", () => {
 		mockState.ensureLoaded.mockReset();
 		mockState.navigate.mockReset();
 		mockState.reload.mockReset();
-		mockState.teamManageDialogProps = null;
+		mockState.teamManageDetailProps = null;
 
 		mockState.ensureLoaded.mockResolvedValue(undefined);
 		mockState.reload.mockResolvedValue(undefined);
@@ -86,7 +86,7 @@ describe("TeamManagePage", () => {
 			"overflow-hidden",
 		);
 		expect(pageBody).toHaveClass("mx-auto", "min-h-0", "flex-1", "flex-col");
-		expect(screen.getByTestId("team-manage-dialog")).toBeInTheDocument();
+		expect(screen.getByTestId("team-manage-detail")).toBeInTheDocument();
 		expect(container.querySelector("[data-testid='navigate']")).toBeNull();
 	});
 
@@ -94,10 +94,10 @@ describe("TeamManagePage", () => {
 		render(<TeamManagePage />);
 
 		await waitFor(() => {
-			expect(mockState.teamManageDialogProps?.onPageTabChange).toBeDefined();
+			expect(mockState.teamManageDetailProps?.onPageTabChange).toBeDefined();
 		});
 
-		mockState.teamManageDialogProps?.onPageTabChange?.("members", {
+		mockState.teamManageDetailProps?.onPageTabChange?.("members", {
 			replace: true,
 		});
 

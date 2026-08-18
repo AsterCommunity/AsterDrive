@@ -1,55 +1,45 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { TeamManageDialogView } from "@/components/settings/team-manage-detail/TeamManageDialogView";
-import type { TeamManageTab } from "@/components/settings/team-manage-detail/types";
-import { useTeamManageActions } from "@/components/settings/team-manage-detail/useTeamManageActions";
-import { useTeamManageData } from "@/components/settings/team-manage-detail/useTeamManageData";
-import { useTeamManageLocalState } from "@/components/settings/team-manage-detail/useTeamManageLocalState";
-import { useTeamManageScrollRestoration } from "@/components/settings/team-manage-detail/useTeamManageScrollRestoration";
-import { buildTeamManageSections } from "@/components/settings/team-manage-detail/useTeamManageSections";
-import { useTeamManageTabs } from "@/components/settings/team-manage-detail/useTeamManageTabs";
-import { useTeamManageViewModel } from "@/components/settings/team-manage-detail/useTeamManageViewModel";
 import { handleApiError } from "@/hooks/useApiError";
 import { normalizeWebdavPrefix } from "@/lib/webdav";
 import { webdavAccountService } from "@/services/webdavAccountService";
 import type { TeamInfo, TeamMemberRole } from "@/types/api";
+import { TeamManageShell } from "./TeamManageShell";
+import type { TeamManageTab } from "./types";
+import { useTeamManageActions } from "./useTeamManageActions";
+import { useTeamManageData } from "./useTeamManageData";
+import { useTeamManageLocalState } from "./useTeamManageLocalState";
+import { useTeamManageScrollRestoration } from "./useTeamManageScrollRestoration";
+import { buildTeamManageSections } from "./useTeamManageSections";
+import { useTeamManageTabs } from "./useTeamManageTabs";
+import { useTeamManageViewModel } from "./useTeamManageViewModel";
 
-export type { TeamManageTab } from "@/components/settings/team-manage-detail/types";
-
-interface TeamManageDialogProps {
+interface TeamManageDetailProps {
 	currentUserId: number | null;
-	layout?: "dialog" | "page";
-	onArchivedReload: () => Promise<void>;
-	onOpenChange: (open: boolean) => void;
-	onPageTabChange?: (
+	onExit: () => void;
+	onPageTabChange: (
 		tab: TeamManageTab,
 		options?: { replace?: boolean },
 	) => void;
 	onTeamsReload: () => Promise<void>;
-	open: boolean;
-	pageTab?: TeamManageTab;
-	teamId: number | null;
+	pageTab: TeamManageTab;
+	teamId: number;
 	teamSummary: TeamInfo | null;
 }
 
-export function TeamManageDialog({
+export function TeamManageDetail({
 	currentUserId,
-	layout = "dialog",
-	onArchivedReload,
-	onOpenChange,
+	onExit,
 	onPageTabChange,
 	onTeamsReload,
-	open,
 	pageTab,
 	teamId,
 	teamSummary,
-}: TeamManageDialogProps) {
+}: TeamManageDetailProps) {
 	const { t } = useTranslation(["core", "settings"]);
 	const navigate = useNavigate();
-	const isPageLayout = layout === "page";
-	const activeTeamId = open ? teamId : null;
-	const localState = useTeamManageLocalState(activeTeamId);
+	const localState = useTeamManageLocalState(teamId);
 	const {
 		archiveConfirmValue,
 		auditOffset,
@@ -75,7 +65,7 @@ export function TeamManageDialog({
 	const roleLabel = (role: TeamMemberRole) =>
 		t(`settings:settings_team_role_${role}`);
 	const viewModel = useTeamManageViewModel({
-		activeTeamId,
+		activeTeamId: teamId,
 		auditOffset,
 		auditTotal: 0,
 		canAssignOwner: false,
@@ -113,7 +103,6 @@ export function TeamManageDialog({
 		auditOffset,
 		memberFilters: viewModel.memberFilters,
 		memberOffset,
-		open,
 		teamId,
 		teamSummary,
 	});
@@ -139,7 +128,7 @@ export function TeamManageDialog({
 		usagePercentage,
 		used,
 	} = useTeamManageViewModel({
-		activeTeamId,
+		activeTeamId: teamId,
 		auditOffset,
 		auditTotal,
 		canAssignOwner,
@@ -155,7 +144,6 @@ export function TeamManageDialog({
 	});
 	const { contentRef, handleContentScroll, handleSidebarScroll, sidebarRef } =
 		useTeamManageScrollRestoration({
-			isPageLayout,
 			pageTab,
 			teamId,
 		});
@@ -165,7 +153,6 @@ export function TeamManageDialog({
 			canManageTeam,
 			detailLoading,
 			detailRequestStarted,
-			isPageLayout,
 			onPageTabChange,
 			pageTab,
 		});
@@ -175,7 +162,7 @@ export function TeamManageDialog({
 			baseName: teamBaseName,
 			description: teamDescription,
 			name,
-			teamId: activeTeamId,
+			teamId,
 		});
 	};
 	const setTeamDescription = (description: string) => {
@@ -184,15 +171,11 @@ export function TeamManageDialog({
 			baseName: teamBaseName,
 			description,
 			name: teamName,
-			teamId: activeTeamId,
+			teamId,
 		});
 	};
 
 	useEffect(() => {
-		if (!open) {
-			return;
-		}
-
 		let cancelled = false;
 		void webdavAccountService
 			.settings()
@@ -206,7 +189,7 @@ export function TeamManageDialog({
 		return () => {
 			cancelled = true;
 		};
-	}, [open, setWebdavPrefix]);
+	}, [setWebdavPrefix]);
 
 	const {
 		handleAddMember,
@@ -222,8 +205,7 @@ export function TeamManageDialog({
 		loadAuditEntries,
 		loadMembers,
 		loadTeamDetail,
-		onArchivedReload,
-		onOpenChange,
+		onExit,
 		onTeamsReload,
 		safeMemberOffset,
 		setMemberIdentifier,
@@ -232,10 +214,6 @@ export function TeamManageDialog({
 		teamDetail,
 		teamId,
 	});
-
-	if (teamId == null) {
-		return null;
-	}
 
 	const {
 		auditSection,
@@ -309,25 +287,22 @@ export function TeamManageDialog({
 	});
 
 	return (
-		<TeamManageDialogView
+		<TeamManageShell
 			auditSection={auditSection}
 			canArchiveTeam={canArchiveTeam}
 			canManageTeam={canManageTeam}
 			contentRef={contentRef}
 			currentTab={currentTab}
 			dangerSection={dangerSection}
-			isPageLayout={isPageLayout}
 			managerCount={managerCount}
 			membersSection={membersSection}
 			onContentScroll={handleContentScroll}
-			onOpenChange={onOpenChange}
 			onOpenWorkspace={() =>
 				navigate(`/teams/${teamId}`, { viewTransition: false })
 			}
-			onPageBack={() => onOpenChange(false)}
+			onPageBack={onExit}
 			onSidebarScroll={handleSidebarScroll}
 			onTabChange={handleTabChange}
-			open={open}
 			overviewSection={overviewSection}
 			ownerCount={ownerCount}
 			panelAnimationClass={panelAnimationClass}

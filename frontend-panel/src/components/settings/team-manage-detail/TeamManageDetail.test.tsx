@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { TeamManageDialog } from "@/components/settings/TeamManageDialog";
+import { TeamManageDetail } from "@/components/settings/team-manage-detail/TeamManageDetail";
 import type { UserSummary } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -60,7 +60,36 @@ vi.mock("@/services/teamService", () => ({
 	teamService: teamServiceMocks,
 }));
 
-describe("TeamManageDialog", () => {
+const teamSummary = {
+	archived_at: null,
+	created_at: "2026-04-01T00:00:00Z",
+	created_by: createUserSummary(),
+	description: "Team description",
+	id: 11,
+	member_count: 8,
+	my_role: "owner",
+	name: "Product",
+	policy_group_id: null,
+	storage_quota: 1024,
+	storage_used: 512,
+	updated_at: "2026-04-02T00:00:00Z",
+};
+
+function renderDetail() {
+	return render(
+		<TeamManageDetail
+			currentUserId={1}
+			onExit={vi.fn()}
+			onPageTabChange={vi.fn()}
+			onTeamsReload={async () => undefined}
+			pageTab="overview"
+			teamId={11}
+			teamSummary={teamSummary}
+		/>,
+	);
+}
+
+describe("TeamManageDetail", () => {
 	beforeEach(() => {
 		mockState.handleApiError.mockReset();
 		mockState.navigate.mockReset();
@@ -99,34 +128,8 @@ describe("TeamManageDialog", () => {
 		});
 	});
 
-	it("uses a fixed shell and a native scrollable detail column in page layout", async () => {
-		const { container } = render(
-			<TeamManageDialog
-				layout="page"
-				currentUserId={1}
-				onArchivedReload={async () => undefined}
-				onOpenChange={vi.fn()}
-				onPageTabChange={vi.fn()}
-				onTeamsReload={async () => undefined}
-				open
-				pageTab="overview"
-				teamId={11}
-				teamSummary={{
-					archived_at: null,
-					created_at: "2026-04-01T00:00:00Z",
-					created_by: createUserSummary(),
-					description: "Team description",
-					id: 11,
-					member_count: 8,
-					my_role: "owner",
-					name: "Product",
-					policy_group_id: null,
-					storage_quota: 1024,
-					storage_used: 512,
-					updated_at: "2026-04-02T00:00:00Z",
-				}}
-			/>,
-		);
+	it("uses a fixed shell and a native scrollable detail column", async () => {
+		const { container } = renderDetail();
 
 		await waitFor(() => {
 			expect(teamServiceMocks.get).toHaveBeenCalledWith(11);
@@ -151,7 +154,7 @@ describe("TeamManageDialog", () => {
 		).not.toBeNull();
 		expect(
 			container.querySelector(
-				".min-h-0.min-w-0.lg\\:flex-1.lg\\:flex.lg\\:h-full.lg\\:flex-col.lg\\:overflow-hidden",
+				".min-h-0.min-w-0.lg\\:flex.lg\\:h-full.lg\\:flex-1.lg\\:flex-col.lg\\:overflow-hidden",
 			),
 		).not.toBeNull();
 		expect(
@@ -175,34 +178,8 @@ describe("TeamManageDialog", () => {
 		expect(membersTab.parentElement).not.toHaveClass("overflow-x-auto");
 	});
 
-	it("keeps the overview name input mounted while editing in page layout", async () => {
-		render(
-			<TeamManageDialog
-				layout="page"
-				currentUserId={1}
-				onArchivedReload={async () => undefined}
-				onOpenChange={vi.fn()}
-				onPageTabChange={vi.fn()}
-				onTeamsReload={async () => undefined}
-				open
-				pageTab="overview"
-				teamId={11}
-				teamSummary={{
-					archived_at: null,
-					created_at: "2026-04-01T00:00:00Z",
-					created_by: createUserSummary(),
-					description: "Team description",
-					id: 11,
-					member_count: 8,
-					my_role: "owner",
-					name: "Product",
-					policy_group_id: null,
-					storage_quota: 1024,
-					storage_used: 512,
-					updated_at: "2026-04-02T00:00:00Z",
-				}}
-			/>,
-		);
+	it("keeps the overview name input mounted while editing", async () => {
+		renderDetail();
 
 		const input = (await screen.findByLabelText(
 			"core:name",

@@ -2,28 +2,23 @@ import { useCallback, useLayoutEffect, useRef } from "react";
 import {
 	teamManageContentScrollPositions,
 	teamManageSidebarScrollPositions,
-} from "./teamManageDialogState";
+} from "./teamManageDetailState";
 import type { TeamManageTab } from "./types";
 
 interface UseTeamManageScrollRestorationArgs {
-	isPageLayout: boolean;
-	pageTab?: TeamManageTab;
-	teamId: number | null;
+	pageTab: TeamManageTab;
+	teamId: number;
 }
 
 export function useTeamManageScrollRestoration({
-	isPageLayout,
 	pageTab,
 	teamId,
 }: UseTeamManageScrollRestorationArgs) {
 	const contentRef = useRef<HTMLDivElement | null>(null);
 	const sidebarRef = useRef<HTMLElement | null>(null);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: pageTab re-runs position save/restore on every tab switch even though the effect body only reads refs
 	useLayoutEffect(() => {
-		if (!isPageLayout || teamId == null || pageTab == null) {
-			return;
-		}
-
 		const content = contentRef.current;
 		if (content != null) {
 			content.scrollTop = teamManageContentScrollPositions.get(teamId) ?? 0;
@@ -51,10 +46,10 @@ export function useTeamManageScrollRestoration({
 				teamManageSidebarScrollPositions.set(teamId, sidebar.scrollTop);
 			}
 		};
-	}, [isPageLayout, pageTab, teamId]);
+	}, [pageTab, teamId]);
 
 	const handleContentScroll = useCallback(() => {
-		if (teamId == null || contentRef.current == null) {
+		if (contentRef.current == null) {
 			return;
 		}
 
@@ -62,7 +57,7 @@ export function useTeamManageScrollRestoration({
 	}, [teamId]);
 
 	const handleSidebarScroll = useCallback(() => {
-		if (teamId == null || sidebarRef.current == null) {
+		if (sidebarRef.current == null) {
 			return;
 		}
 

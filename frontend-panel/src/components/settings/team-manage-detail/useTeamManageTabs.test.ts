@@ -8,7 +8,8 @@ function renderTabs(
 		canManageTeam: true,
 		detailLoading: false,
 		detailRequestStarted: true,
-		isPageLayout: false,
+		onPageTabChange: vi.fn(),
+		pageTab: "overview",
 	},
 ) {
 	return renderHook(
@@ -21,32 +22,6 @@ function renderTabs(
 }
 
 describe("useTeamManageTabs", () => {
-	it("manages allowed dialog tabs and resets when permissions narrow", () => {
-		const hook = renderTabs();
-
-		act(() => {
-			hook.result.current.handleTabChange("audit");
-		});
-
-		expect(hook.result.current.currentTab).toBe("audit");
-
-		hook.rerender({
-			canArchiveTeam: false,
-			canManageTeam: false,
-			detailLoading: false,
-			detailRequestStarted: true,
-			isPageLayout: false,
-		});
-
-		expect(hook.result.current.currentTab).toBe("overview");
-
-		act(() => {
-			hook.result.current.handleTabChange("danger");
-		});
-
-		expect(hook.result.current.currentTab).toBe("overview");
-	});
-
 	it("syncs page tabs and redirects disallowed page tabs after detail loads", () => {
 		const onPageTabChange = vi.fn();
 		const hook = renderTabs({
@@ -54,7 +29,6 @@ describe("useTeamManageTabs", () => {
 			canManageTeam: true,
 			detailLoading: false,
 			detailRequestStarted: true,
-			isPageLayout: true,
 			onPageTabChange,
 			pageTab: "overview",
 		});
@@ -69,7 +43,6 @@ describe("useTeamManageTabs", () => {
 			canManageTeam: true,
 			detailLoading: false,
 			detailRequestStarted: true,
-			isPageLayout: true,
 			onPageTabChange,
 			pageTab: "danger",
 		});
@@ -84,7 +57,6 @@ describe("useTeamManageTabs", () => {
 			canManageTeam: false,
 			detailLoading: false,
 			detailRequestStarted: true,
-			isPageLayout: true,
 			onPageTabChange,
 			pageTab: "danger",
 		});
@@ -98,7 +70,6 @@ describe("useTeamManageTabs", () => {
 			canManageTeam: false,
 			detailLoading: false,
 			detailRequestStarted: true,
-			isPageLayout: true,
 			onPageTabChange,
 			pageTab: "overview",
 		});
@@ -107,5 +78,46 @@ describe("useTeamManageTabs", () => {
 		expect(hook.result.current.panelAnimationClass).toContain(
 			"slide-in-from-left-4",
 		);
+	});
+
+	it("ignores disallowed or repeated tab changes", () => {
+		const onPageTabChange = vi.fn();
+		const hook = renderTabs({
+			canArchiveTeam: false,
+			canManageTeam: false,
+			detailLoading: false,
+			detailRequestStarted: true,
+			onPageTabChange,
+			pageTab: "overview",
+		});
+
+		act(() => {
+			hook.result.current.handleTabChange("danger");
+		});
+
+		expect(hook.result.current.currentTab).toBe("overview");
+		expect(onPageTabChange).not.toHaveBeenCalled();
+
+		act(() => {
+			hook.result.current.handleTabChange("members");
+		});
+
+		expect(onPageTabChange).toHaveBeenCalledWith("members");
+
+		// 模拟路由同步：pageTab 跟上已切换的 currentTab
+		hook.rerender({
+			canArchiveTeam: false,
+			canManageTeam: false,
+			detailLoading: false,
+			detailRequestStarted: true,
+			onPageTabChange,
+			pageTab: "members",
+		});
+
+		act(() => {
+			hook.result.current.handleTabChange("members");
+		});
+
+		expect(onPageTabChange).toHaveBeenCalledTimes(1);
 	});
 });

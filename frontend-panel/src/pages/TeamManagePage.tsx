@@ -2,10 +2,8 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
-import {
-	TeamManageDialog,
-	type TeamManageTab,
-} from "@/components/settings/TeamManageDialog";
+import { TeamManageDetail } from "@/components/settings/team-manage-detail/TeamManageDetail";
+import type { TeamManageTab } from "@/components/settings/team-manage-detail/types";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { useAuthStore } from "@/stores/authStore";
 import { useTeamStore } from "@/stores/teamStore";
@@ -78,15 +76,11 @@ export default function TeamManagePage() {
 		<AppLayout>
 			<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
 				<div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col py-4 md:py-6">
-					<TeamManageDialog
-						layout="page"
+					<TeamManageDetail
 						currentUserId={user?.id ?? null}
-						onArchivedReload={async () => undefined}
-						onOpenChange={(open) => {
-							if (!open) {
-								navigate("/settings/teams", { viewTransition: false });
-							}
-						}}
+						onExit={() =>
+							navigate("/settings/teams", { viewTransition: false })
+						}
 						onPageTabChange={(tab, options) => {
 							navigate(`/settings/teams/${parsedTeamId}/${tab}`, {
 								replace: options?.replace,
@@ -94,7 +88,6 @@ export default function TeamManagePage() {
 							});
 						}}
 						onTeamsReload={() => reloadTeams(user?.id ?? null)}
-						open
 						pageTab={section}
 						teamId={parsedTeamId}
 						teamSummary={teamSummary}

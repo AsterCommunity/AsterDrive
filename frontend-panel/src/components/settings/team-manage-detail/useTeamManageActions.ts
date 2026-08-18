@@ -12,15 +12,14 @@ interface UseTeamManageActionsArgs {
 	loadAuditEntries: (teamId: number, offset?: number) => Promise<void>;
 	loadMembers: (teamId: number, offset?: number) => Promise<void>;
 	loadTeamDetail: (teamId: number) => Promise<void>;
-	onArchivedReload: () => Promise<void>;
-	onOpenChange: (open: boolean) => void;
+	onExit: () => void;
 	onTeamsReload: () => Promise<void>;
 	safeMemberOffset: number;
 	setMemberIdentifier: (identifier: string) => void;
 	setMemberOffset: (offset: number) => void;
 	setMemberRole: (role: TeamMemberRole) => void;
 	teamDetail: TeamInfo | null;
-	teamId: number | null;
+	teamId: number;
 }
 
 export function useTeamManageActions({
@@ -30,8 +29,7 @@ export function useTeamManageActions({
 	loadAuditEntries,
 	loadMembers,
 	loadTeamDetail,
-	onArchivedReload,
-	onOpenChange,
+	onExit,
 	onTeamsReload,
 	safeMemberOffset,
 	setMemberIdentifier,
@@ -84,7 +82,7 @@ export function useTeamManageActions({
 
 	const handleAddMember = useCallback(
 		async (identifier: string, role: TeamMemberRole) => {
-			if (teamId == null || !canManageTeam) {
+			if (!canManageTeam) {
 				return;
 			}
 
@@ -131,7 +129,7 @@ export function useTeamManageActions({
 
 	const handleUpdateMemberRole = useCallback(
 		async (memberUserId: number, role: TeamMemberRole) => {
-			if (teamId == null || !canManageTeam) {
+			if (!canManageTeam) {
 				return;
 			}
 
@@ -163,10 +161,6 @@ export function useTeamManageActions({
 
 	const handleRemoveMember = useCallback(
 		async (memberUserId: number) => {
-			if (teamId == null) {
-				return;
-			}
-
 			const removingSelf = memberUserId === currentUserId;
 
 			try {
@@ -174,7 +168,7 @@ export function useTeamManageActions({
 				await teamService.removeMember(teamId, memberUserId);
 				await onTeamsReload();
 				if (removingSelf) {
-					onOpenChange(false);
+					onExit();
 					toast.success(t("settings:settings_team_left"));
 				} else {
 					await Promise.all([
@@ -195,7 +189,7 @@ export function useTeamManageActions({
 			loadAuditEntries,
 			loadMembers,
 			loadTeamDetail,
-			onOpenChange,
+			onExit,
 			onTeamsReload,
 			safeMemberOffset,
 			t,
@@ -204,21 +198,21 @@ export function useTeamManageActions({
 	);
 
 	const handleArchiveTeam = useCallback(async () => {
-		if (teamId == null || !canArchiveTeam) {
+		if (!canArchiveTeam) {
 			return;
 		}
 
 		try {
 			setMutating(true);
 			await teamService.delete(teamId);
-			await Promise.all([onTeamsReload(), onArchivedReload()]);
+			await onTeamsReload();
 			toast.success(t("settings:settings_team_deleted"));
 		} catch (error) {
 			handleApiError(error);
 		} finally {
 			setMutating(false);
 		}
-	}, [canArchiveTeam, onArchivedReload, onTeamsReload, t, teamId]);
+	}, [canArchiveTeam, onTeamsReload, t, teamId]);
 
 	return {
 		handleAddMember,

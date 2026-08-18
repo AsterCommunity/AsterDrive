@@ -4,9 +4,9 @@ import {
 	getTeamManageTabDirection,
 	isTeamManageTab,
 	isTeamManageTabAllowed,
-} from "@/components/settings/team-manage-detail/teamManageDialogState";
+} from "@/components/settings/team-manage-detail/teamManageDetailState";
 
-describe("teamManageDialogState", () => {
+describe("teamManageDetailState", () => {
 	it("validates tabs and role-dependent tab access", () => {
 		expect(isTeamManageTab("overview")).toBe(true);
 		expect(isTeamManageTab("members")).toBe(true);

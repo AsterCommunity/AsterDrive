@@ -12,7 +12,7 @@ import type {
 import {
 	TEAM_MANAGE_AUDIT_PAGE_SIZE,
 	TEAM_MANAGE_MEMBER_PAGE_SIZE,
-} from "./teamManageDialogState";
+} from "./teamManageDetailState";
 
 interface TeamManageMemberFilters {
 	keyword?: string;
@@ -24,8 +24,7 @@ interface UseTeamManageDataArgs {
 	auditOffset: number;
 	memberFilters: TeamManageMemberFilters;
 	memberOffset: number;
-	open: boolean;
-	teamId: number | null;
+	teamId: number;
 	teamSummary: TeamInfo | null;
 }
 
@@ -33,7 +32,6 @@ export function useTeamManageData({
 	auditOffset,
 	memberFilters,
 	memberOffset,
-	open,
 	teamId,
 	teamSummary,
 }: UseTeamManageDataArgs) {
@@ -157,18 +155,11 @@ export function useTeamManageData({
 	);
 
 	useEffect(() => {
-		if (!open || teamId == null) {
-			detailRequestIdRef.current += 1;
-			setDetailLoading(false);
-			setTeamDetail(null);
-			return;
-		}
-
 		void loadTeamDetail(teamId);
-	}, [loadTeamDetail, open, teamId]);
+	}, [loadTeamDetail, teamId]);
 
 	useEffect(() => {
-		if (!open || teamId == null || !canManageTeam) {
+		if (!canManageTeam) {
 			auditRequestIdRef.current += 1;
 			setAuditEntries([]);
 			setAuditTotal(0);
@@ -177,21 +168,11 @@ export function useTeamManageData({
 		}
 
 		void loadAuditEntries(teamId, auditOffset);
-	}, [auditOffset, canManageTeam, loadAuditEntries, open, teamId]);
+	}, [auditOffset, canManageTeam, loadAuditEntries, teamId]);
 
 	useEffect(() => {
-		if (!open || teamId == null) {
-			memberRequestIdRef.current += 1;
-			setMemberLoading(false);
-			setMemberTotal(0);
-			setMembers([]);
-			setManagerCount(0);
-			setOwnerCount(0);
-			return;
-		}
-
 		void loadMembers(teamId, memberOffset, memberFilters);
-	}, [loadMembers, memberFilters, memberOffset, open, teamId]);
+	}, [loadMembers, memberFilters, memberOffset, teamId]);
 
 	return {
 		auditEntries,
