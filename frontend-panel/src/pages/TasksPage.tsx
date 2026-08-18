@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { EmptyState } from "@/components/common/EmptyState";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -200,19 +199,20 @@ export default function TasksPage() {
 					{loading ? (
 						<div className="space-y-2.5">
 							{["task-s1", "task-s2", "task-s3"].map((key) => (
-								<Card key={key} className="h-40 animate-pulse bg-muted/20" />
+								<div
+									key={key}
+									className="h-40 animate-pulse rounded-xl bg-muted/30"
+								/>
 							))}
 						</div>
 					) : tasks.length === 0 ? (
-						<Card className="bg-muted/15">
-							<div className="py-12">
-								<EmptyState
-									icon={<Icon name="Clock" className="size-10" />}
-									title={t("tasks:empty_title")}
-									description={t("tasks:empty_desc")}
-								/>
-							</div>
-						</Card>
+						<div className="py-12">
+							<EmptyState
+								icon={<Icon name="Clock" className="size-10" />}
+								title={t("tasks:empty_title")}
+								description={t("tasks:empty_desc")}
+							/>
+						</div>
 					) : (
 						<div className="space-y-2.5">
 							{tasks.map((task) => (

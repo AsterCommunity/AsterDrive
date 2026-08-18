@@ -37,6 +37,8 @@ export interface FileBrowserItemActionHandlers {
 	onRename?: FileBrowserContextValue["onRename"];
 	onShare: (target: FileBrowserShareTarget) => void;
 	onToggleLock: FileBrowserContextValue["onToggleLock"];
+	onTrashPurge?: FileBrowserContextValue["onTrashPurge"];
+	onTrashRestore?: FileBrowserContextValue["onTrashRestore"];
 	onVersions?: FileBrowserContextValue["onVersions"];
 }
 
@@ -95,6 +97,26 @@ function resolveBatchSelectionMenuProps({
 		onMove: batchSelectionActions?.onMove,
 		onManageTags: batchSelectionActions?.onManageTags,
 		onDelete: batchSelectionActions?.onDelete,
+		onTrashRestore: batchSelectionActions?.onRestore,
+		onTrashPurge: batchSelectionActions?.onPurge,
+	};
+}
+
+/** 回收站条目菜单：条目不可打开，主操作是恢复，危险操作是永久删除 */
+function resolveTrashItemMenuProps(
+	input: FileBrowserItemActionResolverInput,
+): ResolvedFileContextMenuProps {
+	const { handlers, isFolder, item } = input;
+	const entityType = isFolder ? "folder" : "file";
+	return {
+		isFolder,
+		isLocked: false,
+		onTrashRestore: handlers.onTrashRestore
+			? () => handlers.onTrashRestore?.(entityType, item.id)
+			: undefined,
+		onTrashPurge: handlers.onTrashPurge
+			? () => handlers.onTrashPurge?.(entityType, item.id)
+			: undefined,
 	};
 }
 
@@ -256,6 +278,12 @@ export function resolveFileBrowserItemMenuProps(
 
 	if (shouldUseBatchSelectionMenu(resolvedInput)) {
 		return resolveBatchSelectionMenuProps(resolvedInput);
+	}
+
+	// trashMode 的浏览器以 readOnly + onTrashRestore 标识；
+	// 回收站条目不可打开/下载，菜单只保留恢复与永久删除
+	if (input.readOnly && input.handlers.onTrashRestore) {
+		return resolveTrashItemMenuProps(input);
 	}
 
 	if (input.isFolder) {

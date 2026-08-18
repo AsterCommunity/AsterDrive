@@ -4,7 +4,14 @@ import { use } from "react";
 import { ScrollAreaContext } from "@/components/ui/scrollAreaContext";
 import { cn } from "@/lib/utils";
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+function Table({
+	className,
+	frameless = false,
+	...props
+}: React.ComponentProps<"table"> & {
+	/** D9 用户页去框化：不渲染带边框的容器，表格直接坐页面背景 */
+	frameless?: boolean;
+}) {
 	const isInsideScrollArea = use(ScrollAreaContext);
 	const table = (
 		<table
@@ -16,6 +23,10 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
 
 	if (isInsideScrollArea) {
 		return table;
+	}
+
+	if (frameless) {
+		return <div className="relative w-full overflow-x-auto">{table}</div>;
 	}
 
 	return (

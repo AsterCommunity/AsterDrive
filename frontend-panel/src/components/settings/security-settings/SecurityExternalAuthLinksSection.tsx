@@ -117,7 +117,7 @@ export function SecurityExternalAuthLinksSection() {
 	};
 
 	return (
-		<div className="space-y-4 rounded-xl border bg-background p-4">
+		<div className="space-y-4">
 			<div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
 				<div className="space-y-1">
 					<h3 className="text-sm font-semibold">
@@ -143,11 +143,11 @@ export function SecurityExternalAuthLinksSection() {
 			</div>
 
 			{loading ? (
-				<div className="rounded-xl border border-dashed bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
+				<div className="rounded-xl bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground">
 					{t("core:loading")}
 				</div>
 			) : links.length === 0 ? (
-				<div className="rounded-xl border border-dashed bg-muted/20 px-4 py-8 text-center">
+				<div className="rounded-xl bg-muted/30 px-4 py-8 text-center">
 					<p className="text-sm font-medium">
 						{t("settings:settings_external_auth_links_empty")}
 					</p>
@@ -166,11 +166,11 @@ export function SecurityExternalAuthLinksSection() {
 						);
 
 						return (
-							<div key={link.id} className="rounded-xl border bg-muted/20 p-3">
+							<div key={link.id} className="rounded-xl bg-muted/30 p-3">
 								<div className="flex flex-col gap-3">
 									<div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
 										<div className="flex min-w-0 items-center gap-2">
-											<div className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-background text-primary">
+											<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background text-primary">
 												<ExternalAuthLinkIcon link={link} />
 											</div>
 											<div className="min-w-0 flex-1 space-y-1">

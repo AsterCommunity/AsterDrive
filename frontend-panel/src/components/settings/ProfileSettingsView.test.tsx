@@ -170,7 +170,9 @@ describe("ProfileSettingsView", () => {
 			"upload",
 		);
 		expect(
-			screen.getByText("settings:settings_avatar_source_upload"),
+			screen.getByText(
+				"settings:settings_avatar_source · settings:settings_avatar_source_upload",
+			),
 		).toBeInTheDocument();
 		expect(screen.getByDisplayValue("alice")).toBeInTheDocument();
 		expect(screen.getByDisplayValue("alice@example.test")).toBeInTheDocument();

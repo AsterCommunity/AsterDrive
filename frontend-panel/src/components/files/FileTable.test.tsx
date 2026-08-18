@@ -20,6 +20,18 @@ const mockState = vi.hoisted(() => ({
 		onMoveToFolder: vi.fn(),
 		readOnly: false,
 		selectionEnabled: undefined as boolean | undefined,
+		trashMode: undefined as boolean | undefined,
+		getTrashMeta: undefined as
+			| ((
+					type: "file" | "folder",
+					id: number,
+			  ) =>
+					| {
+							expiresAt: string;
+							originalPath: string;
+					  }
+					| undefined)
+			| undefined,
 	},
 	store: {
 		selectedFileIds: new Set<number>(),
@@ -95,6 +107,12 @@ vi.mock("@/components/files/FileTableCells", () => ({
 	FileSizeCell: ({ size }: { size: number }) => <td>{size}</td>,
 	FolderSizeCell: () => <td>---</td>,
 	UpdatedAtCell: ({ updatedAt }: { updatedAt: string }) => <td>{updatedAt}</td>,
+	TrashOriginalPathCell: ({ path }: { path: string }) => (
+		<td data-testid="trash-original-path">{path}</td>
+	),
+	TrashExpiresAtCell: ({ expiresAt }: { expiresAt: string }) => (
+		<td data-testid="trash-expires-at">{expiresAt}</td>
+	),
 }));
 
 vi.mock("@/components/ui/icon", () => ({
@@ -247,6 +265,8 @@ describe("FileTable", () => {
 		mockState.browserContext.onMoveToFolder.mockReset();
 		mockState.browserContext.readOnly = false;
 		mockState.browserContext.selectionEnabled = undefined;
+		mockState.browserContext.trashMode = undefined;
+		mockState.browserContext.getTrashMeta = undefined;
 		mockState.store.selectedFileIds = new Set();
 		mockState.store.selectedFolderIds = new Set();
 		mockState.store.selectOnlyFile.mockReset();
@@ -473,5 +493,38 @@ describe("FileTable", () => {
 		fireEvent.dragOver(folderRow, { dataTransfer: sourceDataTransfer });
 		fireEvent.drop(folderRow, { dataTransfer: sourceDataTransfer });
 		expect(mockState.browserContext.onMoveToFolder).toHaveBeenCalledTimes(1);
+	});
+
+	it("swaps the date column for trash meta columns in trash mode", () => {
+		mockState.browserContext.readOnly = true;
+		mockState.browserContext.selectionEnabled = true;
+		mockState.browserContext.trashMode = true;
+		mockState.browserContext.getTrashMeta = (type, id) =>
+			type === "file" && id === 2
+				? { expiresAt: "2026-04-08", originalPath: "/Docs" }
+				: type === "folder" && id === 1
+					? { expiresAt: "2026-04-09", originalPath: "/" }
+					: undefined;
+
+		render(<FileTable />);
+
+		// 表头：原位置 + 过期时间替换常规日期列
+		expect(
+			screen.getByText("translated:core:original_location"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("translated:files:trash_expires_at"),
+		).toBeInTheDocument();
+		expect(screen.queryByText("translated:core:date")).not.toBeInTheDocument();
+
+		// 行：文件和文件夹都渲染 trash meta 单元格，不渲染 updated_at
+		expect(screen.getAllByTestId("trash-original-path")).toHaveLength(2);
+		expect(screen.getAllByTestId("trash-expires-at")).toHaveLength(2);
+		expect(screen.queryByText("2026-01-01")).not.toBeInTheDocument();
+		expect(screen.queryByText("2026-01-02")).not.toBeInTheDocument();
+
+		// trashMode 下 readOnly 行也保留恢复/删除操作菜单
+		expect(screen.getByText("actions:Docs")).toBeInTheDocument();
+		expect(screen.getByText("actions:report.pdf")).toBeInTheDocument();
 	});
 });

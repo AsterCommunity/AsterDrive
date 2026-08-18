@@ -28,6 +28,8 @@ interface WebdavAccountTableProps {
 	canManageTeam?: boolean;
 	currentUserId?: number | null;
 	deletingAccountId: number | null;
+	/** D9 用户页去框化：空态/工具条不带 AdminSurface 框 */
+	frameless?: boolean;
 	labels: WebdavAccountTableLabels;
 	loading: boolean;
 	onDelete: (id: number) => void;
@@ -40,6 +42,7 @@ export function WebdavAccountTable({
 	canManageTeam = false,
 	currentUserId,
 	deletingAccountId,
+	frameless = false,
 	labels,
 	loading,
 	onDelete,
@@ -76,6 +79,7 @@ export function WebdavAccountTable({
 			items={accounts}
 			columns={canManageTeam ? 6 : 5}
 			rows={5}
+			frameless={frameless}
 			emptyIcon={<Icon name="Globe" className="size-10" />}
 			emptyTitle={labels.emptyTitle}
 			emptyDescription={labels.emptyDescription}

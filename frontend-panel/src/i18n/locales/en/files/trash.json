@@ -3,6 +3,7 @@
 	"confirm_delete_desc": "You can still restore it from trash later.",
 	"trash_page_desc": "Deleted items stay until their expiration time; you can restore or permanently delete them before then.",
 	"trash_expires_at": "Expires",
+	"trash_restore": "Restore",
 	"trash_restore_selected": "Restore Selected",
 	"trash_delete_permanently": "Permanently Delete",
 	"trash_delete_selected": "Delete Selected Permanently",

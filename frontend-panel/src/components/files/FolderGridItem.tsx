@@ -33,6 +33,8 @@ interface FolderGridItemProps {
 	selectionActive?: boolean;
 	actionMenu?: React.ReactNode;
 	alwaysShowActionMenu?: boolean;
+	/** 覆盖默认副标题（"文件夹"），回收站模式用来展示过期时间 */
+	subtitle?: React.ReactNode;
 }
 
 /**
@@ -56,6 +58,7 @@ export function FolderGridItem({
 	selectionActive = false,
 	actionMenu,
 	alwaysShowActionMenu = false,
+	subtitle,
 }: FolderGridItemProps) {
 	const { t } = useTranslation("core");
 	const { dragOver, dragProps } = useGridItemDragDrop({
@@ -155,7 +158,7 @@ export function FolderGridItem({
 					{item.name}
 				</span>
 				<div className="truncate text-xs text-muted-foreground">
-					{t("folder")}
+					{subtitle ?? t("folder")}
 				</div>
 			</div>
 			<TagChips

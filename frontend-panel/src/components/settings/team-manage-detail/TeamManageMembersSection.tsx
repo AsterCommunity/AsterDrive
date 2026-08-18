@@ -137,7 +137,7 @@ export function TeamManageMembersSection({
 			: null;
 
 	return (
-		<section className="rounded-2xl border bg-background/60 p-6">
+		<section>
 			<div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
 				<div>
 					<h4 className="text-base font-semibold text-foreground">
@@ -197,7 +197,7 @@ export function TeamManageMembersSection({
 				</div>
 			</div>
 
-			<div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/20 px-4 py-3 text-sm">
+			<div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/30 px-4 py-3 text-sm">
 				<div className="flex flex-wrap gap-4 text-muted-foreground">
 					<span>
 						{t("settings:settings_team_member_filtered_count", {
@@ -230,7 +230,7 @@ export function TeamManageMembersSection({
 
 			{canManageTeam ? (
 				<form
-					className="mb-4 grid gap-3 rounded-xl border bg-muted/20 p-4 md:grid-cols-[minmax(0,1fr)_180px_auto]"
+					className="mb-4 grid gap-3 rounded-xl bg-muted/30 p-4 md:grid-cols-[minmax(0,1fr)_180px_auto]"
 					onSubmit={onAddMember}
 				>
 					<div className="space-y-2">

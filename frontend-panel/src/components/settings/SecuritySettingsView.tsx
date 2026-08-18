@@ -18,7 +18,6 @@ export function SecuritySettingsView() {
 		<SettingsSection
 			title={t("settings:settings_security")}
 			description={t("settings:settings_security_desc")}
-			contentClassName="pt-4"
 		>
 			<div className="space-y-4">
 				<SecuritySummaryCard

@@ -33,10 +33,7 @@ export function SecurityEmailSection({
 	const { t } = useTranslation(["auth", "core", "settings"]);
 
 	return (
-		<form
-			className="space-y-4 rounded-xl border bg-background p-4"
-			onSubmit={onSubmit}
-		>
+		<form className="space-y-4" onSubmit={onSubmit}>
 			<div className="space-y-1">
 				<h3 className="text-sm font-semibold">
 					{t("settings:settings_email_section")}
@@ -84,7 +81,7 @@ export function SecurityEmailSection({
 			</div>
 
 			{user?.pending_email ? (
-				<div className="rounded-xl border bg-muted/20 p-4">
+				<div className="rounded-xl bg-muted/30 p-4">
 					<div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
 						<div className="space-y-1">
 							<p className="text-sm font-medium">

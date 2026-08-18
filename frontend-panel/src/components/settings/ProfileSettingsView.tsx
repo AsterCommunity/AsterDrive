@@ -153,7 +153,7 @@ export function ProfileSettingsView() {
 				className="divide-y"
 				onSubmit={(event) => void handleProfileSubmit(event)}
 			>
-				<div className="grid gap-4 py-5 lg:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] lg:items-center">
+				<div className="py-5">
 					<div className="flex min-w-0 items-center gap-4">
 						<UserAvatarImage
 							avatar={user?.profile.avatar ?? null}
@@ -173,15 +173,12 @@ export function ProfileSettingsView() {
 									{user.email}
 								</p>
 							) : null}
+							<p className="truncate text-xs text-muted-foreground/80">
+								{t("settings:settings_avatar_source")}
+								{" · "}
+								{t(`settings:${getAvatarSourceLabelKey(avatarSource)}`)}
+							</p>
 						</div>
-					</div>
-					<div className="rounded-lg border bg-muted/15 px-3 py-2.5">
-						<p className="text-xs font-medium text-muted-foreground">
-							{t("settings:settings_avatar_source")}
-						</p>
-						<p className="mt-1 text-sm font-medium">
-							{t(`settings:${getAvatarSourceLabelKey(avatarSource)}`)}
-						</p>
 					</div>
 				</div>
 

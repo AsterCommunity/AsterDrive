@@ -1,11 +1,4 @@
 import type { ReactNode } from "react";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 
@@ -41,25 +34,24 @@ export function SettingsSection({
 	className?: string;
 	contentClassName?: string;
 }) {
+	// D9 去框化：section 标题直接落在背景上，靠间距分区；行级分隔由 SettingsRow 的 hairline 承担
 	return (
-		<Card className={cn("gap-0", className)}>
-			<CardHeader className="border-b">
-				<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-					<div className="min-w-0">
-						<CardTitle>{title}</CardTitle>
-						{description ? (
-							<CardDescription>{description}</CardDescription>
-						) : null}
-					</div>
-					{action ? (
-						<div className="flex items-center gap-2 self-start">{action}</div>
+		<section className={cn("flex flex-col", className)}>
+			<header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+				<div className="min-w-0 space-y-1">
+					<h2 className="font-heading text-base leading-snug font-medium">
+						{title}
+					</h2>
+					{description ? (
+						<p className="text-sm text-muted-foreground">{description}</p>
 					) : null}
 				</div>
-			</CardHeader>
-			<CardContent className={cn("pt-2", contentClassName)}>
-				{children}
-			</CardContent>
-		</Card>
+				{action ? (
+					<div className="flex items-center gap-2 self-start">{action}</div>
+				) : null}
+			</header>
+			<div className={cn("pt-5", contentClassName)}>{children}</div>
+		</section>
 	);
 }
 

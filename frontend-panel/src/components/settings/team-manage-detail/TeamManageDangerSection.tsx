@@ -27,7 +27,7 @@ export function TeamManageDangerSection({
 	const { t } = useTranslation(["core", "settings"]);
 
 	return (
-		<section className="rounded-2xl border border-destructive/30 bg-destructive/5 p-6">
+		<section className="rounded-2xl bg-destructive/10 p-6">
 			<div className="mb-5">
 				<h4 className="text-base font-semibold text-foreground">
 					{t("settings:settings_team_danger_zone")}
@@ -37,7 +37,7 @@ export function TeamManageDangerSection({
 				</p>
 			</div>
 			<div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-				<div className="space-y-3 rounded-xl border bg-background/70 p-4">
+				<div className="space-y-3">
 					<div className="flex items-center justify-between gap-3">
 						<span className="text-sm text-muted-foreground">
 							{t("settings:settings_team_owner_count")}
@@ -60,7 +60,7 @@ export function TeamManageDangerSection({
 						{t("settings:settings_team_danger_zone_hint")}
 					</p>
 				</div>
-				<div className="space-y-3 rounded-xl border border-destructive/30 bg-background/70 p-4">
+				<div className="space-y-3">
 					<div className="space-y-2">
 						<Label htmlFor="team-archive-confirm">
 							{t("settings:settings_team_archive_confirm_label")}

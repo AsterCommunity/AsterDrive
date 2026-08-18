@@ -33,7 +33,7 @@ export function TeamManageOverviewSection({
 	const { t } = useTranslation(["core", "settings"]);
 
 	return (
-		<section className="rounded-2xl border bg-background/60 p-6">
+		<section>
 			<div className="mb-5">
 				<h4 className="text-base font-semibold text-foreground">
 					{t("settings:settings_team_details")}

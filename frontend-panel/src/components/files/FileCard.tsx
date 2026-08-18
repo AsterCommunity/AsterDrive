@@ -28,6 +28,8 @@ interface FileCardProps {
 	thumbnailPath?: string;
 	actionMenu?: React.ReactNode;
 	alwaysShowActionMenu?: boolean;
+	/** 覆盖默认副标题（大小），回收站模式用来展示过期时间 */
+	subtitle?: React.ReactNode;
 }
 
 /**
@@ -51,6 +53,7 @@ export function FileCard({
 	thumbnailPath,
 	actionMenu,
 	alwaysShowActionMenu = false,
+	subtitle,
 }: FileCardProps) {
 	const { dragProps } = useGridItemDragDrop({
 		itemId: item.id,
@@ -152,7 +155,7 @@ export function FileCard({
 					{item.name}
 				</span>
 				<div className="truncate text-xs text-muted-foreground">
-					{formatBytes(item.size ?? 0)}
+					{subtitle ?? formatBytes(item.size ?? 0)}
 				</div>
 			</div>
 			<TagChips

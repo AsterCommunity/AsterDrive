@@ -2,6 +2,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type React from "react";
 import { memo, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { FileBrowserTrashMeta } from "@/components/files/FileBrowserContext";
 import { useFileBrowserContext } from "@/components/files/FileBrowserContext";
 import {
 	FileBrowserItemActionMenu,
@@ -12,6 +13,8 @@ import {
 	FileSizeCell,
 	FolderNameCell,
 	FolderSizeCell,
+	TrashExpiresAtCell,
+	TrashOriginalPathCell,
 	UpdatedAtCell,
 } from "@/components/files/FileTableCells";
 import { getCurrentSelectionDragData } from "@/components/files/selectionDragData";
@@ -94,6 +97,7 @@ interface FolderTableDataRowProps extends BaseTableRowProps {
 	folder: FolderListItem;
 	readOnly: boolean;
 	selectionEnabled: boolean;
+	trashMeta?: FileBrowserTrashMeta;
 	onFolderOpen: (id: number, name: string) => void;
 	onMoveToFolder?: (
 		fileIds: number[],
@@ -109,6 +113,7 @@ const FolderTableDataRow = memo(function FolderTableDataRow({
 	folder,
 	readOnly,
 	selectionEnabled,
+	trashMeta,
 	onFolderOpen,
 	onMoveToFolder,
 }: FolderTableDataRowProps) {
@@ -199,13 +204,21 @@ const FolderTableDataRow = memo(function FolderTableDataRow({
 				</TableCell>
 			)}
 			<FolderNameCell folder={folder} />
+			{trashMeta ? (
+				<>
+					<TrashOriginalPathCell path={trashMeta.originalPath} />
+					<TrashExpiresAtCell expiresAt={trashMeta.expiresAt} />
+				</>
+			) : null}
 			<FolderSizeCell />
-			<UpdatedAtCell updatedAt={folder.updated_at} />
+			{trashMeta ? null : <UpdatedAtCell updatedAt={folder.updated_at} />}
 			<TableCell
 				className="w-12 pl-0 pr-3 text-right"
 				onClick={(e) => e.stopPropagation()}
 			>
-				{readOnly ? null : <FileBrowserItemActionMenu item={folder} isFolder />}
+				{readOnly && !trashMeta ? null : (
+					<FileBrowserItemActionMenu item={folder} isFolder />
+				)}
 			</TableCell>
 		</TableRow>
 	);
@@ -225,6 +238,7 @@ interface FileTableDataRowProps extends BaseTableRowProps {
 	readOnly: boolean;
 	selectionEnabled: boolean;
 	thumbnailPath?: string;
+	trashMeta?: FileBrowserTrashMeta;
 	onFileClick: (file: FileListItem) => void;
 }
 
@@ -235,6 +249,7 @@ const FileTableDataRow = memo(function FileTableDataRow({
 	readOnly,
 	selectionEnabled,
 	thumbnailPath,
+	trashMeta,
 	onFileClick,
 }: FileTableDataRowProps) {
 	const selected = useFileStore((s) => s.selectedFileIds.has(file.id));
@@ -286,8 +301,14 @@ const FileTableDataRow = memo(function FileTableDataRow({
 				</TableCell>
 			)}
 			<FileNameCell file={file} thumbnailPath={thumbnailPath} />
+			{trashMeta ? (
+				<>
+					<TrashOriginalPathCell path={trashMeta.originalPath} />
+					<TrashExpiresAtCell expiresAt={trashMeta.expiresAt} />
+				</>
+			) : null}
 			<FileSizeCell size={file.size} />
-			<UpdatedAtCell updatedAt={file.updated_at} />
+			{trashMeta ? null : <UpdatedAtCell updatedAt={file.updated_at} />}
 			<TableCell
 				className="w-12 pl-0 pr-3 text-right"
 				onClick={(e) => e.stopPropagation()}
@@ -316,11 +337,13 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 		files,
 		folders,
 		getThumbnailPath,
+		getTrashMeta,
 		onFileClick,
 		onFolderOpen,
 		onMoveToFolder,
 		readOnly = false,
 		selectionEnabled = !readOnly,
+		trashMode = false,
 	} = useFileBrowserContext();
 	const selectedFileIds = useFileStore((s) => s.selectedFileIds);
 	const selectedFolderIds = useFileStore((s) => s.selectedFolderIds);
@@ -364,6 +387,7 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 			folder={folder}
 			readOnly={readOnly}
 			selectionEnabled={selectionEnabled}
+			trashMeta={trashMode ? getTrashMeta?.("folder", folder.id) : undefined}
 			onFolderOpen={onFolderOpen}
 			onMoveToFolder={onMoveToFolder}
 		/>
@@ -378,6 +402,7 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 			readOnly={readOnly}
 			selectionEnabled={selectionEnabled}
 			thumbnailPath={getThumbnailPath?.(file)}
+			trashMeta={trashMode ? getTrashMeta?.("file", file.id) : undefined}
 			onFileClick={onFileClick}
 		/>
 	);
@@ -402,9 +427,10 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 		virtualizer.measure();
 	}, [scrollElement, virtualizer]);
 
-	const columnCount = selectionEnabled
-		? TABLE_COLUMN_COUNT
-		: TABLE_COLUMN_COUNT - 1;
+	const trashColumnCount = trashMode ? 1 : 0;
+	const columnCount =
+		(selectionEnabled ? TABLE_COLUMN_COUNT : TABLE_COLUMN_COUNT - 1) +
+		trashColumnCount;
 
 	const renderSpacerRow = (key: string, height: number) => (
 		<TableRow key={key} aria-hidden className="border-0 hover:bg-transparent">
@@ -475,6 +501,14 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 							)}
 						</div>
 					</TableHead>
+					{trashMode ? (
+						<TableHead>{t("core:original_location")}</TableHead>
+					) : null}
+					{trashMode ? (
+						<TableHead className="w-[160px]">
+							{t("files:trash_expires_at")}
+						</TableHead>
+					) : null}
 					<TableHead
 						className={cn(
 							"w-[100px]",
@@ -489,21 +523,23 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 							)}
 						</div>
 					</TableHead>
-					<TableHead
-						className={cn(!readOnly && "cursor-pointer select-none")}
-						onClick={readOnly ? undefined : () => handleSort("created_at")}
-					>
-						<div className="flex items-center">
-							{t("core:date")}
-							{!readOnly && (
-								<SortIcon
-									column="created_at"
-									current={sortBy}
-									order={sortOrder}
-								/>
-							)}
-						</div>
-					</TableHead>
+					{trashMode ? null : (
+						<TableHead
+							className={cn(!readOnly && "cursor-pointer select-none")}
+							onClick={readOnly ? undefined : () => handleSort("created_at")}
+						>
+							<div className="flex items-center">
+								{t("core:date")}
+								{!readOnly && (
+									<SortIcon
+										column="created_at"
+										current={sortBy}
+										order={sortOrder}
+									/>
+								)}
+							</div>
+						</TableHead>
+					)}
 					<TableHead className="w-12 pr-3" />
 				</TableRow>
 			</TableHeader>

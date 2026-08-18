@@ -187,7 +187,7 @@ export function TeamManageWebdavSection({
 	};
 
 	return (
-		<section className="rounded-2xl border bg-background/60 p-6">
+		<section>
 			<div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
 				<div>
 					<h4 className="text-base font-semibold text-foreground">
@@ -208,7 +208,7 @@ export function TeamManageWebdavSection({
 				</Button>
 			</div>
 
-			<div className="mb-4 rounded-xl border bg-muted/20 p-4">
+			<div className="mb-4 rounded-xl bg-muted/30 p-4">
 				<div className="mb-1 flex items-center gap-2">
 					<Icon name="Globe" className="size-4 text-muted-foreground" />
 					<p className="text-sm font-medium">{t("webdav:webdav_endpoint")}</p>
@@ -224,6 +224,7 @@ export function TeamManageWebdavSection({
 			</div>
 
 			<WebdavAccountTable
+				frameless
 				loading={loading}
 				accounts={sortedAccounts}
 				canManageTeam={canManageTeam}

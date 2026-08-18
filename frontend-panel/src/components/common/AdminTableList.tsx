@@ -27,6 +27,9 @@ interface AdminTableListProps<T> {
 	renderRow: (item: T) => ReactNode;
 	toolbar?: ReactNode;
 	className?: string;
+	/** D9 用户页去框化：toolbar/空态不用 AdminSurface 带框容器，直接坐页面背景。
+	    后台页面不传，行为不变 */
+	frameless?: boolean;
 }
 
 export function AdminTableList<T>({
@@ -47,33 +50,71 @@ export function AdminTableList<T>({
 	renderRow,
 	toolbar,
 	className,
+	frameless = false,
 }: AdminTableListProps<T>) {
 	return (
 		<div className={cn("flex min-h-0 flex-col gap-3", className)}>
 			{toolbar ? (
-				<AdminSurface padded={false} className="flex-none rounded-lg px-3 py-2">
-					<div className="flex flex-wrap items-center gap-2">{toolbar}</div>
-				</AdminSurface>
+				frameless ? (
+					<div className="flex flex-wrap items-center gap-2 px-1 py-1">
+						{toolbar}
+					</div>
+				) : (
+					<AdminSurface
+						padded={false}
+						className="flex-none rounded-lg px-3 py-2"
+					>
+						<div className="flex flex-wrap items-center gap-2">{toolbar}</div>
+					</AdminSurface>
+				)
 			) : null}
 			{loading ? (
-				<AdminTableShell>
-					<SkeletonTable columns={columns} rows={rows ?? 5} />
-				</AdminTableShell>
+				frameless ? (
+					<div className="min-h-0">
+						<SkeletonTable columns={columns} rows={rows ?? 5} />
+					</div>
+				) : (
+					<AdminTableShell>
+						<SkeletonTable columns={columns} rows={rows ?? 5} />
+					</AdminTableShell>
+				)
 			) : items.length === 0 ? (
-				<AdminSurface padded={false} className="rounded-lg">
-					<EmptyState
-						icon={emptyIcon}
-						title={filtered ? (filteredEmptyTitle ?? emptyTitle) : emptyTitle}
-						description={
-							filtered
-								? (filteredEmptyDescription ?? emptyDescription)
-								: emptyDescription
-						}
-						action={
-							filtered ? (filteredEmptyAction ?? emptyAction) : emptyAction
-						}
-					/>
-				</AdminSurface>
+				frameless ? (
+					<div className="py-12">
+						<EmptyState
+							icon={emptyIcon}
+							title={filtered ? (filteredEmptyTitle ?? emptyTitle) : emptyTitle}
+							description={
+								filtered
+									? (filteredEmptyDescription ?? emptyDescription)
+									: emptyDescription
+							}
+							action={
+								filtered ? (filteredEmptyAction ?? emptyAction) : emptyAction
+							}
+						/>
+					</div>
+				) : (
+					<AdminSurface padded={false} className="rounded-lg">
+						<EmptyState
+							icon={emptyIcon}
+							title={filtered ? (filteredEmptyTitle ?? emptyTitle) : emptyTitle}
+							description={
+								filtered
+									? (filteredEmptyDescription ?? emptyDescription)
+									: emptyDescription
+							}
+							action={
+								filtered ? (filteredEmptyAction ?? emptyAction) : emptyAction
+							}
+						/>
+					</AdminSurface>
+				)
+			) : frameless ? (
+				<AdminTable frameless>
+					{headerRow}
+					<AdminTableBody>{items.map(renderRow)}</AdminTableBody>
+				</AdminTable>
 			) : (
 				<AdminTableShell>
 					<AdminTable>

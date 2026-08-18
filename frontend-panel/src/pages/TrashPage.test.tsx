@@ -1,7 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { FileBrowserContextValue } from "@/components/files/FileBrowserContext";
+import { useFileBrowserContext } from "@/components/files/FileBrowserContext";
 import { STORAGE_KEYS } from "@/config/app";
 import TrashPage from "@/pages/TrashPage";
+import { useFileStore } from "@/stores/fileStore";
 import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 
 const mockState = vi.hoisted(() => ({
@@ -198,69 +201,62 @@ vi.mock("@/components/trash/TrashBatchActionBar", () => ({
 		) : null,
 }));
 
-vi.mock("@/components/trash/TrashGrid", () => ({
-	TrashGrid: ({
-		items,
-		onToggleSelect,
-		onRestore,
-		onPurge,
-	}: {
-		items: Array<{ id: number; name: string }>;
-		onToggleSelect: (item: never) => void;
-		onRestore: (item: never) => void;
-		onPurge: (item: never) => void;
-	}) => (
+/** FileGrid/FileTable 的渲染细节由它们自己的测试覆盖；
+ *  这里只把 browser context 的条目与操作暴露成按钮，验证页面编排。 */
+function MockBrowserItems({ ctx }: { ctx: FileBrowserContextValue }) {
+	return (
 		<div>
-			{items.map((item) => (
-				<div key={item.id}>
-					<button type="button" onClick={() => onToggleSelect(item as never)}>
-						{`select:${item.name}`}
+			{ctx.folders.map((folder) => (
+				<div key={`folder-${folder.id}`}>
+					<button
+						type="button"
+						onClick={() => ctx.onFolderOpen(folder.id, folder.name)}
+					>
+						{`select:${folder.name}`}
 					</button>
-					<button type="button" onClick={() => onRestore(item as never)}>
-						{`restore:${item.name}`}
+					<button
+						type="button"
+						onClick={() => ctx.onTrashRestore?.("folder", folder.id)}
+					>
+						{`restore:${folder.name}`}
 					</button>
-					<button type="button" onClick={() => onPurge(item as never)}>
-						{`purge:${item.name}`}
+					<button
+						type="button"
+						onClick={() => ctx.onTrashPurge?.("folder", folder.id)}
+					>
+						{`purge:${folder.name}`}
+					</button>
+				</div>
+			))}
+			{ctx.files.map((file) => (
+				<div key={`file-${file.id}`}>
+					<button type="button" onClick={() => ctx.onFileClick(file)}>
+						{`select:${file.name}`}
+					</button>
+					<button
+						type="button"
+						onClick={() => ctx.onTrashRestore?.("file", file.id)}
+					>
+						{`restore:${file.name}`}
+					</button>
+					<button
+						type="button"
+						onClick={() => ctx.onTrashPurge?.("file", file.id)}
+					>
+						{`purge:${file.name}`}
 					</button>
 				</div>
 			))}
 		</div>
-	),
+	);
+}
+
+vi.mock("@/components/files/FileGrid", () => ({
+	FileGrid: () => <MockBrowserItems ctx={useFileBrowserContext()} />,
 }));
 
-vi.mock("@/components/trash/TrashTable", () => ({
-	TrashTable: ({
-		items,
-		onToggleSelectAll,
-		onToggleSelect,
-		onRestore,
-		onPurge,
-	}: {
-		items: Array<{ id: number; name: string }>;
-		onToggleSelectAll: () => void;
-		onToggleSelect: (item: never) => void;
-		onRestore: (item: never) => void;
-		onPurge: (item: never) => void;
-	}) => (
-		<div>
-			<button type="button" onClick={onToggleSelectAll}>
-				toggle-all
-			</button>
-			{items.map((item) => (
-				<div key={item.id}>
-					<button type="button" onClick={() => onToggleSelect(item as never)}>
-						{`select:${item.name}`}
-					</button>
-					<button type="button" onClick={() => onRestore(item as never)}>
-						{`restore:${item.name}`}
-					</button>
-					<button type="button" onClick={() => onPurge(item as never)}>
-						{`purge:${item.name}`}
-					</button>
-				</div>
-			))}
-		</div>
-	),
+vi.mock("@/components/files/FileTable", () => ({
+	FileTable: () => <MockBrowserItems ctx={useFileBrowserContext()} />,
 }));
 
 vi.mock("@/components/ui/button", () => ({
@@ -372,13 +368,28 @@ vi.mock("@/stores/authStore", () => ({
 }));
 
 const fileItem = {
-	entity_type: "file",
+	created_at: "2026-04-01T00:00:00Z",
 	expires_at: "2026-04-08T00:00:00Z",
 	id: 1,
+	lock_state: { state: "unlocked" },
+	mime_type: "application/pdf",
 	name: "report.pdf",
 	original_path: "/Docs",
 	size: 12,
+	updated_at: "2026-04-01T00:00:00Z",
 } as never;
+
+function folderItem(id: number, name: string, expiresAt: string) {
+	return {
+		created_at: "2026-04-01T00:00:00Z",
+		expires_at: expiresAt,
+		id,
+		lock_state: { state: "unlocked" },
+		name,
+		original_path: "/",
+		updated_at: "2026-04-01T00:00:00Z",
+	} as never;
+}
 
 function emptyTrashContents() {
 	return {
@@ -407,6 +418,7 @@ describe("TrashPage", () => {
 		mockState.toastError.mockReset();
 		mockState.toastSuccess.mockReset();
 		MockIntersectionObserver.reset();
+		useFileStore.getState().clearSelection();
 		useUploadAreaControlsStore.getState().setUploadPanelPresence({
 			open: false,
 			visible: false,
@@ -481,6 +493,63 @@ describe("TrashPage", () => {
 			expect(mockState.list).toHaveBeenCalledTimes(2);
 		});
 		expect(mockState.refreshUser).not.toHaveBeenCalled();
+	});
+
+	it("restores a single item from the item menu action", async () => {
+		mockState.list
+			.mockResolvedValueOnce({
+				files: [fileItem],
+				files_total: 1,
+				folders: [],
+				folders_total: 0,
+				next_file_cursor: null,
+			} as never)
+			.mockResolvedValueOnce(emptyTrashContents());
+
+		render(<TrashPage />);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "restore:report.pdf" }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.restoreFile).toHaveBeenCalledWith(1);
+		});
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("toast:restore");
+	});
+
+	it("asks for confirmation before purging a single item", async () => {
+		mockState.list
+			.mockResolvedValueOnce({
+				files: [fileItem],
+				files_total: 1,
+				folders: [],
+				folders_total: 0,
+				next_file_cursor: null,
+			} as never)
+			.mockResolvedValueOnce(emptyTrashContents());
+
+		render(<TrashPage />);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "purge:report.pdf" }),
+		);
+
+		expect(await screen.findByText("purge-title:1")).toBeInTheDocument();
+		expect(mockState.purgeFile).not.toHaveBeenCalled();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "files:trash_delete_permanently" }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.purgeFile).toHaveBeenCalledWith(1);
+		});
+		await waitFor(() => {
+			expect(mockState.refreshUser).toHaveBeenCalledWith({
+				fields: ["quota"],
+			});
+		});
 	});
 
 	it("reserves bottom space when the collapsed upload panel is visible", async () => {
@@ -720,30 +789,14 @@ describe("TrashPage", () => {
 				.mockResolvedValueOnce({
 					files: [],
 					files_total: 0,
-					folders: [
-						{
-							entity_type: "folder",
-							expires_at: "2026-04-08T00:00:00Z",
-							id: 11,
-							name: "folder-a",
-							original_path: "/",
-						},
-					],
+					folders: [folderItem(11, "folder-a", "2026-04-08T00:00:00Z")],
 					folders_total: 2,
 					next_file_cursor: null,
 				} as never)
 				.mockResolvedValueOnce({
 					files: [],
 					files_total: 0,
-					folders: [
-						{
-							entity_type: "folder",
-							expires_at: "2026-04-07T00:00:00Z",
-							id: 12,
-							name: "folder-b",
-							original_path: "/",
-						},
-					],
+					folders: [folderItem(12, "folder-b", "2026-04-07T00:00:00Z")],
 					folders_total: 2,
 					next_file_cursor: null,
 				} as never);

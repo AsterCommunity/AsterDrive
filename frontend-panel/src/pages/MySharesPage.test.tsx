@@ -93,6 +93,7 @@ vi.mock("@/components/files/FileTypeIcon", () => ({
 	FileTypeIcon: (props: { fileName?: string; mimeType: string }) => (
 		<span>{`file-icon:${props.fileName ?? ""}:${props.mimeType}`}</span>
 	),
+	getFileBadgeTint: () => "bg-muted/40",
 }));
 
 vi.mock("@/components/ui/button", () => ({

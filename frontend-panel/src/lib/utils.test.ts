@@ -18,10 +18,6 @@ describe("utils", () => {
 			"bg-accent",
 			"text-accent-foreground",
 			"font-medium",
-			"shadow-xs",
-			"ring-1",
-			"ring-primary/10",
-			"dark:shadow-none",
 			"custom",
 		]);
 		expectClassTokens(sidebarNavItemClass(false), [
@@ -37,10 +33,6 @@ describe("utils", () => {
 			"bg-accent",
 			"text-accent-foreground",
 			"font-medium",
-			"shadow-xs",
-			"ring-1",
-			"ring-primary/10",
-			"dark:shadow-none",
 			"custom",
 		]);
 		expectClassTokens(folderTreeRowClass(false), ["text-foreground"]);

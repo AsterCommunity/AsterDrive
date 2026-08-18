@@ -61,7 +61,9 @@ export function ShareFolderSidebar({
 				data-theme-surface="chrome"
 				data-testid="share-folder-sidebar"
 				className={cn(
-					"w-60 shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform duration-200 ease-out motion-reduce:transition-none",
+					// D9：桌面端侧栏融入页面（暗色 --sidebar 与背景同值），
+					// 移动 overlay 浮层保留边界线与阴影
+					"w-60 shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform duration-200 ease-out motion-reduce:transition-none md:border-r-0",
 					"fixed left-0 z-(--z-fixed) flex flex-col md:relative md:left-auto md:top-auto md:bottom-auto md:z-auto md:translate-x-0",
 					USER_TOPBAR_OFFSET_CLASS,
 					mobileOpen
@@ -69,12 +71,7 @@ export function ShareFolderSidebar({
 						: "pointer-events-none -translate-x-full shadow-none md:pointer-events-auto",
 				)}
 			>
-				<div
-					className={cn(
-						"shrink-0 border-b border-sidebar-border bg-sidebar py-2.5",
-						SIDEBAR_SECTION_PADDING_CLASS,
-					)}
-				>
+				<div className={cn("shrink-0 py-2.5", SIDEBAR_SECTION_PADDING_CLASS)}>
 					<div className="flex min-w-0 items-center gap-2.5">
 						<div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent/55 text-accent-foreground">
 							<Icon name="Link" className="size-4" />
@@ -100,7 +97,7 @@ export function ShareFolderSidebar({
 
 				<div
 					className={cn(
-						"shrink-0 border-t border-sidebar-border py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-3",
+						"shrink-0 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-3",
 						SIDEBAR_SECTION_PADDING_CLASS,
 					)}
 				>

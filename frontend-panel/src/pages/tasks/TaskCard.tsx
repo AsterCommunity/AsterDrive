@@ -1,7 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Icon, type IconName } from "@/components/ui/icon";
 import type { TaskInfo } from "@/types/api";
 import { AnimatedTaskDetails } from "./AnimatedTaskDetails";
@@ -259,7 +258,7 @@ function summaryParts(
 
 function TaskSummaryChip({ icon, value }: { icon: IconName; value: string }) {
 	return (
-		<span className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-background/55 px-2 py-0.5 text-xs font-medium text-foreground">
+		<span className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground">
 			<Icon name={icon} className="size-3.5 shrink-0 text-muted-foreground" />
 			<span className="truncate">{value}</span>
 		</span>
@@ -294,8 +293,26 @@ export function TaskCard({
 			: localizedStatusText || localizedActiveStepDetail;
 
 	return (
-		<Card className="gap-0 p-0">
-			<div className="flex min-h-14 flex-col gap-2 px-3 py-2.5 md:flex-row md:items-center md:justify-between md:px-4">
+		// D9 去框化：任务条目用常态柔和色垫分区（不用描边），hover 加深一档，
+		// 展开详情内的分隔线保留（内容分区，非容器框）
+		<div className="rounded-xl bg-muted/45 transition-colors hover:bg-muted/60 dark:bg-muted/20 dark:hover:bg-muted/30">
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: the nested summary button remains the keyboard-accessible control; this extends its mouse hit area to the row padding. */}
+			{/* biome-ignore lint/a11y/useKeyWithClickEvents: the nested summary button provides keyboard activation; this handler only extends the pointer hit area. */}
+			<div
+				className="flex min-h-14 flex-col gap-2 px-3 py-2.5 md:flex-row md:items-center md:justify-between md:px-4"
+				onClick={(event) => {
+					if (!hasExpandableDetails) {
+						return;
+					}
+					if (
+						event.target instanceof Element &&
+						event.target.closest("button, a, input, textarea, select")
+					) {
+						return;
+					}
+					onToggleDetails(task.id);
+				}}
+			>
 				<button
 					type="button"
 					className="flex min-w-0 flex-1 items-center gap-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45"
@@ -307,7 +324,7 @@ export function TaskCard({
 						}
 					}}
 				>
-					<span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/25 text-muted-foreground">
+					<span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted/50 text-muted-foreground">
 						<Icon name={taskIcon(task)} className="size-3.5" />
 					</span>
 					<span className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm md:text-[0.95rem]">
@@ -434,6 +451,6 @@ export function TaskCard({
 					</div>
 				</div>
 			</AnimatedTaskDetails>
-		</Card>
+		</div>
 	);
 }

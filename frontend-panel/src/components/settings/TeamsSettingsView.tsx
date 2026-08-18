@@ -69,11 +69,10 @@ export function TeamsSettingsView() {
 	};
 
 	return (
-		<>
+		<div className="flex flex-col gap-10">
 			<SettingsSection
 				title={t("settings:settings_teams")}
 				description={t("settings:settings_teams_desc")}
-				contentClassName="pt-4"
 			>
 				{loadingTeams && teams.length === 0 ? (
 					<div className="py-10 text-center text-sm text-muted-foreground">
@@ -90,7 +89,7 @@ export function TeamsSettingsView() {
 						{teams.map((team) => (
 							<div
 								key={team.id}
-								className="rounded-xl border bg-muted/15 p-4 transition-colors"
+								className="rounded-xl bg-card p-4 shadow-xs transition-colors dark:shadow-none"
 							>
 								<div className="flex items-start justify-between gap-3">
 									<div className="space-y-1">
@@ -161,7 +160,6 @@ export function TeamsSettingsView() {
 				<SettingsSection
 					title={t("settings:settings_archived_teams")}
 					description={t("settings:settings_archived_teams_desc")}
-					contentClassName="pt-4"
 				>
 					{archivedLoading && archivedTeams.length === 0 ? (
 						<div className="py-10 text-center text-sm text-muted-foreground">
@@ -172,7 +170,7 @@ export function TeamsSettingsView() {
 							{archivedTeams.map((team) => (
 								<div
 									key={team.id}
-									className="rounded-xl border border-dashed bg-muted/10 p-4"
+									className="rounded-xl bg-muted/40 p-4 dark:bg-muted/15"
 								>
 									<div className="flex items-start justify-between gap-3">
 										<div className="space-y-1">
@@ -243,6 +241,6 @@ export function TeamsSettingsView() {
 					)}
 				</SettingsSection>
 			) : null}
-		</>
+		</div>
 	);
 }

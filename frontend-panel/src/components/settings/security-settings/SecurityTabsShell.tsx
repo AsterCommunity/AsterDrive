@@ -76,7 +76,7 @@ export function SecurityTabsShell({
 								value={pane.value}
 								aria-label={label}
 								title={label}
-								className="h-auto justify-start rounded-lg border px-3 py-3 text-left data-active:border-primary/20 data-active:bg-primary/10 data-active:shadow-none"
+								className="h-auto justify-start rounded-lg px-3 py-3 text-left hover:bg-accent/45 data-active:bg-accent data-active:shadow-none"
 							>
 								<Icon name={pane.icon} className="mt-0.5 size-4 shrink-0" />
 								<span className="min-w-0">

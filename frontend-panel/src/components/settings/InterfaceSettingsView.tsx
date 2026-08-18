@@ -145,7 +145,6 @@ export function InterfaceSettingsView() {
 		<SettingsSection
 			title={t("settings:settings_interface")}
 			description={t("settings:settings_interface_desc")}
-			contentClassName="pt-2"
 		>
 			<SettingsRow label={t("theme")} description={themeDescriptions[mode]}>
 				<SettingsChoiceGroup

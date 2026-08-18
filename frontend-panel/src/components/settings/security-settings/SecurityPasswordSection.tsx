@@ -33,10 +33,7 @@ export function SecurityPasswordSection({
 	const { t } = useTranslation(["auth", "core", "settings"]);
 
 	return (
-		<form
-			className="space-y-4 rounded-xl border bg-background p-4"
-			onSubmit={onSubmit}
-		>
+		<form className="space-y-4" onSubmit={onSubmit}>
 			<div className="space-y-1">
 				<h3 className="text-sm font-semibold">
 					{t("settings:settings_password_section")}

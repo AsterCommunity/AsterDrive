@@ -71,7 +71,8 @@ export function ShareOwnerBanner({
 	text: string;
 }) {
 	return (
-		<div className="flex max-w-full items-center gap-3 rounded-lg border border-border/70 bg-card/70 p-3 shadow-xs dark:bg-card/45 dark:shadow-none">
+		// D9：分享者信息条去框，头像 + 文字裸排
+		<div className="flex max-w-full items-center gap-3 px-1 py-2">
 			<UserAvatarImage
 				avatar={owner.avatar}
 				name={owner.name}
@@ -101,7 +102,8 @@ export function ShareCenteredPanel({
 	return (
 		<SharePageShell>
 			<main className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4 sm:p-6">
-				<section className="w-full max-w-md rounded-lg border border-border/70 bg-card/85 p-5 shadow-lg shadow-black/5 dark:bg-card/65 dark:shadow-none">
+				{/* D9：居中面板用微弱色阶代替边框投影，保持视觉锚点 */}
+				<section className="w-full max-w-md rounded-xl bg-muted/25 p-6 dark:bg-muted/15">
 					<div className="text-center">
 						<div className="mx-auto flex size-14 items-center justify-center rounded-lg bg-muted/45 text-muted-foreground">
 							<Icon

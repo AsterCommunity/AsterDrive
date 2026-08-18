@@ -4,7 +4,12 @@ import { FileThumbnail } from "@/components/files/FileThumbnail";
 import { TagChips } from "@/components/files/TagChips";
 import { Icon } from "@/components/ui/icon";
 import { TableCell } from "@/components/ui/table";
-import { formatBytes, formatDate } from "@/lib/format";
+import {
+	formatBytes,
+	formatDate,
+	formatDateTimeWithOffset,
+	formatDateUntil,
+} from "@/lib/format";
 import { isResourceLocked } from "@/lib/resourceLock";
 import type { FileListItem, FolderListItem } from "@/types/api";
 
@@ -94,6 +99,34 @@ export function UpdatedAtCell({ updatedAt }: { updatedAt: string }) {
 	return (
 		<TableCell className="text-muted-foreground">
 			{formatDate(updatedAt, i18n)}
+		</TableCell>
+	);
+}
+
+/** 回收站模式：原位置列（trashMode 时由 FileTable 注入） */
+export function TrashOriginalPathCell({ path }: { path: string }) {
+	const { t } = useTranslation(["core", "files"]);
+
+	return (
+		<TableCell
+			className="max-w-[280px] truncate text-muted-foreground"
+			title={path}
+		>
+			{path === "/" ? t("files:root") : path}
+		</TableCell>
+	);
+}
+
+/** 回收站模式：过期时间列，倒计时显示 + 绝对时间 tooltip */
+export function TrashExpiresAtCell({ expiresAt }: { expiresAt: string }) {
+	const { i18n } = useTranslation("core");
+
+	return (
+		<TableCell
+			className="text-muted-foreground"
+			title={formatDateTimeWithOffset(expiresAt)}
+		>
+			{formatDateUntil(expiresAt, i18n)}
 		</TableCell>
 	);
 }

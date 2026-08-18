@@ -164,7 +164,7 @@ export function SecurityPasskeysSection() {
 	};
 
 	return (
-		<div className="space-y-4 rounded-xl border bg-background p-4">
+		<div className="space-y-4">
 			<div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
 				<div className="space-y-1">
 					<h3 className="text-sm font-semibold">
@@ -189,7 +189,7 @@ export function SecurityPasskeysSection() {
 				</Button>
 			</div>
 
-			<div className="rounded-xl border bg-muted/20 p-4">
+			<div className="rounded-xl bg-muted/30 p-4">
 				<div className="space-y-2">
 					<Label htmlFor="new-passkey-name">
 						{t("settings:settings_passkeys_new_name")}
@@ -227,11 +227,11 @@ export function SecurityPasskeysSection() {
 			</div>
 
 			{loading ? (
-				<div className="rounded-xl border border-dashed bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
+				<div className="rounded-xl bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground">
 					{t("core:loading")}
 				</div>
 			) : passkeys.length === 0 ? (
-				<div className="rounded-xl border border-dashed bg-muted/20 px-4 py-8 text-center">
+				<div className="rounded-xl bg-muted/30 px-4 py-8 text-center">
 					<p className="text-sm font-medium">
 						{t("settings:settings_passkeys_empty")}
 					</p>
@@ -247,14 +247,11 @@ export function SecurityPasskeysSection() {
 						const expanded = expandedIds.has(passkey.id);
 
 						return (
-							<div
-								key={passkey.id}
-								className="rounded-xl border bg-muted/20 p-3"
-							>
+							<div key={passkey.id} className="rounded-xl bg-muted/30 p-3">
 								<div className="flex flex-col gap-3">
 									<div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
 										<div className="flex min-w-0 items-center gap-2">
-											<div className="rounded-lg border bg-background p-2 text-primary">
+											<div className="rounded-lg bg-background p-2 text-primary">
 												<Icon name="Shield" className="size-4" />
 											</div>
 											<div className="min-w-0 flex-1 space-y-1">

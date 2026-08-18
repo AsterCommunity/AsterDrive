@@ -213,6 +213,43 @@ describe("TaskCard", () => {
 		expect(screen.queryByText(/downloading file/)).not.toBeInTheDocument();
 	});
 
+	it("toggles details when clicking the summary row padding", () => {
+		const onToggleDetails = vi.fn();
+		render(
+			<TaskCard
+				detailsExpanded={false}
+				onOpenTargetFolder={vi.fn()}
+				onRetry={vi.fn()}
+				onToggleDetails={onToggleDetails}
+				retrying={false}
+				task={createTask({
+					steps: [
+						{
+							detail: "Downloading file",
+							finished_at: null,
+							key: "download",
+							progress_current: 1,
+							progress_total: 10,
+							started_at: "2026-04-17T00:01:00Z",
+							status: "active",
+							title: "Download",
+						},
+					],
+				})}
+			/>,
+		);
+
+		const summaryButton = screen.getByRole("button", {
+			name: /tasks:summary_import_from_link/,
+		});
+		fireEvent.click(summaryButton.parentElement as HTMLElement);
+		fireEvent.click(summaryButton.parentElement as HTMLElement);
+
+		expect(onToggleDetails).toHaveBeenCalledTimes(2);
+		expect(onToggleDetails).toHaveBeenNthCalledWith(1, 44);
+		expect(onToggleDetails).toHaveBeenNthCalledWith(2, 44);
+	});
+
 	it("falls back to display names for unknown task kinds and retry actions", () => {
 		const onRetry = vi.fn();
 

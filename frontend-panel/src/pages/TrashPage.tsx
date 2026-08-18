@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
@@ -6,10 +6,19 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { SkeletonFileGrid } from "@/components/common/SkeletonFileGrid";
 import { SkeletonFileTable } from "@/components/common/SkeletonFileTable";
 import { ViewToggle } from "@/components/common/ViewToggle";
+import {
+	type FileBrowserContextValue,
+	FileBrowserProvider,
+} from "@/components/files/FileBrowserContext";
+import { FileGrid } from "@/components/files/FileGrid";
+import { FileTable } from "@/components/files/FileTable";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { TrashBatchActionBar } from "@/components/trash/TrashBatchActionBar";
-import { TrashGrid } from "@/components/trash/TrashGrid";
-import { TrashTable } from "@/components/trash/TrashTable";
+import {
+	buildTrashMetaMap,
+	toBrowserFiles,
+	toBrowserFolders,
+} from "@/components/trash/trashBrowserItems";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { ItemCheckbox } from "@/components/ui/item-checkbox";
@@ -27,6 +36,7 @@ import { subscribeStorageChange } from "@/lib/storageChangeBus";
 import { cn } from "@/lib/utils";
 import { trashService } from "@/services/trashService";
 import { useAuthStore } from "@/stores/authStore";
+import { useFileStore } from "@/stores/fileStore";
 import type { TrashContents } from "@/types/api";
 import type { TrashItem } from "@/types/api-helpers";
 
@@ -49,28 +59,6 @@ function getItemKey(item: TrashItem) {
 	return `${item.entity_type}:${item.id}`;
 }
 
-function toTrashItems(contents: TrashContents): TrashItem[] {
-	return [
-		...contents.folders.map(
-			(folder) =>
-				({
-					...folder,
-					entity_type: "folder",
-				}) as const,
-		),
-		...contents.files.map(
-			(file) =>
-				({
-					...file,
-					entity_type: "file",
-				}) as const,
-		),
-	].sort(
-		(a, b) =>
-			new Date(b.expires_at).getTime() - new Date(a.expires_at).getTime(),
-	);
-}
-
 export default function TrashPage() {
 	const { t } = useTranslation(["core", "files", "admin", "tasks"]);
 	usePageTitle(t("core:trash"));
@@ -83,7 +71,6 @@ export default function TrashPage() {
 	});
 	const [loading, setLoading] = useState(true);
 	const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
-	const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [pendingState, setPendingState] = useState<PendingTrashState | null>(
 		null,
@@ -94,16 +81,28 @@ export default function TrashPage() {
 	const syncInFlightRef = useRef(false);
 	const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-	const items = toTrashItems(contents);
+	// D9 Finder 化：回收站复用文件浏览器（trashMode），选择状态走 fileStore
+	const selectedFileIds = useFileStore((s) => s.selectedFileIds);
+	const selectedFolderIds = useFileStore((s) => s.selectedFolderIds);
+	const toggleFileSelection = useFileStore((s) => s.toggleFileSelection);
+	const toggleFolderSelection = useFileStore((s) => s.toggleFolderSelection);
+	const selectItems = useFileStore((s) => s.selectItems);
+	const clearBrowserSelection = useFileStore((s) => s.clearSelection);
+
+	const folders = useMemo(
+		() => toBrowserFolders(contents.folders),
+		[contents.folders],
+	);
+	const files = useMemo(() => toBrowserFiles(contents.files), [contents.files]);
+	const trashMetaMap = useMemo(() => buildTrashMetaMap(contents), [contents]);
+
+	const itemCount = folders.length + files.length;
 	const totalItems = contents.files_total + contents.folders_total;
 	const hasMoreFiles = contents.next_file_cursor != null;
 	const hasMoreFolders = contents.folders.length < contents.folders_total;
 	const hasMore = hasMoreFiles || hasMoreFolders;
-	const selectedItems = items.filter((item) =>
-		selectedKeys.has(getItemKey(item)),
-	);
-	const selectionCount = selectedItems.length;
-	const allSelected = items.length > 0 && selectionCount === items.length;
+	const selectionCount = selectedFileIds.size + selectedFolderIds.size;
+	const allSelected = itemCount > 0 && selectionCount === itemCount;
 	const isEmpty = !loading && totalItems === 0;
 	const pendingKeys = pendingState?.keys ?? new Set<string>();
 	const pendingOperation = pendingState?.operation ?? null;
@@ -111,6 +110,30 @@ export default function TrashPage() {
 	const bottomOverlayOffset = useBottomOverlayOffset(selectionCount > 0);
 	const bottomOverlayPadding =
 		getBottomOverlayPaddingClass(bottomOverlayOffset);
+
+	const fadingIds = useMemo(() => {
+		const fileIds = new Set<number>();
+		const folderIds = new Set<number>();
+		for (const key of pendingKeys) {
+			const [type, rawId] = key.split(":");
+			const id = Number(rawId);
+			if (type === "file") fileIds.add(id);
+			else if (type === "folder") folderIds.add(id);
+		}
+		return { fileIds, folderIds };
+	}, [pendingKeys]);
+
+	const selectedItems = useMemo<TrashItem[]>(
+		() => [
+			...contents.folders
+				.filter((folder) => selectedFolderIds.has(folder.id))
+				.map((folder) => ({ ...folder, entity_type: "folder" as const })),
+			...contents.files
+				.filter((file) => selectedFileIds.has(file.id))
+				.map((file) => ({ ...file, entity_type: "file" as const })),
+		],
+		[contents, selectedFileIds, selectedFolderIds],
+	);
 
 	const TRASH_PAGE_SIZE = 100;
 
@@ -122,7 +145,7 @@ export default function TrashPage() {
 				file_limit: TRASH_PAGE_SIZE,
 			});
 			setContents(data);
-			setSelectedKeys(new Set());
+			useFileStore.getState().clearSelection();
 		} catch (err) {
 			handleApiError(err);
 		} finally {
@@ -166,6 +189,11 @@ export default function TrashPage() {
 		void load();
 	}, [load]);
 
+	// 离开回收站时清掉浏览器选择，避免串回文件页
+	useEffect(() => {
+		return () => useFileStore.getState().clearSelection();
+	}, []);
+
 	useEffect(() => {
 		return subscribeStorageChange((event) => {
 			if (event.kind !== "sync.required") {
@@ -203,29 +231,18 @@ export default function TrashPage() {
 		setViewMode(mode);
 	};
 
-	const toggleSelect = (item: TrashItem) => {
-		if (pendingRef.current || purgeAllPending) return;
-
-		const key = getItemKey(item);
-		setSelectedKeys((prev) => {
-			const next = new Set(prev);
-			if (next.has(key)) next.delete(key);
-			else next.add(key);
-			return next;
-		});
-	};
-
 	const clearSelection = useCallback(() => {
 		if (pendingRef.current || purgeAllPending) return;
-
-		setSelectedKeys(new Set());
-	}, [purgeAllPending]);
+		clearBrowserSelection();
+	}, [clearBrowserSelection, purgeAllPending]);
 
 	const selectAllItems = useCallback(() => {
 		if (pendingRef.current || purgeAllPending) return;
-
-		setSelectedKeys(new Set(items.map(getItemKey)));
-	}, [items, purgeAllPending]);
+		selectItems(
+			files.map((file) => file.id),
+			folders.map((folder) => folder.id),
+		);
+	}, [files, folders, selectItems, purgeAllPending]);
 
 	const toggleSelectAll = useCallback(() => {
 		if (allSelected) {
@@ -322,7 +339,10 @@ export default function TrashPage() {
 
 		const result = await runPurgeAllWithPending(async () => {
 			setPendingState({
-				keys: new Set(items.map(getItemKey)),
+				keys: new Set([
+					...contents.files.map((file) => `file:${file.id}`),
+					...contents.folders.map((folder) => `folder:${folder.id}`),
+				]),
 				operation: "purge-all",
 			});
 			try {
@@ -355,10 +375,79 @@ export default function TrashPage() {
 		enabled: purgeTargets === null && !purgeAllDialogProps.open && !isBusy,
 	});
 
+	const findTrashItem = useCallback(
+		(type: "file" | "folder", id: number): TrashItem | undefined => {
+			if (type === "folder") {
+				const folder = contents.folders.find((item) => item.id === id);
+				return folder ? { ...folder, entity_type: "folder" } : undefined;
+			}
+			const file = contents.files.find((item) => item.id === id);
+			return file ? { ...file, entity_type: "file" } : undefined;
+		},
+		[contents],
+	);
+
+	const fileBrowserContextValue = useMemo<FileBrowserContextValue>(
+		() => ({
+			folders,
+			files,
+			browserOpenMode: "single_click",
+			readOnly: true,
+			selectionEnabled: true,
+			trashMode: true,
+			breadcrumbPathIds: [],
+			fadingFileIds: fadingIds.fileIds,
+			fadingFolderIds: fadingIds.folderIds,
+			getTrashMeta: (type, id) => trashMetaMap.get(`${type}:${id}`),
+			onTrashRestore: (type, id) => {
+				const item = findTrashItem(type, id);
+				if (item) void handleRestore([item]);
+			},
+			onTrashPurge: (type, id) => {
+				const item = findTrashItem(type, id);
+				if (item) requestPurgeConfirm([item]);
+			},
+			batchSelectionActions:
+				selectionCount > 0
+					? {
+							count: selectionCount,
+							onRestore: () => {
+								void handleRestore(selectedItems);
+							},
+							onPurge: () => requestPurgeConfirm(selectedItems),
+						}
+					: null,
+			// 回收站条目不可打开：单击条目即切换选择（沿用旧 TrashGrid 的交互）
+			onFolderOpen: (id) => {
+				if (!pendingRef.current) toggleFolderSelection(id);
+			},
+			onFileClick: (file) => {
+				if (!pendingRef.current) toggleFileSelection(file.id);
+			},
+			onShare: () => {},
+			onDownload: () => {},
+			onToggleLock: () => false,
+			onDelete: () => undefined,
+		}),
+		[
+			folders,
+			files,
+			fadingIds,
+			trashMetaMap,
+			findTrashItem,
+			handleRestore,
+			requestPurgeConfirm,
+			selectionCount,
+			selectedItems,
+			toggleFileSelection,
+			toggleFolderSelection,
+		],
+	);
+
 	return (
 		<AppLayout>
 			<div className="flex flex-1 flex-col gap-4 overflow-hidden p-4">
-				<div className="rounded-xl border bg-muted/20 p-4">
+				<div className="px-1 py-2">
 					<div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
 						<div className="flex items-center gap-3">
 							<div className="flex size-11 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
@@ -396,7 +485,7 @@ export default function TrashPage() {
 				</div>
 
 				{!loading && !isEmpty ? (
-					<div className="flex items-center justify-between rounded-xl border bg-background px-4 py-3">
+					<div className="flex items-center justify-between px-1 py-1">
 						<div className="flex items-center gap-3">
 							{viewMode === "grid" ? (
 								<ItemCheckbox
@@ -413,7 +502,7 @@ export default function TrashPage() {
 					</div>
 				) : null}
 
-				<div className="min-h-0 flex flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm dark:shadow-none">
+				<div className="min-h-0 flex flex-1 flex-col overflow-hidden">
 					{loading ? (
 						viewMode === "grid" ? (
 							<SkeletonFileGrid />
@@ -433,35 +522,9 @@ export default function TrashPage() {
 								className: cn(bottomOverlayPadding),
 							}}
 						>
-							{viewMode === "grid" ? (
-								<TrashGrid
-									items={items}
-									actionsDisabled={isBusy}
-									pendingKeys={pendingKeys}
-									pendingOperation={pendingOperation}
-									selectedKeys={selectedKeys}
-									onToggleSelect={toggleSelect}
-									onRestore={(item) => {
-										void handleRestore([item]);
-									}}
-									onPurge={(item) => requestPurgeConfirm([item])}
-								/>
-							) : (
-								<TrashTable
-									items={items}
-									allSelected={allSelected}
-									actionsDisabled={isBusy}
-									pendingKeys={pendingKeys}
-									pendingOperation={pendingOperation}
-									selectedKeys={selectedKeys}
-									onToggleSelectAll={toggleSelectAll}
-									onToggleSelect={toggleSelect}
-									onRestore={(item) => {
-										void handleRestore([item]);
-									}}
-									onPurge={(item) => requestPurgeConfirm([item])}
-								/>
-							)}
+							<FileBrowserProvider value={fileBrowserContextValue}>
+								{viewMode === "grid" ? <FileGrid /> : <FileTable />}
+							</FileBrowserProvider>
 							{hasMore && (
 								<div ref={sentinelRef} className="flex justify-center py-4">
 									{loadingMore && (

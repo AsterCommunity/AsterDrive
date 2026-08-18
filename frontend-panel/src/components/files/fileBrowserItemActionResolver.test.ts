@@ -338,4 +338,113 @@ describe("fileBrowserItemActionResolver", () => {
 		expect(props.isLocked).toBe(true);
 		expect(props.onToggleLock).toBeUndefined();
 	});
+
+	it("exposes only restore and purge for trash-mode items", () => {
+		const handlers = createHandlers();
+		handlers.onTrashRestore = vi.fn();
+		handlers.onTrashPurge = vi.fn();
+		const file = {
+			id: 7,
+			name: "deleted.zip",
+			lock_state: { state: "unlocked" },
+		} as FileListItem;
+		const props = resolveFileBrowserItemMenuProps({
+			handlers,
+			isFolder: false,
+			item: file,
+			readOnly: true,
+			selection: emptySelection(),
+		});
+
+		// 回收站条目不可打开/下载/分享，即使 handlers 里有这些回调
+		expect(props.onOpen).toBeUndefined();
+		expect(props.onDownload).toBeUndefined();
+		expect(props.onPageShare).toBeUndefined();
+		expect(props.onDelete).toBeUndefined();
+
+		props.onTrashRestore?.();
+		props.onTrashPurge?.();
+		expect(handlers.onTrashRestore).toHaveBeenCalledWith("file", 7);
+		expect(handlers.onTrashPurge).toHaveBeenCalledWith("file", 7);
+	});
+
+	it("routes trash-mode folder items through the same restore and purge pair", () => {
+		const handlers = createHandlers();
+		handlers.onTrashRestore = vi.fn();
+		handlers.onTrashPurge = vi.fn();
+		const folder = {
+			id: 4,
+			name: "OldProjects",
+			lock_state: { state: "unlocked" },
+		} as FolderListItem;
+		const props = resolveFileBrowserItemMenuProps({
+			handlers,
+			isFolder: true,
+			item: folder,
+			readOnly: true,
+			selection: emptySelection(),
+		});
+
+		expect(props.onOpen).toBeUndefined();
+		expect(props.onArchiveDownload).toBeUndefined();
+
+		props.onTrashRestore?.();
+		expect(handlers.onTrashRestore).toHaveBeenCalledWith("folder", 4);
+	});
+
+	it("keeps read-only share browsing untouched when no trash handlers exist", () => {
+		const handlers = createHandlers();
+		const file = {
+			id: 7,
+			name: "shared.pdf",
+			lock_state: { state: "unlocked" },
+		} as FileListItem;
+		const props = resolveFileBrowserItemMenuProps({
+			handlers,
+			isFolder: false,
+			item: file,
+			readOnly: true,
+			selection: emptySelection(),
+		});
+
+		// 公开分享页（readOnly 但无 trash handlers）仍是打开/下载
+		expect(props.onOpen).toBeDefined();
+		expect(props.onDownload).toBeDefined();
+		expect(props.onTrashRestore).toBeUndefined();
+		expect(props.onTrashPurge).toBeUndefined();
+	});
+
+	it("maps batch restore and purge actions for trash selections", () => {
+		const handlers = createHandlers();
+		handlers.onTrashRestore = vi.fn();
+		handlers.onTrashPurge = vi.fn();
+		const onRestore = vi.fn();
+		const onPurge = vi.fn();
+		const props = resolveFileBrowserItemMenuProps({
+			batchSelectionActions: {
+				count: 2,
+				onRestore,
+				onPurge,
+			},
+			handlers,
+			isFolder: false,
+			item: {
+				id: 7,
+				name: "deleted.zip",
+				lock_state: { state: "unlocked" },
+			} as FileListItem,
+			readOnly: true,
+			selection: {
+				selectedFileIds: new Set([7, 8]),
+				selectedFolderIds: new Set(),
+			},
+			selectionEnabled: true,
+		});
+
+		expect(props.selectionCount).toBe(2);
+		props.onTrashRestore?.();
+		props.onTrashPurge?.();
+		expect(onRestore).toHaveBeenCalledTimes(1);
+		expect(onPurge).toHaveBeenCalledTimes(1);
+	});
 });

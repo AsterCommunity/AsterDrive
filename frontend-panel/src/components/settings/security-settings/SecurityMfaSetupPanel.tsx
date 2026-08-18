@@ -60,8 +60,8 @@ export function SecurityMfaSetupPanel({
 	const { t } = useTranslation(["core", "settings"]);
 
 	return (
-		<div className="overflow-hidden rounded-lg border bg-background transition-[border-color,box-shadow] duration-150 ease-out">
-			<div className="border-b bg-muted/20 p-4 transition-colors duration-150">
+		<div className="overflow-hidden rounded-lg bg-muted/30 transition-colors duration-150 ease-out">
+			<div className="border-b p-4 transition-colors duration-150">
 				<div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
 					<div className="space-y-1">
 						<p className="text-sm font-semibold">
@@ -253,7 +253,7 @@ function SetupHint({
 	description: string;
 }) {
 	return (
-		<div className="rounded-lg border bg-background p-3 transition-[background-color,border-color,box-shadow,transform] duration-150 ease-out hover:-translate-y-0.5 hover:border-border hover:shadow-xs motion-reduce:transition-none motion-reduce:hover:translate-y-0 dark:hover:shadow-none">
+		<div className="rounded-lg bg-card p-3 transition-[background-color,box-shadow,transform] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-xs motion-reduce:transition-none motion-reduce:hover:translate-y-0 dark:hover:shadow-none">
 			<Icon name={icon} className="size-5 text-primary" />
 			<p className="mt-3 text-sm font-medium">{title}</p>
 			<p className="mt-1 text-xs text-muted-foreground">{description}</p>
@@ -366,7 +366,7 @@ function SetupQrCode({ otpauthUri }: { otpauthUri: string }) {
 	const size = modules ? modules.size + margin * 2 : 0;
 
 	return (
-		<div className="flex items-center justify-center rounded-lg border bg-white p-4">
+		<div className="flex items-center justify-center rounded-lg bg-white p-4">
 			{modules ? (
 				<svg
 					viewBox={`0 0 ${size} ${size}`}
@@ -529,7 +529,7 @@ function SetupRecovery({
 			<div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
 				<button
 					type="button"
-					className="flex w-full items-start gap-3 rounded-lg border bg-muted/20 p-3 text-left text-sm transition-colors hover:bg-muted/35"
+					className="flex w-full items-start gap-3 rounded-lg bg-card p-3 text-left text-sm transition-colors hover:bg-accent/60"
 					aria-pressed={recoveryConfirmed}
 					onClick={onConfirmChange}
 				>

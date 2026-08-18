@@ -3,6 +3,7 @@
 	"confirm_delete_desc": "之后仍可在回收站中恢复。",
 	"trash_page_desc": "已删除的项目会保留到过期时间；过期前可恢复或永久删除。",
 	"trash_expires_at": "过期时间",
+	"trash_restore": "恢复",
 	"trash_restore_selected": "恢复所选",
 	"trash_delete_permanently": "永久删除",
 	"trash_delete_selected": "永久删除所选",

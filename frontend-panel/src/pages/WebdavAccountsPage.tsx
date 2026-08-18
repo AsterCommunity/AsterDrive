@@ -255,8 +255,9 @@ export default function WebdavAccountsPage() {
 						</Button>
 					</div>
 
-					{/* Endpoint Info Card */}
-					<div className="rounded-xl border bg-muted/20 p-4">
+					{/* Endpoint Info：D9 去框化，地址区块直接坐页面背景，
+					    描边只留给 CopyField 输入框本身 */}
+					<div className="px-1 py-2">
 						<div className="flex items-center gap-2 mb-1">
 							<Icon name="Globe" className="size-4 text-muted-foreground" />
 							<p className="text-sm font-medium">
@@ -278,6 +279,7 @@ export default function WebdavAccountsPage() {
 						loading={loading}
 						accounts={sortedAccounts}
 						currentUserId={currentUserId}
+						frameless
 						deletingAccountId={deletingAccountId}
 						togglingAccountId={togglingAccountId}
 						onDelete={(accountId) => void handleDelete(accountId)}

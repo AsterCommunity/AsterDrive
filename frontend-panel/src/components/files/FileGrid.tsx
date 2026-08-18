@@ -9,6 +9,7 @@ import {
 import { FileCard } from "@/components/files/FileCard";
 import { FolderGridItem } from "@/components/files/FolderGridItem";
 import { getCurrentSelectionDragData } from "@/components/files/selectionDragData";
+import { formatDateUntil } from "@/lib/format";
 import type { BrowserOpenMode } from "@/stores/fileStore";
 import { useFileStore } from "@/stores/fileStore";
 import type { FileListItem, FolderListItem } from "@/types/api";
@@ -65,6 +66,7 @@ interface FolderGridCardProps extends BaseGridCardProps {
 	readOnly: boolean;
 	selectionEnabled: boolean;
 	selectionActive: boolean;
+	trashSubtitle?: string;
 	onFolderOpen: (id: number, name: string) => void;
 	onMoveToFolder?: (
 		fileIds: number[],
@@ -81,6 +83,7 @@ const FolderGridCard = memo(function FolderGridCard({
 	readOnly,
 	selectionEnabled,
 	selectionActive,
+	trashSubtitle,
 	onFolderOpen,
 	onMoveToFolder,
 }: FolderGridCardProps) {
@@ -92,9 +95,10 @@ const FolderGridCard = memo(function FolderGridCard({
 		[breadcrumbPathIds, folder.id],
 	);
 	const actionMenu = useMemo(() => {
-		if (readOnly) return null;
+		// trashMode（trashSubtitle 存在）下 readOnly 也要保留恢复/删除菜单
+		if (readOnly && trashSubtitle == null) return null;
 		return <FileBrowserItemActionMenu item={folder} isFolder />;
-	}, [folder, readOnly]);
+	}, [folder, readOnly, trashSubtitle]);
 
 	const card = (
 		<FolderGridItem
@@ -127,6 +131,7 @@ const FolderGridCard = memo(function FolderGridCard({
 			draggable={!readOnly}
 			selectable={selectionEnabled}
 			actionMenu={actionMenu}
+			subtitle={trashSubtitle}
 		/>
 	);
 
@@ -146,6 +151,7 @@ interface FileGridCardProps extends BaseGridCardProps {
 	selectionEnabled: boolean;
 	selectionActive: boolean;
 	thumbnailPath?: string;
+	trashSubtitle?: string;
 	onFileClick: (file: FileListItem) => void;
 }
 
@@ -157,6 +163,7 @@ const FileGridCard = memo(function FileGridCard({
 	selectionEnabled,
 	selectionActive,
 	thumbnailPath,
+	trashSubtitle,
 	onFileClick,
 }: FileGridCardProps) {
 	const selected = useFileStore((s) => s.selectedFileIds.has(file.id));
@@ -197,6 +204,7 @@ const FileGridCard = memo(function FileGridCard({
 			thumbnailPath={thumbnailPath}
 			actionMenu={actionMenu}
 			alwaysShowActionMenu={readOnly}
+			subtitle={trashSubtitle}
 		/>
 	);
 
@@ -210,7 +218,7 @@ const FileGridCard = memo(function FileGridCard({
 });
 
 function FileGridComponent({ scrollElement }: FileGridProps) {
-	const { t } = useTranslation("files");
+	const { t, i18n } = useTranslation("files");
 	const {
 		breadcrumbPathIds,
 		browserOpenMode,
@@ -219,11 +227,13 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 		files,
 		folders,
 		getThumbnailPath,
+		getTrashMeta,
 		onFileClick,
 		onFolderOpen,
 		onMoveToFolder,
 		readOnly = false,
 		selectionEnabled = !readOnly,
+		trashMode = false,
 	} = useFileBrowserContext();
 	const selectionActive = useFileStore(
 		(s) => s.selectedFileIds.size + s.selectedFolderIds.size > 0,
@@ -246,34 +256,48 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 		return () => window.removeEventListener("resize", updateViewportWidth);
 	}, []);
 
-	const renderFolderCard = (folder: FolderListItem) => (
-		<FolderGridCard
-			key={`folder-${folder.id}`}
-			breadcrumbPathIds={breadcrumbPathIds}
-			browserOpenMode={browserOpenMode}
-			fading={fadingFolderIds?.has(folder.id) ?? false}
-			folder={folder}
-			readOnly={readOnly}
-			selectionEnabled={selectionEnabled}
-			selectionActive={selectionActive}
-			onFolderOpen={onFolderOpen}
-			onMoveToFolder={onMoveToFolder}
-		/>
-	);
+	const renderFolderCard = (folder: FolderListItem) => {
+		const trashMeta = trashMode
+			? getTrashMeta?.("folder", folder.id)
+			: undefined;
+		return (
+			<FolderGridCard
+				key={`folder-${folder.id}`}
+				breadcrumbPathIds={breadcrumbPathIds}
+				browserOpenMode={browserOpenMode}
+				fading={fadingFolderIds?.has(folder.id) ?? false}
+				folder={folder}
+				readOnly={readOnly}
+				selectionEnabled={selectionEnabled}
+				selectionActive={selectionActive}
+				trashSubtitle={
+					trashMeta ? formatDateUntil(trashMeta.expiresAt, i18n) : undefined
+				}
+				onFolderOpen={onFolderOpen}
+				onMoveToFolder={onMoveToFolder}
+			/>
+		);
+	};
 
-	const renderFileCard = (file: FileListItem) => (
-		<FileGridCard
-			key={`file-${file.id}`}
-			browserOpenMode={browserOpenMode}
-			fading={fadingFileIds?.has(file.id) ?? false}
-			file={file}
-			readOnly={readOnly}
-			selectionEnabled={selectionEnabled}
-			selectionActive={selectionActive}
-			thumbnailPath={getThumbnailPath?.(file)}
-			onFileClick={onFileClick}
-		/>
-	);
+	const renderFileCard = (file: FileListItem) => {
+		const trashMeta = trashMode ? getTrashMeta?.("file", file.id) : undefined;
+		return (
+			<FileGridCard
+				key={`file-${file.id}`}
+				browserOpenMode={browserOpenMode}
+				fading={fadingFileIds?.has(file.id) ?? false}
+				file={file}
+				readOnly={readOnly}
+				selectionEnabled={selectionEnabled}
+				selectionActive={selectionActive}
+				thumbnailPath={getThumbnailPath?.(file)}
+				trashSubtitle={
+					trashMeta ? formatDateUntil(trashMeta.expiresAt, i18n) : undefined
+				}
+				onFileClick={onFileClick}
+			/>
+		);
+	};
 
 	const columnCount = getGridColumnCount(viewportWidth);
 	const gridRows = useMemo(() => {

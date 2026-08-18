@@ -120,8 +120,8 @@
 	--chart-3: oklch(0.72 0.16 38);
 	--chart-4: oklch(0.73 0.18 292);
 	--chart-5: oklch(0.66 0.09 220);
-	/* D9 侧栏融入：sidebar 与 background 同色，分区靠布局而非色阶/描边 */
-	--sidebar: oklch(0.16 0.008 65);
+	/* D9 侧栏：比 background 亮一档（无描线，靠色阶分区）；完全同值实测分界不可辨 */
+	--sidebar: oklch(0.19 0.009 65);
 	--sidebar-foreground: oklch(0.942 0.006 80);
 	--sidebar-primary: oklch(0.67 0.18 259.815);
 	--sidebar-primary-foreground: oklch(0.15 0.01 65);

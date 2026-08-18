@@ -1,6 +1,5 @@
 import { EmptyState } from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import type { MyShareInfo } from "@/types/api";
 import { MyShareCard } from "./MyShareCard";
@@ -57,9 +56,12 @@ export function MySharesContent({
 }: MySharesContentProps) {
 	if (loading) {
 		return (
-			<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+			<div className="flex flex-col gap-2">
 				{["s1", "s2", "s3", "s4", "s5", "s6"].map((key) => (
-					<Card key={key} className="h-28 animate-pulse bg-muted/20" />
+					<div
+						key={key}
+						className="h-16 animate-pulse rounded-xl bg-muted/30"
+					/>
 				))}
 			</div>
 		);
@@ -67,21 +69,19 @@ export function MySharesContent({
 
 	if (shares.length === 0) {
 		return (
-			<Card className="bg-muted/15">
-				<div className="py-12">
-					<EmptyState
-						icon={<Icon name="Link" className="size-10" />}
-						title={labels.emptyTitle}
-						description={labels.emptyDescription}
-					/>
-				</div>
-			</Card>
+			<div className="py-12">
+				<EmptyState
+					icon={<Icon name="Link" className="size-10" />}
+					title={labels.emptyTitle}
+					description={labels.emptyDescription}
+				/>
+			</div>
 		);
 	}
 
 	return (
 		<>
-			<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+			<div className="flex flex-col gap-2">
 				{shares.map((share) => (
 					<MyShareCard
 						key={share.id}
@@ -97,7 +97,8 @@ export function MySharesContent({
 				))}
 			</div>
 
-			<div className="flex items-center justify-between rounded-xl border bg-muted/15 px-4 py-3">
+			{/* D9：分页条去框，与 trash 计数条同为裸工具行 */}
+			<div className="flex items-center justify-between px-1 py-2">
 				<p className="text-sm text-muted-foreground">
 					{labels.pageDescription}
 				</p>

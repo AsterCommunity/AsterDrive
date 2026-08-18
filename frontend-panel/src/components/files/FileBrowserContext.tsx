@@ -22,6 +22,15 @@ export interface FileBrowserBatchSelectionActions {
 	onDelete?: () => void;
 	onManageTags?: () => void;
 	onMove?: () => void;
+	/** 回收站批量操作 */
+	onRestore?: () => void;
+	onPurge?: () => void;
+}
+
+/** 回收站条目的附加信息（原位置、过期时间），不走文件列表 schema */
+export interface FileBrowserTrashMeta {
+	expiresAt: string;
+	originalPath: string;
 }
 
 export interface FileBrowserContextValue {
@@ -63,6 +72,18 @@ export interface FileBrowserContextValue {
 	) => void | Promise<void>;
 	fadingFileIds?: Set<number>;
 	fadingFolderIds?: Set<number>;
+	/**
+	 * 回收站模式：条目来自 trash 接口映射，不可打开/下载；
+	 * 右键与批量菜单变为恢复/永久删除，表格日期列与原位置列来自 getTrashMeta。
+	 * 需与 readOnly 一起使用。
+	 */
+	trashMode?: boolean;
+	getTrashMeta?: (
+		type: "file" | "folder",
+		id: number,
+	) => FileBrowserTrashMeta | undefined;
+	onTrashRestore?: (type: "file" | "folder", id: number) => void;
+	onTrashPurge?: (type: "file" | "folder", id: number) => void;
 }
 
 const FileBrowserContext = createContext<FileBrowserContextValue | null>(null);

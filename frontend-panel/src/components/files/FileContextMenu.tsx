@@ -54,6 +54,9 @@ export interface FileContextMenuProps {
 	onRename?: () => void;
 	onVersions?: () => void;
 	onInfo?: () => void;
+	/** 回收站语境（trashMode）：恢复 / 永久删除 */
+	onTrashRestore?: () => void;
+	onTrashPurge?: () => void;
 	isLocked: boolean;
 	isFolder: boolean;
 	renderTrigger?: boolean;
@@ -84,6 +87,8 @@ function menuActionHandlers({
 	onDelete,
 	onVersions,
 	onInfo,
+	onTrashRestore,
+	onTrashPurge,
 }: FileActionMenuProps): Partial<Record<FileActionId, () => void>> {
 	return {
 		archive_compress: onArchiveCompress,
@@ -103,6 +108,8 @@ function menuActionHandlers({
 		share_direct: onDirectShare,
 		share_page: onPageShare,
 		toggle_lock: onToggleLock,
+		trash_purge: onTrashPurge,
+		trash_restore: onTrashRestore,
 		versions: onVersions,
 	};
 }
@@ -171,6 +178,8 @@ function FileContextMenuItems({
 	onDelete,
 	onVersions,
 	onInfo,
+	onTrashRestore,
+	onTrashPurge,
 	isLocked,
 	isFolder,
 	selectionCount,
@@ -211,6 +220,8 @@ function FileContextMenuItems({
 				onPageShare,
 				onRename,
 				onToggleLock,
+				onTrashPurge,
+				onTrashRestore,
 				onVersions,
 				isLocked,
 				isFolder,
@@ -315,6 +326,8 @@ export function FileContextMenu({
 	onDelete,
 	onVersions,
 	onInfo,
+	onTrashRestore,
+	onTrashPurge,
 	isLocked,
 	isFolder,
 	renderTrigger = false,
@@ -351,6 +364,8 @@ export function FileContextMenu({
 					onDelete={onDelete}
 					onVersions={onVersions}
 					onInfo={onInfo}
+					onTrashRestore={onTrashRestore}
+					onTrashPurge={onTrashPurge}
 					isLocked={isLocked}
 					isFolder={isFolder}
 					selectionCount={selectionCount}

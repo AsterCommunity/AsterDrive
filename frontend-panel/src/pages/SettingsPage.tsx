@@ -119,7 +119,7 @@ export default function SettingsPage({
 						>
 							<TabsTrigger
 								value="profile"
-								className="h-10 min-w-0 rounded-none px-0"
+								className="h-10 min-w-0 flex-none rounded-none px-0"
 							>
 								<Icon name="PencilSimple" className="size-4" />
 								<span className="truncate">
@@ -128,7 +128,7 @@ export default function SettingsPage({
 							</TabsTrigger>
 							<TabsTrigger
 								value="interface"
-								className="h-10 min-w-0 rounded-none px-0"
+								className="h-10 min-w-0 flex-none rounded-none px-0"
 							>
 								<Icon name="Monitor" className="size-4" />
 								<span className="truncate">
@@ -137,7 +137,7 @@ export default function SettingsPage({
 							</TabsTrigger>
 							<TabsTrigger
 								value="security"
-								className="h-10 min-w-0 rounded-none px-0"
+								className="h-10 min-w-0 flex-none rounded-none px-0"
 							>
 								<Icon name="Shield" className="size-4" />
 								<span className="truncate">
@@ -146,7 +146,7 @@ export default function SettingsPage({
 							</TabsTrigger>
 							<TabsTrigger
 								value="teams"
-								className="h-10 min-w-0 rounded-none px-0"
+								className="h-10 min-w-0 flex-none rounded-none px-0"
 							>
 								<Icon name="Cloud" className="size-4" />
 								<span className="truncate">{t("settings:settings_teams")}</span>

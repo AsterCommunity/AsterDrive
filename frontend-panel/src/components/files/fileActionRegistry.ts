@@ -19,6 +19,8 @@ export type BuiltinFileActionId =
 	| "versions"
 	| "info"
 	| "toggle_lock"
+	| "trash_restore"
+	| "trash_purge"
 	| "delete";
 
 export type PluginFileActionId = `plugin:${string}`;
@@ -216,6 +218,23 @@ const singleFileActions: FileActionDescriptor[] = [
 		availability: handlerAvailability("toggle_lock"),
 	},
 	{
+		// 回收站语境专用：只有 trashMode 的浏览器 context 会注入 handler
+		id: "trash_restore",
+		icon: "ArrowCounterClockwise",
+		labelKey: "files:trash_restore",
+		presentation: { group: "organize", order: 5 },
+		scope: "mixed",
+		availability: handlerAvailability("trash_restore"),
+	},
+	{
+		id: "trash_purge",
+		icon: "Trash",
+		labelKey: "files:trash_delete_permanently",
+		presentation: { group: "danger", order: 5 },
+		scope: "mixed",
+		availability: handlerAvailability("trash_purge"),
+	},
+	{
 		id: "delete",
 		icon: "Trash",
 		labelKey: "core:delete",
@@ -273,6 +292,22 @@ const selectionActions: FileActionDescriptor[] = [
 		presentation: { group: "organize", order: 30 },
 		scope: "mixed",
 		availability: handlerAvailability("manage_tags"),
+	},
+	{
+		id: "trash_restore",
+		icon: "ArrowCounterClockwise",
+		labelKey: "files:trash_restore_selected",
+		presentation: { group: "organize", order: 5 },
+		scope: "mixed",
+		availability: handlerAvailability("trash_restore"),
+	},
+	{
+		id: "trash_purge",
+		icon: "Trash",
+		labelKey: "files:trash_delete_selected",
+		presentation: { group: "danger", order: 5 },
+		scope: "mixed",
+		availability: handlerAvailability("trash_purge"),
 	},
 	{
 		id: "delete",
