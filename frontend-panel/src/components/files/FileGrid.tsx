@@ -7,6 +7,7 @@ import {
 	FileBrowserItemContextMenu,
 } from "@/components/files/FileBrowserItemContextMenu";
 import { FileCard } from "@/components/files/FileCard";
+import { FolderGridItem } from "@/components/files/FolderGridItem";
 import { getCurrentSelectionDragData } from "@/components/files/selectionDragData";
 import type { BrowserOpenMode } from "@/stores/fileStore";
 import { useFileStore } from "@/stores/fileStore";
@@ -25,6 +26,7 @@ const GRID_SECTION_TOP_GAP = 16;
 const GRID_ROW_GAP = 12;
 const GRID_HEADER_ESTIMATE = 28;
 const GRID_ITEM_ROW_ESTIMATE = 176;
+const GRID_FOLDER_ROW_ESTIMATE = 148;
 
 type GridItem =
 	| { type: "folder"; item: FolderListItem }
@@ -95,9 +97,8 @@ const FolderGridCard = memo(function FolderGridCard({
 	}, [folder, readOnly]);
 
 	const card = (
-		<FileCard
+		<FolderGridItem
 			item={folder}
-			isFolder
 			selected={selectionEnabled ? selected : false}
 			selectionActive={selectionEnabled ? selectionActive : false}
 			onSelect={
@@ -168,7 +169,6 @@ const FileGridCard = memo(function FileGridCard({
 	const card = (
 		<FileCard
 			item={file}
-			isFolder={false}
 			selected={selectionEnabled ? selected : false}
 			selectionActive={selectionEnabled ? selectionActive : false}
 			onSelect={
@@ -315,10 +315,14 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 	const virtualizer = useVirtualizer({
 		count: scrollElement ? gridRows.length : 0,
 		getScrollElement: () => scrollElement ?? null,
-		estimateSize: (index) =>
-			gridRows[index]?.type === "section-header"
-				? GRID_HEADER_ESTIMATE
-				: GRID_ITEM_ROW_ESTIMATE,
+		estimateSize: (index) => {
+			const row = gridRows[index];
+			if (!row) return GRID_ITEM_ROW_ESTIMATE;
+			if (row.type === "section-header") return GRID_HEADER_ESTIMATE;
+			return row.items[0]?.type === "folder"
+				? GRID_FOLDER_ROW_ESTIMATE
+				: GRID_ITEM_ROW_ESTIMATE;
+		},
 		overscan: 4,
 	});
 

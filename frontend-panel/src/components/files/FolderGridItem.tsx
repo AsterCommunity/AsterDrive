@@ -1,18 +1,18 @@
+import { useTranslation } from "react-i18next";
 import { FileItemStatusIndicators } from "@/components/files/FileItemStatusIndicators";
-import { FileThumbnail } from "@/components/files/FileThumbnail";
+import { FolderGlyph } from "@/components/files/FolderGlyph";
 import { TagChips } from "@/components/files/TagChips";
 import {
 	type GridItemDragData,
 	useGridItemDragDrop,
 } from "@/components/files/useGridItemDragDrop";
 import { ItemCheckbox } from "@/components/ui/item-checkbox";
-import { formatBytes } from "@/lib/format";
 import { isResourceLocked } from "@/lib/resourceLock";
 import { cn } from "@/lib/utils";
-import type { FileListItem } from "@/types/api";
+import type { FolderListItem } from "@/types/api";
 
-interface FileCardProps {
-	item: FileListItem;
+interface FolderGridItemProps {
+	item: FolderListItem;
 	selected: boolean;
 	onSelect?: () => void;
 	onClick: () => void;
@@ -20,22 +20,27 @@ interface FileCardProps {
 	/** IDs to drag when this item is part of a selection */
 	dragData?: GridItemDragData;
 	resolveDragData?: () => GridItemDragData;
+	onDrop?: (
+		fileIds: number[],
+		folderIds: number[],
+		targetFolderId: number,
+		targetPathIds: number[],
+	) => void;
 	targetPathIds?: number[];
 	fading?: boolean;
 	draggable?: boolean;
 	selectable?: boolean;
 	selectionActive?: boolean;
-	thumbnailPath?: string;
 	actionMenu?: React.ReactNode;
 	alwaysShowActionMenu?: boolean;
 }
 
 /**
- * 网格视图文件项。文件夹网格项见 FolderGridItem——
- * D9 起两者同为无容器形态：缩略图/徽章本身就是内容，
- * 容器透明，hover/selected 才浮现色垫（Finder 式"内容即界面"）。
+ * 网格视图文件夹项。与文件卡片（FileCard）刻意不同形：
+ * 无卡片边框、无媒体区底色，靠填充式文件夹图形本身承载识别，
+ * hover/selected/dragOver 状态全部落在容器背景与 ring 上。
  */
-export function FileCard({
+export function FolderGridItem({
 	item,
 	selected,
 	onSelect,
@@ -43,31 +48,35 @@ export function FileCard({
 	onDoubleClick,
 	dragData,
 	resolveDragData,
+	onDrop,
 	targetPathIds,
 	fading,
 	draggable = true,
 	selectable = true,
 	selectionActive = false,
-	thumbnailPath,
 	actionMenu,
 	alwaysShowActionMenu = false,
-}: FileCardProps) {
-	const { dragProps } = useGridItemDragDrop({
+}: FolderGridItemProps) {
+	const { t } = useTranslation("core");
+	const { dragOver, dragProps } = useGridItemDragDrop({
 		itemId: item.id,
-		isFolder: false,
+		isFolder: true,
 		draggable,
 		dragData,
 		resolveDragData,
+		onDrop,
 		targetPathIds,
 	});
 
 	return (
-		// biome-ignore lint/a11y/useSemanticElements: card with nested interactive checkbox cannot be a button
+		// biome-ignore lint/a11y/useSemanticElements: grid item with nested interactive checkbox cannot be a button
 		<div
 			data-drag-preview-root
+			data-folder-drop-target="true"
 			className={cn(
-				"group relative flex min-h-[166px] select-none flex-col rounded-xl px-2.5 py-2.5 transition-[background-color,opacity,transform] duration-150 ease-out hover:bg-muted/45 dark:hover:bg-muted/25",
-				selected && "bg-accent/60 text-accent-foreground dark:bg-accent/40",
+				"group relative flex min-h-[132px] select-none flex-col items-center rounded-xl px-2.5 pt-3 pb-2.5 transition-[background-color,box-shadow,opacity] duration-150 ease-out hover:bg-muted/45 dark:hover:bg-muted/25",
+				selected && "bg-accent/60 dark:bg-accent/40",
+				draggable && dragOver && "bg-accent/40 ring-2 ring-primary",
 				fading && "opacity-0",
 			)}
 			{...dragProps}
@@ -87,7 +96,7 @@ export function FileCard({
 					checked={selected}
 					onChange={onSelect ?? (() => {})}
 					className={cn(
-						"absolute top-2 left-2 z-10 transition-opacity",
+						"absolute top-2 left-2 transition-opacity",
 						selected || selectionActive
 							? "opacity-100"
 							: "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100",
@@ -100,12 +109,12 @@ export function FileCard({
 				isLocked={isResourceLocked(item.lock_state)}
 				compact
 				className={cn(
-					"absolute top-2 z-10 flex-col items-end gap-1",
+					"absolute top-2 flex-col items-end gap-1",
 					actionMenu ? "right-11 sm:right-2" : "right-2",
 				)}
 			/>
 			{actionMenu ? (
-				// biome-ignore lint/a11y/noStaticElementInteractions: non-interactive boundary prevents menu events from opening the parent card
+				// biome-ignore lint/a11y/noStaticElementInteractions: non-interactive boundary prevents menu events from opening the parent item
 				<div
 					data-file-card-action-menu
 					role="presentation"
@@ -132,18 +141,12 @@ export function FileCard({
 
 			<div
 				data-drag-preview-media
-				className="mb-2 flex h-20 w-full items-center justify-center overflow-hidden rounded-xl"
+				className="mb-1.5 flex h-20 w-full items-center justify-center"
 			>
-				<FileThumbnail
-					file={item}
-					size="lg"
-					thumbnailPath={thumbnailPath}
-					iconClassName="size-11"
-					imageClassName="h-full w-full object-cover"
-				/>
+				<FolderGlyph className="size-16 drop-shadow-sm transition-transform duration-150 ease-out group-hover:scale-[1.04] motion-reduce:transition-none motion-reduce:group-hover:transform-none" />
 			</div>
 
-			<div className="min-w-0 flex-1 space-y-1">
+			<div className="min-w-0 flex-1 space-y-1 text-center">
 				<span
 					data-drag-preview-name
 					className="block w-full line-clamp-2 text-sm leading-tight font-medium"
@@ -152,13 +155,13 @@ export function FileCard({
 					{item.name}
 				</span>
 				<div className="truncate text-xs text-muted-foreground">
-					{formatBytes(item.size ?? 0)}
+					{t("folder")}
 				</div>
 			</div>
 			<TagChips
 				tags={item.tags}
 				maxVisible={2}
-				className="mt-2 max-h-5 w-full justify-start overflow-hidden"
+				className="mt-1.5 max-h-5 w-full justify-center overflow-hidden"
 			/>
 		</div>
 	);

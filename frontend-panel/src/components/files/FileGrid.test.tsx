@@ -69,69 +69,77 @@ vi.mock("@/components/files/FileBrowserItemContextMenu", () => ({
 	},
 }));
 
+const gridItemMock = ({
+	item,
+	testId,
+	selected,
+	onSelect,
+	onClick,
+	onDoubleClick,
+	dragData,
+	draggable,
+	resolveDragData,
+	selectable,
+	targetPathIds,
+	fading,
+	thumbnailPath,
+	actionMenu,
+	alwaysShowActionMenu,
+}: {
+	item: { name: string };
+	testId: string;
+	selected: boolean;
+	onSelect?: () => void;
+	onClick: () => void;
+	onDoubleClick?: () => void;
+	dragData?: { fileIds: number[]; folderIds: number[] };
+	draggable?: boolean;
+	resolveDragData?: () => { fileIds: number[]; folderIds: number[] };
+	selectable?: boolean;
+	targetPathIds?: number[];
+	fading?: boolean;
+	thumbnailPath?: string;
+	actionMenu?: React.ReactNode;
+	alwaysShowActionMenu?: boolean;
+}) => {
+	const computedDragData = resolveDragData?.() ?? dragData;
+	return (
+		<div
+			data-testid={testId}
+			data-selected={String(selected)}
+			data-drag-file-ids={computedDragData?.fileIds.join(",") ?? ""}
+			data-drag-folder-ids={computedDragData?.folderIds.join(",") ?? ""}
+			data-target-path-ids={targetPathIds?.join(",") ?? ""}
+			data-fading={String(Boolean(fading))}
+			data-draggable={String(draggable ?? true)}
+			data-selectable={String(selectable ?? true)}
+			data-thumbnail-path={thumbnailPath ?? ""}
+			data-always-show-action-menu={String(Boolean(alwaysShowActionMenu))}
+		>
+			<button type="button" onClick={onClick}>
+				open:{item.name}
+			</button>
+			<button type="button" onClick={onDoubleClick}>
+				open-double:{item.name}
+			</button>
+			{onSelect ? (
+				<button type="button" onClick={onSelect}>
+					select:{item.name}
+				</button>
+			) : null}
+			{actionMenu}
+		</div>
+	);
+};
+
 vi.mock("@/components/files/FileCard", () => ({
-	FileCard: ({
-		item,
-		isFolder,
-		selected,
-		onSelect,
-		onClick,
-		onDoubleClick,
-		dragData,
-		draggable,
-		resolveDragData,
-		selectable,
-		targetPathIds,
-		fading,
-		thumbnailPath,
-		actionMenu,
-		alwaysShowActionMenu,
-	}: {
-		item: { name: string };
-		isFolder: boolean;
-		selected: boolean;
-		onSelect?: () => void;
-		onClick: () => void;
-		onDoubleClick?: () => void;
-		dragData?: { fileIds: number[]; folderIds: number[] };
-		draggable?: boolean;
-		resolveDragData?: () => { fileIds: number[]; folderIds: number[] };
-		selectable?: boolean;
-		targetPathIds?: number[];
-		fading?: boolean;
-		thumbnailPath?: string;
-		actionMenu?: React.ReactNode;
-		alwaysShowActionMenu?: boolean;
-	}) => {
-		const computedDragData = resolveDragData?.() ?? dragData;
-		return (
-			<div
-				data-testid={isFolder ? "folder-card" : "file-card"}
-				data-selected={String(selected)}
-				data-drag-file-ids={computedDragData?.fileIds.join(",") ?? ""}
-				data-drag-folder-ids={computedDragData?.folderIds.join(",") ?? ""}
-				data-target-path-ids={targetPathIds?.join(",") ?? ""}
-				data-fading={String(Boolean(fading))}
-				data-draggable={String(draggable ?? true)}
-				data-selectable={String(selectable ?? true)}
-				data-thumbnail-path={thumbnailPath ?? ""}
-				data-always-show-action-menu={String(Boolean(alwaysShowActionMenu))}
-			>
-				<button type="button" onClick={onClick}>
-					open:{item.name}
-				</button>
-				<button type="button" onClick={onDoubleClick}>
-					open-double:{item.name}
-				</button>
-				{onSelect ? (
-					<button type="button" onClick={onSelect}>
-						select:{item.name}
-					</button>
-				) : null}
-				{actionMenu}
-			</div>
-		);
-	},
+	FileCard: (props: Record<string, unknown>) =>
+		gridItemMock({ ...(props as never), testId: "file-card" }),
+}));
+
+vi.mock("@/components/files/FolderGridItem", () => ({
+	FolderGridItem: (props: Record<string, unknown>) =>
+		gridItemMock({ ...(props as never), testId: "folder-card" }),
 }));
 
 describe("FileGrid", () => {

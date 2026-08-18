@@ -55,7 +55,7 @@ export function HeaderControls({
 		customDisplayName !== null && customDisplayName !== user?.username;
 	const currentLanguage = i18n.language?.startsWith("zh") ? "zh" : "en";
 	const triggerClassName =
-		"h-10 gap-2 rounded-full border border-border/35 bg-background/65 px-1.5 transition-[background-color,border-color,color,box-shadow] hover:bg-muted/45 active:translate-y-0 aria-expanded:border-border/50 aria-expanded:bg-muted/45 sm:h-9 sm:px-2";
+		"h-10 gap-2 rounded-full px-1.5 transition-[background-color,color,box-shadow] hover:bg-muted/45 active:translate-y-0 aria-expanded:bg-muted/45 sm:h-9 sm:px-2";
 	const menuItemClass = `${MENU_SECTION_PADDING_CLASS} min-h-9 rounded-lg py-1.5`;
 	const profileSectionClass = "rounded-xl bg-muted/10";
 	const menuSectionClass = "rounded-xl";

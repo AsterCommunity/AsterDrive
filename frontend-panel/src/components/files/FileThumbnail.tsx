@@ -7,7 +7,7 @@ import { fileService } from "@/services/fileService";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
 import type { FileCategory, FileInfo, FileListItem } from "@/types/api";
 import { Icon } from "../ui/icon";
-import { FileTypeIcon } from "./FileTypeIcon";
+import { FileTypeIcon, getFileBadgeTint } from "./FileTypeIcon";
 
 export interface ThumbnailFileLike {
 	id: number;
@@ -181,6 +181,11 @@ export function FileThumbnail({
 				ref={ref}
 				className={cn(
 					"flex h-full w-full items-center justify-center",
+					getFileBadgeTint({
+						mimeType: file.mime_type,
+						fileName: file.name,
+						fileCategory: file.file_category,
+					}),
 					className,
 				)}
 			>

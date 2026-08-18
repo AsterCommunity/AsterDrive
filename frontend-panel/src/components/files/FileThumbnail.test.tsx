@@ -71,6 +71,7 @@ vi.mock("@/components/files/FileTypeIcon", () => ({
 			className={className}
 		/>
 	),
+	getFileBadgeTint: () => "bg-mock-tint",
 }));
 
 const pngFile = {

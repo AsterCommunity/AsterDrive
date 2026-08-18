@@ -246,11 +246,11 @@ export function WorkspaceSwitcher({
 				render={
 					<Button
 						type="button"
-						variant="outline"
+						variant="ghost"
 						size="sm"
 						aria-label={triggerLabel}
 						className={cn(
-							"items-center gap-1.5 border-border/45 bg-background/65 px-2 text-left shadow-none hover:bg-muted/45",
+							"items-center gap-1.5 px-2 text-left hover:bg-muted/45",
 							isSidebarVariant
 								? "h-10 w-full justify-start rounded-lg"
 								: "h-9 max-w-[8.75rem] rounded-full min-[380px]:max-w-[10.5rem] sm:max-w-[11rem]",
@@ -260,7 +260,7 @@ export function WorkspaceSwitcher({
 			>
 				<span
 					className={cn(
-						"flex size-6 shrink-0 items-center justify-center rounded-full border border-border/50 bg-muted/20 text-muted-foreground",
+						"flex size-6 shrink-0 items-center justify-center rounded-full bg-muted/30 text-muted-foreground",
 						isTeamWorkspace(workspace) && "text-primary",
 					)}
 				>

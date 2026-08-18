@@ -12,9 +12,9 @@ export function SkeletonFileGrid({ count = 12 }: SkeletonFileGridProps) {
 					<div
 						// biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders never reorder
 						key={`skeleton-card-${i}`}
-						className="flex min-h-[166px] flex-col rounded-lg border border-border/65 bg-background p-2.5 shadow-xs dark:shadow-none"
+						className="flex min-h-[166px] flex-col rounded-xl px-2.5 py-2.5"
 					>
-						<Skeleton className="mb-2.5 h-20 w-full rounded-md" />
+						<Skeleton className="mb-2 h-20 w-full rounded-xl" />
 						<Skeleton className="mb-1 h-4 w-3/4" />
 						<Skeleton className="mb-2 h-3 w-1/2" />
 						<Skeleton className="h-4 w-20 rounded-full" />

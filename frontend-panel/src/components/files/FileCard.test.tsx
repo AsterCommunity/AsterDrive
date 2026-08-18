@@ -1,12 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FileCard } from "@/components/files/FileCard";
-import { DRAG_SOURCE_MIME } from "@/lib/constants";
 
 const mockState = vi.hoisted(() => ({
-	getInvalidInternalDropReason: vi.fn(),
-	hasInternalDragData: vi.fn(),
-	readInternalDragData: vi.fn(),
 	setInternalDragPreview: vi.fn(),
 	writeInternalDragData: vi.fn(),
 }));
@@ -52,12 +48,6 @@ vi.mock("@/components/files/FileThumbnail", () => ({
 	),
 }));
 
-vi.mock("@/components/ui/icon", () => ({
-	Icon: ({ name }: { name: string }) => (
-		<span data-testid="icon" data-name={name} />
-	),
-}));
-
 vi.mock("@/components/ui/item-checkbox", () => ({
 	ItemCheckbox: ({
 		checked,
@@ -82,105 +72,31 @@ vi.mock("@/components/ui/item-checkbox", () => ({
 }));
 
 vi.mock("@/lib/dragDrop", () => ({
-	getInvalidInternalDropReason: (...args: unknown[]) =>
-		mockState.getInvalidInternalDropReason(...args),
-	hasInternalDragData: (...args: unknown[]) =>
-		mockState.hasInternalDragData(...args),
-	readInternalDragData: (...args: unknown[]) =>
-		mockState.readInternalDragData(...args),
 	setInternalDragPreview: (...args: unknown[]) =>
 		mockState.setInternalDragPreview(...args),
 	writeInternalDragData: (...args: unknown[]) =>
 		mockState.writeInternalDragData(...args),
 }));
 
-const folder = {
-	id: 7,
-	name: "Docs",
-	is_shared: false,
-	lock_state: { state: "unlocked" },
-};
-
 const file = {
 	id: 9,
 	name: "report.pdf",
 	mime_type: "application/pdf",
+	size: 2048,
 	is_shared: true,
 	lock_state: { state: "direct", mode: "exclusive" },
 };
 
 describe("FileCard", () => {
 	beforeEach(() => {
-		mockState.getInvalidInternalDropReason.mockReset();
-		mockState.hasInternalDragData.mockReset();
-		mockState.readInternalDragData.mockReset();
 		mockState.setInternalDragPreview.mockReset();
 		mockState.writeInternalDragData.mockReset();
-		mockState.hasInternalDragData.mockReturnValue(false);
-		mockState.readInternalDragData.mockReturnValue(null);
-		mockState.getInvalidInternalDropReason.mockReturnValue(null);
-	});
-
-	it("renders folder cards with folder icon, selection state, and click handlers", () => {
-		const onClick = vi.fn();
-
-		render(
-			<FileCard
-				item={folder as never}
-				isFolder
-				selected
-				onSelect={vi.fn()}
-				onClick={onClick}
-				fading
-			/>,
-		);
-
-		const card = screen.getByRole("button", { name: /Docs/i });
-		expect(card).toHaveClass(
-			"border-primary",
-			"bg-accent",
-			"opacity-0",
-			"select-none",
-		);
-		expect(screen.getByTestId("icon")).toHaveAttribute("data-name", "Folder");
-		const folderName = screen.getByText("Docs");
-		expect(folderName).toBeInTheDocument();
-		expect(folderName.parentElement).toHaveClass("text-center");
-
-		fireEvent.click(card);
-		fireEvent.keyDown(card, { key: "Enter" });
-
-		expect(onClick).toHaveBeenCalledTimes(2);
-	});
-
-	it("uses the double-click handler for keyboard Enter when provided", () => {
-		const onClick = vi.fn();
-		const onDoubleClick = vi.fn();
-
-		render(
-			<FileCard
-				item={folder as never}
-				isFolder
-				selected={false}
-				onSelect={vi.fn()}
-				onClick={onClick}
-				onDoubleClick={onDoubleClick}
-			/>,
-		);
-
-		fireEvent.keyDown(screen.getByRole("button", { name: /Docs/i }), {
-			key: "Enter",
-		});
-
-		expect(onDoubleClick).toHaveBeenCalledTimes(1);
-		expect(onClick).not.toHaveBeenCalled();
 	});
 
 	it("renders file thumbnails and compact status indicators for files", () => {
 		const { container } = render(
 			<FileCard
 				item={file as never}
-				isFolder={false}
 				selected={false}
 				onSelect={vi.fn()}
 				onClick={vi.fn()}
@@ -223,7 +139,6 @@ describe("FileCard", () => {
 		render(
 			<FileCard
 				item={file as never}
-				isFolder={false}
 				selected={false}
 				onSelect={onSelect}
 				onClick={onClick}
@@ -240,7 +155,6 @@ describe("FileCard", () => {
 		const { container } = render(
 			<FileCard
 				item={file as never}
-				isFolder={false}
 				selected={false}
 				onSelect={vi.fn()}
 				onClick={vi.fn()}
@@ -261,7 +175,6 @@ describe("FileCard", () => {
 		const { container } = render(
 			<FileCard
 				item={file as never}
-				isFolder={false}
 				selected={false}
 				onSelect={vi.fn()}
 				onClick={vi.fn()}
@@ -282,7 +195,6 @@ describe("FileCard", () => {
 		const { container } = render(
 			<FileCard
 				item={file as never}
-				isFolder={false}
 				selected={false}
 				onSelect={vi.fn()}
 				onClick={vi.fn()}
@@ -308,7 +220,6 @@ describe("FileCard", () => {
 		const { container } = render(
 			<FileCard
 				item={file as never}
-				isFolder={false}
 				selected={false}
 				onSelect={vi.fn()}
 				onClick={onClick}
@@ -341,7 +252,6 @@ describe("FileCard", () => {
 		render(
 			<FileCard
 				item={file as never}
-				isFolder={false}
 				selected={false}
 				onSelect={vi.fn()}
 				onClick={vi.fn()}
@@ -364,55 +274,5 @@ describe("FileCard", () => {
 				itemCount: 3,
 			},
 		);
-	});
-
-	it("accepts valid folder drops and blocks invalid or source-marker drops", () => {
-		const onDrop = vi.fn();
-		const dataTransfer = {
-			types: ["application/x-asterdrive-move"],
-			dropEffect: "copy",
-		} as unknown as DataTransfer;
-		mockState.hasInternalDragData.mockReturnValue(true);
-		mockState.readInternalDragData.mockReturnValue({
-			fileIds: [9],
-			folderIds: [3],
-		});
-
-		render(
-			<FileCard
-				item={folder as never}
-				isFolder
-				selected={false}
-				onSelect={vi.fn()}
-				onClick={vi.fn()}
-				onDrop={onDrop}
-				targetPathIds={[1, 2, 7]}
-			/>,
-		);
-
-		const card = screen.getByRole("button", { name: /Docs/i });
-
-		fireEvent.dragOver(card, { dataTransfer });
-		expect(dataTransfer.dropEffect).toBe("move");
-		expect(card).toHaveClass("ring-2", "ring-primary");
-
-		fireEvent.drop(card, { dataTransfer });
-		expect(mockState.getInvalidInternalDropReason).toHaveBeenCalledWith(
-			{ fileIds: [9], folderIds: [3] },
-			7,
-			[1, 2, 7],
-		);
-		expect(onDrop).toHaveBeenCalledWith([9], [3], 7, [1, 2, 7]);
-
-		mockState.getInvalidInternalDropReason.mockReturnValueOnce("descendant");
-		fireEvent.drop(card, { dataTransfer });
-		expect(onDrop).toHaveBeenCalledTimes(1);
-
-		const sourceDataTransfer = {
-			types: [DRAG_SOURCE_MIME],
-		} as unknown as DataTransfer;
-		fireEvent.dragOver(card, { dataTransfer: sourceDataTransfer });
-		fireEvent.drop(card, { dataTransfer: sourceDataTransfer });
-		expect(onDrop).toHaveBeenCalledTimes(1);
 	});
 });

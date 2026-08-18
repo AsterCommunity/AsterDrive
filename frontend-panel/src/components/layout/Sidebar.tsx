@@ -328,7 +328,7 @@ export function Sidebar({
 				data-theme-surface="chrome"
 				style={sidebarStyle}
 				className={cn(
-					"border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform duration-200 ease-out motion-reduce:transition-none",
+					"border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform duration-200 ease-out motion-reduce:transition-none md:border-r-0",
 					USER_SIDEBAR_WIDTH_CLASS,
 					"fixed left-0 z-(--z-fixed) flex shrink-0 flex-col md:relative md:left-auto md:top-auto md:bottom-auto md:z-auto md:translate-x-0",
 					USER_TOPBAR_OFFSET_CLASS,

@@ -1,7 +1,6 @@
 import { FolderTree } from "@/components/folders/FolderTree";
 import { WorkspaceSwitcher } from "@/components/layout/WorkspaceSwitcher";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { SidebarNavigation } from "./SidebarNavigation";
 import { SidebarQuickCategories } from "./SidebarQuickCategories";
 import { SidebarStorageUsage } from "./SidebarStorageUsage";
@@ -27,7 +26,7 @@ export function SidebarContent({
 }: SidebarContentProps) {
 	return (
 		<div className="flex h-full min-h-0 flex-col overflow-hidden overscroll-contain">
-			<div className="shrink-0 border-b border-sidebar-border bg-sidebar px-3 py-2 sm:py-2.5">
+			<div className="shrink-0 px-3 py-2 sm:py-2.5">
 				<WorkspaceSwitcher variant="sidebar" />
 			</div>
 
@@ -40,13 +39,11 @@ export function SidebarContent({
 				<div className="flex min-h-full flex-col">
 					<FolderTree onMoveToFolder={onMoveToFolder} />
 
-					<div className="mt-auto">
-						<Separator />
+					<div className="mt-auto space-y-2 pt-2">
 						<SidebarQuickCategories
 							onMobileClose={onMobileClose}
 							workspace={workspace}
 						/>
-						<Separator />
 						<SidebarNavigation
 							locationPathname={locationPathname}
 							navLinks={navLinks}

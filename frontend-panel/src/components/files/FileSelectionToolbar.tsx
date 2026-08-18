@@ -287,7 +287,7 @@ function FileSelectionToolbarContent({
 			<div
 				{...hiddenProps}
 				className={cn(
-					"absolute inset-x-0 top-0 z-10 hidden bg-card sm:block",
+					"absolute inset-x-0 top-0 z-10 hidden bg-background sm:block",
 					motionClassName,
 				)}
 			>

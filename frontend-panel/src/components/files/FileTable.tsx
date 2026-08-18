@@ -59,7 +59,7 @@ function fileBrowserTableRowClass({
 	selected: boolean;
 }) {
 	return cn(
-		"group cursor-pointer select-none border-border/45 transition-[background-color,box-shadow,opacity] duration-150 ease-out hover:bg-muted/25",
+		"group cursor-pointer select-none border-border/30 transition-[background-color,box-shadow,opacity] duration-150 ease-out hover:bg-muted/25",
 		selected &&
 			"bg-accent text-accent-foreground shadow-xs hover:bg-accent dark:shadow-none",
 		dragOver && "bg-accent/35 ring-2 ring-primary",

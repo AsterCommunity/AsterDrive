@@ -290,7 +290,7 @@ describe("HeaderControls", () => {
 		const trigger = screen.getByRole("button", { name: "alice" });
 		expect(trigger.className).toContain("active:translate-y-0");
 		expect(trigger.className).toContain(
-			"transition-[background-color,border-color,color,box-shadow]",
+			"transition-[background-color,color,box-shadow]",
 		);
 		expect(screen.getByTestId("account-menu-content")).toHaveClass(
 			"w-[min(22rem,calc(100vw-1.5rem))]",

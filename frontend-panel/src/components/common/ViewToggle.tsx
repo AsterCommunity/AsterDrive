@@ -17,7 +17,7 @@ interface ViewToggleProps {
 export function ViewToggle({ value, onChange }: ViewToggleProps) {
 	const { t } = useTranslation("files");
 	return (
-		<div className="flex rounded-lg bg-muted/35 p-0.5 shadow-xs ring-1 ring-border/45 dark:bg-muted/25 dark:shadow-none dark:ring-border/55">
+		<div className="flex rounded-lg bg-muted/35 p-0.5 dark:bg-muted/25">
 			<Tooltip>
 				<TooltipTrigger
 					render={

@@ -238,7 +238,7 @@ describe("FileBrowserToolbar", () => {
 		).toBeInTheDocument();
 		expect(
 			screen.getByTestId("file-browser-selection-toolbar").closest(".absolute"),
-		).toHaveClass("top-0", "hidden", "bg-card", "sm:block");
+		).toHaveClass("top-0", "hidden", "bg-background", "sm:block");
 		expect(screen.getByTestId("file-browser-default-toolbar")).toHaveAttribute(
 			"aria-hidden",
 			"true",
