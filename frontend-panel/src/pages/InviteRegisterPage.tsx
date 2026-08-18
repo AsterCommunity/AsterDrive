@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
-import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
+import { AuthPageShell } from "@/components/auth/AuthPageShell";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ import { ApiError } from "@/services/http";
 import { useAuthStore } from "@/stores/authStore";
 import type { MeResponse, PublicUserInvitationInfo } from "@/types/api";
 import { ApiErrorCode } from "@/types/api-helpers";
+import { AnimateMeasuredHeight } from "./login/authAnimations";
 
 type InviteStatus =
 	| "loading"
@@ -184,22 +185,6 @@ function getStatusDescription(
 	return t(statusTitleKey.replace("_title", "_desc"));
 }
 
-function getContentClassName(status: InviteStatus) {
-	if (status === "switching_to_invite" || status === "revealing_form") {
-		return "h-[16rem] overflow-hidden transition-[height] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[height] motion-reduce:transition-none";
-	}
-	if (status === "form") {
-		return "min-h-[16rem] overflow-visible";
-	}
-	if (
-		status === "signed_in_same_email" ||
-		status === "signed_in_different_email"
-	) {
-		return "h-48 overflow-hidden transition-[height] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[height] motion-reduce:transition-none";
-	}
-	return "h-32 overflow-hidden transition-[height] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[height] motion-reduce:transition-none";
-}
-
 function inviteRegisterReducer(
 	state: InviteRegisterState,
 	action: InviteRegisterAction,
@@ -346,18 +331,12 @@ function validatePasswordValue(value: string) {
 
 function InviteRegisterHeader({ t }: { t: Translate }) {
 	return (
-		<>
-			<div className="mb-8 text-center">
-				<AsterDriveWordmark alt="AsterDrive" className="mx-auto h-16 w-auto" />
-			</div>
-
-			<div className="mb-5 space-y-1">
-				<h1 className="text-xl font-semibold">{t("invitation_page_title")}</h1>
-				<p className="text-sm text-muted-foreground">
-					{t("invitation_page_desc")}
-				</p>
-			</div>
-		</>
+		<div className="mb-5 space-y-1">
+			<h1 className="text-xl font-semibold">{t("invitation_page_title")}</h1>
+			<p className="text-sm text-muted-foreground">
+				{t("invitation_page_desc")}
+			</p>
+		</div>
 	);
 }
 
@@ -373,7 +352,7 @@ function InvitedAccountSummary({
 	}
 
 	return (
-		<div className="mb-5 rounded-lg border bg-muted/30 px-3 py-2.5">
+		<div className="mb-5 rounded-lg bg-muted/30 px-3 py-2.5">
 			<div className="text-xs font-medium text-muted-foreground">
 				{t("invitation_invited_account")}
 			</div>
@@ -548,7 +527,7 @@ function CurrentAccountPanel({
 }) {
 	return (
 		<div
-			className="rounded-lg border bg-muted/30 p-3"
+			className="rounded-lg bg-muted/30 p-3"
 			data-testid="invite-account-status"
 		>
 			<h2 className="text-sm font-medium">{statusTitle}</h2>
@@ -636,7 +615,7 @@ function InviteErrorState({
 }) {
 	return (
 		<div className="space-y-3">
-			<div className="rounded-lg border bg-muted/30 p-3">
+			<div className="rounded-lg bg-muted/30 p-3">
 				<h2 className="text-sm font-medium">{statusTitle}</h2>
 				<p className="mt-1 text-xs text-muted-foreground">
 					{statusDescription}
@@ -650,7 +629,6 @@ function InviteErrorState({
 }
 
 function InviteRegisterContent({
-	contentClassName,
 	onCurrentAccount,
 	onGoToLogin,
 	onLogoutAndContinue,
@@ -663,7 +641,6 @@ function InviteRegisterContent({
 	statusTitle,
 	t,
 }: {
-	contentClassName: string;
 	onCurrentAccount: () => void;
 	onGoToLogin: () => void;
 	onLogoutAndContinue: () => void;
@@ -679,61 +656,63 @@ function InviteRegisterContent({
 	const { status } = state;
 
 	return (
-		<div className={contentClassName} data-testid="invite-content">
-			{status === "loading" ? (
-				<LoadingInviteState statusTitle={statusTitle} />
-			) : status === "form" || status === "revealing_form" ? (
-				<InviteRegisterForm
-					onPasswordChange={onPasswordChange}
-					onSubmit={onSubmit}
-					onTogglePasswordVisibility={onTogglePasswordVisibility}
-					onUsernameChange={onUsernameChange}
-					password={state.password}
-					passwordError={state.passwordError}
-					showPassword={state.showPassword}
-					status={status}
-					statusDescription={statusDescription}
-					statusTitle={statusTitle}
-					submitting={state.submitting}
-					t={t}
-					username={state.username}
-					usernameError={state.usernameError}
-				/>
-			) : status === "switching_to_invite" ? (
-				<SwitchingInviteState
-					statusDescription={statusDescription}
-					statusTitle={statusTitle}
-					switchingContentVisible={state.switchingContentVisible}
-				/>
-			) : status === "signed_in_same_email" ? (
-				<SignedInInviteState
-					onContinue={onLogoutAndContinue}
-					onCurrentAccount={onCurrentAccount}
-					signedInUser={state.signedInUser}
-					statusDescription={statusDescription}
-					statusTitle={statusTitle}
-					submitting={state.submitting}
-					t={t}
-				/>
-			) : status === "signed_in_different_email" ? (
-				<SignedInInviteState
-					onContinue={onLogoutAndContinue}
-					onCurrentAccount={onCurrentAccount}
-					reverseActions
-					signedInUser={state.signedInUser}
-					statusDescription={statusDescription}
-					statusTitle={statusTitle}
-					submitting={state.submitting}
-					t={t}
-				/>
-			) : (
-				<InviteErrorState
-					onGoToLogin={onGoToLogin}
-					statusDescription={statusDescription}
-					statusTitle={statusTitle}
-					t={t}
-				/>
-			)}
+		<div data-testid="invite-content">
+			<AnimateMeasuredHeight>
+				{status === "loading" ? (
+					<LoadingInviteState statusTitle={statusTitle} />
+				) : status === "form" || status === "revealing_form" ? (
+					<InviteRegisterForm
+						onPasswordChange={onPasswordChange}
+						onSubmit={onSubmit}
+						onTogglePasswordVisibility={onTogglePasswordVisibility}
+						onUsernameChange={onUsernameChange}
+						password={state.password}
+						passwordError={state.passwordError}
+						showPassword={state.showPassword}
+						status={status}
+						statusDescription={statusDescription}
+						statusTitle={statusTitle}
+						submitting={state.submitting}
+						t={t}
+						username={state.username}
+						usernameError={state.usernameError}
+					/>
+				) : status === "switching_to_invite" ? (
+					<SwitchingInviteState
+						statusDescription={statusDescription}
+						statusTitle={statusTitle}
+						switchingContentVisible={state.switchingContentVisible}
+					/>
+				) : status === "signed_in_same_email" ? (
+					<SignedInInviteState
+						onContinue={onLogoutAndContinue}
+						onCurrentAccount={onCurrentAccount}
+						signedInUser={state.signedInUser}
+						statusDescription={statusDescription}
+						statusTitle={statusTitle}
+						submitting={state.submitting}
+						t={t}
+					/>
+				) : status === "signed_in_different_email" ? (
+					<SignedInInviteState
+						onContinue={onLogoutAndContinue}
+						onCurrentAccount={onCurrentAccount}
+						reverseActions
+						signedInUser={state.signedInUser}
+						statusDescription={statusDescription}
+						statusTitle={statusTitle}
+						submitting={state.submitting}
+						t={t}
+					/>
+				) : (
+					<InviteErrorState
+						onGoToLogin={onGoToLogin}
+						statusDescription={statusDescription}
+						statusTitle={statusTitle}
+						t={t}
+					/>
+				)}
+			</AnimateMeasuredHeight>
 		</div>
 	);
 }
@@ -816,7 +795,6 @@ export default function InviteRegisterPage() {
 		statusTitleKey,
 		translate,
 	);
-	const contentClassName = getContentClassName(state.status);
 
 	const validateUsername = (value: string) => {
 		const result = validateUsernameValue(value);
@@ -916,31 +894,30 @@ export default function InviteRegisterPage() {
 	};
 
 	return (
-		<div className="flex min-h-screen items-center justify-center bg-background p-6">
-			<div className="w-full max-w-sm rounded-3xl border bg-card p-6 shadow-sm">
-				<InviteRegisterHeader t={translate} />
-				<InvitedAccountSummary invitation={state.invitation} t={translate} />
-				<InviteRegisterContent
-					contentClassName={contentClassName}
-					onCurrentAccount={() => navigate("/")}
-					onGoToLogin={() => navigate("/login")}
-					onLogoutAndContinue={() => void handleLogoutAndContinue()}
-					onPasswordChange={handlePasswordChange}
-					onSubmit={handleSubmit}
-					onTogglePasswordVisibility={() =>
-						dispatch({ type: "togglePasswordVisibility" })
-					}
-					onUsernameChange={handleUsernameChange}
-					state={state}
-					statusDescription={statusDescription}
-					statusTitle={statusTitle}
-					t={translate}
-				/>
-
-				<p className="mt-8 text-center text-xs text-muted-foreground/50">
-					Self-hosted cloud storage
-				</p>
-			</div>
-		</div>
+		<AuthPageShell>
+			<InviteRegisterHeader t={translate} />
+			<InvitedAccountSummary invitation={state.invitation} t={translate} />
+			<InviteRegisterContent
+				onCurrentAccount={() =>
+					navigate(
+						state.signedInUser?.must_change_password
+							? "/force-password-change"
+							: "/",
+					)
+				}
+				onGoToLogin={() => navigate("/login")}
+				onLogoutAndContinue={() => void handleLogoutAndContinue()}
+				onPasswordChange={handlePasswordChange}
+				onSubmit={handleSubmit}
+				onTogglePasswordVisibility={() =>
+					dispatch({ type: "togglePasswordVisibility" })
+				}
+				onUsernameChange={handleUsernameChange}
+				state={state}
+				statusDescription={statusDescription}
+				statusTitle={statusTitle}
+				t={translate}
+			/>
+		</AuthPageShell>
 	);
 }

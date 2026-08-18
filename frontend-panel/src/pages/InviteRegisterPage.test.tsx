@@ -218,7 +218,7 @@ describe("InviteRegisterPage", () => {
 		);
 	});
 
-	it("expands the content area while showing the unauthenticated registration form", async () => {
+	it("transitions from loading to the unauthenticated registration form", async () => {
 		let resolveVerify:
 			| ((value: { email: string; expires_at: string }) => void)
 			| undefined;
@@ -230,9 +230,8 @@ describe("InviteRegisterPage", () => {
 				}),
 		);
 
-		render(<InviteRegisterPage />);
+		const { container } = render(<InviteRegisterPage />);
 
-		expect(screen.getByTestId("invite-content")).toHaveClass("h-32");
 		expect(screen.getByText("invitation_loading_title")).toBeInTheDocument();
 
 		resolveVerify?.({
@@ -240,13 +239,13 @@ describe("InviteRegisterPage", () => {
 			expires_at: "2026-06-10T00:00:00Z",
 		});
 
-		await waitFor(() => {
-			expect(screen.getByTestId("invite-content")).toHaveClass("h-[16rem]");
-		});
-		expect(screen.getByLabelText("username")).toBeInTheDocument();
+		expect(await screen.findByLabelText("username")).toBeInTheDocument();
 		expect(screen.getByLabelText("password")).toBeInTheDocument();
+		// 等 formReveal 计时器落定（revealing_form → form 的入场类移除），避免计时器泄漏到用例外
 		await waitFor(() => {
-			expect(screen.getByTestId("invite-content")).toHaveClass("min-h-[16rem]");
+			expect(container.querySelector("form")?.className).not.toContain(
+				"slide-in-from-bottom-2",
+			);
 		});
 	});
 
@@ -387,6 +386,32 @@ describe("InviteRegisterPage", () => {
 		expect(mockState.logout).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		["INVITEE@example.com", "invitation_same_account_title"],
+		["current@example.com", "invitation_account_mismatch_title"],
+	])(
+		"routes a forced-password account %s to the password-change page",
+		async (email, statusTitle) => {
+			mockState.params = { token: "invite-token" };
+			mockState.authUser = createMeResponse({
+				email,
+				must_change_password: true,
+			});
+
+			render(<InviteRegisterPage />);
+
+			expect(await screen.findByText(statusTitle)).toBeInTheDocument();
+			fireEvent.click(
+				screen.getByRole("button", {
+					name: "invitation_go_to_current_account",
+				}),
+			);
+
+			expect(mockState.navigate).toHaveBeenCalledWith("/force-password-change");
+			expect(mockState.logout).not.toHaveBeenCalled();
+		},
+	);
+
 	it("starts the invite transition immediately before logout finishes", async () => {
 		let resolveLogout: (() => void) | undefined;
 		mockState.params = { token: "invite-token" };
@@ -418,10 +443,6 @@ describe("InviteRegisterPage", () => {
 		);
 
 		expect(mockState.logout).toHaveBeenCalledTimes(1);
-		expect(screen.getByTestId("invite-content")).toHaveClass("h-[16rem]");
-		expect(screen.getByTestId("invite-content")).toHaveClass(
-			"transition-[height]",
-		);
 		expect(
 			screen.queryByTestId("invite-account-status"),
 		).not.toBeInTheDocument();
@@ -436,10 +457,6 @@ describe("InviteRegisterPage", () => {
 		await waitFor(() => {
 			expect(screen.getByText("invitation_register_title")).toBeInTheDocument();
 		});
-		expect(screen.getByTestId("invite-content")).toHaveClass("min-h-[16rem]");
-		expect(screen.getByTestId("invite-content")).toHaveClass(
-			"overflow-visible",
-		);
 		expect(screen.getByLabelText("username")).toBeInTheDocument();
 		expect(screen.getByLabelText("password")).toBeInTheDocument();
 	});

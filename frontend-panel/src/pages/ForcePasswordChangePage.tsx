@@ -3,7 +3,7 @@ import { useReducer, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
+import { AuthPageShell } from "@/components/auth/AuthPageShell";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
@@ -39,7 +39,6 @@ type PasswordChangeFormState = {
 	currentPassword: string;
 	errors: PasswordChangeErrors;
 	newPassword: string;
-	showPasswords: boolean;
 };
 
 type PasswordChangeFormAction =
@@ -51,15 +50,13 @@ type PasswordChangeFormAction =
 			samePasswordMessage: string;
 			value: string;
 	  }
-	| { type: "validated"; errors: PasswordChangeErrors }
-	| { type: "showPasswordsToggled" };
+	| { type: "validated"; errors: PasswordChangeErrors };
 
 const initialPasswordChangeFormState: PasswordChangeFormState = {
 	confirmPassword: "",
 	currentPassword: "",
 	errors: {},
 	newPassword: "",
-	showPasswords: false,
 };
 
 function errorsFromIssues(issues: ValidationIssue[]): PasswordChangeErrors {
@@ -106,8 +103,6 @@ function passwordChangeFormReducer(
 				},
 			};
 		}
-		case "showPasswordsToggled":
-			return { ...state, showPasswords: !state.showPasswords };
 		case "validated":
 			return { ...state, errors: action.errors };
 	}
@@ -130,13 +125,7 @@ export default function ForcePasswordChangePage() {
 	);
 	const [submitting, setSubmitting] = useState(false);
 	const [signingOut, setSigningOut] = useState(false);
-	const {
-		confirmPassword,
-		currentPassword,
-		errors,
-		newPassword,
-		showPasswords,
-	} = formState;
+	const { confirmPassword, currentPassword, errors, newPassword } = formState;
 
 	usePageTitle(t("force_password_change_title"));
 
@@ -228,122 +217,99 @@ export default function ForcePasswordChangePage() {
 	};
 
 	return (
-		<div className="flex min-h-screen items-center justify-center bg-background p-6">
-			<div className="w-full max-w-md rounded-2xl border bg-card p-6 shadow-sm">
-				<div className="mb-8 text-center">
-					<AsterDriveWordmark
-						alt="AsterDrive"
-						className="mx-auto h-16 w-auto"
-					/>
-				</div>
-				<div className="mb-6 space-y-2">
-					<h1 className="text-xl font-semibold tracking-tight">
-						{t("force_password_change_title")}
-					</h1>
-					<p className="text-sm text-muted-foreground">
-						{t("force_password_change_desc")}
-					</p>
-				</div>
-				<form onSubmit={handleSubmit} className="space-y-4">
-					<div className="space-y-1.5">
-						<Label htmlFor="force-current-password">
-							{t("settings:settings_password_current")}
-						</Label>
-						<Input
-							id="force-current-password"
-							type={showPasswords ? "text" : "password"}
-							value={currentPassword}
-							onChange={(event) => {
-								updateField("currentPassword", event.target.value);
-							}}
-							autoComplete="current-password"
-							aria-invalid={errors.current ? true : undefined}
-						/>
-						{errors.current ? (
-							<p className="text-xs text-destructive">{errors.current}</p>
-						) : null}
-					</div>
-					<div className="space-y-1.5">
-						<Label htmlFor="force-new-password">
-							{t("settings:settings_password_new")}
-						</Label>
-						<Input
-							id="force-new-password"
-							type={showPasswords ? "text" : "password"}
-							value={newPassword}
-							onChange={(event) => {
-								updateField("newPassword", event.target.value);
-							}}
-							autoComplete="new-password"
-							aria-invalid={errors.next ? true : undefined}
-						/>
-						{errors.next ? (
-							<p className="text-xs text-destructive">{errors.next}</p>
-						) : (
-							<p className="text-xs text-muted-foreground">
-								{t("settings:settings_password_hint")}
-							</p>
-						)}
-					</div>
-					<div className="space-y-1.5">
-						<Label htmlFor="force-confirm-password">
-							{t("settings:settings_password_confirm")}
-						</Label>
-						<Input
-							id="force-confirm-password"
-							type={showPasswords ? "text" : "password"}
-							value={confirmPassword}
-							onChange={(event) => {
-								updateField("confirmPassword", event.target.value);
-							}}
-							autoComplete="new-password"
-							aria-invalid={errors.confirm ? true : undefined}
-						/>
-						{errors.confirm ? (
-							<p className="text-xs text-destructive">{errors.confirm}</p>
-						) : null}
-					</div>
-					<div className="flex items-center justify-between gap-3">
-						<Button
-							type="button"
-							variant="ghost"
-							onClick={() => dispatchForm({ type: "showPasswordsToggled" })}
-						>
-							<Icon
-								name={showPasswords ? "EyeSlash" : "Eye"}
-								className="mr-1 size-4"
-							/>
-							{showPasswords
-								? t("core:hide_password")
-								: t("core:show_password")}
-						</Button>
-						<Button type="submit" disabled={submitting} className="min-w-36">
-							{submitting ? (
-								<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
-							) : (
-								<Icon name="Key" className="mr-1 size-4" />
-							)}
-							{t("force_password_change_submit")}
-						</Button>
-					</div>
-				</form>
-				<div className="mt-6 border-t pt-4">
-					<Button
-						type="button"
-						variant="outline"
-						onClick={() => void handleLogout()}
-						disabled={signingOut}
-						className="w-full"
-					>
-						{signingOut ? (
-							<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
-						) : (
-							<Icon name="SignOut" className="mr-1 size-4" />
-						)}
-						{t("core:logout")}
-					</Button>
-				</div>
+		<AuthPageShell>
+			<div className="mb-6 space-y-2">
+				<h1 className="text-xl font-semibold tracking-tight">
+					{t("force_password_change_title")}
+				</h1>
+				<p className="text-sm text-muted-foreground">
+					{t("force_password_change_desc")}
+				</p>
 			</div>
-		</div>
+			<form onSubmit={handleSubmit} className="space-y-4">
+				<div className="space-y-1.5">
+					<Label htmlFor="force-current-password">
+						{t("settings:settings_password_current")}
+					</Label>
+					<Input
+						id="force-current-password"
+						type="password"
+						value={currentPassword}
+						onChange={(event) => {
+							updateField("currentPassword", event.target.value);
+						}}
+						autoComplete="current-password"
+						aria-invalid={errors.current ? true : undefined}
+					/>
+					{errors.current ? (
+						<p className="text-xs text-destructive">{errors.current}</p>
+					) : null}
+				</div>
+				<div className="space-y-1.5">
+					<Label htmlFor="force-new-password">
+						{t("settings:settings_password_new")}
+					</Label>
+					<Input
+						id="force-new-password"
+						type="password"
+						value={newPassword}
+						onChange={(event) => {
+							updateField("newPassword", event.target.value);
+						}}
+						autoComplete="new-password"
+						aria-invalid={errors.next ? true : undefined}
+					/>
+					{errors.next ? (
+						<p className="text-xs text-destructive">{errors.next}</p>
+					) : (
+						<p className="text-xs text-muted-foreground">
+							{t("settings:settings_password_hint")}
+						</p>
+					)}
+				</div>
+				<div className="space-y-1.5">
+					<Label htmlFor="force-confirm-password">
+						{t("settings:settings_password_confirm")}
+					</Label>
+					<Input
+						id="force-confirm-password"
+						type="password"
+						value={confirmPassword}
+						onChange={(event) => {
+							updateField("confirmPassword", event.target.value);
+						}}
+						autoComplete="new-password"
+						aria-invalid={errors.confirm ? true : undefined}
+					/>
+					{errors.confirm ? (
+						<p className="text-xs text-destructive">{errors.confirm}</p>
+					) : null}
+				</div>
+				<Button type="submit" disabled={submitting} className="h-10 w-full">
+					{submitting ? (
+						<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
+					) : (
+						<Icon name="Key" className="mr-1 size-4" />
+					)}
+					{t("force_password_change_submit")}
+				</Button>
+			</form>
+			<div className="mt-6 border-t pt-4">
+				<Button
+					type="button"
+					variant="outline"
+					onClick={() => void handleLogout()}
+					disabled={signingOut}
+					className="w-full"
+				>
+					{signingOut ? (
+						<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
+					) : (
+						<Icon name="SignOut" className="mr-1 size-4" />
+					)}
+					{t("core:logout")}
+				</Button>
+			</div>
+		</AuthPageShell>
 	);
 }

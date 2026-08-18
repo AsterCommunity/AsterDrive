@@ -339,7 +339,7 @@ describe("ForcePasswordChangePage", () => {
 		expect(mockState.changePassword).not.toHaveBeenCalled();
 	});
 
-	it("toggles all password fields between masked and visible input types", () => {
+	it("keeps all password fields masked without a visibility toggle", () => {
 		render(<ForcePasswordChangePage />);
 		const currentInput = screen.getByLabelText("settings_password_current");
 		const newInput = screen.getByLabelText("settings_password_new");
@@ -348,18 +348,9 @@ describe("ForcePasswordChangePage", () => {
 		expect(currentInput).toHaveAttribute("type", "password");
 		expect(newInput).toHaveAttribute("type", "password");
 		expect(confirmInput).toHaveAttribute("type", "password");
-
-		fireEvent.click(screen.getByRole("button", { name: /show_password/ }));
-
-		expect(currentInput).toHaveAttribute("type", "text");
-		expect(newInput).toHaveAttribute("type", "text");
-		expect(confirmInput).toHaveAttribute("type", "text");
-
-		fireEvent.click(screen.getByRole("button", { name: /hide_password/ }));
-
-		expect(currentInput).toHaveAttribute("type", "password");
-		expect(newInput).toHaveAttribute("type", "password");
-		expect(confirmInput).toHaveAttribute("type", "password");
+		expect(
+			screen.queryByRole("button", { name: /show_password/ }),
+		).not.toBeInTheDocument();
 	});
 
 	it("detects reused current password while editing and before calling the API", () => {

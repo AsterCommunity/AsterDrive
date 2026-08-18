@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **D9 无框化前端视觉体系** — 文件浏览器、侧栏、分享、任务、WebDAV、回收站、设置与团队管理页面统一采用以色阶和间距分区的 frameless 设计；暗色主题改为暖炭色层次，文件夹使用填充式 glyph，文件类型 fallback 使用语义色，选中态加入侧栏/目录树指示条，文件区支持尊重 `prefers-reduced-motion` 的入场动画与网格裂列过渡。输入框、表格 hairline、outline 按钮和浮层仍保留必要边界。
+- **文件浏览器交互与布局** — 网格列数改为按容器宽度和卡片最大宽度计算，避免长文件名撑破轨道；文件/文件夹网格与列表共享选择、拖拽和动作解析；新增 Cmd/Ctrl 多选、Shift 范围选择、方向键导航、Shift+方向键扩展选择及单选 Enter 打开，并补齐输入框、菜单、对话框和 IME 场景的键盘边界。
+- **回收站统一浏览器** — 回收站网格与表格复用通用 `FileGrid` / `FileTable`，展示原位置和过期时间，并通过统一 action registry 提供恢复与永久删除；回收站选择状态纳入共享文件 store，普通文件页和公开分享页不感知 trash 专用动作。
+- **团队管理页路由化** — 团队管理从对话框内部视图收敛为 `/settings/teams/:id` 页面，保留成员、概览、WebDAV、审计和危险操作能力，并统一页签、滚动恢复、数据加载和路由返回行为；对话框仅保留真正需要浮层边界的场景。
+
 ### Fixed
 
 - **Reverse tunnel 空闲连接保活与关闭握手** — single 与 cluster Primary 统一使用 WebSocket Ping/Pong 判断 streaming lane 存活，不再把 60 秒无业务帧误判为断链并触发四 lane 重连风暴；Primary shutdown 会停止接收新请求、在有界时间内排空 lane 上的在途请求后发送 Close，正常 Close 记录 info 而不告警，EOF/ConnectionReset 等异常掉线保留 WARN；心跳失联仍会记录一次可操作告警，Primary 离线期间的 lane / poll 重试只在故障开始时告警并在恢复后记录，运行日志改用 binding ID，避免输出完整 access key。

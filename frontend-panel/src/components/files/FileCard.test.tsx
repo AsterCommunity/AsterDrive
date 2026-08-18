@@ -151,6 +151,32 @@ describe("FileCard", () => {
 		expect(onClick).not.toHaveBeenCalled();
 	});
 
+	it("marks selected cards with a ring and keeps long unbreakable names wrapped", () => {
+		const longNameFile = {
+			...file,
+			name: "458123c16ba00578ae49b09a70f8b66d.png",
+		};
+		render(
+			<FileCard
+				item={longNameFile as never}
+				selected={true}
+				onSelect={vi.fn()}
+				onClick={vi.fn()}
+			/>,
+		);
+
+		const card = screen.getByRole("button", { name: /458123c16ba/ });
+		// 选中态：背景 + 主色 ring 常驻指示（单选多选一致）
+		expect(card).toHaveClass("bg-accent/60", "ring-2", "ring-primary/60");
+		// 鼠标点击不出 UA 焦点框；键盘焦点经 focus-visible 保留
+		expect(card).toHaveClass("outline-none", "focus-visible:ring-2");
+		// 无空格长文件名（hash 名）允许硬断折行，不横向溢出
+		expect(screen.getByText(longNameFile.name)).toHaveClass(
+			"line-clamp-2",
+			"break-words",
+		);
+	});
+
 	it("keeps the grid card action menu mobile-only and reclaims desktop status space", () => {
 		const { container } = render(
 			<FileCard

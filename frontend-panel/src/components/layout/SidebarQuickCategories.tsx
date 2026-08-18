@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { NavLink } from "react-router-dom";
 import { Icon } from "@/components/ui/icon";
-import { sidebarNavItemClass } from "@/lib/utils";
+import { SIDEBAR_SECTION_TITLE_CLASS, sidebarNavItemClass } from "@/lib/utils";
 import type { Workspace } from "@/lib/workspace";
 import { workspaceCategoryPath } from "@/lib/workspace";
 import { QUICK_CATEGORY_LINKS } from "./sidebarLinks";
@@ -19,7 +19,7 @@ export function SidebarQuickCategories({
 
 	return (
 		<div className="p-2 space-y-1">
-			<p className="px-3 py-1 text-xs font-medium text-muted-foreground">
+			<p className={SIDEBAR_SECTION_TITLE_CLASS}>
 				{t("search:quick_categories")}
 			</p>
 			{QUICK_CATEGORY_LINKS.map((link) => (
@@ -30,7 +30,9 @@ export function SidebarQuickCategories({
 						onMobileClose();
 					}}
 					className={({ isActive }) =>
-						sidebarNavItemClass(isActive, "w-full text-left")
+						sidebarNavItemClass(isActive, "w-full text-left", {
+							indicator: true,
+						})
 					}
 				>
 					<Icon name={link.icon} className="size-4 shrink-0" />

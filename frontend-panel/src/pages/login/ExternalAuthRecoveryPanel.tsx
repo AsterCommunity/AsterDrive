@@ -54,7 +54,7 @@ export function ExternalAuthRecoveryPanel({
 		"space-y-4 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none";
 
 	return (
-		<div className="space-y-4 rounded-2xl border bg-muted/20 p-4 transition-[background-color,border-color] duration-200">
+		<div className="space-y-4">
 			<div className="flex items-start gap-3">
 				<div className="rounded-xl bg-primary/10 p-2 text-primary">
 					<Icon name={sent ? "Check" : "Link"} className="size-5" />

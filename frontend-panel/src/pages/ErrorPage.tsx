@@ -7,14 +7,6 @@ import {
 } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardFooter,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { runtimeFlags } from "@/config/runtime";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -182,150 +174,148 @@ export default function ErrorPage() {
 
 	return (
 		<main className="flex min-h-screen bg-background text-foreground">
-			<div className="m-auto w-full max-w-4xl px-6 py-10">
-				<Card className="gap-0 overflow-hidden border bg-background shadow-sm">
-					<CardHeader className="border-b">
-						<div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
-							<div className="flex items-start gap-4">
-								<div className="flex size-14 shrink-0 items-center justify-center rounded-2xl border bg-muted/40">
-									<Icon
-										name="CircleAlert"
-										className="size-7 text-muted-foreground"
-									/>
-								</div>
-
-								<div className="min-w-0 space-y-3">
-									<div className="flex flex-wrap items-center gap-2">
-										<Badge variant={badgeVariant} className="font-medium">
-											{tone.label}
-										</Badge>
-										{isDeveloperMode ? (
-											<span className="text-sm text-muted-foreground">
-												{responseLabel}
-											</span>
-										) : null}
-									</div>
-
-									<div className="space-y-1">
-										<CardTitle className="text-2xl tracking-tight sm:text-3xl">
-											{tone.title}
-										</CardTitle>
-										<CardDescription className="max-w-2xl text-sm leading-6 sm:text-base">
-											{tone.description}
-										</CardDescription>
-									</div>
-								</div>
+			<div className="m-auto w-full max-w-4xl space-y-8 px-6 py-10">
+				<header>
+					<div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+						<div className="flex items-start gap-4">
+							<div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-muted/40">
+								<Icon
+									name="CircleAlert"
+									className="size-7 text-muted-foreground"
+								/>
 							</div>
 
-							{isDeveloperMode ? (
-								<div className="w-full rounded-xl border bg-muted/30 px-4 py-3 md:w-auto md:min-w-28 md:text-right">
-									<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-										{t("error_page_status_heading")}
-									</p>
-									<p className="mt-1 text-3xl font-semibold tracking-tight">
-										{statusDisplay}
+							<div className="min-w-0 space-y-3">
+								<div className="flex flex-wrap items-center gap-2">
+									<Badge variant={badgeVariant} className="font-medium">
+										{tone.label}
+									</Badge>
+									{isDeveloperMode ? (
+										<span className="text-sm text-muted-foreground">
+											{responseLabel}
+										</span>
+									) : null}
+								</div>
+
+								<div className="space-y-1">
+									<h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+										{tone.title}
+									</h1>
+									<p className="max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+										{tone.description}
 									</p>
 								</div>
-							) : null}
+							</div>
 						</div>
-					</CardHeader>
 
-					{isDeveloperMode ? (
-						<CardContent className="grid gap-4 py-6 md:grid-cols-[minmax(0,1fr)_280px]">
-							<div className="space-y-4">
-								<div className="rounded-xl border bg-muted/25 p-4">
-									<p className="text-sm font-medium">
-										{t("error_page_developer_detail")}
-									</p>
+						{isDeveloperMode ? (
+							<div className="w-full rounded-xl bg-muted/30 px-4 py-3 md:w-auto md:min-w-28 md:text-right">
+								<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+									{t("error_page_status_heading")}
+								</p>
+								<p className="mt-1 text-3xl font-semibold tracking-tight">
+									{statusDisplay}
+								</p>
+							</div>
+						) : null}
+					</div>
+				</header>
 
-									<div className="mt-3 space-y-3">
-										{developerDetails.name ? (
-											<div>
-												<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-													{t("error_page_error_name")}
-												</p>
-												<p className="mt-2 font-mono text-sm">
-													{developerDetails.name}
-												</p>
-											</div>
-										) : null}
+				{isDeveloperMode ? (
+					<section className="grid gap-4 border-t pt-8 md:grid-cols-[minmax(0,1fr)_280px]">
+						<div className="space-y-4">
+							<div className="rounded-xl bg-muted/30 p-4">
+								<p className="text-sm font-medium">
+									{t("error_page_developer_detail")}
+								</p>
 
+								<div className="mt-3 space-y-3">
+									{developerDetails.name ? (
 										<div>
 											<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-												{t("error_page_message")}
+												{t("error_page_error_name")}
 											</p>
-											<p className="mt-2 break-all font-mono text-sm">
-												{message}
+											<p className="mt-2 font-mono text-sm">
+												{developerDetails.name}
 											</p>
 										</div>
+									) : null}
 
-										{developerDetails.payload &&
-										developerDetails.payload !== message ? (
-											<div>
-												<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-													{t("error_page_payload")}
-												</p>
-												<pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-background p-3 font-mono text-xs">
-													{developerDetails.payload}
-												</pre>
-											</div>
-										) : null}
-
-										{developerDetails.stack ? (
-											<div>
-												<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-													{t("error_page_stack")}
-												</p>
-												<pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-3 font-mono text-xs">
-													{developerDetails.stack}
-												</pre>
-											</div>
-										) : null}
-									</div>
-								</div>
-
-								<div className="grid gap-3 sm:grid-cols-2">
-									<div className="rounded-xl border p-4">
+									<div>
 										<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-											{t("error_page_path")}
+											{t("error_page_message")}
 										</p>
 										<p className="mt-2 break-all font-mono text-sm">
-											{routeLabel}
+											{message}
 										</p>
 									</div>
-									<div className="rounded-xl border p-4">
-										<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-											{t("error_page_response")}
-										</p>
-										<p className="mt-2 font-mono text-sm">{responseLabel}</p>
-									</div>
+
+									{developerDetails.payload &&
+									developerDetails.payload !== message ? (
+										<div>
+											<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+												{t("error_page_payload")}
+											</p>
+											<pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-background p-3 font-mono text-xs">
+												{developerDetails.payload}
+											</pre>
+										</div>
+									) : null}
+
+									{developerDetails.stack ? (
+										<div>
+											<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+												{t("error_page_stack")}
+											</p>
+											<pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-3 font-mono text-xs">
+												{developerDetails.stack}
+											</pre>
+										</div>
+									) : null}
 								</div>
 							</div>
 
-							<div className="rounded-xl border bg-muted/25 p-4">
-								<p className="text-sm font-medium">
-									{t("error_page_recovery_title")}
-								</p>
-								<p className="mt-2 text-sm leading-6 text-muted-foreground">
-									{tone.suggestion}
-								</p>
+							<div className="grid gap-3 border-t pt-4 sm:grid-cols-2">
+								<div>
+									<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+										{t("error_page_path")}
+									</p>
+									<p className="mt-2 break-all font-mono text-sm">
+										{routeLabel}
+									</p>
+								</div>
+								<div>
+									<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+										{t("error_page_response")}
+									</p>
+									<p className="mt-2 font-mono text-sm">{responseLabel}</p>
+								</div>
 							</div>
-						</CardContent>
-					) : null}
-
-					<CardFooter className="justify-end">
-						<div className="flex flex-col gap-3 sm:flex-row">
-							<Button variant="outline" onClick={handleGoBack}>
-								<Icon name="Undo" className="mr-2 size-4" />
-								{t("error_page_go_back")}
-							</Button>
-							<Button onClick={() => navigate("/")}>
-								<Icon name="House" className="mr-2 size-4" />
-								{t("error_page_go_home")}
-							</Button>
 						</div>
-					</CardFooter>
-				</Card>
+
+						<div className="h-fit rounded-xl bg-muted/30 p-4">
+							<p className="text-sm font-medium">
+								{t("error_page_recovery_title")}
+							</p>
+							<p className="mt-2 text-sm leading-6 text-muted-foreground">
+								{tone.suggestion}
+							</p>
+						</div>
+					</section>
+				) : null}
+
+				<footer className="flex justify-end border-t pt-8">
+					<div className="flex flex-col gap-3 sm:flex-row">
+						<Button variant="outline" onClick={handleGoBack}>
+							<Icon name="Undo" className="mr-2 size-4" />
+							{t("error_page_go_back")}
+						</Button>
+						<Button onClick={() => navigate("/")}>
+							<Icon name="House" className="mr-2 size-4" />
+							{t("error_page_go_home")}
+						</Button>
+					</div>
+				</footer>
 			</div>
 		</main>
 	);

@@ -1,5 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useFileBrowserContext } from "@/components/files/FileBrowserContext";
 import {
@@ -8,18 +9,27 @@ import {
 } from "@/components/files/FileBrowserItemContextMenu";
 import { FileCard } from "@/components/files/FileCard";
 import { FolderGridItem } from "@/components/files/FolderGridItem";
+import {
+	getGridColumnCount,
+	getGridTemplateColumns,
+} from "@/components/files/gridLayout";
+import { applySelectionModifiers } from "@/components/files/selectionClick";
 import { getCurrentSelectionDragData } from "@/components/files/selectionDragData";
+import { useFileListKeyboardNavigation } from "@/components/files/useFileListKeyboardNavigation";
 import { formatDateUntil } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import type { BrowserOpenMode } from "@/stores/fileStore";
 import { useFileStore } from "@/stores/fileStore";
+import type { SelectionItemKey } from "@/stores/fileStore/selectionRange";
 import type { FileListItem, FolderListItem } from "@/types/api";
 
 interface FileGridProps {
 	scrollElement?: HTMLDivElement | null;
 }
 
-const GRID_CLASSES =
-	"grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3";
+// 列数由 gridLayout 按容器宽度计算（卡片宽度到上限就裂列），
+// grid 模板由 JS 直接生成，与虚拟化切行天然一致，无需 CSS auto-fill。
+const GRID_CLASSES = "grid gap-3";
 const GRID_SECTION_HEADER_CLASSES =
 	"flex items-center gap-2 px-1 text-xs font-semibold uppercase text-muted-foreground";
 const GRID_HEADER_BOTTOM_GAP = 8;
@@ -46,14 +56,6 @@ type GridRow =
 			items: GridItem[];
 			paddingBottom: number;
 	  };
-
-function getGridColumnCount(viewportWidth: number) {
-	if (viewportWidth >= 1280) return 6;
-	if (viewportWidth >= 1024) return 5;
-	if (viewportWidth >= 768) return 4;
-	if (viewportWidth >= 640) return 3;
-	return 2;
-}
 
 interface BaseGridCardProps {
 	browserOpenMode: BrowserOpenMode;
@@ -108,7 +110,13 @@ const FolderGridCard = memo(function FolderGridCard({
 			onSelect={
 				selectionEnabled ? () => toggleFolderSelection(folder.id) : undefined
 			}
-			onClick={() => {
+			onClick={(e) => {
+				if (
+					selectionEnabled &&
+					applySelectionModifiers(e, { type: "folder", id: folder.id })
+				) {
+					return;
+				}
 				if (
 					!readOnly &&
 					browserOpenMode === "double_click" &&
@@ -181,7 +189,13 @@ const FileGridCard = memo(function FileGridCard({
 			onSelect={
 				selectionEnabled ? () => toggleFileSelection(file.id) : undefined
 			}
-			onClick={() => {
+			onClick={(e) => {
+				if (
+					selectionEnabled &&
+					applySelectionModifiers(e, { type: "file", id: file.id })
+				) {
+					return;
+				}
 				if (
 					!readOnly &&
 					browserOpenMode === "double_click" &&
@@ -238,23 +252,67 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 	const selectionActive = useFileStore(
 		(s) => s.selectedFileIds.size + s.selectedFolderIds.size > 0,
 	);
-	const [viewportWidth, setViewportWidth] = useState(() =>
-		typeof window === "undefined" ? 1280 : window.innerWidth,
-	);
+	// 列数跟随容器实际宽度（侧边栏开合、窗口缩放都会改变它），
+	// 而不是 window.innerWidth——断点式列数会让宽屏下单卡被拉得过宽。
+	//
+	// 注意不能做防抖：列数变化必须当帧同步到渲染，否则容器宽度与切行
+	// 不一致期间会出现"超宽卡 + 行尾空缺"的错乱布局。这里只在列数
+	// 实际变化时才 setState（宽度微调由 1fr 轨道自行吸收），
+	// 相同值 React 自动 bailout，不会有多余重渲染。
+	const [columnCount, setColumnCount] = useState(1);
+	const resizeObserverRef = useRef<ResizeObserver | null>(null);
+	const columnCountRef = useRef(1);
+	const hasMeasuredRef = useRef(false);
+
+	// scrollElement 就绪前后渲染的是不同的容器元素（虚拟化/非虚拟化分支），
+	// 用 callback ref 保证 observer 始终挂在当前真实容器上。
+	const containerRef = useCallback((element: HTMLDivElement | null) => {
+		resizeObserverRef.current?.disconnect();
+		resizeObserverRef.current = null;
+		if (!element || typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver((entries) => {
+			const next = getGridColumnCount(entries[0]?.contentRect.width ?? 0);
+			if (columnCountRef.current === next) return;
+			columnCountRef.current = next;
+			// 首次测量同步提交：ResizeObserver 回调处于渲染管线内（paint 之前），
+			// flushSync 让 React 当场完成渲染，paint 时就是正确列数——
+			// 否则 setState 走并发调度，首帧会先 paint 出 1 列再展开，造成闪烁。
+			if (!hasMeasuredRef.current) {
+				hasMeasuredRef.current = true;
+				flushSync(() => setColumnCount(next));
+				return;
+			}
+			// 裂列重排是硬跳变：用 View Transitions 对网格容器做一次快照
+			// crossfade 缓冲（旧/新布局各一张快照交叉淡化，不重建 DOM、
+			// 动画在合成层播放不阻塞交互）。不支持的浏览器与 reduced-motion
+			// 直接更新，退化为无过渡。
+			if (
+				typeof document.startViewTransition === "function" &&
+				!window.matchMedia("(prefers-reduced-motion: reduce)").matches
+			) {
+				document.startViewTransition(() => {
+					flushSync(() => setColumnCount(next));
+				});
+				return;
+			}
+			setColumnCount(next);
+		});
+		observer.observe(element);
+		resizeObserverRef.current = observer;
+	}, []);
 
 	const hasBoth = folders.length > 0 && files.length > 0;
 
+	// D8 网格首次加载入场：内容从空变为非空（或挂载即非空）时播一次。
+	// 类加上后不移除：CSS animation 不会因重渲染重播，且 fill-mode
+	// backwards 播完回到自然样式，无 transform 残留。
+	const hasContent = folders.length > 0 || files.length > 0;
+	const [entering, setEntering] = useState(hasContent);
+
 	useEffect(() => {
-		if (typeof window === "undefined") return;
-
-		const updateViewportWidth = () => {
-			setViewportWidth(window.innerWidth);
-		};
-
-		updateViewportWidth();
-		window.addEventListener("resize", updateViewportWidth);
-		return () => window.removeEventListener("resize", updateViewportWidth);
-	}, []);
+		// 已为 true 时 React 对相同值 setState 直接 bailout，不会重渲染
+		if (hasContent) setEntering(true);
+	}, [hasContent]);
 
 	const renderFolderCard = (folder: FolderListItem) => {
 		const trashMeta = trashMode
@@ -299,7 +357,6 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 		);
 	};
 
-	const columnCount = getGridColumnCount(viewportWidth);
 	const gridRows = useMemo(() => {
 		const rows: GridRow[] = [];
 
@@ -336,6 +393,8 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 		return rows;
 	}, [columnCount, files, folders, hasBoth, t]);
 
+	const gridTemplateColumns = getGridTemplateColumns(columnCount);
+
 	const virtualizer = useVirtualizer({
 		count: scrollElement ? gridRows.length : 0,
 		getScrollElement: () => scrollElement ?? null,
@@ -355,6 +414,41 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 		virtualizer.measure();
 	}, [scrollElement, virtualizer]);
 
+	// 键盘导航后让焦点项滚动进视口：从 gridRows 反查目标所在行
+	// （section header 也占行，不能直接按下标换算）。
+	const scrollToItem = useCallback(
+		(key: SelectionItemKey) => {
+			const rowIndex = gridRows.findIndex(
+				(row) =>
+					row.type === "items" &&
+					row.items.some(
+						(entry) => entry.type === key.type && entry.item.id === key.id,
+					),
+			);
+			if (rowIndex >= 0) {
+				virtualizer.scrollToIndex(rowIndex, { align: "auto" });
+			}
+		},
+		[gridRows, virtualizer],
+	);
+
+	useFileListKeyboardNavigation({
+		columnCount,
+		enabled: selectionEnabled,
+		scrollToItem: scrollElement ? scrollToItem : undefined,
+		onOpenFocused: readOnly
+			? undefined
+			: (key) => {
+					if (key.type === "folder") {
+						const folder = folders.find((entry) => entry.id === key.id);
+						if (folder) onFolderOpen(folder.id, folder.name);
+					} else {
+						const file = files.find((entry) => entry.id === key.id);
+						if (file) onFileClick(file);
+					}
+				},
+	});
+
 	if (scrollElement) {
 		const virtualRows = virtualizer.getVirtualItems();
 		const firstVirtualRow = virtualRows[0];
@@ -366,7 +460,13 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 		);
 
 		return (
-			<div className="px-4 py-3 md:p-5">
+			<div
+				ref={containerRef}
+				className={cn(
+					"file-grid-vt px-4 py-3 md:p-5",
+					entering && "file-browser-enter",
+				)}
+			>
 				{paddingTop > 0 && <div aria-hidden style={{ height: paddingTop }} />}
 				{virtualRows.map((virtualRow) => {
 					const row = gridRows[virtualRow.index];
@@ -394,7 +494,10 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 							ref={virtualizer.measureElement}
 							data-index={virtualRow.index}
 							className={GRID_CLASSES}
-							style={{ paddingBottom: row.paddingBottom }}
+							style={{
+								gridTemplateColumns,
+								paddingBottom: row.paddingBottom,
+							}}
 						>
 							{row.items.map((item) =>
 								item.type === "folder"
@@ -412,26 +515,37 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 	}
 
 	return (
-		<div className="space-y-4 px-4 py-3 md:p-5">
+		<div ref={containerRef} className="file-grid-vt space-y-4 px-4 py-3 md:p-5">
 			{folders.length > 0 && (
-				<div className="space-y-2">
+				<div className={cn("space-y-2", entering && "file-browser-enter")}>
 					{hasBoth && (
 						<h3 className={GRID_SECTION_HEADER_CLASSES}>
 							{t("folders_section")}
 						</h3>
 					)}
-					<div className={GRID_CLASSES}>{folders.map(renderFolderCard)}</div>
+					<div className={GRID_CLASSES} style={{ gridTemplateColumns }}>
+						{folders.map(renderFolderCard)}
+					</div>
 				</div>
 			)}
 
 			{files.length > 0 && (
-				<div className="space-y-2">
+				<div
+					className={cn(
+						"space-y-2",
+						entering && "file-browser-enter",
+						// 两区错开 80ms；只有一个区时不加延迟，单区内容直接入场
+						entering && hasBoth && "file-browser-enter-delayed",
+					)}
+				>
 					{hasBoth && (
 						<h3 className={GRID_SECTION_HEADER_CLASSES}>
 							{t("files_section")}
 						</h3>
 					)}
-					<div className={GRID_CLASSES}>{files.map(renderFileCard)}</div>
+					<div className={GRID_CLASSES} style={{ gridTemplateColumns }}>
+						{files.map(renderFileCard)}
+					</div>
 				</div>
 			)}
 		</div>

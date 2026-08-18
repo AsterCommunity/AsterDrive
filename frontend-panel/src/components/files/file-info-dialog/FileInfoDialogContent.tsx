@@ -43,13 +43,9 @@ function Section({
 	className?: string;
 	title?: string;
 }) {
+	// D9 去框化：裸 section，标题直落背景，分区靠间距（对齐 SettingsSection 语言）
 	return (
-		<section
-			className={cn(
-				"space-y-3 rounded-2xl border border-border/60 bg-card/55 p-4 dark:bg-background/18",
-				className,
-			)}
-		>
+		<section className={cn("space-y-3", className)}>
 			{title ? (
 				<h3 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
 					{title}
@@ -61,12 +57,13 @@ function Section({
 }
 
 function DetailList({ rows }: { rows: DetailRow[] }) {
+	// 行分隔 hairline 保留（真分隔），对齐 SettingsRow 的首尾收边
 	return (
-		<dl className="space-y-3">
+		<dl>
 			{rows.map((row) => (
 				<div
 					key={row.label}
-					className="flex items-start justify-between gap-4 border-b border-border/40 pb-3 last:border-b-0 last:pb-0"
+					className="flex items-start justify-between gap-4 border-b py-3 first:pt-0 last:border-b-0 last:pb-0"
 				>
 					<dt className="text-sm text-muted-foreground">{row.label}</dt>
 					<dd
@@ -102,8 +99,8 @@ export function FileInfoDialogContent({
 	title,
 }: FileInfoDialogContentProps) {
 	return (
-		<div className="space-y-4 p-4">
-			<Section className="gap-0 space-y-4 bg-card/55 dark:bg-background/18">
+		<div className="space-y-6 p-4">
+			<Section>
 				<div className="flex items-start gap-3">
 					<div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-muted/35 text-muted-foreground dark:bg-muted/20">
 						{targetIcon.type === "file" ? (
@@ -124,11 +121,11 @@ export function FileInfoDialogContent({
 								{summaryLabel}
 							</p>
 							{isDesktop ? (
-								<h2 className="line-clamp-2 text-lg font-semibold text-foreground">
+								<h2 className="line-clamp-2 break-words text-lg font-semibold text-foreground">
 									{title}
 								</h2>
 							) : (
-								<p className="line-clamp-2 text-lg font-semibold text-foreground">
+								<p className="line-clamp-2 break-words text-lg font-semibold text-foreground">
 									{title}
 								</p>
 							)}

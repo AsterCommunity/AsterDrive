@@ -258,6 +258,8 @@ describe("Sidebar", () => {
 		expect(
 			screen.getByRole("button", { name: /translated:webdav/i }),
 		).toHaveAttribute("data-to", "/settings/webdav");
+		// D5：功能入口分组标题与快速查看标题共用同一扫读锚点
+		expect(screen.getByText("translated:core:nav_section")).toBeInTheDocument();
 		expect(
 			screen.getByText("translated:files:storage_space"),
 		).toBeInTheDocument();
@@ -271,6 +273,14 @@ describe("Sidebar", () => {
 		expect(
 			screen.getByText("files:storage_quota:formatted:25/formatted:100"),
 		).toBeInTheDocument();
+		// D5：3px 细进度条渲染在数值下方
+		const quotaText = screen.getByText(
+			"files:storage_quota:formatted:25/formatted:100",
+		);
+		expect(
+			quotaText.compareDocumentPosition(screen.getByTestId("progress")) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
 	});
 
 	it("restores the sidebar scroll position after remounting", () => {

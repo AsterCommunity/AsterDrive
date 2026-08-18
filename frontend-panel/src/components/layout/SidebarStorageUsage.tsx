@@ -34,20 +34,20 @@ export function SidebarStorageUsage({
 			>
 				{activeTeam ? activeTeam.name : t("files:storage_space")}
 			</p>
-			<Progress
-				value={
-					storageQuota > 0
-						? Math.min((storageUsed / storageQuota) * 100, 100)
-						: 0
-				}
-				className="h-1.5"
-			/>
 			<p className="text-xs text-muted-foreground">
 				{t("files:storage_quota", {
 					used: usedLabel,
 					quota: quotaLabel,
 				})}
 			</p>
+			<Progress
+				value={
+					storageQuota > 0
+						? Math.min((storageUsed / storageQuota) * 100, 100)
+						: 0
+				}
+				className="[&_[data-slot=progress-track]]:h-[3px]"
+			/>
 		</div>
 	);
 }

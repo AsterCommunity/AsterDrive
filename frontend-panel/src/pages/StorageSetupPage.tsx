@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
+import { AuthPageShell } from "@/components/auth/AuthPageShell";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
@@ -32,16 +32,8 @@ export default function StorageSetupPage() {
 	};
 
 	return (
-		<main className="flex min-h-screen items-center justify-center bg-background p-6">
-			<section
-				className="w-full max-w-xl rounded-3xl border border-border/70 bg-card p-6 shadow-sm sm:p-8"
-				aria-labelledby="storage-setup-title"
-			>
-				<AsterDriveWordmark
-					alt="AsterDrive"
-					className="mb-10 h-12 w-auto max-w-56"
-				/>
-
+		<AuthPageShell contentClassName="max-w-md">
+			<section aria-labelledby="storage-setup-title">
 				<div className="space-y-3">
 					<p className="text-xs font-semibold tracking-[0.18em] text-primary uppercase">
 						{t("storage_setup_eyebrow")}
@@ -81,6 +73,6 @@ export default function StorageSetupPage() {
 					</Button>
 				</div>
 			</section>
-		</main>
+		</AuthPageShell>
 	);
 }

@@ -1,6 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type React from "react";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { FileBrowserTrashMeta } from "@/components/files/FileBrowserContext";
 import { useFileBrowserContext } from "@/components/files/FileBrowserContext";
@@ -17,7 +17,9 @@ import {
 	TrashOriginalPathCell,
 	UpdatedAtCell,
 } from "@/components/files/FileTableCells";
+import { applySelectionModifiers } from "@/components/files/selectionClick";
 import { getCurrentSelectionDragData } from "@/components/files/selectionDragData";
+import { useFileListKeyboardNavigation } from "@/components/files/useFileListKeyboardNavigation";
 import { Icon } from "@/components/ui/icon";
 import { ItemCheckbox } from "@/components/ui/item-checkbox";
 import {
@@ -39,6 +41,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { BrowserOpenMode, SortBy } from "@/stores/fileStore";
 import { useFileStore } from "@/stores/fileStore";
+import type { SelectionItemKey } from "@/stores/fileStore/selectionRange";
 import type { FileListItem, FolderListItem } from "@/types/api";
 
 interface FileTableProps {
@@ -177,7 +180,13 @@ const FolderTableDataRow = memo(function FolderTableDataRow({
 			onDragOver={readOnly ? undefined : handleDragOver}
 			onDragLeave={readOnly ? undefined : () => setDragOver(false)}
 			onDrop={readOnly ? undefined : handleDrop}
-			onClick={() => {
+			onClick={(e) => {
+				if (
+					selectionEnabled &&
+					applySelectionModifiers(e, { type: "folder", id: folder.id })
+				) {
+					return;
+				}
 				if (!readOnly && browserOpenMode === "double_click") {
 					selectOnlyFolder(folder.id);
 					return;
@@ -274,7 +283,13 @@ const FileTableDataRow = memo(function FileTableDataRow({
 			})}
 			draggable={!readOnly}
 			onDragStart={readOnly ? undefined : handleDragStart}
-			onClick={() => {
+			onClick={(e) => {
+				if (
+					selectionEnabled &&
+					applySelectionModifiers(e, { type: "file", id: file.id })
+				) {
+					return;
+				}
 				if (!readOnly && browserOpenMode === "double_click") {
 					selectOnlyFile(file.id);
 					return;
@@ -345,6 +360,15 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 		selectionEnabled = !readOnly,
 		trashMode = false,
 	} = useFileBrowserContext();
+	// D8 入场动画与 FileGrid 同源：内容从空到非空播一次；类不移除，
+	// CSS animation 不会因重渲染重播（fill-mode backwards 无残留）
+	const hasContent = folders.length > 0 || files.length > 0;
+	const [entering, setEntering] = useState(hasContent);
+
+	useEffect(() => {
+		if (hasContent) setEntering(true);
+	}, [hasContent]);
+
 	const selectedFileIds = useFileStore((s) => s.selectedFileIds);
 	const selectedFolderIds = useFileStore((s) => s.selectedFolderIds);
 	const selectItems = useFileStore((s) => s.selectItems);
@@ -427,6 +451,40 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 		virtualizer.measure();
 	}, [scrollElement, virtualizer]);
 
+	// 键盘导航后让焦点项滚动进视口：tableRows 与 folders+files 序列一一对应
+	const scrollToItem = useCallback(
+		(key: SelectionItemKey) => {
+			const found =
+				key.type === "folder"
+					? folders.findIndex((entry) => entry.id === key.id)
+					: files.findIndex((entry) => entry.id === key.id);
+			if (found < 0) return;
+			virtualizer.scrollToIndex(
+				key.type === "folder" ? found : folders.length + found,
+				{ align: "auto" },
+			);
+		},
+		[folders, files, virtualizer],
+	);
+
+	useFileListKeyboardNavigation({
+		columnCount: 1,
+		horizontal: false,
+		enabled: selectionEnabled,
+		scrollToItem: scrollElement ? scrollToItem : undefined,
+		onOpenFocused: readOnly
+			? undefined
+			: (key) => {
+					if (key.type === "folder") {
+						const folder = folders.find((entry) => entry.id === key.id);
+						if (folder) onFolderOpen(folder.id, folder.name);
+					} else {
+						const file = files.find((entry) => entry.id === key.id);
+						if (file) onFileClick(file);
+					}
+				},
+	});
+
 	const trashColumnCount = trashMode ? 1 : 0;
 	const columnCount =
 		(selectionEnabled ? TABLE_COLUMN_COUNT : TABLE_COLUMN_COUNT - 1) +
@@ -477,7 +535,7 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 	};
 
 	return (
-		<Table>
+		<Table className={cn(entering && "file-browser-enter")}>
 			<TableHeader>
 				<TableRow>
 					{selectionEnabled && (

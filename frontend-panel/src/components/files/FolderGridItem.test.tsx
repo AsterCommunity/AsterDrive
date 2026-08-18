@@ -112,8 +112,16 @@ describe("FolderGridItem", () => {
 		);
 
 		const item = screen.getByRole("button", { name: /Docs/i });
-		expect(item).toHaveClass("bg-accent/60", "opacity-0", "select-none");
+		expect(item).toHaveClass(
+			"bg-accent/60",
+			"ring-2",
+			"ring-primary/60",
+			"opacity-0",
+			"select-none",
+		);
 		expect(item).not.toHaveClass("border");
+		// 鼠标点击不出 UA 焦点框；键盘焦点经 focus-visible 保留
+		expect(item).toHaveClass("outline-none", "focus-visible:ring-2");
 		expect(item).toHaveAttribute("data-folder-drop-target", "true");
 		expect(screen.getByTestId("folder-glyph")).toBeInTheDocument();
 		// 媒体区不带底色与边框——去卡片化的关键
@@ -123,6 +131,8 @@ describe("FolderGridItem", () => {
 
 		const name = screen.getByText("Docs");
 		expect(name.parentElement).toHaveClass("text-center");
+		// 无空格长名（hash 名）允许硬断折行，不横向溢出
+		expect(name).toHaveClass("line-clamp-2", "break-words");
 
 		fireEvent.click(item);
 		fireEvent.keyDown(item, { key: "Enter" });

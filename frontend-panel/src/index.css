@@ -299,6 +299,55 @@
 	}
 }
 
+/*
+ * 文件网格裂列重排的过渡：FileGrid 在列数变化时用 View Transitions
+ * 对容器做快照 crossfade。容器需要独立的 view-transition-name 才会
+ * 被单独捕获（root 快照内容不变，crossfade 后无视觉差异）。
+ */
+.file-grid-vt {
+	view-transition-name: file-grid;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	::view-transition-old(file-grid),
+	::view-transition-new(file-grid) {
+		animation-duration: 200ms;
+		animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+	}
+}
+
+/*
+ * D8 文件区首次加载入场（FileGrid 与 FileTable 共用）：fade + 4px
+ * translateY，180ms；网格的文件夹/文件两区以 80ms 错开。fill-mode
+ * backwards 让延迟区在动画开始前保持 from 态，动画结束后回到自然
+ * 样式——不留 transform 残留，组件因此不需要监听 animationend 清类。
+ */
+@keyframes file-browser-enter {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.file-browser-enter {
+		animation: file-browser-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+	}
+
+	.file-browser-enter-delayed {
+		animation-delay: 80ms;
+	}
+
+	/* 登录页入场：复用 D8 同一组 keyframes，锁链先起、表单列错开 80ms */
+	.login-enter {
+		animation: file-browser-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+	}
+
+	.login-enter-delayed {
+		animation-delay: 80ms;
+	}
+}
+
 [data-sonner-toaster] {
 	--width: min(24rem, calc(100vw - 1.5rem));
 	--border-radius: min(var(--radius-lg), 0.625rem);

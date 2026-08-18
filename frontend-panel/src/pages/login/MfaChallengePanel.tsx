@@ -81,20 +81,12 @@ export function MfaChallengePanel({
 	};
 
 	return (
-		<div className="space-y-4 rounded-2xl border bg-muted/20 p-4 transition-[background-color,border-color] duration-200">
-			<div className="flex items-start gap-3">
-				<div className="rounded-xl bg-primary/10 p-2 text-primary">
-					<Icon name="Shield" className="size-5" />
-				</div>
-				<div className="min-w-0 space-y-1">
-					<p className="text-sm font-medium">{t("mfa_panel_title")}</p>
-					<p className="text-sm text-muted-foreground">
-						{expired
-							? t("mfa_flow_expired")
-							: t("mfa_flow_remaining", { seconds: remainingSeconds })}
-					</p>
-				</div>
-			</div>
+		<div className="space-y-4">
+			<p className="text-sm text-muted-foreground">
+				{expired
+					? t("mfa_flow_expired")
+					: t("mfa_flow_remaining", { seconds: remainingSeconds })}
+			</p>
 
 			{availableMethods.length > 1 ? (
 				<div
@@ -124,7 +116,7 @@ export function MfaChallengePanel({
 			) : null}
 
 			{isEmailMethod ? (
-				<div className="space-y-2 rounded-lg border bg-background/60 p-3">
+				<div className="space-y-2">
 					<div className="flex items-start gap-2 text-sm text-muted-foreground">
 						<Icon name="EnvelopeSimple" className="mt-0.5 size-4 shrink-0" />
 						<p className="min-w-0">

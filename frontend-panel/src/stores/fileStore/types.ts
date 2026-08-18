@@ -5,6 +5,7 @@ import type {
 	FolderContents,
 	FolderListItem,
 } from "@/types/api";
+import type { SelectionItemKey } from "./selectionRange";
 
 export interface BreadcrumbItem {
 	id: number | null;
@@ -136,11 +137,24 @@ export interface PreferencesSlice {
 export interface SelectionSlice {
 	selectedFileIds: Set<number>;
 	selectedFolderIds: Set<number>;
+	/** 范围选择的锚点（普通点击 / Cmd+点击设定）；条目消失时惰性失效 */
+	selectionAnchor: SelectionItemKey | null;
+	/** 键盘导航的当前焦点项 */
+	selectionFocus: SelectionItemKey | null;
+	/** 上一次 Shift+点击并入选择的暂存项，下次 Shift+点击前先撤出 */
+	shiftRangeFileIds: Set<number>;
+	shiftRangeFolderIds: Set<number>;
 	toggleFileSelection: (id: number) => void;
 	toggleFolderSelection: (id: number) => void;
 	selectOnlyFile: (id: number) => void;
 	selectOnlyFolder: (id: number) => void;
 	selectItems: (fileIds: number[], folderIds: number[]) => void;
+	/** Shift+点击：撤出上次暂存范围后，从锚点并入到目标的新范围（Finder 连续重选终点语义） */
+	selectRangeTo: (type: "file" | "folder", id: number) => void;
+	/** 方向键：移动焦点并单选，锚点跟随 */
+	moveSelectionBy: (delta: number) => void;
+	/** Shift+方向键：锚点固定，扩展选择到移动后的焦点 */
+	extendSelectionBy: (delta: number) => void;
 	selectAll: () => void;
 	clearSelection: () => void;
 	selectionCount: () => number;

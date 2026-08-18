@@ -7,7 +7,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { matchPath, useLocation, useNavigate } from "react-router-dom";
 import { handleApiError } from "@/hooks/useApiError";
 import { FOLDER_TREE_DRAG_EXPAND_DELAY_MS } from "@/lib/constants";
 import {
@@ -18,6 +18,7 @@ import {
 import { subscribeStorageChange } from "@/lib/storageChangeBus";
 import { decideFolderTreeStorageRefresh } from "@/lib/storageMutationCoordinator";
 import {
+	isTeamWorkspace,
 	workspaceFolderPath,
 	workspaceKey,
 	workspaceRootPath,
@@ -54,6 +55,16 @@ export function useFolderTreeController({
 	const sortBy = useFileStore((s) => s.sortBy);
 	const sortOrder = useFileStore((s) => s.sortOrder);
 	const isRootRoute = location.pathname === workspaceRootPath(workspace);
+	// 树节点选中态只在文件夹路由上成立。category/search/shares/tasks/trash 等
+	// 页面不会重置 fileStore.currentFolderId（它同时表示"上次浏览位置"），
+	// 不做路由门控会在离开文件区后残留高亮（对齐 rootProps.active 的既有门控）。
+	const isFolderRoute =
+		matchPath(
+			isTeamWorkspace(workspace)
+				? "/teams/:teamId/folder/:folderId"
+				: "/folder/:folderId",
+			location.pathname,
+		) !== null;
 	const cachedSnapshot =
 		folderTreeSnapshot?.userId === userId &&
 		folderTreeSnapshot.workspaceKey === currentWorkspaceKey &&
@@ -528,7 +539,7 @@ export function useFolderTreeController({
 
 	return {
 		branchProps: {
-			currentFolderId,
+			currentFolderId: isFolderRoute ? currentFolderId : null,
 			expandedIds,
 			loadedIds,
 			loadingIds,

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
-import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
+import { AuthPageShell } from "@/components/auth/AuthPageShell";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
@@ -87,109 +87,92 @@ export default function ResetPasswordPage() {
 	};
 
 	return (
-		<div className="min-h-screen flex items-center justify-center bg-background p-6">
-			<div className="w-full max-w-sm rounded-3xl border bg-card p-6 shadow-sm">
-				<div className="mb-8 text-center">
-					<AsterDriveWordmark
-						alt="AsterDrive"
-						className="mx-auto h-16 w-auto"
-					/>
-				</div>
-
-				<div className="mb-6 space-y-1">
-					<h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-					<p className="text-sm text-muted-foreground">{description}</p>
-				</div>
-
-				{status === "form" ? (
-					<form onSubmit={handleSubmit} className="space-y-4">
-						<div className="space-y-1.5">
-							<Label htmlFor="reset-password" className="text-sm">
-								{t("core:password")}
-							</Label>
-							<div className="relative">
-								<Input
-									id="reset-password"
-									type={showPassword ? "text" : "password"}
-									value={password}
-									onChange={(event) => {
-										setPassword(event.target.value);
-										if (passwordError) {
-											const next = passwordSchema.safeParse(event.target.value);
-											setPasswordError(
-												next.success
-													? ""
-													: (next.error.issues[0]?.message ?? ""),
-											);
-										}
-									}}
-									autoComplete="new-password"
-									className={
-										passwordError
-											? "pr-10 border-destructive focus-visible:ring-destructive"
-											: "pr-10"
-									}
-								/>
-								<button
-									type="button"
-									className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
-									onClick={() => setShowPassword((value) => !value)}
-									tabIndex={-1}
-									aria-label={
-										showPassword
-											? t("core:hide_password")
-											: t("core:show_password")
-									}
-								>
-									{showPassword ? (
-										<Icon name="EyeSlash" className="size-4" />
-									) : (
-										<Icon name="Eye" className="size-4" />
-									)}
-								</button>
-							</div>
-							{passwordError ? (
-								<p className="text-xs text-destructive">{passwordError}</p>
-							) : null}
-						</div>
-
-						<Button
-							type="submit"
-							className="h-10 w-full"
-							disabled={submitting || password.length === 0}
-						>
-							{submitting ? (
-								<Icon name="Spinner" className="mr-2 size-4 animate-spin" />
-							) : null}
-							{submitting
-								? t("resetting_password")
-								: t("reset_password_submit")}
-						</Button>
-					</form>
-				) : (
-					<div className="space-y-3">
-						<Button
-							type="button"
-							className="h-10 w-full"
-							onClick={() => navigate("/login")}
-						>
-							{t("go_to_login")}
-						</Button>
-						<Button
-							type="button"
-							variant="outline"
-							className="h-10 w-full"
-							onClick={() => navigate("/login")}
-						>
-							{t("forgot_password")}
-						</Button>
-					</div>
-				)}
-
-				<p className="mt-8 text-center text-xs text-muted-foreground/50">
-					Self-hosted cloud storage
-				</p>
+		<AuthPageShell>
+			<div className="mb-6 space-y-1">
+				<h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+				<p className="text-sm text-muted-foreground">{description}</p>
 			</div>
-		</div>
+
+			{status === "form" ? (
+				<form onSubmit={handleSubmit} className="space-y-4">
+					<div className="space-y-1.5">
+						<Label htmlFor="reset-password" className="text-sm">
+							{t("core:password")}
+						</Label>
+						<div className="relative">
+							<Input
+								id="reset-password"
+								type={showPassword ? "text" : "password"}
+								value={password}
+								onChange={(event) => {
+									setPassword(event.target.value);
+									if (passwordError) {
+										const next = passwordSchema.safeParse(event.target.value);
+										setPasswordError(
+											next.success ? "" : (next.error.issues[0]?.message ?? ""),
+										);
+									}
+								}}
+								autoComplete="new-password"
+								className={
+									passwordError
+										? "pr-10 border-destructive focus-visible:ring-destructive"
+										: "pr-10"
+								}
+							/>
+							<button
+								type="button"
+								className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+								onClick={() => setShowPassword((value) => !value)}
+								tabIndex={-1}
+								aria-label={
+									showPassword
+										? t("core:hide_password")
+										: t("core:show_password")
+								}
+							>
+								{showPassword ? (
+									<Icon name="EyeSlash" className="size-4" />
+								) : (
+									<Icon name="Eye" className="size-4" />
+								)}
+							</button>
+						</div>
+						{passwordError ? (
+							<p className="text-xs text-destructive">{passwordError}</p>
+						) : null}
+					</div>
+
+					<Button
+						type="submit"
+						className="h-10 w-full"
+						disabled={submitting || password.length === 0}
+					>
+						{submitting ? (
+							<Icon name="Spinner" className="mr-2 size-4 animate-spin" />
+						) : null}
+						{submitting ? t("resetting_password") : t("reset_password_submit")}
+					</Button>
+				</form>
+			) : (
+				<div className="space-y-3">
+					<Button
+						type="button"
+						className="h-10 w-full"
+						onClick={() => navigate("/login")}
+					>
+						{t("go_to_login")}
+					</Button>
+					<Button
+						type="button"
+						variant="outline"
+						className="h-10 w-full"
+						onClick={() => navigate("/login")}
+					>
+						{t("forgot_password")}
+					</Button>
+				</div>
+			)}
+		</AuthPageShell>
 	);
 }

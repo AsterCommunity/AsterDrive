@@ -26,7 +26,7 @@ export function FolderTreeItemContent({
 					type="button"
 					aria-label={toggleLabel}
 					aria-expanded={expanded}
-					className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent-foreground/10 hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent"
+					className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent-foreground/10 hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent"
 					onKeyDown={(event) => {
 						if (event.key === "Enter" || event.key === " ") {
 							event.stopPropagation();
@@ -55,8 +55,12 @@ export function FolderTreeItemContent({
 			<button
 				type="button"
 				aria-label={label}
-				className="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-				onClick={onNavigate}
+				className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-sm px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+				onClick={(event) => {
+					// 行容器本身也承担整行点击导航，避免重复触发
+					event.stopPropagation();
+					onNavigate();
+				}}
 			>
 				<Icon
 					name={expanded ? "FolderOpen" : "Folder"}

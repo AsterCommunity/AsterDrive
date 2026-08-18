@@ -39,7 +39,7 @@ export function SidebarContent({
 				<div className="flex min-h-full flex-col">
 					<FolderTree onMoveToFolder={onMoveToFolder} />
 
-					<div className="mt-auto space-y-2 pt-2">
+					<div className="mt-auto space-y-5 pt-4">
 						<SidebarQuickCategories
 							onMobileClose={onMobileClose}
 							workspace={workspace}

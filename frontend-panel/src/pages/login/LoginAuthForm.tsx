@@ -383,10 +383,6 @@ export function LoginAuthForm({
 					</button>
 				</p>
 			) : null}
-
-			<p className="mt-8 text-center text-xs text-muted-foreground/50">
-				Self-hosted cloud storage
-			</p>
 		</>
 	);
 }

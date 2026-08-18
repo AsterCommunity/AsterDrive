@@ -48,7 +48,7 @@ describe("StorageSetupPage", () => {
 	it("explains the initialization before showing storage policy controls", () => {
 		render(<StorageSetupPage />);
 
-		expect(screen.getByRole("img", { name: "AsterDrive" })).toBeInTheDocument();
+		expect(screen.getAllByRole("img", { name: "AsterDrive" })).toHaveLength(2);
 		expect(screen.getByText("storage_setup_eyebrow")).toBeInTheDocument();
 		expect(
 			screen.getByRole("heading", { name: "storage_setup_page_title" }),

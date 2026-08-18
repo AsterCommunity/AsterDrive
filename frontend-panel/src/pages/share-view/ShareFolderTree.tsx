@@ -48,9 +48,14 @@ function ShareFolderTreeBranch({
 			loading || !loadedKeys.has(key) || node.childIds.length > 0;
 		return (
 			<div key={id}>
+				{/* biome-ignore lint/a11y/noStaticElementInteractions: 行同时是整行点击导航区；键盘与读屏经内部语义按钮完成导航/展开 */}
+				{/* biome-ignore lint/a11y/useKeyWithClickEvents: 键盘交互由行内语义按钮承担，行 onClick 仅服务指针用户 */}
 				<div
-					className={folderTreeRowClass(currentFolderId === id)}
+					className={folderTreeRowClass(currentFolderId === id, undefined, {
+						indicator: true,
+					})}
 					data-share-folder-tree-row={id}
+					onClick={() => onNavigate(id, node.folder.name)}
 					style={{
 						paddingLeft: `${depth * FOLDER_TREE_INDENT_PX + FOLDER_TREE_ROW_OFFSET_PX}px`,
 					}}
@@ -111,7 +116,18 @@ export function ShareFolderTree({
 
 	return (
 		<div className={`${SIDEBAR_SECTION_PADDING_CLASS} space-y-0.5 py-2`}>
-			<div className={folderTreeRowClass(tree.currentFolderId === null)}>
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: 行同时是整行点击导航区；键盘与读屏经内部语义按钮完成导航/展开 */}
+			{/* biome-ignore lint/a11y/useKeyWithClickEvents: 键盘交互由行内语义按钮承担，行 onClick 仅服务指针用户 */}
+			<div
+				className={folderTreeRowClass(
+					tree.currentFolderId === null,
+					undefined,
+					{
+						indicator: true,
+					},
+				)}
+				onClick={() => onNavigate(null)}
+			>
 				<FolderTreeItemContent
 					expanded={rootExpanded}
 					label={rootName}

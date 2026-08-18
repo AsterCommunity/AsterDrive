@@ -1,6 +1,7 @@
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { Icon } from "@/components/ui/icon";
-import { sidebarNavItemClass } from "@/lib/utils";
+import { SIDEBAR_SECTION_TITLE_CLASS, sidebarNavItemClass } from "@/lib/utils";
 import type { SidebarContentProps } from "./sidebarTypes";
 
 type SidebarNavigationProps = Pick<
@@ -25,8 +26,11 @@ export function SidebarNavigation({
 	trashDragOver,
 	trashPath,
 }: SidebarNavigationProps) {
+	const { t } = useTranslation();
+
 	return (
 		<div className="p-2 space-y-1">
+			<p className={SIDEBAR_SECTION_TITLE_CLASS}>{t("core:nav_section")}</p>
 			{navLinks.map((link) => (
 				<Link
 					key={link.to}
@@ -40,6 +44,7 @@ export function SidebarNavigation({
 						link.to === trashPath &&
 							trashDragOver &&
 							"bg-destructive/10 text-destructive ring-1 ring-destructive/30",
+						{ indicator: true },
 					)}
 				>
 					<Icon name={link.icon} className="size-4 shrink-0" />

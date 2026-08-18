@@ -624,10 +624,10 @@ describe("LoginPage", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
 
-		expect(await screen.findByText("mfa_panel_title")).toBeInTheDocument();
+		expect(await screen.findByText("mfa_required_title")).toBeInTheDocument();
 		expect(mockState.syncSession).not.toHaveBeenCalled();
 
-		fireEvent.change(screen.getByLabelText("mfa_totp_code_label"), {
+		fireEvent.change(await screen.findByLabelText("mfa_totp_code_label"), {
 			target: { value: "123456" },
 		});
 		fireEvent.click(await screen.findByRole("button", { name: /mfa_verify/ }));
@@ -669,8 +669,8 @@ describe("LoginPage", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
 
-		await screen.findByText("mfa_panel_title");
-		fireEvent.change(screen.getByLabelText("mfa_totp_code_label"), {
+		await screen.findByText("mfa_required_title");
+		fireEvent.change(await screen.findByLabelText("mfa_totp_code_label"), {
 			target: { value: "123456" },
 		});
 		fireEvent.click(await screen.findByRole("button", { name: /mfa_verify/ }));
@@ -704,11 +704,11 @@ describe("LoginPage", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
 
-		await screen.findByText("mfa_panel_title");
+		await screen.findByText("mfa_required_title");
 		fireEvent.click(
-			screen.getByRole("button", { name: /mfa_method_recovery_code/ }),
+			await screen.findByRole("button", { name: /mfa_method_recovery_code/ }),
 		);
-		fireEvent.change(screen.getByLabelText("mfa_recovery_code_label"), {
+		fireEvent.change(await screen.findByLabelText("mfa_recovery_code_label"), {
 			target: { value: "G3THI-TMIHN" },
 		});
 		fireEvent.click(await screen.findByRole("button", { name: /mfa_verify/ }));
@@ -744,7 +744,7 @@ describe("LoginPage", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
 
-		expect(await screen.findByText("mfa_panel_title")).toBeInTheDocument();
+		expect(await screen.findByText("mfa_required_title")).toBeInTheDocument();
 		fireEvent.click(
 			await screen.findByRole("button", { name: /mfa_email_code_send/ }),
 		);
@@ -756,7 +756,7 @@ describe("LoginPage", () => {
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("mfa_email_code_sent");
 
-		fireEvent.change(screen.getByLabelText("mfa_email_code_label"), {
+		fireEvent.change(await screen.findByLabelText("mfa_email_code_label"), {
 			target: { value: "12345678" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: /mfa_verify/ }));
@@ -789,7 +789,7 @@ describe("LoginPage", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
 
-		await screen.findByText("mfa_panel_title");
+		await screen.findByText("mfa_required_title");
 		fireEvent.click(await screen.findByRole("button", { name: /mfa_verify/ }));
 
 		expect(
@@ -817,7 +817,7 @@ describe("LoginPage", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
 
-		await screen.findByText("mfa_panel_title");
+		await screen.findByText("mfa_required_title");
 		fireEvent.click(
 			await screen.findByRole("button", { name: /mfa_email_code_send/ }),
 		);
@@ -863,7 +863,7 @@ describe("LoginPage", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
 
-		await screen.findByText("mfa_panel_title");
+		await screen.findByText("mfa_required_title");
 		fireEvent.click(
 			await screen.findByRole("button", { name: /mfa_email_code_send/ }),
 		);
@@ -874,7 +874,7 @@ describe("LoginPage", () => {
 		expect(mockState.toastSuccess).not.toHaveBeenCalledWith(
 			"mfa_email_code_sent",
 		);
-		expect(screen.getByLabelText("mfa_email_code_label")).toBeDisabled();
+		expect(await screen.findByLabelText("mfa_email_code_label")).toBeDisabled();
 		expect(mockState.verifyMfaChallenge).not.toHaveBeenCalled();
 	});
 
@@ -897,7 +897,7 @@ describe("LoginPage", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
 
-		await screen.findByText("mfa_panel_title");
+		await screen.findByText("mfa_required_title");
 		fireEvent.click(
 			await screen.findByRole("button", { name: /mfa_email_code_send/ }),
 		);
@@ -921,8 +921,8 @@ describe("LoginPage", () => {
 
 		render(<LoginPage />);
 
-		expect(await screen.findByText("mfa_panel_title")).toBeInTheDocument();
-		expect(screen.getByLabelText("mfa_email_code_label")).toBeDisabled();
+		expect(await screen.findByText("mfa_required_title")).toBeInTheDocument();
+		expect(await screen.findByLabelText("mfa_email_code_label")).toBeDisabled();
 		fireEvent.click(
 			await screen.findByRole("button", { name: /mfa_email_code_send/ }),
 		);
@@ -949,8 +949,10 @@ describe("LoginPage", () => {
 
 		render(<LoginPage />);
 
-		expect(await screen.findByText("mfa_panel_title")).toBeInTheDocument();
-		expect(screen.getByText("mfa_flow_remaining 120")).toBeInTheDocument();
+		expect(await screen.findByText("mfa_required_title")).toBeInTheDocument();
+		expect(
+			await screen.findByText("mfa_flow_remaining 120"),
+		).toBeInTheDocument();
 		expect(mockState.navigate).toHaveBeenCalledWith(
 			{
 				hash: "#top",
@@ -961,7 +963,7 @@ describe("LoginPage", () => {
 		);
 
 		await screen.findByRole("button", { name: /mfa_verify/ });
-		fireEvent.change(screen.getByLabelText("mfa_totp_code_label"), {
+		fireEvent.change(await screen.findByLabelText("mfa_totp_code_label"), {
 			target: { value: "123456" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: /mfa_verify/ }));
@@ -1000,7 +1002,7 @@ describe("LoginPage", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
 
-		await screen.findByText("mfa_panel_title");
+		await screen.findByText("mfa_required_title");
 		await screen.findByRole("button", { name: /mfa_verify/ });
 		const mfaForm = screen
 			.getByLabelText("mfa_totp_code_label")
@@ -1012,7 +1014,7 @@ describe("LoginPage", () => {
 		expect(screen.getByText("mfa_code_required")).toBeInTheDocument();
 		expect(mockState.verifyMfaChallenge).not.toHaveBeenCalled();
 
-		fireEvent.change(screen.getByLabelText("mfa_totp_code_label"), {
+		fireEvent.change(await screen.findByLabelText("mfa_totp_code_label"), {
 			target: { value: "123456" },
 		});
 		act(() => {
@@ -1046,9 +1048,9 @@ describe("LoginPage", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
 
-		await screen.findByText("mfa_panel_title");
+		await screen.findByText("mfa_required_title");
 		await screen.findByRole("button", { name: /mfa_verify/ });
-		fireEvent.change(screen.getByLabelText("mfa_totp_code_label"), {
+		fireEvent.change(await screen.findByLabelText("mfa_totp_code_label"), {
 			target: { value: "123456" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: /mfa_verify/ }));
@@ -1061,7 +1063,7 @@ describe("LoginPage", () => {
 			});
 		});
 		expect(mockState.handleApiError).toHaveBeenCalledWith(error);
-		expect(screen.getByText("mfa_panel_title")).toBeInTheDocument();
+		expect(screen.getByText("mfa_required_title")).toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button", { name: /back_to_sign_in/ }));
 		await waitFor(() => {
@@ -2006,7 +2008,7 @@ describe("LoginPage", () => {
 		expect(mockState.locationAssign).not.toHaveBeenCalled();
 	});
 
-	it("keeps the desktop brand logo matched to the dark hero surface", () => {
+	it("matches both brand wordmarks to the active theme", () => {
 		render(<LoginPage />);
 
 		const [desktopLogo, mobileLogo] = screen.getAllByRole("img", {
@@ -2015,7 +2017,7 @@ describe("LoginPage", () => {
 
 		expect(desktopLogo).toHaveAttribute(
 			"src",
-			"/static/asterdrive/asterdrive-light.svg",
+			"/static/asterdrive/asterdrive-dark.svg",
 		);
 		expect(mobileLogo).toHaveAttribute(
 			"src",
@@ -2194,7 +2196,7 @@ describe("LoginPage", () => {
 		});
 		expect(mockState.login).not.toHaveBeenCalled();
 		expect(
-			await screen.findByText("activation_pending_notice"),
+			await screen.findByText("activation_pending_title"),
 		).toBeInTheDocument();
 
 		fireEvent.click(
@@ -2244,7 +2246,7 @@ describe("LoginPage", () => {
 		);
 		expect(mockState.login).not.toHaveBeenCalled();
 		expect(
-			screen.queryByText("activation_pending_notice"),
+			screen.queryByText("activation_pending_title"),
 		).not.toBeInTheDocument();
 		await waitFor(() => {
 			expect(
@@ -2279,7 +2281,7 @@ describe("LoginPage", () => {
 				);
 			});
 			expect(
-				screen.queryByText("activation_pending_notice"),
+				screen.queryByText("activation_pending_title"),
 			).not.toBeInTheDocument();
 			expect(mockState.handleApiError).not.toHaveBeenCalled();
 			expect(mockState.resendRegisterActivation).not.toHaveBeenCalled();

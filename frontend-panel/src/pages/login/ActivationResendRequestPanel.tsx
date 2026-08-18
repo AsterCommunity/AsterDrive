@@ -31,18 +31,10 @@ export function ActivationResendRequestPanel({
 	const emailErrorId = "activation-resend-email-error";
 
 	return (
-		<div className="space-y-4 rounded-2xl border bg-muted/20 p-4">
-			<div className="flex items-start gap-3">
-				<div className="rounded-xl bg-primary/10 p-2 text-primary">
-					<Icon name="EnvelopeSimple" className="size-5" />
-				</div>
-				<div className="space-y-1">
-					<p className="text-sm font-medium">{t("activation_resend_title")}</p>
-					<p className="text-sm text-muted-foreground">
-						{t("activation_resend_hint")}
-					</p>
-				</div>
-			</div>
+		<div className="space-y-4">
+			<p className="text-sm text-muted-foreground">
+				{t("activation_resend_hint")}
+			</p>
 
 			<div className="space-y-1.5">
 				<Label htmlFor="activation-resend-email" className="text-sm">

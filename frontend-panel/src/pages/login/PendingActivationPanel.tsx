@@ -28,29 +28,21 @@ export function PendingActivationPanel({
 	onReset,
 }: PendingActivationPanelProps) {
 	return (
-		<div className="space-y-4 rounded-2xl border bg-muted/20 p-4">
-			<div className="flex items-start gap-3">
-				<div className="rounded-xl bg-primary/10 p-2 text-primary">
-					<Icon name="Clock" className="size-5" />
-				</div>
-				<div className="space-y-1">
-					<p className="text-sm font-medium">
-						{t("activation_pending_notice")}
+		<div className="space-y-4">
+			<div className="space-y-1">
+				<p className="text-sm text-muted-foreground">
+					{t("activation_pending_hint")}
+				</p>
+				{pendingActivation.username ? (
+					<p className="text-xs text-muted-foreground">
+						{t("core:username")}: {pendingActivation.username}
 					</p>
-					<p className="text-sm text-muted-foreground">
-						{t("activation_pending_hint")}
+				) : null}
+				{pendingActivation.email ? (
+					<p className="text-xs text-muted-foreground">
+						{t("core:email")}: {pendingActivation.email}
 					</p>
-					{pendingActivation.username ? (
-						<p className="text-xs text-muted-foreground">
-							{t("core:username")}: {pendingActivation.username}
-						</p>
-					) : null}
-					{pendingActivation.email ? (
-						<p className="text-xs text-muted-foreground">
-							{t("core:email")}: {pendingActivation.email}
-						</p>
-					) : null}
-				</div>
+				) : null}
 			</div>
 
 			<div className="grid gap-2 sm:grid-cols-2">

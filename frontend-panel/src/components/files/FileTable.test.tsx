@@ -38,6 +38,7 @@ const mockState = vi.hoisted(() => ({
 		selectedFolderIds: new Set<number>(),
 		selectOnlyFile: vi.fn(),
 		selectOnlyFolder: vi.fn(),
+		selectRangeTo: vi.fn(),
 		toggleFileSelection: vi.fn(),
 		toggleFolderSelection: vi.fn(),
 		selectItems: vi.fn(),
@@ -139,9 +140,13 @@ vi.mock("@/components/ui/item-checkbox", () => ({
 }));
 
 vi.mock("@/components/ui/table", () => ({
-	Table: ({ children }: { children: React.ReactNode }) => (
-		<table>{children}</table>
-	),
+	Table: ({
+		children,
+		className,
+	}: {
+		children: React.ReactNode;
+		className?: string;
+	}) => <table className={className}>{children}</table>,
 	TableHeader: ({ children }: { children: React.ReactNode }) => (
 		<thead>{children}</thead>
 	),
@@ -271,6 +276,7 @@ describe("FileTable", () => {
 		mockState.store.selectedFolderIds = new Set();
 		mockState.store.selectOnlyFile.mockReset();
 		mockState.store.selectOnlyFolder.mockReset();
+		mockState.store.selectRangeTo.mockReset();
 		mockState.store.toggleFileSelection.mockReset();
 		mockState.store.toggleFolderSelection.mockReset();
 		mockState.store.selectItems.mockReset();
@@ -324,6 +330,33 @@ describe("FileTable", () => {
 		expect(mockState.store.selectItems).toHaveBeenCalledWith([2], [1]);
 	});
 
+	it("applies the D8 entrance class when content is present", () => {
+		render(<FileTable />);
+
+		expect(screen.getByRole("table")).toHaveClass("file-browser-enter");
+	});
+
+	it("plays the entrance animation once when content arrives after mount", () => {
+		mockState.browserContext.files = [];
+		mockState.browserContext.folders = [];
+		const view = render(<FileTable />);
+
+		expect(screen.getByRole("table")).not.toHaveClass("file-browser-enter");
+
+		mockState.browserContext.files = [{ id: 2, name: "report.pdf" }];
+		// FileTable 是 memo 组件且测试里的 context 是直读 mock（非真 context，
+		// 不能穿透 memo），需要改变 props 引用才会重渲染并走进场 effect
+		view.rerender(<FileTable scrollElement={null} />);
+
+		expect(screen.getByRole("table")).toHaveClass("file-browser-enter");
+
+		// 只播一次：类加上后不随后续数据变化移除/重加（CSS 动画不重播）
+		mockState.browserContext.folders = [{ id: 1, name: "Docs" }];
+		view.rerender(<FileTable scrollElement={undefined} />);
+
+		expect(screen.getByRole("table")).toHaveClass("file-browser-enter");
+	});
+
 	it("wires row clicks, selection toggles, and drag start metadata", () => {
 		const dataTransfer = { types: [] } as unknown as DataTransfer;
 
@@ -362,7 +395,6 @@ describe("FileTable", () => {
 
 	it("selects folders and files on single click and opens them on double click in double-click mode", () => {
 		mockState.browserContext.browserOpenMode = "double_click";
-
 		render(<FileTable />);
 
 		const rows = screen.getAllByTestId("row");
@@ -380,6 +412,23 @@ describe("FileTable", () => {
 		expect(mockState.browserContext.onFileClick).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 2 }),
 		);
+	});
+
+	it("applies modifier selection instead of opening on Cmd/Ctrl+click and Shift+click", () => {
+		render(<FileTable />);
+
+		const rows = screen.getAllByTestId("row");
+		fireEvent.click(rows[1], { metaKey: true });
+		expect(mockState.store.toggleFolderSelection).toHaveBeenCalledWith(1);
+		expect(mockState.browserContext.onFolderOpen).not.toHaveBeenCalled();
+
+		fireEvent.click(rows[2], { ctrlKey: true });
+		expect(mockState.store.toggleFileSelection).toHaveBeenCalledWith(2);
+		expect(mockState.browserContext.onFileClick).not.toHaveBeenCalled();
+
+		fireEvent.click(rows[2], { shiftKey: true });
+		expect(mockState.store.selectRangeTo).toHaveBeenCalledWith("file", 2);
+		expect(mockState.browserContext.onFileClick).not.toHaveBeenCalled();
 	});
 
 	it("renders read-only rows without selection, sorting, or drag behavior", () => {

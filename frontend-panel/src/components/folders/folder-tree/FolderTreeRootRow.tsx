@@ -27,13 +27,16 @@ export function FolderTreeRootRow({
 	const { t } = useTranslation("files");
 
 	return (
-		/* biome-ignore lint/a11y/noStaticElementInteractions: row is a drag/drop target that contains semantic child buttons for actions */
+		/* biome-ignore lint/a11y/noStaticElementInteractions: 行同时是拖拽目标和整行点击导航区；键盘与读屏经内部语义按钮完成导航/展开 */
+		/* biome-ignore lint/a11y/useKeyWithClickEvents: 键盘交互由行内语义按钮承担，行 onClick 仅服务指针用户 */
 		<div
 			className={folderTreeRowClass(
 				active,
 				dragOver && "ring-2 ring-primary bg-accent/30",
+				{ indicator: true },
 			)}
 			data-folder-tree-root-row="true"
+			onClick={onClick}
 			onDragOver={onDragOver}
 			onDragLeave={onDragLeave}
 			onDrop={onDrop}

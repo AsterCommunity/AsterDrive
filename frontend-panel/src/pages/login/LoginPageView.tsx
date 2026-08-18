@@ -1,14 +1,12 @@
 import type { FormEvent } from "react";
 import type { z } from "zod/v4";
-import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
-import { cn } from "@/lib/utils";
+import { AuthPageShell } from "@/components/auth/AuthPageShell";
 import type { MfaMethod } from "@/services/authService";
 import type { ExternalAuthPublicProvider } from "@/types/api";
 import { ActivationResendRequestPanel } from "./ActivationResendRequestPanel";
 import { AnimateSwap } from "./authAnimations";
 import { ExternalAuthRecoveryPanel } from "./ExternalAuthRecoveryPanel";
 import { LoginAuthForm } from "./LoginAuthForm";
-import { LoginBrandPanel } from "./LoginBrandPanel";
 import { LoginHeader } from "./LoginHeader";
 import type {
 	ActivationResendPanelState,
@@ -164,141 +162,121 @@ export function LoginPageView({
 						: "auth-form";
 
 	return (
-		<div
-			className={cn(
-				"min-h-screen flex transition-all duration-300 ease-out",
-				exiting && "opacity-0 scale-[1.02]",
-			)}
-		>
-			<LoginBrandPanel />
+		<AuthPageShell exiting={exiting}>
+			<LoginHeader title={title} description={description} />
 
-			<div className="flex-1 flex items-center justify-center bg-background p-6">
-				<div className="w-full max-w-sm">
-					<div className="lg:hidden text-center mb-8">
-						<AsterDriveWordmark
-							alt="AsterDrive"
-							className="mx-auto h-16 w-auto"
+			<form onSubmit={onSubmit}>
+				<AnimateSwap activeKey={activeKey}>
+					{pendingActivation ? (
+						<PendingActivationPanel
+							pendingActivation={pendingActivation}
+							resendingActivation={resendingActivation}
+							t={t}
+							onResendActivation={onResendActivation}
+							onReset={onPendingActivationReset}
 						/>
-					</div>
-
-					<LoginHeader title={title} description={description} />
-
-					<form onSubmit={onSubmit}>
-						<AnimateSwap activeKey={activeKey}>
-							{pendingActivation ? (
-								<PendingActivationPanel
-									pendingActivation={pendingActivation}
-									resendingActivation={resendingActivation}
-									t={t}
-									onResendActivation={onResendActivation}
-									onReset={onPendingActivationReset}
-								/>
-							) : activationResendPanel ? (
-								<ActivationResendRequestPanel
-									email={activationResendPanel.email}
-									emailError={activationResendPanel.error}
-									emailSchema={emailSchema}
-									requesting={activationResendPanel.requesting}
-									t={t}
-									onBack={onActivationResendBack}
-									onEmailChange={onActivationResendEmailChange}
-									onSubmit={onActivationResendSubmit}
-								/>
-							) : passwordResetPanel ? (
-								<PasswordResetRequestPanel
-									emailSchema={emailSchema}
-									passwordResetEmail={passwordResetPanel.email}
-									passwordResetError={passwordResetPanel.error}
-									requestingPasswordReset={passwordResetPanel.requesting}
-									t={t}
-									onBack={onPasswordResetBack}
-									onEmailChange={onPasswordResetEmailChange}
-									onSubmit={onPasswordResetSubmit}
-								/>
-							) : externalAuthRecovery ? (
-								<ExternalAuthRecoveryPanel
-									email={externalAuthRecovery.email}
-									emailError={externalAuthRecovery.emailError}
-									emailSchema={emailSchema}
-									identifier={externalAuthRecovery.passwordIdentifier}
-									identifierError={externalAuthRecovery.passwordIdentifierError}
-									mode={externalAuthRecovery.mode}
-									password={externalAuthRecovery.password}
-									passwordError={externalAuthRecovery.passwordError}
-									sent={externalAuthRecovery.sent}
-									submittingEmail={externalAuthRecovery.emailSubmitting}
-									submittingPassword={externalAuthRecovery.passwordSubmitting}
-									t={t}
-									onBack={onExternalAuthRecoveryBack}
-									onEmailChange={onExternalAuthEmailChange}
-									onIdentifierChange={onExternalAuthIdentifierChange}
-									onModeChange={onExternalAuthModeChange}
-									onPasswordChange={onExternalAuthPasswordChange}
-								/>
-							) : mfaPanel ? (
-								<MfaChallengePanel
-									code={mfaPanel.code}
-									emailCodeError={mfaPanel.emailCodeError}
-									emailCodeExpiresAt={mfaPanel.emailCodeExpiresAt}
-									emailCodeResendAt={mfaPanel.emailCodeResendAt}
-									emailCodeSending={mfaPanel.emailCodeSending}
-									emailCodeSent={mfaPanel.emailCodeSent}
-									error={mfaPanel.error}
-									expired={mfaPanel.challenge.expiresAt <= mfaPanel.now}
-									methods={mfaPanel.challenge.methods}
-									remainingSeconds={Math.max(
-										0,
-										Math.ceil(
-											(mfaPanel.challenge.expiresAt - mfaPanel.now) / 1000,
-										),
-									)}
-									selectedMethod={mfaPanel.selectedMethod}
-									submitting={mfaPanel.submitting}
-									t={t}
-									onBack={onMfaBack}
-									onCodeChange={onMfaCodeChange}
-									onEmailCodeSend={onMfaEmailCodeSend}
-									onMethodChange={onMfaMethodChange}
-								/>
-							) : (
-								<LoginAuthForm
-									checking={checking}
-									errors={errors}
-									extraField={extraField}
-									extraLabel={extraLabel}
-									extraPlaceholder={extraPlaceholder}
-									identifier={identifier}
-									identifierLabel={identifierLabel}
-									identifierPlaceholder={identifierPlaceholder}
-									isSubmitDisabled={isSubmitDisabled}
-									passkeyLoginEnabled={passkeyLoginEnabled}
-									mode={mode}
-									modeActionText={modeActionText}
-									password={password}
-									passkeySubmitting={passkeySubmitting}
-									passkeySupported={passkeySupported}
-									externalAuthBusyProvider={externalAuthBusyProvider}
-									externalAuthLoading={externalAuthLoading}
-									externalAuthProviders={externalAuthProviders}
-									registrationClosed={registrationClosed}
-									showPassword={showPassword}
-									submitLabel={submitLabel}
-									submitting={submitting}
-									onExtraFieldChange={onExtraFieldChange}
-									onForgotPassword={onForgotPassword}
-									onIdentifierChange={onIdentifierChange}
-									onPasswordChange={onPasswordChange}
-									onPasskeyLogin={onPasskeyLogin}
-									onExternalAuthLogin={onExternalAuthLogin}
-									onResendActivationRequest={onResendActivationRequest}
-									onShowPasswordChange={onShowPasswordChange}
-									onSwitchAuthMode={onSwitchAuthMode}
-								/>
+					) : activationResendPanel ? (
+						<ActivationResendRequestPanel
+							email={activationResendPanel.email}
+							emailError={activationResendPanel.error}
+							emailSchema={emailSchema}
+							requesting={activationResendPanel.requesting}
+							t={t}
+							onBack={onActivationResendBack}
+							onEmailChange={onActivationResendEmailChange}
+							onSubmit={onActivationResendSubmit}
+						/>
+					) : passwordResetPanel ? (
+						<PasswordResetRequestPanel
+							emailSchema={emailSchema}
+							passwordResetEmail={passwordResetPanel.email}
+							passwordResetError={passwordResetPanel.error}
+							requestingPasswordReset={passwordResetPanel.requesting}
+							t={t}
+							onBack={onPasswordResetBack}
+							onEmailChange={onPasswordResetEmailChange}
+							onSubmit={onPasswordResetSubmit}
+						/>
+					) : externalAuthRecovery ? (
+						<ExternalAuthRecoveryPanel
+							email={externalAuthRecovery.email}
+							emailError={externalAuthRecovery.emailError}
+							emailSchema={emailSchema}
+							identifier={externalAuthRecovery.passwordIdentifier}
+							identifierError={externalAuthRecovery.passwordIdentifierError}
+							mode={externalAuthRecovery.mode}
+							password={externalAuthRecovery.password}
+							passwordError={externalAuthRecovery.passwordError}
+							sent={externalAuthRecovery.sent}
+							submittingEmail={externalAuthRecovery.emailSubmitting}
+							submittingPassword={externalAuthRecovery.passwordSubmitting}
+							t={t}
+							onBack={onExternalAuthRecoveryBack}
+							onEmailChange={onExternalAuthEmailChange}
+							onIdentifierChange={onExternalAuthIdentifierChange}
+							onModeChange={onExternalAuthModeChange}
+							onPasswordChange={onExternalAuthPasswordChange}
+						/>
+					) : mfaPanel ? (
+						<MfaChallengePanel
+							code={mfaPanel.code}
+							emailCodeError={mfaPanel.emailCodeError}
+							emailCodeExpiresAt={mfaPanel.emailCodeExpiresAt}
+							emailCodeResendAt={mfaPanel.emailCodeResendAt}
+							emailCodeSending={mfaPanel.emailCodeSending}
+							emailCodeSent={mfaPanel.emailCodeSent}
+							error={mfaPanel.error}
+							expired={mfaPanel.challenge.expiresAt <= mfaPanel.now}
+							methods={mfaPanel.challenge.methods}
+							remainingSeconds={Math.max(
+								0,
+								Math.ceil((mfaPanel.challenge.expiresAt - mfaPanel.now) / 1000),
 							)}
-						</AnimateSwap>
-					</form>
-				</div>
-			</div>
-		</div>
+							selectedMethod={mfaPanel.selectedMethod}
+							submitting={mfaPanel.submitting}
+							t={t}
+							onBack={onMfaBack}
+							onCodeChange={onMfaCodeChange}
+							onEmailCodeSend={onMfaEmailCodeSend}
+							onMethodChange={onMfaMethodChange}
+						/>
+					) : (
+						<LoginAuthForm
+							checking={checking}
+							errors={errors}
+							extraField={extraField}
+							extraLabel={extraLabel}
+							extraPlaceholder={extraPlaceholder}
+							identifier={identifier}
+							identifierLabel={identifierLabel}
+							identifierPlaceholder={identifierPlaceholder}
+							isSubmitDisabled={isSubmitDisabled}
+							passkeyLoginEnabled={passkeyLoginEnabled}
+							mode={mode}
+							modeActionText={modeActionText}
+							password={password}
+							passkeySubmitting={passkeySubmitting}
+							passkeySupported={passkeySupported}
+							externalAuthBusyProvider={externalAuthBusyProvider}
+							externalAuthLoading={externalAuthLoading}
+							externalAuthProviders={externalAuthProviders}
+							registrationClosed={registrationClosed}
+							showPassword={showPassword}
+							submitLabel={submitLabel}
+							submitting={submitting}
+							onExtraFieldChange={onExtraFieldChange}
+							onForgotPassword={onForgotPassword}
+							onIdentifierChange={onIdentifierChange}
+							onPasswordChange={onPasswordChange}
+							onPasskeyLogin={onPasskeyLogin}
+							onExternalAuthLogin={onExternalAuthLogin}
+							onResendActivationRequest={onResendActivationRequest}
+							onShowPasswordChange={onShowPasswordChange}
+							onSwitchAuthMode={onSwitchAuthMode}
+						/>
+					)}
+				</AnimateSwap>
+			</form>
+		</AuthPageShell>
 	);
 }

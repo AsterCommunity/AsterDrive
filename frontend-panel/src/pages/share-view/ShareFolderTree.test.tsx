@@ -137,6 +137,42 @@ describe("ShareFolderTree", () => {
 		).toHaveClass("bg-accent");
 	});
 
+	it("navigates when clicking the row body outside the name button", () => {
+		const docs = folder(1, "Docs");
+		mockState.expandedKeys = new Set(["root"]);
+		mockState.loadedKeys = new Set(["root", "1"]);
+		mockState.nodeMap = new Map([
+			[1, { childIds: [], folder: docs, parentId: null }],
+		]);
+		mockState.rootIds = [1];
+		const onNavigate = vi.fn();
+
+		render(
+			<ShareFolderTree
+				breadcrumb={[{ id: null, name: "Shared Root" }]}
+				folderContents={contents([])}
+				rootName="Shared Root"
+				token="share-token"
+				onNavigate={onNavigate}
+			/>,
+		);
+
+		// 行本体（名称按钮之外的区域）点击同样导航
+		const row = document.querySelector('[data-share-folder-tree-row="1"]');
+		expect(row).not.toBeNull();
+		fireEvent.click(row as HTMLElement);
+		expect(onNavigate).toHaveBeenCalledWith(1, "Docs");
+		expect(onNavigate).toHaveBeenCalledTimes(1);
+
+		// 根行本体点击回到根目录
+		const rootRow = screen
+			.getByRole("button", { name: "Shared Root" })
+			.closest("div");
+		fireEvent.click(rootRow as HTMLElement);
+		expect(onNavigate).toHaveBeenCalledWith(null);
+		expect(onNavigate).toHaveBeenCalledTimes(2);
+	});
+
 	it("shows loading toggles and keeps their keyboard events inside the row", () => {
 		const docs = folder(1, "Docs");
 		mockState.expandedKeys = new Set(["root"]);

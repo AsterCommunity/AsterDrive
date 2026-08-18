@@ -99,18 +99,21 @@ export function FolderTreeNodeRow({
 
 	return (
 		<div>
-			{/* biome-ignore lint/a11y/noStaticElementInteractions: row is a drag/drop target that contains semantic child buttons for actions */}
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: 行同时是拖拽目标和整行点击导航区；键盘与读屏经内部语义按钮完成导航/展开 */}
+			{/* biome-ignore lint/a11y/useKeyWithClickEvents: 键盘交互由行内语义按钮承担，行 onClick 仅服务指针用户 */}
 			<div
 				ref={rowRef}
 				draggable
 				className={folderTreeRowClass(
 					isActive,
 					dragOver && "ring-2 ring-primary bg-accent/30",
+					{ indicator: true },
 				)}
 				data-folder-tree-row={node.folder.id}
 				style={{
 					paddingLeft: `${depth * FOLDER_TREE_INDENT_PX + FOLDER_TREE_ROW_OFFSET_PX}px`,
 				}}
+				onClick={() => onNavigate(node.folder.id, node.folder.name)}
 				onDragStart={handleDragStart}
 				onDragOver={handleDragOver}
 				onDragLeave={handleDragLeave}

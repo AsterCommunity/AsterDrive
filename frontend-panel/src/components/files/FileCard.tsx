@@ -15,7 +15,12 @@ interface FileCardProps {
 	item: FileListItem;
 	selected: boolean;
 	onSelect?: () => void;
-	onClick: () => void;
+	/** 点击事件（携带修饰键状态，Finder 式 Cmd/Ctrl/Shift 选择由调用方处理） */
+	onClick: (modifiers: {
+		metaKey: boolean;
+		ctrlKey: boolean;
+		shiftKey: boolean;
+	}) => void;
 	onDoubleClick?: () => void;
 	/** IDs to drag when this item is part of a selection */
 	dragData?: GridItemDragData;
@@ -69,17 +74,20 @@ export function FileCard({
 		<div
 			data-drag-preview-root
 			className={cn(
-				"group relative flex min-h-[166px] select-none flex-col rounded-xl px-2.5 py-2.5 transition-[background-color,opacity,transform] duration-150 ease-out hover:bg-muted/45 dark:hover:bg-muted/25",
-				selected && "bg-accent/60 text-accent-foreground dark:bg-accent/40",
+				"group relative flex min-h-[166px] select-none flex-col rounded-xl px-2.5 py-2.5 transition-[background-color,box-shadow,opacity,transform] duration-150 ease-out outline-none hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-ring/60 dark:hover:bg-muted/25",
+				selected &&
+					"bg-accent/60 text-accent-foreground ring-2 ring-primary/60 dark:bg-accent/40",
 				fading && "opacity-0",
 			)}
 			{...dragProps}
-			onClick={onClick}
+			data-file-list-item
+			onClick={(e) => onClick(e)}
 			onDoubleClick={onDoubleClick}
 			onKeyDown={(e) => {
 				if (e.key !== "Enter") return;
 				e.preventDefault();
-				(onDoubleClick ?? onClick)();
+				// KeyboardEvent 与 MouseEvent 同样携带修饰键状态
+				(onDoubleClick ?? onClick)(e);
 			}}
 			role="button"
 			tabIndex={0}
@@ -149,7 +157,7 @@ export function FileCard({
 			<div className="min-w-0 flex-1 space-y-1">
 				<span
 					data-drag-preview-name
-					className="block w-full line-clamp-2 text-sm leading-tight font-medium"
+					className="block w-full line-clamp-2 break-words text-sm leading-tight font-medium"
 					title={item.name}
 				>
 					{item.name}

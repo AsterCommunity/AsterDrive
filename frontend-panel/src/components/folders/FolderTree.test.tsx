@@ -53,6 +53,24 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("react-router-dom", () => ({
+	// 控制器只用 matchPath 的匹配语义（!== null）。手写 stub 而非
+	// importOriginal 拉真实 react-router-dom：本文件每个用例都
+	// vi.resetModules + 动态 import，真实路由库会随模块图反复实例化，
+	// 曾经把 worker 堆内存打爆。
+	matchPath: (pattern: string, pathname: string) => {
+		const patternSegs = pattern.split("/").filter(Boolean);
+		const pathSegs = pathname.split("/").filter(Boolean);
+		if (patternSegs.length !== pathSegs.length) return null;
+		const params: Record<string, string> = {};
+		for (const [i, seg] of patternSegs.entries()) {
+			if (seg.startsWith(":")) {
+				params[seg.slice(1)] = pathSegs[i];
+			} else if (seg !== pathSegs[i]) {
+				return null;
+			}
+		}
+		return { params, pathname, pathnameBase: pathname };
+	},
 	useLocation: () => ({
 		pathname: mockState.pathname,
 	}),
@@ -264,6 +282,80 @@ describe("FolderTree", () => {
 
 		expect(await screen.findByText("Alpha")).toBeInTheDocument();
 		expect(mockState.listRoot).toHaveBeenCalledTimes(1);
+	});
+
+	it("highlights the current folder only while on a folder route", async () => {
+		mockState.pathname = "/folder/1";
+		mockState.fileStore.breadcrumb = [
+			{ id: null, name: "Root" },
+			{ id: 1, name: "Alpha" },
+		];
+		mockState.fileStore.currentFolderId = 1;
+		// 注意：store.folders 是"当前目录"（folder 1）的子项内容，不能把
+		// folder 1 自己放进去——否则 effect 会把它同步成自己的子节点，
+		// 树渲染无限递归（前置条件与真实页面保持一致：当前目录不含自身）
+		mockState.fileStore.folders = [];
+		mockState.listRoot.mockResolvedValue({
+			folders: [createFolder(1, "Alpha")],
+		});
+		mockState.listFolder.mockResolvedValue({ folders: [] });
+
+		const { FolderTree } = await import("@/components/folders/FolderTree");
+		const view = render(<FolderTree />);
+
+		expect(await screen.findByText("Alpha")).toBeInTheDocument();
+		expect(getFolderRow("Alpha")).toHaveClass("bg-accent");
+
+		// 走到快速查看/功能入口后 fileStore 仍保留上次浏览位置，但树高亮必须清除
+		mockState.pathname = "/category/photo";
+		view.rerender(<FolderTree />);
+
+		expect(getFolderRow("Alpha")).not.toHaveClass("bg-accent");
+	});
+
+	it("navigates when clicking the row body, and the name button does not double-fire", async () => {
+		mockState.fileStore.folders = [createFolder(1, "Alpha")];
+		mockState.fileStore.lastFolderContents = {
+			folderId: null,
+			folders: [createFolder(1, "Alpha")],
+			sortBy: "name",
+			sortOrder: "asc",
+			workspaceRevision: 0,
+		};
+
+		await renderTree();
+
+		await screen.findByText("Alpha");
+		// 点击行本体（名称按钮之外的区域）同样导航——点击范围覆盖整个背景色块
+		fireEvent.click(getFolderRow("Alpha"));
+		await waitFor(() => {
+			expect(mockState.navigate).toHaveBeenCalledWith("/folder/1?name=Alpha");
+		});
+
+		// 名称按钮 stopPropagation，点击它不会在行容器上重复触发导航
+		fireEvent.click(screen.getByRole("button", { name: "Alpha" }));
+		await waitFor(() => {
+			expect(mockState.navigate).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	it("navigates to the workspace root when clicking the root row body", async () => {
+		mockState.pathname = "/folder/1";
+		mockState.fileStore.folders = [createFolder(1, "Alpha")];
+		mockState.listRoot.mockResolvedValue({
+			folders: [createFolder(1, "Alpha")],
+		});
+
+		await renderTree();
+
+		await screen.findByText("Alpha");
+		const rootRow = screen
+			.getByRole("button", { name: "root" })
+			.closest("[data-folder-tree-root-row]");
+		expect(rootRow).not.toBeNull();
+		fireEvent.click(rootRow as HTMLElement);
+
+		expect(mockState.navigate).toHaveBeenCalledWith("/");
 	});
 
 	it("collapses and expands the root folder list without navigating", async () => {

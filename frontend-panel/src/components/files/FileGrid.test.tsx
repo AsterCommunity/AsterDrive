@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FileGrid } from "@/components/files/FileGrid";
 
 const mockState = vi.hoisted(() => ({
@@ -25,6 +25,7 @@ const mockState = vi.hoisted(() => ({
 		selectedFolderIds: new Set<number>(),
 		selectOnlyFile: vi.fn(),
 		selectOnlyFolder: vi.fn(),
+		selectRangeTo: vi.fn(),
 		toggleFileSelection: vi.fn(),
 		toggleFolderSelection: vi.fn(),
 	},
@@ -161,6 +162,7 @@ describe("FileGrid", () => {
 		mockState.store.selectedFolderIds = new Set();
 		mockState.store.selectOnlyFile.mockReset();
 		mockState.store.selectOnlyFolder.mockReset();
+		mockState.store.selectRangeTo.mockReset();
 		mockState.store.toggleFileSelection.mockReset();
 		mockState.store.toggleFolderSelection.mockReset();
 	});
@@ -228,6 +230,54 @@ describe("FileGrid", () => {
 			expect.objectContaining({ id: 2 }),
 		);
 		expect(mockState.store.toggleFileSelection).toHaveBeenCalledWith(2);
+	});
+
+	it("applies the D8 entrance classes with the files section delayed", () => {
+		mockState.browserContext.files = [{ id: 2, name: "report.pdf" }];
+		mockState.browserContext.folders = [{ id: 1, name: "Docs" }];
+
+		render(<FileGrid />);
+
+		const foldersSection = screen.getByText("translated:folders_section")
+			.parentElement as HTMLElement;
+		const filesSection = screen.getByText("translated:files_section")
+			.parentElement as HTMLElement;
+		// 文件夹区先入场，文件区带 80ms 错开延迟
+		expect(foldersSection).toHaveClass("file-browser-enter");
+		expect(foldersSection).not.toHaveClass("file-browser-enter-delayed");
+		expect(filesSection).toHaveClass("file-browser-enter");
+		expect(filesSection).toHaveClass("file-browser-enter-delayed");
+	});
+
+	it("enters without the stagger delay when only one section has content", () => {
+		mockState.browserContext.files = [{ id: 2, name: "report.pdf" }];
+
+		render(<FileGrid />);
+
+		const filesSection = screen
+			.getByTestId("file-card")
+			.closest(".file-browser-enter");
+		expect(filesSection).not.toBeNull();
+		expect(filesSection).not.toHaveClass("file-browser-enter-delayed");
+	});
+
+	it("plays the entrance animation once when content arrives after mount", () => {
+		const view = render(<FileGrid />);
+
+		expect(document.querySelector(".file-browser-enter")).toBeNull();
+
+		mockState.browserContext.folders = [{ id: 1, name: "Docs" }];
+		// FileGrid 是 memo 组件且测试里的 context 是直读 mock（非真 context，
+		// 不能穿透 memo），需要改变 props 引用才会重渲染并走进场 effect
+		view.rerender(<FileGrid scrollElement={null} />);
+
+		expect(document.querySelector(".file-browser-enter")).not.toBeNull();
+
+		// 只播一次：类加上后不随后续数据变化移除/重加（CSS 动画不重播）
+		mockState.browserContext.files = [{ id: 2, name: "report.pdf" }];
+		view.rerender(<FileGrid scrollElement={undefined} />);
+
+		expect(document.querySelector(".file-browser-enter")).not.toBeNull();
 	});
 
 	it("renders read-only cards without selection or drag behavior", () => {
@@ -385,5 +435,147 @@ describe("FileGrid", () => {
 		expect(mockState.browserContext.onFileClick).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 2 }),
 		);
+	});
+
+	it("applies modifier selection instead of opening on Cmd/Ctrl+click and Shift+click", () => {
+		mockState.browserContext.files = [{ id: 2, name: "report.pdf" }];
+		mockState.browserContext.folders = [{ id: 1, name: "Docs" }];
+
+		render(<FileGrid />);
+
+		fireEvent.click(screen.getByRole("button", { name: "open:report.pdf" }), {
+			metaKey: true,
+		});
+		expect(mockState.store.toggleFileSelection).toHaveBeenCalledWith(2);
+		expect(mockState.browserContext.onFileClick).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: "open:Docs" }), {
+			ctrlKey: true,
+		});
+		expect(mockState.store.toggleFolderSelection).toHaveBeenCalledWith(1);
+		expect(mockState.browserContext.onFolderOpen).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: "open:report.pdf" }), {
+			shiftKey: true,
+		});
+		expect(mockState.store.selectRangeTo).toHaveBeenCalledWith("file", 2);
+		expect(mockState.browserContext.onFileClick).not.toHaveBeenCalled();
+	});
+
+	it("keeps modifier clicks inert when selection is disabled", () => {
+		mockState.browserContext.selectionEnabled = false;
+		mockState.browserContext.files = [{ id: 2, name: "report.pdf" }];
+
+		render(<FileGrid />);
+
+		fireEvent.click(screen.getByRole("button", { name: "open:report.pdf" }), {
+			metaKey: true,
+		});
+
+		expect(mockState.store.toggleFileSelection).not.toHaveBeenCalled();
+		expect(mockState.browserContext.onFileClick).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 2 }),
+		);
+	});
+});
+
+describe("FileGrid column responsiveness", () => {
+	class MockResizeObserver {
+		static instances: MockResizeObserver[] = [];
+		private callback: ResizeObserverCallback;
+		private elements = new Set<Element>();
+
+		constructor(callback: ResizeObserverCallback) {
+			this.callback = callback;
+			MockResizeObserver.instances.push(this);
+		}
+
+		observe(element: Element) {
+			this.elements.add(element);
+		}
+		unobserve(element: Element) {
+			this.elements.delete(element);
+		}
+		disconnect() {
+			this.elements.clear();
+		}
+
+		trigger(width: number) {
+			const entry = { contentRect: { width } } as ResizeObserverEntry;
+			for (const element of Array.from(this.elements)) {
+				void element;
+				this.callback([entry], this as unknown as ResizeObserver);
+			}
+		}
+	}
+
+	function lastObserver() {
+		return MockResizeObserver.instances[
+			MockResizeObserver.instances.length - 1
+		];
+	}
+
+	beforeEach(() => {
+		MockResizeObserver.instances = [];
+		// setup.ts 的 ResizeObserver mock 是 writable 但不可 redefine，
+		// 直接赋值替换，跑完恢复
+		window.ResizeObserver =
+			MockResizeObserver as unknown as typeof ResizeObserver;
+	});
+
+	afterEach(() => {
+		window.ResizeObserver = undefined as unknown as typeof ResizeObserver;
+	});
+
+	it("renders the measured column count into the grid template", () => {
+		mockState.browserContext.files = [{ id: 2, name: "report.pdf" }];
+		const { container } = render(<FileGrid />);
+		const grid = container.querySelector(".grid");
+
+		// 初始未测量：1 列
+		expect(grid).toHaveStyle({
+			gridTemplateColumns: "repeat(1, minmax(0, 1fr))",
+		});
+
+		// 首测同步生效（flushSync，无 1 列闪烁帧）
+		act(() => lastObserver().trigger(1560));
+		expect(grid).toHaveStyle({
+			gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
+		});
+
+		// 收窄到手机宽度：2 列
+		act(() => lastObserver().trigger(343));
+		expect(grid).toHaveStyle({
+			gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+		});
+	});
+
+	it("routes column changes through view transitions when available, skipping the first measurement", () => {
+		const startViewTransition = vi.fn((callback: () => void) => {
+			callback();
+		});
+		Object.defineProperty(document, "startViewTransition", {
+			configurable: true,
+			value: startViewTransition,
+		});
+		// matchMedia 由 test/setup.ts 提供（matches: false，即非 reduced-motion）
+
+		mockState.browserContext.files = [{ id: 2, name: "report.pdf" }];
+		const { container } = render(<FileGrid />);
+		const grid = container.querySelector(".grid");
+
+		act(() => lastObserver().trigger(1560));
+		// 首次测量直接同步提交，不做过渡
+		expect(startViewTransition).not.toHaveBeenCalled();
+		expect(grid).toHaveStyle({
+			gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
+		});
+
+		// 后续裂列走 View Transitions
+		act(() => lastObserver().trigger(1100));
+		expect(startViewTransition).toHaveBeenCalledTimes(1);
+		expect(grid).toHaveStyle({
+			gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+		});
 	});
 });

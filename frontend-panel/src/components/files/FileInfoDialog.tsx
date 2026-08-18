@@ -209,9 +209,10 @@ function FileInfoDialogFrame({
 					desktopVisible ? "w-[22rem]" : "pointer-events-none w-0",
 				)}
 			>
+				{/* D9：面板融入页面背景，分区由空间承担，不加 border-l 色带 */}
 				<aside
 					className={cn(
-						"flex h-full min-h-0 w-[22rem] flex-col overflow-hidden border-l bg-muted/20 transition-[opacity,transform] duration-280 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+						"flex h-full min-h-0 w-[22rem] flex-col overflow-hidden transition-[opacity,transform] duration-280 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
 						desktopVisible
 							? "translate-x-0 opacity-100"
 							: "translate-x-3 opacity-0",
@@ -272,7 +273,7 @@ function TagsSection({
 	);
 
 	return (
-		<section className="space-y-3 rounded-2xl border border-border/60 bg-card/55 p-4 dark:bg-background/18">
+		<section className="space-y-3">
 			<div className="flex items-center justify-between gap-3">
 				<h3 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
 					{title}
