@@ -762,6 +762,63 @@ fn registry_tracks_stream_lane_until_registration_guard_drops() {
 }
 
 #[tokio::test]
+async fn registry_reports_stream_lane_busy_only_for_matching_in_flight_request() {
+    let registry = Arc::new(RemoteTunnelRegistry::new());
+    let node = build_remote_node(45, "stream-busy");
+    let (lane_id, mut request_rx, _guard) = registry.register_stream_lane(&node);
+    let send_handle = tokio::spawn({
+        let registry = registry.clone();
+        let node = node.clone();
+        async move {
+            registry
+                .send_stream(
+                    &node,
+                    Method::GET,
+                    "/api/v1/internal/storage/objects/busy.bin".to_string(),
+                    Some(0),
+                    Vec::new(),
+                    Box::new(std::io::Cursor::new(Bytes::new())),
+                )
+                .await
+        }
+    });
+
+    let start = request_rx
+        .recv()
+        .await
+        .expect("stream lane should receive request start");
+    assert!(registry.stream_lane_is_busy(&node, &lane_id));
+    assert!(!registry.stream_lane_is_busy(&node, "other-lane"));
+
+    let end = request_rx
+        .recv()
+        .await
+        .expect("stream lane should receive request end");
+    assert_eq!(end.kind, RemoteTunnelStreamFrameKind::RequestEnd);
+    registry
+        .complete_stream_frame(
+            &node,
+            &lane_id,
+            stream_response_start_frame(&start.request_id, StatusCode::OK),
+        )
+        .await
+        .expect("stream response start should complete");
+    registry
+        .complete_stream_frame(
+            &node,
+            &lane_id,
+            stream_response_end_frame(&start.request_id),
+        )
+        .await
+        .expect("stream response end should complete");
+    send_handle
+        .await
+        .expect("stream send task should join")
+        .expect("stream send should complete");
+    assert!(!registry.stream_lane_is_busy(&node, &lane_id));
+}
+
+#[tokio::test]
 async fn registry_stream_invalid_start_does_not_consume_pending_response() {
     let registry = Arc::new(RemoteTunnelRegistry::new());
     let node = build_remote_node(53, "stream-invalid-start");

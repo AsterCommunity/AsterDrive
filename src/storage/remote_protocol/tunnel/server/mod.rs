@@ -211,6 +211,11 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
 ) -> Result<()> {
     let registry = state.remote_protocol().tunnel_registry().clone();
     let (lane_id, mut request_rx, _registration) = registry.register_stream_lane(&remote_node);
+    tracing::info!(
+        remote_node_id = remote_node.id,
+        lane_id = %lane_id,
+        "reverse tunnel streaming lane connected"
+    );
     managed_follower_repo::touch_tunnel_result(
         state.writer_db(),
         remote_node.id,
@@ -301,7 +306,12 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                     );
                     break;
                 }
-                if session.ping(b"aster-tunnel-heartbeat").await.is_err() {
+                if let Err(error) = session.ping(b"aster-tunnel-heartbeat").await {
+                    tracing::warn!(
+                        remote_node_id = remote_node.id,
+                        lane_id = %lane_id,
+                        "failed to send reverse tunnel heartbeat ping: {error}"
+                    );
                     break;
                 }
             }
@@ -370,7 +380,7 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                     _ => {}
                 }
             }
-            frame = request_rx.recv(), if !draining => {
+            frame = request_rx.recv() => {
                 let Some(frame) = frame else {
                     break;
                 };
@@ -390,7 +400,21 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
         }
     }
 
-    close_connected_stream(session, stream, remote_node.id, &lane_id).await;
+    close_connected_stream(
+        session,
+        stream,
+        remote_node.id,
+        &lane_id,
+        if shutdown_token.is_cancelled() {
+            Some(actix_ws::CloseReason {
+                code: actix_ws::CloseCode::Away,
+                description: Some("primary shutdown".to_string()),
+            })
+        } else {
+            None
+        },
+    )
+    .await;
     Ok(())
 }
 
@@ -420,8 +444,9 @@ async fn close_connected_stream(
     mut stream: actix_ws::MessageStream,
     remote_node_id: i64,
     lane_id: &str,
+    reason: Option<actix_ws::CloseReason>,
 ) {
-    if let Err(error) = session.close(None).await {
+    if let Err(error) = session.close(reason).await {
         tracing::warn!(
             remote_node_id,
             lane_id,

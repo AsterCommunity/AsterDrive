@@ -28,10 +28,17 @@ use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use reqwest::Method;
 use std::collections::HashMap;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::Duration;
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message as WsMessage};
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::protocol::{Message as WsMessage, frame::coding::CloseCode},
+};
 use tokio_util::sync::CancellationToken;
 
 const FOLLOWER_TUNNEL_STREAM_LANES: usize = 4;
@@ -57,6 +64,32 @@ enum StreamRequestOutcome {
     Completed,
     Shutdown,
     PeerClosed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StreamLaneExit {
+    Reconnect,
+    PrimaryShutdown,
+    Shutdown,
+}
+
+#[derive(Debug, Default)]
+struct BindingConnectionState {
+    primary_shutdown: AtomicBool,
+}
+
+impl BindingConnectionState {
+    fn mark_primary_shutdown(&self) {
+        self.primary_shutdown.store(true, Ordering::Release);
+    }
+
+    fn is_primary_shutdown(&self) -> bool {
+        self.primary_shutdown.load(Ordering::Acquire)
+    }
+
+    fn mark_available(&self) -> bool {
+        self.primary_shutdown.swap(false, Ordering::AcqRel)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -238,6 +271,7 @@ async fn run_binding_poll_loop(
     binding: master_binding::Model,
     local_base_url: String,
     shutdown_token: CancellationToken,
+    connection_state: Arc<BindingConnectionState>,
 ) {
     let mut backoff = FOLLOWER_TUNNEL_BASE_BACKOFF;
     let mut warning_state = RetryWarningState::default();
@@ -250,11 +284,19 @@ async fn run_binding_poll_loop(
 
         match result {
             Ok(()) => {
+                let primary_recovered = connection_state.mark_available();
                 if warning_state.record_success() {
                     tracing::info!(
                         binding_id = binding.id,
                         master_url = %binding.master_url,
                         "reverse tunnel polling connection recovered"
+                    );
+                }
+                if primary_recovered {
+                    tracing::info!(
+                        binding_id = binding.id,
+                        master_url = %binding.master_url,
+                        "reverse tunnel primary connection recovered"
                     );
                 }
                 backoff = FOLLOWER_TUNNEL_BASE_BACKOFF;
@@ -268,7 +310,13 @@ async fn run_binding_poll_loop(
                         "failed to report reverse tunnel error to primary: {mark_error}"
                     );
                 }
-                if warning_state.record_failure() {
+                if connection_state.is_primary_shutdown() {
+                    tracing::debug!(
+                        binding_id = binding.id,
+                        master_url = %binding.master_url,
+                        "reverse tunnel poll retry deferred during primary shutdown: {error}"
+                    );
+                } else if warning_state.record_failure() {
                     tracing::warn!(
                         binding_id = binding.id,
                         master_url = %binding.master_url,
@@ -299,12 +347,14 @@ async fn run_binding_tunnel_loop(
     shutdown_token: CancellationToken,
 ) {
     let task_shutdown = shutdown_token.child_token();
+    let connection_state = Arc::new(BindingConnectionState::default());
     let mut tasks = JoinSet::new();
     for lane_index in 0..FOLLOWER_TUNNEL_STREAM_LANES {
         let lane_client = client.clone();
         let lane_binding = binding.clone();
         let lane_base_url = local_base_url.clone();
         let lane_shutdown = task_shutdown.child_token();
+        let lane_connection_state = connection_state.clone();
         tasks.spawn(async move {
             run_binding_stream_lane_loop(
                 lane_client,
@@ -312,6 +362,7 @@ async fn run_binding_tunnel_loop(
                 lane_base_url,
                 lane_index,
                 lane_shutdown,
+                lane_connection_state,
             )
             .await;
         });
@@ -321,8 +372,16 @@ async fn run_binding_tunnel_loop(
     let poll_client = client.clone();
     let poll_binding = binding;
     let poll_base_url = local_base_url;
+    let poll_connection_state = connection_state;
     tasks.spawn(async move {
-        run_binding_poll_loop(poll_client, poll_binding, poll_base_url, poll_shutdown).await;
+        run_binding_poll_loop(
+            poll_client,
+            poll_binding,
+            poll_base_url,
+            poll_shutdown,
+            poll_connection_state,
+        )
+        .await;
     });
 
     tokio::select! {
@@ -374,6 +433,7 @@ async fn run_binding_stream_lane_loop(
     local_base_url: String,
     lane_index: usize,
     shutdown_token: CancellationToken,
+    connection_state: Arc<BindingConnectionState>,
 ) {
     let mut backoff = FOLLOWER_TUNNEL_BASE_BACKOFF;
     let mut warning_state = RetryWarningState::default();
@@ -388,6 +448,7 @@ async fn run_binding_stream_lane_loop(
             lane_index,
             &shutdown_token,
             &mut warning_state,
+            &connection_state,
         )
         .await;
         if shutdown_token.is_cancelled() {
@@ -395,12 +456,36 @@ async fn run_binding_stream_lane_loop(
         }
 
         match result {
-            Ok(()) => {
+            Ok(StreamLaneExit::PrimaryShutdown) => {
+                connection_state.mark_primary_shutdown();
+                if lane_index == 0 {
+                    tracing::info!(
+                        binding_id = binding.id,
+                        master_url = %binding.master_url,
+                        "reverse tunnel primary requested shutdown; deferring reconnect"
+                    );
+                }
+                tokio::select! {
+                    biased;
+                    _ = shutdown_token.cancelled() => break,
+                    _ = tokio::time::sleep(FOLLOWER_TUNNEL_RECONCILE_INTERVAL) => {}
+                }
+                backoff = FOLLOWER_TUNNEL_BASE_BACKOFF;
+            }
+            Ok(StreamLaneExit::Shutdown) => break,
+            Ok(StreamLaneExit::Reconnect) => {
                 warning_state.record_success();
                 backoff = FOLLOWER_TUNNEL_BASE_BACKOFF;
             }
             Err(error) => {
-                if lane_index == 0 && warning_state.record_failure() {
+                if connection_state.is_primary_shutdown() {
+                    tracing::debug!(
+                        binding_id = binding.id,
+                        master_url = %binding.master_url,
+                        lane_index,
+                        "reverse tunnel streaming retry deferred during primary shutdown: {error}"
+                    );
+                } else if lane_index == 0 && warning_state.record_failure() {
                     tracing::warn!(
                         binding_id = binding.id,
                         master_url = %binding.master_url,
@@ -458,12 +543,13 @@ async fn connect_stream_lane_once(
     lane_index: usize,
     shutdown_token: &CancellationToken,
     warning_state: &mut RetryWarningState,
-) -> Result<()> {
+    connection_state: &BindingConnectionState,
+) -> Result<StreamLaneExit> {
     let connect_url = stream_connect_url(&binding.master_url)?;
     let request = signed_master_ws_request(binding, &connect_url)?;
     let connected = tokio::select! {
         biased;
-        _ = shutdown_token.cancelled() => return Ok(()),
+        _ = shutdown_token.cancelled() => return Ok(StreamLaneExit::Shutdown),
         result = connect_async(request) => result,
     };
     let (ws, _) = connected.map_err(|error| {
@@ -478,7 +564,9 @@ async fn connect_stream_lane_once(
         lane_index,
         "reverse tunnel streaming lane connected"
     );
-    if lane_index == 0 && warning_state.record_success() {
+    let primary_recovered = connection_state.mark_available();
+    let stream_recovered = lane_index == 0 && warning_state.record_success();
+    if primary_recovered || stream_recovered {
         tracing::info!(
             binding_id = binding.id,
             master_url = %binding.master_url,
@@ -492,12 +580,12 @@ async fn connect_stream_lane_once(
             biased;
             _ = shutdown_token.cancelled() => {
                 close_stream_lane(&mut write, &mut read).await?;
-                break;
+                return Ok(StreamLaneExit::Shutdown);
             },
             message = read.next() => message,
         };
         let Some(message) = message else {
-            break;
+            return Ok(StreamLaneExit::Reconnect);
         };
         let message = message.map_err(|error| {
             crate::errors::storage_driver_error(
@@ -517,9 +605,16 @@ async fn connect_stream_lane_once(
                 continue;
             }
             WsMessage::Pong(_) => continue,
-            WsMessage::Close(_) => {
+            WsMessage::Close(reason) => {
                 acknowledge_stream_lane_close(&mut write).await?;
-                break;
+                let primary_shutdown = reason.as_ref().is_some_and(|frame| {
+                    frame.code == CloseCode::Away && frame.reason == "primary shutdown"
+                });
+                return Ok(if primary_shutdown {
+                    StreamLaneExit::PrimaryShutdown
+                } else {
+                    StreamLaneExit::Reconnect
+                });
             }
             _ => continue,
         };
@@ -539,11 +634,9 @@ async fn connect_stream_lane_once(
         )
         .await?
         {
-            break;
+            return Ok(StreamLaneExit::Shutdown);
         }
     }
-
-    Ok(())
 }
 
 async fn execute_stream_tunnel_request_or_close<R, W>(
@@ -585,15 +678,27 @@ where
             format!("close reverse tunnel streaming lane: {error}"),
         )
     })?;
-    let _ = tokio::time::timeout(FOLLOWER_TUNNEL_CLOSE_HANDSHAKE_TIMEOUT, async {
+    let handshake = tokio::time::timeout(FOLLOWER_TUNNEL_CLOSE_HANDSHAKE_TIMEOUT, async {
         while let Some(message) = read.next().await {
             match message {
-                Ok(WsMessage::Close(_)) | Err(_) => break,
+                Ok(WsMessage::Close(_)) => return Ok(()),
+                Err(error) => return Err(error),
                 _ => {}
             }
         }
+        Ok(())
     })
     .await;
+    match handshake {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            tracing::warn!("reverse tunnel streaming lane close handshake read failed: {error}")
+        }
+        Err(_) => tracing::warn!(
+            timeout_secs = FOLLOWER_TUNNEL_CLOSE_HANDSHAKE_TIMEOUT.as_secs(),
+            "reverse tunnel streaming lane close handshake timed out"
+        ),
+    }
     Ok(())
 }
 
