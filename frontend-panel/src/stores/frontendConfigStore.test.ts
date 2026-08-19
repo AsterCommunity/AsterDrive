@@ -117,6 +117,19 @@ describe("frontendConfigStore", () => {
 		expect(useFrontendConfigStore.getState().isLoaded).toBe(true);
 	});
 
+	it("maps disabled password login from remote config", async () => {
+		mockState.get.mockResolvedValue({
+			...frontendConfig,
+			branding: { ...branding, password_login_enabled: false },
+		});
+
+		const { useFrontendConfigStore } = await loadStore();
+
+		await useFrontendConfigStore.getState().load();
+
+		expect(useFrontendConfigStore.getState().passwordLoginEnabled).toBe(false);
+	});
+
 	it("hydrates cached config immediately and revalidates it", async () => {
 		const cachedConfig = {
 			...frontendConfig,

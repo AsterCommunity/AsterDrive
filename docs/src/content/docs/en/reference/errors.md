@@ -337,6 +337,7 @@ The following table groups current public `ApiErrorCode` values by handling path
 | `auth.admin_required` / `auth.account_disabled` | Admin permission required, or account is disabled. |
 | `auth.username_exists` / `auth.email_exists` / `auth.identifier_exists` | Login identifier conflict. |
 | `auth.registration_disabled` | Public registration is disabled. |
+| `auth.password_login_disabled` / `auth.passkey_login_disabled` | The corresponding local password or Passkey sign-in method is disabled by an administrator. |
 | `auth.session_user_mismatch` | Session and account do not match. |
 | `auth.request_source_missing` / `auth.request_source_untrusted` | Request source is missing or untrusted. |
 | `auth.request_origin_untrusted` / `auth.request_referer_untrusted` | Origin or Referer is untrusted. |

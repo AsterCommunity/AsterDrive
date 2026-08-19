@@ -41,7 +41,7 @@ Admin -> System Settings
 | Connect OIDC / Generic OAuth2 / GitHub / QQ / Google / Microsoft login providers | `Admin -> External Authentication` |
 | Disable public registration | `User Management -> Allow Public User Registration` |
 | Temporarily disable Passkey sign-in | `User Management -> Registration & Login -> Allow Passkey Sign-In` |
-| Temporarily disable password sign-in | `User Management -> Registration & Login -> Allow Password Sign-In` |
+| Temporarily disable password sign-in | `User Management -> Registration & Login -> Allow password sign-in` |
 | Restrict email addresses usable for local registration and local email changes | `User Management -> Registration & Login -> Local Account Email Allowlist / Blocklist` |
 | Change the default quota for new users; teams created without an explicit quota also use it, so recheck actual team quotas after creation | `Storage and Retention -> New User Default Storage Quota` |
 | Tune cookie security requirements and Access / Refresh Token TTLs | `Authentication and Cookies` |

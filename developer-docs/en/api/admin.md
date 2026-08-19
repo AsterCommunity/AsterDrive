@@ -582,11 +582,11 @@ Admin team creation can create a team for another user and give that user the in
 
 Runtime config entries defined by the system cannot be deleted; custom entries can. The single source of truth for system config definitions is `src/config/definitions.rs`.
 
-Archive and WebDAV operational keys include:
-
 Authentication controls include `auth_password_login_enabled`, which defaults to
 `true`. Setting it to `false` blocks local password first-factor sign-in while
 leaving password setup, reset, and authenticated password management available.
+
+Archive and WebDAV operational keys include:
 
 - `archive_compress_enabled` defaults to `true` and gates `/batch/archive-compress`; disabling it returns `archive_compress.disabled`.
 - `archive_download_user_enabled` defaults to `true` and gates creation and consumption of personal/team ZIP download tickets; disabling it returns `archive_download.user_disabled`.

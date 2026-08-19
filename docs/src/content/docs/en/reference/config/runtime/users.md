@@ -9,7 +9,7 @@ This group controls account entry points and avatar-related behavior.
 
 - **`Allow Public User Registration`** - After disabling it, the login page only supports existing-account login and administrator initialization. New accounts can only be created by administrators.
 - **`Require Email Activation After Registration`** - After enabling it, normal users created through public registration must click the activation email before logging in.
-- **`Allow Password Sign-In`** - Enabled by default. Disabling it blocks local username/password sign-in as a first factor; external authentication and Passkey sign-in remain available when enabled. Existing passwords and accounts are not deleted.
+- **`Allow password sign-in`** - Enabled by default. Disabling it blocks local username/password sign-in as a first factor; external authentication and Passkey sign-in remain available when enabled. Existing passwords and accounts are not deleted.
 - **`Allow Passkey Sign-In`** - After disabling it, users cannot sign in with registered Passkeys. Existing Passkeys are not deleted and can be used again after re-enabling the setting.
 - **`Local Account Email Allowlist`** - Restricts email addresses or exact domains allowed for local registration and local email changes. Empty means no allowlist restriction.
 - **`Local Account Email Blocklist`** - Blocks email addresses or exact domains for local registration and local email changes. The blocklist overrides the allowlist.

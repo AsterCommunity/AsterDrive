@@ -337,6 +337,7 @@ WebDAV：
 | `auth.admin_required` / `auth.account_disabled` | 需要管理员，或账号被禁用。 |
 | `auth.username_exists` / `auth.email_exists` / `auth.identifier_exists` | 登录标识冲突。 |
 | `auth.registration_disabled` | 公开注册关闭。 |
+| `auth.password_login_disabled` / `auth.passkey_login_disabled` | 管理员关闭了对应的本地密码或 Passkey 登录方式。 |
 | `auth.session_user_mismatch` | 会话和账号不一致。 |
 | `auth.request_source_missing` / `auth.request_source_untrusted` | 请求来源缺失或不可信。 |
 | `auth.request_origin_untrusted` / `auth.request_referer_untrusted` | Origin 或 Referer 不可信。 |

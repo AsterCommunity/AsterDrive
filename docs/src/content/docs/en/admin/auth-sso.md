@@ -88,7 +88,7 @@ Production deployments must first set `Admin -> System Settings -> Site -> Publi
 Administrators can disable local username/password sign-in while keeping external identity providers and Passkey sign-in available:
 
 ```text
-Admin -> System Settings -> User Management -> Registration & Login -> Allow Password Login
+Admin -> System Settings -> User Management -> Registration & Login -> Allow password sign-in
 ```
 
 When disabled, the login page hides the local password input and sign-in button, and `POST /auth/login` rejects local password authentication. Registration, invitations, password reset, initial setup, administrator password assignment, authenticated password changes, and external-auth password linking remain available; existing accounts, passwords, and sessions are not deleted. Keep at least one working external provider or Passkey method before disabling password login, and verify that the administrator can still sign in through the retained method.
