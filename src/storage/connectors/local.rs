@@ -77,7 +77,7 @@ impl LocalConnector {
             ui: storage_connector_ui_descriptor(StorageConnectorUiDescriptorInput {
                 label_key: "driver_type_local",
                 description_key: "policy_wizard_local_storage_desc",
-                icon_src: Some("/static/asterdrive/asterdrive-dark.svg"),
+                icon_src: Some("/static/storage/local-disk.svg"),
                 icon_name: None,
                 badge_rgb: StorageConnectorBadgeRgb::new(16, 185, 129),
                 helper_key: "policy_wizard_local_helper",

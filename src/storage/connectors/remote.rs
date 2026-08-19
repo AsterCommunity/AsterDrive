@@ -133,7 +133,7 @@ impl RemoteConnector {
             ui: storage_connector_ui_descriptor(StorageConnectorUiDescriptorInput {
                 label_key: "driver_type_remote",
                 description_key: "policy_wizard_remote_storage_desc",
-                icon_src: Some("/static/storage/asterdrive-node.svg"),
+                icon_src: Some("/static/storage/asterfollower.svg"),
                 icon_name: None,
                 badge_rgb: StorageConnectorBadgeRgb::new(245, 158, 11),
                 helper_key: "policy_wizard_remote_helper",

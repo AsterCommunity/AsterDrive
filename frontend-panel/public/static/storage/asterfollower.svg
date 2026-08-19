@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <title>AsterFollower Node Icon</title>
+
+  <defs>
+    <!-- 与 AsterDrive 应用图标相同的两段 mask：保证轨道与主体的间隙一致 -->
+    <mask id="mask-orbit-back">
+      <rect width="100%" height="100%" fill="white" />
+      <path d="M 106 406 L 256 106 L 406 406"
+            fill="none" stroke="black" stroke-width="56"
+            stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M 256 226 Q 256 296 326 296 Q 256 296 256 366 Q 256 296 186 296 Q 256 296 256 226 Z"
+            fill="black" stroke="black" stroke-width="16" stroke-linejoin="round" />
+    </mask>
+
+    <mask id="mask-a-star">
+      <rect width="100%" height="100%" fill="white" />
+      <path d="M 406 296 A 150 50 0 0 1 106 296"
+            fill="none" stroke="black" stroke-width="32" stroke-linecap="butt" />
+    </mask>
+  </defs>
+
+  <!-- 方形深石板底（与方形应用图标一致） -->
+  <rect width="512" height="512" rx="64" fill="#0F172A" />
+
+  <!-- Orbit (Back Half) -->
+  <path d="M 106 296 A 150 50 0 0 1 406 296"
+        fill="none" stroke="#3B82F6" stroke-width="16"
+        stroke-linecap="round" mask="url(#mask-orbit-back)" />
+
+  <!-- Core Geometry (The 'A' and the Star) -->
+  <g mask="url(#mask-a-star)">
+    <path d="M 106 406 L 256 106 L 406 406"
+          fill="none" stroke="#F8FAFC" stroke-width="40"
+          stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 256 226 Q 256 296 326 296 Q 256 296 256 366 Q 256 296 186 296 Q 256 296 256 226 Z"
+          fill="#3B82F6" />
+  </g>
+
+  <!-- Orbit (Front Half) -->
+  <path d="M 406 296 A 150 50 0 0 1 106 296"
+        fill="none" stroke="#3B82F6" stroke-width="16" stroke-linecap="round" />
+
+  <!-- Follower 卫星：轨道后弧右上方的跟随节点。
+       琥珀色呼应 remote connector 的 badge_rgb(245,158,11)；
+       石板色描边把它从轨道上“抠”出来 -->
+  <circle cx="362" cy="261" r="26" fill="#F59E0B"
+          stroke="#0F172A" stroke-width="10" />
+</svg>

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <title>Local Storage Icon</title>
+
+  <!-- 方形深石板底（与应用图标一致） -->
+  <rect width="512" height="512" rx="64" fill="#0F172A" />
+
+  <!-- 硬盘盘体 -->
+  <rect x="116" y="176" width="280" height="160" rx="24"
+        fill="none" stroke="#F8FAFC" stroke-width="28" />
+
+  <!-- 盘片分隔线 -->
+  <path d="M 140 268 L 372 268"
+        fill="none" stroke="#F8FAFC" stroke-width="18"
+        stroke-linecap="round" />
+
+  <!-- 活动指示灯（蓝色 accent） -->
+  <circle cx="352" cy="302" r="13" fill="#3B82F6" />
+</svg>

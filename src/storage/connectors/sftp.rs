@@ -140,7 +140,7 @@ impl SftpConnector {
             ui: storage_connector_ui_descriptor(StorageConnectorUiDescriptorInput {
                 label_key: "driver_type_sftp",
                 description_key: "policy_wizard_sftp_storage_desc",
-                icon_src: None,
+                icon_src: Some("/static/storage/sftp-server.svg"),
                 icon_name: Some("ServerCog"),
                 badge_rgb: StorageConnectorBadgeRgb::new(139, 92, 246),
                 helper_key: "policy_wizard_sftp_helper",
