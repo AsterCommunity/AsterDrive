@@ -36,6 +36,7 @@ interface FrontendConfigState {
 	imagePreviewPreference: PublicImagePreviewPreference;
 	isLoaded: boolean;
 	passkeyLoginEnabled: boolean;
+	passwordLoginEnabled: boolean;
 	siteUrl: string | null;
 	invalidate: () => void;
 	load: (options?: { force?: boolean }) => Promise<void>;
@@ -66,6 +67,7 @@ function isPublicBranding(value: unknown): value is PublicBranding {
 	}
 
 	const passkeyLoginEnabled = value.passkey_login_enabled;
+	const passwordLoginEnabled = value.password_login_enabled;
 
 	return (
 		typeof value.allow_user_registration === "boolean" &&
@@ -73,6 +75,8 @@ function isPublicBranding(value: unknown): value is PublicBranding {
 		typeof value.favicon_url === "string" &&
 		(passkeyLoginEnabled === undefined ||
 			typeof passkeyLoginEnabled === "boolean") &&
+		(passwordLoginEnabled === undefined ||
+			typeof passwordLoginEnabled === "boolean") &&
 		isStringArray(value.site_urls) &&
 		typeof value.title === "string" &&
 		typeof value.wordmark_dark_url === "string" &&
@@ -164,6 +168,7 @@ function applyFrontendConfig(config: PublicFrontendConfig) {
 		imagePreviewPreference: config.media.image_preview_preference,
 		isLoaded: true,
 		passkeyLoginEnabled: config.branding.passkey_login_enabled ?? true,
+		passwordLoginEnabled: config.branding.password_login_enabled ?? true,
 		siteUrl,
 	};
 }
@@ -180,6 +185,7 @@ function fallbackState() {
 		imagePreviewPreference: DEFAULT_IMAGE_PREVIEW_PREFERENCE,
 		isLoaded: true,
 		passkeyLoginEnabled: true,
+		passwordLoginEnabled: true,
 		siteUrl: null,
 	};
 }
@@ -215,6 +221,8 @@ export const useFrontendConfigStore = create<FrontendConfigState>(
 		isLoaded: initialCachedConfig !== null,
 		passkeyLoginEnabled:
 			initialCachedConfig?.branding.passkey_login_enabled ?? true,
+		passwordLoginEnabled:
+			initialCachedConfig?.branding.password_login_enabled ?? true,
 		siteUrl: initialSiteUrl,
 
 		invalidate: () => {
@@ -229,6 +237,7 @@ export const useFrontendConfigStore = create<FrontendConfigState>(
 				imagePreviewPreference: DEFAULT_IMAGE_PREVIEW_PREFERENCE,
 				isLoaded: false,
 				passkeyLoginEnabled: true,
+				passwordLoginEnabled: true,
 				siteUrl: null,
 			});
 		},

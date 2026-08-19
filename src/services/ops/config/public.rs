@@ -50,6 +50,7 @@ pub struct PublicBranding {
     pub site_urls: Vec<String>,
     pub allow_user_registration: bool,
     pub passkey_login_enabled: bool,
+    pub password_login_enabled: bool,
 }
 
 #[derive(Serialize)]
@@ -92,12 +93,13 @@ pub fn get_public_branding(state: &impl SharedRuntimeState) -> PublicBranding {
         site_urls: site_url::public_site_urls(runtime_config),
         allow_user_registration: auth_policy.allow_user_registration,
         passkey_login_enabled: auth_policy.passkey_login_enabled,
+        password_login_enabled: auth_policy.password_login_enabled,
     }
 }
 
 pub fn get_public_frontend_config(state: &impl SharedRuntimeState) -> PublicFrontendConfig {
     PublicFrontendConfig {
-        version: 2,
+        version: 3,
         branding: get_public_branding(state),
         downloads: public_frontend_download_config(state.runtime_config()),
         media: PublicFrontendMediaConfig {

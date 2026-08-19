@@ -83,6 +83,16 @@ After disabling, users can no longer sign in with registered Passkeys, but exist
 
 Production deployments must first set `Admin -> System Settings -> Site -> Public Site URL` correctly and use HTTPS; local `localhost` / `127.0.0.1` debugging is the exception. Browsers usually expose full Passkey capability only in secure contexts.
 
+## Password Login Switch
+
+Administrators can disable local username/password sign-in while keeping external identity providers and Passkey sign-in available:
+
+```text
+Admin -> System Settings -> User Management -> Registration & Login -> Allow Password Login
+```
+
+When disabled, the login page hides the local password input and sign-in button, and `POST /auth/login` rejects local password authentication. Registration, invitations, password reset, initial setup, administrator password assignment, authenticated password changes, and external-auth password linking remain available; existing accounts, passwords, and sessions are not deleted. Keep at least one working external provider or Passkey method before disabling password login, and verify that the administrator can still sign in through the retained method.
+
 ## External Auth Onboarding Order
 
 The admin entry is `Admin -> External Auth`. Six provider types are currently supported:

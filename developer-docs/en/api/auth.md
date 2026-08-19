@@ -56,7 +56,7 @@ All paths below are relative to `/api/v1`.
 
 ## Initialization and registration
 
-- `POST /auth/check` returns `setup_state`, `has_users`, `allow_user_registration`, and `passkey_login_enabled`. It exposes system-level state only and does not reveal whether a specific account exists. `setup_state` is one of:
+- `POST /auth/check` returns `setup_state`, `has_users`, `allow_user_registration`, `passkey_login_enabled`, and `password_login_enabled`. It exposes system-level state only and does not reveal whether a specific account exists. `setup_state` is one of:
   - `needs_admin`: the database has no users and only first-administrator setup is open
   - `needs_storage`: an administrator exists, but the default storage policy group or administrator assignment is incomplete; existing administrators may sign in and finish storage setup
   - `ready`: administrator setup and the default storage route are complete, so ordinary account-creation flows may continue
@@ -243,6 +243,8 @@ Registration and management require login:
 Passkeys are stored in the `passkeys` table. Credentials are stored as strongly typed wrapped JSON. The server requires discoverable credentials.
 
 `auth_passkey_login_enabled = false` disables anonymous passkey sign-in and hides the login entry point from current frontend bootstrap config, but it does not delete registered credentials. Logged-in users can still manage their saved passkeys.
+
+`auth_password_login_enabled = false` rejects local password first-factor login before account lookup and hides the password input and sign-in button from the current frontend. It does not disable registration, invitations, password reset, initial setup, administrator password assignment, authenticated password changes, or external-auth password linking. Accounts, passwords, and sessions are not deleted; external providers remain controlled by their own `enabled` setting.
 
 ## MFA management
 

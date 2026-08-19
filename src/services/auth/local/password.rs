@@ -1,6 +1,7 @@
 //! 认证服务子模块：`password`。
 
 use crate::api::api_error_code::ApiErrorCode;
+use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::db::repository::user_repo;
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
@@ -12,6 +13,17 @@ use super::validate_password;
 use crate::services::auth::mfa::{self, PrimaryLoginCompletion};
 
 use super::{AuthUserInfo, is_email_verified};
+
+fn ensure_password_login_enabled(policy: RuntimeAuthPolicy) -> Result<()> {
+    if policy.password_login_enabled {
+        return Ok(());
+    }
+
+    Err(auth_forbidden_with_code(
+        ApiErrorCode::AuthPasswordLoginDisabled,
+        "password login is disabled by administrator policy",
+    ))
+}
 
 pub async fn login(
     state: &impl SharedRuntimeState,
@@ -29,6 +41,9 @@ pub async fn login(
 
     let mut failure_reason = None;
     let outcome = async {
+        ensure_password_login_enabled(RuntimeAuthPolicy::from_runtime_config(
+            state.runtime_config(),
+        ))?;
         let Some(user) = find_user_by_identifier(state.writer_db(), identifier).await? else {
             tracing::debug!(identifier_kind, "login rejected: user not found");
             failure_reason = Some(LoginFailureReason::InvalidCredentials);
@@ -77,6 +92,50 @@ pub async fn login(
 
     record_login_metric(state, &outcome, failure_reason);
     outcome
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ensure_password_login_enabled;
+    use crate::api::api_error_code::ApiErrorCode;
+    use crate::config::auth_runtime::{
+        DEFAULT_AUTH_ACCESS_TOKEN_TTL_SECS, DEFAULT_AUTH_ALLOW_USER_REGISTRATION,
+        DEFAULT_AUTH_COOKIE_SECURE, DEFAULT_AUTH_PASSKEY_LOGIN_ENABLED,
+        DEFAULT_AUTH_REFRESH_TOKEN_TTL_SECS, DEFAULT_AUTH_REGISTER_ACTIVATION_ENABLED,
+        RuntimeAuthPolicy,
+    };
+
+    fn policy(password_login_enabled: bool) -> RuntimeAuthPolicy {
+        RuntimeAuthPolicy {
+            cookie_secure: DEFAULT_AUTH_COOKIE_SECURE,
+            allow_user_registration: DEFAULT_AUTH_ALLOW_USER_REGISTRATION,
+            passkey_login_enabled: DEFAULT_AUTH_PASSKEY_LOGIN_ENABLED,
+            password_login_enabled,
+            register_activation_enabled: DEFAULT_AUTH_REGISTER_ACTIVATION_ENABLED,
+            access_token_ttl_secs: DEFAULT_AUTH_ACCESS_TOKEN_TTL_SECS,
+            refresh_token_ttl_secs: DEFAULT_AUTH_REFRESH_TOKEN_TTL_SECS,
+        }
+    }
+
+    #[test]
+    fn password_login_policy_allows_enabled_login() {
+        assert!(ensure_password_login_enabled(policy(true)).is_ok());
+    }
+
+    #[test]
+    fn password_login_policy_returns_stable_forbidden_error_when_disabled() {
+        let error =
+            ensure_password_login_enabled(policy(false)).expect_err("login should be blocked");
+
+        assert_eq!(
+            error.api_error_code(),
+            ApiErrorCode::AuthPasswordLoginDisabled
+        );
+        assert_eq!(
+            error.message(),
+            "password login is disabled by administrator policy"
+        );
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

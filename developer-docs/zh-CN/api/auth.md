@@ -56,7 +56,7 @@
 
 ## 初始化与注册
 
-- `POST /auth/check`：返回 `setup_state`、`has_users`、`allow_user_registration` 和 `passkey_login_enabled`；只公开系统级状态，不会暴露特定账号是否存在。`setup_state` 取值为：
+- `POST /auth/check`：返回 `setup_state`、`has_users`、`allow_user_registration`、`passkey_login_enabled` 和 `password_login_enabled`；只公开系统级状态，不会暴露特定账号是否存在。`setup_state` 取值为：
   - `needs_admin`：数据库中还没有用户，只开放首个管理员 setup
   - `needs_storage`：管理员已经存在，但默认存储策略组或管理员绑定尚未完成；已有管理员可以登录并完成存储设置
   - `ready`：管理员和默认存储路由均已准备好，普通建号流程可以继续
@@ -269,6 +269,8 @@ Passkey 使用 WebAuthn 两段式流程。所有 challenge 响应和 credential 
 当前 Passkey 记录保存在 `passkeys` 表，credential 以强类型包装后的 JSON 存储。服务端要求可发现凭证；不支持的 credential 会返回带 `passkey.*` 子码的校验错误。
 
 `auth_passkey_login_enabled = false` 会关闭匿名 Passkey 登录，并让当前前端启动配置隐藏 Passkey 登录入口，但不会删除已经注册的凭证。已登录用户仍可管理自己保存的 Passkey。
+
+`auth_password_login_enabled = false` 会在用户查询前拒绝本地密码第一因子登录，并让当前前端隐藏密码输入和登录按钮；它不会关闭注册、邀请、密码重置、首次 setup、管理员设密、已登录改密或外部身份密码绑定流程。账号、密码和会话不会因此删除；外部 provider 仍由各自的 `enabled` 配置控制。
 
 ## MFA 管理
 

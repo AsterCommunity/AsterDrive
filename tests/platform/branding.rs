@@ -29,10 +29,11 @@ async fn test_public_frontend_config_returns_default_bootstrap_config() {
     );
 
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["version"], 2);
+    assert_eq!(body["data"]["version"], 3);
     assert_eq!(body["data"]["branding"]["title"], "AsterDrive");
     assert_eq!(body["data"]["branding"]["allow_user_registration"], true);
     assert_eq!(body["data"]["branding"]["passkey_login_enabled"], true);
+    assert_eq!(body["data"]["branding"]["password_login_enabled"], true);
     assert_eq!(
         body["data"]["media"]["image_preview_preference"],
         "original_first"
@@ -75,7 +76,7 @@ async fn test_public_frontend_config_uses_admin_updated_archive_download_capabil
     assert_eq!(resp.status(), 200);
 
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["version"], 2);
+    assert_eq!(body["data"]["version"], 3);
     assert_eq!(
         body["data"]["downloads"]["archive_download_user_enabled"],
         false
@@ -99,6 +100,7 @@ async fn test_public_frontend_config_uses_admin_updated_branding_and_preview_pre
         ),
         ("auth_allow_user_registration", serde_json::json!("false")),
         ("auth_passkey_login_enabled", serde_json::json!("false")),
+        ("auth_password_login_enabled", serde_json::json!("false")),
         ("branding_title", serde_json::json!("Nebula Drive")),
         (
             "frontend_image_preview_preference",
@@ -129,6 +131,7 @@ async fn test_public_frontend_config_uses_admin_updated_branding_and_preview_pre
     );
     assert_eq!(body["data"]["branding"]["allow_user_registration"], false);
     assert_eq!(body["data"]["branding"]["passkey_login_enabled"], false);
+    assert_eq!(body["data"]["branding"]["password_login_enabled"], false);
     assert_eq!(
         body["data"]["media"]["image_preview_preference"],
         "preview_first"
@@ -214,6 +217,7 @@ async fn test_public_frontend_config_uses_admin_updated_branding_values() {
         ),
         ("auth_allow_user_registration", serde_json::json!("false")),
         ("auth_passkey_login_enabled", serde_json::json!("false")),
+        ("auth_password_login_enabled", serde_json::json!("false")),
         ("branding_title", serde_json::json!("Nebula Drive")),
         (
             "branding_description",
@@ -270,6 +274,7 @@ async fn test_public_frontend_config_uses_admin_updated_branding_values() {
     );
     assert_eq!(branding["allow_user_registration"], false);
     assert_eq!(branding["passkey_login_enabled"], false);
+    assert_eq!(branding["password_login_enabled"], false);
 }
 
 #[actix_web::test]

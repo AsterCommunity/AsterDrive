@@ -20,7 +20,7 @@ Admin -> System Settings
 | --- | --- | --- |
 | Site links, share links, or mail link domains are wrong | [Site Configuration](/en/reference/config/runtime/site/) | Then check [reverse proxy](/en/deploy/reverse-proxy/) |
 | Login cookie, token, activation link, or email-code MFA timing is unsuitable | [Authentication and Cookies](/en/reference/config/runtime/auth/) | Then check [login and sessions](/en/reference/config/auth/) |
-| Registration, Passkey sign-in, local email allow/block lists, avatars, or Gravatar behavior is unexpected | [User Management](/en/reference/config/runtime/users/) | Then check [login and sessions](/en/reference/config/auth/) |
+| Registration, password / Passkey sign-in, local email allow/block lists, avatars, or Gravatar behavior is unexpected | [User Management](/en/reference/config/runtime/users/) | Then check [login and sessions](/en/reference/config/auth/) |
 | Passkey, MFA, external login, or external identity binding is unexpected | [Site Configuration](/en/reference/config/runtime/site/) / Admin -> External Authentication / [Authentication and Cookies](/en/reference/config/runtime/auth/) | Then check [login and sessions](/en/reference/config/auth/) |
 | Mail cannot be received, or links are wrong | [Mail Delivery](/en/reference/config/runtime/mail/) | Then check [mail](/en/admin/mail/) |
 | Browser blocks cross-origin API calls | [Network Access](/en/reference/config/runtime/network/) | First confirm it is not a `Public Site URL` issue |
@@ -41,6 +41,7 @@ Admin -> System Settings
 | Connect OIDC / Generic OAuth2 / GitHub / QQ / Google / Microsoft login providers | `Admin -> External Authentication` |
 | Disable public registration | `User Management -> Allow Public User Registration` |
 | Temporarily disable Passkey sign-in | `User Management -> Registration & Login -> Allow Passkey Sign-In` |
+| Temporarily disable password sign-in | `User Management -> Registration & Login -> Allow Password Sign-In` |
 | Restrict email addresses usable for local registration and local email changes | `User Management -> Registration & Login -> Local Account Email Allowlist / Blocklist` |
 | Change the default quota for new users; teams created without an explicit quota also use it, so recheck actual team quotas after creation | `Storage and Retention -> New User Default Storage Quota` |
 | Tune cookie security requirements and Access / Refresh Token TTLs | `Authentication and Cookies` |
@@ -62,7 +63,7 @@ Admin -> System Settings
 ## Current Groups
 
 - **[Site Configuration](/en/reference/config/runtime/site/)** - Public site URL, title, logo, favicon, preview apps
-- **[User Management](/en/reference/config/runtime/users/)** - Public registration, registration activation, Passkey sign-in, local email allow/block lists, avatars, Gravatar
+- **[User Management](/en/reference/config/runtime/users/)** - Public registration, registration activation, password / Passkey sign-in, local email allow/block lists, avatars, Gravatar
 - **[Authentication and Cookies](/en/reference/config/runtime/auth/)** - Cookie security rules, token TTLs, activation/email-change/reset link TTLs, email-code MFA
 - **[Mail Delivery](/en/reference/config/runtime/mail/)** - SMTP, sender, test mail, registration activation/email-change/password reset/external login email verification/login email code mail templates
 - **[Network Access](/en/reference/config/runtime/network/)** - Browser cross-site access rules (CORS)
@@ -83,6 +84,7 @@ Admin -> System Settings
 | Public registration, registration activation, mail templates | Applied to later login flows and newly sent emails |
 | Local email allowlist / blocklist | Applied to later local registration and local email changes; third-party SSO is not affected |
 | Passkey sign-in switch | Applied to later Passkey sign-in requests; existing Passkeys are not deleted |
+| Password sign-in switch | Applied to later local password sign-in requests; existing passwords, accounts, and sessions are not deleted |
 | External login providers | Applied to the login page and later external login flows after saving |
 | External login email verification mail template, login email code mail template | Applied to newly sent matching emails |
 | Email-code MFA switch, fallback policy, TTL, and resend cooldown | Applied to later MFA login flows and newly sent email codes |

@@ -42,6 +42,7 @@ interface LoginPageViewProps {
 	identifierPlaceholder: string;
 	isSubmitDisabled: boolean;
 	passkeyLoginEnabled: boolean;
+	passwordLoginEnabled: boolean;
 	mfaPanel: MfaPanelState | null;
 	mode: AuthMode;
 	modeActionText: string;
@@ -106,6 +107,7 @@ export function LoginPageView({
 	identifierPlaceholder,
 	isSubmitDisabled,
 	passkeyLoginEnabled,
+	passwordLoginEnabled,
 	mfaPanel,
 	mode,
 	modeActionText,
@@ -252,6 +254,7 @@ export function LoginPageView({
 							identifierPlaceholder={identifierPlaceholder}
 							isSubmitDisabled={isSubmitDisabled}
 							passkeyLoginEnabled={passkeyLoginEnabled}
+							passwordLoginEnabled={passwordLoginEnabled}
 							mode={mode}
 							modeActionText={modeActionText}
 							password={password}

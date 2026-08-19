@@ -42,6 +42,7 @@ const branding = {
 	description: "Private drive",
 	favicon_url: "/favicon.ico",
 	passkey_login_enabled: true,
+	password_login_enabled: true,
 	site_urls: ["https://drive.example"],
 	title: "AsterDrive",
 	wordmark_dark_url: "/wordmark-dark.svg",
@@ -57,7 +58,7 @@ const frontendConfig = {
 	media: {
 		image_preview_preference: "original_first",
 	},
-	version: 2,
+	version: 3,
 };
 
 const appliedBranding = {
@@ -109,6 +110,7 @@ describe("frontendConfigStore", () => {
 			true,
 		);
 		expect(useFrontendConfigStore.getState().branding).toEqual(appliedBranding);
+		expect(useFrontendConfigStore.getState().passwordLoginEnabled).toBe(true);
 		expect(useFrontendConfigStore.getState().imagePreviewPreference).toBe(
 			"original_first",
 		);
@@ -282,6 +284,21 @@ describe("frontendConfigStore", () => {
 		expect(localStorage.getItem(FRONTEND_CONFIG_CACHE_KEY)).toBeNull();
 	});
 
+	it("defaults password login to enabled for legacy cached branding", async () => {
+		const { password_login_enabled: _passwordLoginEnabled, ...legacyBranding } =
+			branding;
+		localStorage.setItem(
+			"aster-cached-frontend-config:v1",
+			JSON.stringify({
+				config: { ...frontendConfig, branding: legacyBranding, version: 2 },
+			}),
+		);
+
+		const { useFrontendConfigStore } = await loadStore();
+
+		expect(useFrontendConfigStore.getState().passwordLoginEnabled).toBe(true);
+	});
+
 	it("treats cached payloads without a finite timestamp as stale but usable", async () => {
 		const cachedConfig = {
 			...frontendConfig,
@@ -334,6 +351,7 @@ describe("frontendConfigStore", () => {
 		expect(useFrontendConfigStore.getState().archiveDownloadUserEnabled).toBe(
 			false,
 		);
+		expect(useFrontendConfigStore.getState().passwordLoginEnabled).toBe(true);
 		expect(useFrontendConfigStore.getState().isLoaded).toBe(true);
 	});
 

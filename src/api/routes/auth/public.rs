@@ -105,6 +105,7 @@ pub async fn check(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
         has_users: setup.has_users,
         allow_user_registration: auth_policy.allow_user_registration,
         passkey_login_enabled: auth_policy.passkey_login_enabled,
+        password_login_enabled: auth_policy.password_login_enabled,
     })))
 }
 

@@ -2200,6 +2200,10 @@ async fn test_check_reports_public_registration_flag() {
         aster_drive::config::auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY,
         "false",
     ));
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+        "false",
+    ));
     let app = create_test_app!(state);
 
     let req = test::TestRequest::post()
@@ -2225,6 +2229,7 @@ async fn test_check_reports_public_registration_flag() {
     assert_eq!(body["data"]["setup_state"], "ready");
     assert_eq!(body["data"]["allow_user_registration"], false);
     assert_eq!(body["data"]["passkey_login_enabled"], false);
+    assert_eq!(body["data"]["password_login_enabled"], false);
 }
 
 #[actix_web::test]
@@ -3515,6 +3520,106 @@ async fn test_login_uses_runtime_auth_policy() {
     assert_eq!(refresh_cookie_max_age, Some(3600));
     assert_eq!(access_cookie_secure, Some(true));
     assert_eq!(refresh_cookie_secure, Some(true));
+}
+
+#[actix_web::test]
+async fn test_password_login_policy_disables_only_login_and_hot_update_reenables_it() {
+    let state = common::setup().await;
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_REGISTER_ACTIVATION_ENABLED_KEY,
+        "false",
+    ));
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+        "false",
+    ));
+    let app = create_test_app!(state.clone());
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/setup")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "owner",
+            "email": "owner@example.com",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201, "initial setup must remain available");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/register")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "alice",
+            "email": "alice@example.com",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201, "registration must remain available");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/password/reset/request")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({ "email": "alice@example.com" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        200,
+        "password recovery must remain available"
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/login")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "identifier": "unknown-user",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "auth.password_login_disabled");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/login")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "identifier": "alice",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+    assert!(common::extract_cookie(&resp, "aster_access").is_none());
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "auth.password_login_disabled");
+    assert_eq!(
+        body["msg"],
+        "password login is disabled by administrator policy"
+    );
+    assert_eq!(body["error"]["retryable"], false);
+    assert!(body["error"].get("subcode").is_none());
+
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+        "true",
+    ));
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/login")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "identifier": "alice",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert!(common::extract_cookie(&resp, "aster_access").is_some());
 }
 
 #[actix_web::test]

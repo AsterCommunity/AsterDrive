@@ -75,6 +75,7 @@ AsterDrive 的失败响应一般长这样：
 - `auth.password_change_required`：管理员要求当前账号先修改密码。完成登录后会进入强制改密页面；在改密成功之前，普通 API 会被拒绝。
 - `auth.account_disabled`：账号被禁用。普通用户只能联系管理员。
 - `auth.registration_disabled`：站点关闭公开注册。让管理员创建账号，或开启注册。
+- `auth.password_login_disabled`：管理员关闭了本地密码登录。改用已启用的 Passkey 或外部登录提供商，或联系管理员。
 
 如果普通登录、Passkey、外部认证和 MFA 混在一起失败，仍然优先看 `code`，不要只看页面上的一句“登录失败”。
 
@@ -95,6 +96,7 @@ Passkey 相关错误：
 
 - `passkey.name_invalid` / `passkey.name_too_long`：Passkey 名称不合法或太长，改名后重试。
 - `passkey.not_discoverable`：浏览器或安全密钥没有创建可发现凭据。换支持 Passkey 的设备 / 浏览器，或重新添加。
+- `auth.passkey_login_disabled`：管理员关闭了 Passkey 登录。改用其他已启用的登录方式，或联系管理员。
 
 生产部署建议使用 HTTPS。很多 WebAuthn / Passkey 行为在不安全来源下不会按预期工作。
 
