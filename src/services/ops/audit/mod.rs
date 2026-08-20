@@ -23,16 +23,17 @@ pub use details::{
     MfaEmailCodeAuditDetails, PolicyGroupAuditDetails, PolicyGroupMigrationDetails,
     PropertyAuditDetails, RemoteEnrollmentAuditDetails, RemoteIngressProfileAuditDetails,
     RemoteIngressProfileDeleteAuditDetails, RemoteNodeAuditDetails,
-    RemoteNodeEnrollmentTokenAuditDetails, RemoteNodeParamTestAuditDetails,
-    ShareBatchDeleteDetails, ShareCreateAuditDetails, ShareDeleteAuditDetails, ShareUpdateDetails,
-    StoragePolicyActionAuditDetails, StoragePolicyAuditDetails, StoragePolicyPromotionAuditDetails,
-    TagAssignmentAuditDetails, TagAuditDetails, TaskRetryAuditDetails, TeamAuditDetails,
-    TeamCleanupAuditDetails, TeamMemberAddAuditDetails, TeamMemberRemoveAuditDetails,
-    TeamMemberUpdateAuditDetails, TrashPurgeAllAuditDetails, UploadCancelAuditDetails,
-    UserAvatarSourceAuditDetails, UserAvatarUploadAuditDetails, UserLoginAuditDetails,
-    UserMfaManageAuditDetails, UserPreferencesAuditDetails, UserProfileAuditDetails,
-    UserWopiInfoAuditDetails, WorkspaceTransferCopyDetails, WorkspaceTransferMoveDetails,
-    WorkspaceTransferScopeDetails, details,
+    RemoteNodeConnectionAuditDetails, RemoteNodeEnrollmentTokenAuditDetails,
+    RemoteNodeParamTestAuditDetails, ShareBatchDeleteDetails, ShareCreateAuditDetails,
+    ShareDeleteAuditDetails, ShareUpdateDetails, StoragePolicyActionAuditDetails,
+    StoragePolicyAuditDetails, StoragePolicyPromotionAuditDetails, TagAssignmentAuditDetails,
+    TagAuditDetails, TaskRetryAuditDetails, TeamAuditDetails, TeamCleanupAuditDetails,
+    TeamMemberAddAuditDetails, TeamMemberRemoveAuditDetails, TeamMemberUpdateAuditDetails,
+    TrashPurgeAllAuditDetails, UploadCancelAuditDetails, UserAvatarSourceAuditDetails,
+    UserAvatarUploadAuditDetails, UserLoginAuditDetails, UserMfaManageAuditDetails,
+    UserPreferencesAuditDetails, UserProfileAuditDetails, UserWopiInfoAuditDetails,
+    WorkspaceTransferCopyDetails, WorkspaceTransferMoveDetails, WorkspaceTransferScopeDetails,
+    details,
 };
 pub use filters::{AuditLogFilterQuery, AuditLogFilters};
 pub use manager::{
@@ -40,4 +41,5 @@ pub use manager::{
     should_record, should_record_with_config,
 };
 pub use models::{AuditLogEntry, AuditPresentation, AuditPresentationMessage, TeamAuditEntryInfo};
+pub use presentation::{sanitize_details, sanitize_entity_name};
 pub use query::{cleanup_expired, query, query_team_entries};

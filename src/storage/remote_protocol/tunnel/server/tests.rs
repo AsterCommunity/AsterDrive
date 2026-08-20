@@ -53,6 +53,22 @@ fn tunnel_heartbeat_tracks_activity_and_missed_pongs() {
 }
 
 #[test]
+fn close_handshake_failure_does_not_override_recorded_disconnect_reason() {
+    assert_eq!(
+        finalize_disconnect_reason(Some(TunnelDisconnectReason::HeartbeatTimeout), false),
+        TunnelDisconnectReason::HeartbeatTimeout
+    );
+    assert_eq!(
+        finalize_disconnect_reason(Some(TunnelDisconnectReason::Eof), false),
+        TunnelDisconnectReason::Eof
+    );
+    assert_eq!(
+        finalize_disconnect_reason(None, false),
+        TunnelDisconnectReason::CloseHandshakeFailed
+    );
+}
+
+#[test]
 fn reverse_tunnel_transport_gate_uses_effective_mode() {
     let mut node = build_remote_node(1, "transport-gate");
     assert!(ensure_reverse_tunnel_transport(&node).is_ok());
