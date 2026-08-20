@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **内置登录方式控制** — 新增可热更新的密码登录开关，并继续与 Passkey 开关独立组合；关闭密码登录会同时关闭公开注册、激活重发、密码邀请接受、密码重置和外部身份密码绑定，未完成的密码第一因子 MFA flow 会在完成时重新检查策略，外部认证和 Passkey 登录不再被遗留的强制改密标记阻塞。后端仅在存在已启用外部认证 provider 时允许同时关闭密码与 Passkey，并阻止禁用或删除最后一个外部 provider，避免保存后失去全部登录入口。
 - **远端节点连接生命周期审计** — reverse tunnel 连接、正常下线、异常断线和心跳超时现在会按 remote node / binding 聚合写入系统 audit；四条 streaming lane 的同时变化只产生一次节点级状态转换，并记录连接次数、中断次数、lane 数量、transport 和稳定 reason code，不包含 access key、secret、signature、URL 凭据或 token。
 
+### Fixed
+
+- **Slim 镜像媒体处理能力与派生缓存** — full 与 slim 镜像切换时保留已有媒体处理配置，管理端分别展示已配置、运行时可用和有效启用状态；公开缩略图能力只声明当前可生成的格式，并与媒体元数据能力独立。已有缩略图和图片预览缓存继续可读，缺少 `vips`、`ffmpeg` 或 `ffprobe` 时仅阻止新的相关派生并返回结构化处理器不可用错误；Docker 发布流程也保证所有 slim 变体先于 full 变体推送。
+
 ## [v0.5.0] - 2026-08-20
 
 ### Changed
