@@ -1413,6 +1413,111 @@ async fn test_migrations_use_current_baseline_for_fresh_install() {
 }
 
 #[tokio::test]
+async fn test_remote_node_telemetry_rename_preserves_values_on_sqlite_up_and_down() {
+    let database_url =
+        setup_empty_database_url("asterdrive-cli-remote-node-telemetry-rename-test").await;
+    let db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: database_url.into(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive_metrics::NoopMetrics::arc(),
+    )
+    .await
+    .unwrap();
+    let migrations = CurrentMigrator::migrations();
+    let rename_index = migrations
+        .iter()
+        .position(|migration| migration.name() == "m20260821_000001_rename_remote_node_telemetry")
+        .expect("remote-node telemetry rename migration should be registered");
+    CurrentMigrator::up(
+        &db,
+        Some(u32::try_from(rename_index).expect("migration index should fit u32")),
+    )
+    .await
+    .unwrap();
+
+    db.execute_unprepared(
+        "INSERT INTO managed_followers \
+         (name, base_url, access_key, secret_key, is_enabled, last_capabilities, \
+          last_error, last_checked_at, created_at, updated_at) \
+         VALUES ('legacy-node', '', 'legacy-access', 'legacy-secret', 1, '{\"v\":1}', \
+                 'probe failed', '2026-08-20T01:02:03Z', \
+                 '2026-08-20T01:02:03Z', '2026-08-20T01:02:03Z')",
+    )
+    .await
+    .unwrap();
+
+    CurrentMigrator::up(&db, None).await.unwrap();
+    assert_eq!(
+        scalar_string(
+            &db,
+            DbBackend::Sqlite,
+            "SELECT last_probe_error FROM managed_followers WHERE name = 'legacy-node'",
+        )
+        .await,
+        "probe failed"
+    );
+    assert_eq!(
+        scalar_string(
+            &db,
+            DbBackend::Sqlite,
+            "SELECT tunnel_runtime_error FROM managed_followers WHERE name = 'legacy-node'",
+        )
+        .await,
+        ""
+    );
+    assert_eq!(
+        scalar_i64(
+            &db,
+            DbBackend::Sqlite,
+            "SELECT COUNT(*) FROM managed_followers WHERE name = 'legacy-node' AND last_probe_at IS NOT NULL",
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        scalar_i64(
+            &db,
+            DbBackend::Sqlite,
+            "SELECT COUNT(*) FROM managed_followers WHERE name = 'legacy-node' AND tunnel_last_handshake_at IS NULL",
+        )
+        .await,
+        1
+    );
+
+    CurrentMigrator::down(&db, Some(1)).await.unwrap();
+    assert_eq!(
+        scalar_string(
+            &db,
+            DbBackend::Sqlite,
+            "SELECT last_error FROM managed_followers WHERE name = 'legacy-node'",
+        )
+        .await,
+        "probe failed"
+    );
+    assert_eq!(
+        scalar_string(
+            &db,
+            DbBackend::Sqlite,
+            "SELECT tunnel_last_error FROM managed_followers WHERE name = 'legacy-node'",
+        )
+        .await,
+        ""
+    );
+    assert!(
+        column_exists(
+            &db,
+            DbBackend::Sqlite,
+            "managed_followers",
+            "last_checked_at"
+        )
+        .await
+    );
+}
+
+#[tokio::test]
 async fn test_migration_backfills_storage_migration_result_renamed_opaque_count() {
     let database_url =
         setup_empty_database_url("asterdrive-cli-storage-migration-result-backfill-test").await;

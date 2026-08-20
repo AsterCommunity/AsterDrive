@@ -104,6 +104,31 @@ function renderTable(
 }
 
 describe("RemoteNodesTable", () => {
+	it("sorts by last probe time and toggles its direction", () => {
+		const onSortChange = vi.fn();
+		const view = renderTable({ onSortChange });
+
+		fireEvent.click(screen.getByRole("button", { name: "remote_node_status" }));
+		expect(onSortChange).toHaveBeenLastCalledWith("last_probe_at", "asc");
+
+		view.rerender(
+			<RemoteNodesTable
+				deletingRemoteNodeId={null}
+				generatingEnrollmentId={null}
+				items={[remoteNode()]}
+				loading={false}
+				onEdit={vi.fn()}
+				onGenerateEnrollmentCommand={vi.fn()}
+				onRequestDelete={vi.fn()}
+				onSortChange={onSortChange}
+				sortBy="last_probe_at"
+				sortOrder="asc"
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "remote_node_status" }));
+		expect(onSortChange).toHaveBeenLastCalledWith("last_probe_at", "desc");
+	});
+
 	it("disables the enrollment command action after enrollment completes", () => {
 		const onGenerateEnrollmentCommand = vi.fn();
 

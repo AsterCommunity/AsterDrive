@@ -504,7 +504,7 @@ describe("AdminRemoteNodesPage", () => {
 				driver_type: "local",
 				endpoint: "",
 				is_default: true,
-				last_probe_error: "",
+				last_error: "",
 				name: "Default ingress",
 				target_key: "default",
 				updated_at: "2026-05-02T00:00:00Z",
@@ -718,7 +718,7 @@ describe("AdminRemoteNodesPage", () => {
 					name: "Reverse Tunnel",
 					transport_mode: "reverse_tunnel",
 					tunnel: {
-						last_probe_error: "",
+						runtime_error: "",
 						last_handshake_at: "2026-05-29T00:00:00Z",
 						status: "online",
 					},
@@ -759,7 +759,7 @@ describe("AdminRemoteNodesPage", () => {
 					name: "Auto Tunnel",
 					transport_mode: "auto",
 					tunnel: {
-						last_probe_error: "",
+						runtime_error: "",
 						last_handshake_at: "2026-05-29T00:00:00Z",
 						status: "online",
 					},

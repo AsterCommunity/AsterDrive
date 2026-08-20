@@ -251,7 +251,7 @@ export function RemoteNodeDiagnosticsCard({
 						<div className="break-all text-xs text-muted-foreground">
 							{t("remote_node_tunnel_runtime_error")}:{" "}
 							{editingNode.tunnel?.runtime_error ||
-								t("remote_node_last_probe_error_empty")}
+								t("remote_node_tunnel_runtime_error_empty")}
 						</div>
 					</dd>
 				</div>

@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use dashmap::DashMap;
 use sea_orm::DatabaseConnection;
-use tokio::sync::Notify;
+use tokio::sync::{Mutex, Notify};
 
 use crate::config::RuntimeConfig;
 use crate::services::ops::audit::{self, AuditContext, AuditLogInput};
@@ -112,6 +112,7 @@ pub struct RemoteTunnelRegistry {
     stream_pending: DashMap<String, PendingStreamResponse>,
     runtime_errors: DashMap<i64, String>,
     last_handshake_at: DashMap<i64, chrono::DateTime<chrono::Utc>>,
+    persistence_locks: DashMap<i64, Arc<Mutex<()>>>,
     lifecycle: DashMap<i64, ConnectionLifecycleState>,
     persistence_db: parking_lot::RwLock<Option<DatabaseConnection>>,
     audit_runtime_config: parking_lot::RwLock<Option<Arc<RuntimeConfig>>>,
@@ -136,9 +137,12 @@ impl RemoteTunnelRegistry {
             .last_handshake_at
             .get(&remote_node.id)
             .map(|last_handshake_at| *last_handshake_at.value());
-        local_last_handshake
-            .or(remote_node.tunnel_last_handshake_at)
-            .is_some_and(is_recent_tunnel_handshake_at)
+        match (local_last_handshake, remote_node.tunnel_last_handshake_at) {
+            (Some(local), Some(persisted)) => is_recent_tunnel_handshake_at(local.max(persisted)),
+            (Some(local), None) => is_recent_tunnel_handshake_at(local),
+            (None, Some(persisted)) => is_recent_tunnel_handshake_at(persisted),
+            (None, None) => false,
+        }
     }
 
     pub(crate) fn update_last_handshake(&self, remote_node_id: i64) {
@@ -355,7 +359,13 @@ impl RemoteTunnelRegistry {
             return;
         };
         let error = self.runtime_error(remote_node_id).unwrap_or_default();
+        let lock = self
+            .persistence_locks
+            .entry(remote_node_id)
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone();
         tokio::spawn(async move {
+            let _guard = lock.lock().await;
             if let Err(persist_error) = persist_tunnel_error(&db, remote_node_id, error).await {
                 tracing::warn!(
                     remote_node_id,
@@ -413,6 +423,26 @@ mod tests {
             - chrono::Duration::from_std(REMOTE_TUNNEL_ONLINE_TTL).unwrap()
             - chrono::Duration::milliseconds(1);
         assert!(!is_recent_tunnel_handshake_at(expired));
+    }
+
+    #[test]
+    fn online_status_uses_the_newer_local_or_persisted_handshake() {
+        let registry = RemoteTunnelRegistry::new();
+        let mut node = test_remote_node();
+        let now = chrono::Utc::now();
+        node.tunnel_last_handshake_at = Some(now);
+        registry.last_handshake_at.insert(
+            node.id,
+            now - chrono::Duration::from_std(REMOTE_TUNNEL_ONLINE_TTL).unwrap(),
+        );
+        assert!(registry.is_online(&node));
+
+        node.tunnel_last_handshake_at = Some(
+            now - chrono::Duration::from_std(REMOTE_TUNNEL_ONLINE_TTL).unwrap()
+                - chrono::Duration::milliseconds(1),
+        );
+        registry.last_handshake_at.insert(node.id, now);
+        assert!(registry.is_online(&node));
     }
 
     #[tokio::test]

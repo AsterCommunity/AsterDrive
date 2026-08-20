@@ -106,13 +106,8 @@ pub async fn poll<S: RemoteProtocolRuntimeState>(
     let registry = state.remote_protocol().tunnel_registry();
     let (request_rx, _registration) = registry.register_poll(remote_node);
     registry.record_handshake(remote_node, None);
-    managed_follower_repo::touch_tunnel_result(
-        state.writer_db(),
-        remote_node.id,
-        String::new(),
-        Some(Utc::now()),
-    )
-    .await?;
+    managed_follower_repo::touch_tunnel_success(state.writer_db(), remote_node.id, Utc::now())
+        .await?;
     // A successful control-plane handshake means the runtime path recovered. This clears only
     // transient tunnel telemetry and leaves the separate probe `last_probe_error` untouched.
     registry.clear_error(remote_node.id);
@@ -219,13 +214,8 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
         lane_id = %lane_id,
         "reverse tunnel streaming lane connected"
     );
-    managed_follower_repo::touch_tunnel_result(
-        state.writer_db(),
-        remote_node.id,
-        String::new(),
-        Some(Utc::now()),
-    )
-    .await?;
+    managed_follower_repo::touch_tunnel_success(state.writer_db(), remote_node.id, Utc::now())
+        .await?;
     // Stream registration is the same successful tunnel handshake as poll registration, so it
     // clears only transient tunnel telemetry and leaves capability-probe state untouched.
     registry.clear_error(remote_node.id);
@@ -604,11 +594,10 @@ pub async fn mark_tunnel_error<S: SharedRuntimeState>(
     else {
         return Ok(());
     };
-    managed_follower_repo::touch_tunnel_result(
+    managed_follower_repo::touch_tunnel_runtime_error(
         state.writer_db(),
         remote_node.id,
         error.to_string(),
-        remote_node.tunnel_last_handshake_at,
     )
     .await?;
     Ok(())
