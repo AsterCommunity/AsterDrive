@@ -500,7 +500,7 @@ The admin folder-policy request is `{ "policy_id": 12 }`; `{ "policy_id": null }
 | `DELETE` | `/admin/policy-groups/{id}` | Delete policy group |
 | `POST` | `/admin/policy-groups/{id}/migrate-assignments` | Migrate user and team policy group bindings by updating `policy_group_id` |
 
-Policy groups define storage policy selection for users and teams. A group configuration still requires at least one policy item. Deleting the last default group clears its user/team bindings and returns the system to `needs_storage`; other referenced groups remain protected. Migration responses report `affected_users`, `affected_teams`, and `migrated_assignments`.
+Policy groups define storage policy selection for users and teams. A group configuration still requires at least one policy item. A policy group with user or team bindings must be migrated before deletion, including the last default group; once deletion succeeds, deleting the last default group returns the system to `needs_storage` without clearing bindings. Other referenced groups remain protected. Migration responses report `affected_users`, `affected_teams`, and `migrated_assignments`.
 
 ## Users
 
