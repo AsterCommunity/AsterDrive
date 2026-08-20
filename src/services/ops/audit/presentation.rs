@@ -764,6 +764,28 @@ fn detail_message(
             );
             Some(message("remote_enrollment_changed", params))
         }
+        AuditAction::RemoteNodeConnected
+        | AuditAction::RemoteNodeGracefulDisconnect
+        | AuditAction::RemoteNodeUnexpectedDisconnect
+        | AuditAction::RemoteNodeHeartbeatTimeout => {
+            copy_params(
+                details,
+                &mut params,
+                &[
+                    "remote_node_id",
+                    "binding_id",
+                    "transport",
+                    "reason",
+                    "generation",
+                    "outage_generation",
+                    "active_lanes",
+                    "lane_count",
+                    "observed_at",
+                    "first_lane_id",
+                ],
+            );
+            Some(message("remote_node_connection_lifecycle", params))
+        }
         AuditAction::AdminCreateInvitation | AuditAction::AdminRevokeInvitation => {
             copy_params(
                 details,
@@ -1337,6 +1359,30 @@ mod tests {
             detail.params.get("phase"),
             Some(&Value::String("acked".to_string()))
         );
+    }
+
+    #[test]
+    fn presentation_includes_remote_node_connection_lifecycle_detail() {
+        let presentation = build_audit_presentation(
+            AuditAction::RemoteNodeHeartbeatTimeout,
+            AuditEntityType::RemoteNode,
+            Some(42),
+            Some("edge-a"),
+            Some(
+                r#"{"remote_node_id":42,"binding_id":42,"transport":"reverse_tunnel","reason":"heartbeat_timeout","generation":3,"outage_generation":2,"active_lanes":0,"lane_count":4,"observed_at":"2026-08-20T10:00:00Z","first_lane_id":"lane-0"}"#,
+            ),
+        )
+        .expect("presentation should be built");
+
+        let detail = presentation.detail.as_ref().unwrap();
+        assert_eq!(detail.code, "remote_node_connection_lifecycle");
+        assert_eq!(
+            detail.params.get("reason"),
+            Some(&Value::String("heartbeat_timeout".to_string()))
+        );
+        assert_eq!(detail.params.get("generation"), Some(&Value::from(3)));
+        assert_eq!(detail.params.get("active_lanes"), Some(&Value::from(0)));
+        assert_eq!(detail.params.get("lane_count"), Some(&Value::from(4)));
     }
 
     #[test]

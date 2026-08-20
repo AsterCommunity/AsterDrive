@@ -169,6 +169,10 @@ macro_rules! define_audit_action_list {
             TagDelete,
             TagAttach,
             TagDetach,
+            RemoteNodeConnected,
+            RemoteNodeGracefulDisconnect,
+            RemoteNodeUnexpectedDisconnect,
+            RemoteNodeHeartbeatTimeout,
         }
     };
 }
@@ -689,6 +693,14 @@ pub enum AuditAction {
     TagAttach,
     #[sea_orm(string_value = "tag_detach")]
     TagDetach,
+    #[sea_orm(string_value = "remote_node_connected")]
+    RemoteNodeConnected,
+    #[sea_orm(string_value = "remote_node_graceful_disconnect")]
+    RemoteNodeGracefulDisconnect,
+    #[sea_orm(string_value = "remote_node_unexpected_disconnect")]
+    RemoteNodeUnexpectedDisconnect,
+    #[sea_orm(string_value = "remote_node_heartbeat_timeout")]
+    RemoteNodeHeartbeatTimeout,
 }
 
 impl AuditAction {
@@ -846,6 +858,10 @@ impl AuditAction {
             Self::TagDelete => 146,
             Self::TagAttach => 147,
             Self::TagDetach => 148,
+            Self::RemoteNodeConnected => 149,
+            Self::RemoteNodeGracefulDisconnect => 150,
+            Self::RemoteNodeUnexpectedDisconnect => 151,
+            Self::RemoteNodeHeartbeatTimeout => 152,
         }
     }
 
@@ -1002,6 +1018,10 @@ impl AuditAction {
             Self::TagDelete => "tag_delete",
             Self::TagAttach => "tag_attach",
             Self::TagDetach => "tag_detach",
+            Self::RemoteNodeConnected => "remote_node_connected",
+            Self::RemoteNodeGracefulDisconnect => "remote_node_graceful_disconnect",
+            Self::RemoteNodeUnexpectedDisconnect => "remote_node_unexpected_disconnect",
+            Self::RemoteNodeHeartbeatTimeout => "remote_node_heartbeat_timeout",
         }
     }
 
@@ -1158,6 +1178,10 @@ impl AuditAction {
             "tag_delete" => Some(Self::TagDelete),
             "tag_attach" => Some(Self::TagAttach),
             "tag_detach" => Some(Self::TagDetach),
+            "remote_node_connected" => Some(Self::RemoteNodeConnected),
+            "remote_node_graceful_disconnect" => Some(Self::RemoteNodeGracefulDisconnect),
+            "remote_node_unexpected_disconnect" => Some(Self::RemoteNodeUnexpectedDisconnect),
+            "remote_node_heartbeat_timeout" => Some(Self::RemoteNodeHeartbeatTimeout),
             _ => None,
         }
     }
@@ -1303,6 +1327,10 @@ impl AuditAction {
             | Self::TagDelete
             | Self::TagAttach
             | Self::TagDetach => "tag",
+            Self::RemoteNodeConnected
+            | Self::RemoteNodeGracefulDisconnect
+            | Self::RemoteNodeUnexpectedDisconnect
+            | Self::RemoteNodeHeartbeatTimeout => "remote",
         }
     }
 }

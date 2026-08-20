@@ -38,6 +38,7 @@ pub use proxy::{
     ClusterRemoteTunnelBroker, REMOTE_TUNNEL_PROXY_PATH_PREFIX, RemoteTunnelProxyQuery,
     proxy_tunnel_request,
 };
+pub(crate) use registry::TunnelDisconnectReason;
 pub use registry::{
     RemoteTunnelBroker, RemoteTunnelHttpResponse, RemoteTunnelRegistry,
     RemoteTunnelStreamHttpResponse, reverse_tunnel_offline_error,
@@ -104,6 +105,7 @@ pub async fn poll<S: RemoteProtocolRuntimeState>(
 
     let registry = state.remote_protocol().tunnel_registry();
     let (request_rx, _registration) = registry.register_poll(remote_node);
+    registry.record_handshake(remote_node, None);
     managed_follower_repo::touch_tunnel_result(
         state.writer_db(),
         remote_node.id,
@@ -210,7 +212,8 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
     shutdown_token: CancellationToken,
 ) -> Result<()> {
     let registry = state.remote_protocol().tunnel_registry().clone();
-    let (lane_id, mut request_rx, _registration) = registry.register_stream_lane(&remote_node);
+    let (lane_id, mut request_rx, registration) = registry.register_stream_lane(&remote_node);
+    registry.record_handshake(&remote_node, Some(&lane_id));
     tracing::info!(
         remote_node_id = remote_node.id,
         lane_id = %lane_id,
@@ -235,6 +238,7 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
     heartbeat.tick().await;
     let mut liveness = TunnelHeartbeat::new(Instant::now());
     let mut draining = false;
+    let disconnect_reason: Option<TunnelDisconnectReason>;
     let mut drain_deadline = Box::pin(tokio::time::sleep(Duration::from_secs(24 * 60 * 60)));
 
     loop {
@@ -258,6 +262,7 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                         lane_id = %lane_id,
                         "reverse tunnel streaming lane closing for primary shutdown"
                     );
+                    disconnect_reason = Some(TunnelDisconnectReason::GracefulShutdown);
                     break;
                 }
             }
@@ -268,6 +273,7 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                     timeout_secs = REMOTE_TUNNEL_SHUTDOWN_DRAIN_TIMEOUT.as_secs(),
                     "reverse tunnel shutdown drain timed out; closing streaming lane with in-flight request"
                 );
+                disconnect_reason = Some(TunnelDisconnectReason::GracefulShutdown);
                 break;
             }
             _ = owner_renewal.tick(), if owner_directory.is_some() => {
@@ -283,6 +289,7 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                             runtime_id = %directory.runtime_id(),
                             "reverse tunnel owner lease was fenced by another primary"
                         );
+                        disconnect_reason = Some(TunnelDisconnectReason::OwnerFenced);
                         break;
                     }
                     Err(error) => {
@@ -291,6 +298,7 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                             runtime_id = %directory.runtime_id(),
                             "reverse tunnel owner lease renewal failed: {error}"
                         );
+                        disconnect_reason = Some(TunnelDisconnectReason::OwnerRenewalFailed);
                         break;
                     }
                 }
@@ -304,6 +312,7 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                         timeout_secs = REMOTE_TUNNEL_HEARTBEAT_TIMEOUT.as_secs(),
                         "reverse tunnel streaming lane heartbeat timed out waiting for follower activity"
                     );
+                    disconnect_reason = Some(TunnelDisconnectReason::HeartbeatTimeout);
                     break;
                 }
                 if let Err(error) = session.ping(b"aster-tunnel-heartbeat").await {
@@ -312,11 +321,13 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                         lane_id = %lane_id,
                         "failed to send reverse tunnel heartbeat ping: {error}"
                     );
+                    disconnect_reason = Some(TunnelDisconnectReason::HeartbeatSendFailed);
                     break;
                 }
             }
             message = stream.next() => {
                 let Some(message) = message else {
+                    disconnect_reason = Some(TunnelDisconnectReason::Eof);
                     break;
                 };
                 let message = match message {
@@ -327,6 +338,11 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                             lane_id = %lane_id,
                             "reverse tunnel streaming lane read failed: {error}"
                         );
+                        disconnect_reason = Some(if error.to_string().to_ascii_lowercase().contains("reset") {
+                            TunnelDisconnectReason::ConnectionReset
+                        } else {
+                            TunnelDisconnectReason::ProtocolReadError
+                        });
                         break;
                     }
                 };
@@ -353,12 +369,14 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                                     lane_id = %lane_id,
                                     "failed to decode reverse tunnel streaming frame: {error}"
                                 );
+                                disconnect_reason = Some(TunnelDisconnectReason::ProtocolDecodeError);
                                 break;
                             }
                         }
                     }
                     actix_ws::Message::Ping(bytes) => {
                         if session.pong(&bytes).await.is_err() {
+                            disconnect_reason = Some(TunnelDisconnectReason::ProtocolReadError);
                             break;
                         }
                         liveness.record_activity(Instant::now());
@@ -375,6 +393,7 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                             close_reason = ?reason,
                             "reverse tunnel streaming lane closed by follower"
                         );
+                        disconnect_reason = Some(TunnelDisconnectReason::PeerClose);
                         break;
                     }
                     _ => {}
@@ -382,10 +401,12 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
             }
             frame = request_rx.recv() => {
                 let Some(frame) = frame else {
+                    disconnect_reason = Some(TunnelDisconnectReason::Eof);
                     break;
                 };
                 let bytes = encode_stream_frame(&frame)?;
                 if session.binary(bytes).await.is_err() {
+                    disconnect_reason = Some(TunnelDisconnectReason::ConnectionReset);
                     break;
                 }
             }
@@ -396,11 +417,12 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                 lane_id = %lane_id,
                 "reverse tunnel streaming lane drained before primary shutdown"
             );
+            disconnect_reason = Some(TunnelDisconnectReason::GracefulShutdown);
             break;
         }
     }
 
-    close_connected_stream(
+    let close_handshake_ok = close_connected_stream(
         session,
         stream,
         remote_node.id,
@@ -415,6 +437,11 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
         },
     )
     .await;
+    let mut final_disconnect_reason = disconnect_reason.unwrap_or(TunnelDisconnectReason::Eof);
+    if !close_handshake_ok {
+        final_disconnect_reason = TunnelDisconnectReason::CloseHandshakeFailed;
+    }
+    registration.set_disconnect_reason(final_disconnect_reason);
     Ok(())
 }
 
@@ -445,14 +472,14 @@ async fn close_connected_stream(
     remote_node_id: i64,
     lane_id: &str,
     reason: Option<actix_ws::CloseReason>,
-) {
+) -> bool {
     if let Err(error) = session.close(reason).await {
         tracing::warn!(
             remote_node_id,
             lane_id,
             "failed to send reverse tunnel streaming lane close frame: {error}"
         );
-        return;
+        return false;
     }
     let handshake = tokio::time::timeout(REMOTE_TUNNEL_CLOSE_HANDSHAKE_TIMEOUT, async {
         while let Some(message) = stream.next().await {
@@ -466,18 +493,24 @@ async fn close_connected_stream(
     })
     .await;
     match handshake {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => tracing::warn!(
-            remote_node_id,
-            lane_id,
-            "reverse tunnel streaming lane close handshake read failed: {error}"
-        ),
-        Err(_) => tracing::warn!(
-            remote_node_id,
-            lane_id,
-            timeout_secs = REMOTE_TUNNEL_CLOSE_HANDSHAKE_TIMEOUT.as_secs(),
-            "reverse tunnel streaming lane close handshake timed out"
-        ),
+        Ok(Ok(())) => true,
+        Ok(Err(error)) => {
+            tracing::warn!(
+                remote_node_id,
+                lane_id,
+                "reverse tunnel streaming lane close handshake read failed: {error}"
+            );
+            false
+        }
+        Err(_) => {
+            tracing::warn!(
+                remote_node_id,
+                lane_id,
+                timeout_secs = REMOTE_TUNNEL_CLOSE_HANDSHAKE_TIMEOUT.as_secs(),
+                "reverse tunnel streaming lane close handshake timed out"
+            );
+            false
+        }
     }
 }
 

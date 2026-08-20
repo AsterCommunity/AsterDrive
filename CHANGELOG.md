@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **远端节点连接生命周期审计** — reverse tunnel 连接、正常下线、异常断线和心跳超时现在会按 remote node / binding 聚合写入系统 audit；四条 streaming lane 的同时变化只产生一次节点级状态转换，并记录连接代际、故障代际、lane 数量、transport 和稳定 reason code，不包含 access key、secret、signature、URL 凭据或 token。
+
 ## [v0.5.0] - 2026-08-20
 
 ### Changed
