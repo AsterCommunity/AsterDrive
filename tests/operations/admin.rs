@@ -4106,6 +4106,10 @@ async fn test_admin_media_processing_status_explains_persisted_cli_availability(
         !body.to_string().contains("definitely-missing"),
         "status response must not expose configured command paths"
     );
+    assert!(
+        !body.to_string().contains(&available_command),
+        "status response must not expose configured command paths"
+    );
 }
 
 #[actix_web::test]

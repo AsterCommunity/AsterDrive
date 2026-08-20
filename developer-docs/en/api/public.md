@@ -150,8 +150,7 @@ Returns the server's public thumbnail-generation support:
     },
     "video_thumbnail": {
       "enabled": false
-    },
-    "extensions": ["bmp", "gif", "jpe", "jpeg", "jpg", "png", "tif", "tiff", "webp"]
+    }
   }
 }
 ```
@@ -160,7 +159,6 @@ Notes:
 
 - extensions are normalized to lowercase without leading dots
 - `image_preview`, `image_thumbnail`, `audio_thumbnail`, and `video_thumbnail` are the current per-use capability fields
-- top-level `extensions` is kept as a compatibility union for older clients
 - the built-in image processor exposes common image formats when enabled
 - the built-in `lofty` processor can expose audio suffixes for embedded cover thumbnails
 - `vips_cli` / `ffmpeg_cli` expose configured extensions only when the commands are available and the processors are enabled

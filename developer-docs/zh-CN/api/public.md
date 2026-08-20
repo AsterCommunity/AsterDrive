@@ -152,8 +152,7 @@
     },
     "video_thumbnail": {
       "enabled": false
-    },
-    "extensions": ["bmp", "gif", "jpe", "jpeg", "jpg", "png", "tif", "tiff", "webp"]
+    }
   }
 }
 ```
@@ -162,7 +161,6 @@
 
 - `extensions` 已经做过规范化，统一是不带点的小写扩展名
 - `image_preview`、`image_thumbnail`、`audio_thumbnail`、`video_thumbnail` 是当前按用途拆分的能力字段
-- 顶层 `extensions` 是给旧客户端保留的兼容并集字段
 - 内置图片处理器启用时会暴露常见图片格式
 - 内置 `lofty` 处理器启用 `thumbnail:audio` 时会暴露音频后缀，前端可通过同一条 thumbnail 接口请求音频内嵌封面
 - `vips_cli` / `ffmpeg_cli` 只有在对应命令可用且处理器启用时，才会把配置里的扩展名暴露出去；因此它可能包含图片以外的文档或视频扩展名
