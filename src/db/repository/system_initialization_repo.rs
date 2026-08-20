@@ -6,10 +6,15 @@ use crate::errors::{AsterError, Result};
 use aster_forge_db::system_config::{self, Entity as SystemConfig};
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, sea_query::Expr};
 
-async fn acquire_system_config_lock<C: ConnectionTrait>(db: &C, purpose: &str) -> Result<()> {
-    config_repo::ensure_system_value_if_missing(db, AUTH_ALLOW_USER_REGISTRATION_KEY, "true")
-        .await?;
-
+async fn acquire_system_config_lock<C: ConnectionTrait>(
+    db: &C,
+    purpose: &str,
+    ensure_missing: bool,
+) -> Result<()> {
+    if ensure_missing {
+        config_repo::ensure_system_value_if_missing(db, AUTH_ALLOW_USER_REGISTRATION_KEY, "true")
+            .await?;
+    }
     // The no-op update acquires a row lock on PostgreSQL/MySQL and a write lock on SQLite until
     // the surrounding transaction completes.
     SystemConfig::update_many()
@@ -44,10 +49,10 @@ async fn acquire_system_config_lock<C: ConnectionTrait>(db: &C, purpose: &str) -
 /// surrounding transaction completes. After this returns, the caller can safely re-check the user
 /// table and create the initial administrator in the same transaction.
 pub async fn acquire_setup_lock<C: ConnectionTrait>(db: &C) -> Result<()> {
-    acquire_system_config_lock(db, "setup").await
+    acquire_system_config_lock(db, "setup", false).await
 }
 
 /// Serializes storage topology mutations using the same non-deletable system configuration row.
 pub async fn acquire_storage_topology_lock<C: ConnectionTrait>(db: &C) -> Result<()> {
-    acquire_system_config_lock(db, "storage topology").await
+    acquire_system_config_lock(db, "storage topology", true).await
 }
