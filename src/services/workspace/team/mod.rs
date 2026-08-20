@@ -14,7 +14,7 @@ mod models;
 mod shared;
 
 use crate::errors::{AsterError, Result};
-use crate::runtime::SharedRuntimeState;
+use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     auth::local,
     ops::audit::{self, AuditContext},
@@ -179,6 +179,31 @@ pub(crate) async fn list_team_audit_entries(
     filters.entity_type = Some(crate::services::ops::audit::AuditEntityType::Team);
     filters.entity_id = Some(team.id);
     audit::query_team_entries(state, filters, limit, offset).await
+}
+
+pub(crate) async fn export_team_audit_entries(
+    state: &PrimaryAppState,
+    team_id: i64,
+    actor_user_id: i64,
+    mut filters: audit::AuditLogFilters,
+) -> Result<audit::PreparedAuditCsvExport> {
+    let team = get_team(state, team_id, actor_user_id).await?;
+    if !team.my_role.can_manage_team() {
+        return Err(AsterError::auth_forbidden(
+            "team owner or admin role is required",
+        ));
+    }
+
+    filters.entity_type = Some(audit::AuditEntityType::Team);
+    filters.entity_id = Some(team.id);
+    audit::prepare_csv_export(
+        state.clone(),
+        audit::AuditExportKind::Team { team_id: team.id },
+        filters,
+        crate::api::pagination::AdminAuditLogSortBy::CreatedAt,
+        aster_forge_api::SortOrder::Desc,
+    )
+    .await
 }
 
 pub(crate) async fn add_member_with_audit(
@@ -380,6 +405,24 @@ pub(crate) async fn list_admin_team_audit_entries(
     filters.entity_type = Some(crate::services::ops::audit::AuditEntityType::Team);
     filters.entity_id = Some(team.id);
     audit::query_team_entries(state, filters, limit, offset).await
+}
+
+pub(crate) async fn export_admin_team_audit_entries(
+    state: &PrimaryAppState,
+    team_id: i64,
+    mut filters: audit::AuditLogFilters,
+) -> Result<audit::PreparedAuditCsvExport> {
+    let team = get_admin_team(state, team_id).await?;
+    filters.entity_type = Some(audit::AuditEntityType::Team);
+    filters.entity_id = Some(team.id);
+    audit::prepare_csv_export(
+        state.clone(),
+        audit::AuditExportKind::Team { team_id: team.id },
+        filters,
+        crate::api::pagination::AdminAuditLogSortBy::CreatedAt,
+        aster_forge_api::SortOrder::Desc,
+    )
+    .await
 }
 
 pub(crate) async fn add_admin_member_with_audit(

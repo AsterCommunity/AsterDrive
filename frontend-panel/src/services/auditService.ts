@@ -1,5 +1,5 @@
 import { withQuery } from "@/lib/queryParams";
-import { api } from "@/services/http";
+import { api, downloadFile } from "@/services/http";
 import type { AuditLogListQuery, AuditLogPage } from "@/types/api";
 
 export const auditService = {
@@ -16,4 +16,10 @@ export const auditService = {
 			}),
 		);
 	},
+	export: (params: Omit<AuditLogListQuery, "limit" | "offset"> = {}) =>
+		downloadFile(
+			withQuery("/admin/audit-logs/export", params),
+			undefined,
+			"asterdrive-audit.csv",
+		),
 };

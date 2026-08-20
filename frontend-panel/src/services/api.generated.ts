@@ -20,6 +20,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/audit-logs/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["export_audit_logs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/config": {
         parameters: {
             query?: never;
@@ -892,6 +908,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["admin_list_team_audit_logs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/teams/{id}/audit-logs/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["admin_export_team_audit_logs"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3057,6 +3089,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["list_team_audit_logs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{id}/audit-logs/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["export_team_audit_logs"];
         put?: never;
         post?: never;
         delete?: never;
@@ -9434,6 +9482,56 @@ export interface operations {
             };
         };
     };
+    export_audit_logs: {
+        parameters: {
+            query?: {
+                user_id?: number | null;
+                action?: string | null;
+                entity_type?: null | components["schemas"]["AuditEntityType"];
+                entity_id?: number | null;
+                after?: string | null;
+                before?: string | null;
+                sort_by?: null | components["schemas"]["AdminAuditLogSortBy"];
+                sort_order?: null | components["schemas"]["SortOrder"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description UTF-8 CSV stream with at most 100000 audit rows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The 100000-row export limit was exceeded */
+            507: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     list_config: {
         parameters: {
             query?: {
@@ -14238,6 +14336,64 @@ export interface operations {
             };
             /** @description Not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    admin_export_team_audit_logs: {
+        parameters: {
+            query?: {
+                user_id?: number | null;
+                action?: string | null;
+                entity_type?: null | components["schemas"]["AuditEntityType"];
+                entity_id?: number | null;
+                after?: string | null;
+                before?: string | null;
+            };
+            header?: never;
+            path: {
+                /** @description Team ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description UTF-8 CSV stream with at most 100000 audit rows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The 100000-row export limit was exceeded */
+            507: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -22781,6 +22937,64 @@ export interface operations {
             };
             /** @description Not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    export_team_audit_logs: {
+        parameters: {
+            query?: {
+                user_id?: number | null;
+                action?: string | null;
+                entity_type?: null | components["schemas"]["AuditEntityType"];
+                entity_id?: number | null;
+                after?: string | null;
+                before?: string | null;
+            };
+            header?: never;
+            path: {
+                /** @description Team ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description UTF-8 CSV stream with at most 100000 audit rows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Team owner or admin role is required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The 100000-row export limit was exceeded */
+            507: {
                 headers: {
                     [name: string]: unknown;
                 };

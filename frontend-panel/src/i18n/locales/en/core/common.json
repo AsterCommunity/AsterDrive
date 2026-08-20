@@ -13,6 +13,7 @@
 	"back": "Back",
 	"loading": "Loading...",
 	"refresh": "Refresh",
+	"export_csv": "Export CSV",
 	"error": "Error",
 	"success": "Success",
 	"search": "Search",

@@ -19,6 +19,7 @@ pub struct AuditLogFilterQuery {
     pub before: Option<String>,
 }
 
+#[derive(Debug, Clone, Default)]
 pub struct AuditLogFilters {
     pub user_id: Option<i64>,
     pub action: Option<String>,

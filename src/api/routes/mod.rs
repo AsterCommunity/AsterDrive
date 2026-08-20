@@ -3,6 +3,7 @@
 use crate::services::workspace::storage::WorkspaceStorageScope;
 
 pub mod admin;
+pub(crate) mod audit_csv;
 pub mod auth;
 pub mod batch;
 pub mod files;

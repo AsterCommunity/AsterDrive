@@ -18,6 +18,7 @@
 | `DELETE` | `/teams/{id}` |归档团队 |
 | `POST` | `/teams/{id}/restore` | 恢复已归档团队 |
 | `GET` | `/teams/{id}/audit-logs` | 查看团队审计记录 |
+| `GET` | `/teams/{id}/audit-logs/export` | 按相同筛选条件流式导出团队审计 CSV |
 | `GET` | `/teams/{id}/members` | 分页查看团队成员 |
 | `POST` | `/teams/{id}/members` | 添加团队成员 |
 | `PATCH` | `/teams/{id}/members/{member_user_id}` | 调整成员角色 |
@@ -30,6 +31,8 @@
 - 如果要由系统管理员“替别人创建团队并指定初始团队管理员”，使用 `/admin/teams`；admin 创建入口会把目标用户加入团队并赋予 `admin` 角色
 - `DELETE /teams/{id}` 是归档，不是物理删除；超过 `team_archive_retention_days` 后才会被后台清理
 - `GET /teams/{id}/audit-logs` 需要团队 `owner` 或 `admin`，支持 `user_id`、`action`、`after`、`before`、`limit`、`offset`
+- `GET /teams/{id}/audit-logs/export` 复用 `user_id`、`action`、`entity_type`、`entity_id`、`after`、`before` 筛选，服务端以 `created_at + id` 稳定排序并使用 keyset 游标流式返回 CSV。单次最多导出 100000 行，超过上限返回 `operation.resource_limit_exceeded`；固定 CSV 列和敏感详情脱敏规则见管理员 API 文档。
+- 团队导出固定使用 `created_at DESC, id DESC` 顺序；`sort_by` 和 `sort_order` 仅适用于管理员系统审计导出。
 - `GET /teams/{id}/members` 支持 `keyword`、`role`、`status`、`limit`、`offset`、`sort_by`、`sort_order`
 - `POST /teams/{id}/members` 可用 `user_id` 或 `identifier` 指定目标用户，二选一；`role` 不传时默认 `member`
 - 成员分页返回除了 `items` / `total` / `limit` / `offset`，还会带 `owner_count` 和 `manager_count`

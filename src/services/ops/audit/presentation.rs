@@ -6,16 +6,6 @@ use aster_drive_model::types::{AuditAction, AuditEntityType};
 
 use super::models::{AuditPresentation, AuditPresentationMessage};
 
-/// Neutralize spreadsheet formula prefixes before user-controlled audit names
-/// reach the admin UI or an exported representation.
-fn neutralize_formula(value: String) -> String {
-    if value.starts_with(['=', '+', '-', '@', '\t', '\r']) {
-        format!("'{value}")
-    } else {
-        value
-    }
-}
-
 fn sensitive_detail_key(key: &str) -> bool {
     let normalized = key
         .chars()
@@ -70,13 +60,10 @@ pub fn sanitize_details(raw: Option<&str>) -> Option<String> {
 }
 
 pub fn sanitize_entity_name(entity_type: &str, value: Option<String>) -> Option<String> {
-    value.map(|value| {
-        if entity_type == "share" {
-            value
-        } else {
-            neutralize_formula(value)
-        }
-    })
+    if entity_type == "share" {
+        return None;
+    }
+    value
 }
 
 pub fn build_audit_presentation(
@@ -1462,11 +1449,11 @@ mod tests {
     fn audit_query_sanitizers_redact_sensitive_details_and_formula_names() {
         assert_eq!(
             sanitize_entity_name("remote_node", Some("=HYPERLINK(\"x\")".to_string())),
-            Some("'=HYPERLINK(\"x\")".to_string())
+            Some("=HYPERLINK(\"x\")".to_string())
         );
         assert_eq!(
             sanitize_entity_name("share", Some("=share-token".to_string())),
-            Some("=share-token".to_string())
+            None
         );
         let safe = sanitize_details(Some(
             r#"{"remote_node_id":42,"access_key":"access","secret_key":"secret","nested":[{"token":"tok"}],"temporary_password_generated":true,"transport":"reverse_tunnel"}"#,

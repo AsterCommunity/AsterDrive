@@ -218,6 +218,7 @@ chrono-tz = "0.10"
 clap = { version = "4", features = ["derive", "env"], optional = true }
 config = { version = "0.15", default-features = false, features = ["toml"] }
 criterion = { version = "0.8", optional = true }
+csv = "1.4"
 dashmap = "6"
 data-encoding = "2.11"
 dotenvy = "0.15"

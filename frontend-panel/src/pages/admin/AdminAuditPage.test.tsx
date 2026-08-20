@@ -5,6 +5,7 @@ import AdminAuditPage from "@/pages/admin/AdminAuditPage";
 import type { AuditLogEntry, UserSummary } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
+	export: vi.fn(),
 	handleApiError: vi.fn(),
 	list: vi.fn(),
 }));
@@ -300,6 +301,7 @@ vi.mock("@/lib/format", () => ({
 
 vi.mock("@/services/auditService", () => ({
 	auditService: {
+		export: (...args: unknown[]) => mockState.export(...args),
 		list: (...args: unknown[]) => mockState.list(...args),
 	},
 }));
@@ -330,12 +332,58 @@ function renderPage(initialEntry = "/admin/audit") {
 
 describe("AdminAuditPage", () => {
 	beforeEach(() => {
+		mockState.export.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.list.mockReset();
 		mockState.list.mockResolvedValue({
 			items: [createEntry()],
 			total: 1,
 		});
+	});
+
+	it("exports the current filters and sort without using the visible page", async () => {
+		renderPage("/admin/audit?action=file_delete&entityType=folder");
+
+		await waitFor(() => expect(mockState.list).toHaveBeenCalled());
+		fireEvent.click(screen.getByRole("button", { name: /core:export_csv/i }));
+
+		await waitFor(() => {
+			expect(mockState.export).toHaveBeenCalledWith({
+				action: "file_delete",
+				entity_type: "folder",
+				sort_by: "created_at",
+				sort_order: "desc",
+			});
+		});
+	});
+
+	it("disables export while the request is pending and restores it afterward", async () => {
+		let resolveExport!: () => void;
+		mockState.export.mockReturnValue(
+			new Promise<void>((resolve) => {
+				resolveExport = resolve;
+			}),
+		);
+		renderPage();
+		const button = await screen.findByRole("button", {
+			name: /core:export_csv/i,
+		});
+		fireEvent.click(button);
+		await waitFor(() => expect(button).toBeDisabled());
+		resolveExport();
+		await waitFor(() => expect(button).not.toBeDisabled());
+	});
+
+	it("routes export failures through handleApiError", async () => {
+		const error = new Error("export failed");
+		mockState.export.mockRejectedValue(error);
+		renderPage();
+		fireEvent.click(
+			await screen.findByRole("button", { name: /core:export_csv/i }),
+		);
+		await waitFor(() =>
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error),
+		);
 	});
 
 	it("shows a loading skeleton while the audit request is pending", () => {

@@ -232,6 +232,38 @@ pub async fn list_team_audit_logs(
 
 #[aster_forge_api_docs_macros::path(
     get,
+    path = "/api/v1/admin/teams/{id}/audit-logs/export",
+    tag = "admin",
+    operation_id = "admin_export_team_audit_logs",
+    params(
+        ("id" = i64, Path, description = "Team ID"),
+        audit::AuditLogFilterQuery
+    ),
+    responses(
+        (status = 200, description = "UTF-8 CSV stream with at most 100000 audit rows", content_type = "text/csv"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
+        (status = 507, description = "The 100000-row export limit was exceeded"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn export_team_audit_logs(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<i64>,
+    query: web::Query<audit::AuditLogFilterQuery>,
+) -> Result<HttpResponse> {
+    let export = team::export_admin_team_audit_entries(
+        state.get_ref(),
+        *path,
+        audit::AuditLogFilters::from_query(&query),
+    )
+    .await?;
+    Ok(crate::api::routes::audit_csv::response(export))
+}
+
+#[aster_forge_api_docs_macros::path(
+    get,
     path = "/api/v1/admin/teams/{id}/members",
     tag = "admin",
     operation_id = "admin_list_team_members",
