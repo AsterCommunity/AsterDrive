@@ -202,20 +202,6 @@ impl StorageConnector for AzureBlobConnector {
         )
     }
 
-    fn import_legacy_credential(
-        &self,
-        _encryption_key: &str,
-        _policy: &storage_policy::Model,
-        input: super::LegacyStorageConnectorCredentialInput,
-    ) -> Result<Option<serde_json::Value>> {
-        super::common::import_legacy_static_credential(Self::ID, input, |legacy| {
-            AzureBlobStaticCredentialsV1 {
-                azure_blob_account_name: legacy.access_key,
-                azure_blob_account_key: legacy.secret_key,
-            }
-        })
-    }
-
     async fn build_draft_driver(
         &self,
         context: &super::StorageConnectorContext<'_>,

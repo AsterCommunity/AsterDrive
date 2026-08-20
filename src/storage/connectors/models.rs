@@ -127,42 +127,6 @@ pub struct StorageConnectorConnectionInput {
     pub credential: StorageConnectorCredentialInput,
 }
 
-/// Strongly typed legacy credential rows used only by AsterDrive 0.5.0.
-///
-/// The deprecated table models stay outside the normal entity namespace. Core
-/// migration code loads them, while each connector owns conversion into its
-/// current credential payload. This type and the legacy tables will be
-/// completely removed in AsterDrive 0.6.0.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct LegacyStorageConnectorCredentialInput {
-    pub static_credential: Option<LegacyStoragePolicyStaticCredential>,
-    #[expect(
-        deprecated,
-        reason = "AsterDrive 0.5.0 migration input is removed with legacy application credentials in 0.6.0"
-    )]
-    pub application_config:
-        Option<aster_drive_model::deprecated::storage_connector_application_config::Model>,
-    #[expect(
-        deprecated,
-        reason = "AsterDrive 0.5.0 migration input is removed with legacy authorization credentials in 0.6.0"
-    )]
-    pub authorization: Option<aster_drive_model::deprecated::storage_policy_credential::Model>,
-}
-
-impl LegacyStorageConnectorCredentialInput {
-    pub(crate) fn is_empty(&self) -> bool {
-        self.static_credential.is_none()
-            && self.application_config.is_none()
-            && self.authorization.is_none()
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LegacyStoragePolicyStaticCredential {
-    pub access_key: String,
-    pub secret_key: String,
-}
-
 #[derive(Clone)]
 pub(crate) struct StorageConnectorRuntimeCredential {
     connector_id: aster_drive_storage::ConnectorId,

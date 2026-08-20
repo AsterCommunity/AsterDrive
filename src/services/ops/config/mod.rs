@@ -24,6 +24,6 @@ pub use schema::{
     ConfigSchemaOption, get_schema,
 };
 pub use system::{
-    SystemConfig, delete, delete_with_audit, get_by_key, list_paginated, set, set_with_audit,
-    set_with_audit_and_visibility, set_with_visibility,
+    SystemConfig, delete, delete_with_audit, get_by_key, get_media_processing_runtime_status,
+    list_paginated, set, set_with_audit, set_with_audit_and_visibility, set_with_visibility,
 };

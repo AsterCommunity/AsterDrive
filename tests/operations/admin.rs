@@ -4019,6 +4019,100 @@ async fn test_admin_config() {
 }
 
 #[actix_web::test]
+async fn test_admin_media_processing_status_explains_persisted_cli_availability() {
+    let state = common::setup().await;
+    let available_command = std::env::current_exe()
+        .expect("current test executable should exist")
+        .to_string_lossy()
+        .into_owned();
+    state.runtime_config.apply(common::system_config_model(
+        "media_processing_registry_json",
+        &serde_json::json!({
+            "version": 2,
+            "processors": [
+                {
+                    "kind": "vips_cli",
+                    "enabled": true,
+                    "uses": ["thumbnail:image"],
+                    "extensions": ["heic"],
+                    "config": { "command": "/definitely-missing/aster-vips" }
+                },
+                {
+                    "kind": "ffmpeg_cli",
+                    "enabled": true,
+                    "uses": ["thumbnail:video"],
+                    "extensions": ["mp4"],
+                    "config": { "command": available_command }
+                },
+                {
+                    "kind": "ffprobe_cli",
+                    "enabled": false,
+                    "uses": ["metadata:video"],
+                    "extensions": ["mp4"],
+                    "config": { "command": "/definitely-missing/aster-ffprobe" }
+                },
+                {
+                    "kind": "lofty",
+                    "enabled": true,
+                    "uses": ["thumbnail:audio", "metadata:audio"]
+                },
+                {
+                    "kind": "images",
+                    "enabled": true,
+                    "uses": ["thumbnail:image", "metadata:image"]
+                }
+            ]
+        })
+        .to_string(),
+    ));
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req =
+        admin_get_request(&token, "/api/v1/admin/config/media-processing-status").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["version"], 1);
+    let processors = body["data"]["processors"]
+        .as_array()
+        .expect("processor status list should be present");
+    let find = |kind: &str| {
+        processors
+            .iter()
+            .find(|processor| processor["kind"] == kind)
+            .unwrap_or_else(|| panic!("missing processor status for {kind}"))
+    };
+
+    let vips = find("vips_cli");
+    assert_eq!(vips["configured_enabled"], true);
+    assert_eq!(vips["runtime_available"], false);
+    assert_eq!(vips["effective_enabled"], false);
+    assert_eq!(vips["unavailable_reason"], "command_not_found");
+
+    let ffmpeg = find("ffmpeg_cli");
+    assert_eq!(ffmpeg["configured_enabled"], true);
+    assert_eq!(ffmpeg["runtime_available"], true);
+    assert_eq!(ffmpeg["effective_enabled"], true);
+    assert!(ffmpeg.get("unavailable_reason").is_none());
+
+    let ffprobe = find("ffprobe_cli");
+    assert_eq!(ffprobe["configured_enabled"], false);
+    assert_eq!(ffprobe["runtime_available"], false);
+    assert_eq!(ffprobe["effective_enabled"], false);
+    assert!(ffprobe.get("unavailable_reason").is_none());
+
+    assert!(
+        !body.to_string().contains("definitely-missing"),
+        "status response must not expose configured command paths"
+    );
+    assert!(
+        !body.to_string().contains(&available_command),
+        "status response must not expose configured command paths"
+    );
+}
+
+#[actix_web::test]
 async fn admin_config_rejects_disabling_last_builtin_login_method_without_external_provider() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());

@@ -11,10 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **存储策略与策略组生命周期** — 首次 setup 创建的存储策略和默认策略组不再按固定 ID 作为永久系统对象；解除 blob、上传 session、策略组项以及用户/团队绑定等引用后可删除首条或最后一条默认策略，删除最后一个默认策略组会使系统回到 `needs_storage`，重新配置默认存储拓扑后恢复 `ready`，不会静默清空业务绑定。默认切换、删除与重新 setup 使用稳定数据库锁协调多 Primary，现有数据保护保持不变。
 
+## [v0.5.1] - 2026-08-20
+
+### Changed
+
+- **存储策略凭据兼容层完成收口** — 移除 0.5.x 启动阶段的 legacy credential importer、connector legacy import hook、OneDrive 旧 OAuth 转换、deprecated credential entities / repositories，以及 `database-migrate` 的旧凭据复制与导入路径。当前运行时只消费 `connector_id`、typed `storage_config` 和 `storage_policy_connector_credentials`。
+- **存储策略最终 schema migration** — 新增 `m20260820_000001_remove_storage_policy_legacy`。迁移会在任何 DDL 前检查旧凭据表和旧静态凭据列；发现未完成 0.5.x 转换时硬失败并保留原 schema / 数据，检查通过后删除两个旧凭据表、旧 `storage_policies` 列、索引和远端节点外键。
+- **跨数据库迁移边界** — `database-migrate` 只复制当前 policy envelope 与 connector credential；带有未迁移 legacy credential 的 source database 会在复制前拒绝，空的历史 legacy stores 不再进入目标库。
+
+### Fixed
+
+- **迁移幂等与回滚边界** — 覆盖 SQLite、PostgreSQL 和 MySQL 的旧列 / 索引 / foreign-key 清理路径，保持 SQLite foreign-key 状态并验证引用 `storage_policies` 的现有数据不丢失。
+- **schema drift 与历史测试边界** — 区分历史 migration、0.5.x compatibility schema 和最终 schema，补充未迁移凭据硬失败、空旧表清理、最终列集合和重复执行测试。
 ### Added
 
 - **内置登录方式控制** — 新增可热更新的密码登录开关，并继续与 Passkey 开关独立组合；关闭密码登录会同时关闭公开注册、激活重发、密码邀请接受、密码重置和外部身份密码绑定，未完成的密码第一因子 MFA flow 会在完成时重新检查策略，外部认证和 Passkey 登录不再被遗留的强制改密标记阻塞。后端仅在存在已启用外部认证 provider 时允许同时关闭密码与 Passkey，并阻止禁用或删除最后一个外部 provider，避免保存后失去全部登录入口。
 - **远端节点连接生命周期审计** — reverse tunnel 连接、正常下线、异常断线和心跳超时现在会按 remote node / binding 聚合写入系统 audit；四条 streaming lane 的同时变化只产生一次节点级状态转换，并记录连接次数、中断次数、lane 数量、transport 和稳定 reason code，不包含 access key、secret、signature、URL 凭据或 token。
+
+### Fixed
+
+- **Slim 镜像媒体处理能力与派生缓存** — full 与 slim 镜像切换时保留已有媒体处理配置，管理端分别展示已配置、运行时可用和有效启用状态；公开缩略图能力只声明当前可生成的格式，并与媒体元数据能力独立。已有缩略图和图片预览缓存继续可读，缺少 `vips`、`ffmpeg` 或 `ffprobe` 时仅阻止新的相关派生并返回结构化处理器不可用错误；Docker 发布流程也保证所有 slim 变体先于 full 变体推送。
 
 ## [v0.5.0] - 2026-08-20
 

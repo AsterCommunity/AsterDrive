@@ -465,43 +465,6 @@ pub(super) fn merge_saved_static_credential(
     Ok(StorageConnectorCredentialInput::Static(current))
 }
 
-/// Convert the deprecated `access_key`/`secret_key` policy columns into the
-/// current connector-owned static credential struct.
-///
-/// This helper is exclusive to the AsterDrive 0.5.0 startup migration and will
-/// be completely removed together with the legacy columns in AsterDrive 0.6.0.
-pub(super) fn import_legacy_static_credential<T: Serialize>(
-    connector_id: &str,
-    input: super::LegacyStorageConnectorCredentialInput,
-    build: impl FnOnce(super::LegacyStoragePolicyStaticCredential) -> T,
-) -> Result<Option<serde_json::Value>> {
-    if input.application_config.is_some() || input.authorization.is_some() {
-        return Err(AsterError::database_operation(format!(
-            "connector '{connector_id}' received incompatible legacy authorization credentials",
-        )));
-    }
-    let Some(mut credential) = input.static_credential else {
-        return Ok(None);
-    };
-    credential.access_key = credential.access_key.trim().to_string();
-    credential.secret_key = credential.secret_key.trim().to_string();
-    if credential.access_key.is_empty() && credential.secret_key.is_empty() {
-        return Ok(None);
-    }
-    if credential.access_key.is_empty() || credential.secret_key.is_empty() {
-        return Err(AsterError::database_operation(format!(
-            "connector '{connector_id}' has incomplete legacy static credentials",
-        )));
-    }
-    serde_json::to_value(build(credential))
-        .map(Some)
-        .map_err(|error| {
-            AsterError::database_operation(format!(
-                "serialize migrated credential for connector '{connector_id}': {error}",
-            ))
-        })
-}
-
 pub(super) fn decode_normalized_connector_action_input<T>(
     descriptor: &StorageConnectorActionDescriptor,
     values: &std::collections::BTreeMap<String, serde_json::Value>,

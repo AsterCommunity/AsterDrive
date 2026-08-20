@@ -68,6 +68,25 @@ pub async fn config_template_variables() -> Result<HttpResponse> {
 
 #[aster_forge_api_docs_macros::path(
     get,
+    path = "/api/v1/admin/config/media-processing-status",
+    tag = "admin",
+    operation_id = "get_media_processing_runtime_status",
+    responses(
+        (status = 200, description = "Configured and effective media processor status", body = inline(ApiResponse<crate::config::media_processing::MediaProcessingRuntimeStatus>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn get_media_processing_runtime_status(
+    state: web::Data<PrimaryAppState>,
+) -> Result<HttpResponse> {
+    let status = config::get_media_processing_runtime_status(state.get_ref());
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(status)))
+}
+
+#[aster_forge_api_docs_macros::path(
+    get,
     path = "/api/v1/admin/config/{key}",
     tag = "admin",
     operation_id = "get_config",

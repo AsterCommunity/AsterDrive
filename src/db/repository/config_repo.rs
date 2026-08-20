@@ -551,6 +551,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ensure_defaults_preserves_media_processor_config_across_full_slim_switches() {
+        let full_db = setup_db().await;
+        ensure_defaults_with_env(&full_db, &|name| match name {
+            BOOTSTRAP_ENABLE_VIPS_CLI_ENV
+            | BOOTSTRAP_ENABLE_FFMPEG_CLI_ENV
+            | BOOTSTRAP_ENABLE_FFPROBE_CLI_ENV => Some("true".to_string()),
+            _ => None,
+        })
+        .await
+        .expect("fresh full-image defaults should succeed");
+
+        ensure_defaults_with_env(&full_db, &|name| match name {
+            BOOTSTRAP_ENABLE_VIPS_CLI_ENV
+            | BOOTSTRAP_ENABLE_FFMPEG_CLI_ENV
+            | BOOTSTRAP_ENABLE_FFPROBE_CLI_ENV => Some("false".to_string()),
+            _ => None,
+        })
+        .await
+        .expect("full-to-slim default sync should succeed");
+        let full_to_slim = media_processing_registry_config(&full_db).await;
+        for kind in [
+            MediaProcessorKind::VipsCli,
+            MediaProcessorKind::FfmpegCli,
+            MediaProcessorKind::FfprobeCli,
+        ] {
+            assert!(
+                media_processing::processor_config_for_kind(&full_to_slim, kind)
+                    .expect("external processor should remain configured")
+                    .enabled,
+                "full-to-slim must preserve enabled state for {}",
+                kind.as_str()
+            );
+        }
+
+        let slim_db = setup_db().await;
+        ensure_defaults_with_env(&slim_db, &|name| match name {
+            BOOTSTRAP_ENABLE_VIPS_CLI_ENV
+            | BOOTSTRAP_ENABLE_FFMPEG_CLI_ENV
+            | BOOTSTRAP_ENABLE_FFPROBE_CLI_ENV => Some("false".to_string()),
+            _ => None,
+        })
+        .await
+        .expect("fresh slim-image defaults should succeed");
+
+        ensure_defaults_with_env(&slim_db, &|name| match name {
+            BOOTSTRAP_ENABLE_VIPS_CLI_ENV
+            | BOOTSTRAP_ENABLE_FFMPEG_CLI_ENV
+            | BOOTSTRAP_ENABLE_FFPROBE_CLI_ENV => Some("true".to_string()),
+            _ => None,
+        })
+        .await
+        .expect("slim-to-full default sync should succeed");
+        let slim_to_full = media_processing_registry_config(&slim_db).await;
+        for kind in [
+            MediaProcessorKind::VipsCli,
+            MediaProcessorKind::FfmpegCli,
+            MediaProcessorKind::FfprobeCli,
+        ] {
+            assert!(
+                !media_processing::processor_config_for_kind(&slim_to_full, kind)
+                    .expect("external processor should remain configured")
+                    .enabled,
+                "slim-to-full must preserve disabled state for {}",
+                kind.as_str()
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn ensure_defaults_migrates_legacy_cors_origin_values_to_string_arrays() {
         let db = setup_db().await;
         ensure_system_value_if_missing(

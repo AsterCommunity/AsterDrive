@@ -571,6 +571,7 @@ Admin team creation can create a team for another user and give that user the in
 | `GET` | `/admin/config` | List runtime config entries |
 | `GET` | `/admin/config/schema` | Read system config schema |
 | `GET` | `/admin/config/template-variables` | Read template variable catalog |
+| `GET` | `/admin/config/media-processing-status` | Read configured, runtime-available, and effective media processor status |
 | `GET` | `/admin/config/{key}` | Read one runtime config entry |
 | `PUT` | `/admin/config/{key}` | Set runtime config entry |
 | `DELETE` | `/admin/config/{key}` | Delete custom runtime config entry |
@@ -609,6 +610,8 @@ Custom runtime config entries also have a `visibility` field:
 The field only applies to `source = "custom"` entries. Built-in system configuration cannot be made public through it. When omitted, new custom entries default to `private`.
 
 `GET /admin/config` now includes `visibility` in addition to `id`, `key`, `value`, `source`, `namespace`, `updated_at`, and `updated_by`. Sensitive values are still redacted as `***REDACTED***`.
+
+`GET /admin/config/media-processing-status` does not modify persisted configuration. It probes the current instance and returns `configured_enabled`, `runtime_available`, `effective_enabled`, and an optional `unavailable_reason` for each media processor. `command_not_found` never includes the configured local command path, so administrators can explain a full/slim image mismatch without exposing host details.
 
 The frontend custom-configuration read path is documented in [Public API](./public.md) under `GET /public/custom-config`. That endpoint only returns the key/value map visible to the current request identity and does not expose admin-only fields.
 

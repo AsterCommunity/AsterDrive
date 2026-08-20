@@ -7,7 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
 
-use crate::cli::db_shared::{backend_name, join_strings, quote_literal, quote_sqlite_literal};
+use crate::cli::db_shared::{
+    backend_name, join_strings, quote_ident, quote_literal, quote_sqlite_literal, scalar_i64,
+};
 use crate::db;
 use crate::errors::{AsterError, MapAsterErr, Result};
 
@@ -53,6 +55,7 @@ pub(super) async fn load_source_plans(source: &DatabaseConnection) -> Result<Vec
     let backend = source.get_database_backend();
     let existing_tables = source_table_names(source, backend).await?;
     validate_source_tables(backend, &existing_tables)?;
+    validate_legacy_storage_source(source, backend, &existing_tables).await?;
 
     let existing_lookup: BTreeSet<&str> = existing_tables.iter().map(String::as_str).collect();
     let mut plans = Vec::with_capacity(COPY_TABLE_ORDER.len());
@@ -63,7 +66,24 @@ pub(super) async fn load_source_plans(source: &DatabaseConnection) -> Result<Vec
                 table
             )));
         }
-        plans.push(load_table_plan(source, backend, table).await?);
+        let mut plan = load_table_plan(source, backend, table).await?;
+        if *table == "storage_policies" {
+            plan.columns.retain(|column| {
+                !matches!(
+                    column.name.as_str(),
+                    "driver_type"
+                        | "endpoint"
+                        | "bucket"
+                        | "access_key"
+                        | "secret_key"
+                        | "base_path"
+                        | "remote_node_id"
+                        | "remote_storage_target_key"
+                        | "options"
+                )
+            });
+        }
+        plans.push(plan);
     }
     Ok(plans)
 }
@@ -310,6 +330,62 @@ fn validate_source_tables(backend: DbBackend, existing_tables: &[String]) -> Res
         )));
     }
 
+    Ok(())
+}
+
+async fn validate_legacy_storage_source(
+    source: &DatabaseConnection,
+    backend: DbBackend,
+    existing_tables: &[String],
+) -> Result<()> {
+    for table in [
+        "storage_policy_credentials",
+        "storage_connector_application_configs",
+    ] {
+        if existing_tables.iter().any(|name| name == table) {
+            let rows = count_rows(source, backend, table).await?;
+            if rows > 0 {
+                return Err(AsterError::validation_error(format!(
+                    "source database contains {rows} unmigrated rows in removed legacy table '{table}'; start it successfully on AsterDrive 0.5.x before copying"
+                )));
+            }
+        }
+    }
+
+    if !existing_tables
+        .iter()
+        .any(|name| name == "storage_policies")
+    {
+        return Ok(());
+    }
+    let columns = load_column_type_rows(source, backend, "storage_policies").await?;
+    let static_columns = columns
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .filter(|name| matches!(*name, "access_key" | "secret_key"))
+        .collect::<Vec<_>>();
+    if static_columns.is_empty() {
+        return Ok(());
+    }
+    let predicates = static_columns
+        .iter()
+        .map(|column| format!("TRIM(COALESCE({}, '')) <> ''", quote_ident(backend, column)))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let count = scalar_i64(
+        source,
+        backend,
+        &format!(
+            "SELECT COUNT(*) FROM {} WHERE {predicates}",
+            quote_ident(backend, "storage_policies")
+        ),
+    )
+    .await?;
+    if count > 0 {
+        return Err(AsterError::validation_error(format!(
+            "source database contains {count} unmigrated static storage credential row(s); start it successfully on AsterDrive 0.5.x before copying"
+        )));
+    }
     Ok(())
 }
 

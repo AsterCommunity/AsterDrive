@@ -140,6 +140,60 @@ async fn test_public_media_data_support_exposes_enabled_ffprobe_extensions() {
 }
 
 #[actix_web::test]
+async fn test_heic_metadata_support_is_independent_from_effective_thumbnail_support() {
+    let state = common::setup().await;
+    state.runtime_config.apply(common::system_config_model(
+        "media_processing_registry_json",
+        &json!({
+            "version": 2,
+            "processors": [
+                {
+                    "kind": "vips_cli",
+                    "enabled": true,
+                    "uses": ["thumbnail:image"],
+                    "extensions": ["heic"],
+                    "config": { "command": "/definitely-missing/aster-vips" }
+                },
+                {
+                    "kind": "images",
+                    "enabled": true,
+                    "uses": ["thumbnail:image", "metadata:image"]
+                },
+                {
+                    "kind": "lofty",
+                    "enabled": true,
+                    "uses": ["thumbnail:audio", "metadata:audio"]
+                }
+            ]
+        })
+        .to_string(),
+    ));
+    let app = create_test_app!(state);
+
+    let media_req = test::TestRequest::get()
+        .uri("/api/v1/public/media-data-support")
+        .to_request();
+    let media_resp = test::call_service(&app, media_req).await;
+    assert_eq!(media_resp.status(), 200);
+    let media_body: Value = test::read_body_json(media_resp).await;
+    let metadata_extensions = media_body["data"]["kinds"]["image"]["extensions"]
+        .as_array()
+        .expect("image metadata extensions should be present");
+    assert!(metadata_extensions.iter().any(|value| value == "heic"));
+
+    let thumbnail_req = test::TestRequest::get()
+        .uri("/api/v1/public/thumbnail-support")
+        .to_request();
+    let thumbnail_resp = test::call_service(&app, thumbnail_req).await;
+    assert_eq!(thumbnail_resp.status(), 200);
+    let thumbnail_body: Value = test::read_body_json(thumbnail_resp).await;
+    let thumbnail_extensions = thumbnail_body["data"]["image_thumbnail"]["extensions"]
+        .as_array()
+        .expect("image thumbnail extensions should be present");
+    assert!(!thumbnail_extensions.iter().any(|value| value == "heic"));
+}
+
+#[actix_web::test]
 async fn test_public_media_data_support_cache_is_invalidated_after_config_update() {
     let state = common::setup().await;
     let app = create_test_app!(state);
