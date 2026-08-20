@@ -70,13 +70,10 @@ pub fn sanitize_details(raw: Option<&str>) -> Option<String> {
 }
 
 pub fn sanitize_entity_name(entity_type: &str, value: Option<String>) -> Option<String> {
-    value.map(|value| {
-        if entity_type == "share" {
-            value
-        } else {
-            neutralize_formula(value)
-        }
-    })
+    if entity_type == "share" {
+        return None;
+    }
+    value.map(neutralize_formula)
 }
 
 pub fn build_audit_presentation(

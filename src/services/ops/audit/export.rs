@@ -237,16 +237,6 @@ fn parse_details(model: &audit_log::Model) -> Option<serde_json::Value> {
     parse_raw_details(model.details.as_deref(), model.id)
 }
 
-pub fn sanitize_details(raw: Option<&str>) -> Option<String> {
-    parse_raw_details(raw, 0).map(|details| details.to_string())
-}
-
-pub fn sanitize_entity_name(entity_type: &str, value: Option<String>) -> Option<String> {
-    (entity_type != "share")
-        .then(|| value.map(neutralize_csv_formula))
-        .flatten()
-}
-
 fn detail_i64(details: Option<&serde_json::Value>, key: &str) -> Option<i64> {
     details?.get(key)?.as_i64()
 }
@@ -306,7 +296,10 @@ fn rows_for_batch(
                 action: model.action.as_str().to_string(),
                 entity_type: model.entity_type.clone(),
                 entity_id: model.entity_id,
-                entity_name: sanitize_entity_name(&model.entity_type, model.entity_name.clone()),
+                entity_name: super::presentation::sanitize_entity_name(
+                    &model.entity_type,
+                    model.entity_name.clone(),
+                ),
                 detail: details
                     .as_ref()
                     .map(serde_json::Value::to_string)
