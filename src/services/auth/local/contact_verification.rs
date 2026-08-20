@@ -22,7 +22,7 @@ use super::shared::{
 use super::validation::{normalize_email, validate_password};
 use super::{
     AuthUserInfo, ContactVerificationConfirmResult, PasswordResetRequestResult, UserAuditInfo,
-    is_email_verified, user_audit_info,
+    ensure_password_login_enabled, is_email_verified, user_audit_info,
 };
 
 pub async fn request_email_change(
@@ -165,6 +165,7 @@ pub async fn request_password_reset(
     state: &impl SharedRuntimeState,
     email: &str,
 ) -> Result<PasswordResetRequestResult> {
+    ensure_password_login_enabled(state)?;
     tracing::debug!("requesting password reset");
     let normalized_email = normalize_email(email)?;
     let Some(user) = user_repo::find_by_email(state.writer_db(), &normalized_email).await? else {
@@ -227,6 +228,7 @@ pub async fn confirm_password_reset(
     token: &str,
     new_password: &str,
 ) -> Result<AuthUserInfo> {
+    ensure_password_login_enabled(state)?;
     tracing::debug!("confirming password reset");
     validate_password(new_password)?;
 

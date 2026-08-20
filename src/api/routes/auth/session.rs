@@ -99,7 +99,7 @@ async fn revalidate_storage_event_stream(
     if snapshot.session_version != session_version {
         return Err(AsterError::auth_token_invalid("session revoked"));
     }
-    if snapshot.must_change_password {
+    if local::password_change_required_for_snapshot(state, snapshot) {
         return Err(AsterError::auth_token_invalid("password change required"));
     }
     if !refresh_visible_teams {
@@ -258,6 +258,7 @@ pub async fn get_storage_events(
     responses(
         (status = 200, description = "Login completed or MFA challenge required", body = inline(ApiResponse<LoginResponse>)),
         (status = 401, description = "Invalid credentials"),
+        (status = 403, description = "Password login is disabled by administrator policy"),
     ),
 )]
 pub async fn login(

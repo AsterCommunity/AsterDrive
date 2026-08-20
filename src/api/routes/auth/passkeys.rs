@@ -203,6 +203,7 @@ pub async fn delete_passkey(
     responses(
         (status = 200, description = "Passkey login challenge", body = inline(ApiResponse<passkey::PasskeyLoginStartResp>)),
         (status = 401, description = "Invalid credentials"),
+        (status = 403, description = "Passkey login is disabled by administrator policy"),
     ),
 )]
 pub async fn start_login(
@@ -233,6 +234,7 @@ pub async fn start_login(
     responses(
         (status = 200, description = "Passkey login successful or password change required, tokens set in HttpOnly cookies", body = inline(ApiResponse<super::LoginResponse>)),
         (status = 401, description = "Invalid credentials"),
+        (status = 403, description = "Passkey login is disabled by administrator policy"),
     ),
 )]
 pub async fn finish_login(

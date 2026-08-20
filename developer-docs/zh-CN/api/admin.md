@@ -737,6 +737,7 @@ POST /api/v1/admin/policies/action
 - `auth_local_email_allowlist`
 - `auth_local_email_blocklist`
 - `auth_passkey_login_enabled`
+- `auth_password_login_enabled`
 - `auth_email_code_login_enabled`
 - `auth_email_code_login_allow_totp_fallback`
 - `auth_email_code_login_ttl_secs`

@@ -72,6 +72,8 @@ describe("adminSettingsInvalidation", () => {
 			targetsFor([
 				"public_site_url",
 				"auth_allow_user_registration",
+				"auth_passkey_login_enabled",
+				"auth_password_login_enabled",
 				"archive_download_user_enabled",
 				"archive_download_share_enabled",
 				"frontend_image_preview_preference",

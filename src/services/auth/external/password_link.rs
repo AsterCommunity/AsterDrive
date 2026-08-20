@@ -24,6 +24,7 @@ pub async fn link_with_password(
     _ip_address: Option<&str>,
     _user_agent: Option<&str>,
 ) -> Result<ExternalAuthPasswordLinkResult> {
+    local::ensure_password_login_enabled(state)?;
     let flow_token = external_auth_normalize::normalize_flow_token(&input.flow_token, 128)?;
     let identifier = input.identifier.trim();
     if identifier.is_empty() {
