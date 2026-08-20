@@ -42,6 +42,7 @@ interface LoginPageViewProps {
 	identifierPlaceholder: string;
 	isSubmitDisabled: boolean;
 	passkeyLoginEnabled: boolean;
+	passwordLoginEnabled: boolean;
 	mfaPanel: MfaPanelState | null;
 	mode: AuthMode;
 	modeActionText: string;
@@ -106,6 +107,7 @@ export function LoginPageView({
 	identifierPlaceholder,
 	isSubmitDisabled,
 	passkeyLoginEnabled,
+	passwordLoginEnabled,
 	mfaPanel,
 	mode,
 	modeActionText,
@@ -204,7 +206,8 @@ export function LoginPageView({
 							emailSchema={emailSchema}
 							identifier={externalAuthRecovery.passwordIdentifier}
 							identifierError={externalAuthRecovery.passwordIdentifierError}
-							mode={externalAuthRecovery.mode}
+							mode={passwordLoginEnabled ? externalAuthRecovery.mode : "email"}
+							passwordLoginEnabled={passwordLoginEnabled}
 							password={externalAuthRecovery.password}
 							passwordError={externalAuthRecovery.passwordError}
 							sent={externalAuthRecovery.sent}
@@ -252,6 +255,7 @@ export function LoginPageView({
 							identifierPlaceholder={identifierPlaceholder}
 							isSubmitDisabled={isSubmitDisabled}
 							passkeyLoginEnabled={passkeyLoginEnabled}
+							passwordLoginEnabled={passwordLoginEnabled}
 							mode={mode}
 							modeActionText={modeActionText}
 							password={password}

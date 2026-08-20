@@ -49,11 +49,16 @@ fn ensure_session_current(claims: &Claims, snapshot: AuthSnapshot) -> Result<()>
     Ok(())
 }
 
-fn ensure_password_change_scope(claims: &Claims, snapshot: AuthSnapshot) -> Result<()> {
-    if snapshot.must_change_password && !claims.password_change {
+fn ensure_password_change_scope(
+    state: &impl SharedRuntimeState,
+    claims: &Claims,
+    snapshot: AuthSnapshot,
+) -> Result<()> {
+    let password_change_required = super::password_change_required_for_snapshot(state, snapshot);
+    if password_change_required && !claims.password_change {
         return Err(AsterError::auth_token_invalid("password change required"));
     }
-    if !snapshot.must_change_password && claims.password_change {
+    if !password_change_required && claims.password_change {
         return Err(AsterError::auth_token_invalid(
             "password change session is no longer valid",
         ));
@@ -79,7 +84,7 @@ async fn authenticate_token(
         return Err(AsterError::auth_forbidden("account is disabled"));
     }
     ensure_session_current(&claims, snapshot)?;
-    ensure_password_change_scope(&claims, snapshot)?;
+    ensure_password_change_scope(state, &claims, snapshot)?;
 
     tracing::debug!(
         user_id = claims.user_id,

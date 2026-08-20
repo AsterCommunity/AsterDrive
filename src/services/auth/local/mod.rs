@@ -9,6 +9,7 @@ pub(crate) mod shared;
 mod tokens;
 mod validation;
 
+use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::auth::mfa::PrimaryLoginCompletion;
@@ -25,6 +26,7 @@ pub use contact_verification::{
     cleanup_expired_contact_verification_tokens, confirm_contact_verification,
     confirm_password_reset, request_email_change, request_password_reset, resend_email_change,
 };
+pub(crate) use password::ensure_password_login_enabled;
 pub(crate) use password::verify_user_password;
 pub use password::{change_password, login, set_password};
 pub use registration::{
@@ -67,6 +69,43 @@ pub struct AuthSnapshot {
     pub role: UserRole,
     pub session_version: i64,
     pub must_change_password: bool,
+}
+
+pub(crate) fn password_change_required_for_login(
+    state: &impl SharedRuntimeState,
+    user: &user::Model,
+) -> bool {
+    effective_password_change_required(password_login_enabled(state), user.must_change_password)
+}
+
+pub(crate) fn password_change_required_for_snapshot(
+    state: &impl SharedRuntimeState,
+    snapshot: AuthSnapshot,
+) -> bool {
+    effective_password_change_required(password_login_enabled(state), snapshot.must_change_password)
+}
+
+fn effective_password_change_required(
+    password_login_enabled: bool,
+    must_change_password: bool,
+) -> bool {
+    password_login_enabled && must_change_password
+}
+
+fn password_login_enabled(state: &impl SharedRuntimeState) -> bool {
+    RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).password_login_enabled
+}
+
+#[cfg(test)]
+mod policy_tests {
+    use super::effective_password_change_required;
+
+    #[test]
+    fn forced_password_change_is_ignored_when_password_login_is_disabled() {
+        assert!(!effective_password_change_required(false, true));
+        assert!(effective_password_change_required(true, true));
+        assert!(!effective_password_change_required(true, false));
+    }
 }
 
 #[derive(Debug)]

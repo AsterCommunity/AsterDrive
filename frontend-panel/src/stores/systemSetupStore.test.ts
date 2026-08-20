@@ -26,6 +26,7 @@ describe("useSystemSetupStore", () => {
 						allow_user_registration: false,
 						has_users: true,
 						passkey_login_enabled: true,
+						password_login_enabled: true,
 						setup_state: "needs_storage",
 					}),
 				),
@@ -52,6 +53,7 @@ describe("useSystemSetupStore", () => {
 						allow_user_registration: false,
 						has_users: true,
 						passkey_login_enabled: true,
+						password_login_enabled: true,
 						setup_state: "ready",
 					}),
 				);
@@ -90,6 +92,7 @@ describe("useSystemSetupStore", () => {
 						allow_user_registration: false,
 						has_users: true,
 						passkey_login_enabled: true,
+						password_login_enabled: true,
 						setup_state: "ready",
 					}),
 				);
@@ -141,6 +144,7 @@ describe("useSystemSetupStore", () => {
 						allow_user_registration: true,
 						has_users: false,
 						passkey_login_enabled: true,
+						password_login_enabled: true,
 						setup_state: "needs_admin",
 					}),
 				);

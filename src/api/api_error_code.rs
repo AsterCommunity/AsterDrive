@@ -136,6 +136,7 @@ define_api_error_codes! {
     AuthCsrfHeaderMissing => "auth.csrf_header_missing",
     AuthCsrfTokenInvalid => "auth.csrf_token_invalid",
     AuthPasskeyLoginDisabled => "auth.passkey_login_disabled",
+    AuthPasswordLoginDisabled => "auth.password_login_disabled",
     AuthRegistrationDisabled => "auth.registration_disabled",
     AuthEmailBlocked => "auth.email_blocked",
     AuthEmailNotAllowlisted => "auth.email_not_allowlisted",

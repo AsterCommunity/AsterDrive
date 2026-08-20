@@ -138,6 +138,7 @@ ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES=false
 - `auth_email_code_login_allow_totp_fallback` —— 是否允许已启用 TOTP 的用户用邮箱验证码兜底
 - `auth_email_code_login_ttl_secs` —— 邮箱登录验证码有效期
 - `auth_email_code_login_resend_cooldown_secs` —— 邮箱登录验证码重发冷却
+- `auth_password_login_enabled` —— 是否允许本地用户名 / 密码作为第一登录因子
 - `auth_passkey_login_enabled` —— 是否允许用户用已登记的 Passkey 登录
 - `auth_allow_user_registration` —— 公开注册开关
 - `auth_register_activation_enabled` —— 新注册用户是否必须先完成邮箱激活

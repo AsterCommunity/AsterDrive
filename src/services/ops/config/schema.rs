@@ -1,8 +1,9 @@
 use crate::config::definitions::{
     ALL_CONFIGS, AUDIT_LOG_RECORDED_ACTIONS_KEY, AUTH_ALLOW_USER_REGISTRATION_KEY,
-    BRANDING_DESCRIPTION_KEY, BRANDING_FAVICON_URL_KEY, BRANDING_TITLE_KEY,
-    BRANDING_WORDMARK_DARK_URL_KEY, BRANDING_WORDMARK_LIGHT_URL_KEY, MAIL_SMTP_HOST_KEY,
-    MEDIA_METADATA_ENABLED_KEY, MEDIA_METADATA_MAX_SOURCE_BYTES_KEY, PUBLIC_SITE_URL_KEY,
+    AUTH_PASSKEY_LOGIN_ENABLED_KEY, AUTH_PASSWORD_LOGIN_ENABLED_KEY, BRANDING_DESCRIPTION_KEY,
+    BRANDING_FAVICON_URL_KEY, BRANDING_TITLE_KEY, BRANDING_WORDMARK_DARK_URL_KEY,
+    BRANDING_WORDMARK_LIGHT_URL_KEY, MAIL_SMTP_HOST_KEY, MEDIA_METADATA_ENABLED_KEY,
+    MEDIA_METADATA_MAX_SOURCE_BYTES_KEY, PUBLIC_SITE_URL_KEY,
 };
 use crate::config::media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY;
 use crate::config::operations::{
@@ -222,6 +223,8 @@ fn config_schema_invalidates(key: &str) -> Vec<ConfigInvalidationTarget> {
     match key {
         PUBLIC_SITE_URL_KEY
         | AUTH_ALLOW_USER_REGISTRATION_KEY
+        | AUTH_PASSKEY_LOGIN_ENABLED_KEY
+        | AUTH_PASSWORD_LOGIN_ENABLED_KEY
         | BRANDING_TITLE_KEY
         | BRANDING_DESCRIPTION_KEY
         | BRANDING_FAVICON_URL_KEY
@@ -389,6 +392,14 @@ mod tests {
         );
         assert_eq!(
             invalidates_for(AUTH_ALLOW_USER_REGISTRATION_KEY),
+            [ConfigInvalidationTarget::FrontendConfig]
+        );
+        assert_eq!(
+            invalidates_for(AUTH_PASSKEY_LOGIN_ENABLED_KEY),
+            [ConfigInvalidationTarget::FrontendConfig]
+        );
+        assert_eq!(
+            invalidates_for(AUTH_PASSWORD_LOGIN_ENABLED_KEY),
             [ConfigInvalidationTarget::FrontendConfig]
         );
         assert_eq!(

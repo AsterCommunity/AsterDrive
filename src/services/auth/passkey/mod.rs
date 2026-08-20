@@ -668,7 +668,8 @@ pub async fn finish_login(
         return Err(AsterError::auth_invalid_credentials("passkey not found"));
     }
 
-    let (access, refresh) = if user.must_change_password {
+    let password_change_required = local::password_change_required_for_login(state, &user);
+    let (access, refresh) = if password_change_required {
         local::issue_password_change_tokens_for_user(state, &user, ip_address, user_agent).await?
     } else {
         local::issue_tokens_for_user(state, &user, ip_address, user_agent).await?
@@ -677,7 +678,7 @@ pub async fn finish_login(
         access_token: access,
         refresh_token: refresh,
         user_id: user.id,
-        password_change_required: user.must_change_password,
+        password_change_required,
     };
     Ok(PasskeyLoginResult {
         login,
