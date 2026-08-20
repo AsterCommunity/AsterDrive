@@ -270,6 +270,19 @@ fn audit_action_strings_match_existing_contract() {
             "remote_enrollment_redeem",
         ),
         (AuditAction::RemoteEnrollmentAck, "remote_enrollment_ack"),
+        (AuditAction::RemoteNodeConnected, "remote_node_connected"),
+        (
+            AuditAction::RemoteNodeGracefulDisconnect,
+            "remote_node_graceful_disconnect",
+        ),
+        (
+            AuditAction::RemoteNodeUnexpectedDisconnect,
+            "remote_node_unexpected_disconnect",
+        ),
+        (
+            AuditAction::RemoteNodeHeartbeatTimeout,
+            "remote_node_heartbeat_timeout",
+        ),
         (
             AuditAction::UserRevokeOtherSessions,
             "user_revoke_other_sessions",
@@ -436,6 +449,43 @@ async fn log_writes_synchronously_without_global_manager() {
         .await
         .expect("audit query should succeed");
     assert_eq!(count, 1);
+
+    super::log_with_details(
+        &state,
+        &AuditContext::system(),
+        AuditAction::RemoteNodeConnected,
+        crate::services::ops::audit::AuditEntityType::RemoteNode,
+        Some(42),
+        Some("edge-a"),
+        || {
+            super::details(super::RemoteNodeConnectionAuditDetails {
+                remote_node_id: 42,
+                binding_id: 42,
+                transport: "reverse_tunnel",
+                reason: "connected",
+                generation: 1,
+                outage_generation: 0,
+                active_lanes: 1,
+                lane_count: 1,
+                observed_at: chrono::Utc::now(),
+                first_lane_id: Some("lane-0"),
+            })
+        },
+    )
+    .await;
+
+    let entry = audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq(AuditAction::RemoteNodeConnected))
+        .one(&db)
+        .await
+        .expect("remote node audit query should succeed")
+        .expect("remote node audit row should exist");
+    assert_eq!(entry.user_id, 0);
+    assert_eq!(entry.entity_id, Some(42));
+    let details = entry.details.expect("remote node details should exist");
+    assert!(details.contains("\"transport\":\"reverse_tunnel\""));
+    assert!(!details.contains("access-key"));
+    assert!(!details.contains("secret-key"));
 }
 
 #[tokio::test]
