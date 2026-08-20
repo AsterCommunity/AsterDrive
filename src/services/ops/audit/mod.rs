@@ -41,4 +41,5 @@ pub use manager::{
     should_record, should_record_with_config,
 };
 pub use models::{AuditLogEntry, AuditPresentation, AuditPresentationMessage, TeamAuditEntryInfo};
+pub use presentation::{sanitize_details, sanitize_entity_name};
 pub use query::{cleanup_expired, query, query_team_entries};

@@ -437,12 +437,20 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
         },
     )
     .await;
-    let mut final_disconnect_reason = disconnect_reason.unwrap_or(TunnelDisconnectReason::Eof);
-    if !close_handshake_ok {
-        final_disconnect_reason = TunnelDisconnectReason::CloseHandshakeFailed;
-    }
+    let final_disconnect_reason = finalize_disconnect_reason(disconnect_reason, close_handshake_ok);
     registration.set_disconnect_reason(final_disconnect_reason);
     Ok(())
+}
+
+fn finalize_disconnect_reason(
+    reason: Option<TunnelDisconnectReason>,
+    close_handshake_ok: bool,
+) -> TunnelDisconnectReason {
+    match (reason, close_handshake_ok) {
+        (Some(reason), _) => reason,
+        (None, true) => TunnelDisconnectReason::Eof,
+        (None, false) => TunnelDisconnectReason::CloseHandshakeFailed,
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -229,7 +229,7 @@
 	"audit_presentation_mfa_email_code_sent": "{{method}} flow {{flow_id}}, expires in {{expires_in}}s",
 	"audit_presentation_wopi_user_info_updated": "{{app_key}} for file {{file_id}}, {{user_info_len}} bytes",
 	"audit_presentation_remote_enrollment_changed": "{{phase}} {{remote_node_name}}, enabled {{is_enabled}}",
-	"audit_presentation_remote_node_connection_lifecycle": "{{reason}} on {{transport}} (generation {{generation}}, outage {{outage_generation}}, {{active_lanes}} active / {{lane_count}} lane(s))",
+	"audit_presentation_remote_node_connection_lifecycle": "{{reason}} on {{transport}} (connection #{{generation}}, interruption #{{outage_generation}}, {{active_lanes}} active / {{lane_count}} lane(s))",
 	"audit_presentation_invitation_snapshot": "{{email}} status {{status}}, expires {{expires_at}}",
 	"audit_presentation_external_auth_unlinked": "{{provider_key}} identity {{subject}}",
 	"audit_presentation_follower_binding_synced": "{{name}} enabled {{is_enabled}}",

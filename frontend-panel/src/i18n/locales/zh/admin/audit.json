@@ -229,7 +229,7 @@
 	"audit_presentation_mfa_email_code_sent": "{{method}} flow {{flow_id}}，{{expires_in}} 秒后过期",
 	"audit_presentation_wopi_user_info_updated": "{{app_key}} 更新文件 {{file_id}} 的用户信息，{{user_info_len}} 字节",
 	"audit_presentation_remote_enrollment_changed": "{{phase}} {{remote_node_name}}，启用 {{is_enabled}}",
-	"audit_presentation_remote_node_connection_lifecycle": "{{transport}} 上发生 {{reason}}（连接代际 {{generation}}，故障代际 {{outage_generation}}，{{active_lanes}} 条活跃 / 共 {{lane_count}} 条 lane）",
+	"audit_presentation_remote_node_connection_lifecycle": "{{transport}} 上发生 {{reason}}（第 {{generation}} 次连接，第 {{outage_generation}} 次中断，{{active_lanes}} 条活跃 / 共 {{lane_count}} 条 lane）",
 	"audit_presentation_invitation_snapshot": "{{email}} 状态 {{status}}，过期 {{expires_at}}",
 	"audit_presentation_external_auth_unlinked": "{{provider_key}} 身份 {{subject}}",
 	"audit_presentation_follower_binding_synced": "{{name}} 启用 {{is_enabled}}",

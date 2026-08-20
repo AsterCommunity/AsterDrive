@@ -6,6 +6,77 @@ use aster_drive_model::types::{AuditAction, AuditEntityType};
 
 use super::models::{AuditPresentation, AuditPresentationMessage};
 
+/// Neutralize spreadsheet formula prefixes before user-controlled audit names
+/// reach the admin UI or an exported representation.
+fn neutralize_formula(value: String) -> String {
+    if value.starts_with(['=', '+', '-', '@', '\t', '\r']) {
+        format!("'{value}")
+    } else {
+        value
+    }
+}
+
+fn sensitive_detail_key(key: &str) -> bool {
+    let normalized = key
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+    [
+        "token",
+        "secret",
+        "password",
+        "credential",
+        "authorization",
+        "signature",
+        "accesskey",
+        "apikey",
+        "session",
+        "mfa",
+        "otp",
+        "totp",
+        "bearer",
+        "appkey",
+        "wopikey",
+        "sharetoken",
+        "privatekey",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+fn redact_sensitive_details(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            object.retain(|key, value| {
+                if sensitive_detail_key(key) {
+                    return false;
+                }
+                redact_sensitive_details(value);
+                true
+            });
+        }
+        Value::Array(values) => values.iter_mut().for_each(redact_sensitive_details),
+        _ => {}
+    }
+}
+
+pub fn sanitize_details(raw: Option<&str>) -> Option<String> {
+    let mut details = serde_json::from_str::<Value>(raw?).ok()?;
+    redact_sensitive_details(&mut details);
+    Some(details.to_string())
+}
+
+pub fn sanitize_entity_name(entity_type: &str, value: Option<String>) -> Option<String> {
+    value.map(|value| {
+        if entity_type == "share" {
+            value
+        } else {
+            neutralize_formula(value)
+        }
+    })
+}
+
 pub fn build_audit_presentation(
     action: AuditAction,
     entity_type: AuditEntityType,
@@ -1383,6 +1454,28 @@ mod tests {
         assert_eq!(detail.params.get("generation"), Some(&Value::from(3)));
         assert_eq!(detail.params.get("active_lanes"), Some(&Value::from(0)));
         assert_eq!(detail.params.get("lane_count"), Some(&Value::from(4)));
+    }
+
+    #[test]
+    fn audit_query_sanitizers_redact_sensitive_details_and_formula_names() {
+        assert_eq!(
+            sanitize_entity_name("remote_node", Some("=HYPERLINK(\"x\")".to_string())),
+            Some("'=HYPERLINK(\"x\")".to_string())
+        );
+        assert_eq!(
+            sanitize_entity_name("share", Some("=share-token".to_string())),
+            Some("=share-token".to_string())
+        );
+        let safe = sanitize_details(Some(
+            r#"{"remote_node_id":42,"access_key":"access","secret_key":"secret","nested":[{"token":"tok"}],"transport":"reverse_tunnel"}"#,
+        ))
+        .expect("valid details should sanitize");
+        assert!(safe.contains("remote_node_id"));
+        assert!(safe.contains("transport"));
+        assert!(!safe.contains("access_key"));
+        assert!(!safe.contains("secret_key"));
+        assert!(!safe.contains("token"));
+        assert!(sanitize_details(Some("not-json")).is_none());
     }
 
     #[test]
