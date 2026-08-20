@@ -172,6 +172,7 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::teams::delete_team,
         crate::api::routes::teams::restore_team,
         crate::api::routes::teams::list_audit_logs,
+        crate::api::routes::teams::export_audit_logs,
         crate::api::routes::teams::list_members,
         crate::api::routes::teams::add_member,
         crate::api::routes::teams::patch_member,
@@ -346,6 +347,7 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::admin::teams::delete_team,
         crate::api::routes::admin::teams::restore_team,
         crate::api::routes::admin::teams::list_team_audit_logs,
+        crate::api::routes::admin::teams::export_team_audit_logs,
         crate::api::routes::admin::teams::list_team_members,
         crate::api::routes::admin::teams::add_team_member,
         crate::api::routes::admin::teams::patch_team_member,
@@ -381,6 +383,7 @@ use utoipa::{Modify, OpenApi};
 
         // admin::audit_logs：全站审计日志查询。
         crate::api::routes::admin::audit_logs::list_audit_logs,
+        crate::api::routes::admin::audit_logs::export_audit_logs,
 
         // share_public：匿名访问公开分享时使用的浏览、下载、鉴权和缩略图接口。
         crate::api::routes::share_public::get_share_info,

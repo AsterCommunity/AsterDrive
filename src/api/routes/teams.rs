@@ -32,6 +32,7 @@ pub fn routes(
         .route("/{id}", web::delete().to(delete_team))
         .route("/{id}/restore", web::post().to(restore_team))
         .route("/{id}/audit-logs", web::get().to(list_audit_logs))
+        .route("/{id}/audit-logs/export", web::get().to(export_audit_logs))
         .route(
             "/{team_id}/webdav-accounts",
             web::get().to(webdav_accounts::list_team_accounts),
@@ -278,6 +279,40 @@ pub async fn list_audit_logs(
     .await?;
 
     Ok(HttpResponse::Ok().json(ApiResponse::ok(page)))
+}
+
+#[aster_forge_api_docs_macros::path(
+    get,
+    path = "/api/v1/teams/{id}/audit-logs/export",
+    tag = "teams",
+    operation_id = "export_team_audit_logs",
+    params(
+        ("id" = i64, Path, description = "Team ID"),
+        audit::AuditLogFilterQuery
+    ),
+    responses(
+        (status = 200, description = "UTF-8 CSV stream with at most 100000 audit rows", content_type = "text/csv"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Team owner or admin role is required"),
+        (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
+        (status = 507, description = "The 100000-row export limit was exceeded"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn export_audit_logs(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    path: web::Path<i64>,
+    query: web::Query<audit::AuditLogFilterQuery>,
+) -> Result<HttpResponse> {
+    let export = team::export_team_audit_entries(
+        state.get_ref(),
+        *path,
+        claims.user_id,
+        audit::AuditLogFilters::from_query(&query),
+    )
+    .await?;
+    Ok(crate::api::routes::audit_csv::response(export))
 }
 
 #[aster_forge_api_docs_macros::path(

@@ -112,7 +112,7 @@ let refreshPromise: Promise<void> | null = null;
 
 export type ApiRequestConfig = Pick<
 	AxiosRequestConfig,
-	"data" | "headers" | "params" | "signal"
+	"data" | "headers" | "params" | "signal" | "responseType" | "timeout"
 > & {
 	/** Optional auth may refresh a session, but must never redirect a public page. */
 	optionalAuth?: boolean;
@@ -401,5 +401,50 @@ export const api = {
 		unwrap<T>(client.patch(url, data, config)),
 	delete: <T>(url: string, config?: ApiRequestConfig) =>
 		unwrap<T>(client.delete(url, config)),
+	download: (url: string, config?: ApiRequestConfig) =>
+		client.get<Blob>(url, {
+			...config,
+			responseType: "blob",
+			timeout: config?.timeout ?? 0,
+		}),
 	client,
 };
+
+function filenameFromContentDisposition(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const encoded = value.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+	if (encoded) {
+		try {
+			return decodeURIComponent(encoded.replace(/^"|"$/g, ""));
+		} catch {
+			return undefined;
+		}
+	}
+	return (
+		value.match(/filename="([^"]+)"/i)?.[1] ??
+		value.match(/filename=([^;]+)/i)?.[1]?.trim()
+	);
+}
+
+export async function downloadFile(
+	url: string,
+	config: ApiRequestConfig | undefined,
+	fallbackFilename: string,
+): Promise<void> {
+	const response = await api.download(url, config);
+	const filename =
+		filenameFromContentDisposition(response.headers["content-disposition"]) ??
+		fallbackFilename;
+	const objectUrl = URL.createObjectURL(response.data);
+	try {
+		const link = document.createElement("a");
+		link.href = objectUrl;
+		link.download = filename;
+		link.rel = "noopener";
+		document.body.appendChild(link);
+		link.click();
+		link.remove();
+	} finally {
+		URL.revokeObjectURL(objectUrl);
+	}
+}

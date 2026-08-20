@@ -2,6 +2,7 @@
 
 mod context;
 mod details;
+mod export;
 mod filters;
 mod manager;
 mod models;
@@ -33,6 +34,10 @@ pub use details::{
     UserMfaManageAuditDetails, UserPreferencesAuditDetails, UserProfileAuditDetails,
     UserWopiInfoAuditDetails, WorkspaceTransferCopyDetails, WorkspaceTransferMoveDetails,
     WorkspaceTransferScopeDetails, details,
+};
+pub use export::{
+    AUDIT_CSV_EXPORT_BATCH_SIZE, AUDIT_CSV_EXPORT_MAX_ROWS, AuditExportKind,
+    PreparedAuditCsvExport, prepare_csv_export,
 };
 pub use filters::{AuditLogFilterQuery, AuditLogFilters};
 pub use manager::{

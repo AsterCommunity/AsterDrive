@@ -18,6 +18,7 @@ Team capabilities have two layers:
 | `DELETE` | `/teams/{id}` | Archive a team |
 | `POST` | `/teams/{id}/restore` | Restore an archived team |
 | `GET` | `/teams/{id}/audit-logs` | Read team audit logs |
+| `GET` | `/teams/{id}/audit-logs/export` | Stream a CSV export using the same team audit filters |
 | `GET` | `/teams/{id}/members` | Paginated team members |
 | `POST` | `/teams/{id}/members` | Add a team member |
 | `PATCH` | `/teams/{id}/members/{member_user_id}` | Change member role |
@@ -30,6 +31,7 @@ Current behavior:
 - admins can create a team for someone else through `/admin/teams`; that entry adds the target user with `admin` role
 - `DELETE /teams/{id}` archives rather than physically deletes; cleanup happens after `team_archive_retention_days`
 - `GET /teams/{id}/audit-logs` requires team `owner` or `admin` and supports filters such as `user_id`, `action`, `after`, `before`, `limit`, `offset`
+- `GET /teams/{id}/audit-logs/export` reuses `user_id`, `action`, `entity_type`, `entity_id`, `after`, and `before`. The server uses deterministic `created_at + id` ordering and keyset cursor batches. A single export is capped at 100,000 rows and returns `operation.resource_limit_exceeded` when exceeded; CSV columns and detail redaction are fixed by the admin API contract.
 - `GET /teams/{id}/members` supports `keyword`, `role`, `status`, `limit`, `offset`, `sort_by`, `sort_order`
 - `POST /teams/{id}/members` accepts either `user_id` or `identifier`, exactly one of them; omitted `role` defaults to `member`
 - member pagination returns `owner_count` and `manager_count` in addition to `items` / `total` / `limit` / `offset`

@@ -42,3 +42,33 @@ pub async fn list_audit_logs(
 
     Ok(HttpResponse::Ok().json(ApiResponse::ok(page)))
 }
+
+#[aster_forge_api_docs_macros::path(
+    get,
+    path = "/api/v1/admin/audit-logs/export",
+    tag = "admin",
+    operation_id = "export_audit_logs",
+    params(audit::AuditLogFilterQuery, AdminAuditLogSortQuery),
+    responses(
+        (status = 200, description = "UTF-8 CSV stream with at most 100000 audit rows", content_type = "text/csv"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 507, description = "The 100000-row export limit was exceeded"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn export_audit_logs(
+    state: web::Data<PrimaryAppState>,
+    query: web::Query<audit::AuditLogFilterQuery>,
+    sort: web::Query<AdminAuditLogSortQuery>,
+) -> Result<HttpResponse> {
+    let export = audit::prepare_csv_export(
+        state.get_ref().clone(),
+        audit::AuditExportKind::System,
+        audit::AuditLogFilters::from_query(&query),
+        sort.sort_by(),
+        sort.sort_order(),
+    )
+    .await?;
+    Ok(crate::api::routes::audit_csv::response(export))
+}

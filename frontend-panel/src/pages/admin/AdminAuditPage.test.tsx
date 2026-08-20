@@ -5,6 +5,7 @@ import AdminAuditPage from "@/pages/admin/AdminAuditPage";
 import type { AuditLogEntry, UserSummary } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
+	export: vi.fn(),
 	handleApiError: vi.fn(),
 	list: vi.fn(),
 }));
@@ -300,6 +301,7 @@ vi.mock("@/lib/format", () => ({
 
 vi.mock("@/services/auditService", () => ({
 	auditService: {
+		export: (...args: unknown[]) => mockState.export(...args),
 		list: (...args: unknown[]) => mockState.list(...args),
 	},
 }));
@@ -330,11 +332,28 @@ function renderPage(initialEntry = "/admin/audit") {
 
 describe("AdminAuditPage", () => {
 	beforeEach(() => {
+		mockState.export.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.list.mockReset();
 		mockState.list.mockResolvedValue({
 			items: [createEntry()],
 			total: 1,
+		});
+	});
+
+	it("exports the current filters and sort without using the visible page", async () => {
+		renderPage("/admin/audit?action=file_delete&entityType=folder");
+
+		await waitFor(() => expect(mockState.list).toHaveBeenCalled());
+		fireEvent.click(screen.getByRole("button", { name: /audit_export_csv/i }));
+
+		await waitFor(() => {
+			expect(mockState.export).toHaveBeenCalledWith({
+				action: "file_delete",
+				entity_type: "folder",
+				sort_by: "created_at",
+				sort_order: "desc",
+			});
 		});
 	});
 

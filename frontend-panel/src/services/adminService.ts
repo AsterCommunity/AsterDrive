@@ -1,4 +1,5 @@
 import { withQuery } from "@/lib/queryParams";
+import { api, downloadFile } from "@/services/http";
 import type {
 	ActionMessageResp,
 	AddTeamMemberRequest,
@@ -104,7 +105,6 @@ import type {
 	UserInfo,
 	UserPage,
 } from "@/types/api";
-import { api } from "./http";
 
 export interface SetFolderPolicyRequest {
 	policy_id: number | null;
@@ -226,6 +226,15 @@ export const adminTeamService = {
 			}),
 		);
 	},
+	exportAuditLogs: (
+		id: number,
+		params: Omit<AdminTeamAuditLogListQuery, "limit" | "offset"> = {},
+	) =>
+		downloadFile(
+			withQuery(`/admin/teams/${id}/audit-logs/export`, params),
+			undefined,
+			`asterdrive-admin-team-${id}-audit.csv`,
+		),
 	listMembers: (id: number, params: AdminTeamMemberListQuery = {}) => {
 		const { limit, offset, sort_by, sort_order, ...filters } = params;
 

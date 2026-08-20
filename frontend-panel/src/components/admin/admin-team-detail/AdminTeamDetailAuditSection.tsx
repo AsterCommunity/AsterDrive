@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "@/components/common/EmptyState";
 import { SkeletonTable } from "@/components/common/SkeletonTable";
@@ -5,12 +6,15 @@ import { UserIdentity } from "@/components/common/UserIdentity";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { handleApiError } from "@/hooks/useApiError";
 import { formatAuditDetail, formatAuditSummary } from "@/lib/audit";
 import { formatDateAbsolute } from "@/lib/format";
 import { formatTeamAuditSummary } from "@/lib/team";
+import { adminTeamService } from "@/services/adminService";
 import type { TeamAuditEntryInfo, TeamMemberRole } from "@/types/api";
 
 interface AuditSectionProps {
+	teamId: number;
 	auditCurrentPage: number;
 	auditEntries: TeamAuditEntryInfo[];
 	auditLoading: boolean;
@@ -24,6 +28,7 @@ interface AuditSectionProps {
 }
 
 export function AdminTeamDetailAuditSection({
+	teamId,
 	auditCurrentPage,
 	auditEntries,
 	auditLoading,
@@ -36,16 +41,43 @@ export function AdminTeamDetailAuditSection({
 	setAuditOffset,
 }: AuditSectionProps) {
 	const { t } = useTranslation(["admin", "core", "settings"]);
+	const [exporting, setExporting] = useState(false);
+	const handleExport = async () => {
+		if (exporting) return;
+		setExporting(true);
+		try {
+			await adminTeamService.exportAuditLogs(teamId);
+		} catch (error) {
+			handleApiError(error);
+		} finally {
+			setExporting(false);
+		}
+	};
 
 	return (
 		<section>
-			<div className="mb-5">
-				<h4 className="text-base font-semibold text-foreground">
-					{t("team_audit_title")}
-				</h4>
-				<p className="mt-1 text-sm text-muted-foreground">
-					{t("team_audit_desc")}
-				</p>
+			<div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+				<div>
+					<h4 className="text-base font-semibold text-foreground">
+						{t("team_audit_title")}
+					</h4>
+					<p className="mt-1 text-sm text-muted-foreground">
+						{t("team_audit_desc")}
+					</p>
+				</div>
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					onClick={() => void handleExport()}
+					disabled={exporting}
+				>
+					<Icon
+						name={exporting ? "Spinner" : "Download"}
+						className={`mr-1 size-4 ${exporting ? "animate-spin" : ""}`}
+					/>
+					{t("team_audit_export")}
+				</Button>
 			</div>
 			{auditLoading && auditEntries.length === 0 ? (
 				<SkeletonTable columns={4} rows={4} />

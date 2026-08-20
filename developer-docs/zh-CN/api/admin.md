@@ -631,6 +631,7 @@ POST /api/v1/admin/policies/action
 | `DELETE` | `/admin/teams/{id}` |归档团队 |
 | `POST` | `/admin/teams/{id}/restore` | 恢复已归档团队 |
 | `GET` | `/admin/teams/{id}/audit-logs` | 查看团队审计记录 |
+| `GET` | `/admin/teams/{id}/audit-logs/export` | 流式导出指定团队审计 CSV |
 | `GET` | `/admin/teams/{id}/members` | 分页查看团队成员 |
 | `POST` | `/admin/teams/{id}/members` | 添加团队成员 |
 | `PATCH` | `/admin/teams/{id}/members/{member_user_id}` | 调整成员角色 |
@@ -991,6 +992,7 @@ POST /api/v1/admin/policies/action
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `GET` | `/admin/audit-logs` | 分页查询审计日志 |
+| `GET` | `/admin/audit-logs/export` | 按筛选和排序条件流式导出全站审计 CSV |
 
 当前实现支持这些查询参数：
 
@@ -1005,6 +1007,12 @@ POST /api/v1/admin/policies/action
 - `sort_order`
 
 其中 `after` 和 `before` 使用 RFC3339 时间字符串。
+
+导出接口忽略 `limit` 和 `offset`，使用 keyset 游标分批流式读取；匹配结果超过 100000 行时返回 `operation.resource_limit_exceeded`。CSV 默认 UTF-8，按 RFC 4180 转义，固定列顺序为：
+
+`id,created_at,actor_user_id,actor_username,action,entity_type,entity_id,entity_name,detail,ip_address,user_agent,member_user_id,member_username,role,previous_role,next_role`
+
+`created_at` 使用 UTC RFC3339。`detail` 是服务端递归移除 password、token、secret、credential、authorization、cookie、恢复码、密钥和 API key 字段后的结构化 JSON；空值保持为空。
 
 返回结果包含分页信息与日志项，日志项里会带时间、用户、动作、实体、名称、IP 等字段。
 

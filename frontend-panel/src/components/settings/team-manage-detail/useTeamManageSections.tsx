@@ -199,6 +199,7 @@ export function buildTeamManageSections({
 	);
 	const auditSection = canManageTeam ? (
 		<TeamManageAuditSection
+			teamId={teamId}
 			auditCurrentPage={auditCurrentPage}
 			auditEntries={auditEntries}
 			auditLoading={auditLoading}

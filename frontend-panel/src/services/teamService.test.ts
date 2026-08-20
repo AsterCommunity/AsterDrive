@@ -3,6 +3,7 @@ import { teamService } from "@/services/teamService";
 
 const mockState = vi.hoisted(() => ({
 	delete: vi.fn(),
+	downloadFile: vi.fn(),
 	get: vi.fn(),
 	patch: vi.fn(),
 	post: vi.fn(),
@@ -15,11 +16,13 @@ vi.mock("@/services/http", () => ({
 		patch: mockState.patch,
 		post: mockState.post,
 	},
+	downloadFile: mockState.downloadFile,
 }));
 
 describe("teamService", () => {
 	beforeEach(() => {
 		mockState.delete.mockReset();
+		mockState.downloadFile.mockReset();
 		mockState.get.mockReset();
 		mockState.patch.mockReset();
 		mockState.post.mockReset();
@@ -101,5 +104,18 @@ describe("teamService", () => {
 			role: "owner",
 		});
 		expect(mockState.delete).toHaveBeenNthCalledWith(2, "/teams/5/members/8");
+	});
+
+	it("exports team audit logs without pagination parameters", () => {
+		teamService.exportAuditLogs(7, {
+			action: "team_update",
+			before: "2026-01-02T00:00:00Z",
+		});
+
+		expect(mockState.downloadFile).toHaveBeenCalledWith(
+			"/teams/7/audit-logs/export?action=team_update&before=2026-01-02T00%3A00%3A00Z",
+			undefined,
+			"asterdrive-team-7-audit.csv",
+		);
 	});
 });

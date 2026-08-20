@@ -27,6 +27,24 @@ pub struct AuditLogQuery<'a> {
     pub sort_order: SortOrder,
 }
 
+#[derive(Debug, Clone)]
+pub struct AuditLogExportQuery {
+    pub user_id: Option<i64>,
+    pub action: Option<String>,
+    pub entity_type: Option<String>,
+    pub entity_id: Option<i64>,
+    pub after: Option<DateTime<Utc>>,
+    pub before: Option<DateTime<Utc>>,
+    pub sort_by: AdminAuditLogSortBy,
+    pub sort_order: SortOrder,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuditLogExportSnapshot {
+    pub max_id: i64,
+    pub total: u64,
+}
+
 /// 带过滤条件的分页查询
 pub async fn find_with_filters(
     db: &DatabaseConnection,
@@ -137,6 +155,204 @@ fn apply_admin_audit_log_sort(
             audit_log::Column::Id,
         ),
     }
+}
+
+fn apply_export_filters(
+    mut query: Select<AuditLog>,
+    filters: &AuditLogExportQuery,
+) -> Select<AuditLog> {
+    if let Some(user_id) = filters.user_id {
+        query = query.filter(audit_log::Column::UserId.eq(user_id));
+    }
+    if let Some(action) = filters.action.as_deref() {
+        query = query.filter(audit_log::Column::Action.eq(action));
+    }
+    if let Some(entity_type) = filters.entity_type.as_deref() {
+        query = query.filter(audit_log::Column::EntityType.eq(entity_type));
+    }
+    if let Some(entity_id) = filters.entity_id {
+        query = query.filter(audit_log::Column::EntityId.eq(entity_id));
+    }
+    if let Some(after) = filters.after {
+        query = query.filter(audit_log::Column::CreatedAt.gte(after));
+    }
+    if let Some(before) = filters.before {
+        query = query.filter(audit_log::Column::CreatedAt.lte(before));
+    }
+    query
+}
+
+pub async fn export_snapshot(
+    db: &DatabaseConnection,
+    filters: &AuditLogExportQuery,
+) -> Result<Option<AuditLogExportSnapshot>> {
+    let max_id = apply_export_filters(AuditLog::find(), filters)
+        .select_only()
+        .column(audit_log::Column::Id)
+        .order_by_desc(audit_log::Column::Id)
+        .limit(1)
+        .into_tuple::<i64>()
+        .one(db)
+        .await
+        .map_err(AsterError::from)?;
+    let Some(max_id) = max_id else {
+        return Ok(None);
+    };
+
+    let total = apply_export_filters(AuditLog::find(), filters)
+        .filter(audit_log::Column::Id.lte(max_id))
+        .count(db)
+        .await
+        .map_err(AsterError::from)?;
+
+    Ok(Some(AuditLogExportSnapshot { max_id, total }))
+}
+
+fn id_cursor_condition(id: i64, sort_order: SortOrder) -> Condition {
+    match sort_order {
+        SortOrder::Asc => Condition::all().add(audit_log::Column::Id.gt(id)),
+        SortOrder::Desc => Condition::all().add(audit_log::Column::Id.lt(id)),
+    }
+}
+
+fn non_null_cursor_condition<V>(
+    column: audit_log::Column,
+    value: V,
+    id: i64,
+    sort_order: SortOrder,
+) -> Condition
+where
+    V: Clone + Into<sea_orm::Value>,
+{
+    match sort_order {
+        SortOrder::Asc => Condition::any().add(column.gt(value.clone())).add(
+            Condition::all()
+                .add(column.eq(value))
+                .add(audit_log::Column::Id.gt(id)),
+        ),
+        SortOrder::Desc => Condition::any().add(column.lt(value.clone())).add(
+            Condition::all()
+                .add(column.eq(value))
+                .add(audit_log::Column::Id.lt(id)),
+        ),
+    }
+}
+
+fn nullable_string_cursor_condition(
+    column: audit_log::Column,
+    value: Option<&str>,
+    id: i64,
+    sort_order: SortOrder,
+) -> Condition {
+    let id_condition = match sort_order {
+        SortOrder::Asc => audit_log::Column::Id.gt(id),
+        SortOrder::Desc => audit_log::Column::Id.lt(id),
+    };
+    let Some(value) = value else {
+        return Condition::all().add(column.is_null()).add(id_condition);
+    };
+
+    let ordered_after = match sort_order {
+        SortOrder::Asc => column.gt(value),
+        SortOrder::Desc => column.lt(value),
+    };
+    Condition::any()
+        .add(column.is_null())
+        .add(ordered_after)
+        .add(Condition::all().add(column.eq(value)).add(id_condition))
+}
+
+fn apply_export_sort(
+    mut query: Select<AuditLog>,
+    sort_by: AdminAuditLogSortBy,
+    sort_order: SortOrder,
+) -> Select<AuditLog> {
+    let column = match sort_by {
+        AdminAuditLogSortBy::Id => return order_by_id(query, audit_log::Column::Id, sort_order),
+        AdminAuditLogSortBy::CreatedAt => audit_log::Column::CreatedAt,
+        AdminAuditLogSortBy::UserId => audit_log::Column::UserId,
+        AdminAuditLogSortBy::Action => audit_log::Column::Action,
+        AdminAuditLogSortBy::EntityType => audit_log::Column::EntityType,
+        AdminAuditLogSortBy::EntityName => {
+            query = query.order_by_asc(audit_log::Column::EntityName.is_null());
+            audit_log::Column::EntityName
+        }
+        AdminAuditLogSortBy::IpAddress => {
+            query = query.order_by_asc(audit_log::Column::IpAddress.is_null());
+            audit_log::Column::IpAddress
+        }
+    };
+    order_by_column_with_id(query, column, sort_order, audit_log::Column::Id)
+}
+
+fn export_cursor_condition(
+    cursor: &product_audit_log::Model,
+    sort_by: AdminAuditLogSortBy,
+    sort_order: SortOrder,
+) -> Condition {
+    match sort_by {
+        AdminAuditLogSortBy::Id => id_cursor_condition(cursor.id, sort_order),
+        AdminAuditLogSortBy::CreatedAt => non_null_cursor_condition(
+            audit_log::Column::CreatedAt,
+            cursor.created_at,
+            cursor.id,
+            sort_order,
+        ),
+        AdminAuditLogSortBy::UserId => non_null_cursor_condition(
+            audit_log::Column::UserId,
+            cursor.user_id,
+            cursor.id,
+            sort_order,
+        ),
+        AdminAuditLogSortBy::Action => non_null_cursor_condition(
+            audit_log::Column::Action,
+            cursor.action.as_str(),
+            cursor.id,
+            sort_order,
+        ),
+        AdminAuditLogSortBy::EntityType => non_null_cursor_condition(
+            audit_log::Column::EntityType,
+            cursor.entity_type.as_str(),
+            cursor.id,
+            sort_order,
+        ),
+        AdminAuditLogSortBy::EntityName => nullable_string_cursor_condition(
+            audit_log::Column::EntityName,
+            cursor.entity_name.as_deref(),
+            cursor.id,
+            sort_order,
+        ),
+        AdminAuditLogSortBy::IpAddress => nullable_string_cursor_condition(
+            audit_log::Column::IpAddress,
+            cursor.ip_address.as_deref(),
+            cursor.id,
+            sort_order,
+        ),
+    }
+}
+
+pub async fn find_export_page(
+    db: &DatabaseConnection,
+    filters: &AuditLogExportQuery,
+    snapshot: AuditLogExportSnapshot,
+    cursor: Option<&product_audit_log::Model>,
+    limit: u64,
+) -> Result<Vec<product_audit_log::Model>> {
+    let mut query = apply_export_filters(AuditLog::find(), filters)
+        .filter(audit_log::Column::Id.lte(snapshot.max_id));
+    if let Some(cursor) = cursor {
+        query = query.filter(export_cursor_condition(
+            cursor,
+            filters.sort_by,
+            filters.sort_order,
+        ));
+    }
+    let rows = apply_export_sort(query, filters.sort_by, filters.sort_order)
+        .limit(limit)
+        .all(db)
+        .await
+        .map_err(AsterError::from)?;
+    rows.into_iter().map(product_audit_log_from_forge).collect()
 }
 
 /// Cursor page for admin overview daily aggregation.

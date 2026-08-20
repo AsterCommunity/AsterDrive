@@ -792,4 +792,33 @@ describe("http api helpers", () => {
 		expect(mockState.refreshToken).not.toHaveBeenCalled();
 		expect(mockState.client).not.toHaveBeenCalled();
 	});
+
+	it("downloads blobs, honors RFC5987 filenames, and releases object URLs", async () => {
+		const createObjectURL = vi
+			.spyOn(URL, "createObjectURL")
+			.mockReturnValue("blob:audit");
+		const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL");
+		const click = vi.spyOn(HTMLAnchorElement.prototype, "click");
+		mockState.client.get.mockResolvedValue({
+			data: new Blob(["id\n1\n"], { type: "text/csv" }),
+			headers: {
+				"content-disposition":
+					"attachment; filename*=UTF-8''audit%20%E6%B5%8B%E8%AF%95.csv",
+			},
+		});
+
+		const { downloadFile } = await loadHttpModule();
+		await downloadFile("/admin/audit-logs/export", undefined, "fallback.csv");
+
+		expect(mockState.client.get).toHaveBeenCalledWith(
+			"/admin/audit-logs/export",
+			{ responseType: "blob", timeout: 0 },
+		);
+		expect(createObjectURL).toHaveBeenCalledTimes(1);
+		expect(click).toHaveBeenCalledTimes(1);
+		expect(revokeObjectURL).toHaveBeenCalledWith("blob:audit");
+		createObjectURL.mockRestore();
+		revokeObjectURL.mockRestore();
+		click.mockRestore();
+	});
 });

@@ -1,5 +1,5 @@
 import { withQuery } from "@/lib/queryParams";
-import { api } from "@/services/http";
+import { api, downloadFile } from "@/services/http";
 import type {
 	AddTeamMemberRequest,
 	CreateTeamRequest,
@@ -40,6 +40,15 @@ export const teamService = {
 			}),
 		);
 	},
+	exportAuditLogs: (
+		id: number,
+		params: Omit<TeamAuditLogListQuery, "limit" | "offset"> = {},
+	) =>
+		downloadFile(
+			withQuery(`/teams/${id}/audit-logs/export`, params),
+			undefined,
+			`asterdrive-team-${id}-audit.csv`,
+		),
 	listMembers: (id: number, params: TeamMemberListQuery = {}) => {
 		const { limit, offset, ...filters } = params;
 

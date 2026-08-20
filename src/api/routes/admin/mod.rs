@@ -38,7 +38,7 @@ pub(crate) mod tasks;
 pub(crate) mod teams;
 pub(crate) mod users;
 
-pub use audit_logs::list_audit_logs;
+pub use audit_logs::{export_audit_logs, list_audit_logs};
 pub use config::{
     config_schema, config_template_variables, delete_config, execute_config_action, get_config,
     list_config, set_config,
@@ -78,8 +78,9 @@ pub use storage_migrations::{
 pub use system_info::get_system_info;
 pub use tasks::{cleanup_tasks, list_tasks};
 pub use teams::{
-    add_team_member, create_team, delete_team, delete_team_member, get_team, list_team_audit_logs,
-    list_team_members, list_teams, patch_team_member, restore_team, update_team,
+    add_team_member, create_team, delete_team, delete_team_member, export_team_audit_logs,
+    get_team, list_team_audit_logs, list_team_members, list_teams, patch_team_member, restore_team,
+    update_team,
 };
 pub use users::{
     create_user, create_user_invitation, force_delete_user, get_user, get_user_avatar,
@@ -260,6 +261,10 @@ pub fn routes(
                         "/teams/{id}/audit-logs",
                         web::get().to(list_team_audit_logs),
                     )
+                    .route(
+                        "/teams/{id}/audit-logs/export",
+                        web::get().to(export_team_audit_logs),
+                    )
                     .route("/teams/{id}/members", web::get().to(list_team_members))
                     .route("/teams/{id}/members", web::post().to(add_team_member))
                     .route(
@@ -314,6 +319,7 @@ pub fn routes(
                     )
                     // audit logs
                     .route("/audit-logs", web::get().to(list_audit_logs))
+                    .route("/audit-logs/export", web::get().to(export_audit_logs))
                     // webdav locks
                     .route("/locks", web::get().to(list_locks))
                     .route("/locks/expired", web::delete().to(cleanup_expired_locks))

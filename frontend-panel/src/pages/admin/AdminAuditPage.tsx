@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
@@ -27,6 +28,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { handleApiError } from "@/hooks/useApiError";
 import {
 	useManagedAdminList,
 	useManagedOffset,
@@ -134,6 +136,24 @@ export default function AdminAuditPage() {
 		sortOrder,
 	} = query;
 	const setOffset = useManagedOffset(setQuery);
+	const [exporting, setExporting] = useState(false);
+	const handleExport = async () => {
+		if (exporting) return;
+		setExporting(true);
+		try {
+			await auditService.export({
+				action: actionFilter.trim() || undefined,
+				entity_type:
+					entityTypeFilter === "__all__" ? undefined : entityTypeFilter,
+				sort_by: sortBy,
+				sort_order: sortOrder,
+			});
+		} catch (error) {
+			handleApiError(error);
+		} finally {
+			setExporting(false);
+		}
+	};
 
 	const {
 		currentPage,
@@ -291,19 +311,34 @@ export default function AdminAuditPage() {
 					description={t("audit_intro")}
 					className="px-0 md:px-0"
 					actions={
-						<Button
-							variant="outline"
-							size="sm"
-							className={ADMIN_CONTROL_HEIGHT_CLASS}
-							onClick={() => void reload()}
-							disabled={loading}
-						>
-							<Icon
-								name={loading ? "Spinner" : "ArrowsClockwise"}
-								className={`mr-1 size-3.5 ${loading ? "animate-spin" : ""}`}
-							/>
-							{t("core:refresh")}
-						</Button>
+						<div className="flex flex-wrap gap-2">
+							<Button
+								variant="outline"
+								size="sm"
+								className={ADMIN_CONTROL_HEIGHT_CLASS}
+								onClick={() => void handleExport()}
+								disabled={exporting}
+							>
+								<Icon
+									name={exporting ? "Spinner" : "Download"}
+									className={`mr-1 size-3.5 ${exporting ? "animate-spin" : ""}`}
+								/>
+								{t("audit_export_csv")}
+							</Button>
+							<Button
+								variant="outline"
+								size="sm"
+								className={ADMIN_CONTROL_HEIGHT_CLASS}
+								onClick={() => void reload()}
+								disabled={loading}
+							>
+								<Icon
+									name={loading ? "Spinner" : "ArrowsClockwise"}
+									className={`mr-1 size-3.5 ${loading ? "animate-spin" : ""}`}
+								/>
+								{t("core:refresh")}
+							</Button>
+						</div>
 					}
 					toolbar={
 						<AdminFilterToolbar

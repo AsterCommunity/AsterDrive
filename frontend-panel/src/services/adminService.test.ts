@@ -12,6 +12,7 @@ import {
 	adminShareService,
 	adminSystemService,
 	adminTaskService,
+	adminTeamService,
 	adminUserService,
 } from "@/services/adminService";
 
@@ -21,6 +22,7 @@ const mockState = vi.hoisted(() => ({
 	patch: vi.fn(),
 	post: vi.fn(),
 	put: vi.fn(),
+	downloadFile: vi.fn(),
 }));
 
 vi.mock("@/services/http", () => ({
@@ -31,6 +33,7 @@ vi.mock("@/services/http", () => ({
 		post: mockState.post,
 		put: mockState.put,
 	},
+	downloadFile: mockState.downloadFile,
 }));
 
 describe("adminService", () => {
@@ -40,6 +43,7 @@ describe("adminService", () => {
 		mockState.patch.mockReset();
 		mockState.post.mockReset();
 		mockState.put.mockReset();
+		mockState.downloadFile.mockReset();
 	});
 
 	it("builds list endpoints with optional query strings", () => {
@@ -89,6 +93,15 @@ describe("adminService", () => {
 			"/admin/locks?limit=9&sort_by=path",
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(7, "/admin/config?offset=3");
+	});
+
+	it("exports a team audit log through the binary download service", () => {
+		adminTeamService.exportAuditLogs(42, { action: "team_update" });
+		expect(mockState.downloadFile).toHaveBeenCalledWith(
+			"/admin/teams/42/audit-logs/export?action=team_update",
+			undefined,
+			"asterdrive-admin-team-42-audit.csv",
+		);
 	});
 
 	it("uses bare list endpoints when no query params are provided", () => {

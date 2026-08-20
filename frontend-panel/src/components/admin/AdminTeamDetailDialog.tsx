@@ -643,6 +643,7 @@ export function AdminTeamDetailDialog({
 
 	const auditSection = (
 		<AdminTeamDetailAuditSection
+			teamId={teamId ?? 0}
 			auditCurrentPage={auditCurrentPage}
 			auditEntries={auditEntries}
 			auditLoading={auditLoading}

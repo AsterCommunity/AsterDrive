@@ -553,6 +553,7 @@ The issued access token is scoped to password change only. It can call `GET /aut
 | `DELETE` | `/admin/teams/{id}` | Archive a team |
 | `POST` | `/admin/teams/{id}/restore` | Restore an archived team |
 | `GET` | `/admin/teams/{id}/audit-logs` | Read team audit logs |
+| `GET` | `/admin/teams/{id}/audit-logs/export` | Stream a CSV export for a team |
 | `GET` | `/admin/teams/{id}/members` | Paginated team members |
 | `POST` | `/admin/teams/{id}/members` | Add team member |
 | `PATCH` | `/admin/teams/{id}/members/{member_user_id}` | Update member role |
@@ -579,6 +580,13 @@ Admin team creation can create a team for another user and give that user the in
 | `DELETE` | `/admin/locks/{id}` | Release a lock |
 | `DELETE` | `/admin/locks/expired` | Delete expired locks |
 | `GET` | `/admin/audit-logs` | Paginated audit logs |
+| `GET` | `/admin/audit-logs/export` | Stream a CSV export using filters and sorting |
+
+The export endpoint ignores `limit` and `offset`, reads keyset cursor batches, and rejects matches over 100,000 rows with `operation.resource_limit_exceeded`. CSV output is UTF-8 with RFC 4180 escaping and this fixed column order:
+
+`id,created_at,actor_user_id,actor_username,action,entity_type,entity_id,entity_name,detail,ip_address,user_agent,member_user_id,member_username,role,previous_role,next_role`
+
+`created_at` uses UTC RFC3339. `detail` contains stored JSON after recursive removal of password, token, secret, credential, authorization, cookie, recovery-code, key, and API-key fields. Empty values remain empty.
 
 Runtime config entries defined by the system cannot be deleted; custom entries can. The single source of truth for system config definitions is `src/config/definitions.rs`.
 
