@@ -635,6 +635,178 @@ async fn test_thumbnail_heic_uses_vips_cli_processor_when_extension_matches() {
     );
 }
 
+#[cfg(unix)]
+#[actix_web::test]
+async fn test_full_to_slim_keeps_cached_heic_thumbnail_but_rejects_new_generation() {
+    let state = common::setup().await;
+    let (fake_vips, _) = write_fake_vips_thumbnail_command();
+    state.runtime_config.apply(common::system_config_model(
+        "media_processing_registry_json",
+        &json!({
+            "version": 2,
+            "processors": [
+                {
+                    "kind": "vips_cli",
+                    "enabled": true,
+                    "uses": ["thumbnail:image"],
+                    "extensions": ["heic"],
+                    "config": { "command": fake_vips }
+                },
+                {
+                    "kind": "images",
+                    "enabled": true,
+                    "uses": ["thumbnail:image", "metadata:image"]
+                }
+            ]
+        })
+        .to_string(),
+    ));
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let cached_file_id = upload_file_bytes!(
+        app,
+        token,
+        "cached.heic",
+        "image/heic",
+        b"cached-heic".to_vec()
+    );
+
+    let first = request_thumbnail!(app, token, cached_file_id);
+    assert_eq!(first.status(), 202);
+    aster_drive::services::task::drain(&state).await.unwrap();
+    let generated = request_thumbnail!(app, token, cached_file_id);
+    assert_eq!(generated.status(), 200);
+
+    state.runtime_config.apply(common::system_config_model(
+        "media_processing_registry_json",
+        &json!({
+            "version": 2,
+            "processors": [
+                {
+                    "kind": "vips_cli",
+                    "enabled": true,
+                    "uses": ["thumbnail:image"],
+                    "extensions": ["heic"],
+                    "config": { "command": "/definitely-missing/aster-vips" }
+                },
+                {
+                    "kind": "images",
+                    "enabled": true,
+                    "uses": ["thumbnail:image", "metadata:image"]
+                }
+            ]
+        })
+        .to_string(),
+    ));
+
+    let cached_after_switch = request_thumbnail!(app, token, cached_file_id);
+    assert_eq!(cached_after_switch.status(), 200);
+
+    let task_count_before = background_task_repo::list_recent(state.writer_db(), 64)
+        .await
+        .unwrap()
+        .len();
+    let new_file_id =
+        upload_file_bytes!(app, token, "new.heic", "image/heic", b"new-heic".to_vec());
+    let unavailable = request_thumbnail!(app, token, new_file_id);
+    assert_eq!(unavailable.status(), 412);
+    let body: Value = test::read_body_json(unavailable).await;
+    assert_eq!(body["code"], "thumbnail.processor_unavailable");
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|message| message.contains("use the full image or disable vips_cli"))
+    );
+    assert!(!body.to_string().contains("definitely-missing"));
+
+    let task_count_after = background_task_repo::list_recent(state.writer_db(), 64)
+        .await
+        .unwrap()
+        .len();
+    assert_eq!(task_count_after, task_count_before);
+}
+
+#[cfg(unix)]
+#[actix_web::test]
+async fn test_full_to_slim_keeps_cached_heic_image_preview_readable() {
+    let state = common::setup().await;
+    let (fake_vips, _) = write_fake_vips_thumbnail_command();
+    state.runtime_config.apply(common::system_config_model(
+        "media_processing_registry_json",
+        &json!({
+            "version": 2,
+            "processors": [
+                {
+                    "kind": "vips_cli",
+                    "enabled": true,
+                    "uses": ["thumbnail:image"],
+                    "extensions": ["heic"],
+                    "config": { "command": fake_vips }
+                },
+                {
+                    "kind": "images",
+                    "enabled": true,
+                    "uses": ["thumbnail:image", "metadata:image"]
+                }
+            ]
+        })
+        .to_string(),
+    ));
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_file_bytes!(
+        app,
+        token,
+        "preview.heic",
+        "image/heic",
+        b"preview-heic".to_vec()
+    );
+    let file = file_repo::find_by_id(state.writer_db(), file_id)
+        .await
+        .unwrap();
+    let blob = blob_for_file(&state, file_id).await;
+    aster_drive::services::media::processing::generate_and_store_image_preview(
+        &state,
+        &blob,
+        &file.name,
+        &file.mime_type,
+    )
+    .await
+    .expect("full-image preview generation should succeed");
+
+    state.runtime_config.apply(common::system_config_model(
+        "media_processing_registry_json",
+        &json!({
+            "version": 2,
+            "processors": [
+                {
+                    "kind": "vips_cli",
+                    "enabled": true,
+                    "uses": ["thumbnail:image"],
+                    "extensions": ["heic"],
+                    "config": { "command": "/definitely-missing/aster-vips" }
+                },
+                {
+                    "kind": "images",
+                    "enabled": true,
+                    "uses": ["thumbnail:image", "metadata:image"]
+                }
+            ]
+        })
+        .to_string(),
+    ));
+
+    let preview = aster_drive::services::media::processing::load_image_preview_if_exists(
+        &state,
+        &blob,
+        &file.name,
+        &file.mime_type,
+    )
+    .await
+    .expect("slim-image preview cache read should succeed");
+    assert!(preview.is_some());
+}
+
 #[actix_web::test]
 async fn test_thumbnail_mp4_uses_ffmpeg_cli_processor_when_extension_matches() {
     let Some(ffmpeg_command) = ffmpeg_command_for_tests() else {

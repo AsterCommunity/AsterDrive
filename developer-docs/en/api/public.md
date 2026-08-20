@@ -162,6 +162,7 @@ Notes:
 - the built-in image processor exposes common image formats when enabled
 - the built-in `lofty` processor can expose audio suffixes for embedded cover thumbnails
 - `vips_cli` / `ffmpeg_cli` expose configured extensions only when the commands are available and the processors are enabled
+- this endpoint describes the instance's **effective generation capability**, not the configured database capability; administrators can use `GET /api/v1/admin/config/media-processing-status` to inspect `configured_enabled`, `runtime_available`, and `effective_enabled` for each processor
 - the capability mainly comes from `media_processing_registry_json`
 - storage-native thumbnails and image previews can also contribute extensions when a storage policy opts in and the driver exposes that capability; built-in `tencent_cos` policies can expose it through COS CI, while built-in Local, S3-compatible, Azure Blob, OneDrive, and Remote policies do not
 
@@ -198,7 +199,7 @@ Returns media metadata parsing support:
 }
 ```
 
-The top-level `enabled` maps to `media_metadata_enabled`. The per-kind entries are derived from the active media-processing registry and bounded by `media_metadata_max_source_bytes`. Storage-native media metadata extensions can also be merged into audio/video support when a policy opts in and the driver exposes that capability; built-in `tencent_cos` policies can expose it through COS CI.
+The top-level `enabled` maps to `media_metadata_enabled`. The per-kind entries are derived from the active media-processing registry and bounded by `media_metadata_max_source_bytes`. Image metadata support is independent from thumbnail generation support: the built-in Rust image parser may advertise `heic` metadata while the thumbnail endpoint filters `heic` when `vips` is missing. Storage-native media metadata extensions can also be merged into audio/video support when a policy opts in and the driver exposes that capability; built-in `tencent_cos` policies can expose it through COS CI.
 
 ## `POST /public/remote-enrollment/redeem`
 

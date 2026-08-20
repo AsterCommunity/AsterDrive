@@ -78,18 +78,19 @@ jobs:
             org.opencontainers.image.description=Self-hosted cloud storage system built with Rust
             org.opencontainers.image.vendor=AsterCommunity
 
-      # Build full first so the slim target reuses the exact same feature/architecture binary.
-      - name: Build and push full Docker image
-        id: build-push-full
+      # Push slim first and full last so registry UIs do not treat the most
+      # recently pushed slim artifact as the default image.
+      - name: Build and push slim Docker image
+        id: build-push-slim
         uses: docker/build-push-action@v7
         with:
           context: .
-          target: runtime-full
+          target: runtime-slim
           platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            ${{ env.REGISTRY_IMAGE_GHCR }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.variant }}-${{ matrix.arch }}
-            ${{ env.REGISTRY_IMAGE_DOCKERHUB }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.variant }}-${{ matrix.arch }}
+            ${{ env.REGISTRY_IMAGE_GHCR }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.variant }}-slim-${{ matrix.arch }}
+            ${{ env.REGISTRY_IMAGE_DOCKERHUB }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.variant }}-slim-${{ matrix.arch }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: |
             type=gha,scope=docker-image-${{ matrix.variant }}-${{ matrix.arch }}
@@ -103,17 +104,17 @@ jobs:
           provenance: true
           sbom: true
 
-      - name: Build and push slim Docker image
-        id: build-push-slim
+      - name: Build and push full Docker image
+        id: build-push-full
         uses: docker/build-push-action@v7
         with:
           context: .
-          target: runtime-slim
+          target: runtime-full
           platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            ${{ env.REGISTRY_IMAGE_GHCR }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.variant }}-slim-${{ matrix.arch }}
-            ${{ env.REGISTRY_IMAGE_DOCKERHUB }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.variant }}-slim-${{ matrix.arch }}
+            ${{ env.REGISTRY_IMAGE_GHCR }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.variant }}-${{ matrix.arch }}
+            ${{ env.REGISTRY_IMAGE_DOCKERHUB }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.variant }}-${{ matrix.arch }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: |
             type=gha,scope=docker-image-${{ matrix.variant }}-${{ matrix.arch }}

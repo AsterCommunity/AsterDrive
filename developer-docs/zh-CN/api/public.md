@@ -164,6 +164,7 @@
 - 内置图片处理器启用时会暴露常见图片格式
 - 内置 `lofty` 处理器启用 `thumbnail:audio` 时会暴露音频后缀，前端可通过同一条 thumbnail 接口请求音频内嵌封面
 - `vips_cli` / `ffmpeg_cli` 只有在对应命令可用且处理器启用时，才会把配置里的扩展名暴露出去；因此它可能包含图片以外的文档或视频扩展名
+- 这条接口表达的是当前实例的 **effective generation capability**，不是数据库里的 configured capability；管理员可通过 `GET /api/v1/admin/config/media-processing-status` 查看每个处理器的 `configured_enabled`、`runtime_available` 和 `effective_enabled`
 - 这份能力主要来自运行时配置 `media_processing_registry_json`
 - 如果某条存储策略设置了 `storage_native_thumbnail_enabled = true`，且实际驱动暴露存储原生缩略图 / 图片预览能力，策略里的 `storage_native_thumbnail_extensions` 也会合并进公开能力列表；设置为 `false` 只停用原生候选，不影响全局缩略图处理器。内置 `tencent_cos` 策略可通过 COS CI 暴露这项能力，内置 Local、S3-compatible、Azure Blob、OneDrive 和 Remote 策略不暴露
 
@@ -205,6 +206,7 @@
 - `enabled` 是媒体元数据总开关，对应运行时配置 `media_metadata_enabled`
 - `max_source_bytes` 会按服务端配置值返回，但会裁剪到 JavaScript 安全整数范围内
 - `kinds.image` 来自内置 `images` 处理器的 `metadata:image` 用途
+- 图片元数据支持与缩略图生成支持是独立契约；例如内置 Rust 图片解析链可以继续暴露 `heic` 元数据，而缺少 `vips` 时缩略图接口仍会过滤 `heic`
 - `kinds.audio` 来自内置 `lofty` 处理器的 `metadata:audio` 用途
 - `kinds.video` 来自 `ffprobe_cli` 处理器的 `metadata:video` 用途；命令不可用或处理器未启用时会返回 `enabled = false`
 - `match = "extensions"` 表示前端应按扩展名匹配；`match = "any"` 当前只会出现在启用 `ffprobe_cli` 且没有配置扩展名过滤时，表示视频元数据可尝试所有视频候选文件

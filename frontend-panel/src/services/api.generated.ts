@@ -36,6 +36,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/config/media-processing-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_media_processing_runtime_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/config/schema": {
         parameters: {
             query?: never;
@@ -6103,6 +6119,20 @@ export interface components {
         });
         /** @enum {string} */
         MediaMetadataStatus: "ready" | "failed" | "unsupported";
+        MediaProcessingProcessorRuntimeStatus: {
+            configured_enabled: boolean;
+            effective_enabled: boolean;
+            kind: components["schemas"]["MediaProcessorKind"];
+            runtime_available: boolean;
+            unavailable_reason?: null | components["schemas"]["MediaProcessingUnavailableReason"];
+        };
+        MediaProcessingRuntimeStatus: {
+            processors: components["schemas"]["MediaProcessingProcessorRuntimeStatus"][];
+            /** Format: int32 */
+            version: number;
+        };
+        /** @enum {string} */
+        MediaProcessingUnavailableReason: "command_not_found";
         /**
          * @description 统一媒体处理器类型（system_config / storage_policy.options）
          * @enum {string}
@@ -9459,6 +9489,49 @@ export interface operations {
                              * @description Total number of items matching the query.
                              */
                             total: number;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_media_processing_runtime_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Configured and effective media processor status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            processors: components["schemas"]["MediaProcessingProcessorRuntimeStatus"][];
+                            /** Format: int32 */
+                            version: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;

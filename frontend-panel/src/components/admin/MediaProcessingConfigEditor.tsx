@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DelimitedListInput } from "@/components/admin/DelimitedListInput";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { adminConfigService } from "@/services/adminService";
+import type { MediaProcessingRuntimeStatus } from "@/types/api";
 import {
 	formatMediaProcessingDelimitedInput,
 	getMediaProcessingConfigIssues,
@@ -165,10 +167,38 @@ export function MediaProcessingConfigEditor({
 	const [testingProcessorKind, setTestingProcessorKind] = useState<
 		MediaProcessingEditorProcessor["kind"] | null
 	>(null);
+	const [runtimeStatus, setRuntimeStatus] =
+		useState<MediaProcessingRuntimeStatus | null>(null);
 
 	useEffect(() => {
 		setDraft(parseDraftValue(value));
 	}, [value]);
+
+	useEffect(() => {
+		let active = true;
+		void adminConfigService
+			.mediaProcessingStatus()
+			.then((status) => {
+				if (active) setRuntimeStatus(status);
+			})
+			.catch(() => {
+				if (active) setRuntimeStatus(null);
+			});
+		return () => {
+			active = false;
+		};
+	}, []);
+
+	const runtimeStatusByKind = useMemo(
+		() =>
+			new Map(
+				(runtimeStatus?.processors ?? []).map((status) => [
+					status.kind,
+					status,
+				]),
+			),
+		[runtimeStatus],
+	);
 
 	const validationIssues = getMediaProcessingConfigIssues(draft);
 
@@ -257,6 +287,7 @@ export function MediaProcessingConfigEditor({
 				{draft.processors.map((processor) => {
 					const isBuiltinFallback = isBuiltinProcessor(processor.kind);
 					const supportsCommand = processorSupportsCommand(processor.kind);
+					const processorRuntimeStatus = runtimeStatusByKind.get(processor.kind);
 					const canTestCommand =
 						(processor.kind === "vips_cli" && onTestVipsCliCommand) ||
 						(processor.kind === "ffmpeg_cli" && onTestFfmpegCliCommand) ||
@@ -290,6 +321,23 @@ export function MediaProcessingConfigEditor({
 												{t("media_processing_editor_processor_fallback")}
 											</Badge>
 										) : null}
+										{supportsCommand && processorRuntimeStatus ? (
+											<Badge
+												variant={
+													processorRuntimeStatus.runtime_available
+														? "outline"
+														: "destructive"
+												}
+											>
+												{processorRuntimeStatus.runtime_available
+													? t(
+															"media_processing_editor_processor_runtime_available",
+														)
+													: t(
+															"media_processing_editor_processor_runtime_unavailable",
+														)}
+											</Badge>
+										) : null}
 										{processor.uses.map((use) => (
 											<Badge key={use} variant="outline">
 												{t(getProcessorUseLabelKey(use))}
@@ -299,6 +347,15 @@ export function MediaProcessingConfigEditor({
 								</div>
 							</div>
 							<div className="space-y-4">
+								{supportsCommand &&
+								processor.enabled &&
+								processorRuntimeStatus?.runtime_available === false ? (
+									<div className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+										{t(
+											"media_processing_editor_processor_runtime_unavailable_hint",
+										)}
+									</div>
+								) : null}
 								<div className="flex items-center gap-3 rounded-lg bg-background px-3 py-2">
 									<Switch
 										id={`media-processing-${processor.kind}-enabled`}

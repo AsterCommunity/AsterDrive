@@ -169,6 +169,47 @@ async fn test_public_thumbnail_support_merges_builtin_and_enabled_vips_extension
 }
 
 #[actix_web::test]
+async fn test_public_thumbnail_support_omits_configured_extensions_when_cli_is_unavailable() {
+    let state = common::setup().await;
+    state.runtime_config.apply(common::system_config_model(
+        "media_processing_registry_json",
+        &json!({
+            "version": 2,
+            "processors": [
+                {
+                    "kind": "vips_cli",
+                    "enabled": true,
+                    "uses": ["thumbnail:image"],
+                    "extensions": ["heic", "heif"],
+                    "config": { "command": "/definitely-missing/aster-vips" }
+                },
+                {
+                    "kind": "images",
+                    "enabled": true,
+                    "uses": ["thumbnail:image", "metadata:image"]
+                }
+            ]
+        })
+        .to_string(),
+    ));
+    let app = create_test_app!(state);
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/public/thumbnail-support")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let extensions = body["data"]["image_thumbnail"]["extensions"]
+        .as_array()
+        .expect("effective image thumbnail extensions should be present");
+
+    assert!(extensions.iter().any(|value| value == "png"));
+    assert!(!extensions.iter().any(|value| value == "heic"));
+    assert!(!extensions.iter().any(|value| value == "heif"));
+}
+
+#[actix_web::test]
 async fn test_public_thumbnail_support_backfills_old_lofty_uses() {
     let state = common::setup().await;
     let app = create_test_app!(state);
