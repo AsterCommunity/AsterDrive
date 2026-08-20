@@ -6,9 +6,10 @@ use aster_drive_model::entities::managed_follower::{self, Entity as ManagedFollo
 use aster_forge_api::SortOrder;
 use aster_forge_db::pagination::fetch_offset_page;
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
+use sea_orm::sea_query::{Condition, Expr};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
-    QueryOrder, Select, Set,
+    QueryOrder, Select,
 };
 
 pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<managed_follower::Model> {
@@ -80,9 +81,9 @@ fn apply_admin_remote_node_sort(
             sort_order,
             managed_follower::Column::Id,
         ),
-        AdminRemoteNodeSortBy::LastCheckedAt => order_by_column_with_id(
+        AdminRemoteNodeSortBy::LastProbeAt => order_by_column_with_id(
             query,
-            managed_follower::Column::LastCheckedAt,
+            managed_follower::Column::LastProbeAt,
             sort_order,
             managed_follower::Column::Id,
         ),
@@ -132,33 +133,75 @@ pub async fn touch_probe_result(
     db: &DatabaseConnection,
     id: i64,
     last_capabilities: String,
-    last_error: String,
-    last_checked_at: Option<chrono::DateTime<chrono::Utc>>,
+    last_probe_error: String,
+    last_probe_at: Option<chrono::DateTime<chrono::Utc>>,
 ) -> Result<managed_follower::Model> {
-    let existing = find_by_id(db, id).await?;
-    let mut active: managed_follower::ActiveModel = existing.into();
-    active.last_capabilities = Set(last_capabilities);
-    active.last_error = Set(last_error);
-    active.last_checked_at = Set(last_checked_at);
-    active.updated_at = Set(chrono::Utc::now());
-    update(db, active).await
+    ManagedFollower::update_many()
+        .col_expr(
+            managed_follower::Column::LastCapabilities,
+            Expr::value(last_capabilities),
+        )
+        .col_expr(
+            managed_follower::Column::LastProbeError,
+            Expr::value(last_probe_error),
+        )
+        .col_expr(
+            managed_follower::Column::LastProbeAt,
+            Expr::value(last_probe_at),
+        )
+        .filter(managed_follower::Column::Id.eq(id))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    find_by_id(db, id).await
 }
 
-pub async fn touch_tunnel_result(
+pub async fn touch_tunnel_success(
     db: &DatabaseConnection,
     id: i64,
-    tunnel_last_error: String,
-    tunnel_last_seen_at: Option<chrono::DateTime<chrono::Utc>>,
+    tunnel_last_handshake_at: chrono::DateTime<chrono::Utc>,
 ) -> Result<managed_follower::Model> {
-    let existing = find_by_id(db, id).await?;
-    let mut active: managed_follower::ActiveModel = existing.into();
-    active.tunnel_last_error = Set(tunnel_last_error);
-    active.tunnel_last_seen_at = Set(tunnel_last_seen_at);
-    // Tunnel 心跳和错误是运行态遥测，不代表远端节点配置被修改。
-    // `tunnel_last_error` 是暂时的健康状态：成功 poll/stream handshake 会写入空字符串，
-    // 所以它不是历史错误日志；需要按 tunnel 活跃度排序时应显式使用 `tunnel_last_seen_at`。
-    // 保持 updated_at 只用于名称、base_url、transport_mode 等管理面变更。
-    update(db, active).await
+    ManagedFollower::update_many()
+        .col_expr(
+            managed_follower::Column::TunnelRuntimeError,
+            Expr::value(String::new()),
+        )
+        .filter(managed_follower::Column::Id.eq(id))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    ManagedFollower::update_many()
+        .col_expr(
+            managed_follower::Column::TunnelLastHandshakeAt,
+            Expr::value(Some(tunnel_last_handshake_at)),
+        )
+        .filter(managed_follower::Column::Id.eq(id))
+        .filter(
+            Condition::any()
+                .add(managed_follower::Column::TunnelLastHandshakeAt.is_null())
+                .add(managed_follower::Column::TunnelLastHandshakeAt.lt(tunnel_last_handshake_at)),
+        )
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    find_by_id(db, id).await
+}
+
+pub async fn touch_tunnel_runtime_error(
+    db: &DatabaseConnection,
+    id: i64,
+    tunnel_runtime_error: String,
+) -> Result<managed_follower::Model> {
+    ManagedFollower::update_many()
+        .col_expr(
+            managed_follower::Column::TunnelRuntimeError,
+            Expr::value(tunnel_runtime_error),
+        )
+        .filter(managed_follower::Column::Id.eq(id))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    find_by_id(db, id).await
 }
 
 pub async fn acknowledge_binding_revision<C: ConnectionTrait>(

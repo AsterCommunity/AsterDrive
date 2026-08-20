@@ -245,30 +245,33 @@ export function RemoteNodeDiagnosticsCard({
 							{getRemoteNodeTunnelLabel(t, editingNode)}
 						</Badge>
 						<div className="break-all text-xs text-muted-foreground">
-							{t("remote_node_tunnel_last_seen")}:{" "}
-							{formatLastChecked(t, editingNode.tunnel?.last_seen_at)}
+							{t("remote_node_tunnel_last_handshake")}:{" "}
+							{editingNode.tunnel?.last_handshake_at
+								? formatLastChecked(t, editingNode.tunnel.last_handshake_at)
+								: t("remote_node_tunnel_never_handshaken")}
 						</div>
 						<div className="break-all text-xs text-muted-foreground">
-							{t("remote_node_tunnel_last_error")}:{" "}
-							{editingNode.tunnel?.last_error ||
-								t("remote_node_last_error_empty")}
+							{t("remote_node_tunnel_runtime_error")}:{" "}
+							{editingNode.tunnel?.runtime_error ||
+								t("remote_node_tunnel_runtime_error_empty")}
 						</div>
 					</dd>
 				</div>
 				<div>
 					<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-						{t("remote_node_last_checked")}
+						{t("remote_node_last_probe_at")}
 					</dt>
 					<dd className="mt-1 break-all font-medium">
-						{formatLastChecked(t, editingNode.last_checked_at)}
+						{formatLastChecked(t, editingNode.last_probe_at)}
 					</dd>
 				</div>
 				<div>
 					<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-						{t("remote_node_last_error")}
+						{t("remote_node_last_probe_error")}
 					</dt>
 					<dd className="mt-1 break-all font-medium">
-						{editingNode.last_error || t("remote_node_last_error_empty")}
+						{editingNode.last_probe_error ||
+							t("remote_node_last_probe_error_empty")}
 					</dd>
 				</div>
 				<div>

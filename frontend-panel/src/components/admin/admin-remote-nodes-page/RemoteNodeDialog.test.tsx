@@ -181,8 +181,8 @@ const remoteNode = (
 	base_url: "https://edge.example.com",
 	is_enabled: true,
 	enrollment_status: "not_started",
-	last_error: "",
-	last_checked_at: null,
+	last_probe_error: "",
+	last_probe_at: null,
 	capabilities: {
 		protocol_version: "v1",
 		supports_list: true,

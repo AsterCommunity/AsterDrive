@@ -59,11 +59,11 @@ pub struct RemoteNodeInfo {
     /// Current enrollment lifecycle state.
     pub enrollment_status: RemoteNodeEnrollmentStatus,
     /// Result of the most recent explicit capability probe or connection test.
-    pub last_error: String,
+    pub last_probe_error: String,
     /// Capabilities returned by the most recent explicit probe.
     pub capabilities: RemoteStorageCapabilities,
     /// Timestamp of the most recent explicit capability probe.
-    pub last_checked_at: Option<chrono::DateTime<Utc>>,
+    pub last_probe_at: Option<chrono::DateTime<Utc>>,
     /// Runtime reverse-tunnel health telemetry, separate from probe state above.
     pub tunnel: crate::storage::remote_protocol::tunnel::server::RemoteTunnelInfo,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
@@ -87,9 +87,9 @@ impl RemoteNodeInfo {
             transport_mode: model.transport_mode,
             is_enabled: model.is_enabled,
             enrollment_status,
-            last_error: model.last_error.clone(),
+            last_probe_error: model.last_probe_error.clone(),
             capabilities: parse_capabilities(&model.last_capabilities),
-            last_checked_at: model.last_checked_at,
+            last_probe_at: model.last_probe_at,
             tunnel: crate::storage::remote_protocol::tunnel::server::tunnel_info_for_node(
                 state, &model,
             ),
@@ -203,10 +203,10 @@ pub async fn create<S: RemoteProtocolRuntimeState>(
         is_enabled: Set(normalized.is_enabled),
         transport_mode: Set(normalized.transport_mode),
         last_capabilities: Set("{}".to_string()),
-        last_error: Set(String::new()),
-        last_checked_at: Set(None),
-        tunnel_last_error: Set(String::new()),
-        tunnel_last_seen_at: Set(None),
+        last_probe_error: Set(String::new()),
+        last_probe_at: Set(None),
+        tunnel_runtime_error: Set(String::new()),
+        tunnel_last_handshake_at: Set(None),
         binding_revision: Set(1),
         binding_applied_revision: Set(0),
         created_at: Set(now),
@@ -621,7 +621,7 @@ async fn probe_and_persist_node<S: RemoteProtocolRuntimeState>(
         .probe_capabilities()
         .await;
 
-    let (last_capabilities, last_error, probe_error) = match capabilities {
+    let (last_capabilities, last_probe_error, probe_error) = match capabilities {
         Ok(capabilities) => {
             let policy_requirements = policy_requirements_for_node(state, node.id).await?;
             let resolver = RemoteCapabilityResolver::from_capabilities(node.id, capabilities);
@@ -661,7 +661,7 @@ async fn probe_and_persist_node<S: RemoteProtocolRuntimeState>(
         state.writer_db(),
         node.id,
         last_capabilities,
-        last_error,
+        last_probe_error,
         Some(Utc::now()),
     )
     .await?;

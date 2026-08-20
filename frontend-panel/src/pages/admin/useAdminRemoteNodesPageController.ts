@@ -51,7 +51,7 @@ const REMOTE_NODE_SORT_BY_OPTIONS = [
 	"name",
 	"base_url",
 	"is_enabled",
-	"last_checked_at",
+	"last_probe_at",
 	"created_at",
 	"updated_at",
 ] as const satisfies readonly AdminRemoteNodeSortBy[];

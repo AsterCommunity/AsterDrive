@@ -373,10 +373,11 @@ POST /api/v1/admin/policies/action
 - `base_url` 为空时通常走 enrollment 流程，由 follower 兑换绑定信息后再完成实际接入
 - `/enrollment-token` 返回给 CLI 使用的命令信息；follower 会再调用公开 enrollment 接口完成 redeem / ack
 - `GET /admin/remote-nodes` 支持 `limit`、`offset`、`sort_by`、`sort_order`
-- 远端节点详情会返回 `transport_mode`、`enrollment_status`、`last_error`、`capabilities`、`last_checked_at` 和 `tunnel`
-- `last_error` / `last_checked_at` 属于显式 capability probe 或 connection test；它们描述最近一次探测，不是 reverse tunnel 的运行态
-- `tunnel.status` 根据最近 poll / stream handshake 和在线 TTL 推导；`tunnel.last_seen_at` 是 primary 最近一次成功握手时间
-- `tunnel.last_error` 是 reverse tunnel 运行态的暂时错误。下一次成功 poll / stream handshake 会清空它；它不是历史错误日志，也不应与节点探测的 `last_error` 混用
+- 远端节点详情会返回 `transport_mode`、`enrollment_status`、`last_probe_error`、`capabilities`、`last_probe_at` 和 `tunnel`
+- `last_probe_error` / `last_probe_at` 属于显式 capability probe 或 connection test；它们描述最近一次探测，不是 reverse tunnel 的运行态
+- `tunnel.status` 根据最近 poll / stream handshake 和在线 TTL 推导；`tunnel.last_handshake_at` 是 primary 最近一次成功握手时间
+- `tunnel.runtime_error` 是 reverse tunnel 运行态的暂时错误。下一次成功 poll / stream handshake 会清空它；它不是历史错误日志，也不应与节点探测的 `last_probe_error` 混用
+- 这些重命名后的字段属于公开管理契约：旧名称不再返回，也不保留响应 alias，API 客户端需要一次性迁移到 `last_probe_error`、`last_probe_at`、`tunnel.runtime_error` 和 `tunnel.last_handshake_at`。数据库迁移只重命名列并保留原值。
 - reverse tunnel 模式不能配合 remote 浏览器预签名上传 / 下载策略使用。创建或更新远端策略、切换远端节点传输模式时，如果引用该节点的策略使用 `remote_upload_strategy = "presigned"` 或 `remote_download_strategy = "presigned"`，服务端会拒绝这个组合
 - 远程存储目标的请求体和 follower 内部协议一致，见 [内部存储协议](./internal-storage.md)
 

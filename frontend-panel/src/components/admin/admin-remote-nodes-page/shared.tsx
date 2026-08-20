@@ -54,11 +54,11 @@ export function getRemoteNodeStatusTone(node: RemoteNodeInfo) {
 		return "border-slate-500/40 bg-slate-500/10 text-slate-600 dark:text-slate-300";
 	}
 
-	if (!node.last_checked_at) {
+	if (!node.last_probe_at) {
 		return "border-blue-500/60 bg-blue-500/10 text-blue-600 dark:text-blue-300";
 	}
 
-	if (node.last_error) {
+	if (node.last_probe_error) {
 		return "border-amber-500/60 bg-amber-500/10 text-amber-600 dark:text-amber-300";
 	}
 
@@ -70,11 +70,11 @@ export function getRemoteNodeStatusLabel(t: TFunction, node: RemoteNodeInfo) {
 		return t("remote_node_status_disabled");
 	}
 
-	if (!node.last_checked_at) {
+	if (!node.last_probe_at) {
 		return t("remote_node_status_pending");
 	}
 
-	if (node.last_error) {
+	if (node.last_probe_error) {
 		return t("remote_node_status_degraded");
 	}
 

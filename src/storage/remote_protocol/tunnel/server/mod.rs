@@ -2,7 +2,7 @@
 
 use crate::db::repository::managed_follower_repo;
 use crate::errors::{AsterError, Result};
-use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
+use crate::runtime::RemoteProtocolRuntimeState;
 use aster_drive_model::entities::managed_follower;
 use aster_drive_storage::StorageErrorKind;
 use chrono::Utc;
@@ -86,10 +86,10 @@ pub struct RemoteTunnelInfo {
     pub status: RemoteTunnelOnlineStatus,
     /// Transient runtime error from the tunnel control/data path. The next successful poll or
     /// stream handshake clears it; it is not a historical error log.
-    pub last_error: String,
+    pub runtime_error: String,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     /// Last successful poll or stream handshake persisted by the primary.
-    pub last_seen_at: Option<chrono::DateTime<Utc>>,
+    pub last_handshake_at: Option<chrono::DateTime<Utc>>,
 }
 
 pub async fn poll<S: RemoteProtocolRuntimeState>(
@@ -106,15 +106,10 @@ pub async fn poll<S: RemoteProtocolRuntimeState>(
     let registry = state.remote_protocol().tunnel_registry();
     let (request_rx, _registration) = registry.register_poll(remote_node);
     registry.record_handshake(remote_node, None);
-    managed_follower_repo::touch_tunnel_result(
-        state.writer_db(),
-        remote_node.id,
-        String::new(),
-        Some(Utc::now()),
-    )
-    .await?;
+    managed_follower_repo::touch_tunnel_success(state.writer_db(), remote_node.id, Utc::now())
+        .await?;
     // A successful control-plane handshake means the runtime path recovered. This clears only
-    // transient tunnel telemetry and leaves the separate probe `last_error` untouched.
+    // transient tunnel telemetry and leaves the separate probe `last_probe_error` untouched.
     registry.clear_error(remote_node.id);
 
     let request = tokio::time::timeout(REMOTE_TUNNEL_POLL_TIMEOUT, request_rx)
@@ -219,13 +214,8 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
         lane_id = %lane_id,
         "reverse tunnel streaming lane connected"
     );
-    managed_follower_repo::touch_tunnel_result(
-        state.writer_db(),
-        remote_node.id,
-        String::new(),
-        Some(Utc::now()),
-    )
-    .await?;
+    managed_follower_repo::touch_tunnel_success(state.writer_db(), remote_node.id, Utc::now())
+        .await?;
     // Stream registration is the same successful tunnel handshake as poll registration, so it
     // clears only transient tunnel telemetry and leaves capability-probe state untouched.
     registry.clear_error(remote_node.id);
@@ -351,7 +341,7 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                         liveness.record_activity(Instant::now());
                         match decode_stream_frame(bytes) {
                             Ok(frame) => {
-                                registry.update_last_seen(remote_node.id);
+                                registry.update_last_handshake(remote_node.id);
                                 if let Err(error) = registry
                                     .complete_stream_frame(&remote_node, &lane_id, frame)
                                     .await
@@ -380,11 +370,11 @@ async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
                             break;
                         }
                         liveness.record_activity(Instant::now());
-                        registry.update_last_seen(remote_node.id);
+                        registry.update_last_handshake(remote_node.id);
                     }
                     actix_ws::Message::Pong(_) => {
                         liveness.record_activity(Instant::now());
-                        registry.update_last_seen(remote_node.id);
+                        registry.update_last_handshake(remote_node.id);
                     }
                     actix_ws::Message::Close(reason) => {
                         tracing::info!(
@@ -572,12 +562,12 @@ pub fn tunnel_info_for_node<S: RemoteProtocolRuntimeState>(
         },
         // Prefer the in-memory value so a newly observed runtime failure is visible before the
         // asynchronous persistence task commits it; the database value survives process restart.
-        last_error: state
+        runtime_error: state
             .remote_protocol()
             .tunnel_registry()
-            .last_error(node.id)
-            .unwrap_or_else(|| node.tunnel_last_error.clone()),
-        last_seen_at: node.tunnel_last_seen_at,
+            .runtime_error(node.id)
+            .unwrap_or_else(|| node.tunnel_runtime_error.clone()),
+        last_handshake_at: node.tunnel_last_handshake_at,
     }
 }
 
@@ -594,7 +584,7 @@ pub(crate) fn ensure_reverse_tunnel_transport(remote_node: &managed_follower::Mo
     }
 }
 
-pub async fn mark_tunnel_error<S: SharedRuntimeState>(
+pub async fn mark_tunnel_error<S: RemoteProtocolRuntimeState>(
     state: &S,
     access_key: &str,
     error: impl std::fmt::Display,
@@ -604,13 +594,11 @@ pub async fn mark_tunnel_error<S: SharedRuntimeState>(
     else {
         return Ok(());
     };
-    managed_follower_repo::touch_tunnel_result(
-        state.writer_db(),
-        remote_node.id,
-        error.to_string(),
-        remote_node.tunnel_last_seen_at,
-    )
-    .await?;
+    state
+        .remote_protocol()
+        .tunnel_registry()
+        .persist_runtime_error(state.writer_db(), remote_node.id, error.to_string())
+        .await?;
     Ok(())
 }
 

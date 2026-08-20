@@ -1387,6 +1387,120 @@ async fn test_postgres_migrations_keep_bounded_backfills_with_single_connection_
         .expect("single-connection PostgreSQL migration pool should close");
 }
 
+async fn assert_remote_node_telemetry_rename_round_trip(database_url: String, backend: DbBackend) {
+    let config = aster_drive::config::DatabaseConfig {
+        url: database_url.into(),
+        pool_size: 1,
+        retry_count: 0,
+    };
+    let database =
+        aster_drive::db::connect_with_metrics(&config, aster_drive_metrics::NoopMetrics::arc())
+            .await
+            .expect("database migration fixture should connect");
+    let migrations = CurrentMigrator::migrations();
+    let rename_index = migrations
+        .iter()
+        .position(|migration| migration.name() == "m20260821_000001_rename_remote_node_telemetry")
+        .expect("remote-node telemetry rename migration should be registered");
+    CurrentMigrator::up(
+        &database,
+        Some(u32::try_from(rename_index).expect("migration index should fit u32")),
+    )
+    .await
+    .expect("database should migrate to the legacy telemetry schema");
+
+    let enabled = if backend == DbBackend::Postgres {
+        "TRUE"
+    } else {
+        "1"
+    };
+    let probe_at = if backend == DbBackend::MySql {
+        "2026-08-20 01:02:03"
+    } else {
+        "2026-08-20T01:02:03Z"
+    };
+    let handshake_at = if backend == DbBackend::MySql {
+        "2026-08-20 02:03:04"
+    } else {
+        "2026-08-20T02:03:04Z"
+    };
+    database
+        .execute_unprepared(&format!(
+            "INSERT INTO managed_followers \
+             (name, base_url, access_key, secret_key, is_enabled, last_capabilities, \
+              last_error, last_checked_at, tunnel_last_error, tunnel_last_seen_at, created_at, updated_at) \
+             VALUES ('legacy-node', '', 'legacy-access', 'legacy-secret', {enabled}, '{{\"v\":1}}', \
+                     'probe failed', '{probe_at}', 'tunnel failed', '{handshake_at}', \
+                     '{probe_at}', '{probe_at}')"
+        ))
+        .await
+        .expect("legacy telemetry fixture should insert");
+    CurrentMigrator::up(&database, None)
+        .await
+        .expect("database should apply telemetry rename");
+
+    let row = database
+        .query_one_raw(Statement::from_string(
+            backend,
+            "SELECT last_probe_error, last_probe_at, tunnel_runtime_error, tunnel_last_handshake_at \
+             FROM managed_followers WHERE name = 'legacy-node'",
+        ))
+        .await
+        .expect("renamed telemetry row should be queryable")
+        .expect("renamed telemetry row should exist");
+    assert_eq!(row.try_get_by_index::<String>(0).unwrap(), "probe failed");
+    assert_eq!(
+        row.try_get_by_index::<chrono::DateTime<chrono::Utc>>(1)
+            .unwrap()
+            .to_rfc3339(),
+        "2026-08-20T01:02:03+00:00"
+    );
+    assert_eq!(row.try_get_by_index::<String>(2).unwrap(), "tunnel failed");
+    assert_eq!(
+        row.try_get_by_index::<chrono::DateTime<chrono::Utc>>(3)
+            .unwrap()
+            .to_rfc3339(),
+        "2026-08-20T02:03:04+00:00"
+    );
+
+    CurrentMigrator::down(&database, Some(1))
+        .await
+        .expect("database should roll back telemetry rename");
+    let row = database
+        .query_one_raw(Statement::from_string(
+            backend,
+            "SELECT last_error, last_checked_at, tunnel_last_error, tunnel_last_seen_at \
+             FROM managed_followers WHERE name = 'legacy-node'",
+        ))
+        .await
+        .expect("legacy telemetry row should be queryable after rollback")
+        .expect("legacy telemetry row should remain after rollback");
+    assert_eq!(row.try_get_by_index::<String>(0).unwrap(), "probe failed");
+    assert_eq!(
+        row.try_get_by_index::<chrono::DateTime<chrono::Utc>>(1)
+            .unwrap()
+            .to_rfc3339(),
+        "2026-08-20T01:02:03+00:00"
+    );
+    assert_eq!(row.try_get_by_index::<String>(2).unwrap(), "tunnel failed");
+    assert_eq!(
+        row.try_get_by_index::<chrono::DateTime<chrono::Utc>>(3)
+            .unwrap()
+            .to_rfc3339(),
+        "2026-08-20T02:03:04+00:00"
+    );
+    database.close().await.expect("database should close");
+}
+
+#[tokio::test]
+async fn test_postgres_remote_node_telemetry_rename_preserves_values() {
+    assert_remote_node_telemetry_rename_round_trip(
+        common::postgres_empty_test_database_url().await,
+        DbBackend::Postgres,
+    )
+    .await;
+}
+
 #[actix_web::test]
 async fn test_mysql_smoke_search_and_admin_overview() {
     let database_url = common::mysql_test_database_url().await;
@@ -1469,4 +1583,13 @@ async fn test_mysql_concurrent_fresh_database_migrations_are_serialized() {
         .close()
         .await
         .expect("second MySQL migration connection should close cleanly");
+}
+
+#[tokio::test]
+async fn test_mysql_remote_node_telemetry_rename_preserves_values() {
+    assert_remote_node_telemetry_rename_round_trip(
+        common::mysql_empty_test_database_url().await,
+        DbBackend::MySql,
+    )
+    .await;
 }

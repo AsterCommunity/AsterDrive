@@ -163,7 +163,7 @@ impl RemoteTunnelRegistry {
             .entry(remote_node.access_key.clone())
             .or_default()
             .push(lane);
-        self.update_last_seen(remote_node.id);
+        self.update_last_handshake(remote_node.id);
         self.connection_notify.notify_waiters();
         let guard = RemoteTunnelStreamRegistrationGuard {
             registry: self.clone(),

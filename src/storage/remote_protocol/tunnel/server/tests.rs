@@ -21,10 +21,10 @@ fn build_remote_node(id: i64, access_key: &str) -> managed_follower::Model {
         is_enabled: true,
         transport_mode: aster_drive_model::types::RemoteNodeTransportMode::ReverseTunnel,
         last_capabilities: "{}".to_string(),
-        last_error: String::new(),
-        last_checked_at: None,
-        tunnel_last_error: String::new(),
-        tunnel_last_seen_at: None,
+        last_probe_error: String::new(),
+        last_probe_at: None,
+        tunnel_runtime_error: String::new(),
+        tunnel_last_handshake_at: None,
         binding_revision: 1,
         binding_applied_revision: 0,
         created_at: now,
@@ -552,7 +552,7 @@ async fn registry_poll_rejects_oversized_metadata_before_dispatch() {
 }
 
 #[tokio::test]
-async fn poll_last_seen_keeps_tunnel_online_between_poll_cycles() {
+async fn poll_last_handshake_keeps_tunnel_online_between_poll_cycles() {
     let registry = RemoteTunnelRegistry::new();
     let node = build_remote_node(43, "poll-online-gap");
     let (_request_rx, registration) = registry.register_poll(&node);

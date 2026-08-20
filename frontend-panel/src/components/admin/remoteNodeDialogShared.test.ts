@@ -17,13 +17,13 @@ describe("remoteNodeDialogShared", () => {
 				base_url: "https://remote.example.com",
 				transport_mode: "reverse_tunnel",
 				is_enabled: true,
-				last_error: "",
-				last_checked_at: null,
+				last_probe_error: "",
+				last_probe_at: null,
 				enrollment_status: "completed",
 				tunnel: {
 					status: "online",
-					last_error: "",
-					last_seen_at: "2026-05-29T08:00:00Z",
+					runtime_error: "",
+					last_handshake_at: "2026-05-29T08:00:00Z",
 				},
 				capabilities: {
 					protocol_version: "v1",

@@ -718,8 +718,8 @@ describe("AdminRemoteNodesPage", () => {
 					name: "Reverse Tunnel",
 					transport_mode: "reverse_tunnel",
 					tunnel: {
-						last_error: "",
-						last_seen_at: "2026-05-29T00:00:00Z",
+						runtime_error: "",
+						last_handshake_at: "2026-05-29T00:00:00Z",
 						status: "online",
 					},
 				},
@@ -759,8 +759,8 @@ describe("AdminRemoteNodesPage", () => {
 					name: "Auto Tunnel",
 					transport_mode: "auto",
 					tunnel: {
-						last_error: "",
-						last_seen_at: "2026-05-29T00:00:00Z",
+						runtime_error: "",
+						last_handshake_at: "2026-05-29T00:00:00Z",
 						status: "online",
 					},
 				},

@@ -36,13 +36,13 @@ describe("admin remote nodes shared helpers", () => {
 	const node = (overrides: Partial<RemoteNodeInfo> = {}) =>
 		({
 			is_enabled: true,
-			last_checked_at: "2026-05-29T08:00:00Z",
-			last_error: "",
+			last_probe_at: "2026-05-29T08:00:00Z",
+			last_probe_error: "",
 			transport_mode: "direct",
 			tunnel: {
 				status: "offline",
-				last_error: "",
-				last_seen_at: null,
+				runtime_error: "",
+				last_handshake_at: null,
 			},
 			enrollment_status: "not_started",
 			...overrides,
@@ -77,18 +77,18 @@ describe("admin remote nodes shared helpers", () => {
 		expect(getRemoteNodeStatusTone(node({ is_enabled: false }))).toContain(
 			"border-slate",
 		);
-		expect(getRemoteNodeStatusLabel(t, node({ last_checked_at: null }))).toBe(
+		expect(getRemoteNodeStatusLabel(t, node({ last_probe_at: null }))).toBe(
 			"remote_node_status_pending",
 		);
-		expect(getRemoteNodeStatusTone(node({ last_checked_at: null }))).toContain(
+		expect(getRemoteNodeStatusTone(node({ last_probe_at: null }))).toContain(
 			"border-blue",
 		);
-		expect(getRemoteNodeStatusLabel(t, node({ last_error: "timeout" }))).toBe(
-			"remote_node_status_degraded",
-		);
-		expect(getRemoteNodeStatusTone(node({ last_error: "timeout" }))).toContain(
-			"border-amber",
-		);
+		expect(
+			getRemoteNodeStatusLabel(t, node({ last_probe_error: "timeout" })),
+		).toBe("remote_node_status_degraded");
+		expect(
+			getRemoteNodeStatusTone(node({ last_probe_error: "timeout" })),
+		).toContain("border-amber");
 		expect(getRemoteNodeStatusLabel(t, node())).toBe(
 			"remote_node_status_enabled",
 		);
@@ -182,8 +182,8 @@ describe("admin remote nodes shared helpers", () => {
 				transport_mode: "direct",
 				tunnel: {
 					status: "online",
-					last_error: "",
-					last_seen_at: "2026-05-29T08:00:00Z",
+					runtime_error: "",
+					last_handshake_at: "2026-05-29T08:00:00Z",
 				},
 			} as RemoteNodeInfo),
 		).toBe("remote_node_tunnel_not_used");
@@ -192,8 +192,8 @@ describe("admin remote nodes shared helpers", () => {
 				transport_mode: "reverse_tunnel",
 				tunnel: {
 					status: "online",
-					last_error: "",
-					last_seen_at: "2026-05-29T08:00:00Z",
+					runtime_error: "",
+					last_handshake_at: "2026-05-29T08:00:00Z",
 				},
 			} as RemoteNodeInfo),
 		).toBe("remote_node_tunnel_online");
@@ -202,8 +202,8 @@ describe("admin remote nodes shared helpers", () => {
 				transport_mode: "auto",
 				tunnel: {
 					status: "offline",
-					last_error: "poll timeout",
-					last_seen_at: null,
+					runtime_error: "poll timeout",
+					last_handshake_at: null,
 				},
 			} as RemoteNodeInfo),
 		).toBe("remote_node_tunnel_offline");
@@ -216,8 +216,8 @@ describe("admin remote nodes shared helpers", () => {
 					transport_mode: "direct",
 					tunnel: {
 						status: "online",
-						last_error: "",
-						last_seen_at: "2026-05-29T08:00:00Z",
+						runtime_error: "",
+						last_handshake_at: "2026-05-29T08:00:00Z",
 					},
 				}),
 			),
@@ -228,8 +228,8 @@ describe("admin remote nodes shared helpers", () => {
 					transport_mode: "reverse_tunnel",
 					tunnel: {
 						status: "online",
-						last_error: "",
-						last_seen_at: "2026-05-29T08:00:00Z",
+						runtime_error: "",
+						last_handshake_at: "2026-05-29T08:00:00Z",
 					},
 				}),
 			),
@@ -240,8 +240,8 @@ describe("admin remote nodes shared helpers", () => {
 					transport_mode: "auto",
 					tunnel: {
 						status: "offline",
-						last_error: "poll timeout",
-						last_seen_at: null,
+						runtime_error: "poll timeout",
+						last_handshake_at: null,
 					},
 				}),
 			),

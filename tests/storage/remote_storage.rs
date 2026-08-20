@@ -644,8 +644,8 @@ async fn seed_remote_capabilities(
             .into();
     remote_node.last_capabilities =
         Set(serde_json::to_string(&capabilities).expect("remote capabilities should serialize"));
-    remote_node.last_error = Set(String::new());
-    remote_node.last_checked_at = Set(Some(Utc::now()));
+    remote_node.last_probe_error = Set(String::new());
+    remote_node.last_probe_at = Set(Some(Utc::now()));
     remote_node.updated_at = Set(Utc::now());
     remote_node
         .update(state.writer_db())
@@ -707,7 +707,7 @@ async fn wait_for_tunnel_error_persisted(
         let remote_node = managed_follower_repo::find_by_id(state.writer_db(), node_id)
             .await
             .expect("remote node should be queryable while waiting for tunnel error");
-        if remote_node.tunnel_last_error.contains(expected) {
+        if remote_node.tunnel_runtime_error.contains(expected) {
             return;
         }
         if attempt < 19 {
@@ -720,7 +720,7 @@ async fn wait_for_tunnel_error_persisted(
         .expect("remote node should be queryable after waiting for tunnel error");
     panic!(
         "expected persisted tunnel error to contain '{expected}', got '{}'",
-        remote_node.tunnel_last_error
+        remote_node.tunnel_runtime_error
     );
 }
 
@@ -2580,7 +2580,7 @@ async fn test_internal_storage_compose_rejects_expected_size_exceeding_ingress_l
 }
 
 #[actix_web::test]
-async fn test_remote_node_connection_failure_returns_error_and_persists_last_error() {
+async fn test_remote_node_connection_failure_returns_error_and_persists_last_probe_error() {
     let state = common::setup().await;
     let node = remote_node::create(
         &state,
@@ -2603,7 +2603,7 @@ async fn test_remote_node_connection_failure_returns_error_and_persists_last_err
     let stored = managed_follower_repo::find_by_id(state.writer_db(), node.id)
         .await
         .expect("remote node should still exist after failed probe");
-    assert!(!stored.last_error.is_empty());
+    assert!(!stored.last_probe_error.is_empty());
 }
 
 #[actix_web::test]
@@ -2670,7 +2670,7 @@ async fn test_remote_node_failed_probe_preserves_cached_capabilities() {
     let stored = managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
         .await
         .expect("remote node should remain queryable after failed probe");
-    assert!(!stored.last_error.is_empty());
+    assert!(!stored.last_probe_error.is_empty());
     assert_eq!(stored.last_capabilities, cached_capabilities);
 }
 
@@ -2715,7 +2715,7 @@ async fn test_remote_node_probe_rejects_incompatible_protocol_version() {
     let stored = managed_follower_repo::find_by_id(state.writer_db(), node.id)
         .await
         .expect("remote node should remain queryable");
-    assert!(stored.last_error.contains("protocol incompatible"));
+    assert!(stored.last_probe_error.contains("protocol incompatible"));
     assert_eq!(stored.last_capabilities, "{}");
 
     capabilities_server.stop().await;
@@ -2784,7 +2784,7 @@ async fn test_remote_node_probe_rejects_presigned_download_when_range_cors_missi
         .expect("remote node should remain queryable");
     assert!(
         stored
-            .last_error
+            .last_probe_error
             .contains("browser CORS contract is incomplete")
     );
     let expected_protocol_marker =
@@ -3943,7 +3943,7 @@ async fn test_reverse_tunnel_follower_worker_rejects_non_storage_paths() {
         response.body.as_ref(),
         b"reverse tunnel can only proxy internal storage paths"
     );
-    // `tunnel.last_error` is transient runtime telemetry. The production follower can complete
+    // `tunnel.runtime_error` is transient runtime telemetry. The production follower can complete
     // the next successful poll before this test reads the node, which intentionally clears it.
     // The offline-error lifecycle test below covers immediate visibility and persistence.
 
@@ -4250,12 +4250,14 @@ async fn test_reverse_tunnel_records_offline_error_and_clears_on_poll() {
         .await
         .expect("remote node info should load");
     assert!(
-        info.tunnel.last_error.contains("reverse tunnel is offline"),
+        info.tunnel
+            .runtime_error
+            .contains("reverse tunnel is offline"),
         "runtime tunnel error should be visible immediately, got '{}'",
-        info.tunnel.last_error
+        info.tunnel.runtime_error
     );
     assert_eq!(
-        info.last_error, "capability probe failed",
+        info.last_probe_error, "capability probe failed",
         "tunnel runtime errors must not overwrite probe errors"
     );
     wait_for_tunnel_error_persisted(&state, node.id, "reverse tunnel is offline").await;
@@ -4312,9 +4314,9 @@ async fn test_reverse_tunnel_records_offline_error_and_clears_on_poll() {
     let cleared = remote_node::get(&state, node.id)
         .await
         .expect("remote node info should load after poll");
-    assert_eq!(cleared.tunnel.last_error, "");
+    assert_eq!(cleared.tunnel.runtime_error, "");
     assert_eq!(
-        cleared.last_error, "capability probe failed",
+        cleared.last_probe_error, "capability probe failed",
         "clearing tunnel runtime state must not clear probe state"
     );
 }
@@ -4395,7 +4397,7 @@ async fn test_reverse_tunnel_polls_do_not_touch_updated_at() {
         after.updated_at, before.updated_at,
         "tunnel heartbeat should not change configuration updated_at"
     );
-    assert!(after.tunnel_last_seen_at.is_some());
+    assert!(after.tunnel_last_handshake_at.is_some());
 }
 
 #[actix_web::test]
@@ -4468,7 +4470,7 @@ async fn test_effective_direct_nodes_reject_tunnel_http_endpoints_without_touchi
         let after = managed_follower_repo::find_by_id(state.writer_db(), node.id)
             .await
             .expect("effective direct node should remain queryable");
-        assert_eq!(after.tunnel_last_seen_at, None);
+        assert_eq!(after.tunnel_last_handshake_at, None);
 
         primary_server.stop().await;
     }
@@ -5855,7 +5857,7 @@ async fn test_disabled_remote_nodes_skip_network_during_health_checks() {
         managed_follower_repo::find_by_id(consumer_state.writer_db(), remote_node.id)
             .await
             .expect("disabled remote node should remain queryable");
-    assert_eq!(remote_node_model.last_checked_at, None);
+    assert_eq!(remote_node_model.last_probe_at, None);
 
     provider_server.stop().await;
 }
@@ -5897,9 +5899,9 @@ async fn test_pending_remote_nodes_skip_network_during_health_checks() {
         managed_follower_repo::find_by_id(consumer_state.writer_db(), remote_node.id)
             .await
             .expect("pending remote node should remain queryable");
-    assert_eq!(remote_node_model.last_checked_at, None);
+    assert_eq!(remote_node_model.last_probe_at, None);
     assert_eq!(
-        remote_node_model.last_error, "",
+        remote_node_model.last_probe_error, "",
         "pending remote nodes should not record probe failures",
     );
 
@@ -5947,8 +5949,8 @@ async fn test_pending_remote_node_connection_test_requires_completed_enrollment_
         managed_follower_repo::find_by_id(consumer_state.writer_db(), remote_node.id)
             .await
             .expect("pending remote node should remain queryable");
-    assert_eq!(remote_node_model.last_checked_at, None);
-    assert_eq!(remote_node_model.last_error, "");
+    assert_eq!(remote_node_model.last_probe_at, None);
+    assert_eq!(remote_node_model.last_probe_error, "");
 
     provider_server.stop().await;
 }
@@ -6082,8 +6084,8 @@ async fn test_health_checks_only_touch_enabled_remote_nodes_in_mixed_sets() {
         managed_follower_repo::find_by_id(consumer_state.writer_db(), disabled_node.id)
             .await
             .expect("disabled remote node should remain queryable");
-    assert!(enabled_node_model.last_checked_at.is_some());
-    assert_eq!(disabled_node_model.last_checked_at, None);
+    assert!(enabled_node_model.last_probe_at.is_some());
+    assert_eq!(disabled_node_model.last_probe_at, None);
 
     enabled_server.stop().await;
     disabled_server.stop().await;
@@ -6162,8 +6164,8 @@ async fn test_reverse_tunnel_remote_nodes_are_checked_by_health_tests_without_ba
         managed_follower_repo::find_by_id(consumer_state.writer_db(), remote_node.id)
             .await
             .expect("reverse remote node should remain queryable");
-    assert!(checked_node.last_checked_at.is_some());
-    assert_eq!(checked_node.last_error, "");
+    assert!(checked_node.last_probe_at.is_some());
+    assert_eq!(checked_node.last_probe_error, "");
 
     stop_test_reverse_tunnel_worker(tunnel_shutdown, tunnel_handle).await;
     provider_server.stop().await;

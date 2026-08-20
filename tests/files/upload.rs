@@ -861,8 +861,8 @@ async fn create_dead_remote_policy(
                 &aster_drive::storage::remote_protocol::RemoteStorageCapabilities::current(),
             )
             .expect("current remote capabilities should serialize")),
-            last_error: Set(String::new()),
-            last_checked_at: Set(Some(now)),
+            last_probe_error: Set(String::new()),
+            last_probe_at: Set(Some(now)),
             created_at: Set(now),
             updated_at: Set(now),
             ..Default::default()

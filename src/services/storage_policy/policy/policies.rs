@@ -824,8 +824,8 @@ mod tests {
                     &crate::storage::remote_protocol::RemoteStorageCapabilities::current(),
                 )
                 .unwrap()),
-                last_error: Set(String::new()),
-                last_checked_at: Set(Some(now)),
+                last_probe_error: Set(String::new()),
+                last_probe_at: Set(Some(now)),
                 created_at: Set(now),
                 updated_at: Set(now),
                 ..Default::default()

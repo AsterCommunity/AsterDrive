@@ -70,6 +70,7 @@ mod m20260813_000001_canonical_file_revision_ledger;
 mod m20260815_000001_virtual_empty_file_blobs;
 mod m20260817_000001_add_remote_binding_control_state;
 mod m20260820_000001_remove_storage_policy_legacy;
+mod m20260821_000001_rename_remote_node_telemetry;
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
@@ -213,6 +214,7 @@ impl MigratorTrait for CurrentMigrator {
                 m20260817_000001_add_remote_binding_control_state::Migration,
             ),
             Box::new(m20260820_000001_remove_storage_policy_legacy::Migration),
+            Box::new(m20260821_000001_rename_remote_node_telemetry::Migration),
         ]
     }
 }

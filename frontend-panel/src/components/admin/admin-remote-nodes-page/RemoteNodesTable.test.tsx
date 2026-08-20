@@ -66,12 +66,12 @@ const remoteNode = (
 	transport_mode: "direct",
 	is_enabled: true,
 	enrollment_status: "not_started",
-	last_error: "",
-	last_checked_at: null,
+	last_probe_error: "",
+	last_probe_at: null,
 	tunnel: {
 		status: "offline",
-		last_error: "",
-		last_seen_at: null,
+		runtime_error: "",
+		last_handshake_at: null,
 	},
 	capabilities: {
 		protocol_version: "v1",
@@ -104,6 +104,31 @@ function renderTable(
 }
 
 describe("RemoteNodesTable", () => {
+	it("sorts by last probe time and toggles its direction", () => {
+		const onSortChange = vi.fn();
+		const view = renderTable({ onSortChange });
+
+		fireEvent.click(screen.getByRole("button", { name: "remote_node_status" }));
+		expect(onSortChange).toHaveBeenLastCalledWith("last_probe_at", "asc");
+
+		view.rerender(
+			<RemoteNodesTable
+				deletingRemoteNodeId={null}
+				generatingEnrollmentId={null}
+				items={[remoteNode()]}
+				loading={false}
+				onEdit={vi.fn()}
+				onGenerateEnrollmentCommand={vi.fn()}
+				onRequestDelete={vi.fn()}
+				onSortChange={onSortChange}
+				sortBy="last_probe_at"
+				sortOrder="asc"
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "remote_node_status" }));
+		expect(onSortChange).toHaveBeenLastCalledWith("last_probe_at", "desc");
+	});
+
 	it("disables the enrollment command action after enrollment completes", () => {
 		const onGenerateEnrollmentCommand = vi.fn();
 
@@ -190,8 +215,8 @@ describe("RemoteNodesTable", () => {
 	it("shows deleting and generating states without firing disabled actions", () => {
 		const node = remoteNode({
 			enrollment_status: "pending",
-			last_error: "storage unavailable",
-			last_checked_at: "2026-05-29T08:00:00Z",
+			last_probe_error: "storage unavailable",
+			last_probe_at: "2026-05-29T08:00:00Z",
 		});
 		const onGenerateEnrollmentCommand = vi.fn();
 		const onRequestDelete = vi.fn();
@@ -235,11 +260,11 @@ describe("RemoteNodesTable", () => {
 		renderTable({
 			items: [
 				remoteNode({
-					last_error: nodeError,
+					last_probe_error: nodeError,
 					tunnel: {
 						status: "offline",
-						last_error: tunnelError,
-						last_seen_at: null,
+						runtime_error: tunnelError,
+						last_handshake_at: null,
 					},
 				}),
 			],
