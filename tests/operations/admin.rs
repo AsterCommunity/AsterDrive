@@ -220,6 +220,7 @@ async fn test_admin_scope_allows_admin_users() {
     assert!(keys.contains(&"auth_cookie_secure"));
     assert!(keys.contains(&"auth_allow_user_registration"));
     assert!(keys.contains(&"auth_register_activation_enabled"));
+    assert!(keys.contains(&"auth_password_login_enabled"));
     assert!(keys.contains(&"auth_access_token_ttl_secs"));
     assert!(keys.contains(&"auth_refresh_token_ttl_secs"));
     assert!(keys.contains(&"mail_outbox_dispatch_interval_secs"));
@@ -285,6 +286,25 @@ async fn test_admin_scope_allows_admin_users() {
     assert_eq!(
         register_toggle["description_i18n_key"],
         "settings_item_auth_allow_user_registration_desc"
+    );
+
+    let password_login_toggle = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["key"] == "auth_password_login_enabled")
+        .unwrap();
+    assert_eq!(
+        password_login_toggle["label_i18n_key"],
+        "settings_item_auth_password_login_enabled_label"
+    );
+    assert_eq!(
+        password_login_toggle["description_i18n_key"],
+        "settings_item_auth_password_login_enabled_desc"
+    );
+    assert_eq!(
+        password_login_toggle["category"],
+        "user.registration_and_login"
     );
 
     let task_attempts = body["data"]
@@ -451,6 +471,22 @@ async fn test_admin_scope_allows_admin_users() {
         .unwrap();
     assert_eq!(
         allow_registration["invalidates"],
+        serde_json::json!(["frontend_config"])
+    );
+
+    let password_login = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["key"] == "auth_password_login_enabled")
+        .unwrap();
+    assert_eq!(
+        password_login["invalidates"],
+        serde_json::json!(["frontend_config"])
+    );
+
+    assert_eq!(
+        passkey_login_toggle["invalidates"],
         serde_json::json!(["frontend_config"])
     );
 
@@ -4069,6 +4105,49 @@ async fn test_admin_media_processing_status_explains_persisted_cli_availability(
     assert!(
         !body.to_string().contains("definitely-missing"),
         "status response must not expose configured command paths"
+    );
+}
+
+#[actix_web::test]
+async fn admin_config_rejects_disabling_last_builtin_login_method_without_external_provider() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let save = |key: &str| {
+        test::TestRequest::put()
+            .uri(&format!("/api/v1/admin/config/{key}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "value": "false" }))
+            .to_request()
+    };
+    let resp = test::call_service(
+        &app,
+        save(aster_drive::config::auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY),
+    )
+    .await;
+    assert_eq!(resp.status(), 200);
+
+    let resp = test::call_service(
+        &app,
+        save(aster_drive::config::auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY),
+    )
+    .await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "bad_request");
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap()
+            .contains("external auth provider")
+    );
+    assert_eq!(
+        state
+            .runtime_config()
+            .get(aster_drive::config::auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY),
+        Some("true".to_string())
     );
 }
 

@@ -13,7 +13,10 @@ use crate::db::repository::{user_invitation_repo, user_repo};
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{MailRuntimeState, SharedRuntimeState};
 use crate::services::{
-    auth::local::shared::{CreateUserWithRoleInput, create_user_with_role, hash_new_password},
+    auth::local::{
+        ensure_password_login_enabled,
+        shared::{CreateUserWithRoleInput, create_user_with_role, hash_new_password},
+    },
     mail::outbox,
     mail::template::MailTemplatePayload,
 };
@@ -173,6 +176,7 @@ pub async fn accept_invitation(
     username: &str,
     password: &str,
 ) -> Result<user::Model> {
+    ensure_password_login_enabled(state)?;
     let token_hash = invitation_token_hash(token)?;
     let invitation = find_valid_invitation_by_token(state.writer_db(), token).await?;
     LocalEmailPolicy::from_runtime_config(state.runtime_config()).check(&invitation.email)?;

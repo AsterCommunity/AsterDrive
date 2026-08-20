@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **内置登录方式控制** — 新增可热更新的密码登录开关，并继续与 Passkey 开关独立组合；关闭密码登录会同时关闭公开注册、激活重发、密码邀请接受、密码重置和外部身份密码绑定，未完成的密码第一因子 MFA flow 会在完成时重新检查策略，外部认证和 Passkey 登录不再被遗留的强制改密标记阻塞。后端仅在存在已启用外部认证 provider 时允许同时关闭密码与 Passkey，并阻止禁用或删除最后一个外部 provider，避免保存后失去全部登录入口。
+
 ## [v0.5.0] - 2026-08-20
 
 ### Changed

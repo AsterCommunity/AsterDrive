@@ -425,7 +425,11 @@ async fn rotate_refresh_in_transaction<C: ConnectionTrait>(
     if claims.session_version != user.session_version {
         return Err(AsterError::auth_token_invalid("session revoked"));
     }
-    if user.must_change_password || claims.password_change {
+    let password_change_required =
+        crate::config::auth_runtime::RuntimeAuthPolicy::from_runtime_config(state.runtime_config())
+            .password_login_enabled
+            && user.must_change_password;
+    if password_change_required || claims.password_change {
         return Err(auth_forbidden_with_code(
             ApiErrorCode::AuthPasswordChangeRequired,
             "password change required",

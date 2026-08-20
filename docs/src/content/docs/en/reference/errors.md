@@ -75,6 +75,7 @@ If login fails, start here:
 - `auth.password_change_required`: an administrator requires this account to change its password first. After login, finish the forced password-change flow; normal APIs are denied until it succeeds.
 - `auth.account_disabled`: the account is disabled. Regular users must contact an administrator.
 - `auth.registration_disabled`: public registration is disabled. Ask an administrator to create an account or enable registration.
+- `auth.password_login_disabled`: local password sign-in is disabled by an administrator. Use an enabled Passkey or external provider, or contact the administrator.
 
 When password login, passkeys, external auth, and MFA overlap, still trust `code` first instead of a generic "login failed" message.
 
@@ -95,6 +96,7 @@ Passkey errors:
 
 - `passkey.name_invalid` / `passkey.name_too_long`: passkey name is invalid or too long. Rename and retry.
 - `passkey.not_discoverable`: the browser or security key did not create a discoverable credential. Use a supported device / browser, or add the passkey again.
+- `auth.passkey_login_disabled`: Passkey sign-in is disabled by an administrator. Use another enabled sign-in method, or contact the administrator.
 
 Use HTTPS in production. Many WebAuthn / passkey behaviors do not work as expected on insecure origins.
 
@@ -335,6 +337,7 @@ The following table groups current public `ApiErrorCode` values by handling path
 | `auth.admin_required` / `auth.account_disabled` | Admin permission required, or account is disabled. |
 | `auth.username_exists` / `auth.email_exists` / `auth.identifier_exists` | Login identifier conflict. |
 | `auth.registration_disabled` | Public registration is disabled. |
+| `auth.password_login_disabled` / `auth.passkey_login_disabled` | The corresponding local password or Passkey sign-in method is disabled by an administrator. |
 | `auth.session_user_mismatch` | Session and account do not match. |
 | `auth.request_source_missing` / `auth.request_source_untrusted` | Request source is missing or untrusted. |
 | `auth.request_origin_untrusted` / `auth.request_referer_untrusted` | Origin or Referer is untrusted. |
