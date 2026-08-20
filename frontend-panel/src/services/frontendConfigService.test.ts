@@ -20,6 +20,7 @@ describe("frontendConfigService", () => {
 			description: "Private drive",
 			favicon_url: "/favicon.ico",
 			passkey_login_enabled: true,
+			password_login_enabled: true,
 			site_urls: ["https://drive.example"],
 			title: "AsterDrive",
 			wordmark_dark_url: "/wordmark-dark.svg",
@@ -32,7 +33,7 @@ describe("frontendConfigService", () => {
 		media: {
 			image_preview_preference: "preview_first",
 		},
-		version: 2,
+		version: 3,
 	};
 
 	it("loads public frontend config from the public endpoint", async () => {

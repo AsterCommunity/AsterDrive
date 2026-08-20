@@ -138,6 +138,7 @@ The following settings are not in `config.toml`; they are all maintained in the 
 - `auth_email_code_login_allow_totp_fallback` - Whether users with TOTP enabled may use email codes as a fallback
 - `auth_email_code_login_ttl_secs` - Email login code TTL
 - `auth_email_code_login_resend_cooldown_secs` - Email login code resend cooldown
+- `auth_password_login_enabled` - Whether local username/password sign-in is allowed as a first factor
 - `auth_passkey_login_enabled` - Whether users may sign in with registered Passkeys
 - `auth_allow_user_registration` - Public registration switch
 - `auth_register_activation_enabled` - Whether newly registered users must complete email activation first

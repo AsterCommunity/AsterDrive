@@ -20,7 +20,7 @@ title: "系统设置"
 | --- | --- | --- |
 | 站点链接、分享链接、邮件链接域名不对 | [站点配置](/reference/config/runtime/site/) | 再看 [反向代理](/deploy/reverse-proxy/) |
 | 登录 Cookie、Token、激活链接、邮箱验证码 MFA 时效不合适 | [认证与 Cookie](/reference/config/runtime/auth/) | 再看 [登录与会话](/reference/config/auth/) |
-| 注册、Passkey 登录、本地邮箱白名单 / 黑名单、头像、Gravatar 行为不符合预期 | [用户管理](/reference/config/runtime/users/) | 再看 [登录与会话](/reference/config/auth/) |
+| 注册、密码 / Passkey 登录、本地邮箱白名单 / 黑名单、头像、Gravatar 行为不符合预期 | [用户管理](/reference/config/runtime/users/) | 再看 [登录与会话](/reference/config/auth/) |
 | Passkey、MFA、外部登录、外部身份绑定不符合预期 | [站点配置](/reference/config/runtime/site/) / 管理 -> 外部认证 / [认证与 Cookie](/reference/config/runtime/auth/) | 再看 [登录与会话](/reference/config/auth/) |
 | 邮件收不到或链接不对 | [邮件投递](/reference/config/runtime/mail/) | 再看 [邮件](/admin/mail/) |
 | 跨源页面调用 API 被浏览器拦 | [网络访问](/reference/config/runtime/network/) | 先确认不是 `公开站点地址` 问题 |
@@ -41,6 +41,7 @@ title: "系统设置"
 | 接入 OIDC / 通用 OAuth2 / GitHub / QQ / Google / Microsoft 登录提供商 | `管理 -> 外部认证` |
 | 关闭公开注册 | `用户管理 -> 允许公开注册新用户` |
 | 临时关闭 Passkey 登录 | `用户管理 -> 注册与登录 -> 允许使用 Passkey 登录` |
+| 临时关闭密码登录 | `用户管理 -> 注册与登录 -> 允许使用密码登录` |
 | 限制本地注册和本地邮箱改绑可用的邮箱 | `用户管理 -> 注册与登录 -> 本地账号邮箱白名单 / 黑名单` |
 | 改新用户默认配额（未手动填配额的新团队也会用它；创建团队后再核对实际团队配额） | `存储与保留 -> 新用户默认存储配额` |
 | 调 Cookie 安全要求、Access / Refresh Token 有效期 | `认证与 Cookie` |
@@ -62,7 +63,7 @@ title: "系统设置"
 ## 当前有哪些分组
 
 - **[站点配置](/reference/config/runtime/site/)** —— 公开站点地址、标题、Logo、favicon、预览应用
-- **[用户管理](/reference/config/runtime/users/)** —— 公开注册、注册激活、Passkey 登录、本地邮箱白名单 / 黑名单、头像、Gravatar
+- **[用户管理](/reference/config/runtime/users/)** —— 公开注册、注册激活、密码 / Passkey 登录、本地邮箱白名单 / 黑名单、头像、Gravatar
 - **[认证与 Cookie](/reference/config/runtime/auth/)** —— Cookie 安全规则、Token 有效期、激活/改绑/重置链接有效期、邮箱验证码 MFA
 - **[邮件投递](/reference/config/runtime/mail/)** —— SMTP、发件人、测试邮件、注册激活/改绑/密码重置/外部登录邮箱验证/登录邮箱验证码邮件模版
 - **[网络访问](/reference/config/runtime/network/)** —— 浏览器跨站访问规则（CORS）
@@ -83,6 +84,7 @@ title: "系统设置"
 | 公开注册、注册激活、邮件模版 | 之后新进入登录流程、新发出的邮件按新规则 |
 | 本地邮箱白名单 / 黑名单 | 之后新的本地注册和本地邮箱改绑按新规则；不影响第三方 SSO |
 | Passkey 登录开关 | 之后新的 Passkey 登录请求按新规则；已有 Passkey 不会被删除 |
+| 密码登录开关 | 之后新的本地密码登录请求按新规则；已有密码、账号和会话不会被删除 |
 | 外部登录提供商 | 保存后登录页和后续外部登录流程按新规则 |
 | 外部登录邮箱验证邮件模版、登录邮箱验证码邮件模版 | 之后新发出的对应邮件按新规则 |
 | 邮箱验证码 MFA 开关、兜底策略、有效期和重发冷却 | 之后新的 MFA 登录流程和新发送的邮箱验证码按新规则 |

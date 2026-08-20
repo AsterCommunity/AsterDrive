@@ -17,6 +17,7 @@ interface ExternalAuthRecoveryPanelProps {
 	identifier: string;
 	identifierError: string;
 	mode: ExternalAuthRecoveryMode;
+	passwordLoginEnabled: boolean;
 	password: string;
 	passwordError: string;
 	sent: boolean;
@@ -37,6 +38,7 @@ export function ExternalAuthRecoveryPanel({
 	identifier,
 	identifierError,
 	mode,
+	passwordLoginEnabled,
 	password,
 	passwordError,
 	sent,
@@ -85,11 +87,18 @@ export function ExternalAuthRecoveryPanel({
 						onModeChange(value === "email" ? "email" : "password")
 					}
 				>
-					<TabsList className="grid h-9 w-full grid-cols-2">
-						<TabsTrigger value="password">
-							<Icon name="Lock" className="size-4" />
-							{t("external_auth_password_link_tab")}
-						</TabsTrigger>
+					<TabsList
+						className={cn(
+							"grid h-9 w-full",
+							passwordLoginEnabled ? "grid-cols-2" : "grid-cols-1",
+						)}
+					>
+						{passwordLoginEnabled ? (
+							<TabsTrigger value="password">
+								<Icon name="Lock" className="size-4" />
+								{t("external_auth_password_link_tab")}
+							</TabsTrigger>
+						) : null}
 						<TabsTrigger value="email">
 							<Icon name="EnvelopeSimple" className="size-4" />
 							{t("external_auth_email_verification_tab")}
@@ -97,7 +106,7 @@ export function ExternalAuthRecoveryPanel({
 					</TabsList>
 
 					<AnimateMeasuredHeight contentClassName="pt-4">
-						{mode === "password" ? (
+						{mode === "password" && passwordLoginEnabled ? (
 							<div key="password" className={tabPanelClassName}>
 								<div className="space-y-1.5">
 									<Label

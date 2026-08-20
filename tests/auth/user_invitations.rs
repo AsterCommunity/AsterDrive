@@ -529,6 +529,33 @@ async fn test_invitations_require_admin_but_accept_when_public_registration_disa
 }
 
 #[actix_web::test]
+async fn invitation_acceptance_is_blocked_when_password_login_is_disabled() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let invitation = create_invitation!(app, admin_token, "password-disabled-invite@example.com");
+    let token = extract_invitation_token(&invitation);
+
+    state.runtime_config.apply(common::system_config_model(
+        auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+        "false",
+    ));
+
+    let (status, body) =
+        accept_invitation_with_status!(app, &token, "blocked_by_policy", "password123");
+    assert_eq!(status, 403);
+    assert_eq!(body["code"], "auth.password_login_disabled");
+
+    let pending = user_invitation::Entity::find()
+        .filter(user_invitation::Column::Email.eq("password-disabled-invite@example.com"))
+        .one(state.writer_db())
+        .await
+        .expect("invitation should query")
+        .expect("invitation should remain present");
+    assert_eq!(pending.status, UserInvitationStatus::Pending);
+}
+
+#[actix_web::test]
 async fn test_invitation_respects_local_email_policy_on_create_and_accept() {
     let state = common::setup().await;
     let db = state.writer_db().clone();

@@ -20,7 +20,9 @@ use super::shared::{
     hash_new_password, is_active_verification_request_error, issue_contact_verification_token,
     resend_allowed,
 };
-use super::{AuthUserInfo, UserAuditInfo, is_email_verified, user_audit_info};
+use super::{
+    AuthUserInfo, UserAuditInfo, ensure_password_login_enabled, is_email_verified, user_audit_info,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RegisterActivationResendOutcome {
@@ -99,6 +101,7 @@ pub async fn register(
     password: &str,
 ) -> Result<AuthUserInfo> {
     crate::services::system_setup::require_ready(state.writer_db()).await?;
+    ensure_password_login_enabled(state)?;
 
     let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.runtime_config());
     tracing::debug!(
@@ -175,6 +178,7 @@ pub async fn resend_register_activation(
     state: &impl SharedRuntimeState,
     identifier: &str,
 ) -> Result<RegisterActivationResendOutcome> {
+    ensure_password_login_enabled(state)?;
     let Some(user) = find_user_by_identifier(state.writer_db(), identifier).await? else {
         return Ok(RegisterActivationResendOutcome::EmailNotFound);
     };

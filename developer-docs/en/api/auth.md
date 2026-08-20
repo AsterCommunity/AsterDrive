@@ -56,7 +56,7 @@ All paths below are relative to `/api/v1`.
 
 ## Initialization and registration
 
-- `POST /auth/check` returns `setup_state`, `has_users`, `allow_user_registration`, and `passkey_login_enabled`. It exposes system-level state only and does not reveal whether a specific account exists. `setup_state` is one of:
+- `POST /auth/check` returns `setup_state`, `has_users`, `allow_user_registration`, `passkey_login_enabled`, and `password_login_enabled`. It exposes system-level state only and does not reveal whether a specific account exists. `setup_state` is one of:
   - `needs_admin`: the database has no users and only first-administrator setup is open
   - `needs_storage`: an administrator exists, but the default storage policy group or administrator assignment is incomplete; existing administrators may sign in and finish storage setup
   - `ready`: administrator setup and the default storage route are complete, so ordinary account-creation flows may continue
@@ -142,7 +142,7 @@ Disabled users cannot log in.
 
 `GET /auth/me` supports a `fields` query such as `GET /auth/me?fields=profile,preferences,quota,session`. Supported groups are `profile`, `preferences`, `quota`, and `session`. Missing or empty fields returns the full model; unknown fields return `400`.
 
-If `must_change_password` is set for the user, successful login completion returns `password_change_required` instead of normal app access:
+If `must_change_password` is set for the user while `auth_password_login_enabled` is enabled, successful login completion returns `password_change_required` instead of normal app access:
 
 ```json
 {
@@ -155,7 +155,7 @@ If `must_change_password` is set for the user, successful login completion retur
 }
 ```
 
-This can happen after password login, MFA challenge verification, passkey login finish, or external-auth login finish. The response writes auth cookies, but the access token is scoped to the forced password-change flow. Until `PUT /auth/password` succeeds, only these authenticated routes are allowed:
+While password login remains enabled, this can happen after password login, MFA challenge verification, passkey login finish, or external-auth login finish. The response writes auth cookies, but the access token is scoped to the forced password-change flow. Until `PUT /auth/password` succeeds, only these authenticated routes are allowed:
 
 - `GET /auth/me`
 - `PUT /auth/password`
@@ -243,6 +243,8 @@ Registration and management require login:
 Passkeys are stored in the `passkeys` table. Credentials are stored as strongly typed wrapped JSON. The server requires discoverable credentials.
 
 `auth_passkey_login_enabled = false` disables anonymous passkey sign-in and hides the login entry point from current frontend bootstrap config, but it does not delete registered credentials. Logged-in users can still manage their saved passkeys.
+
+`auth_password_login_enabled = false` rejects local password first-factor login before account lookup and disables public registration, activation resend, password-based invitation acceptance, password reset, and external-auth password linking. Initial setup, administrator password assignment, and authenticated password changes remain available. Accounts, password hashes, and existing sessions are not deleted. A password-first MFA flow is rechecked when completed, and `must_change_password` is enforced only while password login is enabled.
 
 ## MFA management
 
