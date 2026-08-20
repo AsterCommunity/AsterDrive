@@ -596,28 +596,6 @@ pub async fn verify_challenge(
     }
 }
 
-#[cfg(test)]
-mod policy_tests {
-    use super::ensure_first_factor_allowed;
-    use crate::api::api_error_code::ApiErrorCode;
-    use aster_drive_model::types::MfaFirstFactor;
-
-    #[test]
-    fn password_first_factor_is_rejected_when_disabled() {
-        let error = ensure_first_factor_allowed(MfaFirstFactor::Password, false)
-            .expect_err("password MFA flow must be rejected after policy is disabled");
-        assert_eq!(
-            error.api_error_code(),
-            ApiErrorCode::AuthPasswordLoginDisabled
-        );
-    }
-
-    #[test]
-    fn external_first_factor_remains_allowed_when_password_is_disabled() {
-        assert!(ensure_first_factor_allowed(MfaFirstFactor::ExternalAuth, false).is_ok());
-    }
-}
-
 async fn verify_totp<C: sea_orm::ConnectionTrait>(
     db: &C,
     state: &impl SharedRuntimeState,
@@ -882,4 +860,26 @@ fn code_invalid() -> AsterError {
 
 fn flow_invalid(message: impl Into<String>) -> AsterError {
     auth_mfa_failed_with_code(ApiErrorCode::AuthMfaFlowInvalid, message)
+}
+
+#[cfg(test)]
+mod policy_tests {
+    use super::ensure_first_factor_allowed;
+    use crate::api::api_error_code::ApiErrorCode;
+    use aster_drive_model::types::MfaFirstFactor;
+
+    #[test]
+    fn password_first_factor_is_rejected_when_disabled() {
+        let error = ensure_first_factor_allowed(MfaFirstFactor::Password, false)
+            .expect_err("password MFA flow must be rejected after policy is disabled");
+        assert_eq!(
+            error.api_error_code(),
+            ApiErrorCode::AuthPasswordLoginDisabled
+        );
+    }
+
+    #[test]
+    fn external_first_factor_remains_allowed_when_password_is_disabled() {
+        assert!(ensure_first_factor_allowed(MfaFirstFactor::ExternalAuth, false).is_ok());
+    }
 }
