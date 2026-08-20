@@ -821,4 +821,25 @@ describe("http api helpers", () => {
 		revokeObjectURL.mockRestore();
 		click.mockRestore();
 	});
+
+	it("uses the fallback filename when Content-Disposition is absent", async () => {
+		const createObjectURL = vi
+			.spyOn(URL, "createObjectURL")
+			.mockReturnValue("blob:fallback");
+		const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL");
+		const click = vi.spyOn(HTMLAnchorElement.prototype, "click");
+		mockState.client.get.mockResolvedValue({
+			data: new Blob(["id\n1\n"], { type: "text/csv" }),
+			headers: {},
+		});
+
+		const { downloadFile } = await loadHttpModule();
+		await downloadFile("/admin/audit-logs/export", undefined, "fallback.csv");
+
+		expect(click).toHaveBeenCalledTimes(1);
+		expect(click.mock.instances[0]?.download).toBe("fallback.csv");
+		createObjectURL.mockRestore();
+		revokeObjectURL.mockRestore();
+		click.mockRestore();
+	});
 });

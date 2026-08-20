@@ -345,7 +345,7 @@ describe("AdminAuditPage", () => {
 		renderPage("/admin/audit?action=file_delete&entityType=folder");
 
 		await waitFor(() => expect(mockState.list).toHaveBeenCalled());
-		fireEvent.click(screen.getByRole("button", { name: /audit_export_csv/i }));
+		fireEvent.click(screen.getByRole("button", { name: /core:export_csv/i }));
 
 		await waitFor(() => {
 			expect(mockState.export).toHaveBeenCalledWith({

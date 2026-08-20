@@ -422,6 +422,37 @@ async fn test_audit_csv_export_streams_fixed_schema_filters_and_redacts_secrets(
         .expect("cursor boundary audit fixture should insert");
     }
 
+    let share_token = format!("share-secret-{marker}");
+    aster_forge_db::create_audit_log_row(
+        state.writer_db(),
+        aster_forge_db::AuditLogCreate {
+            user_id: 1,
+            action: AuditAction::ShareCreate.as_str().to_string(),
+            entity_type: "share".to_string(),
+            entity_id: Some(77),
+            entity_name: Some(share_token.clone()),
+            details: Some(
+                serde_json::json!({"token": share_token, "session_id": "session-secret", "safe": "kept"})
+                    .to_string(),
+            ),
+            ip_address: None,
+            user_agent: None,
+            created_at: chrono::Utc::now(),
+        },
+    )
+    .await
+    .expect("share secret audit fixture should insert");
+
+    let list_request = test::TestRequest::get()
+        .uri("/api/v1/admin/audit-logs?entity_type=share&limit=10")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let list_body: Value = test::call_and_read_body_json(&app, list_request).await;
+    let list_text = list_body["data"]["items"].to_string();
+    assert!(!list_text.contains("share-secret-"));
+    assert!(!list_text.contains("session-secret"));
+
     let req = test::TestRequest::get()
         .uri(&format!(
             "/api/v1/admin/audit-logs/export?action=team_update&entity_type=team&entity_id=42&sort_by=created_at&sort_order=asc"
@@ -458,6 +489,12 @@ async fn test_audit_csv_export_streams_fixed_schema_filters_and_redacts_secrets(
     assert_eq!(records[0].get(3), Some("testuser"));
     assert_eq!(records[0].get(11), Some("1"));
     assert_eq!(records[0].get(13), Some("admin"));
+    let quoted_name = format!("CSV {marker}, \"quoted\"\nname");
+    assert!(
+        records
+            .iter()
+            .any(|record| record.get(7) == Some(quoted_name.as_str()))
+    );
     let csv_text = String::from_utf8(body.to_vec()).unwrap();
     for secret in ["plain-secret", "token-secret"] {
         assert!(!csv_text.contains(secret));
@@ -473,7 +510,7 @@ async fn test_audit_csv_export_streams_fixed_schema_filters_and_redacts_secrets(
 #[actix_web::test]
 async fn test_audit_csv_export_preserves_admin_and_team_permissions() {
     let state = common::setup().await;
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
     let team_admin_user_id = admin_create_user!(
         app,
@@ -494,12 +531,33 @@ async fn test_audit_csv_export_preserves_admin_and_team_permissions() {
     let body: Value = test::call_and_read_body_json(&app, create).await;
     let team_id = body["data"]["id"].as_i64().unwrap();
 
+    let bait = format!("CSV bait outside team {team_id}");
+    aster_forge_db::create_audit_log_row(
+        state.writer_db(),
+        aster_forge_db::AuditLogCreate {
+            user_id: 1,
+            action: AuditAction::FileUpload.as_str().to_string(),
+            entity_type: "file".to_string(),
+            entity_id: Some(999_999),
+            entity_name: Some(bait.clone()),
+            details: None,
+            ip_address: None,
+            user_agent: None,
+            created_at: chrono::Utc::now(),
+        },
+    )
+    .await
+    .expect("team export bait audit fixture should insert");
+
     let admin_export = test::TestRequest::get()
         .uri(&format!("/api/v1/admin/teams/{team_id}/audit-logs/export"))
         .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
         .insert_header(common::csrf_header_for(&admin_token))
         .to_request();
-    assert_eq!(test::call_service(&app, admin_export).await.status(), 200);
+    let admin_response = test::call_service(&app, admin_export).await;
+    assert_eq!(admin_response.status(), 200);
+    let admin_csv = test::read_body(admin_response).await;
+    assert!(!String::from_utf8_lossy(&admin_csv).contains(&bait));
 
     let (member_token, _) = login_user!(app, "csv-team-admin", "password123");
     let team_export = test::TestRequest::get()
@@ -507,33 +565,80 @@ async fn test_audit_csv_export_preserves_admin_and_team_permissions() {
         .insert_header(("Cookie", common::access_cookie_header(&member_token)))
         .insert_header(common::csrf_header_for(&member_token))
         .to_request();
-    assert_eq!(test::call_service(&app, team_export).await.status(), 200);
+    let team_response = test::call_service(&app, team_export).await;
+    assert_eq!(team_response.status(), 200);
+    let team_csv = test::read_body(team_response).await;
+    assert!(!String::from_utf8_lossy(&team_csv).contains(&bait));
 
-    let (ordinary_user_id, _) = {
-        let user_id = admin_create_user!(
-            app,
-            admin_token,
-            "csv-team-member",
-            "csv-team-member@example.com",
-            "password123"
-        );
-        let add_member = test::TestRequest::post()
-            .uri(&format!("/api/v1/admin/teams/{team_id}/members"))
-            .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
-            .insert_header(common::csrf_header_for(&admin_token))
-            .set_json(serde_json::json!({"user_id": user_id, "role": "member"}))
-            .to_request();
-        assert_eq!(test::call_service(&app, add_member).await.status(), 201);
-        (user_id, ())
-    };
+    let member_user_id = admin_create_user!(
+        app,
+        admin_token,
+        "csv-team-member",
+        "csv-team-member@example.com",
+        "password123"
+    );
+    let add_member = test::TestRequest::post()
+        .uri(&format!("/api/v1/admin/teams/{team_id}/members"))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({"user_id": member_user_id, "role": "member"}))
+        .to_request();
+    assert_eq!(test::call_service(&app, add_member).await.status(), 201);
     let (ordinary_token, _) = login_user!(app, "csv-team-member", "password123");
-    let _ = ordinary_user_id;
     let forbidden = test::TestRequest::get()
         .uri(&format!("/api/v1/teams/{team_id}/audit-logs/export"))
         .insert_header(("Cookie", common::access_cookie_header(&ordinary_token)))
         .insert_header(common::csrf_header_for(&ordinary_token))
         .to_request();
     assert_eq!(test::call_service(&app, forbidden).await.status(), 403);
+}
+
+#[actix_web::test]
+async fn test_audit_csv_export_nullable_sort_cursors_cover_both_directions() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    for index in 0..501 {
+        aster_forge_db::create_audit_log_row(
+            state.writer_db(),
+            aster_forge_db::AuditLogCreate {
+                user_id: 1,
+                action: AuditAction::TeamUpdate.as_str().to_string(),
+                entity_type: "user".to_string(),
+                entity_id: Some(index),
+                entity_name: (index % 2 == 0).then(|| format!("cursor-{index:04}")),
+                details: None,
+                ip_address: (index % 3 == 0).then(|| format!("192.0.2.{index}")),
+                user_agent: None,
+                created_at: chrono::Utc::now(),
+            },
+        )
+        .await
+        .expect("nullable cursor fixture should insert");
+    }
+
+    for sort_order in ["asc", "desc"] {
+        let req = test::TestRequest::get()
+            .uri(&format!(
+                "/api/v1/admin/audit-logs/export?action=team_update&entity_type=user&sort_by=entity_name&sort_order={sort_order}"
+            ))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let response = test::call_service(&app, req).await;
+        assert_eq!(response.status(), 200);
+        let body = test::read_body(response).await;
+        let mut reader = csv::Reader::from_reader(body.as_ref());
+        let ids = reader
+            .records()
+            .map(|record| record.unwrap().get(0).unwrap().to_string())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(
+            ids.len(),
+            501,
+            "sort order {sort_order} should scan every row"
+        );
+    }
 }
 
 #[actix_web::test]

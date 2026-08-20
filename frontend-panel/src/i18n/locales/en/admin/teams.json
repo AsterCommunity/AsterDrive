@@ -44,7 +44,6 @@
 	"team_audit_desc": "Track profile changes, membership updates, and archive or restore activity for this team.",
 	"team_audit_empty": "No team audit entries yet",
 	"team_audit_empty_desc": "Team management events will appear here in reverse chronological order.",
-	"team_audit_export": "Export CSV",
 	"team_danger_zone": "Danger zone",
 	"team_danger_zone_desc": "Keep high-risk operations here so the impact stays obvious before execution.",
 	"team_danger_zone_hint": "Confirm another manager is still available and notify members before archiving the team.",

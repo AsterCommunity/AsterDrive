@@ -37,7 +37,7 @@ pub use details::{
 };
 pub use export::{
     AUDIT_CSV_EXPORT_BATCH_SIZE, AUDIT_CSV_EXPORT_MAX_ROWS, AuditExportKind,
-    PreparedAuditCsvExport, prepare_csv_export,
+    PreparedAuditCsvExport, prepare_csv_export, sanitize_details, sanitize_entity_name,
 };
 pub use filters::{AuditLogFilterQuery, AuditLogFilters};
 pub use manager::{

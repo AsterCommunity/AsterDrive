@@ -11,6 +11,7 @@ const mockState = vi.hoisted(() => ({
 const teamServiceMocks = vi.hoisted(() => ({
 	addMember: vi.fn(),
 	delete: vi.fn(),
+	exportAuditLogs: vi.fn(),
 	get: vi.fn(),
 	listAuditLogs: vi.fn(),
 	listMembers: vi.fn(),
@@ -75,14 +76,16 @@ const teamSummary = {
 	updated_at: "2026-04-02T00:00:00Z",
 };
 
-function renderDetail() {
+function renderDetail(
+	pageTab: "overview" | "members" | "webdav" | "audit" = "overview",
+) {
 	return render(
 		<TeamManageDetail
 			currentUserId={1}
 			onExit={vi.fn()}
 			onPageTabChange={vi.fn()}
 			onTeamsReload={async () => undefined}
-			pageTab="overview"
+			pageTab={pageTab}
 			teamId={11}
 			teamSummary={teamSummary}
 		/>,
@@ -95,6 +98,7 @@ describe("TeamManageDetail", () => {
 		mockState.navigate.mockReset();
 		teamServiceMocks.addMember.mockReset();
 		teamServiceMocks.delete.mockReset();
+		teamServiceMocks.exportAuditLogs.mockReset();
 		teamServiceMocks.get.mockReset();
 		teamServiceMocks.listAuditLogs.mockReset();
 		teamServiceMocks.listMembers.mockReset();
@@ -126,6 +130,7 @@ describe("TeamManageDetail", () => {
 			items: [],
 			total: 0,
 		});
+		teamServiceMocks.exportAuditLogs.mockResolvedValue(undefined);
 	});
 
 	it("uses a fixed shell and a native scrollable detail column", async () => {
@@ -189,5 +194,28 @@ describe("TeamManageDetail", () => {
 		expect(input.isConnected).toBe(true);
 		expect(screen.getByLabelText("core:name")).toBe(input);
 		expect(input.value).toBe("Product Ops");
+	});
+
+	it("exports the current team audit scope and disables the button while pending", async () => {
+		let resolveExport!: () => void;
+		teamServiceMocks.exportAuditLogs.mockReturnValue(
+			new Promise<void>((resolve) => {
+				resolveExport = resolve;
+			}),
+		);
+		renderDetail("audit");
+		await waitFor(() =>
+			expect(teamServiceMocks.listAuditLogs).toHaveBeenCalled(),
+		);
+		const button = await screen.findByRole("button", {
+			name: /core:export_csv/,
+		});
+		fireEvent.click(button);
+		await waitFor(() => {
+			expect(teamServiceMocks.exportAuditLogs).toHaveBeenCalledWith(11);
+			expect(button).toBeDisabled();
+		});
+		resolveExport();
+		await waitFor(() => expect(button).not.toBeDisabled());
 	});
 });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "@/components/common/EmptyState";
 import { SkeletonTable } from "@/components/common/SkeletonTable";
@@ -42,6 +42,13 @@ export function AdminTeamDetailAuditSection({
 }: AuditSectionProps) {
 	const { t } = useTranslation(["admin", "core", "settings"]);
 	const [exporting, setExporting] = useState(false);
+	const mountedRef = useRef(true);
+	useEffect(
+		() => () => {
+			mountedRef.current = false;
+		},
+		[],
+	);
 	const handleExport = async () => {
 		if (exporting) return;
 		setExporting(true);
@@ -50,7 +57,7 @@ export function AdminTeamDetailAuditSection({
 		} catch (error) {
 			handleApiError(error);
 		} finally {
-			setExporting(false);
+			if (mountedRef.current) setExporting(false);
 		}
 	};
 
@@ -76,7 +83,7 @@ export function AdminTeamDetailAuditSection({
 						name={exporting ? "Spinner" : "Download"}
 						className={`mr-1 size-4 ${exporting ? "animate-spin" : ""}`}
 					/>
-					{t("team_audit_export")}
+					{t("core:export_csv")}
 				</Button>
 			</div>
 			{auditLoading && auditEntries.length === 0 ? (

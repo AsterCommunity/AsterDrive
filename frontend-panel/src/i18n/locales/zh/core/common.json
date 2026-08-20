@@ -13,6 +13,7 @@
 	"back": "返回",
 	"loading": "加载中...",
 	"refresh": "刷新",
+	"export_csv": "导出 CSV",
 	"error": "错误",
 	"success": "成功",
 	"search": "搜索",

@@ -9,7 +9,6 @@
 	"no_audit_logs": "暂无审计日志",
 	"no_filtered_audit_logs": "没有匹配的审计日志",
 	"no_filtered_audit_logs_desc": "可尝试更换操作关键词或对象类型。",
-	"audit_export_csv": "导出 CSV",
 	"audit_action_admin_create_user": "管理员创建用户",
 	"audit_action_admin_create_invitation": "管理员创建用户邀请",
 	"audit_action_admin_revoke_invitation": "管理员撤销用户邀请",

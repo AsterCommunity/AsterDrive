@@ -323,7 +323,7 @@ export default function AdminAuditPage() {
 									name={exporting ? "Spinner" : "Download"}
 									className={`mr-1 size-3.5 ${exporting ? "animate-spin" : ""}`}
 								/>
-								{t("audit_export_csv")}
+								{t("core:export_csv")}
 							</Button>
 							<Button
 								variant="outline"

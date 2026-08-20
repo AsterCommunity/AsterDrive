@@ -72,7 +72,6 @@
 	"settings_team_audit_desc": "Review profile changes, member updates, and archive activity for this team.",
 	"settings_team_audit_empty": "No team audit entries yet",
 	"settings_team_audit_empty_desc": "Team management events will appear here in reverse chronological order.",
-	"settings_team_audit_export": "Export CSV",
 	"settings_team_danger_zone": "Danger zone",
 	"settings_team_danger_zone_desc": "Keep high-risk actions here so the impact stays obvious before execution.",
 	"settings_team_danger_zone_hint": "Confirm another manager is still available and notify members before archiving the team.",

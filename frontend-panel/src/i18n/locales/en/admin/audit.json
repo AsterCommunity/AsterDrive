@@ -9,7 +9,6 @@
 	"no_audit_logs": "No audit log entries",
 	"no_filtered_audit_logs": "No matching audit log entries",
 	"no_filtered_audit_logs_desc": "Try another action keyword or entity type.",
-	"audit_export_csv": "Export CSV",
 	"audit_action_admin_create_user": "Admin created user",
 	"audit_action_admin_create_invitation": "Admin created user invitation",
 	"audit_action_admin_revoke_invitation": "Admin revoked user invitation",

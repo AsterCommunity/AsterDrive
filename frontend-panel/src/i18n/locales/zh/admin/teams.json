@@ -44,7 +44,6 @@
 	"team_audit_desc": "这里记录团队资料调整、成员变更，以及归档和恢复等关键动作。",
 	"team_audit_empty": "暂无团队审计记录",
 	"team_audit_empty_desc": "发生团队管理动作后，这里会按时间倒序显示。",
-	"team_audit_export": "导出 CSV",
 	"team_danger_zone": "危险操作区",
 	"team_danger_zone_desc": "高风险操作统一放在这里，执行前请再次确认影响范围。",
 	"team_danger_zone_hint": "建议先确认当前仍有可用管理员，并通知成员后再执行归档。",
