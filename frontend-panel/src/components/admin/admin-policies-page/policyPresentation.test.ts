@@ -1,12 +1,8 @@
 import { describe, expect, it } from "vitest";
-import {
-	getStorageConnectorBadgePresentation,
-	PROTECTED_POLICY_ID,
-} from "./policyPresentation";
+import { getStorageConnectorBadgePresentation } from "./policyPresentation";
 
 describe("policyPresentation", () => {
 	it("renders a connector-owned RGB color without connector id branches", () => {
-		expect(PROTECTED_POLICY_ID).toBe(1);
 		const presentation = getStorageConnectorBadgePresentation({
 			red: 16,
 			green: 185,

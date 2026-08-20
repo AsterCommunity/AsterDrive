@@ -56,7 +56,7 @@
 	"create_policy_group": "创建策略组",
 	"edit_policy_group": "编辑策略组",
 	"delete_policy_group": "删除策略组",
-	"delete_policy_group_desc": "这会删除整个策略组及其路由规则。若仍有用户绑定，需要先迁移绑定关系。",
+	"delete_policy_group_desc": "这会删除整个策略组及其路由规则。包括最后一个默认策略组在内，都需要先迁移用户和团队绑定；删除默认组只会重新打开存储 setup，不会清空绑定。",
 	"policy_group_dialog_desc": "定义一组有序规则，按文件大小把上传分配到不同存储策略。",
 	"policy_group_name_required": "必须填写策略组名称。",
 	"policy_group_default_requires_enabled": "默认策略组必须保持启用。",
@@ -67,6 +67,5 @@
 	"policy_group_rule_policy_duplicate": "同一个存储策略在一个策略组里只能出现一次。",
 	"policy_group_rule_size_invalid": "文件大小限制必须是合法的非负数字。",
 	"policy_group_rule_range_invalid": "最大文件大小必须大于最小文件大小。",
-	"policy_group_delete_default_blocked": "请先把其他策略组设为默认，再删除当前默认策略组。",
 	"policy_group_no_policies_available": "请先创建至少一个存储策略，再创建策略组。"
 }

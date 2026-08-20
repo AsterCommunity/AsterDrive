@@ -1,8 +1,6 @@
 import type { CSSProperties } from "react";
 import type { StorageConnectorBadgeRgb } from "@/types/api";
 
-export const PROTECTED_POLICY_ID = 1;
-
 const DEFAULT_BADGE_RGB: StorageConnectorBadgeRgb = {
 	red: 113,
 	green: 113,

@@ -3,7 +3,9 @@
 use chrono::Utc;
 use sea_orm::Set;
 
-use crate::db::repository::{policy_group_repo, policy_repo, user_repo};
+use crate::db::repository::{
+    policy_group_repo, policy_repo, system_initialization_repo, user_repo,
+};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use aster_drive_model::entities::{storage_policy_group, storage_policy_group_item};
@@ -15,8 +17,6 @@ use super::models::{
     StoragePolicyGroupInfo, StoragePolicyGroupItemInfo, StoragePolicyGroupItemInput,
     StoragePolicySummaryInfo,
 };
-
-pub(super) const SYSTEM_STORAGE_POLICY_ID: i64 = 1;
 
 pub(super) fn serialize_allowed_types(
     allowed_types: &[String],
@@ -162,8 +162,7 @@ pub(super) async fn replace_group_items<C: sea_orm::ConnectionTrait>(
 pub(super) async fn lock_default_group_assignment<C: sea_orm::ConnectionTrait>(
     db: &C,
 ) -> Result<()> {
-    policy_repo::lock_by_id(db, SYSTEM_STORAGE_POLICY_ID).await?;
-    Ok(())
+    system_initialization_repo::acquire_storage_topology_lock(db).await
 }
 
 pub(super) async fn ensure_singleton_group_for_policy<C: sea_orm::ConnectionTrait>(

@@ -25,10 +25,7 @@ import type { AdminPolicySortBy } from "@/types/adminSort";
 import type { StorageConnectorDescriptor, StoragePolicy } from "@/types/api";
 import { policyConnectorSelection } from "../storage-policy-dialog/connectionNormalization";
 import type { ConnectorFormValue } from "../storage-policy-dialog/formTypes";
-import {
-	getStorageConnectorBadgePresentation,
-	PROTECTED_POLICY_ID,
-} from "./policyPresentation";
+import { getStorageConnectorBadgePresentation } from "./policyPresentation";
 
 interface PoliciesTableProps {
 	deletingPolicyId: number | null;
@@ -216,12 +213,8 @@ export function PoliciesTable({
 									className={`${ADMIN_ICON_BUTTON_CLASS} text-destructive`}
 									onClick={() => onDeletePolicy(policy.id)}
 									aria-label={deleteLabel}
-									title={
-										policy.id === PROTECTED_POLICY_ID
-											? t("initial_policy_delete_blocked")
-											: deleteLabel
-									}
-									disabled={policy.id === PROTECTED_POLICY_ID || isDeleting}
+									title={deleteLabel}
+									disabled={isDeleting}
 								>
 									<Icon
 										name={isDeleting ? "Spinner" : "Trash"}

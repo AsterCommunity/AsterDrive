@@ -113,7 +113,7 @@ Current notes:
 - `POST /admin/policies/{id}/promote-s3-driver` currently supports promoting a generic `s3` policy to `tencent_cos`. The body must include the target driver and current endpoint / bucket, for example `{ "target_driver_type": "tencent_cos", "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com", "bucket": "bucket-1250000000" }`. Promotion is rejected unless the bucket stays unchanged, there are no active upload sessions for the policy, and the target driver validates the endpoint / bucket combination.
 - `GET /admin/policies` supports `limit`, `offset`, `sort_by`, `sort_order`
 - `GET /admin/policies/{id}/capacity` returns `StoragePolicyCapacityInfo`; local returns filesystem capacity, S3-compatible and Azure Blob are explicitly unsupported, OneDrive reads Microsoft Graph drive quota, and remote forwards follower capacity status
-- `DELETE /admin/policies/{id}?force=true` only cleans upload sessions that still reference the policy. Existing blobs or policy-group references still block deletion. If temp objects or multipart uploads need delayed cleanup, a `storage_policy_temp_cleanup` task is created.
+- `DELETE /admin/policies/{id}?force=true` only cleans upload sessions that still reference the policy. Existing blobs or policy-group references still block deletion. Deleting the last default policy returns the system to `needs_storage`; if temp objects or multipart uploads need delayed cleanup, a `storage_policy_temp_cleanup` task is created.
 
 ### Storage connection tests
 
@@ -500,7 +500,7 @@ The admin folder-policy request is `{ "policy_id": 12 }`; `{ "policy_id": null }
 | `DELETE` | `/admin/policy-groups/{id}` | Delete policy group |
 | `POST` | `/admin/policy-groups/{id}/migrate-assignments` | Migrate user and team policy group bindings by updating `policy_group_id` |
 
-Policy groups define storage policy selection for users and teams. They are rejected from deletion while still referenced. Migration responses report `affected_users`, `affected_teams`, and `migrated_assignments`.
+Policy groups define storage policy selection for users and teams. A group configuration still requires at least one policy item. A policy group with user or team bindings must be migrated before deletion, including the last default group; once deletion succeeds, deleting the last default group returns the system to `needs_storage` without clearing bindings. Other referenced groups remain protected. Migration responses report `affected_users`, `affected_teams`, and `migrated_assignments`.
 
 ## Users
 

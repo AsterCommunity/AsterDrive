@@ -182,7 +182,10 @@ pub async fn delete_group_items_by_group<C: ConnectionTrait>(db: &C, group_id: i
     Ok(result.rows_affected)
 }
 
-pub async fn count_group_items_by_policy(db: &DatabaseConnection, policy_id: i64) -> Result<u64> {
+pub async fn count_group_items_by_policy<C: ConnectionTrait>(
+    db: &C,
+    policy_id: i64,
+) -> Result<u64> {
     StoragePolicyGroupItem::find()
         .filter(storage_policy_group_item::Column::PolicyId.eq(policy_id))
         .count(db)

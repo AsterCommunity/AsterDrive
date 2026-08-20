@@ -132,7 +132,7 @@
   - S3-compatible 和 Azure Blob 驱动明确返回 `StorageErrorKind::Unsupported`，服务层转换成 `unsupported` 状态，不伪造 bucket / account 容量
   - OneDrive 驱动通过 Microsoft Graph drive quota 返回容量信息
   - Remote 驱动通过 follower 内部协议 `/internal/storage/capacity` 转发当前远端存储目标的容量能力
-- `DELETE /admin/policies/{id}` 支持 `?force=true`；这只会强制清理仍引用该策略的上传 session，仍有 blob 或策略组项引用时照样拒绝删除。若清理后还有临时对象或 multipart upload 需要延后处理，会创建 `storage_policy_temp_cleanup` 后台任务
+- `DELETE /admin/policies/{id}` 支持 `?force=true`；这只会强制清理仍引用该策略的上传 session，仍有 blob 或策略组项引用时照样拒绝删除。删除最后一个默认策略后系统会回到 `needs_storage`；若清理后还有临时对象或 multipart upload 需要延后处理，会创建 `storage_policy_temp_cleanup` 后台任务
 
 ### 存储连接测试
 
@@ -538,7 +538,7 @@ POST /api/v1/admin/policies/action
 
 当前实现注意点：
 
-- 策略组至少要包含一个策略项
+- 策略组配置仍需至少包含一个策略项；删除最后一个默认策略组会使系统回到 `needs_storage`
 - 同一组里 `policy_id` 和 `priority` 都不能重复
 - `is_default = true` 的组必须保持启用
 - 已被用户或团队绑定的策略组不能直接删掉；被绑定时也不能随便禁用
