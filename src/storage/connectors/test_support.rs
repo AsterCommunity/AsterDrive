@@ -19,11 +19,7 @@ use super::remote::{RemoteConnector, RemoteConnectorConfigV1};
 use super::s3::{S3Connector, S3ConnectorConfigV1};
 use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorCredentialInput};
 
-/// Build the AsterDrive 0.5.x database shape used by connector tests.
-///
-/// Historical migrations intentionally retain legacy policy columns for the
-/// startup credential importer. Issue #463 removes that compatibility schema in
-/// 0.6.0; current entities safely ignore the extra columns.
+/// Build the current database shape used by connector tests.
 pub(crate) async fn migrate_current_storage_test_schema(database: &DatabaseConnection) {
     aster_drive_migration::Migrator::up(database, None)
         .await

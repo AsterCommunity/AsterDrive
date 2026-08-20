@@ -1,4 +1,4 @@
-//! Connector credential orchestration and startup migration.
+//! Connector credential orchestration.
 //!
 //! Provider payloads, authorization protocol handling, and refresh state are
 //! connector-owned. This module keeps only cross-connector persistence,
@@ -6,7 +6,6 @@
 
 pub(crate) mod crypto;
 mod management;
-mod migration;
 mod oauth;
 
 pub use management::{
@@ -22,5 +21,3 @@ pub use oauth::{
     StorageAuthorizationCallbackOutcome, StorageAuthorizationCallbackQuery,
     StorageAuthorizationStartResponse, start_authorization,
 };
-
-pub(crate) use migration::migrate_legacy_storage_credentials;

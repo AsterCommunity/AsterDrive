@@ -40,31 +40,9 @@ pub(super) fn decode_row_values(
                 &plan.name,
                 &column.name,
             )?;
-            let cell = normalize_0_5_storage_compatibility_cell(&plan.name, &column.name, cell);
             cell_into_target_value(cell, target_kind, &plan.name, &column.name)
         })
         .collect()
-}
-
-/// Normalizes backend-specific values in the temporary 0.5.x storage schema.
-///
-/// MySQL keeps the deprecated `storage_policies.options` column nullable because
-/// historical MySQL versions do not support the same TEXT default as SQLite and
-/// PostgreSQL. Cross-database copy must materialize the historical empty object
-/// before inserting into a backend where that retained column is still NOT NULL.
-/// Issue #463 removes both the column and this 0.5.x-only normalization in 0.6.0.
-fn normalize_0_5_storage_compatibility_cell(
-    table_name: &str,
-    column_name: &str,
-    cell: CellValue,
-) -> CellValue {
-    if table_name == "storage_policies"
-        && column_name == "options"
-        && matches!(cell, CellValue::Null)
-    {
-        return CellValue::String("{}".to_string());
-    }
-    cell
 }
 
 fn decode_source_cell(
@@ -295,39 +273,7 @@ mod tests {
     use chrono::DateTime;
     use sea_orm::Value;
 
-    use super::{
-        BindingKind, CellValue, cell_into_target_value, normalize_0_5_storage_compatibility_cell,
-    };
-
-    #[test]
-    fn null_legacy_storage_policy_options_normalize_to_empty_object() {
-        let normalized = normalize_0_5_storage_compatibility_cell(
-            "storage_policies",
-            "options",
-            CellValue::Null,
-        );
-        assert!(matches!(normalized, CellValue::String(value) if value == "{}"));
-    }
-
-    #[test]
-    fn storage_compatibility_normalization_does_not_change_other_cells() {
-        assert!(matches!(
-            normalize_0_5_storage_compatibility_cell(
-                "storage_policies",
-                "access_key",
-                CellValue::Null,
-            ),
-            CellValue::Null
-        ));
-        assert!(matches!(
-            normalize_0_5_storage_compatibility_cell(
-                "storage_policies",
-                "options",
-                CellValue::String(r#"{"content_dedup":true}"#.to_string()),
-            ),
-            CellValue::String(value) if value == r#"{"content_dedup":true}"#
-        ));
-    }
+    use super::{BindingKind, CellValue, cell_into_target_value};
 
     #[test]
     fn string_bool_cells_convert_into_bool_values() {

@@ -6,7 +6,6 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::storage::DriverRegistry;
 use aster_drive_metrics::SharedMetricsRecorder;
 use aster_drive_migration::Migrator;
-use sea_orm::TransactionTrait;
 use std::sync::Arc;
 
 pub(super) struct CommonRuntimeParts {
@@ -106,24 +105,6 @@ pub async fn initialize_database_state(
         .await
         .map_aster_err(AsterError::database_operation)?;
     let connector_registry = crate::storage::connectors::builtin_storage_connector_registry()?;
-    let upgrade_config = cfg.clone();
-    let upgrade_connectors = connector_registry.clone();
-    aster_drive_migration::with_database_migration_lock(database, move |connection| {
-        Box::pin(async move {
-            let credential_transaction = connection.begin().await?;
-            crate::services::storage_policy::credential::migrate_legacy_storage_credentials(
-                &credential_transaction,
-                &upgrade_config,
-                &upgrade_connectors,
-            )
-            .await
-            .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;
-            credential_transaction.commit().await?;
-            Ok(())
-        })
-    })
-    .await
-    .map_err(|error| AsterError::database_operation(error.to_string()))?;
 
     if let Some(sqlite_search) = db::sqlite_search::ensure_sqlite_search_ready(database).await? {
         tracing::info!(
@@ -300,11 +281,36 @@ mod tests {
                 "options",
             ] {
                 assert!(
-                    schema
+                    !schema
                         .has_column("storage_policies", legacy_column)
                         .await
                         .unwrap(),
-                    "0.5 startup should retain legacy storage policy column {legacy_column}"
+                    "0.5.1 startup should remove legacy storage policy column {legacy_column}"
+                );
+            }
+            for current_column in ["connector_id", "storage_config"] {
+                assert!(
+                    schema
+                        .has_column("storage_policies", current_column)
+                        .await
+                        .unwrap(),
+                    "0.5.1 startup should retain current storage policy column {current_column}"
+                );
+            }
+            assert!(
+                schema
+                    .has_table("storage_policy_connector_credentials")
+                    .await
+                    .unwrap(),
+                "0.5.1 startup should retain connector-owned credentials"
+            );
+            for legacy_table in [
+                "storage_policy_credentials",
+                "storage_connector_application_configs",
+            ] {
+                assert!(
+                    !schema.has_table(legacy_table).await.unwrap(),
+                    "0.5.1 startup should remove legacy credential table {legacy_table}"
                 );
             }
             crate::storage::connectors::test_support::insertable_policy(
@@ -312,7 +318,7 @@ mod tests {
             )
             .insert(&db)
             .await
-            .expect("current storage policy entity should ignore retained legacy columns");
+            .expect("current storage policy entity should match the final schema");
         }
     }
 

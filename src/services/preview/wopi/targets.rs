@@ -507,8 +507,10 @@ pub(crate) fn decode_wopi_filename(value: &str) -> Result<String> {
         }
 
         let utf16 = bytes
-            .chunks_exact(2)
-            .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]));
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|chunk| u16::from_be_bytes(*chunk));
         for ch in char::decode_utf16(utf16) {
             decoded.push(ch.map_aster_err_with(|| {
                 AsterError::validation_error("invalid UTF-16 sequence in WOPI target header")
