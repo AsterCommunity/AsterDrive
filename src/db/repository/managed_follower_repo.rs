@@ -80,9 +80,9 @@ fn apply_admin_remote_node_sort(
             sort_order,
             managed_follower::Column::Id,
         ),
-        AdminRemoteNodeSortBy::LastCheckedAt => order_by_column_with_id(
+        AdminRemoteNodeSortBy::LastProbeAt => order_by_column_with_id(
             query,
-            managed_follower::Column::LastCheckedAt,
+            managed_follower::Column::LastProbeAt,
             sort_order,
             managed_follower::Column::Id,
         ),
@@ -132,14 +132,14 @@ pub async fn touch_probe_result(
     db: &DatabaseConnection,
     id: i64,
     last_capabilities: String,
-    last_error: String,
-    last_checked_at: Option<chrono::DateTime<chrono::Utc>>,
+    last_probe_error: String,
+    last_probe_at: Option<chrono::DateTime<chrono::Utc>>,
 ) -> Result<managed_follower::Model> {
     let existing = find_by_id(db, id).await?;
     let mut active: managed_follower::ActiveModel = existing.into();
     active.last_capabilities = Set(last_capabilities);
-    active.last_error = Set(last_error);
-    active.last_checked_at = Set(last_checked_at);
+    active.last_probe_error = Set(last_probe_error);
+    active.last_probe_at = Set(last_probe_at);
     active.updated_at = Set(chrono::Utc::now());
     update(db, active).await
 }
@@ -147,16 +147,16 @@ pub async fn touch_probe_result(
 pub async fn touch_tunnel_result(
     db: &DatabaseConnection,
     id: i64,
-    tunnel_last_error: String,
-    tunnel_last_seen_at: Option<chrono::DateTime<chrono::Utc>>,
+    tunnel_runtime_error: String,
+    tunnel_last_handshake_at: Option<chrono::DateTime<chrono::Utc>>,
 ) -> Result<managed_follower::Model> {
     let existing = find_by_id(db, id).await?;
     let mut active: managed_follower::ActiveModel = existing.into();
-    active.tunnel_last_error = Set(tunnel_last_error);
-    active.tunnel_last_seen_at = Set(tunnel_last_seen_at);
+    active.tunnel_runtime_error = Set(tunnel_runtime_error);
+    active.tunnel_last_handshake_at = Set(tunnel_last_handshake_at);
     // Tunnel 心跳和错误是运行态遥测，不代表远端节点配置被修改。
-    // `tunnel_last_error` 是暂时的健康状态：成功 poll/stream handshake 会写入空字符串，
-    // 所以它不是历史错误日志；需要按 tunnel 活跃度排序时应显式使用 `tunnel_last_seen_at`。
+    // `tunnel_runtime_error` 是暂时的健康状态：成功 poll/stream handshake 会写入空字符串，
+    // 所以它不是历史错误日志；需要按 tunnel 活跃度排序时应显式使用 `tunnel_last_handshake_at`。
     // 保持 updated_at 只用于名称、base_url、transport_mode 等管理面变更。
     update(db, active).await
 }

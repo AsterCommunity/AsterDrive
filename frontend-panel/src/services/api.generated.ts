@@ -4557,7 +4557,7 @@ export interface components {
             sort_order?: null | components["schemas"]["SortOrder"];
         };
         /** @enum {string} */
-        AdminRemoteNodeSortBy: "id" | "name" | "base_url" | "is_enabled" | "last_checked_at" | "created_at" | "updated_at";
+        AdminRemoteNodeSortBy: "id" | "name" | "base_url" | "is_enabled" | "last_probe_at" | "created_at" | "updated_at";
         AdminShareListQuery: {
             sort_by?: null | components["schemas"]["AdminShareSortBy"];
             sort_order?: null | components["schemas"]["SortOrder"];
@@ -6653,9 +6653,9 @@ export interface components {
                  * Format: date-time
                  * @description Timestamp of the most recent explicit capability probe.
                  */
-                last_checked_at?: string | null;
+                last_probe_at?: string | null;
                 /** @description Result of the most recent explicit capability probe or connection test. */
-                last_error: string;
+                last_probe_error: string;
                 /** @description Administrative display name. */
                 name: string;
                 /** @description Configured transport choice; `auto` is resolved from `base_url` at runtime. */
@@ -7430,9 +7430,9 @@ export interface components {
              * Format: date-time
              * @description Timestamp of the most recent explicit capability probe.
              */
-            last_checked_at?: string | null;
+            last_probe_at?: string | null;
             /** @description Result of the most recent explicit capability probe or connection test. */
-            last_error: string;
+            last_probe_error: string;
             /** @description Administrative display name. */
             name: string;
             /** @description Configured transport choice; `auto` is resolved from `base_url` at runtime. */
@@ -7524,13 +7524,13 @@ export interface components {
             updated_at: string;
         };
         RemoteTunnelInfo: {
+            /** @description Last successful poll or stream handshake persisted by the primary. */
+            last_handshake_at?: string | null;
             /**
              * @description Transient runtime error from the tunnel control/data path. The next successful poll or
              *     stream handshake clears it; it is not a historical error log.
              */
-            last_error: string;
-            /** @description Last successful poll or stream handshake persisted by the primary. */
-            last_seen_at?: string | null;
+            runtime_error: string;
             /** @description Online status derived from recent successful tunnel handshakes and the online TTL. */
             status: components["schemas"]["RemoteTunnelOnlineStatus"];
         };
@@ -12490,9 +12490,9 @@ export interface operations {
                                  * Format: date-time
                                  * @description Timestamp of the most recent explicit capability probe.
                                  */
-                                last_checked_at?: string | null;
+                                last_probe_at?: string | null;
                                 /** @description Result of the most recent explicit capability probe or connection test. */
-                                last_error: string;
+                                last_probe_error: string;
                                 /** @description Administrative display name. */
                                 name: string;
                                 /** @description Configured transport choice; `auto` is resolved from `base_url` at runtime. */
@@ -12580,9 +12580,9 @@ export interface operations {
                              * Format: date-time
                              * @description Timestamp of the most recent explicit capability probe.
                              */
-                            last_checked_at?: string | null;
+                            last_probe_at?: string | null;
                             /** @description Result of the most recent explicit capability probe or connection test. */
-                            last_error: string;
+                            last_probe_error: string;
                             /** @description Administrative display name. */
                             name: string;
                             /** @description Configured transport choice; `auto` is resolved from `base_url` at runtime. */
@@ -12715,9 +12715,9 @@ export interface operations {
                              * Format: date-time
                              * @description Timestamp of the most recent explicit capability probe.
                              */
-                            last_checked_at?: string | null;
+                            last_probe_at?: string | null;
                             /** @description Result of the most recent explicit capability probe or connection test. */
-                            last_error: string;
+                            last_probe_error: string;
                             /** @description Administrative display name. */
                             name: string;
                             /** @description Configured transport choice; `auto` is resolved from `base_url` at runtime. */
@@ -12841,9 +12841,9 @@ export interface operations {
                              * Format: date-time
                              * @description Timestamp of the most recent explicit capability probe.
                              */
-                            last_checked_at?: string | null;
+                            last_probe_at?: string | null;
                             /** @description Result of the most recent explicit capability probe or connection test. */
-                            last_error: string;
+                            last_probe_error: string;
                             /** @description Administrative display name. */
                             name: string;
                             /** @description Configured transport choice; `auto` is resolved from `base_url` at runtime. */
@@ -13293,9 +13293,9 @@ export interface operations {
                              * Format: date-time
                              * @description Timestamp of the most recent explicit capability probe.
                              */
-                            last_checked_at?: string | null;
+                            last_probe_at?: string | null;
                             /** @description Result of the most recent explicit capability probe or connection test. */
-                            last_error: string;
+                            last_probe_error: string;
                             /** @description Administrative display name. */
                             name: string;
                             /** @description Configured transport choice; `auto` is resolved from `base_url` at runtime. */

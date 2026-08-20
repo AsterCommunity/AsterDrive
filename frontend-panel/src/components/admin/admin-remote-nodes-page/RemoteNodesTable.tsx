@@ -100,7 +100,7 @@ export function RemoteNodesTable({
 					</AdminSortableTableHead>
 					<TableHead>{t("remote_node_transport_mode")}</TableHead>
 					<AdminSortableTableHead
-						sortKey="last_checked_at"
+						sortKey="last_probe_at"
 						sortBy={sortBy}
 						sortOrder={sortOrder}
 						onSortChange={onSortChange}
@@ -200,9 +200,9 @@ export function RemoteNodesTable({
 											{getRemoteNodeTunnelLabel(t, node)}
 										</Badge>
 									</div>
-									{node.tunnel?.last_error ? (
+									{node.tunnel?.runtime_error ? (
 										<div className="line-clamp-2 text-xs text-muted-foreground">
-											{node.tunnel.last_error}
+											{node.tunnel.runtime_error}
 										</div>
 									) : null}
 								</div>
@@ -231,7 +231,7 @@ export function RemoteNodesTable({
 										</Badge>
 									</div>
 									<div className="text-xs text-muted-foreground">
-										{formatLastChecked(t, node.last_checked_at)}
+										{formatLastChecked(t, node.last_probe_at)}
 									</div>
 								</div>
 							</div>

@@ -154,11 +154,11 @@ function remoteNode(id: number, name: string): RemoteNodeInfo {
 		enrollment_status: "completed",
 		id,
 		is_enabled: true,
-		last_checked_at: null,
-		last_error: "",
+		last_probe_at: null,
+		last_probe_error: "",
 		name,
 		transport_mode: "direct",
-		tunnel: { last_error: "", last_seen_at: null, status: "offline" },
+		tunnel: { runtime_error: "", last_handshake_at: null, status: "offline" },
 		updated_at: "2026-08-05T00:00:00Z",
 	};
 }
@@ -173,7 +173,7 @@ function remoteTarget(targetKey: string): RemoteStorageTargetInfo {
 		driver_type: "local",
 		endpoint: "",
 		is_default: true,
-		last_error: "",
+		last_probe_error: "",
 		name: "Archive",
 		target_key: targetKey,
 		updated_at: "2026-08-05T00:00:00Z",

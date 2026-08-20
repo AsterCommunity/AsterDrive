@@ -111,7 +111,7 @@ pub enum AdminRemoteNodeSortBy {
     Name,
     BaseUrl,
     IsEnabled,
-    LastCheckedAt,
+    LastProbeAt,
     CreatedAt,
     UpdatedAt,
 }

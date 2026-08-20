@@ -441,8 +441,8 @@ async fn seed_remote_node_fixture(db: &DatabaseConnection) {
                 &aster_drive::storage::remote_protocol::RemoteStorageCapabilities::current(),
             )
             .expect("current remote capabilities should serialize")),
-            last_error: Set(String::new()),
-            last_checked_at: Set(Some(now)),
+            last_probe_error: Set(String::new()),
+            last_probe_at: Set(Some(now)),
             created_at: Set(now),
             updated_at: Set(now),
             ..Default::default()
@@ -1388,6 +1388,28 @@ async fn test_migrations_use_current_baseline_for_fresh_install() {
         aster_drive_migration::current_migration_names(),
         "fresh install should stamp all current migrations"
     );
+    for column in [
+        "last_probe_error",
+        "last_probe_at",
+        "tunnel_runtime_error",
+        "tunnel_last_handshake_at",
+    ] {
+        assert!(
+            column_exists(&db, DbBackend::Sqlite, "managed_followers", column).await,
+            "fresh schema should contain renamed remote-node telemetry column {column}"
+        );
+    }
+    for column in [
+        "last_error",
+        "last_checked_at",
+        "tunnel_last_error",
+        "tunnel_last_seen_at",
+    ] {
+        assert!(
+            !column_exists(&db, DbBackend::Sqlite, "managed_followers", column).await,
+            "fresh schema should not retain legacy remote-node telemetry column {column}"
+        );
+    }
 }
 
 #[tokio::test]

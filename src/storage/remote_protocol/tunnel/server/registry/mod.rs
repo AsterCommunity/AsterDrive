@@ -110,8 +110,8 @@ pub struct RemoteTunnelRegistry {
     stream_lanes: DashMap<String, Vec<Arc<StreamingTunnelLane>>>,
     pending: DashMap<String, PendingTunnelResponse>,
     stream_pending: DashMap<String, PendingStreamResponse>,
-    last_errors: DashMap<i64, String>,
-    last_seen_at: DashMap<i64, chrono::DateTime<chrono::Utc>>,
+    runtime_errors: DashMap<i64, String>,
+    last_handshake_at: DashMap<i64, chrono::DateTime<chrono::Utc>>,
     lifecycle: DashMap<i64, ConnectionLifecycleState>,
     persistence_db: parking_lot::RwLock<Option<DatabaseConnection>>,
     audit_runtime_config: parking_lot::RwLock<Option<Arc<RuntimeConfig>>>,
@@ -132,17 +132,18 @@ impl RemoteTunnelRegistry {
     }
 
     pub fn is_online(&self, remote_node: &managed_follower::Model) -> bool {
-        let local_last_seen = self
-            .last_seen_at
+        let local_last_handshake = self
+            .last_handshake_at
             .get(&remote_node.id)
-            .map(|last_seen_at| *last_seen_at.value());
-        local_last_seen
-            .or(remote_node.tunnel_last_seen_at)
-            .is_some_and(is_recent_tunnel_seen_at)
+            .map(|last_handshake_at| *last_handshake_at.value());
+        local_last_handshake
+            .or(remote_node.tunnel_last_handshake_at)
+            .is_some_and(is_recent_tunnel_handshake_at)
     }
 
-    pub(crate) fn update_last_seen(&self, remote_node_id: i64) {
-        self.last_seen_at.insert(remote_node_id, chrono::Utc::now());
+    pub(crate) fn update_last_handshake(&self, remote_node_id: i64) {
+        self.last_handshake_at
+            .insert(remote_node_id, chrono::Utc::now());
     }
 
     pub(crate) fn record_handshake(
@@ -322,8 +323,8 @@ impl RemoteTunnelRegistry {
         });
     }
 
-    pub fn last_error(&self, remote_node_id: i64) -> Option<String> {
-        self.last_errors
+    pub fn runtime_error(&self, remote_node_id: i64) -> Option<String> {
+        self.runtime_errors
             .get(&remote_node_id)
             .map(|entry| entry.value().clone())
     }
@@ -338,13 +339,13 @@ impl RemoteTunnelRegistry {
         if error.trim().is_empty() {
             self.clear_error(remote_node_id);
         } else {
-            self.last_errors.insert(remote_node_id, error);
+            self.runtime_errors.insert(remote_node_id, error);
             self.persist_error(remote_node_id);
         }
     }
 
     pub(super) fn clear_error(&self, remote_node_id: i64) {
-        if self.last_errors.remove(&remote_node_id).is_some() {
+        if self.runtime_errors.remove(&remote_node_id).is_some() {
             self.persist_error(remote_node_id);
         }
     }
@@ -353,7 +354,7 @@ impl RemoteTunnelRegistry {
         let Some(db) = self.persistence_db.read().clone() else {
             return;
         };
-        let error = self.last_error(remote_node_id).unwrap_or_default();
+        let error = self.runtime_error(remote_node_id).unwrap_or_default();
         tokio::spawn(async move {
             if let Err(persist_error) = persist_tunnel_error(&db, remote_node_id, error).await {
                 tracing::warn!(
@@ -365,10 +366,10 @@ impl RemoteTunnelRegistry {
     }
 }
 
-fn is_recent_tunnel_seen_at(last_seen_at: chrono::DateTime<chrono::Utc>) -> bool {
+fn is_recent_tunnel_handshake_at(last_handshake_at: chrono::DateTime<chrono::Utc>) -> bool {
     chrono::Duration::from_std(REMOTE_TUNNEL_ONLINE_TTL)
         .ok()
-        .is_some_and(|ttl| last_seen_at + ttl > chrono::Utc::now())
+        .is_some_and(|ttl| last_handshake_at + ttl > chrono::Utc::now())
 }
 
 pub fn reverse_tunnel_offline_error(remote_node_id: i64) -> crate::errors::AsterError {
@@ -394,10 +395,10 @@ mod tests {
             is_enabled: true,
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
             last_capabilities: "{}".to_string(),
-            last_error: String::new(),
-            last_checked_at: None,
-            tunnel_last_error: String::new(),
-            tunnel_last_seen_at: None,
+            last_probe_error: String::new(),
+            last_probe_at: None,
+            tunnel_runtime_error: String::new(),
+            tunnel_last_handshake_at: None,
             binding_revision: 1,
             binding_applied_revision: 1,
             created_at: now,
@@ -406,12 +407,12 @@ mod tests {
     }
 
     #[test]
-    fn persisted_tunnel_seen_time_obeys_online_ttl_boundary() {
-        assert!(is_recent_tunnel_seen_at(chrono::Utc::now()));
+    fn persisted_tunnel_handshake_time_obeys_online_ttl_boundary() {
+        assert!(is_recent_tunnel_handshake_at(chrono::Utc::now()));
         let expired = chrono::Utc::now()
             - chrono::Duration::from_std(REMOTE_TUNNEL_ONLINE_TTL).unwrap()
             - chrono::Duration::milliseconds(1);
-        assert!(!is_recent_tunnel_seen_at(expired));
+        assert!(!is_recent_tunnel_handshake_at(expired));
     }
 
     #[tokio::test]

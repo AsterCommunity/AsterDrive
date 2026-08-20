@@ -13,7 +13,7 @@ pub(super) async fn persist_tunnel_error(
         db,
         remote_node_id,
         error,
-        remote_node.tunnel_last_seen_at,
+        remote_node.tunnel_last_handshake_at,
     )
     .await?;
     Ok(())

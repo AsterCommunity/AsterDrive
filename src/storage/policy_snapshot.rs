@@ -421,8 +421,8 @@ mod tests {
                 secret_key: Set(format!("sk_{name}")),
                 is_enabled: Set(is_enabled),
                 last_capabilities: Set("{}".to_string()),
-                last_error: Set(String::new()),
-                last_checked_at: Set(None),
+                last_probe_error: Set(String::new()),
+                last_probe_at: Set(None),
                 created_at: Set(now),
                 updated_at: Set(now),
                 ..Default::default()

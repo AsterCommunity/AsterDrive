@@ -83,7 +83,7 @@ impl RemoteTunnelRegistry {
                 request_tx,
             },
         );
-        self.update_last_seen(remote_node.id);
+        self.update_last_handshake(remote_node.id);
         self.connection_notify.notify_waiters();
         let guard = RemoteTunnelRegistrationGuard {
             registry: self,
