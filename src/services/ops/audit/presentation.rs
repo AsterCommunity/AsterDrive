@@ -49,7 +49,9 @@ fn redact_sensitive_details(value: &mut Value) {
     match value {
         Value::Object(object) => {
             object.retain(|key, value| {
-                if sensitive_detail_key(key) {
+                if sensitive_detail_key(key)
+                    && matches!(value, Value::String(_) | Value::Object(_) | Value::Array(_))
+                {
                     return false;
                 }
                 redact_sensitive_details(value);
@@ -1467,7 +1469,7 @@ mod tests {
             Some("=share-token".to_string())
         );
         let safe = sanitize_details(Some(
-            r#"{"remote_node_id":42,"access_key":"access","secret_key":"secret","nested":[{"token":"tok"}],"transport":"reverse_tunnel"}"#,
+            r#"{"remote_node_id":42,"access_key":"access","secret_key":"secret","nested":[{"token":"tok"}],"temporary_password_generated":true,"transport":"reverse_tunnel"}"#,
         ))
         .expect("valid details should sanitize");
         assert!(safe.contains("remote_node_id"));
@@ -1475,6 +1477,7 @@ mod tests {
         assert!(!safe.contains("access_key"));
         assert!(!safe.contains("secret_key"));
         assert!(!safe.contains("token"));
+        assert!(safe.contains("temporary_password_generated"));
         assert!(sanitize_details(Some("not-json")).is_none());
     }
 
