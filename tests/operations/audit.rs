@@ -454,9 +454,7 @@ async fn test_audit_csv_export_streams_fixed_schema_filters_and_redacts_secrets(
     assert!(!list_text.contains("session-secret"));
 
     let req = test::TestRequest::get()
-        .uri(&format!(
-            "/api/v1/admin/audit-logs/export?action=team_update&entity_type=team&entity_id=42&sort_by=created_at&sort_order=asc"
-        ))
+        .uri("/api/v1/admin/audit-logs/export?action=team_update&entity_type=team&entity_id=42&sort_by=created_at&sort_order=asc")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .to_request();
