@@ -10,13 +10,11 @@ use sea_orm::{
 const ALLOW_SHARED_WEBDAV_LOCKS_MIGRATION: &str = "m20260604_000001_allow_shared_webdav_locks";
 const RENAME_UPLOAD_SESSION_OBJECT_FIELDS_MIGRATION: &str =
     "m20260618_000001_rename_upload_session_object_fields";
-const ADD_STORAGE_CONNECTOR_APPLICATION_CONFIGS_MIGRATION: &str =
-    "m20260619_000001_add_storage_connector_application_configs";
+const REMOVE_STORAGE_POLICY_LEGACY_MIGRATION: &str =
+    "m20260820_000001_remove_storage_policy_legacy";
 const ENFORCE_JSON_TEXT_NOT_NULL_MIGRATION: &str = "m20260620_000001_enforce_json_text_not_null";
 const RENAME_MANAGED_INGRESS_PROFILES_MIGRATION: &str =
     "m20260704_000001_rename_managed_ingress_profiles_to_remote_storage_targets";
-const ADD_REMOTE_STORAGE_TARGET_KEY_TO_STORAGE_POLICIES_MIGRATION: &str =
-    "m20260704_000002_add_remote_storage_target_key_to_storage_policies";
 const DROP_REMOTE_STORAGE_TARGET_MAX_FILE_SIZE_MIGRATION: &str =
     "m20260705_000001_drop_remote_storage_target_max_file_size";
 const ALIGN_FORGE_AUDIT_CONTRACT_MIGRATION: &str = "m20260712_000001_align_forge_audit_contract";
@@ -1636,10 +1634,9 @@ async fn production_sqlite_migrator_rebuilds_referenced_storage_policy_parent_ta
     .await
     .expect("foreign-key fixture should reference the legacy storage policy");
 
-    Migrator::up(&db, None)
+    CurrentMigrator::up(&db, Some(1))
         .await
-        .expect("production migration coordinator should rebuild the referenced parent table");
-
+        .expect("compatibility migration should rebuild the referenced parent table");
     let (_, driver_type_default) =
         sqlite_column_type_and_default(&db, "storage_policies", "driver_type").await;
     assert_eq!(driver_type_default.as_deref(), Some("''"));
@@ -2222,12 +2219,93 @@ fn steps_before_migration(migration_name: &str) -> u32 {
     u32::try_from(position).expect("migration step count should fit u32")
 }
 
-fn steps_to_roll_back_upload_session_object_fields() -> u32 {
-    steps_to_roll_back_migration(RENAME_UPLOAD_SESSION_OBJECT_FIELDS_MIGRATION)
+#[tokio::test]
+async fn storage_policy_legacy_cleanup_rejects_unmigrated_static_secrets_before_ddl() {
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("SQLite migration fixture should connect");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(
+            REMOVE_STORAGE_POLICY_LEGACY_MIGRATION,
+        )),
+    )
+    .await
+    .expect("schema before storage cleanup should apply");
+    db.execute_unprepared(
+        "INSERT INTO storage_policies (name, driver_type, endpoint, bucket, access_key, secret_key, base_path, max_file_size, allowed_types, options, is_default, chunk_size, created_at, updated_at, connector_id, storage_config) VALUES ('legacy', 's3', '', '', 'SECRET', '', '', 0, '[]', '{}', 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'asterdrive.storage.s3', '{}')",
+    )
+    .await
+    .expect("legacy static credential fixture should insert");
+
+    let error = CurrentMigrator::up(&db, Some(1))
+        .await
+        .expect_err("unmigrated static credentials must block 0.5.1 cleanup");
+    assert!(
+        error
+            .to_string()
+            .contains("start the database successfully on AsterDrive 0.5.0")
+    );
+    assert!(
+        sqlite_table_columns(&db, "storage_policies")
+            .await
+            .iter()
+            .any(|column| column == "access_key")
+    );
+    assert!(sqlite_table_exists(&db, "storage_policy_credentials").await);
+    assert_eq!(
+        db.query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT access_key FROM storage_policies WHERE name = 'legacy'",
+        ))
+        .await
+        .expect("legacy access key should query")
+        .expect("legacy policy should exist")
+        .try_get_by_index::<String>(0)
+        .expect("legacy access key should decode"),
+        "SECRET"
+    );
 }
 
-fn steps_to_roll_back_storage_connector_application_configs() -> u32 {
-    steps_to_roll_back_migration(ADD_STORAGE_CONNECTOR_APPLICATION_CONFIGS_MIGRATION)
+#[tokio::test]
+async fn storage_policy_legacy_cleanup_drops_empty_legacy_surface() {
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("SQLite migration fixture should connect");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(
+            REMOVE_STORAGE_POLICY_LEGACY_MIGRATION,
+        )),
+    )
+    .await
+    .expect("schema before storage cleanup should apply");
+    CurrentMigrator::up(&db, Some(1))
+        .await
+        .expect("empty legacy stores should be removed");
+    for column in [
+        "driver_type",
+        "endpoint",
+        "bucket",
+        "access_key",
+        "secret_key",
+        "base_path",
+        "remote_node_id",
+        "remote_storage_target_key",
+        "options",
+    ] {
+        assert!(
+            !sqlite_table_columns(&db, "storage_policies")
+                .await
+                .iter()
+                .any(|actual| actual == column)
+        );
+    }
+    assert!(!sqlite_table_exists(&db, "storage_policy_credentials").await);
+    assert!(!sqlite_table_exists(&db, "storage_connector_application_configs").await);
+    CurrentMigrator::up(&db, None)
+        .await
+        .expect("reapplying the current migration set should be idempotent");
 }
 
 fn steps_to_roll_back_rename_managed_ingress_profiles() -> u32 {
@@ -2236,10 +2314,6 @@ fn steps_to_roll_back_rename_managed_ingress_profiles() -> u32 {
 
 fn steps_to_roll_back_remote_storage_target_max_file_size() -> u32 {
     steps_to_roll_back_migration(DROP_REMOTE_STORAGE_TARGET_MAX_FILE_SIZE_MIGRATION)
-}
-
-fn steps_to_roll_back_storage_policy_remote_storage_target_key() -> u32 {
-    steps_to_roll_back_migration(ADD_REMOTE_STORAGE_TARGET_KEY_TO_STORAGE_POLICIES_MIGRATION)
 }
 
 async fn roll_back_allow_shared_webdav_locks(
@@ -2541,9 +2615,7 @@ async fn json_text_columns_are_not_null_in_current_schema() {
     let db = setup_current_schema().await;
     for (table, column) in [
         ("external_auth_providers", "options"),
-        ("storage_policy_credentials", "metadata"),
         ("storage_policy_authorization_flows", "context"),
-        ("storage_connector_application_configs", "metadata"),
     ] {
         assert!(
             sqlite_column_is_not_null(&db, table, column).await,
@@ -2768,59 +2840,6 @@ async fn forge_mail_outbox_contract_preserves_rows_and_named_indexes() {
 }
 
 #[tokio::test]
-async fn storage_connector_application_config_migration_adds_canonical_config_table() {
-    assert!(
-        CurrentMigrator::migrations().iter().any(
-            |migration| migration.name() == ADD_STORAGE_CONNECTOR_APPLICATION_CONFIGS_MIGRATION
-        ),
-        "application config migration should be registered"
-    );
-
-    let db = setup_current_schema().await;
-    assert!(
-        sqlite_table_exists(&db, "storage_connector_application_configs").await,
-        "current schema should include storage_connector_application_configs"
-    );
-    let current_columns = sqlite_table_columns(&db, "storage_connector_application_configs").await;
-    for expected in [
-        "id",
-        "policy_id",
-        "provider",
-        "tenant_id",
-        "scopes",
-        "client_id",
-        "client_secret_ciphertext",
-        "metadata",
-        "created_at",
-        "updated_at",
-    ] {
-        assert!(has_column(&current_columns, expected), "missing {expected}");
-    }
-
-    CurrentMigrator::down(
-        &db,
-        Some(steps_to_roll_back_storage_connector_application_configs()),
-    )
-    .await
-    .expect("application config migration should roll back");
-    assert!(
-        !sqlite_table_exists(&db, "storage_connector_application_configs").await,
-        "rollback should remove storage_connector_application_configs"
-    );
-
-    CurrentMigrator::up(
-        &db,
-        Some(steps_to_roll_back_storage_connector_application_configs()),
-    )
-    .await
-    .expect("application config migration should reapply");
-    assert!(
-        sqlite_table_exists(&db, "storage_connector_application_configs").await,
-        "reapply should recreate storage_connector_application_configs"
-    );
-}
-
-#[tokio::test]
 async fn upload_session_object_field_migration_renames_legacy_columns() {
     assert!(
         CurrentMigrator::migrations()
@@ -2835,92 +2854,6 @@ async fn upload_session_object_field_migration_renames_legacy_columns() {
     assert!(has_column(&current_columns, "object_multipart_id"));
     assert!(!has_column(&current_columns, "s3_temp_key"));
     assert!(!has_column(&current_columns, "s3_multipart_id"));
-
-    CurrentMigrator::down(&db, Some(steps_to_roll_back_upload_session_object_fields()))
-        .await
-        .expect("object field rename migration should roll back");
-    let rolled_back_columns = sqlite_table_columns(&db, "upload_sessions").await;
-    assert!(has_column(&rolled_back_columns, "s3_temp_key"));
-    assert!(has_column(&rolled_back_columns, "s3_multipart_id"));
-    assert!(!has_column(&rolled_back_columns, "object_temp_key"));
-    assert!(!has_column(&rolled_back_columns, "object_multipart_id"));
-
-    CurrentMigrator::up(&db, Some(steps_to_roll_back_upload_session_object_fields()))
-        .await
-        .expect("object field rename migration should reapply");
-    let reapplied_columns = sqlite_table_columns(&db, "upload_sessions").await;
-    assert!(has_column(&reapplied_columns, "object_temp_key"));
-    assert!(has_column(&reapplied_columns, "object_multipart_id"));
-    assert!(!has_column(&reapplied_columns, "s3_temp_key"));
-    assert!(!has_column(&reapplied_columns, "s3_multipart_id"));
-}
-
-#[tokio::test]
-async fn storage_policy_remote_storage_target_key_migration_round_trips_column() {
-    assert!(
-        CurrentMigrator::migrations().iter().any(|migration| {
-            migration.name() == ADD_REMOTE_STORAGE_TARGET_KEY_TO_STORAGE_POLICIES_MIGRATION
-        }),
-        "storage policy remote target key migration should be registered"
-    );
-
-    let db = setup_current_schema().await;
-    let current_columns = sqlite_table_columns(&db, "storage_policies").await;
-    assert!(
-        has_column(&current_columns, "remote_storage_target_key"),
-        "current schema should include storage_policies.remote_storage_target_key"
-    );
-    assert!(
-        sqlite_table_index_exists(
-            &db,
-            "storage_policies",
-            "idx_storage_policies_remote_target"
-        )
-        .await,
-        "current schema should include idx_storage_policies_remote_target"
-    );
-
-    CurrentMigrator::down(
-        &db,
-        Some(steps_to_roll_back_storage_policy_remote_storage_target_key()),
-    )
-    .await
-    .expect("remote target key migration should roll back");
-    let rolled_back_columns = sqlite_table_columns(&db, "storage_policies").await;
-    assert!(
-        !has_column(&rolled_back_columns, "remote_storage_target_key"),
-        "rollback should remove storage_policies.remote_storage_target_key"
-    );
-    assert!(
-        !sqlite_table_index_exists(
-            &db,
-            "storage_policies",
-            "idx_storage_policies_remote_target"
-        )
-        .await,
-        "rollback should remove idx_storage_policies_remote_target"
-    );
-
-    CurrentMigrator::up(
-        &db,
-        Some(steps_to_roll_back_storage_policy_remote_storage_target_key()),
-    )
-    .await
-    .expect("remote target key migration should reapply");
-    let reapplied_columns = sqlite_table_columns(&db, "storage_policies").await;
-    assert!(
-        has_column(&reapplied_columns, "remote_storage_target_key"),
-        "reapply should restore storage_policies.remote_storage_target_key"
-    );
-    assert!(
-        sqlite_table_index_exists(
-            &db,
-            "storage_policies",
-            "idx_storage_policies_remote_target"
-        )
-        .await,
-        "reapply should restore idx_storage_policies_remote_target"
-    );
 }
 
 #[tokio::test]
@@ -3011,22 +2944,6 @@ async fn mysql_remote_storage_target_rename_migration_round_trips_indexes() {
         )
         .await,
         "MySQL down should remove the remote storage target key index name"
-    );
-
-    CurrentMigrator::up(
-        &db,
-        Some(steps_to_roll_back_rename_managed_ingress_profiles()),
-    )
-    .await
-    .expect("remote storage target rename migration should reapply on MySQL");
-    assert!(
-        mysql_table_index_exists(
-            &db,
-            "remote_storage_targets",
-            "idx_remote_storage_targets_binding_target_key"
-        )
-        .await,
-        "MySQL reapply should restore the target key index name"
     );
 }
 

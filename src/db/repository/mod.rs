@@ -33,19 +33,9 @@ pub mod remote_tunnel_owner_repo;
 pub mod revision_repo;
 pub mod search_repo;
 pub mod share_repo;
-#[deprecated(
-    since = "0.5.0",
-    note = "legacy migration-only repository; scheduled for removal in AsterDrive 0.6.0"
-)]
-pub mod storage_connector_application_config_repo;
 pub mod storage_migration_checkpoint_repo;
 pub mod storage_policy_authorization_flow_repo;
 pub mod storage_policy_connector_credential_repo;
-#[deprecated(
-    since = "0.5.0",
-    note = "legacy migration-only repository; scheduled for removal in AsterDrive 0.6.0"
-)]
-pub mod storage_policy_credential_repo;
 pub mod system_initialization_repo;
 pub mod tag_repo;
 pub mod team_member_repo;
