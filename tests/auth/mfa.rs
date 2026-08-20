@@ -839,6 +839,41 @@ async fn test_password_login_requires_mfa_without_setting_cookies_then_totp_comp
 }
 
 #[tokio::test]
+async fn password_first_factor_mfa_flow_rechecks_hot_updated_login_policy() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    register_user(&app, "mfapolicy", "mfapolicy@example.com", "password123").await;
+    let (access, _) = login_user!(app, "mfapolicy", "password123");
+    let (_factor_id, secret, _recovery_codes) = enable_totp(&app, &access).await;
+
+    let resp = login_raw(&app, "mfapolicy", "password123").await;
+    let body: Value = test::read_body_json(resp).await;
+    let flow_token = body["data"]["flow_token"].as_str().unwrap().to_string();
+
+    state.runtime_config.apply(common::system_config_model(
+        auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+        "false",
+    ));
+    let resp = verify_mfa(&app, &flow_token, "totp", &totp_code(&secret)).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    assert!(common::extract_cookie(&resp, "aster_access").is_none());
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "auth.password_login_disabled");
+
+    state.runtime_config.apply(common::system_config_model(
+        auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+        "true",
+    ));
+    let resp = verify_mfa(&app, &flow_token, "totp", &totp_code(&secret)).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "rejected MFA flow must remain unused"
+    );
+    assert!(common::extract_cookie(&resp, "aster_access").is_some());
+}
+
+#[tokio::test]
 async fn test_totp_user_email_code_fallback_requires_separate_policy() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());

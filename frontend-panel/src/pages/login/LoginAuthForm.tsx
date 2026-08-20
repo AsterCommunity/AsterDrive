@@ -158,6 +158,8 @@ export function LoginAuthForm({
 		!hasAvailableLoginMethod;
 	const authMethodBusy =
 		submitting || passkeySubmitting || externalAuthBusyProvider !== null;
+	const showPasswordRecoveryLinks =
+		passwordLoginEnabled && (mode === "login" || mode === "register");
 
 	return (
 		<>
@@ -290,8 +292,8 @@ export function LoginAuthForm({
 				</div>
 			) : null}
 
-			<div className="mt-3 flex items-center justify-between gap-3">
-				{mode === "login" ? (
+			{showPasswordRecoveryLinks ? (
+				<div className="mt-3 flex items-center justify-between gap-3">
 					<button
 						type="button"
 						className="text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -299,17 +301,15 @@ export function LoginAuthForm({
 					>
 						{t("resend_activation")}
 					</button>
-				) : (
-					<span />
-				)}
-				<button
-					type="button"
-					className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-					onClick={onForgotPassword}
-				>
-					{t("forgot_password")}
-				</button>
-			</div>
+					<button
+						type="button"
+						className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+						onClick={onForgotPassword}
+					>
+						{t("forgot_password")}
+					</button>
+				</div>
+			) : null}
 
 			{showPasswordCredential ? (
 				<Button
@@ -394,7 +394,10 @@ export function LoginAuthForm({
 				</div>
 			) : null}
 
-			{mode !== "setup" && !checking && !registrationClosed ? (
+			{mode !== "setup" &&
+			!checking &&
+			!registrationClosed &&
+			(passwordLoginEnabled || mode === "register") ? (
 				<p className="mt-6 text-center text-sm text-muted-foreground">
 					{mode === "register"
 						? t("already_have_account")

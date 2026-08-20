@@ -247,6 +247,7 @@ vi.mock("@/pages/login/ExternalAuthRecoveryPanel", () => ({
 		identifier,
 		identifierError,
 		mode,
+		passwordLoginEnabled,
 		onBack,
 		onEmailChange,
 		onIdentifierChange,
@@ -262,6 +263,7 @@ vi.mock("@/pages/login/ExternalAuthRecoveryPanel", () => ({
 		identifier: string;
 		identifierError: string;
 		mode: "password" | "email";
+		passwordLoginEnabled: boolean;
 		onBack: () => void;
 		onEmailChange: (value: string, error: string) => void;
 		onIdentifierChange: (value: string) => void;
@@ -275,14 +277,16 @@ vi.mock("@/pages/login/ExternalAuthRecoveryPanel", () => ({
 		<div>
 			<div>external_auth_email_verification_title</div>
 			<div>{sent ? "external_auth_email_verification_sent_title" : ""}</div>
-			<button
-				type="button"
-				role="tab"
-				aria-selected={mode === "password"}
-				onClick={() => onModeChange("password")}
-			>
-				external_auth_password_link_tab
-			</button>
+			{passwordLoginEnabled ? (
+				<button
+					type="button"
+					role="tab"
+					aria-selected={mode === "password"}
+					onClick={() => onModeChange("password")}
+				>
+					external_auth_password_link_tab
+				</button>
+			) : null}
 			<button
 				type="button"
 				role="tab"
@@ -291,7 +295,7 @@ vi.mock("@/pages/login/ExternalAuthRecoveryPanel", () => ({
 			>
 				external_auth_email_verification_tab
 			</button>
-			{mode === "password" ? (
+			{mode === "password" && passwordLoginEnabled ? (
 				<div>
 					<label htmlFor="external-auth-password-link-identifier">
 						email_or_username
@@ -1214,7 +1218,7 @@ describe("LoginPage", () => {
 		view.unmount();
 	});
 
-	it("disables only password sign-in while keeping recovery and other methods", async () => {
+	it("disables password sign-in and hides local password recovery entry points", async () => {
 		mockState.webAuthnSupported = true;
 		mockState.listExternalAuthProviders.mockResolvedValue([
 			{
@@ -1239,11 +1243,11 @@ describe("LoginPage", () => {
 			screen.queryByRole("button", { name: "sign_in" }),
 		).not.toBeInTheDocument();
 		expect(
-			screen.getByRole("button", { name: "forgot_password" }),
-		).toBeInTheDocument();
+			screen.queryByRole("button", { name: "forgot_password" }),
+		).not.toBeInTheDocument();
 		expect(
-			screen.getByRole("button", { name: "resend_activation" }),
-		).toBeInTheDocument();
+			screen.queryByRole("button", { name: "resend_activation" }),
+		).not.toBeInTheDocument();
 		expect(
 			await screen.findByRole("button", { name: /Example IDP/ }),
 		).toBeInTheDocument();
@@ -1254,9 +1258,9 @@ describe("LoginPage", () => {
 		fireEvent.submit(form);
 		expect(mockState.login).not.toHaveBeenCalled();
 
-		fireEvent.click(screen.getByRole("button", { name: "sign_up" }));
-		expect(await screen.findByLabelText("password")).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "sign_up" })).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "sign_up" }),
+		).not.toBeInTheDocument();
 	});
 
 	it("shows an explicit state when every login method is disabled or unavailable", async () => {
@@ -1280,6 +1284,41 @@ describe("LoginPage", () => {
 		expect(
 			screen.queryByRole("button", { name: /passkey_sign_in/ }),
 		).not.toBeInTheDocument();
+	});
+
+	it("keeps only email verification in external auth recovery when password login is disabled", async () => {
+		mockState.passwordLoginEnabled = false;
+		mockState.location = {
+			hash: "",
+			pathname: "/login",
+			search: "?external_auth=email_required&flow=flow-token",
+		};
+		mockState.check.mockResolvedValueOnce({
+			has_users: true,
+			allow_user_registration: true,
+			passkey_login_enabled: true,
+			password_login_enabled: false,
+		});
+
+		render(<LoginPage />);
+
+		expect(
+			await screen.findByRole("tab", {
+				name: /external_auth_email_verification_tab/,
+			}),
+		).toBeInTheDocument();
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("tab", {
+					name: /external_auth_password_link_tab/,
+				}),
+			).not.toBeInTheDocument();
+			expect(
+				screen.queryByRole("button", {
+					name: /external_auth_password_link_submit/,
+				}),
+			).not.toBeInTheDocument();
+		});
 	});
 
 	it("handles passkey support detection failures and blocked explicit passkey requests", async () => {

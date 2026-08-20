@@ -583,8 +583,10 @@ Admin team creation can create a team for another user and give that user the in
 Runtime config entries defined by the system cannot be deleted; custom entries can. The single source of truth for system config definitions is `src/config/definitions.rs`.
 
 Authentication controls include `auth_password_login_enabled`, which defaults to
-`true`. Setting it to `false` blocks local password first-factor sign-in while
-leaving password setup, reset, and authenticated password management available.
+`true`. Setting it to `false` closes public local-password entry points while
+leaving administrator password assignment and authenticated password management
+available. Disabling both password and Passkey login requires an enabled external
+provider; the last enabled external provider is then protected from disable/delete.
 
 Archive and WebDAV operational keys include:
 

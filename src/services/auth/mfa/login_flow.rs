@@ -7,7 +7,10 @@ use sea_orm::{ActiveValue::Set, ConnectionTrait};
 use serde::Serialize;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::config::{auth_runtime::RuntimeEmailCodeLoginPolicy, branding, mail};
+use crate::config::{
+    auth_runtime::{RuntimeAuthPolicy, RuntimeEmailCodeLoginPolicy},
+    branding, mail,
+};
 use crate::db::repository::{
     mfa_email_code_repo, mfa_factor_repo, mfa_login_flow_repo, mfa_recovery_code_repo,
     mfa_totp_setup_flow_repo, user_repo,
@@ -84,7 +87,8 @@ pub async fn complete_primary_login_or_start_mfa(
 ) -> Result<PrimaryLoginCompletion> {
     let methods = available_challenge_methods(state.writer_db(), state, user).await?;
     if methods.is_empty() {
-        let (access_token, refresh_token) = if user.must_change_password {
+        let password_change_required = local::password_change_required_for_login(state, user);
+        let (access_token, refresh_token) = if password_change_required {
             local::issue_password_change_tokens_for_user(state, user, ip_address, user_agent)
                 .await?
         } else {
@@ -94,7 +98,7 @@ pub async fn complete_primary_login_or_start_mfa(
             access_token,
             refresh_token,
             user_id: user.id,
-            password_change_required: user.must_change_password,
+            password_change_required,
         }));
     }
 
@@ -109,6 +113,20 @@ pub async fn complete_primary_login_or_start_mfa(
             methods,
         )
         .await?,
+    ))
+}
+
+fn ensure_first_factor_allowed(
+    first_factor: MfaFirstFactor,
+    password_login_enabled: bool,
+) -> Result<()> {
+    if first_factor != MfaFirstFactor::Password || password_login_enabled {
+        return Ok(());
+    }
+
+    Err(crate::errors::auth_forbidden_with_code(
+        ApiErrorCode::AuthPasswordLoginDisabled,
+        "password login is disabled by administrator policy",
     ))
 }
 
@@ -418,6 +436,11 @@ pub async fn verify_challenge(
         let (flow, user) = load_active_flow_user(&txn, &flow_token_hash, now).await?;
         let user_id = user.id;
 
+        ensure_first_factor_allowed(
+            flow.first_factor,
+            RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).password_login_enabled,
+        )?;
+
         let verified = match method {
             MfaMethod::Totp if totp::looks_like_code(code) => {
                 verify_totp(&txn, state, &user, code, now).await?
@@ -477,7 +500,8 @@ pub async fn verify_challenge(
             return Err(flow_invalid("MFA flow has already been consumed"));
         }
 
-        let (access_token, refresh_token) = if user.must_change_password {
+        let password_change_required = local::password_change_required_for_login(state, &user);
+        let (access_token, refresh_token) = if password_change_required {
             local::issue_password_change_tokens_for_user(
                 state,
                 &user,
@@ -503,7 +527,7 @@ pub async fn verify_challenge(
                 access_token,
                 refresh_token,
                 user_id,
-                password_change_required: user.must_change_password,
+                password_change_required,
             }),
         })
     }
@@ -569,6 +593,28 @@ pub async fn verify_challenge(
             }
             Err(error)
         }
+    }
+}
+
+#[cfg(test)]
+mod policy_tests {
+    use super::ensure_first_factor_allowed;
+    use crate::api::api_error_code::ApiErrorCode;
+    use aster_drive_model::types::MfaFirstFactor;
+
+    #[test]
+    fn password_first_factor_is_rejected_when_disabled() {
+        let error = ensure_first_factor_allowed(MfaFirstFactor::Password, false)
+            .expect_err("password MFA flow must be rejected after policy is disabled");
+        assert_eq!(
+            error.api_error_code(),
+            ApiErrorCode::AuthPasswordLoginDisabled
+        );
+    }
+
+    #[test]
+    fn external_first_factor_remains_allowed_when_password_is_disabled() {
+        assert!(ensure_first_factor_allowed(MfaFirstFactor::ExternalAuth, false).is_ok());
     }
 }
 

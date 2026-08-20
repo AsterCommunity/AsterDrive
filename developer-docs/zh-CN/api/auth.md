@@ -270,7 +270,7 @@ Passkey 使用 WebAuthn 两段式流程。所有 challenge 响应和 credential 
 
 `auth_passkey_login_enabled = false` 会关闭匿名 Passkey 登录，并让当前前端启动配置隐藏 Passkey 登录入口，但不会删除已经注册的凭证。已登录用户仍可管理自己保存的 Passkey。
 
-`auth_password_login_enabled = false` 会在用户查询前拒绝本地密码第一因子登录，并让当前前端隐藏密码输入和登录按钮；它不会关闭注册、邀请、密码重置、首次 setup、管理员设密、已登录改密或外部身份密码绑定流程。账号、密码和会话不会因此删除；外部 provider 仍由各自的 `enabled` 配置控制。
+`auth_password_login_enabled = false` 会在用户查询前拒绝本地密码第一因子登录，并关闭公开注册、激活重发、基于密码的邀请接受、密码重置和外部身份密码绑定。首次 setup、管理员设密和已登录改密仍然可用；账号、密码哈希和已有会话不会因此删除。密码第一因子的 MFA flow 在完成时会重新检查策略，`must_change_password` 也只在密码登录启用时生效。
 
 ## MFA 管理
 

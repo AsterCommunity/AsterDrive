@@ -206,7 +206,8 @@ export function LoginPageView({
 							emailSchema={emailSchema}
 							identifier={externalAuthRecovery.passwordIdentifier}
 							identifierError={externalAuthRecovery.passwordIdentifierError}
-							mode={externalAuthRecovery.mode}
+							mode={passwordLoginEnabled ? externalAuthRecovery.mode : "email"}
+							passwordLoginEnabled={passwordLoginEnabled}
 							password={externalAuthRecovery.password}
 							passwordError={externalAuthRecovery.passwordError}
 							sent={externalAuthRecovery.sent}

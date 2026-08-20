@@ -3157,6 +3157,57 @@ async fn test_password_reset_rotates_session_and_sends_notice_and_records_audit_
 }
 
 #[actix_web::test]
+async fn password_reset_token_cannot_be_confirmed_while_password_login_is_disabled() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let runtime_config = state.runtime_config.clone();
+    let app = create_test_app!(state.clone());
+    let _ = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/password/reset/request")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({ "email": "test@example.com" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    common::flush_mail_outbox_with(&db, &runtime_config, &mail_sender).await;
+    let memory_sender = aster_forge_mail::memory_sender_ref(&mail_sender).unwrap();
+    let token = extract_password_reset_token(&memory_sender.last_message().unwrap());
+
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+        "false",
+    ));
+    let confirm = || {
+        test::TestRequest::post()
+            .uri("/api/v1/auth/password/reset/confirm")
+            .peer_addr("127.0.0.1:12345".parse().unwrap())
+            .set_json(serde_json::json!({
+                "token": token,
+                "new_password": "newsecret456"
+            }))
+            .to_request()
+    };
+    let resp = test::call_service(&app, confirm()).await;
+    assert_eq!(resp.status(), 403);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "auth.password_login_disabled");
+
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+        "true",
+    ));
+    let resp = test::call_service(&app, confirm()).await;
+    assert_eq!(
+        resp.status(),
+        200,
+        "rejected reset token must remain unused"
+    );
+}
+
+#[actix_web::test]
 async fn test_password_reset_confirm_rejects_reused_token() {
     let state = common::setup().await;
     let db = state.writer_db().clone();
@@ -3523,7 +3574,8 @@ async fn test_login_uses_runtime_auth_policy() {
 }
 
 #[actix_web::test]
-async fn test_password_login_policy_disables_only_login_and_hot_update_reenables_it() {
+async fn test_password_login_policy_blocks_local_password_entry_points_and_hot_update_reenables_login()
+ {
     let state = common::setup().await;
     state.runtime_config.apply(common::system_config_model(
         aster_drive::config::auth_runtime::AUTH_REGISTER_ACTIVATION_ENABLED_KEY,
@@ -3557,19 +3609,33 @@ async fn test_password_login_policy_disables_only_login_and_hot_update_reenables
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201, "registration must remain available");
+    assert_eq!(
+        resp.status(),
+        403,
+        "registration must follow password policy"
+    );
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "auth.password_login_disabled");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/register/resend")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({ "identifier": "owner" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403, "activation resend must follow policy");
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "auth.password_login_disabled");
 
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/password/reset/request")
         .peer_addr("127.0.0.1:12345".parse().unwrap())
-        .set_json(serde_json::json!({ "email": "alice@example.com" }))
+        .set_json(serde_json::json!({ "email": "owner@example.com" }))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(
-        resp.status(),
-        200,
-        "password recovery must remain available"
-    );
+    assert_eq!(resp.status(), 403, "password recovery must follow policy");
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "auth.password_login_disabled");
 
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/login")
@@ -3613,7 +3679,7 @@ async fn test_password_login_policy_disables_only_login_and_hot_update_reenables
         .uri("/api/v1/auth/login")
         .peer_addr("127.0.0.1:12345".parse().unwrap())
         .set_json(serde_json::json!({
-            "identifier": "alice",
+            "identifier": "owner",
             "password": "secret123"
         }))
         .to_request();

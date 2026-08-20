@@ -14,7 +14,7 @@ use crate::services::auth::mfa::{self, PrimaryLoginCompletion};
 
 use super::{AuthUserInfo, is_email_verified};
 
-fn ensure_password_login_enabled(policy: RuntimeAuthPolicy) -> Result<()> {
+fn ensure_password_login_policy(policy: RuntimeAuthPolicy) -> Result<()> {
     if policy.password_login_enabled {
         return Ok(());
     }
@@ -22,6 +22,12 @@ fn ensure_password_login_enabled(policy: RuntimeAuthPolicy) -> Result<()> {
     Err(auth_forbidden_with_code(
         ApiErrorCode::AuthPasswordLoginDisabled,
         "password login is disabled by administrator policy",
+    ))
+}
+
+pub(crate) fn ensure_password_login_enabled(state: &impl SharedRuntimeState) -> Result<()> {
+    ensure_password_login_policy(RuntimeAuthPolicy::from_runtime_config(
+        state.runtime_config(),
     ))
 }
 
@@ -41,9 +47,7 @@ pub async fn login(
 
     let mut failure_reason = None;
     let outcome = async {
-        ensure_password_login_enabled(RuntimeAuthPolicy::from_runtime_config(
-            state.runtime_config(),
-        ))?;
+        ensure_password_login_enabled(state)?;
         let Some(user) = find_user_by_identifier(state.writer_db(), identifier).await? else {
             tracing::debug!(identifier_kind, "login rejected: user not found");
             failure_reason = Some(LoginFailureReason::InvalidCredentials);
@@ -96,7 +100,7 @@ pub async fn login(
 
 #[cfg(test)]
 mod tests {
-    use super::ensure_password_login_enabled;
+    use super::ensure_password_login_policy;
     use crate::api::api_error_code::ApiErrorCode;
     use crate::config::auth_runtime::{
         DEFAULT_AUTH_ACCESS_TOKEN_TTL_SECS, DEFAULT_AUTH_ALLOW_USER_REGISTRATION,
@@ -119,13 +123,13 @@ mod tests {
 
     #[test]
     fn password_login_policy_allows_enabled_login() {
-        assert!(ensure_password_login_enabled(policy(true)).is_ok());
+        assert!(ensure_password_login_policy(policy(true)).is_ok());
     }
 
     #[test]
     fn password_login_policy_returns_stable_forbidden_error_when_disabled() {
         let error =
-            ensure_password_login_enabled(policy(false)).expect_err("login should be blocked");
+            ensure_password_login_policy(policy(false)).expect_err("login should be blocked");
 
         assert_eq!(
             error.api_error_code(),

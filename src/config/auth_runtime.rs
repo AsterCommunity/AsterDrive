@@ -130,6 +130,10 @@ impl RuntimeAuthPolicy {
             refresh_token_ttl_secs,
         }
     }
+
+    pub fn public_registration_enabled(self) -> bool {
+        self.allow_user_registration && self.password_login_enabled
+    }
 }
 
 impl RuntimeContactVerificationPolicy {
@@ -420,6 +424,17 @@ mod tests {
             policy.password_login_enabled,
             DEFAULT_AUTH_PASSWORD_LOGIN_ENABLED
         );
+    }
+
+    #[test]
+    fn public_registration_requires_password_login() {
+        let mut policy = RuntimeAuthPolicy::from_runtime_config(&RuntimeConfig::new());
+        assert!(policy.public_registration_enabled());
+        policy.password_login_enabled = false;
+        assert!(!policy.public_registration_enabled());
+        policy.password_login_enabled = true;
+        policy.allow_user_registration = false;
+        assert!(!policy.public_registration_enabled());
     }
 
     #[test]

@@ -91,7 +91,7 @@ Administrators can disable local username/password sign-in while keeping externa
 Admin -> System Settings -> User Management -> Registration & Login -> Allow password sign-in
 ```
 
-When disabled, the login page hides the local password input and sign-in button, and `POST /auth/login` rejects local password authentication. Registration, invitations, password reset, initial setup, administrator password assignment, authenticated password changes, and external-auth password linking remain available; existing accounts, passwords, and sessions are not deleted. Keep at least one working external provider or Passkey method before disabling password login, and verify that the administrator can still sign in through the retained method.
+When disabled, the login page hides all public local-password entry points, and the backend rejects password login, public registration, activation resend, password invitation acceptance, password reset, and external-auth password linking. Initial setup, administrator password assignment, and authenticated password changes remain available; existing accounts, password hashes, and sessions are not deleted. The backend rejects saving a configuration that disables both password and Passkey login unless at least one external provider is enabled, and protects that last provider from being disabled or deleted.
 
 ## External Auth Onboarding Order
 

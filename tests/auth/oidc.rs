@@ -4,6 +4,7 @@ use crate::{common, external_auth};
 
 use actix_web::test;
 use aster_drive::api::api_error_code::ApiErrorCode;
+use aster_drive::config::auth_runtime;
 use aster_drive::db::repository::{
     external_auth_identity_repo, external_auth_login_flow_repo, external_auth_provider_repo,
 };
@@ -87,6 +88,81 @@ async fn admin_provider_api_masks_secret_and_public_list_only_shows_enabled() {
     let resp = test::call_service(&app, req).await;
     let public_body: Value = test::read_body_json(resp).await;
     assert_eq!(public_body["data"].as_array().unwrap().len(), 0);
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn admin_cannot_remove_last_external_provider_when_local_methods_are_disabled() {
+    let (mock_provider, server) = start_mock_external_auth_provider().await;
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+
+    let first = create_external_auth_provider_with(
+        &app,
+        &admin_token,
+        TestOidcProviderOptions::mock(&mock_provider.issuer),
+    )
+    .await;
+    let second = create_external_auth_provider_with(
+        &app,
+        &admin_token,
+        TestOidcProviderOptions {
+            display_name_prefix: "second".to_string(),
+            ..TestOidcProviderOptions::mock(&mock_provider.issuer)
+        },
+    )
+    .await;
+    let first_id = first["data"]["id"].as_i64().unwrap();
+    let second_id = second["data"]["id"].as_i64().unwrap();
+
+    for key in [
+        auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+        auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY,
+    ] {
+        let req = test::TestRequest::put()
+            .uri(&format!("/api/v1/admin/config/{key}"))
+            .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+            .insert_header(common::csrf_header_for(&admin_token))
+            .set_json(serde_json::json!({ "value": "false" }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            200,
+            "external provider should allow disabling {key}"
+        );
+    }
+
+    let patch_provider = |id: i64, enabled: bool| {
+        test::TestRequest::patch()
+            .uri(&format!("/api/v1/admin/external-auth/providers/{id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+            .insert_header(common::csrf_header_for(&admin_token))
+            .set_json(serde_json::json!({ "enabled": enabled }))
+            .to_request()
+    };
+    let resp = test::call_service(&app, patch_provider(first_id, false)).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::delete()
+        .uri(&format!(
+            "/api/v1/admin/external-auth/providers/{second_id}"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/admin/external-auth/providers/{first_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
 
     server.stop(true).await;
 }
@@ -2334,6 +2410,63 @@ async fn no_email_claim_can_link_after_local_password_login() {
 
     let resp = link_oidc_with_password(&app, &flow_token, "pwd-link-user", "password123").await;
     assert_eq!(resp.status(), 400);
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn password_link_flow_is_rejected_without_consumption_when_password_login_is_disabled() {
+    let (mock_provider, server) = start_mock_external_auth_provider().await;
+    mock_provider.set_subject("disabled-password-link-subject");
+    mock_provider.clear_email();
+
+    let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    admin_create_user!(
+        app,
+        admin_token,
+        "disabledpwdlink",
+        "disabled-password-link@example.com",
+        "password123"
+    );
+    let provider_key = create_external_auth_provider_with_key(
+        &app,
+        &admin_token,
+        TestOidcProviderOptions::mock(&mock_provider.issuer),
+    )
+    .await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
+    let flow_token = oidc_email_required_flow(&resp);
+
+    state.runtime_config.apply(common::system_config_model(
+        auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+        "false",
+    ));
+    let resp = link_oidc_with_password(&app, &flow_token, "disabledpwdlink", "password123").await;
+    assert_eq!(resp.status(), 403);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "auth.password_login_disabled");
+    assert!(
+        external_auth_identity::Entity::find()
+            .all(state.writer_db())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    state.runtime_config.apply(common::system_config_model(
+        auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+        "true",
+    ));
+    let resp = link_oidc_with_password(&app, &flow_token, "disabledpwdlink", "password123").await;
+    assert_eq!(
+        resp.status(),
+        200,
+        "rejected link flow must remain reusable"
+    );
 
     server.stop(true).await;
 }

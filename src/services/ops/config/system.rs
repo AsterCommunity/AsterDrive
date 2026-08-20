@@ -3,7 +3,7 @@ use crate::config::media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY;
 use crate::config::operations::{MEDIA_METADATA_ENABLED_KEY, MEDIA_METADATA_MAX_SOURCE_BYTES_KEY};
 use crate::config::system_config as shared_system_config;
 use crate::config::{auth_runtime, mail};
-use crate::db::repository::config_repo;
+use crate::db::repository::{auth_policy_repo, config_repo, external_auth_provider_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::ops::audit::{self, AuditContext};
@@ -12,6 +12,7 @@ use aster_forge_config::{ConfigSource, ConfigValueType, ConfigVisibility};
 use aster_forge_config::{ConfigValue, config_value_audit_string};
 use aster_forge_db::system_config;
 use aster_forge_db::transaction;
+use aster_forge_external_auth::default_registry;
 use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
@@ -306,6 +307,12 @@ async fn upsert_config_and_apply_dependents(
 ) -> Result<Vec<system_config::Model>> {
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
+        if key == auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY
+            || key == auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY
+        {
+            auth_policy_repo::acquire_login_method_lock(&txn).await?;
+        }
+        ensure_at_least_one_login_method(&txn, key, value).await?;
         let saved =
             config_repo::upsert_with_options(&txn, key, value, visibility, Some(updated_by))
                 .await?;
@@ -339,6 +346,66 @@ async fn upsert_config_and_apply_dependents(
             Err(error)
         }
     }
+}
+
+async fn ensure_at_least_one_login_method<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    key: &str,
+    requested_value: &str,
+) -> Result<()> {
+    if key != auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY
+        && key != auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY
+    {
+        return Ok(());
+    }
+
+    let password_enabled = login_method_value(
+        db,
+        auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+        key,
+        requested_value,
+        auth_runtime::DEFAULT_AUTH_PASSWORD_LOGIN_ENABLED,
+    )
+    .await?;
+    let passkey_enabled = login_method_value(
+        db,
+        auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY,
+        key,
+        requested_value,
+        auth_runtime::DEFAULT_AUTH_PASSKEY_LOGIN_ENABLED,
+    )
+    .await?;
+    if password_enabled || passkey_enabled {
+        return Ok(());
+    }
+
+    let external_provider_available = external_auth_provider_repo::find_enabled(db)
+        .await?
+        .into_iter()
+        .any(|provider| default_registry().contains(provider.provider_kind));
+    if external_provider_available {
+        return Ok(());
+    }
+
+    Err(AsterError::validation_error(
+        "at least one enabled external auth provider is required before disabling all built-in login methods",
+    ))
+}
+
+async fn login_method_value<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    method_key: &str,
+    requested_key: &str,
+    requested_value: &str,
+    default: bool,
+) -> Result<bool> {
+    if method_key == requested_key {
+        return Ok(requested_value == "true");
+    }
+    Ok(config_repo::find_by_key(db, method_key)
+        .await?
+        .map(|model| model.value == "true")
+        .unwrap_or(default))
 }
 
 fn mail_config_change_disables_email_code_mfa(
@@ -416,6 +483,7 @@ pub(super) fn invalidate_all_dependent_public_config_caches() {
 
 #[cfg(test)]
 mod tests {
+    use crate::config::auth_runtime;
     use std::sync::Arc;
 
     use aster_drive_migration::Migrator;
@@ -620,6 +688,36 @@ mod tests {
         assert_eq!(
             saved.value,
             aster_forge_config::ConfigValue::String("true".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn cannot_disable_both_builtin_login_methods_without_external_provider() {
+        let (state, _subscription) = test_state().await;
+
+        set(
+            &state,
+            auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+            "false",
+            1,
+        )
+        .await
+        .expect("disabling the first built-in login method should be allowed");
+
+        let error = set(
+            &state,
+            auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY,
+            "false",
+            1,
+        )
+        .await
+        .expect_err("the last built-in login method must require an external provider");
+        assert!(error.message().contains("enabled external auth provider"));
+        assert_eq!(
+            state
+                .runtime_config()
+                .get(auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY),
+            Some("true".to_string())
         );
     }
 }

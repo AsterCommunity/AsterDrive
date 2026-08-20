@@ -244,7 +244,7 @@ Passkeys are stored in the `passkeys` table. Credentials are stored as strongly 
 
 `auth_passkey_login_enabled = false` disables anonymous passkey sign-in and hides the login entry point from current frontend bootstrap config, but it does not delete registered credentials. Logged-in users can still manage their saved passkeys.
 
-`auth_password_login_enabled = false` rejects local password first-factor login before account lookup and hides the password input and sign-in button from the current frontend. It does not disable registration, invitations, password reset, initial setup, administrator password assignment, authenticated password changes, or external-auth password linking. Accounts, passwords, and sessions are not deleted; external providers remain controlled by their own `enabled` setting.
+`auth_password_login_enabled = false` rejects local password first-factor login before account lookup and disables public registration, activation resend, password-based invitation acceptance, password reset, and external-auth password linking. Initial setup, administrator password assignment, and authenticated password changes remain available. Accounts, password hashes, and existing sessions are not deleted. A password-first MFA flow is rechecked when completed, and `must_change_password` is enforced only while password login is enabled.
 
 ## MFA management
 

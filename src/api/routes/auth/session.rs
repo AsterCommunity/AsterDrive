@@ -99,7 +99,7 @@ async fn revalidate_storage_event_stream(
     if snapshot.session_version != session_version {
         return Err(AsterError::auth_token_invalid("session revoked"));
     }
-    if snapshot.must_change_password {
+    if local::password_change_required_for_snapshot(state, snapshot) {
         return Err(AsterError::auth_token_invalid("password change required"));
     }
     if !refresh_visible_teams {

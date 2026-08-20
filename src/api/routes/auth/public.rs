@@ -103,7 +103,7 @@ pub async fn check(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().json(ApiResponse::ok(CheckResp {
         setup_state: setup.state,
         has_users: setup.has_users,
-        allow_user_registration: auth_policy.allow_user_registration,
+        allow_user_registration: auth_policy.public_registration_enabled(),
         passkey_login_enabled: auth_policy.passkey_login_enabled,
         password_login_enabled: auth_policy.password_login_enabled,
     })))

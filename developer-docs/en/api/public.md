@@ -56,7 +56,7 @@ Key points:
 - `downloads.archive_download_share_enabled` controls whether public-share visitors can use ZIP package downloads for shared content
 - both fields come from backend runtime configuration. The frontend hides unavailable choices for usability, while archive-download endpoints enforce the switches again; UI visibility is not an authorization boundary
 - `media.image_preview_preference` comes from runtime config `frontend_image_preview_preference`
-- `branding.password_login_enabled` indicates whether local passwords may be used as the first login factor; disabling it keeps account-management and password-recovery flows available
+- `branding.password_login_enabled` indicates whether public local-password entry points are available; disabling it also makes public registration unavailable
 - supported `image_preview_preference` values are `original_first` and `preview_first`
 - the frontend caches this bootstrap config and refreshes it after related runtime config changes
 

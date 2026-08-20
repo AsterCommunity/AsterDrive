@@ -4019,6 +4019,49 @@ async fn test_admin_config() {
 }
 
 #[actix_web::test]
+async fn admin_config_rejects_disabling_last_builtin_login_method_without_external_provider() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let save = |key: &str| {
+        test::TestRequest::put()
+            .uri(&format!("/api/v1/admin/config/{key}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "value": "false" }))
+            .to_request()
+    };
+    let resp = test::call_service(
+        &app,
+        save(aster_drive::config::auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY),
+    )
+    .await;
+    assert_eq!(resp.status(), 200);
+
+    let resp = test::call_service(
+        &app,
+        save(aster_drive::config::auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY),
+    )
+    .await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "bad_request");
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap()
+            .contains("external auth provider")
+    );
+    assert_eq!(
+        state
+            .runtime_config()
+            .get(aster_drive::config::auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY),
+        Some("true".to_string())
+    );
+}
+
+#[actix_web::test]
 async fn test_admin_config_validates_media_derivative_dimensions() {
     let state = common::setup().await;
     let app = create_test_app!(state);

@@ -56,7 +56,7 @@
 - `downloads.archive_download_share_enabled` 决定公开分享访问者是否能使用分享内容的 ZIP 打包下载方式
 - 这两个字段来自后端运行时配置。前端只负责按能力隐藏入口，归档下载端点仍会再次检查开关，不能把前端隐藏当成权限边界
 - `media.image_preview_preference` 来自运行时配置 `frontend_image_preview_preference`
-- `branding.password_login_enabled` 表示本地密码是否可作为登录第一因子；关闭后仍保留账号管理和密码恢复流程
+- `branding.password_login_enabled` 表示公开本地密码入口是否可用；关闭后公开注册也会变为不可用
 - `image_preview_preference` 当前支持 `original_first` 和 `preview_first`
 - 前端会缓存这份启动配置，并在相关运行时配置变更后主动刷新
 

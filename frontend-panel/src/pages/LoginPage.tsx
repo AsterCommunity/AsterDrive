@@ -183,7 +183,6 @@ function useLoginPageController() {
 	const mfaChallenge = mfaPanel?.challenge ?? null;
 	const showPasswordResetRequest = passwordResetPanel !== null;
 	const externalAuthRecoveryFlow = externalAuthRecovery?.flowToken ?? null;
-	const externalAuthRecoveryMode = externalAuthRecovery?.mode ?? "password";
 
 	// Is the identifier an email address?
 	const isEmail = identifier.includes("@");
@@ -226,6 +225,10 @@ function useLoginPageController() {
 		checkedPasskeyLoginEnabled ?? publicPasskeyLoginEnabled;
 	const passwordLoginEnabled =
 		checkedPasswordLoginEnabled ?? publicPasswordLoginEnabled;
+	const externalAuthRecoveryMode =
+		passwordLoginEnabled && externalAuthRecovery?.mode === "password"
+			? "password"
+			: "email";
 	const canUsePasskeyLogin = passkeyLoginEnabled && passkeySupported;
 	const isSubmitDisabled =
 		submitting ||
@@ -427,7 +430,8 @@ function useLoginPageController() {
 
 				setRegistrationClosed(
 					result.setup_state === "needs_storage" ||
-						result.allow_user_registration === false,
+						result.allow_user_registration === false ||
+						result.password_login_enabled === false,
 				);
 				setMode("login");
 			})
@@ -639,7 +643,7 @@ function useLoginPageController() {
 	};
 
 	const handleResendActivation = async () => {
-		if (!pendingActivation) return;
+		if (!pendingActivation || !passwordLoginEnabled) return;
 
 		try {
 			setResendingActivation(true);
@@ -653,7 +657,7 @@ function useLoginPageController() {
 	};
 
 	const handleActivationResendRequest = async () => {
-		if (!activationResendPanel) return;
+		if (!activationResendPanel || !passwordLoginEnabled) return;
 		const email = activationResendPanel.email.trim();
 		const result = emailSchema.safeParse(email);
 		if (!result.success) {
@@ -684,7 +688,7 @@ function useLoginPageController() {
 	};
 
 	const handlePasswordResetRequest = async () => {
-		if (!passwordResetPanel) return;
+		if (!passwordResetPanel || !passwordLoginEnabled) return;
 		const email = passwordResetPanel.email.trim();
 		const result = emailSchema.safeParse(email);
 		if (!result.success) {
@@ -748,7 +752,7 @@ function useLoginPageController() {
 	};
 
 	const handleExternalAuthPasswordLink = async () => {
-		if (!externalAuthRecovery) return;
+		if (!externalAuthRecovery || !passwordLoginEnabled) return;
 		const id = externalAuthRecovery.passwordIdentifier.trim();
 		const pw = externalAuthRecovery.password;
 		const errs: Record<string, string> = {};
@@ -1026,7 +1030,7 @@ function useLoginPageController() {
 			return;
 		}
 		if (externalAuthRecoveryFlow) {
-			if (externalAuthRecoveryMode === "email") {
+			if (externalAuthRecoveryMode === "email" || !passwordLoginEnabled) {
 				await handleExternalAuthEmailVerificationRequest();
 			} else {
 				await handleExternalAuthPasswordLink();
