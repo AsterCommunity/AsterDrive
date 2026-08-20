@@ -5,7 +5,7 @@ title: "运行架构"
 
 这一页解释 AsterDrive 运行起来以后各组件怎么协作。它面向部署者、管理员和刚开始参与开发的人，重点是建立系统边界、数据流和排障入口。
 
-源码级的模块划分和设计契约不在用户文档里，已迁移到开发者文档：[架构概览](https://drive.astercosm.com/developer/architecture/)、[模块设计说明](https://drive.astercosm.com/developer/architecture/module-designs/) 和 [后端服务所有权](https://drive.astercosm.com/developer/architecture/backend-service-ownership/)。改代码前读那几份。
+源码级的模块划分和设计契约不在用户文档里，已迁移到开发者文档：[架构概览](https://drive.docs.astercosm.com/developer/architecture/)、[模块设计说明](https://drive.docs.astercosm.com/developer/architecture/module-designs/) 和 [后端服务所有权](https://drive.docs.astercosm.com/developer/architecture/backend-service-ownership/)。改代码前读那几份。
 
 ## 60 秒版本
 

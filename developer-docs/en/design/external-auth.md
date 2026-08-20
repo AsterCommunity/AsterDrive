@@ -257,7 +257,7 @@ The GitHub `require_email_verified` missing-email rejection lives in `login.rs`,
 
 - Admin provider API: [`../api/admin.md#external-authentication-providers`](../api/admin.md)
 - Login-side external-auth API: [`../api/auth.md#external-authentication`](../api/auth.md)
-- Deployment-facing configuration guide: [External Authentication](https://drive.astercosm.com/en/reference/config/external-auth/)
+- Deployment-facing configuration guide: [External Authentication](https://drive.docs.astercosm.com/en/reference/config/external-auth/)
 
 ## Testing
 

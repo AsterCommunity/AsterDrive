@@ -95,7 +95,7 @@ Good-faith research that follows this policy helps the project. Activity that ha
 
 ## Security Advisories
 
-Published security advisories are listed at [GitHub Security Advisories](https://github.com/AsterCommunity/AsterDrive/security/advisories). This repository also publishes an RFC 9116 `security.txt` at <https://drive.astercosm.com/.well-known/security.txt>.
+Published security advisories are listed at [GitHub Security Advisories](https://github.com/AsterCommunity/AsterDrive/security/advisories). This repository also publishes an RFC 9116 `security.txt` at <https://drive.docs.astercosm.com/.well-known/security.txt>.
 
 ## Security Updates
 

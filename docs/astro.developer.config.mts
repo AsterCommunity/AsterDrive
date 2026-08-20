@@ -8,7 +8,7 @@ import starlightLlmsTxt from 'starlight-llms-txt'
 import starlightOpenAPI, { createOpenAPISidebarGroup } from 'starlight-openapi'
 import starlightScrollToTop from 'starlight-scroll-to-top'
 
-const SITE_URL = 'https://drive.astercosm.com'
+const SITE_URL = 'https://drive.docs.astercosm.com'
 const DEVELOPER_BASE = '/developer'
 
 type SidebarItem = {

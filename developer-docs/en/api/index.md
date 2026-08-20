@@ -195,7 +195,7 @@ Useful clusters to read first:
 
 For machine-readable and generated endpoint-level documentation, use any of these paths:
 
-- Browse the online [OpenAPI Reference](https://drive.astercosm.com/developer/openapi/) for operations grouped by tag, parameters, responses, authentication requirements, and request snippets.
+- Browse the online [OpenAPI Reference](https://drive.docs.astercosm.com/developer/openapi/) for operations grouped by tag, parameters, responses, authentication requirements, and request snippets.
 - In a `debug_assertions + openapi feature` build, open `/swagger-ui` or `/api-docs/openapi.json`.
 - In any checkout, run `cargo nextest run --features openapi --test generate_openapi` to export the static specification to `frontend-panel/generated/openapi.json`. The file is a build artifact and is not committed to Git.
 

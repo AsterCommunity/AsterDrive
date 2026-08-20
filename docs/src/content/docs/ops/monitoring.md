@@ -148,7 +148,7 @@ AsterDrive 文档站提供可直接导入的 Grafana dashboard JSON。官方文�
 在线文档站完整地址：
 
 ```text
-https://drive.astercosm.com/grafana/asterdrive-overview.json
+https://drive.docs.astercosm.com/grafana/asterdrive-overview.json
 ```
 
 导入方式：

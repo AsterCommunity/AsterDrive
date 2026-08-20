@@ -212,7 +212,7 @@
 
 如果你就是想要机器可读规范，也还是有两条路：
 
-- 浏览在线 [OpenAPI Reference](https://drive.astercosm.com/developer/openapi/)，按 tag 查看接口、参数、响应和请求示例
+- 浏览在线 [OpenAPI Reference](https://drive.docs.astercosm.com/developer/openapi/)，按 tag 查看接口、参数、响应和请求示例
 - `debug_assertions + openapi feature` 构建：访问 `/swagger-ui` 与 `/api-docs/openapi.json`
 - 任意构建：运行 `cargo nextest run --features openapi --test generate_openapi` 导出静态规范到 `frontend-panel/generated/openapi.json`；该文件是构建产物，不提交到 Git
 

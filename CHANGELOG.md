@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.0] - 2026-08-20
+
 ### Changed
 
+- **文档站点迁移** — 用户文档与开发者文档统一迁移到 `https://drive.docs.astercosm.com/`，仓库内的站点链接、站点地图、`security.txt`、文档首页入口和文档构建配置同步更新。
 - **D9 无框化前端视觉体系** — 文件浏览器、侧栏、分享、任务、WebDAV、回收站、设置与团队管理页面统一采用以色阶和间距分区的 frameless 设计；暗色主题改为暖炭色层次，文件夹使用填充式 glyph，文件类型 fallback 使用语义色，选中态加入侧栏/目录树指示条，文件区支持尊重 `prefers-reduced-motion` 的入场动画与网格裂列过渡。输入框、表格 hairline、outline 按钮和浮层仍保留必要边界。
 - **文件浏览器交互与布局** — 网格列数改为按容器宽度和卡片最大宽度计算，避免长文件名撑破轨道；文件/文件夹网格与列表共享选择、拖拽和动作解析；新增 Cmd/Ctrl 多选、Shift 范围选择、方向键导航、Shift+方向键扩展选择及单选 Enter 打开，并补齐输入框、菜单、对话框和 IME 场景的键盘边界。
 - **回收站统一浏览器** — 回收站网格与表格复用通用 `FileGrid` / `FileTable`，展示原位置和过期时间，并通过统一 action registry 提供恢复与永久删除；回收站选择状态纳入共享文件 store，普通文件页和公开分享页不感知 trash 专用动作。
@@ -6096,7 +6099,8 @@ OneDrive 存储策略新增浏览器直连能力：上传可选 Microsoft Graph 
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.0-rc.1...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.0...HEAD
+[v0.5.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.0-rc.1...v0.5.0
 [v0.5.0-rc.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0...v0.5.0-rc.1
 [v0.4.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-rc.2...v0.4.0
 [v0.4.0-rc.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-rc.1...v0.4.0-rc.2

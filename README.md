@@ -12,13 +12,13 @@
 </p>
 
 <p align="center">
-  <a href="https://drive.astercosm.com/"><img alt="Documentation Site" src="https://img.shields.io/badge/docs-Astro_Starlight-7C3AED?style=for-the-badge&logo=astro&logoColor=white"></a>
+  <a href="https://drive.docs.astercosm.com/"><img alt="Documentation Site" src="https://img.shields.io/badge/docs-Astro_Starlight-7C3AED?style=for-the-badge&logo=astro&logoColor=white"></a>
   <a href="README.zh.md"><img alt="中文 README" src="https://img.shields.io/badge/README-中文-E11D48?style=for-the-badge"></a>
-  <a href="https://drive.astercosm.com/en/start/quick-trial/"><img alt="Quick Start" src="https://img.shields.io/badge/quick%20start-guide-2563EB?style=for-the-badge"></a>
-  <a href="https://drive.astercosm.com/en/ops/cli/"><img alt="Ops CLI" src="https://img.shields.io/badge/ops-CLI-0EA5E9?style=for-the-badge"></a>
-  <a href="https://drive.astercosm.com/developer/en/architecture/"><img alt="Architecture" src="https://img.shields.io/badge/architecture-overview-0F172A?style=for-the-badge"></a>
-  <a href="https://drive.astercosm.com/developer/en/api/"><img alt="API Docs" src="https://img.shields.io/badge/API-reference-059669?style=for-the-badge"></a>
-  <a href="https://drive.astercosm.com/en/deploy/docker/"><img alt="Docker" src="https://img.shields.io/badge/docker-deployment-2496ED?style=for-the-badge&logo=docker&logoColor=white"></a>
+  <a href="https://drive.docs.astercosm.com/en/start/quick-trial/"><img alt="Quick Start" src="https://img.shields.io/badge/quick%20start-guide-2563EB?style=for-the-badge"></a>
+  <a href="https://drive.docs.astercosm.com/en/ops/cli/"><img alt="Ops CLI" src="https://img.shields.io/badge/ops-CLI-0EA5E9?style=for-the-badge"></a>
+  <a href="https://drive.docs.astercosm.com/developer/en/architecture/"><img alt="Architecture" src="https://img.shields.io/badge/architecture-overview-0F172A?style=for-the-badge"></a>
+  <a href="https://drive.docs.astercosm.com/developer/en/api/"><img alt="API Docs" src="https://img.shields.io/badge/API-reference-059669?style=for-the-badge"></a>
+  <a href="https://drive.docs.astercosm.com/en/deploy/docker/"><img alt="Docker" src="https://img.shields.io/badge/docker-deployment-2496ED?style=for-the-badge&logo=docker&logoColor=white"></a>
 </p>
 
 <p align="center">
@@ -101,7 +101,7 @@ sudo chown -R 10001:10001 ./data
 docker compose up -d
 ```
 
-See the [Docker deployment guide](https://drive.astercosm.com/en/deploy/docker/) for the full setup.
+See the [Docker deployment guide](https://drive.docs.astercosm.com/en/deploy/docker/) for the full setup.
 
 ### Run from source
 
@@ -130,7 +130,7 @@ On first startup, AsterDrive will automatically:
 - Do not expose `:3000` directly to the public Internet. Put AsterDrive behind a reverse proxy that handles HTTPS, upload limits, WebDAV/WOPI passthrough, and security headers.
 - Configure public site URLs before relying on share links, WebDAV URLs, mail links, or WOPI callbacks.
 - Run `./aster_drive doctor` after deployment and upgrades. The default SQLite search acceleration expects `FTS5 + trigram tokenizer` support.
-- Plan backups for the database, uploaded blobs, config, and any external object-storage credentials. Start with [Backup and restore](https://drive.astercosm.com/en/ops/backup/).
+- Plan backups for the database, uploaded blobs, config, and any external object-storage credentials. Start with [Backup and restore](https://drive.docs.astercosm.com/en/ops/backup/).
 - If you enable WOPI, test real `docx`, `xlsx`, and `pptx` files through the final public URL and confirm that edits save back into AsterDrive.
 
 ## Core capabilities
@@ -180,28 +180,28 @@ On first startup, AsterDrive will automatically:
 
 ## Documentation
 
-The user and deployment documentation is published with Astro Starlight at [drive.astercosm.com](https://drive.astercosm.com/en/).
+The user and deployment documentation is published with Astro Starlight at [drive.docs.astercosm.com](https://drive.docs.astercosm.com/en/).
 
-- [Getting started](https://drive.astercosm.com/en/start/quick-trial/)
-- [User guide](https://drive.astercosm.com/en/using/)
-- [Workspaces and teams](https://drive.astercosm.com/en/using/workspaces-teams/)
-- [Sharing and public access](https://drive.astercosm.com/en/using/sharing/)
-- [Preview processing and WOPI](https://drive.astercosm.com/en/admin/preview-processing/)
-- [Storage backends](https://drive.astercosm.com/en/admin/storage-backends/)
-- [Remote follower storage](https://drive.astercosm.com/en/admin/storage-backends/remote-follower/)
-- [Docker deployment](https://drive.astercosm.com/en/deploy/docker/)
-- [Production checklist](https://drive.astercosm.com/en/ops/launch-checklist/)
-- [Backup and restore](https://drive.astercosm.com/en/ops/backup/)
-- [Operations CLI](https://drive.astercosm.com/en/ops/cli/)
-- [Developer docs](https://drive.astercosm.com/developer/en/)
-- [Architecture](https://drive.astercosm.com/developer/en/architecture/)
-- [API overview](https://drive.astercosm.com/developer/en/api/)
+- [Getting started](https://drive.docs.astercosm.com/en/start/quick-trial/)
+- [User guide](https://drive.docs.astercosm.com/en/using/)
+- [Workspaces and teams](https://drive.docs.astercosm.com/en/using/workspaces-teams/)
+- [Sharing and public access](https://drive.docs.astercosm.com/en/using/sharing/)
+- [Preview processing and WOPI](https://drive.docs.astercosm.com/en/admin/preview-processing/)
+- [Storage backends](https://drive.docs.astercosm.com/en/admin/storage-backends/)
+- [Remote follower storage](https://drive.docs.astercosm.com/en/admin/storage-backends/remote-follower/)
+- [Docker deployment](https://drive.docs.astercosm.com/en/deploy/docker/)
+- [Production checklist](https://drive.docs.astercosm.com/en/ops/launch-checklist/)
+- [Backup and restore](https://drive.docs.astercosm.com/en/ops/backup/)
+- [Operations CLI](https://drive.docs.astercosm.com/en/ops/cli/)
+- [Developer docs](https://drive.docs.astercosm.com/developer/en/)
+- [Architecture](https://drive.docs.astercosm.com/developer/en/architecture/)
+- [API overview](https://drive.docs.astercosm.com/developer/en/api/)
 
 ## Security
 
 - Report vulnerabilities privately through [GitHub Security Advisories](https://github.com/AsterCommunity/AsterDrive/security/advisories/new) or `report@esaps.net` — see [SECURITY.md](SECURITY.md) for the full policy
 - Published advisories: [github.com/AsterCommunity/AsterDrive/security/advisories](https://github.com/AsterCommunity/AsterDrive/security/advisories)
-- `security.txt` (RFC 9116): [drive.astercosm.com/.well-known/security.txt](https://drive.astercosm.com/.well-known/security.txt)
+- `security.txt` (RFC 9116): [drive.docs.astercosm.com/.well-known/security.txt](https://drive.docs.astercosm.com/.well-known/security.txt)
 
 ## Development
 

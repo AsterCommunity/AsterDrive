@@ -100,7 +100,7 @@ describe("AdminAboutPage", () => {
 		expect(screen.getByText("about_build_time_unknown")).toBeInTheDocument();
 		expect(
 			screen.getByRole("link", { name: /about_open_docs/i }),
-		).toHaveAttribute("href", "https://drive.astercosm.com/");
+		).toHaveAttribute("href", "https://drive.docs.astercosm.com/");
 		expect(
 			screen.getByRole("link", { name: /about_view_repository/i }),
 		).toHaveAttribute("href", "https://github.com/AsterCommunity/AsterDrive");

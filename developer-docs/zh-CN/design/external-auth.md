@@ -295,7 +295,7 @@ Generic OAuth2 默认 scope 也是 `openid email profile`，但不会在更新�
 
 - 管理端 provider API：[管理 API：外部认证提供商](../api/admin.md#外部认证提供商)
 - 登录端外部认证 API：[认证 API：外部认证](../api/auth.md#外部认证)
-- 面向部署者的配置说明：[外部认证](https://drive.astercosm.com/reference/config/external-auth/)
+- 面向部署者的配置说明：[外部认证](https://drive.docs.astercosm.com/reference/config/external-auth/)
 
 ## 测试
 

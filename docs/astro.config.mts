@@ -9,7 +9,7 @@ import starlightLlmsTxt from 'starlight-llms-txt'
 import starlightScrollToTop from 'starlight-scroll-to-top'
 import storageConnectorManifest from './generated/storage-connectors.json'
 
-const SITE_URL = 'https://drive.astercosm.com'
+const SITE_URL = 'https://drive.docs.astercosm.com'
 const ZH_SITE_DESCRIPTION =
   'AsterDrive 官方文档中心，覆盖快速开始、日常使用、管理员配置、Docker/systemd 部署、备份恢复、WebDAV、WOPI 和远程节点。'
 

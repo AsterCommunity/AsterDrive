@@ -1,6 +1,6 @@
 # AsterDrive Developer Documentation
 
-This is the source-level documentation library for AsterDrive contributors, integration developers, and maintainers. It covers repository architecture, domain design, APIs, protocol contracts, test infrastructure, and diagnostic workflows. End users, deployers, and administrators should start with the [user documentation](https://drive.astercosm.com/en/).
+This is the source-level documentation library for AsterDrive contributors, integration developers, and maintainers. It covers repository architecture, domain design, APIs, protocol contracts, test infrastructure, and diagnostic workflows. End users, deployers, and administrators should start with the [user documentation](https://drive.docs.astercosm.com/en/).
 
 ## Where to start
 

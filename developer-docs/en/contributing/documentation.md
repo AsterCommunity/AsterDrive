@@ -1,6 +1,6 @@
 # Documentation Contribution Guide
 
-This page is for people preparing to change AsterDrive documentation. It covers both sites: the user documentation (`docs/`, published at <https://drive.astercosm.com/>) and the developer documentation (`developer-docs/`, published at <https://drive.astercosm.com/developer/>). We want every page to help readers complete one clear task, so before adding content, first confirm which reading path it belongs to.
+This page is for people preparing to change AsterDrive documentation. It covers both sites: the user documentation (`docs/`, published at <https://drive.docs.astercosm.com/>) and the developer documentation (`developer-docs/`, published at <https://drive.docs.astercosm.com/developer/>). We want every page to help readers complete one clear task, so before adding content, first confirm which reading path it belongs to.
 
 ## Decide Where It Belongs First
 
@@ -123,7 +123,7 @@ Prefer absolute paths for site links in the user documentation:
 
 Same-directory short links are also fine, but avoid relative paths such as `../guide/...` across directories. Absolute paths are easier to read and more stable when files move later.
 
-Inside the developer documentation, use relative `.md` paths (they also work on GitHub); the build script maps them to published routes. Links from the developer documentation back to the user documentation use full URLs (`https://drive.astercosm.com/...`).
+Inside the developer documentation, use relative `.md` paths (they also work on GitHub); the build script maps them to published routes. Links from the developer documentation back to the user documentation use full URLs (`https://drive.docs.astercosm.com/...`).
 
 ## Writing Rules
 

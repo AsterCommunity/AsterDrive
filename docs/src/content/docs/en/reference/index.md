@@ -15,5 +15,5 @@ This section is not an operations manual. It is for looking things up and learni
 | Look up a term | [Glossary](./glossary/) |
 | Find the right page by symptom | [FAQ Triage](./faq/) |
 | Decode error codes from the API or logs | [Error Code Handling](./errors/) |
-| Contribute to the documentation | [Documentation Contribution Guide](https://drive.astercosm.com/developer/en/contributing/documentation/) |
+| Contribute to the documentation | [Documentation Contribution Guide](https://drive.docs.astercosm.com/developer/en/contributing/documentation/) |
 | Learn why this project exists | [About AsterDrive](./about/) |

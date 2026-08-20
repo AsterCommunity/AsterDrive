@@ -12,13 +12,13 @@
 </p>
 
 <p align="center">
-  <a href="https://drive.astercosm.com/"><img alt="在线文档" src="https://img.shields.io/badge/docs-Astro_Starlight-7C3AED?style=for-the-badge&logo=astro&logoColor=white"></a>
+  <a href="https://drive.docs.astercosm.com/"><img alt="在线文档" src="https://img.shields.io/badge/docs-Astro_Starlight-7C3AED?style=for-the-badge&logo=astro&logoColor=white"></a>
   <a href="README.md"><img alt="English README" src="https://img.shields.io/badge/README-English-E11D48?style=for-the-badge"></a>
-  <a href="https://drive.astercosm.com/start/quick-trial/"><img alt="快速开始" src="https://img.shields.io/badge/快速开始-guide-2563EB?style=for-the-badge"></a>
-  <a href="https://drive.astercosm.com/ops/cli/"><img alt="运维 CLI" src="https://img.shields.io/badge/运维-CLI-0EA5E9?style=for-the-badge"></a>
-  <a href="https://drive.astercosm.com/developer/architecture/"><img alt="架构文档" src="https://img.shields.io/badge/架构-总览-0F172A?style=for-the-badge"></a>
-  <a href="https://drive.astercosm.com/developer/api/"><img alt="API 文档" src="https://img.shields.io/badge/API-reference-059669?style=for-the-badge"></a>
-  <a href="https://drive.astercosm.com/deploy/docker/"><img alt="Docker 部署" src="https://img.shields.io/badge/docker-deployment-2496ED?style=for-the-badge&logo=docker&logoColor=white"></a>
+  <a href="https://drive.docs.astercosm.com/start/quick-trial/"><img alt="快速开始" src="https://img.shields.io/badge/快速开始-guide-2563EB?style=for-the-badge"></a>
+  <a href="https://drive.docs.astercosm.com/ops/cli/"><img alt="运维 CLI" src="https://img.shields.io/badge/运维-CLI-0EA5E9?style=for-the-badge"></a>
+  <a href="https://drive.docs.astercosm.com/developer/architecture/"><img alt="架构文档" src="https://img.shields.io/badge/架构-总览-0F172A?style=for-the-badge"></a>
+  <a href="https://drive.docs.astercosm.com/developer/api/"><img alt="API 文档" src="https://img.shields.io/badge/API-reference-059669?style=for-the-badge"></a>
+  <a href="https://drive.docs.astercosm.com/deploy/docker/"><img alt="Docker 部署" src="https://img.shields.io/badge/docker-deployment-2496ED?style=for-the-badge&logo=docker&logoColor=white"></a>
 </p>
 
 <p align="center">
@@ -100,7 +100,7 @@ sudo chown -R 10001:10001 ./data
 docker compose up -d
 ```
 
-完整配置见 [Docker 部署文档](https://drive.astercosm.com/deploy/docker/)。
+完整配置见 [Docker 部署文档](https://drive.docs.astercosm.com/deploy/docker/)。
 
 ### 从源码运行
 
@@ -129,7 +129,7 @@ AsterDrive首次启动时会自动：
 - 切勿直接把 `:3000` 暴露到公网。请放在反向代理后面，由代理处理 HTTPS、上传限制、WebDAV/WOPI 透传和安全响应头。
 - 在依赖分享链接、WebDAV 地址、邮件链接或 WOPI 回调之前，先配置公开站点地址。
 - 部署和升级后运行 `./aster_drive doctor`。默认 SQLite 搜索加速依赖 `FTS5 + trigram tokenizer` 支持。
-- 提前规划数据库、上传对象、配置文件和外部对象存储凭据的备份。先看 [备份与恢复](https://drive.astercosm.com/ops/backup/)。
+- 提前规划数据库、上传对象、配置文件和外部对象存储凭据的备份。先看 [备份与恢复](https://drive.docs.astercosm.com/ops/backup/)。
 - 如果启用了 WOPI，请用最终公开地址测试真实的 `docx`、`xlsx`、`pptx` 文件，并确认编辑能保存回 AsterDrive。
 
 ## 核心功能
@@ -179,28 +179,28 @@ AsterDrive首次启动时会自动：
 
 ## 文档
 
-面向用户和部署者的文档使用 Astro Starlight 构建，并统一发布在 [drive.astercosm.com](https://drive.astercosm.com/)。
+面向用户和部署者的文档使用 Astro Starlight 构建，并统一发布在 [drive.docs.astercosm.com](https://drive.docs.astercosm.com/)。
 
-- [快速开始](https://drive.astercosm.com/start/quick-trial/)
-- [使用指南](https://drive.astercosm.com/using/)
-- [工作空间与团队](https://drive.astercosm.com/using/workspaces-teams/)
-- [分享与公开访问](https://drive.astercosm.com/using/sharing/)
-- [预览处理与 WOPI](https://drive.astercosm.com/admin/preview-processing/)
-- [存储后端](https://drive.astercosm.com/admin/storage-backends/)
-- [远程节点存储](https://drive.astercosm.com/admin/storage-backends/remote-follower/)
-- [Docker 部署](https://drive.astercosm.com/deploy/docker/)
-- [生产检查清单](https://drive.astercosm.com/ops/launch-checklist/)
-- [备份与恢复](https://drive.astercosm.com/ops/backup/)
-- [运维 CLI](https://drive.astercosm.com/ops/cli/)
-- [开发者文档](https://drive.astercosm.com/developer/)
-- [架构文档](https://drive.astercosm.com/developer/architecture/)
-- [API 概览](https://drive.astercosm.com/developer/api/)
+- [快速开始](https://drive.docs.astercosm.com/start/quick-trial/)
+- [使用指南](https://drive.docs.astercosm.com/using/)
+- [工作空间与团队](https://drive.docs.astercosm.com/using/workspaces-teams/)
+- [分享与公开访问](https://drive.docs.astercosm.com/using/sharing/)
+- [预览处理与 WOPI](https://drive.docs.astercosm.com/admin/preview-processing/)
+- [存储后端](https://drive.docs.astercosm.com/admin/storage-backends/)
+- [远程节点存储](https://drive.docs.astercosm.com/admin/storage-backends/remote-follower/)
+- [Docker 部署](https://drive.docs.astercosm.com/deploy/docker/)
+- [生产检查清单](https://drive.docs.astercosm.com/ops/launch-checklist/)
+- [备份与恢复](https://drive.docs.astercosm.com/ops/backup/)
+- [运维 CLI](https://drive.docs.astercosm.com/ops/cli/)
+- [开发者文档](https://drive.docs.astercosm.com/developer/)
+- [架构文档](https://drive.docs.astercosm.com/developer/architecture/)
+- [API 概览](https://drive.docs.astercosm.com/developer/api/)
 
 ## 安全
 
 - 请通过 [GitHub Security Advisories](https://github.com/AsterCommunity/AsterDrive/security/advisories/new) 或 `report@esaps.net` 私下报告漏洞——完整政策见 [SECURITY.md](SECURITY.md)
 - 已发布的安全公告：[github.com/AsterCommunity/AsterDrive/security/advisories](https://github.com/AsterCommunity/AsterDrive/security/advisories)
-- `security.txt`（RFC 9116）：[drive.astercosm.com/.well-known/security.txt](https://drive.astercosm.com/.well-known/security.txt)
+- `security.txt`（RFC 9116）：[drive.docs.astercosm.com/.well-known/security.txt](https://drive.docs.astercosm.com/.well-known/security.txt)
 
 ## 开发
 

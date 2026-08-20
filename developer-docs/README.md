@@ -1,6 +1,6 @@
 # AsterDrive Developer Documentation
 
-This directory is the source library for AsterDrive’s developer-facing documentation. The published site is available at [drive.astercosm.com/developer/](https://drive.astercosm.com/developer/); deployment and end-user documentation remains under [`docs/`](../docs/).
+This directory is the source library for AsterDrive’s developer-facing documentation. The published site is available at [drive.docs.astercosm.com/developer/](https://drive.docs.astercosm.com/developer/); deployment and end-user documentation remains under [`docs/`](../docs/).
 
 ## Languages
 

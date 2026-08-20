@@ -1,6 +1,6 @@
 # 文档贡献指南
 
-这页写给准备改 AsterDrive 文档的人，同时覆盖用户文档（`docs/`，发布在 <https://drive.astercosm.com/>）和开发者文档（`developer-docs/`，发布在 <https://drive.astercosm.com/developer/>）两套站点的规则。我们希望每一页都能帮读者完成一个明确任务，所以新增内容前先确认它应该放在哪条阅读路径里。
+这页写给准备改 AsterDrive 文档的人，同时覆盖用户文档（`docs/`，发布在 <https://drive.docs.astercosm.com/>）和开发者文档（`developer-docs/`，发布在 <https://drive.docs.astercosm.com/developer/>）两套站点的规则。我们希望每一页都能帮读者完成一个明确任务，所以新增内容前先确认它应该放在哪条阅读路径里。
 
 ## 先判断放在哪里
 
@@ -123,7 +123,7 @@ title: 页面标题
 
 同目录短链接也能用，但跨目录建议避免 `../guide/...` 这类相对路径。绝对路径更容易阅读，后续移动文件时也更稳。
 
-开发者文档内部链接用相对 `.md` 路径（在 GitHub 上也能点击），构建脚本会把它们映射成发布路由；从开发者文档指回用户文档的链接用完整 URL（`https://drive.astercosm.com/...`）。
+开发者文档内部链接用相对 `.md` 路径（在 GitHub 上也能点击），构建脚本会把它们映射成发布路由；从开发者文档指回用户文档的链接用完整 URL（`https://drive.docs.astercosm.com/...`）。
 
 ## 写法规则
 

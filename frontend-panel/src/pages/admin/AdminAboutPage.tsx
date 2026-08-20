@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { adminSystemService } from "@/services/adminService";
 
 const REPOSITORY_URL = "https://github.com/AsterCommunity/AsterDrive";
-const DOCS_URL = "https://drive.astercosm.com/";
+const DOCS_URL = "https://drive.docs.astercosm.com/";
 const MIT_LICENSE_URL = `${REPOSITORY_URL}/blob/master/LICENSE-MIT`;
 const APACHE_LICENSE_URL = `${REPOSITORY_URL}/blob/master/LICENSE-APACHE`;
 const VERSION_EASTER_EGG_CLICKS = 5;

@@ -3,4 +3,4 @@ Contact: mailto:report@esaps.net
 Expires: 2027-07-01T00:00:00.000Z
 Preferred-Languages: en, zh
 Policy: https://github.com/AsterCommunity/AsterDrive/blob/master/SECURITY.md
-Canonical: https://drive.astercosm.com/.well-known/security.txt
+Canonical: https://drive.docs.astercosm.com/.well-known/security.txt

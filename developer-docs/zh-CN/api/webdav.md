@@ -107,7 +107,7 @@ http://localhost:3000/webdav
 - `webdav_enabled = false` 时，WebDAV 请求会直接返回 `503`
 - `webdav_block_system_files_enabled = true` 时，WebDAV 写入 / 移动 / 复制会按 `webdav_block_system_file_patterns` 拦截系统文件名，默认包含 `.DS_Store`、`._*`、`Thumbs.db`、`desktop.ini`、`$RECYCLE.BIN` 等常见客户端垃圾文件；REST 文件夹列表不会应用这层过滤
 
-如果部署在反向代理后面，还要确认代理层允许 WebDAV 方法和相关请求头，见 [反向代理部署](https://drive.astercosm.com/deploy/reverse-proxy/)。
+如果部署在反向代理后面，还要确认代理层允许 WebDAV 方法和相关请求头，见 [反向代理部署](https://drive.docs.astercosm.com/deploy/reverse-proxy/)。
 
 ## 合规与客户端兼容性测试
 

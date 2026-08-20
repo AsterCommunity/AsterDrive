@@ -5,7 +5,7 @@ title: "Runtime Architecture"
 
 This page explains how AsterDrive components work together after the service is running. It is written for deployers, administrators, and new contributors, with an emphasis on system boundaries, data flows, and troubleshooting entry points.
 
-Source-level module boundaries and design contracts no longer live in the user documentation; they moved to the developer documentation: [architecture overview](https://drive.astercosm.com/developer/en/architecture/), [module design notes](https://drive.astercosm.com/developer/en/architecture/module-designs/), and [backend service ownership](https://drive.astercosm.com/developer/en/architecture/backend-service-ownership/). Read those before changing code.
+Source-level module boundaries and design contracts no longer live in the user documentation; they moved to the developer documentation: [architecture overview](https://drive.docs.astercosm.com/developer/en/architecture/), [module design notes](https://drive.docs.astercosm.com/developer/en/architecture/module-designs/), and [backend service ownership](https://drive.docs.astercosm.com/developer/en/architecture/backend-service-ownership/). Read those before changing code.
 
 ## 60-Second Version
 

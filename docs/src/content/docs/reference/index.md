@@ -15,5 +15,5 @@ title: "参考与项目"
 | 查一个词是什么意思 | [术语表](./glossary/) |
 | 按现象找该看哪页 | [常见问题速查](./faq/) |
 | 看懂 API 或日志里的错误码 | [错误码处理](./errors/) |
-| 给文档提修改 | [文档贡献指南](https://drive.astercosm.com/developer/contributing/documentation/) |
+| 给文档提修改 | [文档贡献指南](https://drive.docs.astercosm.com/developer/contributing/documentation/) |
 | 了解这个项目为什么存在 | [关于 AsterDrive](./about/) |

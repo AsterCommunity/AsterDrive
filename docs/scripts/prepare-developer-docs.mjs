@@ -8,7 +8,7 @@ const sourceRoot = resolve(docsRoot, '..', 'developer-docs')
 const generatedRoot = resolve(docsRoot, 'src-developer')
 const generatedContentRoot = join(generatedRoot, 'content', 'docs')
 const generatedPublicRoot = join(generatedRoot, 'public')
-const siteRoot = 'https://drive.astercosm.com'
+const siteRoot = 'https://drive.docs.astercosm.com'
 const githubRoot = 'https://github.com/AsterCommunity/AsterDrive/blob/master'
 const githubEditRoot = 'https://github.com/AsterCommunity/AsterDrive/edit/master'
 
