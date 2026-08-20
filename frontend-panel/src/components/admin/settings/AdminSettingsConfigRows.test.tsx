@@ -538,6 +538,40 @@ describe("AdminSettingsConfigRows", () => {
 		expect(mockState.updateDraftValue).not.toHaveBeenCalled();
 	});
 
+	it("warns when password login is disabled", () => {
+		const config = createConfig({
+			key: "auth_password_login_enabled",
+			value: "false",
+			value_type: "boolean",
+		});
+
+		renderWithContext(<SystemConfigRow config={config} />);
+
+		expect(screen.getByRole("status")).toHaveTextContent(
+			"password_login_disabled_warning",
+		);
+	});
+
+	it("warns when password and passkey login are both disabled", () => {
+		const config = createConfig({
+			key: "auth_password_login_enabled",
+			value: "false",
+			value_type: "boolean",
+		});
+
+		renderWithContext(<SystemConfigRow config={config} />, {
+			getDraftValueByKey: (key) =>
+				key === "auth_passkey_login_enabled" ? "false" : undefined,
+		});
+
+		expect(screen.getByRole("status")).toHaveTextContent(
+			"password_and_passkey_login_disabled_warning",
+		);
+		expect(
+			screen.queryByText("password_login_disabled_warning"),
+		).not.toBeInTheDocument();
+	});
+
 	it("updates custom row visibility and deletion actions", () => {
 		const config = createConfig({
 			key: "custom.theme",

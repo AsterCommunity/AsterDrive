@@ -2,8 +2,8 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
-    sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    QueryOrder, sea_query::Expr,
 };
 
 use crate::errors::{AsterError, Result};
@@ -51,7 +51,9 @@ pub async fn find_all_by_kind(
         .map_err(AsterError::from)
 }
 
-pub async fn find_enabled(db: &DatabaseConnection) -> Result<Vec<external_auth_provider::Model>> {
+pub async fn find_enabled<C: ConnectionTrait>(
+    db: &C,
+) -> Result<Vec<external_auth_provider::Model>> {
     ExternalAuthProvider::find()
         .filter(external_auth_provider::Column::Enabled.eq(true))
         .order_by_asc(external_auth_provider::Column::DisplayName)
@@ -75,7 +77,10 @@ pub async fn find_enabled_by_kind(
         .map_err(AsterError::from)
 }
 
-pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<external_auth_provider::Model> {
+pub async fn find_by_id<C: ConnectionTrait>(
+    db: &C,
+    id: i64,
+) -> Result<external_auth_provider::Model> {
     ExternalAuthProvider::find_by_id(id)
         .one(db)
         .await
@@ -103,14 +108,14 @@ pub async fn create(
     model.insert(db).await.map_err(AsterError::from)
 }
 
-pub async fn update(
-    db: &DatabaseConnection,
+pub async fn update<C: ConnectionTrait>(
+    db: &C,
     model: external_auth_provider::ActiveModel,
 ) -> Result<external_auth_provider::Model> {
     model.update(db).await.map_err(AsterError::from)
 }
 
-pub async fn delete(db: &DatabaseConnection, id: i64) -> Result<()> {
+pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     let result = ExternalAuthProvider::delete_by_id(id)
         .exec(db)
         .await

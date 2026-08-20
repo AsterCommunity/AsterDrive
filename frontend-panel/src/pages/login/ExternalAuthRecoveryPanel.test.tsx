@@ -25,6 +25,7 @@ function renderPanel(
 			identifier="user@example.com"
 			identifierError=""
 			mode="password"
+			passwordLoginEnabled={true}
 			password="secret123"
 			passwordError=""
 			sent={false}
@@ -81,6 +82,7 @@ describe("ExternalAuthRecoveryPanel", () => {
 				identifier="user@example.com"
 				identifierError=""
 				mode="email"
+				passwordLoginEnabled={true}
 				password="secret123"
 				passwordError=""
 				sent={false}
@@ -161,6 +163,7 @@ describe("ExternalAuthRecoveryPanel", () => {
 				identifier="user@example.com"
 				identifierError=""
 				mode="email"
+				passwordLoginEnabled={true}
 				password="secret123"
 				passwordError=""
 				sent={false}
@@ -189,6 +192,7 @@ describe("ExternalAuthRecoveryPanel", () => {
 				identifier="user@example.com"
 				identifierError=""
 				mode="email"
+				passwordLoginEnabled={true}
 				password="secret123"
 				passwordError=""
 				sent={false}
@@ -225,6 +229,27 @@ describe("ExternalAuthRecoveryPanel", () => {
 			screen.queryByRole("button", {
 				name: /external_auth_email_verification_send/,
 			}),
+		).not.toBeInTheDocument();
+	});
+
+	it("hides password linking when password login is disabled", () => {
+		renderPanel({
+			mode: "email",
+			passwordLoginEnabled: false,
+		});
+
+		expect(
+			screen.queryByRole("tab", {
+				name: /external_auth_password_link_tab/,
+			}),
+		).not.toBeInTheDocument();
+		expect(
+			screen.getByRole("tab", {
+				name: /external_auth_email_verification_tab/,
+			}),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("email_or_username"),
 		).not.toBeInTheDocument();
 	});
 });

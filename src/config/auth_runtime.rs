@@ -9,9 +9,10 @@ pub use crate::config::definitions::{
     AUTH_COOKIE_SECURE_KEY, AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY,
     AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY, AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS_KEY,
     AUTH_EMAIL_CODE_LOGIN_TTL_SECS_KEY, AUTH_PASSKEY_LOGIN_ENABLED_KEY,
-    AUTH_PASSWORD_RESET_REQUEST_COOLDOWN_SECS_KEY, AUTH_PASSWORD_RESET_TTL_SECS_KEY,
-    AUTH_REFRESH_TOKEN_TTL_SECS_KEY, AUTH_REGISTER_ACTIVATION_ENABLED_KEY,
-    AUTH_REGISTER_ACTIVATION_TTL_SECS_KEY, AUTH_USER_INVITATION_TTL_SECS_KEY,
+    AUTH_PASSWORD_LOGIN_ENABLED_KEY, AUTH_PASSWORD_RESET_REQUEST_COOLDOWN_SECS_KEY,
+    AUTH_PASSWORD_RESET_TTL_SECS_KEY, AUTH_REFRESH_TOKEN_TTL_SECS_KEY,
+    AUTH_REGISTER_ACTIVATION_ENABLED_KEY, AUTH_REGISTER_ACTIVATION_TTL_SECS_KEY,
+    AUTH_USER_INVITATION_TTL_SECS_KEY,
 };
 
 pub const DEFAULT_AUTH_COOKIE_SECURE: bool = false;
@@ -28,6 +29,7 @@ pub const DEFAULT_AUTH_CONTACT_VERIFICATION_RESEND_COOLDOWN_SECS: u64 = 60;
 pub const DEFAULT_AUTH_PASSWORD_RESET_REQUEST_COOLDOWN_SECS: u64 = 60;
 pub const DEFAULT_AUTH_EMAIL_CODE_LOGIN_ENABLED: bool = false;
 pub const DEFAULT_AUTH_PASSKEY_LOGIN_ENABLED: bool = true;
+pub const DEFAULT_AUTH_PASSWORD_LOGIN_ENABLED: bool = true;
 pub const DEFAULT_AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK: bool = false;
 pub const DEFAULT_AUTH_EMAIL_CODE_LOGIN_TTL_SECS: u64 = 600;
 pub const DEFAULT_AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS: u64 = 60;
@@ -37,6 +39,7 @@ pub struct RuntimeAuthPolicy {
     pub cookie_secure: bool,
     pub allow_user_registration: bool,
     pub passkey_login_enabled: bool,
+    pub password_login_enabled: bool,
     pub register_activation_enabled: bool,
     pub access_token_ttl_secs: u64,
     pub refresh_token_ttl_secs: u64,
@@ -81,6 +84,11 @@ impl RuntimeAuthPolicy {
             AUTH_PASSKEY_LOGIN_ENABLED_KEY,
             DEFAULT_AUTH_PASSKEY_LOGIN_ENABLED,
         );
+        let password_login_enabled = read_bool(
+            runtime_config,
+            AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+            DEFAULT_AUTH_PASSWORD_LOGIN_ENABLED,
+        );
 
         let access_token_ttl_secs = match runtime_config.get(AUTH_ACCESS_TOKEN_TTL_SECS_KEY) {
             Some(raw) => match parse_positive_u64(&raw) {
@@ -116,10 +124,15 @@ impl RuntimeAuthPolicy {
             cookie_secure,
             allow_user_registration,
             passkey_login_enabled,
+            password_login_enabled,
             register_activation_enabled,
             access_token_ttl_secs,
             refresh_token_ttl_secs,
         }
+    }
+
+    pub fn public_registration_enabled(self) -> bool {
+        self.allow_user_registration && self.password_login_enabled
     }
 }
 
@@ -246,7 +259,7 @@ pub fn user_invitation_ttl_secs(runtime_config: &RuntimeConfig) -> u64 {
     )
 }
 
-fn parse_bool_str(value: &str) -> Option<bool> {
+pub(crate) fn parse_bool_str(value: &str) -> Option<bool> {
     match value.trim().to_ascii_lowercase().as_str() {
         "true" | "1" | "yes" | "on" => Some(true),
         "false" | "0" | "no" | "off" => Some(false),
@@ -291,11 +304,12 @@ mod tests {
         AUTH_ACCESS_TOKEN_TTL_SECS_KEY, AUTH_ALLOW_USER_REGISTRATION_KEY, AUTH_COOKIE_SECURE_KEY,
         AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY, AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY,
         AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS_KEY, AUTH_EMAIL_CODE_LOGIN_TTL_SECS_KEY,
-        AUTH_PASSKEY_LOGIN_ENABLED_KEY, AUTH_REFRESH_TOKEN_TTL_SECS_KEY,
-        AUTH_REGISTER_ACTIVATION_ENABLED_KEY, DEFAULT_AUTH_ACCESS_TOKEN_TTL_SECS,
-        DEFAULT_AUTH_ALLOW_USER_REGISTRATION, DEFAULT_AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK,
-        DEFAULT_AUTH_EMAIL_CODE_LOGIN_ENABLED, DEFAULT_AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS,
-        DEFAULT_AUTH_EMAIL_CODE_LOGIN_TTL_SECS, DEFAULT_AUTH_PASSKEY_LOGIN_ENABLED,
+        AUTH_PASSKEY_LOGIN_ENABLED_KEY, AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+        AUTH_REFRESH_TOKEN_TTL_SECS_KEY, AUTH_REGISTER_ACTIVATION_ENABLED_KEY,
+        DEFAULT_AUTH_ACCESS_TOKEN_TTL_SECS, DEFAULT_AUTH_ALLOW_USER_REGISTRATION,
+        DEFAULT_AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK, DEFAULT_AUTH_EMAIL_CODE_LOGIN_ENABLED,
+        DEFAULT_AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS, DEFAULT_AUTH_EMAIL_CODE_LOGIN_TTL_SECS,
+        DEFAULT_AUTH_PASSKEY_LOGIN_ENABLED, DEFAULT_AUTH_PASSWORD_LOGIN_ENABLED,
         DEFAULT_AUTH_REFRESH_TOKEN_TTL_SECS, DEFAULT_AUTH_REGISTER_ACTIVATION_ENABLED,
         DEFAULT_AUTH_USER_INVITATION_TTL_SECS, FAILSAFE_AUTH_COOKIE_SECURE, RuntimeAuthPolicy,
         RuntimeEmailCodeLoginPolicy, normalize_email_code_login_bool_config_value,
@@ -344,6 +358,10 @@ mod tests {
             DEFAULT_AUTH_PASSKEY_LOGIN_ENABLED
         );
         assert_eq!(
+            policy.password_login_enabled,
+            DEFAULT_AUTH_PASSWORD_LOGIN_ENABLED
+        );
+        assert_eq!(
             policy.access_token_ttl_secs,
             DEFAULT_AUTH_ACCESS_TOKEN_TTL_SECS
         );
@@ -360,6 +378,7 @@ mod tests {
         runtime_config.apply(config_model(AUTH_ALLOW_USER_REGISTRATION_KEY, "false"));
         runtime_config.apply(config_model(AUTH_REGISTER_ACTIVATION_ENABLED_KEY, "false"));
         runtime_config.apply(config_model(AUTH_PASSKEY_LOGIN_ENABLED_KEY, "false"));
+        runtime_config.apply(config_model(AUTH_PASSWORD_LOGIN_ENABLED_KEY, "false"));
         runtime_config.apply(config_model(AUTH_ACCESS_TOKEN_TTL_SECS_KEY, "120"));
         runtime_config.apply(config_model(AUTH_REFRESH_TOKEN_TTL_SECS_KEY, "3600"));
 
@@ -369,6 +388,7 @@ mod tests {
         assert!(!policy.allow_user_registration);
         assert!(!policy.register_activation_enabled);
         assert!(!policy.passkey_login_enabled);
+        assert!(!policy.password_login_enabled);
         assert_eq!(policy.access_token_ttl_secs, 120);
         assert_eq!(policy.refresh_token_ttl_secs, 3600);
     }
@@ -383,6 +403,7 @@ mod tests {
             "sometimes",
         ));
         runtime_config.apply(config_model(AUTH_PASSKEY_LOGIN_ENABLED_KEY, "maybe"));
+        runtime_config.apply(config_model(AUTH_PASSWORD_LOGIN_ENABLED_KEY, "maybe"));
 
         let policy = RuntimeAuthPolicy::from_runtime_config(&runtime_config);
 
@@ -399,6 +420,21 @@ mod tests {
             policy.passkey_login_enabled,
             DEFAULT_AUTH_PASSKEY_LOGIN_ENABLED
         );
+        assert_eq!(
+            policy.password_login_enabled,
+            DEFAULT_AUTH_PASSWORD_LOGIN_ENABLED
+        );
+    }
+
+    #[test]
+    fn public_registration_requires_password_login() {
+        let mut policy = RuntimeAuthPolicy::from_runtime_config(&RuntimeConfig::new());
+        assert!(policy.public_registration_enabled());
+        policy.password_login_enabled = false;
+        assert!(!policy.public_registration_enabled());
+        policy.password_login_enabled = true;
+        policy.allow_user_registration = false;
+        assert!(!policy.public_registration_enabled());
     }
 
     #[test]

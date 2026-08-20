@@ -89,6 +89,7 @@ interface LoginAuthFormProps {
 	externalAuthLoading: boolean;
 	externalAuthProviders: ExternalAuthPublicProvider[];
 	passkeyLoginEnabled: boolean;
+	passwordLoginEnabled: boolean;
 	passkeySubmitting: boolean;
 	passkeySupported: boolean;
 	registrationClosed: boolean;
@@ -132,6 +133,7 @@ export function LoginAuthForm({
 	externalAuthLoading,
 	externalAuthProviders,
 	passkeyLoginEnabled,
+	passwordLoginEnabled,
 	passkeySubmitting,
 	passkeySupported,
 	registrationClosed,
@@ -141,8 +143,23 @@ export function LoginAuthForm({
 }: LoginAuthFormProps) {
 	const { t } = useTranslation(["login", "core"]);
 	const requiresExtraField = mode === "register" || mode === "setup";
+	const showPasswordCredential =
+		mode === "register" ||
+		mode === "setup" ||
+		(mode === "login" && passwordLoginEnabled);
+	const hasAvailableLoginMethod =
+		passwordLoginEnabled ||
+		(passkeyLoginEnabled && passkeySupported) ||
+		externalAuthProviders.length > 0;
+	const showNoAvailableLoginMethods =
+		mode === "login" &&
+		!checking &&
+		!externalAuthLoading &&
+		!hasAvailableLoginMethod;
 	const authMethodBusy =
 		submitting || passkeySubmitting || externalAuthBusyProvider !== null;
+	const showPasswordRecoveryLinks =
+		passwordLoginEnabled && (mode === "login" || mode === "register");
 
 	return (
 		<>
@@ -231,50 +248,52 @@ export function LoginAuthForm({
 				</div>
 			</AnimateHeight>
 
-			<div className="mt-4 space-y-1.5">
-				<Label htmlFor="password" className="text-sm">
-					{t("core:password")}
-				</Label>
-				<div className="relative">
-					<Input
-						id="password"
-						type={showPassword ? "text" : "password"}
-						placeholder={t("core:password")}
-						value={password}
-						onChange={(event) => onPasswordChange(event.target.value)}
-						required
-						autoComplete={
-							mode === "login" ? "current-password" : "new-password"
-						}
-						className={cn(
-							"h-10 pr-10",
-							errors.password &&
-								"border-destructive focus-visible:ring-destructive",
-						)}
-					/>
-					<button
-						type="button"
-						className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
-						onClick={() => onShowPasswordChange(!showPassword)}
-						tabIndex={-1}
-						aria-label={
-							showPassword ? t("core:hide_password") : t("core:show_password")
-						}
-					>
-						{showPassword ? (
-							<Icon name="EyeSlash" className="size-4" />
-						) : (
-							<Icon name="Eye" className="size-4" />
-						)}
-					</button>
+			{showPasswordCredential ? (
+				<div className="mt-4 space-y-1.5">
+					<Label htmlFor="password" className="text-sm">
+						{t("core:password")}
+					</Label>
+					<div className="relative">
+						<Input
+							id="password"
+							type={showPassword ? "text" : "password"}
+							placeholder={t("core:password")}
+							value={password}
+							onChange={(event) => onPasswordChange(event.target.value)}
+							required
+							autoComplete={
+								mode === "login" ? "current-password" : "new-password"
+							}
+							className={cn(
+								"h-10 pr-10",
+								errors.password &&
+									"border-destructive focus-visible:ring-destructive",
+							)}
+						/>
+						<button
+							type="button"
+							className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+							onClick={() => onShowPasswordChange(!showPassword)}
+							tabIndex={-1}
+							aria-label={
+								showPassword ? t("core:hide_password") : t("core:show_password")
+							}
+						>
+							{showPassword ? (
+								<Icon name="EyeSlash" className="size-4" />
+							) : (
+								<Icon name="Eye" className="size-4" />
+							)}
+						</button>
+					</div>
+					{errors.password ? (
+						<p className="text-xs text-destructive">{errors.password}</p>
+					) : null}
 				</div>
-				{errors.password ? (
-					<p className="text-xs text-destructive">{errors.password}</p>
-				) : null}
-			</div>
+			) : null}
 
-			<div className="mt-3 flex items-center justify-between gap-3">
-				{mode === "login" ? (
+			{showPasswordRecoveryLinks ? (
+				<div className="mt-3 flex items-center justify-between gap-3">
 					<button
 						type="button"
 						className="text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -282,28 +301,28 @@ export function LoginAuthForm({
 					>
 						{t("resend_activation")}
 					</button>
-				) : (
-					<span />
-				)}
-				<button
-					type="button"
-					className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-					onClick={onForgotPassword}
-				>
-					{t("forgot_password")}
-				</button>
-			</div>
+					<button
+						type="button"
+						className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+						onClick={onForgotPassword}
+					>
+						{t("forgot_password")}
+					</button>
+				</div>
+			) : null}
 
-			<Button
-				type="submit"
-				className="mt-4 h-10 w-full"
-				disabled={isSubmitDisabled}
-			>
-				{submitting ? (
-					<Icon name="Spinner" className="mr-2 size-4 animate-spin" />
-				) : null}
-				{submitLabel}
-			</Button>
+			{showPasswordCredential ? (
+				<Button
+					type="submit"
+					className="mt-4 h-10 w-full"
+					disabled={isSubmitDisabled}
+				>
+					{submitting ? (
+						<Icon name="Spinner" className="mr-2 size-4 animate-spin" />
+					) : null}
+					{submitLabel}
+				</Button>
+			) : null}
 
 			{mode === "login" ? (
 				<div className="mt-3 space-y-2">
@@ -364,10 +383,21 @@ export function LoginAuthForm({
 							</Button>
 						);
 					})}
+					{showNoAvailableLoginMethods ? (
+						<p
+							role="status"
+							className="text-center text-sm text-muted-foreground"
+						>
+							{t("no_login_methods_available")}
+						</p>
+					) : null}
 				</div>
 			) : null}
 
-			{mode !== "setup" && !checking && !registrationClosed ? (
+			{mode !== "setup" &&
+			!checking &&
+			!registrationClosed &&
+			(passwordLoginEnabled || mode === "register") ? (
 				<p className="mt-6 text-center text-sm text-muted-foreground">
 					{mode === "register"
 						? t("already_have_account")

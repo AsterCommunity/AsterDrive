@@ -63,6 +63,8 @@ import type {
 
 const PUBLIC_SITE_URL_KEY = "public_site_url";
 const EMAIL_CODE_LOGIN_ENABLED_CONFIG_KEY = "auth_email_code_login_enabled";
+const PASSWORD_LOGIN_ENABLED_CONFIG_KEY = "auth_password_login_enabled";
+const PASSKEY_LOGIN_ENABLED_CONFIG_KEY = "auth_passkey_login_enabled";
 const AUTH_LOCAL_EMAIL_ALLOWLIST_KEY = "auth_local_email_allowlist";
 const AUTH_LOCAL_EMAIL_BLOCKLIST_KEY = "auth_local_email_blocklist";
 type ScaledDisplayUnitValue = TimeDisplayUnitValue | SizeDisplayUnitValue;
@@ -981,6 +983,10 @@ export function SystemConfigRow({ config }: { config: SystemConfig }) {
 		isEmailCodeLoginToggle && !emailCodeMailReady
 			? t("email_code_mfa_mail_config_required")
 			: null;
+	const passkeyLoginDisabled =
+		configValueToString(
+			getDraftValueByKey(PASSKEY_LOGIN_ENABLED_CONFIG_KEY),
+		) === "false";
 
 	return (
 		<div className="space-y-3">
@@ -1013,6 +1019,20 @@ export function SystemConfigRow({ config }: { config: SystemConfig }) {
 				/>
 			)}
 			{error ? <p className="text-sm text-destructive">{error}</p> : null}
+			{config.key === PASSWORD_LOGIN_ENABLED_CONFIG_KEY &&
+			draftStringValue !== "true" ? (
+				<p
+					role="status"
+					aria-live="polite"
+					className="text-sm text-amber-700 dark:text-amber-300"
+				>
+					{t(
+						passkeyLoginDisabled
+							? "password_and_passkey_login_disabled_warning"
+							: "password_login_disabled_warning",
+					)}
+				</p>
+			) : null}
 			{!error && emailCodeMailRequiredMessage ? (
 				<p className="text-sm text-muted-foreground">
 					{emailCodeMailRequiredMessage}

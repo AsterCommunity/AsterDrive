@@ -56,7 +56,7 @@
 
 ## 初始化与注册
 
-- `POST /auth/check`：返回 `setup_state`、`has_users`、`allow_user_registration` 和 `passkey_login_enabled`；只公开系统级状态，不会暴露特定账号是否存在。`setup_state` 取值为：
+- `POST /auth/check`：返回 `setup_state`、`has_users`、`allow_user_registration`、`passkey_login_enabled` 和 `password_login_enabled`；只公开系统级状态，不会暴露特定账号是否存在。`setup_state` 取值为：
   - `needs_admin`：数据库中还没有用户，只开放首个管理员 setup
   - `needs_storage`：管理员已经存在，但默认存储策略组或管理员绑定尚未完成；已有管理员可以登录并完成存储设置
   - `ready`：管理员和默认存储路由均已准备好，普通建号流程可以继续
@@ -153,7 +153,7 @@
 
 `GET /auth/me` 支持用 `fields` query 返回局部资料，例如 `GET /auth/me?fields=profile,preferences,quota,session`。支持的字段组是 `profile`、`preferences`、`quota`、`session`；不传或传空值时返回完整模型，传未知字段会返回 `400`。
 
-如果用户的 `must_change_password` 标记为 `true`，成功完成登录后不会直接获得普通应用访问权限，而是返回：
+如果用户的 `must_change_password` 标记为 `true`，且 `auth_password_login_enabled` 仍然启用，成功完成登录后不会直接获得普通应用访问权限，而是返回：
 
 ```json
 {
@@ -166,7 +166,7 @@
 }
 ```
 
-密码登录、MFA 验证完成、Passkey 登录完成和外部认证登录完成都可能返回这个状态。响应仍会写入认证 Cookie，但 access token 只允许走强制改密流程。在 `PUT /auth/password` 成功之前，仅允许访问：
+密码登录启用期间，密码登录、MFA 验证完成、Passkey 登录完成和外部认证登录完成都可能返回这个状态。响应仍会写入认证 Cookie，但 access token 只允许走强制改密流程。在 `PUT /auth/password` 成功之前，仅允许访问：
 
 - `GET /auth/me`
 - `PUT /auth/password`
@@ -269,6 +269,8 @@ Passkey 使用 WebAuthn 两段式流程。所有 challenge 响应和 credential 
 当前 Passkey 记录保存在 `passkeys` 表，credential 以强类型包装后的 JSON 存储。服务端要求可发现凭证；不支持的 credential 会返回带 `passkey.*` 子码的校验错误。
 
 `auth_passkey_login_enabled = false` 会关闭匿名 Passkey 登录，并让当前前端启动配置隐藏 Passkey 登录入口，但不会删除已经注册的凭证。已登录用户仍可管理自己保存的 Passkey。
+
+`auth_password_login_enabled = false` 会在用户查询前拒绝本地密码第一因子登录，并关闭公开注册、激活重发、基于密码的邀请接受、密码重置和外部身份密码绑定。首次 setup、管理员设密和已登录改密仍然可用；账号、密码哈希和已有会话不会因此删除。密码第一因子的 MFA flow 在完成时会重新检查策略，`must_change_password` 也只在密码登录启用时生效。
 
 ## MFA 管理
 
