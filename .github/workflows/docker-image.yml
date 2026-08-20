@@ -78,31 +78,8 @@ jobs:
             org.opencontainers.image.description=Self-hosted cloud storage system built with Rust
             org.opencontainers.image.vendor=AsterCommunity
 
-      # Build full first so the slim target reuses the exact same feature/architecture binary.
-      - name: Build and push full Docker image
-        id: build-push-full
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          target: runtime-full
-          platforms: ${{ matrix.platform }}
-          push: true
-          tags: |
-            ${{ env.REGISTRY_IMAGE_GHCR }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.variant }}-${{ matrix.arch }}
-            ${{ env.REGISTRY_IMAGE_DOCKERHUB }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.variant }}-${{ matrix.arch }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: |
-            type=gha,scope=docker-image-${{ matrix.variant }}-${{ matrix.arch }}
-            type=registry,ref=${{ env.REGISTRY_IMAGE_GHCR }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }}
-          cache-to: |
-            type=gha,mode=max,scope=docker-image-${{ matrix.variant }}-${{ matrix.arch }}
-            type=registry,ref=${{ env.REGISTRY_IMAGE_GHCR }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }},mode=max
-          build-args: |
-            CARGO_FEATURES=${{ matrix.features }}
-            ASTER_BUILD_REVISION=${{ github.sha }}
-          provenance: true
-          sbom: true
-
+      # Push slim first and full last so registry UIs do not treat the most
+      # recently pushed slim artifact as the default image.
       - name: Build and push slim Docker image
         id: build-push-slim
         uses: docker/build-push-action@v7
@@ -118,13 +95,37 @@ jobs:
           cache-from: |
             type=gha,scope=docker-image-${{ matrix.variant }}-${{ matrix.arch }}
             type=registry,ref=${{ env.REGISTRY_IMAGE_GHCR }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }}
+          cache-to: |
+            type=gha,mode=max,scope=docker-image-${{ matrix.variant }}-${{ matrix.arch }}
+            type=registry,ref=${{ env.REGISTRY_IMAGE_GHCR }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }},mode=max
           build-args: |
             CARGO_FEATURES=${{ matrix.features }}
             ASTER_BUILD_REVISION=${{ github.sha }}
           provenance: true
           sbom: true
 
-  publish-manifest:
+      - name: Build and push full Docker image
+        id: build-push-full
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: runtime-full
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY_IMAGE_GHCR }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.variant }}-${{ matrix.arch }}
+            ${{ env.REGISTRY_IMAGE_DOCKERHUB }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.variant }}-${{ matrix.arch }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=gha,scope=docker-image-${{ matrix.variant }}-${{ matrix.arch }}
+            type=registry,ref=${{ env.REGISTRY_IMAGE_GHCR }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }}
+          build-args: |
+            CARGO_FEATURES=${{ matrix.features }}
+            ASTER_BUILD_REVISION=${{ github.sha }}
+          provenance: true
+          sbom: true
+
+  publish-manifest-slim:
     name: Publish ${{ matrix.variant }} multi-arch manifest
     runs-on: ubuntu-latest
     needs: build
@@ -133,14 +134,130 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - variant: default
-            suffix: ""
           - variant: default-slim
             suffix: "-slim"
-          - variant: metrics
-            suffix: "-metrics"
           - variant: metrics-slim
             suffix: "-metrics-slim"
+
+    steps:
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Extract GHCR metadata
+        id: meta-ghcr
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY_IMAGE_GHCR }}
+          tags: |
+            type=ref,event=tag,suffix=${{ matrix.suffix }}
+            type=raw,value=latest${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
+            type=raw,value=stable${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
+            type=raw,value=edge${{ matrix.suffix }},enable=${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+
+      - name: Extract Docker Hub metadata
+        id: meta-dockerhub
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY_IMAGE_DOCKERHUB }}
+          tags: |
+            type=ref,event=tag,suffix=${{ matrix.suffix }}
+            type=raw,value=latest${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
+            type=raw,value=stable${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
+            type=raw,value=edge${{ matrix.suffix }},enable=${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+
+      - name: Create multi-arch manifests
+        id: manifests
+        env:
+          GHCR_TAGS: ${{ steps.meta-ghcr.outputs.tags }}
+          DOCKERHUB_TAGS: ${{ steps.meta-dockerhub.outputs.tags }}
+          MATRIX_VARIANT: ${{ matrix.variant }}
+        run: |
+          create_manifest() {
+            local tags="$1"
+            local image="$2"
+            local metadata_file="$3"
+            local first_tag=""
+            local tag
+            local -a args=()
+
+            while IFS= read -r tag; do
+              if [ -n "$tag" ]; then
+                args+=("-t" "$tag")
+                if [ -z "$first_tag" ]; then
+                  first_tag="$tag"
+                fi
+              fi
+            done <<< "$tags"
+
+            if [ "${#args[@]}" -eq 0 ]; then
+              echo "No manifest tags generated for ${image}" >&2
+              exit 1
+            fi
+
+            docker buildx imagetools create "${args[@]}" \
+              --metadata-file "$metadata_file" \
+              "${image}:${TEMP_IMAGE_TAG}-${MATRIX_VARIANT}-amd64" \
+              "${image}:${TEMP_IMAGE_TAG}-${MATRIX_VARIANT}-arm64" >&2
+
+            printf '%s\n' "$first_tag"
+          }
+
+          create_manifest "$GHCR_TAGS" "$REGISTRY_IMAGE_GHCR" /tmp/ghcr-manifest-metadata.json
+          create_manifest "$DOCKERHUB_TAGS" "$REGISTRY_IMAGE_DOCKERHUB" /tmp/dockerhub-manifest-metadata.json
+
+          GHCR_DIGEST="$(jq -r '."containerimage.descriptor".digest' /tmp/ghcr-manifest-metadata.json)"
+          DOCKERHUB_DIGEST="$(jq -r '."containerimage.descriptor".digest' /tmp/dockerhub-manifest-metadata.json)"
+
+          if [ -z "$GHCR_DIGEST" ] || [ "$GHCR_DIGEST" = "null" ]; then
+            echo "Failed to read GHCR manifest digest" >&2
+            exit 1
+          fi
+
+          if [ -z "$DOCKERHUB_DIGEST" ] || [ "$DOCKERHUB_DIGEST" = "null" ]; then
+            echo "Failed to read Docker Hub manifest digest" >&2
+            exit 1
+          fi
+
+          echo "ghcr_digest=${GHCR_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "dockerhub_digest=${DOCKERHUB_DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign Docker images
+        env:
+          GHCR_DIGEST: ${{ steps.manifests.outputs.ghcr_digest }}
+          DOCKERHUB_DIGEST: ${{ steps.manifests.outputs.dockerhub_digest }}
+        run: |
+          cosign sign --yes "${REGISTRY_IMAGE_GHCR}@${GHCR_DIGEST}"
+          cosign sign --yes "${REGISTRY_IMAGE_DOCKERHUB}@${DOCKERHUB_DIGEST}"
+
+  publish-manifest-full:
+    name: Publish ${{ matrix.variant }} multi-arch manifest
+    runs-on: ubuntu-latest
+    needs: publish-manifest-slim
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: default
+            suffix: ""
+          - variant: metrics
+            suffix: "-metrics"
 
     steps:
       - name: Login to Docker Hub

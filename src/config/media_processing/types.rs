@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 pub const MEDIA_PROCESSING_REGISTRY_VERSION: i32 = 2;
+pub const MEDIA_PROCESSING_RUNTIME_STATUS_VERSION: i32 = 1;
 pub const PUBLIC_THUMBNAIL_SUPPORT_VERSION: i32 = 1;
 pub const PUBLIC_MEDIA_DATA_SUPPORT_VERSION: i32 = 1;
 pub const PUBLIC_MEDIA_DATA_MAX_SAFE_SOURCE_BYTES: i64 = 9_007_199_254_740_991;
@@ -210,6 +211,31 @@ pub struct MediaProcessingProcessorConfig {
         skip_serializing_if = "MediaProcessingProcessorRuntimeConfig::is_empty"
     )]
     pub config: MediaProcessingProcessorRuntimeConfig,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum MediaProcessingUnavailableReason {
+    CommandNotFound,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct MediaProcessingProcessorRuntimeStatus {
+    pub kind: MediaProcessorKind,
+    pub configured_enabled: bool,
+    pub runtime_available: bool,
+    pub effective_enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unavailable_reason: Option<MediaProcessingUnavailableReason>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct MediaProcessingRuntimeStatus {
+    pub version: i32,
+    pub processors: Vec<MediaProcessingProcessorRuntimeStatus>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

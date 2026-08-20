@@ -13,7 +13,10 @@ use aster_drive_model::entities::file_blob;
 use aster_drive_model::types::MediaProcessorKind;
 use bytes::Bytes;
 
-use super::resolve::{build_thumbnail_context, build_thumbnail_context_with_processor};
+use super::resolve::{
+    build_persisted_thumbnail_context, build_thumbnail_context,
+    build_thumbnail_context_with_processor,
+};
 use super::shared::{StoredThumbnail, ThumbnailContext, ThumbnailData};
 
 pub use cache::delete_thumbnail;
@@ -28,6 +31,14 @@ pub async fn load_thumbnail_if_exists(
     file_name: &str,
     source_mime_type: &str,
 ) -> Result<Option<ThumbnailData>> {
+    if let Some(persisted_ctx) =
+        build_persisted_thumbnail_context(state, blob, file_name, source_mime_type)?
+        && let Some(data) =
+            cache::load_thumbnail_if_exists_with_context(state, blob, &persisted_ctx).await?
+    {
+        return Ok(Some(data));
+    }
+
     let ctx = build_thumbnail_context(state, blob, file_name, source_mime_type)?;
     cache::load_thumbnail_if_exists_with_context(state, blob, &ctx).await
 }

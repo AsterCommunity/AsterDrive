@@ -507,6 +507,12 @@ export type PublicMediaDataSupportMatch =
 	components["schemas"]["PublicMediaDataSupportMatch"];
 export type PublicImagePreviewPreference =
 	components["schemas"]["PublicImagePreviewPreference"];
+export type MediaProcessingProcessorRuntimeStatus =
+	components["schemas"]["MediaProcessingProcessorRuntimeStatus"];
+export type MediaProcessingRuntimeStatus =
+	components["schemas"]["MediaProcessingRuntimeStatus"];
+export type MediaProcessingUnavailableReason =
+	components["schemas"]["MediaProcessingUnavailableReason"];
 export type PublicFrontendDownloadConfig =
 	components["schemas"]["PublicFrontendDownloadConfig"];
 export type PublicFrontendMediaConfig =

@@ -359,6 +359,7 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::admin::config::execute_config_action,
         crate::api::routes::admin::config::config_schema,
         crate::api::routes::admin::config::config_template_variables,
+        crate::api::routes::admin::config::get_media_processing_runtime_status,
 
         // admin::shares：后台对全站分享的审查和强制删除能力。
         crate::api::routes::admin::shares::list_all_shares,
@@ -672,6 +673,9 @@ use utoipa::{Modify, OpenApi};
             crate::config::media_processing::PublicMediaDataSupport,
             crate::config::media_processing::PublicMediaDataSupportMatch,
             crate::config::media_processing::PublicThumbnailSupport,
+            crate::config::media_processing::MediaProcessingProcessorRuntimeStatus,
+            crate::config::media_processing::MediaProcessingRuntimeStatus,
+            crate::config::media_processing::MediaProcessingUnavailableReason,
             crate::services::preview::apps::PreviewAppProvider,
             crate::services::preview::apps::PreviewOpenMode,
             crate::services::preview::apps::PublicPreviewAppConfig,
