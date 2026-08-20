@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TeamManageDetail } from "@/components/settings/team-manage-detail/TeamManageDetail";
 import type { UserSummary } from "@/types/api";
@@ -80,15 +81,17 @@ function renderDetail(
 	pageTab: "overview" | "members" | "webdav" | "audit" = "overview",
 ) {
 	return render(
-		<TeamManageDetail
-			currentUserId={1}
-			onExit={vi.fn()}
-			onPageTabChange={vi.fn()}
-			onTeamsReload={async () => undefined}
-			pageTab={pageTab}
-			teamId={11}
-			teamSummary={teamSummary}
-		/>,
+		<StrictMode>
+			<TeamManageDetail
+				currentUserId={1}
+				onExit={vi.fn()}
+				onPageTabChange={vi.fn()}
+				onTeamsReload={async () => undefined}
+				pageTab={pageTab}
+				teamId={11}
+				teamSummary={teamSummary}
+			/>
+		</StrictMode>,
 	);
 }
 

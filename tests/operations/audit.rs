@@ -422,6 +422,24 @@ async fn test_audit_csv_export_streams_fixed_schema_filters_and_redacts_secrets(
         .expect("cursor boundary audit fixture should insert");
     }
 
+    let formula_name = format!("=HYPERLINK(\"{marker}\")");
+    aster_forge_db::create_audit_log_row(
+        state.writer_db(),
+        aster_forge_db::AuditLogCreate {
+            user_id: 1,
+            action: AuditAction::TeamUpdate.as_str().to_string(),
+            entity_type: "team".to_string(),
+            entity_id: Some(42),
+            entity_name: Some(formula_name.clone()),
+            details: None,
+            ip_address: None,
+            user_agent: None,
+            created_at: chrono::Utc::now(),
+        },
+    )
+    .await
+    .expect("formula audit fixture should insert");
+
     let share_token = format!("share-secret-{marker}");
     aster_forge_db::create_audit_log_row(
         state.writer_db(),
@@ -453,6 +471,21 @@ async fn test_audit_csv_export_streams_fixed_schema_filters_and_redacts_secrets(
     assert!(!list_text.contains("share-secret-"));
     assert!(!list_text.contains("session-secret"));
 
+    let formula_list_request = test::TestRequest::get()
+        .uri("/api/v1/admin/audit-logs?action=team_update&entity_type=team&entity_id=42&limit=600")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let formula_list_body: Value = test::call_and_read_body_json(&app, formula_list_request).await;
+    assert!(
+        formula_list_body["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["entity_name"] == formula_name),
+        "formula name missing from list: {formula_list_body}"
+    );
+
     let req = test::TestRequest::get()
         .uri("/api/v1/admin/audit-logs/export?action=team_update&entity_type=team&entity_id=42&sort_by=created_at&sort_order=asc")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
@@ -482,7 +515,7 @@ async fn test_audit_csv_export_streams_fixed_schema_filters_and_redacts_secrets(
         .into_iter()
         .filter(|record| record.get(7).is_some_and(|name| name.contains(&marker)))
         .collect();
-    assert_eq!(records.len(), 503);
+    assert_eq!(records.len(), 504);
     assert_eq!(records[0].len(), 16);
     assert_eq!(records[0].get(3), Some("testuser"));
     assert_eq!(records[0].get(11), Some("1"));
@@ -497,11 +530,34 @@ async fn test_audit_csv_export_streams_fixed_schema_filters_and_redacts_secrets(
     for secret in ["plain-secret", "token-secret"] {
         assert!(!csv_text.contains(secret));
     }
+    let neutralized_formula_name = format!("'{formula_name}");
+    assert!(
+        records
+            .iter()
+            .any(|record| record.get(7) == Some(neutralized_formula_name.as_str()))
+    );
     assert!(records.iter().any(|record| {
         record
             .get(8)
             .is_some_and(|detail| detail.contains("\"safe\":\"kept\""))
     }));
+
+    let share_export = test::TestRequest::get()
+        .uri("/api/v1/admin/audit-logs/export?action=share_create&entity_type=share")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let share_csv = String::from_utf8(
+        test::read_body(test::call_service(&app, share_export).await)
+            .await
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(!share_csv.contains("share-secret-"));
+    assert!(!share_csv.contains("session-secret"));
+    let mut share_reader = csv::Reader::from_reader(share_csv.as_bytes());
+    let share_record = share_reader.records().next().unwrap().unwrap();
+    assert_eq!(share_record.get(8), Some("{\"safe\":\"kept\"}"));
     assert!(csv_text.contains("CSV "));
 }
 
@@ -636,10 +692,19 @@ async fn test_audit_csv_export_nullable_sort_cursors_cover_both_directions() {
             assert_eq!(response.status(), 200);
             let body = test::read_body(response).await;
             let mut reader = csv::Reader::from_reader(body.as_ref());
-            let ids = reader
+            let records = reader
                 .records()
-                .map(|record| record.unwrap().get(0).unwrap().to_string())
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .unwrap();
+            let ids = records
+                .iter()
+                .map(|record| record.get(0).unwrap().to_string())
                 .collect::<std::collections::HashSet<_>>();
+            assert_eq!(
+                records.len(),
+                501,
+                "{sort_by} {sort_order} should emit every row"
+            );
             assert_eq!(
                 ids.len(),
                 501,

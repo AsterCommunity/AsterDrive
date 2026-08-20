@@ -299,7 +299,8 @@ fn rows_for_batch(
                 entity_name: super::presentation::sanitize_entity_name(
                     &model.entity_type,
                     model.entity_name.clone(),
-                ),
+                )
+                .map(neutralize_csv_formula),
                 detail: details
                     .as_ref()
                     .map(serde_json::Value::to_string)

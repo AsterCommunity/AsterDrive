@@ -43,12 +43,12 @@ export function AdminTeamDetailAuditSection({
 	const { t } = useTranslation(["admin", "core", "settings"]);
 	const [exporting, setExporting] = useState(false);
 	const mountedRef = useRef(true);
-	useEffect(
-		() => () => {
+	useEffect(() => {
+		mountedRef.current = true;
+		return () => {
 			mountedRef.current = false;
-		},
-		[],
-	);
+		};
+	}, []);
 	const handleExport = async () => {
 		if (exporting) return;
 		setExporting(true);

@@ -357,6 +357,23 @@ describe("AdminAuditPage", () => {
 		});
 	});
 
+	it("disables export while the request is pending and restores it afterward", async () => {
+		let resolveExport!: () => void;
+		mockState.export.mockReturnValue(
+			new Promise<void>((resolve) => {
+				resolveExport = resolve;
+			}),
+		);
+		renderPage();
+		const button = await screen.findByRole("button", {
+			name: /core:export_csv/i,
+		});
+		fireEvent.click(button);
+		await waitFor(() => expect(button).toBeDisabled());
+		resolveExport();
+		await waitFor(() => expect(button).not.toBeDisabled());
+	});
+
 	it("routes export failures through handleApiError", async () => {
 		const error = new Error("export failed");
 		mockState.export.mockRejectedValue(error);

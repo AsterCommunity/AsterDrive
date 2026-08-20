@@ -45,12 +45,12 @@ export function TeamManageAuditSection({
 	const { t } = useTranslation(["core", "settings", "admin"]);
 	const [exporting, setExporting] = useState(false);
 	const mountedRef = useRef(true);
-	useEffect(
-		() => () => {
+	useEffect(() => {
+		mountedRef.current = true;
+		return () => {
 			mountedRef.current = false;
-		},
-		[],
-	);
+		};
+	}, []);
 	const handleExport = async () => {
 		if (exporting) return;
 		setExporting(true);

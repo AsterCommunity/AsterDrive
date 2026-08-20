@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminTeamDetailAuditSection } from "@/components/admin/admin-team-detail/AdminTeamDetailAuditSection";
 
@@ -23,19 +24,21 @@ vi.mock("@/services/adminService", () => ({
 
 function renderSection() {
 	return render(
-		<AdminTeamDetailAuditSection
-			teamId={42}
-			auditCurrentPage={1}
-			auditEntries={[]}
-			auditLoading={false}
-			auditOffset={0}
-			auditTotal={0}
-			auditTotalPages={1}
-			nextAuditPageDisabled
-			prevAuditPageDisabled
-			roleLabel={(role) => role}
-			setAuditOffset={vi.fn()}
-		/>,
+		<StrictMode>
+			<AdminTeamDetailAuditSection
+				teamId={42}
+				auditCurrentPage={1}
+				auditEntries={[]}
+				auditLoading={false}
+				auditOffset={0}
+				auditTotal={0}
+				auditTotalPages={1}
+				nextAuditPageDisabled
+				prevAuditPageDisabled
+				roleLabel={(role) => role}
+				setAuditOffset={vi.fn()}
+			/>
+		</StrictMode>,
 	);
 }
 
