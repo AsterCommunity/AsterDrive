@@ -12,7 +12,7 @@ use aster_forge_api::{OffsetPage, SortOrder};
 
 use super::filters::AuditLogFilters;
 use super::models::{AuditLogEntry, TeamAuditEntryInfo};
-use super::presentation::build_audit_presentation;
+use super::presentation::{build_audit_presentation, sanitize_details, sanitize_entity_name};
 
 const DEFAULT_RETENTION_DAYS: i64 = 90;
 
@@ -76,12 +76,14 @@ async fn build_audit_entries(
 
         // Build presentation at read time so historical audit rows keep using
         // the current presentation rules without duplicating display snapshots.
+        let safe_entity_name = sanitize_entity_name(&model.entity_type, model.entity_name.clone());
+        let safe_details = sanitize_details(model.details.as_deref());
         let presentation = build_audit_presentation(
             model.action,
             entity_type,
             model.entity_id,
-            model.entity_name.as_deref(),
-            model.details.as_deref(),
+            safe_entity_name.as_deref(),
+            safe_details.as_deref(),
         );
 
         items.push(AuditLogEntry {
@@ -90,8 +92,8 @@ async fn build_audit_entries(
             action: model.action,
             entity_type,
             entity_id: model.entity_id,
-            entity_name: model.entity_name,
-            details: model.details,
+            entity_name: safe_entity_name,
+            details: safe_details,
             presentation,
             ip_address: model.ip_address,
             user_agent: model.user_agent,
@@ -132,6 +134,8 @@ fn build_team_audit_entry(
         .details
         .as_deref()
         .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok());
+    let safe_entity_name = sanitize_entity_name(&entry.entity_type, entry.entity_name.clone());
+    let safe_details = sanitize_details(entry.details.as_deref());
 
     let member_user_id = parsed_details
         .as_ref()
@@ -161,8 +165,8 @@ fn build_team_audit_entry(
                 entry.action,
                 entity_type,
                 entry.entity_id,
-                entry.entity_name.as_deref(),
-                entry.details.as_deref(),
+                safe_entity_name.as_deref(),
+                safe_details.as_deref(),
             )
         }),
         actor: users.get(&entry.user_id).cloned(),
