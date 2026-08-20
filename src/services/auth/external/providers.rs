@@ -2,7 +2,7 @@ use chrono::Utc;
 use sea_orm::{ActiveValue::Set, ConnectionTrait, IntoActiveModel};
 
 use crate::api::pagination::load_offset_page;
-use crate::config::{OUTBOUND_HTTP_USER_AGENT, auth_runtime::RuntimeAuthPolicy};
+use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::db::repository::{auth_policy_repo, external_auth_provider_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
@@ -762,15 +762,14 @@ pub async fn update_provider(
     }
     active.updated_at = Set(Utc::now());
 
-    let disabling_last_local_fallback = input.enabled == Some(false)
-        && existing.enabled
-        && !RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).password_login_enabled
-        && !RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).passkey_login_enabled;
-    let provider = if disabling_last_local_fallback {
+    let provider = if input.enabled.is_some() {
         let txn = transaction::begin(state.writer_db()).await?;
         let result = async {
             auth_policy_repo::acquire_login_method_lock(&txn).await?;
-            ensure_external_provider_remains_available(&txn, Some(existing.id)).await?;
+            let current = external_auth_provider_repo::find_by_id(&txn, existing.id).await?;
+            if current.enabled && !auth_policy_repo::any_builtin_login_method_enabled(&txn).await? {
+                ensure_external_provider_remains_available(&txn, Some(existing.id)).await?;
+            }
             external_auth_provider_repo::update(&txn, active).await
         }
         .await;
@@ -797,24 +796,22 @@ pub async fn delete_provider(state: &impl SharedRuntimeState, id: i64) -> Result
             "external auth provider #{id}"
         )));
     }
-    let policy = RuntimeAuthPolicy::from_runtime_config(state.runtime_config());
-    if !policy.password_login_enabled && !policy.passkey_login_enabled && provider.enabled {
-        let txn = transaction::begin(state.writer_db()).await?;
-        let result = async {
-            auth_policy_repo::acquire_login_method_lock(&txn).await?;
+    let txn = transaction::begin(state.writer_db()).await?;
+    let result = async {
+        auth_policy_repo::acquire_login_method_lock(&txn).await?;
+        let current = external_auth_provider_repo::find_by_id(&txn, id).await?;
+        if current.enabled && !auth_policy_repo::any_builtin_login_method_enabled(&txn).await? {
             ensure_external_provider_remains_available(&txn, Some(id)).await?;
-            external_auth_provider_repo::delete(&txn, id).await
         }
-        .await;
-        match result {
-            Ok(()) => transaction::commit(txn).await.map_err(AsterError::from),
-            Err(error) => {
-                transaction::rollback(txn).await?;
-                Err(error)
-            }
+        external_auth_provider_repo::delete(&txn, id).await
+    }
+    .await;
+    match result {
+        Ok(()) => transaction::commit(txn).await.map_err(AsterError::from),
+        Err(error) => {
+            transaction::rollback(txn).await?;
+            Err(error)
         }
-    } else {
-        external_auth_provider_repo::delete(state.writer_db(), id).await
     }
 }
 

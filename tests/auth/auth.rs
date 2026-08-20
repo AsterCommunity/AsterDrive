@@ -5136,6 +5136,53 @@ async fn test_forced_password_change_restricts_session_and_clears_after_update()
         .jti
         .expect("password-change refresh token should carry a jti");
 
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+        "false",
+    ));
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/auth/me")
+        .insert_header((
+            "Cookie",
+            common::access_cookie_header(&password_change_access),
+        ))
+        .insert_header(common::csrf_header_for(&password_change_access))
+        .to_request();
+    assert_service_status!(
+        app,
+        req,
+        401,
+        "password-change access token should expire when password login is disabled"
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/refresh")
+        .insert_header((
+            "Cookie",
+            common::refresh_cookie_header(&password_change_refresh),
+        ))
+        .insert_header(common::csrf_header_for(&password_change_refresh))
+        .to_request();
+    let result = test::try_call_service(&app, req).await;
+    let body = match result {
+        Ok(resp) => {
+            assert_eq!(resp.status(), 403);
+            service_response_json(resp).await
+        }
+        Err(err) => {
+            let resp = err.error_response();
+            assert_eq!(resp.status(), 403);
+            http_response_json(resp).await
+        }
+    };
+    assert_eq!(body["code"], "auth.password_change_required");
+
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+        "true",
+    ));
+
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/refresh")
         .insert_header((

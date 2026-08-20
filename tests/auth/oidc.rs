@@ -6,7 +6,8 @@ use actix_web::test;
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::config::auth_runtime;
 use aster_drive::db::repository::{
-    external_auth_identity_repo, external_auth_login_flow_repo, external_auth_provider_repo,
+    config_repo, external_auth_identity_repo, external_auth_login_flow_repo,
+    external_auth_provider_repo,
 };
 use aster_drive::services::auth::{external, mfa::totp};
 use aster_drive_model::entities::{
@@ -121,19 +122,13 @@ async fn admin_cannot_remove_last_external_provider_when_local_methods_are_disab
         auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
         auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY,
     ] {
-        let req = test::TestRequest::put()
-            .uri(&format!("/api/v1/admin/config/{key}"))
-            .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
-            .insert_header(common::csrf_header_for(&admin_token))
-            .set_json(serde_json::json!({ "value": "false" }))
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(
-            resp.status(),
-            200,
-            "external provider should allow disabling {key}"
-        );
+        config_repo::upsert(state.writer_db(), key, "false", 1)
+            .await
+            .expect("login method config should update in the authoritative database");
     }
+    let stale_policy = auth_runtime::RuntimeAuthPolicy::from_runtime_config(state.runtime_config());
+    assert!(stale_policy.password_login_enabled);
+    assert!(stale_policy.passkey_login_enabled);
 
     let patch_provider = |id: i64, enabled: bool| {
         test::TestRequest::patch()
@@ -145,6 +140,13 @@ async fn admin_cannot_remove_last_external_provider_when_local_methods_are_disab
     };
     let resp = test::call_service(&app, patch_provider(first_id, false)).await;
     assert_eq!(resp.status(), 200);
+
+    let resp = test::call_service(&app, patch_provider(second_id, false)).await;
+    assert_eq!(
+        resp.status(),
+        403,
+        "disabling the last enabled provider must be rejected"
+    );
 
     let req = test::TestRequest::delete()
         .uri(&format!(

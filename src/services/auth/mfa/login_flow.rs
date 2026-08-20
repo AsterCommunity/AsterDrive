@@ -408,8 +408,14 @@ pub async fn verify_challenge(
 
     let flow_token_hash = crypto::token_hash(normalized_flow_token);
     let preflight_now = Utc::now();
-    let (preflight_flow, preflight_user) =
-        load_active_flow_user(state.writer_db(), &flow_token_hash, preflight_now).await?;
+    let preflight_flow =
+        load_active_flow(state.writer_db(), &flow_token_hash, preflight_now).await?;
+    ensure_first_factor_allowed(
+        preflight_flow.first_factor,
+        RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).password_login_enabled,
+    )?;
+    let preflight_user = user_repo::find_by_id(state.writer_db(), preflight_flow.user_id).await?;
+    ensure_flow_user_valid(&preflight_user, &preflight_flow)?;
     let prepared_recovery =
         if method == MfaMethod::RecoveryCode && recovery_codes::looks_like_code(code) {
             recovery_codes::verify(state, state.writer_db(), preflight_user.id, code).await?
@@ -433,13 +439,14 @@ pub async fn verify_challenge(
     let now = Utc::now();
     let txn = transaction::begin(state.writer_db()).await?;
     let attempt = async {
-        let (flow, user) = load_active_flow_user(&txn, &flow_token_hash, now).await?;
-        let user_id = user.id;
-
+        let flow = load_active_flow(&txn, &flow_token_hash, now).await?;
         ensure_first_factor_allowed(
             flow.first_factor,
             RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).password_login_enabled,
         )?;
+        let user = user_repo::find_by_id(&txn, flow.user_id).await?;
+        ensure_flow_user_valid(&user, &flow)?;
+        let user_id = user.id;
 
         let verified = match method {
             MfaMethod::Totp if totp::looks_like_code(code) => {
@@ -622,18 +629,16 @@ async fn verify_totp<C: sea_orm::ConnectionTrait>(
     Ok(verified)
 }
 
-async fn load_active_flow_user<C: ConnectionTrait>(
+async fn load_active_flow<C: ConnectionTrait>(
     db: &C,
     flow_token_hash: &str,
     now: chrono::DateTime<Utc>,
-) -> Result<(mfa_login_flow::Model, user::Model)> {
+) -> Result<mfa_login_flow::Model> {
     let flow = mfa_login_flow_repo::find_by_flow_token_hash(db, flow_token_hash)
         .await?
         .ok_or_else(|| flow_invalid("MFA flow is invalid"))?;
     ensure_flow_active(&flow, now)?;
-    let user = user_repo::find_by_id(db, flow.user_id).await?;
-    ensure_flow_user_valid(&user, &flow)?;
-    Ok((flow, user))
+    Ok(flow)
 }
 
 async fn prepare_email_code_verification<C: ConnectionTrait>(

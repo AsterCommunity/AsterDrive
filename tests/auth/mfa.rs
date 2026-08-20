@@ -847,6 +847,7 @@ async fn password_first_factor_mfa_flow_rechecks_hot_updated_login_policy() {
     let (_factor_id, secret, _recovery_codes) = enable_totp(&app, &access).await;
 
     let resp = login_raw(&app, "mfapolicy", "password123").await;
+    assert_eq!(resp.status(), StatusCode::OK);
     let body: Value = test::read_body_json(resp).await;
     let flow_token = body["data"]["flow_token"].as_str().unwrap().to_string();
 

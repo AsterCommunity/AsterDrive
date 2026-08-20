@@ -400,11 +400,11 @@ async fn login_method_value<C: sea_orm::ConnectionTrait>(
     default: bool,
 ) -> Result<bool> {
     if method_key == requested_key {
-        return Ok(requested_value == "true");
+        return Ok(auth_runtime::parse_bool_str(requested_value).unwrap_or(default));
     }
     Ok(config_repo::find_by_key(db, method_key)
         .await?
-        .map(|model| model.value == "true")
+        .and_then(|model| auth_runtime::parse_bool_str(&model.value))
         .unwrap_or(default))
 }
 
@@ -483,6 +483,7 @@ pub(super) fn invalidate_all_dependent_public_config_caches() {
 
 #[cfg(test)]
 mod tests {
+    use super::login_method_value;
     use crate::config::auth_runtime;
     use std::sync::Arc;
 
@@ -718,6 +719,42 @@ mod tests {
                 .runtime_config()
                 .get(auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY),
             Some("true".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn login_method_values_use_shared_bool_parsing_and_defaults() {
+        let (state, _subscription) = test_state().await;
+        crate::db::repository::config_repo::upsert(
+            state.writer_db(),
+            auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY,
+            "on",
+            1,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            login_method_value(
+                state.writer_db(),
+                auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY,
+                auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+                "false",
+                false,
+            )
+            .await
+            .unwrap()
+        );
+        assert!(
+            login_method_value(
+                state.writer_db(),
+                auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+                auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+                "invalid",
+                true,
+            )
+            .await
+            .unwrap()
         );
     }
 }

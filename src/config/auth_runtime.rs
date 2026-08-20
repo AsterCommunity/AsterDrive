@@ -259,7 +259,7 @@ pub fn user_invitation_ttl_secs(runtime_config: &RuntimeConfig) -> u64 {
     )
 }
 
-fn parse_bool_str(value: &str) -> Option<bool> {
+pub(crate) fn parse_bool_str(value: &str) -> Option<bool> {
     match value.trim().to_ascii_lowercase().as_str() {
         "true" | "1" | "yes" | "on" => Some(true),
         "false" | "0" | "no" | "off" => Some(false),

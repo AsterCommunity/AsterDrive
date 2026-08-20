@@ -153,7 +153,7 @@
 
 `GET /auth/me` 支持用 `fields` query 返回局部资料，例如 `GET /auth/me?fields=profile,preferences,quota,session`。支持的字段组是 `profile`、`preferences`、`quota`、`session`；不传或传空值时返回完整模型，传未知字段会返回 `400`。
 
-如果用户的 `must_change_password` 标记为 `true`，成功完成登录后不会直接获得普通应用访问权限，而是返回：
+如果用户的 `must_change_password` 标记为 `true`，且 `auth_password_login_enabled` 仍然启用，成功完成登录后不会直接获得普通应用访问权限，而是返回：
 
 ```json
 {
@@ -166,7 +166,7 @@
 }
 ```
 
-密码登录、MFA 验证完成、Passkey 登录完成和外部认证登录完成都可能返回这个状态。响应仍会写入认证 Cookie，但 access token 只允许走强制改密流程。在 `PUT /auth/password` 成功之前，仅允许访问：
+密码登录启用期间，密码登录、MFA 验证完成、Passkey 登录完成和外部认证登录完成都可能返回这个状态。响应仍会写入认证 Cookie，但 access token 只允许走强制改密流程。在 `PUT /auth/password` 成功之前，仅允许访问：
 
 - `GET /auth/me`
 - `PUT /auth/password`

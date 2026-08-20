@@ -142,7 +142,7 @@ Disabled users cannot log in.
 
 `GET /auth/me` supports a `fields` query such as `GET /auth/me?fields=profile,preferences,quota,session`. Supported groups are `profile`, `preferences`, `quota`, and `session`. Missing or empty fields returns the full model; unknown fields return `400`.
 
-If `must_change_password` is set for the user, successful login completion returns `password_change_required` instead of normal app access:
+If `must_change_password` is set for the user while `auth_password_login_enabled` is enabled, successful login completion returns `password_change_required` instead of normal app access:
 
 ```json
 {
@@ -155,7 +155,7 @@ If `must_change_password` is set for the user, successful login completion retur
 }
 ```
 
-This can happen after password login, MFA challenge verification, passkey login finish, or external-auth login finish. The response writes auth cookies, but the access token is scoped to the forced password-change flow. Until `PUT /auth/password` succeeds, only these authenticated routes are allowed:
+While password login remains enabled, this can happen after password login, MFA challenge verification, passkey login finish, or external-auth login finish. The response writes auth cookies, but the access token is scoped to the forced password-change flow. Until `PUT /auth/password` succeeds, only these authenticated routes are allowed:
 
 - `GET /auth/me`
 - `PUT /auth/password`
