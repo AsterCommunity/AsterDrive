@@ -287,7 +287,9 @@ export function MediaProcessingConfigEditor({
 				{draft.processors.map((processor) => {
 					const isBuiltinFallback = isBuiltinProcessor(processor.kind);
 					const supportsCommand = processorSupportsCommand(processor.kind);
-					const processorRuntimeStatus = runtimeStatusByKind.get(processor.kind);
+					const processorRuntimeStatus = runtimeStatusByKind.get(
+						processor.kind,
+					);
 					const canTestCommand =
 						(processor.kind === "vips_cli" && onTestVipsCliCommand) ||
 						(processor.kind === "ffmpeg_cli" && onTestFfmpegCliCommand) ||

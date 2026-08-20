@@ -44,9 +44,7 @@ describe("MediaProcessingConfigEditor", () => {
 			],
 		});
 
-		render(
-			<MediaProcessingConfigEditor value={config} onChange={vi.fn()} />,
-		);
+		render(<MediaProcessingConfigEditor value={config} onChange={vi.fn()} />);
 
 		await waitFor(() => {
 			expect(
@@ -57,8 +55,8 @@ describe("MediaProcessingConfigEditor", () => {
 		});
 		expect(
 			screen.getByText(
-			"media_processing_editor_processor_runtime_unavailable_hint",
-		),
+				"media_processing_editor_processor_runtime_unavailable_hint",
+			),
 		).toBeInTheDocument();
 		expect(mockStatus).toHaveBeenCalledTimes(1);
 	});
