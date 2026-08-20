@@ -1,7 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { PROTECTED_POLICY_ID } from "@/components/admin/admin-policies-page/policyPresentation";
 import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import {
@@ -130,7 +129,6 @@ export function useStoragePolicyListController() {
 	};
 
 	const handleDelete = async (id: number, options?: DeletePolicyQuery) => {
-		if (id === PROTECTED_POLICY_ID) return;
 		await runWithDeletingPolicy(id, async () => {
 			try {
 				if (options) {
@@ -170,7 +168,6 @@ export function useStoragePolicyListController() {
 		await handleDelete(id, { force: true });
 	});
 	const requestDeleteConfirm = (id: number) => {
-		if (id === PROTECTED_POLICY_ID) return;
 		requestConfirm(id);
 	};
 

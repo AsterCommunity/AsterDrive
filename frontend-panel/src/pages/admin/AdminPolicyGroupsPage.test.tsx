@@ -620,8 +620,8 @@ describe("AdminPolicyGroupsPage", () => {
 			screen.getByText("formatted:2026-03-28T00:00:00Z"),
 		).toBeInTheDocument();
 		expect(
-			screen.getByText("policy_group_delete_default_blocked"),
-		).toBeInTheDocument();
+			screen.queryByText("policy_group_delete_default_blocked"),
+		).toBeNull();
 
 		fireEvent.click(screen.getByText("Default Group"));
 
@@ -710,7 +710,7 @@ describe("AdminPolicyGroupsPage", () => {
 		).toBeInTheDocument();
 	});
 
-	it("prevents deleting the default group from the table", async () => {
+	it("allows deleting the default group from the table", async () => {
 		mockState.groupItems = [
 			createGroup({
 				name: "System Default",
@@ -723,11 +723,14 @@ describe("AdminPolicyGroupsPage", () => {
 		const deleteButton = await screen.findByRole("button", {
 			name: "delete_policy_group",
 		});
-		expect(deleteButton).toBeDisabled();
+		expect(deleteButton).toBeEnabled();
 
 		fireEvent.click(deleteButton);
 
-		expect(mockState.deleteGroup).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "core:delete" }));
+		await waitFor(() => {
+			expect(mockState.deleteGroup).toHaveBeenCalledWith(1);
+		});
 		expect(
 			screen.queryByText('delete_policy_group "System Default"?'),
 		).not.toBeInTheDocument();

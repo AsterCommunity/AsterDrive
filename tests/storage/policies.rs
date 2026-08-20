@@ -3446,6 +3446,19 @@ async fn test_cannot_disable_assigned_policy_group() {
         body["msg"],
         "cannot disable policy group: 1 user assignment(s) still reference it"
     );
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/admin/policy-groups/{group_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["msg"],
+        "cannot delete policy group: 1 user assignment(s) still reference it"
+    );
 }
 
 #[actix_web::test]
@@ -3558,17 +3571,13 @@ async fn test_cannot_disable_or_delete_policy_group_assigned_to_team() {
     let body: Value = test::read_body_json(resp).await;
     let group_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = test::TestRequest::post()
-        .uri("/api/v1/auth/register")
-        .peer_addr("127.0.0.1:12345".parse().unwrap())
-        .set_json(serde_json::json!({
-            "username": "teampolicyadmin",
-            "email": "teampolicyadmin@example.com",
-            "password": "password123"
-        }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    admin_create_user!(
+        app,
+        token,
+        "teampolicyadmin",
+        "teampolicyadmin@example.com",
+        "password123"
+    );
 
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/teams")
@@ -3582,6 +3591,8 @@ async fn test_cannot_disable_or_delete_policy_group_assigned_to_team() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let team_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::patch()
         .uri(&format!("/api/v1/admin/policy-groups/{group_id}"))
@@ -3596,6 +3607,27 @@ async fn test_cannot_disable_or_delete_policy_group_assigned_to_team() {
         body["msg"],
         "cannot disable policy group: 1 team assignment(s) still reference it"
     );
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/admin/policy-groups/{group_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["msg"],
+        "cannot delete policy group: 1 team assignment(s) still reference it"
+    );
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/admin/teams/{team_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
 
     let req = test::TestRequest::delete()
         .uri(&format!("/api/v1/admin/policy-groups/{group_id}"))
@@ -3880,12 +3912,12 @@ async fn test_cannot_migrate_policy_group_assignments_to_disabled_group() {
     );
 }
 
-// ── 不能删除唯一的默认系统策略 ──────────────────────────────
+// ── 首个策略/策略组可删除并可重新完成 setup ──────────────────
 
 #[actix_web::test]
-async fn test_cannot_delete_only_default_policy() {
+async fn test_delete_only_default_policy_group_and_policy_returns_to_storage_setup() {
     let state = common::setup().await;
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
     // 获取默认策略 ID
@@ -3898,23 +3930,166 @@ async fn test_cannot_delete_only_default_policy() {
     let body: Value = test::read_body_json(resp).await;
     let policy_id = body["data"]["items"][0]["id"].as_i64().unwrap();
 
-    // 尝试删除唯一默认策略 → 应被拒绝
+    let req = test::TestRequest::get()
+        .uri("/api/v1/admin/policy-groups")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let group_id = body["data"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|group| group["is_default"].as_bool() == Some(true))
+        .and_then(|group| group["id"].as_i64())
+        .expect("default policy group should exist");
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/admin/policy-groups/{group_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["msg"],
+        "cannot delete policy group: 1 user assignment(s) still reference it"
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Replacement Policy",
+            "connection": local_connection_json(format!(
+                "/tmp/test-replacement-policy-{}",
+                uuid::Uuid::new_v4()
+            )),
+            "max_file_size": 0,
+            "is_default": false
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let replacement_policy_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policy-groups")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Replacement Group",
+            "description": "Keeps setup assignments during policy replacement",
+            "is_enabled": true,
+            "is_default": false,
+            "items": [{
+                "policy_id": replacement_policy_id,
+                "priority": 1,
+                "min_file_size": 0,
+                "max_file_size": 0
+            }]
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let replacement_group_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/policy-groups/{group_id}/migrate-assignments"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "target_group_id": replacement_group_id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/admin/policy-groups/{group_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        aster_drive::db::repository::user_repo::find_by_username(state.writer_db(), "testuser",)
+            .await
+            .unwrap()
+            .expect("setup user should exist")
+            .policy_group_id,
+        Some(replacement_group_id)
+    );
+
+    // 删除组项解除后，首条策略也可以删除。
     let req = test::TestRequest::delete()
         .uri(&format!("/api/v1/admin/policies/{policy_id}"))
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .to_request();
     let resp: actix_web::dev::ServiceResponse = test::call_service(&app, req).await;
-    assert_eq!(
-        resp.status(),
-        400,
-        "should reject deleting only default policy, got {}",
-        resp.status()
+    assert_eq!(resp.status(), 200);
+    assert!(
+        aster_drive::db::repository::policy_repo::find_by_id(state.writer_db(), policy_id)
+            .await
+            .is_err()
     );
+    assert_eq!(
+        aster_drive::services::system_setup::state(state.writer_db())
+            .await
+            .unwrap(),
+        aster_drive::services::system_setup::SystemSetupState::NeedsStorage
+    );
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/check")
+        .peer_addr("127.0.0.1:12346".parse().unwrap())
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["setup_state"], "needs_storage");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Replacement Default",
+            "connection": local_connection_json(format!(
+                "/tmp/test-recreated-default-{}",
+                uuid::Uuid::new_v4()
+            )),
+            "max_file_size": 0,
+            "is_default": true
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    assert_eq!(
+        aster_drive::services::system_setup::state(state.writer_db())
+            .await
+            .unwrap(),
+        aster_drive::services::system_setup::SystemSetupState::Ready
+    );
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/check")
+        .peer_addr("127.0.0.1:12347".parse().unwrap())
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["setup_state"], "ready");
 }
 
 #[actix_web::test]
-async fn test_cannot_delete_builtin_system_policy_even_after_switching_default() {
+async fn test_policy_delete_keeps_policy_group_references_protected() {
     let state = common::setup().await;
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
@@ -3955,11 +4130,12 @@ async fn test_cannot_delete_builtin_system_policy_even_after_switching_default()
         .insert_header(common::csrf_header_for(&token))
         .to_request();
     let resp: actix_web::dev::ServiceResponse = test::call_service(&app, req).await;
-    assert_eq!(
-        resp.status(),
-        400,
-        "should reject deleting built-in policy #{built_in_policy_id}, got {}",
-        resp.status()
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|message| message.contains("policy group item"))
     );
 
     let req = test::TestRequest::get()
@@ -3975,7 +4151,7 @@ async fn test_cannot_delete_builtin_system_policy_even_after_switching_default()
         policies
             .iter()
             .any(|policy| policy["id"].as_i64() == Some(built_in_policy_id)),
-        "built-in policy #{built_in_policy_id} should still exist after failed delete"
+        "policy #{built_in_policy_id} should still exist while a group item references it"
     );
 }
 

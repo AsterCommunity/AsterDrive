@@ -224,7 +224,7 @@ pub async fn update_group(
         if existing.is_enabled {
             let user_assignment_count =
                 policy_group_repo::count_user_group_assignments(&txn, id).await?;
-            let team_assignment_count = team_repo::count_active_by_policy_group(&txn, id).await?;
+            let team_assignment_count = team_repo::count_by_policy_group(&txn, id).await?;
             if let Some(message) = format_group_assignment_blocker(
                 "disable",
                 user_assignment_count,
@@ -301,7 +301,9 @@ pub async fn update_group(
 }
 
 pub async fn delete_group(state: &impl SharedRuntimeState, id: i64) -> Result<()> {
-    let group = policy_group_repo::find_group_by_id(state.writer_db(), id).await?;
+    let txn = transaction::begin(state.writer_db()).await?;
+    lock_default_group_assignment(&txn).await?;
+    let group = policy_group_repo::find_group_by_id(&txn, id).await?;
     tracing::debug!(
         policy_group_id = id,
         policy_group_name = %group.name,
@@ -309,27 +311,16 @@ pub async fn delete_group(state: &impl SharedRuntimeState, id: i64) -> Result<()
         "deleting storage policy group"
     );
 
-    if group.is_default {
-        let all = policy_group_repo::find_all_groups(state.writer_db()).await?;
-        let default_count = all.iter().filter(|item| item.is_default).count();
-        if default_count <= 1 {
-            return Err(AsterError::validation_error(
-                "cannot delete the only default storage policy group",
-            ));
-        }
-    }
-
-    let user_assignment_count =
-        policy_group_repo::count_user_group_assignments(state.writer_db(), id).await?;
-    let team_assignment_count =
-        team_repo::count_active_by_policy_group(state.writer_db(), id).await?;
+    let user_assignment_count = policy_group_repo::count_user_group_assignments(&txn, id).await?;
+    let team_assignment_count = team_repo::count_by_policy_group(&txn, id).await?;
     if let Some(message) =
         format_group_assignment_blocker("delete", user_assignment_count, team_assignment_count)
     {
         return Err(AsterError::validation_error(message));
     }
 
-    policy_group_repo::delete_group(state.writer_db(), id).await?;
+    policy_group_repo::delete_group(&txn, id).await?;
+    transaction::commit(txn).await?;
     state
         .driver_registry()
         .reload_policy_snapshot(state.policy_snapshot(), state.writer_db())

@@ -262,12 +262,11 @@ pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     Ok(())
 }
 
-pub async fn count_active_by_policy_group<C: ConnectionTrait>(
+pub async fn count_by_policy_group<C: ConnectionTrait>(
     db: &C,
     policy_group_id: i64,
 ) -> Result<u64> {
     Team::find()
-        .filter(team::Column::ArchivedAt.is_null())
         .filter(team::Column::PolicyGroupId.eq(policy_group_id))
         .count(db)
         .await

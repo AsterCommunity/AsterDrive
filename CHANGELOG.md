@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **存储策略与策略组生命周期** — 首次 setup 创建的存储策略和默认策略组不再按固定 ID 作为永久系统对象；解除 blob、上传 session、策略组项以及用户/团队绑定等引用后可删除首条或最后一条默认策略，删除最后一个默认策略组会使系统回到 `needs_storage`，重新配置默认存储拓扑后恢复 `ready`，不会静默清空业务绑定。默认切换、删除与重新 setup 使用稳定数据库锁协调多 Primary，现有数据保护保持不变。
+
 ## [v0.5.0] - 2026-08-20
 
 ### Changed

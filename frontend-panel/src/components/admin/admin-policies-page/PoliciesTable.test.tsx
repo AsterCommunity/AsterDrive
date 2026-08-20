@@ -217,7 +217,7 @@ describe("PoliciesTable", () => {
 		expect(screen.getByText(/mode: mode/)).toBeVisible();
 	});
 
-	it("supports row keyboard/edit/delete behavior and protected/deleting states", () => {
+	it("supports row keyboard/edit/delete behavior and deleting states", () => {
 		const { props } = renderTable({ deletingPolicyId: 2 });
 		const rows = screen.getAllByRole("row");
 		fireEvent.click(rows[1]);
@@ -229,7 +229,7 @@ describe("PoliciesTable", () => {
 		const deleteButtons = buttons.filter((button) =>
 			button.getAttribute("aria-label"),
 		);
-		expect(deleteButtons[0]).toBeDisabled();
+		expect(deleteButtons[0]).toBeEnabled();
 		expect(deleteButtons[1]).toBeDisabled();
 	});
 
