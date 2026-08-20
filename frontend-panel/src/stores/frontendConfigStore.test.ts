@@ -130,6 +130,20 @@ describe("frontendConfigStore", () => {
 		expect(useFrontendConfigStore.getState().passwordLoginEnabled).toBe(false);
 	});
 
+	it("defaults password login to enabled when the remote config omits the field", async () => {
+		const { password_login_enabled: _passwordLoginEnabled, ...legacyBranding } =
+			branding;
+		mockState.get.mockResolvedValue({
+			...frontendConfig,
+			branding: legacyBranding,
+		});
+
+		const { useFrontendConfigStore } = await loadStore();
+		await useFrontendConfigStore.getState().load();
+
+		expect(useFrontendConfigStore.getState().passwordLoginEnabled).toBe(true);
+	});
+
 	it("hydrates cached config immediately and revalidates it", async () => {
 		const cachedConfig = {
 			...frontendConfig,
@@ -294,6 +308,26 @@ describe("frontendConfigStore", () => {
 		expect(useFrontendConfigStore.getState().imagePreviewPreference).toBe(
 			"original_first",
 		);
+		expect(localStorage.getItem(FRONTEND_CONFIG_CACHE_KEY)).toBeNull();
+	});
+
+	it("drops cached configs with a non-boolean password login policy", async () => {
+		localStorage.setItem(
+			"aster-cached-frontend-config:v1",
+			JSON.stringify({
+				config: {
+					...frontendConfig,
+					branding: { ...branding, password_login_enabled: "false" },
+				},
+				cachedAt: Date.now(),
+			}),
+		);
+
+		const { FRONTEND_CONFIG_CACHE_KEY, useFrontendConfigStore } =
+			await loadStore();
+
+		expect(useFrontendConfigStore.getState().config).toBeNull();
+		expect(useFrontendConfigStore.getState().passwordLoginEnabled).toBe(true);
 		expect(localStorage.getItem(FRONTEND_CONFIG_CACHE_KEY)).toBeNull();
 	});
 

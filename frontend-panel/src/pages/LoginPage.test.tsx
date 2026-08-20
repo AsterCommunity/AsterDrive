@@ -1202,6 +1202,34 @@ describe("LoginPage", () => {
 		expect(screen.getByLabelText("password")).toBeInTheDocument();
 	});
 
+	it("defaults a missing cached password policy to enabled when auth check fails", async () => {
+		mockState.passwordLoginEnabled = undefined as never;
+		mockState.check.mockRejectedValueOnce(new Error("offline"));
+
+		render(<LoginPage />);
+
+		expect(await screen.findByLabelText("password")).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "forgot_password" }),
+		).toBeInTheDocument();
+	});
+
+	it("reports password validation failures before calling login", async () => {
+		render(<LoginPage />);
+		fireEvent.change(await screen.findByLabelText("email_or_username"), {
+			target: { value: "user@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "" },
+		});
+		const form = screen.getByLabelText("password").closest("form");
+		if (!form) throw new Error("login form not found");
+		fireEvent.submit(form);
+
+		expect(await screen.findByText("password-required")).toBeInTheDocument();
+		expect(mockState.login).not.toHaveBeenCalled();
+	});
+
 	it("does not flash cached-disabled password controls while auth check is pending", async () => {
 		mockState.passwordLoginEnabled = false;
 		mockState.check.mockImplementationOnce(() => new Promise(() => undefined));
@@ -2303,6 +2331,33 @@ describe("LoginPage", () => {
 		expect(
 			screen.queryByRole("button", { name: "sign_in" }),
 		).not.toBeInTheDocument();
+	});
+
+	it("validates the setup password even when password login is disabled", async () => {
+		mockState.check.mockResolvedValueOnce({
+			setup_state: "needs_admin",
+			has_users: false,
+			allow_user_registration: true,
+			passkey_login_enabled: false,
+			password_login_enabled: false,
+		});
+
+		render(<LoginPage />);
+		fireEvent.change(await screen.findByLabelText("email_or_username"), {
+			target: { value: "passwordless-admin@example.com" },
+		});
+		fireEvent.change(await screen.findByLabelText("username"), {
+			target: { value: "passwordless" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "" },
+		});
+		const form = screen.getByLabelText("password").closest("form");
+		if (!form) throw new Error("setup form not found");
+		fireEvent.submit(form);
+
+		expect(await screen.findByText("invalid-password")).toBeInTheDocument();
+		expect(mockState.setup).not.toHaveBeenCalled();
 	});
 
 	it("routes an existing bootstrap administrator to storage setup after login", async () => {
