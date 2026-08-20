@@ -21,7 +21,7 @@ use super::models::{
     StoragePolicyDiagnostic, UpdateStoragePolicyInput,
 };
 use super::shared::{
-    SYSTEM_STORAGE_POLICY_ID, serialize_allowed_types, set_default_policy_and_group,
+    lock_default_group_assignment, serialize_allowed_types, set_default_policy_and_group,
 };
 use crate::storage::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
@@ -237,22 +237,6 @@ pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool
         "deleting storage policy"
     );
 
-    if policy.id == SYSTEM_STORAGE_POLICY_ID {
-        return Err(AsterError::validation_error(
-            "cannot delete the built-in system storage policy",
-        ));
-    }
-
-    if policy.is_default {
-        let all = policy_repo::find_all(state.writer_db()).await?;
-        let default_count = all.iter().filter(|p| p.is_default).count();
-        if default_count <= 1 {
-            return Err(AsterError::validation_error(
-                "cannot delete the only default storage policy",
-            ));
-        }
-    }
-
     let blob_count =
         crate::db::repository::file_repo::count_blobs_by_policy(state.writer_db(), id).await?;
     if blob_count > 0 {
@@ -301,21 +285,42 @@ pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool
         );
     }
 
-    let blob_count =
-        crate::db::repository::file_repo::count_blobs_by_policy(state.writer_db(), id).await?;
+    let txn = transaction::begin(state.writer_db()).await?;
+    lock_default_group_assignment(&txn).await?;
+    let policy = policy_repo::find_by_id(&txn, id).await?;
+
+    let blob_count = crate::db::repository::file_repo::count_blobs_by_policy(&txn, id).await?;
     if blob_count > 0 {
         return Err(AsterError::validation_error(format!(
             "cannot delete policy: {blob_count} blob(s) still reference it"
         )));
     }
 
-    let cleared =
-        crate::db::repository::folder_repo::clear_policy_references(state.writer_db(), id).await?;
+    let group_ref_count = policy_group_repo::count_group_items_by_policy(&txn, id).await?;
+    if group_ref_count > 0 {
+        return Err(AsterError::validation_error(format!(
+            "cannot delete policy: {group_ref_count} policy group item(s) still reference it"
+        )));
+    }
+
+    let upload_session_count =
+        crate::db::repository::upload_session_repo::count_by_policy(&txn, id).await?;
+    if upload_session_count > 0 {
+        return Err(validation_error_with_code(
+            ApiErrorCode::PolicyUploadSessionsExist,
+            format!(
+                "cannot delete policy: {upload_session_count} upload session(s) still reference it"
+            ),
+        ));
+    }
+
+    let cleared = crate::db::repository::folder_repo::clear_policy_references(&txn, id).await?;
     if cleared > 0 {
         tracing::info!("cleared policy_id on {cleared} folders before deleting policy #{id}");
     }
 
-    policy_repo::delete(state.writer_db(), id).await?;
+    policy_repo::delete(&txn, id).await?;
+    transaction::commit(txn).await?;
 
     // 与 update 一致：先 invalidate driver 再 reload snapshot，
     // 避免"策略行已删除但 driver 仍在缓存里"的窗口。

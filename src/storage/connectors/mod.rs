@@ -53,7 +53,6 @@ pub use models::{
     TestDraftStorageConnectorConnectionInput,
 };
 pub(crate) use models::{
-    LegacyStorageConnectorCredentialInput, LegacyStoragePolicyStaticCredential,
     LocalFilesystemPolicyProjection, RemotePolicyBindingProjection,
     StorageAuthorizationFailureReason, StorageConnectorAuthorizationAudit,
     StorageConnectorAuthorizationCallback, StorageConnectorAuthorizationError,
@@ -61,11 +60,9 @@ pub(crate) use models::{
     StorageCredentialValidationOutcome, StoragePolicyCleanupDriverSnapshot,
     StoragePolicyCleanupSnapshots,
 };
-pub(crate) use onedrive::OneDriveConnector;
 #[cfg(test)]
-pub(crate) use onedrive::{
-    OneDriveAccountMode, OneDriveCredentialV1, encrypt_application_client_secret,
-};
+pub(crate) use onedrive::OneDriveAccountMode;
+pub(crate) use onedrive::OneDriveConnector;
 use qiniu::QiniuConnector;
 use remote::RemoteConnector;
 use s3::S3Connector;

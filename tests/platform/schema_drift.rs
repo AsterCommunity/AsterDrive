@@ -165,24 +165,6 @@ where
 
 fn expected_database_only_columns(backend: DbBackend, table_name: &str) -> BTreeSet<&'static str> {
     match (backend, table_name) {
-        // AsterDrive 0.5.x keeps these columns so the startup credential
-        // importer can read pre-refactor policies. They remain required in the
-        // 0.5 schema but deliberately stay out of the current SeaORM entity.
-        // Issue #463 removes both the physical columns and this exact exception
-        // in 0.6.0.
-        (_, "storage_policies") => [
-            "driver_type",
-            "endpoint",
-            "bucket",
-            "access_key",
-            "secret_key",
-            "base_path",
-            "remote_node_id",
-            "remote_storage_target_key",
-            "options",
-        ]
-        .into_iter()
-        .collect(),
         // MySQL's default text collation is case-insensitive. These generated
         // projections let the database enforce byte-sensitive XML property
         // identity; SeaORM and database-migrate select only business columns.

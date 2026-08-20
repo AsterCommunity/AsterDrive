@@ -194,8 +194,8 @@ Migration moves file objects and reference relationships known to AsterDrive; it
 
 ## Routine Maintenance
 
-- Keep at least one usable default storage policy
-- Keep at least one enabled default policy group
+- Deleting the last default policy or policy group returns the system to `needs_storage`; create and configure a new default before uploads resume
+- Existing files remain bound to their original policy; use the storage migration workflow when moving data instead of changing an existing policy's location
 - Run a connection test before saving
 - To assign different storage routes to different users/teams, bind policy groups under `Admin -> Users` or `Admin -> Teams`
 - When connecting an external backend, start with the matching tutorial under [Storage Backends](/en/admin/storage-backends/)

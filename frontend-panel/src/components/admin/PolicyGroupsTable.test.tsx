@@ -351,7 +351,7 @@ describe("PolicyGroupsTable", () => {
 		expect(mockState.onOpenEdit).toHaveBeenNthCalledWith(2, defaultGroup);
 		expect(mockState.onOpenMigration).toHaveBeenCalledWith(primaryGroup);
 		expect(mockState.onRequestDelete).toHaveBeenCalledWith(1);
-		expect(deleteButtons[1]).toBeDisabled();
+		expect(deleteButtons[1]).toBeEnabled();
 	});
 
 	it("keeps disabled action tooltips on fixed-size triggers", () => {
@@ -378,7 +378,7 @@ describe("PolicyGroupsTable", () => {
 		});
 
 		expect(migrationButton).toBeDisabled();
-		expect(deleteButton).toBeDisabled();
+		expect(deleteButton).toBeEnabled();
 		expect(migrationButton.parentElement).toHaveClass(
 			"inline-flex",
 			"size-8",
@@ -393,8 +393,8 @@ describe("PolicyGroupsTable", () => {
 			screen.getByText("policy_group_migration_unavailable"),
 		).toBeInTheDocument();
 		expect(
-			screen.getByText("policy_group_delete_default_blocked"),
-		).toBeInTheDocument();
+			screen.queryByText("policy_group_delete_default_blocked"),
+		).toBeNull();
 	});
 
 	it("updates pagination state through the footer controls", () => {

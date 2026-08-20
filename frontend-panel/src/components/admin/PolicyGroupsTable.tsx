@@ -275,7 +275,7 @@ function PolicyGroupActions({
 							onClick={() => onRequestDelete(group.id)}
 							aria-label={deleteLabel}
 							title={deleteLabel}
-							disabled={group.is_default || isDeleting}
+							disabled={isDeleting}
 						>
 							<Icon
 								name={isDeleting ? "Spinner" : "Trash"}
@@ -283,11 +283,6 @@ function PolicyGroupActions({
 							/>
 						</Button>
 					</TooltipTrigger>
-					{group.is_default ? (
-						<TooltipContent>
-							{t("policy_group_delete_default_blocked")}
-						</TooltipContent>
-					) : null}
 				</Tooltip>
 			</div>
 		</TooltipProvider>

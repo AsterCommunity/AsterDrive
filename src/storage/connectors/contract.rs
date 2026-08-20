@@ -23,8 +23,7 @@ use aster_drive_storage::{ConnectorId, MultipartStorageDriver, StorageDriver, St
 use super::common;
 use super::models::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
-    LegacyStorageConnectorCredentialInput, LocalFilesystemPolicyProjection,
-    RemotePolicyBindingProjection, StorageConnectorActionResult,
+    LocalFilesystemPolicyProjection, RemotePolicyBindingProjection, StorageConnectorActionResult,
     StorageConnectorAuthorizationCallback, StorageConnectorAuthorizationError,
     StorageConnectorAuthorizationStart, StorageConnectorCredentialInfo,
     StorageConnectorCredentialInput, StorageConnectorRuntimeCredential,
@@ -343,29 +342,6 @@ pub(crate) trait StorageConnector: Send + Sync {
         _reason: &str,
     ) -> Result<Option<serde_json::Value>> {
         Ok(None)
-    }
-
-    /// Convert rows from the deprecated credential stores into this
-    /// connector's current typed payload during the AsterDrive 0.5.0-only
-    /// startup migration.
-    ///
-    /// The default rejects unexpected legacy data so a missing connector hook
-    /// stops startup instead of silently discarding credentials. This contract
-    /// and the deprecated inputs are scheduled for removal in AsterDrive 0.6.0.
-    fn import_legacy_credential(
-        &self,
-        _encryption_key: &str,
-        policy: &storage_policy::Model,
-        input: LegacyStorageConnectorCredentialInput,
-    ) -> Result<Option<serde_json::Value>> {
-        if input.is_empty() {
-            return Ok(None);
-        }
-        Err(AsterError::database_operation(format!(
-            "storage policy {} has legacy credentials unsupported by connector '{}'",
-            policy.id,
-            self.descriptor().connector_id.as_str(),
-        )))
     }
 
     async fn load_runtime_credential(
