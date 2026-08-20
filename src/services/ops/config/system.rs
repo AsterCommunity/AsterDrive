@@ -85,6 +85,12 @@ pub async fn get_by_key(state: &impl SharedRuntimeState, key: &str) -> Result<Sy
         .ok_or_else(|| AsterError::record_not_found(format!("config key '{key}'")))
 }
 
+pub fn get_media_processing_runtime_status(
+    state: &impl SharedRuntimeState,
+) -> crate::config::media_processing::MediaProcessingRuntimeStatus {
+    crate::config::media_processing::media_processing_runtime_status(state.runtime_config())
+}
+
 pub async fn set(
     state: &impl SharedRuntimeState,
     key: &str,

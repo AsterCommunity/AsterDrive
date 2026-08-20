@@ -56,6 +56,7 @@ import type {
 	ExternalAuthProviderTestResult,
 	FolderInfo,
 	LockPage,
+	MediaProcessingRuntimeStatus,
 	MigratePolicyGroupAssignmentsRequest,
 	PolicyGroupAssignmentMigrationResult,
 	PromoteStoragePolicyConnectorRequest,
@@ -695,6 +696,11 @@ export const adminConfigService = {
 
 	templateVariables: () =>
 		api.get<TemplateVariableGroup[]>("/admin/config/template-variables"),
+
+	mediaProcessingStatus: () =>
+		api.get<MediaProcessingRuntimeStatus>(
+			"/admin/config/media-processing-status",
+		),
 
 	get: (key: string) => api.get<SystemConfig>(`/admin/config/${key}`),
 

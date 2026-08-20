@@ -41,7 +41,7 @@ pub(crate) mod users;
 pub use audit_logs::list_audit_logs;
 pub use config::{
     config_schema, config_template_variables, delete_config, execute_config_action, get_config,
-    list_config, set_config,
+    get_media_processing_runtime_status, list_config, set_config,
 };
 pub use external_auth::{
     create_external_auth_provider, delete_external_auth_provider, get_external_auth_provider,
@@ -304,6 +304,10 @@ pub fn routes(
                     .route(
                         "/config/template-variables",
                         web::get().to(config_template_variables),
+                    )
+                    .route(
+                        "/config/media-processing-status",
+                        web::get().to(get_media_processing_runtime_status),
                     )
                     .route("/config/{key}", web::get().to(get_config))
                     .route("/config/{key}", web::put().to(set_config))

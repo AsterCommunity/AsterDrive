@@ -25,6 +25,7 @@ const mockState = vi.hoisted(() => ({
 	deleteConfig: vi.fn(),
 	handleApiError: vi.fn(),
 	listConfigs: vi.fn(),
+	mediaProcessingStatus: vi.fn(),
 	navigate: vi.fn(),
 	schema: vi.fn(),
 	sendTestEmail: vi.fn(),
@@ -571,6 +572,8 @@ vi.mock("@/services/adminService", () => ({
 		action: (...args: unknown[]) => mockState.actionConfig(...args),
 		delete: (...args: unknown[]) => mockState.deleteConfig(...args),
 		list: (...args: unknown[]) => mockState.listConfigs(...args),
+		mediaProcessingStatus: (...args: unknown[]) =>
+			mockState.mediaProcessingStatus(...args),
 		sendTestEmail: (...args: unknown[]) => mockState.sendTestEmail(...args),
 		schema: (...args: unknown[]) => mockState.schema(...args),
 		set: (...args: unknown[]) => mockState.setConfig(...args),
@@ -706,6 +709,7 @@ describe("AdminSettingsPage", () => {
 		mockState.deleteConfig.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.listConfigs.mockReset();
+		mockState.mediaProcessingStatus.mockReset();
 		mockState.navigate.mockReset();
 		mockState.schema.mockReset();
 		mockState.sendTestEmail.mockReset();
@@ -755,6 +759,10 @@ describe("AdminSettingsPage", () => {
 		});
 		mockState.actionConfig.mockResolvedValue({
 			message: "Imported WOPI discovery apps from 1 source",
+		});
+		mockState.mediaProcessingStatus.mockResolvedValue({
+			version: 1,
+			processors: [],
 		});
 		mockState.templateVariables.mockResolvedValue([
 			createTemplateVariableGroup(),

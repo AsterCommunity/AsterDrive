@@ -49,6 +49,63 @@ pub(super) fn build_thumbnail_context(
     Ok(ThumbnailContext { driver, processor })
 }
 
+pub(super) fn build_persisted_thumbnail_context(
+    state: &PrimaryAppState,
+    blob: &file_blob::Model,
+    file_name: &str,
+    source_mime_type: &str,
+) -> Result<Option<ThumbnailContext>> {
+    let (Some(persisted_processor), Some(persisted_version), Some(_)) = (
+        blob.thumbnail_processor.as_deref(),
+        blob.thumbnail_version.as_deref(),
+        blob.thumbnail_path.as_deref(),
+    ) else {
+        return Ok(None);
+    };
+
+    let processor = build_configured_thumbnail_contexts(state, blob, file_name, source_mime_type)?
+        .into_iter()
+        .map(|context| context.processor)
+        .find(|processor| {
+            processor.thumbnail_processor() == persisted_processor
+                && processor.thumbnail_version(state.runtime_config()) == persisted_version
+        });
+    let Some(processor) = processor else {
+        return Ok(None);
+    };
+
+    let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
+    let driver = state.driver_registry().get_driver(&policy)?;
+    Ok(Some(ThumbnailContext { driver, processor }))
+}
+
+pub(super) fn build_configured_thumbnail_contexts(
+    state: &PrimaryAppState,
+    blob: &file_blob::Model,
+    file_name: &str,
+    source_mime_type: &str,
+) -> Result<Vec<ThumbnailContext>> {
+    let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
+    let candidates = collect_thumbnail_processor_candidates(
+        state.driver_registry().connectors(),
+        state.runtime_config(),
+        &policy,
+        file_name,
+        source_mime_type,
+    )?;
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+    let driver = state.driver_registry().get_driver(&policy)?;
+    Ok(candidates
+        .into_iter()
+        .map(|candidate| ThumbnailContext {
+            driver: driver.clone(),
+            processor: resolved_media_processor_from_config(&candidate.processor),
+        })
+        .collect())
+}
+
 pub(super) fn build_thumbnail_context_with_processor(
     state: &PrimaryAppState,
     policy: &storage_policy::Model,
@@ -188,9 +245,10 @@ fn processor_unavailable_reason(
                 .as_deref()
                 .unwrap_or(media_processing_config::DEFAULT_VIPS_COMMAND);
             if !media_processing_config::command_is_available(command) {
-                return Ok(Some(format!(
-                    "vips CLI command '{command}' is not available"
-                )));
+                return Ok(Some(
+                    "vips_cli processor command is unavailable; use the full image or disable vips_cli"
+                        .to_string(),
+                ));
             }
             Ok(None)
         }
@@ -201,9 +259,10 @@ fn processor_unavailable_reason(
                 .as_deref()
                 .unwrap_or(media_processing_config::DEFAULT_FFMPEG_COMMAND);
             if !media_processing_config::command_is_available(command) {
-                return Ok(Some(format!(
-                    "ffmpeg CLI command '{command}' is not available"
-                )));
+                return Ok(Some(
+                    "ffmpeg_cli processor command is unavailable; use the full image or disable ffmpeg_cli"
+                        .to_string(),
+                ));
             }
             Ok(None)
         }
@@ -214,9 +273,10 @@ fn processor_unavailable_reason(
                 .as_deref()
                 .unwrap_or(media_processing_config::DEFAULT_FFPROBE_COMMAND);
             if !media_processing_config::command_is_available(command) {
-                return Ok(Some(format!(
-                    "ffprobe CLI command '{command}' is not available"
-                )));
+                return Ok(Some(
+                    "ffprobe_cli processor command is unavailable; use the full image or disable ffprobe_cli"
+                        .to_string(),
+                ));
             }
             Ok(None)
         }

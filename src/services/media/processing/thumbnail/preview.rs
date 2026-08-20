@@ -3,6 +3,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use aster_drive_model::entities::file_blob;
 use bytes::Bytes;
 
+use crate::services::media::processing::resolve::build_configured_thumbnail_contexts;
 use crate::services::media::processing::resolve::build_thumbnail_context;
 use crate::services::media::processing::resolve::build_thumbnail_context_with_processor;
 use crate::services::media::processing::shared::{
@@ -19,6 +20,32 @@ pub async fn load_image_preview_if_exists(
     file_name: &str,
     source_mime_type: &str,
 ) -> Result<Option<ImagePreviewData>> {
+    for ctx in build_configured_thumbnail_contexts(state, blob, file_name, source_mime_type)? {
+        let preview_path = ctx
+            .processor
+            .image_preview_cache_path(&blob.hash, state.runtime_config());
+        let preview_processor = ctx.processor.image_preview_processor().to_string();
+        let preview_version = ctx.processor.image_preview_version(state.runtime_config());
+        if let Some(data) =
+            load_thumbnail_from_path(state, blob, &ctx.driver, &preview_path, false).await?
+        {
+            tracing::debug!(
+                blob_id = blob.id,
+                processor = ctx.processor.kind().as_str(),
+                image_preview_path = preview_path,
+                image_preview_processor = preview_processor,
+                image_preview_version = preview_version,
+                cache_source = "configured_processor",
+                "image preview cache hit"
+            );
+            return Ok(Some(ImagePreviewData {
+                data,
+                image_preview_processor: preview_processor,
+                image_preview_version: preview_version,
+            }));
+        }
+    }
+
     let ctx = build_thumbnail_context(state, blob, file_name, source_mime_type)?;
     let preview_path = ctx
         .processor
