@@ -357,6 +357,18 @@ describe("AdminAuditPage", () => {
 		});
 	});
 
+	it("routes export failures through handleApiError", async () => {
+		const error = new Error("export failed");
+		mockState.export.mockRejectedValue(error);
+		renderPage();
+		fireEvent.click(
+			await screen.findByRole("button", { name: /core:export_csv/i }),
+		);
+		await waitFor(() =>
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error),
+		);
+	});
+
 	it("shows a loading skeleton while the audit request is pending", () => {
 		mockState.list.mockImplementationOnce(() => new Promise(() => undefined));
 

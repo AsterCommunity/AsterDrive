@@ -218,4 +218,17 @@ describe("TeamManageDetail", () => {
 		resolveExport();
 		await waitFor(() => expect(button).not.toBeDisabled());
 	});
+
+	it("routes team audit export failures through the shared API error handler", async () => {
+		const error = new Error("team export failed");
+		teamServiceMocks.exportAuditLogs.mockRejectedValue(error);
+		renderDetail("audit");
+		const button = await screen.findByRole("button", {
+			name: /core:export_csv/,
+		});
+		fireEvent.click(button);
+		await waitFor(() =>
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error),
+		);
+	});
 });

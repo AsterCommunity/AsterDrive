@@ -617,28 +617,53 @@ async fn test_audit_csv_export_nullable_sort_cursors_cover_both_directions() {
         .expect("nullable cursor fixture should insert");
     }
 
-    for sort_order in ["asc", "desc"] {
-        let req = test::TestRequest::get()
-            .uri(&format!(
-                "/api/v1/admin/audit-logs/export?action=team_update&entity_type=user&sort_by=entity_name&sort_order={sort_order}"
-            ))
-            .insert_header(("Cookie", common::access_cookie_header(&token)))
-            .insert_header(common::csrf_header_for(&token))
-            .to_request();
-        let response = test::call_service(&app, req).await;
-        assert_eq!(response.status(), 200);
-        let body = test::read_body(response).await;
-        let mut reader = csv::Reader::from_reader(body.as_ref());
-        let ids = reader
-            .records()
-            .map(|record| record.unwrap().get(0).unwrap().to_string())
-            .collect::<std::collections::HashSet<_>>();
-        assert_eq!(
-            ids.len(),
-            501,
-            "sort order {sort_order} should scan every row"
-        );
+    for sort_by in [
+        "id",
+        "created_at",
+        "user_id",
+        "action",
+        "entity_type",
+        "entity_name",
+        "ip_address",
+    ] {
+        for sort_order in ["asc", "desc"] {
+            let req = test::TestRequest::get()
+                .uri(&format!(
+                    "/api/v1/admin/audit-logs/export?action=team_update&entity_type=user&sort_by={sort_by}&sort_order={sort_order}"
+                ))
+                .insert_header(("Cookie", common::access_cookie_header(&token)))
+                .insert_header(common::csrf_header_for(&token))
+                .to_request();
+            let response = test::call_service(&app, req).await;
+            assert_eq!(response.status(), 200);
+            let body = test::read_body(response).await;
+            let mut reader = csv::Reader::from_reader(body.as_ref());
+            let ids = reader
+                .records()
+                .map(|record| record.unwrap().get(0).unwrap().to_string())
+                .collect::<std::collections::HashSet<_>>();
+            assert_eq!(
+                ids.len(),
+                501,
+                "{sort_by} {sort_order} should scan every row exactly once"
+            );
+        }
     }
+
+    let empty = test::TestRequest::get()
+        .uri("/api/v1/admin/audit-logs/export?action=does_not_exist")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let empty_response = test::call_service(&app, empty).await;
+    assert_eq!(empty_response.status(), 200);
+    let empty_body = test::read_body(empty_response).await;
+    assert_eq!(
+        csv::Reader::from_reader(empty_body.as_ref())
+            .records()
+            .count(),
+        0
+    );
 }
 
 #[actix_web::test]
