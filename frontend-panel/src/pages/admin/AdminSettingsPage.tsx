@@ -263,12 +263,13 @@ export default function AdminSettingsPage({
 		<AdminLayout>
 			<AdminPageShell className="pb-0 md:pb-0">
 				<AdminPageHeader
+					className="px-0 md:px-0"
 					title={t("system_settings")}
 					description={t("settings_intro")}
 				/>
 
 				{loading ? (
-					<SkeletonTable columns={4} rows={8} />
+					<SkeletonTable frameless columns={4} rows={8} />
 				) : !hasAnyConfig ? (
 					<EmptyState title={t("no_config")} />
 				) : (

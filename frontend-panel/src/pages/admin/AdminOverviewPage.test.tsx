@@ -143,20 +143,6 @@ vi.mock("@/components/layout/AdminPageShell", () => ({
 	),
 }));
 
-vi.mock("@/components/layout/AdminSurface", () => ({
-	AdminSurface: ({
-		children,
-		className,
-	}: {
-		children: React.ReactNode;
-		className?: string;
-	}) => (
-		<section data-testid="admin-surface" className={className}>
-			{children}
-		</section>
-	),
-}));
-
 vi.mock("@/components/ui/badge", () => ({
 	Badge: ({
 		children,
@@ -180,22 +166,6 @@ vi.mock("@/components/ui/button", () => ({
 		<button type="button" disabled={disabled} onClick={onClick}>
 			{children}
 		</button>
-	),
-}));
-
-vi.mock("@/components/ui/card", () => ({
-	Card: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-	CardContent: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
-	),
-	CardDescription: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
-	),
-	CardHeader: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
-	),
-	CardTitle: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
 	),
 }));
 
@@ -797,11 +767,9 @@ describe("AdminOverviewPage", () => {
 		const dailyReportsHeading = await screen.findByText(
 			"overview_daily_reports",
 		);
-		const dailyReportsSurface = dailyReportsHeading.closest(
-			'[data-testid="admin-surface"]',
-		);
+		const dailyReportsSection = dailyReportsHeading.closest("section");
 
-		expect(dailyReportsSurface).toHaveClass("flex-none");
-		expect(dailyReportsSurface).not.toHaveClass("flex-1");
+		expect(dailyReportsSection).not.toBeNull();
+		expect(dailyReportsSection).not.toHaveClass("flex-1");
 	});
 });

@@ -45,7 +45,7 @@ function AdminSettingsMailTemplateGroup({
 	return (
 		<section
 			key={groupKey}
-			className="overflow-hidden rounded-lg border border-border/60 bg-background"
+			className="overflow-hidden rounded-lg bg-background"
 		>
 			<Button
 				variant="ghost"
@@ -186,11 +186,39 @@ function AdminSettingsSystemSubcategoryCard({
 				}))
 		: [];
 
+	const subcategoryContent = isMailTemplateSection ? (
+		<div className="space-y-3 py-4">
+			{mailTemplateGroups.map((templateGroup) => (
+				<AdminSettingsMailTemplateGroup
+					key={templateGroup.groupKey}
+					changedCount={
+						templateGroup.configs.filter(
+							(config) => getDraftValue(config) !== config.value,
+						).length
+					}
+					configs={templateGroup.configs}
+					groupKey={templateGroup.groupKey}
+					templateExpanded={
+						expandedTemplateGroups[templateGroup.groupKey] ?? false
+					}
+					templateGroupId={templateGroup.templateGroupId}
+				/>
+			))}
+		</div>
+	) : (
+		<div className="divide-y divide-border/40">
+			{group.configs.map((config) => (
+				<div key={config.key} className="py-4 first:pt-4 last:pb-4">
+					<SystemConfigRow config={config} />
+				</div>
+			))}
+		</div>
+	);
+
+	// 子分类用 muted/30 软块承担分区（可折叠容器需要可辨边界），
+	// 折叠内容走 AnimatedCollapsible 高度动画
 	return (
-		<section
-			key={groupKey}
-			className="overflow-hidden rounded-lg border border-border/60 bg-background"
-		>
+		<section key={groupKey} className="rounded-lg bg-muted/30">
 			<div className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-start lg:justify-between">
 				<div className="min-w-0 flex-1 space-y-1">
 					<h4 className="text-base font-semibold tracking-tight">
@@ -226,38 +254,18 @@ function AdminSettingsSystemSubcategoryCard({
 					) : null}
 				</div>
 			</div>
-			{!collapsible || expanded ? (
+			{collapsible ? (
+				<AnimatedCollapsible
+					open={expanded}
+					contentClassName="border-t border-border/40 px-4"
+				>
+					{subcategoryContent}
+				</AnimatedCollapsible>
+			) : (
 				<div className="border-t border-border/40 px-4">
-					{isMailTemplateSection ? (
-						<div className="space-y-3 py-4">
-							{mailTemplateGroups.map((templateGroup) => (
-								<AdminSettingsMailTemplateGroup
-									key={templateGroup.groupKey}
-									changedCount={
-										templateGroup.configs.filter(
-											(config) => getDraftValue(config) !== config.value,
-										).length
-									}
-									configs={templateGroup.configs}
-									groupKey={templateGroup.groupKey}
-									templateExpanded={
-										expandedTemplateGroups[templateGroup.groupKey] ?? false
-									}
-									templateGroupId={templateGroup.templateGroupId}
-								/>
-							))}
-						</div>
-					) : (
-						<div className="divide-y divide-border/40">
-							{group.configs.map((config) => (
-								<div key={config.key} className="py-4 first:pt-4 last:pb-4">
-									<SystemConfigRow config={config} />
-								</div>
-							))}
-						</div>
-					)}
+					{subcategoryContent}
 				</div>
-			) : null}
+			)}
 		</section>
 	);
 }
@@ -304,7 +312,7 @@ export function AdminSettingsSystemCategorySection({
 				</div>
 			) : (
 				<div
-					className={cn(ADMIN_SETTINGS_CONTENT_MAX_WIDTH_CLASS, "space-y-3")}
+					className={cn(ADMIN_SETTINGS_CONTENT_MAX_WIDTH_CLASS, "space-y-4")}
 				>
 					{systemConfigGroups.map((group) => (
 						<AdminSettingsSystemSubcategoryCard

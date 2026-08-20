@@ -132,6 +132,21 @@ function createTask(overrides: Partial<TaskInfo> = {}): TaskInfo {
 }
 
 describe("TaskCard", () => {
+	it("keeps the card data slot used by task surfaces", () => {
+		render(
+			<TaskCard
+				detailsExpanded={false}
+				onOpenTargetFolder={vi.fn()}
+				onRetry={vi.fn()}
+				onToggleDetails={vi.fn()}
+				retrying={false}
+				task={createTask()}
+			/>,
+		);
+
+		expect(document.querySelector('[data-slot="card"]')).toBeInTheDocument();
+	});
+
 	it("renders offline download summaries and opens the result target folder", () => {
 		const onOpenTargetFolder = vi.fn();
 		const onToggleDetails = vi.fn();

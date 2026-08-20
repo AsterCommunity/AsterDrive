@@ -116,6 +116,7 @@ export function PoliciesTable({
 
 	return (
 		<AdminTableList
+			frameless
 			loading={loading}
 			items={policies}
 			columns={6}

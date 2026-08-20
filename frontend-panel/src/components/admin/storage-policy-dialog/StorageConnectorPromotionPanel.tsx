@@ -45,7 +45,7 @@ export function StorageConnectorPromotionPanel({
 
 	return (
 		<AnimatedCollapsible open={candidates.length > 0}>
-			<section className="space-y-3 rounded-lg border border-primary/25 bg-primary/5 p-4">
+			<section className="space-y-3 rounded-lg bg-primary/10 p-4">
 				<div className="flex items-center gap-2 text-sm font-medium">
 					<Icon name="ArrowUp" className="size-4 text-primary" />
 					<span>{t("policy_connector_promotion_title")}</span>

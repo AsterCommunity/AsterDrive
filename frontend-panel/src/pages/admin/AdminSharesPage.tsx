@@ -252,8 +252,13 @@ export default function AdminSharesPage() {
 	return (
 		<AdminLayout>
 			<AdminPageShell>
-				<AdminPageHeader title={t("shares")} description={t("shares_intro")} />
+				<AdminPageHeader
+					title={t("shares")}
+					description={t("shares_intro")}
+					className="px-0 md:px-0"
+				/>
 				<AdminTableList
+					frameless
 					loading={loading}
 					items={shares}
 					columns={8}

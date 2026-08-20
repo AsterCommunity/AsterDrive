@@ -134,6 +134,42 @@ describe("AdminLayout", () => {
 		);
 	});
 
+	it("renders D5 group titles between the overview entry and grouped sections", () => {
+		render(<AdminLayout>Admin Content</AdminLayout>);
+
+		const overview = screen.getByRole("button", {
+			name: /translated:overview/i,
+		});
+		const expectedGroupTitles = [
+			"translated:nav_group_access",
+			"translated:nav_group_storage",
+			"translated:nav_group_content",
+			"translated:nav_group_system",
+		];
+		let previous: HTMLElement = overview;
+		for (const title of expectedGroupTitles) {
+			const element = screen.getByText(title);
+			expect(element).toHaveClass("uppercase");
+			expect(previous.compareDocumentPosition(element)).toBe(
+				Node.DOCUMENT_POSITION_FOLLOWING,
+			);
+			previous = element;
+		}
+	});
+
+	it("marks the active nav item with the D5 indicator and merges the desktop sidebar into the background", () => {
+		const { container } = render(<AdminLayout>Admin Content</AdminLayout>);
+
+		const activeItem = screen.getByRole("button", {
+			name: /translated:users/i,
+		});
+		expect(activeItem.className).toContain("before:bg-primary");
+
+		const aside = container.querySelector("aside");
+		expect(aside?.className).toContain("md:border-r-0");
+		expect(aside).toHaveAttribute("data-theme-surface", "chrome");
+	});
+
 	it("opens the mobile sidebar overlay and closes it again", () => {
 		const { container } = render(<AdminLayout>Admin Content</AdminLayout>);
 

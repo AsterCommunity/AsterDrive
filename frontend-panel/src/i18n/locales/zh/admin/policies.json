@@ -199,5 +199,7 @@
 	"storage_authorization_failed_target_resolution": "授权已返回，但 connector 无法解析存储目标，请检查目标配置。",
 	"storage_authorization_failed_unsupported_provider": "所选 connector 不支持当前存储授权提供方。",
 	"storage_authorization_failed_invalid_request": "存储授权回调参数无效，请重新启动授权。",
-	"storage_authorization_failed_server": "服务器处理存储授权时出错，请稍后重试。"
+	"storage_authorization_failed_server": "服务器处理存储授权时出错，请稍后重试。",
+	"connection_test_failed_save_prompt": "连接测试失败，仍要保存此策略吗？",
+	"policy_connector_field_required": "必须填写{{field}}。"
 }

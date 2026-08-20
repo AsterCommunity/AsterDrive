@@ -8,14 +8,12 @@ import {
 	AdminTableRow as TableRow,
 } from "@/components/common/AdminTable";
 import { EmptyState } from "@/components/common/EmptyState";
+import { SettingsSection } from "@/components/common/SettingsScaffold";
 import { SkeletonTable } from "@/components/common/SkeletonTable";
 import { UserIdentity } from "@/components/common/UserIdentity";
-import { AdminSurface } from "@/components/layout/AdminSurface";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
-import { PAGE_SECTION_PADDING_CLASS } from "@/lib/constants";
 import { formatDateAbsolute, formatDateAbsoluteWithOffset } from "@/lib/format";
-import { cn } from "@/lib/utils";
 import {
 	formatTaskKind as formatSharedTaskKind,
 	formatTaskPresentationStatus,
@@ -77,22 +75,15 @@ export function OverviewBackgroundTasksSection({
 	};
 
 	return (
-		<AdminSurface padded={false} className="min-h-0 overflow-hidden">
-			<div className={cn("border-b py-4", PAGE_SECTION_PADDING_CLASS)}>
-				<h3 className="text-base font-semibold">
-					{t("overview_background_tasks")}
-				</h3>
-				<p className="mt-1 text-sm text-muted-foreground">
-					{t("overview_background_tasks_desc")}
-				</p>
-			</div>
-
+		<SettingsSection
+			title={t("overview_background_tasks")}
+			description={t("overview_background_tasks_desc")}
+			className="min-w-0"
+		>
 			{loading && !overview ? (
-				<div className="py-4 md:py-6">
-					<SkeletonTable columns={5} rows={6} />
-				</div>
+				<SkeletonTable frameless columns={5} rows={6} />
 			) : overview?.recent_background_tasks.length ? (
-				<Table>
+				<Table frameless>
 					<TableHeader>
 						<TableRow>
 							<TableHead>{t("overview_background_tasks_time")}</TableHead>
@@ -163,6 +154,6 @@ export function OverviewBackgroundTasksSection({
 					description={t("overview_background_tasks_empty_desc")}
 				/>
 			)}
-		</AdminSurface>
+		</SettingsSection>
 	);
 }

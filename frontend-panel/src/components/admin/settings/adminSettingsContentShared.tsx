@@ -586,8 +586,8 @@ export function ConfigCodeEditor({
 	value: string;
 }) {
 	return (
-		<div className="max-w-5xl overflow-hidden rounded-xl border bg-background shadow-sm">
-			<div className="flex items-center gap-2 border-b bg-muted/40 px-4 py-2">
+		<div className="max-w-5xl">
+			<div className="flex items-center gap-2 border-b border-border/40 py-2">
 				<Icon name="FileCode" className="size-4 text-muted-foreground" />
 				<span className="text-sm font-medium">
 					{getEditorLanguageLabel(language)}

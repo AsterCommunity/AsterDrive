@@ -118,6 +118,7 @@ export function RemoteNodesTable({
 
 	return (
 		<AdminTableList
+			frameless
 			loading={loading}
 			items={items}
 			columns={6}

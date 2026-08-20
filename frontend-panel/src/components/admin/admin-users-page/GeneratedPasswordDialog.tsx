@@ -37,7 +37,7 @@ export function GeneratedPasswordDialog({
 						{t("generated_password_dialog_desc", { username })}
 					</DialogDescription>
 				</DialogHeader>
-				<div className="space-y-3 rounded-md border border-primary/30 bg-primary/5 p-3">
+				<div className="space-y-3 rounded-md bg-primary/10 p-3">
 					<div className="flex items-start gap-2">
 						<Icon
 							name="KeyRound"

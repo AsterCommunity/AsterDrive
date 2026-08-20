@@ -1,6 +1,6 @@
 {
-	"pwa_update_available": "A new version is available",
-	"pwa_refresh": "Refresh",
+	"pwa_update_available": "A new version of this page is available",
+	"pwa_refresh": "Refresh page",
 	"offline_mode": "Offline mode",
 	"auth_stale": "Session pending verification",
 	"offline_status_short": "Offline",

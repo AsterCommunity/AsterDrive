@@ -24,8 +24,16 @@ vi.mock("@/components/common/EmptyState", () => ({
 }));
 
 vi.mock("@/components/common/SkeletonTable", () => ({
-	SkeletonTable: ({ columns, rows }: { columns: number; rows: number }) => (
-		<div>{`skeleton:${columns}:${rows}`}</div>
+	SkeletonTable: ({
+		columns,
+		rows,
+		frameless,
+	}: {
+		columns: number;
+		rows: number;
+		frameless?: boolean;
+	}) => (
+		<div>{`skeleton:${columns}:${rows}${frameless ? ":frameless" : ""}`}</div>
 	),
 }));
 
@@ -58,8 +66,16 @@ vi.mock("@/components/ui/scroll-area", () => ({
 }));
 
 vi.mock("@/components/ui/table", () => ({
-	Table: ({ children }: { children: React.ReactNode }) => (
-		<div data-testid="table">{children}</div>
+	Table: ({
+		children,
+		frameless,
+	}: {
+		children: React.ReactNode;
+		frameless?: boolean;
+	}) => (
+		<div data-testid="table" data-frameless={frameless ? "true" : "false"}>
+			{children}
+		</div>
 	),
 	TableBody: ({ children }: { children: React.ReactNode }) => (
 		<div data-testid="table-body">{children}</div>
@@ -173,5 +189,58 @@ describe("AdminTableList", () => {
 			1,
 			expect.any(Array),
 		);
+	});
+
+	it("renders frameless loading, empty, toolbar, and table without AdminSurface", () => {
+		const { rerender } = render(
+			<AdminTableList
+				frameless
+				loading
+				items={[]}
+				columns={4}
+				rows={6}
+				emptyTitle="empty"
+				headerRow={<div>header</div>}
+				renderRow={() => <div>row</div>}
+			/>,
+		);
+
+		expect(screen.getByText("skeleton:4:6:frameless")).toBeInTheDocument();
+		expect(screen.queryByTestId("admin-surface")).toBeNull();
+
+		rerender(
+			<AdminTableList
+				frameless
+				loading={false}
+				items={[]}
+				columns={4}
+				emptyTitle="nothing here"
+				headerRow={<div>header</div>}
+				renderRow={() => <div>row</div>}
+				toolbar={<div>filters</div>}
+			/>,
+		);
+
+		expect(screen.getByText("nothing here")).toBeInTheDocument();
+		expect(screen.getByText("filters")).toBeInTheDocument();
+		expect(screen.queryByTestId("admin-surface")).toBeNull();
+
+		rerender(
+			<AdminTableList
+				frameless
+				loading={false}
+				items={[{ id: 1 }]}
+				columns={4}
+				emptyTitle="empty"
+				headerRow={<div>header</div>}
+				renderRow={() => <div>row</div>}
+			/>,
+		);
+
+		expect(screen.getByTestId("table")).toHaveAttribute(
+			"data-frameless",
+			"true",
+		);
+		expect(screen.queryByTestId("admin-surface")).toBeNull();
 	});
 });

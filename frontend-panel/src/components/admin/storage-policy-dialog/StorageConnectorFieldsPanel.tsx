@@ -226,7 +226,7 @@ function ConnectorField({
 	if (field.kind === "boolean") {
 		return (
 			<div className="space-y-2 md:col-span-2">
-				<div className="flex min-h-9 items-center justify-between gap-3 rounded-lg border border-border/70 px-3 py-2">
+				<div className="flex min-h-9 items-center justify-between gap-3 rounded-lg bg-muted/30 px-3 py-2">
 					<Label htmlFor={inputId}>{connectorT(field.label_key)}</Label>
 					<Switch
 						id={inputId}

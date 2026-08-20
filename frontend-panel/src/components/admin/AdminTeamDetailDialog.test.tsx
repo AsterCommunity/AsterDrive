@@ -156,7 +156,7 @@ describe("AdminTeamDetailDialog", () => {
 		).not.toBeNull();
 		expect(
 			container.querySelector(
-				".border-b.bg-muted\\/20.lg\\:min-h-0.lg\\:w-80.lg\\:flex-none.lg\\:overflow-y-auto",
+				".border-b.lg\\:min-h-0.lg\\:w-80.lg\\:flex-none.lg\\:overflow-y-auto.lg\\:border-b-0",
 			),
 		).not.toBeNull();
 		expect(
@@ -180,7 +180,7 @@ describe("AdminTeamDetailDialog", () => {
 			name: "settings:settings_team_members",
 		});
 		expect(membersTab).toHaveClass("min-w-0");
-		expect(membersTab).not.toHaveClass("flex-none");
+		expect(membersTab).toHaveClass("flex-none");
 		expect(membersTab.parentElement).toHaveClass("w-full", "gap-5", "border-b");
 		expect(membersTab.parentElement).not.toHaveClass("overflow-x-auto");
 	});

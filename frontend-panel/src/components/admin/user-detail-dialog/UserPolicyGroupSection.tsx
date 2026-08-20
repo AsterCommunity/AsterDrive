@@ -35,7 +35,7 @@ export function UserPolicyGroupSection({
 	const { t } = useTranslation(["admin", "core"]);
 
 	return (
-		<section className="rounded-2xl border bg-background/60 p-6 max-lg:p-4">
+		<section>
 			<div className="mb-4 flex items-start justify-between gap-3">
 				<div>
 					<h4 className="text-base font-semibold text-foreground">
@@ -99,7 +99,7 @@ export function UserPolicyGroupSection({
 						</div>
 
 						{assignedPolicyGroupIsInvalid ? (
-							<div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+							<div className="rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
 								{t("policy_group_invalid_assignment")}
 							</div>
 						) : null}

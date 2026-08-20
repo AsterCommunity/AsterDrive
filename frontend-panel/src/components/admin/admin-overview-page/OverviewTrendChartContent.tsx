@@ -1,6 +1,5 @@
 import { lazy, Suspense } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type {
 	DailyOverviewReport,
@@ -187,6 +186,17 @@ function TrendTooltipCard({ active, payload, series }: TrendTooltipCardProps) {
 	);
 }
 
+function TrendMetric({ label, value }: { label: string; value: string }) {
+	return (
+		<div className="flex items-baseline gap-2">
+			<span className="text-xs text-muted-foreground">{label}</span>
+			<span className="text-xl font-semibold tracking-tight tabular-nums">
+				{value}
+			</span>
+		</div>
+	);
+}
+
 export function OverviewTrendChartContent({
 	reports,
 	averageLabel,
@@ -207,8 +217,24 @@ export function OverviewTrendChartContent({
 	);
 
 	return (
-		<div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_220px]">
-			<div className="min-w-0 overflow-hidden rounded-2xl border bg-linear-to-br from-primary/5 via-background to-background p-4">
+		<div className="min-w-0 space-y-4">
+			{/* 指标行在图表上方：先看数再看曲线；图表裸放全宽（D9 去框） */}
+			<div className="flex flex-wrap items-baseline gap-x-8 gap-y-2">
+				<TrendMetric
+					label={averageLabel}
+					value={DECIMAL_FORMATTER.format(averageEvents)}
+				/>
+				<TrendMetric
+					label={latestLabel}
+					value={COUNT_FORMATTER.format(latestReport.total_events)}
+				/>
+				<TrendMetric
+					label={peakLabel}
+					value={`${formatTrendDayLabel(peakReport.date)} · ${COUNT_FORMATTER.format(peakReport.total_events)}`}
+				/>
+			</div>
+
+			<div className="min-w-0">
 				<div className="mb-3 flex flex-wrap items-center gap-2">
 					{series.map((seriesItem) => (
 						<Badge
@@ -229,31 +255,6 @@ export function OverviewTrendChartContent({
 						<RechartsTrendPlot series={series} trendData={trendData} />
 					</Suspense>
 				</div>
-			</div>
-
-			<div className="grid content-start gap-3 sm:grid-cols-2 xl:grid-cols-1">
-				<Card size="sm" className="border-0 shadow-none ring-1 ring-border/70">
-					<CardContent className="space-y-1 p-4">
-						<CardDescription className="text-xs">
-							{averageLabel}
-						</CardDescription>
-						<p className="text-xl font-semibold tracking-tight">
-							{DECIMAL_FORMATTER.format(averageEvents)}
-						</p>
-					</CardContent>
-				</Card>
-				<Card size="sm" className="border-0 shadow-none ring-1 ring-border/70">
-					<CardContent className="space-y-1 p-4">
-						<CardDescription className="text-xs">{latestLabel}</CardDescription>
-						<p className="text-xl font-semibold tracking-tight">
-							{COUNT_FORMATTER.format(latestReport.total_events)}
-						</p>
-						<p className="text-xs text-muted-foreground">
-							{peakLabel}: {formatTrendDayLabel(peakReport.date)} ·{" "}
-							{COUNT_FORMATTER.format(peakReport.total_events)}
-						</p>
-					</CardContent>
-				</Card>
 			</div>
 		</div>
 	);

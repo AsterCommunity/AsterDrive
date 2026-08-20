@@ -48,6 +48,19 @@ describe("skeleton components", () => {
 		);
 	});
 
+	it("renders the frameless table skeleton without the framed container", () => {
+		const { container } = render(
+			<SkeletonTable frameless columns={2} rows={1} />,
+		);
+
+		expect(container.querySelector('[data-slot="table-container"]')).toBeNull();
+		const heads = container.querySelectorAll('[data-slot="table-head"]');
+		expect(heads).toHaveLength(2);
+		for (const head of heads) {
+			expect(head).toHaveClass("bg-muted/35");
+		}
+	});
+
 	it("renders a tree skeleton with indented placeholder rows", () => {
 		const { container } = render(<SkeletonTree count={4} />);
 

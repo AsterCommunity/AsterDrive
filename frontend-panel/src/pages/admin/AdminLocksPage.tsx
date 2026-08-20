@@ -178,6 +178,7 @@ export default function AdminLocksPage() {
 				<AdminPageHeader
 					title={t("webdav_locks")}
 					description={t("locks_intro")}
+					className="px-0 md:px-0"
 					actions={
 						<Button variant="outline" size="sm" onClick={handleCleanupExpired}>
 							{t("clean_expired")}
@@ -185,6 +186,7 @@ export default function AdminLocksPage() {
 					}
 				/>
 				<AdminTableList
+					frameless
 					loading={loading}
 					items={locks}
 					columns={7}

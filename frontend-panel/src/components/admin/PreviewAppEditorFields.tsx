@@ -495,7 +495,7 @@ function WopiFields({ app, index, t, updateApp }: PreviewAppFieldGroupProps) {
 				label={t("preview_apps_wopi_hint_title")}
 				description={t("preview_apps_wopi_hint_desc")}
 			>
-				<div className="rounded-xl border border-border/50 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+				<div className="rounded-xl bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
 					{t("preview_apps_wopi_hint_body")}
 				</div>
 			</EditorField>

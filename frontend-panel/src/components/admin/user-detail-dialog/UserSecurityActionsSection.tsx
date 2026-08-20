@@ -43,7 +43,7 @@ export function UserSecurityActionsSection({
 	const { t } = useTranslation(["admin", "core"]);
 
 	return (
-		<section className="rounded-2xl border bg-background/60 p-6 max-lg:p-4">
+		<section>
 			<div className="mb-4">
 				<h4 className="text-base font-semibold text-foreground">
 					{t("security_actions")}
@@ -54,7 +54,7 @@ export function UserSecurityActionsSection({
 			</div>
 
 			<div className="space-y-3">
-				<div className="rounded-xl border bg-muted/10 p-5 max-lg:p-4">
+				<div className="rounded-xl bg-muted/30 p-5 max-lg:p-4">
 					<div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
 						<div className="max-w-2xl space-y-2">
 							<div className="flex items-center gap-2">
@@ -81,7 +81,7 @@ export function UserSecurityActionsSection({
 					</div>
 				</div>
 
-				<div className="rounded-xl border bg-muted/10 p-5 max-lg:p-4">
+				<div className="rounded-xl bg-muted/30 p-5 max-lg:p-4">
 					<div className="mb-3">
 						<h5 className="text-sm font-semibold text-foreground">
 							{t("reset_password")}
@@ -152,7 +152,7 @@ export function UserSecurityActionsSection({
 					</div>
 				</div>
 
-				<div className="rounded-xl border border-destructive/30 bg-destructive/5 p-5 max-lg:p-4">
+				<div className="rounded-xl bg-destructive/10 p-5 max-lg:p-4">
 					<div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
 						<div className="max-w-2xl space-y-2">
 							<h5 className="text-sm font-semibold text-foreground">
@@ -182,7 +182,7 @@ export function UserSecurityActionsSection({
 					</div>
 				</div>
 
-				<div className="rounded-xl border border-destructive/30 bg-destructive/5 p-5 max-lg:p-4">
+				<div className="rounded-xl bg-destructive/10 p-5 max-lg:p-4">
 					<div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
 						<div className="max-w-2xl space-y-2">
 							<h5 className="text-sm font-semibold text-foreground">

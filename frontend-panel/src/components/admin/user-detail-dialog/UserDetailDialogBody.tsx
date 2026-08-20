@@ -100,7 +100,7 @@ function UserDetailDialogContent({
 				/>
 
 				<div className="min-h-0 min-w-0 lg:flex-1 lg:overflow-y-auto">
-					<div className="space-y-4 p-6 max-lg:p-4">{children}</div>
+					<div className="space-y-8 p-6 max-lg:p-4">{children}</div>
 				</div>
 			</div>
 		</div>

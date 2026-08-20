@@ -617,7 +617,7 @@ describe("UserDetailDialog", () => {
 			".flex.min-h-0.flex-1.flex-col.overflow-y-auto.lg\\:overflow-hidden",
 		);
 		const leftColumn = container.querySelector(
-			".border-b.bg-muted\\/20.lg\\:min-h-0.lg\\:w-80.lg\\:flex-none.lg\\:overflow-y-auto",
+			".border-b.lg\\:min-h-0.lg\\:w-80.lg\\:flex-none.lg\\:overflow-y-auto.lg\\:border-b-0",
 		);
 		const rightColumn = container.querySelector(
 			".min-h-0.min-w-0.lg\\:flex-1.lg\\:overflow-y-auto",
@@ -637,7 +637,7 @@ describe("UserDetailDialog", () => {
 		).not.toBeNull();
 		expect(leftColumn).not.toBeNull();
 		expect(rightColumn).not.toBeNull();
-		expect(container.querySelector(".space-y-4.p-6")).not.toBeNull();
+		expect(container.querySelector(".space-y-8.p-6")).not.toBeNull();
 		expect(
 			container.querySelector(".min-w-0.p-6.lg\\:overflow-y-auto"),
 		).toBeNull();

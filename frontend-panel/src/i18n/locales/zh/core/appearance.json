@@ -8,5 +8,9 @@
 	"language_zh": "中文",
 	"appearance_desc": "选择你偏好的主题模式和强调色。",
 	"mode": "模式",
-	"color": "颜色"
+	"color": "颜色",
+	"color_blue": "蓝色",
+	"color_green": "绿色",
+	"color_purple": "紫色",
+	"color_orange": "橙色"
 }

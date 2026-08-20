@@ -75,7 +75,7 @@ export function AdminTeamDetailOverviewSection({
 		detailLoading || saving || archiving || restoring || !canMutateTeam;
 
 	return (
-		<section className="rounded-2xl border bg-background/60 p-6">
+		<section>
 			<div className="mb-5 flex items-start justify-between gap-3">
 				<div>
 					<h4 className="text-base font-semibold text-foreground">

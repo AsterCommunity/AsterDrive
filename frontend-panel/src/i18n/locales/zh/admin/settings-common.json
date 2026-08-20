@@ -86,6 +86,7 @@
 	"settings_enum_set_no_options": "服务端没有提供固定选项。",
 	"settings_enum_set_no_matches": "没有匹配的操作。",
 	"settings_enum_set_invalid_value": "枚举值非法或重复：{{value}}",
+	"settings_number_invalid_value": "请输入有效数字。",
 	"settings_enum_group_admin": "管理员",
 	"settings_enum_group_archive": "压缩包",
 	"settings_enum_group_auth": "认证",

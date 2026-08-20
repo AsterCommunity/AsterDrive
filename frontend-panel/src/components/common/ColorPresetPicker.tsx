@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import {
@@ -13,13 +14,14 @@ import {
 } from "@/stores/themeStore";
 
 const presets = [
-	{ id: "blue", label: "Blue", color: COLOR_PRESETS.blue },
-	{ id: "green", label: "Green", color: COLOR_PRESETS.green },
-	{ id: "purple", label: "Purple", color: COLOR_PRESETS.purple },
-	{ id: "orange", label: "Orange", color: COLOR_PRESETS.orange },
+	{ id: "blue", labelKey: "color_blue", color: COLOR_PRESETS.blue },
+	{ id: "green", labelKey: "color_green", color: COLOR_PRESETS.green },
+	{ id: "purple", labelKey: "color_purple", color: COLOR_PRESETS.purple },
+	{ id: "orange", labelKey: "color_orange", color: COLOR_PRESETS.orange },
 ] as const;
 
 export function ColorPresetPicker() {
+	const { t } = useTranslation("core");
 	const { colorPreset, setColorPreset } = useThemeStore();
 	const hasPresetSelection = presets.some((p) => p.color === colorPreset);
 
@@ -28,13 +30,14 @@ export function ColorPresetPicker() {
 			<div className="flex gap-2">
 				{presets.map((p) => {
 					const selected = colorPreset === p.color;
+					const label = t(p.labelKey);
 					return (
 						<Tooltip key={p.id}>
 							<TooltipTrigger
 								render={
 									<button
 										type="button"
-										aria-label={p.label}
+										aria-label={label}
 										aria-pressed={selected}
 										onClick={() => setColorPreset(p.color)}
 										className={cn(
@@ -50,7 +53,7 @@ export function ColorPresetPicker() {
 									<Icon name="Check" className="size-3.5 text-white" />
 								)}
 							</TooltipTrigger>
-							<TooltipContent>{p.label}</TooltipContent>
+							<TooltipContent>{label}</TooltipContent>
 						</Tooltip>
 					);
 				})}
@@ -71,7 +74,7 @@ export function ColorPresetPicker() {
 						className="h-full w-full rounded-full"
 						style={{ backgroundColor: colorPreset }}
 					/>
-					<span className="sr-only">Custom color</span>
+					<span className="sr-only">{t("custom_color")}</span>
 					<Input
 						type="color"
 						value={colorPreset}
@@ -82,10 +85,10 @@ export function ColorPresetPicker() {
 							}
 						}}
 						className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-						aria-label="Custom color"
+						aria-label={t("custom_color")}
 					/>
 				</TooltipTrigger>
-				<TooltipContent>Custom color</TooltipContent>
+				<TooltipContent>{t("custom_color")}</TooltipContent>
 			</Tooltip>
 		</div>
 	);

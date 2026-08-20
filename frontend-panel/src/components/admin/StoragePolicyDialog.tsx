@@ -356,7 +356,7 @@ export function StoragePolicyDialog({
 									steps={createSteps}
 									onStepChange={onCreateStepChange}
 								/>
-								<div className="rounded-2xl border border-border/70 bg-background/70 p-5">
+								<div>
 									<div className="relative overflow-hidden">
 										<div
 											key={`${stepAnimationRef.current.step}-${stepAnimationRef.current.direction}`}
@@ -502,7 +502,7 @@ export function StoragePolicyDialog({
 									onConfirm={onConfirmConnectorPromotion}
 									onRequest={onRequestConnectorPromotion}
 								/>
-								<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
+								<section>
 									<SectionTitle
 										title={t("policy_editor_overview_title")}
 										description={t("policy_editor_overview_desc")}
@@ -529,7 +529,7 @@ export function StoragePolicyDialog({
 									</div>
 								</section>
 								{connectionFields.length > 0 || remoteNodeId ? (
-									<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
+									<section>
 										<SectionTitle
 											title={
 												storageDriverDescriptor
@@ -609,7 +609,7 @@ export function StoragePolicyDialog({
 										</div>
 									</section>
 								) : null}
-								<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
+								<section>
 									<SectionTitle
 										title={t("policy_editor_rules_title")}
 										description={t("policy_editor_rules_desc")}
@@ -628,7 +628,7 @@ export function StoragePolicyDialog({
 									</div>
 								</section>
 								{customActions.length > 0 ? (
-									<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
+									<section>
 										<StorageConnectorActionsPanel
 											actions={customActions}
 											remoteNodes={remoteNodes}
@@ -775,7 +775,7 @@ function WizardProgress({
 	const currentStep = steps[Math.min(createStep, steps.length - 1)];
 	return (
 		<div className="space-y-3">
-			<div className="rounded-2xl border border-border/70 bg-muted/20 p-3 sm:p-4">
+			<div className="rounded-2xl bg-muted/30 p-3 sm:p-4">
 				<div className="flex items-start justify-between gap-3">
 					<div className="space-y-1">
 						<p className="text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
@@ -851,7 +851,7 @@ function ConnectorSelection({
 	const { t } = useTranslation("admin");
 	if (loading && descriptors.length === 0) {
 		return (
-			<div className="flex min-h-32 items-center justify-center gap-2 rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+			<div className="flex min-h-32 items-center justify-center gap-2 rounded-lg bg-muted/30 text-sm text-muted-foreground">
 				<Icon name="Spinner" className="size-4 animate-spin" />
 				<span>{t("core:loading")}</span>
 			</div>
@@ -859,7 +859,7 @@ function ConnectorSelection({
 	}
 	if (error && descriptors.length === 0) {
 		return (
-			<div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
+			<div className="rounded-lg bg-destructive/10 p-4 text-sm text-destructive">
 				{error}
 			</div>
 		);
@@ -982,7 +982,7 @@ function ConnectorHelper({
 	const connectorT = (key: string) =>
 		translateStorageConnectorMessage(t, descriptor?.connector_id, key);
 	return (
-		<div className="rounded-3xl border border-border/70 bg-muted/20 p-5">
+		<div className="rounded-3xl bg-muted/30 p-5">
 			<div className="flex items-center gap-3">
 				<div className="flex size-14 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
 					<ConnectorVisual descriptor={descriptor} />
@@ -1081,7 +1081,7 @@ function PolicyRules({
 				/>
 			</div>
 			{forceDefault ? null : (
-				<div className="flex items-center justify-between rounded-lg border border-border/70 px-3 py-2">
+				<div className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2">
 					<Label htmlFor="default-policy">{t("set_as_default")}</Label>
 					<Switch
 						id="default-policy"
@@ -1166,7 +1166,7 @@ function PolicySummary({
 	return (
 		<div
 			data-testid="policy-summary-card"
-			className="rounded-3xl border border-border/70 bg-muted/20 p-5 lg:sticky lg:top-0 lg:self-start"
+			className="rounded-3xl bg-muted/30 p-5 lg:sticky lg:top-0 lg:self-start"
 		>
 			<div className="flex items-center gap-3">
 				<div className="flex size-14 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
@@ -1184,7 +1184,7 @@ function PolicySummary({
 			<p className="mt-4 text-sm leading-6 text-muted-foreground">
 				{t("policy_wizard_summary_desc")}
 			</p>
-			<div className="mt-4 overflow-hidden rounded-2xl border border-border/70 bg-background/85">
+			<div className="mt-4 overflow-hidden rounded-2xl bg-background">
 				<dl className="divide-y divide-border/70">
 					{items.map((item) => (
 						<div
@@ -1228,7 +1228,7 @@ function PolicyEditContextBar({
 	return (
 		<section
 			data-testid="policy-edit-context-bar"
-			className="rounded-2xl border border-border/70 bg-muted/20 p-4"
+			className="rounded-2xl bg-muted/30 p-4"
 		>
 			<div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.85fr)]">
 				<div className="min-w-0">
@@ -1393,7 +1393,7 @@ function PolicyCapacitySummary({
 					) : null}
 
 					{total != null && used != null && available != null ? (
-						<div className="rounded-xl border border-border/70 bg-background/70 p-3">
+						<div className="rounded-xl bg-background p-3">
 							<div className="grid grid-cols-2 gap-3">
 								<div>
 									<p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">

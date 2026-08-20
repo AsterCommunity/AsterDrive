@@ -199,5 +199,7 @@
 	"storage_authorization_failed_target_resolution": "Authorization returned, but the connector could not resolve its storage target. Check the target configuration.",
 	"storage_authorization_failed_unsupported_provider": "This storage authorization provider is not supported by the selected connector.",
 	"storage_authorization_failed_invalid_request": "The storage authorization callback was invalid. Start authorization again.",
-	"storage_authorization_failed_server": "The server failed while completing storage authorization. Try again later."
+	"storage_authorization_failed_server": "The server failed while completing storage authorization. Try again later.",
+	"connection_test_failed_save_prompt": "The connection test failed. Save this policy anyway?",
+	"policy_connector_field_required": "{{field}} is required."
 }

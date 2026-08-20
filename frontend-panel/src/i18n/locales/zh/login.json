@@ -109,5 +109,6 @@
 	"verify_contact_missing_token_title": "缺少验证令牌",
 	"verify_contact_missing_token_desc": "这个链接中缺少可用的验证参数，无法继续确认。",
 	"verify_contact_email_changed_login_hint": "已更改邮箱为 {{email}}，请使用新邮箱登录。",
-	"invitation_accepted_login": "邀请已接受，请使用新账号登录。"
+	"invitation_accepted_login": "邀请已接受，请使用新账号登录。",
+	"password_reset_success_login": "密码已重置成功，现在可以使用新密码登录。"
 }

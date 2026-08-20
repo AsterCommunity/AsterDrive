@@ -5,7 +5,6 @@ import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
-import { AdminSurface } from "@/components/layout/AdminSurface";
 import { Badge } from "@/components/ui/badge";
 import { badgeVariants } from "@/components/ui/badgeVariants";
 import { buttonVariants } from "@/components/ui/buttonVariants";
@@ -285,32 +284,6 @@ export default function AdminAboutPage() {
 			icon: "Scale",
 		},
 	];
-	const capabilityItems: {
-		icon: IconName;
-		title: string;
-		description: string;
-	}[] = [
-		{
-			icon: "FileText",
-			title: t("about_capability_files"),
-			description: t("about_capability_files_desc"),
-		},
-		{
-			icon: "Shield",
-			title: t("about_capability_access"),
-			description: t("about_capability_access_desc"),
-		},
-		{
-			icon: "DatabaseZap",
-			title: t("about_capability_storage"),
-			description: t("about_capability_storage_desc"),
-		},
-		{
-			icon: "ServerCog",
-			title: t("about_capability_operations"),
-			description: t("about_capability_operations_desc"),
-		},
-	];
 	const buildDetails: { label: string; value: string; icon: IconName }[] = [
 		{
 			label: t("about_version"),
@@ -342,153 +315,109 @@ export default function AdminAboutPage() {
 	return (
 		<AdminLayout>
 			<AdminPageShell>
-				<AdminPageHeader title={t("about")} description={t("about_intro")} />
+				{/* 页头 px-0：shell 已提供页缘 padding，去掉 header 自带 px 避免与裸 section 错位 */}
+				<AdminPageHeader
+					title={t("about")}
+					description={t("about_intro")}
+					className="px-0 md:px-0"
+				/>
 
-				<AdminSurface
-					padded={false}
-					className="flex-none overflow-hidden bg-card"
-				>
-					<div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_380px]">
-						<section className="relative overflow-hidden border-b bg-muted/15 px-5 py-6 md:px-7 md:py-7 lg:border-r lg:border-b-0">
-							<div className="absolute inset-x-0 top-0 h-1 bg-linear-to-r from-emerald-500 via-sky-500 to-amber-500" />
-							<div className="relative space-y-6">
-								<div className="space-y-4">
-									<div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-										<AsterDriveWordmark
-											alt={config.appName}
-											className="h-auto w-full max-w-[300px] md:max-w-[340px]"
-											draggable={false}
-										/>
-										<div className="flex shrink-0 flex-wrap items-center gap-2">
-											<Badge variant="outline" className="bg-background/80">
-												{t("about_product_badge")}
-											</Badge>
-											<button
-												type="button"
-												onClick={handleVersionClick}
-												className={cn(
-													badgeVariants(),
-													"cursor-default transition-colors duration-200 ease-out motion-reduce:transition-none",
-													VERSION_BADGE_CLASSES[versionBadgeClassIndex],
-												)}
-												aria-label={t("about_version")}
-											>
-												{displayVersion}
-											</button>
-											<Badge
-												variant="outline"
-												className={getChannelBadgeClass(topReleaseChannel)}
-											>
-												{t(`about_channel_${topReleaseChannel}`)}
-											</Badge>
-										</div>
-									</div>
-
-									<div className="max-w-3xl space-y-2">
-										<p className="text-lg font-medium tracking-tight text-foreground md:text-xl">
-											{t("about_tagline")}
-										</p>
-										<p className="text-sm leading-6 text-muted-foreground">
-											{t("about_summary")}
-										</p>
-									</div>
-								</div>
-
-								<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-									{buildDetails.map((detail) => (
-										<div
-											key={detail.label}
-											className="rounded-lg border bg-background/75 p-3 shadow-xs dark:shadow-none"
-										>
-											<div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-												<Icon name={detail.icon} className="size-4" />
-												{detail.label}
-											</div>
-											<div className="mt-2 min-w-0 truncate text-sm font-semibold">
-												{detail.value}
-											</div>
-										</div>
-									))}
-								</div>
-							</div>
-						</section>
-
-						<section className="bg-background px-5 py-5 md:px-6 md:py-6">
-							<div className="space-y-4">
-								<div className="space-y-1">
-									<h3 className="text-sm font-semibold">
-										{t("about_resources")}
-									</h3>
-									<p className="text-sm leading-5 text-muted-foreground">
-										{t("about_resources_desc")}
-									</p>
-								</div>
-
-								<div className="space-y-2">
-									{resourceLinks.map((link) => (
-										<a
-											key={link.href}
-											href={link.href}
-											target="_blank"
-											rel="noreferrer"
-											className={cn(
-												buttonVariants({ variant: "ghost" }),
-												"h-auto w-full justify-between rounded-lg border bg-muted/20 px-3 py-3 text-left hover:bg-muted/50",
-											)}
-										>
-											<span className="flex min-w-0 items-center gap-3">
-												<span className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
-													<Icon name={link.icon} className="size-4" />
-												</span>
-												<span className="min-w-0">
-													<span className="block truncate text-sm font-medium text-foreground">
-														{link.label}
-													</span>
-													<span className="block truncate text-xs font-normal text-muted-foreground">
-														{link.description}
-													</span>
-												</span>
-											</span>
-											<Icon
-												name="ArrowSquareOut"
-												className="size-3.5 shrink-0 text-muted-foreground"
-											/>
-										</a>
-									))}
-								</div>
-							</div>
-						</section>
+				{/* 品牌锁链：wordmark + 徽标 + 定位文案直落背景（D9 去框，禁渐变装饰） */}
+				<section className="space-y-6">
+					<div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+						<AsterDriveWordmark
+							alt={config.appName}
+							className="h-auto w-full max-w-[300px] md:max-w-[340px]"
+							draggable={false}
+						/>
+						<div className="flex shrink-0 flex-wrap items-center gap-2">
+							<Badge variant="outline">{t("about_product_badge")}</Badge>
+							<button
+								type="button"
+								onClick={handleVersionClick}
+								className={cn(
+									badgeVariants(),
+									"cursor-default transition-colors duration-200 ease-out motion-reduce:transition-none",
+									VERSION_BADGE_CLASSES[versionBadgeClassIndex],
+								)}
+								aria-label={t("about_version")}
+							>
+								{displayVersion}
+							</button>
+							<Badge
+								variant="outline"
+								className={getChannelBadgeClass(topReleaseChannel)}
+							>
+								{t(`about_channel_${topReleaseChannel}`)}
+							</Badge>
+						</div>
 					</div>
 
-					<section className="border-t px-5 py-5 md:px-7 md:py-6">
-						<div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-							<div>
-								<h3 className="text-sm font-semibold">
-									{t("about_capabilities")}
-								</h3>
-								<p className="text-sm text-muted-foreground">
-									{t("about_capabilities_desc")}
-								</p>
-							</div>
-						</div>
-						<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-							{capabilityItems.map((item) => (
-								<div
-									key={item.title}
-									className="rounded-lg border bg-background p-4 shadow-xs transition-colors duration-200 hover:border-primary/35 hover:bg-muted/20 dark:shadow-none motion-reduce:transition-none"
-								>
-									<div className="mb-3 flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
-										<Icon name={item.icon} className="size-4" />
-									</div>
-									<h4 className="text-sm font-semibold">{item.title}</h4>
-									<p className="mt-1 text-sm leading-5 text-muted-foreground">
-										{item.description}
-									</p>
+					<div className="max-w-3xl space-y-2">
+						<p className="text-lg font-medium tracking-tight text-foreground md:text-xl">
+							{t("about_tagline")}
+						</p>
+						<p className="text-sm leading-6 text-muted-foreground">
+							{t("about_summary")}
+						</p>
+					</div>
+
+					<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+						{buildDetails.map((detail) => (
+							<div key={detail.label} className="rounded-lg bg-muted/30 p-3">
+								<div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+									<Icon name={detail.icon} className="size-4" />
+									{detail.label}
 								</div>
-							))}
-						</div>
-					</section>
-				</AdminSurface>
+								<div className="mt-2 min-w-0 truncate text-sm font-semibold">
+									{detail.value}
+								</div>
+							</div>
+						))}
+					</div>
+				</section>
+
+				<section className="border-t pt-6 md:pt-8">
+					<div className="mb-4 space-y-1">
+						<h3 className="text-sm font-semibold">{t("about_resources")}</h3>
+						<p className="text-sm leading-5 text-muted-foreground">
+							{t("about_resources_desc")}
+						</p>
+					</div>
+
+					<div className="grid gap-2 sm:grid-cols-2">
+						{resourceLinks.map((link) => (
+							<a
+								key={link.href}
+								href={link.href}
+								target="_blank"
+								rel="noreferrer"
+								className={cn(
+									buttonVariants({ variant: "ghost" }),
+									"h-auto w-full justify-between rounded-lg px-3 py-3 text-left hover:bg-muted/50",
+								)}
+							>
+								<span className="flex min-w-0 items-center gap-3">
+									<span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted/40 text-muted-foreground">
+										<Icon name={link.icon} className="size-4" />
+									</span>
+									<span className="min-w-0">
+										<span className="block truncate text-sm font-medium text-foreground">
+											{link.label}
+										</span>
+										<span className="block truncate text-xs font-normal text-muted-foreground">
+											{link.description}
+										</span>
+									</span>
+								</span>
+								<Icon
+									name="ArrowSquareOut"
+									className="size-3.5 shrink-0 text-muted-foreground"
+								/>
+							</a>
+						))}
+					</div>
+				</section>
 			</AdminPageShell>
 		</AdminLayout>
 	);

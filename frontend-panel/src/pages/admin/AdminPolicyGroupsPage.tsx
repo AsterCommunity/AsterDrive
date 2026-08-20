@@ -560,6 +560,7 @@ export default function AdminPolicyGroupsPage() {
 		<AdminLayout>
 			<AdminPageShell>
 				<AdminPageHeader
+					className="px-0 md:px-0"
 					title={t("policy_groups")}
 					description={t("policy_groups_intro")}
 					actions={

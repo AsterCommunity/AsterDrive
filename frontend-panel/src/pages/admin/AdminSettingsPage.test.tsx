@@ -1001,13 +1001,8 @@ describe("AdminSettingsPage", () => {
 
 		const desktopNav = storageTab.parentElement?.parentElement;
 		expect(desktopNav).not.toBeNull();
-		expect(desktopNav).toHaveClass(
-			"sticky",
-			"top-2",
-			"self-start",
-			"border-r",
-			"border-border/50",
-		);
+		expect(desktopNav).toHaveClass("sticky", "top-2", "self-start");
+		expect(desktopNav).not.toHaveClass("border-r");
 	});
 
 	it("navigates to the matching settings route when a tab is selected", async () => {
@@ -2492,9 +2487,7 @@ describe("AdminSettingsPage", () => {
 		fireEvent.click(
 			await screen.findByRole("button", { name: /settings_section_expand/i }),
 		);
-		const vipsCard = (await screen.findByText(/vips_cli/i)).closest(
-			"[data-slot='card']",
-		);
+		const vipsCard = (await screen.findByText(/vips_cli/i)).closest("section");
 		expect(vipsCard).not.toBeNull();
 		fireEvent.click(
 			within(vipsCard as HTMLElement).getByRole("button", {
@@ -2572,9 +2565,7 @@ describe("AdminSettingsPage", () => {
 					name: /media_processing_editor_processor_test_command/i,
 				})
 			).find((button) =>
-				button
-					.closest("[data-slot='card']")
-					?.textContent?.includes("ffprobe_cli"),
+				button.closest("section")?.textContent?.includes("ffprobe_cli"),
 			) ??
 				screen.getAllByRole("button", {
 					name: /media_processing_editor_processor_test_command/i,

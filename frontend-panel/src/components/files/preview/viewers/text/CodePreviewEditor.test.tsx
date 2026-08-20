@@ -2,6 +2,12 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CodePreviewEditor } from "@/components/files/preview/viewers/text/CodePreviewEditor";
 
+vi.mock("react-i18next", () => ({
+	useTranslation: () => ({
+		t: (key: string) => (key === "code_editor" ? "Code editor" : key),
+	}),
+}));
+
 describe("CodePreviewEditor", () => {
 	it("disables textarea soft wrapping when wordWrap is off", () => {
 		render(

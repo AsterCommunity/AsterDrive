@@ -52,5 +52,9 @@
 	"source": "源码",
 	"structured": "结构化",
 	"formatted": "格式化",
-	"clear_search": "清除搜索"
+	"clear_search": "清除搜索",
+	"yes": "是",
+	"no": "否",
+	"custom_color": "自定义颜色",
+	"code_editor": "代码编辑器"
 }

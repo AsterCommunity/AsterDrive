@@ -59,7 +59,7 @@ export function UserProfileSection({
 	const { t } = useTranslation(["admin", "core"]);
 
 	return (
-		<section className="rounded-2xl border bg-background/60 p-6 max-lg:p-4">
+		<section>
 			<div className="mb-5">
 				<h4 className="text-base font-semibold text-foreground">
 					{t("user_details")}

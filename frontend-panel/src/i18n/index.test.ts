@@ -1,6 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiErrorCode } from "@/types/api-helpers";
 
+const FRONTEND_SOURCE_MODULES = import.meta.glob<string>(
+	[
+		"../**/*.ts",
+		"../**/*.tsx",
+		"!../**/*.test.ts",
+		"!../**/*.test.tsx",
+		"!../test/**",
+	],
+	{ eager: true, import: "default", query: "?raw" },
+);
+
 async function loadModule() {
 	vi.resetModules();
 	return (await import("@/i18n")).default;
@@ -85,6 +96,98 @@ describe("i18n", () => {
 		expect(i18n.t("admin:overview_total_users")).toBe("总用户数");
 		expect(i18n.t("share:my_shares_title")).toBe("我的分享");
 	});
+
+	it("covers every literal frontend translation call", async () => {
+		localStorage.setItem("aster-language", "en");
+		const module = await loadI18nModule();
+		const i18n = module.default;
+		await module.ensureAllI18nNamespaces("en");
+
+		const missing = new Set<string>();
+		const literalTranslationCall = /\bt\(\s*["']([^"']+)["']/g;
+		for (const [path, source] of Object.entries(FRONTEND_SOURCE_MODULES)) {
+			for (const match of source.matchAll(literalTranslationCall)) {
+				const key = match[1];
+				const candidates = key.includes(":")
+					? [key]
+					: module.ALL_NAMESPACES.map((namespace) => `${namespace}:${key}`);
+				const exists = candidates.some(
+					(candidate) =>
+						i18n.exists(candidate, { count: 1, lng: "en" }) ||
+						i18n.exists(candidate, { count: 2, lng: "en" }),
+				);
+				if (!exists) missing.add(`${key} (${path})`);
+			}
+		}
+
+		expect([...missing].sort()).toEqual([]);
+	});
+
+	it("keeps bundled locale key sets aligned", async () => {
+		localStorage.setItem("aster-language", "en");
+		const module = await loadI18nModule();
+		const i18n = module.default;
+		await Promise.all(
+			module.BUNDLED_LOCALES.map((language) =>
+				module.ensureAllI18nNamespaces(language),
+			),
+		);
+
+		for (const namespace of module.ALL_NAMESPACES) {
+			const englishKeys = Object.keys(
+				i18n.getResourceBundle("en", namespace),
+			).sort();
+			const chineseKeys = Object.keys(
+				i18n.getResourceBundle("zh", namespace),
+			).sort();
+			expect(chineseKeys, namespace).toEqual(englishKeys);
+		}
+	});
+
+	it.each([
+		{
+			language: "en" as const,
+			expected: {
+				connectionPrompt:
+					"The connection test failed. Save this policy anyway?",
+				fieldRequired: "Remote node is required.",
+				passwordReset:
+					"Password reset successfully. You can sign in with your new password.",
+				yes: "Yes",
+			},
+		},
+		{
+			language: "zh" as const,
+			expected: {
+				connectionPrompt: "连接测试失败，仍要保存此策略吗？",
+				fieldRequired: "必须填写远程节点。",
+				passwordReset: "密码已重置成功，现在可以使用新密码登录。",
+				yes: "是",
+			},
+		},
+	])(
+		"provides restored frontend translations in $language",
+		async ({ language, expected }) => {
+			localStorage.setItem("aster-language", language);
+			const module = await loadI18nModule();
+			const i18n = module.default;
+
+			await module.ensureI18nNamespaces(["admin", "login"], language);
+
+			expect(i18n.t("admin:connection_test_failed_save_prompt")).toBe(
+				expected.connectionPrompt,
+			);
+			expect(
+				i18n.t("admin:policy_connector_field_required", {
+					field: language === "zh" ? "远程节点" : "Remote node",
+				}),
+			).toBe(expected.fieldRequired);
+			expect(i18n.t("login:password_reset_success_login")).toBe(
+				expected.passwordReset,
+			);
+			expect(i18n.t("core:yes")).toBe(expected.yes);
+		},
+	);
 
 	it("loads the authenticated shell namespaces without pulling admin settings", async () => {
 		localStorage.setItem("aster-language", "zh");

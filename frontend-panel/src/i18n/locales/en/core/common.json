@@ -52,5 +52,9 @@
 	"source": "Source",
 	"structured": "Structured",
 	"formatted": "Formatted",
-	"clear_search": "Clear search"
+	"clear_search": "Clear search",
+	"yes": "Yes",
+	"no": "No",
+	"custom_color": "Custom color",
+	"code_editor": "Code editor"
 }

@@ -7,10 +7,8 @@ import {
 	AdminTableHeader as TableHeader,
 	AdminTableRow as TableRow,
 } from "@/components/common/AdminTable";
+import { SettingsSection } from "@/components/common/SettingsScaffold";
 import { SkeletonTable } from "@/components/common/SkeletonTable";
-import { AdminSurface } from "@/components/layout/AdminSurface";
-import { PAGE_SECTION_PADDING_CLASS } from "@/lib/constants";
-import { cn } from "@/lib/utils";
 import type { AdminOverview } from "@/types/api";
 
 interface OverviewDailyReportsSectionProps {
@@ -27,24 +25,17 @@ export function OverviewDailyReportsSection({
 	const { t } = useTranslation("admin");
 
 	return (
-		<AdminSurface padded={false} className="flex-none min-h-0 overflow-hidden">
-			<div className={cn("border-b py-4", PAGE_SECTION_PADDING_CLASS)}>
-				<h3 className="text-base font-semibold">
-					{t("overview_daily_reports")}
-				</h3>
-				<p className="mt-1 text-sm text-muted-foreground">
-					{t("overview_daily_reports_desc", {
-						days: overview?.days ?? defaultDays,
-					})}
-				</p>
-			</div>
-
+		<SettingsSection
+			title={t("overview_daily_reports")}
+			description={t("overview_daily_reports_desc", {
+				days: overview?.days ?? defaultDays,
+			})}
+			className="min-w-0"
+		>
 			{loading && !overview ? (
-				<div className="py-4 md:py-6">
-					<SkeletonTable columns={7} rows={7} />
-				</div>
+				<SkeletonTable frameless columns={7} rows={7} />
 			) : (
-				<Table>
+				<Table frameless>
 					<TableHeader>
 						<TableRow>
 							<TableHead>{t("overview_report_date")}</TableHead>
@@ -71,6 +62,6 @@ export function OverviewDailyReportsSection({
 					</TableBody>
 				</Table>
 			)}
-		</AdminSurface>
+		</SettingsSection>
 	);
 }

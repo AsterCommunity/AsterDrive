@@ -57,7 +57,7 @@ function AdminTeamDetailFrame({
 	open,
 }: AdminTeamDetailFrameProps) {
 	return isPageLayout ? (
-		<div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border bg-background shadow-xs">
+		<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
 			{children}
 		</div>
 	) : (
@@ -105,7 +105,7 @@ export function AdminTeamDetailShell({
 			open={open}
 		>
 			{isPageLayout ? (
-				<div className="flex flex-wrap items-start justify-between gap-3 border-b px-6 pt-5 pb-4">
+				<div className="flex flex-wrap items-start justify-between gap-3 px-6 pb-4">
 					<div className="space-y-1">
 						<p className="text-xs uppercase tracking-wide text-muted-foreground">
 							{t("teams")}
@@ -137,7 +137,7 @@ export function AdminTeamDetailShell({
 				<div className="flex min-h-full flex-col lg:h-full lg:min-h-0 lg:flex-1 lg:flex-row">
 					<aside
 						ref={sidebarRef}
-						className="border-b bg-muted/20 lg:min-h-0 lg:w-80 lg:flex-none lg:overflow-y-auto lg:border-r lg:border-b-0"
+						className="border-b lg:min-h-0 lg:w-80 lg:flex-none lg:overflow-y-auto lg:border-b-0"
 						onScroll={onSidebarScroll}
 					>
 						<div className="space-y-5 p-6 max-lg:space-y-4 max-lg:p-4">
@@ -171,7 +171,7 @@ export function AdminTeamDetailShell({
 								</div>
 							</div>
 
-							<div className="grid gap-y-3 rounded-xl border bg-background/60 p-4 max-lg:grid-cols-2 max-lg:gap-3 max-lg:p-3">
+							<div className="grid gap-y-3 border-t pt-5 max-lg:grid-cols-2 max-lg:gap-3">
 								<div className="space-y-1">
 									<p className="text-xs uppercase tracking-wide text-muted-foreground">
 										ID
@@ -215,7 +215,7 @@ export function AdminTeamDetailShell({
 									</div>
 								) : null}
 							</div>
-							<div className="space-y-3 rounded-xl border bg-background/60 p-4 max-lg:p-3">
+							<div className="space-y-3 border-t pt-5">
 								<div>
 									<p className="text-sm font-medium text-foreground">
 										{t("storage")}
@@ -269,25 +269,25 @@ export function AdminTeamDetailShell({
 									>
 										<TabsTrigger
 											value="overview"
-											className="h-10 min-w-0 rounded-none px-0"
+											className="h-10 min-w-0 flex-none rounded-none px-0"
 										>
 											{t("overview")}
 										</TabsTrigger>
 										<TabsTrigger
 											value="members"
-											className="h-10 min-w-0 rounded-none px-0"
+											className="h-10 min-w-0 flex-none rounded-none px-0"
 										>
 											{t("settings:settings_team_members")}
 										</TabsTrigger>
 										<TabsTrigger
 											value="audit"
-											className="h-10 min-w-0 rounded-none px-0"
+											className="h-10 min-w-0 flex-none rounded-none px-0"
 										>
 											{t("team_audit_title")}
 										</TabsTrigger>
 										<TabsTrigger
 											value="danger"
-											className="h-10 min-w-0 rounded-none px-0"
+											className="h-10 min-w-0 flex-none rounded-none px-0"
 										>
 											{t("team_danger_zone")}
 										</TabsTrigger>
@@ -334,7 +334,7 @@ export function AdminTeamDetailShell({
 								</div>
 							</Tabs>
 						) : (
-							<div className="space-y-4 p-6">
+							<div className="space-y-8 p-6">
 								{overviewSection}
 								{membersSection}
 								{auditSection}

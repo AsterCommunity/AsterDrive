@@ -14,8 +14,7 @@ export const SIDEBAR_SECTION_TITLE_CLASS =
 
 /**
  * D5 选中指示条：active 项左缘的 2px primary 竖条，叠加在 bg-accent 色块上，
- * 暗色下选中辨识度不再依赖弱对比色块。仅用户侧栏启用；管理后台选中态
- * 保持纯色块（RFC 非目标：后台仅随 token 受益）。
+ * 暗色下选中辨识度不再依赖弱对比色块。用户侧栏与管理后台导航统一启用。
  */
 const SIDEBAR_ACTIVE_INDICATOR_CLASS =
 	"relative before:absolute before:left-1 before:top-1/2 before:h-4 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-primary before:content-['']";

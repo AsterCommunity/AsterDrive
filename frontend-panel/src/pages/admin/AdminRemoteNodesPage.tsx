@@ -75,6 +75,7 @@ export default function AdminRemoteNodesPage() {
 		<AdminLayout>
 			<AdminPageShell>
 				<AdminPageHeader
+					className="px-0 md:px-0"
 					title={t("remote_nodes")}
 					description={t("remote_nodes_intro")}
 					actions={

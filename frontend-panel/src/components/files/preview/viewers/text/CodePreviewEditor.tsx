@@ -10,6 +10,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { isImeComposingKeyEvent } from "@/lib/keyboard";
 import {
 	createEditorPalette,
@@ -168,6 +169,7 @@ export function CodePreviewEditor({
 	onMount,
 	options,
 }: CodePreviewEditorProps) {
+	const { t } = useTranslation("core");
 	const [, setPrismRevision] = useState(0);
 	const commandsRef = useRef(new Map<number, EditorCommandHandler>());
 	const gutterContentRef = useRef<HTMLDivElement | null>(null);
@@ -376,7 +378,7 @@ export function CodePreviewEditor({
 						</div>
 						<textarea
 							ref={textareaRef}
-							aria-label="Code editor"
+							aria-label={t("code_editor")}
 							autoCapitalize="off"
 							autoCorrect="off"
 							className="code-preview-editor-input absolute inset-0 h-full w-full resize-none border-0 bg-transparent outline-none"

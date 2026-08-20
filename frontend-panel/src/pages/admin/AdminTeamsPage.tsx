@@ -397,6 +397,7 @@ export default function AdminTeamsPage() {
 		<AdminLayout>
 			<AdminPageShell>
 				<AdminPageHeader
+					className="px-0 md:px-0"
 					title={t("teams")}
 					description={t("teams_intro")}
 					actions={
@@ -441,6 +442,7 @@ export default function AdminTeamsPage() {
 				/>
 
 				<AdminTableList
+					frameless
 					loading={loading}
 					items={teams}
 					columns={6}

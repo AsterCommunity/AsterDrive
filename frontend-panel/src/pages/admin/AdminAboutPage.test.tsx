@@ -69,31 +69,9 @@ vi.mock("@/components/layout/AdminPageShell", () => ({
 	),
 }));
 
-vi.mock("@/components/layout/AdminSurface", () => ({
-	AdminSurface: ({ children }: { children: React.ReactNode }) => (
-		<section>{children}</section>
-	),
-}));
-
 vi.mock("@/components/ui/badge", () => ({
 	Badge: ({ children }: { children: React.ReactNode }) => (
 		<span>{children}</span>
-	),
-}));
-
-vi.mock("@/components/ui/card", () => ({
-	Card: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-	CardContent: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
-	),
-	CardDescription: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
-	),
-	CardHeader: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
-	),
-	CardTitle: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
 	),
 }));
 

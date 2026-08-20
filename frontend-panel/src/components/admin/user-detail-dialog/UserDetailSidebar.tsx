@@ -30,7 +30,7 @@ export function UserDetailSidebar({
 		displayName !== user.username;
 
 	return (
-		<aside className="border-b bg-muted/20 lg:min-h-0 lg:w-80 lg:flex-none lg:overflow-y-auto lg:border-r lg:border-b-0">
+		<aside className="border-b lg:min-h-0 lg:w-80 lg:flex-none lg:overflow-y-auto lg:border-b-0">
 			<div className="space-y-5 p-6 max-lg:space-y-4 max-lg:p-4">
 				<div className="flex flex-col gap-y-3 max-lg:flex-row max-lg:items-start max-lg:gap-3">
 					<UserAvatarImage
@@ -70,7 +70,7 @@ export function UserDetailSidebar({
 				</div>
 
 				<div className="grid gap-y-3 max-lg:grid-cols-2 max-lg:gap-3">
-					<div className="space-y-3 rounded-xl border bg-background/60 p-4 max-lg:space-y-2 max-lg:p-3">
+					<div className="space-y-3 border-t pt-5 max-lg:space-y-2">
 						<div className="space-y-1">
 							<p className="text-xs uppercase tracking-wide text-muted-foreground">
 								ID
@@ -87,7 +87,7 @@ export function UserDetailSidebar({
 						</div>
 					</div>
 
-					<div className="space-y-3 rounded-xl border bg-background/60 p-4 max-lg:space-y-2 max-lg:p-3">
+					<div className="space-y-3 border-t pt-5 max-lg:space-y-2">
 						<div>
 							<p className="text-sm font-medium text-foreground">
 								{t("storage")}

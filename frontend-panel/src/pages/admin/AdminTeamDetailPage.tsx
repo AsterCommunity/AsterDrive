@@ -100,7 +100,7 @@ export default function AdminTeamDetailPage() {
 
 	return (
 		<AdminLayout>
-			<AdminPageShell className="overflow-hidden">
+			<AdminPageShell className="overflow-hidden px-0 md:px-0">
 				<AdminTeamDetailDialog
 					layout="page"
 					open

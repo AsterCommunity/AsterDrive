@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink } from "react-router-dom";
 import { AdminTopBar } from "@/components/layout/AdminTopBar";
@@ -10,7 +10,24 @@ import {
 	ADMIN_TOPBAR_OFFSET_CLASS,
 	SIDEBAR_SECTION_PADDING_CLASS,
 } from "@/lib/constants";
-import { cn, sidebarNavItemClass } from "@/lib/utils";
+import {
+	cn,
+	SIDEBAR_SECTION_TITLE_CLASS,
+	sidebarNavItemClass,
+} from "@/lib/utils";
+
+interface AdminNavItem {
+	to: string;
+	label: string;
+	icon: IconName;
+	end?: boolean;
+}
+
+interface AdminNavGroup {
+	/** 组标题 i18n key；主入口组无标题（对齐用户侧栏目录树的处理）。 */
+	titleKey?: string;
+	items: AdminNavItem[];
+}
 
 export function AdminLayout({ children }: { children: ReactNode }) {
 	const { t } = useTranslation("admin");
@@ -24,40 +41,70 @@ export function AdminLayout({ children }: { children: ReactNode }) {
 		setMobileOpen(false);
 	}, []);
 
-	const primaryNavItems: { to: string; label: string; icon: IconName }[] = [
-		{ to: "/admin/overview", label: t("overview"), icon: "Presentation" },
-		{ to: "/admin/users", label: t("users"), icon: "Shield" },
-		{ to: "/admin/teams", label: t("teams"), icon: "Cloud" },
-		{ to: "/admin/external-auth", label: t("external_auth"), icon: "SignIn" },
-		{ to: "/admin/policies", label: t("policies"), icon: "HardDrive" },
-		{
-			to: "/admin/policy-groups",
-			label: t("policy_groups"),
-			icon: "ListBullets",
-		},
-		{ to: "/admin/remote-nodes", label: t("remote_nodes"), icon: "Globe" },
-		{ to: "/admin/files", label: t("admin_files"), icon: "File" },
-		{
-			to: "/admin/file-blobs",
-			label: t("admin_file_blobs"),
-			icon: "HardDrive",
-		},
-		{ to: "/admin/shares", label: t("shares"), icon: "Link" },
-		{ to: "/admin/locks", label: t("locks"), icon: "Lock" },
-		{ to: "/admin/tasks", label: t("tasks"), icon: "Clock" },
-		{
-			to: "/admin/audit",
-			label: t("audit_log"),
-			icon: "ClipboardText",
-		},
-		{ to: "/admin/settings", label: t("system_settings"), icon: "Gear" },
-	];
-	const secondaryNavItems: {
-		to: string;
-		label: string;
-		icon: IconName;
-		end?: boolean;
-	}[] = [
+	const navGroups: AdminNavGroup[] = useMemo(
+		() => [
+			{
+				items: [
+					{ to: "/admin/overview", label: t("overview"), icon: "Presentation" },
+				],
+			},
+			{
+				titleKey: "nav_group_access",
+				items: [
+					{ to: "/admin/users", label: t("users"), icon: "Shield" },
+					{ to: "/admin/teams", label: t("teams"), icon: "Cloud" },
+					{
+						to: "/admin/external-auth",
+						label: t("external_auth"),
+						icon: "SignIn",
+					},
+				],
+			},
+			{
+				titleKey: "nav_group_storage",
+				items: [
+					{ to: "/admin/policies", label: t("policies"), icon: "HardDrive" },
+					{
+						to: "/admin/policy-groups",
+						label: t("policy_groups"),
+						icon: "ListBullets",
+					},
+					{
+						to: "/admin/remote-nodes",
+						label: t("remote_nodes"),
+						icon: "Globe",
+					},
+				],
+			},
+			{
+				titleKey: "nav_group_content",
+				items: [
+					{ to: "/admin/files", label: t("admin_files"), icon: "File" },
+					{
+						to: "/admin/file-blobs",
+						label: t("admin_file_blobs"),
+						icon: "HardDrive",
+					},
+					{ to: "/admin/shares", label: t("shares"), icon: "Link" },
+					{ to: "/admin/locks", label: t("locks"), icon: "Lock" },
+				],
+			},
+			{
+				titleKey: "nav_group_system",
+				items: [
+					{ to: "/admin/tasks", label: t("tasks"), icon: "Clock" },
+					{
+						to: "/admin/audit",
+						label: t("audit_log"),
+						icon: "ClipboardText",
+					},
+					{ to: "/admin/settings", label: t("system_settings"), icon: "Gear" },
+				],
+			},
+		],
+		[t],
+	);
+	const secondaryNavItems: AdminNavItem[] = [
 		{ to: "/", label: t("core:back"), icon: "Undo", end: true },
 		{ to: "/admin/about", label: t("about"), icon: "Info" },
 	];
@@ -65,23 +112,37 @@ export function AdminLayout({ children }: { children: ReactNode }) {
 	const sidebarContent = (
 		<div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
 			<ScrollArea className="min-h-0 flex-1 pt-2">
-				<nav className={cn("space-y-1 py-2", SIDEBAR_SECTION_PADDING_CLASS)}>
-					{primaryNavItems.map((item) => (
-						<NavLink
-							key={item.to}
-							to={item.to}
-							onClick={handleMobileClose}
-							className={({ isActive }) => sidebarNavItemClass(isActive)}
-						>
-							<Icon name={item.icon} className="size-4 shrink-0" />
-							{item.label}
-						</NavLink>
+				<nav className={cn("space-y-5 py-2", SIDEBAR_SECTION_PADDING_CLASS)}>
+					{navGroups.map((group) => (
+						<div key={group.titleKey ?? "main"} className="space-y-1">
+							{group.titleKey ? (
+								<p className={SIDEBAR_SECTION_TITLE_CLASS}>
+									{t(group.titleKey)}
+								</p>
+							) : null}
+							{group.items.map((item) => (
+								<NavLink
+									key={item.to}
+									to={item.to}
+									end={item.end}
+									onClick={handleMobileClose}
+									className={({ isActive }) =>
+										sidebarNavItemClass(isActive, undefined, {
+											indicator: true,
+										})
+									}
+								>
+									<Icon name={item.icon} className="size-4 shrink-0" />
+									{item.label}
+								</NavLink>
+							))}
+						</div>
 					))}
 				</nav>
 			</ScrollArea>
 			<div
 				className={cn(
-					"border-t pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] md:pb-2",
+					"pt-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] md:pb-2",
 					SIDEBAR_SECTION_PADDING_CLASS,
 				)}
 			>
@@ -92,7 +153,9 @@ export function AdminLayout({ children }: { children: ReactNode }) {
 							to={item.to}
 							end={item.end}
 							onClick={handleMobileClose}
-							className={({ isActive }) => sidebarNavItemClass(isActive)}
+							className={({ isActive }) =>
+								sidebarNavItemClass(isActive, undefined, { indicator: true })
+							}
 						>
 							<Icon name={item.icon} className="size-4 shrink-0" />
 							{item.label}
@@ -122,8 +185,9 @@ export function AdminLayout({ children }: { children: ReactNode }) {
 					tabIndex={mobileOpen ? 0 : -1}
 				/>
 				<aside
+					data-theme-surface="chrome"
 					className={cn(
-						"border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform duration-200 ease-out motion-reduce:transition-none",
+						"border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform duration-200 ease-out motion-reduce:transition-none md:border-r-0",
 						ADMIN_SIDEBAR_WIDTH_CLASS,
 						"fixed left-0 z-(--z-fixed) flex flex-col md:relative md:left-auto md:top-auto md:bottom-auto md:z-auto md:translate-x-0",
 						ADMIN_TOPBAR_OFFSET_CLASS,

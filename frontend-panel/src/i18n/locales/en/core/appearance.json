@@ -8,5 +8,9 @@
 	"language_zh": "中文",
 	"appearance_desc": "Choose your preferred theme mode and accent color.",
 	"mode": "Mode",
-	"color": "Color"
+	"color": "Color",
+	"color_blue": "Blue",
+	"color_green": "Green",
+	"color_purple": "Purple",
+	"color_orange": "Orange"
 }

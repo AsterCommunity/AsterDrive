@@ -1,6 +1,6 @@
 {
-	"pwa_update_available": "有新版本可用",
-	"pwa_refresh": "刷新",
+	"pwa_update_available": "当前页面有新版本可用",
+	"pwa_refresh": "刷新页面",
 	"offline_mode": "离线模式",
 	"auth_stale": "登录状态待校验",
 	"offline_status_short": "离线",

@@ -347,6 +347,7 @@ export default function AdminUserInvitationsPage() {
 		<AdminLayout>
 			<AdminPageShell>
 				<AdminPageHeader
+					className="px-0 md:px-0"
 					title={t("user_invitations")}
 					description={t("user_invitations_intro")}
 					actions={
@@ -386,6 +387,7 @@ export default function AdminUserInvitationsPage() {
 				/>
 
 				<AdminTableList
+					frameless
 					loading={loading || outOfRangeEmptyPage}
 					items={invitations}
 					columns={6}

@@ -92,7 +92,7 @@ export function InviteUserDialog({
 						) : null}
 					</div>
 					{createdInvitation ? (
-						<div className="space-y-2 rounded-lg border border-border/70 bg-muted/25 p-3">
+						<div className="space-y-2 rounded-lg bg-muted/30 p-3">
 							<div className="flex items-center justify-between gap-3">
 								<p className="text-sm font-medium">{t("invitation_created")}</p>
 								{createdInvitation.mail_queued ? (

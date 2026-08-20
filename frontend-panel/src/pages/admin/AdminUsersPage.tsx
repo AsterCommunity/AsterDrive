@@ -531,6 +531,7 @@ export default function AdminUsersPage() {
 		<AdminLayout>
 			<AdminPageShell>
 				<AdminPageHeader
+					className="px-0 md:px-0"
 					title={t("users")}
 					description={t("users_intro")}
 					actions={
@@ -592,6 +593,7 @@ export default function AdminUsersPage() {
 					}
 				/>
 				<AdminTableList
+					frameless
 					loading={loading}
 					items={users}
 					columns={7}

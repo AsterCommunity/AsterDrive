@@ -2,13 +2,6 @@ import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -127,13 +120,13 @@ export function OfflineDownloadEngineRegistryEditor({
 			</div>
 
 			{enabledCount === 0 ? (
-				<div className="rounded-lg border border-dashed bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+				<div className="rounded-lg bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
 					{t("offline_download_engine_editor_disabled_hint")}
 				</div>
 			) : null}
 
 			{validationIssues.length > 0 ? (
-				<div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
+				<div className="rounded-lg bg-destructive/10 p-3 text-sm">
 					<p className="font-medium text-destructive">
 						{t("offline_download_engine_editor_validation_title")}
 					</p>
@@ -154,14 +147,19 @@ export function OfflineDownloadEngineRegistryEditor({
 					const isAria2 = engine.kind === "aria2";
 
 					return (
-						<Card key={engine.kind} size="sm">
-							<CardHeader>
+						<section
+							key={engine.kind}
+							className="space-y-4 rounded-xl bg-muted/30 p-4"
+						>
+							<div>
 								<div className="flex flex-wrap items-start justify-between gap-3">
 									<div className="space-y-1">
-										<CardTitle>{t(getEngineLabelKey(engine.kind))}</CardTitle>
-										<CardDescription>
+										<h5 className="font-heading text-sm leading-snug font-medium">
+											{t(getEngineLabelKey(engine.kind))}
+										</h5>
+										<p className="text-sm text-muted-foreground">
 											{t(getEngineDescriptionKey(engine.kind))}
-										</CardDescription>
+										</p>
 									</div>
 									<div className="flex flex-wrap items-center gap-2">
 										<Badge variant={engine.enabled ? "secondary" : "outline"}>
@@ -178,9 +176,9 @@ export function OfflineDownloadEngineRegistryEditor({
 										) : null}
 									</div>
 								</div>
-							</CardHeader>
-							<CardContent className="space-y-4">
-								<div className="flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+							</div>
+							<div className="space-y-4">
+								<div className="flex items-center gap-3 rounded-lg bg-background px-3 py-2">
 									<Switch
 										id={`offline-download-engine-${engine.kind}`}
 										checked={engine.enabled}
@@ -240,8 +238,8 @@ export function OfflineDownloadEngineRegistryEditor({
 										</Button>
 									) : null}
 								</div>
-							</CardContent>
-						</Card>
+							</div>
+						</section>
 					);
 				})}
 			</div>

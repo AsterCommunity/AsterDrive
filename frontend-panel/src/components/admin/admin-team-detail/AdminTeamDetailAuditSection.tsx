@@ -38,7 +38,7 @@ export function AdminTeamDetailAuditSection({
 	const { t } = useTranslation(["admin", "core", "settings"]);
 
 	return (
-		<section className="rounded-2xl border bg-background/60 p-6">
+		<section>
 			<div className="mb-5">
 				<h4 className="text-base font-semibold text-foreground">
 					{t("team_audit_title")}
@@ -57,17 +57,14 @@ export function AdminTeamDetailAuditSection({
 				/>
 			) : (
 				<>
-					<div className="space-y-3">
+					<div className="divide-y">
 						{auditEntries.map((entry) => {
 							const summary =
 								formatAuditDetail(t, entry) ??
 								formatTeamAuditSummary(entry, roleLabel);
 
 							return (
-								<div
-									key={entry.id}
-									className="rounded-xl border bg-muted/10 p-4"
-								>
+								<div key={entry.id} className="py-4 first:pt-0">
 									<div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
 										<div className="space-y-2">
 											<div className="flex flex-wrap items-center gap-2">

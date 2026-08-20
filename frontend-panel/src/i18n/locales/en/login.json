@@ -109,5 +109,6 @@
 	"verify_contact_missing_token_title": "Missing verification token",
 	"verify_contact_missing_token_desc": "This link does not contain a usable verification token, so there is nothing to confirm.",
 	"verify_contact_email_changed_login_hint": "Email changed to {{email}}. Sign in with the new address.",
-	"invitation_accepted_login": "Invitation accepted. Sign in with your new account."
+	"invitation_accepted_login": "Invitation accepted. Sign in with your new account.",
+	"password_reset_success_login": "Password reset successfully. You can sign in with your new password."
 }

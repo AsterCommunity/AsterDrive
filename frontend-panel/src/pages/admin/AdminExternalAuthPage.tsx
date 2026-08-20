@@ -105,6 +105,7 @@ export default function AdminExternalAuthPage() {
 		<AdminLayout>
 			<AdminPageShell>
 				<AdminPageHeader
+					className="px-0 md:px-0"
 					title={t("external_auth")}
 					description={t("external_auth_intro")}
 					actions={
@@ -135,12 +136,13 @@ export default function AdminExternalAuthPage() {
 				/>
 
 				{testResult ? (
-					<div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200">
+					<div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
 						{testResult}
 					</div>
 				) : null}
 
 				<AdminTableList
+					frameless
 					loading={loading}
 					items={providers}
 					columns={6}

@@ -8,9 +8,9 @@ import {
 	AdminTableRow as TableRow,
 } from "@/components/common/AdminTable";
 import { EmptyState } from "@/components/common/EmptyState";
+import { SettingsSection } from "@/components/common/SettingsScaffold";
 import { SkeletonTable } from "@/components/common/SkeletonTable";
 import { UserIdentity } from "@/components/common/UserIdentity";
-import { AdminSurface } from "@/components/layout/AdminSurface";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
 import {
@@ -20,9 +20,7 @@ import {
 	formatAuditTargetType,
 	getAuditActionBadgeClass,
 } from "@/lib/audit";
-import { PAGE_SECTION_PADDING_CLASS } from "@/lib/constants";
 import { formatDateAbsolute, formatDateAbsoluteWithOffset } from "@/lib/format";
-import { cn } from "@/lib/utils";
 import type { AdminOverview } from "@/types/api";
 
 interface OverviewRecentEventsSectionProps {
@@ -37,22 +35,15 @@ export function OverviewRecentEventsSection({
 	const { t } = useTranslation("admin");
 
 	return (
-		<AdminSurface padded={false} className="min-h-0 overflow-hidden">
-			<div className={cn("border-b py-4", PAGE_SECTION_PADDING_CLASS)}>
-				<h3 className="text-base font-semibold">
-					{t("overview_recent_events")}
-				</h3>
-				<p className="mt-1 text-sm text-muted-foreground">
-					{t("overview_recent_events_desc")}
-				</p>
-			</div>
-
+		<SettingsSection
+			title={t("overview_recent_events")}
+			description={t("overview_recent_events_desc")}
+			className="min-w-0"
+		>
 			{loading && !overview ? (
-				<div className="py-4 md:py-6">
-					<SkeletonTable columns={4} rows={8} />
-				</div>
+				<SkeletonTable frameless columns={4} rows={8} />
 			) : overview?.recent_events.length ? (
-				<Table className="min-w-[760px] table-fixed">
+				<Table frameless className="min-w-[760px] table-fixed">
 					<TableHeader>
 						<TableRow>
 							<TableHead className="w-[180px]">{t("audit_time")}</TableHead>
@@ -111,6 +102,6 @@ export function OverviewRecentEventsSection({
 					description={t("overview_recent_events_empty_desc")}
 				/>
 			)}
-		</AdminSurface>
+		</SettingsSection>
 	);
 }

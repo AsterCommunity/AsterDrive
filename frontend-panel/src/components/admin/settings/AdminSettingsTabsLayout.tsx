@@ -109,7 +109,7 @@ function DesktopNavigation({
 	categorySummaries: AdminSettingsCategorySummary[];
 }) {
 	return (
-		<div className="sticky top-2 self-start min-h-0 w-[15.5rem] flex-none border-r border-border/50 pr-3">
+		<div className="sticky top-2 min-h-0 w-[15.5rem] flex-none self-start">
 			<TabsList
 				variant="line"
 				className="h-auto w-full flex-col items-stretch gap-1 bg-transparent p-0"

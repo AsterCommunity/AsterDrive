@@ -1,56 +1,40 @@
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "@/components/common/EmptyState";
-import { AdminSurface } from "@/components/layout/AdminSurface";
-import { Card, CardContent, CardDescription } from "@/components/ui/card";
+import { SettingsSection } from "@/components/common/SettingsScaffold";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PAGE_SECTION_PADDING_CLASS } from "@/lib/constants";
 import { formatBytes } from "@/lib/format";
-import { cn } from "@/lib/utils";
 import type { AdminOverview } from "@/types/api";
 import { COUNT_FORMATTER } from "./overviewPresentation";
 
-interface StatCardProps {
-	accentClass: string;
+interface StatBlockProps {
 	icon: IconName;
 	label: string;
 	value: string;
 }
 
-function StatCard({ accentClass, icon, label, value }: StatCardProps) {
+// D9 层级重建：数字是主角（3xl tabular-nums），图标并入 label 行——
+// 独立的 icon 井在亮色下是「白上灰」亮度倒挂，且不构成信息。
+function StatBlock({ icon, label, value }: StatBlockProps) {
 	return (
-		<Card className="border-0 shadow-none ring-1 ring-border/70">
-			<CardContent className="flex items-start justify-between gap-3 p-4">
-				<div className="min-w-0 space-y-1">
-					<CardDescription className="text-xs leading-5">
-						{label}
-					</CardDescription>
-					<p className="text-2xl font-semibold tracking-tight">{value}</p>
-				</div>
-				<div
-					className={cn(
-						"mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl",
-						accentClass,
-					)}
-				>
-					<Icon name={icon} className="size-4" />
-				</div>
-			</CardContent>
-		</Card>
+		<div className="rounded-xl bg-muted/30 p-4">
+			<div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+				<Icon name={icon} className="size-3.5" />
+				{label}
+			</div>
+			<p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">
+				{value}
+			</p>
+		</div>
 	);
 }
 
-function StatCardSkeleton() {
+function StatBlockSkeleton() {
 	return (
-		<Card className="border-0 shadow-none ring-1 ring-border/70">
-			<CardContent className="flex items-start justify-between gap-3 p-4">
-				<div className="space-y-2">
-					<Skeleton className="h-3.5 w-24" />
-					<Skeleton className="h-7 w-20" />
-				</div>
-				<Skeleton className="size-9 rounded-xl" />
-			</CardContent>
-		</Card>
+		<div className="rounded-xl bg-muted/30 p-4">
+			<Skeleton className="h-3.5 w-24" />
+			<Skeleton className="mt-3 h-8 w-20" />
+		</div>
 	);
 }
 
@@ -65,90 +49,64 @@ export function OverviewStatsSection({
 }: OverviewStatsSectionProps) {
 	const { t } = useTranslation("admin");
 	const stats = overview?.stats;
-	const statCards = stats
+	const statBlocks = stats
 		? [
 				{
 					label: t("overview_total_users"),
 					value: COUNT_FORMATTER.format(stats.total_users),
 					icon: "Shield" as const,
-					accentClass:
-						"bg-blue-100 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300",
 				},
 				{
 					label: t("overview_total_files"),
 					value: COUNT_FORMATTER.format(stats.total_files),
 					icon: "File" as const,
-					accentClass:
-						"bg-violet-100 text-violet-700 dark:bg-violet-950/70 dark:text-violet-300",
 				},
 				{
 					label: t("overview_total_blobs"),
 					value: COUNT_FORMATTER.format(stats.total_blobs),
 					icon: "HardDrive" as const,
-					accentClass:
-						"bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200",
 				},
 				{
 					label: t("overview_total_shares"),
 					value: COUNT_FORMATTER.format(stats.total_shares),
 					icon: "Link" as const,
-					accentClass:
-						"bg-cyan-100 text-cyan-700 dark:bg-cyan-950/70 dark:text-cyan-300",
 				},
 				{
 					label: t("overview_total_file_bytes"),
 					value: formatBytes(Math.max(stats.total_file_bytes, 0)),
 					icon: "Cloud" as const,
-					accentClass:
-						"bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-950/70 dark:text-fuchsia-300",
 				},
 				{
 					label: t("overview_total_blob_bytes"),
 					value: formatBytes(Math.max(stats.total_blob_bytes, 0)),
 					icon: "Cloud" as const,
-					accentClass:
-						"bg-indigo-100 text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300",
 				},
 			]
 		: [];
 
 	return (
-		<AdminSurface padded={false} className="min-h-0 overflow-hidden">
-			<div className={cn("border-b py-4", PAGE_SECTION_PADDING_CLASS)}>
-				<h3 className="text-base font-semibold">{t("overview_summary")}</h3>
-				<p className="mt-1 text-sm text-muted-foreground">
-					{t("overview_summary_desc")}
-				</p>
-			</div>
-
+		<SettingsSection
+			title={t("overview_summary")}
+			description={t("overview_summary_desc")}
+			className="min-w-0"
+		>
 			{loading && !overview ? (
-				<div
-					className={cn(
-						"grid gap-3 py-4 sm:grid-cols-2",
-						PAGE_SECTION_PADDING_CLASS,
-					)}
-				>
+				<div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
 					{Array.from({ length: 6 }).map((_, index) => (
-						<StatCardSkeleton
+						<StatBlockSkeleton
 							// biome-ignore lint/suspicious/noArrayIndexKey: static loading placeholders
 							key={`overview-stat-skeleton-${index}`}
 						/>
 					))}
 				</div>
 			) : overview ? (
-				<div
-					className={cn(
-						"grid gap-3 py-4 sm:grid-cols-2",
-						PAGE_SECTION_PADDING_CLASS,
-					)}
-				>
-					{statCards.map((card) => (
-						<StatCard
-							key={card.label}
-							label={card.label}
-							value={card.value}
-							icon={card.icon}
-							accentClass={card.accentClass}
+				<div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
+					{statBlocks.map((block) => (
+						<StatBlock
+							key={block.label}
+							label={block.label}
+							value={block.value}
+							icon={block.icon}
 						/>
 					))}
 				</div>
@@ -159,6 +117,6 @@ export function OverviewStatsSection({
 					description={t("overview_empty_desc")}
 				/>
 			)}
-		</AdminSurface>
+		</SettingsSection>
 	);
 }

@@ -295,7 +295,10 @@ export function TaskCard({
 	return (
 		// D9 去框化：任务条目用常态柔和色垫分区（不用描边），hover 加深一档，
 		// 展开详情内的分隔线保留（内容分区，非容器框）
-		<div className="rounded-xl bg-muted/45 transition-colors hover:bg-muted/60 dark:bg-muted/20 dark:hover:bg-muted/30">
+		<div
+			data-slot="card"
+			className="rounded-xl bg-muted/45 transition-colors hover:bg-muted/60 dark:bg-muted/20 dark:hover:bg-muted/30"
+		>
 			{/* biome-ignore lint/a11y/noStaticElementInteractions: the nested summary button remains the keyboard-accessible control; this extends its mouse hit area to the row padding. */}
 			{/* biome-ignore lint/a11y/useKeyWithClickEvents: the nested summary button provides keyboard activation; this handler only extends the pointer hit area. */}
 			<div

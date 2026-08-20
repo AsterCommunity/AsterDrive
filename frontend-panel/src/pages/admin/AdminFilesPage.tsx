@@ -353,7 +353,7 @@ function FileDetailDialog({
 				</DialogHeader>
 				{file ? (
 					<div className="space-y-4">
-						<div className="rounded-lg border border-border/60 p-3">
+						<div className="rounded-lg bg-muted/30 p-3">
 							<DetailRow label={t("id")} value={file.id} />
 							<DetailRow label={t("admin_blob_id")} value={file.blob_id} />
 							<DetailRow
@@ -400,7 +400,7 @@ function FileDetailDialog({
 									{file.versions.map((version) => (
 										<div
 											key={version.id}
-											className="rounded-lg border border-border/60 p-3 text-sm"
+											className="rounded-lg bg-muted/30 p-3 text-sm"
 										>
 											<div className="font-medium">
 												v{version.version} · {formatBytes(version.size)}
@@ -413,7 +413,7 @@ function FileDetailDialog({
 									))}
 								</div>
 							) : (
-								<div className="rounded-lg border border-border/60 p-3 text-sm text-muted-foreground">
+								<div className="rounded-lg bg-muted/30 p-3 text-sm text-muted-foreground">
 									{t("admin_no_file_versions")}
 								</div>
 							)}
@@ -488,7 +488,7 @@ function BlobDetailDialog({
 								{t("admin_blob_action_cleanup_orphan")}
 							</Button>
 						</div>
-						<div className="rounded-lg border border-border/60 p-3">
+						<div className="rounded-lg bg-muted/30 p-3">
 							<DetailRow label={t("id")} value={blob.id} />
 							<DetailRow label={t("admin_hash")} value={blob.hash} />
 							<DetailRow label={t("admin_hash_kind")} value={blob.hash_kind} />
@@ -538,7 +538,7 @@ function BlobDetailDialog({
 										blob.files.map((file) => (
 											<div
 												key={file.id}
-												className="rounded-lg border border-border/60 p-3 text-sm"
+												className="rounded-lg bg-muted/30 p-3 text-sm"
 											>
 												<div className="truncate font-medium">{file.name}</div>
 												<div className="mt-1 font-mono text-xs text-muted-foreground">
@@ -552,7 +552,7 @@ function BlobDetailDialog({
 											</div>
 										))
 									) : (
-										<div className="rounded-lg border border-border/60 p-3 text-sm text-muted-foreground">
+										<div className="rounded-lg bg-muted/30 p-3 text-sm text-muted-foreground">
 											{t("admin_no_blob_files")}
 										</div>
 									)}
@@ -567,7 +567,7 @@ function BlobDetailDialog({
 										blob.file_versions.map((version) => (
 											<div
 												key={version.id}
-												className="rounded-lg border border-border/60 p-3 text-sm"
+												className="rounded-lg bg-muted/30 p-3 text-sm"
 											>
 												<div className="font-medium">
 													file #{version.file_id} · v{version.version}
@@ -578,7 +578,7 @@ function BlobDetailDialog({
 											</div>
 										))
 									) : (
-										<div className="rounded-lg border border-border/60 p-3 text-sm text-muted-foreground">
+										<div className="rounded-lg bg-muted/30 p-3 text-sm text-muted-foreground">
 											{t("admin_no_blob_versions")}
 										</div>
 									)}
@@ -890,6 +890,7 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		<AdminLayout>
 			<AdminPageShell>
 				<AdminPageHeader
+					className="px-0 md:px-0"
 					title={isFiles ? t("admin_files") : t("admin_file_blobs")}
 					description={
 						isFiles ? t("admin_files_intro") : t("admin_file_blobs_intro")
@@ -1103,6 +1104,7 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 					}
 				/>
 				<AdminTableList
+					frameless
 					loading={loading}
 					items={items}
 					columns={9}

@@ -585,6 +585,7 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 		<AdminLayout>
 			<AdminPageShell>
 				<AdminPageHeader
+					className="px-0 md:px-0"
 					title={t("policies")}
 					description={t("policies_intro")}
 					actions={

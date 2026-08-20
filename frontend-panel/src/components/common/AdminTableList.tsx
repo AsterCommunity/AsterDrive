@@ -71,7 +71,7 @@ export function AdminTableList<T>({
 			{loading ? (
 				frameless ? (
 					<div className="min-h-0">
-						<SkeletonTable columns={columns} rows={rows ?? 5} />
+						<SkeletonTable frameless columns={columns} rows={rows ?? 5} />
 					</div>
 				) : (
 					<AdminTableShell>

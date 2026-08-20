@@ -289,6 +289,7 @@ export default function AdminAuditPage() {
 				<AdminPageHeader
 					title={t("audit_log")}
 					description={t("audit_intro")}
+					className="px-0 md:px-0"
 					actions={
 						<Button
 							variant="outline"
@@ -345,6 +346,7 @@ export default function AdminAuditPage() {
 				/>
 
 				<AdminTableList
+					frameless
 					loading={loading}
 					items={items}
 					columns={6}

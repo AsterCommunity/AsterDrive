@@ -23,15 +23,5 @@
 	"about_view_mit_license": "查看 MIT 许可证",
 	"about_view_mit_license_desc": "宽松的 MIT 开源许可条款",
 	"about_view_apache_license": "查看 Apache 2.0 许可证",
-	"about_view_apache_license_desc": "包含专利授权的 Apache 许可条款",
-	"about_capabilities": "控制台覆盖范围",
-	"about_capabilities_desc": "这些模块构成当前管理后台的主要工作面。",
-	"about_capability_files": "文件与分享",
-	"about_capability_files_desc": "集中管理文件、目录、外链、锁定与回收站相关流程。",
-	"about_capability_access": "身份与权限",
-	"about_capability_access_desc": "覆盖用户、团队、外部登录与访问控制配置。",
-	"about_capability_storage": "存储策略",
-	"about_capability_storage_desc": "维护存储后端、策略分组、远程节点与容量规则。",
-	"about_capability_operations": "运行维护",
-	"about_capability_operations_desc": "查看后台任务、审计事件、系统设置与处理状态。"
+	"about_view_apache_license_desc": "包含专利授权的 Apache 许可条款"
 }

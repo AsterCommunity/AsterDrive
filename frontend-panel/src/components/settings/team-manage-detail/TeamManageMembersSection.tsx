@@ -300,8 +300,8 @@ export function TeamManageMembersSection({
 				/>
 			) : (
 				<>
-					<div className="overflow-x-auto rounded-xl border">
-						<Table>
+					<div className="overflow-x-auto">
+						<Table frameless>
 							<TableHeader>
 								<TableRow>
 									<TableHead>{t("settings:settings_team_member")}</TableHead>

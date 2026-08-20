@@ -64,7 +64,7 @@ export function PolicyGroupMigrationDialog({
 					<div className="grid gap-4 sm:grid-cols-2">
 						<div className="space-y-2">
 							<Label>{t("policy_group_migration_source")}</Label>
-							<div className="rounded-lg border bg-muted/20 px-3 py-2 text-sm font-medium text-foreground">
+							<div className="rounded-lg bg-muted/30 px-3 py-2 text-sm font-medium text-foreground">
 								{sourceGroupName ?? "-"}
 							</div>
 						</div>
@@ -94,12 +94,12 @@ export function PolicyGroupMigrationDialog({
 						</div>
 					</div>
 
-					<div className="rounded-lg border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+					<div className="rounded-lg bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
 						{t("policy_group_migration_hint")}
 					</div>
 
 					{error ? (
-						<div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+						<div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
 							{error}
 						</div>
 					) : null}

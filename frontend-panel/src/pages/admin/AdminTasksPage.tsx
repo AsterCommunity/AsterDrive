@@ -534,6 +534,7 @@ function useAdminTasksPageContent() {
 				<AdminPageHeader
 					title={t("admin:tasks")}
 					description={t("admin:tasks_intro")}
+					className="px-0 md:px-0"
 					actions={
 						<>
 							<Button
@@ -578,6 +579,7 @@ function useAdminTasksPageContent() {
 				/>
 
 				<AdminTableList
+					frameless
 					loading={loading}
 					items={items}
 					columns={8}

@@ -119,7 +119,7 @@ export function CreateUserDialog({
 							{t("create_user_password_hint")}
 						</p>
 					</div>
-					<div className="flex items-center justify-between gap-3 rounded-md border p-3">
+					<div className="flex items-center justify-between gap-3 rounded-lg bg-muted/30 p-3">
 						<div className="min-w-0 space-y-1">
 							<Label htmlFor="create-user-must-change-password">
 								{t("force_password_change")}

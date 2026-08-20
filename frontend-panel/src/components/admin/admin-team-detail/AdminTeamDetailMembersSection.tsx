@@ -149,7 +149,7 @@ export function AdminTeamDetailMembersSection({
 	};
 
 	return (
-		<section className="rounded-2xl border bg-background/60 p-6">
+		<section>
 			<div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
 				<div>
 					<h4 className="text-base font-semibold text-foreground">
@@ -218,7 +218,7 @@ export function AdminTeamDetailMembersSection({
 				</AdminFilterToolbar>
 			</div>
 
-			<div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/20 px-4 py-3 text-sm">
+			<div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/30 px-4 py-3 text-sm">
 				<div className="flex flex-wrap gap-4 text-muted-foreground">
 					<span>
 						{t("member_filtered_count", {
@@ -237,7 +237,7 @@ export function AdminTeamDetailMembersSection({
 
 			{canMutateTeam ? (
 				<form
-					className="mb-4 grid gap-3 rounded-xl border bg-muted/20 p-4 md:grid-cols-[minmax(0,1fr)_180px_auto]"
+					className="mb-4 grid gap-3 rounded-xl bg-muted/30 p-4 md:grid-cols-[minmax(0,1fr)_180px_auto]"
 					onSubmit={onAddMember}
 				>
 					<div className="space-y-2">
@@ -288,7 +288,7 @@ export function AdminTeamDetailMembersSection({
 					</div>
 				</form>
 			) : (
-				<div className="mb-4 rounded-xl border border-dashed bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
+				<div className="mb-4 rounded-xl bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
 					{t("team_members_readonly_archived")}
 				</div>
 			)}
@@ -311,8 +311,8 @@ export function AdminTeamDetailMembersSection({
 				/>
 			) : (
 				<>
-					<div className="overflow-x-auto rounded-lg border border-border/70">
-						<Table>
+					<div className="overflow-x-auto">
+						<Table frameless>
 							<TableHeader>
 								<TableRow>
 									<AdminSortableTableHead

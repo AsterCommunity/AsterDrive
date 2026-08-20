@@ -7,6 +7,20 @@ const mockState = vi.hoisted(() => ({
 	setColorPreset: vi.fn(),
 }));
 
+vi.mock("react-i18next", () => ({
+	useTranslation: () => ({
+		t: (key: string) =>
+			({
+				code_editor: "Code editor",
+				color_blue: "Blue",
+				color_green: "Green",
+				color_orange: "Orange",
+				color_purple: "Purple",
+				custom_color: "Custom color",
+			})[key] ?? key,
+	}),
+}));
+
 vi.mock("@/stores/themeStore", () => ({
 	COLOR_PRESETS: {
 		blue: "#2563eb",

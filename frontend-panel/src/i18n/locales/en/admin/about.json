@@ -23,15 +23,5 @@
 	"about_view_mit_license": "View MIT license",
 	"about_view_mit_license_desc": "Permissive MIT license terms",
 	"about_view_apache_license": "View Apache 2.0 license",
-	"about_view_apache_license_desc": "Apache terms, including the patent grant",
-	"about_capabilities": "Console coverage",
-	"about_capabilities_desc": "These modules make up the main administrative work surface.",
-	"about_capability_files": "Files and shares",
-	"about_capability_files_desc": "Manage files, folders, public links, locks, and trash workflows.",
-	"about_capability_access": "Identity and access",
-	"about_capability_access_desc": "Cover users, teams, external sign-in, and access control settings.",
-	"about_capability_storage": "Storage policy",
-	"about_capability_storage_desc": "Maintain storage backends, policy groups, remote nodes, and quota rules.",
-	"about_capability_operations": "Operations",
-	"about_capability_operations_desc": "Review background tasks, audit events, system settings, and processing status."
+	"about_view_apache_license_desc": "Apache terms, including the patent grant"
 }

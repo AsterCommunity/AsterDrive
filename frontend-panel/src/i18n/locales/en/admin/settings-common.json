@@ -86,6 +86,7 @@
 	"settings_enum_set_no_options": "No fixed options were provided by the server.",
 	"settings_enum_set_no_matches": "No matching actions.",
 	"settings_enum_set_invalid_value": "Invalid or duplicate enum value: {{value}}",
+	"settings_number_invalid_value": "Enter a valid number.",
 	"settings_enum_group_admin": "Admin",
 	"settings_enum_group_archive": "Archive",
 	"settings_enum_group_auth": "Auth",

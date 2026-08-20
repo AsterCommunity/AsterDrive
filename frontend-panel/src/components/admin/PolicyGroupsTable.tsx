@@ -527,6 +527,7 @@ export function PolicyGroupsTable({
 	return (
 		<>
 			<AdminTableList
+				frameless
 				loading={loading}
 				items={groups}
 				columns={6}
