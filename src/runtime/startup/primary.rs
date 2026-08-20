@@ -34,6 +34,7 @@ pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
 
     let remote_protocol = crate::runtime::PrimaryAppState::new_remote_protocol();
     remote_protocol.set_persistence_db(common.database.clone());
+    remote_protocol.set_audit_runtime_config(runtime_config.clone());
     remote_protocol.configure_tunnel_owner_directory(
         common.database.clone(),
         &common.cfg.deployment,

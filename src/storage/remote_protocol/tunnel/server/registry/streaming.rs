@@ -13,7 +13,8 @@ use super::broker::RemoteTunnelStreamHttpResponse;
 use super::headers::request_headers;
 use super::{
     REMOTE_TUNNEL_CONNECT_WAIT_TIMEOUT, REMOTE_TUNNEL_REQUEST_TIMEOUT,
-    REMOTE_TUNNEL_STREAM_CHANNEL_CAPACITY, RemoteTunnelRegistry, reverse_tunnel_offline_error,
+    REMOTE_TUNNEL_STREAM_CHANNEL_CAPACITY, RemoteTunnelRegistry, TunnelDisconnectReason,
+    reverse_tunnel_offline_error,
 };
 use crate::errors::{AsterError, Result};
 use crate::storage::remote_protocol::tunnel::server::response::header_pairs_to_map;
@@ -112,7 +113,15 @@ pub(crate) struct RemoteTunnelStreamRegistrationGuard {
     registry: Arc<RemoteTunnelRegistry>,
     access_key: String,
     remote_node_id: i64,
+    remote_node: managed_follower::Model,
     lane_id: String,
+    disconnect_reason: parking_lot::Mutex<TunnelDisconnectReason>,
+}
+
+impl RemoteTunnelStreamRegistrationGuard {
+    pub(crate) fn set_disconnect_reason(&self, reason: TunnelDisconnectReason) {
+        *self.disconnect_reason.lock() = reason;
+    }
 }
 
 impl Drop for RemoteTunnelStreamRegistrationGuard {
@@ -124,6 +133,8 @@ impl Drop for RemoteTunnelStreamRegistrationGuard {
         );
         self.registry
             .fail_stream_requests_for_lane(&self.lane_id, "reverse tunnel streaming lane closed");
+        self.registry
+            .record_stream_disconnect(&self.remote_node, *self.disconnect_reason.lock());
     }
 }
 
@@ -158,7 +169,9 @@ impl RemoteTunnelRegistry {
             registry: self.clone(),
             access_key: remote_node.access_key.clone(),
             remote_node_id: remote_node.id,
+            remote_node: remote_node.clone(),
             lane_id: lane_id.clone(),
+            disconnect_reason: parking_lot::Mutex::new(TunnelDisconnectReason::Eof),
         };
         (lane_id, request_rx, guard)
     }

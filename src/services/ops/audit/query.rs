@@ -13,7 +13,7 @@ use aster_forge_api::{OffsetPage, SortOrder};
 use super::export::{sanitize_details, sanitize_entity_name};
 use super::filters::AuditLogFilters;
 use super::models::{AuditLogEntry, TeamAuditEntryInfo};
-use super::presentation::build_audit_presentation;
+use super::presentation::{build_audit_presentation, sanitize_details, sanitize_entity_name};
 
 const DEFAULT_RETENTION_DAYS: i64 = 90;
 

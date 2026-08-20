@@ -1,15 +1,16 @@
 use chrono::Utc;
-use sea_orm::{ActiveValue::Set, IntoActiveModel};
+use sea_orm::{ActiveValue::Set, ConnectionTrait, IntoActiveModel};
 
 use crate::api::pagination::load_offset_page;
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
-use crate::db::repository::external_auth_provider_repo;
+use crate::db::repository::{auth_policy_repo, external_auth_provider_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use aster_drive_model::entities::external_auth_provider;
 use aster_drive_model::types::external_auth_provider::StoredExternalAuthProviderOptions;
 use aster_forge_api::NullablePatch;
 use aster_forge_api::OffsetPage;
+use aster_forge_db::transaction;
 use aster_forge_external_auth::providers::microsoft::{
     normalize_microsoft_tenant_input, normalize_microsoft_tenant_or_issuer_url,
 };
@@ -761,7 +762,30 @@ pub async fn update_provider(
     }
     active.updated_at = Set(Utc::now());
 
-    let provider = external_auth_provider_repo::update(state.writer_db(), active).await?;
+    let provider = if input.enabled.is_some() {
+        let txn = transaction::begin(state.writer_db()).await?;
+        let result = async {
+            auth_policy_repo::acquire_login_method_lock(&txn).await?;
+            let current = external_auth_provider_repo::find_by_id(&txn, existing.id).await?;
+            if current.enabled && !auth_policy_repo::any_builtin_login_method_enabled(&txn).await? {
+                ensure_external_provider_remains_available(&txn, Some(existing.id)).await?;
+            }
+            external_auth_provider_repo::update(&txn, active).await
+        }
+        .await;
+        match result {
+            Ok(provider) => {
+                transaction::commit(txn).await?;
+                provider
+            }
+            Err(error) => {
+                transaction::rollback(txn).await?;
+                return Err(error);
+            }
+        }
+    } else {
+        external_auth_provider_repo::update(state.writer_db(), active).await?
+    };
     provider_to_admin(provider)
 }
 
@@ -772,7 +796,56 @@ pub async fn delete_provider(state: &impl SharedRuntimeState, id: i64) -> Result
             "external auth provider #{id}"
         )));
     }
-    external_auth_provider_repo::delete(state.writer_db(), id).await
+    let txn = transaction::begin(state.writer_db()).await?;
+    let result = async {
+        auth_policy_repo::acquire_login_method_lock(&txn).await?;
+        let current = external_auth_provider_repo::find_by_id(&txn, id).await?;
+        if current.enabled && !auth_policy_repo::any_builtin_login_method_enabled(&txn).await? {
+            ensure_external_provider_remains_available(&txn, Some(id)).await?;
+        }
+        external_auth_provider_repo::delete(&txn, id).await
+    }
+    .await;
+    match result {
+        Ok(()) => transaction::commit(txn).await.map_err(AsterError::from),
+        Err(error) => {
+            transaction::rollback(txn).await?;
+            Err(error)
+        }
+    }
+}
+
+async fn ensure_external_provider_remains_available<C: ConnectionTrait>(
+    db: &C,
+    excluded_provider_id: Option<i64>,
+) -> Result<()> {
+    let remaining = external_auth_provider_repo::find_enabled(db)
+        .await?
+        .into_iter()
+        .filter(|provider| default_registry().contains(provider.provider_kind))
+        .filter(|provider| Some(provider.id) != excluded_provider_id)
+        .count();
+    ensure_external_provider_count(remaining)
+}
+
+fn ensure_external_provider_count(remaining: usize) -> Result<()> {
+    if remaining > 0 {
+        return Ok(());
+    }
+    Err(AsterError::auth_forbidden(
+        "at least one enabled external auth provider is required while local login is disabled",
+    ))
+}
+
+#[cfg(test)]
+mod policy_tests {
+    use super::ensure_external_provider_count;
+
+    #[test]
+    fn last_external_provider_is_protected() {
+        assert!(ensure_external_provider_count(0).is_err());
+        assert!(ensure_external_provider_count(1).is_ok());
+    }
 }
 
 pub async fn test_provider(

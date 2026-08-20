@@ -130,6 +130,9 @@ function useLoginPageController() {
 	const publicPasskeyLoginEnabled = useFrontendConfigStore(
 		(s) => s.passkeyLoginEnabled,
 	);
+	const publicPasswordLoginEnabled = useFrontendConfigStore(
+		(s) => s.passwordLoginEnabled ?? true,
+	);
 	const conditionalPasskeyAbortRef = useRef<AbortController | null>(null);
 	const conditionalPasskeySupportedRef = useRef(false);
 
@@ -156,6 +159,8 @@ function useLoginPageController() {
 	const [checkedPasskeyLoginEnabled, setCheckedPasskeyLoginEnabled] = useState<
 		boolean | null
 	>(null);
+	const [checkedPasswordLoginEnabled, setCheckedPasswordLoginEnabled] =
+		useState<boolean | null>(null);
 	const [registrationClosed, setRegistrationClosed] = useState(false);
 	const [setupState, setSetupState] = useState<SystemSetupState | null>(null);
 	const [exiting, setExiting] = useState(false);
@@ -178,7 +183,6 @@ function useLoginPageController() {
 	const mfaChallenge = mfaPanel?.challenge ?? null;
 	const showPasswordResetRequest = passwordResetPanel !== null;
 	const externalAuthRecoveryFlow = externalAuthRecovery?.flowToken ?? null;
-	const externalAuthRecoveryMode = externalAuthRecovery?.mode ?? "password";
 
 	// Is the identifier an email address?
 	const isEmail = identifier.includes("@");
@@ -219,6 +223,12 @@ function useLoginPageController() {
 	useEffect(() => scheduleLoginSuccessPathWarmup(), []);
 	const passkeyLoginEnabled =
 		checkedPasskeyLoginEnabled ?? publicPasskeyLoginEnabled;
+	const passwordLoginEnabled =
+		checkedPasswordLoginEnabled ?? publicPasswordLoginEnabled;
+	const externalAuthRecoveryMode =
+		passwordLoginEnabled && externalAuthRecovery?.mode === "password"
+			? "password"
+			: "email";
 	const canUsePasskeyLogin = passkeyLoginEnabled && passkeySupported;
 	const isSubmitDisabled =
 		submitting ||
@@ -226,7 +236,7 @@ function useLoginPageController() {
 		externalAuthBusyProvider !== null ||
 		checking ||
 		identifier.trim().length === 0 ||
-		password.length === 0 ||
+		((mode !== "login" || passwordLoginEnabled) && password.length === 0) ||
 		(requiresExtraField && extraField.trim().length === 0);
 
 	useEffect(() => {
@@ -410,6 +420,8 @@ function useLoginPageController() {
 				if (cancelled) return;
 				setSystemSetupState(result.setup_state);
 				setSetupState(result.setup_state);
+				setCheckedPasskeyLoginEnabled(result.passkey_login_enabled !== false);
+				setCheckedPasswordLoginEnabled(result.password_login_enabled !== false);
 				if (result.setup_state === "needs_admin" || !result.has_users) {
 					setRegistrationClosed(false);
 					setMode("setup");
@@ -418,9 +430,9 @@ function useLoginPageController() {
 
 				setRegistrationClosed(
 					result.setup_state === "needs_storage" ||
-						result.allow_user_registration === false,
+						result.allow_user_registration === false ||
+						result.password_login_enabled === false,
 				);
-				setCheckedPasskeyLoginEnabled(result.passkey_login_enabled !== false);
 				setMode("login");
 			})
 			.catch(() => {
@@ -524,11 +536,13 @@ function useLoginPageController() {
 				errs.extra = extraResult.error.issues[0]?.message ?? "";
 		}
 
-		const passwordValidationSchema =
-			mode === "login" ? existingPasswordSchema : passwordSchema;
-		const pwResult = passwordValidationSchema.safeParse(password);
-		if (!pwResult.success)
-			errs.password = pwResult.error.issues[0]?.message ?? "";
+		if (mode !== "login" || passwordLoginEnabled) {
+			const passwordValidationSchema =
+				mode === "login" ? existingPasswordSchema : passwordSchema;
+			const pwResult = passwordValidationSchema.safeParse(password);
+			if (!pwResult.success)
+				errs.password = pwResult.error.issues[0]?.message ?? "";
+		}
 
 		setErrors(errs);
 		return Object.keys(errs).length === 0;
@@ -629,7 +643,7 @@ function useLoginPageController() {
 	};
 
 	const handleResendActivation = async () => {
-		if (!pendingActivation) return;
+		if (!pendingActivation || !passwordLoginEnabled) return;
 
 		try {
 			setResendingActivation(true);
@@ -643,7 +657,7 @@ function useLoginPageController() {
 	};
 
 	const handleActivationResendRequest = async () => {
-		if (!activationResendPanel) return;
+		if (!activationResendPanel || !passwordLoginEnabled) return;
 		const email = activationResendPanel.email.trim();
 		const result = emailSchema.safeParse(email);
 		if (!result.success) {
@@ -674,7 +688,7 @@ function useLoginPageController() {
 	};
 
 	const handlePasswordResetRequest = async () => {
-		if (!passwordResetPanel) return;
+		if (!passwordResetPanel || !passwordLoginEnabled) return;
 		const email = passwordResetPanel.email.trim();
 		const result = emailSchema.safeParse(email);
 		if (!result.success) {
@@ -738,7 +752,7 @@ function useLoginPageController() {
 	};
 
 	const handleExternalAuthPasswordLink = async () => {
-		if (!externalAuthRecovery) return;
+		if (!externalAuthRecovery || !passwordLoginEnabled) return;
 		const id = externalAuthRecovery.passwordIdentifier.trim();
 		const pw = externalAuthRecovery.password;
 		const errs: Record<string, string> = {};
@@ -1016,13 +1030,14 @@ function useLoginPageController() {
 			return;
 		}
 		if (externalAuthRecoveryFlow) {
-			if (externalAuthRecoveryMode === "email") {
+			if (externalAuthRecoveryMode === "email" || !passwordLoginEnabled) {
 				await handleExternalAuthEmailVerificationRequest();
 			} else {
 				await handleExternalAuthPasswordLink();
 			}
 			return;
 		}
+		if (mode === "login" && !passwordLoginEnabled) return;
 		if (!validate()) return;
 		if (mode === "idle") return;
 
@@ -1057,6 +1072,10 @@ function useLoginPageController() {
 				setErrors({});
 				setShowPassword(false);
 				toast.success(t("setup_admin_created"));
+				if (!passwordLoginEnabled) {
+					setPassword("");
+					return;
+				}
 
 				await handleLoginResult(
 					await authService.login(em, password),
@@ -1129,6 +1148,8 @@ function useLoginPageController() {
 		if (mode === "register") return t("create_new_account");
 		if (mode === "login" && setupState === "needs_storage")
 			return t("storage_setup_login_desc");
+		if (mode === "login" && !passwordLoginEnabled)
+			return t("choose_login_method");
 		if (mode === "login") return t("enter_password");
 		return t("sign_in_to_account");
 	};
@@ -1156,6 +1177,7 @@ function useLoginPageController() {
 		modeActionText,
 		passkeySubmitting,
 		passkeyLoginEnabled,
+		passwordLoginEnabled,
 		passkeySupported,
 		password,
 		passwordResetPanel,

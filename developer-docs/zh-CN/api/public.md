@@ -25,7 +25,7 @@
   "code": "success",
   "msg": "",
   "data": {
-    "version": 2,
+    "version": 3,
     "branding": {
       "title": "AsterDrive",
       "description": "Self-hosted cloud storage",
@@ -34,7 +34,8 @@
       "wordmark_light_url": "/static/asterdrive/asterdrive-light.svg",
       "site_urls": ["https://drive.example.com"],
       "allow_user_registration": true,
-      "passkey_login_enabled": true
+      "passkey_login_enabled": true,
+      "password_login_enabled": true
     },
     "downloads": {
       "archive_download_user_enabled": true,
@@ -49,12 +50,13 @@
 
 要点：
 
-- `version` 当前为 `2`，用于前端判断启动配置结构版本
+- `version` 当前为 `3`，用于前端判断启动配置结构版本
 - `branding` 是公开品牌与登录入口配置的唯一当前接口结构；旧 `/public/branding` 路由已移除
 - `downloads.archive_download_user_enabled` 决定登录用户是否看到并能使用个人空间、团队空间的 ZIP 打包下载方式
 - `downloads.archive_download_share_enabled` 决定公开分享访问者是否能使用分享内容的 ZIP 打包下载方式
 - 这两个字段来自后端运行时配置。前端只负责按能力隐藏入口，归档下载端点仍会再次检查开关，不能把前端隐藏当成权限边界
 - `media.image_preview_preference` 来自运行时配置 `frontend_image_preview_preference`
+- `branding.password_login_enabled` 表示公开本地密码入口是否可用；关闭后公开注册也会变为不可用
 - `image_preview_preference` 当前支持 `original_first` 和 `preview_first`
 - 前端会缓存这份启动配置，并在相关运行时配置变更后主动刷新
 
@@ -150,8 +152,7 @@
     },
     "video_thumbnail": {
       "enabled": false
-    },
-    "extensions": ["bmp", "gif", "jpe", "jpeg", "jpg", "png", "tif", "tiff", "webp"]
+    }
   }
 }
 ```
@@ -160,10 +161,10 @@
 
 - `extensions` 已经做过规范化，统一是不带点的小写扩展名
 - `image_preview`、`image_thumbnail`、`audio_thumbnail`、`video_thumbnail` 是当前按用途拆分的能力字段
-- 顶层 `extensions` 是给旧客户端保留的兼容并集字段
 - 内置图片处理器启用时会暴露常见图片格式
 - 内置 `lofty` 处理器启用 `thumbnail:audio` 时会暴露音频后缀，前端可通过同一条 thumbnail 接口请求音频内嵌封面
 - `vips_cli` / `ffmpeg_cli` 只有在对应命令可用且处理器启用时，才会把配置里的扩展名暴露出去；因此它可能包含图片以外的文档或视频扩展名
+- 这条接口表达的是当前实例的 **effective generation capability**，不是数据库里的 configured capability；管理员可通过 `GET /api/v1/admin/config/media-processing-status` 查看每个处理器的 `configured_enabled`、`runtime_available` 和 `effective_enabled`
 - 这份能力主要来自运行时配置 `media_processing_registry_json`
 - 如果某条存储策略设置了 `storage_native_thumbnail_enabled = true`，且实际驱动暴露存储原生缩略图 / 图片预览能力，策略里的 `storage_native_thumbnail_extensions` 也会合并进公开能力列表；设置为 `false` 只停用原生候选，不影响全局缩略图处理器。内置 `tencent_cos` 策略可通过 COS CI 暴露这项能力，内置 Local、S3-compatible、Azure Blob、OneDrive 和 Remote 策略不暴露
 
@@ -205,6 +206,7 @@
 - `enabled` 是媒体元数据总开关，对应运行时配置 `media_metadata_enabled`
 - `max_source_bytes` 会按服务端配置值返回，但会裁剪到 JavaScript 安全整数范围内
 - `kinds.image` 来自内置 `images` 处理器的 `metadata:image` 用途
+- 图片元数据支持与缩略图生成支持是独立契约；例如内置 Rust 图片解析链可以继续暴露 `heic` 元数据，而缺少 `vips` 时缩略图接口仍会过滤 `heic`
 - `kinds.audio` 来自内置 `lofty` 处理器的 `metadata:audio` 用途
 - `kinds.video` 来自 `ffprobe_cli` 处理器的 `metadata:video` 用途；命令不可用或处理器未启用时会返回 `enabled = false`
 - `match = "extensions"` 表示前端应按扩展名匹配；`match = "any"` 当前只会出现在启用 `ffprobe_cli` 且没有配置扩展名过滤时，表示视频元数据可尝试所有视频候选文件

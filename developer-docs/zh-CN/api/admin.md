@@ -716,6 +716,7 @@ POST /api/v1/admin/policies/action
 | `GET` | `/admin/config` | 列出全部运行时配置 |
 | `GET` | `/admin/config/schema` | 读取系统配置 schema |
 | `GET` | `/admin/config/template-variables` | 读取模板变量清单 |
+| `GET` | `/admin/config/media-processing-status` | 读取媒体处理器的已配置、运行时可用和有效启用状态 |
 | `GET` | `/admin/config/{key}` | 获取单个配置项 |
 | `PUT` | `/admin/config/{key}` | 设置配置项 |
 | `DELETE` | `/admin/config/{key}` | 删除配置项 |
@@ -738,6 +739,7 @@ POST /api/v1/admin/policies/action
 - `auth_local_email_allowlist`
 - `auth_local_email_blocklist`
 - `auth_passkey_login_enabled`
+- `auth_password_login_enabled`
 - `auth_email_code_login_enabled`
 - `auth_email_code_login_allow_totp_fallback`
 - `auth_email_code_login_ttl_secs`
@@ -896,6 +898,8 @@ POST /api/v1/admin/policies/action
 - `is_sensitive`
 
 `GET /admin/config` 返回的是实际配置项分页，字段还会包含 `id`、`key`、`value`、`source`、`visibility`、`namespace`、`updated_at` 和 `updated_by`。敏感配置项的 `value` 会被脱敏成 `***REDACTED***`。
+
+`GET /admin/config/media-processing-status` 不修改数据库配置，只探测当前实例的运行时命令并返回每个处理器的 `configured_enabled`、`runtime_available`、`effective_enabled` 和可选 `unavailable_reason`。`command_not_found` 不会包含配置中的本地命令路径；full/slim 镜像切换后用这条接口解释“数据库仍启用、当前实例不可生成”的状态。
 
 前端管理后台就是靠它动态渲染设置页，而不是写死每个配置项。
 

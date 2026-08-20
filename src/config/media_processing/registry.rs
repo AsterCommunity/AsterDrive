@@ -14,8 +14,10 @@ use super::types::{
     BUILTIN_IMAGE_METADATA_EXTENSIONS, BUILTIN_IMAGES_SUPPORTED_EXTENSIONS, DEFAULT_FFMPEG_COMMAND,
     DEFAULT_FFMPEG_EXTENSIONS, DEFAULT_FFPROBE_COMMAND, DEFAULT_FFPROBE_EXTENSIONS,
     DEFAULT_VIPS_COMMAND, DEFAULT_VIPS_EXTENSIONS, MEDIA_PROCESSING_REGISTRY_VERSION,
-    MatchedMediaProcessor, MediaProcessingMatchKind, MediaProcessingProcessorConfig,
-    MediaProcessingProcessorRuntimeConfig, MediaProcessingRegistryConfig, MediaProcessingUse,
+    MEDIA_PROCESSING_RUNTIME_STATUS_VERSION, MatchedMediaProcessor, MediaProcessingMatchKind,
+    MediaProcessingProcessorConfig, MediaProcessingProcessorRuntimeConfig,
+    MediaProcessingProcessorRuntimeStatus, MediaProcessingRegistryConfig,
+    MediaProcessingRuntimeStatus, MediaProcessingUnavailableReason, MediaProcessingUse,
     PUBLIC_MEDIA_DATA_MAX_SAFE_SOURCE_BYTES, PUBLIC_MEDIA_DATA_SUPPORT_VERSION,
     PUBLIC_THUMBNAIL_SUPPORT_VERSION, PublicExtensionSupport, PublicMediaDataKindSupport,
     PublicMediaDataKindsSupport, PublicMediaDataSupport, PublicMediaDataSupportMatch,
@@ -193,6 +195,58 @@ pub fn public_thumbnail_support(runtime_config: &RuntimeConfig) -> PublicThumbna
         image_thumbnail: public_extension_support(image_thumbnail_extensions),
         audio_thumbnail: public_extension_support(audio_thumbnail_extensions),
         video_thumbnail: public_extension_support(video_thumbnail_extensions),
+    }
+}
+
+pub fn media_processing_runtime_status(
+    runtime_config: &RuntimeConfig,
+) -> MediaProcessingRuntimeStatus {
+    let registry = media_processing_registry(runtime_config);
+    MediaProcessingRuntimeStatus {
+        version: MEDIA_PROCESSING_RUNTIME_STATUS_VERSION,
+        processors: registry
+            .processors
+            .iter()
+            .map(|processor| {
+                let runtime_available = processor_runtime_available(processor);
+                MediaProcessingProcessorRuntimeStatus {
+                    kind: processor.kind,
+                    configured_enabled: processor.enabled,
+                    runtime_available,
+                    effective_enabled: processor.enabled && runtime_available,
+                    unavailable_reason: (processor.enabled && !runtime_available)
+                        .then_some(MediaProcessingUnavailableReason::CommandNotFound),
+                }
+            })
+            .collect(),
+    }
+}
+
+fn processor_runtime_available(processor: &MediaProcessingProcessorConfig) -> bool {
+    match processor.kind {
+        MediaProcessorKind::Images | MediaProcessorKind::Lofty => true,
+        MediaProcessorKind::VipsCli => command_is_available(
+            processor
+                .config
+                .command
+                .as_deref()
+                .unwrap_or(DEFAULT_VIPS_COMMAND),
+        ),
+        MediaProcessorKind::FfmpegCli => command_is_available(
+            processor
+                .config
+                .command
+                .as_deref()
+                .unwrap_or(DEFAULT_FFMPEG_COMMAND),
+        ),
+        MediaProcessorKind::FfprobeCli => command_is_available(
+            processor
+                .config
+                .command
+                .as_deref()
+                .unwrap_or(DEFAULT_FFPROBE_COMMAND),
+        ),
+        MediaProcessorKind::StorageNative => false,
     }
 }
 

@@ -67,6 +67,7 @@ const mockState = vi.hoisted(() => ({
 	conditionalPasskeySupported: false,
 	forceEnableDisabledButtons: false,
 	passkeyLoginEnabled: true,
+	passwordLoginEnabled: true,
 	finishPasskeyLogin: vi.fn(),
 	getPasskeyCredential: vi.fn(),
 	invalidateSystemSetupState: vi.fn(),
@@ -246,6 +247,7 @@ vi.mock("@/pages/login/ExternalAuthRecoveryPanel", () => ({
 		identifier,
 		identifierError,
 		mode,
+		passwordLoginEnabled,
 		onBack,
 		onEmailChange,
 		onIdentifierChange,
@@ -261,6 +263,7 @@ vi.mock("@/pages/login/ExternalAuthRecoveryPanel", () => ({
 		identifier: string;
 		identifierError: string;
 		mode: "password" | "email";
+		passwordLoginEnabled: boolean;
 		onBack: () => void;
 		onEmailChange: (value: string, error: string) => void;
 		onIdentifierChange: (value: string) => void;
@@ -274,14 +277,16 @@ vi.mock("@/pages/login/ExternalAuthRecoveryPanel", () => ({
 		<div>
 			<div>external_auth_email_verification_title</div>
 			<div>{sent ? "external_auth_email_verification_sent_title" : ""}</div>
-			<button
-				type="button"
-				role="tab"
-				aria-selected={mode === "password"}
-				onClick={() => onModeChange("password")}
-			>
-				external_auth_password_link_tab
-			</button>
+			{passwordLoginEnabled ? (
+				<button
+					type="button"
+					role="tab"
+					aria-selected={mode === "password"}
+					onClick={() => onModeChange("password")}
+				>
+					external_auth_password_link_tab
+				</button>
+			) : null}
 			<button
 				type="button"
 				role="tab"
@@ -290,7 +295,7 @@ vi.mock("@/pages/login/ExternalAuthRecoveryPanel", () => ({
 			>
 				external_auth_email_verification_tab
 			</button>
-			{mode === "password" ? (
+			{mode === "password" && passwordLoginEnabled ? (
 				<div>
 					<label htmlFor="external-auth-password-link-identifier">
 						email_or_username
@@ -417,6 +422,7 @@ vi.mock("@/stores/frontendConfigStore", () => ({
 				wordmarkLightUrl: string;
 			};
 			passkeyLoginEnabled: boolean;
+			passwordLoginEnabled: boolean;
 		}) => unknown,
 	) =>
 		selector({
@@ -427,6 +433,7 @@ vi.mock("@/stores/frontendConfigStore", () => ({
 				wordmarkLightUrl: "/static/asterdrive/asterdrive-light.svg",
 			},
 			passkeyLoginEnabled: mockState.passkeyLoginEnabled,
+			passwordLoginEnabled: mockState.passwordLoginEnabled,
 		}),
 }));
 
@@ -448,6 +455,7 @@ describe("LoginPage", () => {
 		mockState.conditionalPasskeySupported = false;
 		mockState.forceEnableDisabledButtons = false;
 		mockState.passkeyLoginEnabled = true;
+		mockState.passwordLoginEnabled = true;
 		mockState.check.mockReset();
 		mockState.finishPasskeyLogin.mockReset();
 		mockState.getPasskeyCredential.mockReset();
@@ -523,6 +531,7 @@ describe("LoginPage", () => {
 			has_users: true,
 			allow_user_registration: true,
 			passkey_login_enabled: true,
+			password_login_enabled: true,
 		});
 		useThemeStore.setState({ resolvedTheme: "light" });
 	});
@@ -1173,6 +1182,170 @@ describe("LoginPage", () => {
 		).not.toBeInTheDocument();
 		await waitFor(() => {
 			expect(mockState.startPasskeyLogin).not.toHaveBeenCalled();
+		});
+	});
+
+	it("uses the auth check response to re-enable password login over stale cached branding", async () => {
+		mockState.passwordLoginEnabled = false;
+		mockState.check.mockResolvedValueOnce({
+			has_users: true,
+			allow_user_registration: true,
+			passkey_login_enabled: false,
+			password_login_enabled: true,
+		});
+
+		render(<LoginPage />);
+
+		expect(
+			await screen.findByRole("button", { name: "sign_in" }),
+		).toBeInTheDocument();
+		expect(screen.getByLabelText("password")).toBeInTheDocument();
+	});
+
+	it("defaults a missing cached password policy to enabled when auth check fails", async () => {
+		mockState.passwordLoginEnabled = undefined as never;
+		mockState.check.mockRejectedValueOnce(new Error("offline"));
+
+		render(<LoginPage />);
+
+		expect(await screen.findByLabelText("password")).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "forgot_password" }),
+		).toBeInTheDocument();
+	});
+
+	it("reports password validation failures before calling login", async () => {
+		render(<LoginPage />);
+		fireEvent.change(await screen.findByLabelText("email_or_username"), {
+			target: { value: "user@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "" },
+		});
+		const form = screen.getByLabelText("password").closest("form");
+		if (!form) throw new Error("login form not found");
+		fireEvent.submit(form);
+
+		expect(await screen.findByText("password-required")).toBeInTheDocument();
+		expect(mockState.login).not.toHaveBeenCalled();
+	});
+
+	it("does not flash cached-disabled password controls while auth check is pending", async () => {
+		mockState.passwordLoginEnabled = false;
+		mockState.check.mockImplementationOnce(() => new Promise(() => undefined));
+
+		const view = render(<LoginPage />);
+
+		expect(
+			await screen.findByLabelText("email_or_username"),
+		).toBeInTheDocument();
+		expect(screen.queryByLabelText("password")).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "sign_in" }),
+		).not.toBeInTheDocument();
+		view.unmount();
+	});
+
+	it("disables password sign-in and hides local password recovery entry points", async () => {
+		mockState.webAuthnSupported = true;
+		mockState.listExternalAuthProviders.mockResolvedValue([
+			{
+				display_name: "Example IDP",
+				icon_url: null,
+				key: "example",
+				kind: "oidc",
+			},
+		]);
+		mockState.check.mockResolvedValueOnce({
+			has_users: true,
+			allow_user_registration: true,
+			passkey_login_enabled: true,
+			password_login_enabled: false,
+		});
+
+		render(<LoginPage />);
+
+		await screen.findByRole("button", { name: /passkey_sign_in/ });
+		expect(screen.queryByLabelText("password")).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "sign_in" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "forgot_password" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "resend_activation" }),
+		).not.toBeInTheDocument();
+		expect(
+			await screen.findByRole("button", { name: /Example IDP/ }),
+		).toBeInTheDocument();
+		expect(await screen.findByText("choose_login_method")).toBeInTheDocument();
+
+		const form = screen.getByLabelText("email_or_username").closest("form");
+		if (!form) throw new Error("login form not found");
+		fireEvent.submit(form);
+		expect(mockState.login).not.toHaveBeenCalled();
+
+		expect(
+			screen.queryByRole("button", { name: "sign_up" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("shows an explicit state when every login method is disabled or unavailable", async () => {
+		mockState.check.mockResolvedValueOnce({
+			has_users: true,
+			allow_user_registration: true,
+			passkey_login_enabled: false,
+			password_login_enabled: false,
+		});
+
+		render(<LoginPage />);
+
+		const unavailableMethodsMessage = await screen.findByText(
+			"no_login_methods_available",
+		);
+		expect(unavailableMethodsMessage).toHaveAttribute("role", "status");
+		expect(screen.queryByLabelText("password")).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "sign_in" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /passkey_sign_in/ }),
+		).not.toBeInTheDocument();
+	});
+
+	it("keeps only email verification in external auth recovery when password login is disabled", async () => {
+		mockState.passwordLoginEnabled = false;
+		mockState.location = {
+			hash: "",
+			pathname: "/login",
+			search: "?external_auth=email_required&flow=flow-token",
+		};
+		mockState.check.mockResolvedValueOnce({
+			has_users: true,
+			allow_user_registration: true,
+			passkey_login_enabled: true,
+			password_login_enabled: false,
+		});
+
+		render(<LoginPage />);
+
+		expect(
+			await screen.findByRole("tab", {
+				name: /external_auth_email_verification_tab/,
+			}),
+		).toBeInTheDocument();
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("tab", {
+					name: /external_auth_password_link_tab/,
+				}),
+			).not.toBeInTheDocument();
+			expect(
+				screen.queryByRole("button", {
+					name: /external_auth_password_link_submit/,
+				}),
+			).not.toBeInTheDocument();
 		});
 	});
 
@@ -2120,6 +2293,73 @@ describe("LoginPage", () => {
 		});
 	});
 
+	it("keeps setup available without attempting a disabled password login", async () => {
+		mockState.check.mockResolvedValueOnce({
+			setup_state: "needs_admin",
+			has_users: false,
+			allow_user_registration: true,
+			passkey_login_enabled: false,
+			password_login_enabled: false,
+		});
+
+		render(<LoginPage />);
+		fireEvent.change(await screen.findByLabelText("email_or_username"), {
+			target: { value: "passwordless-admin@example.com" },
+		});
+		fireEvent.change(await screen.findByLabelText("username"), {
+			target: { value: "passwordless" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "secret123" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "create_admin" }));
+
+		await waitFor(() => {
+			expect(mockState.setup).toHaveBeenCalledWith(
+				"passwordless",
+				"passwordless-admin@example.com",
+				"secret123",
+			);
+		});
+		expect(mockState.login).not.toHaveBeenCalled();
+		expect(mockState.invalidateSystemSetupState).toHaveBeenCalledTimes(1);
+		expect(await screen.findByText("choose_login_method")).toBeInTheDocument();
+		expect(
+			await screen.findByText("no_login_methods_available"),
+		).toHaveAttribute("role", "status");
+		expect(screen.queryByLabelText("password")).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "sign_in" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("validates the setup password even when password login is disabled", async () => {
+		mockState.check.mockResolvedValueOnce({
+			setup_state: "needs_admin",
+			has_users: false,
+			allow_user_registration: true,
+			passkey_login_enabled: false,
+			password_login_enabled: false,
+		});
+
+		render(<LoginPage />);
+		fireEvent.change(await screen.findByLabelText("email_or_username"), {
+			target: { value: "passwordless-admin@example.com" },
+		});
+		fireEvent.change(await screen.findByLabelText("username"), {
+			target: { value: "passwordless" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "" },
+		});
+		const form = screen.getByLabelText("password").closest("form");
+		if (!form) throw new Error("setup form not found");
+		fireEvent.submit(form);
+
+		expect(await screen.findByText("invalid-password")).toBeInTheDocument();
+		expect(mockState.setup).not.toHaveBeenCalled();
+	});
+
 	it("routes an existing bootstrap administrator to storage setup after login", async () => {
 		mockState.check.mockResolvedValueOnce({
 			setup_state: "needs_storage",
@@ -2264,6 +2504,7 @@ describe("LoginPage", () => {
 			);
 
 			render(<LoginPage />);
+			await screen.findByRole("button", { name: "sign_in" });
 
 			fireEvent.change(screen.getByLabelText("email_or_username"), {
 				target: { value: "user@example.com" },
@@ -2474,7 +2715,7 @@ describe("LoginPage", () => {
 	it("keeps submit disabled until login fields are filled", async () => {
 		render(<LoginPage />);
 
-		const submitButton = screen.getByRole("button", { name: "continue" });
+		const submitButton = await screen.findByRole("button", { name: "sign_in" });
 		expect(submitButton).toBeDisabled();
 
 		fireEvent.change(screen.getByLabelText("email_or_username"), {

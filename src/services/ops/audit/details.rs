@@ -456,6 +456,26 @@ pub struct FollowerBindingAuditDetails<'a> {
     pub is_enabled: bool,
 }
 
+/// Stable, redacted context for a remote node reverse-tunnel lifecycle event.
+///
+/// The tunnel has multiple polling/streaming lanes, but the audit contract is
+/// node/binding scoped. Generation counters let operators correlate a recovery
+/// with the outage it follows without persisting credentials or URLs.
+#[derive(Serialize)]
+pub struct RemoteNodeConnectionAuditDetails<'a> {
+    pub remote_node_id: i64,
+    pub binding_id: i64,
+    pub transport: &'a str,
+    pub reason: &'a str,
+    pub generation: u64,
+    pub outage_generation: u64,
+    pub active_lanes: usize,
+    pub lane_count: usize,
+    pub observed_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_lane_id: Option<&'a str>,
+}
+
 #[derive(Serialize)]
 pub struct FollowerObjectAuditDetails<'a> {
     pub binding_id: i64,

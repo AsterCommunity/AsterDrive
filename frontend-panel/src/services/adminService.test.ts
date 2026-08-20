@@ -46,6 +46,14 @@ describe("adminService", () => {
 		mockState.downloadFile.mockReset();
 	});
 
+	it("loads media processor runtime status separately from persisted config", () => {
+		adminConfigService.mediaProcessingStatus();
+
+		expect(mockState.get).toHaveBeenCalledWith(
+			"/admin/config/media-processing-status",
+		);
+	});
+
 	it("builds list endpoints with optional query strings", () => {
 		adminUserService.list({
 			limit: 20,

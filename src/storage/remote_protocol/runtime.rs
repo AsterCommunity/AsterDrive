@@ -30,6 +30,11 @@ impl RemoteProtocolRuntime {
         self.tunnel_registry.set_persistence_db(db);
     }
 
+    pub fn set_audit_runtime_config(&self, runtime_config: Arc<crate::config::RuntimeConfig>) {
+        self.tunnel_registry
+            .set_audit_runtime_config(runtime_config);
+    }
+
     pub fn tunnel_registry(&self) -> &Arc<RemoteTunnelRegistry> {
         &self.tunnel_registry
     }

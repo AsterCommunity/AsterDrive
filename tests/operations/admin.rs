@@ -220,6 +220,7 @@ async fn test_admin_scope_allows_admin_users() {
     assert!(keys.contains(&"auth_cookie_secure"));
     assert!(keys.contains(&"auth_allow_user_registration"));
     assert!(keys.contains(&"auth_register_activation_enabled"));
+    assert!(keys.contains(&"auth_password_login_enabled"));
     assert!(keys.contains(&"auth_access_token_ttl_secs"));
     assert!(keys.contains(&"auth_refresh_token_ttl_secs"));
     assert!(keys.contains(&"mail_outbox_dispatch_interval_secs"));
@@ -285,6 +286,25 @@ async fn test_admin_scope_allows_admin_users() {
     assert_eq!(
         register_toggle["description_i18n_key"],
         "settings_item_auth_allow_user_registration_desc"
+    );
+
+    let password_login_toggle = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["key"] == "auth_password_login_enabled")
+        .unwrap();
+    assert_eq!(
+        password_login_toggle["label_i18n_key"],
+        "settings_item_auth_password_login_enabled_label"
+    );
+    assert_eq!(
+        password_login_toggle["description_i18n_key"],
+        "settings_item_auth_password_login_enabled_desc"
+    );
+    assert_eq!(
+        password_login_toggle["category"],
+        "user.registration_and_login"
     );
 
     let task_attempts = body["data"]
@@ -451,6 +471,22 @@ async fn test_admin_scope_allows_admin_users() {
         .unwrap();
     assert_eq!(
         allow_registration["invalidates"],
+        serde_json::json!(["frontend_config"])
+    );
+
+    let password_login = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["key"] == "auth_password_login_enabled")
+        .unwrap();
+    assert_eq!(
+        password_login["invalidates"],
+        serde_json::json!(["frontend_config"])
+    );
+
+    assert_eq!(
+        passkey_login_toggle["invalidates"],
         serde_json::json!(["frontend_config"])
     );
 
@@ -3980,6 +4016,143 @@ async fn test_admin_config() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
+async fn test_admin_media_processing_status_explains_persisted_cli_availability() {
+    let state = common::setup().await;
+    let available_command = std::env::current_exe()
+        .expect("current test executable should exist")
+        .to_string_lossy()
+        .into_owned();
+    state.runtime_config.apply(common::system_config_model(
+        "media_processing_registry_json",
+        &serde_json::json!({
+            "version": 2,
+            "processors": [
+                {
+                    "kind": "vips_cli",
+                    "enabled": true,
+                    "uses": ["thumbnail:image"],
+                    "extensions": ["heic"],
+                    "config": { "command": "/definitely-missing/aster-vips" }
+                },
+                {
+                    "kind": "ffmpeg_cli",
+                    "enabled": true,
+                    "uses": ["thumbnail:video"],
+                    "extensions": ["mp4"],
+                    "config": { "command": available_command }
+                },
+                {
+                    "kind": "ffprobe_cli",
+                    "enabled": false,
+                    "uses": ["metadata:video"],
+                    "extensions": ["mp4"],
+                    "config": { "command": "/definitely-missing/aster-ffprobe" }
+                },
+                {
+                    "kind": "lofty",
+                    "enabled": true,
+                    "uses": ["thumbnail:audio", "metadata:audio"]
+                },
+                {
+                    "kind": "images",
+                    "enabled": true,
+                    "uses": ["thumbnail:image", "metadata:image"]
+                }
+            ]
+        })
+        .to_string(),
+    ));
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req =
+        admin_get_request(&token, "/api/v1/admin/config/media-processing-status").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["version"], 1);
+    let processors = body["data"]["processors"]
+        .as_array()
+        .expect("processor status list should be present");
+    let find = |kind: &str| {
+        processors
+            .iter()
+            .find(|processor| processor["kind"] == kind)
+            .unwrap_or_else(|| panic!("missing processor status for {kind}"))
+    };
+
+    let vips = find("vips_cli");
+    assert_eq!(vips["configured_enabled"], true);
+    assert_eq!(vips["runtime_available"], false);
+    assert_eq!(vips["effective_enabled"], false);
+    assert_eq!(vips["unavailable_reason"], "command_not_found");
+
+    let ffmpeg = find("ffmpeg_cli");
+    assert_eq!(ffmpeg["configured_enabled"], true);
+    assert_eq!(ffmpeg["runtime_available"], true);
+    assert_eq!(ffmpeg["effective_enabled"], true);
+    assert!(ffmpeg.get("unavailable_reason").is_none());
+
+    let ffprobe = find("ffprobe_cli");
+    assert_eq!(ffprobe["configured_enabled"], false);
+    assert_eq!(ffprobe["runtime_available"], false);
+    assert_eq!(ffprobe["effective_enabled"], false);
+    assert!(ffprobe.get("unavailable_reason").is_none());
+
+    assert!(
+        !body.to_string().contains("definitely-missing"),
+        "status response must not expose configured command paths"
+    );
+    assert!(
+        !body.to_string().contains(&available_command),
+        "status response must not expose configured command paths"
+    );
+}
+
+#[actix_web::test]
+async fn admin_config_rejects_disabling_last_builtin_login_method_without_external_provider() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let save = |key: &str| {
+        test::TestRequest::put()
+            .uri(&format!("/api/v1/admin/config/{key}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "value": "false" }))
+            .to_request()
+    };
+    let resp = test::call_service(
+        &app,
+        save(aster_drive::config::auth_runtime::AUTH_PASSWORD_LOGIN_ENABLED_KEY),
+    )
+    .await;
+    assert_eq!(resp.status(), 200);
+
+    let resp = test::call_service(
+        &app,
+        save(aster_drive::config::auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY),
+    )
+    .await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "bad_request");
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap()
+            .contains("external auth provider")
+    );
+    assert_eq!(
+        state
+            .runtime_config()
+            .get(aster_drive::config::auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY),
+        Some("true".to_string())
+    );
 }
 
 #[actix_web::test]

@@ -15,18 +15,19 @@ use super::{
     DEFAULT_FFPROBE_COMMAND, DEFAULT_FFPROBE_EXTENSIONS, DEFAULT_VIPS_COMMAND,
     DEFAULT_VIPS_EXTENSIONS, MEDIA_PROCESSING_REGISTRY_JSON_KEY, MEDIA_PROCESSING_REGISTRY_VERSION,
     MatchedMediaProcessor, MediaProcessingMatchKind, MediaProcessingProcessorConfig,
-    MediaProcessingProcessorRuntimeConfig, MediaProcessingRegistryConfig, MediaProcessingUse,
-    PUBLIC_MEDIA_DATA_MAX_SAFE_SOURCE_BYTES, PUBLIC_MEDIA_DATA_SUPPORT_VERSION,
-    PublicExtensionSupport, PublicMediaDataKindSupport, PublicMediaDataSupport,
-    PublicMediaDataSupportMatch, PublicThumbnailSupport, builtin_audio_metadata_supports_extension,
-    builtin_image_metadata_supports_extension, command_is_available,
-    default_media_processing_registry, default_media_processing_registry_json,
-    default_uses_for_kind, ffmpeg_command_from_registry_value, ffprobe_command_from_registry_value,
-    file_extension, media_processing_registry, normalize_ffmpeg_command, normalize_ffprobe_command,
-    normalize_media_processing_registry_config_value, normalize_vips_command,
-    parse_media_processor_kind, processor_candidates_for_file_name, processor_candidates_for_use,
-    processor_config_for_kind, public_media_data_support, public_thumbnail_support,
-    vips_command_from_registry_value,
+    MediaProcessingProcessorRuntimeConfig, MediaProcessingRegistryConfig,
+    MediaProcessingUnavailableReason, MediaProcessingUse, PUBLIC_MEDIA_DATA_MAX_SAFE_SOURCE_BYTES,
+    PUBLIC_MEDIA_DATA_SUPPORT_VERSION, PublicExtensionSupport, PublicMediaDataKindSupport,
+    PublicMediaDataSupport, PublicMediaDataSupportMatch, PublicThumbnailSupport,
+    builtin_audio_metadata_supports_extension, builtin_image_metadata_supports_extension,
+    command_is_available, default_media_processing_registry,
+    default_media_processing_registry_json, default_uses_for_kind,
+    ffmpeg_command_from_registry_value, ffprobe_command_from_registry_value, file_extension,
+    media_processing_registry, media_processing_runtime_status, normalize_ffmpeg_command,
+    normalize_ffprobe_command, normalize_media_processing_registry_config_value,
+    normalize_vips_command, parse_media_processor_kind, processor_candidates_for_file_name,
+    processor_candidates_for_use, processor_config_for_kind, public_media_data_support,
+    public_thumbnail_support, vips_command_from_registry_value,
 };
 
 fn config_model(key: &str, value: &str) -> system_config::Model {
@@ -470,6 +471,96 @@ fn public_thumbnail_support_exposes_enabled_processor_capabilities() {
                 extensions: expected_video,
             },
         }
+    );
+}
+
+#[test]
+fn media_processing_runtime_status_separates_configured_available_and_effective_state() {
+    let runtime_config = RuntimeConfig::new();
+    let available_command = available_test_command();
+    runtime_config.apply(config_model(
+        MEDIA_PROCESSING_REGISTRY_JSON_KEY,
+        &serde_json::json!({
+            "version": 2,
+            "processors": [
+                {
+                    "kind": "vips_cli",
+                    "enabled": true,
+                    "uses": ["thumbnail:image"],
+                    "extensions": ["heic"],
+                    "config": { "command": "/definitely-missing/aster-vips" },
+                },
+                {
+                    "kind": "ffmpeg_cli",
+                    "enabled": false,
+                    "uses": ["thumbnail:video"],
+                    "extensions": ["mp4"],
+                    "config": { "command": available_command },
+                },
+                {
+                    "kind": "ffprobe_cli",
+                    "enabled": true,
+                    "uses": ["metadata:video"],
+                    "extensions": ["mp4"],
+                    "config": { "command": "/definitely-missing/aster-ffprobe" },
+                },
+                {
+                    "kind": "lofty",
+                    "enabled": true,
+                    "uses": ["thumbnail:audio", "metadata:audio"]
+                },
+                {
+                    "kind": "images",
+                    "enabled": true,
+                    "uses": ["thumbnail:image", "metadata:image"]
+                }
+            ]
+        })
+        .to_string(),
+    ));
+
+    let status = media_processing_runtime_status(&runtime_config);
+    let find = |kind| {
+        status
+            .processors
+            .iter()
+            .find(|processor| processor.kind == kind)
+            .expect("processor runtime status should exist")
+    };
+
+    let vips = find(MediaProcessorKind::VipsCli);
+    assert!(vips.configured_enabled);
+    assert!(!vips.runtime_available);
+    assert!(!vips.effective_enabled);
+    assert_eq!(
+        vips.unavailable_reason,
+        Some(MediaProcessingUnavailableReason::CommandNotFound)
+    );
+
+    let ffmpeg = find(MediaProcessorKind::FfmpegCli);
+    assert!(!ffmpeg.configured_enabled);
+    assert!(ffmpeg.runtime_available);
+    assert!(!ffmpeg.effective_enabled);
+    assert_eq!(ffmpeg.unavailable_reason, None);
+
+    let ffprobe = find(MediaProcessorKind::FfprobeCli);
+    assert!(ffprobe.configured_enabled);
+    assert!(!ffprobe.runtime_available);
+    assert!(!ffprobe.effective_enabled);
+
+    for kind in [MediaProcessorKind::Lofty, MediaProcessorKind::Images] {
+        let builtin = find(kind);
+        assert!(builtin.configured_enabled);
+        assert!(builtin.runtime_available);
+        assert!(builtin.effective_enabled);
+        assert_eq!(builtin.unavailable_reason, None);
+    }
+
+    let serialized = serde_json::to_value(status).expect("runtime status should serialize");
+    assert_eq!(serialized["version"], 1);
+    assert!(
+        !serialized.to_string().contains("definitely-missing"),
+        "admin runtime status must not expose configured command paths"
     );
 }
 

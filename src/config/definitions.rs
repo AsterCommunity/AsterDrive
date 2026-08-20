@@ -79,6 +79,7 @@ pub const AUTH_PASSWORD_RESET_REQUEST_COOLDOWN_SECS_KEY: &str =
     "auth_password_reset_request_cooldown_secs";
 pub const AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY: &str = "auth_email_code_login_enabled";
 pub const AUTH_PASSKEY_LOGIN_ENABLED_KEY: &str = "auth_passkey_login_enabled";
+pub const AUTH_PASSWORD_LOGIN_ENABLED_KEY: &str = "auth_password_login_enabled";
 pub const AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY: &str =
     "auth_email_code_login_allow_totp_fallback";
 pub const AUTH_EMAIL_CODE_LOGIN_TTL_SECS_KEY: &str = "auth_email_code_login_ttl_secs";
@@ -1808,6 +1809,19 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         is_sensitive: false,
         category: CONFIG_CATEGORY_USER_REGISTRATION,
         description: "Allow users to sign in with already registered passkeys; disabling this keeps credentials but blocks passkey login",
+        normalize_fn: Some(normalize_email_code_login_bool),
+        ..aster_forge_config::ConfigDefinition::private_system()
+    },
+    ConfigDef {
+        key: AUTH_PASSWORD_LOGIN_ENABLED_KEY,
+        label_i18n_key: "settings_item_auth_password_login_enabled_label",
+        description_i18n_key: "settings_item_auth_password_login_enabled_desc",
+        value_type: ConfigValueType::Boolean,
+        default_fn: || "true".to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_USER_REGISTRATION,
+        description: "Allow users to sign in with a local password",
         normalize_fn: Some(normalize_email_code_login_bool),
         ..aster_forge_config::ConfigDefinition::private_system()
     },
