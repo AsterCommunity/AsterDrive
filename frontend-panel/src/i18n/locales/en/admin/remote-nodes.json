@@ -46,6 +46,7 @@
 	"remote_node_tunnel_offline": "Offline",
 	"remote_node_tunnel_not_used": "Not used",
 	"remote_node_tunnel_last_handshake": "Last Handshake",
+	"remote_node_tunnel_never_handshaken": "No handshake recorded",
 	"remote_node_tunnel_runtime_error": "Tunnel Error",
 	"remote_node_tunnel_runtime_error_empty": "No current tunnel error",
 	"remote_node_base_url_hint": "Optional for reverse tunnel. For direct transport, enter the follower URL that the primary can reach. Auto mode chooses direct only when this value is set; it does not retry through the tunnel if direct access fails.",

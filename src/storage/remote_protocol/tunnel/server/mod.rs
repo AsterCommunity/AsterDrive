@@ -2,7 +2,7 @@
 
 use crate::db::repository::managed_follower_repo;
 use crate::errors::{AsterError, Result};
-use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
+use crate::runtime::RemoteProtocolRuntimeState;
 use aster_drive_model::entities::managed_follower;
 use aster_drive_storage::StorageErrorKind;
 use chrono::Utc;
@@ -584,7 +584,7 @@ pub(crate) fn ensure_reverse_tunnel_transport(remote_node: &managed_follower::Mo
     }
 }
 
-pub async fn mark_tunnel_error<S: SharedRuntimeState>(
+pub async fn mark_tunnel_error<S: RemoteProtocolRuntimeState>(
     state: &S,
     access_key: &str,
     error: impl std::fmt::Display,
@@ -594,12 +594,11 @@ pub async fn mark_tunnel_error<S: SharedRuntimeState>(
     else {
         return Ok(());
     };
-    managed_follower_repo::touch_tunnel_runtime_error(
-        state.writer_db(),
-        remote_node.id,
-        error.to_string(),
-    )
-    .await?;
+    state
+        .remote_protocol()
+        .tunnel_registry()
+        .persist_runtime_error(state.writer_db(), remote_node.id, error.to_string())
+        .await?;
     Ok(())
 }
 

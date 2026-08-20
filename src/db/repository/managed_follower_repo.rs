@@ -6,7 +6,7 @@ use aster_drive_model::entities::managed_follower::{self, Entity as ManagedFollo
 use aster_forge_api::SortOrder;
 use aster_forge_db::pagination::fetch_offset_page;
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
-use sea_orm::sea_query::Expr;
+use sea_orm::sea_query::{Condition, Expr};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
     QueryOrder, Select,
@@ -166,11 +166,21 @@ pub async fn touch_tunnel_success(
             managed_follower::Column::TunnelRuntimeError,
             Expr::value(String::new()),
         )
+        .filter(managed_follower::Column::Id.eq(id))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    ManagedFollower::update_many()
         .col_expr(
             managed_follower::Column::TunnelLastHandshakeAt,
             Expr::value(Some(tunnel_last_handshake_at)),
         )
         .filter(managed_follower::Column::Id.eq(id))
+        .filter(
+            Condition::any()
+                .add(managed_follower::Column::TunnelLastHandshakeAt.is_null())
+                .add(managed_follower::Column::TunnelLastHandshakeAt.lt(tunnel_last_handshake_at)),
+        )
         .exec(db)
         .await
         .map_err(AsterError::from)?;

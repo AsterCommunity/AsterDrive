@@ -246,7 +246,9 @@ export function RemoteNodeDiagnosticsCard({
 						</Badge>
 						<div className="break-all text-xs text-muted-foreground">
 							{t("remote_node_tunnel_last_handshake")}:{" "}
-							{formatLastChecked(t, editingNode.tunnel?.last_handshake_at)}
+							{editingNode.tunnel?.last_handshake_at
+								? formatLastChecked(t, editingNode.tunnel.last_handshake_at)
+								: t("remote_node_tunnel_never_handshaken")}
 						</div>
 						<div className="break-all text-xs text-muted-foreground">
 							{t("remote_node_tunnel_runtime_error")}:{" "}

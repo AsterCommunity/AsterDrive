@@ -46,6 +46,7 @@
 	"remote_node_tunnel_offline": "离线",
 	"remote_node_tunnel_not_used": "不使用",
 	"remote_node_tunnel_last_handshake": "最近握手",
+	"remote_node_tunnel_never_handshaken": "尚未记录握手",
 	"remote_node_tunnel_runtime_error": "通道错误",
 	"remote_node_tunnel_runtime_error_empty": "当前没有通道错误",
 	"remote_node_base_url_hint": "反向通道下可以留空。直连模式需要填写主控端能访问到的 follower 地址；自动模式只按这里是否填写来选择传输方式，不会在直连失败后自动改走通道。",

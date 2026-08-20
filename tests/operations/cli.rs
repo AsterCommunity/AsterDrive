@@ -1441,9 +1441,9 @@ async fn test_remote_node_telemetry_rename_preserves_values_on_sqlite_up_and_dow
     db.execute_unprepared(
         "INSERT INTO managed_followers \
          (name, base_url, access_key, secret_key, is_enabled, last_capabilities, \
-          last_error, last_checked_at, created_at, updated_at) \
+          last_error, last_checked_at, tunnel_last_error, tunnel_last_seen_at, created_at, updated_at) \
          VALUES ('legacy-node', '', 'legacy-access', 'legacy-secret', 1, '{\"v\":1}', \
-                 'probe failed', '2026-08-20T01:02:03Z', \
+                 'probe failed', '2026-08-20T01:02:03Z', 'tunnel failed', '2026-08-20T02:03:04Z', \
                  '2026-08-20T01:02:03Z', '2026-08-20T01:02:03Z')",
     )
     .await
@@ -1466,7 +1466,7 @@ async fn test_remote_node_telemetry_rename_preserves_values_on_sqlite_up_and_dow
             "SELECT tunnel_runtime_error FROM managed_followers WHERE name = 'legacy-node'",
         )
         .await,
-        ""
+        "tunnel failed"
     );
     assert_eq!(
         scalar_i64(
@@ -1478,13 +1478,22 @@ async fn test_remote_node_telemetry_rename_preserves_values_on_sqlite_up_and_dow
         1
     );
     assert_eq!(
+        scalar_string(
+            &db,
+            DbBackend::Sqlite,
+            "SELECT tunnel_last_handshake_at FROM managed_followers WHERE name = 'legacy-node'",
+        )
+        .await,
+        "2026-08-20T02:03:04Z"
+    );
+    assert_eq!(
         scalar_i64(
             &db,
             DbBackend::Sqlite,
             "SELECT COUNT(*) FROM managed_followers WHERE name = 'legacy-node' AND tunnel_last_handshake_at IS NULL",
         )
         .await,
-        1
+        0
     );
 
     CurrentMigrator::down(&db, Some(1)).await.unwrap();
@@ -1504,7 +1513,25 @@ async fn test_remote_node_telemetry_rename_preserves_values_on_sqlite_up_and_dow
             "SELECT tunnel_last_error FROM managed_followers WHERE name = 'legacy-node'",
         )
         .await,
-        ""
+        "tunnel failed"
+    );
+    assert_eq!(
+        scalar_string(
+            &db,
+            DbBackend::Sqlite,
+            "SELECT last_checked_at FROM managed_followers WHERE name = 'legacy-node'",
+        )
+        .await,
+        "2026-08-20T01:02:03Z"
+    );
+    assert_eq!(
+        scalar_string(
+            &db,
+            DbBackend::Sqlite,
+            "SELECT tunnel_last_seen_at FROM managed_followers WHERE name = 'legacy-node'",
+        )
+        .await,
+        "2026-08-20T02:03:04Z"
     );
     assert!(
         column_exists(

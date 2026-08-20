@@ -358,14 +358,18 @@ impl RemoteTunnelRegistry {
         let Some(db) = self.persistence_db.read().clone() else {
             return;
         };
-        let error = self.runtime_error(remote_node_id).unwrap_or_default();
         let lock = self
             .persistence_locks
             .entry(remote_node_id)
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone();
+        let runtime_errors = self.runtime_errors.clone();
         tokio::spawn(async move {
             let _guard = lock.lock().await;
+            let error = runtime_errors
+                .get(&remote_node_id)
+                .map(|entry| entry.value().clone())
+                .unwrap_or_default();
             if let Err(persist_error) = persist_tunnel_error(&db, remote_node_id, error).await {
                 tracing::warn!(
                     remote_node_id,
@@ -373,6 +377,21 @@ impl RemoteTunnelRegistry {
                 );
             }
         });
+    }
+
+    pub(crate) async fn persist_runtime_error(
+        &self,
+        db: &DatabaseConnection,
+        remote_node_id: i64,
+        error: String,
+    ) -> crate::errors::Result<()> {
+        let lock = self
+            .persistence_locks
+            .entry(remote_node_id)
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone();
+        let _guard = lock.lock().await;
+        persist_tunnel_error(db, remote_node_id, error).await
     }
 }
 
