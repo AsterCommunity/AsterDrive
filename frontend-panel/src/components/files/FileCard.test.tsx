@@ -48,6 +48,28 @@ vi.mock("@/components/files/FileThumbnail", () => ({
 	),
 }));
 
+vi.mock("@/components/files/FileHoverPreview", () => ({
+	FileHoverPreview: ({
+		file,
+		open,
+		thumbnailPath,
+		cover,
+	}: {
+		file: { name: string };
+		open: boolean;
+		thumbnailPath?: string;
+		cover?: boolean;
+	}) => (
+		<span
+			data-testid="hover-preview"
+			data-file-name={file.name}
+			data-open={String(open)}
+			data-thumbnail-path={thumbnailPath ?? ""}
+			data-cover={String(Boolean(cover))}
+		/>
+	),
+}));
+
 vi.mock("@/components/ui/item-checkbox", () => ({
 	ItemCheckbox: ({
 		checked,
@@ -129,6 +151,24 @@ describe("FileCard", () => {
 		);
 		expect(screen.getByText("report.pdf").parentElement).not.toHaveClass(
 			"text-center",
+		);
+		// 悬停意向预览跟随卡片挂载，缩略图路径透传
+		expect(screen.getByTestId("hover-preview")).toHaveAttribute(
+			"data-file-name",
+			"report.pdf",
+		);
+		expect(screen.getByTestId("hover-preview")).toHaveAttribute(
+			"data-thumbnail-path",
+			"/thumb/9",
+		);
+		expect(screen.getByTestId("hover-preview")).toHaveAttribute(
+			"data-open",
+			"false",
+		);
+		// 网格视图为覆盖模式：大图原位盖住缩略图，宽度跟随卡片
+		expect(screen.getByTestId("hover-preview")).toHaveAttribute(
+			"data-cover",
+			"true",
 		);
 	});
 

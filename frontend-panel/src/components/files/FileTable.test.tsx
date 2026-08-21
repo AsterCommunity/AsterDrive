@@ -89,7 +89,10 @@ vi.mock("@/components/files/FileBrowserItemContextMenu", () => ({
 		children: React.ReactNode;
 		item: { name: string };
 	}) => {
-		mockState.contextMenuItems.push(item.name);
+		// 幂等记录：hover 预览的 callback ref 会触发一次额外重渲染，渲染副作用不得重复计数
+		if (!mockState.contextMenuItems.includes(item.name)) {
+			mockState.contextMenuItems.push(item.name);
+		}
 		return children;
 	},
 }));
@@ -113,6 +116,28 @@ vi.mock("@/components/files/FileTableCells", () => ({
 	),
 	TrashExpiresAtCell: ({ expiresAt }: { expiresAt: string }) => (
 		<td data-testid="trash-expires-at">{expiresAt}</td>
+	),
+}));
+
+vi.mock("@/components/files/FileHoverPreview", () => ({
+	FileHoverPreview: ({
+		file,
+		open,
+		thumbnailPath,
+		align,
+	}: {
+		file: { name: string };
+		open: boolean;
+		thumbnailPath?: string;
+		align?: string;
+	}) => (
+		<span
+			data-testid="hover-preview"
+			data-file-name={file.name}
+			data-open={String(open)}
+			data-thumbnail-path={thumbnailPath ?? ""}
+			data-align={align ?? ""}
+		/>
 	),
 }));
 
@@ -355,6 +380,19 @@ describe("FileTable", () => {
 		view.rerender(<FileTable scrollElement={undefined} />);
 
 		expect(screen.getByRole("table")).toHaveClass("file-browser-enter");
+	});
+
+	it("mounts a delayed hover preview per file row with the row thumbnail path", () => {
+		mockState.browserContext.getThumbnailPath = (entry) => `/thumb/${entry.id}`;
+
+		render(<FileTable />);
+
+		const previews = screen.getAllByTestId("hover-preview");
+		expect(previews).toHaveLength(1);
+		expect(previews[0]).toHaveAttribute("data-file-name", "report.pdf");
+		expect(previews[0]).toHaveAttribute("data-thumbnail-path", "/thumb/2");
+		expect(previews[0]).toHaveAttribute("data-open", "false");
+		expect(previews[0]).toHaveAttribute("data-align", "start");
 	});
 
 	it("wires row clicks, selection toggles, and drag start metadata", () => {

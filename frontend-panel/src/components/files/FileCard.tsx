@@ -1,3 +1,4 @@
+import { FileHoverPreview } from "@/components/files/FileHoverPreview";
 import { FileItemStatusIndicators } from "@/components/files/FileItemStatusIndicators";
 import { FileThumbnail } from "@/components/files/FileThumbnail";
 import { TagChips } from "@/components/files/TagChips";
@@ -6,6 +7,7 @@ import {
 	useGridItemDragDrop,
 } from "@/components/files/useGridItemDragDrop";
 import { ItemCheckbox } from "@/components/ui/item-checkbox";
+import { useDelayedHoverPreview } from "@/hooks/useDelayedHoverPreview";
 import { formatBytes } from "@/lib/format";
 import { isResourceLocked } from "@/lib/resourceLock";
 import { cn } from "@/lib/utils";
@@ -68,6 +70,8 @@ export function FileCard({
 		resolveDragData,
 		targetPathIds,
 	});
+	// 悬停意向预览：只在缩略图媒体区上计时；cover 模式大图原位盖住缩略图向上展开
+	const hoverPreview = useDelayedHoverPreview<HTMLDivElement>();
 
 	return (
 		// biome-ignore lint/a11y/useSemanticElements: card with nested interactive checkbox cannot be a button
@@ -142,6 +146,7 @@ export function FileCard({
 			) : null}
 
 			<div
+				ref={hoverPreview.triggerRef}
 				data-drag-preview-media
 				className="mb-2 flex h-20 w-full items-center justify-center overflow-hidden rounded-xl"
 			>
@@ -170,6 +175,14 @@ export function FileCard({
 				tags={item.tags}
 				maxVisible={2}
 				className="mt-2 max-h-5 w-full justify-start overflow-hidden"
+			/>
+			<FileHoverPreview
+				anchor={hoverPreview.triggerEl}
+				file={item}
+				open={hoverPreview.open}
+				onClose={hoverPreview.close}
+				thumbnailPath={thumbnailPath}
+				cover
 			/>
 		</div>
 	);

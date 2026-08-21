@@ -1,3 +1,4 @@
+import type { Ref } from "react";
 import { useTranslation } from "react-i18next";
 import { FileItemStatusIndicators } from "@/components/files/FileItemStatusIndicators";
 import { FileThumbnail } from "@/components/files/FileThumbnail";
@@ -16,14 +17,19 @@ import type { FileListItem, FolderListItem } from "@/types/api";
 export function FileNameCell({
 	file,
 	thumbnailPath,
+	thumbnailRef,
 }: {
 	file: FileListItem;
 	thumbnailPath?: string;
+	/** 悬停预览的触发与锚点：缩略图展示区域（悬停文件名不触发预览） */
+	thumbnailRef?: Ref<HTMLSpanElement>;
 }) {
 	return (
 		<TableCell className="pl-1 pr-2">
 			<div className="flex min-w-0 items-center gap-3">
-				<FileThumbnail file={file} size="sm" thumbnailPath={thumbnailPath} />
+				<span ref={thumbnailRef} className="flex shrink-0">
+					<FileThumbnail file={file} size="sm" thumbnailPath={thumbnailPath} />
+				</span>
 				<div className="flex min-w-0 flex-1 items-center gap-2">
 					<div className="flex min-w-0 flex-1 items-center gap-2">
 						<span
