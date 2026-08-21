@@ -22,6 +22,7 @@ const mockState = vi.hoisted(() => ({
 	measureElement: vi.fn(),
 	measure: vi.fn(),
 	scrollToIndex: vi.fn(),
+	scrollToOffset: vi.fn(),
 	getTotalSize: vi.fn(() => 0),
 	virtualizerInstance: null as Record<string, unknown> | null,
 }));
@@ -72,6 +73,7 @@ vi.mock("@tanstack/react-virtual", () => ({
 			measure: mockState.measure,
 			measureElement: mockState.measureElement,
 			scrollToIndex: mockState.scrollToIndex,
+			scrollToOffset: mockState.scrollToOffset,
 		};
 		return mockState.virtualizerInstance;
 	},
@@ -199,6 +201,7 @@ describe("PdfPreview", () => {
 		mockState.measureElement.mockClear();
 		mockState.measure.mockClear();
 		mockState.scrollToIndex.mockClear();
+		mockState.scrollToOffset.mockClear();
 		mockState.getTotalSize.mockClear();
 		mockState.getTotalSize.mockReturnValue(0);
 		mockState.virtualizerInstance = null;
@@ -300,6 +303,50 @@ describe("PdfPreview", () => {
 		expect(mockState.measure.mock.calls.length).toBeGreaterThan(
 			measureCallsAfterLoad,
 		);
+	});
+
+	it("restores the same page offset after rotating in either direction", async () => {
+		const requestAnimationFrame = vi
+			.spyOn(window, "requestAnimationFrame")
+			.mockImplementation((callback) => {
+				callback(0);
+				return 0;
+			});
+		render(<PdfPreview resource={apiResource} fileName="manual.pdf" />);
+		await loadDocument(
+			Array.from({ length: 11 }, (_, index) =>
+				index === 0 || index === 10
+					? { width: 600, height: 800 }
+					: { width: 1200, height: 800 },
+			),
+		);
+
+		const scrollContainer = screen.getByTestId("pdf-document")
+			.parentElement as HTMLElement;
+		const pageOffset = 75;
+		const originalPageStart = mockState.estimatedSizes
+			.slice(0, 4)
+			.reduce((total, size) => total + size, 0);
+		scrollContainer.scrollTop = originalPageStart + pageOffset;
+
+		fireEvent.click(screen.getByLabelText("pdf_rotate_right"));
+		const rotatedPageStart = mockState.estimatedSizes
+			.slice(0, 4)
+			.reduce((total, size) => total + size, 0);
+		expect(mockState.scrollToOffset).toHaveBeenLastCalledWith(
+			rotatedPageStart + pageOffset,
+			{
+				behavior: "auto",
+			},
+		);
+		scrollContainer.scrollTop = rotatedPageStart + pageOffset;
+
+		fireEvent.click(screen.getByLabelText("pdf_rotate_left"));
+		expect(mockState.scrollToOffset).toHaveBeenLastCalledWith(
+			originalPageStart + pageOffset,
+			{ behavior: "auto" },
+		);
+		requestAnimationFrame.mockRestore();
 	});
 
 	it("opens and downloads the loaded blob URL", () => {

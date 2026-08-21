@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Docker edge 发布通道跟随 stable** — 正式版本发布时，GHCR 与 Docker Hub 的 `edge`、`edge-metrics`、`edge-slim` 和 `edge-metrics-slim` 与对应 `stable` manifest 同步；alpha、beta、rc 发布只移动 edge，`latest` / `stable` 保持上一正式版本，避免 edge 长期停留在旧候选版本。
+- **PDF 预览旋转位置保持** — 多页 PDF 在中间或靠后页面旋转时保留当前虚拟页及页内滚动偏移，不再因页面尺寸重新测量跳到文档底部。
 - **迁移幂等与回滚边界** — 覆盖 SQLite、PostgreSQL 和 MySQL 的旧列 / 索引 / foreign-key 清理路径，保持 SQLite foreign-key 状态并验证引用 `storage_policies` 的现有数据不丢失。
 - **schema drift 与历史测试边界** — 区分历史 migration、0.5.x compatibility schema 和最终 schema，补充未迁移凭据硬失败、空旧表清理、最终列集合和重复执行测试。
 - **Slim 镜像媒体处理能力与派生缓存** — full 与 slim 镜像切换时保留已有媒体处理配置，管理端分别展示已配置、运行时可用和有效启用状态；公开缩略图能力只声明当前可生成的格式，并与媒体元数据能力独立。已有缩略图和图片预览缓存继续可读，缺少 `vips`、`ffmpeg` 或 `ffprobe` 时仅阻止新的相关派生并返回结构化处理器不可用错误；Docker 发布流程也保证所有 slim 变体先于 full 变体推送。

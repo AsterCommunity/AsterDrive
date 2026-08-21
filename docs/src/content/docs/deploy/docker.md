@@ -34,6 +34,14 @@ NAS、单机、小团队，或者已经在用容器编排的单实例部署。10
 | Slim | `vX.Y.Z-slim` / `latest-slim` / `stable-slim` | `vX.Y.Z-metrics-slim` / `latest-metrics-slim` / `stable-metrics-slim` |
 | 预发布 | `edge` / `edge-slim` | `edge-metrics` / `edge-metrics-slim` |
 
+这些标签按发布通道滚动更新：
+
+- 正式版本发布时，`latest`、`stable` 和对应的 `edge`（包括 metrics、slim 变体）指向同一组多架构 manifest。
+- alpha、beta 或 rc 发布时，只移动 `edge`；`latest` 和 `stable` 继续指向上一正式版本。
+- 下一次正式版本发布后，`edge` 从最近的预发布版本切回该正式版本。版本号标签始终保留对应发布版本，不会被滚动标签覆盖。
+
+上述规则同时适用于 GHCR 和 Docker Hub。想跟随最新正式版本使用 `latest` 或 `stable`；想在正式版本之间试用最新构建使用 `edge`。
+
 新建 slim 实例时，`vips_cli`、`ffmpeg_cli` 和 `ffprobe_cli` 默认关闭。从完整镜像切换已有实例之前，先到 `管理 -> 系统设置 -> 文件处理 -> 媒体处理` 检查这三个处理器；已有数据库会保留原配置，管理端会分别显示“已配置”“运行时可用”和“有效启用”状态。Slim 容器会将缺失命令报告为不可用，也不会在公开缩略图能力接口中继续声明对应格式。已经生成的缩略图或图片预览缓存仍可读取，只有新派生内容生成会受影响；如果实例需要其中任一能力，继续使用完整镜像。
 
 如果你把宿主机目录直接 bind mount 到 `/data`，**一定要先把目录创建好并把属主改成 `10001:10001`**，否则容器启动时生成 `config.toml`、SQLite 文件或临时目录都会直接报权限错误：
