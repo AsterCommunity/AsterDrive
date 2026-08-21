@@ -62,6 +62,12 @@ fn validate_ingress_object_size(size: i64, max_file_size: i64, subject: &str) ->
     Ok(())
 }
 
+fn should_cleanup_failed_follower_target(existed_before_upload: Option<bool>) -> bool {
+    // Unknown snapshots are intentionally retained: deleting on an uncertain
+    // read could destroy a complete object that predates this request.
+    existed_before_upload == Some(false)
+}
+
 fn internal_storage_validation_error(
     api_code: ApiErrorCode,
     message: impl Into<String>,
@@ -467,6 +473,22 @@ async fn put_object(
         "follower object write accepted"
     );
 
+    // A failed replacement must not delete an older complete object.  Drivers
+    // with atomic staging (SFTP, local, object PUT) leave this object untouched;
+    // the snapshot also keeps the generic relay cleanup from destroying it.
+    let target_existed_before_upload = match ctx.ingress_driver.exists(&storage_path).await {
+        Ok(exists) => Some(exists),
+        Err(error) => {
+            tracing::warn!(
+                binding_id = ctx.binding.id,
+                object_key = %object_key,
+                storage_path = %storage_path,
+                "failed to snapshot follower target before write: {error}"
+            );
+            None
+        }
+    };
+
     let stream_driver = ctx
         .ingress_driver
         .extensions()
@@ -510,8 +532,31 @@ async fn put_object(
         })
         .await?;
 
-    upload_result?;
-    let etag = relay_result?;
+    let cleanup_target = async {
+        if !should_cleanup_failed_follower_target(target_existed_before_upload) {
+            return;
+        }
+        if let Err(error) = ctx.ingress_driver.delete(&storage_path).await {
+            tracing::warn!(
+                binding_id = ctx.binding.id,
+                object_key = %object_key,
+                storage_path = %storage_path,
+                "failed to cleanup interrupted follower object write: {error}"
+            );
+        }
+    };
+
+    if let Err(error) = upload_result {
+        cleanup_target.await;
+        return Err(error);
+    }
+    let etag = match relay_result {
+        Ok(etag) => etag,
+        Err(error) => {
+            cleanup_target.await;
+            return Err(error);
+        }
+    };
     tracing::info!(
         binding_id = ctx.binding.id,
         object_key = %object_key,
@@ -1107,5 +1152,12 @@ mod tests {
             content_length_header(&headers).expect("valid content-length should parse"),
             42
         );
+    }
+
+    #[test]
+    fn failed_follower_cleanup_only_targets_objects_created_by_this_request() {
+        assert!(should_cleanup_failed_follower_target(Some(false)));
+        assert!(!should_cleanup_failed_follower_target(Some(true)));
+        assert!(!should_cleanup_failed_follower_target(None));
     }
 }

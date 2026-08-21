@@ -1,11 +1,12 @@
 //! SFTP storage driver integration test using testcontainers.
 
 use std::time::Duration;
+use std::{io::Cursor, pin::Pin, task::Context};
 
 use aster_drive::storage::drivers::sftp::{SftpDriver, SftpDriverConfig, SftpStaticCredentials};
 use aster_drive_storage::{StorageDriver, StorageErrorKind, StreamUploadDriver};
 use testcontainers::{GenericImage, ImageExt, core::IntoContainerPort, runners::AsyncRunner};
-use tokio::io::AsyncReadExt as _;
+use tokio::io::{AsyncRead, AsyncReadExt as _, ReadBuf};
 
 const SFTP_IMAGE: &str = "lscr.io/linuxserver/openssh-server";
 const SFTP_TAG: &str = "10.2_p1-r0-ls229";
@@ -13,6 +14,31 @@ const SFTP_PORT: u16 = 2222;
 const SFTP_USERNAME: &str = "aster";
 const SFTP_PASSWORD: &str = "asterpass";
 const SFTP_PROBE_TIMEOUT: Duration = Duration::from_secs(15);
+
+struct FailingReader {
+    prefix: Cursor<Vec<u8>>,
+    failed: bool,
+}
+
+impl AsyncRead for FailingReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        if !self.failed {
+            let mut prefix = [0_u8; 4];
+            let read = std::io::Read::read(&mut self.prefix, &mut prefix).expect("read prefix");
+            buffer.put_slice(&prefix[..read]);
+            self.failed = true;
+            return std::task::Poll::Ready(Ok(()));
+        }
+        std::task::Poll::Ready(Err(std::io::Error::new(
+            std::io::ErrorKind::ConnectionReset,
+            "synthetic peer disconnect",
+        )))
+    }
+}
 
 fn sftp_driver(endpoint: &str, base_path: &str, host_key_fingerprint: Option<&str>) -> SftpDriver {
     SftpDriver::new(
@@ -273,6 +299,54 @@ async fn test_sftp_driver_upload_download_round_trip() {
         driver.get("stream/reader.bin").await.unwrap(),
         b"stream upload"
     );
+
+    // A reader failure must not expose a partial replacement at the final key.
+    driver
+        .put("stream/atomic.bin", b"previous version")
+        .await
+        .unwrap();
+    let error = driver
+        .put_reader(
+            "stream/atomic.bin",
+            Box::new(FailingReader {
+                prefix: Cursor::new(b"partial".to_vec()),
+                failed: false,
+            }),
+            64,
+        )
+        .await
+        .expect_err("interrupted SFTP upload should fail");
+    assert_eq!(error.kind(), StorageErrorKind::Transient);
+    assert_eq!(
+        driver.get("stream/atomic.bin").await.unwrap(),
+        b"previous version"
+    );
+    driver
+        .put_reader(
+            "stream/atomic.bin",
+            Box::new(Cursor::new(b"replacement".to_vec())),
+            11,
+        )
+        .await
+        .expect("a complete retry should atomically replace the old version");
+    assert_eq!(
+        driver.get("stream/atomic.bin").await.unwrap(),
+        b"replacement"
+    );
+
+    let missing_error = driver
+        .put_reader(
+            "stream/never-committed.bin",
+            Box::new(FailingReader {
+                prefix: Cursor::new(b"partial".to_vec()),
+                failed: false,
+            }),
+            64,
+        )
+        .await
+        .expect_err("interrupted new SFTP upload should fail");
+    assert_eq!(missing_error.kind(), StorageErrorKind::Transient);
+    assert!(!driver.exists("stream/never-committed.bin").await.unwrap());
 
     let temp_dir = std::env::temp_dir().join(format!("asterdrive-sftp-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&temp_dir).expect("create temp dir");

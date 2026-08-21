@@ -163,6 +163,16 @@ Relay PUT 返回错误时不能直接假设失败：provider offset 已越过当
 | provider relay resumable | session status `uploading`；Init 创建 provider upload session，upload URL 只加密留在服务端；浏览器 chunk 由 Primary 顺序流式转发到 provider range PUT | 每个请求体必须等于 expected chunk size；provider `nextExpectedRanges` / 最终对象存在性是 range 是否提交的事实源；complete 再校验最终 metadata size | chunk claim、receipt 和 `received_count` 通过共享 writer DB 事务顺序推进；最终 quota 仍由 `finalize_upload_session_file` 原子落账 | `provider_relay::upload_payload` / `upload_bytes` -> `complete_provider_resumable_upload` -> `finalize_verified_opaque_upload_session` -> `finalize_upload_session_file` | DB 唯一 claim + heartbeat 防止多 Primary 重复 PUT；模糊响应先 query provider 再决定补 receipt、释放 claim或保留待对账；取消/过期先 abort provider session 再删临时对象；completed retry 返回已有文件 |
 | remote/follower upload transports | remote policy 通过 remote driver 暴露 direct、presigned、presigned multipart 或 relay multipart；session 状态和 `object_temp_key` / `object_multipart_id` 与对应 object-storage transport 相同 | direct relay 使用 streaming direct metadata；remote presigned single 使用 temp/final metadata；remote presigned multipart 和 remote relay multipart 使用 provider part details + final metadata | 与实际选择的 transport 相同；remote relay direct 走 `store_preuploaded_nondedup`，remote presigned / multipart 走 upload session finalize | `init_remote_upload` 只选择 transport；完成阶段复用 `upload_streaming_direct`、`complete_presigned_upload`、`complete_presigned_multipart` 或 `complete_relay_multipart` | cleanup/idempotency 继承实际 transport；remote/follower 的特殊性只在 driver/protocol 层，产品层不应新增一套平行 finalize 语义 |
 
+### Streaming driver 的中断写入合同
+
+`StreamUploadDriver::put_reader` 返回成功前，最终对象 key 必须只表示完整、已校验的 payload；reader error、连接断开、声明大小不匹配、flush/close 失败和进程 shutdown 都不得把半对象暴露在最终 key：
+
+- SFTP 先写同目录的随机临时 key，关闭并 flush 后再执行 rename；失败路径删除临时 key，已有同名对象保持不变。
+- Azure Blob 的流式路径使用未提交 block；分片、长度校验或 block-list commit 失败时调用 multipart abort。Azure 没有逐 block 删除 API，abort 的语义是让未提交 block 进入 provider 的过期回收范围；这些 block 不得被当成可见对象。
+- reverse follower `put_object` 在 relay 或目标 driver 返回错误时删除目标 key，并记录结构化 cleanup 失败日志；成功响应只在 relay 完整结束且目标写入成功后返回。
+
+重试同一 key 时必须重新建立独立的临时/未提交状态；调用方只能读到旧的完整对象或新的完整对象，不能读到上一次中断留下的半对象。
+
 ## session status 与完成计划
 
 `upload::complete::plan::determine_completion_plan` 使用已解析的 `UploadSessionKind` 选择完成计划；session 状态只负责幂等、assembling、过期和失败错误：
