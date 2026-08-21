@@ -291,7 +291,6 @@ export function useImagePreviewTransform({
 		if (!wheelTarget) return;
 
 		const handleWheel = (event: WheelEvent) => {
-			if (!event.ctrlKey && !event.metaKey) return;
 			event.preventDefault();
 			const direction = event.deltaY > 0 ? -1 : 1;
 			setClampedZoom(zoom + direction * ZOOM_STEP, {
