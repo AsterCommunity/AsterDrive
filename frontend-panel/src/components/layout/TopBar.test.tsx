@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TopBar } from "@/components/layout/TopBar";
 
@@ -68,11 +69,13 @@ describe("TopBar", () => {
 
 	it("renders the logo, search trigger, and global controls", () => {
 		render(
-			<TopBar
-				onSidebarToggle={vi.fn()}
-				mobileOpen={false}
-				onSearchOpen={mockState.onSearchOpen}
-			/>,
+			<MemoryRouter>
+				<TopBar
+					onSidebarToggle={vi.fn()}
+					mobileOpen={false}
+					onSearchOpen={mockState.onSearchOpen}
+				/>
+			</MemoryRouter>,
 		);
 
 		expect(screen.getByAltText("translated:app_name")).toBeInTheDocument();
@@ -103,11 +106,13 @@ describe("TopBar", () => {
 
 	it("opens the search dialog from both desktop and mobile triggers", () => {
 		render(
-			<TopBar
-				onSidebarToggle={vi.fn()}
-				mobileOpen={true}
-				onSearchOpen={mockState.onSearchOpen}
-			/>,
+			<MemoryRouter>
+				<TopBar
+					onSidebarToggle={vi.fn()}
+					mobileOpen={true}
+					onSearchOpen={mockState.onSearchOpen}
+				/>
+			</MemoryRouter>,
 		);
 
 		const buttons = screen.getAllByRole("button", {

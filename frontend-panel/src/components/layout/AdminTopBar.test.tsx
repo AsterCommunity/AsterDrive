@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { AdminTopBar } from "@/components/layout/AdminTopBar";
 
@@ -51,9 +52,16 @@ vi.mock("@/components/layout/TopBarShell", () => ({
 
 describe("AdminTopBar", () => {
 	it("renders the translated admin title, logo, and home-enabled header controls", () => {
-		render(<AdminTopBar onSidebarToggle={vi.fn()} mobileOpen={false} />);
+		render(
+			<MemoryRouter>
+				<AdminTopBar onSidebarToggle={vi.fn()} mobileOpen={false} />
+			</MemoryRouter>,
+		);
 
 		expect(screen.getByAltText("translated:app_name")).toBeInTheDocument();
+		expect(
+			screen.getByRole("link", { name: "translated:admin:admin_home" }),
+		).toHaveAttribute("href", "/admin/overview");
 		expect(screen.getByText("translated:admin_panel")).toBeInTheDocument();
 		expect(screen.getByTestId("header-controls")).toHaveAttribute(
 			"data-home",
@@ -79,7 +87,11 @@ describe("AdminTopBar", () => {
 
 	it("forwards sidebar toggle requests to the layout", () => {
 		const onSidebarToggle = vi.fn();
-		render(<AdminTopBar onSidebarToggle={onSidebarToggle} mobileOpen />);
+		render(
+			<MemoryRouter>
+				<AdminTopBar onSidebarToggle={onSidebarToggle} mobileOpen />
+			</MemoryRouter>,
+		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Toggle" }));
 
