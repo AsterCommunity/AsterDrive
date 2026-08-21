@@ -66,3 +66,6 @@ jobs:
         # Existing release/performance findings are pinned by path, line, rule,
         # and count. Any new finding or baseline drift fails validation.
         run: node scripts/github/check-actionlint.mjs
+
+      - name: Validate Docker release channel metadata
+        run: node scripts/github/test-docker-image-tags.mjs

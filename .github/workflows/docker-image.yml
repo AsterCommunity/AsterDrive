@@ -164,11 +164,13 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY_IMAGE_GHCR }}
+          # edge is the rolling release channel: stable releases move it
+          # alongside stable, while prereleases continue to move it alone.
           tags: |
             type=ref,event=tag,suffix=${{ matrix.suffix }}
             type=raw,value=latest${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
             type=raw,value=stable${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
-            type=raw,value=edge${{ matrix.suffix }},enable=${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+            type=raw,value=edge${{ matrix.suffix }},enable=true
 
       - name: Extract Docker Hub metadata
         id: meta-dockerhub
@@ -179,7 +181,7 @@ jobs:
             type=ref,event=tag,suffix=${{ matrix.suffix }}
             type=raw,value=latest${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
             type=raw,value=stable${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
-            type=raw,value=edge${{ matrix.suffix }},enable=${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+            type=raw,value=edge${{ matrix.suffix }},enable=true
 
       - name: Create multi-arch manifests
         id: manifests
@@ -288,7 +290,7 @@ jobs:
             type=ref,event=tag,suffix=${{ matrix.suffix }}
             type=raw,value=latest${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
             type=raw,value=stable${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
-            type=raw,value=edge${{ matrix.suffix }},enable=${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+            type=raw,value=edge${{ matrix.suffix }},enable=true
 
       - name: Extract Docker Hub metadata
         id: meta-dockerhub
@@ -299,7 +301,7 @@ jobs:
             type=ref,event=tag,suffix=${{ matrix.suffix }}
             type=raw,value=latest${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
             type=raw,value=stable${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
-            type=raw,value=edge${{ matrix.suffix }},enable=${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+            type=raw,value=edge${{ matrix.suffix }},enable=true
 
       - name: Create multi-arch manifests
         id: manifests

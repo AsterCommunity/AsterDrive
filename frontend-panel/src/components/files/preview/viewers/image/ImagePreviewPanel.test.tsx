@@ -768,7 +768,7 @@ describe("ImagePreviewPanel", () => {
 		);
 	});
 
-	it("zooms with ctrl wheel and ignores plain scroll", () => {
+	it("zooms with the mouse wheel in both directions", () => {
 		renderPanel();
 		loadPanelImage();
 		const viewport = screen.getByTestId("panel-preview-viewport");
@@ -776,24 +776,22 @@ describe("ImagePreviewPanel", () => {
 		fireEvent.wheel(viewport, {
 			clientX: 200,
 			clientY: 150,
-			ctrlKey: false,
 			deltaY: -100,
 		});
 		expect(
 			screen.getByRole("button", { name: "Fit to window" }),
-		).toHaveTextContent("100%");
+		).toHaveTextContent("125%");
 
 		fireEvent.wheel(viewport, {
 			clientX: 200,
 			clientY: 150,
-			ctrlKey: true,
-			deltaY: -100,
+			deltaY: 100,
 		});
 
 		expect(
 			screen.getByRole("button", { name: "Fit to window" }),
-		).toHaveTextContent("125%");
-		expect(mockState.blobProps?.imageStyle?.transform).toContain("scale(1.25)");
+		).toHaveTextContent("100%");
+		expect(mockState.blobProps?.imageStyle?.transform).toContain("scale(1)");
 	});
 
 	it("ignores wheel and pointer gestures until the image load completes", () => {

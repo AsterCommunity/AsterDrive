@@ -34,6 +34,14 @@ The default tags continue to publish the full image with `vips`, `ffmpeg`, and `
 | Slim | `vX.Y.Z-slim` / `latest-slim` / `stable-slim` | `vX.Y.Z-metrics-slim` / `latest-metrics-slim` / `stable-metrics-slim` |
 | Prerelease | `edge` / `edge-slim` | `edge-metrics` / `edge-metrics-slim` |
 
+These tags follow a rolling release-channel lifecycle:
+
+- When a stable version is released, `latest`, `stable`, and the matching `edge` tags (including metrics and slim variants) point to the same multi-architecture manifests.
+- When an alpha, beta, or rc version is released, only `edge` moves; `latest` and `stable` remain on the previous stable release.
+- At the next stable release, `edge` moves back from the most recent prerelease to that stable release. Immutable version tags always remain attached to their original release.
+
+The same rules apply to GHCR and Docker Hub. Use `latest` or `stable` to follow the newest stable release, and use `edge` to try the newest build between stable releases.
+
 Fresh slim instances disable the `vips_cli`, `ffmpeg_cli`, and `ffprobe_cli` processors by default. Before switching an existing instance from the full image, review these processors under `Admin -> System Settings -> File Processing -> Media Processing`. The existing database keeps its configuration, and the admin editor reports configured, runtime-available, and effective-enabled status separately. A slim container reports missing commands as unavailable and does not advertise their formats through the public thumbnail capability endpoint. Existing thumbnail and image-preview caches remain readable; only new derivative generation is affected. Keep using the full image when the instance needs any of these processors.
 
 If you bind mount a host directory directly to `/data`, **create the directory first and change its owner to `10001:10001`**. Otherwise, container startup will fail with permission errors when generating `config.toml`, creating the SQLite file, or creating temporary directories:

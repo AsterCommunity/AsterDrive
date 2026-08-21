@@ -8,6 +8,7 @@ import {
 	FileBrowserItemActionMenu,
 	FileBrowserItemContextMenu,
 } from "@/components/files/FileBrowserItemContextMenu";
+import { FileHoverPreview } from "@/components/files/FileHoverPreview";
 import {
 	FileNameCell,
 	FileSizeCell,
@@ -30,6 +31,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { useDelayedHoverPreview } from "@/hooks/useDelayedHoverPreview";
 import { DRAG_SOURCE_MIME } from "@/lib/constants";
 import {
 	getInvalidInternalDropReason,
@@ -264,6 +266,8 @@ const FileTableDataRow = memo(function FileTableDataRow({
 	const selected = useFileStore((s) => s.selectedFileIds.has(file.id));
 	const selectOnlyFile = useFileStore((s) => s.selectOnlyFile);
 	const toggleFileSelection = useFileStore((s) => s.toggleFileSelection);
+	// 悬停意向预览：只有悬停缩略图才计时，大图从小图位置向上展开
+	const hoverPreview = useDelayedHoverPreview<HTMLSpanElement>();
 
 	const handleDragStart = (e: React.DragEvent<HTMLTableRowElement>) => {
 		const data = getCurrentSelectionDragData(file.id, false);
@@ -315,7 +319,20 @@ const FileTableDataRow = memo(function FileTableDataRow({
 					</div>
 				</TableCell>
 			)}
-			<FileNameCell file={file} thumbnailPath={thumbnailPath} />
+			<FileNameCell
+				file={file}
+				thumbnailPath={thumbnailPath}
+				thumbnailRef={hoverPreview.triggerRef}
+			/>
+			{/* Root 不渲染 DOM，popup 经 Portal 落到 body，放在 tr 内不破坏表格结构 */}
+			<FileHoverPreview
+				anchor={hoverPreview.triggerEl}
+				file={file}
+				open={hoverPreview.open}
+				onClose={hoverPreview.close}
+				thumbnailPath={thumbnailPath}
+				align="start"
+			/>
 			{trashMeta ? (
 				<>
 					<TrashOriginalPathCell path={trashMeta.originalPath} />

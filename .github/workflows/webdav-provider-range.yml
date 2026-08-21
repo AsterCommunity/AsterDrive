@@ -76,6 +76,12 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
 
+      - name: Build frontend
+        working-directory: frontend-panel
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
       - name: Run local provider Range benchmark
         if: env.ASTER_BENCH_RANGE_PROVIDER == 'local'
         run: |

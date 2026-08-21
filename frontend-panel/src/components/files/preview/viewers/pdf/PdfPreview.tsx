@@ -68,6 +68,11 @@ interface PdfPageSize {
 	height: number;
 }
 
+interface PdfScrollAnchor {
+	index: number;
+	offset: number;
+}
+
 async function loadPdfPageSizes(
 	pdf: LoadedDocument,
 	shouldCancel: () => boolean,
@@ -140,6 +145,7 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 	const pageSizeLoadVersionRef = useRef(0);
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 	const scrollFrameRef = useRef<number | null>(null);
+	const rotationScrollAnchorRef = useRef<PdfScrollAnchor | null>(null);
 
 	const clampPageNumber = useCallback(
 		(pageNumber: number) => {
@@ -305,6 +311,38 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 		[virtualizer],
 	);
 
+	const getPageStart = useCallback(
+		(index: number) => {
+			let start = 0;
+			for (let pageIndex = 0; pageIndex < index; pageIndex += 1) {
+				start += estimatePageHeight(pageIndex);
+			}
+			return start;
+		},
+		[estimatePageHeight],
+	);
+
+	const captureRotationScrollAnchor = useCallback(() => {
+		const container = scrollContainerRef.current;
+		if (!container) return;
+
+		const virtualPages = virtualizer.getVirtualItems();
+		if (virtualPages.length === 0) return;
+
+		const scrollTop = container.scrollTop;
+		const anchorPage =
+			virtualPages.find(
+				(virtualPage) =>
+					virtualPage.start <= scrollTop && virtualPage.end > scrollTop,
+			) ?? virtualPages[virtualPages.length - 1];
+		if (!anchorPage) return;
+
+		rotationScrollAnchorRef.current = {
+			index: anchorPage.index,
+			offset: scrollTop - anchorPage.start,
+		};
+	}, [virtualizer]);
+
 	const commitPageInput = useCallback(() => {
 		if (!numPages) {
 			setPageInputValue("1");
@@ -358,12 +396,14 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 	}, []);
 
 	const handleRotateLeft = useCallback(() => {
+		captureRotationScrollAnchor();
 		setRotation((currentRotation) => (currentRotation + 270) % 360);
-	}, []);
+	}, [captureRotationScrollAnchor]);
 
 	const handleRotateRight = useCallback(() => {
+		captureRotationScrollAnchor();
 		setRotation((currentRotation) => (currentRotation + 90) % 360);
-	}, []);
+	}, [captureRotationScrollAnchor]);
 
 	const handleOpenInNewTab = useCallback(() => {
 		if (!documentUrl) return;
@@ -393,6 +433,7 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 		setPageSize(null);
 		setPageSizes(null);
 		setReloadKey(0);
+		rotationScrollAnchorRef.current = null;
 		pageSizeLoadVersionRef.current += 1;
 		if (scrollContainerRef.current) {
 			setViewerWidth(scrollContainerRef.current.clientWidth);
@@ -430,7 +471,22 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 		if (!numPages) return;
 		void estimatePageHeight;
 		virtualizer.measure();
-	}, [estimatePageHeight, numPages, virtualizer]);
+
+		const anchor = rotationScrollAnchorRef.current;
+		if (!anchor || pageSizes === null) return;
+
+		const frame = window.requestAnimationFrame(() => {
+			if (rotationScrollAnchorRef.current !== anchor) return;
+			virtualizer.scrollToOffset(getPageStart(anchor.index) + anchor.offset, {
+				behavior: "auto",
+			});
+			rotationScrollAnchorRef.current = null;
+		});
+
+		return () => {
+			window.cancelAnimationFrame(frame);
+		};
+	}, [estimatePageHeight, getPageStart, numPages, pageSizes, virtualizer]);
 
 	useEffect(() => {
 		if (!numPages) return;
