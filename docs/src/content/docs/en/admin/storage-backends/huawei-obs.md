@@ -119,6 +119,8 @@ Choose:
 Huawei Cloud OBS
 ```
 
+If an existing generic `s3` policy already uses an official OBS endpoint and an explicit `s3_region`, the admin console can offer the `promote_from_s3` connector upgrade. It switches the connector and encrypted credentials in place without copying objects; the bucket, base path, endpoint, region, and object namespace remain unchanged. Generic S3 endpoints, `s3_region = auto`, and mismatched endpoints are not eligible for the upgrade recommendation.
+
 Typical values:
 
 | Field | `virtual_hosted` example | `custom_domain` example |
@@ -167,7 +169,7 @@ When inspecting OBS or AsterDrive logs, never record AK, SK, temporary tokens, o
 
 ### OBS endpoint entered under `s3`
 
-The ordinary `s3` connector uses AWS SigV4 and does not represent a native OBS policy. Choose **Huawei Cloud OBS** and keep the signing mode at `obs`.
+The ordinary `s3` connector uses AWS SigV4 and does not represent a native OBS policy. Choose **Huawei Cloud OBS**; the connector driver fixes the native OBS signing protocol internally.
 
 ### Endpoint validation fails
 

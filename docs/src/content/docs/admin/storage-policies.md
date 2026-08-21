@@ -69,12 +69,12 @@ title: "存储策略与策略组"
 | --- | --- |
 | 名称 | 后台显示名 |
 | 驱动类型 | `local`、`s3`、`alibaba_oss`、`huawei_obs`、`azure_blob`、`tencent_cos`、`one_drive`、`sftp` 或 `remote` |
-| 连接信息 | 本地目录 / S3 endpoint、bucket、密钥 / OSS 公网 endpoint、可选服务端 endpoint、region、bucket、CNAME、密钥 / Huawei OBS endpoint、bucket、region 或 custom domain、访问模式、签名模式、密钥 / Azure Blob endpoint、container、账号密钥 / COS endpoint、bucket、密钥 / OneDrive Microsoft Graph 目标与授权配置 / SFTP endpoint、SSH 凭据、主机密钥指纹 / 绑定的远程节点 |
+| 连接信息 | 本地目录 / S3 endpoint、bucket、密钥 / OSS 公网 endpoint、可选服务端 endpoint、region、bucket、CNAME、密钥 / Huawei OBS endpoint、bucket、region 或 custom domain、访问模式、密钥 / Azure Blob endpoint、container、账号密钥 / COS endpoint、bucket、密钥 / OneDrive Microsoft Graph 目标与授权配置 / SFTP endpoint、SSH 凭据、主机密钥指纹 / 绑定的远程节点 |
 | 基础路径 | 写入该策略时使用的目录、prefix 或远程落点相对路径 |
 | 单文件大小上限 | 允许上传的最大文件；`0` = 不限 |
 | 分片大小 | 大文件上传时每一片的大小 |
 | 默认策略 | 新建默认组或默认分流规则会优先使用 |
-| 附加选项 | 本地内容去重、S3 / OSS / Azure Blob / COS 上传下载方式、S3 path-style 访问、OSS CNAME、OneDrive 目标 drive 定位、SFTP 主机密钥指纹、远程上传下载方式、存储原生处理开关等 |
+| 附加选项 | 本地内容去重、S3 / OSS / Huawei OBS / Azure Blob / COS 上传下载方式、S3 path-style 访问、OSS CNAME、OneDrive 目标 drive 定位、SFTP 主机密钥指纹、远程上传下载方式、存储原生处理开关等 |
 
 后台的存储策略表单不是靠前端硬编码各个厂商字段。AsterDrive 会从后端的 `StorageConnector` descriptor 读取当前 driver 支持的字段、能力、上传工作流和管理动作，所以新增或调整存储后端时，管理界面会尽量跟着后端能力显示。
 

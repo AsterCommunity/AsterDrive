@@ -63,6 +63,16 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "此连接器对普通请求、Range 读取、分片操作和预签名 URL 均使用华为 OBS 原生签名；通用 S3 SigV4 策略仍由独立连接器负责。",
     ),
     aster_drive_storage::storage_connector_message!(
+        "policy_obs_promote_from_s3_desc",
+        "This generic S3 policy already uses an official HTTPS Huawei OBS endpoint and an explicit signing region. Promote the saved policy in place without copying objects.",
+        "这个通用 S3 策略已经使用华为云官方 HTTPS OBS endpoint 和明确签名区域。可以就地提升已保存策略，无需复制对象。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_obs_promote_from_s3_confirm",
+        "The bucket, base path, endpoint, and signing region remain bound to the same object namespace. Huawei OBS addressing and signing become connector-owned.",
+        "bucket、基础路径、endpoint 和签名区域继续绑定同一对象 namespace；华为 OBS 的寻址和签名改由 connector 管理。",
+    ),
+    aster_drive_storage::storage_connector_message!(
         "policy_wizard_huawei_obs_storage_desc",
         "Store files in Huawei Cloud OBS with native OBS authentication and optional custom-domain addressing.",
         "使用华为 OBS 原生认证和可选自定义域名访问，将文件存入华为云 OBS。",

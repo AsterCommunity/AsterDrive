@@ -1318,6 +1318,18 @@ fn huawei_obs_connector_declares_native_signature_and_addressing_contract() {
     let connector = connector(HuaweiObsConnector::ID);
     let descriptor = connector.descriptor();
     assert_eq!(descriptor.related_issues, vec![451]);
+    assert!(descriptor.promotions.iter().any(|promotion| {
+        promotion.promotion_id.as_str() == "promote_from_s3"
+            && promotion.source_connector_id.as_str() == S3Connector::ID
+            && promotion
+                .config_mappings
+                .iter()
+                .any(|mapping| mapping.target_field == "obs_region")
+            && promotion
+                .credential_mappings
+                .iter()
+                .any(|mapping| mapping.target_field == "obs_access_key_id")
+    }));
     assert!(descriptor.capabilities.presigned_download);
     assert!(descriptor.upload_workflows.presigned_upload);
     for field_name in [

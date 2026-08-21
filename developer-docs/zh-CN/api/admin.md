@@ -121,7 +121,6 @@
 - `driver_type = "alibaba_oss"` 复用 AWS S3 SDK 的对象、流式和 multipart 编排，但使用原生 `OSS4-HMAC-SHA256` header/query 签名；普通请求和 generated presign 分别验证
 - `driver_type = "huawei_obs"` 复用 AWS S3 SDK 的对象、流式和 multipart 序列化，但使用华为原生 OBS 签名；虚拟托管与自定义域名、marker-based 列表、普通请求和 generated presign 分别验证
 - 内置 Local、S3-compatible、Alibaba OSS、Huawei OBS、SFTP、Azure Blob、OneDrive 和 Remote driver 不提供存储原生缩略图、图片预览或媒体元数据能力
-- 内置 Local、S3-compatible、Alibaba OSS、SFTP、Azure Blob、OneDrive 和 Remote 驱动不暴露存储原生缩略图、图片预览或媒体元数据能力
 - 旧配置 `{"presigned_upload":true}` 仍兼容，等价于 S3 预签名上传策略
 - `POST /admin/policies/{id}/promote-s3-driver` 当前支持把通用 `s3` 策略提升为 `tencent_cos`。请求体必须包含目标驱动和当前 endpoint / bucket，例如 `{ "target_driver_type": "tencent_cos", "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com", "bucket": "bucket-1250000000" }`。提升时不允许改变 bucket；若该策略还有活动上传 session，或目标驱动不能接受当前 endpoint / bucket 组合，会直接拒绝。
 - REST 已经可以通过 `allowed_types` 管理策略允许的 MIME / 类型列表；不传时创建会使用空列表，更新会保持原值

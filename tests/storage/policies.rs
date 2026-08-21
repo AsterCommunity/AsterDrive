@@ -406,7 +406,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     let body: Value = test::read_body_json(resp).await;
     let descriptors = body["data"].as_array().expect("descriptor list");
 
-    assert_eq!(descriptors.len(), 9);
+    assert_eq!(descriptors.len(), 10);
 
     let descriptor = |connector_id: &str| {
         descriptors
@@ -438,6 +438,20 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
                 endpoints.iter().any(|value| value == "test_policy_params")
             })
     }));
+    let huawei_obs = descriptor("asterdrive.storage.huawei_obs");
+    let obs_promotion = huawei_obs["promotions"]
+        .as_array()
+        .expect("Huawei OBS promotions")
+        .iter()
+        .find(|promotion| promotion["promotion_id"] == "promote_from_s3")
+        .expect("Huawei OBS should declare generic S3 promotion");
+    assert!(
+        obs_promotion["config_mappings"]
+            .as_array()
+            .is_some_and(|mappings| mappings.iter().any(|mapping| {
+                mapping["source_field"] == "s3_region" && mapping["target_field"] == "obs_region"
+            }))
+    );
     let qiniu_promotion = qiniu["promotions"]
         .as_array()
         .expect("Qiniu promotions")
@@ -870,7 +884,7 @@ async fn test_policy_connector_promotion_preserves_namespace_and_rekeys_credenti
 }
 
 #[actix_web::test]
-async fn test_policy_connector_promotion_supports_oss_and_qiniu_kodo() {
+async fn test_policy_connector_promotion_supports_oss_qiniu_kodo_and_huawei_obs() {
     use aster_drive::db::repository::{policy_repo, storage_policy_connector_credential_repo};
 
     let state = common::setup().await;
@@ -904,6 +918,15 @@ async fn test_policy_connector_promotion_supports_oss_and_qiniu_kodo() {
             "asterdrive.storage.qiniu",
             "s3_region",
             "https://s3.cn-east-1.qiniucs.com",
+        ),
+        (
+            "Promote Huawei OBS",
+            "https://archive-bucket.obs.cn-north-4.myhuaweicloud.com",
+            "archive-bucket",
+            "cn-north-4",
+            "asterdrive.storage.huawei_obs",
+            "obs_region",
+            "https://obs.cn-north-4.myhuaweicloud.com",
         ),
     ] {
         let policy_id = create_s3_policy_for_promotion(

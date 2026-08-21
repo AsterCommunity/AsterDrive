@@ -75,6 +75,29 @@ fn rejects_incompatible_endpoint_and_addressing_combinations() {
 }
 
 #[test]
+fn rejects_invalid_region_and_bucket_names() {
+    let error = HuaweiObsDriver::normalize_endpoint(
+        "https://obs.cn-north-4.myhuaweicloud.com",
+        "archive-bucket",
+        "cn_north_4",
+        HuaweiObsAddressingMode::VirtualHosted,
+    )
+    .expect_err("underscore is not a valid OBS region character");
+    assert_eq!(error.kind(), StorageErrorKind::Misconfigured);
+    assert!(error.message().contains("obs_region"));
+
+    let error = HuaweiObsDriver::normalize_endpoint(
+        "https://obs.cn-north-4.myhuaweicloud.com",
+        "Ab",
+        "cn-north-4",
+        HuaweiObsAddressingMode::VirtualHosted,
+    )
+    .expect_err("short uppercase bucket must be rejected");
+    assert_eq!(error.kind(), StorageErrorKind::Misconfigured);
+    assert!(error.message().contains("bucket"));
+}
+
+#[test]
 fn exposes_s3_shaped_runtime_capabilities_under_obs_signing() {
     let driver = HuaweiObsDriver::new(
         config(

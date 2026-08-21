@@ -174,7 +174,6 @@ impl HuaweiObsDriver {
         config: HuaweiObsDriverConfig,
         credentials: HuaweiObsStaticCredentials,
     ) -> Result<Self> {
-        Self::validate_config(&config, &credentials)?;
         let normalized = Self::normalize_endpoint(
             &config.endpoint,
             &config.bucket,
@@ -214,6 +213,30 @@ impl HuaweiObsDriver {
             S3ConfigError::InvalidEndpoint(message) => message,
         };
         storage_driver_error(StorageErrorKind::Misconfigured, message)
+    }
+}
+
+#[async_trait::async_trait]
+impl aster_drive_storage::traits::extensions::PresignedStorageDriver for HuaweiObsDriver {
+    async fn presigned_url(
+        &self,
+        path: &str,
+        expires: Duration,
+        options: aster_drive_storage::PresignedDownloadOptions,
+    ) -> Result<Option<String>> {
+        self.storage.presigned_url(path, expires, options).await
+    }
+
+    async fn presigned_put_request(
+        &self,
+        path: &str,
+        expires: Duration,
+    ) -> Result<Option<aster_drive_storage::PresignedUploadRequest>> {
+        self.storage.presigned_put_request(path, expires).await
+    }
+
+    fn presigned_single_put_requires_etag(&self) -> bool {
+        false
     }
 }
 

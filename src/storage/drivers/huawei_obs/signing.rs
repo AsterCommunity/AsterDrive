@@ -271,7 +271,7 @@ fn normalize_aws_request_for_obs(
         .collect::<Vec<_>>();
     for (aws_name, obs_name, value) in metadata_headers {
         request.headers_mut().remove(aws_name);
-        request.headers_mut().insert(obs_name, value);
+        request.headers_mut().append(obs_name, value);
     }
     request.headers_mut().remove("x-amz-content-sha256");
     request.headers_mut().remove("x-amz-date");
@@ -387,8 +387,8 @@ mod tests {
     use url::Url;
 
     use super::{
-        OBS_PRESIGNED_PUT_CONTENT_TYPE, canonical_obs_headers, configure_obs_auth, obs_signature,
-        obs_string_to_sign,
+        OBS_PRESIGNED_PUT_CONTENT_TYPE, canonical_obs_headers, configure_obs_auth,
+        normalize_aws_request_for_obs, obs_signature, obs_string_to_sign,
     };
     use crate::storage::drivers::huawei_obs::HuaweiObsAddressingMode;
 
@@ -467,6 +467,33 @@ mod tests {
             canonical_obs_headers(&request),
             "x-obs-meta-note:alpha  beta,gamma\nx-obs-test-header:one  two\n"
         );
+    }
+
+    #[test]
+    fn metadata_header_translation_preserves_duplicate_values() {
+        let mut request =
+            aws_smithy_runtime_api::client::orchestrator::HttpRequest::new(SdkBody::empty());
+        request
+            .set_uri("https://archive-bucket.obs.cn-north-4.myhuaweicloud.com/object")
+            .expect("request URI");
+        request.headers_mut().append("x-amz-meta-note", "alpha");
+        request.headers_mut().append("x-amz-meta-note", "beta");
+
+        normalize_aws_request_for_obs(
+            &mut request,
+            "archive-bucket",
+            HuaweiObsAddressingMode::VirtualHosted,
+        )
+        .expect("metadata headers should normalize");
+
+        let values = request
+            .headers()
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("x-obs-meta-note"))
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>();
+        assert_eq!(values, vec!["alpha", "beta"]);
+        assert!(request.headers().get("x-amz-meta-note").is_none());
     }
 
     #[tokio::test]

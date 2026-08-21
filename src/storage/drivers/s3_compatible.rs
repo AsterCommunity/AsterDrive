@@ -117,7 +117,7 @@ macro_rules! delegate_s3_compatible_storage_driver {
                 let this = self;
                 let base = this.$field.extensions();
                 aster_drive_storage::StorageDriverExtensions {
-                    presigned: base.presigned,
+                    presigned: Some(this),
                     list: $crate::storage::drivers::s3_compatible::delegate_s3_compatible_storage_driver!(@list $list_mode, base, this),
                     stream_upload: base.stream_upload,
                     multipart: Some(this),

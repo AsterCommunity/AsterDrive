@@ -83,7 +83,7 @@ AsterDrive 只负责签发短时效 OBS URL
 
 只使用 `relay_stream` 时，浏览器不会直接请求 OBS，CORS 可以稍后处理。使用 `presigned` 上传或下载前，至少确认：
 
-通用的 `presigned` CORS 原则见 [S3 / MinIO / R2 教程的 CORS 章节](/admin/storage-backends/s3/#给-presigned-配置-cors)；华为云 OBS 控制台字段对应关系见下面的 OBS 专用表格。
+通用的 `presigned` CORS 原则见 [S3 / MinIO / R2 教程的 CORS 章节](/admin/storage-backends/s3/)；华为云 OBS 控制台字段对应关系见下面的 OBS 专用表格。
 
 - `AllowedOrigin` 包含 AsterDrive 的公开站点来源，例如 `https://drive.example.com`
 - 上传允许 `PUT`，并允许 AsterDrive 发出的请求头
@@ -118,6 +118,8 @@ AsterDrive 的连接测试只从服务端验证 endpoint、凭证和基础对象
 ```text
 华为云 OBS
 ```
+
+如果已有通用 `s3` 策略使用官方 OBS endpoint 和明确的 `s3_region`，管理端会提供 `promote_from_s3` connector upgrade。该操作原地切换 connector 和加密凭据，不复制对象；bucket、base path、endpoint、region 和对象 namespace 保持不变。普通 S3 endpoint、`s3_region = auto` 或不匹配的 endpoint 不会获得该升级建议。
 
 常见字段：
 
@@ -167,7 +169,7 @@ AsterDrive 的连接测试只从服务端验证 endpoint、凭证和基础对象
 
 ### 把 OBS endpoint 配进了 `s3`
 
-普通 `s3` connector 使用 AWS SigV4，不能代表原生 OBS policy。请选择 **华为云 OBS**，并确认 signing mode 是 `obs`。
+普通 `s3` connector 使用 AWS SigV4，不能代表原生 OBS policy。请选择 **华为云 OBS**，由 connector driver 固定使用原生 OBS 签名。
 
 ### Endpoint 被拒绝
 
