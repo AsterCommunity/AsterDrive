@@ -241,8 +241,8 @@
       "documentation": {
         "tutorial_slug": "huawei-obs",
         "best_for": {
-          "en": "Huawei Cloud OBS with native SignatureObs and regional or custom-domain endpoints",
-          "zh": "使用原生 SignatureObs、区域 endpoint 或自定义域名的华为云 OBS"
+          "en": "Huawei Cloud OBS with native OBS signing and regional or custom-domain endpoints",
+          "zh": "使用原生 OBS 签名、区域 endpoint 或自定义域名的华为云 OBS"
         }
       },
       "deployment_scope": "shared_across_primary_instances",

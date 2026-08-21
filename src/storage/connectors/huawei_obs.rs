@@ -3,8 +3,7 @@ use std::time::Duration;
 
 use crate::errors::{AsterError, Result};
 use crate::storage::drivers::huawei_obs::{
-    HuaweiObsAddressingMode, HuaweiObsDriver, HuaweiObsDriverConfig, HuaweiObsSigningMode,
-    HuaweiObsStaticCredentials,
+    HuaweiObsAddressingMode, HuaweiObsDriver, HuaweiObsDriverConfig, HuaweiObsStaticCredentials,
 };
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy};
@@ -82,15 +81,6 @@ aster_drive_storage::storage_connector_schema! {
             ],
             "virtual_hosted",
         ),
-        pub obs_signing_mode: HuaweiObsSigningMode => obs_select_field(
-            "obs_signing_mode",
-            vec![select_option(
-                "obs",
-                "obs_signing_mode_obs",
-                Some("obs_signing_mode_obs_desc"),
-            )],
-            "obs",
-        ),
         pub base_path: String => {
             let mut field = storage_connector_field(
                 "base_path", StorageConnectorFieldScope::ConnectorConfig,
@@ -163,7 +153,6 @@ impl HuaweiObsConnector {
             base_path: config.base_path,
             region: config.obs_region,
             addressing_mode: config.obs_addressing_mode,
-            signing_mode: config.obs_signing_mode,
             connect_timeout: Duration::from_secs(5),
             read_timeout: Duration::from_secs(30),
             operation_timeout: Duration::from_secs(3_600),

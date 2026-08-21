@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Huawei Cloud OBS connector** — 新增 `asterdrive.storage.huawei_obs`，复用 AWS S3 SDK 的对象、流式和 multipart 序列化，同时接入 Huawei 原生 `SignatureObs` HMAC-SHA1/Base64 签名；支持区域 virtual-hosted endpoint、自定义域名、Range、marker-based ListObjects、presigned single/multipart 请求和 descriptor-driven 管理端配置。
+- **Huawei Cloud OBS connector** — 新增 `asterdrive.storage.huawei_obs`，复用 AWS S3 SDK 的对象、流式和 multipart 序列化，同时接入 Huawei 原生 OBS 签名；支持区域 virtual-hosted endpoint、自定义域名、Range、marker-based ListObjects、presigned single/multipart 请求和 descriptor-driven 管理端配置。
 - **团队与系统审计 CSV 导出** — 新增用户团队、管理员团队和管理员系统三类服务端流式导出接口；导出复用服务端筛选条件，采用 keyset 游标分批读取，固定 16 列 UTF-8 / RFC 4180 CSV 契约，系统审计保留排序参数，团队审计固定按 `created_at DESC, id DESC` 输出，并设置单次 100000 行上限。
 - **内置登录方式控制** — 新增可热更新的密码登录开关，并继续与 Passkey 开关独立组合；关闭密码登录会同时关闭公开注册、激活重发、密码邀请接受、密码重置和外部身份密码绑定，未完成的密码第一因子 MFA flow 会在完成时重新检查策略，外部认证和 Passkey 登录不再被遗留的强制改密标记阻塞。后端仅在存在已启用外部认证 provider 时允许同时关闭密码与 Passkey，并阻止禁用或删除最后一个外部 provider，避免保存后失去全部登录入口。
 - **远端节点连接生命周期审计** — reverse tunnel 连接、正常下线、异常断线和心跳超时现在会按 remote node / binding 聚合写入系统 audit；四条 streaming lane 的同时变化只产生一次节点级状态转换，并记录连接次数、中断次数、lane 数量、transport 和稳定 reason code，不包含 access key、secret、signature、URL 凭据或 token。

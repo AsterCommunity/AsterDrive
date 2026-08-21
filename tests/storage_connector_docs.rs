@@ -94,8 +94,8 @@ const PRESENTATIONS: &[ConnectorDocumentationPresentation] = &[
     ConnectorDocumentationPresentation {
         connector_id: "asterdrive.storage.huawei_obs",
         tutorial_slug: "huawei-obs",
-        best_for_en: "Huawei Cloud OBS with native SignatureObs and regional or custom-domain endpoints",
-        best_for_zh: "使用原生 SignatureObs、区域 endpoint 或自定义域名的华为云 OBS",
+        best_for_en: "Huawei Cloud OBS with native OBS signing and regional or custom-domain endpoints",
+        best_for_zh: "使用原生 OBS 签名、区域 endpoint 或自定义域名的华为云 OBS",
     },
     ConnectorDocumentationPresentation {
         connector_id: "asterdrive.storage.azure_blob",

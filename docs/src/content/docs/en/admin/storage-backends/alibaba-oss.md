@@ -4,7 +4,7 @@ title: "Alibaba Cloud OSS Storage Policy Tutorial"
 ---
 
 :::tip[What this page covers]
-This page explains how to store AsterDrive files in Alibaba Cloud Object Storage Service. AsterDrive uses native `OSS4-HMAC-SHA256` signing; it does not disguise a Cloudreve or native OSS policy as generic S3-compatible storage.
+This page explains how to store AsterDrive files in Alibaba Cloud Object Storage Service. AsterDrive uses native `OSS4-HMAC-SHA256` signing; it does not disguise a native OSS policy as generic S3-compatible storage.
 :::
 
 ## When to Choose Alibaba Cloud OSS

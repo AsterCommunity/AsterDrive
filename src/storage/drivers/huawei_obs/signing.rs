@@ -29,6 +29,7 @@ type HmacSha1 = Hmac<Sha1>;
 
 const OBS_AUTH_SCHEME_ID: AuthSchemeId = aws_runtime::auth::sigv4::SCHEME_ID;
 const DEFAULT_OBS_AUTH_TTL: Duration = Duration::from_secs(60 * 60);
+pub(super) const OBS_PRESIGNED_PUT_CONTENT_TYPE: &str = "application/octet-stream";
 
 const OBS_HEADER_RENAMES: &[(&str, &str)] = &[
     ("x-amz-copy-source", "x-obs-copy-source"),
@@ -176,6 +177,14 @@ impl Sign for ObsSigner {
 
         match signature_type {
             HttpSignatureType::HttpRequestQueryParams => {
+                // OBS includes Content-Type in the V2 StringToSign. The browser
+                // upload adapter forwards this exact header from the returned
+                // request descriptor, so it must be present before signing.
+                if request.method() == "PUT" && request.headers().get("content-type").is_none() {
+                    request
+                        .headers_mut()
+                        .insert("content-type", OBS_PRESIGNED_PUT_CONTENT_TYPE.to_string());
+                }
                 if let Some(token) = credentials.session_token() {
                     url.query_pairs_mut()
                         .append_pair("x-obs-security-token", token);
@@ -377,7 +386,10 @@ mod tests {
     use aws_smithy_types::body::SdkBody;
     use url::Url;
 
-    use super::{canonical_obs_headers, configure_obs_auth, obs_signature, obs_string_to_sign};
+    use super::{
+        OBS_PRESIGNED_PUT_CONTENT_TYPE, canonical_obs_headers, configure_obs_auth, obs_signature,
+        obs_string_to_sign,
+    };
     use crate::storage::drivers::huawei_obs::HuaweiObsAddressingMode;
 
     fn obs_sdk_client(
@@ -700,6 +712,48 @@ mod tests {
         assert_eq!(query.get("partNumber").map(String::as_str), Some("7"));
         assert_eq!(query.get("uploadId").map(String::as_str), Some("upload-id"));
         assert!(query.contains_key("Signature"));
+    }
+
+    #[tokio::test]
+    async fn aws_sdk_presigned_put_signs_and_returns_content_type() {
+        let (client, receiver) = obs_sdk_client(
+            "https://obs.cn-north-4.myhuaweicloud.com",
+            "archive-bucket",
+            HuaweiObsAddressingMode::VirtualHosted,
+            None,
+        );
+        let put = client
+            .put_object()
+            .bucket("archive-bucket")
+            .key("docs/report.txt")
+            .presigned(
+                PresigningConfig::builder()
+                    .start_time(UNIX_EPOCH + Duration::from_secs(1_700_000_000))
+                    .expires_in(Duration::from_secs(600))
+                    .build()
+                    .expect("presign config"),
+            )
+            .await
+            .expect("OBS presigned PUT");
+        receiver.expect_no_request();
+
+        let query = Url::parse(put.uri())
+            .expect("OBS presigned PUT URL")
+            .query_pairs()
+            .into_owned()
+            .collect::<HashMap<_, _>>();
+        assert_eq!(
+            query.get("AccessKeyId").map(String::as_str),
+            Some("AccessKeyExample")
+        );
+        assert_eq!(query.get("Expires").map(String::as_str), Some("1700000600"));
+        assert!(query.contains_key("Signature"));
+        assert_eq!(
+            put.headers()
+                .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+                .map(|(_, value)| value),
+            Some(OBS_PRESIGNED_PUT_CONTENT_TYPE)
+        );
     }
 
     #[tokio::test]

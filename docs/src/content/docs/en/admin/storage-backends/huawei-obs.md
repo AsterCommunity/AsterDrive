@@ -1,12 +1,12 @@
 ---
-description: Huawei Cloud OBS storage policy tutorial covering native SignatureObs, regional endpoints, custom domains, credentials, CORS, presigned URLs, and multipart validation.
+description: Huawei Cloud OBS storage policy tutorial covering native OBS signing, regional endpoints, custom domains, credentials, CORS, presigned URLs, and multipart validation.
 title: "Huawei Cloud OBS Storage Policy Tutorial"
 ---
 
 :::tip[What this page covers]
 This page explains how to write AsterDrive files to Huawei Cloud OBS: prepare a bucket and OBS credentials, create the `asterdrive.storage.huawei_obs` connector policy, choose regional or custom-domain addressing, configure policy groups, and validate relay or presigned transfers.
 
-Huawei Cloud OBS uses native `SignatureObs` in AsterDrive. It is not a generic S3 policy with an OBS endpoint pasted into the form. For AWS SigV4 or generic S3-compatible services, use the [S3 / MinIO / R2 storage policy tutorial](/en/admin/storage-backends/s3/).
+Huawei Cloud OBS uses native OBS signing in AsterDrive. It is not a generic S3 policy with an OBS endpoint pasted into the form. For AWS SigV4 or generic S3-compatible services, use the [S3 / MinIO / R2 storage policy tutorial](/en/admin/storage-backends/s3/).
 :::
 
 ## When to use it
@@ -74,7 +74,7 @@ After basic reads, writes, shares, and Range requests are stable, consider `pres
 
 ```text
 Browser -> OBS
-AsterDrive only issues a short-lived SignatureObs URL
+AsterDrive only issues a short-lived OBS URL
 ```
 
 Presigned mode requires the browser to reach the OBS endpoint or custom domain, and requires correct OBS CORS, HTTPS certificates, and exposed response headers.
@@ -83,11 +83,25 @@ Presigned mode requires the browser to reach the OBS endpoint or custom domain, 
 
 When using only `relay_stream`, the browser does not call OBS directly, so CORS can be configured later. Before enabling presigned uploads or downloads, verify:
 
+See the [S3 / MinIO / R2 tutorial's CORS section](/en/admin/storage-backends/s3/#12-configure-cors-for-presigned) for the general `presigned` rules; the OBS-specific console field mapping is listed below.
+
 - `AllowedOrigin` includes the AsterDrive public site origin, such as `https://drive.example.com`;
 - uploads allow `PUT` and the request headers sent by AsterDrive;
 - downloads allow `GET`, `HEAD`, and the headers needed for Range requests;
 - `ExposeHeader` includes `ETag`; multipart direct uploads need part ETags; and
 - the presigned hostname, certificate, and browser network path are reachable.
+
+In the Huawei Cloud OBS console, start with the following rule for presigned single-object and multipart uploads:
+
+| OBS field | Recommended value |
+| --- | --- |
+| Allowed origins | The actual AsterDrive page origin; use `*` temporarily while diagnosing |
+| Allowed methods | `GET`, `HEAD`, `PUT` |
+| Allowed headers | `Content-Type`; use `*` temporarily while diagnosing |
+| Exposed headers | `ETag`; add `Content-Length`, `Content-Range`, and `Accept-Ranges` for Range downloads |
+| Cache time | `3600` |
+
+`ETag` is an upload response header and belongs in the exposed-header field, not the request-header allowlist used by preflight. Do not copy AWS S3 `x-amz-*` headers into an OBS rule; the browser preflight currently needs at least `Content-Type`. When the console reports `OPTIONS` 403, check that origin, `PUT`, and `Content-Type` all match the same rule.
 
 AsterDrive's connection test validates the endpoint, credentials, and basic object requests from the server. It does not replace browser-side CORS and network validation.
 
@@ -113,12 +127,11 @@ Typical values:
 | Bucket | `archive-bucket` | `archive-bucket` |
 | OBS region | `cn-north-4` | May be empty |
 | OBS addressing mode | `virtual_hosted` | `custom_domain` |
-| OBS signing mode | `obs` / `SignatureObs` | `obs` / `SignatureObs` |
 | Base path | `prod/` | `prod/` |
 | Access Key ID | Huawei Cloud AK | Huawei Cloud AK |
 | Secret Access Key | Huawei Cloud SK | Huawei Cloud SK |
 
-The signing mode currently exposes native OBS `SignatureObs` only. Persisting this explicit choice keeps the policy aligned with native Huawei and Cloudreve OBS semantics; do not change it to AWS SigV4.
+Signing is fixed to the native OBS protocol by the connector driver and is not an administrator-facing policy field. Do not put an OBS endpoint into a generic S3 policy or switch it to AWS SigV4.
 
 ## 5. Test the connection and configure a policy group
 

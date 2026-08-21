@@ -25,7 +25,7 @@ use super::s3::S3ConnectorConfigV1;
 use super::sftp::SftpConnectorConfigV1;
 use super::tencent_cos::TencentCosConnectorConfigV1;
 use super::*;
-use crate::storage::drivers::huawei_obs::{HuaweiObsAddressingMode, HuaweiObsSigningMode};
+use crate::storage::drivers::huawei_obs::HuaweiObsAddressingMode;
 
 struct LocalizationContractConnector {
     descriptor: StorageConnectorDescriptor,
@@ -179,7 +179,6 @@ fn obs_config(upload: ObjectStorageUploadStrategy) -> HuaweiObsConnectorConfigV1
         bucket: "archive-bucket".to_string(),
         obs_region: "cn-north-4".to_string(),
         obs_addressing_mode: HuaweiObsAddressingMode::VirtualHosted,
-        obs_signing_mode: HuaweiObsSigningMode::Obs,
         base_path: "tenant-a".to_string(),
         object_storage_upload_strategy: upload,
         object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
@@ -1326,7 +1325,6 @@ fn huawei_obs_connector_declares_native_signature_and_addressing_contract() {
         "bucket",
         "obs_region",
         "obs_addressing_mode",
-        "obs_signing_mode",
         "base_path",
         "object_storage_upload_strategy",
         "object_storage_download_strategy",

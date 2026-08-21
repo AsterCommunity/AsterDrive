@@ -1,12 +1,12 @@
 ---
-description: 华为云 OBS 存储策略教程，覆盖原生 SignatureObs、区域 endpoint、自定义域名、凭证、CORS、预签名和 multipart 验收。
+description: 华为云 OBS 存储策略教程，覆盖原生 OBS 签名、区域 endpoint、自定义域名、凭证、CORS、预签名和 multipart 验收。
 title: "华为云 OBS 存储策略教程"
 ---
 
 :::tip[这一篇覆盖什么]
 这一篇讲如何把 AsterDrive 文件写入华为云 OBS：准备 bucket 和 OBS 凭证、创建 `asterdrive.storage.huawei_obs` connector、选择区域或自定义域名访问、配置策略组，并按 relay 或 presigned 路径完成验收。
 
-华为云 OBS 在 AsterDrive 中使用原生 `SignatureObs`。它不是把 endpoint 填进普通 S3 策略后自动变成 OBS；如果你需要 AWS SigV4 或通用 S3 兼容服务，请看 [S3 / MinIO / R2 存储策略教程](/admin/storage-backends/s3/)。
+华为云 OBS 在 AsterDrive 中使用原生 OBS 签名。它不是把 endpoint 填进普通 S3 策略后自动变成 OBS；如果你需要 AWS SigV4 或通用 S3 兼容服务，请看 [S3 / MinIO / R2 存储策略教程](/admin/storage-backends/s3/)。
 :::
 
 ## 适合什么时候用
@@ -74,7 +74,7 @@ prod/
 
 ```text
 浏览器 -> OBS
-AsterDrive 只负责签发短时效 SignatureObs URL
+AsterDrive 只负责签发短时效 OBS URL
 ```
 
 预签名模式要求浏览器可以访问 OBS endpoint 或 custom domain，并且 OBS CORS、HTTPS 证书和响应头都配置正确。
@@ -83,11 +83,25 @@ AsterDrive 只负责签发短时效 SignatureObs URL
 
 只使用 `relay_stream` 时，浏览器不会直接请求 OBS，CORS 可以稍后处理。使用 `presigned` 上传或下载前，至少确认：
 
+通用的 `presigned` CORS 原则见 [S3 / MinIO / R2 教程的 CORS 章节](/admin/storage-backends/s3/#给-presigned-配置-cors)；华为云 OBS 控制台字段对应关系见下面的 OBS 专用表格。
+
 - `AllowedOrigin` 包含 AsterDrive 的公开站点来源，例如 `https://drive.example.com`
 - 上传允许 `PUT`，并允许 AsterDrive 发出的请求头
 - 下载允许 `GET`、`HEAD` 和 Range 请求所需的 header
 - `ExposeHeader` 包含 `ETag`；multipart 直传完成时客户端需要读取分片 ETag
 - 预签名 URL 的 hostname、证书和浏览器网络路径可用
+
+在华为云 OBS 控制台中，单文件和 multipart 预签名上传可以先使用下面这条规则：
+
+| OBS 字段 | 建议值 |
+| --- | --- |
+| 允许的来源 | AsterDrive 页面实际 origin；排查阶段可以使用 `*` |
+| 允许的方法 | `GET`、`HEAD`、`PUT` |
+| 允许的头域 | `Content-Type`；排查阶段可以临时使用 `*` |
+| 补充头域 | `ETag`；Range 下载可再加入 `Content-Length`、`Content-Range`、`Accept-Ranges` |
+| 缓存时间 | `3600` |
+
+`ETag` 是上传响应头，应放在“补充头域”，不是当前预检需要的请求头。不要把 AWS S3 的 `x-amz-*` 头照搬到 OBS 规则；当前浏览器预检最少需要允许 `Content-Type`。如果控制台显示 `OPTIONS` 预检 403，优先检查来源、`PUT` 和 `Content-Type` 是否同时匹配。
 
 AsterDrive 的连接测试只从服务端验证 endpoint、凭证和基础对象请求。它不代替浏览器侧的 CORS 和网络验收。
 
@@ -113,12 +127,11 @@ AsterDrive 的连接测试只从服务端验证 endpoint、凭证和基础对象
 | Bucket | `archive-bucket` | `archive-bucket` |
 | OBS region | `cn-north-4` | 可以为空 |
 | OBS addressing mode | `virtual_hosted` | `custom_domain` |
-| OBS signing mode | `obs` / `SignatureObs` | `obs` / `SignatureObs` |
 | Base path | `prod/` | `prod/` |
 | Access Key ID | 华为云 AK | 华为云 AK |
 | Secret Access Key | 华为云 SK | 华为云 SK |
 
-签名模式当前只有原生 OBS `SignatureObs`。这项选择是为了把持久化配置和 Cloudreve/华为 SDK 的原生 policy 语义写清楚，不要改成 AWS SigV4。
+签名由 connector driver 固定使用原生 OBS 协议，不作为管理员配置项。不要把 OBS endpoint 配置到普通 S3 策略中，也不要改用 AWS SigV4。
 
 ## 5. 测试连接并配置策略组
 

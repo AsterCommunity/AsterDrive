@@ -29,12 +29,6 @@ pub enum HuaweiObsAddressingMode {
     CustomDomain,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum HuaweiObsSigningMode {
-    Obs,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HuaweiObsDriverConfig {
     pub endpoint: String,
@@ -42,7 +36,6 @@ pub struct HuaweiObsDriverConfig {
     pub base_path: String,
     pub region: String,
     pub addressing_mode: HuaweiObsAddressingMode,
-    pub signing_mode: HuaweiObsSigningMode,
     pub connect_timeout: Duration,
     pub read_timeout: Duration,
     pub operation_timeout: Duration,
@@ -159,9 +152,6 @@ impl HuaweiObsDriver {
             &config.region,
             config.addressing_mode,
         )?;
-        match config.signing_mode {
-            HuaweiObsSigningMode::Obs => {}
-        }
         S3Driver::validate_config(
             &S3DriverConfig {
                 endpoint: normalized.endpoint,

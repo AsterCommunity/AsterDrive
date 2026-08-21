@@ -53,21 +53,6 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "华为云 Secret Access Key",
     ),
     aster_drive_storage::storage_connector_message!(
-        "obs_signing_mode",
-        "OBS signing mode",
-        "OBS 签名模式",
-    ),
-    aster_drive_storage::storage_connector_message!(
-        "obs_signing_mode_obs",
-        "SignatureObs",
-        "SignatureObs",
-    ),
-    aster_drive_storage::storage_connector_message!(
-        "obs_signing_mode_obs_desc",
-        "Use Huawei OBS authentication (Authorization: OBS AK:Signature), matching native Cloudreve OBS policies.",
-        "使用华为 OBS 原生认证（Authorization: OBS AK:Signature），与 Cloudreve 原生 OBS 策略一致。",
-    ),
-    aster_drive_storage::storage_connector_message!(
         "policy_wizard_bucket_required",
         "Bucket is required for object storage policies.",
         "对象存储策略必须填写 bucket。",
@@ -79,12 +64,12 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_wizard_huawei_obs_storage_desc",
-        "Store files in Huawei Cloud OBS with the native SignatureObs request contract and optional custom-domain addressing.",
-        "使用原生 SignatureObs 请求契约和可选自定义域名访问，将文件存入华为云 OBS。",
+        "Store files in Huawei Cloud OBS with native OBS authentication and optional custom-domain addressing.",
+        "使用华为 OBS 原生认证和可选自定义域名访问，将文件存入华为云 OBS。",
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_wizard_step_huawei_obs_connection_desc",
-        "Set the OBS endpoint, bucket, region or custom-domain behavior, signing mode, and access credentials.",
-        "填写 OBS endpoint、bucket、区域或自定义域名行为、签名模式及访问凭证。",
+        "Set the OBS endpoint, bucket, region or custom-domain behavior, and access credentials.",
+        "填写 OBS endpoint、bucket、区域或自定义域名行为及访问凭证。",
     ),
 ];

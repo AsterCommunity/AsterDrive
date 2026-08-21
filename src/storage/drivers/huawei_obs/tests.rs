@@ -3,8 +3,7 @@ use std::time::Duration;
 use aster_drive_storage::{StorageDriver, StorageErrorKind};
 
 use super::{
-    HuaweiObsAddressingMode, HuaweiObsDriver, HuaweiObsDriverConfig, HuaweiObsSigningMode,
-    HuaweiObsStaticCredentials,
+    HuaweiObsAddressingMode, HuaweiObsDriver, HuaweiObsDriverConfig, HuaweiObsStaticCredentials,
 };
 
 fn config(endpoint: &str, addressing_mode: HuaweiObsAddressingMode) -> HuaweiObsDriverConfig {
@@ -14,7 +13,6 @@ fn config(endpoint: &str, addressing_mode: HuaweiObsAddressingMode) -> HuaweiObs
         base_path: "tenant-a".to_string(),
         region: "cn-north-4".to_string(),
         addressing_mode,
-        signing_mode: HuaweiObsSigningMode::Obs,
         connect_timeout: Duration::from_secs(5),
         read_timeout: Duration::from_secs(30),
         operation_timeout: Duration::from_secs(3_600),
