@@ -18,6 +18,7 @@ The two-layer concept of storage policies and policy groups itself lives in [Sto
 | Alibaba Cloud OSS | `asterdrive.storage.alibaba_oss` | Shared across Primary instances | Alibaba Cloud OSS with native V4 signing, split endpoints, or CNAME | [Alibaba Cloud OSS](/en/admin/storage-backends/alibaba-oss/) |
 | SFTP | `asterdrive.storage.sftp` | Shared across Primary instances | SSH/SFTP file servers and server-side streaming | [SFTP](/en/admin/storage-backends/sftp/) |
 | Azure Blob | `asterdrive.storage.azure_blob` | Shared across Primary instances | Azure Storage accounts and Blob containers | [Azure Blob](/en/admin/storage-backends/azure-blob/) |
+| Huawei Cloud OBS | `asterdrive.storage.huawei_obs` | Shared across Primary instances | Huawei Cloud OBS with native SignatureObs and regional or custom-domain endpoints | [Huawei Cloud OBS](/en/admin/storage-backends/huawei-obs/) |
 | Tencent COS | `asterdrive.storage.tencent_cos` | Shared across Primary instances | Tencent COS and per-policy COS CI processing | [Tencent COS](/en/admin/storage-backends/tencent-cos/) |
 | Remote | `asterdrive.storage.remote` | Shared across Primary instances | Objects stored by another AsterDrive follower node | [Remote](/en/admin/storage-backends/remote-follower/) |
 | OneDrive | `asterdrive.storage.onedrive` | Shared across Primary instances | Microsoft 365, OneDrive, SharePoint, and group drives | [OneDrive](/en/admin/storage-backends/onedrive/) |

@@ -233,6 +233,56 @@
       }
     },
     {
+      "connector_id": "asterdrive.storage.huawei_obs",
+      "display_name": {
+        "en": "Huawei Cloud OBS",
+        "zh": "华为云 OBS"
+      },
+      "documentation": {
+        "tutorial_slug": "huawei-obs",
+        "best_for": {
+          "en": "Huawei Cloud OBS with native SignatureObs and regional or custom-domain endpoints",
+          "zh": "使用原生 SignatureObs、区域 endpoint 或自定义域名的华为云 OBS"
+        }
+      },
+      "deployment_scope": "shared_across_primary_instances",
+      "supports_initial_setup": true,
+      "credential_mode": "static_secret",
+      "capabilities": {
+        "efficient_range": true,
+        "capacity": false,
+        "list": true,
+        "presigned_download": true,
+        "storage_native_thumbnail": false,
+        "storage_native_media_metadata": false,
+        "remote_node_binding": false,
+        "object_storage_transfer_strategy": true,
+        "object_naming": "opaque_uuid"
+      },
+      "upload_workflows": {
+        "simple_upload": true,
+        "simple_upload_capabilities": {
+          "server_side_relay": true,
+          "policy_limited": true
+        },
+        "stream_upload": true,
+        "object_multipart_upload": true,
+        "object_multipart_upload_capabilities": {
+          "min_part_size": 5242880,
+          "policy_limited_part_size": true,
+          "relay_part_upload": true,
+          "presigned_part_upload": true,
+          "presigned_part_etag_required": true,
+          "explicit_complete_required": true,
+          "abort_supported": true,
+          "list_parts_supported": true
+        },
+        "provider_resumable_upload": false,
+        "presigned_upload": true,
+        "frontend_direct_provider_resumable_upload": false
+      }
+    },
+    {
       "connector_id": "asterdrive.storage.tencent_cos",
       "display_name": {
         "en": "Tencent COS",

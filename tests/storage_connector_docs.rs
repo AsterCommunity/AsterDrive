@@ -92,6 +92,12 @@ const PRESENTATIONS: &[ConnectorDocumentationPresentation] = &[
         best_for_zh: "阿里云 OSS 原生 V4 签名、内外网 endpoint 分流或 CNAME",
     },
     ConnectorDocumentationPresentation {
+        connector_id: "asterdrive.storage.huawei_obs",
+        tutorial_slug: "huawei-obs",
+        best_for_en: "Huawei Cloud OBS with native SignatureObs and regional or custom-domain endpoints",
+        best_for_zh: "使用原生 SignatureObs、区域 endpoint 或自定义域名的华为云 OBS",
+    },
+    ConnectorDocumentationPresentation {
         connector_id: "asterdrive.storage.azure_blob",
         tutorial_slug: "azure-blob",
         best_for_en: "Azure Storage accounts and Blob containers",

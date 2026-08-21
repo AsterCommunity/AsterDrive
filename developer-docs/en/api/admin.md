@@ -79,7 +79,7 @@ Create example:
 
 Current notes:
 
-- `driver_type` currently supports `local`, `s3`, `alibaba_oss`, `sftp`, `azure_blob`, `tencent_cos`, `remote`, and `one_drive`
+- `driver_type` currently supports `local`, `s3`, `alibaba_oss`, `huawei_obs`, `sftp`, `azure_blob`, `tencent_cos`, `remote`, and `one_drive`
 - `GET /admin/policies/storage-drivers` returns `StorageConnectorDescriptor` entries. The frontend should use descriptor `capabilities`, `fields`, `upload_workflows`, `actions`, and `credential_mode` to decide forms, connection tests, upload/download strategies, and action affordances instead of maintaining a hard-coded driver capability matrix.
 - create and update both honor request `chunk_size`
 - `options` carries policy-level behavior:
@@ -90,6 +90,7 @@ Current notes:
   - generic S3 path-style addressing through `s3_path_style` (defaults to `true`)
   - S3 SigV4 signing region through `s3_region`. This optional string is trimmed; an empty or whitespace-only value normalizes to unset, with runtime falling back to `auto`. A non-empty value must contain 1–128 printable ASCII characters and must not contain whitespace or `/`; invalid values are rejected as `BadRequest` (HTTP 400 with response code `bad_request`). Custom S3-compatible endpoints that require a fixed region should use the provider-specified value. Draft connection tests and the saved S3 runtime driver use the same region.
   - S3 connect / read / operation timeouts
+  - Huawei OBS fields: regional or custom-domain `endpoint`, `bucket`, optional `obs_region`, `obs_addressing_mode`, and native `obs_signing_mode = "obs"`; OBS uses marker-based ListObjects pagination and the same object-storage upload/download strategies as other S3-shaped connectors
   - core-owned storage-native thumbnails / image previews with `storage_native_thumbnail_enabled` and `storage_native_thumbnail_extensions`; connector descriptors only advertise support
   - core-owned storage-native media metadata with `storage_native_media_metadata_enabled` and `storage_native_media_metadata_extensions`; connector descriptors only advertise support
   - OneDrive location options: `onedrive_account_mode`, `onedrive_tenant`, `onedrive_site_id`, `onedrive_drive_id`, `onedrive_group_id`, and `onedrive_root_item_id`
@@ -103,7 +104,8 @@ Current notes:
 - `driver_type = "sftp"` uses SSH username / password credentials to connect to an SFTP server. Endpoint supports `sftp://host:port`, bare `host`, and `host:port`; the remote root belongs in `base_path`. Unknown or mismatched SSH host keys are rejected as `StorageErrorKind::Precondition` with diagnostics that include actual / expected fingerprints; the confirmed fingerprint is stored in `options.sftp_host_key_fingerprint`.
 - `driver_type = "tencent_cos"` uses the S3-compatible object path for normal reads and writes, validates Tencent COS endpoint shape, and can expose COS CI storage-native thumbnail / image-preview / media-metadata capabilities when the policy opts in
 - `driver_type = "alibaba_oss"` reuses AWS S3 SDK object, streaming, and multipart orchestration but applies native `OSS4-HMAC-SHA256` header/query signing; normal requests and generated presigning are validated separately
-- built-in Local, S3-compatible, Alibaba OSS, SFTP, Azure Blob, OneDrive, and Remote drivers do not expose storage-native thumbnail, image-preview, or media-metadata capabilities
+- `driver_type = "huawei_obs"` reuses AWS S3 SDK object, streaming, and multipart serialization while applying native Huawei `SignatureObs` HMAC-SHA1/Base64 signing; virtual-hosted and custom-domain addressing, marker-based listing, normal requests, and generated presigning are validated separately
+- built-in Local, S3-compatible, Alibaba OSS, Huawei OBS, SFTP, Azure Blob, OneDrive, and Remote drivers do not expose storage-native thumbnail, image-preview, or media-metadata capabilities
 - legacy `{"presigned_upload":true}` remains compatible with object-storage presigned upload
 - `allowed_types` can be managed through REST
 - Creating a `driver_type = "remote"` policy requires both `remote_node_id` and `remote_storage_target_key`. The target must belong to that node's current binding, have no `last_error`, and satisfy `applied_revision >= desired_revision`.

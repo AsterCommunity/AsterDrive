@@ -46,6 +46,16 @@ impl S3CompatibleDriver {
 
 macro_rules! delegate_s3_compatible_storage_driver {
     ($driver:ty, $field:ident $(, $native_extension:ident)*) => {
+        $crate::storage::drivers::s3_compatible::delegate_s3_compatible_storage_driver!(
+            @impl $driver, $field, inherited_list $(, $native_extension)*
+        );
+    };
+    ($driver:ty, $field:ident, list = self $(, $native_extension:ident)*) => {
+        $crate::storage::drivers::s3_compatible::delegate_s3_compatible_storage_driver!(
+            @impl $driver, $field, own_list $(, $native_extension)*
+        );
+    };
+    (@impl $driver:ty, $field:ident, $list_mode:ident $(, $native_extension:ident)*) => {
         #[async_trait::async_trait]
         impl aster_drive_storage::StorageDriver for $driver {
             async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
@@ -104,13 +114,14 @@ macro_rules! delegate_s3_compatible_storage_driver {
             }
 
             fn extensions(&self) -> aster_drive_storage::StorageDriverExtensions<'_> {
-                let base = self.$field.extensions();
+                let this = self;
+                let base = this.$field.extensions();
                 aster_drive_storage::StorageDriverExtensions {
-                    presigned: Some(self),
-                    list: base.list,
+                    presigned: base.presigned,
+                    list: $crate::storage::drivers::s3_compatible::delegate_s3_compatible_storage_driver!(@list $list_mode, base, this),
                     stream_upload: base.stream_upload,
-                    multipart: Some(self),
-                    $($native_extension: Some(self),)*
+                    multipart: Some(this),
+                    $($native_extension: Some(this),)*
                     ..Default::default()
                 }
             }
@@ -122,6 +133,13 @@ macro_rules! delegate_s3_compatible_storage_driver {
             }
         }
     };
+    (@list inherited_list, $base:ident, $this:ident) => {
+        $base.list
+    };
+    (@list own_list, $base:ident, $this:ident) => {{
+        let _ = $base;
+        Some($this)
+    }};
 }
 
 macro_rules! delegate_s3_compatible_multipart_driver {
