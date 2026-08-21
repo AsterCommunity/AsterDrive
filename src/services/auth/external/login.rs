@@ -5,6 +5,10 @@ use sea_orm::ActiveValue::Set;
 use crate::db::repository::{external_auth_login_flow_repo, external_auth_provider_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
+use crate::services::auth::flow::{
+    AuthFlowCommand, AuthFlowKind, AuthFlowState, AuthFlowTransitionError, external_login_snapshot,
+    new_primary_flow, plan_transition,
+};
 use aster_drive_model::entities::external_auth_login_flow;
 use aster_forge_crypto as hash;
 use aster_forge_external_auth::{
@@ -72,6 +76,16 @@ pub async fn start_login(
     let now = Utc::now();
     let ttl = u64_to_i64(FLOW_TTL_SECS, "external auth login flow ttl")?;
     let browser_binding_secret = browser_binding_secret();
+    new_primary_flow(
+        AuthFlowKind::ExternalLogin,
+        format!(
+            "external-login:{}",
+            external_auth_normalize::state_hash(&auth_start.state)
+        ),
+        now + Duration::seconds(ttl),
+        now,
+    )
+    .map_err(|_| AsterError::auth_invalid_credentials("external auth flow could not start"))?;
     let flow = external_auth_login_flow::ActiveModel {
         provider_id: Set(provider.id),
         state_hash: Set(external_auth_normalize::state_hash(&auth_start.state)),
@@ -115,10 +129,37 @@ pub async fn finish_callback(
         AsterError::auth_invalid_credentials("external auth login flow is invalid or expired")
     })?;
 
+    let state_hash = external_auth_normalize::state_hash(state_value);
+    let browser_binding_hash = hash::sha256_hex(browser_binding_secret.as_bytes());
+    let candidate = external_auth_login_flow_repo::find_active_by_state_and_browser_binding_hash(
+        state.writer_db(),
+        &state_hash,
+        &browser_binding_hash,
+        Utc::now(),
+    )
+    .await?
+    .ok_or_else(|| {
+        AsterError::auth_invalid_credentials("external auth login flow is invalid or expired")
+    })?;
+    plan_transition(
+        &external_login_snapshot(&candidate, Utc::now()),
+        AuthFlowCommand::Transition {
+            expected_revision: external_login_snapshot(&candidate, Utc::now()).revision,
+            to: AuthFlowState::Processing,
+        },
+        Utc::now(),
+    )
+    .map_err(|error| match error {
+        AuthFlowTransitionError::Expired | AuthFlowTransitionError::Terminal(_) => {
+            AsterError::auth_invalid_credentials("external auth login flow is invalid or expired")
+        }
+        _ => AsterError::auth_invalid_credentials("external auth login flow transition is invalid"),
+    })?;
+
     let flow = external_auth_login_flow_repo::consume_by_state_and_browser_binding_hash(
         state.writer_db(),
-        &external_auth_normalize::state_hash(state_value),
-        &hash::sha256_hex(browser_binding_secret.as_bytes()),
+        &state_hash,
+        &browser_binding_hash,
         Utc::now(),
     )
     .await?
@@ -156,7 +197,6 @@ pub async fn finish_callback(
             "external auth provider is disabled",
         ));
     }
-
     let runtime_provider = external_auth_provider_config(&provider);
     let user_claims = default_registry()
         .driver_for_provider(&runtime_provider)?

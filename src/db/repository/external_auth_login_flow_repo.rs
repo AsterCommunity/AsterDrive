@@ -56,6 +56,22 @@ pub async fn consume_by_state_and_browser_binding_hash(
     }
 }
 
+pub async fn find_active_by_state_and_browser_binding_hash(
+    db: &DatabaseConnection,
+    state_hash: &str,
+    browser_binding_hash: &str,
+    now: chrono::DateTime<Utc>,
+) -> Result<Option<external_auth_login_flow::Model>> {
+    ExternalAuthLoginFlow::find()
+        .filter(external_auth_login_flow::Column::StateHash.eq(state_hash))
+        .filter(external_auth_login_flow::Column::BrowserBindingHash.eq(browser_binding_hash))
+        .filter(external_auth_login_flow::Column::ConsumedAt.is_null())
+        .filter(external_auth_login_flow::Column::ExpiresAt.gt(now))
+        .one(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 pub async fn cleanup_expired(db: &DatabaseConnection, now: chrono::DateTime<Utc>) -> Result<u64> {
     let result = ExternalAuthLoginFlow::delete_many()
         .filter(external_auth_login_flow::Column::ExpiresAt.lt(now))

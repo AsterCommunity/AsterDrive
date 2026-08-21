@@ -11,6 +11,7 @@ use crate::config::auth_runtime::RuntimeContactVerificationPolicy;
 use crate::db::repository::{contact_verification_token_repo, user_repo};
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
+use crate::services::auth::flow::{AuthFlowKind, new_recovery_flow};
 use crate::services::mail::sender;
 use aster_drive_model::entities::{contact_verification_token, user};
 use aster_drive_model::types::{UserRole, UserStatus, VerificationChannel, VerificationPurpose};
@@ -313,6 +314,19 @@ pub(super) async fn issue_contact_verification_token<C: ConnectionTrait>(
     let now = Utc::now();
     let token = sender::build_verification_token();
     let token_hash = hash::sha256_hex(token.as_bytes());
+    new_recovery_flow(
+        match purpose {
+            VerificationPurpose::RegisterActivation => AuthFlowKind::RegistrationActivation,
+            VerificationPurpose::ContactChange => AuthFlowKind::EmailChange,
+            VerificationPurpose::PasswordReset => AuthFlowKind::PasswordReset,
+        },
+        format!("contact-verification:{user_id}:{purpose:?}"),
+        now + Duration::seconds(u64_to_i64(ttl_secs, "contact verification ttl")?),
+        now,
+    )
+    .map_err(|_| {
+        AsterError::contact_verification_invalid("contact verification flow could not start")
+    })?;
 
     contact_verification_token_repo::delete_active_for_user(
         db,

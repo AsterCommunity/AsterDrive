@@ -17,6 +17,10 @@ use crate::db::repository::{
 };
 use crate::errors::{AsterError, Result, auth_mfa_failed_with_code};
 use crate::runtime::{MailRuntimeState, SharedRuntimeState};
+use crate::services::auth::flow::{
+    AuthFlowCommand, AuthFlowKind, AuthFlowSnapshot, AuthFlowState, AuthFlowTransitionError,
+    new_primary_flow, plan_transition,
+};
 use crate::services::{
     auth::local,
     mail::audit as mail_audit,
@@ -142,6 +146,28 @@ pub async fn create_login_flow(
     let flow_token = format!("mfa_{}", aster_forge_utils::id::new_short_token());
     let now = Utc::now();
     let ttl = u64_to_i64(MFA_LOGIN_FLOW_TTL_SECS, "mfa login flow ttl")?;
+    let primary_kind = match first_factor {
+        MfaFirstFactor::Password => AuthFlowKind::PasswordLogin,
+        MfaFirstFactor::ExternalAuth => AuthFlowKind::ExternalLogin,
+    };
+    let primary = new_primary_flow(
+        primary_kind,
+        format!("primary:{flow_token}"),
+        now + Duration::seconds(ttl),
+        now,
+    )
+    .map_err(|_| AsterError::auth_invalid_credentials("primary login flow is invalid"))?;
+    plan_transition(
+        &primary,
+        AuthFlowCommand::Transition {
+            expected_revision: primary.revision,
+            to: AuthFlowState::SecondFactorPending,
+        },
+        now,
+    )
+    .map_err(|_| {
+        AsterError::auth_invalid_credentials("primary login flow transition is invalid")
+    })?;
     mfa_login_flow_repo::create(
         state.writer_db(),
         mfa_login_flow::ActiveModel {
@@ -484,8 +510,17 @@ pub async fn verify_challenge(
         };
 
         if !verified {
-            let next_attempt_count = flow.attempt_count.saturating_add(1);
-            let consume_at = (next_attempt_count >= MFA_MAX_ATTEMPTS).then_some(now);
+            let transition = plan_transition(
+                &mfa_flow_snapshot(&flow),
+                AuthFlowCommand::RecordFailure {
+                    expected_revision: 0,
+                },
+                now,
+            )
+            .map_err(map_mfa_flow_transition_error)?;
+            let next_attempt_count = i32::try_from(transition.attempt_count)
+                .map_err(|_| AsterError::internal_error("MFA attempt count overflow"))?;
+            let consume_at = (transition.state == AuthFlowState::Failed).then_some(now);
             mfa_login_flow_repo::increment_attempts(&txn, flow.id, consume_at).await?;
             let error = if next_attempt_count >= MFA_MAX_ATTEMPTS {
                 auth_mfa_failed_with_code(
@@ -826,22 +861,50 @@ fn format_email_code_expires_in(ttl_secs: u64) -> String {
 }
 
 fn ensure_flow_active(flow: &mfa_login_flow::Model, now: chrono::DateTime<Utc>) -> Result<()> {
-    if flow.consumed_at.is_some() {
-        return Err(flow_invalid("MFA flow has already been consumed"));
+    plan_transition(
+        &mfa_flow_snapshot(flow),
+        AuthFlowCommand::Transition {
+            expected_revision: 0,
+            to: AuthFlowState::Authenticated,
+        },
+        now,
+    )
+    .map(|_| ())
+    .map_err(map_mfa_flow_transition_error)
+}
+
+fn mfa_flow_snapshot(flow: &mfa_login_flow::Model) -> AuthFlowSnapshot {
+    AuthFlowSnapshot {
+        flow_id: format!("mfa-login:{}", flow.id),
+        kind: AuthFlowKind::MfaLogin,
+        state: if flow.consumed_at.is_some() {
+            AuthFlowState::Consumed
+        } else {
+            AuthFlowState::SecondFactorPending
+        },
+        revision: 0,
+        attempt_count: u32::try_from(flow.attempt_count).unwrap_or(u32::MAX),
+        max_attempts: Some(u32::try_from(MFA_MAX_ATTEMPTS).expect("positive MFA attempt limit")),
+        expires_at: flow.expires_at,
     }
-    if flow.expires_at <= now {
-        return Err(auth_mfa_failed_with_code(
-            ApiErrorCode::AuthMfaFlowExpired,
-            "MFA flow has expired",
-        ));
-    }
-    if flow.attempt_count >= MFA_MAX_ATTEMPTS {
-        return Err(auth_mfa_failed_with_code(
+}
+
+fn map_mfa_flow_transition_error(error: AuthFlowTransitionError) -> AsterError {
+    match error {
+        AuthFlowTransitionError::Expired => {
+            auth_mfa_failed_with_code(ApiErrorCode::AuthMfaFlowExpired, "MFA flow has expired")
+        }
+        AuthFlowTransitionError::AttemptBudgetExhausted
+        | AuthFlowTransitionError::Terminal(AuthFlowState::Failed) => auth_mfa_failed_with_code(
             ApiErrorCode::AuthMfaAttemptsExceeded,
             "MFA attempts exceeded",
-        ));
+        ),
+        AuthFlowTransitionError::Terminal(_) => flow_invalid("MFA flow has already been consumed"),
+        AuthFlowTransitionError::IllegalTransition { .. }
+        | AuthFlowTransitionError::RevisionConflict { .. } => {
+            flow_invalid("MFA flow transition is invalid")
+        }
     }
-    Ok(())
 }
 
 fn ensure_flow_user_valid(user: &user::Model, flow: &mfa_login_flow::Model) -> Result<()> {

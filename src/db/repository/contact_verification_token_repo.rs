@@ -73,7 +73,11 @@ pub async fn mark_consumed<C: ConnectionTrait>(
     active.update(db).await.map_err(AsterError::from)
 }
 
-pub async fn mark_consumed_if_unused<C: ConnectionTrait>(db: &C, token_id: i64) -> Result<bool> {
+pub async fn mark_consumed_if_unused<C: ConnectionTrait>(
+    db: &C,
+    token_id: i64,
+    now: chrono::DateTime<Utc>,
+) -> Result<bool> {
     let result = ContactVerificationToken::update_many()
         .col_expr(
             contact_verification_token::Column::ConsumedAt,
@@ -81,6 +85,7 @@ pub async fn mark_consumed_if_unused<C: ConnectionTrait>(db: &C, token_id: i64) 
         )
         .filter(contact_verification_token::Column::Id.eq(token_id))
         .filter(contact_verification_token::Column::ConsumedAt.is_null())
+        .filter(contact_verification_token::Column::ExpiresAt.gt(now))
         .exec(db)
         .await
         .map_err(AsterError::from)?;

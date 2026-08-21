@@ -4,6 +4,7 @@ These documents explain domain boundaries that cross routes, services, repositor
 
 ## Identity and authentication
 
+- [Authentication flow state-machine contract](./auth-flow-state-machine.md): shared lifecycle, transition, concurrency, and frontend projection boundaries for login, MFA, recovery, invitations, Passkeys, and sessions.
 - [External authentication module](./external-auth.md): provider descriptors, login flows, account resolution, email verification, and frontend/backend ownership.
 
 ## Storage and remote nodes
