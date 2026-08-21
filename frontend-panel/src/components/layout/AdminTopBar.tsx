@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
 import { HeaderControls } from "@/components/layout/HeaderControls";
+import { TopBarBrand } from "@/components/layout/TopBarBrand";
 import { TopBarShell } from "@/components/layout/TopBarShell";
 import { ADMIN_TOPBAR_HEIGHT_CLASS } from "@/lib/constants";
 
@@ -10,7 +10,7 @@ interface AdminTopBarProps {
 }
 
 export function AdminTopBar({ onSidebarToggle, mobileOpen }: AdminTopBarProps) {
-	const { t } = useTranslation();
+	const { t } = useTranslation(["core", "admin"]);
 
 	return (
 		<TopBarShell
@@ -22,10 +22,7 @@ export function AdminTopBar({ onSidebarToggle, mobileOpen }: AdminTopBarProps) {
 			}}
 			left={
 				<div className="flex min-w-0 items-center gap-3">
-					<AsterDriveWordmark
-						alt={t("app_name")}
-						className="hidden h-16 w-auto shrink-0 md:block px-6"
-					/>
+					<TopBarBrand to="/admin/overview" ariaLabel={t("admin:admin_home")} />
 					<h1 className="truncate text-base font-semibold sm:text-lg">
 						{t("admin_panel")}
 					</h1>

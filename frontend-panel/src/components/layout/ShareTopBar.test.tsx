@@ -120,7 +120,12 @@ describe("ShareTopBar", () => {
 			"data-home-label",
 			"translated:auth:go_home",
 		);
-		expect(screen.queryByRole("link")).not.toBeInTheDocument();
+		expect(
+			screen.getByRole("link", { name: "translated:auth:go_home" }),
+		).toHaveAttribute("href", "/");
+		expect(
+			screen.queryByRole("link", { name: "translated:auth:go_to_login" }),
+		).not.toBeInTheDocument();
 	});
 
 	it("forwards the mobile sidebar state and toggle", () => {

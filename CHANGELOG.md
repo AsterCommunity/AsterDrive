@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **站点标题首页导航** — 文件浏览器和分享页顶栏的站点标题通过客户端路由返回 `/`，管理后台顶栏返回 `/admin/overview`，并保留现有品牌资源、主题、响应式显示和可访问性语义。
 - **存储策略与策略组生命周期** — 首次 setup 创建的存储策略和默认策略组不再按固定 ID 作为永久系统对象；解除 blob、上传 session、策略组项以及用户/团队绑定等引用后可删除首条或最后一条默认策略，删除最后一个默认策略组会使系统回到 `needs_storage`，重新配置默认存储拓扑后恢复 `ready`，不会静默清空业务绑定。默认切换、删除与重新 setup 使用稳定数据库锁协调多 Primary，现有数据保护保持不变。
 - **存储策略凭据兼容层完成收口** — 移除 0.5.x 启动阶段的 legacy credential importer、connector legacy import hook、OneDrive 旧 OAuth 转换、deprecated credential entities / repositories，以及 `database-migrate` 的旧凭据复制与导入路径。当前运行时只消费 `connector_id`、typed `storage_config` 和 `storage_policy_connector_credentials`。
 - **存储策略最终 schema migration** — 新增 `m20260820_000001_remove_storage_policy_legacy`。迁移会在任何 DDL 前检查旧凭据表和旧静态凭据列；发现未完成 0.5.x 转换时硬失败并保留原 schema / 数据，检查通过后删除两个旧凭据表、旧 `storage_policies` 列、索引和远端节点外键。
