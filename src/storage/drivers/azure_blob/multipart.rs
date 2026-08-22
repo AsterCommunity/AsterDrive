@@ -15,7 +15,7 @@ use tokio::io::{AsyncRead, ReadBuf};
 use aster_drive_storage::traits::driver::StorageDriver;
 use aster_drive_storage::traits::extensions::StreamUploadDriver;
 use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
-use aster_drive_storage::{MapStorageErr, StorageErrorKind, storage_driver_error};
+use aster_drive_storage::{MapStorageErr, StorageError, StorageErrorKind, storage_driver_error};
 use aster_forge_utils::numbers;
 
 use super::AzureBlobDriver;
@@ -406,6 +406,8 @@ impl StreamUploadDriver for AzureBlobDriver {
             return Ok(storage_path.to_string());
         }
 
+        let upload_id = self.create_multipart_upload(storage_path).await?;
+
         while remaining > 0 {
             let read_limit = numbers::u64_to_usize(
                 remaining.min(
@@ -426,10 +428,10 @@ impl StreamUploadDriver for AzureBlobDriver {
                 })?,
                 Arc::clone(&ended_early),
             );
-            let marker = self
+            let marker = match self
                 .upload_multipart_part_reader(
                     storage_path,
-                    "",
+                    &upload_id,
                     part_number,
                     Box::new(chunk_reader),
                     i64::try_from(read_limit).map_err(|error| {
@@ -449,7 +451,14 @@ impl StreamUploadDriver for AzureBlobDriver {
                     } else {
                         error
                     }
-                })?;
+                }) {
+                Ok(marker) => marker,
+                Err(error) => {
+                    return Err(self
+                        .abort_stream_upload_after_error(storage_path, &upload_id, error)
+                        .await);
+                }
+            };
             parts.push((part_number, marker));
             remaining -= u64::try_from(read_limit).map_err(|error| {
                 storage_driver_error(
@@ -466,7 +475,7 @@ impl StreamUploadDriver for AzureBlobDriver {
         }
 
         let mut extra = [0_u8; 1];
-        let extra_read = tokio::io::AsyncReadExt::read(
+        let extra_read = match tokio::io::AsyncReadExt::read(
             &mut AzureChunkReader::new(Arc::clone(&reader), 1, Arc::new(AtomicBool::new(false))),
             &mut extra,
         )
@@ -474,16 +483,35 @@ impl StreamUploadDriver for AzureBlobDriver {
         .map_storage_err_ctx(
             StorageErrorKind::Precondition,
             "check Azure Blob upload stream length",
-        )?;
+        ) {
+            Ok(read) => read,
+            Err(error) => {
+                return Err(self
+                    .abort_stream_upload_after_error(storage_path, &upload_id, error)
+                    .await);
+            }
+        };
         if extra_read != 0 {
-            return Err(storage_driver_error(
-                StorageErrorKind::Precondition,
-                "Azure Blob upload stream exceeded declared size",
-            ));
+            return Err(self
+                .abort_stream_upload_after_error(
+                    storage_path,
+                    &upload_id,
+                    storage_driver_error(
+                        StorageErrorKind::Precondition,
+                        "Azure Blob upload stream exceeded declared size",
+                    ),
+                )
+                .await);
         }
 
-        self.complete_multipart_upload(storage_path, "", parts)
-            .await?;
+        if let Err(error) = self
+            .complete_multipart_upload(storage_path, &upload_id, parts)
+            .await
+        {
+            return Err(self
+                .abort_stream_upload_after_error(storage_path, &upload_id, error)
+                .await);
+        }
         Ok(storage_path.to_string())
     }
 
@@ -503,6 +531,23 @@ impl StreamUploadDriver for AzureBlobDriver {
             aster_forge_utils::numbers::u64_to_i64(metadata.len(), "Azure Blob upload file size")
                 .map_storage_err(StorageErrorKind::Misconfigured)?;
         self.put_reader(storage_path, Box::new(file), size).await
+    }
+}
+
+impl AzureBlobDriver {
+    async fn abort_stream_upload_after_error(
+        &self,
+        storage_path: &str,
+        upload_id: &str,
+        error: StorageError,
+    ) -> StorageError {
+        if let Err(cleanup_error) = self.abort_multipart_upload(storage_path, upload_id).await {
+            tracing::warn!(
+                storage_path,
+                "failed to cleanup Azure uncommitted blocks after interrupted stream upload: {cleanup_error}"
+            );
+        }
+        error
     }
 }
 

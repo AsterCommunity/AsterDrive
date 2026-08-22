@@ -431,6 +431,10 @@ async fn test_azure_blob_put_reader_length_boundaries_with_azurite() {
         .await
         .expect_err("short stream should fail");
     assert_eq!(short_error.kind(), StorageErrorKind::Precondition);
+    assert!(
+        !driver.exists("short.bin").await.unwrap(),
+        "short stream must not commit a visible blob"
+    );
 
     let long_error = driver
         .put_reader(
@@ -441,6 +445,20 @@ async fn test_azure_blob_put_reader_length_boundaries_with_azurite() {
         .await
         .expect_err("long stream should fail");
     assert_eq!(long_error.kind(), StorageErrorKind::Precondition);
+    assert!(
+        !driver.exists("long.bin").await.unwrap(),
+        "extra bytes must abort uncommitted blocks before commit"
+    );
+
+    driver
+        .put_reader(
+            "long.bin",
+            Box::new(std::io::Cursor::new(b"valid".to_vec())),
+            5,
+        )
+        .await
+        .expect("retrying the same key after an aborted stream should succeed");
+    assert_eq!(driver.get("long.bin").await.unwrap(), b"valid");
 
     let upload_id = driver
         .create_multipart_upload("multipart/reader.bin")

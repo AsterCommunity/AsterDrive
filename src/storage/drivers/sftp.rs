@@ -603,26 +603,67 @@ impl StreamUploadDriver for SftpDriver {
         _size: i64,
     ) -> aster_drive_storage::Result<String> {
         let remote_path = self.full_path(storage_path)?;
+        // Never stream directly into the visible key.  A disconnected reader or
+        // provider-side failure must leave the previous version untouched.
+        let temporary_path = format!(
+            "{remote_path}.aster-upload-{:016x}.tmp",
+            rand::random::<u64>()
+        );
         let mut connection = self.acquire_connection().await?;
         ensure_remote_parent_dir(connection.sftp()?, &remote_path).await?;
         let mut remote_file = connection
             .sftp()?
-            .create(remote_path)
+            .create(temporary_path.clone())
             .await
             .map_err(|error| connection.map_sftp_error("SFTP create failed", error))?;
-        tokio::io::copy(&mut reader, &mut remote_file)
-            .await
-            .map_err(|error| map_io_error("SFTP stream upload failed", error))?;
-        remote_file
-            .flush()
-            .await
-            .map_err(|error| map_io_error("SFTP stream flush failed", error))?;
-        remote_file
-            .shutdown()
-            .await
-            .map_err(|error| map_io_error("SFTP stream close failed", error))?;
-        connection.mark_reusable();
-        Ok(storage_path.to_string())
+
+        let result = async {
+            tokio::io::copy(&mut reader, &mut remote_file)
+                .await
+                .map_err(|error| map_io_error("SFTP stream upload failed", error))?;
+            remote_file
+                .flush()
+                .await
+                .map_err(|error| map_io_error("SFTP stream flush failed", error))?;
+            remote_file
+                .shutdown()
+                .await
+                .map_err(|error| map_io_error("SFTP stream close failed", error))?;
+            replace_sftp_object(&mut connection, &temporary_path, &remote_path, storage_path)
+                .await?;
+            Ok::<(), aster_drive_storage::StorageError>(())
+        }
+        .await;
+
+        match result {
+            Ok(()) => {
+                connection.mark_reusable();
+                Ok(storage_path.to_string())
+            }
+            Err(error) => {
+                // Cleanup is part of the interrupted-write contract.  Preserve
+                // the original upload error while making cleanup failure visible.
+                let cleanup_result = match connection.sftp() {
+                    Ok(sftp) => sftp.remove_file(temporary_path.clone()).await,
+                    Err(_) => return Err(error),
+                };
+                match cleanup_result {
+                    Ok(()) => connection.mark_reusable(),
+                    Err(cleanup_error) if is_sftp_not_found(&cleanup_error) => {
+                        connection.mark_reusable();
+                    }
+                    Err(cleanup_error) => {
+                        let cleanup_error = connection
+                            .map_sftp_error("SFTP temporary object cleanup failed", cleanup_error);
+                        tracing::warn!(
+                            storage_path,
+                            "failed to cleanup interrupted SFTP temporary object: {cleanup_error}"
+                        );
+                    }
+                }
+                Err(error)
+            }
+        }
     }
 
     async fn put_file(
@@ -635,6 +676,68 @@ impl StreamUploadDriver for SftpDriver {
             .map_err(|error| map_io_error("open local upload file failed", error))?;
         self.put_reader(storage_path, Box::new(local_file), -1)
             .await
+    }
+}
+
+async fn replace_sftp_object(
+    connection: &mut SftpConnectionLease,
+    temporary_path: &str,
+    destination_path: &str,
+    storage_path: &str,
+) -> aster_drive_storage::Result<()> {
+    // Servers commonly implement the base SFTP rename as "no overwrite".
+    // Exchange through a backup name so retries can replace an existing complete
+    // object without ever publishing the temporary bytes as the final object.
+    let destination_exists = connection
+        .sftp()?
+        .metadata(destination_path.to_string())
+        .await
+        .is_ok();
+    if !destination_exists {
+        return connection
+            .sftp()?
+            .rename(temporary_path.to_string(), destination_path.to_string())
+            .await
+            .map_err(|error| connection.map_sftp_error("SFTP atomic rename failed", error));
+    }
+
+    let backup_path = format!(
+        "{destination_path}.aster-backup-{:016x}.tmp",
+        rand::random::<u64>()
+    );
+    connection
+        .sftp()?
+        .rename(destination_path.to_string(), backup_path.clone())
+        .await
+        .map_err(|error| connection.map_sftp_error("SFTP backup rename failed", error))?;
+
+    let replacement = connection
+        .sftp()?
+        .rename(temporary_path.to_string(), destination_path.to_string())
+        .await;
+    match replacement {
+        Ok(()) => {
+            if let Err(error) = connection.sftp()?.remove_file(backup_path).await {
+                tracing::warn!(
+                    storage_path,
+                    "failed to cleanup replaced SFTP backup object: {error}"
+                );
+            }
+            Ok(())
+        }
+        Err(error) => {
+            if let Err(restore_error) = connection
+                .sftp()?
+                .rename(backup_path, destination_path.to_string())
+                .await
+            {
+                tracing::error!(
+                    storage_path,
+                    "failed to restore original SFTP object after replacement failure: {restore_error}"
+                );
+            }
+            Err(connection.map_sftp_error("SFTP atomic rename failed", error))
+        }
     }
 }
 
