@@ -123,6 +123,39 @@ function promotionRequirementsMatch(
 					matches = false;
 				}
 				break;
+			case "url_host_contains_label":
+				try {
+					matches = new URL(value).hostname
+						.toLowerCase()
+						.split(".")
+						.includes(matcher.label.toLowerCase());
+				} catch {
+					matches = false;
+				}
+				break;
+			case "url_host_contains_field":
+				try {
+					const expected = values[matcher.field];
+					matches =
+						typeof expected === "string" &&
+						new URL(value).hostname
+							.toLowerCase()
+							.split(".")
+							.includes(expected.toLowerCase());
+				} catch {
+					matches = false;
+				}
+				break;
+			case "url_host_suffix_any":
+				try {
+					const hostname = new URL(value).hostname.toLowerCase();
+					matches = matcher.suffixes.some((suffix) =>
+						hostname.endsWith(suffix.toLowerCase()),
+					);
+				} catch {
+					matches = false;
+				}
+				break;
 		}
 		return matches !== (requirement.negate === true);
 	});

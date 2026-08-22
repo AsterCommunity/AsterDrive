@@ -13,6 +13,7 @@ mod alibaba_oss;
 mod azure_blob;
 mod common;
 mod contract;
+mod huawei_obs;
 mod local;
 mod localization;
 mod models;
@@ -45,6 +46,7 @@ use aster_drive_storage::connector_descriptor::{
 use alibaba_oss::AlibabaOssConnector;
 use azure_blob::AzureBlobConnector;
 pub use common::unsupported_multipart_error;
+use huawei_obs::HuaweiObsConnector;
 use local::LocalConnector;
 pub use models::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
@@ -81,6 +83,7 @@ pub(crate) fn builtin_storage_connector_registry() -> Result<StorageConnectorReg
         Arc::new(AlibabaOssConnector),
         Arc::new(SftpConnector),
         Arc::new(AzureBlobConnector),
+        Arc::new(HuaweiObsConnector),
         Arc::new(TencentCosConnector),
         Arc::new(RemoteConnector),
         Arc::new(OneDriveConnector),

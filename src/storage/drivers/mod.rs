@@ -4,6 +4,7 @@
 
 pub mod alibaba_oss;
 pub mod azure_blob;
+pub mod huawei_obs;
 pub mod local;
 pub mod onedrive;
 pub mod qiniu;

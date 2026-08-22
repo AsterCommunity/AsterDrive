@@ -17,6 +17,7 @@ title: "存储能力矩阵"
 | [阿里云 OSS](/admin/storage-backends/alibaba-oss/) | Primary 间共享 | Presigned | 支持 | 不支持 | 不支持 | 静态密钥 |
 | [SFTP](/admin/storage-backends/sftp/) | Primary 间共享 | 不支持 | 不支持 | 不支持 | 不支持 | 静态密钥 |
 | [Azure Blob](/admin/storage-backends/azure-blob/) | Primary 间共享 | Presigned | 支持 | 不支持 | 不支持 | 静态密钥 |
+| [华为云 OBS](/admin/storage-backends/huawei-obs/) | Primary 间共享 | Presigned | 支持 | 不支持 | 不支持 | 静态密钥 |
 | [腾讯云 COS](/admin/storage-backends/tencent-cos/) | Primary 间共享 | Presigned | 支持 | 不支持 | 缩略图 + 媒体元数据 | 静态密钥 |
 | [远程节点](/admin/storage-backends/remote-follower/) | Primary 间共享 | Presigned | 支持 | 支持 | 不支持 | 无 connector 凭据 |
 | [OneDrive](/admin/storage-backends/onedrive/) | Primary 间共享 | Provider direct | 支持 | 支持 | 不支持 | 委托 OAuth |

@@ -8251,6 +8251,18 @@ export interface components {
             /** @enum {string} */
             kind: "url_host_suffix";
             suffix: string;
+        } | {
+            /** @enum {string} */
+            kind: "url_host_contains_label";
+            label: string;
+        } | {
+            field: string;
+            /** @enum {string} */
+            kind: "url_host_contains_field";
+        } | {
+            /** @enum {string} */
+            kind: "url_host_suffix_any";
+            suffixes: string[];
         };
         StorageConnectorProviderResumableUploadCapabilities: {
             /** @description 当前实现是否向上层暴露 provider-native abort。 */

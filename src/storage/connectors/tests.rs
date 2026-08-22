@@ -16,6 +16,7 @@ use sea_orm::ActiveModelTrait;
 
 use super::alibaba_oss::AlibabaOssConnectorConfigV1;
 use super::azure_blob::AzureBlobConnectorConfigV1;
+use super::huawei_obs::HuaweiObsConnectorConfigV1;
 use super::local::LocalConnectorConfigV1;
 use super::onedrive::{OneDriveAccountMode, OneDriveConnectorConfigV1};
 use super::qiniu::QiniuConnectorConfigV1;
@@ -24,6 +25,7 @@ use super::s3::S3ConnectorConfigV1;
 use super::sftp::SftpConnectorConfigV1;
 use super::tencent_cos::TencentCosConnectorConfigV1;
 use super::*;
+use crate::storage::drivers::huawei_obs::HuaweiObsAddressingMode;
 
 struct LocalizationContractConnector {
     descriptor: StorageConnectorDescriptor,
@@ -171,6 +173,18 @@ fn cos_config(upload: ObjectStorageUploadStrategy) -> TencentCosConnectorConfigV
     }
 }
 
+fn obs_config(upload: ObjectStorageUploadStrategy) -> HuaweiObsConnectorConfigV1 {
+    HuaweiObsConnectorConfigV1 {
+        endpoint: "https://obs.cn-north-4.myhuaweicloud.com".to_string(),
+        bucket: "archive-bucket".to_string(),
+        obs_region: "cn-north-4".to_string(),
+        obs_addressing_mode: HuaweiObsAddressingMode::VirtualHosted,
+        base_path: "tenant-a".to_string(),
+        object_storage_upload_strategy: upload,
+        object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
+    }
+}
+
 fn remote_config(upload: RemoteUploadStrategy) -> RemoteConnectorConfigV1 {
     RemoteConnectorConfigV1 {
         base_path: "tenant-a".to_string(),
@@ -224,13 +238,14 @@ fn registry_exposes_each_builtin_connector_once_in_stable_order() {
             AlibabaOssConnector::ID,
             SftpConnector::ID,
             AzureBlobConnector::ID,
+            HuaweiObsConnector::ID,
             TencentCosConnector::ID,
             RemoteConnector::ID,
             OneDriveConnector::ID,
             QiniuConnector::ID,
         ]
     );
-    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 9);
+    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 10);
 }
 
 #[test]
@@ -839,6 +854,10 @@ fn descriptors_are_complete_and_keep_config_credentials_separate() {
             AzureBlobConnector::ID,
             StorageConnectorBadgeRgb::new(14, 165, 233),
         ),
+        (
+            HuaweiObsConnector::ID,
+            StorageConnectorBadgeRgb::new(239, 68, 68),
+        ),
     ] {
         assert_eq!(descriptor(id).ui.badge_rgb, rgb);
     }
@@ -853,6 +872,7 @@ fn descriptors_are_complete_and_keep_config_credentials_separate() {
         AlibabaOssConnector::ID,
         SftpConnector::ID,
         AzureBlobConnector::ID,
+        HuaweiObsConnector::ID,
         TencentCosConnector::ID,
         RemoteConnector::ID,
         OneDriveConnector::ID,
@@ -878,6 +898,7 @@ fn built_in_connector_capacity_claims_match_runtime_probe_support() {
         TencentCosConnector::ID,
         SftpConnector::ID,
         QiniuConnector::ID,
+        HuaweiObsConnector::ID,
     ];
     let descriptors = registry().descriptors();
     assert_eq!(
@@ -1290,6 +1311,85 @@ fn alibaba_oss_connector_validates_endpoint_region_and_cname_contract() {
             config,
         ))
         .expect("custom domain with CNAME mode");
+}
+
+#[test]
+fn huawei_obs_connector_declares_native_signature_and_addressing_contract() {
+    let connector = connector(HuaweiObsConnector::ID);
+    let descriptor = connector.descriptor();
+    assert_eq!(descriptor.related_issues, vec![451]);
+    assert!(descriptor.promotions.iter().any(|promotion| {
+        promotion.promotion_id.as_str() == "promote_from_s3"
+            && promotion.source_connector_id.as_str() == S3Connector::ID
+            && promotion
+                .config_mappings
+                .iter()
+                .any(|mapping| mapping.target_field == "obs_region")
+            && promotion
+                .credential_mappings
+                .iter()
+                .any(|mapping| mapping.target_field == "obs_access_key_id")
+    }));
+    let obs_promotion = descriptor
+        .promotions
+        .iter()
+        .find(|promotion| promotion.promotion_id.as_str() == "promote_from_s3")
+        .expect("Huawei OBS promotion");
+    assert!(obs_promotion.requirements.iter().any(|requirement| {
+        matches!(
+            &requirement.matcher,
+            aster_drive_storage::connector_descriptor::StorageConnectorPromotionValueMatcher::UrlHostContainsLabel { label }
+                if label == "obs"
+        )
+    }));
+    assert!(obs_promotion.requirements.iter().any(|requirement| {
+        matches!(
+            &requirement.matcher,
+            aster_drive_storage::connector_descriptor::StorageConnectorPromotionValueMatcher::UrlHostSuffixAny { suffixes }
+                if suffixes == &[".myhuaweicloud.com".to_string(), ".myhuaweicloud.eu".to_string()]
+        )
+    }));
+    assert!(descriptor.capabilities.presigned_download);
+    assert!(descriptor.upload_workflows.presigned_upload);
+    for field_name in [
+        "endpoint",
+        "bucket",
+        "obs_region",
+        "obs_addressing_mode",
+        "base_path",
+        "object_storage_upload_strategy",
+        "object_storage_download_strategy",
+        "obs_access_key_id",
+        "obs_secret_access_key",
+    ] {
+        assert!(
+            descriptor
+                .fields
+                .iter()
+                .any(|field| field.name == field_name),
+            "missing Huawei OBS descriptor field {field_name}"
+        );
+    }
+
+    connector
+        .validate_connector_config(&super::test_support::connection_config(
+            HuaweiObsConnector::ID,
+            1,
+            obs_config(ObjectStorageUploadStrategy::Presigned),
+        ))
+        .expect("official Huawei OBS endpoint should normalize");
+
+    let mut custom = obs_config(ObjectStorageUploadStrategy::RelayStream);
+    custom.endpoint = "https://files.example.test".to_string();
+    custom.obs_addressing_mode = HuaweiObsAddressingMode::CustomDomain;
+    custom.obs_region.clear();
+    connector
+        .validate_connector_config(&super::test_support::connection_config(
+            HuaweiObsConnector::ID,
+            1,
+            custom,
+        ))
+        .expect("custom-domain Huawei OBS endpoint should normalize");
 }
 
 fn assert_empty_base_path_normalizes<T>(

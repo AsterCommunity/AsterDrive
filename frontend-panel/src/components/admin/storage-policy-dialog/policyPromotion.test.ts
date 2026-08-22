@@ -248,6 +248,45 @@ describe("storage connector promotion", () => {
 		}
 	});
 
+	it("matches provider host labels and any official host suffix", () => {
+		const matcherTarget = structuredClone(target);
+		matcherTarget.promotions = [
+			{
+				...target.promotions?.[0],
+				description_key: "promotion_desc",
+				confirmation_key: "promotion_confirm",
+				promotion_id: "obs_host",
+				requirements: [
+					{
+						source_field: "endpoint",
+						matcher: { kind: "url_host_contains_label", label: "obs" },
+					},
+					{
+						source_field: "endpoint",
+						matcher: {
+							kind: "url_host_suffix_any",
+							suffixes: [".myhuaweicloud.com", ".myhuaweicloud.eu"],
+						},
+					},
+				],
+				source_connector_id: source.connector_id,
+			},
+		];
+
+		expect(
+			findStorageConnectorPromotionCandidates(
+				[matcherTarget],
+				s3Form("https://archive.obs.eu-west-101.myhuaweicloud.eu"),
+			),
+		).toHaveLength(1);
+		expect(
+			findStorageConnectorPromotionCandidates(
+				[matcherTarget],
+				s3Form("https://iam.eu-west-101.myhuaweicloud.com"),
+			),
+		).toHaveLength(0);
+	});
+
 	it("keeps target defaults for unmapped values and preserves supported behavior", () => {
 		const form = s3Form(
 			"https://media-1250000000.cos.ap-guangzhou.myqcloud.com",

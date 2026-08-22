@@ -18,6 +18,7 @@ title: "存储后端"
 | 阿里云 OSS | `asterdrive.storage.alibaba_oss` | Primary 间共享 | 阿里云 OSS 原生 V4 签名、内外网 endpoint 分流或 CNAME | [阿里云 OSS](/admin/storage-backends/alibaba-oss/) |
 | SFTP | `asterdrive.storage.sftp` | Primary 间共享 | SSH/SFTP 文件服务器和服务端流式读写 | [SFTP](/admin/storage-backends/sftp/) |
 | Azure Blob | `asterdrive.storage.azure_blob` | Primary 间共享 | Azure Storage account 和 Blob container | [Azure Blob](/admin/storage-backends/azure-blob/) |
+| 华为云 OBS | `asterdrive.storage.huawei_obs` | Primary 间共享 | 使用原生 OBS 签名、区域 endpoint 或自定义域名的华为云 OBS | [华为云 OBS](/admin/storage-backends/huawei-obs/) |
 | 腾讯云 COS | `asterdrive.storage.tencent_cos` | Primary 间共享 | 腾讯云 COS 和按策略启用的 COS 数据万象 | [腾讯云 COS](/admin/storage-backends/tencent-cos/) |
 | 远程节点 | `asterdrive.storage.remote` | Primary 间共享 | 由另一台 AsterDrive follower 节点保存对象 | [远程节点](/admin/storage-backends/remote-follower/) |
 | OneDrive | `asterdrive.storage.onedrive` | Primary 间共享 | Microsoft 365、OneDrive、SharePoint 和 group drive | [OneDrive](/admin/storage-backends/onedrive/) |

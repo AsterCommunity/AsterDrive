@@ -529,6 +529,115 @@ async fn list_paths_paginates_strips_base_path_and_sorts_results() {
     );
 }
 
+#[tokio::test]
+async fn list_paths_v1_uses_marker_pagination_without_list_type_v2() {
+    let (driver, http_client) = replay_driver(
+        vec![
+            replay_event(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
+                <ListBucketResult>
+                    <IsTruncated>true</IsTruncated>
+                    <Contents><Key>base/files/b.txt</Key></Contents>
+                    <Contents><Key>base/files/a.txt</Key></Contents>
+                    <NextMarker>base/files/b.txt</NextMarker>
+                </ListBucketResult>"#,
+            ),
+            replay_event(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
+                <ListBucketResult>
+                    <IsTruncated>false</IsTruncated>
+                    <Contents><Key>base/files/c.txt</Key></Contents>
+                </ListBucketResult>"#,
+            ),
+        ],
+        "base",
+    );
+
+    let paths = driver
+        .list_paths_v1(Some("files/"))
+        .await
+        .expect("marker-based list should succeed");
+    assert_eq!(
+        paths,
+        vec![
+            "files/a.txt".to_string(),
+            "files/b.txt".to_string(),
+            "files/c.txt".to_string()
+        ]
+    );
+
+    let requests = http_client
+        .actual_requests()
+        .map(|request| request.uri().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(requests.len(), 2);
+    assert!(requests[0].contains("prefix=base%2Ffiles%2F"));
+    assert!(!requests[0].contains("list-type=2"));
+    assert!(requests[1].contains("marker=base%2Ffiles%2Fb.txt"));
+    assert!(!requests[1].contains("continuation-token="));
+}
+
+#[tokio::test]
+async fn list_paths_v1_falls_back_to_last_key_without_next_marker() {
+    let (driver, http_client) = replay_driver(
+        vec![
+            replay_event(
+                r#"<ListBucketResult>
+                    <IsTruncated>true</IsTruncated>
+                    <Contents><Key>base/files/a.txt</Key></Contents>
+                    <Contents><Key>base/files/b.txt</Key></Contents>
+                </ListBucketResult>"#,
+            ),
+            replay_event(
+                r#"<ListBucketResult>
+                    <IsTruncated>false</IsTruncated>
+                    <Contents><Key>base/files/c.txt</Key></Contents>
+                </ListBucketResult>"#,
+            ),
+        ],
+        "base",
+    );
+
+    driver
+        .list_paths_v1(Some("files/"))
+        .await
+        .expect("last object key should provide the fallback marker");
+    let requests = http_client
+        .actual_requests()
+        .map(|request| request.uri().to_string())
+        .collect::<Vec<_>>();
+    assert!(requests[1].contains("marker=base%2Ffiles%2Fb.txt"));
+}
+
+#[tokio::test]
+async fn list_paths_v1_rejects_a_stalled_marker() {
+    let (driver, _http_client) = replay_driver(
+        vec![
+            replay_event(
+                r#"<ListBucketResult>
+                    <IsTruncated>true</IsTruncated>
+                    <NextMarker>base/files/b.txt</NextMarker>
+                    <Contents><Key>base/files/b.txt</Key></Contents>
+                </ListBucketResult>"#,
+            ),
+            replay_event(
+                r#"<ListBucketResult>
+                    <IsTruncated>true</IsTruncated>
+                    <NextMarker>base/files/b.txt</NextMarker>
+                    <Contents><Key>base/files/b.txt</Key></Contents>
+                </ListBucketResult>"#,
+            ),
+        ],
+        "base",
+    );
+
+    let error = driver
+        .list_paths_v1(Some("files/"))
+        .await
+        .expect_err("a marker that does not advance must fail");
+    assert_eq!(error.kind(), StorageErrorKind::Transient);
+}
+
 struct CollectingVisitor {
     paths: Vec<String>,
 }

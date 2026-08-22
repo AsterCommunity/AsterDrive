@@ -94,7 +94,7 @@
 
 当前实现注意点：
 
-- `driver_type` 当前支持 `local`、`s3`、`alibaba_oss`、`sftp`、`azure_blob`、`tencent_cos`、`remote` 和 `one_drive`
+- `driver_type` 当前支持 `local`、`s3`、`alibaba_oss`、`huawei_obs`、`sftp`、`azure_blob`、`tencent_cos`、`remote` 和 `one_drive`
 - `GET /admin/policies/storage-drivers` 返回 `StorageConnectorDescriptor` 列表，前端应以 descriptor 的 `capabilities`、`fields`、`upload_workflows`、`actions` 和 `credential_mode` 决定表单、连接测试、上传/下载策略和操作入口，不要在前端维护一份 driver-type 能力矩阵
 - 创建和更新都会采用请求里的 `chunk_size`
 - `options` 当前承载策略级行为：
@@ -105,6 +105,7 @@
   - 通用 S3 path-style 访问开关：`s3_path_style`，默认 `true`
   - S3 SigV4 签名 region：`s3_region`。该字段为可选字符串，首尾空白会被清理，空值或纯空白会规范化为未配置，运行时使用 `auto`。非空值必须为 1–128 个可打印 ASCII 字符，且不能包含空白字符或 `/`；无效值会以 `BadRequest`（HTTP 400，响应码 `bad_request`）拒绝。自定义 S3-compatible endpoint 若要求固定 region，应填写服务商提供的值。草稿连接测试和保存后的 S3 runtime driver 使用同一个 region
   - S3 连接 / 读取 / 操作超时：`s3_connect_timeout_secs`、`s3_read_timeout_secs`、`s3_operation_timeout_secs`
+  - Huawei OBS 字段：区域或自定义域名 `endpoint`、`bucket`、可选 `obs_region` 和 `obs_addressing_mode`；OBS 使用 marker-based ListObjects 分页，并复用其他 S3 形态 connector 的对象存储上传/下载策略
   - core-owned 存储原生缩略图 / 图片预览：`storage_native_thumbnail_enabled`、`storage_native_thumbnail_extensions`；connector descriptor 只声明支持能力
   - core-owned 存储原生媒体元数据：`storage_native_media_metadata_enabled`、`storage_native_media_metadata_extensions`；connector descriptor 只声明支持能力
   - OneDrive 位置选项：`onedrive_account_mode`、`onedrive_tenant`、`onedrive_site_id`、`onedrive_drive_id`、`onedrive_group_id`、`onedrive_root_item_id`
@@ -118,7 +119,8 @@
 - `driver_type = "sftp"` 使用 SSH 用户名 / 密码连接 SFTP 服务器；Endpoint 支持 `sftp://host:port`、裸 `host` 和 `host:port`，远程根目录放在 `base_path`。未知或不匹配的 SSH 主机密钥会以 `StorageErrorKind::Precondition` 拒绝，并通过诊断提示 actual / expected 指纹；确认后的指纹保存在 `options.sftp_host_key_fingerprint`。
 - `driver_type = "tencent_cos"` 普通读写复用 S3-compatible 对象存储路径，会校验 Tencent COS endpoint 形态；策略启用后可通过 COS CI 暴露原生缩略图、图片预览和媒体元数据能力
 - `driver_type = "alibaba_oss"` 复用 AWS S3 SDK 的对象、流式和 multipart 编排，但使用原生 `OSS4-HMAC-SHA256` header/query 签名；普通请求和 generated presign 分别验证
-- 内置 Local、S3-compatible、Alibaba OSS、SFTP、Azure Blob、OneDrive 和 Remote 驱动不暴露存储原生缩略图、图片预览或媒体元数据能力
+- `driver_type = "huawei_obs"` 复用 AWS S3 SDK 的对象、流式和 multipart 序列化，但使用华为原生 OBS 签名；虚拟托管与自定义域名、marker-based 列表、普通请求和 generated presign 分别验证
+- 内置 Local、S3-compatible、Alibaba OSS、Huawei OBS、SFTP、Azure Blob、OneDrive 和 Remote driver 不提供存储原生缩略图、图片预览或媒体元数据能力
 - 旧配置 `{"presigned_upload":true}` 仍兼容，等价于 S3 预签名上传策略
 - `POST /admin/policies/{id}/promote-s3-driver` 当前支持把通用 `s3` 策略提升为 `tencent_cos`。请求体必须包含目标驱动和当前 endpoint / bucket，例如 `{ "target_driver_type": "tencent_cos", "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com", "bucket": "bucket-1250000000" }`。提升时不允许改变 bucket；若该策略还有活动上传 session，或目标驱动不能接受当前 endpoint / bucket 组合，会直接拒绝。
 - REST 已经可以通过 `allowed_types` 管理策略允许的 MIME / 类型列表；不传时创建会使用空列表，更新会保持原值

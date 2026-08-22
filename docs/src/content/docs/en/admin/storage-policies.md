@@ -34,6 +34,7 @@ When a system administrator creates a new team without specifying a policy group
 | `asterdrive.storage.alibaba_oss` | Alibaba Cloud OSS | Static secret | [Alibaba Cloud OSS](/en/admin/storage-backends/alibaba-oss/) |
 | `asterdrive.storage.sftp` | SFTP | Static secret | [SFTP](/en/admin/storage-backends/sftp/) |
 | `asterdrive.storage.azure_blob` | Azure Blob | Static secret | [Azure Blob](/en/admin/storage-backends/azure-blob/) |
+| `asterdrive.storage.huawei_obs` | Huawei Cloud OBS | Static secret | [Huawei Cloud OBS](/en/admin/storage-backends/huawei-obs/) |
 | `asterdrive.storage.tencent_cos` | Tencent COS | Static secret | [Tencent COS](/en/admin/storage-backends/tencent-cos/) |
 | `asterdrive.storage.remote` | Remote | None | [Remote](/en/admin/storage-backends/remote-follower/) |
 | `asterdrive.storage.onedrive` | OneDrive | Delegated OAuth | [OneDrive](/en/admin/storage-backends/onedrive/) |
@@ -67,13 +68,13 @@ When migrating existing data, do not edit the old policy's path, bucket, endpoin
 | Item | Purpose |
 | --- | --- |
 | Name | Display name in the console |
-| Driver type | `local`, `s3`, `alibaba_oss`, `azure_blob`, `tencent_cos`, `one_drive`, `sftp`, or `remote` |
-| Connection info | Local directory / S3 endpoint, bucket, keys / OSS public endpoint, optional server-side endpoint, region, bucket, CNAME, keys / Azure Blob endpoint, container, account keys / COS endpoint, bucket, keys / OneDrive Microsoft Graph target and authorization / SFTP endpoint, SSH credentials, host key fingerprint / bound remote node |
+| Driver type | `local`, `s3`, `alibaba_oss`, `huawei_obs`, `azure_blob`, `tencent_cos`, `one_drive`, `sftp`, or `remote` |
+| Connection info | Local directory / S3 endpoint, bucket, keys / OSS public endpoint, optional server-side endpoint, region, bucket, CNAME, keys / Huawei OBS endpoint, bucket, region or custom domain, addressing mode, keys / Azure Blob endpoint, container, account keys / COS endpoint, bucket, keys / OneDrive Microsoft Graph target and authorization / SFTP endpoint, SSH credentials, host key fingerprint / bound remote node |
 | Base path | Directory, prefix, or remote relative path used when writing through this policy |
 | Max single-file size | Largest allowed upload; `0` = unlimited |
 | Chunk size | Size of each part for large-file uploads |
 | Default policy | Preferred by new default groups or default routing rules |
-| Additional options | Local content dedup, S3 / OSS / Azure Blob / COS upload and download modes, S3 path-style access, OSS CNAME, OneDrive drive targeting, SFTP host key fingerprint, remote upload/download modes, storage-native processing switch, etc. |
+| Additional options | Local content dedup, S3 / OSS / Huawei OBS / Azure Blob / COS upload and download modes, S3 path-style access, OSS CNAME, OneDrive drive targeting, SFTP host key fingerprint, remote upload/download modes, storage-native processing switch, etc. |
 
 The console's storage policy form is not hardcoded per vendor on the frontend. AsterDrive reads the fields, capabilities, upload workflows, and management actions supported by the current driver from the backend `StorageConnector` descriptor, so when storage backends are added or adjusted, the admin UI follows backend capabilities as much as possible.
 

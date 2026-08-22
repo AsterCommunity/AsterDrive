@@ -4,7 +4,7 @@ title: "阿里云 OSS 存储策略教程"
 ---
 
 :::tip[这一篇覆盖什么]
-这页讲怎样把 AsterDrive 文件写入阿里云对象存储 OSS。AsterDrive 使用原生 `OSS4-HMAC-SHA256` 签名，不把 Cloudreve 或 OSS 原生策略伪装成普通 S3-compatible 配置。
+这页讲怎样把 AsterDrive 文件写入阿里云对象存储 OSS。AsterDrive 使用原生 `OSS4-HMAC-SHA256` 签名，不把 OSS 原生策略伪装成普通 S3-compatible 配置。
 :::
 
 ## 什么时候选阿里云 OSS
