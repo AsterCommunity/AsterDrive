@@ -1330,6 +1330,25 @@ fn huawei_obs_connector_declares_native_signature_and_addressing_contract() {
                 .iter()
                 .any(|mapping| mapping.target_field == "obs_access_key_id")
     }));
+    let obs_promotion = descriptor
+        .promotions
+        .iter()
+        .find(|promotion| promotion.promotion_id.as_str() == "promote_from_s3")
+        .expect("Huawei OBS promotion");
+    assert!(obs_promotion.requirements.iter().any(|requirement| {
+        matches!(
+            &requirement.matcher,
+            aster_drive_storage::connector_descriptor::StorageConnectorPromotionValueMatcher::UrlHostContainsLabel { label }
+                if label == "obs"
+        )
+    }));
+    assert!(obs_promotion.requirements.iter().any(|requirement| {
+        matches!(
+            &requirement.matcher,
+            aster_drive_storage::connector_descriptor::StorageConnectorPromotionValueMatcher::UrlHostSuffixAny { suffixes }
+                if suffixes == &[".myhuaweicloud.com".to_string(), ".myhuaweicloud.eu".to_string()]
+        )
+    }));
     assert!(descriptor.capabilities.presigned_download);
     assert!(descriptor.upload_workflows.presigned_upload);
     for field_name in [

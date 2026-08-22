@@ -44,8 +44,25 @@ fn promote_from_s3_descriptor() -> StorageConnectorPromotionDescriptor {
             },
             StorageConnectorPromotionRequirement {
                 source_field: "endpoint".to_string(),
-                matcher: StorageConnectorPromotionValueMatcher::UrlHostSuffix {
-                    suffix: ".myhuaweicloud.com".to_string(),
+                matcher: StorageConnectorPromotionValueMatcher::UrlHostContainsField {
+                    field: "s3_region".to_string(),
+                },
+                negate: false,
+            },
+            StorageConnectorPromotionRequirement {
+                source_field: "endpoint".to_string(),
+                matcher: StorageConnectorPromotionValueMatcher::UrlHostContainsLabel {
+                    label: "obs".to_string(),
+                },
+                negate: false,
+            },
+            StorageConnectorPromotionRequirement {
+                source_field: "endpoint".to_string(),
+                matcher: StorageConnectorPromotionValueMatcher::UrlHostSuffixAny {
+                    suffixes: vec![
+                        ".myhuaweicloud.com".to_string(),
+                        ".myhuaweicloud.eu".to_string(),
+                    ],
                 },
                 negate: false,
             },

@@ -119,7 +119,7 @@ Choose:
 Huawei Cloud OBS
 ```
 
-If an existing generic `s3` policy already uses an official OBS endpoint and an explicit `s3_region`, the admin console can offer the `promote_from_s3` connector upgrade. It switches the connector and encrypted credentials in place without copying objects; the bucket, base path, endpoint, region, and object namespace remain unchanged. Generic S3 endpoints, `s3_region = auto`, and mismatched endpoints are not eligible for the upgrade recommendation.
+If an existing generic `s3` policy already uses an official OBS endpoint and an explicit `s3_region`, the admin console can offer the `promote_from_s3` connector upgrade. It switches the connector and encrypted credentials in place without copying objects; the bucket, base path, region, and object namespace remain unchanged. When the source policy uses a bucket-prefixed OBS endpoint, promotion normalizes it to the corresponding regional root endpoint; an endpoint that is already regional remains unchanged. Generic S3 endpoints, `s3_region = auto`, and mismatched endpoints are not eligible for the upgrade recommendation.
 
 Typical values:
 

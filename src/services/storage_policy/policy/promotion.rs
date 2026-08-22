@@ -502,6 +502,37 @@ fn promotion_requirements_match(
                         promotion_url_host_suffix_matches(&host, &suffix.to_ascii_lowercase())
                     })
             }
+            StorageConnectorPromotionValueMatcher::UrlHostContainsLabel { label } => {
+                url::Url::parse(value)
+                    .ok()
+                    .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+                    .is_some_and(|host| {
+                        host.split('.')
+                            .any(|part| part == label.to_ascii_lowercase())
+                    })
+            }
+            StorageConnectorPromotionValueMatcher::UrlHostContainsField { field } => {
+                let Some(expected) = values.get(field).and_then(serde_json::Value::as_str) else {
+                    return false;
+                };
+                url::Url::parse(value)
+                    .ok()
+                    .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+                    .is_some_and(|host| {
+                        host.split('.')
+                            .any(|part| part == expected.to_ascii_lowercase())
+                    })
+            }
+            StorageConnectorPromotionValueMatcher::UrlHostSuffixAny { suffixes } => {
+                url::Url::parse(value)
+                    .ok()
+                    .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+                    .is_some_and(|host| {
+                        suffixes.iter().any(|suffix| {
+                            promotion_url_host_suffix_matches(&host, &suffix.to_ascii_lowercase())
+                        })
+                    })
+            }
         };
         matches != requirement.negate
     })

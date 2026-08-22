@@ -387,6 +387,15 @@ pub enum StorageConnectorPromotionValueMatcher {
     UrlHostSuffix {
         suffix: String,
     },
+    UrlHostContainsLabel {
+        label: String,
+    },
+    UrlHostContainsField {
+        field: String,
+    },
+    UrlHostSuffixAny {
+        suffixes: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -461,6 +470,11 @@ impl StorageConnectorPromotionDescriptor {
                 StorageConnectorPromotionValueMatcher::StringEquals { value, .. } => value,
                 StorageConnectorPromotionValueMatcher::StringSuffix { suffix, .. }
                 | StorageConnectorPromotionValueMatcher::UrlHostSuffix { suffix } => suffix,
+                StorageConnectorPromotionValueMatcher::UrlHostContainsLabel { label } => label,
+                StorageConnectorPromotionValueMatcher::UrlHostContainsField { field } => field,
+                StorageConnectorPromotionValueMatcher::UrlHostSuffixAny { suffixes } => {
+                    suffixes.first().map(String::as_str).unwrap_or_default()
+                }
                 StorageConnectorPromotionValueMatcher::StringPrefix { prefix, .. } => prefix,
             };
             if matcher_value.trim().is_empty() {
@@ -475,6 +489,18 @@ impl StorageConnectorPromotionDescriptor {
             {
                 return Err(StorageConnectorDescriptorError(format!(
                     "promotion '{}' URL host suffix matcher must start with a DNS label boundary marker '.' or '-'",
+                    self.promotion_id.as_str()
+                )));
+            }
+            if let StorageConnectorPromotionValueMatcher::UrlHostSuffixAny { suffixes } =
+                &requirement.matcher
+                && (suffixes.is_empty()
+                    || suffixes.iter().any(|suffix| {
+                        suffix.len() == 1 || !(suffix.starts_with('.') || suffix.starts_with('-'))
+                    }))
+            {
+                return Err(StorageConnectorDescriptorError(format!(
+                    "promotion '{}' URL host suffix matchers must use DNS label boundary markers '.' or '-'",
                     self.promotion_id.as_str()
                 )));
             }

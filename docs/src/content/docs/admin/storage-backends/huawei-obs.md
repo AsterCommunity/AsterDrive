@@ -119,7 +119,7 @@ AsterDrive 的连接测试只从服务端验证 endpoint、凭证和基础对象
 华为云 OBS
 ```
 
-如果已有通用 `s3` 策略使用官方 OBS endpoint 和明确的 `s3_region`，管理端会提供 `promote_from_s3` connector upgrade。该操作原地切换 connector 和加密凭据，不复制对象；bucket、base path、endpoint、region 和对象 namespace 保持不变。普通 S3 endpoint、`s3_region = auto` 或不匹配的 endpoint 不会获得该升级建议。
+如果已有通用 `s3` 策略使用官方 OBS endpoint 和明确的 `s3_region`，管理端会提供 `promote_from_s3` connector upgrade。该操作原地切换 connector 和加密凭据，不复制对象；bucket、base path、region 和 object namespace 保持不变。源策略使用 bucket-prefixed OBS endpoint 时，promotion 会将其规范化为对应的区域根 endpoint；源策略已经使用区域根 endpoint 时，endpoint 保持不变。普通 S3 endpoint、`s3_region = auto` 或不匹配的 endpoint 不会获得该升级建议。
 
 常见字段：
 

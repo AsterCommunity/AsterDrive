@@ -928,6 +928,15 @@ async fn test_policy_connector_promotion_supports_oss_qiniu_kodo_and_huawei_obs(
             "obs_region",
             "https://obs.cn-north-4.myhuaweicloud.com",
         ),
+        (
+            "Promote Huawei OBS EU",
+            "https://archive-bucket.obs.eu-west-101.myhuaweicloud.eu",
+            "archive-bucket",
+            "eu-west-101",
+            "asterdrive.storage.huawei_obs",
+            "obs_region",
+            "https://obs.eu-west-101.myhuaweicloud.eu",
+        ),
     ] {
         let policy_id = create_s3_policy_for_promotion(
             &app,
@@ -1033,8 +1042,8 @@ async fn test_policy_connector_promotion_returns_success_when_post_commit_reload
 }
 
 #[actix_web::test]
-async fn test_policy_connector_promotion_rejects_oss_and_kodo_ineligible_sources() {
-    use aster_drive::db::repository::policy_repo;
+async fn test_policy_connector_promotion_rejects_oss_kodo_and_obs_ineligible_sources() {
+    use aster_drive::db::repository::{policy_repo, storage_policy_connector_credential_repo};
 
     let state = common::setup().await;
     let db = state.writer_db().clone();
@@ -1073,6 +1082,24 @@ async fn test_policy_connector_promotion_rejects_oss_and_kodo_ineligible_sources
             "asterdrive.storage.qiniu",
         ),
         (
+            "https://iam.cn-north-4.myhuaweicloud.com",
+            "archive-bucket",
+            "cn-north-4",
+            "asterdrive.storage.huawei_obs",
+        ),
+        (
+            "https://archive-bucket.obs.cn-north-4.myhuaweicloud.com",
+            "archive-bucket",
+            "auto",
+            "asterdrive.storage.huawei_obs",
+        ),
+        (
+            "https://archive-bucket.obs.cn-north-4.myhuaweicloud.com",
+            "archive-bucket",
+            "cn-south-1",
+            "asterdrive.storage.huawei_obs",
+        ),
+        (
             "https://s3.cn-east-1.qiniucs.com",
             "kodo-space",
             "cn-south-1",
@@ -1089,15 +1116,28 @@ async fn test_policy_connector_promotion_rejects_oss_and_kodo_ineligible_sources
             region,
         )
         .await;
-        let resp = promote_policy_to_connector(&app, &token, policy_id, target_connector_id).await;
-        assert_eq!(resp.status(), 400, "{endpoint} -> {target_connector_id}");
-        assert_eq!(
-            policy_repo::find_by_id(&db, policy_id)
+        let before = policy_repo::find_by_id(&db, policy_id).await.unwrap();
+        let credential_before =
+            storage_policy_connector_credential_repo::find_by_policy(&db, policy_id)
                 .await
                 .unwrap()
-                .connector_id,
-            "asterdrive.storage.s3"
+                .expect("source credential should exist");
+        let resp = promote_policy_to_connector(&app, &token, policy_id, target_connector_id).await;
+        assert_eq!(resp.status(), 400, "{endpoint} -> {target_connector_id}");
+        let after = policy_repo::find_by_id(&db, policy_id).await.unwrap();
+        assert_eq!(after.connector_id, "asterdrive.storage.s3");
+        assert_eq!(after.storage_config, before.storage_config);
+        let credential_after =
+            storage_policy_connector_credential_repo::find_by_policy(&db, policy_id)
+                .await
+                .unwrap()
+                .expect("source credential should remain");
+        assert_eq!(
+            credential_after.connector_id,
+            credential_before.connector_id
         );
+        assert_eq!(credential_after.revision, credential_before.revision);
+        assert_eq!(credential_after.ciphertext, credential_before.ciphertext);
     }
 }
 
@@ -1428,9 +1468,9 @@ async fn test_storage_driver_catalog_contexts_are_backend_authoritative_in_singl
     let create = list_storage_driver_descriptors_via_admin(&app, &token, Some("create")).await;
     let setup = list_storage_driver_descriptors_via_admin(&app, &token, Some("setup")).await;
 
-    assert_eq!(manage.len(), 9);
-    assert_eq!(create.len(), 9);
-    assert_eq!(setup.len(), 9);
+    assert_eq!(manage.len(), 10);
+    assert_eq!(create.len(), 10);
+    assert_eq!(setup.len(), 10);
     assert!(
         setup
             .iter()
@@ -1456,13 +1496,13 @@ async fn test_cluster_storage_driver_catalog_hides_local_only_from_new_policy_fl
     let create = list_storage_driver_descriptors_via_admin(&app, &token, Some("create")).await;
     let setup = list_storage_driver_descriptors_via_admin(&app, &token, Some("setup")).await;
 
-    assert_eq!(manage.len(), 9);
+    assert_eq!(manage.len(), 10);
     assert!(
         manage
             .iter()
             .any(|item| item["connector_id"] == "asterdrive.storage.local")
     );
-    assert_eq!(create.len(), 8);
+    assert_eq!(create.len(), 9);
     assert!(
         !create
             .iter()
@@ -1473,7 +1513,7 @@ async fn test_cluster_storage_driver_catalog_hides_local_only_from_new_policy_fl
             .iter()
             .any(|item| item["connector_id"] == "asterdrive.storage.onedrive")
     );
-    assert_eq!(setup.len(), 8);
+    assert_eq!(setup.len(), 9);
     assert!(
         !setup
             .iter()
@@ -1534,7 +1574,7 @@ async fn test_storage_driver_localizations_are_admin_only_and_cacheable() {
     let resources = body["data"]["resources"]
         .as_array()
         .expect("connector localization resources");
-    assert_eq!(resources.len(), 9);
+    assert_eq!(resources.len(), 10);
     let local = resources
         .iter()
         .find(|resource| resource["connector_id"] == "asterdrive.storage.local")
