@@ -12,6 +12,7 @@ use crate::config::{auth_runtime, branding, local_email_policy::LocalEmailPolicy
 use crate::db::repository::{user_invitation_repo, user_repo};
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{MailRuntimeState, SharedRuntimeState};
+use crate::services::auth::flow::{AuthFlowState, invitation_snapshot};
 use crate::services::{
     auth::local::{
         ensure_password_login_enabled,
@@ -72,6 +73,9 @@ pub async fn create_invitation(
         auth_runtime::user_invitation_ttl_secs(state.runtime_config()),
         "user invitation ttl",
     )?;
+    if invitation_ttl_secs <= 0 {
+        return Err(invitation_invalid_error());
+    }
     let expires_at = now + Duration::seconds(invitation_ttl_secs);
     let invitation_url = invitation_url(state.runtime_config(), &token);
     let expires_in = format_mail_duration_seconds(invitation_ttl_secs);
@@ -190,7 +194,7 @@ pub async fn accept_invitation(
             return Err(invitation_invalid_error());
         };
         let invitation = refresh_expired_status(&txn, invitation).await?;
-        ensure_invitation_pending(&invitation)?;
+        ensure_invitation_flow_active(&invitation)?;
         ensure_invitation_not_expired(&txn, &invitation).await?;
         LocalEmailPolicy::from_runtime_config(state.runtime_config()).check(&invitation.email)?;
         ensure_email_available(&txn, &invitation.email).await?;
@@ -249,7 +253,7 @@ async fn find_valid_invitation_by_token<C: ConnectionTrait>(
         return Err(invitation_invalid_error());
     };
     let invitation = refresh_expired_status(db, invitation).await?;
-    ensure_invitation_pending(&invitation)?;
+    ensure_invitation_flow_active(&invitation)?;
     ensure_invitation_not_expired(db, &invitation).await?;
     Ok(invitation)
 }
@@ -288,11 +292,19 @@ async fn ensure_invitation_not_expired<C: ConnectionTrait>(
     Err(invitation_status_error(UserInvitationStatus::Expired))
 }
 
-fn ensure_invitation_pending(invitation: &user_invitation::Model) -> Result<()> {
-    if invitation.status.is_pending() {
-        Ok(())
-    } else {
-        Err(invitation_status_error(invitation.status))
+fn ensure_invitation_flow_active(invitation: &user_invitation::Model) -> Result<()> {
+    match invitation_snapshot(invitation, Utc::now()).state {
+        AuthFlowState::RecoveryPending => Ok(()),
+        AuthFlowState::Expired => Err(invitation_status_error(UserInvitationStatus::Expired)),
+        AuthFlowState::Cancelled => Err(invitation_status_error(UserInvitationStatus::Revoked)),
+        AuthFlowState::Completed => Err(invitation_status_error(UserInvitationStatus::Accepted)),
+        AuthFlowState::FirstFactorPending
+        | AuthFlowState::SecondFactorPending
+        | AuthFlowState::Processing
+        | AuthFlowState::PasswordChangeRequired
+        | AuthFlowState::Authenticated
+        | AuthFlowState::Failed
+        | AuthFlowState::Consumed => Err(invitation_invalid_error()),
     }
 }
 

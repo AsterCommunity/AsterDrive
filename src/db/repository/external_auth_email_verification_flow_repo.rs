@@ -79,19 +79,16 @@ pub async fn update_email_request<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
-pub async fn mark_consumed_if_unused<C: ConnectionTrait>(
-    db: &C,
-    id: i64,
-    now: chrono::DateTime<Utc>,
-) -> Result<bool> {
+pub async fn mark_consumed_if_unused<C: ConnectionTrait>(db: &C, id: i64) -> Result<bool> {
+    let execution_now = Utc::now();
     let result = ExternalAuthEmailVerificationFlow::update_many()
         .col_expr(
             external_auth_email_verification_flow::Column::ConsumedAt,
-            Expr::value(Some(now)),
+            Expr::value(Some(execution_now)),
         )
         .filter(external_auth_email_verification_flow::Column::Id.eq(id))
         .filter(external_auth_email_verification_flow::Column::ConsumedAt.is_null())
-        .filter(external_auth_email_verification_flow::Column::ExpiresAt.gt(now))
+        .filter(external_auth_email_verification_flow::Column::ExpiresAt.gt(execution_now))
         .exec(db)
         .await
         .map_err(AsterError::from)?;

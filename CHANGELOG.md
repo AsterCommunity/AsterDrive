@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **跨层认证 flow 状态机** — 登录、MFA、Passkey、OIDC/OAuth、外部认证邮箱恢复、注册激活、密码重置、邮箱变更、邀请接受和 session refresh 统一使用 typed flow lifecycle、transition guard、过期、取消、单次消费、attempt budget、replay 和 revision conflict 契约；保留现有强类型认证实体、公开 API envelope、cookie、redirect 和 session 行为，不引入万能 auth JSON 表。
+- **登录页状态与策略协调** — React 登录页收敛为单一 `AuthUiFlow` 顶层状态，由 command coordinator 统一处理 flow event、请求取消和 stale response；auth check、前端配置与 external provider 列表通过带 generation 的 policy coordinator 合并，URL 仅恢复带 TTL 的 typed flow reference。
+- **认证副作用边界** — primary login、MFA、external callback、recovery、invitation 和 refresh rotation 在 writer transaction / 条件更新完成后再执行 cookie、redirect、mail、audit 和 cache 副作用；运行时认证策略会在未完成 flow 的下一次推进时重新读取。
+
 - **站点标题首页导航** — 文件浏览器和分享页顶栏的站点标题通过客户端路由返回 `/`，管理后台顶栏返回 `/admin/overview`，并保留现有品牌资源、主题、响应式显示和可访问性语义。
 - **存储策略与策略组生命周期** — 首次 setup 创建的存储策略和默认策略组不再按固定 ID 作为永久系统对象；解除 blob、上传 session、策略组项以及用户/团队绑定等引用后可删除首条或最后一条默认策略，删除最后一个默认策略组会使系统回到 `needs_storage`，重新配置默认存储拓扑后恢复 `ready`，不会静默清空业务绑定。默认切换、删除与重新 setup 使用稳定数据库锁协调多 Primary，现有数据保护保持不变。
 - **存储策略凭据兼容层完成收口** — 移除 0.5.x 启动阶段的 legacy credential importer、connector legacy import hook、OneDrive 旧 OAuth 转换、deprecated credential entities / repositories，以及 `database-migrate` 的旧凭据复制与导入路径。当前运行时只消费 `connector_id`、typed `storage_config` 和 `storage_policy_connector_credentials`。
@@ -23,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **跨数据库迁移边界** — `database-migrate` 只复制当前 policy envelope 与 connector credential；带有未迁移 legacy credential 的 source database 会在复制前拒绝，空的历史 legacy stores 不再进入目标库。
 
 ### Fixed
+
+- **认证 flow 过期与重放边界** — contact verification token 的消费现在要求 `consumed_at IS NULL AND expires_at > now`，避免并发窗口消费已过期 token；external callback 在原子消费前验证 active flow，Passkey challenge 使用带 identity、revision 和 expiry 的单次消费 envelope，session refresh 拒绝 expired/revoked session，非法 transition 不再产生部分认证副作用。
 
 - **Docker edge 发布通道跟随 stable** — 正式版本发布时，GHCR 与 Docker Hub 的 `edge`、`edge-metrics`、`edge-slim` 和 `edge-metrics-slim` 与对应 `stable` manifest 同步；alpha、beta、rc 发布只移动 edge，`latest` / `stable` 保持上一正式版本，避免 edge 长期停留在旧候选版本。
 - **PDF 预览旋转位置保持** — 多页 PDF 在中间或靠后页面旋转时保留当前虚拟页及页内滚动偏移，不再因页面尺寸重新测量跳到文档底部。

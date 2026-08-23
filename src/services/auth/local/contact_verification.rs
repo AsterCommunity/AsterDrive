@@ -9,6 +9,7 @@ use crate::config::local_email_policy::LocalEmailPolicy;
 use crate::db::repository::{contact_verification_token_repo, user_repo};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
+use crate::services::auth::flow::{AuthFlowState, contact_verification_snapshot};
 use crate::services::{mail::outbox, mail::template::MailTemplatePayload};
 use aster_drive_model::types::VerificationPurpose;
 use aster_forge_crypto as hash;
@@ -245,16 +246,7 @@ pub async fn confirm_password_reset(
             "password reset link is invalid",
         ));
     }
-    if record.consumed_at.is_some() {
-        return Err(AsterError::contact_verification_invalid(
-            "password reset link has already been used",
-        ));
-    }
-    if record.expires_at <= Utc::now() {
-        return Err(AsterError::contact_verification_expired(
-            "password reset link has expired",
-        ));
-    }
+    ensure_contact_verification_active(&record)?;
 
     let new_password_hash = state
         .runtime_config()
@@ -313,16 +305,7 @@ pub async fn confirm_contact_verification(
                 AsterError::contact_verification_invalid("contact verification link is invalid")
             })?;
 
-    if record.consumed_at.is_some() {
-        return Err(AsterError::contact_verification_invalid(
-            "contact verification link has already been used",
-        ));
-    }
-    if record.expires_at <= Utc::now() {
-        return Err(AsterError::contact_verification_expired(
-            "contact verification link has expired",
-        ));
-    }
+    ensure_contact_verification_active(&record)?;
 
     let target = record.target.clone();
     let purpose = record.purpose;
@@ -345,6 +328,7 @@ pub async fn confirm_contact_verification(
         ));
     }
 
+    let now = Utc::now();
     let consumed =
         contact_verification_token_repo::mark_consumed_if_unused(&txn, record.id).await?;
     if !consumed {
@@ -353,7 +337,6 @@ pub async fn confirm_contact_verification(
         ));
     }
 
-    let now = Utc::now();
     match purpose {
         VerificationPurpose::RegisterActivation => {
             if existing_user.email != target {
@@ -426,4 +409,21 @@ pub async fn cleanup_expired_contact_verification_tokens(
     state: &impl SharedRuntimeState,
 ) -> Result<u64> {
     contact_verification_token_repo::delete_expired(state.writer_db()).await
+}
+
+fn ensure_contact_verification_active(
+    record: &aster_drive_model::entities::contact_verification_token::Model,
+) -> Result<()> {
+    match contact_verification_snapshot(record, Utc::now()).state {
+        AuthFlowState::RecoveryPending => Ok(()),
+        AuthFlowState::Expired => Err(AsterError::contact_verification_expired(
+            "contact verification link has expired",
+        )),
+        AuthFlowState::Consumed => Err(AsterError::contact_verification_invalid(
+            "contact verification link has already been used",
+        )),
+        _ => Err(AsterError::contact_verification_invalid(
+            "contact verification flow is invalid",
+        )),
+    }
 }

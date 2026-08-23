@@ -9,6 +9,10 @@ use crate::db::repository::{
 };
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
+use crate::services::auth::flow::{
+    AuthFlowCommand, AuthFlowState, AuthFlowTransitionError, external_recovery_snapshot,
+    plan_transition,
+};
 use crate::services::{mail::outbox, mail::sender, mail::template::MailTemplatePayload};
 use aster_drive_model::entities::{external_auth_email_verification_flow, external_auth_provider};
 use aster_forge_external_auth::normalize as external_auth_normalize;
@@ -52,6 +56,11 @@ pub(super) async fn create_pending_email_verification_flow(
         EMAIL_VERIFICATION_FLOW_TTL_SECS,
         "external auth email verification flow ttl",
     )?;
+    if ttl <= 0 {
+        return Err(AsterError::contact_verification_invalid(
+            "external recovery flow ttl must be positive",
+        ));
+    }
     external_auth_email_verification_flow_repo::create(
         state.writer_db(),
         external_auth_email_verification_flow::ActiveModel {
@@ -95,6 +104,7 @@ pub async fn start_email_verification(
     .ok_or_else(|| {
         AsterError::contact_verification_invalid("external auth email verification flow is invalid")
     })?;
+    ensure_external_recovery_can_process(&flow, now)?;
     if flow.verification_token_hash.is_some() {
         return Err(AsterError::contact_verification_invalid(
             "external auth email verification request has already been started",
@@ -208,6 +218,7 @@ pub async fn confirm_email_verification(
     .ok_or_else(|| {
         AsterError::contact_verification_invalid("external auth email verification link is invalid")
     })?;
+    ensure_external_recovery_can_process(&flow, now)?;
     let email = flow.target_email.clone().ok_or_else(|| {
         AsterError::contact_verification_invalid(
             "external auth email verification target is missing",
@@ -226,7 +237,7 @@ pub async fn confirm_email_verification(
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
         let consumed =
-            external_auth_email_verification_flow_repo::mark_consumed_if_unused(&txn, flow.id, now)
+            external_auth_email_verification_flow_repo::mark_consumed_if_unused(&txn, flow.id)
                 .await?;
         if !consumed {
             return Err(AsterError::contact_verification_invalid(
@@ -275,5 +286,31 @@ pub async fn confirm_email_verification(
             linked: resolved.linked,
             auto_provisioned: resolved.auto_provisioned,
         },
+    })
+}
+
+fn ensure_external_recovery_can_process(
+    flow: &external_auth_email_verification_flow::Model,
+    now: chrono::DateTime<Utc>,
+) -> Result<()> {
+    plan_transition(
+        &external_recovery_snapshot(flow, now),
+        AuthFlowCommand::Transition {
+            expected_revision: external_recovery_snapshot(flow, now).revision,
+            to: AuthFlowState::Processing,
+        },
+        now,
+    )
+    .map(|_| ())
+    .map_err(|error| match error {
+        AuthFlowTransitionError::Expired => AsterError::contact_verification_expired(
+            "external auth email verification flow has expired",
+        ),
+        AuthFlowTransitionError::Terminal(_) => AsterError::contact_verification_invalid(
+            "external auth email verification flow has already been used",
+        ),
+        _ => AsterError::contact_verification_invalid(
+            "external auth email verification flow transition is invalid",
+        ),
     })
 }

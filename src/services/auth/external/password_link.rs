@@ -5,6 +5,7 @@ use crate::db::repository::{
 };
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
+use crate::services::auth::flow::{AuthFlowState, external_recovery_snapshot};
 use crate::services::auth::local;
 use aster_forge_db::transaction;
 use aster_forge_external_auth::normalize as external_auth_normalize;
@@ -44,6 +45,11 @@ pub async fn link_with_password(
     .ok_or_else(|| {
         AsterError::contact_verification_invalid("external auth email verification flow is invalid")
     })?;
+    if external_recovery_snapshot(&flow, Utc::now()).state != AuthFlowState::RecoveryPending {
+        return Err(AsterError::contact_verification_invalid(
+            "external auth recovery flow is no longer active",
+        ));
+    }
     let provider =
         external_auth_provider_repo::find_by_id(state.writer_db(), flow.provider_id).await?;
     if !provider.enabled {
@@ -77,7 +83,7 @@ pub async fn link_with_password(
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
         let consumed =
-            external_auth_email_verification_flow_repo::mark_consumed_if_unused(&txn, flow.id, now)
+            external_auth_email_verification_flow_repo::mark_consumed_if_unused(&txn, flow.id)
                 .await?;
         if !consumed {
             return Err(AsterError::contact_verification_invalid(

@@ -313,6 +313,13 @@ pub(super) async fn issue_contact_verification_token<C: ConnectionTrait>(
     let now = Utc::now();
     let token = sender::build_verification_token();
     let token_hash = hash::sha256_hex(token.as_bytes());
+    let ttl = u64_to_i64(ttl_secs, "contact verification ttl")?;
+    if ttl <= 0 {
+        return Err(AsterError::contact_verification_invalid(
+            "contact verification ttl must be positive",
+        ));
+    }
+    let expires_at = now + Duration::seconds(ttl);
 
     contact_verification_token_repo::delete_active_for_user(
         db,
@@ -328,7 +335,7 @@ pub(super) async fn issue_contact_verification_token<C: ConnectionTrait>(
         purpose: Set(purpose),
         target: Set(target.to_string()),
         token_hash: Set(token_hash),
-        expires_at: Set(now + Duration::seconds(u64_to_i64(ttl_secs, "contact verification ttl")?)),
+        expires_at: Set(expires_at),
         consumed_at: Set(None),
         created_at: Set(now),
         ..Default::default()

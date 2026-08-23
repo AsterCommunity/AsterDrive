@@ -51,12 +51,15 @@ export interface ActivationResendPanelState {
 	requesting: boolean;
 }
 
-export type AuthPanelState =
+export type AuthUiFlow =
 	| {
 			activationResend: ActivationResendPanelState;
 			kind: "activation-resend";
 	  }
-	| { kind: "auth" }
+	| { kind: "bootstrapping" }
+	| { kind: "login" }
+	| { kind: "register" }
+	| { kind: "setup" }
 	| { kind: "external-auth-recovery"; recovery: ExternalAuthRecoveryState }
 	| MfaPanelState
 	| {
@@ -68,7 +71,8 @@ export type AuthPanelState =
 			pendingActivation: PendingActivationState;
 	  };
 
-export type AuthPanelAction =
+export type AuthUiFlowEvent =
+	| { type: "bootstrap_resolved"; flow: "login" | "setup" }
 	| { type: "close_activation_resend" }
 	| { type: "close_external_auth_recovery" }
 	| { type: "close_mfa" }
@@ -110,22 +114,26 @@ export type AuthPanelAction =
 	| { type: "set_password_reset_email"; email: string; error: string }
 	| { type: "set_password_reset_error"; error: string }
 	| { type: "set_password_reset_requesting"; requesting: boolean }
+	| { type: "switch_auth_mode"; mode: "login" | "register" }
 	| {
 			type: "set_pending_activation";
 			pendingActivation: PendingActivationState;
 	  };
 
-export const initialAuthPanelState: AuthPanelState = { kind: "auth" };
+export const initialAuthUiFlow: AuthUiFlow = { kind: "bootstrapping" };
 
-export function authPanelReducer(
-	state: AuthPanelState,
-	action: AuthPanelAction,
-): AuthPanelState {
+export function authUiFlowReducer(
+	state: AuthUiFlow,
+	action: AuthUiFlowEvent,
+): AuthUiFlow {
 	switch (action.type) {
+		case "bootstrap_resolved":
+			if (state.kind !== "bootstrapping") return state;
+			return { kind: action.flow };
 		case "close_activation_resend":
 		case "close_external_auth_recovery":
 		case "open_auth":
-			return initialAuthPanelState;
+			return { kind: "login" };
 		case "open_activation_resend":
 			return {
 				activationResend: {
@@ -136,10 +144,10 @@ export function authPanelReducer(
 				kind: "activation-resend",
 			};
 		case "close_mfa":
-			return initialAuthPanelState;
+			return { kind: "login" };
 		case "close_password_reset":
 			if (state.kind !== "password-reset") return state;
-			return initialAuthPanelState;
+			return { kind: "login" };
 		case "set_activation_resend_email":
 			if (state.kind !== "activation-resend") return state;
 			return {
@@ -359,6 +367,9 @@ export function authPanelReducer(
 				kind: "pending-activation",
 				pendingActivation: action.pendingActivation,
 			};
+		case "switch_auth_mode":
+			if (state.kind !== "login" && state.kind !== "register") return state;
+			return { kind: action.mode };
 	}
 }
 

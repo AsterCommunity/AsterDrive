@@ -46,6 +46,7 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{auth_session_repo, user_repo};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
+use crate::services::auth::flow::{AuthSessionLifecycleState, auth_session_snapshot};
 use crate::services::auth::local::Claims;
 use crate::services::auth::local::session::{
     invalidate_auth_snapshot_cache, purge_all_auth_sessions_in_connection,
@@ -460,6 +461,11 @@ async fn rotate_refresh_in_transaction<C: ConnectionTrait>(
         }
         return Err(AsterError::auth_token_invalid("session revoked"));
     };
+
+    if auth_session_snapshot(&existing_auth_session, now).state != AuthSessionLifecycleState::Active
+    {
+        return Err(AsterError::auth_token_invalid("session expired or revoked"));
+    }
 
     if existing_auth_session.user_id != claims.user_id {
         return Err(AsterError::auth_token_invalid("invalid token"));

@@ -4,6 +4,7 @@
 
 ## 身份与认证
 
+- [认证 flow 状态机契约](./auth-flow-state-machine.md)：登录、MFA、恢复、邀请、Passkey 和 session 的共享 lifecycle、transition、并发与前端投影边界。
 - [外部认证模块](./external-auth.md)：provider descriptor、登录 flow、账号解析、邮箱补验和前后端边界。
 
 ## 存储与远端节点

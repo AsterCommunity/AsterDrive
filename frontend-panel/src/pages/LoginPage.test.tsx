@@ -64,6 +64,7 @@ const mockState = vi.hoisted(() => ({
 	conditionalPasskeyError: null as Error | null,
 	handleApiError: vi.fn(),
 	allowUserRegistration: true,
+	validationIssuesEmpty: false,
 	conditionalPasskeySupported: false,
 	forceEnableDisabledButtons: false,
 	passkeyLoginEnabled: true,
@@ -197,7 +198,11 @@ vi.mock("@/lib/validation", () => ({
 			/^[^@]+@[^@]+\.[^@]+$/.test(value)
 				? { success: true }
 				: {
-						error: { issues: [{ message: "invalid-email" }] },
+						error: {
+							issues: mockState.validationIssuesEmpty
+								? []
+								: [{ message: "invalid-email" }],
+						},
 						success: false,
 					},
 	},
@@ -451,6 +456,7 @@ describe("LoginPage", () => {
 		});
 		document.documentElement.classList.remove("dark");
 		mockState.allowUserRegistration = true;
+		mockState.validationIssuesEmpty = false;
 		mockState.conditionalPasskeyError = null;
 		mockState.conditionalPasskeySupported = false;
 		mockState.forceEnableDisabledButtons = false;
@@ -887,6 +893,83 @@ describe("LoginPage", () => {
 		expect(mockState.verifyMfaChallenge).not.toHaveBeenCalled();
 	});
 
+	it("clears email-code sending after another MFA command advances the generation", async () => {
+		let resolveSend!: (value: {
+			expires_in: number;
+			resend_after: number;
+		}) => void;
+		mockState.forceEnableDisabledButtons = true;
+		mockState.login.mockResolvedValueOnce({
+			status: "mfa_required",
+			flowToken: "mfa-flow",
+			expiresIn: 300,
+			methods: ["email_code"],
+		});
+		mockState.sendMfaEmailCode.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveSend = resolve;
+				}),
+		);
+
+		render(<LoginPage />);
+		fireEvent.change(await screen.findByLabelText("email_or_username"), {
+			target: { value: "user@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "secret123" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
+		await screen.findByText("mfa_required_title");
+		fireEvent.click(
+			await screen.findByRole("button", { name: /mfa_email_code_send/ }),
+		);
+		await screen.findByText("mfa_email_code_sending");
+		fireEvent.click(screen.getByRole("button", { name: /mfa_verify/ }));
+		resolveSend({ expires_in: 600, resend_after: 60 });
+
+		await waitFor(() => {
+			expect(
+				screen.queryByText("mfa_email_code_sending"),
+			).not.toBeInTheDocument();
+		});
+	});
+
+	it("rejects sending an expired email MFA challenge", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date("2026-05-24T08:00:00.000Z"));
+		mockState.forceEnableDisabledButtons = true;
+		mockState.login.mockResolvedValueOnce({
+			status: "mfa_required",
+			flowToken: "expired-email-flow",
+			expiresIn: 300,
+			methods: ["email_code"],
+		});
+
+		render(<LoginPage />);
+
+		fireEvent.change(await screen.findByLabelText("email_or_username"), {
+			target: { value: "user@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "secret123" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
+		await screen.findByText("mfa_required_title");
+
+		act(() => {
+			vi.setSystemTime(new Date("2026-05-24T08:06:00.000Z"));
+			vi.advanceTimersByTime(1000);
+		});
+		await screen.findByText("mfa_flow_expired");
+		fireEvent.click(
+			screen.getByRole("button", { name: /mfa_email_code_send/ }),
+		);
+
+		expect(mockState.sendMfaEmailCode).not.toHaveBeenCalled();
+		expect(screen.getAllByText("mfa_flow_expired").length).toBeGreaterThan(0);
+	});
+
 	it("ignores email MFA resend clicks during cooldown", async () => {
 		mockState.forceEnableDisabledButtons = true;
 		mockState.login.mockResolvedValueOnce({
@@ -1214,6 +1297,66 @@ describe("LoginPage", () => {
 		).toBeInTheDocument();
 	});
 
+	it("ignores a bootstrap response after the component is unmounted", async () => {
+		let resolveCheck!: (value: unknown) => void;
+		mockState.setSystemSetupState.mockImplementationOnce(() => {
+			throw new Error("stale setup state update");
+		});
+		mockState.check.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveCheck = resolve;
+				}),
+		);
+
+		const view = render(<LoginPage />);
+		await waitFor(() => expect(mockState.check).toHaveBeenCalledWith());
+		view.unmount();
+		resolveCheck({
+			allow_user_registration: true,
+			has_users: true,
+			passkey_login_enabled: true,
+			password_login_enabled: true,
+			setup_state: "ready",
+		});
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+
+	it("clears bootstrap checking after a callback error", async () => {
+		const error = new Error("setup state update failed");
+		mockState.setSystemSetupState.mockImplementationOnce(() => {
+			throw error;
+		});
+
+		render(<LoginPage />);
+
+		await waitFor(() => {
+			expect(mockState.loggerWarn).toHaveBeenCalledWith(
+				"failed to load auth bootstrap",
+				error,
+			);
+		});
+		expect(
+			await screen.findByRole("button", { name: "sign_in" }),
+		).toBeInTheDocument();
+	});
+
+	it("ignores a bootstrap rejection after the component is unmounted", async () => {
+		mockState.check.mockImplementationOnce(() => {
+			throw new Error("stale bootstrap rejection");
+		});
+
+		const view = render(<LoginPage />);
+		view.unmount();
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(mockState.loggerWarn).not.toHaveBeenCalledWith(
+			"failed to load auth bootstrap",
+			expect.anything(),
+		);
+	});
+
 	it("reports password validation failures before calling login", async () => {
 		render(<LoginPage />);
 		fireEvent.change(await screen.findByLabelText("email_or_username"), {
@@ -1228,6 +1371,51 @@ describe("LoginPage", () => {
 
 		expect(await screen.findByText("password-required")).toBeInTheDocument();
 		expect(mockState.login).not.toHaveBeenCalled();
+	});
+
+	it("handles empty validation issue lists across recovery forms", async () => {
+		mockState.forceEnableDisabledButtons = true;
+		mockState.validationIssuesEmpty = true;
+
+		const activationView = render(<LoginPage />);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "resend_activation" }),
+		);
+		await screen.findByText("activation_resend_hint");
+		fireEvent.change(screen.getByLabelText("email"), {
+			target: { value: "invalid" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /resend_activation/ }));
+		activationView.unmount();
+
+		const passwordResetView = render(<LoginPage />);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "forgot_password" }),
+		);
+		fireEvent.change(await screen.findByLabelText("email"), {
+			target: { value: "invalid" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: /send_password_reset/ }),
+		);
+		passwordResetView.unmount();
+
+		mockState.location.search = "?external_auth=email_required&flow=flow-token";
+		const externalView = render(<LoginPage />);
+		fireEvent.click(
+			await screen.findByRole("tab", {
+				name: /external_auth_email_verification_tab/,
+			}),
+		);
+		fireEvent.change(await screen.findByLabelText("email"), {
+			target: { value: "invalid" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /external_auth_email_verification_send/,
+			}),
+		);
+		externalView.unmount();
 	});
 
 	it("does not flash cached-disabled password controls while auth check is pending", async () => {
@@ -2450,6 +2638,11 @@ describe("LoginPage", () => {
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("register_success");
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("activation_resent");
+
+		fireEvent.click(screen.getByRole("button", { name: /not_you/ }));
+		expect(
+			await screen.findByRole("button", { name: "sign_in" }),
+		).toBeInTheDocument();
 	});
 
 	it("returns to sign-in mode when registration does not require activation", async () => {
@@ -2566,6 +2759,7 @@ describe("LoginPage", () => {
 
 	it("validates and handles failures in the independent activation resend panel", async () => {
 		const error = new Error("mail service offline");
+		mockState.forceEnableDisabledButtons = true;
 		mockState.resendRegisterActivation.mockRejectedValueOnce(error);
 
 		render(<LoginPage />);
@@ -2635,6 +2829,21 @@ describe("LoginPage", () => {
 
 		await screen.findByRole("button", { name: "sign_in" });
 		fireEvent.click(screen.getByRole("button", { name: "forgot_password" }));
+
+		fireEvent.change(await screen.findByLabelText("email"), {
+			target: { value: "invalid" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: /send_password_reset/ }),
+		);
+		expect(screen.getByText("invalid-email")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /back_to_sign_in/ }));
+		await screen.findByRole("button", { name: "sign_in" });
+		fireEvent.click(screen.getByRole("button", { name: "forgot_password" }));
+
+		fireEvent.change(await screen.findByLabelText("email"), {
+			target: { value: "user@example.com" },
+		});
 
 		fireEvent.click(
 			await screen.findByRole("button", { name: /send_password_reset/ }),

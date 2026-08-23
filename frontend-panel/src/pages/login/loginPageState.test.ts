@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-	type AuthPanelState,
-	authPanelReducer,
-	initialAuthPanelState,
+	type AuthUiFlow,
+	authUiFlowReducer,
+	initialAuthUiFlow,
 	type MfaChallengeState,
 } from "./loginPageState";
 
@@ -19,21 +19,57 @@ function mfaChallenge(
 	};
 }
 
-describe("authPanelReducer", () => {
+describe("authUiFlowReducer", () => {
 	afterEach(() => {
 		vi.useRealTimers();
 	});
 
+	it("resolves bootstrap once and keeps a URL-restored flow authoritative", () => {
+		expect(
+			authUiFlowReducer(initialAuthUiFlow, {
+				type: "bootstrap_resolved",
+				flow: "setup",
+			}),
+		).toEqual({ kind: "setup" });
+
+		const restored = authUiFlowReducer(initialAuthUiFlow, {
+			type: "open_mfa",
+			challenge: mfaChallenge(),
+		});
+		expect(
+			authUiFlowReducer(restored, {
+				type: "bootstrap_resolved",
+				flow: "login",
+			}),
+		).toBe(restored);
+	});
+
+	it("switches only between the login and registration top-level flows", () => {
+		const login: AuthUiFlow = { kind: "login" };
+		expect(
+			authUiFlowReducer(login, {
+				type: "switch_auth_mode",
+				mode: "register",
+			}),
+		).toEqual({ kind: "register" });
+		expect(
+			authUiFlowReducer(initialAuthUiFlow, {
+				type: "switch_auth_mode",
+				mode: "register",
+			}),
+		).toBe(initialAuthUiFlow);
+	});
+
 	it("ignores password reset edits outside the password reset panel", () => {
-		const sameState = authPanelReducer(initialAuthPanelState, {
+		const sameState = authUiFlowReducer(initialAuthUiFlow, {
 			type: "set_password_reset_email",
 			email: "alice@example.com",
 			error: "",
 		});
 
-		expect(sameState).toBe(initialAuthPanelState);
+		expect(sameState).toBe(initialAuthUiFlow);
 
-		const mfaState: AuthPanelState = {
+		const mfaState: AuthUiFlow = {
 			challenge: mfaChallenge(),
 			code: "",
 			emailCodeError: "",
@@ -49,7 +85,7 @@ describe("authPanelReducer", () => {
 		};
 
 		expect(
-			authPanelReducer(mfaState, {
+			authUiFlowReducer(mfaState, {
 				type: "set_password_reset_error",
 				error: "invalid-email",
 			}),
@@ -60,12 +96,12 @@ describe("authPanelReducer", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date("2026-05-24T08:00:00.000Z"));
 
-		const opened = authPanelReducer(initialAuthPanelState, {
+		const opened = authUiFlowReducer(initialAuthUiFlow, {
 			type: "open_password_reset",
 			email: "old@example.com",
 		});
 
-		const edited = authPanelReducer(opened, {
+		const edited = authUiFlowReducer(opened, {
 			type: "set_password_reset_email",
 			email: "new@example.com",
 			error: "invalid-email",
@@ -81,7 +117,7 @@ describe("authPanelReducer", () => {
 		});
 
 		expect(
-			authPanelReducer(edited, {
+			authUiFlowReducer(edited, {
 				type: "set_password_reset_error",
 				error: "",
 			}),
@@ -96,12 +132,12 @@ describe("authPanelReducer", () => {
 	});
 
 	it("updates activation resend email and request lifecycle while the panel is active", () => {
-		const opened = authPanelReducer(initialAuthPanelState, {
+		const opened = authUiFlowReducer(initialAuthUiFlow, {
 			type: "open_activation_resend",
 			email: "old@example.com",
 		});
 
-		const edited = authPanelReducer(opened, {
+		const edited = authUiFlowReducer(opened, {
 			type: "set_activation_resend_email",
 			email: "new@example.com",
 			error: "invalid-email",
@@ -116,7 +152,7 @@ describe("authPanelReducer", () => {
 			kind: "activation-resend",
 		});
 
-		const requesting = authPanelReducer(edited, {
+		const requesting = authUiFlowReducer(edited, {
 			type: "set_activation_resend_requesting",
 			requesting: true,
 		});
@@ -131,7 +167,7 @@ describe("authPanelReducer", () => {
 		});
 
 		expect(
-			authPanelReducer(requesting, {
+			authUiFlowReducer(requesting, {
 				type: "set_activation_resend_error",
 				error: "",
 			}),
@@ -143,40 +179,40 @@ describe("authPanelReducer", () => {
 	});
 
 	it("closes the activation resend panel back to auth", () => {
-		const opened = authPanelReducer(initialAuthPanelState, {
+		const opened = authUiFlowReducer(initialAuthUiFlow, {
 			type: "open_activation_resend",
 			email: "old@example.com",
 		});
 
-		expect(authPanelReducer(opened, { type: "close_activation_resend" })).toBe(
-			initialAuthPanelState,
-		);
+		expect(
+			authUiFlowReducer(opened, { type: "close_activation_resend" }),
+		).toEqual({ kind: "login" });
 	});
 
 	it("ignores activation resend edits outside the activation resend panel", () => {
 		expect(
-			authPanelReducer(initialAuthPanelState, {
+			authUiFlowReducer(initialAuthUiFlow, {
 				type: "set_activation_resend_email",
 				email: "new@example.com",
 				error: "",
 			}),
-		).toBe(initialAuthPanelState);
+		).toBe(initialAuthUiFlow);
 		expect(
-			authPanelReducer(initialAuthPanelState, {
+			authUiFlowReducer(initialAuthUiFlow, {
 				type: "set_activation_resend_error",
 				error: "invalid-email",
 			}),
-		).toBe(initialAuthPanelState);
+		).toBe(initialAuthUiFlow);
 		expect(
-			authPanelReducer(initialAuthPanelState, {
+			authUiFlowReducer(initialAuthUiFlow, {
 				type: "set_activation_resend_requesting",
 				requesting: true,
 			}),
-		).toBe(initialAuthPanelState);
+		).toBe(initialAuthUiFlow);
 	});
 
 	it("opens email-only MFA challenges with email selected", () => {
-		const opened = authPanelReducer(initialAuthPanelState, {
+		const opened = authUiFlowReducer(initialAuthUiFlow, {
 			type: "open_mfa",
 			challenge: mfaChallenge({ methods: ["email_code"] }),
 		});
@@ -197,7 +233,7 @@ describe("authPanelReducer", () => {
 
 	it("falls back through recovery-code and totp MFA initial methods", () => {
 		expect(
-			authPanelReducer(initialAuthPanelState, {
+			authUiFlowReducer(initialAuthUiFlow, {
 				type: "open_mfa",
 				challenge: mfaChallenge({ methods: ["recovery_code"] }),
 			}),
@@ -206,7 +242,7 @@ describe("authPanelReducer", () => {
 			selectedMethod: "recovery_code",
 		});
 		expect(
-			authPanelReducer(initialAuthPanelState, {
+			authUiFlowReducer(initialAuthUiFlow, {
 				type: "open_mfa",
 				challenge: mfaChallenge({ methods: [] }),
 			}),
@@ -217,7 +253,7 @@ describe("authPanelReducer", () => {
 	});
 
 	it("ignores unavailable MFA methods and clears code when switching methods", () => {
-		const state: AuthPanelState = {
+		const state: AuthUiFlow = {
 			challenge: mfaChallenge({ methods: ["totp", "email_code"] }),
 			code: "123456",
 			emailCodeError: "",
@@ -233,14 +269,14 @@ describe("authPanelReducer", () => {
 		};
 
 		expect(
-			authPanelReducer(state, {
+			authUiFlowReducer(state, {
 				type: "set_mfa_method",
 				method: "recovery_code",
 			}),
 		).toBe(state);
 
 		expect(
-			authPanelReducer(state, {
+			authUiFlowReducer(state, {
 				type: "set_mfa_method",
 				method: "email_code",
 			}),
@@ -256,12 +292,12 @@ describe("authPanelReducer", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date("2026-05-24T08:00:00.000Z"));
 		const now = Date.now();
-		const opened = authPanelReducer(initialAuthPanelState, {
+		const opened = authUiFlowReducer(initialAuthUiFlow, {
 			type: "open_mfa",
 			challenge: mfaChallenge({ methods: ["email_code"] }),
 		});
 
-		const sending = authPanelReducer(opened, {
+		const sending = authUiFlowReducer(opened, {
 			type: "set_mfa_email_code_sending",
 			sending: true,
 		});
@@ -270,7 +306,7 @@ describe("authPanelReducer", () => {
 			emailCodeSending: true,
 		});
 
-		const sent = authPanelReducer(sending, {
+		const sent = authUiFlowReducer(sending, {
 			type: "set_mfa_email_code_sent",
 			expiresIn: 600,
 			now,
@@ -285,10 +321,10 @@ describe("authPanelReducer", () => {
 		});
 
 		expect(
-			authPanelReducer(initialAuthPanelState, {
+			authUiFlowReducer(initialAuthUiFlow, {
 				type: "set_mfa_email_code_sending",
 				sending: true,
 			}),
-		).toBe(initialAuthPanelState);
+		).toBe(initialAuthUiFlow);
 	});
 });
