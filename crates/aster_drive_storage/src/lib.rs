@@ -80,5 +80,6 @@ pub use traits::{
     NativeThumbnailStorageDriver, PresignedStorageDriver, ProviderResumableUploadCapabilities,
     ProviderResumableUploadDriver, ProviderResumableUploadFragmentOutcome,
     ProviderResumableUploadSession, ProviderResumableUploadStatus, StorageCapacityInfo,
-    StorageCapacityStatus, StorageDriverExtensions, StreamUploadDriver, UploadedMultipartPart,
+    StorageCapacityStatus, StorageDriverExtensions, StreamUploadAttempt, StreamUploadCleanup,
+    StreamUploadDriver, UploadedMultipartPart,
 };

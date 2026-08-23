@@ -14,15 +14,40 @@ use crate::storage::remote_protocol::{
 };
 use actix_web::http::{StatusCode, header::HeaderMap};
 use actix_web::{HttpRequest, HttpResponse, dev::HttpServiceFactory, web};
+use aster_drive_metrics::MetricsRecorder;
 use aster_drive_storage::StorageErrorKind;
 use aster_drive_storage::object_key;
-use aster_drive_storage::{BlobMetadata, StorageDriver};
+use aster_drive_storage::{
+    BlobMetadata, StorageDriver, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
+};
 use aster_forge_utils::numbers;
 use futures::StreamExt;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 use tokio_util::io::ReaderStream;
+
+struct StreamUploadMetricGuard<'a> {
+    recorder: &'a dyn MetricsRecorder,
+}
+
+impl<'a> StreamUploadMetricGuard<'a> {
+    fn new(recorder: &'a dyn MetricsRecorder, expected_size: i64) -> Self {
+        recorder.record_stream_upload_attempt("attempt", "started");
+        recorder.record_stream_upload_bytes(
+            "expected",
+            u64::try_from(expected_size).unwrap_or_default(),
+        );
+        recorder.adjust_stream_upload_active(1);
+        Self { recorder }
+    }
+}
+
+impl Drop for StreamUploadMetricGuard<'_> {
+    fn drop(&mut self) {
+        self.recorder.adjust_stream_upload_active(-1);
+    }
+}
 
 pub fn routes() -> impl HttpServiceFactory {
     web::scope("/internal/storage")
@@ -90,6 +115,39 @@ fn content_length_header(headers: &HeaderMap) -> Result<i64> {
             "content-length header must be a valid integer",
         )
     })
+}
+
+async fn cleanup_follower_attempt(
+    driver: &dyn StreamUploadDriver,
+    attempt: &StreamUploadAttempt,
+    metrics: &dyn MetricsRecorder,
+    binding_id: i64,
+    object_key: &str,
+) {
+    match driver.abort_attempt(attempt).await {
+        Ok(StreamUploadCleanup::Cleaned) => {
+            metrics.record_stream_upload_attempt("abort", "cleaned");
+        }
+        Ok(outcome) => {
+            tracing::warn!(
+                binding_id,
+                object_key,
+                storage_path = %attempt.storage_path,
+                ?outcome,
+                "follower upload attempt cleanup deferred"
+            );
+            metrics.record_stream_upload_attempt("abort", "deferred");
+        }
+        Err(error) => {
+            tracing::warn!(
+                binding_id,
+                object_key,
+                storage_path = %attempt.storage_path,
+                "failed to cleanup follower upload attempt: {error}"
+            );
+            metrics.record_stream_upload_attempt("abort", "failed");
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -444,6 +502,7 @@ async fn put_object(
     mut payload: web::Payload,
 ) -> Result<HttpResponse> {
     const RELAY_UPLOAD_BUFFER_SIZE: usize = 64 * 1024;
+    const STREAM_ATTEMPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
     let ctx = if req.headers().contains_key(INTERNAL_AUTH_SIGNATURE_HEADER) {
         master_binding::authorize_internal_write_request(state.get_ref(), &req).await?
@@ -478,8 +537,14 @@ async fn put_object(
             )
         })?;
     let (writer, reader) = tokio::io::duplex(RELAY_UPLOAD_BUFFER_SIZE);
-    let upload_storage_path = storage_path.clone();
-    let (upload_result, relay_result) = tokio::task::LocalSet::new()
+    // The remote object key is an opaque blob identity. Provider-atomic
+    // drivers write it once; the Primary database remains the product-level
+    // publication boundary for files and revisions.
+    let attempt =
+        StreamUploadAttempt::new(&storage_path, content_length).map_err(AsterError::from)?;
+    let _attempt_metrics = StreamUploadMetricGuard::new(state.metrics.as_ref(), content_length);
+    let attempt_for_upload = attempt.clone();
+    let relay_outcome = tokio::task::LocalSet::new()
         .run_until(async move {
             let relay_task = tokio::task::spawn_local(async move {
                 let mut writer = writer;
@@ -499,19 +564,77 @@ async fn put_object(
                 Ok::<String, AsterError>(format!("\"{}\"", hex::encode(hasher.finalize())))
             });
 
-            let upload_result = stream_driver
-                .put_reader(&upload_storage_path, Box::new(reader), content_length)
-                .await
-                .map_err(AsterError::from);
+            let upload_result = stream_driver.stage_attempt(&attempt_for_upload, Box::new(reader));
+            let upload_result =
+                match tokio::time::timeout(STREAM_ATTEMPT_TIMEOUT, upload_result).await {
+                    Ok(result) => result.map_err(AsterError::from),
+                    Err(_) => Err(AsterError::storage_driver_error(
+                        "stream upload attempt timed out",
+                    )),
+                };
             let relay_result = relay_task.await.map_err(|error| {
                 AsterError::storage_driver_error(format!("relay upload task failed: {error}"))
             })?;
-            Ok::<(Result<String>, Result<String>), AsterError>((upload_result, relay_result))
+            Ok::<(Result<()>, Result<String>), AsterError>((upload_result, relay_result))
         })
-        .await?;
+        .await;
 
-    upload_result?;
-    let etag = relay_result?;
+    let relay_outcome = match relay_outcome {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            cleanup_follower_attempt(
+                stream_driver,
+                &attempt,
+                state.metrics.as_ref(),
+                ctx.binding.id,
+                &object_key,
+            )
+            .await;
+            return Err(error);
+        }
+    };
+
+    let (upload_result, relay_result) = relay_outcome;
+
+    if let Err(error) = upload_result {
+        cleanup_follower_attempt(
+            stream_driver,
+            &attempt,
+            state.metrics.as_ref(),
+            ctx.binding.id,
+            &object_key,
+        )
+        .await;
+        return Err(error);
+    }
+    let etag = match relay_result {
+        Ok(etag) => etag,
+        Err(error) => {
+            cleanup_follower_attempt(
+                stream_driver,
+                &attempt,
+                state.metrics.as_ref(),
+                ctx.binding.id,
+                &object_key,
+            )
+            .await;
+            return Err(error);
+        }
+    };
+    if let Err(error) = stream_driver.commit_attempt(&attempt).await {
+        cleanup_follower_attempt(
+            stream_driver,
+            &attempt,
+            state.metrics.as_ref(),
+            ctx.binding.id,
+            &object_key,
+        )
+        .await;
+        return Err(error.into());
+    }
+    state
+        .metrics
+        .record_stream_upload_attempt("commit", "success");
     tracing::info!(
         binding_id = ctx.binding.id,
         object_key = %object_key,
@@ -551,6 +674,7 @@ async fn compose_objects(
     body: web::Json<RemoteStorageComposeRequest>,
 ) -> Result<HttpResponse> {
     const COMPOSE_BUFFER_SIZE: usize = 64 * 1024;
+    const STREAM_ATTEMPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
     let ctx = master_binding::authorize_internal_write_request(state.get_ref(), &req).await?;
     if body.part_keys.is_empty() {
@@ -597,9 +721,12 @@ async fn compose_objects(
     let expected_size_u64 = numbers::i64_to_u64(expected_size, "compose expected_size")?;
 
     let read_driver = driver.clone();
-    let upload_target_storage_path = target_storage_path.clone();
+    let attempt =
+        StreamUploadAttempt::new(&target_storage_path, expected_size).map_err(AsterError::from)?;
+    let _attempt_metrics = StreamUploadMetricGuard::new(state.metrics.as_ref(), expected_size);
+    let attempt_for_upload = attempt.clone();
     let (writer, reader) = tokio::io::duplex(COMPOSE_BUFFER_SIZE);
-    let (upload_result, relay_result) = tokio::task::LocalSet::new()
+    let relay_outcome = tokio::task::LocalSet::new()
         .run_until(async move {
             let relay_task = tokio::task::spawn_local(async move {
                 let mut writer = writer;
@@ -623,45 +750,91 @@ async fn compose_objects(
                 Ok::<u64, AsterError>(bytes_written)
             });
 
-            let upload_result = stream_driver
-                .put_reader(&upload_target_storage_path, Box::new(reader), expected_size)
-                .await
-                .map_err(AsterError::from);
+            let upload_result = stream_driver.stage_attempt(&attempt_for_upload, Box::new(reader));
+            let upload_result =
+                match tokio::time::timeout(STREAM_ATTEMPT_TIMEOUT, upload_result).await {
+                    Ok(result) => result.map_err(AsterError::from),
+                    Err(_) => Err(AsterError::storage_driver_error(
+                        "compose stream upload attempt timed out",
+                    )),
+                };
             let relay_result = relay_task.await.map_err(|error| {
                 AsterError::storage_driver_error(format!("compose relay task failed: {error}"))
             })?;
-            Ok::<(Result<String>, Result<u64>), AsterError>((upload_result, relay_result))
+            Ok::<(Result<()>, Result<u64>), AsterError>((upload_result, relay_result))
         })
-        .await?;
+        .await;
 
-    let cleanup_target = async {
-        if let Err(error) = driver.delete(&target_storage_path).await {
-            tracing::warn!(
-                target_storage_path = %target_storage_path,
-                "failed to cleanup composed target object: {error}"
-            );
+    let (upload_result, relay_result) = match relay_outcome {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            cleanup_follower_attempt(
+                stream_driver,
+                &attempt,
+                state.metrics.as_ref(),
+                ctx.binding.id,
+                &target_key,
+            )
+            .await;
+            return Err(error);
         }
     };
 
     if let Err(error) = upload_result {
-        cleanup_target.await;
+        cleanup_follower_attempt(
+            stream_driver,
+            &attempt,
+            state.metrics.as_ref(),
+            ctx.binding.id,
+            &target_key,
+        )
+        .await;
         return Err(error);
     }
 
     let bytes_written = match relay_result {
         Ok(bytes_written) => bytes_written,
         Err(error) => {
-            cleanup_target.await;
+            cleanup_follower_attempt(
+                stream_driver,
+                &attempt,
+                state.metrics.as_ref(),
+                ctx.binding.id,
+                &target_key,
+            )
+            .await;
             return Err(error);
         }
     };
 
     if bytes_written != expected_size_u64 {
-        cleanup_target.await;
+        cleanup_follower_attempt(
+            stream_driver,
+            &attempt,
+            state.metrics.as_ref(),
+            ctx.binding.id,
+            &target_key,
+        )
+        .await;
         return Err(AsterError::storage_driver_error(format!(
             "compose size mismatch: expected {expected_size_u64} bytes, got {bytes_written}"
         )));
     }
+
+    if let Err(error) = stream_driver.commit_attempt(&attempt).await {
+        cleanup_follower_attempt(
+            stream_driver,
+            &attempt,
+            state.metrics.as_ref(),
+            ctx.binding.id,
+            &target_key,
+        )
+        .await;
+        return Err(error.into());
+    }
+    state
+        .metrics
+        .record_stream_upload_attempt("commit", "success");
 
     for storage_path in cleanup_part_storage_paths {
         if let Err(error) = driver.delete(&storage_path).await {

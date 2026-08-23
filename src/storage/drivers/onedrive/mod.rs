@@ -12,7 +12,8 @@ use aster_drive_storage::traits::driver::{BlobMetadata, StorageDriver};
 use aster_drive_storage::traits::extensions::{
     PresignedStorageDriver, ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
     ProviderResumableUploadFragmentOutcome, ProviderResumableUploadSession,
-    ProviderResumableUploadStatus, StorageCapacityInfo, StreamUploadDriver,
+    ProviderResumableUploadStatus, StorageCapacityInfo, StreamUploadAttempt, StreamUploadCleanup,
+    StreamUploadDriver,
 };
 use aster_drive_storage::{
     MapStorageErr, Result, StorageError, StorageErrorKind, storage_driver_error,
@@ -38,7 +39,7 @@ pub struct OneDriveDriver {
 
 // Microsoft Graph documents the simple PUT content limit as 250 MB, not 250 MiB.
 const GRAPH_SIMPLE_UPLOAD_MAX_BYTES: usize = 250_000_000;
-const GRAPH_SIMPLE_UPLOAD_IN_MEMORY_MAX_BYTES: usize = 50 * 1024 * 1024;
+const GRAPH_SIMPLE_UPLOAD_IN_MEMORY_MAX_BYTES: usize = 1024 * 1024;
 // Upload session fragments must align to 320 KiB; Microsoft recommends 5-10 MiB chunks.
 const GRAPH_UPLOAD_FRAGMENT_ALIGNMENT: usize = 320 * 1024;
 const GRAPH_UPLOAD_FRAGMENT_SIZE: usize = 10 * 1024 * 1024;
@@ -247,24 +248,25 @@ impl OneDriveDriver {
             return self.put_owned(path, Bytes::new()).await;
         }
         if can_use_graph_in_memory_upload(total_size, self.policy_chunk_size) {
-            let capacity = numbers::u64_to_usize(total_size, "OneDrive simple upload size")
+            let capacity = numbers::u64_to_usize(total_size, "OneDrive bounded simple upload size")
                 .map_storage_err(StorageErrorKind::Misconfigured)?;
             let mut data = vec![0_u8; capacity];
             reader.read_exact(&mut data).await.map_storage_err_ctx(
                 StorageErrorKind::Precondition,
-                "read OneDrive simple upload stream",
+                "read OneDrive bounded simple upload stream",
             )?;
             reject_extra_upload_bytes(reader).await?;
             return self.put_owned(path, Bytes::from(data)).await;
         }
-
         let parent_path = self.ensure_named_object_parent(path).await?;
+        let mut upload_url = None;
         let result = async {
             let upload_session_path = self.graph_upload_session_path(path)?;
             let upload_session = self
                 .client
                 .create_upload_session(&upload_session_path)
                 .await?;
+            upload_url = Some(upload_session.upload_url.clone());
             let fragment_size = graph_upload_fragment_size(self.policy_chunk_size);
             let mut uploaded = 0_u64;
             while uploaded < total_size {
@@ -308,6 +310,11 @@ impl OneDriveDriver {
         }
         .await;
         if result.is_err() {
+            if let Some(upload_url) = upload_url
+                && let Err(error) = self.client.abort_upload_session(&upload_url).await
+            {
+                tracing::warn!("failed to abort OneDrive upload session: {error}");
+            }
             self.cleanup_named_object_parent(parent_path.as_deref())
                 .await;
         }
@@ -442,6 +449,14 @@ impl StreamUploadDriver for OneDriveDriver {
     ) -> aster_drive_storage::Result<String> {
         self.put_reader_via_upload_session(storage_path, reader, size)
             .await
+    }
+
+    async fn abort_attempt(
+        &self,
+        _attempt: &StreamUploadAttempt,
+    ) -> aster_drive_storage::Result<StreamUploadCleanup> {
+        // A provider session can outlive the request and is reclaimed by Graph.
+        Ok(StreamUploadCleanup::Deferred)
     }
 
     async fn put_file(
@@ -698,7 +713,7 @@ mod tests {
                 .app_data(state_data.clone())
                 .app_data(config_data.clone())
                 .app_data(web::PayloadConfig::new(
-                    GRAPH_SIMPLE_UPLOAD_IN_MEMORY_MAX_BYTES + 1024,
+                    GRAPH_UPLOAD_FRAGMENT_MAX_BYTES + 1024,
                 ))
                 .default_service(web::to(graph))
         })
@@ -740,25 +755,8 @@ mod tests {
     }
 
     #[test]
-    fn graph_in_memory_upload_uses_policy_chunk_size_capped_at_50_mib() {
-        assert!(can_use_graph_in_memory_upload(0, 5 * 1024 * 1024));
-        assert!(can_use_graph_in_memory_upload(1, 5 * 1024 * 1024));
-        assert!(can_use_graph_in_memory_upload(
-            5 * 1024 * 1024,
-            5 * 1024 * 1024
-        ));
-        assert!(!can_use_graph_in_memory_upload(
-            5 * 1024 * 1024 + 1,
-            5 * 1024 * 1024
-        ));
-        assert!(can_use_graph_in_memory_upload(
-            GRAPH_SIMPLE_UPLOAD_IN_MEMORY_MAX_BYTES as u64,
-            250_000_000
-        ));
-        assert!(!can_use_graph_in_memory_upload(
-            GRAPH_SIMPLE_UPLOAD_IN_MEMORY_MAX_BYTES as u64 + 1,
-            250_000_000
-        ));
+    fn graph_in_memory_upload_is_bounded_to_one_mib() {
+        assert!(can_use_graph_in_memory_upload(1, 0));
         assert!(can_use_graph_in_memory_upload(
             GRAPH_SIMPLE_UPLOAD_IN_MEMORY_MAX_BYTES as u64,
             0
@@ -767,7 +765,6 @@ mod tests {
             GRAPH_SIMPLE_UPLOAD_IN_MEMORY_MAX_BYTES as u64 + 1,
             0
         ));
-        assert!(can_use_graph_in_memory_upload(1, -1));
     }
 
     #[tokio::test]
@@ -826,34 +823,6 @@ mod tests {
                 .expect("Graph lifecycle state lock")
                 .methods
                 .is_empty()
-        );
-        server.stop().await;
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn fifty_mib_simple_reader_upload_has_one_object_sized_allocation() {
-        let server = spawn_graph_lifecycle_server(GraphLifecycleConfig::default()).await;
-        let client =
-            MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(&server.base_url, "token"))
-                .expect("Graph client should build");
-        let driver = OneDriveDriver::new(
-            client,
-            "drive-id",
-            "root-id",
-            "",
-            GRAPH_SIMPLE_UPLOAD_IN_MEMORY_MAX_BYTES as i64,
-        );
-        let size = GRAPH_SIMPLE_UPLOAD_IN_MEMORY_MAX_BYTES;
-        let reader = tokio::io::AsyncReadExt::take(tokio::io::repeat(7), size as u64);
-        let future = driver.put_reader(NAMED_PATH, Box::new(reader), size as i64);
-
-        let (result, allocations) = crate::test_support::allocations::measure_future(future).await;
-
-        result.expect("50 MiB boundary upload should succeed");
-        assert!(allocations.bytes >= size);
-        assert!(
-            allocations.bytes < size + 1024 * 1024,
-            "simple upload allocated more than one object body: {allocations:?}"
         );
         server.stop().await;
     }

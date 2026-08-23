@@ -1,11 +1,14 @@
 //! SFTP storage driver integration test using testcontainers.
 
+use std::io::Cursor;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use aster_drive::storage::drivers::sftp::{SftpDriver, SftpDriverConfig, SftpStaticCredentials};
 use aster_drive_storage::{StorageDriver, StorageErrorKind, StreamUploadDriver};
 use testcontainers::{GenericImage, ImageExt, core::IntoContainerPort, runners::AsyncRunner};
-use tokio::io::AsyncReadExt as _;
+use tokio::io::{AsyncRead, AsyncReadExt as _, ReadBuf};
 
 const SFTP_IMAGE: &str = "lscr.io/linuxserver/openssh-server";
 const SFTP_TAG: &str = "10.2_p1-r0-ls229";
@@ -13,6 +16,26 @@ const SFTP_PORT: u16 = 2222;
 const SFTP_USERNAME: &str = "aster";
 const SFTP_PASSWORD: &str = "asterpass";
 const SFTP_PROBE_TIMEOUT: Duration = Duration::from_secs(15);
+
+struct TruncatedReader {
+    prefix: Cursor<Vec<u8>>,
+}
+
+impl AsyncRead for TruncatedReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        if buffer.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
+        let mut chunk = [0_u8; 4];
+        let read = std::io::Read::read(&mut self.prefix, &mut chunk).expect("read prefix");
+        buffer.put_slice(&chunk[..read]);
+        Poll::Ready(Ok(()))
+    }
+}
 
 fn sftp_driver(endpoint: &str, base_path: &str, host_key_fingerprint: Option<&str>) -> SftpDriver {
     SftpDriver::new(
@@ -272,6 +295,26 @@ async fn test_sftp_driver_upload_download_round_trip() {
     assert_eq!(
         driver.get("stream/reader.bin").await.unwrap(),
         b"stream upload"
+    );
+
+    driver
+        .put("stream/truncated.bin", b"previous version")
+        .await
+        .unwrap();
+    let truncated_error = driver
+        .put_reader(
+            "stream/truncated.bin",
+            Box::new(TruncatedReader {
+                prefix: Cursor::new(b"partial".to_vec()),
+            }),
+            64,
+        )
+        .await
+        .expect_err("a clean EOF before declared size must fail");
+    assert_eq!(truncated_error.kind(), StorageErrorKind::Precondition);
+    assert_eq!(
+        driver.get("stream/truncated.bin").await.unwrap(),
+        b"previous version"
     );
 
     let temp_dir = std::env::temp_dir().join(format!("asterdrive-sftp-{}", uuid::Uuid::new_v4()));

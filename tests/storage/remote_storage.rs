@@ -6825,6 +6825,21 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
         .await
         .expect("provider should receive direct relay upload");
     assert_eq!(stored, body);
+    let provider_entries = std::fs::read_dir(
+        provider_path
+            .parent()
+            .expect("remote provider object should have a parent"),
+    )
+    .unwrap()
+    .filter_map(|entry| entry.ok())
+    .filter_map(|entry| entry.file_name().into_string().ok())
+    .collect::<Vec<_>>();
+    assert!(
+        provider_entries
+            .iter()
+            .all(|name| !name.starts_with(".aster-attempt-")),
+        "nested remote atomic PUT must consume any follower-local staging file"
+    );
 
     provider_server.stop().await;
 }

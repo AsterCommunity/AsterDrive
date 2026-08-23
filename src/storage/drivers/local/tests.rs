@@ -3,7 +3,8 @@ use super::paths::{effective_base_path, sanitize_relative_path};
 use crate::storage::drivers::local::promote::PromoteLocalFileOutcome;
 use aster_drive_storage::traits::driver::{StorageDriver, StoragePathVisitor};
 use aster_drive_storage::traits::extensions::{
-    ListStorageDriver, LocalPathStorageDriver, StorageCapacityStatus,
+    ListStorageDriver, LocalPathStorageDriver, StorageCapacityStatus, StreamUploadAttempt,
+    StreamUploadDriver,
 };
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncReadExt;
@@ -400,5 +401,67 @@ async fn copy_metadata_stream_and_delete_roundtrip() {
     driver.delete("dest/file.txt").await.unwrap();
     assert!(!driver.exists("dest/file.txt").await.unwrap());
 
+    let _ = tokio::fs::remove_dir_all(&base).await;
+}
+
+#[tokio::test]
+async fn stream_attempt_rejects_truncation_without_replacing_visible_object() {
+    let base = unique_temp_dir("local-stream-attempt-test");
+    tokio::fs::create_dir_all(&base).await.unwrap();
+    let driver = super::LocalDriver::new(&test_base_path(&base)).unwrap();
+    driver.put("object.bin", b"previous").await.unwrap();
+    let attempt = StreamUploadAttempt::new("object.bin", 64).unwrap();
+
+    let error = driver
+        .stage_attempt(&attempt, Box::new(std::io::Cursor::new(b"short".to_vec())))
+        .await
+        .expect_err("truncated attempt must fail");
+
+    assert_eq!(
+        error.kind(),
+        aster_drive_storage::StorageErrorKind::Precondition
+    );
+    assert_eq!(driver.get("object.bin").await.unwrap(), b"previous");
+    assert!(!driver.exists(&attempt.staging_path).await.unwrap());
+    let _ = tokio::fs::remove_dir_all(&base).await;
+}
+
+#[tokio::test]
+async fn same_target_stream_attempts_use_isolated_staging_paths() {
+    let base = unique_temp_dir("local-concurrent-attempt-test");
+    tokio::fs::create_dir_all(&base).await.unwrap();
+    let driver = std::sync::Arc::new(super::LocalDriver::new(&test_base_path(&base)).unwrap());
+    let first = StreamUploadAttempt::new("object.bin", 5).unwrap();
+    let second = StreamUploadAttempt::new("object.bin", 6).unwrap();
+
+    let first_driver = std::sync::Arc::clone(&driver);
+    let first_attempt = first.clone();
+    let first_task = tokio::spawn(async move {
+        first_driver
+            .stage_attempt(
+                &first_attempt,
+                Box::new(std::io::Cursor::new(b"first".to_vec())),
+            )
+            .await?;
+        first_driver.commit_attempt(&first_attempt).await
+    });
+    let second_driver = std::sync::Arc::clone(&driver);
+    let second_attempt = second.clone();
+    let second_task = tokio::spawn(async move {
+        second_driver
+            .stage_attempt(
+                &second_attempt,
+                Box::new(std::io::Cursor::new(b"second".to_vec())),
+            )
+            .await?;
+        second_driver.commit_attempt(&second_attempt).await
+    });
+
+    first_task.await.unwrap().unwrap();
+    second_task.await.unwrap().unwrap();
+    let body = driver.get("object.bin").await.unwrap();
+    assert!(body == b"first" || body == b"second");
+    assert!(!driver.exists(&first.staging_path).await.unwrap());
+    assert!(!driver.exists(&second.staging_path).await.unwrap());
     let _ = tokio::fs::remove_dir_all(&base).await;
 }

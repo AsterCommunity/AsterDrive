@@ -434,6 +434,7 @@ async fn test_azure_blob_put_reader_length_boundaries_with_azurite() {
         .await
         .expect_err("short stream should fail");
     assert_eq!(short_error.kind(), StorageErrorKind::Precondition);
+    assert!(!driver.exists("short.bin").await.unwrap());
 
     let long_error = driver
         .put_reader(
@@ -444,6 +445,44 @@ async fn test_azure_blob_put_reader_length_boundaries_with_azurite() {
         .await
         .expect_err("long stream should fail");
     assert_eq!(long_error.kind(), StorageErrorKind::Precondition);
+    assert!(!driver.exists("long.bin").await.unwrap());
+
+    driver
+        .put("replace.bin", b"previous version")
+        .await
+        .unwrap();
+    let replace_error = driver
+        .put_reader(
+            "replace.bin",
+            Box::new(std::io::Cursor::new(b"XYZ".to_vec())),
+            2,
+        )
+        .await
+        .expect_err("oversized stream over an existing blob should fail");
+    assert_eq!(replace_error.kind(), StorageErrorKind::Precondition);
+    assert_eq!(
+        driver.get("replace.bin").await.unwrap(),
+        b"previous version"
+    );
+
+    driver
+        .put_reader(
+            "long.bin",
+            Box::new(std::io::Cursor::new(b"valid".to_vec())),
+            5,
+        )
+        .await
+        .expect("same-key retry after abort should succeed");
+    assert_eq!(driver.get("long.bin").await.unwrap(), b"valid");
+    assert!(
+        driver
+            .list_paths(None)
+            .await
+            .unwrap()
+            .iter()
+            .all(|path| !path.contains(".aster-attempt-")),
+        "provider-atomic Azure uploads must not create a second staging blob"
+    );
 
     let upload_id = driver
         .create_multipart_upload("multipart/reader.bin")
@@ -478,10 +517,12 @@ async fn test_azure_blob_put_reader_length_boundaries_with_azurite() {
         )
         .await
         .expect("exact-size multipart reader should succeed");
-    assert_eq!(
+    let decoded_marker = String::from_utf8(
         base64::engine::general_purpose::STANDARD
             .decode(marker)
             .unwrap(),
-        b"aster-part-0000000002"
-    );
+    )
+    .unwrap();
+    assert!(decoded_marker.starts_with("aster-"));
+    assert!(decoded_marker.ends_with("-part-0000000002"));
 }

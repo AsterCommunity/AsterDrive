@@ -41,6 +41,24 @@
 
 `storage::store_preuploaded_nondedup` 使用本地 `VerifiedPreuploadedNondedupStoreBlob` 覆盖 streaming direct 的最终落账契约，校验 verified size、policy、storage path 和 prepared blob 一致后再进入 DB finalization。
 
+## Stream upload attempt 契约
+
+所有 reverse follower 和 streaming direct 写入都以 `StreamUploadAttempt` 表达一次有 owner 的写入尝试。attempt 包含唯一 ID、正式目标路径、独立 staging 路径和 declared size；正式目标只在 payload 完整、实际大小匹配且 driver 提交成功后可见。
+
+- `stage_attempt` 只消费当前 attempt 的 reader，driver 负责保持 bounded streaming 和 declared-size 校验；`commit_attempt` 只在 relay 完整确认后发布正式目标，上层不再通过 `exists` 快照推断是否可以删除正式 key。AsterDrive 预分配的 opaque UUID object key 本身就是最终 blob identity，因此 S3-compatible、Azure 和 Remote 通过 provider 原子单请求直接写该 key，commit 不复制对象；Local 使用同一存储根内的 staging file + rename；SFTP 在目标已存在时要求 `posix-rename@openssh.com`。
+- `abort_attempt` 只清理当前 attempt 的 staging/session/未提交 parts，返回 `Cleaned`、`Deferred` 或 `Unknown`。清理失败保留原始写入错误，并进入可重试的观测/维护路径。
+- 默认的 provider-atomic driver 可以直接把完整请求提交到目标 key；需要 staging 的 driver 必须使用 attempt 独立 namespace。多次同 key attempt 不得共享临时路径、multipart block、provider session 或清理权限。
+- relay、request cancellation、heartbeat timeout 和 process shutdown 都必须进入同一 abort 生命周期；有界 cleanup timeout 不得阻塞数据面，也不得读取完整对象来判断归属。
+- follower PUT 与 compose 的 stage 阶段使用 15 分钟有界超时；超时会释放当前 attempt、记录 `stream_upload` cleanup outcome，并保留 provider/session 的 Deferred 状态供后续维护重试。
+
+### Stream attempt 资源预算
+
+attempt 重构保持现有流式背压模型：relay pipe、provider request body 和 hash wrapper 使用固定大小缓冲，不按对象总大小分配内存；multipart part 使用 provider 要求的最小分片和受控 buffer，不把完整对象聚合成 `Vec<u8>` 或 assembled 临时副本。S3-compatible、Azure 和 Remote 的普通 stream 不执行 provider-side 全对象 copy/compose；OneDrive 仅对不超过 1 MiB 的小请求保留 bounded simple-upload 快路径，更大的 stream 一律走 provider upload session。并发 attempt 通过 provider/policy resource pool 限制 in-flight 数量，等待资源时不消费 request body。验收同时记录峰值 RSS、单请求内存、staging 磁盘峰值、网络额外字节、吞吐和尾延迟。
+
+attempt namespace 不引入全局或 target-key mutex。不同 request、不同 upload session 和不同 multipart part 继续并行；只有同一个 provider session 明确要求顺序 range 或最终 commit 时才在该 attempt 内串行。并发测试使用 barrier 证明至少两个同目标 attempt 同时进入数据面，不能只用 `join!` 猜测并行发生。
+
+运行时通过现有 `MetricsRecorder` 暴露 attempt started/commit/abort 状态、expected bytes 和 active attempt gauge；指标标签只使用稳定事件、状态和资源类别，不包含 object key、URL、token 或 provider 凭据。
+
 ## Local chunked 的 offset-staging 契约
 
 新建的 server-managed chunked session 不再为每个 chunk 保存一份 payload，也不会在 Complete 阶段重新拼写一份完整文件。Init、Chunk PUT 和 Complete 共享以下目录契约：

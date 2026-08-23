@@ -3,8 +3,10 @@
 use async_trait::async_trait;
 use russh::client::{self, Handler};
 use russh::keys::{HashAlg, PublicKey};
-use russh_sftp::client::{Config as SftpClientConfig, SftpSession, error::Error as SftpError};
-use russh_sftp::protocol::StatusCode;
+use russh_sftp::client::{
+    Config as SftpClientConfig, RawSftpSession, SftpSession, error::Error as SftpError,
+};
+use russh_sftp::protocol::{Packet, StatusCode};
 use std::io::SeekFrom;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -18,7 +20,9 @@ use aster_drive_storage::error::{
     Result, StorageError, StorageErrorContext, StorageErrorKind, storage_driver_error,
     storage_driver_error_with_context,
 };
-use aster_drive_storage::{BlobMetadata, StorageDriver, StreamUploadDriver};
+use aster_drive_storage::{
+    BlobMetadata, StorageDriver, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
+};
 
 const DEFAULT_SFTP_PORT: u16 = 22;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -119,7 +123,7 @@ impl Handler for TrustServerKeyClient {
 }
 
 struct SftpConnection {
-    _ssh: client::Handle<TrustServerKeyClient>,
+    ssh: client::Handle<TrustServerKeyClient>,
     sftp: SftpSession,
 }
 
@@ -421,7 +425,7 @@ impl SftpDriver {
         .map_err(|error| map_sftp_error("initialize SFTP session failed", error))?;
         sftp.set_timeout(IO_TIMEOUT.as_secs());
 
-        Ok(SftpConnection { _ssh: ssh, sftp })
+        Ok(SftpConnection { ssh, sftp })
     }
 
     fn full_path(&self, path: &str) -> Result<String> {
@@ -600,29 +604,101 @@ impl StreamUploadDriver for SftpDriver {
         &self,
         storage_path: &str,
         mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
-        _size: i64,
+        size: i64,
     ) -> aster_drive_storage::Result<String> {
         let remote_path = self.full_path(storage_path)?;
+        let expected_size = u64::try_from(size).map_err(|_| {
+            storage_driver_error(
+                StorageErrorKind::Precondition,
+                "SFTP stream upload size must be non-negative",
+            )
+        })?;
+        let temporary_path = format!(
+            "{remote_path}.aster-upload-{:016x}.tmp",
+            rand::random::<u64>()
+        );
         let mut connection = self.acquire_connection().await?;
         ensure_remote_parent_dir(connection.sftp()?, &remote_path).await?;
         let mut remote_file = connection
             .sftp()?
-            .create(remote_path)
+            .create(temporary_path.clone())
             .await
             .map_err(|error| connection.map_sftp_error("SFTP create failed", error))?;
-        tokio::io::copy(&mut reader, &mut remote_file)
-            .await
-            .map_err(|error| map_io_error("SFTP stream upload failed", error))?;
-        remote_file
-            .flush()
-            .await
-            .map_err(|error| map_io_error("SFTP stream flush failed", error))?;
-        remote_file
-            .shutdown()
-            .await
-            .map_err(|error| map_io_error("SFTP stream close failed", error))?;
+        let written = match tokio::io::copy(&mut reader, &mut remote_file).await {
+            Ok(written) => written,
+            Err(error) => {
+                drop(remote_file);
+                let _ = connection.sftp()?.remove_file(temporary_path).await;
+                return Err(map_io_error("SFTP stream upload failed", error));
+            }
+        };
+        if written != expected_size {
+            drop(remote_file);
+            let _ = connection.sftp()?.remove_file(temporary_path).await;
+            return Err(storage_driver_error(
+                StorageErrorKind::Precondition,
+                format!("SFTP stream upload size mismatch: declared {size}, actual {written}"),
+            ));
+        }
+        if let Err(error) = remote_file.flush().await {
+            drop(remote_file);
+            let _ = connection.sftp()?.remove_file(temporary_path).await;
+            return Err(map_io_error("SFTP stream flush failed", error));
+        }
+        if let Err(error) = remote_file.shutdown().await {
+            drop(remote_file);
+            let _ = connection.sftp()?.remove_file(temporary_path).await;
+            return Err(map_io_error("SFTP stream close failed", error));
+        }
+        if let Err(error) =
+            replace_sftp_object(&mut connection, &temporary_path, &remote_path, storage_path).await
+        {
+            let _ = connection.sftp()?.remove_file(temporary_path).await;
+            return Err(error);
+        }
         connection.mark_reusable();
         Ok(storage_path.to_string())
+    }
+
+    async fn stage_attempt(
+        &self,
+        attempt: &StreamUploadAttempt,
+        reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+    ) -> aster_drive_storage::Result<()> {
+        self.put_reader(&attempt.staging_path, reader, attempt.expected_size)
+            .await
+            .map(|_| ())
+    }
+
+    async fn commit_attempt(
+        &self,
+        attempt: &StreamUploadAttempt,
+    ) -> aster_drive_storage::Result<String> {
+        let staging_path = self.full_path(&attempt.staging_path)?;
+        let destination_path = self.full_path(&attempt.storage_path)?;
+        let mut connection = self.acquire_connection().await?;
+        replace_sftp_object(
+            &mut connection,
+            &staging_path,
+            &destination_path,
+            &attempt.storage_path,
+        )
+        .await?;
+        connection.mark_reusable();
+        Ok(attempt.storage_path.clone())
+    }
+
+    async fn abort_attempt(
+        &self,
+        attempt: &StreamUploadAttempt,
+    ) -> aster_drive_storage::Result<StreamUploadCleanup> {
+        match self.delete(&attempt.staging_path).await {
+            Ok(()) => Ok(StreamUploadCleanup::Cleaned),
+            Err(error) if error.kind() == StorageErrorKind::NotFound => {
+                Ok(StreamUploadCleanup::Cleaned)
+            }
+            Err(_) => Ok(StreamUploadCleanup::Deferred),
+        }
     }
 
     async fn put_file(
@@ -633,9 +709,132 @@ impl StreamUploadDriver for SftpDriver {
         let local_file = tokio::fs::File::open(local_path)
             .await
             .map_err(|error| map_io_error("open local upload file failed", error))?;
-        self.put_reader(storage_path, Box::new(local_file), -1)
+        let size = local_file
+            .metadata()
+            .await
+            .map_err(|error| map_io_error("stat local upload file failed", error))?
+            .len();
+        let size = i64::try_from(size).map_err(|error| {
+            storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                format!("local upload file size conversion failed: {error}"),
+            )
+        })?;
+        self.put_reader(storage_path, Box::new(local_file), size)
             .await
     }
+}
+
+async fn replace_sftp_object(
+    connection: &mut SftpConnectionLease,
+    temporary_path: &str,
+    destination_path: &str,
+    storage_path: &str,
+) -> aster_drive_storage::Result<()> {
+    let destination_exists = match connection
+        .sftp()?
+        .metadata(destination_path.to_string())
+        .await
+    {
+        Ok(_) => true,
+        Err(error) if is_sftp_not_found(&error) => false,
+        Err(error) => return Err(connection.map_sftp_error("SFTP destination stat failed", error)),
+    };
+    if !destination_exists {
+        return connection
+            .sftp()?
+            .rename(temporary_path.to_string(), destination_path.to_string())
+            .await
+            .map_err(|error| connection.map_sftp_error("SFTP atomic rename failed", error));
+    }
+
+    if try_sftp_posix_rename(connection, temporary_path, destination_path).await? {
+        Ok(())
+    } else {
+        Err(storage_driver_error(
+            StorageErrorKind::Unsupported,
+            format!(
+                "SFTP server does not support atomic replacement for existing object {storage_path}"
+            ),
+        ))
+    }
+}
+
+async fn try_sftp_posix_rename(
+    connection: &mut SftpConnectionLease,
+    source_path: &str,
+    destination_path: &str,
+) -> aster_drive_storage::Result<bool> {
+    const POSIX_RENAME_EXTENSION: &str = "posix-rename@openssh.com";
+
+    let ssh = connection
+        .connection
+        .as_mut()
+        .map(|connection| &mut connection.ssh)
+        .ok_or_else(|| {
+            storage_driver_error(StorageErrorKind::Unknown, "SFTP connection lease is empty")
+        })?;
+    let channel = timeout_io(
+        "open SFTP atomic rename channel",
+        IO_TIMEOUT,
+        ssh.channel_open_session(),
+    )
+    .await?
+    .map_err(|error| map_ssh_error("open SFTP atomic rename channel failed", error))?;
+    timeout_io(
+        "open SFTP atomic rename subsystem",
+        IO_TIMEOUT,
+        channel.request_subsystem(true, "sftp"),
+    )
+    .await?
+    .map_err(|error| map_ssh_error("open SFTP atomic rename subsystem failed", error))?;
+
+    let config = SftpClientConfig {
+        request_timeout_secs: IO_TIMEOUT.as_secs(),
+        ..Default::default()
+    };
+    let raw = RawSftpSession::new_with_config(channel.into_stream(), config);
+    let version = raw
+        .init()
+        .await
+        .map_err(|error| map_sftp_error("initialize SFTP atomic rename session failed", error))?;
+    if !version.extensions.contains_key(POSIX_RENAME_EXTENSION) {
+        let _ = raw.close_session();
+        return Ok(false);
+    }
+
+    let mut data = Vec::with_capacity(source_path.len() + destination_path.len() + 8);
+    encode_sftp_extension_string(&mut data, source_path)?;
+    encode_sftp_extension_string(&mut data, destination_path)?;
+    let response = raw
+        .extended(POSIX_RENAME_EXTENSION, data)
+        .await
+        .map_err(|error| map_sftp_error("SFTP POSIX rename failed", error))?;
+    let _ = raw.close_session();
+    match response {
+        Packet::Status(status) if status.status_code == StatusCode::Ok => Ok(true),
+        Packet::Status(status) if status.status_code == StatusCode::OpUnsupported => Ok(false),
+        Packet::Status(status) => Err(map_sftp_error(
+            "SFTP POSIX rename failed",
+            SftpError::Status(status),
+        )),
+        _ => Err(storage_driver_error(
+            StorageErrorKind::Unknown,
+            "SFTP POSIX rename returned an unexpected packet",
+        )),
+    }
+}
+
+fn encode_sftp_extension_string(output: &mut Vec<u8>, value: &str) -> Result<()> {
+    let length = u32::try_from(value.len()).map_err(|error| {
+        storage_driver_error(
+            StorageErrorKind::Misconfigured,
+            format!("SFTP extension path is too long: {error}"),
+        )
+    })?;
+    output.extend_from_slice(&length.to_be_bytes());
+    output.extend_from_slice(value.as_bytes());
+    Ok(())
 }
 
 fn host_key_fingerprint(public_key: &PublicKey) -> String {
@@ -1018,6 +1217,7 @@ fn is_sftp_not_found(error: &SftpError) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::encode_sftp_extension_string;
     use super::{
         CONNECT_TIMEOUT, DEFAULT_POOL_SIZE, IO_TIMEOUT, POOL_ACQUIRE_TIMEOUT,
         POOLED_CONNECTION_IDLE_TTL, SSH_KEEPALIVE_INTERVAL, SftpConnectionPool, SftpDriverConfig,
@@ -1163,6 +1363,20 @@ mod tests {
         let pool = SftpConnectionPool::new(0);
         assert_eq!(pool.max_idle, 1);
         assert_eq!(pool.semaphore.available_permits(), 1);
+    }
+
+    #[test]
+    fn encodes_posix_rename_extension_paths_as_ssh_strings() {
+        let mut encoded = Vec::new();
+        encode_sftp_extension_string(&mut encoded, "a/b").unwrap();
+        encode_sftp_extension_string(&mut encoded, "target").unwrap();
+
+        assert_eq!(
+            encoded,
+            [
+                0, 0, 0, 3, b'a', b'/', b'b', 0, 0, 0, 6, b't', b'a', b'r', b'g', b'e', b't'
+            ]
+        );
     }
 
     #[test]

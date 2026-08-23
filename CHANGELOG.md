@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **流式写入 attempt 生命周期** — reverse follower 与 streaming driver 统一使用带唯一 owner、声明大小校验、`stage_attempt` / `commit_attempt` 和结构化 abort outcome 的 `StreamUploadAttempt`；失败清理不再通过目标对象 `exists` 快照推断归属，S3-compatible、Azure 和 Remote 直接原子写入预分配的 opaque final key，不再增加 provider-side 全对象 copy/compose，Local/SFTP 使用独立 staging 后原子 rename，OneDrive 将大于 1 MiB 的 stream 交给 provider upload session，并补充并发、取消、重试、15 分钟 stage timeout、Deferred cleanup metrics 和资源预算契约。
+
 - **跨层认证 flow 状态机** — 登录、MFA、Passkey、OIDC/OAuth、外部认证邮箱恢复、注册激活、密码重置、邮箱变更、邀请接受和 session refresh 统一使用 typed flow lifecycle、transition guard、过期、取消、单次消费、attempt budget、replay 和 revision conflict 契约；保留现有强类型认证实体、公开 API envelope、cookie、redirect 和 session 行为，不引入万能 auth JSON 表。
 - **登录页状态与策略协调** — React 登录页收敛为单一 `AuthUiFlow` 顶层状态，由 command coordinator 统一处理 flow event、请求取消和 stale response；auth check、前端配置与 external provider 列表通过带 generation 的 policy coordinator 合并，URL 仅恢复带 TTL 的 typed flow reference。
 - **认证副作用边界** — primary login、MFA、external callback、recovery、invitation 和 refresh rotation 在 writer transaction / 条件更新完成后再执行 cookie、redirect、mail、audit 和 cache 副作用；运行时认证策略会在未完成 flow 的下一次推进时重新读取。
