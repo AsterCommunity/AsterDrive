@@ -2626,6 +2626,249 @@ async fn test_internal_storage_commit_failure_aborts_local_attempt_staging() {
 }
 
 #[actix_web::test]
+async fn test_internal_storage_zero_byte_put_commits_empty_object() {
+    let (provider_state, access_key, secret_key) =
+        setup_internal_hmac_binding_state("zero-byte-attempt").await;
+    create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
+    let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), &access_key)
+        .await
+        .expect("provider binding lookup should succeed")
+        .expect("provider binding should exist");
+    let server = spawn_internal_storage_server(provider_state.follower_view()).await;
+    let object_key = "empty-object.bin";
+    let client = RemoteStorageClient::new(&server.base_url, &access_key, &secret_key).unwrap();
+
+    client
+        .put_bytes(object_key, &[])
+        .await
+        .expect("zero-byte object should commit");
+
+    let storage_path = managed_ingress_object_path(
+        &provider_state,
+        &access_key,
+        &binding.storage_namespace,
+        "",
+        object_key,
+    );
+    assert_eq!(
+        tokio::fs::read(&storage_path).await.unwrap(),
+        Vec::<u8>::new()
+    );
+    let entries = snapshot_dir_tree(storage_path.parent().unwrap()).unwrap();
+    assert!(entries.iter().all(|path| !path.contains(".aster-attempt-")));
+
+    server.stop().await;
+}
+
+#[actix_web::test]
+async fn test_internal_storage_compose_rejects_empty_parts_and_negative_size() {
+    let (provider_state, access_key, secret_key) =
+        setup_internal_hmac_binding_state("compose-input-boundaries").await;
+    create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
+    let server = spawn_internal_storage_server(provider_state.follower_view()).await;
+    let client = RemoteStorageClient::new(&server.base_url, &access_key, &secret_key).unwrap();
+
+    let empty_parts = client
+        .compose_objects("empty-parts.bin", Vec::new(), 0)
+        .await
+        .expect_err("compose must reject an empty part list");
+    assert!(empty_parts.message().contains("requires part_keys"));
+
+    let negative_size = client
+        .compose_objects("negative-size.bin", vec!["unused-part.bin".to_string()], -1)
+        .await
+        .expect_err("compose must reject a negative expected size");
+    assert!(negative_size.message().contains("must be non-negative"));
+
+    server.stop().await;
+}
+
+#[actix_web::test]
+async fn test_internal_storage_compose_covers_commit_and_failure_cleanup_boundaries() {
+    let (provider_state, access_key, secret_key) =
+        setup_internal_hmac_binding_state("compose-attempt-lifecycle").await;
+    create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
+    let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), &access_key)
+        .await
+        .expect("provider binding lookup should succeed")
+        .expect("provider binding should exist");
+    let server = spawn_internal_storage_server(provider_state.follower_view()).await;
+    let client = RemoteStorageClient::new(&server.base_url, &access_key, &secret_key).unwrap();
+
+    let success_part_a = "compose/success-a.part";
+    let success_part_b = "compose/success-b.part";
+    let success_target = "compose/success.bin";
+    let success_part_a_path = managed_ingress_object_path(
+        &provider_state,
+        &access_key,
+        &binding.storage_namespace,
+        "",
+        success_part_a,
+    );
+    let success_part_b_path = managed_ingress_object_path(
+        &provider_state,
+        &access_key,
+        &binding.storage_namespace,
+        "",
+        success_part_b,
+    );
+    tokio::fs::create_dir_all(success_part_a_path.parent().unwrap())
+        .await
+        .unwrap();
+    tokio::fs::write(&success_part_a_path, b"abc")
+        .await
+        .unwrap();
+    tokio::fs::write(&success_part_b_path, b"def")
+        .await
+        .unwrap();
+
+    let success = client
+        .compose_objects(
+            success_target,
+            vec![success_part_a.to_string(), success_part_b.to_string()],
+            6,
+        )
+        .await
+        .expect("exact-size compose should commit");
+    assert_eq!(success.bytes_written, 6);
+    let success_target_path = managed_ingress_object_path(
+        &provider_state,
+        &access_key,
+        &binding.storage_namespace,
+        "",
+        success_target,
+    );
+    assert_eq!(
+        tokio::fs::read(&success_target_path).await.unwrap(),
+        b"abcdef"
+    );
+    assert!(!tokio::fs::try_exists(&success_part_a_path).await.unwrap());
+    assert!(!tokio::fs::try_exists(&success_part_b_path).await.unwrap());
+
+    let mismatch_part = "compose/mismatch.part";
+    let mismatch_target = "compose/mismatch.bin";
+    let mismatch_part_path = managed_ingress_object_path(
+        &provider_state,
+        &access_key,
+        &binding.storage_namespace,
+        "",
+        mismatch_part,
+    );
+    let mismatch_target_path = managed_ingress_object_path(
+        &provider_state,
+        &access_key,
+        &binding.storage_namespace,
+        "",
+        mismatch_target,
+    );
+    tokio::fs::write(&mismatch_part_path, b"short")
+        .await
+        .unwrap();
+    tokio::fs::write(&mismatch_target_path, b"previous")
+        .await
+        .unwrap();
+    client
+        .compose_objects(mismatch_target, vec![mismatch_part.to_string()], 6)
+        .await
+        .expect_err("truncated compose source must fail");
+    assert_eq!(
+        tokio::fs::read(&mismatch_target_path).await.unwrap(),
+        b"previous"
+    );
+    assert_eq!(
+        tokio::fs::read(&mismatch_part_path).await.unwrap(),
+        b"short"
+    );
+
+    let commit_part = "compose/commit-failure.part";
+    let commit_target = "compose/commit-failure.bin";
+    let commit_part_path = managed_ingress_object_path(
+        &provider_state,
+        &access_key,
+        &binding.storage_namespace,
+        "",
+        commit_part,
+    );
+    let commit_target_path = managed_ingress_object_path(
+        &provider_state,
+        &access_key,
+        &binding.storage_namespace,
+        "",
+        commit_target,
+    );
+    tokio::fs::write(&commit_part_path, b"valid").await.unwrap();
+    tokio::fs::create_dir_all(&commit_target_path)
+        .await
+        .unwrap();
+    client
+        .compose_objects(commit_target, vec![commit_part.to_string()], 5)
+        .await
+        .expect_err("compose commit over a directory must fail");
+    assert!(
+        tokio::fs::metadata(&commit_target_path)
+            .await
+            .unwrap()
+            .is_dir()
+    );
+    assert_eq!(tokio::fs::read(&commit_part_path).await.unwrap(), b"valid");
+
+    let empty_part = "compose/empty.part";
+    let empty_target = "compose/empty.bin";
+    let empty_part_path = managed_ingress_object_path(
+        &provider_state,
+        &access_key,
+        &binding.storage_namespace,
+        "",
+        empty_part,
+    );
+    let empty_target_path = managed_ingress_object_path(
+        &provider_state,
+        &access_key,
+        &binding.storage_namespace,
+        "",
+        empty_target,
+    );
+    tokio::fs::write(&empty_part_path, []).await.unwrap();
+    let empty = client
+        .compose_objects(empty_target, vec![empty_part.to_string()], 0)
+        .await
+        .expect("zero-byte compose should commit");
+    assert_eq!(empty.bytes_written, 0);
+    assert_eq!(
+        tokio::fs::read(&empty_target_path).await.unwrap(),
+        Vec::<u8>::new()
+    );
+    assert!(!tokio::fs::try_exists(&empty_part_path).await.unwrap());
+
+    let missing_part = "compose/missing.part";
+    let missing_target = "compose/missing-source.bin";
+    let missing_target_path = managed_ingress_object_path(
+        &provider_state,
+        &access_key,
+        &binding.storage_namespace,
+        "",
+        missing_target,
+    );
+    tokio::fs::write(&missing_target_path, b"previous")
+        .await
+        .unwrap();
+    client
+        .compose_objects(missing_target, vec![missing_part.to_string()], 0)
+        .await
+        .expect_err("missing compose source should fail after the empty stage finishes");
+    assert_eq!(
+        tokio::fs::read(&missing_target_path).await.unwrap(),
+        b"previous"
+    );
+
+    let compose_root = success_target_path.parent().unwrap();
+    let entries = snapshot_dir_tree(compose_root).unwrap();
+    assert!(entries.iter().all(|path| !path.contains(".aster-attempt-")));
+
+    server.stop().await;
+}
+
+#[actix_web::test]
 async fn test_internal_storage_compose_rejects_expected_size_exceeding_ingress_limit() {
     let provider_state = common::setup().await;
     let provider_default_policy = provider_state

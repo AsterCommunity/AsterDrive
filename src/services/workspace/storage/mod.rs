@@ -8,6 +8,7 @@ mod blob_upload;
 mod multipart;
 mod operation_context;
 mod store;
+mod stream_attempt;
 #[cfg(test)]
 mod tests;
 
@@ -58,6 +59,9 @@ pub(crate) use store::{
     create_empty_from_relative_path_with_idempotency, create_empty_with_idempotency,
     store_from_temp_exact_name_silent_with_hints, store_from_temp_exact_name_with_hints,
     store_from_temp_with_hints, store_preuploaded_nondedup,
+};
+pub(crate) use stream_attempt::{
+    StreamUploadMetricsGuard, abort_direct_stream_attempt, cleanup_stream_upload_attempt,
 };
 
 // Local content-dedup 会在不把整文件读入内存的前提下流式计算 SHA-256。

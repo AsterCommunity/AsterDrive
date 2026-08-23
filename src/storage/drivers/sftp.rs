@@ -1249,16 +1249,18 @@ mod tests {
     use super::encode_sftp_extension_string;
     use super::{
         CONNECT_TIMEOUT, DEFAULT_POOL_SIZE, IO_TIMEOUT, POOL_ACQUIRE_TIMEOUT,
-        POOLED_CONNECTION_IDLE_TTL, SSH_KEEPALIVE_INTERVAL, SftpConnectionPool, SftpDriverConfig,
-        SftpStaticCredentials, classify_sftp_error, host_key_fingerprint_matches,
+        POOLED_CONNECTION_IDLE_TTL, SSH_KEEPALIVE_INTERVAL, SftpConnectionLease,
+        SftpConnectionPool, SftpDriverConfig, SftpStaticCredentials, classify_sftp_error,
+        cleanup_sftp_temporary_file, host_key_fingerprint_matches,
         is_sftp_connection_reusable_after_error, is_valid_host_key_fingerprint, join_remote_path,
         normalize_host_key_fingerprint, normalize_remote_base_path, parse_sftp_endpoint,
-        sanitize_relative_storage_path,
+        sanitize_relative_storage_path, try_sftp_posix_rename,
     };
     use aster_drive_storage::error::StorageErrorKind;
     use aster_drive_storage::{StorageDriver, StreamUploadDriver};
     use russh_sftp::client::error::Error as SftpError;
     use russh_sftp::protocol::{Status, StatusCode};
+    use std::sync::Arc;
     use tokio::io::AsyncReadExt;
 
     #[test]
@@ -1406,6 +1408,31 @@ mod tests {
                 0, 0, 0, 3, b'a', b'/', b'b', 0, 0, 0, 6, b't', b'a', b'r', b'g', b'e', b't'
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn empty_connection_lease_reports_cleanup_and_atomic_rename_unavailable() {
+        let pool = Arc::new(SftpConnectionPool::new(1));
+        let permit = pool
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("test pool permit should be available");
+        let mut lease = SftpConnectionLease {
+            connection: None,
+            pool,
+            _permit: permit,
+            reusable: false,
+        };
+
+        let error = try_sftp_posix_rename(&mut lease, "source", "destination")
+            .await
+            .expect_err("atomic rename requires a live SFTP connection");
+        assert_eq!(error.kind(), StorageErrorKind::Unknown);
+        assert!(error.message().contains("connection lease is empty"));
+
+        cleanup_sftp_temporary_file(&mut lease, "temporary", "test cleanup").await;
     }
 
     #[test]

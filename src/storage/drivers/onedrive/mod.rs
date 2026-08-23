@@ -633,6 +633,7 @@ mod tests {
         uuid_conflict: bool,
         upload_session_failure: bool,
         content_failure: bool,
+        abort_session_failures: usize,
     }
 
     #[derive(Default)]
@@ -679,8 +680,10 @@ mod tests {
                         "error": { "code": "serverError", "message": "session failed" }
                     }));
                 }
+                let upload_url =
+                    format!("http://{}/upload/session", request.connection_info().host());
                 return HttpResponse::Ok().json(serde_json::json!({
-                    "uploadUrl": "https://upload.example/session",
+                    "uploadUrl": upload_url,
                     "nextExpectedRanges": ["0-"]
                 }));
             }
@@ -728,6 +731,26 @@ mod tests {
                     }));
                 }
                 return HttpResponse::Created().finish();
+            }
+
+            if method == "PUT" && path == "/upload/session" {
+                return HttpResponse::Created().finish();
+            }
+
+            if method == "DELETE" && path == "/upload/session" {
+                let abort_attempt = state
+                    .lock()
+                    .expect("Graph lifecycle state lock")
+                    .paths
+                    .iter()
+                    .filter(|path| path.as_str() == "/upload/session")
+                    .count();
+                if abort_attempt <= config.abort_session_failures {
+                    return HttpResponse::InternalServerError().json(serde_json::json!({
+                        "error": { "code": "serverError", "message": "abort failed" }
+                    }));
+                }
+                return HttpResponse::NotFound().finish();
             }
 
             if method == "DELETE" {
@@ -831,6 +854,105 @@ mod tests {
                     .filter(|method| *method == "PUT")
                     .count(),
                 2
+            );
+        }
+        server.stop().await;
+    }
+
+    #[tokio::test]
+    async fn stream_reader_boundary_selects_simple_or_provider_session_path() {
+        let server = spawn_graph_lifecycle_server(GraphLifecycleConfig::default()).await;
+        let client =
+            MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(&server.base_url, "token"))
+                .expect("Graph client should build");
+        let driver = OneDriveDriver::new(
+            client,
+            "drive-id",
+            "root-id",
+            "",
+            GRAPH_SIMPLE_UPLOAD_IN_MEMORY_MAX_BYTES as i64,
+        );
+        let boundary = GRAPH_SIMPLE_UPLOAD_IN_MEMORY_MAX_BYTES;
+
+        driver
+            .put_reader(
+                NAMED_PATH,
+                Box::new(tokio::io::repeat(7).take(boundary as u64)),
+                boundary as i64,
+            )
+            .await
+            .expect("exact one MiB should use simple upload");
+        {
+            let state = server.state.lock().expect("Graph lifecycle state lock");
+            assert!(state.methods.iter().any(|method| method == "PUT"));
+            assert!(!state.paths.iter().any(|path| path == "/upload/session"));
+        }
+
+        server.state.lock().unwrap().methods.clear();
+        server.state.lock().unwrap().paths.clear();
+        driver
+            .put_reader(
+                NAMED_PATH,
+                Box::new(tokio::io::repeat(7).take((boundary + 1) as u64)),
+                (boundary + 1) as i64,
+            )
+            .await
+            .expect("one byte over the bound should use provider session");
+        {
+            let state = server.state.lock().expect("Graph lifecycle state lock");
+            assert!(
+                state
+                    .paths
+                    .iter()
+                    .any(|path| path.ends_with("createUploadSession"))
+            );
+            assert!(state.paths.iter().any(|path| path == "/upload/session"));
+        }
+        server.stop().await;
+    }
+
+    #[tokio::test]
+    async fn failed_session_abort_keeps_attempt_retryable_until_provider_confirms_cleanup() {
+        let server = spawn_graph_lifecycle_server(GraphLifecycleConfig {
+            abort_session_failures: 2,
+            ..Default::default()
+        })
+        .await;
+        let client =
+            MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(&server.base_url, "token"))
+                .expect("Graph client should build");
+        let driver = OneDriveDriver::new(client, "drive-id", "root-id", "", 1);
+        let attempt = StreamUploadAttempt::new(NAMED_PATH, 2).unwrap();
+
+        driver
+            .stage_attempt(&attempt, Box::new(tokio::io::empty()))
+            .await
+            .expect_err("truncated session upload should fail after creating a provider session");
+        assert_eq!(
+            driver.abort_attempt(&attempt).await.unwrap(),
+            StreamUploadCleanup::Deferred,
+            "the first explicit retry should preserve the provider session"
+        );
+        assert_eq!(
+            driver.abort_attempt(&attempt).await.unwrap(),
+            StreamUploadCleanup::Cleaned,
+            "the next retry should observe provider cleanup"
+        );
+        assert_eq!(
+            driver.abort_attempt(&attempt).await.unwrap(),
+            StreamUploadCleanup::NotRequired,
+            "confirmed cleanup should consume the provider session"
+        );
+
+        {
+            let state = server.state.lock().expect("Graph lifecycle state lock");
+            assert_eq!(
+                state
+                    .paths
+                    .iter()
+                    .filter(|path| path.as_str() == "/upload/session")
+                    .count(),
+                3
             );
         }
         server.stop().await;

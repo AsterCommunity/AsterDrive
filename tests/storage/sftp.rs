@@ -126,6 +126,19 @@ async fn wait_for_sftp(driver: &SftpDriver) {
 }
 
 #[tokio::test]
+async fn test_sftp_stream_upload_rejects_negative_size_before_connecting() {
+    let driver = sftp_driver("sftp://127.0.0.1:9", "negative-size", None);
+
+    let error = driver
+        .put_reader("negative.bin", Box::new(Cursor::new(Vec::new())), -1)
+        .await
+        .expect_err("negative size must fail before opening a connection");
+
+    assert_eq!(error.kind(), StorageErrorKind::Precondition);
+    assert!(error.message().contains("non-negative"));
+}
+
+#[tokio::test]
 async fn test_sftp_driver_upload_download_round_trip() {
     if !docker_sftp_test_enabled() {
         eprintln!(
@@ -300,6 +313,39 @@ async fn test_sftp_driver_upload_download_round_trip() {
     );
 
     driver
+        .put_reader("stream/empty.bin", Box::new(Cursor::new(Vec::new())), 0)
+        .await
+        .expect("zero-byte SFTP stream should commit");
+    assert_eq!(driver.metadata("stream/empty.bin").await.unwrap().size, 0);
+
+    driver
+        .put("stream/overlong.bin", b"previous version")
+        .await
+        .unwrap();
+    let overlong_error = driver
+        .put_reader(
+            "stream/overlong.bin",
+            Box::new(Cursor::new(b"too long".to_vec())),
+            3,
+        )
+        .await
+        .expect_err("stream longer than declared size must fail");
+    assert_eq!(overlong_error.kind(), StorageErrorKind::Precondition);
+    assert_eq!(
+        driver.get("stream/overlong.bin").await.unwrap(),
+        b"previous version"
+    );
+    driver
+        .put_reader(
+            "stream/overlong.bin",
+            Box::new(Cursor::new(b"retry".to_vec())),
+            5,
+        )
+        .await
+        .expect("same-key retry should succeed after failed attempt cleanup");
+    assert_eq!(driver.get("stream/overlong.bin").await.unwrap(), b"retry");
+
+    driver
         .put("stream/attempt.bin", b"old object")
         .await
         .unwrap();
@@ -318,6 +364,32 @@ async fn test_sftp_driver_upload_download_round_trip() {
         b"new content"
     );
     assert!(!driver.exists(&attempt.staging_path).await.unwrap());
+
+    let first = StreamUploadAttempt::new("stream/isolated.bin", 5).unwrap();
+    let second = StreamUploadAttempt::new("stream/isolated.bin", 6).unwrap();
+    driver.put("stream/isolated.bin", b"initial").await.unwrap();
+    driver
+        .stage_attempt(&first, Box::new(Cursor::new(b"first".to_vec())))
+        .await
+        .unwrap();
+    driver
+        .stage_attempt(&second, Box::new(Cursor::new(b"second".to_vec())))
+        .await
+        .unwrap();
+    assert_ne!(first.staging_path, second.staging_path);
+    assert_eq!(driver.get("stream/isolated.bin").await.unwrap(), b"initial");
+    driver.commit_attempt(&second).await.unwrap();
+    assert_eq!(driver.get("stream/isolated.bin").await.unwrap(), b"second");
+    assert_eq!(
+        driver.abort_attempt(&first).await.unwrap(),
+        StreamUploadCleanup::Cleaned
+    );
+    assert_eq!(driver.get("stream/isolated.bin").await.unwrap(), b"second");
+    assert_eq!(
+        driver.abort_attempt(&first).await.unwrap(),
+        StreamUploadCleanup::Cleaned,
+        "repeated SFTP abort should be idempotent"
+    );
 
     let aborted = StreamUploadAttempt::new("stream/attempt.bin", 6).unwrap();
     driver

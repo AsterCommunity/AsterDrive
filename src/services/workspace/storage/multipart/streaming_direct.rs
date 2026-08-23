@@ -6,42 +6,18 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{AsterError, MapAsterErr, Result, file_upload_error_with_code};
 use crate::runtime::PrimaryAppState;
 use crate::services::workspace::storage::{
-    StorePreuploadedNondedupParams, check_quota, cleanup_preuploaded_blob_upload,
-    prepare_non_dedup_blob_upload, store_preuploaded_nondedup,
+    StorePreuploadedNondedupParams, StreamUploadMetricsGuard, abort_direct_stream_attempt,
+    check_quota, cleanup_preuploaded_blob_upload, prepare_non_dedup_blob_upload,
+    store_preuploaded_nondedup,
 };
-use aster_drive_metrics::MetricsRecorder;
 use aster_drive_model::entities::file;
-use aster_drive_storage::{
-    BlobMetadata, StorageDriver, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
-};
+use aster_drive_storage::{BlobMetadata, StreamUploadAttempt};
 use aster_forge_utils::numbers::u64_to_i64;
 
 use super::common::{
     DirectUploadParams, upload_direct_relay_shutdown_failed, upload_direct_relay_write_failed,
     upload_empty_file_error, upload_field_read_failed, upload_size_mismatch_error,
 };
-
-struct DirectStreamMetricsGuard<'a> {
-    recorder: &'a dyn MetricsRecorder,
-}
-
-impl<'a> DirectStreamMetricsGuard<'a> {
-    fn new(recorder: &'a dyn MetricsRecorder, expected_size: i64) -> Self {
-        recorder.record_stream_upload_attempt("attempt", "started");
-        recorder.record_stream_upload_bytes(
-            "expected",
-            u64::try_from(expected_size).unwrap_or_default(),
-        );
-        recorder.adjust_stream_upload_active(1);
-        Self { recorder }
-    }
-}
-
-impl Drop for DirectStreamMetricsGuard<'_> {
-    fn drop(&mut self) {
-        self.recorder.adjust_stream_upload_active(-1);
-    }
-}
 
 pub(super) async fn upload_streaming_direct(
     state: &PrimaryAppState,
@@ -88,7 +64,7 @@ pub(super) async fn upload_streaming_direct(
             let storage_path = prepared_upload.storage_path().to_string();
             let attempt = StreamUploadAttempt::new(&storage_path, declared_size)?;
             let _attempt_metrics =
-                DirectStreamMetricsGuard::new(state.metrics.as_ref(), declared_size);
+                StreamUploadMetricsGuard::new(state.metrics.as_ref(), declared_size);
             let attempt_for_upload = attempt.clone();
 
             let (writer, reader) = tokio::io::duplex(RELAY_DIRECT_BUFFER_SIZE);
@@ -163,7 +139,7 @@ pub(super) async fn upload_streaming_direct(
             let (upload_result, relay_result) = match relay_outcome {
                 Ok(outcome) => outcome,
                 Err(error) => {
-                    abort_direct_attempt(
+                    abort_direct_stream_attempt(
                         stream_driver,
                         &attempt,
                         state.metrics.as_ref(),
@@ -177,7 +153,7 @@ pub(super) async fn upload_streaming_direct(
             };
 
             if let Err(err) = upload_result {
-                abort_direct_attempt(
+                abort_direct_stream_attempt(
                     stream_driver,
                     &attempt,
                     state.metrics.as_ref(),
@@ -190,7 +166,7 @@ pub(super) async fn upload_streaming_direct(
             }
 
             if let Err(err) = relay_result {
-                abort_direct_attempt(
+                abort_direct_stream_attempt(
                     stream_driver,
                     &attempt,
                     state.metrics.as_ref(),
@@ -203,7 +179,7 @@ pub(super) async fn upload_streaming_direct(
             }
 
             if let Err(err) = stream_driver.commit_attempt(&attempt).await {
-                abort_direct_attempt(
+                abort_direct_stream_attempt(
                     stream_driver,
                     &attempt,
                     state.metrics.as_ref(),
@@ -272,40 +248,6 @@ pub(super) async fn upload_streaming_direct(
     }
 
     Err(upload_empty_file_error())
-}
-
-async fn abort_direct_attempt(
-    stream_driver: &dyn StreamUploadDriver,
-    attempt: &StreamUploadAttempt,
-    metrics: &dyn MetricsRecorder,
-    driver: &dyn StorageDriver,
-    prepared_upload: &crate::services::workspace::storage::PreparedNonDedupBlobUpload,
-    reason: &str,
-) {
-    match stream_driver.abort_attempt(attempt).await {
-        Ok(StreamUploadCleanup::NotRequired) => {
-            metrics.record_stream_upload_attempt("abort", "not_required");
-        }
-        Ok(StreamUploadCleanup::Cleaned) => {
-            metrics.record_stream_upload_attempt("abort", "cleaned");
-        }
-        Ok(outcome) => {
-            tracing::warn!(
-                staging_path = %attempt.staging_path,
-                ?outcome,
-                "direct stream attempt cleanup deferred"
-            );
-            metrics.record_stream_upload_attempt("abort", "deferred");
-        }
-        Err(error) => {
-            tracing::warn!(
-                staging_path = %attempt.staging_path,
-                "direct stream attempt cleanup failed: {error}"
-            );
-            metrics.record_stream_upload_attempt("abort", "failed");
-        }
-    }
-    cleanup_preuploaded_blob_upload(driver, prepared_upload, reason).await;
 }
 
 fn resolve_streaming_direct_filename(
@@ -392,7 +334,7 @@ mod tests {
     fn direct_stream_metrics_guard_records_lifecycle_and_releases_active() {
         let recorder = Arc::new(RecordingMetrics::default());
         {
-            let _guard = super::DirectStreamMetricsGuard::new(recorder.as_ref(), 4096);
+            let _guard = super::StreamUploadMetricsGuard::new(recorder.as_ref(), 4096);
             assert_eq!(*recorder.active.lock().unwrap(), 1);
         }
 

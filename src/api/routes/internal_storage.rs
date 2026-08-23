@@ -5,7 +5,11 @@ use crate::api::middleware::internal_storage_cors::PresignedInternalStorageCors;
 use crate::api::response::ApiResponse;
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::FollowerAppState;
-use crate::services::{ops::audit, remote::master_binding, remote::storage_target};
+use crate::services::{
+    ops::audit,
+    remote::{master_binding, storage_target},
+    workspace::storage::{StreamUploadMetricsGuard, cleanup_stream_upload_attempt},
+};
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_SIGNATURE_HEADER, PRESIGNED_AUTH_ACCESS_KEY_QUERY, REMOTE_LIST_PAGE_SIZE,
     RemoteBindingSyncRequest, RemoteCreateStorageTargetRequest, RemoteStorageCapabilities,
@@ -14,40 +18,15 @@ use crate::storage::remote_protocol::{
 };
 use actix_web::http::{StatusCode, header::HeaderMap};
 use actix_web::{HttpRequest, HttpResponse, dev::HttpServiceFactory, web};
-use aster_drive_metrics::MetricsRecorder;
 use aster_drive_storage::StorageErrorKind;
 use aster_drive_storage::object_key;
-use aster_drive_storage::{
-    BlobMetadata, StorageDriver, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
-};
+use aster_drive_storage::{BlobMetadata, StorageDriver, StreamUploadAttempt};
 use aster_forge_utils::numbers;
 use futures::StreamExt;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 use tokio_util::io::ReaderStream;
-
-struct StreamUploadMetricGuard<'a> {
-    recorder: &'a dyn MetricsRecorder,
-}
-
-impl<'a> StreamUploadMetricGuard<'a> {
-    fn new(recorder: &'a dyn MetricsRecorder, expected_size: i64) -> Self {
-        recorder.record_stream_upload_attempt("attempt", "started");
-        recorder.record_stream_upload_bytes(
-            "expected",
-            u64::try_from(expected_size).unwrap_or_default(),
-        );
-        recorder.adjust_stream_upload_active(1);
-        Self { recorder }
-    }
-}
-
-impl Drop for StreamUploadMetricGuard<'_> {
-    fn drop(&mut self) {
-        self.recorder.adjust_stream_upload_active(-1);
-    }
-}
 
 pub fn routes() -> impl HttpServiceFactory {
     web::scope("/internal/storage")
@@ -115,42 +94,6 @@ fn content_length_header(headers: &HeaderMap) -> Result<i64> {
             "content-length header must be a valid integer",
         )
     })
-}
-
-async fn cleanup_follower_attempt(
-    driver: &dyn StreamUploadDriver,
-    attempt: &StreamUploadAttempt,
-    metrics: &dyn MetricsRecorder,
-    binding_id: i64,
-    object_key: &str,
-) {
-    match driver.abort_attempt(attempt).await {
-        Ok(StreamUploadCleanup::NotRequired) => {
-            metrics.record_stream_upload_attempt("abort", "not_required");
-        }
-        Ok(StreamUploadCleanup::Cleaned) => {
-            metrics.record_stream_upload_attempt("abort", "cleaned");
-        }
-        Ok(outcome) => {
-            tracing::warn!(
-                binding_id,
-                object_key,
-                storage_path = %attempt.storage_path,
-                ?outcome,
-                "follower upload attempt cleanup deferred"
-            );
-            metrics.record_stream_upload_attempt("abort", "deferred");
-        }
-        Err(error) => {
-            tracing::warn!(
-                binding_id,
-                object_key,
-                storage_path = %attempt.storage_path,
-                "failed to cleanup follower upload attempt: {error}"
-            );
-            metrics.record_stream_upload_attempt("abort", "failed");
-        }
-    }
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -545,7 +488,7 @@ async fn put_object(
     // publication boundary for files and revisions.
     let attempt =
         StreamUploadAttempt::new(&storage_path, content_length).map_err(AsterError::from)?;
-    let _attempt_metrics = StreamUploadMetricGuard::new(state.metrics.as_ref(), content_length);
+    let _attempt_metrics = StreamUploadMetricsGuard::new(state.metrics.as_ref(), content_length);
     let attempt_for_upload = attempt.clone();
     let relay_outcome = tokio::task::LocalSet::new()
         .run_until(async move {
@@ -609,7 +552,7 @@ async fn put_object(
     let relay_outcome = match relay_outcome {
         Ok(outcome) => outcome,
         Err(error) => {
-            cleanup_follower_attempt(
+            cleanup_stream_upload_attempt(
                 stream_driver,
                 &attempt,
                 state.metrics.as_ref(),
@@ -624,7 +567,7 @@ async fn put_object(
     let (upload_result, relay_result) = relay_outcome;
 
     if let Err(error) = upload_result {
-        cleanup_follower_attempt(
+        cleanup_stream_upload_attempt(
             stream_driver,
             &attempt,
             state.metrics.as_ref(),
@@ -637,7 +580,7 @@ async fn put_object(
     let etag = match relay_result {
         Ok(etag) => etag,
         Err(error) => {
-            cleanup_follower_attempt(
+            cleanup_stream_upload_attempt(
                 stream_driver,
                 &attempt,
                 state.metrics.as_ref(),
@@ -649,7 +592,7 @@ async fn put_object(
         }
     };
     if let Err(error) = stream_driver.commit_attempt(&attempt).await {
-        cleanup_follower_attempt(
+        cleanup_stream_upload_attempt(
             stream_driver,
             &attempt,
             state.metrics.as_ref(),
@@ -750,7 +693,7 @@ async fn compose_objects(
     let read_driver = driver.clone();
     let attempt =
         StreamUploadAttempt::new(&target_storage_path, expected_size).map_err(AsterError::from)?;
-    let _attempt_metrics = StreamUploadMetricGuard::new(state.metrics.as_ref(), expected_size);
+    let _attempt_metrics = StreamUploadMetricsGuard::new(state.metrics.as_ref(), expected_size);
     let attempt_for_upload = attempt.clone();
     let (writer, reader) = tokio::io::duplex(COMPOSE_BUFFER_SIZE);
     let relay_outcome = tokio::task::LocalSet::new()
@@ -819,7 +762,7 @@ async fn compose_objects(
     let (upload_result, relay_result) = match relay_outcome {
         Ok(outcome) => outcome,
         Err(error) => {
-            cleanup_follower_attempt(
+            cleanup_stream_upload_attempt(
                 stream_driver,
                 &attempt,
                 state.metrics.as_ref(),
@@ -832,7 +775,7 @@ async fn compose_objects(
     };
 
     if let Err(error) = upload_result {
-        cleanup_follower_attempt(
+        cleanup_stream_upload_attempt(
             stream_driver,
             &attempt,
             state.metrics.as_ref(),
@@ -846,7 +789,7 @@ async fn compose_objects(
     let bytes_written = match relay_result {
         Ok(bytes_written) => bytes_written,
         Err(error) => {
-            cleanup_follower_attempt(
+            cleanup_stream_upload_attempt(
                 stream_driver,
                 &attempt,
                 state.metrics.as_ref(),
@@ -859,7 +802,7 @@ async fn compose_objects(
     };
 
     if bytes_written != expected_size_u64 {
-        cleanup_follower_attempt(
+        cleanup_stream_upload_attempt(
             stream_driver,
             &attempt,
             state.metrics.as_ref(),
@@ -873,7 +816,7 @@ async fn compose_objects(
     }
 
     if let Err(error) = stream_driver.commit_attempt(&attempt).await {
-        cleanup_follower_attempt(
+        cleanup_stream_upload_attempt(
             stream_driver,
             &attempt,
             state.metrics.as_ref(),
@@ -1244,6 +1187,7 @@ async fn delete_storage_target(
 mod tests {
     use super::*;
     use actix_web::http::header::{CONTENT_LENGTH, HeaderMap, HeaderValue};
+    use aster_drive_storage::{StreamUploadCleanup, StreamUploadDriver};
     use async_trait::async_trait;
 
     struct CleanupDriver {
@@ -1382,7 +1326,7 @@ mod tests {
 
         for outcome in outcomes {
             let driver = CleanupDriver { outcome };
-            cleanup_follower_attempt(&driver, &attempt, metrics.as_ref(), 1, "object").await;
+            cleanup_stream_upload_attempt(&driver, &attempt, metrics.as_ref(), 1, "object").await;
         }
     }
 }

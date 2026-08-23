@@ -4,7 +4,7 @@ use tokio::io::{AsyncRead, AsyncWriteExt};
 use aster_drive_storage::traits::extensions::{
     StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
 };
-use aster_drive_storage::{MapStorageErr, StorageDriver, StorageErrorKind, storage_driver_error};
+use aster_drive_storage::{MapStorageErr, StorageErrorKind, storage_driver_error};
 use aster_forge_utils::numbers;
 
 use super::LocalDriver;
@@ -109,14 +109,15 @@ impl StreamUploadDriver for LocalDriver {
         &self,
         attempt: &StreamUploadAttempt,
     ) -> aster_drive_storage::Result<StreamUploadCleanup> {
-        match self.delete(&attempt.staging_path).await {
+        let staging_path = self.full_path(&attempt.staging_path)?;
+        match tokio::fs::remove_file(&staging_path).await {
             Ok(()) => Ok(StreamUploadCleanup::Cleaned),
-            Err(error) if error.kind() == StorageErrorKind::NotFound => {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 Ok(StreamUploadCleanup::Cleaned)
             }
             Err(error) => {
                 tracing::warn!(
-                    staging_path = %attempt.staging_path,
+                    staging_path = %staging_path.display(),
                     "local attempt cleanup deferred: {error}"
                 );
                 Ok(StreamUploadCleanup::Deferred)

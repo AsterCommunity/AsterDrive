@@ -12,7 +12,8 @@ use aster_drive_storage::{
     ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
     ProviderResumableUploadFragmentOutcome, ProviderResumableUploadSession,
     ProviderResumableUploadStatus, StorageDriver, StorageDriverExtensions, StorageError,
-    StorageErrorKind, StreamUploadDriver, UploadedMultipartPart,
+    StorageErrorKind, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
+    UploadedMultipartPart,
 };
 use aster_forge_utils::numbers::{i32_to_usize, i64_to_usize, usize_to_i32};
 use async_trait::async_trait;
@@ -139,6 +140,156 @@ impl StreamUploadDriver for UploadDataPlaneProbe {
     ) -> aster_drive_storage::Result<String> {
         self.stream_calls.fetch_add(1, Ordering::SeqCst);
         Err(self.unexpected("StreamUploadDriver::put_file"))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DirectStreamFailurePoint {
+    Stage,
+    Commit,
+    Metadata,
+    SizeValidation,
+}
+
+struct DirectStreamFailureDriver {
+    failure_point: DirectStreamFailurePoint,
+    stage_calls: AtomicUsize,
+    commit_calls: AtomicUsize,
+    abort_calls: AtomicUsize,
+    metadata_calls: AtomicUsize,
+    staged_size: AtomicUsize,
+}
+
+impl DirectStreamFailureDriver {
+    fn new(failure_point: DirectStreamFailurePoint) -> Self {
+        Self {
+            failure_point,
+            stage_calls: AtomicUsize::new(0),
+            commit_calls: AtomicUsize::new(0),
+            abort_calls: AtomicUsize::new(0),
+            metadata_calls: AtomicUsize::new(0),
+            staged_size: AtomicUsize::new(0),
+        }
+    }
+}
+
+#[async_trait]
+impl StorageDriver for DirectStreamFailureDriver {
+    async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
+        unreachable!("direct stream failure tests use attempt staging")
+    }
+
+    async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
+        unreachable!("direct stream failure tests do not read objects")
+    }
+
+    async fn get_stream(
+        &self,
+        _path: &str,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
+        unreachable!("direct stream failure tests do not read streams")
+    }
+
+    async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
+        Ok(())
+    }
+
+    async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
+        Ok(false)
+    }
+
+    async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
+        self.metadata_calls.fetch_add(1, Ordering::SeqCst);
+        if self.failure_point == DirectStreamFailurePoint::Metadata {
+            return Err(StorageError::new(
+                StorageErrorKind::Transient,
+                "injected metadata failure",
+            ));
+        }
+        let staged_size = self.staged_size.load(Ordering::SeqCst);
+        let size = if self.failure_point == DirectStreamFailurePoint::SizeValidation {
+            staged_size + 1
+        } else {
+            staged_size
+        };
+        Ok(BlobMetadata {
+            size: u64::try_from(size).expect("staged size should fit u64"),
+            content_type: None,
+        })
+    }
+
+    fn extensions(&self) -> StorageDriverExtensions<'_> {
+        StorageDriverExtensions {
+            stream_upload: Some(self),
+            ..Default::default()
+        }
+    }
+}
+
+#[async_trait]
+impl StreamUploadDriver for DirectStreamFailureDriver {
+    async fn put_reader(
+        &self,
+        _storage_path: &str,
+        _reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+        _size: i64,
+    ) -> aster_drive_storage::Result<String> {
+        unreachable!("direct stream failure tests use stage_attempt")
+    }
+
+    async fn stage_attempt(
+        &self,
+        _attempt: &StreamUploadAttempt,
+        mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+    ) -> aster_drive_storage::Result<()> {
+        self.stage_calls.fetch_add(1, Ordering::SeqCst);
+        if self.failure_point == DirectStreamFailurePoint::Stage {
+            return Err(StorageError::new(
+                StorageErrorKind::Transient,
+                "injected stage failure",
+            ));
+        }
+        let mut bytes = Vec::new();
+        tokio::io::AsyncReadExt::read_to_end(&mut reader, &mut bytes)
+            .await
+            .map_err(|error| {
+                StorageError::new(
+                    StorageErrorKind::Transient,
+                    format!("drain staged reader: {error}"),
+                )
+            })?;
+        self.staged_size.store(bytes.len(), Ordering::SeqCst);
+        Ok(())
+    }
+
+    async fn commit_attempt(
+        &self,
+        attempt: &StreamUploadAttempt,
+    ) -> aster_drive_storage::Result<String> {
+        self.commit_calls.fetch_add(1, Ordering::SeqCst);
+        if self.failure_point == DirectStreamFailurePoint::Commit {
+            return Err(StorageError::new(
+                StorageErrorKind::Transient,
+                "injected commit failure",
+            ));
+        }
+        Ok(attempt.storage_path.clone())
+    }
+
+    async fn abort_attempt(
+        &self,
+        _attempt: &StreamUploadAttempt,
+    ) -> aster_drive_storage::Result<StreamUploadCleanup> {
+        self.abort_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(StreamUploadCleanup::Cleaned)
+    }
+
+    async fn put_file(
+        &self,
+        _storage_path: &str,
+        _local_path: &str,
+    ) -> aster_drive_storage::Result<String> {
+        unreachable!("direct stream failure tests do not upload files")
     }
 }
 
@@ -387,6 +538,17 @@ async fn set_default_local_content_dedup(
 async fn install_probe_s3_policy(
     state: &aster_drive::runtime::PrimaryAppState,
 ) -> aster_drive_model::entities::storage_policy::Model {
+    install_probe_s3_policy_with_upload_strategy(
+        state,
+        aster_drive_model::types::ObjectStorageUploadStrategy::Presigned,
+    )
+    .await
+}
+
+async fn install_probe_s3_policy_with_upload_strategy(
+    state: &aster_drive::runtime::PrimaryAppState,
+    upload_strategy: aster_drive_model::types::ObjectStorageUploadStrategy,
+) -> aster_drive_model::entities::storage_policy::Model {
     use sea_orm::{ActiveModelTrait, Set};
 
     let policy = policy_repo::find_default(state.writer_db())
@@ -401,8 +563,7 @@ async fn install_probe_s3_policy(
             endpoint: "https://s3.example.test".to_string(),
             bucket: "test-bucket".to_string(),
             base_path: String::new(),
-            object_storage_upload_strategy:
-                aster_drive_model::types::ObjectStorageUploadStrategy::Presigned,
+            object_storage_upload_strategy: upload_strategy,
             object_storage_download_strategy:
                 aster_drive_model::types::ObjectStorageDownloadStrategy::RelayStream,
             s3_path_style: true,
@@ -3775,6 +3936,65 @@ async fn test_local_direct_upload_with_declared_size_avoids_global_temp_dirs_and
         .await
         .unwrap();
     assert_eq!(stored, data);
+}
+
+#[actix_web::test]
+async fn test_streaming_direct_failure_boundaries_abort_only_owned_attempts() {
+    let state = common::setup().await;
+    let policy = install_probe_s3_policy_with_upload_strategy(
+        &state,
+        aster_drive_model::types::ObjectStorageUploadStrategy::RelayStream,
+    )
+    .await;
+    let driver_registry = state.driver_registry.clone();
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let data = b"direct stream failure payload";
+
+    for (failure_point, expected_commit_calls, expected_abort_calls, expected_metadata_calls) in [
+        (DirectStreamFailurePoint::Stage, 0, 1, 0),
+        (DirectStreamFailurePoint::Commit, 1, 1, 0),
+        (DirectStreamFailurePoint::Metadata, 1, 0, 1),
+        (DirectStreamFailurePoint::SizeValidation, 1, 0, 1),
+    ] {
+        let driver = Arc::new(DirectStreamFailureDriver::new(failure_point));
+        driver_registry.insert_for_test(policy.id, driver.clone());
+        let filename = format!("direct-failure-{failure_point:?}.bin").to_ascii_lowercase();
+        let (boundary, payload) = build_multipart_payload(&filename, data);
+        let request = test::TestRequest::post()
+            .uri(&format!(
+                "/api/v1/files/upload?declared_size={}",
+                data.len()
+            ))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .insert_header((
+                "Content-Type",
+                format!("multipart/form-data; boundary={boundary}"),
+            ))
+            .set_payload(payload)
+            .to_request();
+
+        let response = test::call_service(&app, request).await;
+
+        assert!(
+            response.status().is_client_error() || response.status().is_server_error(),
+            "{failure_point:?} should fail the direct upload"
+        );
+        assert_eq!(driver.stage_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            driver.commit_calls.load(Ordering::SeqCst),
+            expected_commit_calls
+        );
+        assert_eq!(
+            driver.abort_calls.load(Ordering::SeqCst),
+            expected_abort_calls
+        );
+        assert_eq!(
+            driver.metadata_calls.load(Ordering::SeqCst),
+            expected_metadata_calls
+        );
+    }
 }
 
 #[actix_web::test]
