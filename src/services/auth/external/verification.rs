@@ -10,8 +10,8 @@ use crate::db::repository::{
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::auth::flow::{
-    AuthFlowCommand, AuthFlowKind, AuthFlowState, AuthFlowTransitionError,
-    external_recovery_snapshot, new_recovery_flow, plan_transition,
+    AuthFlowCommand, AuthFlowState, AuthFlowTransitionError, external_recovery_snapshot,
+    plan_transition,
 };
 use crate::services::{mail::outbox, mail::sender, mail::template::MailTemplatePayload};
 use aster_drive_model::entities::{external_auth_email_verification_flow, external_auth_provider};
@@ -56,15 +56,11 @@ pub(super) async fn create_pending_email_verification_flow(
         EMAIL_VERIFICATION_FLOW_TTL_SECS,
         "external auth email verification flow ttl",
     )?;
-    new_recovery_flow(
-        AuthFlowKind::ExternalEmailVerification,
-        "external-recovery:pending",
-        now + Duration::seconds(ttl),
-        now,
-    )
-    .map_err(|_| {
-        AsterError::contact_verification_invalid("external recovery flow could not start")
-    })?;
+    if ttl <= 0 {
+        return Err(AsterError::contact_verification_invalid(
+            "external recovery flow ttl must be positive",
+        ));
+    }
     external_auth_email_verification_flow_repo::create(
         state.writer_db(),
         external_auth_email_verification_flow::ActiveModel {

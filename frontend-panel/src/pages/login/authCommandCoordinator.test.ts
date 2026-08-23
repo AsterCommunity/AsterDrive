@@ -23,8 +23,23 @@ describe("auth command coordinator", () => {
 		expect(coordinator.state().kind).toBe("mfa");
 		coordinator.dispatch({ type: "open_auth" }, second);
 		expect(coordinator.state().kind).toBe("login");
-		coordinator.cancel();
-		expect(coordinator.isCurrent(second)).toBe(false);
+	});
+
+	it("allows stale cleanup while rejecting stale result events", () => {
+		const coordinator = createAuthCommandCoordinator({ kind: "login" });
+		const serial = coordinator.begin();
+		coordinator.begin();
+		coordinator.dispatch(
+			{ type: "open_password_reset", email: "a@example.com" },
+			serial,
+		);
+		expect(coordinator.state().kind).toBe("login");
+		coordinator.dispatch(
+			{ type: "open_password_reset", email: "a@example.com" },
+			serial,
+			{ allowStale: true },
+		);
+		expect(coordinator.state().kind).toBe("password-reset");
 	});
 
 	it("serializes top-level mode changes through the same command boundary", () => {

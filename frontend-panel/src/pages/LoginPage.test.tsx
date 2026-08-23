@@ -893,6 +893,48 @@ describe("LoginPage", () => {
 		expect(mockState.verifyMfaChallenge).not.toHaveBeenCalled();
 	});
 
+	it("clears email-code sending after another MFA command advances the generation", async () => {
+		let resolveSend!: (value: {
+			expires_in: number;
+			resend_after: number;
+		}) => void;
+		mockState.forceEnableDisabledButtons = true;
+		mockState.login.mockResolvedValueOnce({
+			status: "mfa_required",
+			flowToken: "mfa-flow",
+			expiresIn: 300,
+			methods: ["email_code"],
+		});
+		mockState.sendMfaEmailCode.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveSend = resolve;
+				}),
+		);
+
+		render(<LoginPage />);
+		fireEvent.change(await screen.findByLabelText("email_or_username"), {
+			target: { value: "user@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "secret123" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
+		await screen.findByText("mfa_required_title");
+		fireEvent.click(
+			await screen.findByRole("button", { name: /mfa_email_code_send/ }),
+		);
+		await screen.findByText("mfa_email_code_sending");
+		fireEvent.click(screen.getByRole("button", { name: /mfa_verify/ }));
+		resolveSend({ expires_in: 600, resend_after: 60 });
+
+		await waitFor(() => {
+			expect(
+				screen.queryByText("mfa_email_code_sending"),
+			).not.toBeInTheDocument();
+		});
+	});
+
 	it("rejects sending an expired email MFA challenge", async () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 		vi.setSystemTime(new Date("2026-05-24T08:00:00.000Z"));
@@ -1295,6 +1337,9 @@ describe("LoginPage", () => {
 				error,
 			);
 		});
+		expect(
+			await screen.findByRole("button", { name: "sign_in" }),
+		).toBeInTheDocument();
 	});
 
 	it("ignores a bootstrap rejection after the component is unmounted", async () => {

@@ -34,6 +34,11 @@ describe("auth URL adapter", () => {
 		).toMatchObject({ kind: "external-auth-recovery", returnPath: "/" });
 		expect(
 			parseRecoverableAuthUrlFlow(
+				"?external_auth=email_required&flow=abc&return_path=%2F%5Cevil.example",
+			),
+		).toMatchObject({ kind: "external-auth-recovery", returnPath: "/" });
+		expect(
+			parseRecoverableAuthUrlFlow(
 				"?mfa=required&flow=abc&expires_in=0&methods=unknown",
 				0,
 			),

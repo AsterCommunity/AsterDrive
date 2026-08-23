@@ -31,7 +31,7 @@ use crate::services::{
 };
 use aster_drive_model::entities::{mfa_email_code, mfa_login_flow, user};
 use aster_drive_model::types::{MfaFirstFactor, MfaMethod, MfaPersistentFactorMethod};
-use aster_forge_utils::numbers::{i64_to_u64, u32_to_i32, u64_to_i64};
+use aster_forge_utils::numbers::{i64_to_u64, u64_to_i64};
 
 use super::{
     EMAIL_CODE_DIGITS, MFA_LOGIN_FLOW_TTL_SECS, MFA_MAX_ATTEMPTS, MfaEmailCodeSendResponse, crypto,
@@ -500,11 +500,10 @@ pub async fn verify_challenge(
             .map_err(map_mfa_flow_transition_error)?;
             let next_attempt_count = i32::try_from(transition.attempt_count)
                 .map_err(|_| AsterError::internal_error("MFA attempt count overflow"))?;
-            let consume_at = (transition.state == AuthFlowState::Failed).then_some(now);
+            let budget_exhausted = transition.state == AuthFlowState::Failed;
+            let consume_at = budget_exhausted.then_some(now);
             mfa_login_flow_repo::increment_attempts(&txn, flow.id, consume_at).await?;
-            let error = if next_attempt_count
-                >= u32_to_i32(MFA_MAX_ATTEMPTS, "MFA max attempts").unwrap_or(i32::MAX)
-            {
+            let error = if budget_exhausted {
                 auth_mfa_failed_with_code(
                     ApiErrorCode::AuthMfaAttemptsExceeded,
                     "MFA attempts exceeded",

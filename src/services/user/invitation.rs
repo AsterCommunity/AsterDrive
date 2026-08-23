@@ -12,9 +12,7 @@ use crate::config::{auth_runtime, branding, local_email_policy::LocalEmailPolicy
 use crate::db::repository::{user_invitation_repo, user_repo};
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{MailRuntimeState, SharedRuntimeState};
-use crate::services::auth::flow::{
-    AuthFlowKind, AuthFlowState, invitation_snapshot, new_recovery_flow,
-};
+use crate::services::auth::flow::{AuthFlowState, invitation_snapshot};
 use crate::services::{
     auth::local::{
         ensure_password_login_enabled,
@@ -75,14 +73,10 @@ pub async fn create_invitation(
         auth_runtime::user_invitation_ttl_secs(state.runtime_config()),
         "user invitation ttl",
     )?;
+    if invitation_ttl_secs <= 0 {
+        return Err(invitation_invalid_error());
+    }
     let expires_at = now + Duration::seconds(invitation_ttl_secs);
-    new_recovery_flow(
-        AuthFlowKind::InvitationAcceptance,
-        format!("invitation:new:{invited_by}:{}", uuid::Uuid::new_v4()),
-        expires_at,
-        now,
-    )
-    .map_err(|_| invitation_invalid_error())?;
     let invitation_url = invitation_url(state.runtime_config(), &token);
     let expires_in = format_mail_duration_seconds(invitation_ttl_secs);
     let site_name = branding::title_or_default(state.runtime_config());

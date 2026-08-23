@@ -4,11 +4,11 @@
 //! operation enters through these helpers. This prevents callers from
 //! reimplementing terminal, expiry, attempt, and revision semantics locally.
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 
 use super::{
-    AuthFlowCommand, AuthFlowKind, AuthFlowSnapshot, AuthFlowState, AuthFlowTransition,
-    AuthFlowTransitionError, plan_transition,
+    AuthFlowCommand, AuthFlowKind, AuthFlowSnapshot, AuthFlowState, AuthFlowTransitionError,
+    plan_transition,
 };
 
 pub fn new_primary_flow(
@@ -41,93 +41,6 @@ pub fn new_primary_flow(
     })
 }
 
-pub fn new_recovery_flow(
-    kind: AuthFlowKind,
-    flow_id: impl Into<String>,
-    expires_at: DateTime<Utc>,
-    now: DateTime<Utc>,
-) -> Result<AuthFlowSnapshot, AuthFlowTransitionError> {
-    let snapshot = AuthFlowSnapshot {
-        flow_id: flow_id.into(),
-        kind,
-        state: AuthFlowState::RecoveryPending,
-        revision: 0,
-        attempt_count: 0,
-        max_attempts: Some(1),
-        expires_at,
-    };
-    let transition = plan_transition(
-        &snapshot,
-        AuthFlowCommand::Transition {
-            expected_revision: 0,
-            to: AuthFlowState::Processing,
-        },
-        now,
-    )?;
-    Ok(AuthFlowSnapshot {
-        state: transition.state,
-        revision: transition.revision,
-        ..snapshot
-    })
-}
-
-pub fn complete(
-    snapshot: &AuthFlowSnapshot,
-    expected_revision: u64,
-    now: DateTime<Utc>,
-) -> Result<AuthFlowTransition, AuthFlowTransitionError> {
-    plan_transition(
-        snapshot,
-        AuthFlowCommand::Transition {
-            expected_revision,
-            to: AuthFlowState::Completed,
-        },
-        now,
-    )
-}
-
-pub fn authenticate(
-    snapshot: &AuthFlowSnapshot,
-    expected_revision: u64,
-    now: DateTime<Utc>,
-) -> Result<AuthFlowTransition, AuthFlowTransitionError> {
-    plan_transition(
-        snapshot,
-        AuthFlowCommand::Transition {
-            expected_revision,
-            to: AuthFlowState::Authenticated,
-        },
-        now,
-    )
-}
-
-pub fn consume(
-    snapshot: &AuthFlowSnapshot,
-    expected_revision: u64,
-    now: DateTime<Utc>,
-) -> Result<AuthFlowTransition, AuthFlowTransitionError> {
-    plan_transition(
-        snapshot,
-        AuthFlowCommand::Transition {
-            expected_revision,
-            to: AuthFlowState::Consumed,
-        },
-        now,
-    )
-}
-
-pub fn cancelled(
-    snapshot: &AuthFlowSnapshot,
-    expected_revision: u64,
-    now: DateTime<Utc>,
-) -> Result<AuthFlowTransition, AuthFlowTransitionError> {
-    plan_transition(snapshot, AuthFlowCommand::Cancel { expected_revision }, now)
-}
-
-pub fn default_expiry(ttl: Duration, now: DateTime<Utc>) -> DateTime<Utc> {
-    now + ttl
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,31 +52,70 @@ mod tests {
         let flow = new_primary_flow(
             AuthFlowKind::ExternalLogin,
             "external-login:1",
-            default_expiry(Duration::minutes(5), now),
+            now + Duration::minutes(5),
             now,
         )
         .unwrap();
         assert_eq!(flow.state, AuthFlowState::Processing);
-        assert!(complete(&flow, 1, now).is_err());
-        assert!(authenticate(&flow, 1, now).is_ok());
+        assert!(
+            plan_transition(
+                &flow,
+                AuthFlowCommand::Transition {
+                    expected_revision: 1,
+                    to: AuthFlowState::Completed,
+                },
+                now,
+            )
+            .is_err()
+        );
+        assert!(
+            plan_transition(
+                &flow,
+                AuthFlowCommand::Transition {
+                    expected_revision: 1,
+                    to: AuthFlowState::Authenticated,
+                },
+                now,
+            )
+            .is_ok()
+        );
     }
 
     #[test]
     fn recovery_boundary_is_single_use_and_expiry_aware() {
         let now = Utc::now();
-        let flow = new_recovery_flow(
-            AuthFlowKind::PasswordReset,
-            "contact-verification:4",
-            default_expiry(Duration::minutes(5), now),
-            now,
-        )
-        .unwrap();
-        assert!(complete(&flow, 1, now).is_ok());
+        let flow = AuthFlowSnapshot {
+            flow_id: "contact-verification:4".to_string(),
+            kind: AuthFlowKind::PasswordReset,
+            state: AuthFlowState::Processing,
+            revision: 1,
+            attempt_count: 0,
+            max_attempts: Some(1),
+            expires_at: now + Duration::minutes(5),
+        };
+        assert!(
+            plan_transition(
+                &flow,
+                AuthFlowCommand::Transition {
+                    expected_revision: 1,
+                    to: AuthFlowState::Completed,
+                },
+                now,
+            )
+            .is_ok()
+        );
 
         let mut expired = flow;
         expired.expires_at = now;
         assert_eq!(
-            complete(&expired, 1, now),
+            plan_transition(
+                &expired,
+                AuthFlowCommand::Transition {
+                    expected_revision: 1,
+                    to: AuthFlowState::Completed,
+                },
+                now,
+            ),
             Err(AuthFlowTransitionError::Expired)
         );
     }
@@ -174,17 +126,34 @@ mod tests {
         let mut flow = new_primary_flow(
             AuthFlowKind::PasskeyLogin,
             "passkey:1",
-            default_expiry(Duration::minutes(5), now),
+            now + Duration::minutes(5),
             now,
         )
         .unwrap();
         flow.state = AuthFlowState::Processing;
         assert_eq!(
-            cancelled(&flow, 1, now).unwrap().state,
+            plan_transition(
+                &flow,
+                AuthFlowCommand::Cancel {
+                    expected_revision: 1,
+                },
+                now,
+            )
+            .unwrap()
+            .state,
             AuthFlowState::Cancelled
         );
         assert_eq!(
-            consume(&flow, 1, now).unwrap().state,
+            plan_transition(
+                &flow,
+                AuthFlowCommand::Transition {
+                    expected_revision: 1,
+                    to: AuthFlowState::Consumed,
+                },
+                now,
+            )
+            .unwrap()
+            .state,
             AuthFlowState::Consumed
         );
     }

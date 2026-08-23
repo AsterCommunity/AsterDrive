@@ -66,7 +66,7 @@ export function clearAuthFlowRedirectSearch(search: string) {
 }
 
 function normalizeReturnPath(value: string | null) {
-	if (!value?.startsWith("/") || value.startsWith("//")) return "/";
+	if (!value?.startsWith("/") || /^[\\/]{2}/.test(value)) return "/";
 	return value;
 }
 

@@ -247,16 +247,6 @@ pub async fn confirm_password_reset(
         ));
     }
     ensure_contact_verification_active(&record)?;
-    if record.consumed_at.is_some() {
-        return Err(AsterError::contact_verification_invalid(
-            "password reset link has already been used",
-        ));
-    }
-    if record.expires_at <= Utc::now() {
-        return Err(AsterError::contact_verification_expired(
-            "password reset link has expired",
-        ));
-    }
 
     let new_password_hash = state
         .runtime_config()
@@ -316,17 +306,6 @@ pub async fn confirm_contact_verification(
             })?;
 
     ensure_contact_verification_active(&record)?;
-
-    if record.consumed_at.is_some() {
-        return Err(AsterError::contact_verification_invalid(
-            "contact verification link has already been used",
-        ));
-    }
-    if record.expires_at <= Utc::now() {
-        return Err(AsterError::contact_verification_expired(
-            "contact verification link has expired",
-        ));
-    }
 
     let target = record.target.clone();
     let purpose = record.purpose;

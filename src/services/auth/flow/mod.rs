@@ -10,9 +10,7 @@ use chrono::{DateTime, Utc};
 mod coordinator;
 mod snapshots;
 
-pub use coordinator::{
-    authenticate, cancelled, complete, consume, default_expiry, new_primary_flow, new_recovery_flow,
-};
+pub use coordinator::new_primary_flow;
 pub use snapshots::{
     AuthSessionLifecycleState, AuthSessionSnapshot, auth_session_snapshot,
     contact_verification_snapshot, external_login_snapshot, external_recovery_snapshot,

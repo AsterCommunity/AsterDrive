@@ -45,7 +45,10 @@ import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import { useSystemSetupStore } from "@/stores/systemSetupStore";
 import type { ExternalAuthPublicProvider, SystemSetupState } from "@/types/api";
 import { ApiErrorCode } from "@/types/api-helpers";
-import { createAuthCommandCoordinator } from "./login/authCommandCoordinator";
+import {
+	type AuthCommandDispatchOptions,
+	createAuthCommandCoordinator,
+} from "./login/authCommandCoordinator";
 import {
 	type AuthPolicySnapshot,
 	createAuthRequestCoordinator,
@@ -152,8 +155,14 @@ function useLoginPageController() {
 	const [errors, setErrors] = useState<Record<string, string>>({});
 	const [authFlow, setAuthFlow] = useState(initialAuthUiFlow);
 	const dispatchAuthFlow = useCallback(
-		(event: Parameters<typeof authUiFlowReducer>[1], serial?: number) => {
-			setAuthFlow(authCommandCoordinatorRef.current.dispatch(event, serial));
+		(
+			event: Parameters<typeof authUiFlowReducer>[1],
+			serial?: number,
+			options?: AuthCommandDispatchOptions,
+		) => {
+			setAuthFlow(
+				authCommandCoordinatorRef.current.dispatch(event, serial, options),
+			);
 		},
 		[],
 	);
@@ -439,6 +448,8 @@ function useLoginPageController() {
 			.catch((error) => {
 				if (!coordinator.isCurrent(revision)) return;
 				logger.warn("failed to load auth bootstrap", error);
+				setRegistrationClosed(false);
+				dispatchAuthFlow({ type: "bootstrap_resolved", flow: "login" });
 			})
 			.finally(() => {
 				if (coordinator.isCurrent(revision)) {
@@ -648,19 +659,16 @@ function useLoginPageController() {
 
 	const handleActivationResendRequest = async () => {
 		if (!activationResendPanel || !passwordLoginEnabled) return;
-		const commandSerial = authCommandCoordinatorRef.current.begin();
 		const email = activationResendPanel.email.trim();
 		const result = emailSchema.safeParse(email);
 		if (!result.success) {
-			dispatchAuthFlow(
-				{
-					type: "set_activation_resend_error",
-					error: result.error.issues[0]?.message ?? "",
-				},
-				commandSerial,
-			);
+			dispatchAuthFlow({
+				type: "set_activation_resend_error",
+				error: result.error.issues[0]?.message ?? "",
+			});
 			return;
 		}
+		const commandSerial = authCommandCoordinatorRef.current.begin();
 
 		try {
 			dispatchAuthFlow(
@@ -683,25 +691,23 @@ function useLoginPageController() {
 					requesting: false,
 				},
 				commandSerial,
+				{ allowStale: true },
 			);
 		}
 	};
 
 	const handlePasswordResetRequest = async () => {
 		if (!passwordResetPanel || !passwordLoginEnabled) return;
-		const commandSerial = authCommandCoordinatorRef.current.begin();
 		const email = passwordResetPanel.email.trim();
 		const result = emailSchema.safeParse(email);
 		if (!result.success) {
-			dispatchAuthFlow(
-				{
-					type: "set_password_reset_error",
-					error: result.error.issues[0]?.message ?? "",
-				},
-				commandSerial,
-			);
+			dispatchAuthFlow({
+				type: "set_password_reset_error",
+				error: result.error.issues[0]?.message ?? "",
+			});
 			return;
 		}
+		const commandSerial = authCommandCoordinatorRef.current.begin();
 
 		try {
 			dispatchAuthFlow(
@@ -724,25 +730,23 @@ function useLoginPageController() {
 					requesting: false,
 				},
 				commandSerial,
+				{ allowStale: true },
 			);
 		}
 	};
 
 	const handleExternalAuthEmailVerificationRequest = async () => {
 		if (!externalAuthRecovery) return;
-		const commandSerial = authCommandCoordinatorRef.current.begin();
 		const email = externalAuthRecovery.email.trim();
 		const result = emailSchema.safeParse(email);
 		if (!result.success) {
-			dispatchAuthFlow(
-				{
-					type: "set_external_email_error",
-					error: result.error.issues[0]?.message ?? "",
-				},
-				commandSerial,
-			);
+			dispatchAuthFlow({
+				type: "set_external_email_error",
+				error: result.error.issues[0]?.message ?? "",
+			});
 			return;
 		}
+		const commandSerial = authCommandCoordinatorRef.current.begin();
 
 		try {
 			dispatchAuthFlow(
@@ -767,13 +771,13 @@ function useLoginPageController() {
 					submitting: false,
 				},
 				commandSerial,
+				{ allowStale: true },
 			);
 		}
 	};
 
 	const handleExternalAuthPasswordLink = async () => {
 		if (!externalAuthRecovery || !passwordLoginEnabled) return;
-		const commandSerial = authCommandCoordinatorRef.current.begin();
 		const id = externalAuthRecovery.passwordIdentifier.trim();
 		const pw = externalAuthRecovery.password;
 		const errs: Record<string, string> = {};
@@ -784,15 +788,13 @@ function useLoginPageController() {
 		if (!pwResult.success) {
 			errs.password = pwResult.error.issues[0]?.message ?? "";
 		}
-		dispatchAuthFlow(
-			{
-				type: "set_external_password_errors",
-				identifier: errs.identifier ?? "",
-				password: errs.password ?? "",
-			},
-			commandSerial,
-		);
+		dispatchAuthFlow({
+			type: "set_external_password_errors",
+			identifier: errs.identifier ?? "",
+			password: errs.password ?? "",
+		});
 		if (Object.keys(errs).length > 0) return;
+		const commandSerial = authCommandCoordinatorRef.current.begin();
 
 		try {
 			dispatchAuthFlow(
@@ -822,6 +824,7 @@ function useLoginPageController() {
 					submitting: false,
 				},
 				commandSerial,
+				{ allowStale: true },
 			);
 		}
 	};
@@ -966,39 +969,30 @@ function useLoginPageController() {
 
 	const handleMfaSubmit = async () => {
 		if (!mfaPanel) return;
-		const commandSerial = authCommandCoordinatorRef.current.begin();
 		const { challenge } = mfaPanel;
 		if (challenge.expiresAt <= Date.now()) {
-			dispatchAuthFlow(
-				{
-					type: "set_mfa_error",
-					error: t("mfa_flow_expired"),
-				},
-				commandSerial,
-			);
+			dispatchAuthFlow({
+				type: "set_mfa_error",
+				error: t("mfa_flow_expired"),
+			});
 			return;
 		}
 		const code = mfaPanel.code.trim();
 		if (mfaPanel.selectedMethod === "email_code" && !mfaPanel.emailCodeSent) {
-			dispatchAuthFlow(
-				{
-					type: "set_mfa_error",
-					error: t("mfa_email_code_required_send"),
-				},
-				commandSerial,
-			);
+			dispatchAuthFlow({
+				type: "set_mfa_error",
+				error: t("mfa_email_code_required_send"),
+			});
 			return;
 		}
 		if (!code) {
-			dispatchAuthFlow(
-				{
-					type: "set_mfa_error",
-					error: t("mfa_code_required"),
-				},
-				commandSerial,
-			);
+			dispatchAuthFlow({
+				type: "set_mfa_error",
+				error: t("mfa_code_required"),
+			});
 			return;
 		}
+		const commandSerial = authCommandCoordinatorRef.current.begin();
 
 		try {
 			const method = challenge.methods.includes(mfaPanel.selectedMethod)
@@ -1026,6 +1020,7 @@ function useLoginPageController() {
 			dispatchAuthFlow(
 				{ type: "set_mfa_submitting", submitting: false },
 				commandSerial,
+				{ allowStale: true },
 			);
 		}
 	};
@@ -1033,18 +1028,15 @@ function useLoginPageController() {
 	const handleMfaEmailCodeSend = async () => {
 		if (!mfaPanel) return;
 		if (mfaPanel.selectedMethod !== "email_code") return;
-		const commandSerial = authCommandCoordinatorRef.current.begin();
 		if (mfaPanel.challenge.expiresAt <= Date.now()) {
-			dispatchAuthFlow(
-				{
-					type: "set_mfa_error",
-					error: t("mfa_flow_expired"),
-				},
-				commandSerial,
-			);
+			dispatchAuthFlow({
+				type: "set_mfa_error",
+				error: t("mfa_flow_expired"),
+			});
 			return;
 		}
 		if (mfaPanel.emailCodeResendAt > Date.now()) return;
+		const commandSerial = authCommandCoordinatorRef.current.begin();
 
 		try {
 			dispatchAuthFlow(
@@ -1065,14 +1057,16 @@ function useLoginPageController() {
 			);
 			toast.success(t("mfa_email_code_sent"));
 		} catch (error) {
+			handleApiError(error);
+		} finally {
 			dispatchAuthFlow(
 				{
 					type: "set_mfa_email_code_sending",
 					sending: false,
 				},
 				commandSerial,
+				{ allowStale: true },
 			);
-			handleApiError(error);
 		}
 	};
 
