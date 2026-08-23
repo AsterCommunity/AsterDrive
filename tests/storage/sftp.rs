@@ -6,7 +6,9 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use aster_drive::storage::drivers::sftp::{SftpDriver, SftpDriverConfig, SftpStaticCredentials};
-use aster_drive_storage::{StorageDriver, StorageErrorKind, StreamUploadDriver};
+use aster_drive_storage::{
+    StorageDriver, StorageErrorKind, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
+};
 use testcontainers::{GenericImage, ImageExt, core::IntoContainerPort, runners::AsyncRunner};
 use tokio::io::{AsyncRead, AsyncReadExt as _, ReadBuf};
 
@@ -295,6 +297,41 @@ async fn test_sftp_driver_upload_download_round_trip() {
     assert_eq!(
         driver.get("stream/reader.bin").await.unwrap(),
         b"stream upload"
+    );
+
+    driver
+        .put("stream/attempt.bin", b"old object")
+        .await
+        .unwrap();
+    let attempt = StreamUploadAttempt::new("stream/attempt.bin", 11).unwrap();
+    driver
+        .stage_attempt(&attempt, Box::new(Cursor::new(b"new content".to_vec())))
+        .await
+        .unwrap();
+    assert_eq!(
+        driver.get("stream/attempt.bin").await.unwrap(),
+        b"old object"
+    );
+    driver.commit_attempt(&attempt).await.unwrap();
+    assert_eq!(
+        driver.get("stream/attempt.bin").await.unwrap(),
+        b"new content"
+    );
+    assert!(!driver.exists(&attempt.staging_path).await.unwrap());
+
+    let aborted = StreamUploadAttempt::new("stream/attempt.bin", 6).unwrap();
+    driver
+        .stage_attempt(&aborted, Box::new(Cursor::new(b"junk!!".to_vec())))
+        .await
+        .unwrap();
+    assert_eq!(
+        driver.abort_attempt(&aborted).await.unwrap(),
+        StreamUploadCleanup::Cleaned
+    );
+    assert!(!driver.exists(&aborted.staging_path).await.unwrap());
+    assert_eq!(
+        driver.get("stream/attempt.bin").await.unwrap(),
+        b"new content"
     );
 
     driver

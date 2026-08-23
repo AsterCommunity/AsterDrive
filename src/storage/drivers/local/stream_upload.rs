@@ -23,8 +23,19 @@ impl StreamUploadDriver for LocalDriver {
             self.commit_attempt(&attempt).await
         }
         .await;
-        if result.is_err() {
-            let _ = self.abort_attempt(&attempt).await;
+        if let Err(error) = &result {
+            match self.abort_attempt(&attempt).await {
+                Ok(StreamUploadCleanup::NotRequired | StreamUploadCleanup::Cleaned) => {}
+                Ok(outcome) => tracing::warn!(
+                    staging_path = %attempt.staging_path,
+                    ?outcome,
+                    "local attempt cleanup deferred after upload error: {error}"
+                ),
+                Err(abort_error) => tracing::warn!(
+                    staging_path = %attempt.staging_path,
+                    "local attempt cleanup failed after upload error: {abort_error}"
+                ),
+            }
         }
         result
     }
@@ -51,7 +62,7 @@ impl StreamUploadDriver for LocalDriver {
         let written = match tokio::io::copy(&mut reader, &mut file).await {
             Ok(written) => written,
             Err(error) => {
-                let _ = tokio::fs::remove_file(&staging_path).await;
+                cleanup_local_staging_file(&staging_path, "reader error").await;
                 return Err(error).map_storage_err_ctx(
                     StorageErrorKind::Transient,
                     "write local upload attempt",
@@ -59,7 +70,7 @@ impl StreamUploadDriver for LocalDriver {
             }
         };
         if written != expected_size {
-            let _ = tokio::fs::remove_file(&staging_path).await;
+            cleanup_local_staging_file(&staging_path, "size mismatch").await;
             return Err(storage_driver_error(
                 StorageErrorKind::Precondition,
                 format!(
@@ -69,12 +80,12 @@ impl StreamUploadDriver for LocalDriver {
             ));
         }
         if let Err(error) = file.flush().await {
-            let _ = tokio::fs::remove_file(&staging_path).await;
+            cleanup_local_staging_file(&staging_path, "flush error").await;
             return Err(error).map_storage_err(StorageErrorKind::Transient);
         }
         if let Err(error) = file.sync_data().await {
             drop(file);
-            let _ = tokio::fs::remove_file(&staging_path).await;
+            cleanup_local_staging_file(&staging_path, "sync error").await;
             return Err(error)
                 .map_storage_err_ctx(StorageErrorKind::Transient, "sync local upload attempt");
         }
@@ -103,7 +114,13 @@ impl StreamUploadDriver for LocalDriver {
             Err(error) if error.kind() == StorageErrorKind::NotFound => {
                 Ok(StreamUploadCleanup::Cleaned)
             }
-            Err(_) => Ok(StreamUploadCleanup::Deferred),
+            Err(error) => {
+                tracing::warn!(
+                    staging_path = %attempt.staging_path,
+                    "local attempt cleanup deferred: {error}"
+                );
+                Ok(StreamUploadCleanup::Deferred)
+            }
         }
     }
 
@@ -134,5 +151,17 @@ impl StreamUploadDriver for LocalDriver {
             }
         }
         Ok(storage_path.to_string())
+    }
+}
+
+async fn cleanup_local_staging_file(path: &std::path::Path, reason: &str) {
+    match tokio::fs::remove_file(path).await {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => tracing::warn!(
+            staging_path = %path.display(),
+            reason,
+            "failed to cleanup local staging file: {error}"
+        ),
     }
 }

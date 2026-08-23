@@ -49,12 +49,13 @@ pub struct StorageDriverExtensions<'a> {
 /// provider-atomic drivers that key is already the eventual blob identity;
 /// publishing the file/version happens later when the Drive database starts
 /// referencing it. Filesystem-like drivers use `staging_path` until commit.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct StreamUploadAttempt {
     pub id: String,
     pub storage_path: String,
     pub staging_path: String,
     pub expected_size: i64,
+    provider_session: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl StreamUploadAttempt {
@@ -76,12 +77,27 @@ impl StreamUploadAttempt {
             storage_path,
             staging_path,
             expected_size,
+            provider_session: std::sync::Arc::new(std::sync::Mutex::new(None)),
         })
+    }
+
+    pub fn set_provider_session(&self, session: impl Into<String>) {
+        if let Ok(mut value) = self.provider_session.lock() {
+            *value = Some(session.into());
+        }
+    }
+
+    pub fn take_provider_session(&self) -> Option<String> {
+        self.provider_session
+            .lock()
+            .ok()
+            .and_then(|mut value| value.take())
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamUploadCleanup {
+    NotRequired,
     Cleaned,
     Deferred,
     Unknown,
@@ -295,7 +311,7 @@ pub trait StreamUploadDriver: Send + Sync {
     }
 
     async fn abort_attempt(&self, _attempt: &StreamUploadAttempt) -> Result<StreamUploadCleanup> {
-        Ok(StreamUploadCleanup::Unknown)
+        Ok(StreamUploadCleanup::NotRequired)
     }
 
     /// 从本地文件路径写入存储（分片上传组装后使用）
@@ -365,7 +381,7 @@ pub trait NativeMediaMetadataStorageDriver: Send + Sync {
 
 #[cfg(test)]
 mod tests {
-    use super::{StreamUploadAttempt, StreamUploadDriver};
+    use super::{StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver};
     use crate::error::{Result, StorageErrorKind};
     use async_trait::async_trait;
     use std::sync::Arc;
@@ -453,6 +469,10 @@ mod tests {
         assert_eq!(
             driver.commit_attempt(&attempt).await.unwrap(),
             "files/opaque-id"
+        );
+        assert_eq!(
+            driver.abort_attempt(&attempt).await.unwrap(),
+            StreamUploadCleanup::NotRequired
         );
         assert_eq!(
             driver.writes.lock().unwrap().as_slice(),

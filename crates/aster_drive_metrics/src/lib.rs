@@ -257,7 +257,7 @@ mod product {
                 "bytes",
                 "Streaming upload attempt byte counts.",
                 &["kind"],
-                &[1024.0, 64.0 * 1024.0, 1024.0 * 1024.0, 5.0 * 1024.0 * 1024.0, 50.0 * 1024.0 * 1024.0, 1024.0 * 1024.0 * 1024.0],
+                &[1024.0, 64.0 * 1024.0, 1024.0 * 1024.0, 5.0 * 1024.0 * 1024.0, 50.0 * 1024.0 * 1024.0, 1024.0 * 1024.0 * 1024.0, 10.0 * 1024.0 * 1024.0 * 1024.0],
             ),
             stream_upload_active: gauge(
                 "stream_upload",
@@ -789,5 +789,39 @@ mod tests {
         assert!(body.contains("reason=\"dimensions\""));
         assert!(body.contains("reason=\"decode_or_render\""));
         assert!(body.contains("reason=\"processor_unavailable\""));
+    }
+
+    #[cfg(feature = "metrics")]
+    #[test]
+    fn stream_upload_metrics_register_record_and_export_expected_families() {
+        use std::sync::Arc;
+
+        use aster_forge_metrics::prometheus::{
+            PrometheusMetricsRecorder, export_metrics, init_metrics,
+        };
+
+        init_metrics().expect("Prometheus registry should initialize before product metrics");
+        let recorder = super::DriveMetricsRecorder::new(Arc::new(PrometheusMetricsRecorder));
+
+        recorder.record_stream_upload_attempt("attempt", "started");
+        recorder.record_stream_upload_attempt("commit", "success");
+        recorder.record_stream_upload_attempt("abort", "cleaned");
+        recorder.record_stream_upload_attempt("abort", "deferred");
+        recorder.record_stream_upload_attempt("abort", "failed");
+        recorder.record_stream_upload_bytes("expected", 10 * 1024 * 1024 * 1024);
+        recorder.adjust_stream_upload_active(1);
+        recorder.adjust_stream_upload_active(-1);
+
+        let body = export_metrics().expect("Drive stream upload metrics should export");
+        assert!(body.contains("stream_upload_attempts_total"));
+        assert!(body.contains("event=\"attempt\""));
+        assert!(body.contains("event=\"commit\""));
+        assert!(body.contains("event=\"abort\""));
+        assert!(body.contains("status=\"cleaned\""));
+        assert!(body.contains("status=\"deferred\""));
+        assert!(body.contains("stream_upload_bytes_bucket"));
+        assert!(body.contains("kind=\"expected\""));
+        assert!(body.contains("le=\"10737418240\""));
+        assert!(body.contains("stream_upload_active 0"));
     }
 }

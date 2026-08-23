@@ -628,13 +628,13 @@ impl StreamUploadDriver for SftpDriver {
             Ok(written) => written,
             Err(error) => {
                 drop(remote_file);
-                let _ = connection.sftp()?.remove_file(temporary_path).await;
+                cleanup_sftp_temporary_file(&mut connection, &temporary_path, "reader error").await;
                 return Err(map_io_error("SFTP stream upload failed", error));
             }
         };
         if written != expected_size {
             drop(remote_file);
-            let _ = connection.sftp()?.remove_file(temporary_path).await;
+            cleanup_sftp_temporary_file(&mut connection, &temporary_path, "size mismatch").await;
             return Err(storage_driver_error(
                 StorageErrorKind::Precondition,
                 format!("SFTP stream upload size mismatch: declared {size}, actual {written}"),
@@ -642,18 +642,18 @@ impl StreamUploadDriver for SftpDriver {
         }
         if let Err(error) = remote_file.flush().await {
             drop(remote_file);
-            let _ = connection.sftp()?.remove_file(temporary_path).await;
+            cleanup_sftp_temporary_file(&mut connection, &temporary_path, "flush error").await;
             return Err(map_io_error("SFTP stream flush failed", error));
         }
         if let Err(error) = remote_file.shutdown().await {
             drop(remote_file);
-            let _ = connection.sftp()?.remove_file(temporary_path).await;
+            cleanup_sftp_temporary_file(&mut connection, &temporary_path, "close error").await;
             return Err(map_io_error("SFTP stream close failed", error));
         }
         if let Err(error) =
             replace_sftp_object(&mut connection, &temporary_path, &remote_path, storage_path).await
         {
-            let _ = connection.sftp()?.remove_file(temporary_path).await;
+            cleanup_sftp_temporary_file(&mut connection, &temporary_path, "publish error").await;
             return Err(error);
         }
         connection.mark_reusable();
@@ -697,7 +697,13 @@ impl StreamUploadDriver for SftpDriver {
             Err(error) if error.kind() == StorageErrorKind::NotFound => {
                 Ok(StreamUploadCleanup::Cleaned)
             }
-            Err(_) => Ok(StreamUploadCleanup::Deferred),
+            Err(error) => {
+                tracing::warn!(
+                    staging_path = %attempt.staging_path,
+                    "SFTP attempt cleanup deferred: {error}"
+                );
+                Ok(StreamUploadCleanup::Deferred)
+            }
         }
     }
 
@@ -722,6 +728,25 @@ impl StreamUploadDriver for SftpDriver {
         })?;
         self.put_reader(storage_path, Box::new(local_file), size)
             .await
+    }
+}
+
+async fn cleanup_sftp_temporary_file(
+    connection: &mut SftpConnectionLease,
+    temporary_path: &str,
+    reason: &str,
+) {
+    match connection.sftp() {
+        Ok(sftp) => match sftp.remove_file(temporary_path.to_string()).await {
+            Ok(()) => {}
+            Err(error) if is_sftp_not_found(&error) => {}
+            Err(error) => tracing::warn!(
+                temporary_path,
+                reason,
+                "failed to cleanup SFTP temporary object: {error}"
+            ),
+        },
+        Err(error) => tracing::warn!(temporary_path, reason, "SFTP cleanup unavailable: {error}"),
     }
 }
 
@@ -754,7 +779,7 @@ async fn replace_sftp_object(
         Err(storage_driver_error(
             StorageErrorKind::Unsupported,
             format!(
-                "SFTP server does not support atomic replacement for existing object {storage_path}"
+                "SFTP server does not support atomic replacement for existing object {storage_path}; requires posix-rename@openssh.com"
             ),
         ))
     }
@@ -799,7 +824,9 @@ async fn try_sftp_posix_rename(
         .await
         .map_err(|error| map_sftp_error("initialize SFTP atomic rename session failed", error))?;
     if !version.extensions.contains_key(POSIX_RENAME_EXTENSION) {
-        let _ = raw.close_session();
+        if let Err(error) = raw.close_session() {
+            tracing::warn!("failed to close SFTP atomic rename session without extension: {error}");
+        }
         return Ok(false);
     }
 
@@ -810,7 +837,9 @@ async fn try_sftp_posix_rename(
         .extended(POSIX_RENAME_EXTENSION, data)
         .await
         .map_err(|error| map_sftp_error("SFTP POSIX rename failed", error))?;
-    let _ = raw.close_session();
+    if let Err(error) = raw.close_session() {
+        tracing::warn!("failed to close SFTP atomic rename session: {error}");
+    }
     match response {
         Packet::Status(status) if status.status_code == StatusCode::Ok => Ok(true),
         Packet::Status(status) if status.status_code == StatusCode::OpUnsupported => Ok(false),

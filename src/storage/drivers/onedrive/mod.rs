@@ -241,6 +241,7 @@ impl OneDriveDriver {
         path: &str,
         mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
+        attempt: Option<&StreamUploadAttempt>,
     ) -> Result<String> {
         let total_size = numbers::i64_to_u64(size, "OneDrive put_reader declared size")
             .map_storage_err(StorageErrorKind::Misconfigured)?;
@@ -267,6 +268,9 @@ impl OneDriveDriver {
                 .create_upload_session(&upload_session_path)
                 .await?;
             upload_url = Some(upload_session.upload_url.clone());
+            if let Some(attempt) = attempt {
+                attempt.set_provider_session(upload_session.upload_url.clone());
+            }
             let fragment_size = graph_upload_fragment_size(self.policy_chunk_size);
             let mut uploaded = 0_u64;
             while uploaded < total_size {
@@ -317,6 +321,9 @@ impl OneDriveDriver {
             }
             self.cleanup_named_object_parent(parent_path.as_deref())
                 .await;
+        }
+        if let Some(attempt) = attempt {
+            let _ = attempt.take_provider_session();
         }
         result
     }
@@ -447,16 +454,40 @@ impl StreamUploadDriver for OneDriveDriver {
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
     ) -> aster_drive_storage::Result<String> {
-        self.put_reader_via_upload_session(storage_path, reader, size)
-            .await
+        let attempt = StreamUploadAttempt::new(storage_path, size)?;
+        self.stage_attempt(&attempt, reader).await?;
+        self.commit_attempt(&attempt).await
+    }
+
+    async fn stage_attempt(
+        &self,
+        attempt: &StreamUploadAttempt,
+        reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+    ) -> aster_drive_storage::Result<()> {
+        self.put_reader_via_upload_session(
+            &attempt.storage_path,
+            reader,
+            attempt.expected_size,
+            Some(attempt),
+        )
+        .await
+        .map(|_| ())
     }
 
     async fn abort_attempt(
         &self,
-        _attempt: &StreamUploadAttempt,
+        attempt: &StreamUploadAttempt,
     ) -> aster_drive_storage::Result<StreamUploadCleanup> {
-        // A provider session can outlive the request and is reclaimed by Graph.
-        Ok(StreamUploadCleanup::Deferred)
+        let Some(upload_url) = attempt.take_provider_session() else {
+            return Ok(StreamUploadCleanup::NotRequired);
+        };
+        match self.client.abort_upload_session(&upload_url).await {
+            Ok(()) => Ok(StreamUploadCleanup::Cleaned),
+            Err(error) => {
+                tracing::warn!("failed to abort OneDrive attempt session: {error}");
+                Ok(StreamUploadCleanup::Deferred)
+            }
+        }
     }
 
     async fn put_file(

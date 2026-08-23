@@ -125,6 +125,9 @@ async fn cleanup_follower_attempt(
     object_key: &str,
 ) {
     match driver.abort_attempt(attempt).await {
+        Ok(StreamUploadCleanup::NotRequired) => {
+            metrics.record_stream_upload_attempt("abort", "not_required");
+        }
         Ok(StreamUploadCleanup::Cleaned) => {
             metrics.record_stream_upload_attempt("abort", "cleaned");
         }
@@ -568,10 +571,24 @@ async fn put_object(
             let upload_result =
                 match tokio::time::timeout(STREAM_ATTEMPT_TIMEOUT, upload_result).await {
                     Ok(result) => result.map_err(AsterError::from),
-                    Err(_) => Err(AsterError::storage_driver_error(
-                        "stream upload attempt timed out",
-                    )),
+                    Err(_) => {
+                        relay_task.abort();
+                        let _ = relay_task.await;
+                        return Err(AsterError::storage_driver_error(
+                            "stream upload attempt timed out",
+                        ));
+                    }
                 };
+            if let Err(error) = upload_result {
+                relay_task.abort();
+                let _ = relay_task.await;
+                return Ok::<(Result<()>, Result<String>), AsterError>((
+                    Err(error),
+                    Err(AsterError::storage_driver_error(
+                        "stream upload stage failed",
+                    )),
+                ));
+            }
             let relay_result = relay_task.await.map_err(|error| {
                 AsterError::storage_driver_error(format!("relay upload task failed: {error}"))
             })?;
@@ -754,10 +771,24 @@ async fn compose_objects(
             let upload_result =
                 match tokio::time::timeout(STREAM_ATTEMPT_TIMEOUT, upload_result).await {
                     Ok(result) => result.map_err(AsterError::from),
-                    Err(_) => Err(AsterError::storage_driver_error(
-                        "compose stream upload attempt timed out",
-                    )),
+                    Err(_) => {
+                        relay_task.abort();
+                        let _ = relay_task.await;
+                        return Err(AsterError::storage_driver_error(
+                            "compose stream upload attempt timed out",
+                        ));
+                    }
                 };
+            if let Err(error) = upload_result {
+                relay_task.abort();
+                let _ = relay_task.await;
+                return Ok::<(Result<()>, Result<u64>), AsterError>((
+                    Err(error),
+                    Err(AsterError::storage_driver_error(
+                        "compose stream upload stage failed",
+                    )),
+                ));
+            }
             let relay_result = relay_task.await.map_err(|error| {
                 AsterError::storage_driver_error(format!("compose relay task failed: {error}"))
             })?;

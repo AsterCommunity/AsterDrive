@@ -10,7 +10,9 @@ use crate::services::workspace::storage::{
     prepare_non_dedup_blob_upload, store_preuploaded_nondedup,
 };
 use aster_drive_model::entities::file;
-use aster_drive_storage::{BlobMetadata, StreamUploadAttempt};
+use aster_drive_storage::{
+    BlobMetadata, StorageDriver, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
+};
 use aster_forge_utils::numbers::u64_to_i64;
 
 use super::common::{
@@ -69,7 +71,7 @@ pub(super) async fn upload_streaming_direct(
             let stream_driver = upload_driver.extensions().stream_upload.ok_or_else(|| {
                 crate::errors::AsterError::storage_driver_error("stream upload not supported")
             })?;
-            let (upload_result, relay_result) = tokio::task::LocalSet::new()
+            let relay_outcome = tokio::task::LocalSet::new()
                 .run_until(async move {
                     let relay_task = tokio::task::spawn_local(async move {
                         let mut writer = writer;
@@ -92,10 +94,24 @@ pub(super) async fn upload_streaming_direct(
                     let upload_result =
                         match tokio::time::timeout(STREAM_ATTEMPT_TIMEOUT, upload_result).await {
                             Ok(result) => result.map_err(AsterError::from),
-                            Err(_) => Err(AsterError::storage_driver_error(
-                                "streaming direct upload attempt timed out",
-                            )),
+                            Err(_) => {
+                                relay_task.abort();
+                                let _ = relay_task.await;
+                                return Err(AsterError::storage_driver_error(
+                                    "streaming direct upload attempt timed out",
+                                ));
+                            }
                         };
+                    if let Err(error) = upload_result {
+                        relay_task.abort();
+                        let _ = relay_task.await;
+                        return Ok::<(Result<()>, Result<()>), AsterError>((
+                            Err(error),
+                            Err(AsterError::storage_driver_error(
+                                "streaming direct upload stage failed",
+                            )),
+                        ));
+                    }
                     let relay_result = relay_task.await.map_err(|err| {
                         file_upload_error_with_code(
                             ApiErrorCode::UploadDirectRelayTaskFailed,
@@ -105,10 +121,27 @@ pub(super) async fn upload_streaming_direct(
 
                     Ok::<(Result<()>, Result<()>), AsterError>((upload_result, relay_result))
                 })
-                .await?;
+                .await;
+
+            let (upload_result, relay_result) = match relay_outcome {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    abort_direct_attempt(
+                        stream_driver,
+                        &attempt,
+                        driver.as_ref(),
+                        &prepared_upload,
+                        "direct stream orchestration error",
+                    )
+                    .await;
+                    return Err(error);
+                }
+            };
 
             if let Err(err) = upload_result {
-                cleanup_preuploaded_blob_upload(
+                abort_direct_attempt(
+                    stream_driver,
+                    &attempt,
                     driver.as_ref(),
                     &prepared_upload,
                     "direct stream upload error",
@@ -118,7 +151,9 @@ pub(super) async fn upload_streaming_direct(
             }
 
             if let Err(err) = relay_result {
-                cleanup_preuploaded_blob_upload(
+                abort_direct_attempt(
+                    stream_driver,
+                    &attempt,
                     driver.as_ref(),
                     &prepared_upload,
                     "direct stream relay error",
@@ -128,7 +163,9 @@ pub(super) async fn upload_streaming_direct(
             }
 
             if let Err(err) = stream_driver.commit_attempt(&attempt).await {
-                cleanup_preuploaded_blob_upload(
+                abort_direct_attempt(
+                    stream_driver,
+                    &attempt,
                     driver.as_ref(),
                     &prepared_upload,
                     "direct stream commit error",
@@ -191,6 +228,28 @@ pub(super) async fn upload_streaming_direct(
     }
 
     Err(upload_empty_file_error())
+}
+
+async fn abort_direct_attempt(
+    stream_driver: &dyn StreamUploadDriver,
+    attempt: &StreamUploadAttempt,
+    driver: &dyn StorageDriver,
+    prepared_upload: &crate::services::workspace::storage::PreparedNonDedupBlobUpload,
+    reason: &str,
+) {
+    match stream_driver.abort_attempt(attempt).await {
+        Ok(StreamUploadCleanup::NotRequired | StreamUploadCleanup::Cleaned) => {}
+        Ok(outcome) => tracing::warn!(
+            staging_path = %attempt.staging_path,
+            ?outcome,
+            "direct stream attempt cleanup deferred"
+        ),
+        Err(error) => tracing::warn!(
+            staging_path = %attempt.staging_path,
+            "direct stream attempt cleanup failed: {error}"
+        ),
+    }
+    cleanup_preuploaded_blob_upload(driver, prepared_upload, reason).await;
 }
 
 fn resolve_streaming_direct_filename(
