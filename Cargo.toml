@@ -14,6 +14,7 @@ authors = [
     "AptS-1548 <apts-1548@esaps.net>",
     "AptS-1738 <apts-1738@esaps.net>",
     "AptS-1543 <apts-1543@esaps.net>",
+    "AsterCommunity Contributors <contributors@astercosm.com>",
 ]
 edition = "2024"
 rust-version = "1.95.0"
