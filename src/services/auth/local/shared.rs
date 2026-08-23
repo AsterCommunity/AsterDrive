@@ -330,9 +330,9 @@ pub(super) async fn issue_contact_verification_token<C: ConnectionTrait>(
     .map_err(|_| {
         AsterError::contact_verification_invalid("contact verification flow could not start")
     })?;
-    if recovery_flow.state != AuthFlowState::RecoveryPending {
+    if recovery_flow.state != AuthFlowState::Processing {
         return Err(AsterError::contact_verification_invalid(
-            "contact verification flow is not pending",
+            "contact verification flow did not enter processing",
         ));
     }
 
