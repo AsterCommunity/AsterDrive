@@ -50,6 +50,7 @@
 - 默认的 provider-atomic driver 可以直接把完整请求提交到目标 key；需要 staging 的 driver 必须使用 attempt 独立 namespace。多次同 key attempt 不得共享临时路径、multipart block、provider session 或清理权限。
 - relay、request cancellation、heartbeat timeout 和 process shutdown 都必须进入同一 abort 生命周期；有界 cleanup timeout 不得阻塞数据面，也不得读取完整对象来判断归属。
 - follower PUT 与 compose 的 stage 阶段使用 15 分钟有界超时；超时会释放当前 attempt、记录 `stream_upload` cleanup outcome，并保留 provider/session 的 Deferred 状态供后续维护重试。
+- 强制进程终止后的恢复以现有 DB 引用和维护链为事实源：已提交但尚未被 `file_blob` / `file_revision` 引用的 opaque object 由 `blob_maintenance` 的 orphan cleanup 重新核算引用后清理；Local/SFTP staging 由对应临时对象维护路径处理；Azure uncommitted blocks 和 OneDrive upload session 由 provider 的 abort/expiry 语义回收。这里不新增一张与 blob/file 引用平行的 attempt registry，避免两个 durable 状态源分叉。
 
 ### Stream attempt 资源预算
 

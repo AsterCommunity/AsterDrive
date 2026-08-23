@@ -275,7 +275,9 @@ pub trait StreamUploadDriver: Send + Sync {
     ///
     /// The default writes the preallocated opaque final key directly and is
     /// only valid when an incomplete provider request cannot expose a new
-    /// object. It deliberately avoids a second full-object provider copy.
+    /// object. It deliberately avoids a second full-object provider copy;
+    /// unreferenced opaque blobs are recovered by Drive's existing orphan
+    /// maintenance after a process-level interruption.
     async fn stage_attempt(
         &self,
         attempt: &StreamUploadAttempt,
