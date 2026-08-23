@@ -32,6 +32,18 @@ describe("auth URL adapter", () => {
 				"?external_auth=email_required&flow=abc&return_path=%2F%2Fevil.example",
 			),
 		).toMatchObject({ kind: "external-auth-recovery", returnPath: "/" });
+		expect(
+			parseRecoverableAuthUrlFlow(
+				"?mfa=required&flow=abc&expires_in=0&methods=unknown",
+				0,
+			),
+		).toMatchObject({ expiresAt: 300_000, methods: ["totp", "recovery_code"] });
+		expect(
+			parseRecoverableAuthUrlFlow(
+				"?mfa=required&flow=abc&expires_in=not-a-number",
+				0,
+			),
+		).toMatchObject({ expiresAt: 300_000 });
 	});
 
 	it("rejects missing references and unsupported statuses", () => {
