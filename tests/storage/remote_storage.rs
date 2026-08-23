@@ -2566,6 +2566,66 @@ async fn test_internal_storage_truncated_put_aborts_attempt_staging() {
 }
 
 #[actix_web::test]
+async fn test_internal_storage_commit_failure_aborts_local_attempt_staging() {
+    let (provider_state, access_key, secret_key) =
+        setup_internal_hmac_binding_state("commit-failure-attempt").await;
+    create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
+    let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), &access_key)
+        .await
+        .expect("provider binding lookup should succeed")
+        .expect("provider binding should exist");
+    let object_key = "commit-failure-attempt.bin";
+    let storage_path = managed_ingress_object_path(
+        &provider_state,
+        &access_key,
+        &binding.storage_namespace,
+        "",
+        object_key,
+    );
+    tokio::fs::create_dir_all(&storage_path)
+        .await
+        .expect("directory at final object path should be created");
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(provider_state.follower_view()))
+            .service(
+                web::scope("/api/v1").service(aster_drive::api::routes::internal_storage::routes()),
+            ),
+    )
+    .await;
+
+    let path = format!("/api/v1/internal/storage/objects/{object_key}");
+    let timestamp = Utc::now().timestamp();
+    let nonce = "commit-failure-attempt-nonce";
+    let signature = sign_internal_request(&secret_key, "PUT", &path, timestamp, nonce, None);
+    let request = test::TestRequest::put()
+        .uri(&path)
+        .insert_header(("x-aster-access-key", access_key.as_str()))
+        .insert_header(("x-aster-timestamp", timestamp.to_string()))
+        .insert_header(("x-aster-nonce", nonce))
+        .insert_header(("x-aster-signature", signature))
+        .insert_header((actix_web::http::header::CONTENT_LENGTH, "5"))
+        .set_payload(b"valid".to_vec())
+        .to_request();
+    let response = test::call_service(&app, request).await;
+
+    assert!(response.status().is_client_error() || response.status().is_server_error());
+    let parent = storage_path.parent().unwrap();
+    let mut entries = tokio::fs::read_dir(parent).await.unwrap();
+    while let Some(entry) = entries.next_entry().await.unwrap() {
+        assert!(
+            !entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".aster-attempt-")
+        );
+    }
+    tokio::fs::remove_dir_all(&storage_path)
+        .await
+        .expect("test final directory should be removed");
+}
+
+#[actix_web::test]
 async fn test_internal_storage_compose_rejects_expected_size_exceeding_ingress_limit() {
     let provider_state = common::setup().await;
     let provider_default_policy = provider_state
