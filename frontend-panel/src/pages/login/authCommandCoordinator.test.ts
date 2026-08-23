@@ -19,7 +19,10 @@ describe("auth command coordinator", () => {
 		const second = coordinator.begin();
 		expect(coordinator.isCurrent(first)).toBe(false);
 		expect(coordinator.isCurrent(second)).toBe(true);
+		coordinator.dispatch({ type: "open_auth" }, first);
 		expect(coordinator.state().kind).toBe("mfa");
+		coordinator.dispatch({ type: "open_auth" }, second);
+		expect(coordinator.state().kind).toBe("login");
 		coordinator.cancel();
 		expect(coordinator.isCurrent(second)).toBe(false);
 	});

@@ -59,12 +59,12 @@ export async function loadAuthBootstrap(
 			allowUserRegistration: check?.allow_user_registration !== false,
 			checkedAt: now,
 			externalProviders,
-			passkeyLoginEnabled:
-				check?.passkey_login_enabled !== false &&
-				(check ? true : fallback.passkeyLoginEnabled),
-			passwordLoginEnabled:
-				check?.password_login_enabled !== false &&
-				(check ? true : fallback.passwordLoginEnabled),
+			passkeyLoginEnabled: check
+				? check.passkey_login_enabled !== false
+				: fallback.passkeyLoginEnabled,
+			passwordLoginEnabled: check
+				? check.password_login_enabled !== false
+				: fallback.passwordLoginEnabled,
 		},
 		providersError:
 			providersResult.status === "rejected" ? providersResult.reason : null,

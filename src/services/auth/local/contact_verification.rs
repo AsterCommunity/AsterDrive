@@ -275,9 +275,8 @@ pub async fn confirm_password_reset(
         ));
     }
 
-    let now = Utc::now();
     let consumed =
-        contact_verification_token_repo::mark_consumed_if_unused(&txn, record.id, now).await?;
+        contact_verification_token_repo::mark_consumed_if_unused(&txn, record.id).await?;
     if !consumed {
         return Err(AsterError::contact_verification_invalid(
             "password reset link has already been used",
@@ -352,7 +351,7 @@ pub async fn confirm_contact_verification(
 
     let now = Utc::now();
     let consumed =
-        contact_verification_token_repo::mark_consumed_if_unused(&txn, record.id, now).await?;
+        contact_verification_token_repo::mark_consumed_if_unused(&txn, record.id).await?;
     if !consumed {
         return Err(AsterError::contact_verification_invalid(
             "contact verification link has already been used",

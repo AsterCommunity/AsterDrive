@@ -5,7 +5,7 @@ import {
 } from "./loginPageState";
 
 export interface AuthCommandCoordinator {
-	dispatch(event: AuthUiFlowEvent): AuthUiFlow;
+	dispatch(event: AuthUiFlowEvent, serial?: number): AuthUiFlow;
 	begin(): number;
 	cancel(): void;
 	isCurrent(serial: number): boolean;
@@ -18,8 +18,11 @@ export function createAuthCommandCoordinator(
 	let current = initial;
 	let serial = 0;
 	return {
-		dispatch(event) {
-			current = reduceAuthUiFlow(current, event);
+		dispatch(event, candidate) {
+			if (candidate !== undefined && candidate !== serial) {
+				return current;
+			}
+			current = authUiFlowReducer(current, event);
 			return current;
 		},
 		begin() {
@@ -36,11 +39,4 @@ export function createAuthCommandCoordinator(
 			return current;
 		},
 	};
-}
-
-function reduceAuthUiFlow(
-	state: AuthUiFlow,
-	event: AuthUiFlowEvent,
-): AuthUiFlow {
-	return authUiFlowReducer(state, event);
 }

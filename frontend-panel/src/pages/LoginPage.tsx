@@ -152,8 +152,8 @@ function useLoginPageController() {
 	const [errors, setErrors] = useState<Record<string, string>>({});
 	const [authFlow, setAuthFlow] = useState(initialAuthUiFlow);
 	const dispatchAuthFlow = useCallback(
-		(event: Parameters<typeof authUiFlowReducer>[1]) => {
-			setAuthFlow(authCommandCoordinatorRef.current.dispatch(event));
+		(event: Parameters<typeof authUiFlowReducer>[1], serial?: number) => {
+			setAuthFlow(authCommandCoordinatorRef.current.dispatch(event, serial));
 		},
 		[],
 	);
@@ -400,39 +400,51 @@ function useLoginPageController() {
 		void loadAuthBootstrap(authService, {
 			passkeyLoginEnabled: publicPasskeyLoginEnabled,
 			passwordLoginEnabled: publicPasswordLoginEnabled,
-		}).then((result) => {
-			if (!coordinator.isCurrent(revision)) return;
-			setAuthPolicy(result.policy);
-			if (result.providersError) {
-				logger.warn(
-					"failed to load external auth providers",
-					result.providersError,
-				);
-			}
-
-			if (result.check) {
-				setSystemSetupState(result.check.setup_state);
-				setSetupState(result.check.setup_state);
-				if (
-					result.check.setup_state === "needs_admin" ||
-					!result.check.has_users
-				) {
-					setRegistrationClosed(false);
-					dispatchAuthFlow({ type: "bootstrap_resolved", flow: "setup" });
-				} else {
-					setRegistrationClosed(
-						result.check.setup_state === "needs_storage" ||
-							!result.policy.allowUserRegistration ||
-							!result.policy.passwordLoginEnabled,
+		})
+			.then((result) => {
+				if (!coordinator.isCurrent(revision)) return;
+				setAuthPolicy(result.policy);
+				if (result.providersError) {
+					logger.warn(
+						"failed to load external auth providers",
+						result.providersError,
 					);
+				}
+				if (result.checkError) {
+					logger.warn("failed to load auth check", result.checkError);
+				}
+
+				if (result.check) {
+					setSystemSetupState(result.check.setup_state);
+					setSetupState(result.check.setup_state);
+					if (
+						result.check.setup_state === "needs_admin" ||
+						!result.check.has_users
+					) {
+						setRegistrationClosed(false);
+						dispatchAuthFlow({ type: "bootstrap_resolved", flow: "setup" });
+					} else {
+						setRegistrationClosed(
+							result.check.setup_state === "needs_storage" ||
+								!result.policy.allowUserRegistration ||
+								!result.policy.passwordLoginEnabled,
+						);
+						dispatchAuthFlow({ type: "bootstrap_resolved", flow: "login" });
+					}
+				} else {
+					setRegistrationClosed(false);
 					dispatchAuthFlow({ type: "bootstrap_resolved", flow: "login" });
 				}
-			} else {
-				setRegistrationClosed(false);
-				dispatchAuthFlow({ type: "bootstrap_resolved", flow: "login" });
-			}
-			setChecking(false);
-		});
+			})
+			.catch((error) => {
+				if (!coordinator.isCurrent(revision)) return;
+				logger.warn("failed to load auth bootstrap", error);
+			})
+			.finally(() => {
+				if (coordinator.isCurrent(revision)) {
+					setChecking(false);
+				}
+			});
 
 		return () => {
 			coordinator.invalidate();
@@ -551,7 +563,12 @@ function useLoginPageController() {
 	);
 
 	const handleLoginResult = useCallback(
-		async (result: LoginResult, returnPath: string, successMessage: string) => {
+		async (
+			result: LoginResult,
+			returnPath: string,
+			successMessage: string,
+			commandSerial?: number,
+		) => {
 			if (result.status === "authenticated") {
 				await finishAuthenticatedLogin(result, returnPath, successMessage);
 				return;
@@ -562,16 +579,19 @@ function useLoginPageController() {
 			}
 			const methods: MfaMethod[] =
 				result.methods.length > 0 ? result.methods : ["totp"];
-			dispatchAuthFlow({
-				type: "open_mfa",
-				challenge: {
-					expiresAt: Date.now() + result.expiresIn * 1000,
-					flowToken: result.flowToken,
-					methods,
-					returnPath,
-					successMessage,
+			dispatchAuthFlow(
+				{
+					type: "open_mfa",
+					challenge: {
+						expiresAt: Date.now() + result.expiresIn * 1000,
+						flowToken: result.flowToken,
+						methods,
+						returnPath,
+						successMessage,
+					},
 				},
-			});
+				commandSerial,
+			);
 			setPassword("");
 			setShowPassword(false);
 		},
@@ -628,101 +648,132 @@ function useLoginPageController() {
 
 	const handleActivationResendRequest = async () => {
 		if (!activationResendPanel || !passwordLoginEnabled) return;
+		const commandSerial = authCommandCoordinatorRef.current.begin();
 		const email = activationResendPanel.email.trim();
 		const result = emailSchema.safeParse(email);
 		if (!result.success) {
-			dispatchAuthFlow({
-				type: "set_activation_resend_error",
-				error: result.error.issues[0]?.message ?? "",
-			});
+			dispatchAuthFlow(
+				{
+					type: "set_activation_resend_error",
+					error: result.error.issues[0]?.message ?? "",
+				},
+				commandSerial,
+			);
 			return;
 		}
 
 		try {
-			dispatchAuthFlow({
-				type: "set_activation_resend_requesting",
-				requesting: true,
-			});
+			dispatchAuthFlow(
+				{
+					type: "set_activation_resend_requesting",
+					requesting: true,
+				},
+				commandSerial,
+			);
 			await authService.resendRegisterActivation(email);
 			toast.success(t("activation_resend_request_sent"));
 			setIdentifier(email);
-			dispatchAuthFlow({ type: "close_activation_resend" });
+			dispatchAuthFlow({ type: "close_activation_resend" }, commandSerial);
 		} catch (error) {
 			handleApiError(error);
 		} finally {
-			dispatchAuthFlow({
-				type: "set_activation_resend_requesting",
-				requesting: false,
-			});
+			dispatchAuthFlow(
+				{
+					type: "set_activation_resend_requesting",
+					requesting: false,
+				},
+				commandSerial,
+			);
 		}
 	};
 
 	const handlePasswordResetRequest = async () => {
 		if (!passwordResetPanel || !passwordLoginEnabled) return;
+		const commandSerial = authCommandCoordinatorRef.current.begin();
 		const email = passwordResetPanel.email.trim();
 		const result = emailSchema.safeParse(email);
 		if (!result.success) {
-			dispatchAuthFlow({
-				type: "set_password_reset_error",
-				error: result.error.issues[0]?.message ?? "",
-			});
+			dispatchAuthFlow(
+				{
+					type: "set_password_reset_error",
+					error: result.error.issues[0]?.message ?? "",
+				},
+				commandSerial,
+			);
 			return;
 		}
 
 		try {
-			dispatchAuthFlow({
-				type: "set_password_reset_requesting",
-				requesting: true,
-			});
+			dispatchAuthFlow(
+				{
+					type: "set_password_reset_requesting",
+					requesting: true,
+				},
+				commandSerial,
+			);
 			await authService.requestPasswordReset({ email });
 			toast.success(t("password_reset_request_sent"));
 			setIdentifier(email);
-			dispatchAuthFlow({ type: "close_password_reset" });
+			dispatchAuthFlow({ type: "close_password_reset" }, commandSerial);
 		} catch (error) {
 			handleApiError(error);
 		} finally {
-			dispatchAuthFlow({
-				type: "set_password_reset_requesting",
-				requesting: false,
-			});
+			dispatchAuthFlow(
+				{
+					type: "set_password_reset_requesting",
+					requesting: false,
+				},
+				commandSerial,
+			);
 		}
 	};
 
 	const handleExternalAuthEmailVerificationRequest = async () => {
 		if (!externalAuthRecovery) return;
+		const commandSerial = authCommandCoordinatorRef.current.begin();
 		const email = externalAuthRecovery.email.trim();
 		const result = emailSchema.safeParse(email);
 		if (!result.success) {
-			dispatchAuthFlow({
-				type: "set_external_email_error",
-				error: result.error.issues[0]?.message ?? "",
-			});
+			dispatchAuthFlow(
+				{
+					type: "set_external_email_error",
+					error: result.error.issues[0]?.message ?? "",
+				},
+				commandSerial,
+			);
 			return;
 		}
 
 		try {
-			dispatchAuthFlow({
-				type: "set_external_email_submitting",
-				submitting: true,
-			});
+			dispatchAuthFlow(
+				{
+					type: "set_external_email_submitting",
+					submitting: true,
+				},
+				commandSerial,
+			);
 			await authService.startExternalAuthEmailVerification({
 				flow_token: externalAuthRecovery.flowToken,
 				email,
 			});
-			dispatchAuthFlow({ type: "external_email_sent" });
+			dispatchAuthFlow({ type: "external_email_sent" }, commandSerial);
 			toast.success(t("external_auth_email_verification_sent_toast"));
 		} catch (error) {
 			handleApiError(error);
 		} finally {
-			dispatchAuthFlow({
-				type: "set_external_email_submitting",
-				submitting: false,
-			});
+			dispatchAuthFlow(
+				{
+					type: "set_external_email_submitting",
+					submitting: false,
+				},
+				commandSerial,
+			);
 		}
 	};
 
 	const handleExternalAuthPasswordLink = async () => {
 		if (!externalAuthRecovery || !passwordLoginEnabled) return;
+		const commandSerial = authCommandCoordinatorRef.current.begin();
 		const id = externalAuthRecovery.passwordIdentifier.trim();
 		const pw = externalAuthRecovery.password;
 		const errs: Record<string, string> = {};
@@ -733,18 +784,24 @@ function useLoginPageController() {
 		if (!pwResult.success) {
 			errs.password = pwResult.error.issues[0]?.message ?? "";
 		}
-		dispatchAuthFlow({
-			type: "set_external_password_errors",
-			identifier: errs.identifier ?? "",
-			password: errs.password ?? "",
-		});
+		dispatchAuthFlow(
+			{
+				type: "set_external_password_errors",
+				identifier: errs.identifier ?? "",
+				password: errs.password ?? "",
+			},
+			commandSerial,
+		);
 		if (Object.keys(errs).length > 0) return;
 
 		try {
-			dispatchAuthFlow({
-				type: "set_external_password_submitting",
-				submitting: true,
-			});
+			dispatchAuthFlow(
+				{
+					type: "set_external_password_submitting",
+					submitting: true,
+				},
+				commandSerial,
+			);
 			const result = await authService.linkExternalAuthWithPassword({
 				flow_token: externalAuthRecovery.flowToken,
 				identifier: id,
@@ -754,14 +811,18 @@ function useLoginPageController() {
 				result,
 				externalAuthRecovery.returnPath,
 				t("external_auth_password_link_success"),
+				commandSerial,
 			);
 		} catch (error) {
 			handleApiError(error);
 		} finally {
-			dispatchAuthFlow({
-				type: "set_external_password_submitting",
-				submitting: false,
-			});
+			dispatchAuthFlow(
+				{
+					type: "set_external_password_submitting",
+					submitting: false,
+				},
+				commandSerial,
+			);
 		}
 	};
 
@@ -905,27 +966,37 @@ function useLoginPageController() {
 
 	const handleMfaSubmit = async () => {
 		if (!mfaPanel) return;
+		const commandSerial = authCommandCoordinatorRef.current.begin();
 		const { challenge } = mfaPanel;
 		if (challenge.expiresAt <= Date.now()) {
-			dispatchAuthFlow({
-				type: "set_mfa_error",
-				error: t("mfa_flow_expired"),
-			});
+			dispatchAuthFlow(
+				{
+					type: "set_mfa_error",
+					error: t("mfa_flow_expired"),
+				},
+				commandSerial,
+			);
 			return;
 		}
 		const code = mfaPanel.code.trim();
 		if (mfaPanel.selectedMethod === "email_code" && !mfaPanel.emailCodeSent) {
-			dispatchAuthFlow({
-				type: "set_mfa_error",
-				error: t("mfa_email_code_required_send"),
-			});
+			dispatchAuthFlow(
+				{
+					type: "set_mfa_error",
+					error: t("mfa_email_code_required_send"),
+				},
+				commandSerial,
+			);
 			return;
 		}
 		if (!code) {
-			dispatchAuthFlow({
-				type: "set_mfa_error",
-				error: t("mfa_code_required"),
-			});
+			dispatchAuthFlow(
+				{
+					type: "set_mfa_error",
+					error: t("mfa_code_required"),
+				},
+				commandSerial,
+			);
 			return;
 		}
 
@@ -935,7 +1006,10 @@ function useLoginPageController() {
 				: resolveMfaMethod(code, challenge.methods);
 			const normalizedCode =
 				method === "totp" ? normalizeTotpCode(code) : code.trim();
-			dispatchAuthFlow({ type: "set_mfa_submitting", submitting: true });
+			dispatchAuthFlow(
+				{ type: "set_mfa_submitting", submitting: true },
+				commandSerial,
+			);
 			await handleLoginResult(
 				await authService.verifyMfaChallenge({
 					flow_token: challenge.flowToken,
@@ -944,43 +1018,60 @@ function useLoginPageController() {
 				}),
 				challenge.returnPath,
 				challenge.successMessage,
+				commandSerial,
 			);
 		} catch (error) {
 			handleApiError(error);
 		} finally {
-			dispatchAuthFlow({ type: "set_mfa_submitting", submitting: false });
+			dispatchAuthFlow(
+				{ type: "set_mfa_submitting", submitting: false },
+				commandSerial,
+			);
 		}
 	};
 
 	const handleMfaEmailCodeSend = async () => {
 		if (!mfaPanel) return;
 		if (mfaPanel.selectedMethod !== "email_code") return;
+		const commandSerial = authCommandCoordinatorRef.current.begin();
 		if (mfaPanel.challenge.expiresAt <= Date.now()) {
-			dispatchAuthFlow({
-				type: "set_mfa_error",
-				error: t("mfa_flow_expired"),
-			});
+			dispatchAuthFlow(
+				{
+					type: "set_mfa_error",
+					error: t("mfa_flow_expired"),
+				},
+				commandSerial,
+			);
 			return;
 		}
 		if (mfaPanel.emailCodeResendAt > Date.now()) return;
 
 		try {
-			dispatchAuthFlow({ type: "set_mfa_email_code_sending", sending: true });
+			dispatchAuthFlow(
+				{ type: "set_mfa_email_code_sending", sending: true },
+				commandSerial,
+			);
 			const result = await authService.sendMfaEmailCode({
 				flow_token: mfaPanel.challenge.flowToken,
 			});
-			dispatchAuthFlow({
-				type: "set_mfa_email_code_sent",
-				expiresIn: result.expires_in,
-				now: Date.now(),
-				resendAfter: result.resend_after,
-			});
+			dispatchAuthFlow(
+				{
+					type: "set_mfa_email_code_sent",
+					expiresIn: result.expires_in,
+					now: Date.now(),
+					resendAfter: result.resend_after,
+				},
+				commandSerial,
+			);
 			toast.success(t("mfa_email_code_sent"));
 		} catch (error) {
-			dispatchAuthFlow({
-				type: "set_mfa_email_code_sending",
-				sending: false,
-			});
+			dispatchAuthFlow(
+				{
+					type: "set_mfa_email_code_sending",
+					sending: false,
+				},
+				commandSerial,
+			);
 			handleApiError(error);
 		}
 	};
@@ -1012,6 +1103,7 @@ function useLoginPageController() {
 		if (mode === "idle") return;
 
 		setSubmitting(true);
+		const commandSerial = authCommandCoordinatorRef.current.begin();
 		try {
 			const id = identifier.trim();
 			const extra = extraField.trim();
@@ -1021,6 +1113,7 @@ function useLoginPageController() {
 					await authService.login(id, password),
 					"/",
 					loginSuccessMessage,
+					commandSerial,
 				);
 				return;
 			}
@@ -1036,7 +1129,7 @@ function useLoginPageController() {
 				invalidateSystemSetupState();
 				setSetupState(null);
 				setRegistrationClosed(true);
-				dispatchAuthFlow({ type: "open_auth" });
+				dispatchAuthFlow({ type: "open_auth" }, commandSerial);
 				setIdentifier(em);
 				setExtraField("");
 				setErrors({});
@@ -1051,6 +1144,7 @@ function useLoginPageController() {
 					await authService.login(em, password),
 					"/",
 					loginSuccessMessage,
+					commandSerial,
 				);
 				return;
 			}
@@ -1061,19 +1155,22 @@ function useLoginPageController() {
 			setErrors({});
 			if (registeredUser.email_verified) {
 				toast.success(t("register_success_direct"));
-				dispatchAuthFlow({ type: "open_auth" });
+				dispatchAuthFlow({ type: "open_auth" }, commandSerial);
 				setIdentifier(em);
 				setExtraField("");
 			} else {
 				toast.success(t("register_success"));
-				dispatchAuthFlow({
-					type: "set_pending_activation",
-					pendingActivation: {
-						email: em,
-						identifier: em,
-						username: un,
+				dispatchAuthFlow(
+					{
+						type: "set_pending_activation",
+						pendingActivation: {
+							email: em,
+							identifier: em,
+							username: un,
+						},
 					},
-				});
+					commandSerial,
+				);
 			}
 		} catch (error) {
 			if (mode === "login" && isLoginUnavailableError(error)) {

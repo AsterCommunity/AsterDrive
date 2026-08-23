@@ -887,6 +887,41 @@ describe("LoginPage", () => {
 		expect(mockState.verifyMfaChallenge).not.toHaveBeenCalled();
 	});
 
+	it("rejects sending an expired email MFA challenge", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date("2026-05-24T08:00:00.000Z"));
+		mockState.forceEnableDisabledButtons = true;
+		mockState.login.mockResolvedValueOnce({
+			status: "mfa_required",
+			flowToken: "expired-email-flow",
+			expiresIn: 300,
+			methods: ["email_code"],
+		});
+
+		render(<LoginPage />);
+
+		fireEvent.change(await screen.findByLabelText("email_or_username"), {
+			target: { value: "user@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "secret123" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
+		await screen.findByText("mfa_required_title");
+
+		act(() => {
+			vi.setSystemTime(new Date("2026-05-24T08:06:00.000Z"));
+			vi.advanceTimersByTime(1000);
+		});
+		await screen.findByText("mfa_flow_expired");
+		fireEvent.click(
+			screen.getByRole("button", { name: /mfa_email_code_send/ }),
+		);
+
+		expect(mockState.sendMfaEmailCode).not.toHaveBeenCalled();
+		expect(screen.getAllByText("mfa_flow_expired").length).toBeGreaterThan(0);
+	});
+
 	it("ignores email MFA resend clicks during cooldown", async () => {
 		mockState.forceEnableDisabledButtons = true;
 		mockState.login.mockResolvedValueOnce({
@@ -2450,6 +2485,11 @@ describe("LoginPage", () => {
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("register_success");
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("activation_resent");
+
+		fireEvent.click(screen.getByRole("button", { name: /not_you/ }));
+		expect(
+			await screen.findByRole("button", { name: "sign_in" }),
+		).toBeInTheDocument();
 	});
 
 	it("returns to sign-in mode when registration does not require activation", async () => {
@@ -2566,6 +2606,7 @@ describe("LoginPage", () => {
 
 	it("validates and handles failures in the independent activation resend panel", async () => {
 		const error = new Error("mail service offline");
+		mockState.forceEnableDisabledButtons = true;
 		mockState.resendRegisterActivation.mockRejectedValueOnce(error);
 
 		render(<LoginPage />);
@@ -2635,6 +2676,21 @@ describe("LoginPage", () => {
 
 		await screen.findByRole("button", { name: "sign_in" });
 		fireEvent.click(screen.getByRole("button", { name: "forgot_password" }));
+
+		fireEvent.change(await screen.findByLabelText("email"), {
+			target: { value: "invalid" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: /send_password_reset/ }),
+		);
+		expect(screen.getByText("invalid-email")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /back_to_sign_in/ }));
+		await screen.findByRole("button", { name: "sign_in" });
+		fireEvent.click(screen.getByRole("button", { name: "forgot_password" }));
+
+		fireEvent.change(await screen.findByLabelText("email"), {
+			target: { value: "user@example.com" },
+		});
 
 		fireEvent.click(
 			await screen.findByRole("button", { name: /send_password_reset/ }),

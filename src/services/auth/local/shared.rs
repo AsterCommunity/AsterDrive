@@ -11,7 +11,7 @@ use crate::config::auth_runtime::RuntimeContactVerificationPolicy;
 use crate::db::repository::{contact_verification_token_repo, user_repo};
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
-use crate::services::auth::flow::{AuthFlowKind, new_recovery_flow};
+use crate::services::auth::flow::{AuthFlowKind, AuthFlowState, new_recovery_flow};
 use crate::services::mail::sender;
 use aster_drive_model::entities::{contact_verification_token, user};
 use aster_drive_model::types::{UserRole, UserStatus, VerificationChannel, VerificationPurpose};
@@ -314,7 +314,10 @@ pub(super) async fn issue_contact_verification_token<C: ConnectionTrait>(
     let now = Utc::now();
     let token = sender::build_verification_token();
     let token_hash = hash::sha256_hex(token.as_bytes());
-    new_recovery_flow(
+    // Contact verification tokens already persist the authoritative expiry and single-use
+    // fields; the typed snapshot validates the initial transition without duplicating state
+    // columns in the entity.
+    let recovery_flow = new_recovery_flow(
         match purpose {
             VerificationPurpose::RegisterActivation => AuthFlowKind::RegistrationActivation,
             VerificationPurpose::ContactChange => AuthFlowKind::EmailChange,
@@ -327,6 +330,11 @@ pub(super) async fn issue_contact_verification_token<C: ConnectionTrait>(
     .map_err(|_| {
         AsterError::contact_verification_invalid("contact verification flow could not start")
     })?;
+    if recovery_flow.state != AuthFlowState::RecoveryPending {
+        return Err(AsterError::contact_verification_invalid(
+            "contact verification flow is not pending",
+        ));
+    }
 
     contact_verification_token_repo::delete_active_for_user(
         db,
@@ -342,7 +350,7 @@ pub(super) async fn issue_contact_verification_token<C: ConnectionTrait>(
         purpose: Set(purpose),
         target: Set(target.to_string()),
         token_hash: Set(token_hash),
-        expires_at: Set(now + Duration::seconds(u64_to_i64(ttl_secs, "contact verification ttl")?)),
+        expires_at: Set(recovery_flow.expires_at),
         consumed_at: Set(None),
         created_at: Set(now),
         ..Default::default()

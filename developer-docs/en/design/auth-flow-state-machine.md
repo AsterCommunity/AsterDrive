@@ -16,7 +16,7 @@ HTTP route
 
 - `src/services/auth/flow/` defines `AuthFlowKind`, `AuthFlowState`, commands, snapshots, and transition rules.
 - MFA, external-auth, local recovery, Passkey, and session services retain product guards, runtime policy checks, and side-effect ordering.
-- Repositories only perform atomic conditional updates. `rows_affected == 0` or cache `take == None` means a conflict or replay; repositories do not choose UI behavior.
+- Repositories only perform atomic conditional updates. `rows_affected == 0` or cache `take == None` is a no-result outcome that may represent conflict, replay, expiry, or cache eviction; services inspect authoritative fields and map the final state, while repositories do not choose UI behavior.
 - Routes preserve the existing API envelope, cookie, and redirect contracts.
 
 ## Flow inventory
@@ -32,7 +32,7 @@ HTTP route
 | Invitation | `user_invitations` | `invitation:<id>` | status-scoped conditional update | accepted/expired/revoked |
 | Session | `auth_sessions` | session UUID | conditional refresh-JTI rotation | revoked/expired cleanup |
 
-Identities use only database primary keys or public flow UUIDs. Raw tokens, provider state, browser bindings, verification codes, refresh JTIs, and their hashes never enter shared snapshots, logs, or errors.
+Identities use only database primary keys or public flow UUIDs. The request-local identity of a password primary is an explicit exception: it ends with the request and must not enter cross-request shared snapshots, logs, or errors. Raw tokens, provider state, browser bindings, verification codes, refresh JTIs, and their hashes never enter shared snapshots, logs, or errors.
 
 ## Transition rules
 
@@ -50,7 +50,7 @@ Identities use only database primary keys or public flow UUIDs. Raw tokens, prov
 - Password-first MFA rechecks password-login policy during exchange; external-first MFA is unaffected by that switch.
 - The session row is persisted in a transaction before the route emits cookies. Transaction failure emits no session cookie.
 - Mail outbox, audit, and cache invalidation have an explicit pre-commit or post-commit position. Failures are not silently discarded.
-- Frontend `AuthUiFlow` is the single backend projection. The URL adapter restores only an expiring flow reference and bounds TTL, methods, and local return paths.
+- Frontend `AuthUiFlow` is the single frontend/UI projection of backend state. The URL adapter restores only an expiring flow reference and bounds TTL, methods, and local return paths.
 - A generation-aware coordinator combines auth check and provider loading. An older generation, unmounted promise, or slower response never updates the active page.
 
 ## Test matrix

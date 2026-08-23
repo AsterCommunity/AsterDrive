@@ -16,7 +16,7 @@ HTTP route
 
 - `src/services/auth/flow/` 定义 `AuthFlowKind`、`AuthFlowState`、command、snapshot 和转换规则。
 - MFA、external auth、local recovery、Passkey 和 session service 仍负责产品 guard、运行时策略和副作用顺序。
-- repository 只执行原子条件更新。`rows_affected == 0` 或 cache `take == None` 是并发失败或重放，不推断 UI 行为。
+- repository 只执行原子条件更新。`rows_affected == 0` 或 cache `take == None` 是无结果 outcome，可能代表 conflict、replay、expiry 或 cache eviction；service 根据权威字段映射最终状态，repository 不选择 UI 行为。
 - route 保持现有 API envelope、cookie 和 redirect 契约。
 
 ## Flow inventory
@@ -32,7 +32,7 @@ HTTP route
 | Invitation | `user_invitations` | `invitation:<id>` | status-scoped conditional update | accepted/expired/revoked |
 | Session | `auth_sessions` | session UUID | refresh JTI conditional rotation | revoked/expired cleanup |
 
-Identity 只使用数据库主键或公开 flow UUID。原始 token、state、browser binding、verification code、JTI 和它们的 hash 不进入共享 snapshot、日志或错误。
+Identity 只使用数据库主键或公开 flow UUID。Password primary 的 request-local identity 是明确例外：它只在当前请求内存在，不进入跨请求共享 snapshot、日志或错误。原始 token、state、browser binding、verification code、JTI 和它们的 hash 不进入共享 snapshot、日志或错误。
 
 ## Transition rules
 
@@ -50,7 +50,7 @@ Identity 只使用数据库主键或公开 flow UUID。原始 token、state、br
 - 密码 first factor 在 MFA 交换时重新检查 password login policy；external first factor 不受该开关影响。
 - session row 必须先在 transaction 中持久化，再由 route 设置 cookie。事务失败不产生 session cookie。
 - mail outbox、audit 和 cache invalidation 必须明确在 commit 前或后执行。失败不能用静默 fire-and-forget 吞掉。
-- 前端 `AuthUiFlow` 是后端状态的单一投影；URL adapter 只恢复有过期时间的 flow reference，限制 TTL、method 和本地 return path。
+- 前端 `AuthUiFlow` 是后端状态的单一 frontend/UI projection；URL adapter 只恢复有过期时间的 flow reference，限制 TTL、method 和本地 return path。
 - auth check 与 provider list 由带 generation 的 coordinator 合并。旧 generation、卸载后的 promise 或较慢响应不更新当前页面。
 
 ## Test matrix

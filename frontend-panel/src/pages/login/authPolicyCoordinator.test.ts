@@ -61,9 +61,10 @@ describe("auth policy coordinator", () => {
 	});
 
 	it("uses public policy fallback only when auth check fails", async () => {
+		const error = new Error("check failed");
 		const result = await loadAuthBootstrap(
 			{
-				check: async () => Promise.reject(new Error("check failed")),
+				check: async () => Promise.reject(error),
 				listExternalAuthProviders: async () => [],
 			},
 			{ passkeyLoginEnabled: false, passwordLoginEnabled: true },
@@ -71,6 +72,7 @@ describe("auth policy coordinator", () => {
 
 		expect(result.policy.passkeyLoginEnabled).toBe(false);
 		expect(result.policy.passwordLoginEnabled).toBe(true);
+		expect(result.checkError).toBe(error);
 	});
 
 	it("invalidates stale and unmounted request generations", () => {

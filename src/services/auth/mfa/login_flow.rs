@@ -19,7 +19,7 @@ use crate::errors::{AsterError, Result, auth_mfa_failed_with_code};
 use crate::runtime::{MailRuntimeState, SharedRuntimeState};
 use crate::services::auth::flow::{
     AuthFlowCommand, AuthFlowKind, AuthFlowSnapshot, AuthFlowState, AuthFlowTransitionError,
-    new_primary_flow, plan_transition,
+    plan_transition,
 };
 use crate::services::{
     auth::local,
@@ -31,7 +31,7 @@ use crate::services::{
 };
 use aster_drive_model::entities::{mfa_email_code, mfa_login_flow, user};
 use aster_drive_model::types::{MfaFirstFactor, MfaMethod, MfaPersistentFactorMethod};
-use aster_forge_utils::numbers::{i64_to_u64, u64_to_i64};
+use aster_forge_utils::numbers::{i64_to_u64, u32_to_i32, u64_to_i64};
 
 use super::{
     EMAIL_CODE_DIGITS, MFA_LOGIN_FLOW_TTL_SECS, MFA_MAX_ATTEMPTS, MfaEmailCodeSendResponse, crypto,
@@ -146,28 +146,6 @@ pub async fn create_login_flow(
     let flow_token = format!("mfa_{}", aster_forge_utils::id::new_short_token());
     let now = Utc::now();
     let ttl = u64_to_i64(MFA_LOGIN_FLOW_TTL_SECS, "mfa login flow ttl")?;
-    let primary_kind = match first_factor {
-        MfaFirstFactor::Password => AuthFlowKind::PasswordLogin,
-        MfaFirstFactor::ExternalAuth => AuthFlowKind::ExternalLogin,
-    };
-    let primary = new_primary_flow(
-        primary_kind,
-        format!("primary:{flow_token}"),
-        now + Duration::seconds(ttl),
-        now,
-    )
-    .map_err(|_| AsterError::auth_invalid_credentials("primary login flow is invalid"))?;
-    plan_transition(
-        &primary,
-        AuthFlowCommand::Transition {
-            expected_revision: primary.revision,
-            to: AuthFlowState::SecondFactorPending,
-        },
-        now,
-    )
-    .map_err(|_| {
-        AsterError::auth_invalid_credentials("primary login flow transition is invalid")
-    })?;
     mfa_login_flow_repo::create(
         state.writer_db(),
         mfa_login_flow::ActiveModel {
@@ -510,6 +488,8 @@ pub async fn verify_challenge(
         };
 
         if !verified {
+            // The MFA table has no persisted revision field. Atomic attempt increments provide
+            // the concurrency guard while the derived snapshot revision remains 0 by contract.
             let transition = plan_transition(
                 &mfa_flow_snapshot(&flow),
                 AuthFlowCommand::RecordFailure {
@@ -522,7 +502,9 @@ pub async fn verify_challenge(
                 .map_err(|_| AsterError::internal_error("MFA attempt count overflow"))?;
             let consume_at = (transition.state == AuthFlowState::Failed).then_some(now);
             mfa_login_flow_repo::increment_attempts(&txn, flow.id, consume_at).await?;
-            let error = if next_attempt_count >= MFA_MAX_ATTEMPTS {
+            let error = if next_attempt_count
+                >= u32_to_i32(MFA_MAX_ATTEMPTS, "MFA max attempts").unwrap_or(i32::MAX)
+            {
                 auth_mfa_failed_with_code(
                     ApiErrorCode::AuthMfaAttemptsExceeded,
                     "MFA attempts exceeded",
@@ -861,6 +843,8 @@ fn format_email_code_expires_in(ttl_secs: u64) -> String {
 }
 
 fn ensure_flow_active(flow: &mfa_login_flow::Model, now: chrono::DateTime<Utc>) -> Result<()> {
+    // mfa_login_flows has no persisted revision column; atomic attempt and consume checks provide
+    // the concurrency boundary for this derived snapshot.
     plan_transition(
         &mfa_flow_snapshot(flow),
         AuthFlowCommand::Transition {
@@ -882,9 +866,10 @@ fn mfa_flow_snapshot(flow: &mfa_login_flow::Model) -> AuthFlowSnapshot {
         } else {
             AuthFlowState::SecondFactorPending
         },
+        // There is no persisted revision column for this typed flow.
         revision: 0,
         attempt_count: u32::try_from(flow.attempt_count).unwrap_or(u32::MAX),
-        max_attempts: Some(u32::try_from(MFA_MAX_ATTEMPTS).expect("positive MFA attempt limit")),
+        max_attempts: Some(MFA_MAX_ATTEMPTS),
         expires_at: flow.expires_at,
     }
 }

@@ -241,7 +241,7 @@ pub async fn confirm_email_verification(
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
         let consumed =
-            external_auth_email_verification_flow_repo::mark_consumed_if_unused(&txn, flow.id, now)
+            external_auth_email_verification_flow_repo::mark_consumed_if_unused(&txn, flow.id)
                 .await?;
         if !consumed {
             return Err(AsterError::contact_verification_invalid(

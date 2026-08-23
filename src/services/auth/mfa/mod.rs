@@ -23,7 +23,7 @@ pub use management::{
 
 const MFA_LOGIN_FLOW_TTL_SECS: u64 = 300;
 const MFA_SETUP_FLOW_TTL_SECS: u64 = 300;
-const MFA_MAX_ATTEMPTS: i32 = 5;
+const MFA_MAX_ATTEMPTS: u32 = 5;
 const EMAIL_CODE_DIGITS: usize = 8;
 const RECOVERY_CODE_COUNT: usize = 10;
 const RECOVERY_CODE_CHARS: usize = 12;

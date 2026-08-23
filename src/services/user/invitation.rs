@@ -200,7 +200,7 @@ pub async fn accept_invitation(
             return Err(invitation_invalid_error());
         };
         let invitation = refresh_expired_status(&txn, invitation).await?;
-        ensure_invitation_pending(&invitation)?;
+        ensure_invitation_flow_active(&invitation)?;
         ensure_invitation_not_expired(&txn, &invitation).await?;
         LocalEmailPolicy::from_runtime_config(state.runtime_config()).check(&invitation.email)?;
         ensure_email_available(&txn, &invitation.email).await?;
@@ -260,7 +260,6 @@ async fn find_valid_invitation_by_token<C: ConnectionTrait>(
     };
     let invitation = refresh_expired_status(db, invitation).await?;
     ensure_invitation_flow_active(&invitation)?;
-    ensure_invitation_pending(&invitation)?;
     ensure_invitation_not_expired(db, &invitation).await?;
     Ok(invitation)
 }
@@ -299,21 +298,19 @@ async fn ensure_invitation_not_expired<C: ConnectionTrait>(
     Err(invitation_status_error(UserInvitationStatus::Expired))
 }
 
-fn ensure_invitation_pending(invitation: &user_invitation::Model) -> Result<()> {
-    if invitation.status.is_pending() {
-        Ok(())
-    } else {
-        Err(invitation_status_error(invitation.status))
-    }
-}
-
 fn ensure_invitation_flow_active(invitation: &user_invitation::Model) -> Result<()> {
     match invitation_snapshot(invitation, Utc::now()).state {
         AuthFlowState::RecoveryPending => Ok(()),
         AuthFlowState::Expired => Err(invitation_status_error(UserInvitationStatus::Expired)),
         AuthFlowState::Cancelled => Err(invitation_status_error(UserInvitationStatus::Revoked)),
         AuthFlowState::Completed => Err(invitation_status_error(UserInvitationStatus::Accepted)),
-        _ => Err(invitation_invalid_error()),
+        AuthFlowState::FirstFactorPending
+        | AuthFlowState::SecondFactorPending
+        | AuthFlowState::Processing
+        | AuthFlowState::PasswordChangeRequired
+        | AuthFlowState::Authenticated
+        | AuthFlowState::Failed
+        | AuthFlowState::Consumed => Err(invitation_invalid_error()),
     }
 }
 

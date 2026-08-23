@@ -14,8 +14,6 @@ const PASSKEY_CHALLENGE_TTL_SECS: u64 = 300;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CachedPasskeyRegistrationFlow {
     flow_id: String,
-    revision: u64,
-    created_at: chrono::DateTime<Utc>,
     expires_at: chrono::DateTime<Utc>,
     challenge: PasskeyRegistrationChallenge,
 }
@@ -23,8 +21,6 @@ struct CachedPasskeyRegistrationFlow {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CachedPasskeyLoginFlow {
     flow_id: String,
-    revision: u64,
-    created_at: chrono::DateTime<Utc>,
     expires_at: chrono::DateTime<Utc>,
     challenge: PasskeyAuthenticationChallenge,
 }
@@ -35,7 +31,7 @@ impl CachedPasskeyRegistrationFlow {
             flow_id: self.flow_id.clone(),
             kind: AuthFlowKind::PasskeyRegistration,
             state: AuthFlowState::FirstFactorPending,
-            revision: self.revision,
+            revision: 0,
             attempt_count: 0,
             max_attempts: Some(1),
             expires_at: self.expires_at,
@@ -49,7 +45,7 @@ impl CachedPasskeyLoginFlow {
             flow_id: self.flow_id.clone(),
             kind: AuthFlowKind::PasskeyLogin,
             state: AuthFlowState::FirstFactorPending,
-            revision: self.revision,
+            revision: 0,
             attempt_count: 0,
             max_attempts: Some(1),
             expires_at: self.expires_at,
@@ -77,8 +73,6 @@ pub(super) async fn store_registration_challenge(
             &registration_cache_key(flow_id),
             &CachedPasskeyRegistrationFlow {
                 flow_id: flow_id.to_string(),
-                revision: 0,
-                created_at,
                 expires_at: created_at + Duration::seconds(PASSKEY_CHALLENGE_TTL_SECS as i64),
                 challenge: challenge.clone(),
             },
@@ -91,8 +85,21 @@ pub(super) async fn take_registration_challenge(
     state: &impl SharedRuntimeState,
     flow_id: &str,
 ) -> Option<PasskeyRegistrationChallenge> {
-    let cached: CachedPasskeyRegistrationFlow =
-        state.cache().take(&registration_cache_key(flow_id)).await?;
+    let bytes = state
+        .cache()
+        .take_bytes(&registration_cache_key(flow_id))
+        .await?;
+    let cached = serde_json::from_slice::<CachedPasskeyRegistrationFlow>(&bytes)
+        .or_else(|_| {
+            serde_json::from_slice::<PasskeyRegistrationChallenge>(&bytes).map(|challenge| {
+                CachedPasskeyRegistrationFlow {
+                    flow_id: flow_id.to_string(),
+                    expires_at: Utc::now() + Duration::seconds(PASSKEY_CHALLENGE_TTL_SECS as i64),
+                    challenge,
+                }
+            })
+        })
+        .ok()?;
     let active = cached.flow_id == flow_id && cached.snapshot().expires_at > Utc::now();
     active.then_some(cached.challenge)
 }
@@ -109,8 +116,6 @@ pub(super) async fn store_login_challenge(
             &login_cache_key(flow_id),
             &CachedPasskeyLoginFlow {
                 flow_id: flow_id.to_string(),
-                revision: 0,
-                created_at,
                 expires_at: created_at + Duration::seconds(PASSKEY_CHALLENGE_TTL_SECS as i64),
                 challenge: challenge.clone(),
             },
@@ -123,7 +128,18 @@ pub(super) async fn take_login_challenge(
     state: &impl SharedRuntimeState,
     flow_id: &str,
 ) -> Option<PasskeyAuthenticationChallenge> {
-    let cached: CachedPasskeyLoginFlow = state.cache().take(&login_cache_key(flow_id)).await?;
+    let bytes = state.cache().take_bytes(&login_cache_key(flow_id)).await?;
+    let cached = serde_json::from_slice::<CachedPasskeyLoginFlow>(&bytes)
+        .or_else(|_| {
+            serde_json::from_slice::<PasskeyAuthenticationChallenge>(&bytes).map(|challenge| {
+                CachedPasskeyLoginFlow {
+                    flow_id: flow_id.to_string(),
+                    expires_at: Utc::now() + Duration::seconds(PASSKEY_CHALLENGE_TTL_SECS as i64),
+                    challenge,
+                }
+            })
+        })
+        .ok()?;
     let active = cached.flow_id == flow_id && cached.snapshot().expires_at > Utc::now();
     active.then_some(cached.challenge)
 }
@@ -211,8 +227,6 @@ mod tests {
         let created_at = Utc::now();
         let registration = CachedPasskeyRegistrationFlow {
             flow_id: "register-flow".to_string(),
-            revision: 4,
-            created_at,
             expires_at: created_at + Duration::minutes(5),
             challenge: registration_challenge(42),
         };
@@ -220,16 +234,91 @@ mod tests {
             registration.snapshot().kind,
             AuthFlowKind::PasskeyRegistration
         );
-        assert_eq!(registration.snapshot().revision, 4);
+        assert_eq!(registration.snapshot().revision, 0);
 
         let login = CachedPasskeyLoginFlow {
             flow_id: "login-flow".to_string(),
-            revision: 2,
-            created_at,
             expires_at: created_at + Duration::minutes(5),
             challenge: login_challenge(None),
         };
         assert_eq!(login.snapshot().kind, AuthFlowKind::PasskeyLogin);
         assert_eq!(login.snapshot().max_attempts, Some(1));
+    }
+
+    #[tokio::test]
+    async fn expired_cached_flows_are_rejected_after_atomic_take() {
+        let state = CacheOnlyState::new().await;
+        let expired = Utc::now() - Duration::seconds(1);
+        state
+            .cache()
+            .set(
+                &registration_cache_key("expired-register"),
+                &CachedPasskeyRegistrationFlow {
+                    flow_id: "expired-register".to_string(),
+                    expires_at: expired,
+                    challenge: registration_challenge(42),
+                },
+                None,
+            )
+            .await;
+        state
+            .cache()
+            .set(
+                &login_cache_key("expired-login"),
+                &CachedPasskeyLoginFlow {
+                    flow_id: "expired-login".to_string(),
+                    expires_at: expired,
+                    challenge: login_challenge(None),
+                },
+                None,
+            )
+            .await;
+
+        assert!(
+            take_registration_challenge(&state, "expired-register")
+                .await
+                .is_none()
+        );
+        assert!(
+            take_login_challenge(&state, "expired-login")
+                .await
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_challenge_payloads_remain_compatible_during_upgrade() {
+        let state = CacheOnlyState::new().await;
+        let registration = registration_challenge(7);
+        let login = login_challenge(Some("alice"));
+        state
+            .cache()
+            .set_bytes(
+                &registration_cache_key("legacy-register"),
+                serde_json::to_vec(&registration).unwrap_or_default(),
+                Some(PASSKEY_CHALLENGE_TTL_SECS),
+            )
+            .await;
+        state
+            .cache()
+            .set_bytes(
+                &login_cache_key("legacy-login"),
+                serde_json::to_vec(&login).unwrap_or_default(),
+                Some(PASSKEY_CHALLENGE_TTL_SECS),
+            )
+            .await;
+
+        assert_eq!(
+            take_registration_challenge(&state, "legacy-register")
+                .await
+                .map(|value| value.user_id),
+            Some(7)
+        );
+        assert_eq!(
+            take_login_challenge(&state, "legacy-login")
+                .await
+                .and_then(|value| value.identifier),
+            Some("alice".to_string())
+        );
     }
 }
