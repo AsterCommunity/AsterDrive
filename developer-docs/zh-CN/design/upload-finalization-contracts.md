@@ -46,7 +46,7 @@
 所有 reverse follower 和 streaming direct 写入都以 `StreamUploadAttempt` 表达一次有 owner 的写入尝试。attempt 包含唯一 ID、正式目标路径、独立 staging 路径和 declared size；正式目标只在 payload 完整、实际大小匹配且 driver 提交成功后可见。
 
 - `stage_attempt` 只消费当前 attempt 的 reader，driver 负责保持 bounded streaming 和 declared-size 校验；`commit_attempt` 只在 relay 完整确认后发布正式目标，上层不再通过 `exists` 快照推断是否可以删除正式 key。AsterDrive 预分配的 opaque UUID object key 本身就是最终 blob identity，因此 S3-compatible 和 Remote 通过 provider 原子 PUT 直接写该 key，commit 不复制对象；Azure 通过 attempt-scoped block staging + commit block list 写入该 key，未提交 block 在 commit 前不可见并由 provider expiry 或 attempt-scoped abort 回收；Local 使用同一存储根内的 staging file + rename；SFTP 在目标已存在时要求 `posix-rename@openssh.com`。
-- `abort_attempt` 只清理当前 attempt 的 staging/session/未提交 parts，返回 `Cleaned`、`Deferred` 或 `Unknown`。清理失败保留原始写入错误，并进入可重试的观测/维护路径。
+- `abort_attempt` 只清理当前 attempt 的 staging/session/未提交 parts，返回 `NotRequired`、`Cleaned`、`Deferred` 或 `Unknown`。`NotRequired` 表示 provider-atomic attempt 没有独立清理资源；`Deferred` / `Unknown` 表示清理状态需要后续维护确认。清理失败保留原始写入错误，并进入可重试的观测/维护路径。
 - 默认的 provider-atomic driver 可以直接把完整请求提交到目标 key；需要 staging 的 driver 必须使用 attempt 独立 namespace。多次同 key attempt 不得共享临时路径、multipart block、provider session 或清理权限。
 - relay、request cancellation、heartbeat timeout 和 process shutdown 都必须进入同一 abort 生命周期；有界 cleanup timeout 不得阻塞数据面，也不得读取完整对象来判断归属。
 - follower PUT 与 compose 的 stage 阶段使用 15 分钟有界超时；超时会释放当前 attempt、记录 `stream_upload` cleanup outcome，并保留 provider/session 的 Deferred 状态供后续维护重试。

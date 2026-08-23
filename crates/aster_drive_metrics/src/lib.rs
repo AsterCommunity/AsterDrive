@@ -806,6 +806,7 @@ mod tests {
         recorder.record_stream_upload_attempt("attempt", "started");
         recorder.record_stream_upload_attempt("commit", "success");
         recorder.record_stream_upload_attempt("abort", "cleaned");
+        recorder.record_stream_upload_attempt("abort", "not_required");
         recorder.record_stream_upload_attempt("abort", "deferred");
         recorder.record_stream_upload_attempt("abort", "failed");
         recorder.record_stream_upload_bytes("expected", 10 * 1024 * 1024 * 1024);
@@ -818,6 +819,7 @@ mod tests {
         assert!(body.contains("event=\"commit\""));
         assert!(body.contains("event=\"abort\""));
         assert!(body.contains("status=\"cleaned\""));
+        assert!(body.contains("status=\"not_required\""));
         assert!(body.contains("status=\"deferred\""));
         assert!(body.contains("stream_upload_bytes_bucket"));
         assert!(body.contains("kind=\"expected\""));

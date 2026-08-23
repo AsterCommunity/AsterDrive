@@ -1244,6 +1244,38 @@ async fn delete_storage_target(
 mod tests {
     use super::*;
     use actix_web::http::header::{CONTENT_LENGTH, HeaderMap, HeaderValue};
+    use async_trait::async_trait;
+
+    struct CleanupDriver {
+        outcome: std::result::Result<StreamUploadCleanup, aster_drive_storage::StorageError>,
+    }
+
+    #[async_trait]
+    impl StreamUploadDriver for CleanupDriver {
+        async fn put_reader(
+            &self,
+            storage_path: &str,
+            _reader: Box<dyn tokio::io::AsyncRead + Unpin + Send + Sync>,
+            _size: i64,
+        ) -> aster_drive_storage::Result<String> {
+            Ok(storage_path.to_string())
+        }
+
+        async fn put_file(
+            &self,
+            storage_path: &str,
+            _local_path: &str,
+        ) -> aster_drive_storage::Result<String> {
+            Ok(storage_path.to_string())
+        }
+
+        async fn abort_attempt(
+            &self,
+            _attempt: &StreamUploadAttempt,
+        ) -> aster_drive_storage::Result<StreamUploadCleanup> {
+            self.outcome.clone()
+        }
+    }
 
     #[test]
     fn partial_content_range_rejects_invalid_shape_with_stable_codes() {
@@ -1331,5 +1363,26 @@ mod tests {
             content_length_header(&headers).expect("valid content-length should parse"),
             42
         );
+    }
+
+    #[tokio::test]
+    async fn cleanup_follower_attempt_records_each_outcome_without_deleting_final_key() {
+        let attempt = StreamUploadAttempt::new("files/object", 7).unwrap();
+        let metrics = aster_drive_metrics::NoopMetrics::arc();
+        let outcomes = [
+            Ok(StreamUploadCleanup::NotRequired),
+            Ok(StreamUploadCleanup::Cleaned),
+            Ok(StreamUploadCleanup::Deferred),
+            Ok(StreamUploadCleanup::Unknown),
+            Err(aster_drive_storage::StorageError::new(
+                StorageErrorKind::Transient,
+                "cleanup failed",
+            )),
+        ];
+
+        for outcome in outcomes {
+            let driver = CleanupDriver { outcome };
+            cleanup_follower_attempt(&driver, &attempt, metrics.as_ref(), 1, "object").await;
+        }
     }
 }

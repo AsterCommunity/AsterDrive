@@ -455,6 +455,22 @@ mod tests {
         assert_eq!(error.kind(), StorageErrorKind::Precondition);
     }
 
+    #[test]
+    fn attempt_provider_session_can_be_restored_for_retry() {
+        let attempt = StreamUploadAttempt::new("files/opaque-id", 1).unwrap();
+
+        attempt.set_provider_session("https://upload.example/session");
+        assert_eq!(
+            attempt.take_provider_session().as_deref(),
+            Some("https://upload.example/session")
+        );
+        attempt.set_provider_session("https://upload.example/session");
+        assert_eq!(
+            attempt.take_provider_session().as_deref(),
+            Some("https://upload.example/session")
+        );
+    }
+
     #[tokio::test]
     async fn atomic_attempt_writes_final_key_without_copy_staging() {
         let driver = AtomicAttemptDriver {

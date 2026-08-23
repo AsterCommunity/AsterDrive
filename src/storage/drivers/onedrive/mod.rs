@@ -314,15 +314,24 @@ impl OneDriveDriver {
         }
         .await;
         if result.is_err() {
-            if let Some(upload_url) = upload_url
-                && let Err(error) = self.client.abort_upload_session(&upload_url).await
-            {
-                tracing::warn!("failed to abort OneDrive upload session: {error}");
+            if let Some(upload_url) = upload_url.take() {
+                match self.client.abort_upload_session(&upload_url).await {
+                    Ok(()) => {
+                        if let Some(attempt) = attempt {
+                            let _ = attempt.take_provider_session();
+                        }
+                    }
+                    Err(error) => {
+                        if let Some(attempt) = attempt {
+                            attempt.set_provider_session(upload_url);
+                        }
+                        tracing::warn!("failed to abort OneDrive upload session: {error}");
+                    }
+                }
             }
             self.cleanup_named_object_parent(parent_path.as_deref())
                 .await;
-        }
-        if let Some(attempt) = attempt {
+        } else if let Some(attempt) = attempt {
             let _ = attempt.take_provider_session();
         }
         result
@@ -484,6 +493,7 @@ impl StreamUploadDriver for OneDriveDriver {
         match self.client.abort_upload_session(&upload_url).await {
             Ok(()) => Ok(StreamUploadCleanup::Cleaned),
             Err(error) => {
+                attempt.set_provider_session(upload_url);
                 tracing::warn!("failed to abort OneDrive attempt session: {error}");
                 Ok(StreamUploadCleanup::Deferred)
             }
