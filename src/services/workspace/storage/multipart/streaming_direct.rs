@@ -10,7 +10,7 @@ use crate::services::workspace::storage::{
     prepare_non_dedup_blob_upload, store_preuploaded_nondedup,
 };
 use aster_drive_model::entities::file;
-use aster_drive_storage::BlobMetadata;
+use aster_drive_storage::{BlobMetadata, StreamUploadAttempt};
 use aster_forge_utils::numbers::u64_to_i64;
 
 use super::common::{
@@ -33,6 +33,7 @@ pub(super) async fn upload_streaming_direct(
         actor_username,
     } = params;
     const RELAY_DIRECT_BUFFER_SIZE: usize = 64 * 1024;
+    const STREAM_ATTEMPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
     if policy.max_file_size > 0 && declared_size > policy.max_file_size {
         return Err(AsterError::file_too_large(format!(
@@ -60,10 +61,11 @@ pub(super) async fn upload_streaming_direct(
                 Some(&filename),
             )?;
             let storage_path = prepared_upload.storage_path().to_string();
+            let attempt = StreamUploadAttempt::new(&storage_path, declared_size)?;
+            let attempt_for_upload = attempt.clone();
 
             let (writer, reader) = tokio::io::duplex(RELAY_DIRECT_BUFFER_SIZE);
             let upload_driver = driver.clone();
-            let upload_storage_path = storage_path.clone();
             let stream_driver = upload_driver.extensions().stream_upload.ok_or_else(|| {
                 crate::errors::AsterError::storage_driver_error("stream upload not supported")
             })?;
@@ -85,10 +87,15 @@ pub(super) async fn upload_streaming_direct(
                         Ok::<(), AsterError>(())
                     });
 
-                    let upload_result = stream_driver
-                        .put_reader(&upload_storage_path, Box::new(reader), declared_size)
-                        .await
-                        .map_err(AsterError::from);
+                    let upload_result =
+                        stream_driver.stage_attempt(&attempt_for_upload, Box::new(reader));
+                    let upload_result =
+                        match tokio::time::timeout(STREAM_ATTEMPT_TIMEOUT, upload_result).await {
+                            Ok(result) => result.map_err(AsterError::from),
+                            Err(_) => Err(AsterError::storage_driver_error(
+                                "streaming direct upload attempt timed out",
+                            )),
+                        };
                     let relay_result = relay_task.await.map_err(|err| {
                         file_upload_error_with_code(
                             ApiErrorCode::UploadDirectRelayTaskFailed,
@@ -96,7 +103,7 @@ pub(super) async fn upload_streaming_direct(
                         )
                     })?;
 
-                    Ok::<(Result<String>, Result<()>), AsterError>((upload_result, relay_result))
+                    Ok::<(Result<()>, Result<()>), AsterError>((upload_result, relay_result))
                 })
                 .await?;
 
@@ -118,6 +125,16 @@ pub(super) async fn upload_streaming_direct(
                 )
                 .await;
                 return Err(err);
+            }
+
+            if let Err(err) = stream_driver.commit_attempt(&attempt).await {
+                cleanup_preuploaded_blob_upload(
+                    driver.as_ref(),
+                    &prepared_upload,
+                    "direct stream commit error",
+                )
+                .await;
+                return Err(err.into());
             }
 
             let metadata = match driver.metadata(&storage_path).await {
