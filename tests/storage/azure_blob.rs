@@ -204,10 +204,13 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
         .put("docs/copy-src.txt", b"copy payload")
         .await
         .unwrap();
-    driver
-        .copy_object("docs/copy-src.txt", "docs/copy-dst.txt")
-        .await
-        .unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        driver.copy_object("docs/copy-src.txt", "docs/copy-dst.txt"),
+    )
+    .await
+    .expect("loopback Azure copy fallback should not exhaust SDK retries")
+    .unwrap();
     assert_eq!(
         driver.get("docs/copy-dst.txt").await.unwrap(),
         b"copy payload"

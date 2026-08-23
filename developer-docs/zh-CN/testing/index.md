@@ -45,6 +45,7 @@ cargo nextest run
 ```
 
 PostgreSQL / MySQL 使用专用的 `database` profile。它保持 nextest 的 process-per-test 隔离，并为数据库初始化和异常回收提供更长的慢测试诊断窗口。
+三个真实跨数据库的 CLI migration 测试属于 `database-migrations` test group，组内单并发，避免同时争用共享的 PostgreSQL / MySQL 容器。
 
 切到 PostgreSQL：
 

@@ -8,7 +8,7 @@ mod storage_driver;
 use crate::errors::AsterError;
 use std::time::Duration;
 
-use azure_core::http::Url;
+use azure_core::http::{ClientOptions, RetryOptions, Url};
 use azure_storage_blob::{
     BlobClient, BlobClientOptions, BlobContainerClient, BlobContainerClientOptions,
     BlockBlobClient, BlockBlobClientOptions,
@@ -235,6 +235,16 @@ impl AzureBlobDriver {
         }
     }
 
+    fn block_blob_client_options_without_retries() -> BlockBlobClientOptions {
+        BlockBlobClientOptions {
+            client_options: ClientOptions {
+                retry: RetryOptions::none(),
+                ..Default::default()
+            },
+            version: AZURE_STORAGE_VERSION.to_string(),
+        }
+    }
+
     fn container_client_options() -> BlobContainerClientOptions {
         BlobContainerClientOptions {
             version: AZURE_STORAGE_VERSION.to_string(),
@@ -256,6 +266,19 @@ impl AzureBlobDriver {
             self.block_blob_url(path, permissions, DEFAULT_OPERATION_SAS_TTL)?,
             None,
             Some(Self::block_blob_client_options()),
+        )
+        .map_err(|error| Self::rewrap_azure_error("build Azure Blob block client", error))
+    }
+
+    fn block_blob_client_without_retries(
+        &self,
+        path: &str,
+        permissions: &str,
+    ) -> Result<BlockBlobClient> {
+        BlockBlobClient::new(
+            self.block_blob_url(path, permissions, DEFAULT_OPERATION_SAS_TTL)?,
+            None,
+            Some(Self::block_blob_client_options_without_retries()),
         )
         .map_err(|error| Self::rewrap_azure_error("build Azure Blob block client", error))
     }

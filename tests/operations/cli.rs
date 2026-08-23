@@ -2158,10 +2158,13 @@ async fn test_root_binary_database_migrate_sqlite_to_postgres_happy_path() {
 
 #[tokio::test]
 async fn test_root_binary_database_migrate_postgres_to_mysql_with_progress() {
-    let source_database_url = common::postgres_test_database_url().await;
-    let file_id = seed_migration_fixture(&source_database_url).await;
-
-    let target_database_url = common::mysql_test_database_url().await;
+    let source = async {
+        let database_url = common::postgres_test_database_url().await;
+        let file_id = seed_migration_fixture(&database_url).await;
+        (database_url, file_id)
+    };
+    let ((source_database_url, file_id), target_database_url) =
+        tokio::join!(source, common::mysql_test_database_url());
 
     let output = run_aster_drive_with_env(
         &[

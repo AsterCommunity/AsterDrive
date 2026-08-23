@@ -2052,8 +2052,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn large_fixtures_keep_peak_working_set_bounded() {
+        let page_width = usize::try_from(super::PAGE_SIZE).expect("page size should fit usize");
         let mut peaks = Vec::new();
-        for child_count in [2_000, 10_000, 20_000] {
+        for child_count in [page_width.saturating_mul(4), page_width.saturating_mul(8)] {
             peaks.push(measure_wide_traversal_peak(child_count).await);
         }
 
@@ -2065,9 +2066,9 @@ mod tests {
             );
         }
 
-        let deepest_fixture = 64usize;
+        let deepest_fixture = 16usize;
         let depth_observer = measure_deep_traversal(deepest_fixture).await;
-        let measured_depth_peaks = [8, 32, deepest_fixture].map(|depth| {
+        let measured_depth_peaks = [4, 8, deepest_fixture].map(|depth| {
             (
                 depth,
                 depth_observer

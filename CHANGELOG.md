@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **认证 flow 过期与重放边界** — contact verification token 的消费现在要求 `consumed_at IS NULL AND expires_at > now`，避免并发窗口消费已过期 token；external callback 在原子消费前验证 active flow，Passkey challenge 使用带 identity、revision 和 expiry 的单次消费 envelope，session refresh 拒绝 expired/revoked session，非法 transition 不再产生部分认证副作用。
+- **Azure Blob loopback 复制回退延迟** — Azurite 等 loopback endpoint 的服务端 URL copy 失败后立即进入本地流式复制回退，不再先耗尽 Azure SDK 的完整重试窗口；非 loopback Azure endpoint 继续保留默认重试策略。
 
 - **Docker edge 发布通道跟随 stable** — 正式版本发布时，GHCR 与 Docker Hub 的 `edge`、`edge-metrics`、`edge-slim` 和 `edge-metrics-slim` 与对应 `stable` manifest 同步；alpha、beta、rc 发布只移动 edge，`latest` / `stable` 保持上一正式版本，避免 edge 长期停留在旧候选版本。
 - **PDF 预览旋转位置保持** — 多页 PDF 在中间或靠后页面旋转时保留当前虚拟页及页内滚动偏移，不再因页面尺寸重新测量跳到文档底部。

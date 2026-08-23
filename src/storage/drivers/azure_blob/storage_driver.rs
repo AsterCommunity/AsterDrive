@@ -124,13 +124,18 @@ impl StorageDriver for AzureBlobDriver {
         dest_path: &str,
     ) -> aster_drive_storage::Result<String> {
         let source_url = self.blob_url(src_path, "r", DEFAULT_OPERATION_SAS_TTL)?;
-        let dest_client = self.block_blob_client(dest_path, "cw")?;
+        let endpoint_uses_loopback_host = self.endpoint_uses_loopback_host();
+        let dest_client = if endpoint_uses_loopback_host {
+            self.block_blob_client_without_retries(dest_path, "cw")?
+        } else {
+            self.block_blob_client(dest_path, "cw")?
+        };
 
         if let Err(error) = dest_client
             .upload_blob_from_url(source_url.to_string(), None)
             .await
         {
-            if !self.endpoint_uses_loopback_host() {
+            if !endpoint_uses_loopback_host {
                 return Err(Self::map_azure_error(
                     "Azure Blob copy_object failed",
                     error,

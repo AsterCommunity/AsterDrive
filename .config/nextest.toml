@@ -2,6 +2,13 @@
 fail-fast = false
 retries = 0
 
+[[profile.default.overrides]]
+filter = 'package(=aster_drive) & binary(=operations) & test(/^cli::test_root_binary_database_migrate_(sqlite_to_postgres_happy_path|postgres_to_mysql_with_progress|mysql_to_sqlite_happy_path)$/)'
+test-group = "database-migrations"
+
+[test-groups.database-migrations]
+max-threads = 1
+
 [profile.ci]
 inherits = "default"
 status-level = "fail"
