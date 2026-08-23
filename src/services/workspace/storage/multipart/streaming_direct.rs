@@ -96,7 +96,13 @@ pub(super) async fn upload_streaming_direct(
                             Ok(result) => result.map_err(AsterError::from),
                             Err(_) => {
                                 relay_task.abort();
-                                let _ = relay_task.await;
+                                if let Err(error) = relay_task.await
+                                    && !error.is_cancelled()
+                                {
+                                    tracing::warn!(
+                                        "failed to join aborted direct relay task: {error}"
+                                    );
+                                }
                                 return Err(AsterError::storage_driver_error(
                                     "streaming direct upload attempt timed out",
                                 ));
@@ -104,7 +110,13 @@ pub(super) async fn upload_streaming_direct(
                         };
                     if let Err(error) = upload_result {
                         relay_task.abort();
-                        let _ = relay_task.await;
+                        if let Err(join_error) = relay_task.await
+                            && !join_error.is_cancelled()
+                        {
+                            tracing::warn!(
+                                "failed to join direct relay task after stage error: {join_error}"
+                            );
+                        }
                         return Ok::<(Result<()>, Result<()>), AsterError>((
                             Err(error),
                             Err(AsterError::storage_driver_error(
