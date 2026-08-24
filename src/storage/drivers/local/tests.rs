@@ -3,10 +3,35 @@ use super::paths::{effective_base_path, sanitize_relative_path};
 use crate::storage::drivers::local::promote::PromoteLocalFileOutcome;
 use aster_drive_storage::traits::driver::{StorageDriver, StoragePathVisitor};
 use aster_drive_storage::traits::extensions::{
-    ListStorageDriver, LocalPathStorageDriver, StorageCapacityStatus,
+    ListStorageDriver, LocalPathStorageDriver, StorageCapacityStatus, StreamUploadAttempt,
+    StreamUploadCleanup, StreamUploadDriver,
 };
 use std::path::{Path, PathBuf};
-use tokio::io::AsyncReadExt;
+use std::pin::Pin;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+use std::task::{Context, Poll};
+use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
+
+struct CountingRepeatReader {
+    observed: Arc<AtomicUsize>,
+}
+
+impl AsyncRead for CountingRepeatReader {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let count = buffer.remaining();
+        buffer.initialize_unfilled().fill(7);
+        buffer.advance(count);
+        self.observed.fetch_add(count, Ordering::SeqCst);
+        Poll::Ready(Ok(()))
+    }
+}
 
 fn test_base_path(base: &Path) -> String {
     base.to_string_lossy().into_owned()
@@ -400,5 +425,176 @@ async fn copy_metadata_stream_and_delete_roundtrip() {
     driver.delete("dest/file.txt").await.unwrap();
     assert!(!driver.exists("dest/file.txt").await.unwrap());
 
+    let _ = tokio::fs::remove_dir_all(&base).await;
+}
+
+#[tokio::test]
+async fn stream_attempt_rejects_truncation_without_replacing_visible_object() {
+    let base = unique_temp_dir("local-stream-attempt-test");
+    tokio::fs::create_dir_all(&base).await.unwrap();
+    let driver = super::LocalDriver::new(&test_base_path(&base)).unwrap();
+    driver.put("object.bin", b"previous").await.unwrap();
+    let attempt = StreamUploadAttempt::new("object.bin", 64).unwrap();
+
+    let error = driver
+        .stage_attempt(&attempt, Box::new(std::io::Cursor::new(b"short".to_vec())))
+        .await
+        .expect_err("truncated attempt must fail");
+
+    assert_eq!(
+        error.kind(),
+        aster_drive_storage::StorageErrorKind::Precondition
+    );
+    assert_eq!(driver.get("object.bin").await.unwrap(), b"previous");
+    assert!(!driver.exists(&attempt.staging_path).await.unwrap());
+    let _ = tokio::fs::remove_dir_all(&base).await;
+}
+
+#[tokio::test]
+async fn stream_attempt_covers_zero_overlong_abort_and_retry_boundaries() {
+    let base = unique_temp_dir("local-stream-attempt-boundaries");
+    tokio::fs::create_dir_all(&base).await.unwrap();
+    let driver = super::LocalDriver::new(&test_base_path(&base)).unwrap();
+
+    driver
+        .put_reader("empty.bin", Box::new(std::io::Cursor::new(Vec::new())), 0)
+        .await
+        .expect("zero-byte stream should commit");
+    assert_eq!(driver.get("empty.bin").await.unwrap(), Vec::<u8>::new());
+
+    driver.put("object.bin", b"previous").await.unwrap();
+    let overlong = driver
+        .put_reader(
+            "object.bin",
+            Box::new(std::io::Cursor::new(b"too long".to_vec())),
+            3,
+        )
+        .await
+        .expect_err("stream longer than its declaration must fail");
+    assert_eq!(
+        overlong.kind(),
+        aster_drive_storage::StorageErrorKind::Precondition
+    );
+    assert_eq!(driver.get("object.bin").await.unwrap(), b"previous");
+
+    let aborted = StreamUploadAttempt::new("object.bin", 4).unwrap();
+    driver
+        .stage_attempt(&aborted, Box::new(std::io::Cursor::new(b"junk".to_vec())))
+        .await
+        .unwrap();
+    assert_eq!(
+        driver.abort_attempt(&aborted).await.unwrap(),
+        StreamUploadCleanup::Cleaned
+    );
+    assert!(!driver.exists(&aborted.staging_path).await.unwrap());
+    assert_eq!(driver.get("object.bin").await.unwrap(), b"previous");
+    assert_eq!(
+        driver.abort_attempt(&aborted).await.unwrap(),
+        StreamUploadCleanup::Cleaned,
+        "repeated abort should be idempotent"
+    );
+
+    driver
+        .put_reader(
+            "object.bin",
+            Box::new(std::io::Cursor::new(b"replacement".to_vec())),
+            11,
+        )
+        .await
+        .expect("same-key retry should commit after cleanup");
+    assert_eq!(driver.get("object.bin").await.unwrap(), b"replacement");
+
+    let entries = std::fs::read_dir(&base)
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert!(
+        entries
+            .iter()
+            .all(|name| !name.starts_with(".aster-attempt-"))
+    );
+
+    let _ = tokio::fs::remove_dir_all(&base).await;
+}
+
+#[tokio::test]
+async fn stream_attempt_bounds_overlong_reader_to_declared_size_plus_probe() {
+    let base = unique_temp_dir("local-stream-attempt-overlong-bound");
+    tokio::fs::create_dir_all(&base).await.unwrap();
+    let driver = super::LocalDriver::new(&test_base_path(&base)).unwrap();
+    driver.put("object.bin", b"previous").await.unwrap();
+    let observed = Arc::new(AtomicUsize::new(0));
+
+    let error = driver
+        .put_reader(
+            "object.bin",
+            Box::new(CountingRepeatReader {
+                observed: Arc::clone(&observed),
+            }),
+            4,
+        )
+        .await
+        .expect_err("an unbounded reader must stop after the length probe");
+
+    assert_eq!(
+        error.kind(),
+        aster_drive_storage::StorageErrorKind::Precondition
+    );
+    assert_eq!(observed.load(Ordering::SeqCst), 5);
+    assert_eq!(driver.get("object.bin").await.unwrap(), b"previous");
+    let entries = std::fs::read_dir(&base)
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert!(
+        entries
+            .iter()
+            .all(|name| !name.starts_with(".aster-attempt-"))
+    );
+
+    tokio::fs::remove_dir_all(&base)
+        .await
+        .expect("remove bounded local stream-attempt test directory");
+}
+
+#[tokio::test]
+async fn same_target_stream_attempts_use_isolated_staging_paths() {
+    let base = unique_temp_dir("local-concurrent-attempt-test");
+    tokio::fs::create_dir_all(&base).await.unwrap();
+    let driver = std::sync::Arc::new(super::LocalDriver::new(&test_base_path(&base)).unwrap());
+    let first = StreamUploadAttempt::new("object.bin", 5).unwrap();
+    let second = StreamUploadAttempt::new("object.bin", 6).unwrap();
+
+    let first_driver = std::sync::Arc::clone(&driver);
+    let first_attempt = first.clone();
+    let first_task = tokio::spawn(async move {
+        first_driver
+            .stage_attempt(
+                &first_attempt,
+                Box::new(std::io::Cursor::new(b"first".to_vec())),
+            )
+            .await?;
+        first_driver.commit_attempt(&first_attempt).await
+    });
+    let second_driver = std::sync::Arc::clone(&driver);
+    let second_attempt = second.clone();
+    let second_task = tokio::spawn(async move {
+        second_driver
+            .stage_attempt(
+                &second_attempt,
+                Box::new(std::io::Cursor::new(b"second".to_vec())),
+            )
+            .await?;
+        second_driver.commit_attempt(&second_attempt).await
+    });
+
+    first_task.await.unwrap().unwrap();
+    second_task.await.unwrap().unwrap();
+    let body = driver.get("object.bin").await.unwrap();
+    assert!(body == b"first" || body == b"second");
+    assert!(!driver.exists(&first.staging_path).await.unwrap());
+    assert!(!driver.exists(&second.staging_path).await.unwrap());
     let _ = tokio::fs::remove_dir_all(&base).await;
 }

@@ -1369,6 +1369,7 @@ mod tests {
         .expect("client should build");
         let error = client.get_download_url("/content").await.unwrap_err();
         assert_eq!(error.kind(), StorageErrorKind::Permission);
+        assert!(!error.message().contains("denied"));
         forbidden.stop().await;
 
         let ok =

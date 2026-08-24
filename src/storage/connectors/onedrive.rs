@@ -2086,6 +2086,171 @@ mod tests {
     }
 
     #[test]
+    fn connector_surface_methods_cover_credential_and_policy_edges() {
+        let connector = OneDriveConnector;
+        let application =
+            StorageConnectorCredentialInput::AuthorizationApplication(serde_json::json!({
+                "client_id": "client-id",
+                "client_secret": "client-secret"
+            }));
+        assert!(connector.validate_credential_input(&application).is_ok());
+        assert!(
+            connector
+                .validate_credential_input(&StorageConnectorCredentialInput::None)
+                .is_err()
+        );
+        assert!(
+            connector
+                .validate_credential_input(&StorageConnectorCredentialInput::Static(
+                    serde_json::json!({"secret": "value"})
+                ))
+                .is_err()
+        );
+        assert!(
+            connector
+                .validate_credential_input(
+                    &StorageConnectorCredentialInput::AuthorizationApplication(
+                        serde_json::json!({"client_id": " ", "client_secret": "secret"})
+                    )
+                )
+                .is_err()
+        );
+
+        let relay_policy = policy(connector_config(
+            OneDriveAccountMode::Personal,
+            None,
+            None,
+            None,
+            None,
+        ));
+        assert_eq!(
+            connector.upload_transport(&relay_policy).unwrap(),
+            StorageConnectorUploadTransport::ProviderResumable(
+                ProviderResumableUploadStrategy::ServerRelay
+            )
+        );
+        assert!(!connector.presigned_download_enabled(&relay_policy).unwrap());
+        assert!(
+            !connector
+                .presigned_download_requires_filename_match(&relay_policy)
+                .unwrap()
+        );
+
+        let mut direct_config =
+            connector_config(OneDriveAccountMode::WorkOrSchool, None, None, None, None);
+        direct_config.provider_download_strategy = ProviderDownloadStrategy::FrontendDirect;
+        direct_config.provider_download_filename_mode = ProviderDownloadFilenameMode::StrictCurrent;
+        direct_config.provider_resumable_upload_strategy =
+            ProviderResumableUploadStrategy::FrontendDirect;
+        let direct_policy = policy(direct_config);
+        assert_eq!(
+            connector.upload_transport(&direct_policy).unwrap(),
+            StorageConnectorUploadTransport::ProviderResumable(
+                ProviderResumableUploadStrategy::FrontendDirect
+            )
+        );
+        assert!(
+            connector
+                .presigned_download_enabled(&direct_policy)
+                .unwrap()
+        );
+        assert!(
+            connector
+                .presigned_download_requires_filename_match(&direct_policy)
+                .unwrap()
+        );
+        assert!(connector.localization().is_ok());
+    }
+
+    #[test]
+    fn connector_owned_scope_and_audit_helpers_cover_fallback_edges() {
+        assert_eq!(
+            normalize_microsoft_graph_scopes(
+                Some(vec![
+                    " Files.ReadWrite ".to_string(),
+                    "".to_string(),
+                    "Files.ReadWrite".to_string(),
+                ]),
+                "offline_access Files.ReadWrite"
+            ),
+            vec!["Files.ReadWrite".to_string()]
+        );
+        assert_eq!(
+            normalize_microsoft_graph_scopes(Some(Vec::new()), "offline_access Files.ReadWrite"),
+            vec!["offline_access".to_string(), "Files.ReadWrite".to_string()]
+        );
+
+        let audit =
+            microsoft_graph_authorization_audit(MicrosoftGraphCloud::China, "organizations");
+        assert_eq!(audit.provider, StorageCredentialProvider::MicrosoftGraph);
+        assert_eq!(audit.fields["tenant"], serde_json::json!("organizations"));
+        assert_eq!(
+            audit.fields["client_secret_configured"],
+            serde_json::json!(true)
+        );
+    }
+
+    #[test]
+    fn connector_credential_debug_redacts_application_and_authorization_secrets() {
+        let payload = OneDriveCredentialV1 {
+            application: OneDriveApplicationCredentialV1 {
+                cloud: MicrosoftGraphCloud::Global,
+                tenant: "common".to_string(),
+                client_id: "client-id".to_string(),
+                client_secret: "application-secret".to_string(),
+                scopes: vec!["offline_access".to_string()],
+            },
+            authorization: Some(OneDriveAuthorizationCredentialV1 {
+                account_label: Some("Documents".to_string()),
+                subject: Some("subject".to_string()),
+                tenant_id: Some("common".to_string()),
+                scopes: vec!["Files.ReadWrite".to_string()],
+                access_token: "access-token".to_string(),
+                refresh_token: Some("refresh-token".to_string()),
+                metadata: OneDriveAuthorizationMetadataV1 {
+                    cloud: MicrosoftGraphCloud::Global,
+                    drive_id: "drive".to_string(),
+                    root_item_id: "root".to_string(),
+                    root_item_name: Some("Documents".to_string()),
+                    id_token_present: true,
+                },
+                status: StorageCredentialStatus::Authorized,
+                status_reason: None,
+                expires_at: None,
+                authorized_at: None,
+                last_refreshed_at: None,
+                last_validated_at: None,
+            }),
+        };
+        let debug = format!("{payload:?}");
+        assert!(debug.contains("***REDACTED***"));
+        assert!(!debug.contains("application-secret"));
+        assert!(!debug.contains("access-token"));
+        assert!(!debug.contains("refresh-token"));
+    }
+
+    #[test]
+    fn cleanup_snapshot_input_rejects_missing_and_wrong_snapshots() {
+        let missing = onedrive_snapshot_from_cleanup_input(StoragePolicyCleanupSnapshots {
+            driver_snapshot: None,
+        })
+        .expect_err("cleanup without a snapshot must fail");
+        assert!(missing.message().contains("missing credential snapshot"));
+
+        let wrong_connector = StoragePolicyCleanupDriverSnapshot::encode(
+            aster_drive_storage::ConnectorId::declared("asterdrive.storage.s3"),
+            CLEANUP_SNAPSHOT_SCHEMA_VERSION,
+            &serde_json::json!({"drive_id":"drive"}),
+        )
+        .unwrap();
+        let error = onedrive_snapshot_from_cleanup_input(StoragePolicyCleanupSnapshots {
+            driver_snapshot: Some(&wrong_connector),
+        })
+        .expect_err("cleanup snapshot from another connector must fail");
+        assert!(!error.message().is_empty());
+    }
+
+    #[test]
     fn missing_account_mode_uses_the_connector_owned_default() {
         let connector = OneDriveConnector;
         let config = connector_config(OneDriveAccountMode::WorkOrSchool, None, None, None, None);
@@ -2321,6 +2486,61 @@ mod tests {
         assert_eq!(
             payload.authorization.unwrap().refresh_token.as_deref(),
             Some("refresh-token")
+        );
+
+        let mut app_config = crate::config::Config::default();
+        app_config.auth.storage_credential_secret_key = KEY.to_string();
+        let info = OneDriveConnector
+            .credential_info(&app_config, &updated)
+            .unwrap()
+            .expect("authorized OneDrive credential should expose credential info");
+        assert_eq!(info.provider, StorageCredentialProvider::MicrosoftGraph);
+        assert_eq!(info.account_label.as_deref(), Some("Documents"));
+        assert_eq!(info.subject.as_deref(), Some("root"));
+        assert_eq!(info.status, StorageCredentialStatus::Authorized);
+
+        for (error_kind, expected_status) in [
+            (
+                aster_drive_storage::StorageErrorKind::Auth,
+                StorageCredentialStatus::ReauthRequired,
+            ),
+            (
+                aster_drive_storage::StorageErrorKind::Permission,
+                StorageCredentialStatus::PermissionDenied,
+            ),
+            (
+                aster_drive_storage::StorageErrorKind::Misconfigured,
+                StorageCredentialStatus::Invalid,
+            ),
+        ] {
+            let failure = OneDriveConnector
+                .credential_validation_failure_payload(
+                    &app_config,
+                    &updated,
+                    Some(error_kind),
+                    "validation failed",
+                )
+                .unwrap()
+                .expect("known credential failure should produce a payload");
+            assert_eq!(
+                failure["authorization"]["status"],
+                serde_json::to_value(expected_status).unwrap()
+            );
+            assert_eq!(
+                failure["authorization"]["status_reason"],
+                "validation failed"
+            );
+        }
+        assert!(
+            OneDriveConnector
+                .credential_validation_failure_payload(
+                    &app_config,
+                    &updated,
+                    Some(aster_drive_storage::StorageErrorKind::Transient),
+                    "transient",
+                )
+                .unwrap()
+                .is_none()
         );
 
         let changed = OneDriveConnector::upsert_application_config(

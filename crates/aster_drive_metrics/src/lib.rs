@@ -138,6 +138,15 @@ pub trait MetricsRecorder: Send + Sync {
     ) {
     }
 
+    /// Records a streaming upload attempt lifecycle event.
+    fn record_stream_upload_attempt(&self, event: &'static str, status: &'static str) {}
+
+    /// Records bytes associated with a streaming upload attempt.
+    fn record_stream_upload_bytes(&self, kind: &'static str, bytes: u64) {}
+
+    /// Adjusts the number of streaming attempts in the data plane.
+    fn adjust_stream_upload_active(&self, delta: i64) {}
+
     /// Records events emitted by the share-download rollback queue.
     fn record_share_download_rollback_event(&self, event: &'static str, count: u64) {}
 
@@ -230,12 +239,31 @@ mod product {
                 "Total Drive storage driver operations.",
                 &["driver", "operation", "status", "kind"],
             ),
-            storage_driver_operation_duration: histogram_with_buckets(
+    storage_driver_operation_duration: histogram_with_buckets(
                 "storage_driver",
                 "operation_duration_seconds",
                 "Drive storage driver operation duration in seconds.",
                 &["driver", "operation", "status", "kind"],
                 &[0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 5.0, 15.0, 60.0],
+            ),
+            stream_upload_attempts: counter(
+                "stream_upload",
+                "attempts_total",
+                "Total streaming upload attempt lifecycle events.",
+                &["event", "status"],
+            ),
+            stream_upload_bytes: histogram_with_buckets(
+                "stream_upload",
+                "bytes",
+                "Streaming upload attempt byte counts.",
+                &["kind"],
+                &[1024.0, 64.0 * 1024.0, 1024.0 * 1024.0, 5.0 * 1024.0 * 1024.0, 50.0 * 1024.0 * 1024.0, 1024.0 * 1024.0 * 1024.0, 10.0 * 1024.0 * 1024.0 * 1024.0],
+            ),
+            stream_upload_active: gauge(
+                "stream_upload",
+                "active",
+                "Streaming upload attempts currently in the data plane.",
+                &[],
             ),
             avatar_uploads: counter(
                 "avatar",
@@ -634,6 +662,24 @@ impl MetricsRecorder for DriveMetricsRecorder {
         }
     }
 
+    fn record_stream_upload_attempt(&self, event: &'static str, status: &'static str) {
+        if let Some(product) = self.product {
+            product.stream_upload_attempts.inc(&[event, status], 1);
+        }
+    }
+
+    fn record_stream_upload_bytes(&self, kind: &'static str, bytes: u64) {
+        if let Some(product) = self.product {
+            product.stream_upload_bytes.observe(&[kind], bytes as f64);
+        }
+    }
+
+    fn adjust_stream_upload_active(&self, delta: i64) {
+        if let Some(product) = self.product {
+            product.stream_upload_active.add(&[], delta as f64);
+        }
+    }
+
     fn record_share_download_rollback_event(&self, event: &'static str, count: u64) {
         if let Some(product) = self.product {
             product.share_download_rollback_events.inc(&[event], count);
@@ -743,5 +789,41 @@ mod tests {
         assert!(body.contains("reason=\"dimensions\""));
         assert!(body.contains("reason=\"decode_or_render\""));
         assert!(body.contains("reason=\"processor_unavailable\""));
+    }
+
+    #[cfg(feature = "metrics")]
+    #[test]
+    fn stream_upload_metrics_register_record_and_export_expected_families() {
+        use std::sync::Arc;
+
+        use aster_forge_metrics::prometheus::{
+            PrometheusMetricsRecorder, export_metrics, init_metrics,
+        };
+
+        init_metrics().expect("Prometheus registry should initialize before product metrics");
+        let recorder = super::DriveMetricsRecorder::new(Arc::new(PrometheusMetricsRecorder));
+
+        recorder.record_stream_upload_attempt("attempt", "started");
+        recorder.record_stream_upload_attempt("commit", "success");
+        recorder.record_stream_upload_attempt("abort", "cleaned");
+        recorder.record_stream_upload_attempt("abort", "not_required");
+        recorder.record_stream_upload_attempt("abort", "deferred");
+        recorder.record_stream_upload_attempt("abort", "failed");
+        recorder.record_stream_upload_bytes("expected", 10 * 1024 * 1024 * 1024);
+        recorder.adjust_stream_upload_active(1);
+        recorder.adjust_stream_upload_active(-1);
+
+        let body = export_metrics().expect("Drive stream upload metrics should export");
+        assert!(body.contains("stream_upload_attempts_total"));
+        assert!(body.contains("event=\"attempt\""));
+        assert!(body.contains("event=\"commit\""));
+        assert!(body.contains("event=\"abort\""));
+        assert!(body.contains("status=\"cleaned\""));
+        assert!(body.contains("status=\"not_required\""));
+        assert!(body.contains("status=\"deferred\""));
+        assert!(body.contains("stream_upload_bytes_bucket"));
+        assert!(body.contains("kind=\"expected\""));
+        assert!(body.contains("le=\"10737418240\""));
+        assert!(body.contains("stream_upload_active 0"));
     }
 }

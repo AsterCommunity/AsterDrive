@@ -157,3 +157,17 @@ impl StreamUploadDriver for S3Driver {
         Ok(storage_path.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::SizedReaderBody;
+    use http_body::Body as _;
+
+    #[test]
+    fn sized_stream_body_does_not_add_a_copy_object_publish_boundary() {
+        let size = 6_u64 * 1024 * 1024 * 1024;
+        let body = SizedReaderBody::new(tokio::io::empty(), size);
+
+        assert_eq!(body.size_hint().exact(), Some(size));
+    }
+}

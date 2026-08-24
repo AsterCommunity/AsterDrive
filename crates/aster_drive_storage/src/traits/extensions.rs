@@ -43,6 +43,81 @@ pub struct StorageDriverExtensions<'a> {
     pub multipart: Option<&'a dyn crate::traits::multipart::MultipartStorageDriver>,
 }
 
+/// One product-owned streaming write.
+///
+/// AsterDrive allocates opaque immutable blob keys before transfer. For
+/// provider-atomic drivers that key is already the eventual blob identity;
+/// publishing the file/version happens later when the Drive database starts
+/// referencing it. Filesystem-like drivers use `staging_path` until commit.
+#[derive(Debug, Clone)]
+pub struct StreamUploadAttempt {
+    pub id: String,
+    pub storage_path: String,
+    pub staging_path: String,
+    pub expected_size: i64,
+    provider_session: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    provider_cleanup_resource: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+}
+
+impl StreamUploadAttempt {
+    pub fn new(storage_path: impl Into<String>, expected_size: i64) -> Result<Self> {
+        if expected_size < 0 {
+            return Err(crate::error::storage_driver_error(
+                crate::error::StorageErrorKind::Precondition,
+                "stream upload expected size must be non-negative",
+            ));
+        }
+        let storage_path = storage_path.into();
+        let id = aster_forge_utils::id::new_uuid();
+        let staging_path = storage_path
+            .rsplit_once('/')
+            .map(|(parent, _)| format!("{parent}/.aster-attempt-{id}.tmp"))
+            .unwrap_or_else(|| format!(".aster-attempt-{id}.tmp"));
+        Ok(Self {
+            id,
+            storage_path,
+            staging_path,
+            expected_size,
+            provider_session: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            provider_cleanup_resource: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        })
+    }
+
+    pub fn set_provider_session(&self, session: impl Into<String>) {
+        if let Ok(mut value) = self.provider_session.lock() {
+            *value = Some(session.into());
+        }
+    }
+
+    pub fn take_provider_session(&self) -> Option<String> {
+        self.provider_session
+            .lock()
+            .ok()
+            .and_then(|mut value| value.take())
+    }
+
+    pub fn set_provider_cleanup_resource(&self, resource: impl Into<String>) {
+        if let Ok(mut value) = self.provider_cleanup_resource.lock() {
+            *value = Some(resource.into());
+        }
+    }
+
+    pub fn take_provider_cleanup_resource(&self) -> Option<String> {
+        self.provider_cleanup_resource
+            .lock()
+            .ok()
+            .and_then(|mut value| value.take())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamUploadCleanup {
+    NotRequired,
+    Cleaned,
+    Deferred,
+    Unknown,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageCapacityInfo {
@@ -219,7 +294,7 @@ pub trait StreamUploadDriver: Send + Sync {
     /// 从 reader 流式写入存储
     ///
     /// 适用于不应先落本地临时文件的上传路径（如 WebDAV 直传、S3 流式上传）。
-    /// 驱动可实现优化路径；默认实现写临时文件后调用 put_file。
+    /// driver 必须保持有界流式读取，并在目标可见前完成大小校验。
     async fn put_reader(
         &self,
         storage_path: &str,
@@ -227,9 +302,36 @@ pub trait StreamUploadDriver: Send + Sync {
         size: i64,
     ) -> Result<String>;
 
+    /// Stages one owned attempt.
+    ///
+    /// The default writes the preallocated opaque final key directly and is
+    /// only valid when an incomplete provider request cannot expose a new
+    /// object. It deliberately avoids a second full-object provider copy;
+    /// unreferenced opaque blobs are recovered by Drive's existing orphan
+    /// maintenance after a process-level interruption.
+    async fn stage_attempt(
+        &self,
+        attempt: &StreamUploadAttempt,
+        reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+    ) -> Result<()> {
+        self.put_reader(&attempt.storage_path, reader, attempt.expected_size)
+            .await?;
+        Ok(())
+    }
+
+    /// Confirms provider completion. Atomic providers already wrote the final
+    /// blob identity; filesystem-like drivers override this to publish staging.
+    async fn commit_attempt(&self, attempt: &StreamUploadAttempt) -> Result<String> {
+        Ok(attempt.storage_path.clone())
+    }
+
+    async fn abort_attempt(&self, _attempt: &StreamUploadAttempt) -> Result<StreamUploadCleanup> {
+        Ok(StreamUploadCleanup::NotRequired)
+    }
+
     /// 从本地文件路径写入存储（分片上传组装后使用）
     ///
-    /// 这是 put_reader 默认实现的基础；暴露出来供需要显式控制临时文件生命周期的调用方使用。
+    /// 从本地文件路径写入存储，供需要显式控制临时文件生命周期的调用方使用。
     async fn put_file(&self, storage_path: &str, local_path: &str) -> Result<String>;
 }
 
@@ -292,160 +394,163 @@ pub trait NativeMediaMetadataStorageDriver: Send + Sync {
     ) -> Result<Option<NativeMediaMetadataResult>>;
 }
 
-/// 为所有 StorageDriver 提供 StreamUploadDriver 的默认实现
-///
-/// 此模块提供基于临时文件的通用实现，供不支持原生流式上传的驱动使用。
-pub mod fallback {
-    use super::*;
-    use crate::error::{MapStorageErr, StorageErrorKind, storage_driver_error};
-    use tokio::io::AsyncWriteExt;
-
-    /// 基于临时文件的 put_reader 通用实现
-    pub async fn put_reader_with_temp_file<D>(
-        driver: &D,
-        storage_path: &str,
-        mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
-        _size: i64,
-    ) -> Result<String>
-    where
-        D: crate::traits::driver::StorageDriver + ?Sized,
-    {
-        // 创建临时文件
-        let temp_dir = std::env::temp_dir();
-        let temp_path = aster_forge_utils::raii::TempFileGuard::new(
-            temp_dir.join(format!(
-                "aster_put_reader_{}_{}",
-                std::process::id(),
-                rand::random::<u64>()
-            )),
-            "put_reader temp file",
-        );
-
-        // 流式写入临时文件
-        let mut file = tokio::fs::File::create(temp_path.path())
-            .await
-            .map_storage_err(StorageErrorKind::Transient)?;
-
-        tokio::io::copy(&mut reader, &mut file)
-            .await
-            .map_storage_err_ctx(StorageErrorKind::Transient, "write temp file")?;
-
-        // 确保数据落盘
-        file.flush()
-            .await
-            .map_storage_err(StorageErrorKind::Transient)?;
-        drop(file);
-
-        // 使用驱动的 put_file 能力上传（如果驱动实现了 StreamUploadDriver）
-        // 否则退化为 put + read file
-
-        if let Some(stream_driver) = driver.extensions().stream_upload {
-            let temp_path_str = temp_path.path().to_str().ok_or_else(|| {
-                storage_driver_error(
-                    StorageErrorKind::Misconfigured,
-                    "temp upload path is not valid UTF-8",
-                )
-            })?;
-            stream_driver.put_file(storage_path, temp_path_str).await
-        } else {
-            // 终极 fallback：读文件到内存再 put
-            let data = tokio::fs::read(temp_path.path())
-                .await
-                .map_storage_err(StorageErrorKind::Transient)?;
-            driver.put(storage_path, &data).await
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::fallback::put_reader_with_temp_file;
-    use crate::error::Result;
-    use crate::traits::driver::{BlobMetadata, StorageDriver};
+    use super::{StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver};
+    use crate::error::{Result, StorageErrorKind};
     use async_trait::async_trait;
-    use std::collections::HashSet;
-    use std::path::PathBuf;
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
-    use tokio::io::{AsyncRead, ReadBuf};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::AsyncRead;
+    use tokio::sync::Barrier;
 
-    struct NoopDriver;
+    struct AtomicAttemptDriver {
+        writes: std::sync::Mutex<Vec<String>>,
+    }
 
     #[async_trait]
-    impl StorageDriver for NoopDriver {
-        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
-            unreachable!("put should not be called when temp write fails")
+    impl StreamUploadDriver for AtomicAttemptDriver {
+        async fn put_reader(
+            &self,
+            storage_path: &str,
+            _reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+            _size: i64,
+        ) -> Result<String> {
+            self.writes.lock().unwrap().push(storage_path.to_string());
+            Ok(storage_path.to_string())
         }
 
-        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
-            unreachable!()
-        }
-
-        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
-            unreachable!()
-        }
-
-        async fn delete(&self, _path: &str) -> Result<()> {
-            unreachable!()
-        }
-
-        async fn exists(&self, _path: &str) -> Result<bool> {
-            unreachable!()
-        }
-
-        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
-            unreachable!()
+        async fn put_file(&self, _storage_path: &str, _local_path: &str) -> Result<String> {
+            unreachable!("atomic attempt test only uses readers")
         }
     }
 
-    struct FailingReader {
-        emitted_chunk: bool,
+    struct ParallelAttemptDriver {
+        barrier: Barrier,
+        active: AtomicUsize,
+        max_active: AtomicUsize,
     }
 
-    impl AsyncRead for FailingReader {
-        fn poll_read(
-            mut self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-            buf: &mut ReadBuf<'_>,
-        ) -> Poll<std::io::Result<()>> {
-            if !self.emitted_chunk {
-                self.emitted_chunk = true;
-                buf.put_slice(b"partial");
-                Poll::Ready(Ok(()))
-            } else {
-                Poll::Ready(Err(std::io::Error::other("boom")))
-            }
+    #[async_trait]
+    impl StreamUploadDriver for ParallelAttemptDriver {
+        async fn put_reader(
+            &self,
+            storage_path: &str,
+            _reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+            _size: i64,
+        ) -> Result<String> {
+            let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_active.fetch_max(active, Ordering::SeqCst);
+            self.barrier.wait().await;
+            self.active.fetch_sub(1, Ordering::SeqCst);
+            Ok(storage_path.to_string())
+        }
+
+        async fn put_file(&self, _storage_path: &str, _local_path: &str) -> Result<String> {
+            unreachable!("parallel attempt test only uses readers")
         }
     }
 
-    fn collect_put_reader_temp_files() -> HashSet<PathBuf> {
-        let prefix = format!("aster_put_reader_{}_", std::process::id());
-        std::fs::read_dir(std::env::temp_dir())
-            .expect("temp dir should be readable")
-            .filter_map(|entry| {
-                let path = entry.ok()?.path();
-                let name = path.file_name()?.to_str()?;
-                name.starts_with(&prefix).then_some(path)
-            })
-            .collect()
+    #[test]
+    fn stream_upload_attempt_uses_unique_staging_namespace() {
+        let first = StreamUploadAttempt::new("files/object.bin", 42).unwrap();
+        let second = StreamUploadAttempt::new("files/object.bin", 42).unwrap();
+
+        assert_ne!(first.id, second.id);
+        assert_ne!(first.staging_path, second.staging_path);
+        assert!(first.staging_path.starts_with("files/.aster-attempt-"));
+        assert_eq!(first.storage_path, "files/object.bin");
+        assert_eq!(first.expected_size, 42);
+    }
+
+    #[test]
+    fn stream_upload_attempt_rejects_negative_size() {
+        let error = StreamUploadAttempt::new("files/object.bin", -1).unwrap_err();
+
+        assert_eq!(error.kind(), StorageErrorKind::Precondition);
+    }
+
+    #[test]
+    fn attempt_provider_session_can_be_restored_for_retry() {
+        let attempt = StreamUploadAttempt::new("files/opaque-id", 1).unwrap();
+
+        attempt.set_provider_session("https://upload.example/session");
+        assert_eq!(
+            attempt.take_provider_session().as_deref(),
+            Some("https://upload.example/session")
+        );
+        attempt.set_provider_session("https://upload.example/session");
+        assert_eq!(
+            attempt.take_provider_session().as_deref(),
+            Some("https://upload.example/session")
+        );
+
+        attempt.set_provider_cleanup_resource("files/upload-id");
+        assert_eq!(
+            attempt.take_provider_cleanup_resource().as_deref(),
+            Some("files/upload-id")
+        );
+        attempt.set_provider_cleanup_resource("files/upload-id");
+        assert_eq!(
+            attempt.take_provider_cleanup_resource().as_deref(),
+            Some("files/upload-id")
+        );
     }
 
     #[tokio::test]
-    async fn put_reader_with_temp_file_cleans_up_temp_file_on_copy_error() {
-        let before = collect_put_reader_temp_files();
+    async fn atomic_attempt_writes_final_key_without_copy_staging() {
+        let driver = AtomicAttemptDriver {
+            writes: std::sync::Mutex::new(Vec::new()),
+        };
+        let attempt = StreamUploadAttempt::new("files/opaque-id", 1).unwrap();
 
-        let error = put_reader_with_temp_file(
-            &NoopDriver,
-            "broken-upload.bin",
-            Box::new(FailingReader {
-                emitted_chunk: false,
-            }),
-            7,
-        )
+        driver
+            .stage_attempt(&attempt, Box::new(std::io::Cursor::new(vec![1_u8])))
+            .await
+            .unwrap();
+        assert_eq!(
+            driver.commit_attempt(&attempt).await.unwrap(),
+            "files/opaque-id"
+        );
+        assert_eq!(
+            driver.abort_attempt(&attempt).await.unwrap(),
+            StreamUploadCleanup::NotRequired
+        );
+        assert_eq!(
+            driver.writes.lock().unwrap().as_slice(),
+            ["files/opaque-id"]
+        );
+    }
+
+    #[tokio::test]
+    async fn stream_upload_attempts_remain_parallel() {
+        let driver = Arc::new(ParallelAttemptDriver {
+            barrier: Barrier::new(2),
+            active: AtomicUsize::new(0),
+            max_active: AtomicUsize::new(0),
+        });
+        let first = StreamUploadAttempt::new("files/shared.bin", 1).unwrap();
+        let second = StreamUploadAttempt::new("files/shared.bin", 1).unwrap();
+
+        let first_driver = Arc::clone(&driver);
+        let first_task = tokio::spawn(async move {
+            first_driver
+                .stage_attempt(&first, Box::new(std::io::Cursor::new(vec![1_u8])))
+                .await
+        });
+        let second_driver = Arc::clone(&driver);
+        let second_task = tokio::spawn(async move {
+            second_driver
+                .stage_attempt(&second, Box::new(std::io::Cursor::new(vec![2_u8])))
+                .await
+        });
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            first_task.await.unwrap().unwrap();
+            second_task.await.unwrap().unwrap();
+        })
         .await
-        .expect_err("copy failure should surface as error");
-
-        assert!(error.message().contains("write temp file"));
-        assert_eq!(collect_put_reader_temp_files(), before);
+        .expect("independent attempts must not be serialized");
+        assert_eq!(driver.max_active.load(Ordering::SeqCst), 2);
     }
 }

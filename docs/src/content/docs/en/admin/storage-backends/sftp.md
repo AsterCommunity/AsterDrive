@@ -164,3 +164,5 @@ You can rotate the SSH password by editing the policy. When editing a saved poli
 | Presigned URL | Not supported |
 | Capacity observation | No unified capacity query |
 | Range reads | Efficient range reads are supported |
+
+Replacing an existing object requires the SFTP server to advertise `posix-rename@openssh.com`. This extension provides POSIX atomic replacement semantics. When the server does not advertise it, AsterDrive preserves the old object and returns a capability error instead of using a two-rename fallback with a temporary missing window.

@@ -6,11 +6,12 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{AsterError, MapAsterErr, Result, file_upload_error_with_code};
 use crate::runtime::PrimaryAppState;
 use crate::services::workspace::storage::{
-    StorePreuploadedNondedupParams, check_quota, cleanup_preuploaded_blob_upload,
-    prepare_non_dedup_blob_upload, store_preuploaded_nondedup,
+    StorePreuploadedNondedupParams, StreamUploadMetricsGuard, abort_direct_stream_attempt,
+    check_quota, cleanup_preuploaded_blob_upload, prepare_non_dedup_blob_upload,
+    store_preuploaded_nondedup,
 };
 use aster_drive_model::entities::file;
-use aster_drive_storage::BlobMetadata;
+use aster_drive_storage::{BlobMetadata, StreamUploadAttempt};
 use aster_forge_utils::numbers::u64_to_i64;
 
 use super::common::{
@@ -33,6 +34,7 @@ pub(super) async fn upload_streaming_direct(
         actor_username,
     } = params;
     const RELAY_DIRECT_BUFFER_SIZE: usize = 64 * 1024;
+    const STREAM_ATTEMPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
     if policy.max_file_size > 0 && declared_size > policy.max_file_size {
         return Err(AsterError::file_too_large(format!(
@@ -60,14 +62,17 @@ pub(super) async fn upload_streaming_direct(
                 Some(&filename),
             )?;
             let storage_path = prepared_upload.storage_path().to_string();
+            let attempt = StreamUploadAttempt::new(&storage_path, declared_size)?;
+            let _attempt_metrics =
+                StreamUploadMetricsGuard::new(state.metrics.as_ref(), declared_size);
+            let attempt_for_upload = attempt.clone();
 
             let (writer, reader) = tokio::io::duplex(RELAY_DIRECT_BUFFER_SIZE);
             let upload_driver = driver.clone();
-            let upload_storage_path = storage_path.clone();
             let stream_driver = upload_driver.extensions().stream_upload.ok_or_else(|| {
                 crate::errors::AsterError::storage_driver_error("stream upload not supported")
             })?;
-            let (upload_result, relay_result) = tokio::task::LocalSet::new()
+            let relay_outcome = tokio::task::LocalSet::new()
                 .run_until(async move {
                     let relay_task = tokio::task::spawn_local(async move {
                         let mut writer = writer;
@@ -85,10 +90,41 @@ pub(super) async fn upload_streaming_direct(
                         Ok::<(), AsterError>(())
                     });
 
-                    let upload_result = stream_driver
-                        .put_reader(&upload_storage_path, Box::new(reader), declared_size)
-                        .await
-                        .map_err(AsterError::from);
+                    let upload_result =
+                        stream_driver.stage_attempt(&attempt_for_upload, Box::new(reader));
+                    let upload_result =
+                        match tokio::time::timeout(STREAM_ATTEMPT_TIMEOUT, upload_result).await {
+                            Ok(result) => result.map_err(AsterError::from),
+                            Err(_) => {
+                                relay_task.abort();
+                                if let Err(error) = relay_task.await
+                                    && !error.is_cancelled()
+                                {
+                                    tracing::warn!(
+                                        "failed to join aborted direct relay task: {error}"
+                                    );
+                                }
+                                return Err(AsterError::storage_driver_error(
+                                    "streaming direct upload attempt timed out",
+                                ));
+                            }
+                        };
+                    if let Err(error) = upload_result {
+                        relay_task.abort();
+                        if let Err(join_error) = relay_task.await
+                            && !join_error.is_cancelled()
+                        {
+                            tracing::warn!(
+                                "failed to join direct relay task after stage error: {join_error}"
+                            );
+                        }
+                        return Ok::<(Result<()>, Result<()>), AsterError>((
+                            Err(error),
+                            Err(AsterError::storage_driver_error(
+                                "streaming direct upload stage failed",
+                            )),
+                        ));
+                    }
                     let relay_result = relay_task.await.map_err(|err| {
                         file_upload_error_with_code(
                             ApiErrorCode::UploadDirectRelayTaskFailed,
@@ -96,12 +132,31 @@ pub(super) async fn upload_streaming_direct(
                         )
                     })?;
 
-                    Ok::<(Result<String>, Result<()>), AsterError>((upload_result, relay_result))
+                    Ok::<(Result<()>, Result<()>), AsterError>((upload_result, relay_result))
                 })
-                .await?;
+                .await;
+
+            let (upload_result, relay_result) = match relay_outcome {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    abort_direct_stream_attempt(
+                        stream_driver,
+                        &attempt,
+                        state.metrics.as_ref(),
+                        driver.as_ref(),
+                        &prepared_upload,
+                        "direct stream orchestration error",
+                    )
+                    .await;
+                    return Err(error);
+                }
+            };
 
             if let Err(err) = upload_result {
-                cleanup_preuploaded_blob_upload(
+                abort_direct_stream_attempt(
+                    stream_driver,
+                    &attempt,
+                    state.metrics.as_ref(),
                     driver.as_ref(),
                     &prepared_upload,
                     "direct stream upload error",
@@ -111,7 +166,10 @@ pub(super) async fn upload_streaming_direct(
             }
 
             if let Err(err) = relay_result {
-                cleanup_preuploaded_blob_upload(
+                abort_direct_stream_attempt(
+                    stream_driver,
+                    &attempt,
+                    state.metrics.as_ref(),
                     driver.as_ref(),
                     &prepared_upload,
                     "direct stream relay error",
@@ -119,6 +177,22 @@ pub(super) async fn upload_streaming_direct(
                 .await;
                 return Err(err);
             }
+
+            if let Err(err) = stream_driver.commit_attempt(&attempt).await {
+                abort_direct_stream_attempt(
+                    stream_driver,
+                    &attempt,
+                    state.metrics.as_ref(),
+                    driver.as_ref(),
+                    &prepared_upload,
+                    "direct stream commit error",
+                )
+                .await;
+                return Err(err.into());
+            }
+            state
+                .metrics
+                .record_stream_upload_attempt("commit", "success");
 
             let metadata = match driver.metadata(&storage_path).await {
                 Ok(metadata) => metadata,
@@ -210,7 +284,35 @@ fn validate_streaming_direct_uploaded_size(
 #[cfg(test)]
 mod tests {
     use super::{resolve_streaming_direct_filename, validate_streaming_direct_uploaded_size};
+    use aster_drive_metrics::MetricsRecorder;
     use aster_drive_storage::BlobMetadata;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct RecordingMetrics {
+        events: Mutex<Vec<String>>,
+        active: Mutex<i64>,
+    }
+
+    impl MetricsRecorder for RecordingMetrics {
+        fn record_stream_upload_attempt(&self, event: &'static str, status: &'static str) {
+            self.events
+                .lock()
+                .unwrap()
+                .push(format!("{event}:{status}"));
+        }
+
+        fn record_stream_upload_bytes(&self, kind: &'static str, bytes: u64) {
+            self.events
+                .lock()
+                .unwrap()
+                .push(format!("bytes:{kind}:{bytes}"));
+        }
+
+        fn adjust_stream_upload_active(&self, delta: i64) {
+            *self.active.lock().unwrap() += delta;
+        }
+    }
 
     fn policy_with_max_file_size(
         max_file_size: i64,
@@ -226,6 +328,21 @@ mod tests {
         policy.is_default = true;
         policy.chunk_size = 5_242_880;
         policy
+    }
+
+    #[test]
+    fn direct_stream_metrics_guard_records_lifecycle_and_releases_active() {
+        let recorder = Arc::new(RecordingMetrics::default());
+        {
+            let _guard = super::StreamUploadMetricsGuard::new(recorder.as_ref(), 4096);
+            assert_eq!(*recorder.active.lock().unwrap(), 1);
+        }
+
+        assert_eq!(*recorder.active.lock().unwrap(), 0);
+        assert_eq!(
+            recorder.events.lock().unwrap().as_slice(),
+            ["attempt:started", "bytes:expected:4096"]
+        );
     }
 
     #[test]

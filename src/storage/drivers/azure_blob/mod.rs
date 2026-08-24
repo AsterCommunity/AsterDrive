@@ -20,6 +20,7 @@ use aster_drive_storage::{
     MapStorageErr, Result, StorageError, StorageErrorKind, storage_driver_error,
 };
 use aster_forge_utils::net::is_loopback_host;
+use sha2::{Digest, Sha256};
 
 const AZURE_STORAGE_VERSION: &str = "2023-11-03";
 const DEFAULT_OPERATION_SAS_TTL: Duration = Duration::from_secs(60 * 60);
@@ -343,19 +344,29 @@ impl AzureBlobDriver {
             .map_storage_err(StorageErrorKind::Misconfigured)
     }
 
-    fn block_id(part_number: i32) -> Result<Vec<u8>> {
+    fn block_namespace(upload_id: &str) -> String {
+        let digest = Sha256::digest(upload_id.as_bytes());
+        format!("aster-{}", &hex::encode(digest)[..16])
+    }
+
+    fn block_id(upload_id: &str, part_number: i32) -> Result<Vec<u8>> {
         if part_number <= 0 {
             return Err(storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 format!("Azure Blob part_number must be positive: {part_number}"),
             ));
         }
-        Ok(format!("aster-part-{part_number:010}").into_bytes())
+        Ok(format!(
+            "{}-part-{part_number:010}",
+            Self::block_namespace(upload_id)
+        )
+        .into_bytes())
     }
 
-    fn block_id_marker(part_number: i32) -> Result<String> {
+    fn block_id_marker(upload_id: &str, part_number: i32) -> Result<String> {
         use base64::Engine as _;
-        Ok(base64::engine::general_purpose::STANDARD.encode(Self::block_id(part_number)?))
+        Ok(base64::engine::general_purpose::STANDARD
+            .encode(Self::block_id(upload_id, part_number)?))
     }
 
     fn service_sas_query(
@@ -530,16 +541,19 @@ mod tests {
 
     #[test]
     fn block_ids_are_stable_and_orderable() {
-        assert_eq!(
-            AzureBlobDriver::block_id_marker(12).expect("block id"),
-            "YXN0ZXItcGFydC0wMDAwMDAwMDEy"
+        let first = AzureBlobDriver::block_id("upload-a", 12).expect("block id");
+        let second = AzureBlobDriver::block_id("upload-a", 13).expect("block id");
+        assert!(first < second);
+        assert_ne!(
+            first,
+            AzureBlobDriver::block_id("upload-b", 12).expect("isolated block id")
         );
     }
 
     #[test]
     fn rejects_non_positive_block_ids() {
-        assert!(AzureBlobDriver::block_id_marker(0).is_err());
-        assert!(AzureBlobDriver::block_id_marker(-1).is_err());
+        assert!(AzureBlobDriver::block_id_marker("upload", 0).is_err());
+        assert!(AzureBlobDriver::block_id_marker("upload", -1).is_err());
     }
 
     #[test]

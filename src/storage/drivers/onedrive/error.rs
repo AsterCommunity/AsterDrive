@@ -13,8 +13,6 @@ pub(super) struct MicrosoftGraphErrorResponse {
 pub(super) struct MicrosoftGraphErrorBody {
     #[serde(default)]
     pub code: Option<String>,
-    #[serde(default)]
-    pub message: Option<String>,
 }
 
 pub(super) fn map_reqwest_error(ctx: &str, error: reqwest::Error) -> StorageError {
@@ -59,20 +57,13 @@ pub(super) async fn map_graph_response_error(
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
     let body = response.json::<MicrosoftGraphErrorResponse>().await.ok();
-    let (code, message) = body
+    let code = body
         .and_then(|body| body.error)
-        .map(|error| (error.code, error.message))
-        .unwrap_or((None, None));
+        .and_then(|error| error.code);
 
     let mut details = vec![format!("http_status={}", status.as_u16())];
     if let Some(code) = code.as_deref().filter(|code| !code.trim().is_empty()) {
         details.push(format!("code={code}"));
-    }
-    if let Some(message) = message
-        .as_deref()
-        .filter(|message| !message.trim().is_empty())
-    {
-        details.push(format!("message={message}"));
     }
     if let Some(request_id) = request_id {
         details.push(format!("request_id={request_id}"));

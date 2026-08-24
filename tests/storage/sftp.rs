@@ -1,11 +1,16 @@
 //! SFTP storage driver integration test using testcontainers.
 
+use std::io::Cursor;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use aster_drive::storage::drivers::sftp::{SftpDriver, SftpDriverConfig, SftpStaticCredentials};
-use aster_drive_storage::{StorageDriver, StorageErrorKind, StreamUploadDriver};
+use aster_drive_storage::{
+    StorageDriver, StorageErrorKind, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
+};
 use testcontainers::{GenericImage, ImageExt, core::IntoContainerPort, runners::AsyncRunner};
-use tokio::io::AsyncReadExt as _;
+use tokio::io::{AsyncRead, AsyncReadExt as _, ReadBuf};
 
 const SFTP_IMAGE: &str = "lscr.io/linuxserver/openssh-server";
 const SFTP_TAG: &str = "10.2_p1-r0-ls229";
@@ -13,6 +18,49 @@ const SFTP_PORT: u16 = 2222;
 const SFTP_USERNAME: &str = "aster";
 const SFTP_PASSWORD: &str = "asterpass";
 const SFTP_PROBE_TIMEOUT: Duration = Duration::from_secs(15);
+
+struct TruncatedReader {
+    prefix: Cursor<Vec<u8>>,
+}
+
+struct FailingReader {
+    prefix: Cursor<Vec<u8>>,
+}
+
+impl AsyncRead for FailingReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        if self.prefix.position() < self.prefix.get_ref().len() as u64 {
+            let mut chunk = [0_u8; 4];
+            let read = std::io::Read::read(&mut self.prefix, &mut chunk).expect("read prefix");
+            buffer.put_slice(&chunk[..read]);
+            return Poll::Ready(Ok(()));
+        }
+        Poll::Ready(Err(std::io::Error::new(
+            std::io::ErrorKind::ConnectionReset,
+            "injected reader failure",
+        )))
+    }
+}
+
+impl AsyncRead for TruncatedReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        if buffer.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
+        let mut chunk = [0_u8; 4];
+        let read = std::io::Read::read(&mut self.prefix, &mut chunk).expect("read prefix");
+        buffer.put_slice(&chunk[..read]);
+        Poll::Ready(Ok(()))
+    }
+}
 
 fn sftp_driver(endpoint: &str, base_path: &str, host_key_fingerprint: Option<&str>) -> SftpDriver {
     SftpDriver::new(
@@ -98,6 +146,19 @@ async fn wait_for_sftp(driver: &SftpDriver) {
             last_error.unwrap_or_else(|| "unknown error".to_string())
         );
     }
+}
+
+#[tokio::test]
+async fn test_sftp_stream_upload_rejects_negative_size_before_connecting() {
+    let driver = sftp_driver("sftp://127.0.0.1:9", "negative-size", None);
+
+    let error = driver
+        .put_reader("negative.bin", Box::new(Cursor::new(Vec::new())), -1)
+        .await
+        .expect_err("negative size must fail before opening a connection");
+
+    assert_eq!(error.kind(), StorageErrorKind::Precondition);
+    assert!(error.message().contains("non-negative"));
 }
 
 #[tokio::test]
@@ -272,6 +333,153 @@ async fn test_sftp_driver_upload_download_round_trip() {
     assert_eq!(
         driver.get("stream/reader.bin").await.unwrap(),
         b"stream upload"
+    );
+
+    driver
+        .put_reader("stream/empty.bin", Box::new(Cursor::new(Vec::new())), 0)
+        .await
+        .expect("zero-byte SFTP stream should commit");
+    assert_eq!(driver.metadata("stream/empty.bin").await.unwrap().size, 0);
+
+    driver
+        .put("stream/overlong.bin", b"previous version")
+        .await
+        .unwrap();
+    let overlong_error = driver
+        .put_reader(
+            "stream/overlong.bin",
+            Box::new(Cursor::new(b"too long".to_vec())),
+            3,
+        )
+        .await
+        .expect_err("stream longer than declared size must fail");
+    assert_eq!(overlong_error.kind(), StorageErrorKind::Precondition);
+    assert_eq!(
+        driver.get("stream/overlong.bin").await.unwrap(),
+        b"previous version"
+    );
+    driver
+        .put_reader(
+            "stream/overlong.bin",
+            Box::new(Cursor::new(b"retry".to_vec())),
+            5,
+        )
+        .await
+        .expect("same-key retry should succeed after failed attempt cleanup");
+    assert_eq!(driver.get("stream/overlong.bin").await.unwrap(), b"retry");
+
+    driver
+        .put("stream/attempt.bin", b"old object")
+        .await
+        .unwrap();
+    let attempt = StreamUploadAttempt::new("stream/attempt.bin", 11).unwrap();
+    driver
+        .stage_attempt(&attempt, Box::new(Cursor::new(b"new content".to_vec())))
+        .await
+        .unwrap();
+    assert_eq!(
+        driver.get("stream/attempt.bin").await.unwrap(),
+        b"old object"
+    );
+    driver.commit_attempt(&attempt).await.unwrap();
+    assert_eq!(
+        driver.get("stream/attempt.bin").await.unwrap(),
+        b"new content"
+    );
+    assert!(!driver.exists(&attempt.staging_path).await.unwrap());
+
+    let first = StreamUploadAttempt::new("stream/isolated.bin", 5).unwrap();
+    let second = StreamUploadAttempt::new("stream/isolated.bin", 6).unwrap();
+    driver.put("stream/isolated.bin", b"initial").await.unwrap();
+    driver
+        .stage_attempt(&first, Box::new(Cursor::new(b"first".to_vec())))
+        .await
+        .unwrap();
+    driver
+        .stage_attempt(&second, Box::new(Cursor::new(b"second".to_vec())))
+        .await
+        .unwrap();
+    assert_ne!(first.staging_path, second.staging_path);
+    assert_eq!(driver.get("stream/isolated.bin").await.unwrap(), b"initial");
+    driver.commit_attempt(&second).await.unwrap();
+    assert_eq!(driver.get("stream/isolated.bin").await.unwrap(), b"second");
+    assert_eq!(
+        driver.abort_attempt(&first).await.unwrap(),
+        StreamUploadCleanup::Cleaned
+    );
+    assert_eq!(driver.get("stream/isolated.bin").await.unwrap(), b"second");
+    assert_eq!(
+        driver.abort_attempt(&first).await.unwrap(),
+        StreamUploadCleanup::Cleaned,
+        "repeated SFTP abort should be idempotent"
+    );
+
+    let aborted = StreamUploadAttempt::new("stream/attempt.bin", 6).unwrap();
+    driver
+        .stage_attempt(&aborted, Box::new(Cursor::new(b"junk!!".to_vec())))
+        .await
+        .unwrap();
+    assert_eq!(
+        driver.abort_attempt(&aborted).await.unwrap(),
+        StreamUploadCleanup::Cleaned
+    );
+    assert!(!driver.exists(&aborted.staging_path).await.unwrap());
+    assert_eq!(
+        driver.get("stream/attempt.bin").await.unwrap(),
+        b"new content"
+    );
+
+    driver
+        .put("stream/truncated.bin", b"previous version")
+        .await
+        .unwrap();
+    let truncated_error = driver
+        .put_reader(
+            "stream/truncated.bin",
+            Box::new(TruncatedReader {
+                prefix: Cursor::new(b"partial".to_vec()),
+            }),
+            64,
+        )
+        .await
+        .expect_err("a clean EOF before declared size must fail");
+    assert_eq!(truncated_error.kind(), StorageErrorKind::Precondition);
+    assert_eq!(
+        driver.get("stream/truncated.bin").await.unwrap(),
+        b"previous version"
+    );
+
+    driver
+        .put("stream/reader-error.bin", b"previous version")
+        .await
+        .unwrap();
+    let failed_attempt = StreamUploadAttempt::new("stream/reader-error.bin", 64).unwrap();
+    let reader_error = driver
+        .stage_attempt(
+            &failed_attempt,
+            Box::new(FailingReader {
+                prefix: Cursor::new(b"partial".to_vec()),
+            }),
+        )
+        .await
+        .expect_err("reader failure must abort SFTP staging");
+    assert_eq!(reader_error.kind(), StorageErrorKind::Transient);
+    assert_eq!(
+        driver.get("stream/reader-error.bin").await.unwrap(),
+        b"previous version"
+    );
+    assert!(!driver.exists(&failed_attempt.staging_path).await.unwrap());
+    driver
+        .put_reader(
+            "stream/reader-error.bin",
+            Box::new(Cursor::new(b"retry".to_vec())),
+            5,
+        )
+        .await
+        .expect("same-key retry should succeed after reader failure cleanup");
+    assert_eq!(
+        driver.get("stream/reader-error.bin").await.unwrap(),
+        b"retry"
     );
 
     let temp_dir = std::env::temp_dir().join(format!("asterdrive-sftp-{}", uuid::Uuid::new_v4()));

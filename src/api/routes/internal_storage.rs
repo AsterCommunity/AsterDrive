@@ -5,7 +5,11 @@ use crate::api::middleware::internal_storage_cors::PresignedInternalStorageCors;
 use crate::api::response::ApiResponse;
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::FollowerAppState;
-use crate::services::{ops::audit, remote::master_binding, remote::storage_target};
+use crate::services::{
+    ops::audit,
+    remote::{master_binding, storage_target},
+    workspace::storage::{FollowerUploadBody, compose_follower_objects, write_follower_object},
+};
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_SIGNATURE_HEADER, PRESIGNED_AUTH_ACCESS_KEY_QUERY, REMOTE_LIST_PAGE_SIZE,
     RemoteBindingSyncRequest, RemoteCreateStorageTargetRequest, RemoteStorageCapabilities,
@@ -20,8 +24,6 @@ use aster_drive_storage::{BlobMetadata, StorageDriver};
 use aster_forge_utils::numbers;
 use futures::StreamExt;
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
-use tokio::io::AsyncWriteExt;
 use tokio_util::io::ReaderStream;
 
 pub fn routes() -> impl HttpServiceFactory {
@@ -441,10 +443,8 @@ async fn put_object(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
     path: web::Path<String>,
-    mut payload: web::Payload,
+    payload: web::Payload,
 ) -> Result<HttpResponse> {
-    const RELAY_UPLOAD_BUFFER_SIZE: usize = 64 * 1024;
-
     let ctx = if req.headers().contains_key(INTERNAL_AUTH_SIGNATURE_HEADER) {
         master_binding::authorize_internal_write_request(state.get_ref(), &req).await?
     } else {
@@ -467,51 +467,19 @@ async fn put_object(
         "follower object write accepted"
     );
 
-    let stream_driver = ctx
-        .ingress_driver
-        .extensions()
-        .stream_upload
-        .ok_or_else(|| {
-            crate::errors::storage_driver_error(
-                StorageErrorKind::Unsupported,
-                "ingress target does not support stream upload",
-            )
-        })?;
-    let (writer, reader) = tokio::io::duplex(RELAY_UPLOAD_BUFFER_SIZE);
-    let upload_storage_path = storage_path.clone();
-    let (upload_result, relay_result) = tokio::task::LocalSet::new()
-        .run_until(async move {
-            let relay_task = tokio::task::spawn_local(async move {
-                let mut writer = writer;
-                let mut hasher = Sha256::new();
-                while let Some(chunk) = payload.next().await {
-                    let chunk = chunk.map_err(|e| {
-                        AsterError::validation_error(format!("read upload payload: {e}"))
-                    })?;
-                    hasher.update(&chunk);
-                    writer.write_all(&chunk).await.map_err(|e| {
-                        AsterError::storage_driver_error(format!("relay upload payload: {e}"))
-                    })?;
-                }
-                writer.shutdown().await.map_err(|e| {
-                    AsterError::storage_driver_error(format!("shutdown relay upload payload: {e}"))
-                })?;
-                Ok::<String, AsterError>(format!("\"{}\"", hex::encode(hasher.finalize())))
-            });
-
-            let upload_result = stream_driver
-                .put_reader(&upload_storage_path, Box::new(reader), content_length)
-                .await
-                .map_err(AsterError::from);
-            let relay_result = relay_task.await.map_err(|error| {
-                AsterError::storage_driver_error(format!("relay upload task failed: {error}"))
-            })?;
-            Ok::<(Result<String>, Result<String>), AsterError>((upload_result, relay_result))
-        })
-        .await?;
-
-    upload_result?;
-    let etag = relay_result?;
+    let payload: FollowerUploadBody = Box::pin(payload.map(|chunk| {
+        chunk.map_err(|error| AsterError::validation_error(format!("read upload payload: {error}")))
+    }));
+    let etag = write_follower_object(
+        ctx.ingress_driver,
+        state.metrics.as_ref(),
+        ctx.binding.id,
+        &object_key,
+        &storage_path,
+        content_length,
+        payload,
+    )
+    .await?;
     tracing::info!(
         binding_id = ctx.binding.id,
         object_key = %object_key,
@@ -550,8 +518,6 @@ async fn compose_objects(
     req: HttpRequest,
     body: web::Json<RemoteStorageComposeRequest>,
 ) -> Result<HttpResponse> {
-    const COMPOSE_BUFFER_SIZE: usize = 64 * 1024;
-
     let ctx = master_binding::authorize_internal_write_request(state.get_ref(), &req).await?;
     if body.part_keys.is_empty() {
         return Err(internal_storage_validation_error(
@@ -572,12 +538,6 @@ async fn compose_objects(
     )?;
 
     let driver = ctx.ingress_driver.clone();
-    let stream_driver = driver.extensions().stream_upload.ok_or_else(|| {
-        crate::errors::storage_driver_error(
-            StorageErrorKind::Unsupported,
-            "ingress target does not support stream upload",
-        )
-    })?;
     let target_key = body.target_key.clone();
     let target_storage_path = master_binding::provider_storage_path(&ctx.binding, &target_key)?;
     tracing::debug!(
@@ -592,82 +552,17 @@ async fn compose_objects(
         .iter()
         .map(|key| master_binding::provider_storage_path(&ctx.binding, key))
         .collect::<Result<_>>()?;
-    let cleanup_part_storage_paths = part_storage_paths.clone();
     let expected_size = body.expected_size;
-    let expected_size_u64 = numbers::i64_to_u64(expected_size, "compose expected_size")?;
-
-    let read_driver = driver.clone();
-    let upload_target_storage_path = target_storage_path.clone();
-    let (writer, reader) = tokio::io::duplex(COMPOSE_BUFFER_SIZE);
-    let (upload_result, relay_result) = tokio::task::LocalSet::new()
-        .run_until(async move {
-            let relay_task = tokio::task::spawn_local(async move {
-                let mut writer = writer;
-                let mut bytes_written = 0u64;
-                for source_path in part_storage_paths {
-                    let mut stream = read_driver.get_stream(&source_path).await?;
-                    let copied = tokio::io::copy(&mut stream, &mut writer)
-                        .await
-                        .map_err(|e| {
-                            AsterError::storage_driver_error(format!(
-                                "relay composed object stream: {e}"
-                            ))
-                        })?;
-                    bytes_written = bytes_written.checked_add(copied).ok_or_else(|| {
-                        AsterError::storage_driver_error("compose bytes written overflow")
-                    })?;
-                }
-                writer.shutdown().await.map_err(|e| {
-                    AsterError::storage_driver_error(format!("shutdown compose stream: {e}"))
-                })?;
-                Ok::<u64, AsterError>(bytes_written)
-            });
-
-            let upload_result = stream_driver
-                .put_reader(&upload_target_storage_path, Box::new(reader), expected_size)
-                .await
-                .map_err(AsterError::from);
-            let relay_result = relay_task.await.map_err(|error| {
-                AsterError::storage_driver_error(format!("compose relay task failed: {error}"))
-            })?;
-            Ok::<(Result<String>, Result<u64>), AsterError>((upload_result, relay_result))
-        })
-        .await?;
-
-    let cleanup_target = async {
-        if let Err(error) = driver.delete(&target_storage_path).await {
-            tracing::warn!(
-                target_storage_path = %target_storage_path,
-                "failed to cleanup composed target object: {error}"
-            );
-        }
-    };
-
-    if let Err(error) = upload_result {
-        cleanup_target.await;
-        return Err(error);
-    }
-
-    let bytes_written = match relay_result {
-        Ok(bytes_written) => bytes_written,
-        Err(error) => {
-            cleanup_target.await;
-            return Err(error);
-        }
-    };
-
-    if bytes_written != expected_size_u64 {
-        cleanup_target.await;
-        return Err(AsterError::storage_driver_error(format!(
-            "compose size mismatch: expected {expected_size_u64} bytes, got {bytes_written}"
-        )));
-    }
-
-    for storage_path in cleanup_part_storage_paths {
-        if let Err(error) = driver.delete(&storage_path).await {
-            tracing::warn!(storage_path = %storage_path, "failed to cleanup composed part: {error}");
-        }
-    }
+    let bytes_written = compose_follower_objects(
+        driver,
+        state.metrics.as_ref(),
+        ctx.binding.id,
+        &target_key,
+        &target_storage_path,
+        part_storage_paths,
+        expected_size,
+    )
+    .await?;
     tracing::info!(
         binding_id = ctx.binding.id,
         target_key = %target_key,

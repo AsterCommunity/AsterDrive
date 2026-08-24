@@ -2503,6 +2503,361 @@ async fn test_internal_storage_presigned_put_ignores_bytes_beyond_declared_conte
 }
 
 #[actix_web::test]
+async fn test_internal_storage_truncated_put_aborts_attempt_staging() {
+    let provider_state = common::setup().await;
+    let (access_key, secret_key) =
+        create_internal_hmac_binding(&provider_state, "truncated-attempt").await;
+    provider_state
+        .driver_registry
+        .reload_master_bindings(provider_state.writer_db())
+        .await
+        .expect("provider binding registry should reload");
+    create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
+    let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), &access_key)
+        .await
+        .expect("provider binding lookup should succeed")
+        .expect("provider binding should exist");
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(provider_state.follower_view()))
+            .service(
+                web::scope("/api/v1").service(aster_drive::api::routes::internal_storage::routes()),
+            ),
+    )
+    .await;
+
+    let object_key = "truncated-attempt.bin";
+    let path = format!("/api/v1/internal/storage/objects/{object_key}");
+    let timestamp = Utc::now().timestamp();
+    let nonce = "truncated-attempt-nonce";
+    let signature = sign_internal_request(&secret_key, "PUT", &path, timestamp, nonce, None);
+    let request = test::TestRequest::put()
+        .uri(&path)
+        .insert_header(("x-aster-access-key", access_key.as_str()))
+        .insert_header(("x-aster-timestamp", timestamp.to_string()))
+        .insert_header(("x-aster-nonce", nonce))
+        .insert_header(("x-aster-signature", signature))
+        .insert_header((actix_web::http::header::CONTENT_LENGTH, "64"))
+        .set_payload(b"short payload".to_vec())
+        .to_request();
+    let response = test::call_service(&app, request).await;
+
+    assert!(response.status().is_client_error() || response.status().is_server_error());
+    let storage_path = managed_ingress_object_path(
+        &provider_state,
+        &access_key,
+        &binding.storage_namespace,
+        "",
+        object_key,
+    );
+    assert!(!tokio::fs::try_exists(&storage_path).await.unwrap());
+    let parent = storage_path.parent().unwrap();
+    if tokio::fs::try_exists(parent).await.unwrap() {
+        let mut entries = tokio::fs::read_dir(parent).await.unwrap();
+        while let Some(entry) = entries.next_entry().await.unwrap() {
+            assert!(
+                !entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".aster-attempt-")
+            );
+        }
+    }
+}
+
+#[actix_web::test]
+async fn test_internal_storage_commit_failure_aborts_local_attempt_staging() {
+    let (provider_state, access_key, secret_key) =
+        setup_internal_hmac_binding_state("commit-failure-attempt").await;
+    create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
+    let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), &access_key)
+        .await
+        .expect("provider binding lookup should succeed")
+        .expect("provider binding should exist");
+    let object_key = "commit-failure-attempt.bin";
+    let storage_path = managed_ingress_object_path(
+        &provider_state,
+        &access_key,
+        &binding.storage_namespace,
+        "",
+        object_key,
+    );
+    tokio::fs::create_dir_all(&storage_path)
+        .await
+        .expect("directory at final object path should be created");
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(provider_state.follower_view()))
+            .service(
+                web::scope("/api/v1").service(aster_drive::api::routes::internal_storage::routes()),
+            ),
+    )
+    .await;
+
+    let path = format!("/api/v1/internal/storage/objects/{object_key}");
+    let timestamp = Utc::now().timestamp();
+    let nonce = "commit-failure-attempt-nonce";
+    let signature = sign_internal_request(&secret_key, "PUT", &path, timestamp, nonce, None);
+    let request = test::TestRequest::put()
+        .uri(&path)
+        .insert_header(("x-aster-access-key", access_key.as_str()))
+        .insert_header(("x-aster-timestamp", timestamp.to_string()))
+        .insert_header(("x-aster-nonce", nonce))
+        .insert_header(("x-aster-signature", signature))
+        .insert_header((actix_web::http::header::CONTENT_LENGTH, "5"))
+        .set_payload(b"valid".to_vec())
+        .to_request();
+    let response = test::call_service(&app, request).await;
+
+    assert!(response.status().is_client_error() || response.status().is_server_error());
+    let parent = storage_path.parent().unwrap();
+    let mut entries = tokio::fs::read_dir(parent).await.unwrap();
+    while let Some(entry) = entries.next_entry().await.unwrap() {
+        assert!(
+            !entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".aster-attempt-")
+        );
+    }
+    tokio::fs::remove_dir_all(&storage_path)
+        .await
+        .expect("test final directory should be removed");
+}
+
+#[actix_web::test]
+async fn test_internal_storage_zero_byte_put_commits_empty_object() {
+    let (provider_state, access_key, secret_key) =
+        setup_internal_hmac_binding_state("zero-byte-attempt").await;
+    create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
+    let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), &access_key)
+        .await
+        .expect("provider binding lookup should succeed")
+        .expect("provider binding should exist");
+    let server = spawn_internal_storage_server(provider_state.follower_view()).await;
+    let object_key = "empty-object.bin";
+    let client = RemoteStorageClient::new(&server.base_url, &access_key, &secret_key).unwrap();
+
+    client
+        .put_bytes(object_key, &[])
+        .await
+        .expect("zero-byte object should commit");
+
+    let storage_path = managed_ingress_object_path(
+        &provider_state,
+        &access_key,
+        &binding.storage_namespace,
+        "",
+        object_key,
+    );
+    assert_eq!(
+        tokio::fs::read(&storage_path).await.unwrap(),
+        Vec::<u8>::new()
+    );
+    let entries = snapshot_dir_tree(storage_path.parent().unwrap()).unwrap();
+    assert!(entries.iter().all(|path| !path.contains(".aster-attempt-")));
+
+    server.stop().await;
+}
+
+#[actix_web::test]
+async fn test_internal_storage_compose_rejects_empty_parts_and_negative_size() {
+    let (provider_state, access_key, secret_key) =
+        setup_internal_hmac_binding_state("compose-input-boundaries").await;
+    create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
+    let server = spawn_internal_storage_server(provider_state.follower_view()).await;
+    let client = RemoteStorageClient::new(&server.base_url, &access_key, &secret_key).unwrap();
+
+    let empty_parts = client
+        .compose_objects("empty-parts.bin", Vec::new(), 0)
+        .await
+        .expect_err("compose must reject an empty part list");
+    assert!(empty_parts.message().contains("requires part_keys"));
+
+    let negative_size = client
+        .compose_objects("negative-size.bin", vec!["unused-part.bin".to_string()], -1)
+        .await
+        .expect_err("compose must reject a negative expected size");
+    assert!(negative_size.message().contains("must be non-negative"));
+
+    server.stop().await;
+}
+
+struct ComposeAttemptFixture {
+    provider_state: aster_drive::runtime::PrimaryAppState,
+    access_key: String,
+    binding: aster_drive_model::entities::master_binding::Model,
+    server: TestHttpServer,
+    client: RemoteStorageClient,
+}
+
+impl ComposeAttemptFixture {
+    fn path(&self, key: &str) -> PathBuf {
+        managed_ingress_object_path(
+            &self.provider_state,
+            &self.access_key,
+            &self.binding.storage_namespace,
+            "",
+            key,
+        )
+    }
+
+    fn assert_no_attempt_residue(&self, key: &str) {
+        let target = self.path(key);
+        let entries = snapshot_dir_tree(target.parent().unwrap()).unwrap();
+        assert!(entries.iter().all(|path| !path.contains(".aster-attempt-")));
+    }
+}
+
+async fn setup_compose_attempt_fixture(label: &str) -> ComposeAttemptFixture {
+    let (provider_state, access_key, secret_key) = setup_internal_hmac_binding_state(label).await;
+    create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
+    let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), &access_key)
+        .await
+        .expect("provider binding lookup should succeed")
+        .expect("provider binding should exist");
+    let server = spawn_internal_storage_server(provider_state.follower_view()).await;
+    let client = RemoteStorageClient::new(&server.base_url, &access_key, &secret_key).unwrap();
+    ComposeAttemptFixture {
+        provider_state,
+        access_key,
+        binding,
+        server,
+        client,
+    }
+}
+
+#[actix_web::test]
+async fn test_internal_storage_compose_commits_exact_size_and_removes_parts() {
+    let fixture = setup_compose_attempt_fixture("compose-attempt-success").await;
+    let part_a = "compose/success-a.part";
+    let part_b = "compose/success-b.part";
+    let target = "compose/success.bin";
+    let part_a_path = fixture.path(part_a);
+    let part_b_path = fixture.path(part_b);
+    tokio::fs::create_dir_all(part_a_path.parent().unwrap())
+        .await
+        .unwrap();
+    tokio::fs::write(&part_a_path, b"abc").await.unwrap();
+    tokio::fs::write(&part_b_path, b"def").await.unwrap();
+
+    let outcome = fixture
+        .client
+        .compose_objects(target, vec![part_a.to_string(), part_b.to_string()], 6)
+        .await
+        .expect("exact-size compose should commit");
+
+    assert_eq!(outcome.bytes_written, 6);
+    assert_eq!(
+        tokio::fs::read(fixture.path(target)).await.unwrap(),
+        b"abcdef"
+    );
+    assert!(!tokio::fs::try_exists(&part_a_path).await.unwrap());
+    assert!(!tokio::fs::try_exists(&part_b_path).await.unwrap());
+    fixture.assert_no_attempt_residue(target);
+    fixture.server.stop().await;
+}
+
+#[actix_web::test]
+async fn test_internal_storage_compose_size_mismatch_preserves_target_and_part() {
+    let fixture = setup_compose_attempt_fixture("compose-attempt-mismatch").await;
+    let part = "compose/mismatch.part";
+    let target = "compose/mismatch.bin";
+    let part_path = fixture.path(part);
+    let target_path = fixture.path(target);
+    tokio::fs::create_dir_all(part_path.parent().unwrap())
+        .await
+        .unwrap();
+    tokio::fs::write(&part_path, b"short").await.unwrap();
+    tokio::fs::write(&target_path, b"previous").await.unwrap();
+
+    fixture
+        .client
+        .compose_objects(target, vec![part.to_string()], 6)
+        .await
+        .expect_err("truncated compose source must fail");
+
+    assert_eq!(tokio::fs::read(&target_path).await.unwrap(), b"previous");
+    assert_eq!(tokio::fs::read(&part_path).await.unwrap(), b"short");
+    fixture.assert_no_attempt_residue(target);
+    fixture.server.stop().await;
+}
+
+#[actix_web::test]
+async fn test_internal_storage_compose_commit_failure_preserves_target_and_part() {
+    let fixture = setup_compose_attempt_fixture("compose-attempt-commit-failure").await;
+    let part = "compose/commit-failure.part";
+    let target = "compose/commit-failure.bin";
+    let part_path = fixture.path(part);
+    let target_path = fixture.path(target);
+    tokio::fs::create_dir_all(part_path.parent().unwrap())
+        .await
+        .unwrap();
+    tokio::fs::write(&part_path, b"valid").await.unwrap();
+    tokio::fs::create_dir_all(&target_path).await.unwrap();
+
+    fixture
+        .client
+        .compose_objects(target, vec![part.to_string()], 5)
+        .await
+        .expect_err("compose commit over a directory must fail");
+
+    assert!(tokio::fs::metadata(&target_path).await.unwrap().is_dir());
+    assert_eq!(tokio::fs::read(&part_path).await.unwrap(), b"valid");
+    fixture.assert_no_attempt_residue(target);
+    fixture.server.stop().await;
+}
+
+#[actix_web::test]
+async fn test_internal_storage_compose_commits_zero_byte_object() {
+    let fixture = setup_compose_attempt_fixture("compose-attempt-empty").await;
+    let part = "compose/empty.part";
+    let target = "compose/empty.bin";
+    let part_path = fixture.path(part);
+    tokio::fs::create_dir_all(part_path.parent().unwrap())
+        .await
+        .unwrap();
+    tokio::fs::write(&part_path, []).await.unwrap();
+
+    let outcome = fixture
+        .client
+        .compose_objects(target, vec![part.to_string()], 0)
+        .await
+        .expect("zero-byte compose should commit");
+
+    assert_eq!(outcome.bytes_written, 0);
+    assert_eq!(
+        tokio::fs::read(fixture.path(target)).await.unwrap(),
+        Vec::<u8>::new()
+    );
+    assert!(!tokio::fs::try_exists(&part_path).await.unwrap());
+    fixture.assert_no_attempt_residue(target);
+    fixture.server.stop().await;
+}
+
+#[actix_web::test]
+async fn test_internal_storage_compose_missing_part_preserves_target() {
+    let fixture = setup_compose_attempt_fixture("compose-attempt-missing-part").await;
+    let part = "compose/missing.part";
+    let target = "compose/missing-source.bin";
+    let target_path = fixture.path(target);
+    tokio::fs::create_dir_all(target_path.parent().unwrap())
+        .await
+        .unwrap();
+    tokio::fs::write(&target_path, b"previous").await.unwrap();
+
+    fixture
+        .client
+        .compose_objects(target, vec![part.to_string()], 0)
+        .await
+        .expect_err("missing compose source should fail after the empty stage finishes");
+
+    assert_eq!(tokio::fs::read(&target_path).await.unwrap(), b"previous");
+    fixture.assert_no_attempt_residue(target);
+    fixture.server.stop().await;
+}
+
+#[actix_web::test]
 async fn test_internal_storage_compose_rejects_expected_size_exceeding_ingress_limit() {
     let provider_state = common::setup().await;
     let provider_default_policy = provider_state
@@ -6825,6 +7180,21 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
         .await
         .expect("provider should receive direct relay upload");
     assert_eq!(stored, body);
+    let provider_entries = std::fs::read_dir(
+        provider_path
+            .parent()
+            .expect("remote provider object should have a parent"),
+    )
+    .unwrap()
+    .filter_map(|entry| entry.ok())
+    .filter_map(|entry| entry.file_name().into_string().ok())
+    .collect::<Vec<_>>();
+    assert!(
+        provider_entries
+            .iter()
+            .all(|name| !name.starts_with(".aster-attempt-")),
+        "nested remote atomic PUT must consume any follower-local staging file"
+    );
 
     provider_server.stop().await;
 }

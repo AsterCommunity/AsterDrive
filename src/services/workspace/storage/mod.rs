@@ -5,9 +5,11 @@
 //! 主要负责把 scope 校验、核心存储动作和不同上传入口重新导出成一个稳定入口。
 
 mod blob_upload;
+mod follower_stream;
 mod multipart;
 mod operation_context;
 mod store;
+mod stream_attempt;
 #[cfg(test)]
 mod tests;
 
@@ -49,6 +51,9 @@ pub(crate) use blob_upload::{
     persist_preuploaded_blob, prepare_non_dedup_blob_upload, upload_reader_to_prepared_blob,
     upload_temp_file_to_prepared_blob, upload_temp_file_to_prepared_blob_cancellable,
 };
+pub(crate) use follower_stream::{
+    FollowerUploadBody, compose_follower_objects, write_follower_object,
+};
 pub(crate) use multipart::{WorkspaceUploadHints, upload_with_hints};
 pub(crate) use operation_context::{StorageCancellationCheck, StorageOperationContext};
 pub(crate) use store::from_temp::store_from_temp_internal;
@@ -58,6 +63,9 @@ pub(crate) use store::{
     create_empty_from_relative_path_with_idempotency, create_empty_with_idempotency,
     store_from_temp_exact_name_silent_with_hints, store_from_temp_exact_name_with_hints,
     store_from_temp_with_hints, store_preuploaded_nondedup,
+};
+pub(crate) use stream_attempt::{
+    StreamUploadMetricsGuard, abort_direct_stream_attempt, cleanup_stream_upload_attempt,
 };
 
 // Local content-dedup 会在不把整文件读入内存的前提下流式计算 SHA-256。
