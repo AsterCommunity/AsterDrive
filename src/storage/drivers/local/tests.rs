@@ -554,7 +554,9 @@ async fn stream_attempt_bounds_overlong_reader_to_declared_size_plus_probe() {
             .all(|name| !name.starts_with(".aster-attempt-"))
     );
 
-    let _ = tokio::fs::remove_dir_all(&base).await;
+    tokio::fs::remove_dir_all(&base)
+        .await
+        .expect("remove bounded local stream-attempt test directory");
 }
 
 #[tokio::test]

@@ -56,6 +56,7 @@ pub struct StreamUploadAttempt {
     pub staging_path: String,
     pub expected_size: i64,
     provider_session: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    provider_cleanup_resource: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl StreamUploadAttempt {
@@ -78,6 +79,7 @@ impl StreamUploadAttempt {
             staging_path,
             expected_size,
             provider_session: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            provider_cleanup_resource: std::sync::Arc::new(std::sync::Mutex::new(None)),
         })
     }
 
@@ -89,6 +91,19 @@ impl StreamUploadAttempt {
 
     pub fn take_provider_session(&self) -> Option<String> {
         self.provider_session
+            .lock()
+            .ok()
+            .and_then(|mut value| value.take())
+    }
+
+    pub fn set_provider_cleanup_resource(&self, resource: impl Into<String>) {
+        if let Ok(mut value) = self.provider_cleanup_resource.lock() {
+            *value = Some(resource.into());
+        }
+    }
+
+    pub fn take_provider_cleanup_resource(&self) -> Option<String> {
+        self.provider_cleanup_resource
             .lock()
             .ok()
             .and_then(|mut value| value.take())
@@ -468,6 +483,17 @@ mod tests {
         assert_eq!(
             attempt.take_provider_session().as_deref(),
             Some("https://upload.example/session")
+        );
+
+        attempt.set_provider_cleanup_resource("files/upload-id");
+        assert_eq!(
+            attempt.take_provider_cleanup_resource().as_deref(),
+            Some("files/upload-id")
+        );
+        attempt.set_provider_cleanup_resource("files/upload-id");
+        assert_eq!(
+            attempt.take_provider_cleanup_resource().as_deref(),
+            Some("files/upload-id")
         );
     }
 

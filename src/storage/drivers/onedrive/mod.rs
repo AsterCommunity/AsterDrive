@@ -44,6 +44,7 @@ const GRAPH_SIMPLE_UPLOAD_IN_MEMORY_MAX_BYTES: usize = 1024 * 1024;
 const GRAPH_UPLOAD_FRAGMENT_ALIGNMENT: usize = 320 * 1024;
 const GRAPH_UPLOAD_FRAGMENT_SIZE: usize = 10 * 1024 * 1024;
 const GRAPH_UPLOAD_FRAGMENT_MAX_BYTES: usize = 50 * 1024 * 1024;
+const GRAPH_OWNED_ATTEMPT_ABORT_RETRIES: usize = 3;
 
 fn can_use_graph_simple_upload(size: u64) -> bool {
     size <= GRAPH_SIMPLE_UPLOAD_MAX_BYTES as u64
@@ -262,6 +263,9 @@ impl OneDriveDriver {
             return self.put_owned(path, Bytes::from(data)).await;
         }
         let parent_path = self.ensure_named_object_parent(path).await?;
+        if let (Some(attempt), Some(parent_path)) = (attempt, parent_path.as_deref()) {
+            attempt.set_provider_cleanup_resource(parent_path);
+        }
         let mut upload_url = None;
         let result = async {
             let upload_session_path = self.graph_upload_session_path(path)?;
@@ -331,12 +335,68 @@ impl OneDriveDriver {
                     }
                 }
             }
-            self.cleanup_named_object_parent(parent_path.as_deref())
-                .await;
+            if self
+                .cleanup_named_object_parent(parent_path.as_deref())
+                .await
+                && let Some(attempt) = attempt
+            {
+                let _ = attempt.take_provider_cleanup_resource();
+            }
         } else if let Some(attempt) = attempt {
             let _ = attempt.take_provider_session();
         }
         result
+    }
+
+    async fn cleanup_owned_stream_attempt_after_error(
+        &self,
+        attempt: &StreamUploadAttempt,
+        upload_error: &StorageError,
+    ) {
+        for cleanup_attempt in 1..=GRAPH_OWNED_ATTEMPT_ABORT_RETRIES {
+            match <Self as StreamUploadDriver>::abort_attempt(self, attempt).await {
+                Ok(StreamUploadCleanup::NotRequired | StreamUploadCleanup::Cleaned) => return,
+                Ok(outcome) if cleanup_attempt < GRAPH_OWNED_ATTEMPT_ABORT_RETRIES => {
+                    tracing::warn!(
+                        attempt_id = %attempt.id,
+                        cleanup_attempt,
+                        ?outcome,
+                        upload_error_kind = ?upload_error.kind(),
+                        "retrying deferred OneDrive direct attempt cleanup"
+                    );
+                }
+                Ok(outcome) => {
+                    tracing::warn!(
+                        attempt_id = %attempt.id,
+                        cleanup_attempt,
+                        ?outcome,
+                        upload_error_kind = ?upload_error.kind(),
+                        "OneDrive direct attempt cleanup deferred to provider session expiry"
+                    );
+                    return;
+                }
+                Err(error) if cleanup_attempt < GRAPH_OWNED_ATTEMPT_ABORT_RETRIES => {
+                    tracing::warn!(
+                        attempt_id = %attempt.id,
+                        cleanup_attempt,
+                        cleanup_error_kind = ?error.kind(),
+                        upload_error_kind = ?upload_error.kind(),
+                        "retrying failed OneDrive direct attempt cleanup"
+                    );
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        attempt_id = %attempt.id,
+                        cleanup_attempt,
+                        cleanup_error_kind = ?error.kind(),
+                        upload_error_kind = ?upload_error.kind(),
+                        "OneDrive direct attempt cleanup failed; provider session expiry remains responsible"
+                    );
+                    return;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
     }
 }
 
@@ -466,8 +526,16 @@ impl StreamUploadDriver for OneDriveDriver {
         size: i64,
     ) -> aster_drive_storage::Result<String> {
         let attempt = StreamUploadAttempt::new(storage_path, size)?;
-        self.stage_attempt(&attempt, reader).await?;
-        self.commit_attempt(&attempt).await
+        let result = async {
+            self.stage_attempt(&attempt, reader).await?;
+            self.commit_attempt(&attempt).await
+        }
+        .await;
+        if let Err(error) = &result {
+            self.cleanup_owned_stream_attempt_after_error(&attempt, error)
+                .await;
+        }
+        result
     }
 
     async fn stage_attempt(
@@ -489,21 +557,28 @@ impl StreamUploadDriver for OneDriveDriver {
         &self,
         attempt: &StreamUploadAttempt,
     ) -> aster_drive_storage::Result<StreamUploadCleanup> {
-        let parent_path = paths::named_object_parent_path(&attempt.storage_path);
+        let parent_path = attempt.take_provider_cleanup_resource();
+        let mut session_cleaned = false;
         let mut session_cleanup_deferred = false;
-        if let Some(upload_url) = attempt.take_provider_session()
-            && let Err(error) = self.client.abort_upload_session(&upload_url).await
-        {
-            attempt.set_provider_session(upload_url);
-            session_cleanup_deferred = true;
-            tracing::warn!("failed to abort OneDrive attempt session: {error}");
+        if let Some(upload_url) = attempt.take_provider_session() {
+            match self.client.abort_upload_session(&upload_url).await {
+                Ok(()) => session_cleaned = true,
+                Err(error) => {
+                    attempt.set_provider_session(upload_url);
+                    session_cleanup_deferred = true;
+                    tracing::warn!("failed to abort OneDrive attempt session: {error}");
+                }
+            }
         }
         let namespace_cleaned = self
             .cleanup_named_object_parent(parent_path.as_deref())
             .await;
+        if !namespace_cleaned && let Some(parent_path) = parent_path.as_deref() {
+            attempt.set_provider_cleanup_resource(parent_path);
+        }
         if session_cleanup_deferred || !namespace_cleaned {
             Ok(StreamUploadCleanup::Deferred)
-        } else if parent_path.is_some() {
+        } else if session_cleaned || parent_path.is_some() {
             Ok(StreamUploadCleanup::Cleaned)
         } else {
             Ok(StreamUploadCleanup::NotRequired)
@@ -978,8 +1053,8 @@ mod tests {
         );
         assert_eq!(
             driver.abort_attempt(&attempt).await.unwrap(),
-            StreamUploadCleanup::Cleaned,
-            "repeated abort should confirm the exclusive namespace remains absent"
+            StreamUploadCleanup::NotRequired,
+            "confirmed cleanup should consume all attempt-owned resources"
         );
 
         {
@@ -991,6 +1066,38 @@ mod tests {
                     .filter(|path| path.as_str() == "/upload/session")
                     .count(),
                 3
+            );
+        }
+        server.stop().await;
+    }
+
+    #[tokio::test]
+    async fn direct_put_reader_retries_deferred_session_abort_before_dropping_attempt() {
+        let server = spawn_graph_lifecycle_server(GraphLifecycleConfig {
+            abort_session_failures: 2,
+            ..Default::default()
+        })
+        .await;
+        let client =
+            MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(&server.base_url, "token"))
+                .expect("Graph client should build");
+        let driver = OneDriveDriver::new(client, "drive-id", "root-id", "", 1);
+
+        driver
+            .put_reader(NAMED_PATH, Box::new(tokio::io::empty()), 2)
+            .await
+            .expect_err("truncated direct upload should retain and retry deferred cleanup");
+
+        {
+            let state = server.state.lock().expect("Graph lifecycle state lock");
+            assert_eq!(
+                state
+                    .paths
+                    .iter()
+                    .filter(|path| path.as_str() == "/upload/session")
+                    .count(),
+                3,
+                "direct put_reader should retry until the provider confirms session cleanup"
             );
         }
         server.stop().await;
