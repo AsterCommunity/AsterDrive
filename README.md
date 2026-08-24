@@ -14,6 +14,7 @@
 <p align="center">
   <a href="https://drive.docs.astercosm.com/"><img alt="Documentation Site" src="https://img.shields.io/badge/docs-Astro_Starlight-7C3AED?style=for-the-badge&logo=astro&logoColor=white"></a>
   <a href="README.zh.md"><img alt="中文 README" src="https://img.shields.io/badge/README-中文-E11D48?style=for-the-badge"></a>
+<a href="https://app.fossa.com/projects/git%2Bgithub.com%2FAsterCommunity%2FAsterDrive?ref=badge_shield" alt="FOSSA Status"><img src="https://app.fossa.com/api/projects/git%2Bgithub.com%2FAsterCommunity%2FAsterDrive.svg?type=shield"/></a>
   <a href="https://drive.docs.astercosm.com/en/start/quick-trial/"><img alt="Quick Start" src="https://img.shields.io/badge/quick%20start-guide-2563EB?style=for-the-badge"></a>
   <a href="https://drive.docs.astercosm.com/en/ops/cli/"><img alt="Ops CLI" src="https://img.shields.io/badge/ops-CLI-0EA5E9?style=for-the-badge"></a>
   <a href="https://drive.docs.astercosm.com/developer/en/architecture/"><img alt="Architecture" src="https://img.shields.io/badge/architecture-overview-0F172A?style=for-the-badge"></a>
@@ -24,6 +25,9 @@
 <p align="center">
   <img src="assets/Readme/Screenshot-English.webp" alt="AsterDrive English screenshot" width="1280" />
 </p>
+
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FAsterCommunity%2FAsterDrive.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FAsterCommunity%2FAsterDrive?ref=badge_large)
 
 ## What is AsterDrive?
 
