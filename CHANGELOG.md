@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.1] - 2026-08-24
+
 ### Added
 
 - **Huawei Cloud OBS connector** — 新增 `asterdrive.storage.huawei_obs`，复用 AWS S3 SDK 的对象、流式和 multipart 序列化，同时接入 Huawei 原生 OBS 签名；支持区域 virtual-hosted endpoint、自定义域名、Range、marker-based ListObjects、presigned single/multipart 请求和 descriptor-driven 管理端配置。
@@ -44,6 +46,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - **审计导出敏感数据与表格注入防护** — 审计列表和 CSV 导出统一递归移除密码、token、secret、credential、session、MFA、外部认证、WOPI 和存储凭据字段，不输出分享 token；用户可控 CSV 文本字段会中和公式前缀，避免在桌面表格软件中被解释为公式。
+
+### Statistics
+
+- 334 files changed, 18,044 insertions(+), 5,023 deletions(-)
+- 18 commits
+- 2 个数据库 migration
+- Rust Edition 2024, MSRV 1.95.0
 
 ## [v0.5.0] - 2026-08-20
 
@@ -6137,7 +6146,8 @@ OneDrive 存储策略新增浏览器直连能力：上传可选 Microsoft Graph 
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.1...HEAD
+[v0.5.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.0...v0.5.1
 [v0.5.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.0-rc.1...v0.5.0
 [v0.5.0-rc.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0...v0.5.0-rc.1
 [v0.4.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-rc.2...v0.4.0
