@@ -5,6 +5,7 @@
 //! 主要负责把 scope 校验、核心存储动作和不同上传入口重新导出成一个稳定入口。
 
 mod blob_upload;
+mod follower_stream;
 mod multipart;
 mod operation_context;
 mod store;
@@ -49,6 +50,9 @@ pub(crate) use blob_upload::{
     PreparedNonDedupBlobUpload, cleanup_preuploaded_blob_upload, nondedup_storage_path_for_policy,
     persist_preuploaded_blob, prepare_non_dedup_blob_upload, upload_reader_to_prepared_blob,
     upload_temp_file_to_prepared_blob, upload_temp_file_to_prepared_blob_cancellable,
+};
+pub(crate) use follower_stream::{
+    FollowerUploadBody, compose_follower_objects, write_follower_object,
 };
 pub(crate) use multipart::{WorkspaceUploadHints, upload_with_hints};
 pub(crate) use operation_context::{StorageCancellationCheck, StorageOperationContext};

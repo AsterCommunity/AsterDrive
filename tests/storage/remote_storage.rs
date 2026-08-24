@@ -2683,10 +2683,34 @@ async fn test_internal_storage_compose_rejects_empty_parts_and_negative_size() {
     server.stop().await;
 }
 
-#[actix_web::test]
-async fn test_internal_storage_compose_covers_commit_and_failure_cleanup_boundaries() {
-    let (provider_state, access_key, secret_key) =
-        setup_internal_hmac_binding_state("compose-attempt-lifecycle").await;
+struct ComposeAttemptFixture {
+    provider_state: aster_drive::runtime::PrimaryAppState,
+    access_key: String,
+    binding: aster_drive_model::entities::master_binding::Model,
+    server: TestHttpServer,
+    client: RemoteStorageClient,
+}
+
+impl ComposeAttemptFixture {
+    fn path(&self, key: &str) -> PathBuf {
+        managed_ingress_object_path(
+            &self.provider_state,
+            &self.access_key,
+            &self.binding.storage_namespace,
+            "",
+            key,
+        )
+    }
+
+    fn assert_no_attempt_residue(&self, key: &str) {
+        let target = self.path(key);
+        let entries = snapshot_dir_tree(target.parent().unwrap()).unwrap();
+        assert!(entries.iter().all(|path| !path.contains(".aster-attempt-")));
+    }
+}
+
+async fn setup_compose_attempt_fixture(label: &str) -> ComposeAttemptFixture {
+    let (provider_state, access_key, secret_key) = setup_internal_hmac_binding_state(label).await;
     create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
     let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), &access_key)
         .await
@@ -2694,178 +2718,143 @@ async fn test_internal_storage_compose_covers_commit_and_failure_cleanup_boundar
         .expect("provider binding should exist");
     let server = spawn_internal_storage_server(provider_state.follower_view()).await;
     let client = RemoteStorageClient::new(&server.base_url, &access_key, &secret_key).unwrap();
+    ComposeAttemptFixture {
+        provider_state,
+        access_key,
+        binding,
+        server,
+        client,
+    }
+}
 
-    let success_part_a = "compose/success-a.part";
-    let success_part_b = "compose/success-b.part";
-    let success_target = "compose/success.bin";
-    let success_part_a_path = managed_ingress_object_path(
-        &provider_state,
-        &access_key,
-        &binding.storage_namespace,
-        "",
-        success_part_a,
-    );
-    let success_part_b_path = managed_ingress_object_path(
-        &provider_state,
-        &access_key,
-        &binding.storage_namespace,
-        "",
-        success_part_b,
-    );
-    tokio::fs::create_dir_all(success_part_a_path.parent().unwrap())
+#[actix_web::test]
+async fn test_internal_storage_compose_commits_exact_size_and_removes_parts() {
+    let fixture = setup_compose_attempt_fixture("compose-attempt-success").await;
+    let part_a = "compose/success-a.part";
+    let part_b = "compose/success-b.part";
+    let target = "compose/success.bin";
+    let part_a_path = fixture.path(part_a);
+    let part_b_path = fixture.path(part_b);
+    tokio::fs::create_dir_all(part_a_path.parent().unwrap())
         .await
         .unwrap();
-    tokio::fs::write(&success_part_a_path, b"abc")
-        .await
-        .unwrap();
-    tokio::fs::write(&success_part_b_path, b"def")
-        .await
-        .unwrap();
+    tokio::fs::write(&part_a_path, b"abc").await.unwrap();
+    tokio::fs::write(&part_b_path, b"def").await.unwrap();
 
-    let success = client
-        .compose_objects(
-            success_target,
-            vec![success_part_a.to_string(), success_part_b.to_string()],
-            6,
-        )
+    let outcome = fixture
+        .client
+        .compose_objects(target, vec![part_a.to_string(), part_b.to_string()], 6)
         .await
         .expect("exact-size compose should commit");
-    assert_eq!(success.bytes_written, 6);
-    let success_target_path = managed_ingress_object_path(
-        &provider_state,
-        &access_key,
-        &binding.storage_namespace,
-        "",
-        success_target,
-    );
+
+    assert_eq!(outcome.bytes_written, 6);
     assert_eq!(
-        tokio::fs::read(&success_target_path).await.unwrap(),
+        tokio::fs::read(fixture.path(target)).await.unwrap(),
         b"abcdef"
     );
-    assert!(!tokio::fs::try_exists(&success_part_a_path).await.unwrap());
-    assert!(!tokio::fs::try_exists(&success_part_b_path).await.unwrap());
+    assert!(!tokio::fs::try_exists(&part_a_path).await.unwrap());
+    assert!(!tokio::fs::try_exists(&part_b_path).await.unwrap());
+    fixture.assert_no_attempt_residue(target);
+    fixture.server.stop().await;
+}
 
-    let mismatch_part = "compose/mismatch.part";
-    let mismatch_target = "compose/mismatch.bin";
-    let mismatch_part_path = managed_ingress_object_path(
-        &provider_state,
-        &access_key,
-        &binding.storage_namespace,
-        "",
-        mismatch_part,
-    );
-    let mismatch_target_path = managed_ingress_object_path(
-        &provider_state,
-        &access_key,
-        &binding.storage_namespace,
-        "",
-        mismatch_target,
-    );
-    tokio::fs::write(&mismatch_part_path, b"short")
+#[actix_web::test]
+async fn test_internal_storage_compose_size_mismatch_preserves_target_and_part() {
+    let fixture = setup_compose_attempt_fixture("compose-attempt-mismatch").await;
+    let part = "compose/mismatch.part";
+    let target = "compose/mismatch.bin";
+    let part_path = fixture.path(part);
+    let target_path = fixture.path(target);
+    tokio::fs::create_dir_all(part_path.parent().unwrap())
         .await
         .unwrap();
-    tokio::fs::write(&mismatch_target_path, b"previous")
-        .await
-        .unwrap();
-    client
-        .compose_objects(mismatch_target, vec![mismatch_part.to_string()], 6)
+    tokio::fs::write(&part_path, b"short").await.unwrap();
+    tokio::fs::write(&target_path, b"previous").await.unwrap();
+
+    fixture
+        .client
+        .compose_objects(target, vec![part.to_string()], 6)
         .await
         .expect_err("truncated compose source must fail");
-    assert_eq!(
-        tokio::fs::read(&mismatch_target_path).await.unwrap(),
-        b"previous"
-    );
-    assert_eq!(
-        tokio::fs::read(&mismatch_part_path).await.unwrap(),
-        b"short"
-    );
 
-    let commit_part = "compose/commit-failure.part";
-    let commit_target = "compose/commit-failure.bin";
-    let commit_part_path = managed_ingress_object_path(
-        &provider_state,
-        &access_key,
-        &binding.storage_namespace,
-        "",
-        commit_part,
-    );
-    let commit_target_path = managed_ingress_object_path(
-        &provider_state,
-        &access_key,
-        &binding.storage_namespace,
-        "",
-        commit_target,
-    );
-    tokio::fs::write(&commit_part_path, b"valid").await.unwrap();
-    tokio::fs::create_dir_all(&commit_target_path)
+    assert_eq!(tokio::fs::read(&target_path).await.unwrap(), b"previous");
+    assert_eq!(tokio::fs::read(&part_path).await.unwrap(), b"short");
+    fixture.assert_no_attempt_residue(target);
+    fixture.server.stop().await;
+}
+
+#[actix_web::test]
+async fn test_internal_storage_compose_commit_failure_preserves_target_and_part() {
+    let fixture = setup_compose_attempt_fixture("compose-attempt-commit-failure").await;
+    let part = "compose/commit-failure.part";
+    let target = "compose/commit-failure.bin";
+    let part_path = fixture.path(part);
+    let target_path = fixture.path(target);
+    tokio::fs::create_dir_all(part_path.parent().unwrap())
         .await
         .unwrap();
-    client
-        .compose_objects(commit_target, vec![commit_part.to_string()], 5)
+    tokio::fs::write(&part_path, b"valid").await.unwrap();
+    tokio::fs::create_dir_all(&target_path).await.unwrap();
+
+    fixture
+        .client
+        .compose_objects(target, vec![part.to_string()], 5)
         .await
         .expect_err("compose commit over a directory must fail");
-    assert!(
-        tokio::fs::metadata(&commit_target_path)
-            .await
-            .unwrap()
-            .is_dir()
-    );
-    assert_eq!(tokio::fs::read(&commit_part_path).await.unwrap(), b"valid");
 
-    let empty_part = "compose/empty.part";
-    let empty_target = "compose/empty.bin";
-    let empty_part_path = managed_ingress_object_path(
-        &provider_state,
-        &access_key,
-        &binding.storage_namespace,
-        "",
-        empty_part,
-    );
-    let empty_target_path = managed_ingress_object_path(
-        &provider_state,
-        &access_key,
-        &binding.storage_namespace,
-        "",
-        empty_target,
-    );
-    tokio::fs::write(&empty_part_path, []).await.unwrap();
-    let empty = client
-        .compose_objects(empty_target, vec![empty_part.to_string()], 0)
-        .await
-        .expect("zero-byte compose should commit");
-    assert_eq!(empty.bytes_written, 0);
-    assert_eq!(
-        tokio::fs::read(&empty_target_path).await.unwrap(),
-        Vec::<u8>::new()
-    );
-    assert!(!tokio::fs::try_exists(&empty_part_path).await.unwrap());
+    assert!(tokio::fs::metadata(&target_path).await.unwrap().is_dir());
+    assert_eq!(tokio::fs::read(&part_path).await.unwrap(), b"valid");
+    fixture.assert_no_attempt_residue(target);
+    fixture.server.stop().await;
+}
 
-    let missing_part = "compose/missing.part";
-    let missing_target = "compose/missing-source.bin";
-    let missing_target_path = managed_ingress_object_path(
-        &provider_state,
-        &access_key,
-        &binding.storage_namespace,
-        "",
-        missing_target,
-    );
-    tokio::fs::write(&missing_target_path, b"previous")
+#[actix_web::test]
+async fn test_internal_storage_compose_commits_zero_byte_object() {
+    let fixture = setup_compose_attempt_fixture("compose-attempt-empty").await;
+    let part = "compose/empty.part";
+    let target = "compose/empty.bin";
+    let part_path = fixture.path(part);
+    tokio::fs::create_dir_all(part_path.parent().unwrap())
         .await
         .unwrap();
-    client
-        .compose_objects(missing_target, vec![missing_part.to_string()], 0)
+    tokio::fs::write(&part_path, []).await.unwrap();
+
+    let outcome = fixture
+        .client
+        .compose_objects(target, vec![part.to_string()], 0)
+        .await
+        .expect("zero-byte compose should commit");
+
+    assert_eq!(outcome.bytes_written, 0);
+    assert_eq!(
+        tokio::fs::read(fixture.path(target)).await.unwrap(),
+        Vec::<u8>::new()
+    );
+    assert!(!tokio::fs::try_exists(&part_path).await.unwrap());
+    fixture.assert_no_attempt_residue(target);
+    fixture.server.stop().await;
+}
+
+#[actix_web::test]
+async fn test_internal_storage_compose_missing_part_preserves_target() {
+    let fixture = setup_compose_attempt_fixture("compose-attempt-missing-part").await;
+    let part = "compose/missing.part";
+    let target = "compose/missing-source.bin";
+    let target_path = fixture.path(target);
+    tokio::fs::create_dir_all(target_path.parent().unwrap())
+        .await
+        .unwrap();
+    tokio::fs::write(&target_path, b"previous").await.unwrap();
+
+    fixture
+        .client
+        .compose_objects(target, vec![part.to_string()], 0)
         .await
         .expect_err("missing compose source should fail after the empty stage finishes");
-    assert_eq!(
-        tokio::fs::read(&missing_target_path).await.unwrap(),
-        b"previous"
-    );
 
-    let compose_root = success_target_path.parent().unwrap();
-    let entries = snapshot_dir_tree(compose_root).unwrap();
-    assert!(entries.iter().all(|path| !path.contains(".aster-attempt-")));
-
-    server.stop().await;
+    assert_eq!(tokio::fs::read(&target_path).await.unwrap(), b"previous");
+    fixture.assert_no_attempt_residue(target);
+    fixture.server.stop().await;
 }
 
 #[actix_web::test]

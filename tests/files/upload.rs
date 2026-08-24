@@ -157,6 +157,7 @@ struct DirectStreamFailureDriver {
     commit_calls: AtomicUsize,
     abort_calls: AtomicUsize,
     metadata_calls: AtomicUsize,
+    delete_calls: AtomicUsize,
     staged_size: AtomicUsize,
 }
 
@@ -168,6 +169,7 @@ impl DirectStreamFailureDriver {
             commit_calls: AtomicUsize::new(0),
             abort_calls: AtomicUsize::new(0),
             metadata_calls: AtomicUsize::new(0),
+            delete_calls: AtomicUsize::new(0),
             staged_size: AtomicUsize::new(0),
         }
     }
@@ -191,6 +193,7 @@ impl StorageDriver for DirectStreamFailureDriver {
     }
 
     async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
+        self.delete_calls.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
@@ -3993,6 +3996,11 @@ async fn test_streaming_direct_failure_boundaries_abort_only_owned_attempts() {
         assert_eq!(
             driver.metadata_calls.load(Ordering::SeqCst),
             expected_metadata_calls
+        );
+        assert_eq!(
+            driver.delete_calls.load(Ordering::SeqCst),
+            1,
+            "{failure_point:?} must cleanup the preuploaded object exactly once"
         );
     }
 }

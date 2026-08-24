@@ -191,9 +191,9 @@ impl OneDriveDriver {
         Ok(Some(parent_path))
     }
 
-    async fn cleanup_named_object_parent(&self, parent_path: Option<&str>) {
+    async fn cleanup_named_object_parent(&self, parent_path: Option<&str>) -> bool {
         let Some(parent_path) = parent_path else {
-            return;
+            return true;
         };
         let graph_path = match self.graph_path(parent_path) {
             Ok(graph_path) => graph_path,
@@ -202,7 +202,7 @@ impl OneDriveDriver {
                     parent_path,
                     "failed to resolve OneDrive upload namespace for cleanup: {error}"
                 );
-                return;
+                return false;
             }
         };
         if let Err(error) = self.client.delete(&graph_path).await {
@@ -210,7 +210,9 @@ impl OneDriveDriver {
                 parent_path,
                 "failed to cleanup OneDrive upload namespace: {error}"
             );
+            return false;
         }
+        true
     }
 
     async fn put_owned(&self, path: &str, data: Bytes) -> Result<String> {
@@ -487,16 +489,24 @@ impl StreamUploadDriver for OneDriveDriver {
         &self,
         attempt: &StreamUploadAttempt,
     ) -> aster_drive_storage::Result<StreamUploadCleanup> {
-        let Some(upload_url) = attempt.take_provider_session() else {
-            return Ok(StreamUploadCleanup::NotRequired);
-        };
-        match self.client.abort_upload_session(&upload_url).await {
-            Ok(()) => Ok(StreamUploadCleanup::Cleaned),
-            Err(error) => {
-                attempt.set_provider_session(upload_url);
-                tracing::warn!("failed to abort OneDrive attempt session: {error}");
-                Ok(StreamUploadCleanup::Deferred)
-            }
+        let parent_path = paths::named_object_parent_path(&attempt.storage_path);
+        let mut session_cleanup_deferred = false;
+        if let Some(upload_url) = attempt.take_provider_session()
+            && let Err(error) = self.client.abort_upload_session(&upload_url).await
+        {
+            attempt.set_provider_session(upload_url);
+            session_cleanup_deferred = true;
+            tracing::warn!("failed to abort OneDrive attempt session: {error}");
+        }
+        let namespace_cleaned = self
+            .cleanup_named_object_parent(parent_path.as_deref())
+            .await;
+        if session_cleanup_deferred || !namespace_cleaned {
+            Ok(StreamUploadCleanup::Deferred)
+        } else if parent_path.is_some() {
+            Ok(StreamUploadCleanup::Cleaned)
+        } else {
+            Ok(StreamUploadCleanup::NotRequired)
         }
     }
 
@@ -624,6 +634,7 @@ mod tests {
     use actix_web::{App, HttpRequest, HttpResponse, HttpServer, web};
     use std::net::TcpListener;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     const NAMED_PATH: &str = "files/550e8400-e29b-41d4-a716-446655440000/video.mp4";
 
@@ -634,6 +645,8 @@ mod tests {
         upload_session_failure: bool,
         content_failure: bool,
         abort_session_failures: usize,
+        upload_session_delay: Duration,
+        fragment_delay: Duration,
     }
 
     #[derive(Default)]
@@ -680,6 +693,7 @@ mod tests {
                         "error": { "code": "serverError", "message": "session failed" }
                     }));
                 }
+                tokio::time::sleep(config.upload_session_delay).await;
                 let upload_url =
                     format!("http://{}/upload/session", request.connection_info().host());
                 return HttpResponse::Ok().json(serde_json::json!({
@@ -734,6 +748,7 @@ mod tests {
             }
 
             if method == "PUT" && path == "/upload/session" {
+                tokio::time::sleep(config.fragment_delay).await;
                 return HttpResponse::Created().finish();
             }
 
@@ -792,6 +807,29 @@ mod tests {
             handle,
             task,
         }
+    }
+
+    async fn wait_for_graph_request(
+        server: &GraphLifecycleServer,
+        predicate: impl Fn(&str) -> bool,
+    ) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if server
+                    .state
+                    .lock()
+                    .expect("Graph lifecycle state lock")
+                    .paths
+                    .iter()
+                    .any(|path| predicate(path))
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("expected Graph request should arrive");
     }
 
     fn lifecycle_driver(server: &GraphLifecycleServer) -> OneDriveDriver {
@@ -940,8 +978,8 @@ mod tests {
         );
         assert_eq!(
             driver.abort_attempt(&attempt).await.unwrap(),
-            StreamUploadCleanup::NotRequired,
-            "confirmed cleanup should consume the provider session"
+            StreamUploadCleanup::Cleaned,
+            "repeated abort should confirm the exclusive namespace remains absent"
         );
 
         {
@@ -953,6 +991,102 @@ mod tests {
                     .filter(|path| path.as_str() == "/upload/session")
                     .count(),
                 3
+            );
+        }
+        server.stop().await;
+    }
+
+    #[tokio::test]
+    async fn cancelled_stage_before_session_response_cleans_exclusive_namespace() {
+        let server = spawn_graph_lifecycle_server(GraphLifecycleConfig {
+            upload_session_delay: Duration::from_secs(2),
+            ..Default::default()
+        })
+        .await;
+        let client =
+            MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(&server.base_url, "token"))
+                .expect("Graph client should build");
+        let driver = OneDriveDriver::new(client, "drive-id", "root-id", "", 1);
+        let attempt = StreamUploadAttempt::new(NAMED_PATH, 2).unwrap();
+        let stage_driver = driver.clone();
+        let stage_attempt = attempt.clone();
+        let stage = tokio::spawn(async move {
+            stage_driver
+                .stage_attempt(
+                    &stage_attempt,
+                    Box::new(std::io::Cursor::new(vec![1_u8, 2])),
+                )
+                .await
+        });
+        wait_for_graph_request(&server, |path| path.ends_with("/createUploadSession")).await;
+
+        stage.abort();
+        assert!(stage.await.unwrap_err().is_cancelled());
+        assert_eq!(
+            driver.abort_attempt(&attempt).await.unwrap(),
+            StreamUploadCleanup::Cleaned
+        );
+
+        {
+            let state = server.state.lock().expect("Graph lifecycle state lock");
+            assert!(!state.paths.iter().any(|path| path == "/upload/session"));
+            assert!(
+                state
+                    .paths
+                    .iter()
+                    .any(|path| path.ends_with("/files/550e8400-e29b-41d4-a716-446655440000"))
+            );
+        }
+        server.stop().await;
+    }
+
+    #[tokio::test]
+    async fn cancelled_stage_after_session_creation_aborts_session_and_cleans_namespace() {
+        let server = spawn_graph_lifecycle_server(GraphLifecycleConfig {
+            fragment_delay: Duration::from_secs(2),
+            ..Default::default()
+        })
+        .await;
+        let client =
+            MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(&server.base_url, "token"))
+                .expect("Graph client should build");
+        let driver = OneDriveDriver::new(client, "drive-id", "root-id", "", 1);
+        let attempt = StreamUploadAttempt::new(NAMED_PATH, 2).unwrap();
+        let stage_driver = driver.clone();
+        let stage_attempt = attempt.clone();
+        let stage = tokio::spawn(async move {
+            stage_driver
+                .stage_attempt(
+                    &stage_attempt,
+                    Box::new(std::io::Cursor::new(vec![1_u8, 2])),
+                )
+                .await
+        });
+        wait_for_graph_request(&server, |path| path == "/upload/session").await;
+
+        stage.abort();
+        assert!(stage.await.unwrap_err().is_cancelled());
+        assert_eq!(
+            driver.abort_attempt(&attempt).await.unwrap(),
+            StreamUploadCleanup::Cleaned
+        );
+
+        {
+            let state = server.state.lock().expect("Graph lifecycle state lock");
+            assert_eq!(
+                state
+                    .paths
+                    .iter()
+                    .filter(|path| path.as_str() == "/upload/session")
+                    .count(),
+                2,
+                "the fragment request must be followed by session abort"
+            );
+            assert!(
+                state
+                    .paths
+                    .iter()
+                    .any(|path| path.ends_with("/files/550e8400-e29b-41d4-a716-446655440000"))
             );
         }
         server.stop().await;

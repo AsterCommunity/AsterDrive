@@ -7,7 +7,31 @@ use aster_drive_storage::traits::extensions::{
     StreamUploadCleanup, StreamUploadDriver,
 };
 use std::path::{Path, PathBuf};
-use tokio::io::AsyncReadExt;
+use std::pin::Pin;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+use std::task::{Context, Poll};
+use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
+
+struct CountingRepeatReader {
+    observed: Arc<AtomicUsize>,
+}
+
+impl AsyncRead for CountingRepeatReader {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let count = buffer.remaining();
+        buffer.initialize_unfilled().fill(7);
+        buffer.advance(count);
+        self.observed.fetch_add(count, Ordering::SeqCst);
+        Poll::Ready(Ok(()))
+    }
+}
 
 fn test_base_path(base: &Path) -> String {
     base.to_string_lossy().into_owned()
@@ -480,6 +504,45 @@ async fn stream_attempt_covers_zero_overlong_abort_and_retry_boundaries() {
         .expect("same-key retry should commit after cleanup");
     assert_eq!(driver.get("object.bin").await.unwrap(), b"replacement");
 
+    let entries = std::fs::read_dir(&base)
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert!(
+        entries
+            .iter()
+            .all(|name| !name.starts_with(".aster-attempt-"))
+    );
+
+    let _ = tokio::fs::remove_dir_all(&base).await;
+}
+
+#[tokio::test]
+async fn stream_attempt_bounds_overlong_reader_to_declared_size_plus_probe() {
+    let base = unique_temp_dir("local-stream-attempt-overlong-bound");
+    tokio::fs::create_dir_all(&base).await.unwrap();
+    let driver = super::LocalDriver::new(&test_base_path(&base)).unwrap();
+    driver.put("object.bin", b"previous").await.unwrap();
+    let observed = Arc::new(AtomicUsize::new(0));
+
+    let error = driver
+        .put_reader(
+            "object.bin",
+            Box::new(CountingRepeatReader {
+                observed: Arc::clone(&observed),
+            }),
+            4,
+        )
+        .await
+        .expect_err("an unbounded reader must stop after the length probe");
+
+    assert_eq!(
+        error.kind(),
+        aster_drive_storage::StorageErrorKind::Precondition
+    );
+    assert_eq!(observed.load(Ordering::SeqCst), 5);
+    assert_eq!(driver.get("object.bin").await.unwrap(), b"previous");
     let entries = std::fs::read_dir(&base)
         .unwrap()
         .filter_map(|entry| entry.ok())

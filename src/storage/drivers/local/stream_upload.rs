@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use tokio::io::{AsyncRead, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
 use aster_drive_storage::traits::extensions::{
     StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
@@ -59,16 +59,17 @@ impl StreamUploadDriver for LocalDriver {
         let mut file = tokio::fs::File::create(&staging_path)
             .await
             .map_storage_err(StorageErrorKind::Transient)?;
-        let written = match tokio::io::copy(&mut reader, &mut file).await {
-            Ok(written) => written,
-            Err(error) => {
-                cleanup_local_staging_file(&staging_path, "reader error").await;
-                return Err(error).map_storage_err_ctx(
-                    StorageErrorKind::Transient,
-                    "write local upload attempt",
-                );
-            }
-        };
+        let written =
+            match tokio::io::copy(&mut (&mut *reader).take(expected_size), &mut file).await {
+                Ok(written) => written,
+                Err(error) => {
+                    cleanup_local_staging_file(&staging_path, "reader error").await;
+                    return Err(error).map_storage_err_ctx(
+                        StorageErrorKind::Transient,
+                        "write local upload attempt",
+                    );
+                }
+            };
         if written != expected_size {
             cleanup_local_staging_file(&staging_path, "size mismatch").await;
             return Err(storage_driver_error(
@@ -78,6 +79,27 @@ impl StreamUploadDriver for LocalDriver {
                     attempt.expected_size
                 ),
             ));
+        }
+        let mut extra = [0_u8; 1];
+        match reader.read(&mut extra).await {
+            Ok(0) => {}
+            Ok(_) => {
+                cleanup_local_staging_file(&staging_path, "size mismatch").await;
+                return Err(storage_driver_error(
+                    StorageErrorKind::Precondition,
+                    format!(
+                        "local stream upload size mismatch: declared {}, actual exceeds declared size",
+                        attempt.expected_size
+                    ),
+                ));
+            }
+            Err(error) => {
+                cleanup_local_staging_file(&staging_path, "length probe error").await;
+                return Err(error).map_storage_err_ctx(
+                    StorageErrorKind::Transient,
+                    "check local upload attempt length",
+                );
+            }
         }
         if let Err(error) = file.flush().await {
             cleanup_local_staging_file(&staging_path, "flush error").await;
