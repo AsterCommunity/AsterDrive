@@ -149,18 +149,8 @@ async fn ensure_folder_in_parent<C: sea_orm::ConnectionTrait>(
                 ..Default::default()
             };
 
-            match folder_repo::create(db, model).await {
-                Ok(created) => Ok(created),
-                Err(err) => {
-                    if let Some(existing) =
-                        folder_repo::find_by_name_in_parent(db, user_id, parent_id, &name).await?
-                    {
-                        Ok(existing)
-                    } else {
-                        Err(err)
-                    }
-                }
-            }
+            folder_repo::create_or_find_by_name_in_parent(db, model, user_id, parent_id, &name)
+                .await
         }
         WorkspaceStorageScope::Team {
             team_id,
@@ -189,19 +179,8 @@ async fn ensure_folder_in_parent<C: sea_orm::ConnectionTrait>(
                 ..Default::default()
             };
 
-            match folder_repo::create(db, model).await {
-                Ok(created) => Ok(created),
-                Err(err) => {
-                    if let Some(existing) =
-                        folder_repo::find_by_name_in_team_parent(db, team_id, parent_id, &name)
-                            .await?
-                    {
-                        Ok(existing)
-                    } else {
-                        Err(err)
-                    }
-                }
-            }
+            folder_repo::create_or_find_by_name_in_team_parent(db, model, team_id, parent_id, &name)
+                .await
         }
     }
 }
