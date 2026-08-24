@@ -245,7 +245,7 @@ percent-encoding = "2.3"
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["stream", "json"] }
 ring = "0.17"
-rust-embed = { version = "8", features = ["interpolate-folder-path"] }
+rust-embed = { version = "8", features = ["compression", "interpolate-folder-path"] }
 sea-orm = { workspace = true, features = ["sqlx-mysql", "sqlx-postgres", "sqlx-sqlite"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

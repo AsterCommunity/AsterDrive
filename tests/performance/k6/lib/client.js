@@ -121,7 +121,8 @@ export function refreshSession(session) {
 	});
 	const body = assertApi(response, "auth.refresh", 200);
 	const accessToken = cookieValue(response, "aster_access");
-	const refreshToken = cookieValue(response, "aster_refresh") || session.refreshToken;
+	const refreshToken =
+		cookieValue(response, "aster_refresh") || session.refreshToken;
 	const csrfToken = cookieValue(response, "aster_csrf") || session.csrfToken;
 	if (!accessToken) {
 		fail("auth.refresh did not return an access cookie");
@@ -259,6 +260,7 @@ export function uploadDirect(
 		mimeType = "text/plain",
 		folderId = null,
 		relativePath = null,
+		declaredSize = content.length,
 	},
 ) {
 	const payload = {
@@ -269,6 +271,7 @@ export function uploadDirect(
 			`/api/v1/files/upload${buildQuery({
 				folder_id: folderId,
 				relative_path: relativePath,
+				declared_size: declaredSize,
 			})}`,
 		),
 		payload,
