@@ -216,21 +216,41 @@ impl OneDriveDriver {
         true
     }
 
-    async fn put_owned(&self, path: &str, data: Bytes) -> Result<String> {
+    async fn put_owned_with_attempt(
+        &self,
+        path: &str,
+        data: Bytes,
+        attempt: Option<&StreamUploadAttempt>,
+    ) -> Result<String> {
         if data.len() > GRAPH_SIMPLE_UPLOAD_MAX_BYTES {
             return Err(graph_simple_upload_too_large_error());
         }
         let parent_path = self.ensure_named_object_parent(path).await?;
+        if let (Some(attempt), Some(parent_path)) = (attempt, parent_path.as_deref()) {
+            attempt.set_provider_cleanup_resource(parent_path);
+        }
         if let Err(error) = self
             .client
             .put_small_content(&self.graph_content_path(path)?, data)
             .await
         {
-            self.cleanup_named_object_parent(parent_path.as_deref())
-                .await;
+            if self
+                .cleanup_named_object_parent(parent_path.as_deref())
+                .await
+                && let Some(attempt) = attempt
+            {
+                let _ = attempt.take_provider_cleanup_resource();
+            }
             return Err(error);
         }
+        if let Some(attempt) = attempt {
+            let _ = attempt.take_provider_cleanup_resource();
+        }
         Ok(path.to_string())
+    }
+
+    async fn put_owned(&self, path: &str, data: Bytes) -> Result<String> {
+        self.put_owned_with_attempt(path, data, None).await
     }
 
     pub async fn validate_root(&self) -> Result<MicrosoftGraphDriveItem> {
@@ -249,7 +269,9 @@ impl OneDriveDriver {
         let total_size = numbers::i64_to_u64(size, "OneDrive put_reader declared size")
             .map_storage_err(StorageErrorKind::Misconfigured)?;
         if total_size == 0 {
-            return self.put_owned(path, Bytes::new()).await;
+            return self
+                .put_owned_with_attempt(path, Bytes::new(), attempt)
+                .await;
         }
         if can_use_graph_in_memory_upload(total_size, self.policy_chunk_size) {
             let capacity = numbers::u64_to_usize(total_size, "OneDrive bounded simple upload size")
@@ -260,7 +282,9 @@ impl OneDriveDriver {
                 "read OneDrive bounded simple upload stream",
             )?;
             reject_extra_upload_bytes(reader).await?;
-            return self.put_owned(path, Bytes::from(data)).await;
+            return self
+                .put_owned_with_attempt(path, Bytes::from(data), attempt)
+                .await;
         }
         let parent_path = self.ensure_named_object_parent(path).await?;
         if let (Some(attempt), Some(parent_path)) = (attempt, parent_path.as_deref()) {
@@ -720,6 +744,7 @@ mod tests {
         upload_session_failure: bool,
         content_failure: bool,
         abort_session_failures: usize,
+        namespace_delete_failures: usize,
         upload_session_delay: Duration,
         fragment_delay: Duration,
     }
@@ -844,6 +869,18 @@ mod tests {
             }
 
             if method == "DELETE" {
+                let namespace_delete_attempt = state
+                    .lock()
+                    .expect("Graph lifecycle state lock")
+                    .methods
+                    .iter()
+                    .filter(|method| method.as_str() == "DELETE")
+                    .count();
+                if namespace_delete_attempt <= config.namespace_delete_failures {
+                    return HttpResponse::InternalServerError().json(serde_json::json!({
+                        "error": { "code": "serverError", "message": "namespace delete failed" }
+                    }));
+                }
                 return HttpResponse::NotFound().finish();
             }
 
@@ -1098,6 +1135,37 @@ mod tests {
                     .count(),
                 3,
                 "direct put_reader should retry until the provider confirms session cleanup"
+            );
+        }
+        server.stop().await;
+    }
+
+    #[tokio::test]
+    async fn direct_simple_upload_retries_failed_namespace_cleanup() {
+        let server = spawn_graph_lifecycle_server(GraphLifecycleConfig {
+            content_failure: true,
+            namespace_delete_failures: 1,
+            ..Default::default()
+        })
+        .await;
+        let driver = lifecycle_driver(&server);
+
+        driver
+            .put_reader(NAMED_PATH, Box::new(std::io::Cursor::new(vec![1_u8])), 1)
+            .await
+            .expect_err("content failure should return after namespace cleanup retry");
+
+        {
+            let state = server.state.lock().expect("Graph lifecycle state lock");
+            assert_eq!(
+                state
+                    .paths
+                    .iter()
+                    .filter(|path| path.as_str() != "/upload/session")
+                    .filter(|path| path.ends_with("/files/550e8400-e29b-41d4-a716-446655440000"))
+                    .count(),
+                2,
+                "the failed initial namespace delete must be retried by the attempt owner"
             );
         }
         server.stop().await;

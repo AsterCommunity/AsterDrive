@@ -47,7 +47,17 @@ where
                 Ok(Ok(())) => {}
                 Ok(Err(error)) => {
                     relay_task.abort();
-                    log_aborted_relay_join(relay_task, context.stage_abort_join).await;
+                    match relay_task.await {
+                        Ok(Err(relay_error)) => return Err(relay_error),
+                        Ok(Ok(_)) => {}
+                        Err(join_error) if !join_error.is_cancelled() => {
+                            tracing::warn!(
+                                context = context.stage_abort_join,
+                                "failed to join aborted relay task: {join_error}"
+                            );
+                        }
+                        Err(_) => {}
+                    }
                     return Err(error.into());
                 }
                 Err(_) => {
@@ -267,7 +277,7 @@ mod tests {
             Err(AsterError::validation_error("injected payload failure")),
         ]));
 
-        write_follower_object(
+        let error = write_follower_object(
             driver.clone(),
             &NoopMetrics::new(),
             7,
@@ -278,6 +288,7 @@ mod tests {
         )
         .await
         .expect_err("payload failure must abort the current attempt");
+        assert!(error.message().contains("injected payload failure"));
 
         assert!(!driver.exists("object.bin").await.unwrap());
         assert_no_attempt_files(&root);
