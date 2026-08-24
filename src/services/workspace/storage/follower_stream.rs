@@ -34,6 +34,7 @@ async fn stage_with_relay<T, F>(
     reader: tokio::io::DuplexStream,
     relay: F,
     context: RelayStageContext,
+    timeout: Duration,
 ) -> Result<T>
 where
     T: 'static,
@@ -43,7 +44,7 @@ where
         .run_until(async move {
             let relay_task = tokio::task::spawn_local(relay);
             let stage = stream_driver.stage_attempt(attempt, Box::new(reader));
-            match tokio::time::timeout(STREAM_ATTEMPT_TIMEOUT, stage).await {
+            match tokio::time::timeout(timeout, stage).await {
                 Ok(Ok(())) => {}
                 Ok(Err(error)) => {
                     relay_task.abort();
@@ -117,6 +118,7 @@ pub(crate) async fn write_follower_object(
             timeout_error: "stream upload attempt timed out",
             relay_join_error: "relay upload task failed",
         },
+        STREAM_ATTEMPT_TIMEOUT,
     )
     .await;
 
@@ -193,6 +195,7 @@ pub(crate) async fn compose_follower_objects(
             timeout_error: "compose stream upload attempt timed out",
             relay_join_error: "compose relay task failed",
         },
+        STREAM_ATTEMPT_TIMEOUT,
     )
     .await;
 
@@ -237,14 +240,15 @@ async fn log_aborted_relay_join<T>(task: tokio::task::JoinHandle<T>, context: &'
 
 #[cfg(test)]
 mod tests {
-    use super::{FollowerUploadBody, write_follower_object};
+    use super::{FollowerUploadBody, RelayStageContext, stage_with_relay, write_follower_object};
     use crate::errors::AsterError;
     use crate::storage::drivers::local::LocalDriver;
     use aster_drive_metrics::NoopMetrics;
-    use aster_drive_storage::StorageDriver;
+    use aster_drive_storage::{StorageDriver, StreamUploadDriver};
     use bytes::Bytes;
     use std::path::Path;
     use std::sync::Arc;
+    use std::time::Duration;
 
     fn test_root(label: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!(
@@ -324,6 +328,70 @@ mod tests {
                 .unwrap()
                 .is_dir()
         );
+        assert_no_attempt_files(&root);
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn stage_with_relay_timeout_aborts_put_and_compose_attempts() {
+        let root = test_root("timeout");
+        tokio::fs::create_dir_all(&root).await.unwrap();
+        let driver = LocalDriver::new(root.to_str().unwrap()).unwrap();
+
+        {
+            let attempt_path = "put.bin";
+            let attempt = aster_drive_storage::StreamUploadAttempt::new(attempt_path, 5).unwrap();
+            let (_writer, reader) = tokio::io::duplex(64);
+            let result = stage_with_relay(
+                &driver,
+                &attempt,
+                reader,
+                futures::future::pending::<std::result::Result<String, AsterError>>(),
+                RelayStageContext {
+                    stage_abort_join: "test put stage abort",
+                    timeout_abort_join: "test put timeout abort",
+                    timeout_error: "test put timeout",
+                    relay_join_error: "test put relay join",
+                },
+                Duration::from_millis(1),
+            )
+            .await;
+            assert!(result.is_err());
+            assert!(result.unwrap_err().message().contains("test put timeout"));
+            assert_eq!(
+                driver.abort_attempt(&attempt).await.unwrap(),
+                aster_drive_storage::StreamUploadCleanup::Cleaned
+            );
+            assert!(!driver.exists(&attempt.staging_path).await.unwrap());
+        }
+
+        let attempt = aster_drive_storage::StreamUploadAttempt::new("compose.bin", 5).unwrap();
+        let (_writer, reader) = tokio::io::duplex(64);
+        let result = stage_with_relay(
+            &driver,
+            &attempt,
+            reader,
+            futures::future::pending::<std::result::Result<u64, AsterError>>(),
+            RelayStageContext {
+                stage_abort_join: "test compose stage abort",
+                timeout_abort_join: "test compose timeout abort",
+                timeout_error: "test compose timeout",
+                relay_join_error: "test compose relay join",
+            },
+            Duration::from_millis(1),
+        )
+        .await;
+        assert!(
+            result
+                .unwrap_err()
+                .message()
+                .contains("test compose timeout")
+        );
+        assert_eq!(
+            driver.abort_attempt(&attempt).await.unwrap(),
+            aster_drive_storage::StreamUploadCleanup::Cleaned
+        );
+        assert!(!driver.exists(&attempt.staging_path).await.unwrap());
         assert_no_attempt_files(&root);
         tokio::fs::remove_dir_all(root).await.unwrap();
     }
