@@ -1,9 +1,12 @@
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
 use aster_drive_metrics::MetricsRecorder;
-use aster_drive_storage::{StorageDriver, StorageErrorKind, StreamUploadAttempt};
+use aster_drive_storage::{
+    StorageDriver, StorageErrorKind, StreamUploadAttempt, StreamUploadDriver,
+};
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use sha2::{Digest, Sha256};
@@ -16,6 +19,49 @@ const RELAY_BUFFER_SIZE: usize = 64 * 1024;
 const STREAM_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 pub(crate) type FollowerUploadBody = Pin<Box<dyn Stream<Item = Result<Bytes>> + 'static>>;
+
+#[derive(Clone, Copy)]
+struct RelayStageContext {
+    stage_abort_join: &'static str,
+    timeout_abort_join: &'static str,
+    timeout_error: &'static str,
+    relay_join_error: &'static str,
+}
+
+async fn stage_with_relay<T, F>(
+    stream_driver: &dyn StreamUploadDriver,
+    attempt: &StreamUploadAttempt,
+    reader: tokio::io::DuplexStream,
+    relay: F,
+    context: RelayStageContext,
+) -> Result<T>
+where
+    T: 'static,
+    F: Future<Output = Result<T>> + 'static,
+{
+    tokio::task::LocalSet::new()
+        .run_until(async move {
+            let relay_task = tokio::task::spawn_local(relay);
+            let stage = stream_driver.stage_attempt(attempt, Box::new(reader));
+            match tokio::time::timeout(STREAM_ATTEMPT_TIMEOUT, stage).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    relay_task.abort();
+                    log_aborted_relay_join(relay_task, context.stage_abort_join).await;
+                    return Err(error.into());
+                }
+                Err(_) => {
+                    relay_task.abort();
+                    log_aborted_relay_join(relay_task, context.timeout_abort_join).await;
+                    return Err(AsterError::storage_driver_error(context.timeout_error));
+                }
+            }
+            relay_task.await.map_err(|error| {
+                AsterError::storage_driver_error(format!("{}: {error}", context.relay_join_error))
+            })?
+        })
+        .await
+}
 
 pub(crate) async fn write_follower_object(
     driver: Arc<dyn StorageDriver>,
@@ -34,51 +80,35 @@ pub(crate) async fn write_follower_object(
     })?;
     let attempt = StreamUploadAttempt::new(storage_path, content_length)?;
     let _attempt_metrics = StreamUploadMetricsGuard::new(metrics, content_length);
-    let attempt_for_upload = attempt.clone();
     let (writer, reader) = tokio::io::duplex(RELAY_BUFFER_SIZE);
-
-    let stage_result = tokio::task::LocalSet::new()
-        .run_until(async move {
-            let relay_task = tokio::task::spawn_local(async move {
-                let mut writer = writer;
-                let mut hasher = Sha256::new();
-                while let Some(chunk) = payload.next().await {
-                    let chunk = chunk?;
-                    hasher.update(&chunk);
-                    writer.write_all(&chunk).await.map_err(|error| {
-                        AsterError::storage_driver_error(format!("relay upload payload: {error}"))
-                    })?;
-                }
-                writer.shutdown().await.map_err(|error| {
-                    AsterError::storage_driver_error(format!(
-                        "shutdown relay upload payload: {error}"
-                    ))
-                })?;
-                Ok::<String, AsterError>(format!("\"{}\"", hex::encode(hasher.finalize())))
-            });
-
-            let stage = stream_driver.stage_attempt(&attempt_for_upload, Box::new(reader));
-            match tokio::time::timeout(STREAM_ATTEMPT_TIMEOUT, stage).await {
-                Ok(Ok(())) => {}
-                Ok(Err(error)) => {
-                    relay_task.abort();
-                    log_aborted_relay_join(relay_task, "follower relay after stage error").await;
-                    return Err(error.into());
-                }
-                Err(_) => {
-                    relay_task.abort();
-                    log_aborted_relay_join(relay_task, "timed out follower relay").await;
-                    return Err(AsterError::storage_driver_error(
-                        "stream upload attempt timed out",
-                    ));
-                }
-            }
-
-            relay_task.await.map_err(|error| {
-                AsterError::storage_driver_error(format!("relay upload task failed: {error}"))
-            })?
-        })
-        .await;
+    let relay = async move {
+        let mut writer = writer;
+        let mut hasher = Sha256::new();
+        while let Some(chunk) = payload.next().await {
+            let chunk = chunk?;
+            hasher.update(&chunk);
+            writer.write_all(&chunk).await.map_err(|error| {
+                AsterError::storage_driver_error(format!("relay upload payload: {error}"))
+            })?;
+        }
+        writer.shutdown().await.map_err(|error| {
+            AsterError::storage_driver_error(format!("shutdown relay upload payload: {error}"))
+        })?;
+        Ok::<String, AsterError>(format!("\"{}\"", hex::encode(hasher.finalize())))
+    };
+    let stage_result = stage_with_relay(
+        stream_driver,
+        &attempt,
+        reader,
+        relay,
+        RelayStageContext {
+            stage_abort_join: "follower relay after stage error",
+            timeout_abort_join: "timed out follower relay",
+            timeout_error: "stream upload attempt timed out",
+            relay_join_error: "relay upload task failed",
+        },
+    )
+    .await;
 
     let etag = match stage_result {
         Ok(etag) => etag,
@@ -117,58 +147,44 @@ pub(crate) async fn compose_follower_objects(
         aster_forge_utils::numbers::i64_to_u64(expected_size, "compose expected_size")?;
     let attempt = StreamUploadAttempt::new(target_storage_path, expected_size)?;
     let _attempt_metrics = StreamUploadMetricsGuard::new(metrics, expected_size);
-    let attempt_for_upload = attempt.clone();
     let read_driver = Arc::clone(&driver);
     let cleanup_part_storage_paths = part_storage_paths.clone();
     let (writer, reader) = tokio::io::duplex(RELAY_BUFFER_SIZE);
 
-    let stage_result = tokio::task::LocalSet::new()
-        .run_until(async move {
-            let relay_task = tokio::task::spawn_local(async move {
-                let mut writer = writer;
-                let mut bytes_written = 0_u64;
-                for source_path in part_storage_paths {
-                    let mut stream = read_driver.get_stream(&source_path).await?;
-                    let copied =
-                        tokio::io::copy(&mut stream, &mut writer)
-                            .await
-                            .map_err(|error| {
-                                AsterError::storage_driver_error(format!(
-                                    "relay composed object stream: {error}"
-                                ))
-                            })?;
-                    bytes_written = bytes_written.checked_add(copied).ok_or_else(|| {
-                        AsterError::storage_driver_error("compose bytes written overflow")
-                    })?;
-                }
-                writer.shutdown().await.map_err(|error| {
-                    AsterError::storage_driver_error(format!("shutdown compose stream: {error}"))
+    let relay = async move {
+        let mut writer = writer;
+        let mut bytes_written = 0_u64;
+        for source_path in part_storage_paths {
+            let mut stream = read_driver.get_stream(&source_path).await?;
+            let copied = tokio::io::copy(&mut stream, &mut writer)
+                .await
+                .map_err(|error| {
+                    AsterError::storage_driver_error(format!(
+                        "relay composed object stream: {error}"
+                    ))
                 })?;
-                Ok::<u64, AsterError>(bytes_written)
-            });
-
-            let stage = stream_driver.stage_attempt(&attempt_for_upload, Box::new(reader));
-            match tokio::time::timeout(STREAM_ATTEMPT_TIMEOUT, stage).await {
-                Ok(Ok(())) => {}
-                Ok(Err(error)) => {
-                    relay_task.abort();
-                    log_aborted_relay_join(relay_task, "compose relay after stage error").await;
-                    return Err(error.into());
-                }
-                Err(_) => {
-                    relay_task.abort();
-                    log_aborted_relay_join(relay_task, "timed out compose relay").await;
-                    return Err(AsterError::storage_driver_error(
-                        "compose stream upload attempt timed out",
-                    ));
-                }
-            }
-
-            relay_task.await.map_err(|error| {
-                AsterError::storage_driver_error(format!("compose relay task failed: {error}"))
-            })?
-        })
-        .await;
+            bytes_written = bytes_written.checked_add(copied).ok_or_else(|| {
+                AsterError::storage_driver_error("compose bytes written overflow")
+            })?;
+        }
+        writer.shutdown().await.map_err(|error| {
+            AsterError::storage_driver_error(format!("shutdown compose stream: {error}"))
+        })?;
+        Ok::<u64, AsterError>(bytes_written)
+    };
+    let stage_result = stage_with_relay(
+        stream_driver,
+        &attempt,
+        reader,
+        relay,
+        RelayStageContext {
+            stage_abort_join: "compose relay after stage error",
+            timeout_abort_join: "timed out compose relay",
+            timeout_error: "compose stream upload attempt timed out",
+            relay_join_error: "compose relay task failed",
+        },
+    )
+    .await;
 
     let bytes_written = match stage_result {
         Ok(bytes_written) if bytes_written == expected_size_u64 => bytes_written,
