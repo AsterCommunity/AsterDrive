@@ -395,6 +395,24 @@ async fn find_by_name_in_parent_in_scope<C: ConnectionTrait>(
         }))
 }
 
+async fn lock_by_name_in_parent_in_scope<C: ConnectionTrait>(
+    db: &C,
+    scope: FolderScope,
+    parent_id: Option<i64>,
+    name: &str,
+) -> Result<Option<folder::Model>> {
+    Folder::find()
+        .filter(apply_parent_condition(
+            active_scope_condition(scope),
+            parent_id,
+        ))
+        .filter(folder::Column::Name.eq(name))
+        .lock_exclusive()
+        .one(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 async fn find_by_names_in_parent_in_scope<C: ConnectionTrait>(
     db: &C,
     scope: FolderScope,
@@ -488,6 +506,15 @@ pub async fn find_by_name_in_parent<C: ConnectionTrait>(
     find_by_name_in_parent_in_scope(db, FolderScope::Personal { user_id }, parent_id, name).await
 }
 
+pub async fn lock_by_name_in_parent<C: ConnectionTrait>(
+    db: &C,
+    user_id: i64,
+    parent_id: Option<i64>,
+    name: &str,
+) -> Result<Option<folder::Model>> {
+    lock_by_name_in_parent_in_scope(db, FolderScope::Personal { user_id }, parent_id, name).await
+}
+
 pub async fn find_by_names_in_parent<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -504,6 +531,15 @@ pub async fn find_by_name_in_team_parent<C: ConnectionTrait>(
     name: &str,
 ) -> Result<Option<folder::Model>> {
     find_by_name_in_parent_in_scope(db, FolderScope::Team { team_id }, parent_id, name).await
+}
+
+pub async fn lock_by_name_in_team_parent<C: ConnectionTrait>(
+    db: &C,
+    team_id: i64,
+    parent_id: Option<i64>,
+    name: &str,
+) -> Result<Option<folder::Model>> {
+    lock_by_name_in_parent_in_scope(db, FolderScope::Team { team_id }, parent_id, name).await
 }
 
 pub async fn find_by_names_in_team_parent<C: ConnectionTrait>(

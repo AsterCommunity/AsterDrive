@@ -12,7 +12,8 @@ pub use common::{
     is_duplicate_name_error, is_name_conflict_db_err, map_bulk_name_db_err, map_name_db_err,
 };
 pub use mutation::{
-    clear_policy_references, create, create_many, delete, delete_many, move_many_to_parent,
+    clear_policy_references, create, create_many, create_or_find_by_name_in_parent,
+    create_or_find_by_name_in_team_parent, delete, delete_many, move_many_to_parent,
 };
 pub(crate) use path::{find_ancestor_models, find_team_ancestor_models};
 pub use path::{find_ancestors, resolve_path_chain};
@@ -22,7 +23,7 @@ pub use query::{
     find_by_name_in_team_parent, find_by_names_in_parent, find_by_names_in_team_parent,
     find_children, find_children_after_id, find_children_in_parents, find_children_paginated,
     find_team_children, find_team_children_after_id, find_team_children_in_parents,
-    find_team_children_paginated, lock_by_id,
+    find_team_children_paginated, lock_by_id, lock_by_name_in_parent, lock_by_name_in_team_parent,
 };
 pub(crate) use query::{find_child_ids_after_id_in_scope, find_child_ids_in_parents};
 pub use trash::{

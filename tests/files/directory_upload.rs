@@ -4,7 +4,10 @@ use crate::common;
 
 use actix_web::test;
 use aster_drive::db::repository::folder_repo;
+use aster_drive::services::{files::upload, workspace::team};
+use aster_drive_model::entities::folder;
 use aster_forge_utils::numbers::i64_to_usize;
+use sea_orm::{ActiveModelTrait, Set};
 use serde_json::Value;
 
 #[actix_web::test]
@@ -282,6 +285,274 @@ async fn test_init_upload_with_relative_path_reuses_existing_directories() {
     let guides = folder_repo::find_by_id(&db, guides_id).await.unwrap();
     assert_eq!(docs.created_by_username, "testuser");
     assert_eq!(guides.created_by_username, "testuser");
+}
+
+#[actix_web::test]
+async fn test_concurrent_init_uploads_share_new_nested_parent_path() {
+    let state = common::setup_with_pool_size(4).await;
+    let app = create_test_app!(state.clone());
+    let user_id =
+        common::setup_test_account_via_api(&app, "testuser", "test@example.com", "password123")
+            .await;
+    let relative_root = format!("parallel-{}/nested", uuid::Uuid::new_v4());
+    let first_path = format!("{relative_root}/first.bin");
+    let second_path = format!("{relative_root}/second.bin");
+
+    let (first, second) = tokio::join!(
+        upload::init_upload(
+            &state,
+            user_id,
+            "first.bin",
+            10_485_760,
+            None,
+            Some(&first_path),
+        ),
+        upload::init_upload(
+            &state,
+            user_id,
+            "second.bin",
+            10_485_760,
+            None,
+            Some(&second_path),
+        ),
+    );
+
+    assert!(
+        first.is_ok(),
+        "first concurrent init should succeed: {}",
+        first
+            .as_ref()
+            .err()
+            .map(ToString::to_string)
+            .unwrap_or_default()
+    );
+    assert!(
+        second.is_ok(),
+        "second concurrent init should reuse the created parents: {}",
+        second
+            .as_ref()
+            .err()
+            .map(ToString::to_string)
+            .unwrap_or_default()
+    );
+
+    let root_name = relative_root
+        .split('/')
+        .next()
+        .expect("parallel path should have a root segment");
+    let root = folder_repo::find_by_name_in_parent(state.writer_db(), user_id, None, root_name)
+        .await
+        .expect("parallel root lookup should succeed")
+        .expect("parallel root should exist");
+    let root_count = folder_repo::find_children(state.writer_db(), user_id, None)
+        .await
+        .expect("parallel root listing should succeed")
+        .into_iter()
+        .filter(|folder| folder.name == root_name)
+        .count();
+    assert_eq!(root_count, 1, "concurrent init must create one root parent");
+    let nested =
+        folder_repo::find_by_name_in_parent(state.writer_db(), user_id, Some(root.id), "nested")
+            .await
+            .expect("parallel nested lookup should succeed")
+            .expect("parallel nested folder should exist");
+    assert_eq!(
+        folder_repo::find_children(state.writer_db(), user_id, Some(root.id))
+            .await
+            .expect("parallel child lookup should succeed")
+            .len(),
+        1,
+        "concurrent init must create one nested parent"
+    );
+    assert_eq!(nested.parent_id, Some(root.id));
+}
+
+#[tokio::test]
+async fn test_concurrent_team_init_uploads_share_new_nested_parent_path() {
+    let state = common::setup_with_pool_size(4).await;
+    let owner = common::create_test_account(
+        &state,
+        "parallel-team",
+        "parallel-team-owner@example.com",
+        "password123",
+    )
+    .await
+    .expect("team owner should be created");
+    let team = team::create_team(
+        &state,
+        owner.id,
+        team::CreateTeamInput {
+            name: "Parallel folder upload team".to_string(),
+            description: None,
+        },
+    )
+    .await
+    .expect("team should be created");
+    let relative_root = format!("parallel-team-{}/nested", uuid::Uuid::new_v4());
+    let first_path = format!("{relative_root}/first.bin");
+    let second_path = format!("{relative_root}/second.bin");
+
+    let (first, second) = tokio::join!(
+        upload::init_upload_for_team(
+            &state,
+            team.id,
+            owner.id,
+            "first.bin",
+            10_485_760,
+            None,
+            Some(&first_path),
+        ),
+        upload::init_upload_for_team(
+            &state,
+            team.id,
+            owner.id,
+            "second.bin",
+            10_485_760,
+            None,
+            Some(&second_path),
+        ),
+    );
+
+    assert!(
+        first.is_ok(),
+        "first concurrent team init should succeed: {}",
+        first
+            .as_ref()
+            .err()
+            .map(ToString::to_string)
+            .unwrap_or_default()
+    );
+    assert!(
+        second.is_ok(),
+        "second concurrent team init should reuse the created parents: {}",
+        second
+            .as_ref()
+            .err()
+            .map(ToString::to_string)
+            .unwrap_or_default()
+    );
+
+    let root_name = relative_root
+        .split('/')
+        .next()
+        .expect("parallel team path should have a root segment");
+    let roots = folder_repo::find_team_children(state.writer_db(), team.id, None)
+        .await
+        .expect("parallel team root listing should succeed");
+    let matching_roots: Vec<_> = roots
+        .iter()
+        .filter(|folder| folder.name == root_name)
+        .collect();
+    assert_eq!(
+        matching_roots.len(),
+        1,
+        "team init must create one root parent"
+    );
+    let root = matching_roots[0];
+    let nested = folder_repo::find_by_name_in_team_parent(
+        state.writer_db(),
+        team.id,
+        Some(root.id),
+        "nested",
+    )
+    .await
+    .expect("parallel team nested lookup should succeed")
+    .expect("parallel team nested folder should exist");
+    assert_eq!(
+        folder_repo::find_team_children(state.writer_db(), team.id, Some(root.id))
+            .await
+            .expect("parallel team child lookup should succeed")
+            .len(),
+        1,
+        "team init must create one nested parent"
+    );
+    assert_eq!(nested.parent_id, Some(root.id));
+}
+
+#[tokio::test]
+async fn test_conflicting_folder_insert_reloads_existing_personal_and_team_parent() {
+    let state = common::setup_with_pool_size(2).await;
+    let owner = common::create_test_account(
+        &state,
+        "folder-conflict",
+        "folder-conflict-owner@example.com",
+        "password123",
+    )
+    .await
+    .expect("folder conflict owner should be created");
+    let now = chrono::Utc::now();
+
+    let personal = folder::ActiveModel {
+        name: Set("personal-conflict-parent".to_string()),
+        owner_user_id: Set(Some(owner.id)),
+        created_by_user_id: Set(Some(owner.id)),
+        created_by_username: Set(owner.username.clone()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("personal conflict parent should be inserted");
+    let personal_result = folder_repo::create_or_find_by_name_in_parent(
+        state.writer_db(),
+        folder::ActiveModel {
+            name: Set(personal.name.clone()),
+            owner_user_id: Set(Some(owner.id)),
+            created_by_user_id: Set(Some(owner.id)),
+            created_by_username: Set(owner.username.clone()),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+        owner.id,
+        None,
+        &personal.name,
+    )
+    .await
+    .expect("personal conflict should reload the existing parent");
+    assert_eq!(personal_result.id, personal.id);
+
+    let team = team::create_team(
+        &state,
+        owner.id,
+        team::CreateTeamInput {
+            name: "Folder conflict team".to_string(),
+            description: None,
+        },
+    )
+    .await
+    .expect("folder conflict team should be created");
+    let team_folder = folder::ActiveModel {
+        name: Set("team-conflict-parent".to_string()),
+        team_id: Set(Some(team.id)),
+        created_by_user_id: Set(Some(owner.id)),
+        created_by_username: Set(owner.username.clone()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("team conflict parent should be inserted");
+    let team_result = folder_repo::create_or_find_by_name_in_team_parent(
+        state.writer_db(),
+        folder::ActiveModel {
+            name: Set(team_folder.name.clone()),
+            team_id: Set(Some(team.id)),
+            created_by_user_id: Set(Some(owner.id)),
+            created_by_username: Set(owner.username),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+        team.id,
+        None,
+        &team_folder.name,
+    )
+    .await
+    .expect("team conflict should reload the existing parent");
+    assert_eq!(team_result.id, team_folder.id);
 }
 
 #[actix_web::test]

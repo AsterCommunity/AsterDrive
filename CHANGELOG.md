@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **目录上传并发初始化事务** — 并发初始化同一新目录下的多个文件时，父目录创建现在使用数据库原生冲突忽略和胜者回读，避免 PostgreSQL 唯一键竞争后复用 aborted transaction 导致第二个文件返回 500；不串行化无关 workspace 的目录创建，并补充并发初始化和多级路径回归覆盖。
 - **认证 flow 过期与重放边界** — contact verification token 的消费现在要求 `consumed_at IS NULL AND expires_at > now`，避免并发窗口消费已过期 token；external callback 在原子消费前验证 active flow，Passkey challenge 使用带 identity、revision 和 expiry 的单次消费 envelope，session refresh 拒绝 expired/revoked session，非法 transition 不再产生部分认证副作用。
 - **Azure Blob loopback 复制回退延迟** — Azurite 等 loopback endpoint 的服务端 URL copy 失败后立即进入本地流式复制回退，不再先耗尽 Azure SDK 的完整重试窗口；非 loopback Azure endpoint 继续保留默认重试策略。
 
