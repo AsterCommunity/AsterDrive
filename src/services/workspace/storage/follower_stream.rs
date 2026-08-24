@@ -208,3 +208,96 @@ async fn log_aborted_relay_join<T>(task: tokio::task::JoinHandle<T>, context: &'
         tracing::warn!(context, "failed to join aborted relay task: {error}");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{FollowerUploadBody, write_follower_object};
+    use crate::errors::AsterError;
+    use crate::storage::drivers::local::LocalDriver;
+    use aster_drive_metrics::NoopMetrics;
+    use aster_drive_storage::StorageDriver;
+    use bytes::Bytes;
+    use std::path::Path;
+    use std::sync::Arc;
+
+    fn test_root(label: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "aster-follower-stream-{label}-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ))
+    }
+
+    fn assert_no_attempt_files(root: &Path) {
+        let entries = std::fs::read_dir(root)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert!(
+            entries
+                .iter()
+                .all(|name| !name.starts_with(".aster-attempt-"))
+        );
+    }
+
+    #[tokio::test]
+    async fn payload_error_aborts_stage_and_removes_local_staging() {
+        let root = test_root("payload-error");
+        tokio::fs::create_dir_all(&root).await.unwrap();
+        let driver = Arc::new(LocalDriver::new(root.to_str().unwrap()).unwrap());
+        let payload: FollowerUploadBody = Box::pin(futures::stream::iter([
+            Ok(Bytes::from_static(b"partial")),
+            Err(AsterError::validation_error("injected payload failure")),
+        ]));
+
+        write_follower_object(
+            driver.clone(),
+            &NoopMetrics::new(),
+            7,
+            "object.bin",
+            "object.bin",
+            64,
+            payload,
+        )
+        .await
+        .expect_err("payload failure must abort the current attempt");
+
+        assert!(!driver.exists("object.bin").await.unwrap());
+        assert_no_attempt_files(&root);
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn commit_error_aborts_staging_and_preserves_existing_directory() {
+        let root = test_root("commit-error");
+        tokio::fs::create_dir_all(root.join("object.bin"))
+            .await
+            .unwrap();
+        let driver = Arc::new(LocalDriver::new(root.to_str().unwrap()).unwrap());
+        let payload: FollowerUploadBody = Box::pin(futures::stream::once(async {
+            Ok(Bytes::from_static(b"valid"))
+        }));
+
+        write_follower_object(
+            driver,
+            &NoopMetrics::new(),
+            7,
+            "object.bin",
+            "object.bin",
+            5,
+            payload,
+        )
+        .await
+        .expect_err("publishing over a directory must fail and abort staging");
+
+        assert!(
+            tokio::fs::metadata(root.join("object.bin"))
+                .await
+                .unwrap()
+                .is_dir()
+        );
+        assert_no_attempt_files(&root);
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+}
