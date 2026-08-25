@@ -8,6 +8,7 @@ use crate::services::files::upload::responses::InitUploadResponse;
 use crate::services::files::upload::shared::{
     UniqueUuidAttempt, abort_created_multipart_upload_after_init_error, with_unique_upload_id,
 };
+use crate::services::storage_policy::policy::placement::StorageRoutingDecision;
 use crate::services::workspace::storage::{self, PolicyUploadTransport, WorkspaceStorageScope};
 use aster_drive_model::entities::{storage_policy, upload_session};
 use aster_drive_model::types::{
@@ -28,6 +29,7 @@ pub(super) struct InitUploadContext {
     pub(super) target: ResolvedUploadTarget,
     pub(super) total_size: i64,
     pub(super) policy: storage_policy::Model,
+    pub(super) routing_decision: StorageRoutingDecision,
     pub(super) frontend_client_id: Option<String>,
 }
 
@@ -40,6 +42,10 @@ pub(super) struct UploadSessionRecordParams<'a> {
     pub(super) total_chunks: i32,
     pub(super) folder_id: Option<i64>,
     pub(super) policy_id: i64,
+    pub(super) placement_profile_id: Option<i64>,
+    pub(super) placement_rule_id: Option<i64>,
+    pub(super) placement_revision: Option<i64>,
+    pub(super) placement_execution_preference: &'a str,
     pub(super) frontend_client_id: Option<&'a str>,
     pub(super) status: UploadSessionStatus,
     pub(super) session_kind: UploadSessionKind,
@@ -125,6 +131,11 @@ pub(super) async fn resolve_init_upload_context(
     frontend_client_id: Option<&str>,
 ) -> Result<InitUploadContext> {
     let target = resolve_upload_target(state, scope, filename, folder_id, relative_path).await?;
+    if total_size < 0 {
+        return Err(AsterError::validation_error(
+            "total_size cannot be negative",
+        ));
+    }
 
     tracing::debug!(
         scope = ?scope,
@@ -133,7 +144,50 @@ pub(super) async fn resolve_init_upload_context(
         "resolved upload session target"
     );
 
-    let policy = resolve_init_upload_policy(state, scope, target.folder, total_size).await?;
+    let resolution = storage::resolve_blob_policy_for_write(
+        state,
+        storage::BlobPolicyRequest {
+            scope,
+            folder_id: target.folder_id,
+            folder_hint: target.folder,
+            filename: &target.filename,
+            file_size: total_size,
+            mime_type: "application/octet-stream",
+            existing_file_id: None,
+        },
+    )
+    .await?;
+    let policy = resolution.policy;
+    let routing_decision = resolution
+        .routing_decision
+        .expect("new blob placement decision");
+    validate_policy_upload_size(&policy, total_size)?;
+    storage::check_quota(state.writer_db(), scope, total_size).await?;
+    if matches!(
+        routing_decision.execution_preference,
+        crate::services::storage_policy::policy::placement::UploadExecutionPreference::ForceServerStream
+    ) {
+        let transport = storage::resolve_policy_upload_transport(
+            state.driver_registry().connectors(),
+            &policy,
+        )?;
+        if matches!(
+            transport,
+            PolicyUploadTransport::ObjectStorage(
+                aster_drive_model::types::ObjectStorageUploadStrategy::Presigned,
+            )
+                | PolicyUploadTransport::Remote(
+                    aster_drive_model::types::RemoteUploadStrategy::Presigned,
+                )
+                | PolicyUploadTransport::ProviderResumable(
+                    aster_drive_model::types::ProviderResumableUploadStrategy::FrontendDirect,
+                )
+        ) {
+            return Err(AsterError::validation_error(
+                "placement profile requires server streaming but selected connector only supports browser/provider direct upload",
+            ));
+        }
+    }
 
     tracing::debug!(
         scope = ?scope,
@@ -149,6 +203,7 @@ pub(super) async fn resolve_init_upload_context(
         target,
         total_size,
         policy,
+        routing_decision,
         frontend_client_id: frontend_client_id.map(str::to_string),
     })
 }
@@ -199,27 +254,6 @@ async fn resolve_upload_target(
             })
         }
     }
-}
-
-async fn resolve_init_upload_policy(
-    state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
-    folder: Option<storage::VerifiedFolderPolicyHint>,
-    total_size: i64,
-) -> Result<storage_policy::Model> {
-    if total_size < 0 {
-        return Err(AsterError::validation_error(
-            "total_size cannot be negative",
-        ));
-    }
-
-    // upload 模式协商建立在“最终会写到哪条策略”之上，而不是客户端自己传 mode。
-    let policy =
-        storage::resolve_policy_for_size_with_verified_folder(state, scope, folder, total_size)
-            .await?;
-    validate_policy_upload_size(&policy, total_size)?;
-    storage::check_quota(state.writer_db(), scope, total_size).await?;
-    Ok(policy)
 }
 
 fn validate_policy_upload_size(policy: &storage_policy::Model, total_size: i64) -> Result<()> {
@@ -273,6 +307,10 @@ pub(super) async fn init_multipart_session_with_retry(
                 total_chunks,
                 folder_id: ctx.target.folder_id,
                 policy_id: ctx.policy.id,
+                placement_profile_id: Some(ctx.routing_decision.profile_id),
+                placement_rule_id: ctx.routing_decision.rule_id,
+                placement_revision: Some(ctx.routing_decision.revision),
+                placement_execution_preference: ctx.routing_decision.execution_preference.as_str(),
                 frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status,
                 session_kind,
@@ -351,6 +389,10 @@ fn upload_session_active_model(
         total_chunks,
         folder_id,
         policy_id,
+        placement_profile_id,
+        placement_rule_id,
+        placement_revision,
+        placement_execution_preference,
         frontend_client_id,
         status,
         session_kind,
@@ -373,6 +415,10 @@ fn upload_session_active_model(
         received_count: Set(0),
         folder_id: Set(folder_id),
         policy_id: Set(policy_id),
+        placement_profile_id: Set(placement_profile_id),
+        placement_rule_id: Set(placement_rule_id),
+        placement_revision: Set(placement_revision),
+        placement_execution_preference: Set(placement_execution_preference.to_string()),
         status: Set(status),
         session_kind: Set(session_kind),
         object_temp_key: Set(object_temp_key.map(str::to_string)),

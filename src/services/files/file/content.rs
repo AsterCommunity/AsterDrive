@@ -12,7 +12,6 @@ use crate::errors::{
 };
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    storage_policy::policy::StoragePolicy,
     workspace::models::FileInfo,
     workspace::storage::{
         self, NewFileMode, StoreFromTempHints, StoreFromTempParams, WorkspaceStorageScope,
@@ -267,7 +266,20 @@ pub(crate) async fn update_content_in_scope(
     let revision_etag = uuid::Uuid::new_v4().simple().to_string();
 
     let size = usize_to_i64(body.len(), "body length")?;
-    let resolved_policy = storage::resolve_policy_for_size(state, scope, f.folder_id, size).await?;
+    let resolved_policy = storage::resolve_blob_policy_for_write(
+        state,
+        storage::BlobPolicyRequest {
+            scope,
+            folder_id: f.folder_id,
+            folder_hint: None,
+            filename: &f.name,
+            file_size: size,
+            mime_type: &f.mime_type,
+            existing_file_id: Some(f.id),
+        },
+    )
+    .await?
+    .policy;
     let local_projection = crate::storage::connectors::resolve_local_filesystem_projection(
         state.driver_registry().connectors(),
         &resolved_policy,
@@ -398,12 +410,22 @@ pub(crate) async fn update_content_stream_in_scope(
     };
     let revision_etag = uuid::Uuid::new_v4().simple().to_string();
 
-    let resolved_policy_hint = match declared_size {
-        Some(size) => {
-            Some(storage::resolve_policy_for_size(state, scope, f.folder_id, size).await?)
-        }
-        None => None,
-    };
+    let resolved_policy_hint = Some(
+        storage::resolve_blob_policy_for_write(
+            state,
+            storage::BlobPolicyRequest {
+                scope,
+                folder_id: f.folder_id,
+                folder_hint: None,
+                filename: &f.name,
+                file_size: declared_size.unwrap_or(0),
+                mime_type: &f.mime_type,
+                existing_file_id: Some(f.id),
+            },
+        )
+        .await?
+        .policy,
+    );
     let streamed =
         stream_request_body_to_temp_upload(state, payload, resolved_policy_hint, declared_size)
             .await?;
@@ -464,20 +486,4 @@ pub async fn update_content(
     )
     .await
     .map(|(file, hash)| (file.into(), hash))
-}
-
-pub async fn resolve_policy_for_size(
-    state: &PrimaryAppState,
-    user_id: i64,
-    folder_id: Option<i64>,
-    file_size: i64,
-) -> Result<StoragePolicy> {
-    storage::resolve_policy_for_size(
-        state,
-        WorkspaceStorageScope::Personal { user_id },
-        folder_id,
-        file_size,
-    )
-    .await
-    .and_then(StoragePolicy::try_from)
 }

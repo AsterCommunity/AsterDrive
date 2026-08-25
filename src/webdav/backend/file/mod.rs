@@ -143,10 +143,31 @@ impl AsterDavWriteHandle {
             file_precondition,
         } = context;
         let declared_size = declared_size.and_then(|size| i64::try_from(size).ok());
-        let (file, temp_path, resolved_policy, hasher) = if let Some(size_hint) = declared_size {
-            let policy = storage::resolve_policy_for_size(&state, scope, folder_id, size_hint)
+        let resolved_policy = if existing_file_id.is_some() || declared_size.is_some() {
+            Some(
+                storage::resolve_blob_policy_for_write(
+                    &state,
+                    storage::BlobPolicyRequest {
+                        scope,
+                        folder_id,
+                        folder_hint: None,
+                        filename: &filename,
+                        file_size: declared_size.unwrap_or(0),
+                        mime_type: "application/octet-stream",
+                        existing_file_id,
+                    },
+                )
                 .await
-                .map_err(|_| FsError::GeneralFailure)?;
+                .map_err(|_| FsError::GeneralFailure)?,
+            )
+        } else {
+            None
+        };
+        let (file, temp_path, resolved_policy, hasher) = if let Some(size_hint) = declared_size {
+            let policy = resolved_policy
+                .as_ref()
+                .map(|resolution| resolution.policy.clone())
+                .ok_or(FsError::GeneralFailure)?;
 
             if let Some(local) = crate::storage::connectors::resolve_local_filesystem_projection(
                 state.driver_registry().connectors(),
@@ -259,7 +280,12 @@ impl AsterDavWriteHandle {
             }
         } else {
             let (file, temp_path) = Self::create_upload_temp_file(&state).await?;
-            (file, temp_path, None, None)
+            (
+                file,
+                temp_path,
+                resolved_policy.map(|resolution| resolution.policy),
+                None,
+            )
         };
 
         Ok(Self {

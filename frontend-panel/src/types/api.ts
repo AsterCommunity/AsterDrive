@@ -365,8 +365,8 @@ export type StoragePolicyCredentialValidationResult =
 	components["schemas"]["StoragePolicyCredentialValidationResult"];
 export type MigratePolicyGroupAssignmentsRequest =
 	components["schemas"]["MigratePolicyGroupAssignmentsReq"];
-export type PolicyGroupItemRequest =
-	components["schemas"]["PolicyGroupItemReq"];
+export type StoragePlacementRuleInfo =
+	components["schemas"]["StoragePlacementRuleInfo"];
 export type AdminPolicyGroupListQuery = OperationQuery<"list_policy_groups">;
 export type UpdatePolicyGroupRequest =
 	components["schemas"]["PatchPolicyGroupReq"];
@@ -453,8 +453,6 @@ export type ObjectStorageDownloadStrategy =
 	components["schemas"]["ObjectStorageDownloadStrategy"];
 export type StoragePolicySummaryInfo =
 	components["schemas"]["StoragePolicySummaryInfo"];
-export type StoragePolicyGroupItem =
-	components["schemas"]["StoragePolicyGroupItemInfo"];
 export type StoragePolicyGroup =
 	components["schemas"]["StoragePolicyGroupInfo"];
 export type PolicyGroupAssignmentMigrationResult =

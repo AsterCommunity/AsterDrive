@@ -27,6 +27,7 @@ pub mod mfa_recovery_code_repo;
 pub mod mfa_totp_setup_flow_repo;
 pub mod passkey_repo;
 pub mod policy_group_repo;
+pub mod policy_placement_repo;
 pub mod policy_repo;
 pub mod property_repo;
 pub mod remote_storage_target_repo;

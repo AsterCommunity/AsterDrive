@@ -25,9 +25,8 @@ pub(crate) use path::{
     parse_relative_upload_path,
 };
 pub(crate) use policy::{
-    VerifiedFolderPolicyHint, ensure_policy_available_for_folder_binding, load_storage_limits,
-    local_content_dedup_enabled, resolve_policy_for_size,
-    resolve_policy_for_size_with_verified_folder, resolve_policy_for_size_with_verified_folder_on,
+    BlobPolicyRequest, VerifiedFolderPolicyHint, ensure_policy_available_for_folder_binding,
+    load_storage_limits, local_content_dedup_enabled, resolve_blob_policy_for_write,
     resolve_verified_folder_policy_hint, resolve_verified_folder_policy_hint_on,
 };
 pub(crate) use quota::{

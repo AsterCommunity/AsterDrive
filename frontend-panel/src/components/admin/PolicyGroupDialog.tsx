@@ -4,6 +4,10 @@ import type {
 	PolicyGroupFormData,
 	PolicyGroupRuleForm,
 } from "@/components/admin/policyGroupDialogShared";
+import {
+	bytesToMbInput,
+	mbInputToBytes,
+} from "@/components/admin/policyGroupDialogShared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,6 +36,7 @@ import {
 	ADMIN_CONTROL_HEIGHT_CLASS,
 	ADMIN_ICON_BUTTON_CLASS,
 } from "@/lib/constants";
+import type { components } from "@/services/api.generated";
 import type { StoragePolicy } from "@/types/api";
 
 export type PolicyLookup = Pick<StoragePolicy, "connector_id" | "id" | "name">;
@@ -206,6 +211,25 @@ export function PolicyGroupDialog({
 										{t("policy_group_overview_desc")}
 									</p>
 								</div>
+								<div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+									<div className="space-y-1">
+										<p className="text-sm font-medium">
+											{t("policy_group_extensionless")}
+										</p>
+										<p className="text-xs text-muted-foreground">
+											{t("policy_group_extensionless_desc")}
+										</p>
+									</div>
+									<Switch
+										checked={form.admission?.accept_extensionless ?? true}
+										onCheckedChange={(checked) =>
+											onFieldChange("admission", {
+												...(form.admission ?? {}),
+												accept_extensionless: checked,
+											})
+										}
+									/>
+								</div>
 
 								<div className="space-y-2">
 									<Label htmlFor="policy-group-name">{t("core:name")}</Label>
@@ -234,6 +258,150 @@ export function PolicyGroupDialog({
 										className={ADMIN_CONTROL_HEIGHT_CLASS}
 										placeholder={t("policy_group_description_placeholder")}
 									/>
+								</div>
+
+								<div className="space-y-3 border-t pt-4">
+									<p className="text-sm font-semibold text-foreground">
+										{t("policy_group_admission")}
+									</p>
+									<div className="space-y-2">
+										<Label htmlFor="policy-group-allowed-extensions">
+											{t("policy_group_allowed_extensions")}
+										</Label>
+										<Input
+											id="policy-group-allowed-extensions"
+											value={
+												form.admission?.allowed_extensions?.join(", ") ?? ""
+											}
+											placeholder="jpg, pdf, tar.gz"
+											onChange={(event) =>
+												onFieldChange("admission", {
+													...(form.admission ?? {}),
+													allowed_extensions: event.target.value
+														.split(",")
+														.map((value) => value.trim())
+														.filter(Boolean),
+												})
+											}
+											className={ADMIN_CONTROL_HEIGHT_CLASS}
+										/>
+									</div>
+									<div className="space-y-2">
+										<Label htmlFor="policy-group-denied-extensions">
+											{t("policy_group_denied_extensions")}
+										</Label>
+										<Input
+											id="policy-group-denied-extensions"
+											value={
+												form.admission?.denied_extensions?.join(", ") ?? ""
+											}
+											placeholder="exe, sh"
+											onChange={(event) =>
+												onFieldChange("admission", {
+													...(form.admission ?? {}),
+													denied_extensions: event.target.value
+														.split(",")
+														.map((value) => value.trim())
+														.filter(Boolean),
+												})
+											}
+											className={ADMIN_CONTROL_HEIGHT_CLASS}
+										/>
+									</div>
+									<div className="grid gap-4 md:grid-cols-2">
+										<div className="space-y-2">
+											<Label htmlFor="policy-group-max-size">
+												{t("policy_group_admission_max_size_mb")}
+											</Label>
+											<Input
+												id="policy-group-max-size"
+												type="number"
+												min="0"
+												step="any"
+												value={bytesToMbInput(
+													form.admission?.max_file_size ?? 0,
+												)}
+												onChange={(event) =>
+													onFieldChange("admission", {
+														...(form.admission ?? {}),
+														max_file_size: mbInputToBytes(event.target.value),
+													})
+												}
+												className={ADMIN_CONTROL_HEIGHT_CLASS}
+												placeholder={t("policy_group_size_unlimited")}
+											/>
+										</div>
+										<div className="space-y-2">
+											<Label htmlFor="policy-group-allowed-categories">
+												{t("policy_group_allowed_categories")}
+											</Label>
+											<Input
+												id="policy-group-allowed-categories"
+												value={
+													form.admission?.allowed_categories?.join(", ") ?? ""
+												}
+												placeholder="image, document, archive"
+												onChange={(event) =>
+													onFieldChange("admission", {
+														...(form.admission ?? {}),
+														allowed_categories: event.target.value
+															.split(",")
+															.map((value) => value.trim())
+															.filter(
+																Boolean,
+															) as components["schemas"]["FileCategory"][],
+													})
+												}
+												className={ADMIN_CONTROL_HEIGHT_CLASS}
+											/>
+										</div>
+										<div className="space-y-2">
+											<Label htmlFor="policy-group-denied-categories">
+												{t("policy_group_denied_categories")}
+											</Label>
+											<Input
+												id="policy-group-denied-categories"
+												value={
+													form.admission?.denied_categories?.join(", ") ?? ""
+												}
+												placeholder="archive, code"
+												onChange={(event) =>
+													onFieldChange("admission", {
+														...(form.admission ?? {}),
+														denied_categories: event.target.value
+															.split(",")
+															.map((value) => value.trim())
+															.filter(
+																Boolean,
+															) as components["schemas"]["FileCategory"][],
+													})
+												}
+												className={ADMIN_CONTROL_HEIGHT_CLASS}
+											/>
+										</div>
+										<div className="space-y-2">
+											<Label>{t("policy_group_execution_preference")}</Label>
+											<select
+												className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-full rounded-md border bg-background px-2 text-sm`}
+												value={form.executionPreference ?? "automatic"}
+												onChange={(event) =>
+													onFieldChange(
+														"executionPreference",
+														event.target.value as
+															| "automatic"
+															| "force_server_stream",
+													)
+												}
+											>
+												<option value="automatic">
+													{t("policy_group_execution_automatic")}
+												</option>
+												<option value="force_server_stream">
+													{t("policy_group_execution_server_stream")}
+												</option>
+											</select>
+										</div>
+									</div>
 								</div>
 
 								<div className="space-y-3 border-t pt-4">
@@ -365,6 +533,17 @@ export function PolicyGroupDialog({
 
 								<div className="space-y-3">
 									{form.items.map((item, index) => {
+										const normalizedTargets = item.targets?.length
+											? item.targets
+											: [
+													{
+														policyId: item.policyId,
+														weight: 100,
+														isEnabled: true,
+														acceptingNewWrites: true,
+														stableOrder: 1,
+													},
+												];
 										const selectablePolicies = getSelectablePolicies(
 											item.policyId,
 										);
@@ -469,7 +648,132 @@ export function PolicyGroupDialog({
 																) : null}
 															</SelectContent>
 														</Select>
+														<div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
+															<label className="flex items-center gap-2">
+																<input
+																	type="checkbox"
+																	checked={
+																		normalizedTargets[0]?.isEnabled ?? true
+																	}
+																	onChange={(event) => {
+																		const next = [...normalizedTargets];
+																		next[0] = {
+																			...next[0],
+																			isEnabled: event.target.checked,
+																		};
+																		onRuleFieldChange(
+																			item.key,
+																			"targets",
+																			next,
+																		);
+																	}}
+																/>
+																{t("policy_group_target_enabled")}
+															</label>
+															<label className="flex items-center gap-2">
+																<input
+																	type="checkbox"
+																	checked={
+																		normalizedTargets[0]?.acceptingNewWrites ??
+																		true
+																	}
+																	onChange={(event) => {
+																		const next = [...normalizedTargets];
+																		next[0] = {
+																			...next[0],
+																			acceptingNewWrites: event.target.checked,
+																		};
+																		onRuleFieldChange(
+																			item.key,
+																			"targets",
+																			next,
+																		);
+																	}}
+																/>
+																{t("policy_group_target_accepting_new_writes")}
+															</label>
+														</div>
 													</div>
+
+													{normalizedTargets
+														.slice(1)
+														.map((target, targetIndex) => {
+															const targetOptions = getSelectablePolicies(
+																target.policyId,
+															).map((policy) => ({
+																label: policy.name,
+																value: String(policy.id),
+															}));
+															return (
+																<div
+																	className="grid gap-2 md:grid-cols-[minmax(0,1fr)_120px]"
+																	key={`${item.key}-target-${target.policyId}-${target.stableOrder}`}
+																>
+																	<select
+																		className={`${ADMIN_CONTROL_HEIGHT_CLASS} rounded-md border bg-background px-2 text-sm`}
+																		value={target.policyId}
+																		onChange={(event) => {
+																			const next = [...normalizedTargets];
+																			next[targetIndex + 1] = {
+																				...target,
+																				policyId: event.target.value,
+																			};
+																			onRuleFieldChange(
+																				item.key,
+																				"targets",
+																				next,
+																			);
+																		}}
+																	>
+																		{targetOptions.map((option) => (
+																			<option
+																				key={option.value}
+																				value={option.value}
+																			>
+																				{option.label}
+																			</option>
+																		))}
+																	</select>
+																	<Input
+																		type="number"
+																		min="1"
+																		value={target.weight}
+																		onChange={(event) => {
+																			const next = [...normalizedTargets];
+																			next[targetIndex + 1] = {
+																				...target,
+																				weight: Number(event.target.value),
+																			};
+																			onRuleFieldChange(
+																				item.key,
+																				"targets",
+																				next,
+																			);
+																		}}
+																		className={ADMIN_CONTROL_HEIGHT_CLASS}
+																	/>
+																</div>
+															);
+														})}
+													<Button
+														type="button"
+														variant="ghost"
+														size="sm"
+														onClick={() =>
+															onRuleFieldChange(item.key, "targets", [
+																...normalizedTargets,
+																{
+																	policyId: "",
+																	weight: 100,
+																	isEnabled: true,
+																	acceptingNewWrites: true,
+																	stableOrder: normalizedTargets.length + 1,
+																},
+															])
+														}
+													>
+														{t("policy_group_add_target")}
+													</Button>
 
 													<div className="space-y-2">
 														<Label htmlFor={`${item.key}-priority`}>
@@ -487,6 +791,85 @@ export function PolicyGroupDialog({
 																	"priority",
 																	event.target.value,
 																)
+															}
+															className={ADMIN_CONTROL_HEIGHT_CLASS}
+														/>
+													</div>
+												</div>
+
+												<div className="grid gap-4 md:grid-cols-3">
+													<div className="space-y-2">
+														<Label htmlFor={`${item.key}-selection-mode`}>
+															{t("policy_group_selection_mode")}
+														</Label>
+														<select
+															id={`${item.key}-selection-mode`}
+															className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-full rounded-md border bg-background px-2 text-sm`}
+															value={item.selectionMode}
+															onChange={(event) =>
+																onRuleFieldChange(
+																	item.key,
+																	"selectionMode",
+																	event.target
+																		.value as PolicyGroupRuleForm["selectionMode"],
+																)
+															}
+														>
+															<option value="first_available">
+																{t("policy_group_selection_first_available")}
+															</option>
+															<option value="weighted_random">
+																{t("policy_group_selection_weighted_random")}
+															</option>
+														</select>
+													</div>
+													<div className="space-y-2">
+														<Label htmlFor={`${item.key}-unavailable-behavior`}>
+															{t("policy_group_unavailable_behavior")}
+														</Label>
+														<select
+															id={`${item.key}-unavailable-behavior`}
+															className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-full rounded-md border bg-background px-2 text-sm`}
+															value={item.unavailableBehavior}
+															onChange={(event) =>
+																onRuleFieldChange(
+																	item.key,
+																	"unavailableBehavior",
+																	event.target
+																		.value as PolicyGroupRuleForm["unavailableBehavior"],
+																)
+															}
+														>
+															<option value="next_rule">
+																{t("policy_group_unavailable_next_rule")}
+															</option>
+															<option value="reject">
+																{t("policy_group_unavailable_reject")}
+															</option>
+														</select>
+													</div>
+													<div className="space-y-2">
+														<Label htmlFor={`${item.key}-weight`}>
+															{t("policy_group_target_weight")}
+														</Label>
+														<Input
+															id={`${item.key}-weight`}
+															type="number"
+															min="1"
+															step="1"
+															value={item.targets?.[0]?.weight ?? 100}
+															onChange={(event) =>
+																onRuleFieldChange(item.key, "targets", [
+																	{
+																		...(item.targets?.[0] ?? {
+																			policyId: item.policyId,
+																			isEnabled: true,
+																			acceptingNewWrites: true,
+																			stableOrder: 1,
+																		}),
+																		weight: Number(event.target.value),
+																	},
+																])
 															}
 															className={ADMIN_CONTROL_HEIGHT_CLASS}
 														/>

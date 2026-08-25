@@ -14,7 +14,7 @@ use aster_drive_model::entities::file;
 
 use super::{
     WorkspaceStorageScope, ensure_upload_parent_path, parse_relative_upload_path,
-    resolve_policy_for_size_with_verified_folder, resolve_verified_folder_policy_hint,
+    resolve_blob_policy_for_write, resolve_verified_folder_policy_hint,
     streaming_direct_upload_eligible, verify_folder_access,
 };
 
@@ -86,13 +86,20 @@ pub(crate) async fn upload_with_hints(
     );
 
     if let Some(declared_size) = declared_size {
-        let policy = resolve_policy_for_size_with_verified_folder(
+        let policy = resolve_blob_policy_for_write(
             state,
-            scope,
-            effective_folder,
-            declared_size,
+            crate::services::workspace::storage::BlobPolicyRequest {
+                scope,
+                folder_id: effective_folder_id,
+                folder_hint: effective_folder,
+                filename: &resolved_filename,
+                file_size: declared_size,
+                mime_type: "application/octet-stream",
+                existing_file_id: None,
+            },
         )
-        .await?;
+        .await?
+        .policy;
         if streaming_direct_upload_eligible(
             state.driver_registry().connectors(),
             &policy,

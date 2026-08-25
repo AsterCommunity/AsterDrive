@@ -433,7 +433,7 @@ export function UserDetailDialogBody({
 		user.policy_group_id != null &&
 		(currentAssignedPolicyGroup === null ||
 			!currentAssignedPolicyGroup.is_enabled ||
-			currentAssignedPolicyGroup.items.length === 0);
+			currentAssignedPolicyGroup.rules.length === 0);
 	const statusOptions = [
 		{ label: t("core:active"), value: "active" },
 		{ label: t("core:disabled_status"), value: "disabled" },

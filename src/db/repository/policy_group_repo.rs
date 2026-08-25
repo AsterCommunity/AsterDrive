@@ -4,7 +4,6 @@ use crate::api::pagination::AdminPolicyGroupSortBy;
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::{
     storage_policy_group::{self, Entity as StoragePolicyGroup},
-    storage_policy_group_item::{self, Entity as StoragePolicyGroupItem},
     user::{self, Entity as User},
 };
 use aster_forge_api::SortOrder;
@@ -139,58 +138,6 @@ pub async fn set_only_default_group<C: ConnectionTrait>(db: &C, id: i64) -> Resu
         .await
         .map_err(AsterError::from)?;
     Ok(())
-}
-
-pub async fn find_group_items<C: ConnectionTrait>(
-    db: &C,
-    group_id: i64,
-) -> Result<Vec<storage_policy_group_item::Model>> {
-    StoragePolicyGroupItem::find()
-        .filter(storage_policy_group_item::Column::GroupId.eq(group_id))
-        .order_by_asc(storage_policy_group_item::Column::Priority)
-        .order_by_asc(storage_policy_group_item::Column::Id)
-        .all(db)
-        .await
-        .map_err(AsterError::from)
-}
-
-pub async fn find_all_group_items<C: ConnectionTrait>(
-    db: &C,
-) -> Result<Vec<storage_policy_group_item::Model>> {
-    StoragePolicyGroupItem::find()
-        .order_by_asc(storage_policy_group_item::Column::GroupId)
-        .order_by_asc(storage_policy_group_item::Column::Priority)
-        .order_by_asc(storage_policy_group_item::Column::Id)
-        .all(db)
-        .await
-        .map_err(AsterError::from)
-}
-
-pub async fn create_group_item<C: ConnectionTrait>(
-    db: &C,
-    model: storage_policy_group_item::ActiveModel,
-) -> Result<storage_policy_group_item::Model> {
-    model.insert(db).await.map_err(AsterError::from)
-}
-
-pub async fn delete_group_items_by_group<C: ConnectionTrait>(db: &C, group_id: i64) -> Result<u64> {
-    let result = StoragePolicyGroupItem::delete_many()
-        .filter(storage_policy_group_item::Column::GroupId.eq(group_id))
-        .exec(db)
-        .await
-        .map_err(AsterError::from)?;
-    Ok(result.rows_affected)
-}
-
-pub async fn count_group_items_by_policy<C: ConnectionTrait>(
-    db: &C,
-    policy_id: i64,
-) -> Result<u64> {
-    StoragePolicyGroupItem::find()
-        .filter(storage_policy_group_item::Column::PolicyId.eq(policy_id))
-        .count(db)
-        .await
-        .map_err(AsterError::from)
 }
 
 pub async fn count_user_group_assignments<C: ConnectionTrait>(

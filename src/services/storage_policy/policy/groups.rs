@@ -4,11 +4,15 @@ use aster_forge_db::transaction;
 use chrono::Utc;
 use sea_orm::{Set, TransactionTrait};
 
+use super::placement::{PlacementMatcher, PlacementPayloadEnvelope};
 use crate::api::pagination::{AdminPolicyGroupSortBy, load_offset_page};
+use crate::db::repository::policy_placement_repo;
 use crate::db::repository::{policy_group_repo, policy_repo, team_repo, user_repo};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
-use aster_drive_model::entities::{storage_policy_group, storage_policy_group_item};
+use aster_drive_model::entities::{
+    storage_policy_group, storage_policy_group_rule, storage_policy_group_rule_target,
+};
 use aster_forge_api::{OffsetPage, SortOrder};
 
 use super::models::{
@@ -17,7 +21,7 @@ use super::models::{
 };
 use super::shared::{
     build_group_info, format_group_assignment_blocker, lock_default_group_assignment,
-    replace_group_items, validate_group_items,
+    replace_placement_rules, serialize_admission, validate_placement_rules,
 };
 
 pub async fn ensure_policy_groups_seeded<C>(db: &C) -> Result<()>
@@ -42,21 +46,10 @@ where
         })?;
         let default_group = match policy_group_repo::find_default_group(&txn).await? {
             Some(group) => {
-                let items = policy_group_repo::find_group_items(&txn, group.id).await?;
-                if items.is_empty() {
-                    policy_group_repo::create_group_item(
-                        &txn,
-                        storage_policy_group_item::ActiveModel {
-                            group_id: Set(group.id),
-                            policy_id: Set(default_policy.id),
-                            priority: Set(1),
-                            min_file_size: Set(0),
-                            max_file_size: Set(0),
-                            created_at: Set(Utc::now()),
-                            ..Default::default()
-                        },
-                    )
-                    .await?;
+                let rules = policy_placement_repo::find_all_rules(&txn).await?;
+                if !rules.iter().any(|rule| rule.group_id == group.id) {
+                    create_default_placement_rule(&txn, group.id, default_policy.id, Utc::now())
+                        .await?;
                 }
                 group
             }
@@ -71,25 +64,25 @@ where
                         ),
                         is_enabled: Set(true),
                         is_default: Set(false),
+                        admission_config: Set(serde_json::to_string(
+                            &PlacementPayloadEnvelope::new(
+                                super::placement::StorageAdmissionConstraints::default(),
+                            ),
+                        )
+                        .map_err(|error| {
+                            AsterError::internal_error(format!(
+                                "serialize placement admission: {error}"
+                            ))
+                        })?),
+                        upload_execution_preference: Set("automatic".to_string()),
+                        routing_revision: Set(1),
                         created_at: Set(now),
                         updated_at: Set(now),
                         ..Default::default()
                     },
                 )
                 .await?;
-                policy_group_repo::create_group_item(
-                    &txn,
-                    storage_policy_group_item::ActiveModel {
-                        group_id: Set(group.id),
-                        policy_id: Set(default_policy.id),
-                        priority: Set(1),
-                        min_file_size: Set(0),
-                        max_file_size: Set(0),
-                        created_at: Set(now),
-                        ..Default::default()
-                    },
-                )
-                .await?;
+                create_default_placement_rule(&txn, group.id, default_policy.id, now).await?;
                 group
             }
         };
@@ -151,7 +144,9 @@ pub async fn create_group(
         description,
         is_enabled,
         is_default,
-        items,
+        admission,
+        execution_preference,
+        rules,
     } = input;
     if is_default && !is_enabled {
         return Err(AsterError::validation_error(
@@ -159,7 +154,14 @@ pub async fn create_group(
         ));
     }
 
-    validate_group_items(state.writer_db(), &items).await?;
+    let rules =
+        rules.ok_or_else(|| AsterError::validation_error("placement rules are required"))?;
+    validate_placement_rules(state.writer_db(), &rules).await?;
+    let admission_config = serialize_admission(admission.unwrap_or_default())?;
+    let execution_preference = execution_preference
+        .unwrap_or_default()
+        .as_str()
+        .to_string();
 
     let txn = transaction::begin(state.writer_db()).await?;
     let now = Utc::now();
@@ -170,13 +172,16 @@ pub async fn create_group(
             description: Set(description.unwrap_or_default()),
             is_enabled: Set(is_enabled),
             is_default: Set(false),
+            admission_config: Set(admission_config),
+            upload_execution_preference: Set(execution_preference),
+            routing_revision: Set(1),
             created_at: Set(now),
             updated_at: Set(now),
             ..Default::default()
         },
     )
     .await?;
-    replace_group_items(&txn, group.id, &items).await?;
+    replace_placement_rules(&txn, group.id, &rules).await?;
     if is_default {
         lock_default_group_assignment(&txn).await?;
         policy_group_repo::set_only_default_group(&txn, group.id).await?;
@@ -207,7 +212,9 @@ pub async fn update_group(
         description,
         is_enabled,
         is_default,
-        items,
+        admission,
+        execution_preference,
+        rules,
     } = input;
     let txn = transaction::begin(state.writer_db()).await?;
     let existing = policy_group_repo::find_group_by_id(&txn, id).await?;
@@ -255,8 +262,9 @@ pub async fn update_group(
         }
     }
 
-    if let Some(ref updated_items) = items {
-        validate_group_items(&txn, updated_items).await?;
+    let rules = rules;
+    if let Some(ref updated_rules) = rules {
+        validate_placement_rules(&txn, updated_rules).await?;
     }
 
     let mut active: storage_policy_group::ActiveModel = existing.into();
@@ -272,11 +280,23 @@ pub async fn update_group(
     if let Some(value) = is_default {
         active.is_default = Set(value);
     }
+    if let Some(value) = admission {
+        active.admission_config = Set(serialize_admission(value)?);
+    }
+    if let Some(value) = execution_preference {
+        active.upload_execution_preference = Set(value.as_str().to_string());
+    }
     active.updated_at = Set(Utc::now());
+    // Every profile mutation invalidates compiled placement snapshot entries.
+    active.routing_revision = Set(active
+        .routing_revision
+        .take()
+        .unwrap_or(1)
+        .saturating_add(1));
     let group = policy_group_repo::update_group(&txn, active).await?;
 
-    if let Some(updated_items) = items {
-        replace_group_items(&txn, group.id, &updated_items).await?;
+    if let Some(updated_rules) = rules {
+        replace_placement_rules(&txn, group.id, &updated_rules).await?;
     }
 
     if is_default == Some(true) {
@@ -359,9 +379,10 @@ pub async fn migrate_group_assignments(
             "cannot migrate assignments to a disabled storage policy group",
         ));
     }
-    if policy_group_repo::find_group_items(state.writer_db(), target_group_id)
+    if !policy_placement_repo::find_all_rules(state.writer_db())
         .await?
-        .is_empty()
+        .iter()
+        .any(|rule| rule.group_id == target_group_id)
     {
         return Err(AsterError::validation_error(
             "cannot migrate assignments to a storage policy group without policies",
@@ -411,4 +432,50 @@ pub async fn migrate_group_assignments(
         affected_teams,
         migrated_assignments,
     })
+}
+
+async fn create_default_placement_rule<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    group_id: i64,
+    policy_id: i64,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<()> {
+    let rule = policy_placement_repo::create_rule(
+        db,
+        storage_policy_group_rule::ActiveModel {
+            group_id: Set(group_id),
+            name: Set("Default placement rule".to_string()),
+            description: Set("Automatic default target".to_string()),
+            priority: Set(1),
+            is_enabled: Set(true),
+            matcher: Set(serde_json::to_string(&PlacementPayloadEnvelope::new(
+                PlacementMatcher::default(),
+            ))
+            .map_err(|error| {
+                AsterError::internal_error(format!("serialize placement matcher: {error}"))
+            })?),
+            selection_mode: Set("first_available".to_string()),
+            unavailable_behavior: Set("reject".to_string()),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await?;
+    policy_placement_repo::create_target(
+        db,
+        storage_policy_group_rule_target::ActiveModel {
+            rule_id: Set(rule.id),
+            policy_id: Set(policy_id),
+            weight: Set(100),
+            is_enabled: Set(true),
+            accepting_new_writes: Set(true),
+            stable_order: Set(1),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(())
 }

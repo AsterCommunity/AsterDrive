@@ -1,7 +1,4 @@
-//! SeaORM 实体定义：`storage_policy_group_item`。
-//!
-//! Deprecated compatibility projection for Issue #444. TODO(0.6.0): remove
-//! this entity after placement rules and targets are authoritative everywhere.
+//! SeaORM entity: placement rule owned by a storage policy profile.
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -12,19 +9,24 @@ use utoipa::ToSchema;
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[cfg_attr(
     all(debug_assertions, feature = "openapi"),
-    schema(as = StoragePolicyGroupItem)
+    schema(as = StoragePolicyGroupRule)
 )]
-#[sea_orm(table_name = "storage_policy_group_items")]
+#[sea_orm(table_name = "storage_policy_group_rules")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
     pub group_id: i64,
-    pub policy_id: i64,
+    pub name: String,
+    pub description: String,
     pub priority: i32,
-    pub min_file_size: i64,
-    pub max_file_size: i64,
+    pub is_enabled: bool,
+    pub matcher: String,
+    pub selection_mode: String,
+    pub unavailable_behavior: String,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
+    pub updated_at: DateTimeUtc,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -35,12 +37,8 @@ pub enum Relation {
         to = "super::storage_policy_group::Column::Id"
     )]
     StoragePolicyGroup,
-    #[sea_orm(
-        belongs_to = "super::storage_policy::Entity",
-        from = "Column::PolicyId",
-        to = "super::storage_policy::Column::Id"
-    )]
-    StoragePolicy,
+    #[sea_orm(has_many = "super::storage_policy_group_rule_target::Entity")]
+    Targets,
 }
 
 impl Related<super::storage_policy_group::Entity> for Entity {
@@ -49,9 +47,9 @@ impl Related<super::storage_policy_group::Entity> for Entity {
     }
 }
 
-impl Related<super::storage_policy::Entity> for Entity {
+impl Related<super::storage_policy_group_rule_target::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::StoragePolicy.def()
+        Relation::Targets.def()
     }
 }
 

@@ -2,6 +2,7 @@
 
 mod groups;
 mod models;
+pub mod placement;
 mod policies;
 mod promotion;
 mod shared;
@@ -26,10 +27,13 @@ pub use groups::{
 };
 pub use models::{
     CreateStoragePolicyGroupInput, CreateStoragePolicyInput, PolicyGroupAssignmentMigrationResult,
-    PromoteStoragePolicyConnectorInput, StoragePolicy, StoragePolicyActionResult,
-    StoragePolicyCapacityInfo, StoragePolicyDiagnostic, StoragePolicyGroupInfo,
-    StoragePolicyGroupItemInfo, StoragePolicyGroupItemInput, StoragePolicySummaryInfo,
-    UpdateStoragePolicyGroupInput, UpdateStoragePolicyInput,
+    PromoteStoragePolicyConnectorInput, StoragePlacementRuleInput, StoragePlacementTargetInput,
+    StoragePolicy, StoragePolicyActionResult, StoragePolicyCapacityInfo, StoragePolicyDiagnostic,
+    StoragePolicyGroupInfo, StoragePolicySummaryInfo, UpdateStoragePolicyGroupInput,
+    UpdateStoragePolicyInput,
+};
+pub use placement::{
+    PlacementRuleEvaluation, StoragePlacementSimulationInput, StorageRoutingDecision,
 };
 pub(crate) use policies::capacity_info_or_status;
 pub use policies::{
@@ -254,7 +258,10 @@ pub async fn create_group_with_audit(
             audit::details(audit::PolicyGroupAuditDetails {
                 is_default: group.is_default,
                 is_enabled: group.is_enabled,
-                item_count: group.items.len(),
+                item_count: group.rules.len(),
+                rule_count: group.rules.len(),
+                target_count: group.rules.iter().map(|rule| rule.targets.len()).sum(),
+                routing_revision: group.routing_revision,
             })
         },
     )
@@ -280,7 +287,10 @@ pub async fn update_group_with_audit(
             audit::details(audit::PolicyGroupAuditDetails {
                 is_default: group.is_default,
                 is_enabled: group.is_enabled,
-                item_count: group.items.len(),
+                item_count: group.rules.len(),
+                rule_count: group.rules.len(),
+                target_count: group.rules.iter().map(|rule| rule.targets.len()).sum(),
+                routing_revision: group.routing_revision,
             })
         },
     )
@@ -306,7 +316,10 @@ pub async fn delete_group_with_audit(
             audit::details(audit::PolicyGroupAuditDetails {
                 is_default: group.is_default,
                 is_enabled: group.is_enabled,
-                item_count: group.items.len(),
+                item_count: group.rules.len(),
+                rule_count: group.rules.len(),
+                target_count: group.rules.iter().map(|rule| rule.targets.len()).sum(),
+                routing_revision: group.routing_revision,
             })
         },
     )

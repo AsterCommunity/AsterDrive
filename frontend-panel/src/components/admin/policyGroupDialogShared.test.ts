@@ -162,18 +162,65 @@ describe("policyGroupDialogShared", () => {
 			description: "Routing rules",
 			is_enabled: true,
 			is_default: false,
-			items: [
+			admission: {
+				allowed_extensions: [],
+				denied_extensions: [],
+				accept_extensionless: true,
+				allowed_categories: [],
+				denied_categories: [],
+				max_file_size: 0,
+			},
+			execution_preference: "automatic",
+			rules: [
 				{
-					policy_id: 1,
+					name: "Rule 1",
+					description: "",
 					priority: 1,
-					min_file_size: 0,
-					max_file_size: 10 * 1024 * 1024,
+					is_enabled: true,
+					matcher: {
+						min_file_size: 0,
+						max_file_size: 10 * 1024 * 1024,
+						extensions: [],
+						compound_extensions: [],
+						extensionless: null,
+						categories: [],
+					},
+					selection_mode: "first_available",
+					unavailable_behavior: "next_rule",
+					targets: [
+						{
+							policy_id: 1,
+							weight: 100,
+							is_enabled: true,
+							accepting_new_writes: true,
+							stable_order: 1,
+						},
+					],
 				},
 				{
-					policy_id: 2,
+					name: "Rule 2",
+					description: "",
 					priority: 2,
-					min_file_size: 10 * 1024 * 1024,
-					max_file_size: 0,
+					is_enabled: true,
+					matcher: {
+						min_file_size: 10 * 1024 * 1024,
+						max_file_size: 0,
+						extensions: [],
+						compound_extensions: [],
+						extensionless: null,
+						categories: [],
+					},
+					selection_mode: "first_available",
+					unavailable_behavior: "next_rule",
+					targets: [
+						{
+							policy_id: 2,
+							weight: 100,
+							is_enabled: true,
+							accepting_new_writes: true,
+							stable_order: 1,
+						},
+					],
 				},
 			],
 		});
@@ -198,7 +245,59 @@ describe("policyGroupDialogShared", () => {
 						originalMinFileSizeBytes: preciseBytes,
 					},
 				],
-			}).items[0]?.min_file_size,
+			}).rules[0]?.matcher.min_file_size,
 		).toBe(preciseBytes);
+	});
+
+	it("preserves admission, selection mode, fallback and multiple targets", () => {
+		const payload = buildPolicyGroupPayload({
+			name: "Weighted",
+			description: "",
+			isEnabled: true,
+			isDefault: false,
+			admission: {
+				allowed_extensions: ["jpg"],
+				denied_extensions: ["exe"],
+				accept_extensionless: false,
+				allowed_categories: ["image"],
+				denied_categories: [],
+				max_file_size: 99,
+			},
+			executionPreference: "force_server_stream",
+			items: [
+				{
+					key: "weighted-rule",
+					policyId: "1",
+					priority: "1",
+					minFileSizeMb: "",
+					maxFileSizeMb: "",
+					selectionMode: "weighted_random",
+					unavailableBehavior: "reject",
+					targets: [
+						{
+							policyId: "1",
+							weight: 70,
+							isEnabled: true,
+							acceptingNewWrites: true,
+							stableOrder: 1,
+						},
+						{
+							policyId: "2",
+							weight: 30,
+							isEnabled: true,
+							acceptingNewWrites: false,
+							stableOrder: 2,
+						},
+					],
+				},
+			],
+		});
+
+		expect(payload.execution_preference).toBe("force_server_stream");
+		expect(payload.admission?.accept_extensionless).toBe(false);
+		expect(payload.rules?.[0]?.selection_mode).toBe("weighted_random");
+		expect(payload.rules?.[0]?.unavailable_behavior).toBe("reject");
+		expect(payload.rules?.[0]?.targets).toHaveLength(2);
+		expect(payload.rules?.[0]?.targets[1]?.weight).toBe(30);
 	});
 });

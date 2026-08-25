@@ -36,7 +36,7 @@ import {
 import { formatBytes, formatDateAbsolute } from "@/lib/format";
 import type { SortOrder } from "@/lib/pagination";
 import type { AdminPolicyGroupSortBy } from "@/types/adminSort";
-import type { StoragePolicyGroup, StoragePolicyGroupItem } from "@/types/api";
+import type { StoragePolicyGroup } from "@/types/api";
 
 type AdminT = ReturnType<typeof useTranslation>["t"];
 type PageSizeOption = {
@@ -46,24 +46,26 @@ type PageSizeOption = {
 
 function getRuleRangeLabel(
 	t: AdminT,
-	item: Pick<StoragePolicyGroupItem, "min_file_size" | "max_file_size">,
+	rule: StoragePolicyGroup["rules"][number],
 ) {
-	if (item.min_file_size <= 0 && item.max_file_size <= 0) {
+	const min = rule.matcher.min_file_size ?? 0;
+	const max = rule.matcher.max_file_size ?? 0;
+	if (min <= 0 && max <= 0) {
 		return t("policy_group_range_any");
 	}
-	if (item.min_file_size > 0 && item.max_file_size <= 0) {
+	if (min > 0 && max <= 0) {
 		return t("policy_group_range_min", {
-			size: formatBytes(item.min_file_size),
+			size: formatBytes(min),
 		});
 	}
-	if (item.min_file_size <= 0 && item.max_file_size > 0) {
+	if (min <= 0 && max > 0) {
 		return t("policy_group_range_max", {
-			size: formatBytes(item.max_file_size),
+			size: formatBytes(max),
 		});
 	}
 	return t("policy_group_range_between", {
-		min: formatBytes(item.min_file_size),
-		max: formatBytes(item.max_file_size),
+		min: formatBytes(min),
+		max: formatBytes(max),
 	});
 }
 
@@ -153,26 +155,34 @@ interface PolicyGroupRulesCellProps {
 }
 
 function PolicyGroupRulesCell({ group, t }: PolicyGroupRulesCellProps) {
+	const rules = group.rules ?? [];
 	return (
 		<div className="flex min-w-0 flex-col gap-1.5 text-left">
-			{group.items.slice(0, 2).map((item) => (
+			{rules.slice(0, 2).map((rule) => (
 				<div
-					key={item.id}
+					key={rule.id}
 					className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
 				>
-					<Badge variant="outline">{item.policy.name}</Badge>
+					<Badge variant="outline">
+						{rule.name ||
+							t("policy_group_rule_title", { index: rule.priority })}
+					</Badge>
 					<span>
 						{t("policy_group_priority_short", {
-							priority: item.priority,
+							priority: rule.priority,
 						})}
 					</span>
-					<span>{getRuleRangeLabel(t, item)}</span>
+					<span>{getRuleRangeLabel(t, rule)}</span>
+					<span>
+						{t("policy_group_target_count", { count: rule.targets.length })}
+					</span>
+					<span>{t(`policy_group_selection_${rule.selection_mode}`)}</span>
 				</div>
 			))}
-			{group.items.length > 2 ? (
+			{rules.length > 2 ? (
 				<span className="text-xs text-muted-foreground">
 					{t("policy_group_more_rules", {
-						count: group.items.length - 2,
+						count: rules.length - 2,
 					})}
 				</span>
 			) : null}

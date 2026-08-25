@@ -1958,7 +1958,7 @@ async fn concurrent_primary_startup_reconciles_one_default_policy_group() {
     let _guard = e2e_lock().lock().await;
     let services = SharedServices::start().await;
     let database = services.connect_database().await;
-    aster_drive_model::entities::storage_policy_group_item::Entity::delete_many()
+    aster_drive_model::entities::storage_policy_group_rule::Entity::delete_many()
         .exec(&database)
         .await
         .expect("remove seeded policy group items");
@@ -1989,10 +1989,10 @@ async fn concurrent_primary_startup_reconciles_one_default_policy_group() {
         .expect("list reconciled policy groups");
     assert_eq!(groups.len(), 1);
     assert!(groups[0].is_default);
-    let items = aster_drive_model::entities::storage_policy_group_item::Entity::find()
+    let items = aster_drive_model::entities::storage_policy_group_rule::Entity::find()
         .all(&database)
         .await
-        .expect("list reconciled policy group items");
+        .expect("list reconciled policy placement rules");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].group_id, groups[0].id);
 
@@ -2175,20 +2175,38 @@ async fn user_policy_group_assignment_propagates_to_second_primary_without_resta
     )
     .await
     .expect("create constrained E2E policy group");
-    aster_drive::db::repository::policy_group_repo::create_group_item(
+    let rule = aster_drive::db::repository::policy_placement_repo::create_rule(
         &database,
-        aster_drive_model::entities::storage_policy_group_item::ActiveModel {
+        aster_drive_model::entities::storage_policy_group_rule::ActiveModel {
             group_id: Set(constrained_group.id),
-            policy_id: Set(constrained_policy.id),
+            name: Set("Rule 1".to_string()),
+            description: Set(String::new()),
             priority: Set(1),
-            min_file_size: Set(0),
-            max_file_size: Set(0),
+            is_enabled: Set(true),
+            matcher: Set(serde_json::json!({"format_version":1,"schema_version":1,"values":{"min_file_size":0,"max_file_size":0,"extensions":[],"compound_extensions":[],"extensionless":null,"categories":[]}}).to_string()),
+            selection_mode: Set("first_available".to_string()),
+            unavailable_behavior: Set("next_rule".to_string()),
             created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    ).await.expect("add constrained placement rule");
+    aster_drive::db::repository::policy_placement_repo::create_target(
+        &database,
+        aster_drive_model::entities::storage_policy_group_rule_target::ActiveModel {
+            rule_id: Set(rule.id),
+            policy_id: Set(constrained_policy.id),
+            weight: Set(100),
+            is_enabled: Set(true),
+            accepting_new_writes: Set(true),
+            stable_order: Set(1),
+            created_at: Set(now),
+            updated_at: Set(now),
             ..Default::default()
         },
     )
     .await
-    .expect("add constrained E2E policy group item");
+    .expect("add constrained placement target");
     database
         .close()
         .await

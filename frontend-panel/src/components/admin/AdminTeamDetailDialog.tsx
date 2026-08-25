@@ -269,7 +269,7 @@ export function AdminTeamDetailDialog({
 		team?.policy_group_id != null &&
 		(currentPolicyGroup === null ||
 			!currentPolicyGroup.is_enabled ||
-			currentPolicyGroup.items.length === 0);
+			currentPolicyGroup.rules.length === 0);
 	const canMutateTeam = team != null && team.archived_at == null;
 	const nextQuota = quotaValueToBytes(quotaValue, quotaUnit, team);
 	const quotaHasError = !storageQuotaDraftIsValid(quotaValue, quotaUnit);

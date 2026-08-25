@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+use super::placement::{
+    PlacementMatcher, PlacementSelectionMode, PlacementUnavailableBehavior,
+    StorageAdmissionConstraints, UploadExecutionPreference,
+};
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::response::ApiErrorDiagnostic;
 use aster_drive_model::entities::storage_policy;
@@ -52,17 +56,6 @@ pub struct StoragePolicySummaryInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct StoragePolicyGroupItemInfo {
-    pub id: i64,
-    pub policy_id: i64,
-    pub priority: i32,
-    pub min_file_size: i64,
-    pub max_file_size: i64,
-    pub policy: StoragePolicySummaryInfo,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePolicyGroupInfo {
     pub id: i64,
     pub name: String,
@@ -73,16 +66,65 @@ pub struct StoragePolicyGroupInfo {
     pub created_at: chrono::DateTime<chrono::Utc>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<chrono::Utc>,
-    pub items: Vec<StoragePolicyGroupItemInfo>,
+    pub admission: StorageAdmissionConstraints,
+    pub execution_preference: UploadExecutionPreference,
+    pub routing_revision: i64,
+    pub rules: Vec<StoragePlacementRuleInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct StoragePolicyGroupItemInput {
-    pub policy_id: i64,
+pub struct StoragePlacementRuleInfo {
+    pub id: i64,
+    pub name: String,
+    pub description: String,
     pub priority: i32,
-    pub min_file_size: i64,
-    pub max_file_size: i64,
+    pub is_enabled: bool,
+    pub matcher: PlacementMatcher,
+    pub selection_mode: PlacementSelectionMode,
+    pub unavailable_behavior: PlacementUnavailableBehavior,
+    pub targets: Vec<StoragePlacementTargetInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StoragePlacementTargetInfo {
+    pub id: i64,
+    pub policy_id: i64,
+    pub weight: i32,
+    pub is_enabled: bool,
+    pub accepting_new_writes: bool,
+    pub stable_order: i32,
+    pub policy: StoragePolicySummaryInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StoragePlacementTargetInput {
+    pub policy_id: i64,
+    pub weight: i32,
+    #[serde(default = "default_true")]
+    pub is_enabled: bool,
+    #[serde(default = "default_true")]
+    pub accepting_new_writes: bool,
+    #[serde(default)]
+    pub stable_order: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StoragePlacementRuleInput {
+    pub name: String,
+    pub description: Option<String>,
+    pub priority: i32,
+    #[serde(default = "default_true")]
+    pub is_enabled: bool,
+    pub matcher: PlacementMatcher,
+    #[serde(default)]
+    pub selection_mode: PlacementSelectionMode,
+    #[serde(default)]
+    pub unavailable_behavior: PlacementUnavailableBehavior,
+    pub targets: Vec<StoragePlacementTargetInput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -223,7 +265,9 @@ pub struct CreateStoragePolicyGroupInput {
     pub description: Option<String>,
     pub is_enabled: bool,
     pub is_default: bool,
-    pub items: Vec<StoragePolicyGroupItemInput>,
+    pub admission: Option<StorageAdmissionConstraints>,
+    pub execution_preference: Option<UploadExecutionPreference>,
+    pub rules: Option<Vec<StoragePlacementRuleInput>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -232,7 +276,13 @@ pub struct UpdateStoragePolicyGroupInput {
     pub description: Option<String>,
     pub is_enabled: Option<bool>,
     pub is_default: Option<bool>,
-    pub items: Option<Vec<StoragePolicyGroupItemInput>>,
+    pub admission: Option<StorageAdmissionConstraints>,
+    pub execution_preference: Option<UploadExecutionPreference>,
+    pub rules: Option<Vec<StoragePlacementRuleInput>>,
+}
+
+const fn default_true() -> bool {
+    true
 }
 
 #[cfg(test)]

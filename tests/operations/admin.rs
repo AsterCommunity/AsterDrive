@@ -1319,14 +1319,13 @@ async fn test_admin_team_crud() {
             description: Some("Secondary team routing".to_string()),
             is_enabled: true,
             is_default: false,
-            items: vec![
-                aster_drive::services::storage_policy::policy::StoragePolicyGroupItemInput {
-                    policy_id: default_policy_id,
-                    priority: 1,
-                    min_file_size: 0,
-                    max_file_size: 0,
-                },
-            ],
+            admission: None,
+            execution_preference: None,
+            rules: Some(vec![aster_drive::services::storage_policy::policy::StoragePlacementRuleInput {
+                name: "Rule 1".to_string(), description: None, priority: 1, is_enabled: true,
+                matcher: Default::default(), selection_mode: Default::default(), unavailable_behavior: Default::default(),
+                targets: vec![aster_drive::services::storage_policy::policy::StoragePlacementTargetInput { policy_id: default_policy_id, weight: 100, is_enabled: true, accepting_new_writes: true, stable_order: 1 }],
+            }]),
         },
     )
     .await
@@ -2193,14 +2192,13 @@ async fn test_admin_policy_group_migration_updates_users_and_teams() {
             description: Some("source assignments".to_string()),
             is_enabled: true,
             is_default: false,
-            items: vec![
-                aster_drive::services::storage_policy::policy::StoragePolicyGroupItemInput {
-                    policy_id: default_policy_id,
-                    priority: 1,
-                    min_file_size: 0,
-                    max_file_size: 0,
-                },
-            ],
+            admission: None,
+            execution_preference: None,
+            rules: Some(vec![aster_drive::services::storage_policy::policy::StoragePlacementRuleInput {
+                name: "Rule 1".to_string(), description: None, priority: 1, is_enabled: true,
+                matcher: Default::default(), selection_mode: Default::default(), unavailable_behavior: Default::default(),
+                targets: vec![aster_drive::services::storage_policy::policy::StoragePlacementTargetInput { policy_id: default_policy_id, weight: 100, is_enabled: true, accepting_new_writes: true, stable_order: 1 }],
+            }]),
         },
     )
     .await
@@ -2212,14 +2210,13 @@ async fn test_admin_policy_group_migration_updates_users_and_teams() {
             description: Some("target assignments".to_string()),
             is_enabled: true,
             is_default: false,
-            items: vec![
-                aster_drive::services::storage_policy::policy::StoragePolicyGroupItemInput {
-                    policy_id: default_policy_id,
-                    priority: 1,
-                    min_file_size: 0,
-                    max_file_size: 0,
-                },
-            ],
+            admission: None,
+            execution_preference: None,
+            rules: Some(vec![aster_drive::services::storage_policy::policy::StoragePlacementRuleInput {
+                name: "Rule 1".to_string(), description: None, priority: 1, is_enabled: true,
+                matcher: Default::default(), selection_mode: Default::default(), unavailable_behavior: Default::default(),
+                targets: vec![aster_drive::services::storage_policy::policy::StoragePlacementTargetInput { policy_id: default_policy_id, weight: 100, is_enabled: true, accepting_new_writes: true, stable_order: 1 }],
+            }]),
         },
     )
     .await

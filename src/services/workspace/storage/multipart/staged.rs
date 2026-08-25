@@ -5,8 +5,8 @@ use tokio::io::{AsyncWriteExt, BufWriter};
 use crate::errors::{MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::workspace::storage::{
-    EmptyFileNameMode, StoreFromTempHints, StoreFromTempParams, VerifiedFolderPolicyHint,
-    WorkspaceStorageScope, create_empty, resolve_policy_for_size_with_verified_folder,
+    BlobPolicyRequest, EmptyFileNameMode, StoreFromTempHints, StoreFromTempParams,
+    VerifiedFolderPolicyHint, WorkspaceStorageScope, create_empty, resolve_blob_policy_for_write,
     store_from_temp_with_hints,
 };
 use aster_drive_model::entities::file;
@@ -128,8 +128,20 @@ pub(super) async fn upload_staged(
         StoreFromTempParams::new(scope, folder_id, &filename, &temp_path, size),
         StoreFromTempHints {
             resolved_policy: Some(
-                resolve_policy_for_size_with_verified_folder(state, scope, verified_folder, size)
-                    .await?,
+                resolve_blob_policy_for_write(
+                    state,
+                    BlobPolicyRequest {
+                        scope,
+                        folder_id,
+                        folder_hint: verified_folder,
+                        filename: &filename,
+                        file_size: size,
+                        mime_type: "application/octet-stream",
+                        existing_file_id: None,
+                    },
+                )
+                .await?
+                .policy,
             ),
             actor_username,
             ..Default::default()

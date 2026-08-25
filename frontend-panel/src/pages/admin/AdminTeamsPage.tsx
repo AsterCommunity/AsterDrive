@@ -116,9 +116,9 @@ const MANAGED_TEAM_QUERY_SCHEMA = {
 function getDefaultPolicyGroupId(policyGroups: StoragePolicyGroup[]) {
 	return (
 		policyGroups.find(
-			(group) => group.is_default && group.is_enabled && group.items.length > 0,
+			(group) => group.is_default && group.is_enabled && group.rules.length > 0,
 		)?.id ??
-		policyGroups.find((group) => group.is_enabled && group.items.length > 0)
+		policyGroups.find((group) => group.is_enabled && group.rules.length > 0)
 			?.id ??
 		null
 	);
@@ -129,7 +129,7 @@ function buildPolicyGroupOptions(
 	selectedPolicyGroupId: number | null,
 ): TeamPolicyGroupOption[] {
 	const options: TeamPolicyGroupOption[] = policyGroups
-		.filter((group) => group.is_enabled && group.items.length > 0)
+		.filter((group) => group.is_enabled && group.rules.length > 0)
 		.map((group) => ({
 			label: group.name,
 			value: String(group.id),

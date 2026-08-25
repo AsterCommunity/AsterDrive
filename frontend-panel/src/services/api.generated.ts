@@ -612,6 +612,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/policy-groups/{id}/simulate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["simulate_policy_group_placement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/remote-nodes": {
         parameters: {
             query?: never;
@@ -5288,11 +5304,13 @@ export interface components {
         };
         /** @description Create a storage policy group. */
         CreatePolicyGroupReq: {
+            admission?: null | components["schemas"]["StorageAdmissionConstraints"];
             description?: string | null;
+            execution_preference?: null | components["schemas"]["UploadExecutionPreference"];
             is_default?: boolean;
             is_enabled?: boolean;
-            items: components["schemas"]["PolicyGroupItemReq"][];
             name: string;
+            rules?: components["schemas"]["StoragePlacementRuleInput"][] | null;
         };
         /** @description Create a storage policy. */
         CreatePolicyReq: {
@@ -6796,14 +6814,18 @@ export interface components {
         OffsetPage_StoragePolicyGroupInfo: {
             /** @description Items in the current page. */
             items: {
+                admission: components["schemas"]["StorageAdmissionConstraints"];
                 created_at: string;
                 description: string;
+                execution_preference: components["schemas"]["UploadExecutionPreference"];
                 /** Format: int64 */
                 id: number;
                 is_default: boolean;
                 is_enabled: boolean;
-                items: components["schemas"]["StoragePolicyGroupItemInfo"][];
                 name: string;
+                /** Format: int64 */
+                routing_revision: number;
+                rules: components["schemas"]["StoragePlacementRuleInfo"][];
                 updated_at: string;
             }[];
             /**
@@ -7106,11 +7128,13 @@ export interface components {
         };
         /** @description Patch a storage policy group. */
         PatchPolicyGroupReq: {
+            admission?: null | components["schemas"]["StorageAdmissionConstraints"];
             description?: string | null;
+            execution_preference?: null | components["schemas"]["UploadExecutionPreference"];
             is_default?: boolean | null;
             is_enabled?: boolean | null;
-            items?: components["schemas"]["PolicyGroupItemReq"][] | null;
             name?: string | null;
+            rules?: components["schemas"]["StoragePlacementRuleInput"][] | null;
         };
         /** @description Patch a storage policy. */
         PatchPolicyReq: {
@@ -7160,6 +7184,26 @@ export interface components {
             /** Format: int64 */
             storage_quota?: number | null;
         };
+        PlacementMatcher: {
+            categories?: components["schemas"]["FileCategory"][];
+            compound_extensions?: string[];
+            extensionless?: boolean | null;
+            extensions?: string[];
+            /** Format: int64 */
+            max_file_size?: number;
+            /** Format: int64 */
+            min_file_size?: number;
+        };
+        PlacementRuleEvaluation: {
+            matched: boolean;
+            reason_code?: string | null;
+            /** Format: int64 */
+            rule_id: number;
+        };
+        /** @enum {string} */
+        PlacementSelectionMode: "first_available" | "weighted_random";
+        /** @enum {string} */
+        PlacementUnavailableBehavior: "next_rule" | "reject";
         PolicyGroupAssignmentMigrationResult: {
             /** Format: int64 */
             affected_teams: number;
@@ -7171,17 +7215,6 @@ export interface components {
             source_group_id: number;
             /** Format: int64 */
             target_group_id: number;
-        };
-        /** @description A single item within a policy group. */
-        PolicyGroupItemReq: {
-            /** Format: int64 */
-            max_file_size?: number;
-            /** Format: int64 */
-            min_file_size?: number;
-            /** Format: int64 */
-            policy_id: number;
-            /** Format: int32 */
-            priority: number;
         };
         /**
          * @description File browser view mode.
@@ -7773,6 +7806,15 @@ export interface components {
          * @enum {string}
          */
         SortOrder: "asc" | "desc";
+        StorageAdmissionConstraints: {
+            accept_extensionless?: boolean;
+            allowed_categories?: components["schemas"]["FileCategory"][];
+            allowed_extensions?: string[];
+            denied_categories?: components["schemas"]["FileCategory"][];
+            denied_extensions?: string[];
+            /** Format: int64 */
+            max_file_size?: number;
+        };
         StorageAuthorizationCallbackOutcome: {
             credential: components["schemas"]["StorageConnectorCredentialInfo"];
         };
@@ -8413,6 +8455,61 @@ export interface components {
          * @enum {string}
          */
         StorageCredentialStatus: "authorized" | "reauth_required" | "permission_denied" | "revoked" | "invalid";
+        StoragePlacementRuleInfo: {
+            description: string;
+            /** Format: int64 */
+            id: number;
+            is_enabled: boolean;
+            matcher: components["schemas"]["PlacementMatcher"];
+            name: string;
+            /** Format: int32 */
+            priority: number;
+            selection_mode: components["schemas"]["PlacementSelectionMode"];
+            targets: components["schemas"]["StoragePlacementTargetInfo"][];
+            unavailable_behavior: components["schemas"]["PlacementUnavailableBehavior"];
+        };
+        StoragePlacementRuleInput: {
+            description?: string | null;
+            is_enabled?: boolean;
+            matcher: components["schemas"]["PlacementMatcher"];
+            name: string;
+            /** Format: int32 */
+            priority: number;
+            selection_mode?: components["schemas"]["PlacementSelectionMode"];
+            targets: components["schemas"]["StoragePlacementTargetInput"][];
+            unavailable_behavior?: components["schemas"]["PlacementUnavailableBehavior"];
+        };
+        StoragePlacementSimulationInput: {
+            /** Format: int64 */
+            file_size: number;
+            filename: string;
+            /** Format: int64 */
+            folder_policy_id?: number | null;
+            mime_type?: string;
+        };
+        StoragePlacementTargetInfo: {
+            accepting_new_writes: boolean;
+            /** Format: int64 */
+            id: number;
+            is_enabled: boolean;
+            policy: components["schemas"]["StoragePolicySummaryInfo"];
+            /** Format: int64 */
+            policy_id: number;
+            /** Format: int32 */
+            stable_order: number;
+            /** Format: int32 */
+            weight: number;
+        };
+        StoragePlacementTargetInput: {
+            accepting_new_writes?: boolean;
+            is_enabled?: boolean;
+            /** Format: int64 */
+            policy_id: number;
+            /** Format: int32 */
+            stable_order?: number;
+            /** Format: int32 */
+            weight: number;
+        };
         StoragePolicy: {
             allowed_types: string[];
             behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
@@ -8481,6 +8578,11 @@ export interface components {
             retryable: boolean;
         };
         StoragePolicyGroup: {
+            /**
+             * @description Versioned typed admission payload. Legacy groups keep an empty/default
+             *     payload until the placement migration materializes their rules.
+             */
+            admission_config: string;
             created_at: string;
             description: string;
             /** Format: int64 */
@@ -8488,56 +8590,29 @@ export interface components {
             is_default: boolean;
             is_enabled: boolean;
             name: string;
+            /**
+             * Format: int64
+             * @description Monotonic topology revision persisted with every profile mutation.
+             */
+            routing_revision: number;
             updated_at: string;
+            /** @description Serialized UploadExecutionPreference; parsed at snapshot reload. */
+            upload_execution_preference: string;
         };
         StoragePolicyGroupInfo: {
+            admission: components["schemas"]["StorageAdmissionConstraints"];
             created_at: string;
             description: string;
+            execution_preference: components["schemas"]["UploadExecutionPreference"];
             /** Format: int64 */
             id: number;
             is_default: boolean;
             is_enabled: boolean;
-            items: components["schemas"]["StoragePolicyGroupItemInfo"][];
             name: string;
+            /** Format: int64 */
+            routing_revision: number;
+            rules: components["schemas"]["StoragePlacementRuleInfo"][];
             updated_at: string;
-        };
-        StoragePolicyGroupItem: {
-            created_at: string;
-            /** Format: int64 */
-            group_id: number;
-            /** Format: int64 */
-            id: number;
-            /** Format: int64 */
-            max_file_size: number;
-            /** Format: int64 */
-            min_file_size: number;
-            /** Format: int64 */
-            policy_id: number;
-            /** Format: int32 */
-            priority: number;
-        };
-        StoragePolicyGroupItemInfo: {
-            /** Format: int64 */
-            id: number;
-            /** Format: int64 */
-            max_file_size: number;
-            /** Format: int64 */
-            min_file_size: number;
-            policy: components["schemas"]["StoragePolicySummaryInfo"];
-            /** Format: int64 */
-            policy_id: number;
-            /** Format: int32 */
-            priority: number;
-        };
-        StoragePolicyGroupItemInput: {
-            /** Format: int64 */
-            max_file_size: number;
-            /** Format: int64 */
-            min_file_size: number;
-            /** Format: int64 */
-            policy_id: number;
-            /** Format: int32 */
-            priority: number;
         };
         /** @enum {string} */
         StoragePolicyMigrationCapacityCheck: "sufficient" | "insufficient" | "unsupported" | "unavailable";
@@ -9090,6 +9165,8 @@ export interface components {
         };
         /** @enum {string} */
         UploadChunkOrdering: "unordered" | "sequential";
+        /** @enum {string} */
+        UploadExecutionPreference: "automatic" | "force_server_stream";
         /**
          * @description 上传模式（不存 DB，仅 API 响应用）
          * @enum {string}
@@ -9137,6 +9214,17 @@ export interface components {
             object_multipart_id?: string | null;
             /** @description Driver-agnostic temporary object key used by object/presigned multipart upload flows. */
             object_temp_key?: string | null;
+            placement_execution_preference: string;
+            /**
+             * Format: int64
+             * @description Placement profile/rule revision selected during upload initialization.
+             *     Nullable for sessions created before the placement migration.
+             */
+            placement_profile_id?: number | null;
+            /** Format: int64 */
+            placement_revision?: number | null;
+            /** Format: int64 */
+            placement_rule_id?: number | null;
             /** Format: int64 */
             policy_id: number;
             /** Format: int32 */
@@ -12099,14 +12187,18 @@ export interface operations {
                         data?: {
                             /** @description Items in the current page. */
                             items: {
+                                admission: components["schemas"]["StorageAdmissionConstraints"];
                                 created_at: string;
                                 description: string;
+                                execution_preference: components["schemas"]["UploadExecutionPreference"];
                                 /** Format: int64 */
                                 id: number;
                                 is_default: boolean;
                                 is_enabled: boolean;
-                                items: components["schemas"]["StoragePolicyGroupItemInfo"][];
                                 name: string;
+                                /** Format: int64 */
+                                routing_revision: number;
+                                rules: components["schemas"]["StoragePlacementRuleInfo"][];
                                 updated_at: string;
                             }[];
                             /**
@@ -12168,14 +12260,18 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
+                            admission: components["schemas"]["StorageAdmissionConstraints"];
                             created_at: string;
                             description: string;
+                            execution_preference: components["schemas"]["UploadExecutionPreference"];
                             /** Format: int64 */
                             id: number;
                             is_default: boolean;
                             is_enabled: boolean;
-                            items: components["schemas"]["StoragePolicyGroupItemInfo"][];
                             name: string;
+                            /** Format: int64 */
+                            routing_revision: number;
+                            rules: components["schemas"]["StoragePlacementRuleInfo"][];
                             updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -12227,14 +12323,18 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
+                            admission: components["schemas"]["StorageAdmissionConstraints"];
                             created_at: string;
                             description: string;
+                            execution_preference: components["schemas"]["UploadExecutionPreference"];
                             /** Format: int64 */
                             id: number;
                             is_default: boolean;
                             is_enabled: boolean;
-                            items: components["schemas"]["StoragePolicyGroupItemInfo"][];
                             name: string;
+                            /** Format: int64 */
+                            routing_revision: number;
+                            rules: components["schemas"]["StoragePlacementRuleInfo"][];
                             updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -12339,14 +12439,18 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
+                            admission: components["schemas"]["StorageAdmissionConstraints"];
                             created_at: string;
                             description: string;
+                            execution_preference: components["schemas"]["UploadExecutionPreference"];
                             /** Format: int64 */
                             id: number;
                             is_default: boolean;
                             is_enabled: boolean;
-                            items: components["schemas"]["StoragePolicyGroupItemInfo"][];
                             name: string;
+                            /** Format: int64 */
+                            routing_revision: number;
+                            rules: components["schemas"]["StoragePlacementRuleInfo"][];
                             updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -12447,6 +12551,83 @@ export interface operations {
                 content?: never;
             };
             /** @description Policy group not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    simulate_policy_group_placement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Placement profile ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoragePlacementSimulationInput"];
+            };
+        };
+        responses: {
+            /** @description Placement simulation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            evaluated_rules: components["schemas"]["PlacementRuleEvaluation"][];
+                            excluded_targets: [
+                                number,
+                                "Disabled" | "Draining" | "Unavailable" | "Incompatible" | "PolicyFileSizeExceeded"
+                            ][];
+                            execution_preference: components["schemas"]["UploadExecutionPreference"];
+                            folder_override: boolean;
+                            /** Format: int64 */
+                            policy_id: number;
+                            /** Format: int64 */
+                            profile_id: number;
+                            /** Format: int64 */
+                            revision: number;
+                            /** Format: int64 */
+                            rule_id?: number | null;
+                            selection_mode: components["schemas"]["PlacementSelectionMode"];
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Placement rejected */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Placement profile not found */
             404: {
                 headers: {
                     [name: string]: unknown;

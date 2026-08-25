@@ -361,9 +361,54 @@ pub(crate) async fn store_relative_target_from_stream(
         declared_size,
         exact_name,
     } = params;
-    let resolved_policy_hint = match declared_size {
-        Some(size) => Some(storage::resolve_policy_for_size(state, scope, folder_id, size).await?),
-        None => None,
+    let resolved_policy_hint = match existing_file_id {
+        Some(existing_file_id) => Some(
+            storage::resolve_blob_policy_for_write(
+                state,
+                storage::BlobPolicyRequest {
+                    scope,
+                    folder_id,
+                    folder_hint: None,
+                    filename,
+                    file_size: declared_size.unwrap_or(0),
+                    mime_type: "application/octet-stream",
+                    existing_file_id: Some(existing_file_id),
+                },
+            )
+            .await?
+            .policy,
+        ),
+        None => match declared_size {
+            Some(size) => {
+                let folder_hint = match folder_id {
+                    Some(folder_id) => {
+                        let folder = storage::verify_folder_access(state, scope, folder_id).await?;
+                        Some(
+                            storage::resolve_verified_folder_policy_hint(state, scope, folder)
+                                .await?,
+                        )
+                    }
+                    None => None,
+                };
+                Some(
+                    storage::resolve_blob_policy_for_write(
+                        state,
+                        storage::BlobPolicyRequest {
+                            scope,
+                            folder_id,
+                            folder_hint,
+                            filename,
+                            file_size: size,
+                            mime_type: "application/octet-stream",
+                            existing_file_id: None,
+                        },
+                    )
+                    .await?
+                    .policy,
+                )
+            }
+            None => None,
+        },
     };
     let streamed = file_ops::stream_request_body_to_temp_upload(
         state,

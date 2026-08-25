@@ -26,6 +26,12 @@ pub struct Model {
     pub received_count: i32,
     pub folder_id: Option<i64>,
     pub policy_id: i64,
+    /// Placement profile/rule revision selected during upload initialization.
+    /// Nullable for sessions created before the placement migration.
+    pub placement_profile_id: Option<i64>,
+    pub placement_rule_id: Option<i64>,
+    pub placement_revision: Option<i64>,
+    pub placement_execution_preference: String,
     pub status: UploadSessionStatus,
     /// Explicit data-plane kind selected and persisted during upload initialization.
     pub session_kind: UploadSessionKind,

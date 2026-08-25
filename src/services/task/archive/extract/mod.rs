@@ -13,7 +13,7 @@ use super::common::{build_folder_display_path, create_unique_folder_in_scope};
 use crate::config::operations;
 use crate::db::repository::background_task_repo;
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::files::archive::core::format::{
     ArchiveFormat, detect_supported_archive_format,
 };
@@ -40,8 +40,8 @@ use aster_drive_model::entities::{background_task, file};
 use aster_drive_model::types::BackgroundTaskStatus;
 use import::materialize_archive_extract_stage;
 use staging::{
-    ArchiveExtractLimits, ArchiveExtractPolicyResolver, ArchiveExtractStageOptions,
-    StageArchiveForExtractParams, download_file_to_temp, stage_zip_archive_for_extract,
+    ArchiveExtractLimits, ArchiveExtractStageOptions, StageArchiveForExtractParams,
+    download_file_to_temp, stage_zip_archive_for_extract,
 };
 
 pub(crate) async fn create_archive_extract_task_in_scope(
@@ -101,7 +101,6 @@ pub(super) async fn process_archive_extract_task(
         let max_staging_bytes =
             operations::archive_extract_max_staging_bytes(state.runtime_config());
         let extract_limits = ArchiveExtractLimits::from_runtime_config(state.runtime_config());
-        let policy_resolver = resolve_archive_extract_policy_resolver(state, scope).await?;
 
         set_task_step_active(
             &mut steps,
@@ -143,14 +142,12 @@ pub(super) async fn process_archive_extract_task(
         let steps_for_worker = steps.clone();
 
         let db = state.writer_db().clone();
-        let policy_snapshot = state.policy_snapshot().clone();
         let handle = tokio::runtime::Handle::current();
         let context_for_worker = context.clone();
         let source_archive_path_for_worker = source_archive_path;
         let stage_root_for_worker = stage_root.clone();
         let stage_options = ArchiveExtractStageOptions {
             scope,
-            policy_resolver,
             source_archive_size: source_file.size,
             max_staging_bytes,
             limits: extract_limits,
@@ -161,7 +158,6 @@ pub(super) async fn process_archive_extract_task(
             let stage_params = StageArchiveForExtractParams {
                 handle: &handle,
                 db: &db,
-                policy_snapshot: policy_snapshot.as_ref(),
                 context: &context_for_worker,
                 archive_path: &source_archive_path_for_worker,
                 stage_root: &stage_root_for_worker,
@@ -450,25 +446,6 @@ fn ensure_source_archive_allowed(
         )));
     }
     Ok(())
-}
-
-async fn resolve_archive_extract_policy_resolver(
-    state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
-) -> Result<ArchiveExtractPolicyResolver> {
-    match scope {
-        WorkspaceStorageScope::Personal { user_id } => {
-            Ok(ArchiveExtractPolicyResolver::Personal { user_id })
-        }
-        WorkspaceStorageScope::Team {
-            team_id,
-            actor_user_id,
-        } => {
-            let policy_group_id =
-                storage::require_team_policy_group_id(state, team_id, actor_user_id).await?;
-            Ok(ArchiveExtractPolicyResolver::Team { policy_group_id })
-        }
-    }
 }
 
 #[cfg(test)]

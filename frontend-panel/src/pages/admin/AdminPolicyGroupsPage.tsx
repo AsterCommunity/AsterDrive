@@ -347,7 +347,21 @@ export default function AdminPolicyGroupsPage() {
 		setForm((prev) => ({
 			...prev,
 			items: prev.items.map((item) =>
-				item.key === ruleKey ? { ...item, [key]: value } : item,
+				item.key === ruleKey
+					? {
+							...item,
+							[key]: value,
+							...(key === "policyId"
+								? {
+										targets: (item.targets ?? []).map((target, index) =>
+											index === 0
+												? { ...target, policyId: value as string }
+												: target,
+										),
+									}
+								: {}),
+						}
+					: item,
 			),
 		}));
 		setFormError(null);
@@ -408,7 +422,9 @@ export default function AdminPolicyGroupsPage() {
 		setPolicies((prev) =>
 			mergePolicies(
 				prev,
-				group.items.map((item) => item.policy),
+				group.rules.flatMap((rule) =>
+					rule.targets.map((target) => target.policy),
+				),
 			),
 		);
 		setEditingGroup(group);

@@ -70,6 +70,20 @@ pub trait MetricsRecorder: Send + Sync {
     ) {
     }
 
+    /// Records a storage placement routing decision using bounded labels.
+    fn record_storage_routing(&self, selection: &'static str, outcome: &'static str) {}
+
+    /// Records a placement decision with bounded topology identifiers.
+    fn record_storage_routing_detail(
+        &self,
+        profile_id: &str,
+        rule_id: &str,
+        policy_id: &str,
+        selection: &str,
+        outcome: &str,
+    ) {
+    }
+
     /// Records a background-task status transition.
     fn record_background_task_transition(&self, kind: &'static str, status: &'static str) {}
 
@@ -232,6 +246,18 @@ mod product {
                 "session_events_total",
                 "Total Drive upload session lifecycle events.",
                 &["mode", "event", "status"],
+            ),
+            storage_routing_decisions: counter(
+                "storage",
+                "routing_decisions_total",
+                "Total storage placement routing decisions.",
+                &["selection", "outcome"],
+            ),
+            storage_routing_details: counter(
+                "storage",
+                "routing_details_total",
+                "Storage placement decisions by bounded topology identifiers.",
+                &["profile", "rule", "policy", "selection", "outcome"],
             ),
             storage_driver_operations: counter(
                 "storage_driver",
@@ -566,6 +592,29 @@ impl MetricsRecorder for DriveMetricsRecorder {
     ) {
         if let Some(product) = self.product {
             product.upload_session_events.inc(&[mode, event, status], 1);
+        }
+    }
+
+    fn record_storage_routing(&self, selection: &'static str, outcome: &'static str) {
+        if let Some(product) = self.product {
+            product
+                .storage_routing_decisions
+                .inc(&[selection, outcome], 1);
+        }
+    }
+
+    fn record_storage_routing_detail(
+        &self,
+        profile_id: &str,
+        rule_id: &str,
+        policy_id: &str,
+        selection: &str,
+        outcome: &str,
+    ) {
+        if let Some(product) = self.product {
+            product
+                .storage_routing_details
+                .inc(&[profile_id, rule_id, policy_id, selection, outcome], 1);
         }
     }
 

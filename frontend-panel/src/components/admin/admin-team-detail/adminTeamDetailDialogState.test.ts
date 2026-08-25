@@ -15,17 +15,24 @@ const group = (
 	id: 1,
 	is_default: false,
 	is_enabled: true,
-	items: [
+	rules: [
 		{
 			id: 11,
-			max_file_size: 0,
-			min_file_size: 0,
-			policy: {
-				id: 7,
-				name: "Local",
-			},
-			policy_id: 7,
+			name: "Rule 1",
+			description: "",
 			priority: 1,
+			is_enabled: true,
+			matcher: {
+				min_file_size: 0,
+				max_file_size: 0,
+				extensions: [],
+				compound_extensions: [],
+				extensionless: null,
+				categories: [],
+			},
+			selection_mode: "first_available",
+			unavailable_behavior: "next_rule",
+			targets: [],
 		},
 	],
 	name: "Primary",
@@ -63,7 +70,7 @@ describe("adminTeamDetailDialogState", () => {
 				[
 					group({ id: 1, name: "Primary" }),
 					group({ id: 2, is_enabled: false, name: "Disabled" }),
-					group({ id: 3, items: [], name: "Empty" }),
+					group({ id: 3, rules: [], name: "Empty" }),
 				],
 				2,
 			),

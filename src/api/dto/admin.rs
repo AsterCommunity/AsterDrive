@@ -2,7 +2,6 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::{IntoParams, ToSchema};
 use validator::{Validate, ValidationError};
@@ -249,23 +248,6 @@ pub struct TestRemoteNodeParamsReq {
     pub secret_key: String,
 }
 
-/// A single item within a policy group.
-#[derive(Clone, Deserialize, Validate)]
-#[validate(schema(function = "validate_policy_group_item"))]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct PolicyGroupItemReq {
-    #[validate(range(min = 1, message = "policy_id must be greater than 0"))]
-    pub policy_id: i64,
-    #[validate(range(min = 1, message = "group item priority must be greater than 0"))]
-    pub priority: i32,
-    #[serde(default)]
-    #[validate(range(min = 0, message = "file size rules must be non-negative"))]
-    pub min_file_size: i64,
-    #[serde(default)]
-    #[validate(range(min = 0, message = "file size rules must be non-negative"))]
-    pub max_file_size: i64,
-}
-
 /// Create a storage policy group.
 #[derive(Clone, Deserialize, Validate)]
 #[validate(schema(function = "validate_create_policy_group"))]
@@ -278,8 +260,14 @@ pub struct CreatePolicyGroupReq {
     pub is_enabled: bool,
     #[serde(default)]
     pub is_default: bool,
-    #[validate(nested)]
-    pub items: Vec<PolicyGroupItemReq>,
+    #[serde(default)]
+    pub admission:
+        Option<crate::services::storage_policy::policy::placement::StorageAdmissionConstraints>,
+    #[serde(default)]
+    pub execution_preference:
+        Option<crate::services::storage_policy::policy::placement::UploadExecutionPreference>,
+    #[serde(default)]
+    pub rules: Option<Vec<crate::services::storage_policy::policy::StoragePlacementRuleInput>>,
 }
 
 /// Patch a storage policy group.
@@ -291,8 +279,14 @@ pub struct PatchPolicyGroupReq {
     pub description: Option<String>,
     pub is_enabled: Option<bool>,
     pub is_default: Option<bool>,
-    #[validate(nested)]
-    pub items: Option<Vec<PolicyGroupItemReq>>,
+    #[serde(default)]
+    pub admission:
+        Option<crate::services::storage_policy::policy::placement::StorageAdmissionConstraints>,
+    #[serde(default)]
+    pub execution_preference:
+        Option<crate::services::storage_policy::policy::placement::UploadExecutionPreference>,
+    #[serde(default)]
+    pub rules: Option<Vec<crate::services::storage_policy::policy::StoragePlacementRuleInput>>,
 }
 
 /// Migrate all user and team assignments from one policy group to another.
@@ -788,26 +782,14 @@ pub struct AdminPatchTeamReq {
 /// Alias for `AdminTeamListQuery` (admin listing query).
 pub type AdminListQuery = AdminTeamListQuery;
 
-fn validate_policy_group_item(
-    value: &PolicyGroupItemReq,
-) -> std::result::Result<(), ValidationError> {
-    if value.max_file_size != 0 && value.max_file_size <= value.min_file_size {
-        return Err(crate::api::dto::validation::message_validation_error(
-            "max_file_size must be greater than min_file_size",
-        ));
-    }
-    Ok(())
-}
-
 fn validate_create_policy_group(
     value: &CreatePolicyGroupReq,
 ) -> std::result::Result<(), ValidationError> {
-    if value.items.is_empty() {
+    if value.rules.as_ref().is_none_or(Vec::is_empty) {
         return Err(crate::api::dto::validation::message_validation_error(
             "storage policy group must contain at least one policy",
         ));
     }
-    validate_unique_policy_group_items(&value.items)?;
     if value.is_default && !value.is_enabled {
         return Err(crate::api::dto::validation::message_validation_error(
             "default storage policy group must be enabled",
@@ -829,38 +811,17 @@ fn validate_patch_policy_group(
     if let Some(name) = value.name.as_deref() {
         crate::api::dto::validation::validate_non_blank(name)?;
     }
-    if let Some(items) = &value.items {
-        if items.is_empty() {
+    if value.rules.is_some() {
+        if value.rules.as_ref().is_none_or(Vec::is_empty) {
             return Err(crate::api::dto::validation::message_validation_error(
                 "storage policy group must contain at least one policy",
             ));
         }
-        validate_unique_policy_group_items(items)?;
     }
     if value.is_default == Some(true) && value.is_enabled == Some(false) {
         return Err(crate::api::dto::validation::message_validation_error(
             "default storage policy group must be enabled",
         ));
-    }
-    Ok(())
-}
-
-fn validate_unique_policy_group_items(
-    items: &[PolicyGroupItemReq],
-) -> std::result::Result<(), ValidationError> {
-    let mut seen_policies = HashSet::new();
-    let mut seen_priorities = HashSet::new();
-    for item in items {
-        if !seen_policies.insert(item.policy_id) {
-            return Err(crate::api::dto::validation::message_validation_error(
-                "duplicate policy_id in storage policy group items",
-            ));
-        }
-        if !seen_priorities.insert(item.priority) {
-            return Err(crate::api::dto::validation::message_validation_error(
-                "duplicate priority in storage policy group items",
-            ));
-        }
     }
     Ok(())
 }

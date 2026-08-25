@@ -15,12 +15,12 @@ use crate::services::events::storage_change;
 use aster_drive_model::entities::file;
 
 use super::{
-    NewFileMode, ParsedUploadPath, PreparedNonDedupBlobUpload, WorkspaceStorageScope, check_quota,
-    cleanup_preuploaded_blob_upload, create_new_file_from_blob,
+    BlobPolicyRequest, NewFileMode, ParsedUploadPath, PreparedNonDedupBlobUpload,
+    WorkspaceStorageScope, check_quota, cleanup_preuploaded_blob_upload, create_new_file_from_blob,
     create_new_file_from_blob_with_actor_username, ensure_upload_parent_path_on,
     lock_folder_access_on, lock_storage_usage, persist_preuploaded_blob,
-    resolve_policy_for_size_with_verified_folder_on, resolve_verified_folder_policy_hint_on,
-    update_storage_used, verify_file_access,
+    resolve_blob_policy_for_write, resolve_verified_folder_policy_hint_on, update_storage_used,
+    verify_file_access,
 };
 
 #[derive(Clone, Copy)]
@@ -373,14 +373,20 @@ async fn create_empty_transactional(
                 } else {
                     (folder_id, base_folder)
                 };
-            let policy = resolve_policy_for_size_with_verified_folder_on(
+            let policy = resolve_blob_policy_for_write(
                 &state,
-                txn,
-                scope,
-                resolved_folder,
-                0,
+                BlobPolicyRequest {
+                    scope,
+                    folder_id: resolved_folder_id,
+                    folder_hint: resolved_folder,
+                    filename: &transaction_filename,
+                    file_size: 0,
+                    mime_type: "application/octet-stream",
+                    existing_file_id: None,
+                },
             )
-            .await?;
+            .await?
+            .policy;
             let transaction_prepared = PreparedEmptyFile::with_resolved_policy(
                 scope,
                 resolved_folder_id,

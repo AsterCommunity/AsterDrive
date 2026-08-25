@@ -10,9 +10,9 @@ use crate::errors::{AsterError, MapAsterErr, Result, file_upload_error_with_code
 use crate::runtime::PrimaryAppState;
 use crate::services::workspace::storage::HASH_BUF_SIZE;
 use crate::services::workspace::storage::{
-    StorageOperationContext, StoreFromTempHints, StoreFromTempParams, WorkspaceStorageScope,
-    check_quota, local_content_dedup_enabled, prepare_non_dedup_blob_upload,
-    resolve_policy_for_size, upload_temp_file_to_prepared_blob,
+    BlobPolicyRequest, StorageOperationContext, StoreFromTempHints, StoreFromTempParams,
+    WorkspaceStorageScope, check_quota, local_content_dedup_enabled, prepare_non_dedup_blob_upload,
+    resolve_blob_policy_for_write, upload_temp_file_to_prepared_blob,
     upload_temp_file_to_prepared_blob_cancellable, verify_file_access,
 };
 use aster_drive_model::entities::{file, storage_policy};
@@ -94,10 +94,28 @@ pub(super) async fn prepare_store_from_temp(
     );
 
     let filename = aster_forge_validation::filename::normalize_validate_name(filename)?;
+    let mime_type = mime_guess::from_path(&filename)
+        .first_or_octet_stream()
+        .to_string();
 
     let policy = match resolved_policy {
         Some(policy) => policy,
-        None => resolve_policy_for_size(state, scope, folder_id, size).await?,
+        None => {
+            resolve_blob_policy_for_write(
+                state,
+                BlobPolicyRequest {
+                    scope,
+                    folder_id,
+                    folder_hint: None,
+                    filename: &filename,
+                    file_size: size,
+                    mime_type: &mime_type,
+                    existing_file_id,
+                },
+            )
+            .await?
+            .policy
+        }
     };
     operation_context.checkpoint()?;
     let should_dedup = local_content_dedup_enabled(state.driver_registry().connectors(), &policy)?;
@@ -181,9 +199,7 @@ pub(super) async fn prepare_store_from_temp(
         operation_context,
         storage_delta,
         quota_prechecked,
-        mime: mime_guess::from_path(&filename)
-            .first_or_octet_stream()
-            .to_string(),
+        mime: mime_type,
         now: Utc::now(),
         actor_username: actor_username.map(ToOwned::to_owned),
         lock_credentials,

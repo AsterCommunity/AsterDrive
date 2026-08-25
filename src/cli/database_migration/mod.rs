@@ -42,6 +42,8 @@ const COPY_TABLE_ORDER: &[&str] = &[
     "storage_policies",
     "storage_policy_connector_credentials",
     "storage_policy_groups",
+    "storage_policy_group_rules",
+    "storage_policy_group_rule_targets",
     "storage_policy_group_items",
     "follower_enrollment_sessions",
     "users",
