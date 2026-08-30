@@ -32,10 +32,10 @@ pub static BUILTIN_IMAGES_SUPPORTED_EXTENSIONS: LazyLock<Vec<&'static str>> = La
     extensions.into_iter().collect()
 });
 pub const BUILTIN_IMAGE_METADATA_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "jfif", "png", "apng", "tif", "tiff", "heic", "heif", "avif", "cr3", "cr2",
-    "raf", "iiq", "3fr", "ari", "arw", "bay", "cap", "dcr", "dng", "erf", "fff", "k25", "kdc",
-    "mef", "mos", "mrw", "nef", "nrw", "orf", "pef", "ptx", "pxn", "r3d", "raw", "rw2", "rwl",
-    "sr2", "srf", "srw", "x3f",
+    "jpg", "jpeg", "jfif", "png", "apng", "webp", "tif", "tiff", "heic", "heif", "avif", "cr3",
+    "cr2", "raf", "iiq", "3fr", "ari", "arw", "bay", "cap", "dcr", "dng", "erf", "fff", "k25",
+    "kdc", "mef", "mos", "mrw", "nef", "nrw", "orf", "pef", "ptx", "pxn", "r3d", "raw", "rw2",
+    "rwl", "sr2", "srf", "srw", "x3f",
 ];
 /// Common libvips input suffixes used as the default binding for `vips_cli`.
 ///

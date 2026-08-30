@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **WebP EXIF 元数据** — 内置图片元数据处理器支持从 WebP `EXIF` chunk 提取相机、拍摄参数、时间、方向和 GPS 等信息；不含 EXIF 的 WebP 仍可返回图片尺寸与格式。
+
 ## [v0.5.1] - 2026-08-24
 
 ### Added

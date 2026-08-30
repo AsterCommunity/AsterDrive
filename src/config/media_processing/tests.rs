@@ -163,8 +163,8 @@ fn builtin_image_metadata_supports_nom_exif_image_extensions() {
     assert!(builtin_image_metadata_supports_extension("cr3"));
     assert!(builtin_image_metadata_supports_extension("raf"));
     assert!(builtin_image_metadata_supports_extension("nef"));
+    assert!(builtin_image_metadata_supports_extension("webp"));
     assert!(!super::builtin_images_supports_extension("nef"));
-    assert!(!builtin_image_metadata_supports_extension("webp"));
 }
 
 #[test]

@@ -217,6 +217,55 @@ fn tiny_png_bytes() -> Vec<u8> {
     bytes
 }
 
+fn tiny_webp_bytes() -> Vec<u8> {
+    let image = ::image::DynamicImage::ImageRgb8(::image::RgbImage::from_pixel(
+        1,
+        1,
+        ::image::Rgb([255, 0, 0]),
+    ));
+    let mut encoded = Cursor::new(Vec::new());
+    image
+        .write_to(&mut encoded, ::image::ImageFormat::WebP)
+        .expect("tiny WebP should encode");
+    encoded.into_inner()
+}
+
+fn tiny_webp_with_exif_make() -> Vec<u8> {
+    let mut bytes = tiny_webp_bytes();
+
+    let make = b"Aster WebP Camera\0";
+    let make_offset = 8_u32 + 2 + 12 + 4;
+    let mut tiff = Vec::new();
+    tiff.extend_from_slice(b"II");
+    tiff.extend_from_slice(&42_u16.to_le_bytes());
+    tiff.extend_from_slice(&8_u32.to_le_bytes());
+    tiff.extend_from_slice(&1_u16.to_le_bytes());
+    tiff.extend_from_slice(&0x010f_u16.to_le_bytes());
+    tiff.extend_from_slice(&2_u16.to_le_bytes());
+    tiff.extend_from_slice(
+        &u32::try_from(make.len())
+            .expect("WebP EXIF make length should fit u32")
+            .to_le_bytes(),
+    );
+    tiff.extend_from_slice(&make_offset.to_le_bytes());
+    tiff.extend_from_slice(&0_u32.to_le_bytes());
+    tiff.extend_from_slice(make);
+
+    bytes.extend_from_slice(b"EXIF");
+    bytes.extend_from_slice(
+        &u32::try_from(tiff.len())
+            .expect("WebP EXIF chunk length should fit u32")
+            .to_le_bytes(),
+    );
+    bytes.extend_from_slice(&tiff);
+    if tiff.len() % 2 == 1 {
+        bytes.push(0);
+    }
+    let riff_size = u32::try_from(bytes.len() - 8).expect("tiny WebP RIFF size should fit u32");
+    bytes[4..8].copy_from_slice(&riff_size.to_le_bytes());
+    bytes
+}
+
 #[test]
 fn media_metadata_task_payload_alias_reads_legacy_kind_but_serializes_media_kind() {
     let payload: MediaMetadataExtractTaskPayload = serde_json::from_str(
@@ -350,6 +399,55 @@ async fn range_media_metadata_source_uses_get_range_without_streaming_whole_blob
     assert_eq!(metadata.height, 1);
     assert!(driver.range_calls.load(Ordering::SeqCst) > 0);
     assert_eq!(driver.stream_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn webp_exif_metadata_extracts_through_builtin_processor() {
+    let bytes = tiny_webp_with_exif_make();
+    let driver = Arc::new(RangeOnlyDriver::new(bytes.clone()));
+    let state = test_state_with_driver(driver.clone()).await;
+    let blob = file_blob::Model {
+        policy_id: 1,
+        ..test_blob(bytes.len())
+    };
+
+    let extracted = extract_for_blob(
+        &state,
+        &blob,
+        "photo.webp",
+        "image/webp",
+        MediaMetadataKind::Image,
+    )
+    .await
+    .expect("WebP EXIF metadata should extract");
+
+    assert_eq!(extracted.status, MediaMetadataStatus::Ready);
+    assert_eq!(extracted.parser, IMAGE_PARSER_NAME);
+    match extracted.metadata {
+        Some(MediaMetadataPayload::Image(metadata)) => {
+            assert_eq!(metadata.width, 1);
+            assert_eq!(metadata.height, 1);
+            assert_eq!(metadata.format.as_deref(), Some("image/webp"));
+            assert_eq!(metadata.camera_make.as_deref(), Some("Aster WebP Camera"));
+        }
+        other => panic!("expected WebP image metadata, got {other:?}"),
+    }
+    assert!(driver.range_calls.load(Ordering::SeqCst) > 0);
+    assert_eq!(driver.stream_calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn webp_without_exif_returns_image_metadata() {
+    let bytes = tiny_webp_bytes();
+    let metadata = parse_image_metadata_with_reader_factory("WebP without EXIF", || {
+        Ok(Cursor::new(bytes.clone()))
+    })
+    .expect("WebP without EXIF should still expose image metadata");
+
+    assert_eq!(metadata.width, 1);
+    assert_eq!(metadata.height, 1);
+    assert_eq!(metadata.format.as_deref(), Some("image/webp"));
+    assert!(metadata.camera_make.is_none());
 }
 
 #[tokio::test]
