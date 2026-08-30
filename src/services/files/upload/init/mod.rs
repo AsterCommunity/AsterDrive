@@ -23,7 +23,9 @@ use crate::services::files::upload::shared::{
 };
 use crate::services::files::upload::staging;
 use crate::services::ops::deployment;
-use crate::services::workspace::storage::{WorkspaceStorageScope, resolve_policy_upload_transport};
+use crate::services::workspace::storage::{
+    WorkspaceStorageScope, resolve_policy_upload_transport_for_execution,
+};
 use aster_drive_model::types::{UploadMode, UploadSessionStatus};
 use aster_forge_utils::numbers;
 use aster_forge_utils::paths;
@@ -88,8 +90,11 @@ async fn init_upload_for_scope(
         params.frontend_client_id,
     )
     .await?;
-    let transport =
-        resolve_policy_upload_transport(state.driver_registry().connectors(), &ctx.policy)?;
+    let transport = resolve_policy_upload_transport_for_execution(
+        state.driver_registry().connectors(),
+        &ctx.policy,
+        ctx.routing_decision.execution_preference,
+    )?;
 
     if ctx.total_size == 0 {
         tracing::debug!(
@@ -155,8 +160,11 @@ async fn init_chunked_upload_session(
     // 本地 / 其他非 direct 场景：服务端维护 upload session，并预创建格式专用的
     // `.offset-staging-v1` 文件。每个 Chunk PUT 按 offset 写入并登记 DB receipt，Complete
     // 只校验 receipt 和 staging 内容后推进存储和元数据。
-    let transport =
-        resolve_policy_upload_transport(state.driver_registry().connectors(), &ctx.policy)?;
+    let transport = resolve_policy_upload_transport_for_execution(
+        state.driver_registry().connectors(),
+        &ctx.policy,
+        ctx.routing_decision.execution_preference,
+    )?;
     let chunk_size = ctx.policy.chunk_size;
     let total_chunks = numbers::calc_total_chunks(ctx.total_size, chunk_size, "chunked upload")?;
     let expires_at = Utc::now() + Duration::hours(24);

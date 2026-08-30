@@ -25,6 +25,25 @@ pub enum StorageConnectorUploadTransport {
 }
 
 impl StorageConnectorUploadTransport {
+    /// Apply the policy-group execution preference to the connector transport.
+    ///
+    /// This changes only the upload data plane for the current operation; the
+    /// connector configuration remains untouched.
+    pub fn force_server_stream(self) -> Self {
+        match self {
+            Self::ObjectStorage(ObjectStorageUploadStrategy::Presigned) => {
+                Self::ObjectStorage(ObjectStorageUploadStrategy::RelayStream)
+            }
+            Self::Remote(RemoteUploadStrategy::Presigned) => {
+                Self::Remote(RemoteUploadStrategy::RelayStream)
+            }
+            Self::ProviderResumable(ProviderResumableUploadStrategy::FrontendDirect) => {
+                Self::ProviderResumable(ProviderResumableUploadStrategy::ServerRelay)
+            }
+            transport => transport,
+        }
+    }
+
     /// 返回当前传输模型下实际使用的 chunk size。
     ///
     /// 对象存储 multipart 需要满足 provider 最小 part size，因此会走专门的修正逻辑。

@@ -39,11 +39,24 @@ pub(crate) use crate::services::workspace::storage_core::{
     update_storage_used_for_resource_scope,
 };
 
+use crate::services::storage_policy::policy::placement::UploadExecutionPreference;
 pub(crate) use crate::services::workspace::scope::load_scope_actor_username_cached;
 pub(crate) use crate::storage::connectors::{
     StorageConnectorUploadTransport as PolicyUploadTransport, resolve_policy_upload_transport,
     streaming_direct_upload_eligible,
 };
+
+pub(crate) fn resolve_policy_upload_transport_for_execution(
+    registry: &crate::storage::connectors::StorageConnectorRegistry,
+    policy: &aster_drive_model::entities::storage_policy::Model,
+    preference: UploadExecutionPreference,
+) -> crate::errors::Result<PolicyUploadTransport> {
+    let transport = resolve_policy_upload_transport(registry, policy)?;
+    Ok(match preference {
+        UploadExecutionPreference::Automatic => transport,
+        UploadExecutionPreference::ForceServerStream => transport.force_server_stream(),
+    })
+}
 pub(crate) use blob_upload::{
     PreparedNonDedupBlobUpload, cleanup_preuploaded_blob_upload, nondedup_storage_path_for_policy,
     persist_preuploaded_blob, prepare_non_dedup_blob_upload, upload_reader_to_prepared_blob,

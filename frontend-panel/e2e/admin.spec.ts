@@ -143,11 +143,11 @@ test.describe
 			const policyGroupRow = page
 				.getByRole("row")
 				.filter({
-					has: page.getByRole("button", { name: "Run routing simulation" }),
+					has: page.getByRole("button", { name: "Simulate" }),
 				})
 				.first();
 			await expect(policyGroupRow).toBeVisible({ timeout: 30_000 });
-			await clickRowAction(policyGroupRow, "Run routing simulation");
+			await clickRowAction(policyGroupRow, "Simulate");
 
 			const simulationDialog = dialogByTitle(page, "Routing Simulation");
 			await expect(simulationDialog).toBeVisible();

@@ -8,23 +8,23 @@ import type {
 
 const BYTES_PER_MB = 1024 * 1024;
 
-export interface PolicyGroupRuleForm {
+export interface PolicyGroupRuleTargetForm {
 	key: string;
 	policyId: string;
-	priority: string;
+	weight: string;
+	isEnabled: boolean;
+	acceptingNewWrites: boolean;
+}
+
+export interface PolicyGroupRuleForm {
+	key: string;
 	minFileSizeMb: string;
 	maxFileSizeMb: string;
 	originalMinFileSizeBytes?: number;
 	originalMaxFileSizeBytes?: number;
 	selectionMode: "first_available" | "weighted_random";
 	unavailableBehavior: "next_rule" | "reject";
-	targets: Array<{
-		policyId: string;
-		weight: number;
-		isEnabled: boolean;
-		acceptingNewWrites: boolean;
-		stableOrder: number;
-	}>;
+	targets: PolicyGroupRuleTargetForm[];
 }
 
 export interface PolicyGroupFormData {
@@ -55,6 +55,27 @@ function generateRuleKey() {
 	);
 }
 
+export function buildPolicyGroupRuleTargetForm(
+	policyId?: number | null,
+	ruleTarget?: Pick<
+		StoragePlacementRuleInfo["targets"][number],
+		"policy_id" | "weight" | "is_enabled" | "accepting_new_writes"
+	>,
+): PolicyGroupRuleTargetForm {
+	return {
+		key: generateRuleKey(),
+		policyId:
+			ruleTarget != null
+				? String(ruleTarget.policy_id)
+				: policyId != null
+					? String(policyId)
+					: "",
+		weight: String(ruleTarget?.weight ?? 100),
+		isEnabled: ruleTarget?.is_enabled ?? true,
+		acceptingNewWrites: ruleTarget?.accepting_new_writes ?? true,
+	};
+}
+
 export function bytesToMbInput(bytes: number) {
 	if (bytes <= 0) return "";
 
@@ -82,7 +103,6 @@ export function mbInputToBytes(value: string, originalBytes?: number) {
 
 export function buildPolicyGroupRuleForm(
 	policyId?: number | null,
-	priority = 1,
 	minFileSize = 0,
 	maxFileSize = 0,
 	rule?: Pick<
@@ -92,33 +112,17 @@ export function buildPolicyGroupRuleForm(
 ): PolicyGroupRuleForm {
 	return {
 		key: generateRuleKey(),
-		policyId: policyId != null ? String(policyId) : "",
-		priority: String(priority),
 		minFileSizeMb: bytesToMbInput(minFileSize),
 		maxFileSizeMb: bytesToMbInput(maxFileSize),
 		originalMinFileSizeBytes: minFileSize || undefined,
 		originalMaxFileSizeBytes: maxFileSize || undefined,
 		selectionMode: rule?.selection_mode ?? "first_available",
 		unavailableBehavior: rule?.unavailable_behavior ?? "next_rule",
-		targets:
-			rule?.targets.map((target) => ({
-				policyId: String(target.policy_id),
-				weight: target.weight,
-				isEnabled: target.is_enabled,
-				acceptingNewWrites: target.accepting_new_writes,
-				stableOrder: target.stable_order,
-			})) ??
-			(policyId != null
-				? [
-						{
-							policyId: String(policyId),
-							weight: 100,
-							isEnabled: true,
-							acceptingNewWrites: true,
-							stableOrder: 1,
-						},
-					]
-				: []),
+		targets: rule?.targets.length
+			? [...rule.targets]
+					.sort((a, b) => a.stable_order - b.stable_order)
+					.map((target) => buildPolicyGroupRuleTargetForm(null, target))
+			: [buildPolicyGroupRuleTargetForm(policyId ?? null)],
 	};
 }
 
@@ -151,15 +155,16 @@ export function getPolicyGroupForm(
 		description: group.description,
 		isEnabled: group.is_enabled,
 		isDefault: group.is_default,
-		items: (group.rules ?? []).map((rule) =>
-			buildPolicyGroupRuleForm(
-				rule.targets[0]?.policy_id ?? null,
-				rule.priority,
-				rule.matcher.min_file_size,
-				rule.matcher.max_file_size,
-				rule,
+		items: [...(group.rules ?? [])]
+			.sort((a, b) => a.priority - b.priority)
+			.map((rule) =>
+				buildPolicyGroupRuleForm(
+					null,
+					rule.matcher.min_file_size,
+					rule.matcher.max_file_size,
+					rule,
+				),
 			),
-		),
 		admission: group.admission,
 		executionPreference: group.execution_preference,
 	};
@@ -183,28 +188,35 @@ export function validatePolicyGroupForm(
 		return t("policy_group_rule_required");
 	}
 
-	const seenPolicyIds = new Set<number>();
-	const seenPriorities = new Set<number>();
+	const seenPrimaryPolicyIds = new Set<number>();
 
 	for (const item of form.items) {
-		const policyIdNum = Number(item.policyId);
-		if (!Number.isInteger(policyIdNum) || policyIdNum <= 0) {
-			return t("policy_group_rule_policy_required");
+		if (item.targets.length === 0) {
+			return t("policy_group_rule_target_required");
 		}
 
-		const priority = Number(item.priority);
-		if (!Number.isInteger(priority) || priority <= 0) {
-			return t("policy_group_rule_priority_invalid");
+		const seenTargetPolicyIds = new Set<number>();
+		for (const target of item.targets) {
+			const policyIdNum = Number(target.policyId);
+			if (!Number.isInteger(policyIdNum) || policyIdNum <= 0) {
+				return t("policy_group_rule_policy_required");
+			}
+			if (seenTargetPolicyIds.has(policyIdNum)) {
+				return t("policy_group_rule_target_duplicate");
+			}
+			seenTargetPolicyIds.add(policyIdNum);
+
+			const weight = Number(target.weight);
+			if (!Number.isInteger(weight) || weight <= 0) {
+				return t("policy_group_target_weight_invalid");
+			}
 		}
-		if (seenPolicyIds.has(policyIdNum)) {
+
+		const primaryPolicyId = Number(item.targets[0].policyId);
+		if (seenPrimaryPolicyIds.has(primaryPolicyId)) {
 			return t("policy_group_rule_policy_duplicate");
 		}
-		if (seenPriorities.has(priority)) {
-			return t("policy_group_rule_priority_duplicate");
-		}
-
-		seenPolicyIds.add(policyIdNum);
-		seenPriorities.add(priority);
+		seenPrimaryPolicyIds.add(primaryPolicyId);
 
 		const min = item.minFileSizeMb.trim() ? Number(item.minFileSizeMb) : 0;
 		const max = item.maxFileSizeMb.trim() ? Number(item.maxFileSizeMb) : 0;
@@ -222,9 +234,6 @@ export function validatePolicyGroupForm(
 export function buildPolicyGroupPayload(
 	form: PolicyGroupFormData,
 ): PolicyGroupPayload {
-	const sortedForms = [...form.items].sort(
-		(a, b) => Number(a.priority) - Number(b.priority),
-	);
 	return {
 		name: form.name.trim(),
 		description: form.description.trim(),
@@ -239,10 +248,10 @@ export function buildPolicyGroupPayload(
 			max_file_size: 0,
 		},
 		execution_preference: form.executionPreference ?? "automatic",
-		rules: sortedForms.map((item, index) => ({
+		rules: form.items.map((item, index) => ({
 			name: `Rule ${index + 1}`,
 			description: "",
-			priority: Number(item.priority),
+			priority: index + 1,
 			is_enabled: true,
 			matcher: {
 				min_file_size: mbInputToBytes(
@@ -258,26 +267,14 @@ export function buildPolicyGroupPayload(
 				extensionless: null,
 				categories: [],
 			},
-			selection_mode: sortedForms[index].selectionMode ?? "first_available",
-			unavailable_behavior:
-				sortedForms[index].unavailableBehavior ?? "next_rule",
-			targets: (sortedForms[index].targets?.length
-				? sortedForms[index].targets
-				: [
-						{
-							policyId: item.policyId,
-							weight: 100,
-							isEnabled: true,
-							acceptingNewWrites: true,
-							stableOrder: 1,
-						},
-					]
-			).map((target) => ({
+			selection_mode: item.selectionMode ?? "first_available",
+			unavailable_behavior: item.unavailableBehavior ?? "next_rule",
+			targets: item.targets.map((target, targetIndex) => ({
 				policy_id: Number(target.policyId),
-				weight: target.weight,
+				weight: Number(target.weight),
 				is_enabled: target.isEnabled,
 				accepting_new_writes: target.acceptingNewWrites,
-				stable_order: target.stableOrder,
+				stable_order: targetIndex + 1,
 			})),
 		})),
 	};

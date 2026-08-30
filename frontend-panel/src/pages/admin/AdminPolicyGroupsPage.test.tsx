@@ -15,6 +15,7 @@ const mockState = vi.hoisted(() => ({
 	listGroups: vi.fn(),
 	listPolicies: vi.fn(),
 	migrateAssignments: vi.fn(),
+	navigate: vi.fn(),
 	policies: [] as Array<Record<string, unknown>>,
 	searchParams: "",
 	setSearchParams: vi.fn(),
@@ -24,6 +25,7 @@ const mockState = vi.hoisted(() => ({
 }));
 
 vi.mock("react-router-dom", () => ({
+	useNavigate: () => mockState.navigate,
 	useSearchParams: () => [
 		new URLSearchParams(mockState.searchParams),
 		mockState.setSearchParams,
@@ -578,6 +580,7 @@ describe("AdminPolicyGroupsPage", () => {
 		mockState.listGroups.mockReset();
 		mockState.listPolicies.mockReset();
 		mockState.migrateAssignments.mockReset();
+		mockState.navigate.mockReset();
 		mockState.policies = [createPolicy()];
 		mockState.searchParams = "";
 		mockState.setSearchParams.mockReset();
@@ -650,7 +653,7 @@ describe("AdminPolicyGroupsPage", () => {
 		);
 	});
 
-	it("renders groups and opens edit when a row is clicked", async () => {
+	it("renders groups and navigates to the edit page when a row is clicked", async () => {
 		mockState.groupItems = [
 			createGroup({
 				name: "Default Group",
@@ -668,123 +671,25 @@ describe("AdminPolicyGroupsPage", () => {
 		expect(
 			screen.getByText("formatted:2026-03-28T00:00:00Z"),
 		).toBeInTheDocument();
-		expect(
-			screen.queryByText("policy_group_delete_default_blocked"),
-		).toBeNull();
 
 		fireEvent.click(screen.getByText("Default Group"));
 
-		expect(screen.getByDisplayValue("Default Group")).toBeInTheDocument();
-		expect(screen.getByDisplayValue("Primary uploads")).toBeInTheDocument();
+		expect(mockState.navigate).toHaveBeenCalledWith("/admin/policy-groups/1", {
+			viewTransition: false,
+		});
 	});
 
-	it("creates a policy group and converts size inputs from MB to bytes", async () => {
-		mockState.policies = [
-			createPolicy({ id: 1, name: "Hot Storage" }),
-			createPolicy({ id: 2, name: "Archive Storage" }),
-		];
-
+	it("navigates to the create page from the new policy group button", async () => {
 		render(<AdminPolicyGroupsPage />);
 
-		await waitFor(() => {
-			expect(
-				screen.getByRole("button", { name: /new_policy_group/i }),
-			).toBeEnabled();
-		});
-
-		fireEvent.click(screen.getByRole("button", { name: /new_policy_group/i }));
-
-		fireEvent.change(screen.getByLabelText("core:name"), {
-			target: { value: "Tiered Group" },
-		});
-		fireEvent.change(screen.getByLabelText("policy_group_description"), {
-			target: { value: "Route uploads by size" },
-		});
-		fireEvent.change(screen.getByLabelText("policy_group_min_size_mb"), {
-			target: { value: "10" },
-		});
-		fireEvent.change(screen.getByLabelText("policy_group_max_size_mb"), {
-			target: { value: "512" },
-		});
-
-		fireEvent.click(screen.getByRole("button", { name: /core:create/i }));
-
-		await waitFor(() => {
-			expect(mockState.createGroup).toHaveBeenCalledWith({
-				description: "Route uploads by size",
-				is_default: false,
-				is_enabled: true,
-				admission: {
-					allowed_extensions: [],
-					denied_extensions: [],
-					accept_extensionless: true,
-					allowed_categories: [],
-					denied_categories: [],
-					max_file_size: 0,
-				},
-				execution_preference: "automatic",
-				rules: [
-					{
-						name: "Rule 1",
-						description: "",
-						priority: 1,
-						is_enabled: true,
-						matcher: {
-							min_file_size: 10 * MB,
-							max_file_size: 512 * MB,
-							extensions: [],
-							compound_extensions: [],
-							extensionless: null,
-							categories: [],
-						},
-						selection_mode: "first_available",
-						unavailable_behavior: "next_rule",
-						targets: [
-							{
-								policy_id: 1,
-								weight: 100,
-								is_enabled: true,
-								accepting_new_writes: true,
-								stable_order: 1,
-							},
-						],
-					},
-				],
-				name: "Tiered Group",
-			});
-		});
-		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_group_created");
-	});
-
-	it("blocks submitting a default policy group when it is disabled", async () => {
-		render(<AdminPolicyGroupsPage />);
-
-		await waitFor(() => {
-			expect(
-				screen.getByRole("button", { name: /new_policy_group/i }),
-			).toBeEnabled();
-		});
-
-		fireEvent.click(screen.getByRole("button", { name: /new_policy_group/i }));
-		fireEvent.change(screen.getByLabelText("core:name"), {
-			target: { value: "Invalid Default Group" },
-		});
 		fireEvent.click(
-			screen.getByRole("button", {
-				name: "switch:policy-group-default:false",
-			}),
+			await screen.findByRole("button", { name: /new_policy_group/i }),
 		);
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: "switch:policy-group-enabled:true",
-			}),
-		);
-		fireEvent.click(screen.getByRole("button", { name: /core:create/i }));
 
-		expect(mockState.createGroup).not.toHaveBeenCalled();
-		expect(
-			screen.getByText("policy_group_default_requires_enabled"),
-		).toBeInTheDocument();
+		expect(mockState.navigate).toHaveBeenCalledWith(
+			"/admin/policy-groups/new",
+			{ viewTransition: false },
+		);
 	});
 
 	it("allows deleting the default group from the table", async () => {
@@ -973,65 +878,5 @@ describe("AdminPolicyGroupsPage", () => {
 		});
 
 		expect(migrateButton).toBeDisabled();
-	});
-
-	it("loads all policy lookup pages before opening the rule dropdown", async () => {
-		mockState.policies = Array.from({ length: 120 }, (_, index) =>
-			createPolicy({
-				id: index + 1,
-				name: `Policy ${index + 1}`,
-			}),
-		);
-
-		render(<AdminPolicyGroupsPage />);
-
-		await waitFor(() => {
-			expect(mockState.listPolicies).toHaveBeenCalledWith({
-				limit: 100,
-				offset: 0,
-			});
-		});
-		await waitFor(() => {
-			expect(mockState.listPolicies).toHaveBeenCalledWith({
-				limit: 100,
-				offset: 100,
-			});
-		});
-
-		fireEvent.click(screen.getByRole("button", { name: /new_policy_group/i }));
-
-		expect(screen.getByText("Policy 101")).toBeInTheDocument();
-	});
-
-	it("filters policy options with the dialog search input while keeping the selected policy visible", async () => {
-		mockState.policies = [
-			createPolicy({ id: 1, name: "Hot Storage" }),
-			createPolicy({
-				id: 2,
-				name: "Archive Storage",
-				connector_id: "asterdrive.storage.s3",
-			}),
-			createPolicy({ id: 3, name: "Cold Storage" }),
-		];
-
-		render(<AdminPolicyGroupsPage />);
-
-		await waitFor(() => {
-			expect(
-				screen.getByRole("button", { name: /new_policy_group/i }),
-			).toBeEnabled();
-		});
-
-		fireEvent.click(screen.getByRole("button", { name: /new_policy_group/i }));
-		fireEvent.change(
-			screen.getByPlaceholderText("policy_group_policy_search_placeholder"),
-			{
-				target: { value: "archive" },
-			},
-		);
-
-		expect(screen.getByText("Archive Storage")).toBeInTheDocument();
-		expect(screen.getAllByText("Hot Storage")).not.toHaveLength(0);
-		expect(screen.queryByText("Cold Storage")).not.toBeInTheDocument();
 	});
 });

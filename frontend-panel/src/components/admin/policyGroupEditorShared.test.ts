@@ -4,23 +4,24 @@ import {
 	bytesToMbInput,
 	getDefaultPolicyGroupForm,
 	validatePolicyGroupForm,
-} from "@/components/admin/policyGroupDialogShared";
+} from "@/components/admin/policyGroupEditorShared";
 import type { StoragePolicy } from "@/types/api";
 
 const t = (key: string) => key;
 
-describe("policyGroupDialogShared", () => {
+describe("policyGroupEditorShared", () => {
 	it("creates a default form seeded from the first policy", () => {
 		const form = getDefaultPolicyGroupForm([
 			{ id: 8, name: "Primary" } as StoragePolicy,
 		]);
 
 		expect(form.items).toHaveLength(1);
-		expect(form.items[0]?.policyId).toBe("8");
-		expect(form.items[0]?.priority).toBe("1");
+		expect(form.items[0]?.targets).toHaveLength(1);
+		expect(form.items[0]?.targets[0]?.policyId).toBe("8");
+		expect(form.items[0]?.targets[0]?.weight).toBe("100");
 	});
 
-	it("validates duplicate policies and priorities", () => {
+	it("validates duplicate primary policies across rules", () => {
 		expect(
 			validatePolicyGroupForm(
 				{
@@ -31,56 +32,52 @@ describe("policyGroupDialogShared", () => {
 					items: [
 						{
 							key: "a",
-							policyId: "1",
-							priority: "1",
 							minFileSizeMb: "",
 							maxFileSizeMb: "",
+							selectionMode: "first_available",
+							unavailableBehavior: "next_rule",
+							targets: [
+								{
+									key: "a-1",
+									policyId: "1",
+									weight: "100",
+									isEnabled: true,
+									acceptingNewWrites: true,
+								},
+							],
 						},
 						{
 							key: "b",
-							policyId: "1",
-							priority: "2",
 							minFileSizeMb: "",
 							maxFileSizeMb: "",
-						},
-					],
-				},
-				1,
-				t,
-			),
-		).toBe("policy_group_rule_policy_duplicate");
-
-		expect(
-			validatePolicyGroupForm(
-				{
-					name: "Duplicated priority",
-					description: "",
-					isEnabled: true,
-					isDefault: false,
-					items: [
-						{
-							key: "a",
-							policyId: "1",
-							priority: "1",
-							minFileSizeMb: "",
-							maxFileSizeMb: "",
-						},
-						{
-							key: "b",
-							policyId: "2",
-							priority: "1",
-							minFileSizeMb: "",
-							maxFileSizeMb: "",
+							selectionMode: "first_available",
+							unavailableBehavior: "next_rule",
+							targets: [
+								{
+									key: "b-1",
+									policyId: "1",
+									weight: "100",
+									isEnabled: true,
+									acceptingNewWrites: true,
+								},
+							],
 						},
 					],
 				},
 				2,
 				t,
 			),
-		).toBe("policy_group_rule_priority_duplicate");
+		).toBe("policy_group_rule_policy_duplicate");
 	});
 
-	it("rejects invalid and numerically duplicated policy ids", () => {
+	it("rejects invalid policy ids, empty targets and in-rule duplicates", () => {
+		const baseRule = {
+			minFileSizeMb: "",
+			maxFileSizeMb: "",
+			selectionMode: "first_available" as const,
+			unavailableBehavior: "next_rule" as const,
+		};
+
 		expect(
 			validatePolicyGroupForm(
 				{
@@ -90,11 +87,17 @@ describe("policyGroupDialogShared", () => {
 					isDefault: false,
 					items: [
 						{
+							...baseRule,
 							key: "a",
-							policyId: "abc",
-							priority: "1",
-							minFileSizeMb: "",
-							maxFileSizeMb: "",
+							targets: [
+								{
+									key: "a-1",
+									policyId: "abc",
+									weight: "100",
+									isEnabled: true,
+									acceptingNewWrites: true,
+								},
+							],
 						},
 					],
 				},
@@ -106,34 +109,87 @@ describe("policyGroupDialogShared", () => {
 		expect(
 			validatePolicyGroupForm(
 				{
-					name: "Numeric duplicate",
+					name: "No targets",
+					description: "",
+					isEnabled: true,
+					isDefault: false,
+					items: [{ ...baseRule, key: "a", targets: [] }],
+				},
+				1,
+				t,
+			),
+		).toBe("policy_group_rule_target_required");
+
+		expect(
+			validatePolicyGroupForm(
+				{
+					name: "In-rule duplicate",
 					description: "",
 					isEnabled: true,
 					isDefault: false,
 					items: [
 						{
+							...baseRule,
 							key: "a",
-							policyId: "1",
-							priority: "1",
-							minFileSizeMb: "",
-							maxFileSizeMb: "",
-						},
-						{
-							key: "b",
-							policyId: "01",
-							priority: "2",
-							minFileSizeMb: "",
-							maxFileSizeMb: "",
+							targets: [
+								{
+									key: "a-1",
+									policyId: "1",
+									weight: "100",
+									isEnabled: true,
+									acceptingNewWrites: true,
+								},
+								{
+									key: "a-2",
+									policyId: "01",
+									weight: "50",
+									isEnabled: true,
+									acceptingNewWrites: true,
+								},
+							],
 						},
 					],
 				},
 				2,
 				t,
 			),
-		).toBe("policy_group_rule_policy_duplicate");
+		).toBe("policy_group_rule_target_duplicate");
 	});
 
-	it("builds sorted payloads and converts megabytes to bytes", () => {
+	it("rejects invalid target weights", () => {
+		expect(
+			validatePolicyGroupForm(
+				{
+					name: "Bad weight",
+					description: "",
+					isEnabled: true,
+					isDefault: false,
+					items: [
+						{
+							key: "a",
+							minFileSizeMb: "",
+							maxFileSizeMb: "",
+							selectionMode: "first_available",
+							unavailableBehavior: "next_rule",
+							targets: [
+								{
+									key: "a-1",
+									policyId: "1",
+									weight: "0",
+									isEnabled: true,
+									acceptingNewWrites: true,
+								},
+							],
+						},
+					],
+				},
+				1,
+				t,
+			),
+		).toBe("policy_group_target_weight_invalid");
+	});
+
+	it("derives priority and stable_order from row order and converts MB to bytes", () => {
 		expect(
 			buildPolicyGroupPayload({
 				name: "Tiered",
@@ -142,18 +198,43 @@ describe("policyGroupDialogShared", () => {
 				isDefault: false,
 				items: [
 					{
-						key: "b",
-						policyId: "2",
-						priority: "2",
-						minFileSizeMb: "10",
-						maxFileSizeMb: "",
-					},
-					{
 						key: "a",
-						policyId: "1",
-						priority: "1",
 						minFileSizeMb: "",
 						maxFileSizeMb: "10",
+						selectionMode: "first_available",
+						unavailableBehavior: "next_rule",
+						targets: [
+							{
+								key: "a-1",
+								policyId: "1",
+								weight: "100",
+								isEnabled: true,
+								acceptingNewWrites: true,
+							},
+						],
+					},
+					{
+						key: "b",
+						minFileSizeMb: "10",
+						maxFileSizeMb: "",
+						selectionMode: "first_available",
+						unavailableBehavior: "next_rule",
+						targets: [
+							{
+								key: "b-1",
+								policyId: "2",
+								weight: "70",
+								isEnabled: true,
+								acceptingNewWrites: true,
+							},
+							{
+								key: "b-2",
+								policyId: "3",
+								weight: "30",
+								isEnabled: true,
+								acceptingNewWrites: false,
+							},
+						],
 					},
 				],
 			}),
@@ -215,10 +296,17 @@ describe("policyGroupDialogShared", () => {
 					targets: [
 						{
 							policy_id: 2,
-							weight: 100,
+							weight: 70,
 							is_enabled: true,
 							accepting_new_writes: true,
 							stable_order: 1,
+						},
+						{
+							policy_id: 3,
+							weight: 30,
+							is_enabled: true,
+							accepting_new_writes: false,
+							stable_order: 2,
 						},
 					],
 				},
@@ -238,18 +326,27 @@ describe("policyGroupDialogShared", () => {
 				items: [
 					{
 						key: "a",
-						policyId: "1",
-						priority: "1",
 						minFileSizeMb: bytesToMbInput(preciseBytes),
 						maxFileSizeMb: "",
 						originalMinFileSizeBytes: preciseBytes,
+						selectionMode: "first_available",
+						unavailableBehavior: "next_rule",
+						targets: [
+							{
+								key: "a-1",
+								policyId: "1",
+								weight: "100",
+								isEnabled: true,
+								acceptingNewWrites: true,
+							},
+						],
 					},
 				],
 			}).rules[0]?.matcher.min_file_size,
 		).toBe(preciseBytes);
 	});
 
-	it("preserves admission, selection mode, fallback and multiple targets", () => {
+	it("preserves admission, selection mode and fallback behavior", () => {
 		const payload = buildPolicyGroupPayload({
 			name: "Weighted",
 			description: "",
@@ -267,26 +364,24 @@ describe("policyGroupDialogShared", () => {
 			items: [
 				{
 					key: "weighted-rule",
-					policyId: "1",
-					priority: "1",
 					minFileSizeMb: "",
 					maxFileSizeMb: "",
 					selectionMode: "weighted_random",
 					unavailableBehavior: "reject",
 					targets: [
 						{
+							key: "wr-1",
 							policyId: "1",
-							weight: 70,
+							weight: "70",
 							isEnabled: true,
 							acceptingNewWrites: true,
-							stableOrder: 1,
 						},
 						{
+							key: "wr-2",
 							policyId: "2",
-							weight: 30,
+							weight: "30",
 							isEnabled: true,
 							acceptingNewWrites: false,
-							stableOrder: 2,
 						},
 					],
 				},

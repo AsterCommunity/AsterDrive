@@ -163,32 +163,6 @@ pub(super) async fn resolve_init_upload_context(
         .expect("new blob placement decision");
     validate_policy_upload_size(&policy, total_size)?;
     storage::check_quota(state.writer_db(), scope, total_size).await?;
-    if matches!(
-        routing_decision.execution_preference,
-        crate::services::storage_policy::policy::placement::UploadExecutionPreference::ForceServerStream
-    ) {
-        let transport = storage::resolve_policy_upload_transport(
-            state.driver_registry().connectors(),
-            &policy,
-        )?;
-        if matches!(
-            transport,
-            PolicyUploadTransport::ObjectStorage(
-                aster_drive_model::types::ObjectStorageUploadStrategy::Presigned,
-            )
-                | PolicyUploadTransport::Remote(
-                    aster_drive_model::types::RemoteUploadStrategy::Presigned,
-                )
-                | PolicyUploadTransport::ProviderResumable(
-                    aster_drive_model::types::ProviderResumableUploadStrategy::FrontendDirect,
-                )
-        ) {
-            return Err(AsterError::validation_error(
-                "placement profile requires server streaming but selected connector only supports browser/provider direct upload",
-            ));
-        }
-    }
-
     tracing::debug!(
         scope = ?scope,
         policy_id = policy.id,

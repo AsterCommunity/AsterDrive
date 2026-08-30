@@ -53,7 +53,7 @@ export function AdminPageHeader({
 	return (
 		<div
 			className={cn(
-				"space-y-4 border-b pb-4",
+				"space-y-4 pb-4",
 				PAGE_SECTION_PADDING_CLASS,
 				className,
 			)}

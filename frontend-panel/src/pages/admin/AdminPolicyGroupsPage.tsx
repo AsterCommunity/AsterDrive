@@ -1,23 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import {
-	PolicyGroupDialog,
-	type PolicyLookup,
-} from "@/components/admin/PolicyGroupDialog";
+import type { PolicyLookup } from "@/components/admin/PolicyGroupEditorForm";
 import { PolicyGroupMigrationDialog } from "@/components/admin/PolicyGroupMigrationDialog";
 import { PolicyGroupSimulationDialog } from "@/components/admin/PolicyGroupSimulationDialog";
 import { PolicyGroupsTable } from "@/components/admin/PolicyGroupsTable";
-import {
-	buildPolicyGroupPayload,
-	buildPolicyGroupRuleForm,
-	getDefaultPolicyGroupForm,
-	getPolicyGroupForm,
-	type PolicyGroupFormData,
-	type PolicyGroupRuleForm,
-	validatePolicyGroupForm,
-} from "@/components/admin/policyGroupDialogShared";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
@@ -117,24 +105,10 @@ function getMigrationSuccessMessage(
 	});
 }
 
-function mergePolicies(
-	current: PolicyLookup[],
-	incoming: PolicyLookup[],
-): PolicyLookup[] {
-	if (incoming.length === 0) return current;
-	const merged = [...current];
-	const seen = new Set(current.map((policy) => policy.id));
-	for (const policy of incoming) {
-		if (seen.has(policy.id)) continue;
-		seen.add(policy.id);
-		merged.push(policy);
-	}
-	return merged;
-}
-
 export default function AdminPolicyGroupsPage() {
 	const { t } = useTranslation("admin");
 	usePageTitle(t("policy_groups"));
+	const navigate = useNavigate();
 	const [searchParams, setSearchParams] = useSearchParams();
 	const { query, setQuery } = useManagedListQueryState({
 		defaults: MANAGED_POLICY_GROUP_QUERY_DEFAULTS,
@@ -168,19 +142,8 @@ export default function AdminPolicyGroupsPage() {
 	const [policies, setPolicies] = useState<PolicyLookup[]>(
 		initialPolicies ?? [],
 	);
-	const [loadedPoliciesCount, setLoadedPoliciesCount] = useState(
-		initialPolicies?.length ?? 0,
-	);
-	const [policiesTotal, setPoliciesTotal] = useState(
-		initialPolicies?.length ?? 0,
-	);
 	const [policiesLoading, setPoliciesLoading] = useState(
 		initialPolicies == null,
-	);
-	const [policiesLoadingMore, setPoliciesLoadingMore] = useState(false);
-	const [dialogOpen, setDialogOpen] = useState(false);
-	const [editingGroup, setEditingGroup] = useState<StoragePolicyGroup | null>(
-		null,
 	);
 	const [migrationDialogOpen, setMigrationDialogOpen] = useState(false);
 	const [migrationError, setMigrationError] = useState<string | null>(null);
@@ -205,15 +168,9 @@ export default function AdminPolicyGroupsPage() {
 		useState<StoragePlacementSimulationResult | null>(null);
 	const [simulationError, setSimulationError] = useState<string | null>(null);
 	const [simulationSubmitting, setSimulationSubmitting] = useState(false);
-	const [form, setForm] = useState<PolicyGroupFormData>(() =>
-		getDefaultPolicyGroupForm([]),
-	);
-	const [formError, setFormError] = useState<string | null>(null);
-	const [submitting, setSubmitting] = useState(false);
 	const { pendingId: deletingGroupId, runWithPending: runWithDeletingGroup } =
 		usePendingId<number>();
-	const hasMorePolicies = loadedPoliciesCount < policiesTotal;
-	const refreshing = loading || policiesLoading || policiesLoadingMore;
+	const refreshing = loading || policiesLoading;
 	const pageSizeOptions = POLICY_GROUP_PAGE_SIZE_OPTIONS.map((size) => ({
 		label: t("page_size_option", { count: size }),
 		value: String(size),
@@ -260,19 +217,15 @@ export default function AdminPolicyGroupsPage() {
 		async ({ force = false }: { force?: boolean } = {}) => {
 			try {
 				setPoliciesLoading(true);
-				setPoliciesLoadingMore(false);
 				const policyLookup = await loadAdminPolicyLookup({
 					force,
 					limit: POLICY_LOOKUP_PAGE_SIZE,
 				});
-				setPoliciesTotal(policyLookup.length);
-				setLoadedPoliciesCount(policyLookup.length);
 				setPolicies(policyLookup);
 			} catch (e) {
 				handleApiError(e);
 			} finally {
 				setPoliciesLoading(false);
-				setPoliciesLoadingMore(false);
 			}
 		},
 		[],
@@ -312,13 +265,6 @@ export default function AdminPolicyGroupsPage() {
 		migrationTargetId,
 	]);
 
-	const reloadPolicies = useCallback(
-		async (options?: { force?: boolean }) => {
-			await loadPolicies(options);
-		},
-		[loadPolicies],
-	);
-
 	const loadAllPolicyGroups = useCallback(async () => {
 		try {
 			setMigrationGroupsLoading(true);
@@ -334,87 +280,9 @@ export default function AdminPolicyGroupsPage() {
 		}
 	}, []);
 
-	const loadMorePolicies = useCallback(async () => {
-		if (policiesLoading || policiesLoadingMore || !hasMorePolicies) {
-			return;
-		}
-		await loadPolicies();
-	}, [hasMorePolicies, loadPolicies, policiesLoading, policiesLoadingMore]);
-
 	const handleRefresh = async () => {
 		invalidateAdminPolicyGroupLookup();
-		await Promise.all([reload(), reloadPolicies({ force: true })]);
-	};
-
-	const setField = <K extends keyof PolicyGroupFormData>(
-		key: K,
-		value: PolicyGroupFormData[K],
-	) => {
-		setForm((prev) => ({ ...prev, [key]: value }));
-		setFormError(null);
-	};
-
-	const setRuleField = <K extends Exclude<keyof PolicyGroupRuleForm, "key">>(
-		ruleKey: string,
-		key: K,
-		value: PolicyGroupRuleForm[K],
-	) => {
-		setForm((prev) => ({
-			...prev,
-			items: prev.items.map((item) =>
-				item.key === ruleKey
-					? {
-							...item,
-							[key]: value,
-							...(key === "policyId"
-								? {
-										targets: (item.targets ?? []).map((target, index) =>
-											index === 0
-												? { ...target, policyId: value as string }
-												: target,
-										),
-									}
-								: {}),
-						}
-					: item,
-			),
-		}));
-		setFormError(null);
-	};
-
-	const getNextPolicyId = () => {
-		const selected = new Set(
-			form.items.flatMap((item) => (item.policyId ? [item.policyId] : [])),
-		);
-		return (
-			policies.find((policy) => !selected.has(String(policy.id)))?.id ??
-			policies[0]?.id ??
-			null
-		);
-	};
-
-	const addRule = () => {
-		setForm((prev) => ({
-			...prev,
-			items: [
-				...prev.items,
-				buildPolicyGroupRuleForm(getNextPolicyId(), prev.items.length + 1),
-			],
-		}));
-		setFormError(null);
-	};
-
-	const removeRule = (ruleKey: string) => {
-		setForm((prev) => ({
-			...prev,
-			items: prev.items.filter((item) => item.key !== ruleKey),
-		}));
-		setFormError(null);
-	};
-
-	const resetDialogState = () => {
-		setFormError(null);
-		setSubmitting(false);
+		await Promise.all([reload(), loadPolicies({ force: true })]);
 	};
 
 	const resetMigrationState = () => {
@@ -436,28 +304,6 @@ export default function AdminPolicyGroupsPage() {
 		setSimulationSubmitting(false);
 	};
 
-	const openCreate = () => {
-		setEditingGroup(null);
-		setForm(getDefaultPolicyGroupForm(policies));
-		resetDialogState();
-		setDialogOpen(true);
-	};
-
-	const openEdit = (group: StoragePolicyGroup) => {
-		setPolicies((prev) =>
-			mergePolicies(
-				prev,
-				group.rules.flatMap((rule) =>
-					rule.targets.map((target) => target.policy),
-				),
-			),
-		);
-		setEditingGroup(group);
-		setForm(getPolicyGroupForm(group));
-		resetDialogState();
-		setDialogOpen(true);
-	};
-
 	const openMigrationDialog = (group: StoragePolicyGroup) => {
 		setMigrationSourceId(group.id);
 		setMigrationTargetId("");
@@ -472,13 +318,6 @@ export default function AdminPolicyGroupsPage() {
 	const openSimulationDialog = (group: StoragePolicyGroup) => {
 		resetSimulationState();
 		setSimulationGroup(group);
-	};
-
-	const handleDialogOpenChange = (open: boolean) => {
-		setDialogOpen(open);
-		if (!open) {
-			resetDialogState();
-		}
 	};
 
 	const handleMigrationDialogOpenChange = (open: boolean) => {
@@ -545,45 +384,6 @@ export default function AdminPolicyGroupsPage() {
 			setSimulationError(getApiErrorMessage(error));
 		} finally {
 			setSimulationSubmitting(false);
-		}
-	};
-
-	const submitForm = async () => {
-		const validationError = validatePolicyGroupForm(form, policies.length, t);
-		if (validationError) {
-			setFormError(validationError);
-			return;
-		}
-
-		const payload = buildPolicyGroupPayload(form);
-
-		try {
-			setSubmitting(true);
-			if (editingGroup) {
-				await adminPolicyGroupService.update(editingGroup.id, payload);
-				invalidateAdminPolicyGroupLookup();
-				await reload();
-				toast.success(t("policy_group_updated"));
-			} else {
-				await adminPolicyGroupService.create(payload);
-				invalidateAdminPolicyGroupLookup();
-				const nextTotal = total + 1;
-				const nextLastOffset = Math.max(
-					0,
-					Math.floor((nextTotal - 1) / pageSize) * pageSize,
-				);
-				if (nextLastOffset !== offset) {
-					setOffset(nextLastOffset);
-				} else {
-					await reload();
-				}
-				toast.success(t("policy_group_created"));
-			}
-			handleDialogOpenChange(false);
-		} catch (e) {
-			handleApiError(e);
-		} finally {
-			setSubmitting(false);
 		}
 	};
 
@@ -674,8 +474,11 @@ export default function AdminPolicyGroupsPage() {
 							<Button
 								size="sm"
 								className={ADMIN_CONTROL_HEIGHT_CLASS}
-								onClick={openCreate}
-								disabled={policiesLoading || policies.length === 0}
+								onClick={() =>
+									navigate("/admin/policy-groups/new", {
+										viewTransition: false,
+									})
+								}
 							>
 								<Icon name="Plus" className="mr-1 size-4" />
 								{t("new_policy_group")}
@@ -715,7 +518,11 @@ export default function AdminPolicyGroupsPage() {
 						setOffset((current) => Math.max(0, current - pageSize))
 					}
 					onNextPage={() => setOffset((current) => current + pageSize)}
-					onOpenEdit={openEdit}
+					onOpenEdit={(group) =>
+						navigate(`/admin/policy-groups/${group.id}`, {
+							viewTransition: false,
+						})
+					}
 					onOpenMigration={openMigrationDialog}
 					onOpenSimulation={openSimulationDialog}
 					onRequestDelete={requestConfirm}
@@ -771,27 +578,6 @@ export default function AdminPolicyGroupsPage() {
 					description={t("delete_policy_group_desc")}
 					confirmLabel={t("core:delete")}
 					variant="destructive"
-				/>
-
-				<PolicyGroupDialog
-					open={dialogOpen}
-					mode={editingGroup ? "edit" : "create"}
-					form={form}
-					formError={formError}
-					submitting={submitting}
-					policies={policies}
-					policiesTotal={policiesTotal}
-					policiesLoading={policiesLoading}
-					policiesLoadingMore={policiesLoadingMore}
-					hasMorePolicies={hasMorePolicies}
-					onOpenChange={handleDialogOpenChange}
-					onSubmit={() => void submitForm()}
-					onRefreshPolicies={reloadPolicies}
-					onLoadMorePolicies={loadMorePolicies}
-					onFieldChange={setField}
-					onRuleFieldChange={setRuleField}
-					onAddRule={addRule}
-					onRemoveRule={removeRule}
 				/>
 			</AdminPageShell>
 		</AdminLayout>

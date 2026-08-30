@@ -86,6 +86,9 @@ const AdminExternalAuthPage = lazyPage(
 const AdminPolicyGroupsPage = lazyPage(
 	() => import("@/pages/admin/AdminPolicyGroupsPage"),
 );
+const AdminPolicyGroupEditPage = lazyPage(
+	() => import("@/pages/admin/AdminPolicyGroupEditPage"),
+);
 const AdminTasksPage = lazyPage(() => import("@/pages/admin/AdminTasksPage"));
 const AdminSettingsPage = lazyPage(
 	() => import("@/pages/admin/AdminSettingsPage"),
@@ -274,6 +277,10 @@ export const router = createBrowserRouter([
 					{ path: "/admin/remote-nodes", element: <AdminRemoteNodesPage /> },
 					{ path: "/admin/external-auth", element: <AdminExternalAuthPage /> },
 					{ path: "/admin/policy-groups", element: <AdminPolicyGroupsPage /> },
+					{
+						path: "/admin/policy-groups/:groupId",
+						element: <AdminPolicyGroupEditPage />,
+					},
 					{ path: "/admin/shares", element: <AdminSharesPage /> },
 					{ path: "/admin/files", element: <AdminFilesPage kind="files" /> },
 					{

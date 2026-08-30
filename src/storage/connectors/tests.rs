@@ -1626,6 +1626,64 @@ fn upload_transport_boundaries_preserve_chunk_and_direct_semantics() {
 }
 
 #[test]
+fn force_server_stream_overrides_client_direct_strategies() {
+    assert_eq!(
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned)
+            .force_server_stream(),
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream)
+    );
+    assert_eq!(
+        StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::Presigned)
+            .force_server_stream(),
+        StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::RelayStream)
+    );
+    assert_eq!(
+        StorageConnectorUploadTransport::ProviderResumable(
+            ProviderResumableUploadStrategy::FrontendDirect,
+        )
+        .force_server_stream(),
+        StorageConnectorUploadTransport::ProviderResumable(
+            ProviderResumableUploadStrategy::ServerRelay,
+        )
+    );
+
+    for transport in [
+        StorageConnectorUploadTransport::Local,
+        StorageConnectorUploadTransport::Sftp,
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream),
+        StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::RelayStream),
+        StorageConnectorUploadTransport::ProviderResumable(
+            ProviderResumableUploadStrategy::ServerRelay,
+        ),
+    ] {
+        assert_eq!(transport.force_server_stream(), transport);
+    }
+}
+
+#[test]
+fn force_server_stream_preserves_effective_mode_boundaries() {
+    let mut policy = policy(
+        S3Connector::ID,
+        s3_config(ObjectStorageUploadStrategy::Presigned),
+    );
+    policy.chunk_size = 5 * 1024 * 1024;
+    let transport =
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned)
+            .force_server_stream();
+
+    assert_eq!(
+        transport.resolve_init_mode(&policy, policy.chunk_size),
+        aster_drive_model::types::UploadMode::Direct
+    );
+    assert_eq!(
+        transport.resolve_init_mode(&policy, policy.chunk_size + 1),
+        aster_drive_model::types::UploadMode::Chunked
+    );
+    assert!(transport.supports_streaming_direct_upload(&policy, 1));
+    assert!(!transport.supports_streaming_direct_upload(&policy, 0));
+}
+
+#[test]
 fn saved_static_credential_merge_restores_only_missing_or_blank_fields() {
     let merged = super::common::merge_saved_static_credential(
         StorageConnectorCredentialInput::Static(serde_json::json!({

@@ -7,7 +7,9 @@ use crate::services::files::upload::responses::InitUploadResponse;
 use crate::services::files::upload::shared::{
     UniqueUuidAttempt, delete_upload_session_record_after_init_error, with_unique_upload_id,
 };
-use crate::services::workspace::storage::{PolicyUploadTransport, resolve_policy_upload_transport};
+use crate::services::workspace::storage::{
+    PolicyUploadTransport, resolve_policy_upload_transport_for_execution,
+};
 use aster_drive_model::types::{RemoteUploadStrategy, UploadMode, UploadSessionStatus};
 use aster_forge_utils::numbers;
 
@@ -21,8 +23,11 @@ pub(super) async fn init_remote_upload(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
 ) -> Result<Option<InitUploadResponse>> {
-    let transport =
-        resolve_policy_upload_transport(state.driver_registry().connectors(), &ctx.policy)?;
+    let transport = resolve_policy_upload_transport_for_execution(
+        state.driver_registry().connectors(),
+        &ctx.policy,
+        ctx.routing_decision.execution_preference,
+    )?;
     let PolicyUploadTransport::Remote(strategy) = transport else {
         return Ok(None);
     };

@@ -161,6 +161,11 @@ export const adminRouteWarmupLoaders = [
 		load: () => import("@/pages/admin/AdminPolicyGroupsPage"),
 	},
 	{
+		key: "route:admin-policy-group-edit",
+		label: "AdminPolicyGroupEditPage",
+		load: () => import("@/pages/admin/AdminPolicyGroupEditPage"),
+	},
+	{
 		key: "route:admin-tasks",
 		label: "AdminTasksPage",
 		load: () => import("@/pages/admin/AdminTasksPage"),

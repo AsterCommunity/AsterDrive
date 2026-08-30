@@ -24,10 +24,12 @@ pub(super) async fn init_provider_resumable_upload(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
 ) -> Result<Option<InitUploadResponse>> {
-    let transport = crate::services::workspace::storage::resolve_policy_upload_transport(
-        state.driver_registry().connectors(),
-        &ctx.policy,
-    )?;
+    let transport =
+        crate::services::workspace::storage::resolve_policy_upload_transport_for_execution(
+            state.driver_registry().connectors(),
+            &ctx.policy,
+            ctx.routing_decision.execution_preference,
+        )?;
     let strategy = match transport {
         PolicyUploadTransport::ProviderResumable(strategy) => strategy,
         _ => return Ok(None),
