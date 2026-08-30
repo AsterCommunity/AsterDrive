@@ -22,6 +22,8 @@ workspace scope
 
 新 blob 只在创建时选择 policy。跨 workspace copy/move 复用源 blob 和源 `policy_id`；已有 blob 不随 profile 更新流动。Range PUT 的协议和 session 细节由独立 issue 负责。
 
+管理端 simulator 与真实 resolver 共用同一执行路径。合法 dry-run 即使被准入或路由规则拒绝也返回 `200` 诊断结果，包含后端规范化分类、admission 状态、最终 decision 或 rejection code、已评估规则和排除目标；`400` 只表示文件名、大小等模拟输入本身非法。
+
 ## 兼容路径
 
 - 旧 `storage_policy_group_items` 只在 migration 中读取一次，转换为单 target、weight=100、`first_available` 的 rule。

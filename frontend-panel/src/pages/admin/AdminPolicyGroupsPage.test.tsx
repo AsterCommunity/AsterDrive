@@ -18,6 +18,7 @@ const mockState = vi.hoisted(() => ({
 	policies: [] as Array<Record<string, unknown>>,
 	searchParams: "",
 	setSearchParams: vi.fn(),
+	simulateGroup: vi.fn(),
 	toastSuccess: vi.fn(),
 	updateGroup: vi.fn(),
 }));
@@ -459,6 +460,8 @@ vi.mock("@/components/ui/table", () => ({
 }));
 
 vi.mock("@/hooks/useApiError", () => ({
+	getApiErrorMessage: (error: unknown) =>
+		error instanceof Error ? error.message : String(error),
 	handleApiError: (...args: unknown[]) => mockState.handleApiError(...args),
 }));
 
@@ -494,6 +497,7 @@ vi.mock("@/services/adminService", () => ({
 		},
 		migrateAssignments: (...args: unknown[]) =>
 			mockState.migrateAssignments(...args),
+		simulate: (...args: unknown[]) => mockState.simulateGroup(...args),
 		update: (...args: unknown[]) => mockState.updateGroup(...args),
 	},
 	adminPolicyService: {
@@ -577,6 +581,7 @@ describe("AdminPolicyGroupsPage", () => {
 		mockState.policies = [createPolicy()];
 		mockState.searchParams = "";
 		mockState.setSearchParams.mockReset();
+		mockState.simulateGroup.mockReset();
 		mockState.toastSuccess.mockReset();
 		mockState.updateGroup.mockReset();
 
@@ -612,6 +617,30 @@ describe("AdminPolicyGroupsPage", () => {
 			migrated_assignments: 3,
 			source_group_id: 1,
 			target_group_id: 2,
+		});
+		mockState.simulateGroup.mockResolvedValue({
+			admitted: true,
+			classification: {
+				category: "archive",
+				compound_extension: "tar.gz",
+				extension: "gz",
+				file_size: 2 * MB,
+				filename: "archive.tar.gz",
+			},
+			decision: {
+				evaluated_rules: [{ matched: true, reason_code: null, rule_id: 11 }],
+				excluded_targets: [],
+				execution_preference: "automatic",
+				folder_override: false,
+				policy_id: 1,
+				profile_id: 1,
+				revision: 3,
+				rule_id: 11,
+				selection_mode: "first_available",
+			},
+			evaluated_rules: [{ matched: true, reason_code: null, rule_id: 11 }],
+			excluded_targets: [],
+			rejection_code: null,
 		});
 		mockState.updateGroup.mockImplementation(async (id, payload) =>
 			createGroup({
@@ -815,6 +844,85 @@ describe("AdminPolicyGroupsPage", () => {
 		expect(mockState.toastSuccess).toHaveBeenCalledWith(
 			"policy_group_migration_success",
 		);
+	});
+
+	it("runs backend placement simulation and renders its classification", async () => {
+		mockState.groupItems = [createGroup({ id: 1, name: "Routing Group" })];
+
+		render(<AdminPolicyGroupsPage />);
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "policy_group_simulator_open",
+			}),
+		);
+		fireEvent.change(screen.getByLabelText("policy_group_simulator_filename"), {
+			target: { value: "archive.tar.gz" },
+		});
+		fireEvent.change(screen.getByLabelText("policy_group_simulator_size_mb"), {
+			target: { value: "2" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: /policy_group_simulator_run/ }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.simulateGroup).toHaveBeenCalledWith(1, {
+				filename: "archive.tar.gz",
+				file_size: 2 * MB,
+				folder_policy_id: null,
+				mime_type: "application/octet-stream",
+			});
+		});
+		expect(screen.getByText("archive")).toBeInTheDocument();
+		expect(screen.getByText("tar.gz")).toBeInTheDocument();
+		expect(
+			screen.getByText("policy_group_simulator_selected"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("policy_group_simulator_rule_matched"),
+		).toBeInTheDocument();
+	});
+
+	it("renders routing rejection and excluded target diagnostics", async () => {
+		mockState.groupItems = [createGroup({ id: 1, name: "Routing Group" })];
+		mockState.simulateGroup.mockResolvedValue({
+			admitted: true,
+			classification: {
+				category: "archive",
+				compound_extension: "tar.gz",
+				extension: "gz",
+				file_size: MB,
+				filename: "archive.tar.gz",
+			},
+			decision: null,
+			evaluated_rules: [{ matched: true, reason_code: null, rule_id: 11 }],
+			excluded_targets: [[1, "target_draining"]],
+			rejection_code: "placement_no_eligible_target",
+		});
+
+		render(<AdminPolicyGroupsPage />);
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "policy_group_simulator_open",
+			}),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: /policy_group_simulator_run/ }),
+		);
+
+		await waitFor(() => {
+			expect(
+				screen.getByText("placement_no_eligible_target"),
+			).toBeInTheDocument();
+		});
+		expect(screen.getByText("target_draining")).toBeInTheDocument();
+		expect(
+			screen.getByText("policy_group_simulator_rejected"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("policy_group_simulator_admission_passed"),
+		).toBeInTheDocument();
 	});
 
 	it("loads all policy groups for migration targets when the current page is incomplete", async () => {

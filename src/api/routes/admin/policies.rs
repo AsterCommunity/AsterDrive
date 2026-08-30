@@ -701,8 +701,8 @@ pub async fn get_policy_group(
     params(("id" = i64, Path, description = "Placement profile ID")),
     request_body = policy::StoragePlacementSimulationInput,
     responses(
-        (status = 200, description = "Placement simulation result", body = inline(ApiResponse<crate::services::storage_policy::policy::StorageRoutingDecision>)),
-        (status = 400, description = "Placement rejected"),
+        (status = 200, description = "Placement simulation result", body = inline(ApiResponse<crate::services::storage_policy::policy::StoragePlacementSimulationResult>)),
+        (status = 400, description = "Invalid simulation input"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Placement profile not found"),
@@ -715,9 +715,15 @@ pub async fn simulate_policy_group_placement(
     body: web::Json<policy::StoragePlacementSimulationInput>,
 ) -> Result<HttpResponse> {
     let input = body.into_inner();
+    if input.file_size < 0 {
+        return Err(crate::errors::AsterError::validation_error(
+            "simulation file_size cannot be negative",
+        ));
+    }
+    let filename = aster_forge_validation::filename::normalize_validate_name(&input.filename)?;
     let context = policy::placement::StoragePlacementContext::from_filename(
         *path,
-        &input.filename,
+        &filename,
         input.file_size,
         &input.mime_type,
     );
@@ -737,12 +743,9 @@ pub async fn simulate_policy_group_placement(
         .policy_snapshot()
         .get_placement_profile(*path)
         .ok_or_else(|| crate::errors::AsterError::record_not_found("placement profile"))?;
-    let decision =
-        policy::placement::resolve_placement(&profile, &context, folder_override.as_ref())
-            .map_err(|error| {
-                crate::errors::AsterError::validation_error(format!("{}", error.code()))
-            })?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(decision)))
+    let result =
+        policy::placement::simulate_placement(&profile, &context, folder_override.as_ref());
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
 }
 
 #[aster_forge_api_docs_macros::path(

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **存储放置策略引擎** — 策略组升级为带版本化上传准入、ordered matcher、`first_available` / `weighted_random` 目标选择、draining/unavailable fallback 和上传执行偏好的 placement profile；legacy item migration 保留原 size routing，用户/团队 assignment、folder override、已有 blob policy 与 upload session 决策边界保持不变。新 blob ingress 统一复用 immutable `PolicySnapshot` resolver，管理端支持 rule/target 编辑和后端 dry-run 模拟，展示规范化分类、准入结果、规则 trace、排除目标与稳定 reason code。
+
 - **WebP EXIF 元数据** — 内置图片元数据处理器支持从 WebP `EXIF` chunk 提取相机、拍摄参数、时间、方向和 GPS 等信息；不含 EXIF 的 WebP 仍可返回图片尺寸与格式。
 
 ## [v0.5.1] - 2026-08-24

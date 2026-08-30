@@ -133,6 +133,51 @@ test.describe
 			});
 		});
 
+		test("simulates policy group routing through the admin flow", async ({
+			page,
+			request,
+		}) => {
+			await authenticate(page, request);
+			await gotoAdminPage(page, "/admin/policy-groups", "Policy Groups");
+
+			const policyGroupRow = page
+				.getByRole("row")
+				.filter({
+					has: page.getByRole("button", { name: "Run routing simulation" }),
+				})
+				.first();
+			await expect(policyGroupRow).toBeVisible({ timeout: 30_000 });
+			await clickRowAction(policyGroupRow, "Run routing simulation");
+
+			const simulationDialog = dialogByTitle(page, "Routing Simulation");
+			await expect(simulationDialog).toBeVisible();
+			await simulationDialog.getByLabel("Filename").fill("archive.tar.gz");
+			await simulationDialog.getByLabel("File size (MB)").fill("2");
+
+			const [simulationResponse] = await Promise.all([
+				page.waitForResponse(
+					(response) =>
+						response.request().method() === "POST" &&
+						response.url().includes("/api/v1/admin/policy-groups/") &&
+						response.url().endsWith("/simulate"),
+				),
+				simulationDialog
+					.getByRole("button", { name: "Run Simulation" })
+					.click(),
+			]);
+			expect(simulationResponse.ok()).toBe(true);
+			await expect(simulationDialog.getByText("Target selected")).toBeVisible();
+			await expect(
+				simulationDialog.getByText("Admission passed"),
+			).toBeVisible();
+			await expect(
+				simulationDialog.getByText("archive", { exact: true }),
+			).toBeVisible();
+			await expect(
+				simulationDialog.getByText("tar.gz", { exact: true }),
+			).toBeVisible();
+		});
+
 		test("renders and validates Alibaba Cloud OSS from its connector descriptor", async ({
 			page,
 			request,

@@ -129,10 +129,15 @@ impl UploadExecutionPreference {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum TargetExclusionReason {
+    #[serde(rename = "target_disabled")]
     Disabled,
+    #[serde(rename = "target_draining")]
     Draining,
+    #[serde(rename = "target_unavailable")]
     Unavailable,
+    #[serde(rename = "target_incompatible")]
     Incompatible,
+    #[serde(rename = "policy_max_file_size_exceeded")]
     PolicyFileSizeExceeded,
 }
 
@@ -167,6 +172,27 @@ pub struct StoragePlacementSimulationInput {
     pub mime_type: String,
     #[serde(default)]
     pub folder_policy_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StoragePlacementClassification {
+    pub filename: String,
+    pub file_size: i64,
+    pub extension: String,
+    pub compound_extension: Option<String>,
+    pub category: FileCategory,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StoragePlacementSimulationResult {
+    pub classification: StoragePlacementClassification,
+    pub admitted: bool,
+    pub decision: Option<StorageRoutingDecision>,
+    pub rejection_code: Option<String>,
+    pub evaluated_rules: Vec<PlacementRuleEvaluation>,
+    pub excluded_targets: Vec<(i64, TargetExclusionReason)>,
 }
 
 impl StoragePlacementContext {
@@ -295,6 +321,26 @@ impl PlacementRejection {
             Self::FolderPolicyFileTooLarge => "folder_policy_file_too_large",
         }
     }
+
+    const fn rejects_admission(&self) -> bool {
+        matches!(
+            self,
+            Self::ProfileDisabled
+                | Self::AdmissionExtensionDenied
+                | Self::AdmissionCategoryDenied
+                | Self::AdmissionExtensionlessDenied
+                | Self::AdmissionFileTooLarge
+        )
+    }
+}
+
+enum PlacementResolution {
+    Selected(StorageRoutingDecision),
+    Rejected {
+        rejection: PlacementRejection,
+        evaluated_rules: Vec<PlacementRuleEvaluation>,
+        excluded_targets: Vec<(i64, TargetExclusionReason)>,
+    },
 }
 
 pub fn compile_admission(
@@ -339,22 +385,77 @@ pub fn resolve_placement_with_random(
     folder_override: Option<&FolderPlacementOverride>,
     random_draw: Option<u64>,
 ) -> Result<StorageRoutingDecision, PlacementRejection> {
+    match resolve_placement_internal(profile, context, folder_override, random_draw) {
+        PlacementResolution::Selected(decision) => Ok(decision),
+        PlacementResolution::Rejected { rejection, .. } => Err(rejection),
+    }
+}
+
+pub fn simulate_placement(
+    profile: &CompiledPlacementProfile,
+    context: &StoragePlacementContext,
+    folder_override: Option<&FolderPlacementOverride>,
+) -> StoragePlacementSimulationResult {
+    let classification = StoragePlacementClassification {
+        filename: context.filename.clone(),
+        file_size: context.file_size,
+        extension: context.extension.clone(),
+        compound_extension: context.compound_extension.clone(),
+        category: context.category.clone(),
+    };
+    match resolve_placement_internal(profile, context, folder_override, None) {
+        PlacementResolution::Selected(decision) => StoragePlacementSimulationResult {
+            classification,
+            admitted: true,
+            evaluated_rules: decision.evaluated_rules.clone(),
+            excluded_targets: decision.excluded_targets.clone(),
+            decision: Some(decision),
+            rejection_code: None,
+        },
+        PlacementResolution::Rejected {
+            rejection,
+            evaluated_rules,
+            excluded_targets,
+        } => StoragePlacementSimulationResult {
+            classification,
+            admitted: !rejection.rejects_admission(),
+            decision: None,
+            rejection_code: Some(rejection.code().to_string()),
+            evaluated_rules,
+            excluded_targets,
+        },
+    }
+}
+
+fn resolve_placement_internal(
+    profile: &CompiledPlacementProfile,
+    context: &StoragePlacementContext,
+    folder_override: Option<&FolderPlacementOverride>,
+    random_draw: Option<u64>,
+) -> PlacementResolution {
+    let rejected = |rejection| PlacementResolution::Rejected {
+        rejection,
+        evaluated_rules: Vec::new(),
+        excluded_targets: Vec::new(),
+    };
     if !profile.is_enabled {
-        return Err(PlacementRejection::ProfileDisabled);
+        return rejected(PlacementRejection::ProfileDisabled);
     }
     if profile.admission.max_file_size > 0 && context.file_size > profile.admission.max_file_size {
-        return Err(PlacementRejection::AdmissionFileTooLarge);
+        return rejected(PlacementRejection::AdmissionFileTooLarge);
     }
-    apply_admission(&profile.admission, context)?;
+    if let Err(rejection) = apply_admission(&profile.admission, context) {
+        return rejected(rejection);
+    }
 
     if let Some(folder) = folder_override {
         if !folder.is_available {
-            return Err(PlacementRejection::FolderPolicyUnavailable);
+            return rejected(PlacementRejection::FolderPolicyUnavailable);
         }
         if folder.policy_max_file_size > 0 && context.file_size > folder.policy_max_file_size {
-            return Err(PlacementRejection::FolderPolicyFileTooLarge);
+            return rejected(PlacementRejection::FolderPolicyFileTooLarge);
         }
-        return Ok(StorageRoutingDecision {
+        return PlacementResolution::Selected(StorageRoutingDecision {
             profile_id: profile.id,
             revision: profile.revision,
             rule_id: None,
@@ -392,7 +493,11 @@ pub fn resolve_placement_with_random(
         }
         if eligible.is_empty() {
             if rule.unavailable_behavior == PlacementUnavailableBehavior::Reject {
-                return Err(PlacementRejection::NoEligibleTarget);
+                return PlacementResolution::Rejected {
+                    rejection: PlacementRejection::NoEligibleTarget,
+                    evaluated_rules,
+                    excluded_targets,
+                };
             }
             continue;
         }
@@ -417,7 +522,7 @@ pub fn resolve_placement_with_random(
                 selected
             }
         };
-        return Ok(StorageRoutingDecision {
+        return PlacementResolution::Selected(StorageRoutingDecision {
             profile_id: profile.id,
             revision: profile.revision,
             rule_id: Some(rule.id),
@@ -430,10 +535,15 @@ pub fn resolve_placement_with_random(
         });
     }
 
-    if excluded_targets.is_empty() {
-        Err(PlacementRejection::NoMatchingRule)
+    let rejection = if excluded_targets.is_empty() {
+        PlacementRejection::NoMatchingRule
     } else {
-        Err(PlacementRejection::NoEligibleTarget)
+        PlacementRejection::NoEligibleTarget
+    };
+    PlacementResolution::Rejected {
+        rejection,
+        evaluated_rules,
+        excluded_targets,
     }
 }
 
@@ -926,6 +1036,63 @@ mod tests {
         assert_eq!(
             resolve_placement(&profile, &context("main.rs", 1), None).unwrap_err(),
             PlacementRejection::NoMatchingRule
+        );
+    }
+
+    #[test]
+    fn simulation_preserves_rejected_routing_trace_and_classification() {
+        let mut profile = profile();
+        profile.rules[0].targets[0].accepting_new_writes = false;
+
+        let result = simulate_placement(&profile, &context("archive.tar.gz", 42), None);
+
+        assert!(result.admitted);
+        assert!(result.decision.is_none());
+        assert_eq!(
+            result.rejection_code.as_deref(),
+            Some("placement_no_eligible_target")
+        );
+        assert_eq!(result.classification.filename, "archive.tar.gz");
+        assert_eq!(result.classification.extension, "gz");
+        assert_eq!(
+            result.classification.compound_extension.as_deref(),
+            Some("tar.gz")
+        );
+        assert_eq!(
+            result.evaluated_rules,
+            vec![PlacementRuleEvaluation {
+                rule_id: 11,
+                matched: true,
+                reason_code: None,
+            }]
+        );
+        assert_eq!(
+            result.excluded_targets,
+            vec![(101, TargetExclusionReason::Draining)]
+        );
+    }
+
+    #[test]
+    fn simulation_distinguishes_admission_rejection_from_routing_rejection() {
+        let mut profile = profile();
+        profile.admission.denied_extensions = vec!["exe".to_string()];
+
+        let result = simulate_placement(&profile, &context("setup.exe", 42), None);
+
+        assert!(!result.admitted);
+        assert_eq!(
+            result.rejection_code.as_deref(),
+            Some("placement_extension_denied")
+        );
+        assert!(result.evaluated_rules.is_empty());
+        assert!(result.excluded_targets.is_empty());
+    }
+
+    #[test]
+    fn target_exclusion_reasons_serialize_as_stable_codes() {
+        assert_eq!(
+            serde_json::to_string(&TargetExclusionReason::PolicyFileSizeExceeded).unwrap(),
+            "\"policy_max_file_size_exceeded\""
         );
     }
 

@@ -7,6 +7,7 @@ import {
 	type PolicyLookup,
 } from "@/components/admin/PolicyGroupDialog";
 import { PolicyGroupMigrationDialog } from "@/components/admin/PolicyGroupMigrationDialog";
+import { PolicyGroupSimulationDialog } from "@/components/admin/PolicyGroupSimulationDialog";
 import { PolicyGroupsTable } from "@/components/admin/PolicyGroupsTable";
 import {
 	buildPolicyGroupPayload,
@@ -23,7 +24,7 @@ import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { handleApiError } from "@/hooks/useApiError";
+import { getApiErrorMessage, handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import {
 	useManagedAdminList,
@@ -53,6 +54,7 @@ import { adminPolicyGroupService } from "@/services/adminService";
 import type { AdminPolicyGroupSortBy } from "@/types/adminSort";
 import type {
 	PolicyGroupAssignmentMigrationResult,
+	StoragePlacementSimulationResult,
 	StoragePolicyGroup,
 } from "@/types/api";
 
@@ -60,6 +62,7 @@ const POLICY_GROUP_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const DEFAULT_POLICY_GROUP_PAGE_SIZE = 20 as const;
 const POLICY_GROUP_LOOKUP_PAGE_SIZE = 100;
 const POLICY_LOOKUP_PAGE_SIZE = 100;
+const BYTES_PER_MB = 1024 * 1024;
 const POLICY_GROUP_SORT_BY_OPTIONS = [
 	"id",
 	"name",
@@ -190,6 +193,18 @@ export default function AdminPolicyGroupsPage() {
 		StoragePolicyGroup[] | null
 	>(null);
 	const [migrationGroupsLoading, setMigrationGroupsLoading] = useState(false);
+	const [simulationGroup, setSimulationGroup] =
+		useState<StoragePolicyGroup | null>(null);
+	const [simulationFilename, setSimulationFilename] = useState("example.pdf");
+	const [simulationFileSizeMb, setSimulationFileSizeMb] = useState("1");
+	const [simulationMimeType, setSimulationMimeType] = useState(
+		"application/octet-stream",
+	);
+	const [simulationFolderPolicyId, setSimulationFolderPolicyId] = useState("");
+	const [simulationResult, setSimulationResult] =
+		useState<StoragePlacementSimulationResult | null>(null);
+	const [simulationError, setSimulationError] = useState<string | null>(null);
+	const [simulationSubmitting, setSimulationSubmitting] = useState(false);
 	const [form, setForm] = useState<PolicyGroupFormData>(() =>
 		getDefaultPolicyGroupForm([]),
 	);
@@ -411,6 +426,16 @@ export default function AdminPolicyGroupsPage() {
 		setMigrationTargetId("");
 	};
 
+	const resetSimulationState = () => {
+		setSimulationFilename("example.pdf");
+		setSimulationFileSizeMb("1");
+		setSimulationMimeType("application/octet-stream");
+		setSimulationFolderPolicyId("");
+		setSimulationResult(null);
+		setSimulationError(null);
+		setSimulationSubmitting(false);
+	};
+
 	const openCreate = () => {
 		setEditingGroup(null);
 		setForm(getDefaultPolicyGroupForm(policies));
@@ -444,6 +469,11 @@ export default function AdminPolicyGroupsPage() {
 		}
 	};
 
+	const openSimulationDialog = (group: StoragePolicyGroup) => {
+		resetSimulationState();
+		setSimulationGroup(group);
+	};
+
 	const handleDialogOpenChange = (open: boolean) => {
 		setDialogOpen(open);
 		if (!open) {
@@ -455,6 +485,66 @@ export default function AdminPolicyGroupsPage() {
 		setMigrationDialogOpen(open);
 		if (!open) {
 			resetMigrationState();
+		}
+	};
+
+	const handleSimulationDialogOpenChange = (open: boolean) => {
+		if (!open) {
+			setSimulationGroup(null);
+			resetSimulationState();
+		}
+	};
+
+	const handleSimulationInputChange = (
+		setter: (value: string) => void,
+		value: string,
+	) => {
+		setter(value);
+		setSimulationResult(null);
+		setSimulationError(null);
+	};
+
+	const runSimulation = async () => {
+		if (!simulationGroup) return;
+		const filename = simulationFilename.trim();
+		if (!filename) {
+			setSimulationError(t("policy_group_simulator_filename_required"));
+			return;
+		}
+		const fileSizeMb = Number(simulationFileSizeMb);
+		const fileSize = Math.round(fileSizeMb * BYTES_PER_MB);
+		if (
+			!Number.isFinite(fileSizeMb) ||
+			fileSizeMb < 0 ||
+			!Number.isSafeInteger(fileSize)
+		) {
+			setSimulationError(t("policy_group_simulator_size_invalid"));
+			return;
+		}
+		const folderPolicyId = simulationFolderPolicyId
+			? Number(simulationFolderPolicyId)
+			: null;
+		if (folderPolicyId !== null && !Number.isSafeInteger(folderPolicyId)) {
+			setSimulationError(t("policy_group_simulator_folder_policy_invalid"));
+			return;
+		}
+
+		try {
+			setSimulationSubmitting(true);
+			setSimulationError(null);
+			setSimulationResult(
+				await adminPolicyGroupService.simulate(simulationGroup.id, {
+					filename,
+					file_size: fileSize,
+					mime_type: simulationMimeType.trim(),
+					folder_policy_id: folderPolicyId,
+				}),
+			);
+		} catch (error) {
+			setSimulationResult(null);
+			setSimulationError(getApiErrorMessage(error));
+		} finally {
+			setSimulationSubmitting(false);
 		}
 	};
 
@@ -627,6 +717,7 @@ export default function AdminPolicyGroupsPage() {
 					onNextPage={() => setOffset((current) => current + pageSize)}
 					onOpenEdit={openEdit}
 					onOpenMigration={openMigrationDialog}
+					onOpenSimulation={openSimulationDialog}
 					onRequestDelete={requestConfirm}
 					onSortChange={handleSortChange}
 				/>
@@ -645,6 +736,33 @@ export default function AdminPolicyGroupsPage() {
 						setMigrationError(null);
 					}}
 					onConfirm={() => void handleMigrateUsers()}
+				/>
+
+				<PolicyGroupSimulationDialog
+					open={simulationGroup !== null}
+					group={simulationGroup}
+					policies={policies}
+					filename={simulationFilename}
+					fileSizeMb={simulationFileSizeMb}
+					mimeType={simulationMimeType}
+					folderPolicyId={simulationFolderPolicyId}
+					result={simulationResult}
+					error={simulationError}
+					submitting={simulationSubmitting}
+					onOpenChange={handleSimulationDialogOpenChange}
+					onFilenameChange={(value) =>
+						handleSimulationInputChange(setSimulationFilename, value)
+					}
+					onFileSizeMbChange={(value) =>
+						handleSimulationInputChange(setSimulationFileSizeMb, value)
+					}
+					onMimeTypeChange={(value) =>
+						handleSimulationInputChange(setSimulationMimeType, value)
+					}
+					onFolderPolicyIdChange={(value) =>
+						handleSimulationInputChange(setSimulationFolderPolicyId, value)
+					}
+					onSimulate={() => void runSimulation()}
 				/>
 
 				<ConfirmDialog

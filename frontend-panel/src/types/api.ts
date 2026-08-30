@@ -367,6 +367,10 @@ export type MigratePolicyGroupAssignmentsRequest =
 	components["schemas"]["MigratePolicyGroupAssignmentsReq"];
 export type StoragePlacementRuleInfo =
 	components["schemas"]["StoragePlacementRuleInfo"];
+export type StoragePlacementSimulationInput =
+	components["schemas"]["StoragePlacementSimulationInput"];
+export type StoragePlacementSimulationResult =
+	OperationData<"simulate_policy_group_placement">;
 export type AdminPolicyGroupListQuery = OperationQuery<"list_policy_groups">;
 export type UpdatePolicyGroupRequest =
 	components["schemas"]["PatchPolicyGroupReq"];

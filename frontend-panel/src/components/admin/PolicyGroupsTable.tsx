@@ -85,6 +85,7 @@ interface PolicyGroupsTableProps {
 	onNextPage: () => void;
 	onOpenEdit: (group: StoragePolicyGroup) => void;
 	onOpenMigration: (group: StoragePolicyGroup) => void;
+	onOpenSimulation: (group: StoragePolicyGroup) => void;
 	onPageSizeChange: (value: string | null) => void;
 	onPreviousPage: () => void;
 	onRequestDelete: (groupId: number) => void;
@@ -141,7 +142,7 @@ function PolicyGroupsTableHeader({
 				>
 					{t("core:updated_at")}
 				</AdminSortableTableHead>
-				<TableHead className={ADMIN_TABLE_ACTIONS_WIDTH_CLASS}>
+				<TableHead className={`${ADMIN_TABLE_ACTIONS_WIDTH_CLASS} min-w-36`}>
 					{t("core:actions")}
 				</TableHead>
 			</TableRow>
@@ -223,6 +224,7 @@ interface PolicyGroupActionsProps {
 	isDeleting: boolean;
 	onOpenEdit: (group: StoragePolicyGroup) => void;
 	onOpenMigration: (group: StoragePolicyGroup) => void;
+	onOpenSimulation: (group: StoragePolicyGroup) => void;
 	onRequestDelete: (groupId: number) => void;
 	t: AdminT;
 	total: number;
@@ -234,6 +236,7 @@ function PolicyGroupActions({
 	isDeleting,
 	onOpenEdit,
 	onOpenMigration,
+	onOpenSimulation,
 	onRequestDelete,
 	t,
 	total,
@@ -241,6 +244,17 @@ function PolicyGroupActions({
 	return (
 		<TooltipProvider>
 			<div className="flex justify-end gap-1">
+				<Button
+					variant="ghost"
+					size="icon"
+					className={ADMIN_ICON_BUTTON_CLASS}
+					onClick={() => onOpenSimulation(group)}
+					aria-label={t("policy_group_simulator_open")}
+					title={t("policy_group_simulator_open")}
+					disabled={isDeleting}
+				>
+					<Icon name="Play" className="size-3.5" />
+				</Button>
 				<Tooltip>
 					<TooltipTrigger
 						render={<span className="inline-flex size-8 shrink-0" />}
@@ -304,6 +318,7 @@ interface PolicyGroupRowProps {
 	group: StoragePolicyGroup;
 	onOpenEdit: (group: StoragePolicyGroup) => void;
 	onOpenMigration: (group: StoragePolicyGroup) => void;
+	onOpenSimulation: (group: StoragePolicyGroup) => void;
 	onRequestDelete: (groupId: number) => void;
 	t: AdminT;
 	total: number;
@@ -314,6 +329,7 @@ function PolicyGroupRow({
 	group,
 	onOpenEdit,
 	onOpenMigration,
+	onOpenSimulation,
 	onRequestDelete,
 	t,
 	total,
@@ -382,6 +398,7 @@ function PolicyGroupRow({
 					isDeleting={isDeleting}
 					onOpenEdit={onOpenEdit}
 					onOpenMigration={onOpenMigration}
+					onOpenSimulation={onOpenSimulation}
 					onRequestDelete={onRequestDelete}
 					t={t}
 					total={total}
@@ -507,6 +524,7 @@ export function PolicyGroupsTable({
 	onNextPage,
 	onOpenEdit,
 	onOpenMigration,
+	onOpenSimulation,
 	onPageSizeChange,
 	onPreviousPage,
 	onRequestDelete,
@@ -548,6 +566,7 @@ export function PolicyGroupsTable({
 						group={group}
 						onOpenEdit={onOpenEdit}
 						onOpenMigration={onOpenMigration}
+						onOpenSimulation={onOpenSimulation}
 						onRequestDelete={onRequestDelete}
 						t={t}
 						total={total}

@@ -33,7 +33,8 @@ pub use models::{
     UpdateStoragePolicyInput,
 };
 pub use placement::{
-    PlacementRuleEvaluation, StoragePlacementSimulationInput, StorageRoutingDecision,
+    PlacementRuleEvaluation, StoragePlacementClassification, StoragePlacementSimulationInput,
+    StoragePlacementSimulationResult, StorageRoutingDecision,
 };
 pub(crate) use policies::capacity_info_or_status;
 pub use policies::{

@@ -78,6 +78,8 @@ import type {
 	StorageConnectorDescriptor,
 	StorageConnectorLocalizationCatalog,
 	StorageConnectorLocalizationCatalogQuery,
+	StoragePlacementSimulationInput,
+	StoragePlacementSimulationResult,
 	StoragePolicy,
 	StoragePolicyActionResult,
 	StoragePolicyCapacityInfo,
@@ -582,6 +584,12 @@ export const adminPolicyGroupService = {
 		api.patch<StoragePolicyGroup>(`/admin/policy-groups/${id}`, data),
 
 	delete: (id: number) => api.delete<void>(`/admin/policy-groups/${id}`),
+
+	simulate: (id: number, data: StoragePlacementSimulationInput) =>
+		api.post<StoragePlacementSimulationResult>(
+			`/admin/policy-groups/${id}/simulate`,
+			data,
+		),
 
 	migrateAssignments: (
 		id: number,

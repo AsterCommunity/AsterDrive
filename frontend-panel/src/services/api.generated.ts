@@ -8455,6 +8455,14 @@ export interface components {
          * @enum {string}
          */
         StorageCredentialStatus: "authorized" | "reauth_required" | "permission_denied" | "revoked" | "invalid";
+        StoragePlacementClassification: {
+            category: components["schemas"]["FileCategory"];
+            compound_extension?: string | null;
+            extension: string;
+            /** Format: int64 */
+            file_size: number;
+            filename: string;
+        };
         StoragePlacementRuleInfo: {
             description: string;
             /** Format: int64 */
@@ -8669,6 +8677,24 @@ export interface components {
             failed_objects: number;
             /** Format: int64 */
             missing_objects: number;
+        };
+        StorageRoutingDecision: {
+            evaluated_rules: components["schemas"]["PlacementRuleEvaluation"][];
+            excluded_targets: [
+                number,
+                "target_disabled" | "target_draining" | "target_unavailable" | "target_incompatible" | "policy_max_file_size_exceeded"
+            ][];
+            execution_preference: components["schemas"]["UploadExecutionPreference"];
+            folder_override: boolean;
+            /** Format: int64 */
+            policy_id: number;
+            /** Format: int64 */
+            profile_id: number;
+            /** Format: int64 */
+            revision: number;
+            /** Format: int64 */
+            rule_id?: number | null;
+            selection_mode: components["schemas"]["PlacementSelectionMode"];
         };
         StreamTicketInfo: {
             download_path: string;
@@ -12584,29 +12610,22 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
+                            admitted: boolean;
+                            classification: components["schemas"]["StoragePlacementClassification"];
+                            decision?: null | components["schemas"]["StorageRoutingDecision"];
                             evaluated_rules: components["schemas"]["PlacementRuleEvaluation"][];
                             excluded_targets: [
                                 number,
-                                "Disabled" | "Draining" | "Unavailable" | "Incompatible" | "PolicyFileSizeExceeded"
+                                "target_disabled" | "target_draining" | "target_unavailable" | "target_incompatible" | "policy_max_file_size_exceeded"
                             ][];
-                            execution_preference: components["schemas"]["UploadExecutionPreference"];
-                            folder_override: boolean;
-                            /** Format: int64 */
-                            policy_id: number;
-                            /** Format: int64 */
-                            profile_id: number;
-                            /** Format: int64 */
-                            revision: number;
-                            /** Format: int64 */
-                            rule_id?: number | null;
-                            selection_mode: components["schemas"]["PlacementSelectionMode"];
+                            rejection_code?: string | null;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
                     };
                 };
             };
-            /** @description Placement rejected */
+            /** @description Invalid simulation input */
             400: {
                 headers: {
                     [name: string]: unknown;
