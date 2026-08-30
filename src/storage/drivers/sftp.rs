@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use russh::client::{self, Handler};
-use russh::keys::{HashAlg, PublicKey};
+use russh::keys::{HashAlg, PublicKeyOrCertificate};
 use russh_sftp::client::{
     Config as SftpClientConfig, RawSftpSession, SftpSession, error::Error as SftpError,
 };
@@ -99,7 +99,7 @@ impl Handler for TrustServerKeyClient {
 
     async fn check_server_key(
         &mut self,
-        server_public_key: &PublicKey,
+        server_public_key: &PublicKeyOrCertificate,
     ) -> std::result::Result<bool, Self::Error> {
         let actual = host_key_fingerprint(server_public_key);
         let Some(expected) = self.expected_fingerprint.as_deref() else {
@@ -866,8 +866,11 @@ fn encode_sftp_extension_string(output: &mut Vec<u8>, value: &str) -> Result<()>
     Ok(())
 }
 
-fn host_key_fingerprint(public_key: &PublicKey) -> String {
-    public_key.fingerprint(HashAlg::Sha256).to_string()
+fn host_key_fingerprint(public_key: &PublicKeyOrCertificate) -> String {
+    public_key
+        .public_key()
+        .fingerprint(HashAlg::Sha256)
+        .to_string()
 }
 
 fn normalize_host_key_fingerprint(fingerprint: &str) -> String {
