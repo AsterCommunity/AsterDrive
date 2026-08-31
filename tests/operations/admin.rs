@@ -2144,11 +2144,26 @@ async fn test_admin_policy_groups_support_explicit_sorting() {
                 "description": "sort regression",
                 "is_enabled": enabled,
                 "is_default": false,
-                "items": [{
-                    "policy_id": default_policy_id,
+                "rules": [{
+                    "name": "Default route",
+                    "description": "",
                     "priority": 1,
-                    "min_file_size": 0,
-                    "max_file_size": 0
+                    "is_enabled": true,
+                    "matcher": {
+                        "min_file_size": 0,
+                        "max_file_size": 0,
+                        "extensions": [],
+                        "compound_extensions": [],
+                        "extensionless": null,
+                        "categories": []
+                    },
+                    "targets": [{
+                        "policy_id": default_policy_id,
+                        "weight": 100,
+                        "is_enabled": true,
+                        "accepting_new_writes": true,
+                        "stable_order": 1
+                    }]
                 }]
             }))
             .to_request();

@@ -1619,6 +1619,27 @@ async fn cluster_upload_init_on_second_primary_rejects_pod_local_stream_staging(
     let mut primary_b = ServerProcess::spawn("primary-b", &services);
     wait_for_health(&client, &mut primary_b).await;
 
+    let baseline = client
+        .post(format!("{}/api/v1/files/upload/init", primary_b.base_url()))
+        .bearer_auth(&access_token)
+        .json(&json!({
+            "filename": "cross-primary-policy-limit.bin",
+            "total_size": 2,
+        }))
+        .send()
+        .await
+        .expect("send baseline upload init through primary B");
+    let baseline_body: Value = baseline
+        .json()
+        .await
+        .expect("decode baseline upload init response from primary B");
+    assert!(
+        !baseline_body
+            .to_string()
+            .contains("placement_no_eligible_target"),
+        "primary B baseline must have an eligible placement target: {baseline_body}"
+    );
+
     let response = client
         .post(format!("{}/api/v1/files/upload/init", primary_b.base_url()))
         .bearer_auth(&access_token)
@@ -2247,6 +2268,34 @@ async fn user_policy_group_assignment_propagates_to_second_primary_without_resta
         .as_i64()
         .expect("created user response should contain an id");
 
+    let user_access_token = login(
+        &client,
+        &primary_b,
+        "policy-user",
+        POLICY_GROUP_USER_PASSWORD,
+    )
+    .await;
+    let baseline = client
+        .post(format!("{}/api/v1/files/upload/init", primary_b.base_url()))
+        .bearer_auth(&user_access_token)
+        .json(&json!({
+            "filename": "targeted-user-policy-group-limit.bin",
+            "total_size": 2,
+        }))
+        .send()
+        .await
+        .expect("send baseline user upload init through primary B");
+    let baseline_body: Value = baseline
+        .json()
+        .await
+        .expect("decode baseline user upload init response from primary B");
+    assert!(
+        !baseline_body
+            .to_string()
+            .contains("placement_no_eligible_target"),
+        "primary B user baseline must have an eligible placement target: {baseline_body}"
+    );
+
     let response = client
         .patch(format!(
             "{}/api/v1/admin/users/{user_id}",
@@ -2268,13 +2317,6 @@ async fn user_policy_group_assignment_propagates_to_second_primary_without_resta
     );
     assert_eq!(body["data"]["policy_group_id"], constrained_group.id);
 
-    let user_access_token = login(
-        &client,
-        &primary_b,
-        "policy-user",
-        POLICY_GROUP_USER_PASSWORD,
-    )
-    .await;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     loop {
         primary_b.assert_running();

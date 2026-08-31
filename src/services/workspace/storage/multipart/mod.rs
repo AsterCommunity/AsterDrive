@@ -9,7 +9,7 @@ use actix_multipart::Multipart;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{Result, validation_error_with_code};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use aster_drive_model::entities::file;
 
 use super::{
@@ -85,9 +85,7 @@ pub(crate) async fn upload_with_hints(
         "resolved upload target"
     );
 
-    if let Some(declared_size) = declared_size
-        && relative_path.is_some()
-    {
+    if let Some(declared_size) = declared_size {
         let resolution = resolve_blob_policy_for_write(
             state,
             crate::services::workspace::storage::BlobPolicyRequest {
@@ -102,20 +100,36 @@ pub(crate) async fn upload_with_hints(
         )
         .await?;
         let policy = resolution.policy;
-        let execution_preference = resolution
-            .routing_decision
-            .ok_or_else(|| {
-                crate::errors::AsterError::storage_policy_not_found(
-                    "new blob placement decision is missing",
-                )
-            })?
-            .execution_preference;
+        let routing_decision = resolution.routing_decision.ok_or_else(|| {
+            crate::errors::AsterError::storage_policy_not_found(
+                "new blob placement decision is missing",
+            )
+        })?;
+        let execution_preference = routing_decision.execution_preference;
         let transport = resolve_policy_upload_transport_for_execution(
             state.driver_registry().connectors(),
             &policy,
             execution_preference,
         )?;
-        if transport.supports_streaming_direct_upload(&policy, declared_size) {
+        let filename_safe_for_direct = relative_path.is_some()
+            || routing_decision.folder_override
+            || state
+                .policy_snapshot()
+                .get_placement_profile(routing_decision.profile_id)
+                .and_then(|profile| {
+                    let rule_id = routing_decision.rule_id?;
+                    profile.rules.into_iter().find(|rule| rule.id == rule_id)
+                })
+                .is_some_and(|rule| {
+                    rule.matcher.extensions.is_empty()
+                        && rule.matcher.compound_extensions.is_empty()
+                        && rule.matcher.categories.is_empty()
+                        && rule.matcher.extensionless.is_none()
+                });
+        if declared_size > 0
+            && filename_safe_for_direct
+            && transport.supports_streaming_direct_upload(&policy, declared_size)
+        {
             tracing::debug!(
                 scope = ?scope,
                 folder_id = effective_folder_id,
@@ -151,11 +165,12 @@ pub(crate) async fn upload_with_hints(
             }
             return result;
         }
-        if crate::storage::connectors::resolve_local_filesystem_projection(
-            state.driver_registry().connectors(),
-            &policy,
-        )?
-        .is_some()
+        if declared_size > 0
+            && crate::storage::connectors::resolve_local_filesystem_projection(
+                state.driver_registry().connectors(),
+                &policy,
+            )?
+            .is_some()
         {
             tracing::debug!(
                 scope = ?scope,

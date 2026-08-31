@@ -130,12 +130,12 @@ pub(super) async fn resolve_init_upload_context(
     relative_path: Option<&str>,
     frontend_client_id: Option<&str>,
 ) -> Result<InitUploadContext> {
-    let target = resolve_upload_target(state, scope, filename, folder_id, relative_path).await?;
     if total_size < 0 {
         return Err(AsterError::validation_error(
             "total_size cannot be negative",
         ));
     }
+    let target = resolve_upload_target(state, scope, filename, folder_id, relative_path).await?;
 
     tracing::debug!(
         scope = ?scope,

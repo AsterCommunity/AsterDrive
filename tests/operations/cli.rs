@@ -1496,7 +1496,9 @@ async fn test_remote_node_telemetry_rename_preserves_values_on_sqlite_up_and_dow
         0
     );
 
-    CurrentMigrator::down(&db, Some(1)).await.unwrap();
+    let rollback_steps = u32::try_from(migrations.len() - rename_index)
+        .expect("rollback step count should fit u32");
+    CurrentMigrator::down(&db, Some(rollback_steps)).await.unwrap();
     assert_eq!(
         scalar_string(
             &db,
