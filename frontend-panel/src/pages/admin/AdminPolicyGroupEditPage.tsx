@@ -68,16 +68,9 @@ export default function AdminPolicyGroupEditPage() {
 	const [policies, setPolicies] = useState<PolicyLookup[]>(
 		initialPolicies ?? [],
 	);
-	const [loadedPoliciesCount, setLoadedPoliciesCount] = useState(
-		initialPolicies?.length ?? 0,
-	);
-	const [policiesTotal, setPoliciesTotal] = useState(
-		initialPolicies?.length ?? 0,
-	);
 	const [policiesLoading, setPoliciesLoading] = useState(
 		initialPolicies == null,
 	);
-	const [policiesLoadingMore, setPoliciesLoadingMore] = useState(false);
 
 	const [group, setGroup] = useState<StoragePolicyGroup | null>(null);
 	const [groupLoading, setGroupLoading] = useState(!isCreate);
@@ -101,25 +94,19 @@ export default function AdminPolicyGroupEditPage() {
 	const [simulationError, setSimulationError] = useState<string | null>(null);
 	const [simulationSubmitting, setSimulationSubmitting] = useState(false);
 
-	const hasMorePolicies = loadedPoliciesCount < policiesTotal;
-
 	const loadPolicies = useCallback(
 		async ({ force = false }: { force?: boolean } = {}) => {
 			try {
 				setPoliciesLoading(true);
-				setPoliciesLoadingMore(false);
 				const policyLookup = await loadAdminPolicyLookup({
 					force,
 					limit: POLICY_LOOKUP_PAGE_SIZE,
 				});
-				setPoliciesTotal(policyLookup.length);
-				setLoadedPoliciesCount(policyLookup.length);
 				setPolicies(policyLookup);
 			} catch (e) {
 				handleApiError(e);
 			} finally {
 				setPoliciesLoading(false);
-				setPoliciesLoadingMore(false);
 			}
 		},
 		[],
@@ -194,13 +181,6 @@ export default function AdminPolicyGroupEditPage() {
 			cancelled = true;
 		};
 	}, [isCreate, isValidRoute, parsedGroupId]);
-
-	const loadMorePolicies = useCallback(async () => {
-		if (policiesLoading || policiesLoadingMore || !hasMorePolicies) {
-			return;
-		}
-		await loadPolicies();
-	}, [hasMorePolicies, loadPolicies, policiesLoading, policiesLoadingMore]);
 
 	const setField = <K extends keyof PolicyGroupFormData>(
 		key: K,
@@ -485,13 +465,10 @@ export default function AdminPolicyGroupEditPage() {
 							mode={isCreate ? "create" : "edit"}
 							form={form}
 							formError={formError}
-							hasMorePolicies={hasMorePolicies}
 							policies={policies}
 							policiesLoading={policiesLoading}
-							policiesLoadingMore={policiesLoadingMore}
 							onAddRule={addRule}
 							onFieldChange={setField}
-							onLoadMorePolicies={loadMorePolicies}
 							onMoveRule={moveRule}
 							onOpenSimulation={
 								isCreate

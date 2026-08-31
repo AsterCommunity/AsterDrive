@@ -1,10 +1,4 @@
-import {
-	type UIEvent,
-	useEffect,
-	useLayoutEffect,
-	useRef,
-	useState,
-} from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
 	PolicyGroupFormData,
@@ -36,7 +30,6 @@ import {
 	SelectGroup,
 	SelectItem,
 	SelectLabel,
-	SelectSeparator,
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
@@ -69,16 +62,13 @@ interface PolicyGroupEditorFormProps {
 	mode: "create" | "edit";
 	form: PolicyGroupFormData;
 	formError: string | null;
-	hasMorePolicies: boolean;
 	policies: PolicyLookup[];
 	policiesLoading: boolean;
-	policiesLoadingMore: boolean;
 	onAddRule: () => void;
 	onFieldChange: <K extends keyof PolicyGroupFormData>(
 		key: K,
 		value: PolicyGroupFormData[K],
 	) => void;
-	onLoadMorePolicies: () => void | Promise<void>;
 	onMoveRule: (ruleKey: string, direction: -1 | 1) => void;
 	onOpenSimulation?: () => void;
 	onRefreshPolicies: () => void | Promise<void>;
@@ -222,15 +212,12 @@ interface RuleCardProps {
 	item: PolicyGroupRuleForm;
 	policies: PolicyLookup[];
 	filteredPolicies: PolicyLookup[];
-	hasMorePolicies: boolean;
 	policiesLoading: boolean;
-	policiesLoadingMore: boolean;
 	ruleCount: number;
 	t: ReturnType<typeof useTranslation>["t"];
 	onDragEnd: () => void;
 	onDragOverCard: (hoverIndex: number, after: boolean) => void;
 	onDragStart: (ruleKey: string) => void;
-	onLoadMorePolicies: () => void | Promise<void>;
 	onMoveRule: (ruleKey: string, direction: -1 | 1) => void;
 	onRefreshPolicies: () => void | Promise<void>;
 	onRemoveRule: (ruleKey: string) => void;
@@ -244,15 +231,12 @@ function RuleCard({
 	item,
 	policies,
 	filteredPolicies,
-	hasMorePolicies,
 	policiesLoading,
-	policiesLoadingMore,
 	ruleCount,
 	t,
 	onDragEnd,
 	onDragOverCard,
 	onDragStart,
-	onLoadMorePolicies,
 	onMoveRule,
 	onRefreshPolicies,
 	onRemoveRule,
@@ -322,16 +306,6 @@ function RuleCard({
 	const handlePolicySelectOpenChange = (selectOpen: boolean) => {
 		if (selectOpen && policies.length === 0 && !policiesLoading) {
 			void onRefreshPolicies();
-		}
-	};
-
-	const handlePolicySelectScroll = (event: UIEvent<HTMLDivElement>) => {
-		if (policiesLoading || policiesLoadingMore || !hasMorePolicies) {
-			return;
-		}
-		const target = event.currentTarget;
-		if (target.scrollTop + target.clientHeight >= target.scrollHeight - 24) {
-			void onLoadMorePolicies();
 		}
 	};
 
@@ -552,10 +526,7 @@ function RuleCard({
 													: undefined}
 										</SelectValue>
 									</SelectTrigger>
-									<SelectContent
-										className="max-h-64"
-										onScroll={handlePolicySelectScroll}
-									>
+									<SelectContent className="max-h-64">
 										{selectablePolicies.map((policy) => (
 											<SelectItem key={policy.id} value={String(policy.id)}>
 												{formatPolicyTarget(policy)}
@@ -567,20 +538,6 @@ function RuleCard({
 													{t("policy_group_no_filtered_policies")}
 												</SelectLabel>
 											</SelectGroup>
-										) : null}
-										{policiesLoadingMore || hasMorePolicies ? (
-											<>
-												{selectablePolicies.length > 0 ? (
-													<SelectSeparator />
-												) : null}
-												<SelectGroup>
-													<SelectLabel>
-														{policiesLoadingMore
-															? t("policy_group_loading_more_policies")
-															: t("policy_group_scroll_to_load_more")}
-													</SelectLabel>
-												</SelectGroup>
-											</>
 										) : null}
 									</SelectContent>
 								</Select>
@@ -746,13 +703,10 @@ export function PolicyGroupEditorForm({
 	mode,
 	form,
 	formError,
-	hasMorePolicies,
 	policies,
 	policiesLoading,
-	policiesLoadingMore,
 	onAddRule,
 	onFieldChange,
-	onLoadMorePolicies,
 	onMoveRule,
 	onOpenSimulation,
 	onRefreshPolicies,
@@ -847,25 +801,6 @@ export function PolicyGroupEditorForm({
 			}
 		};
 	}, []);
-
-	useEffect(() => {
-		if (
-			normalizedPolicySearch &&
-			filteredPolicies.length === 0 &&
-			!policiesLoading &&
-			!policiesLoadingMore &&
-			hasMorePolicies
-		) {
-			void onLoadMorePolicies();
-		}
-	}, [
-		filteredPolicies.length,
-		hasMorePolicies,
-		normalizedPolicySearch,
-		onLoadMorePolicies,
-		policiesLoading,
-		policiesLoadingMore,
-	]);
 
 	return (
 		<div className="grid gap-8 lg:grid-cols-[300px_minmax(0,1fr)]">
@@ -1244,9 +1179,7 @@ export function PolicyGroupEditorForm({
 								item={item}
 								policies={policies}
 								filteredPolicies={filteredPolicies}
-								hasMorePolicies={hasMorePolicies}
 								policiesLoading={policiesLoading}
-								policiesLoadingMore={policiesLoadingMore}
 								ruleCount={form.items.length}
 								t={t}
 								onDragStart={setDraggingRuleKey}
@@ -1263,7 +1196,6 @@ export function PolicyGroupEditorForm({
 									flipSnapshotRef.current = captureRulePositions();
 									onReorderRule(draggingRuleKey, target);
 								}}
-								onLoadMorePolicies={onLoadMorePolicies}
 								onMoveRule={(ruleKey, direction) => {
 									flipSnapshotRef.current = captureRulePositions();
 									onMoveRule(ruleKey, direction);

@@ -54,6 +54,20 @@ describe("adminService", () => {
 		);
 	});
 
+	it("posts placement simulation input to the policy group endpoint", () => {
+		const input = {
+			filename: "photo.jpg",
+			file_size: 1024,
+			mime_type: "image/jpeg",
+			folder_policy_id: null,
+		};
+		adminPolicyGroupService.simulate(7, input);
+		expect(mockState.post).toHaveBeenCalledWith(
+			"/admin/policy-groups/7/simulate",
+			input,
+		);
+	});
+
 	it("builds list endpoints with optional query strings", () => {
 		adminUserService.list({
 			limit: 20,

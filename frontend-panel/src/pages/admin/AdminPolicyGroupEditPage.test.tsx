@@ -726,4 +726,36 @@ describe("AdminPolicyGroupEditPage", () => {
 			expect(screen.getByText("policy_group_not_found")).toBeInTheDocument();
 		});
 	});
+
+	it("validates simulation input and routes backend simulation failures", async () => {
+		mockState.groupId = "7";
+		mockState.getGroup.mockResolvedValue(createGroup({ name: "Simulated" }));
+		render(<AdminPolicyGroupEditPage />);
+		await waitFor(() =>
+			expect(screen.getByDisplayValue("Simulated")).toBeInTheDocument(),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: /policy_group_simulator_open/ }),
+		);
+		fireEvent.change(screen.getByLabelText("policy_group_simulator_filename"), {
+			target: { value: " " },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: /policy_group_simulator_run/ }),
+		);
+		expect(
+			screen.getByText("policy_group_simulator_filename_required"),
+		).toBeInTheDocument();
+
+		fireEvent.change(screen.getByLabelText("policy_group_simulator_filename"), {
+			target: { value: "photo.jpg" },
+		});
+		mockState.simulateGroup.mockRejectedValue(new Error("simulation failed"));
+		fireEvent.click(
+			screen.getByRole("button", { name: /policy_group_simulator_run/ }),
+		);
+		await waitFor(() =>
+			expect(screen.getByText("simulation failed")).toBeInTheDocument(),
+		);
+	});
 });
