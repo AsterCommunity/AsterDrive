@@ -190,18 +190,6 @@ fn validate_rule_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::validate_rule_name;
-
-    #[test]
-    fn rule_name_rejects_blank_values() {
-        assert!(validate_rule_name("").is_err());
-        assert!(validate_rule_name("  \t").is_err());
-        assert!(validate_rule_name("Images").is_ok());
-    }
-}
-
 pub(super) async fn replace_placement_rules<C: sea_orm::ConnectionTrait>(
     db: &C,
     group_id: i64,
@@ -387,6 +375,13 @@ pub(super) async fn set_default_policy_and_group<C: sea_orm::ConnectionTrait>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rule_name_rejects_blank_values() {
+        assert!(validate_rule_name("").is_err());
+        assert!(validate_rule_name("  \t").is_err());
+        assert!(validate_rule_name("Images").is_ok());
+    }
 
     #[test]
     fn format_group_assignment_blocker_empty_returns_none() {
