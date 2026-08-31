@@ -1,4 +1,10 @@
-import { type UIEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+	type UIEvent,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import type {
 	PolicyGroupFormData,
@@ -97,7 +103,9 @@ function matchesPolicySearch(policy: PolicyLookup, query: string) {
 
 function findPolicy(policies: PolicyLookup[], policyId: string) {
 	if (!policyId) return null;
-	return policies.find((candidate) => String(candidate.id) === policyId) ?? null;
+	return (
+		policies.find((candidate) => String(candidate.id) === policyId) ?? null
+	);
 }
 
 function formatPolicyTarget(policy: PolicyLookup) {
@@ -518,10 +526,7 @@ function RuleCard({
 								value: String(policy.id),
 							}),
 						);
-						const selectedPolicy = findPolicy(
-							policies,
-							target.policyId,
-						);
+						const selectedPolicy = findPolicy(policies, target.policyId);
 
 						return (
 							<div
@@ -770,7 +775,9 @@ export function PolicyGroupEditorForm({
 	// 一律不播（添加走展开动画，删除走收缩动画）。
 	const ruleListRef = useRef<HTMLDivElement | null>(null);
 	const flipSnapshotRef = useRef<Map<string, number> | null>(null);
-	const flipTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+	const flipTimersRef = useRef(
+		new Map<string, ReturnType<typeof setTimeout>>(),
+	);
 	// 已渲染的规则 key：判断卡片是否为后续新增（首渲染不算新，不播展开）
 	const renderedRuleKeysRef = useRef<Set<string> | null>(null);
 
@@ -830,9 +837,7 @@ export function PolicyGroupEditorForm({
 	}, [form.items]);
 
 	useEffect(() => {
-		renderedRuleKeysRef.current = new Set(
-			form.items.map((item) => item.key),
-		);
+		renderedRuleKeysRef.current = new Set(form.items.map((item) => item.key));
 	}, [form.items]);
 
 	useEffect(() => {
@@ -1232,10 +1237,10 @@ export function PolicyGroupEditorForm({
 								key={item.key}
 								index={index}
 								isDragging={draggingRuleKey === item.key}
-							isNew={
-								renderedRuleKeysRef.current != null &&
-								!renderedRuleKeysRef.current.has(item.key)
-							}
+								isNew={
+									renderedRuleKeysRef.current != null &&
+									!renderedRuleKeysRef.current.has(item.key)
+								}
 								item={item}
 								policies={policies}
 								filteredPolicies={filteredPolicies}
