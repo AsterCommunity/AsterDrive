@@ -3309,10 +3309,12 @@ async fn test_system_policy_default_uniqueness() {
     let rules = aster_drive::db::repository::policy_placement_repo::find_all_rules(&db)
         .await
         .unwrap();
-    let rule = rules
+    let group_rules: Vec<_> = rules
         .iter()
-        .find(|rule| rule.group_id == default_group.id)
-        .unwrap();
+        .filter(|rule| rule.group_id == default_group.id)
+        .collect();
+    assert_eq!(group_rules.len(), 1);
+    let rule = group_rules[0];
     let targets = aster_drive::db::repository::policy_placement_repo::find_all_targets(&db)
         .await
         .unwrap();
@@ -3392,10 +3394,12 @@ async fn test_patch_policy_promotes_existing_policy_to_default() {
     let rules = aster_drive::db::repository::policy_placement_repo::find_all_rules(&db)
         .await
         .unwrap();
-    let rule = rules
+    let group_rules: Vec<_> = rules
         .iter()
-        .find(|rule| rule.group_id == default_group.id)
-        .unwrap();
+        .filter(|rule| rule.group_id == default_group.id)
+        .collect();
+    assert_eq!(group_rules.len(), 1);
+    let rule = group_rules[0];
     let targets = aster_drive::db::repository::policy_placement_repo::find_all_targets(&db)
         .await
         .unwrap();
@@ -3406,6 +3410,13 @@ async fn test_patch_policy_promotes_existing_policy_to_default() {
             .unwrap()
             .policy_id,
         policy_id
+    );
+    assert_eq!(
+        targets
+            .iter()
+            .filter(|target| target.rule_id == rule.id)
+            .count(),
+        1
     );
 }
 
