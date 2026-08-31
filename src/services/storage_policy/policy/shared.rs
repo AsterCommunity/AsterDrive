@@ -286,16 +286,14 @@ pub(super) async fn ensure_singleton_group_for_policy<C: sea_orm::ConnectionTrai
         }
         let group_rules = policy_placement_repo::find_rules_by_group_id(db, group.id).await?;
         let matching_targets = if group_rules.len() == 1 {
-            policy_placement_repo::count_targets_by_rule_and_policy(
-                db,
-                group_rules[0].id,
-                policy_id,
-            )
-            .await?
+            policy_placement_repo::find_targets_by_rule_id(db, group_rules[0].id).await?
         } else {
-            0
+            Vec::new()
         };
-        if group_rules.len() == 1 && matching_targets == 1 {
+        if group_rules.len() == 1
+            && matching_targets.len() == 1
+            && matching_targets[0].policy_id == policy_id
+        {
             return Ok(group.id);
         }
     }

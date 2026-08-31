@@ -879,4 +879,98 @@ describe("AdminPolicyGroupsPage", () => {
 
 		expect(migrateButton).toBeDisabled();
 	});
+
+	it("ignores unsupported page sizes and reports policy lookup failures", async () => {
+		mockState.groupItems = [createGroup()];
+		mockState.searchParams = "pageSize=999";
+		mockState.listPolicies.mockRejectedValueOnce(
+			new Error("policy lookup failed"),
+		);
+		render(<AdminPolicyGroupsPage />);
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(
+				expect.objectContaining({ message: "policy lookup failed" }),
+			);
+		});
+	});
+
+	it("shows simulation validation errors and routes delete failures", async () => {
+		mockState.groupItems = [createGroup({ id: 1, name: "Routing Group" })];
+		render(<AdminPolicyGroupsPage />);
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "policy_group_simulator_open",
+			}),
+		);
+		fireEvent.change(screen.getByLabelText("policy_group_simulator_filename"), {
+			target: { value: " " },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: /policy_group_simulator_run/ }),
+		);
+		expect(
+			screen.getByText("policy_group_simulator_filename_required"),
+		).toBeInTheDocument();
+
+		mockState.deleteGroup.mockRejectedValueOnce(new Error("delete failed"));
+		fireEvent.click(screen.getByRole("button", { name: "core:cancel" }));
+		const deleteButton = await screen.findByRole("button", {
+			name: "delete_policy_group",
+		});
+		fireEvent.click(deleteButton);
+		fireEvent.click(screen.getByRole("button", { name: "core:delete" }));
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(
+				expect.objectContaining({ message: "delete failed" }),
+			);
+		});
+	});
+
+	it("rejects invalid simulation sizes before calling the service", async () => {
+		mockState.groupItems = [createGroup({ id: 1, name: "Routing Group" })];
+		render(<AdminPolicyGroupsPage />);
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "policy_group_simulator_open",
+			}),
+		);
+		fireEvent.change(screen.getByLabelText("policy_group_simulator_size_mb"), {
+			target: { value: "-1" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: /policy_group_simulator_run/ }),
+		);
+		expect(
+			screen.getByText("policy_group_simulator_size_invalid"),
+		).toBeInTheDocument();
+		expect(mockState.simulateGroup).not.toHaveBeenCalled();
+	});
+
+	it("reports failures while loading migration targets", async () => {
+		mockState.groupItems = [
+			createGroup({ id: 1, name: "Source" }),
+			createGroup({ id: 2, name: "Target" }),
+		];
+		mockState.listGroups
+			.mockImplementationOnce(async () => ({
+				items: mockState.groupItems,
+				limit: 20,
+				offset: 0,
+				total: 3,
+			}))
+			.mockRejectedValueOnce(new Error("migration lookup failed"));
+		render(<AdminPolicyGroupsPage />);
+		fireEvent.click(
+			(
+				await screen.findAllByRole("button", {
+					name: "migrate_policy_group_assignments",
+				})
+			)[0],
+		);
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(
+				expect.objectContaining({ message: "migration lookup failed" }),
+			);
+		});
+	});
 });

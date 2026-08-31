@@ -13,7 +13,6 @@ import {
 const mockState = vi.hoisted(() => ({
 	addRule: vi.fn(),
 	fieldChange: vi.fn(),
-	loadMore: vi.fn(),
 	moveRule: vi.fn(),
 	openSimulation: vi.fn(),
 	refresh: vi.fn(),
@@ -247,15 +246,12 @@ function createProps(
 		mode: "create" as const,
 		form: createForm(),
 		formError: null,
-		hasMorePolicies: false,
 		policies: [
 			{ id: 1, name: "Primary", connector_id: "local" },
 		] as PolicyLookup[],
 		policiesLoading: false,
-		policiesLoadingMore: false,
 		onAddRule: mockState.addRule,
 		onFieldChange: mockState.fieldChange,
-		onLoadMorePolicies: mockState.loadMore,
 		onMoveRule: mockState.moveRule,
 		onOpenSimulation: mockState.openSimulation,
 		onRefreshPolicies: mockState.refresh,
@@ -290,6 +286,7 @@ describe("PolicyGroupEditorForm", () => {
 		});
 		if (!imageCategory) throw new Error("image category button missing");
 		fireEvent.click(imageCategory);
+		fireEvent.click(screen.getAllByRole("checkbox")[0]);
 		fireEvent.change(screen.getByLabelText("policy_group_allowed_extensions"), {
 			target: { value: "jpg, png" },
 		});
@@ -315,21 +312,17 @@ describe("PolicyGroupEditorForm", () => {
 		).toBeInTheDocument();
 	});
 
-	it("filters policies, refreshes an empty selector, and loads more on empty search", async () => {
-		mockState.loadMore.mockResolvedValue(undefined);
-		render(
-			<PolicyGroupEditorForm {...createProps({ hasMorePolicies: true })} />,
-		);
+	it("filters policies without a redundant pagination request", async () => {
+		render(<PolicyGroupEditorForm {...createProps()} />);
 		fireEvent.change(screen.getByLabelText("policy_group_policy_search"), {
 			target: { value: "missing" },
 		});
-		await waitFor(() => expect(mockState.loadMore).toHaveBeenCalledTimes(1));
-		fireEvent.click(screen.getByRole("button", { name: "select-item:1" }));
-		expect(mockState.ruleFieldChange).toHaveBeenCalledWith(
-			expect.any(String),
-			"targets",
-			expect.any(Array),
+		await waitFor(() =>
+			expect(
+				screen.getByRole("button", { name: "select-item:1" }),
+			).toBeInTheDocument(),
 		);
+		expect(mockState.refresh).not.toHaveBeenCalled();
 	});
 
 	it("refreshes an empty policy selector and handles admission controls", () => {
@@ -480,6 +473,7 @@ describe("PolicyGroupEditorForm", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: /policy_group_add_target/ }),
 		);
+		fireEvent.click(screen.getByRole("button", { name: "select-item:1" }));
 		const [targetSwitch] = screen.getAllByRole("button", {
 			name: /switch:toggle:true/,
 		});
@@ -487,6 +481,10 @@ describe("PolicyGroupEditorForm", () => {
 		fireEvent.click(targetSwitch);
 		fireEvent.click(
 			screen.getByRole("button", { name: "select-item:weighted_random" }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "select-item:reject" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "select-item:force_server_stream" }),
 		);
 		expect(mockState.openSimulation).toHaveBeenCalledTimes(1);
 		expect(mockState.addRule).toHaveBeenCalledTimes(1);

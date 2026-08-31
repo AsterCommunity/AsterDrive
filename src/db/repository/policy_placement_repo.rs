@@ -3,7 +3,10 @@
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::{storage_policy_group_rule, storage_policy_group_rule_target};
 use sea_orm::PaginatorTrait;
-use sea_orm::{ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QuerySelect,
+    RelationTrait,
+};
 
 pub async fn find_all_rules<C: ConnectionTrait>(
     db: &C,
@@ -43,16 +46,39 @@ pub async fn find_rules_by_group_id<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn count_targets_by_rule_and_policy<C: ConnectionTrait>(
+pub async fn find_targets_by_rule_id<C: ConnectionTrait>(
     db: &C,
     rule_id: i64,
-    policy_id: i64,
-) -> Result<u64> {
+) -> Result<Vec<storage_policy_group_rule_target::Model>> {
     storage_policy_group_rule_target::Entity::find()
         .filter(storage_policy_group_rule_target::Column::RuleId.eq(rule_id))
-        .filter(storage_policy_group_rule_target::Column::PolicyId.eq(policy_id))
-        .count(db)
+        .all(db)
         .await
+        .map_err(AsterError::from)
+}
+
+pub async fn group_has_assignable_target<C: ConnectionTrait>(
+    db: &C,
+    group_id: i64,
+) -> Result<bool> {
+    use sea_orm::JoinType;
+
+    storage_policy_group_rule_target::Entity::find()
+        .join(
+            JoinType::InnerJoin,
+            storage_policy_group_rule_target::Relation::Rule.def(),
+        )
+        .join(
+            JoinType::InnerJoin,
+            storage_policy_group_rule_target::Relation::StoragePolicy.def(),
+        )
+        .filter(storage_policy_group_rule::Column::GroupId.eq(group_id))
+        .filter(storage_policy_group_rule::Column::IsEnabled.eq(true))
+        .filter(storage_policy_group_rule_target::Column::IsEnabled.eq(true))
+        .filter(storage_policy_group_rule_target::Column::AcceptingNewWrites.eq(true))
+        .one(db)
+        .await
+        .map(|target| target.is_some())
         .map_err(AsterError::from)
 }
 

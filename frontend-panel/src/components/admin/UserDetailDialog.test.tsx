@@ -368,17 +368,38 @@ function createPolicyGroup(overrides: Record<string, unknown> = {}) {
 		id: 1,
 		is_default: false,
 		is_enabled: true,
-		items: [
+		rules: [
 			{
 				id: 101,
-				max_file_size: 0,
-				min_file_size: 0,
-				policy: {
-					id: 201,
-					name: "Primary Policy",
-				},
-				policy_id: 201,
+				name: "Primary rule",
+				description: "",
 				priority: 1,
+				is_enabled: true,
+				matcher: {
+					min_file_size: 0,
+					max_file_size: 0,
+					extensions: [],
+					compound_extensions: [],
+					extensionless: null,
+					categories: [],
+				},
+				selection_mode: "first_available",
+				unavailable_behavior: "next_rule",
+				targets: [
+					{
+						id: 201,
+						policy_id: 201,
+						weight: 100,
+						is_enabled: true,
+						accepting_new_writes: true,
+						stable_order: 1,
+						policy: {
+							id: 201,
+							name: "Primary Policy",
+							connector_id: "local",
+						},
+					},
+				],
 			},
 		],
 		name: "Primary",

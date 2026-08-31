@@ -11,13 +11,19 @@ export interface UserPasswordErrors {
 	password?: string;
 }
 
+export function policyGroupRuleCount(group: StoragePolicyGroup) {
+	const rules =
+		group.rules ?? (group as StoragePolicyGroup & { items?: unknown[] }).items;
+	return rules?.length ?? 0;
+}
+
 export function buildPolicyGroupOptions(
 	policyGroups: StoragePolicyGroup[],
 	selectedPolicyGroupId: number | null,
 ): PolicyGroupOption[] {
 	const options: PolicyGroupOption[] = [];
 	for (const group of policyGroups) {
-		if (!group.is_enabled || group.rules.length === 0) {
+		if (!group.is_enabled || policyGroupRuleCount(group) === 0) {
 			continue;
 		}
 		options.push({

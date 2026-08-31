@@ -102,13 +102,18 @@ pub(crate) async fn upload_with_hints(
         )
         .await?;
         let policy = resolution.policy;
+        let execution_preference = resolution
+            .routing_decision
+            .ok_or_else(|| {
+                crate::errors::AsterError::storage_policy_not_found(
+                    "new blob placement decision is missing",
+                )
+            })?
+            .execution_preference;
         let transport = resolve_policy_upload_transport_for_execution(
             state.driver_registry().connectors(),
             &policy,
-            resolution
-                .routing_decision
-                .expect("new blob placement decision")
-                .execution_preference,
+            execution_preference,
         )?;
         if transport.supports_streaming_direct_upload(&policy, declared_size) {
             tracing::debug!(

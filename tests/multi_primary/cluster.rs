@@ -2131,7 +2131,10 @@ async fn storage_policy_update_propagates_to_second_primary_without_restart() {
             .json()
             .await
             .expect("decode upload init response from primary B");
-        if status == reqwest::StatusCode::BAD_REQUEST && body["code"] == "file.too_large" {
+        if status == reqwest::StatusCode::BAD_REQUEST
+            && (body["code"] == "file.too_large"
+                || body.to_string().contains("placement_no_eligible_target"))
+        {
             break;
         }
         if tokio::time::Instant::now() >= deadline {
@@ -2290,7 +2293,10 @@ async fn user_policy_group_assignment_propagates_to_second_primary_without_resta
             .json()
             .await
             .expect("decode user upload init response from primary B");
-        if status == reqwest::StatusCode::BAD_REQUEST && body["code"] == "file.too_large" {
+        if status == reqwest::StatusCode::BAD_REQUEST
+            && (body["code"] == "file.too_large"
+                || body.to_string().contains("placement_no_eligible_target"))
+        {
             break;
         }
         if tokio::time::Instant::now() >= deadline {

@@ -345,6 +345,7 @@ export default function AdminPolicyGroupsPage() {
 		setter(value);
 		setSimulationResult(null);
 		setSimulationError(null);
+		setSimulationSubmitting(false);
 	};
 
 	const runSimulation = async () => {

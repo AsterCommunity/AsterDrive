@@ -409,7 +409,7 @@ pub fn simulate_placement(
         file_size: context.file_size,
         extension: context.extension.clone(),
         compound_extension: context.compound_extension.clone(),
-        category: context.category.clone(),
+        category: context.category,
     };
     match resolve_placement_internal(profile, context, folder_override, None) {
         PlacementResolution::Selected(decision) => StoragePlacementSimulationResult {
@@ -510,10 +510,13 @@ fn resolve_placement_internal(
             continue;
         }
         let selected = match rule.selection_mode {
-            PlacementSelectionMode::FirstAvailable => eligible
-                .iter()
-                .min_by_key(|target| target.stable_order)
-                .expect("eligible target list is non-empty"),
+            PlacementSelectionMode::FirstAvailable => {
+                let Some(selected) = eligible.iter().min_by_key(|target| target.stable_order)
+                else {
+                    return rejected(PlacementRejection::NoEligibleTarget);
+                };
+                selected
+            }
             PlacementSelectionMode::WeightedRandom => {
                 let total_weight: u64 = eligible.iter().map(|target| target.weight as u64).sum();
                 let draw = random_draw.unwrap_or_else(|| rand::rng().random_range(0..total_weight));

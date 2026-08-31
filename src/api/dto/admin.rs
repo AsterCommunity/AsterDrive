@@ -811,12 +811,10 @@ fn validate_patch_policy_group(
     if let Some(name) = value.name.as_deref() {
         crate::api::dto::validation::validate_non_blank(name)?;
     }
-    if value.rules.is_some() {
-        if value.rules.as_ref().is_none_or(Vec::is_empty) {
-            return Err(crate::api::dto::validation::message_validation_error(
-                "storage policy group must contain at least one routing rule",
-            ));
-        }
+    if value.rules.is_some() && value.rules.as_ref().is_none_or(Vec::is_empty) {
+        return Err(crate::api::dto::validation::message_validation_error(
+            "storage policy group must contain at least one routing rule",
+        ));
     }
     if value.is_default == Some(true) && value.is_enabled == Some(false) {
         return Err(crate::api::dto::validation::message_validation_error(

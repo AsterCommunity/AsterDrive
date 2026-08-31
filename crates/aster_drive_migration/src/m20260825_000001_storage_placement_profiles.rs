@@ -363,8 +363,8 @@ async fn materialize_legacy_items(manager: &SchemaManager<'_>) -> Result<(), DbE
                 matcher.into(),
                 "first_available".into(),
                 "next_rule".into(),
-                created_at.clone().into(),
-                created_at.clone().into(),
+                created_at.into(),
+                created_at.into(),
             ]);
         transaction.execute(&rule).await?;
 
@@ -390,7 +390,7 @@ async fn materialize_legacy_items(manager: &SchemaManager<'_>) -> Result<(), DbE
                 true.into(),
                 true.into(),
                 1_i32.into(),
-                created_at.clone().into(),
+                created_at.into(),
                 created_at.into(),
             ]);
         transaction.execute(&target).await?;

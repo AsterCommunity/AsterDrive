@@ -437,9 +437,9 @@ pub(super) async fn ensure_assignable_policy_group(
         ));
     }
 
-    if !policy_placement_repo::group_has_rules(state.writer_db(), group_id).await? {
+    if !policy_placement_repo::group_has_assignable_target(state.writer_db(), group_id).await? {
         return Err(AsterError::validation_error(
-            "cannot assign a storage policy group without policies",
+            "cannot assign a storage policy group without an assignable target",
         ));
     }
 

@@ -158,9 +158,9 @@ pub(super) async fn resolve_init_upload_context(
     )
     .await?;
     let policy = resolution.policy;
-    let routing_decision = resolution
-        .routing_decision
-        .expect("new blob placement decision");
+    let routing_decision = resolution.routing_decision.ok_or_else(|| {
+        AsterError::storage_policy_not_found("new blob placement decision is missing")
+    })?;
     validate_policy_upload_size(&policy, total_size)?;
     storage::check_quota(state.writer_db(), scope, total_size).await?;
     tracing::debug!(

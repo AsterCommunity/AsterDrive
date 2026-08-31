@@ -262,7 +262,6 @@ pub async fn update_group(
         }
     }
 
-    let rules = rules;
     if let Some(ref updated_rules) = rules {
         validate_placement_rules(&txn, updated_rules).await?;
     }
