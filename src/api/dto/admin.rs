@@ -787,7 +787,7 @@ fn validate_create_policy_group(
 ) -> std::result::Result<(), ValidationError> {
     if value.rules.as_ref().is_none_or(Vec::is_empty) {
         return Err(crate::api::dto::validation::message_validation_error(
-            "storage policy group must contain at least one policy",
+            "storage policy group must contain at least one routing rule",
         ));
     }
     if value.is_default && !value.is_enabled {
@@ -814,7 +814,7 @@ fn validate_patch_policy_group(
     if value.rules.is_some() {
         if value.rules.as_ref().is_none_or(Vec::is_empty) {
             return Err(crate::api::dto::validation::message_validation_error(
-                "storage policy group must contain at least one policy",
+                "storage policy group must contain at least one routing rule",
             ));
         }
     }

@@ -24,6 +24,7 @@ import { formatBytes } from "@/lib/format";
 import type {
 	StoragePlacementSimulationResult,
 	StoragePolicyGroup,
+	StoragePolicySummaryInfo,
 } from "@/types/api";
 
 const NO_FOLDER_OVERRIDE = "__none__";
@@ -36,7 +37,7 @@ interface PolicyGroupSimulationDialogProps {
 	folderPolicyId: string;
 	group: StoragePolicyGroup | null;
 	mimeType: string;
-	policies: Array<{ id: number; name: string }>;
+	policies: StoragePolicySummaryInfo[];
 	result: StoragePlacementSimulationResult | null;
 	submitting: boolean;
 	onFilenameChange: (value: string) => void;
@@ -50,7 +51,7 @@ interface PolicyGroupSimulationDialogProps {
 function policyName(
 	policyId: number,
 	group: StoragePolicyGroup | null,
-	policies: Array<{ id: number; name: string }>,
+	policies: StoragePolicySummaryInfo[],
 ) {
 	return (
 		policies.find((policy) => policy.id === policyId)?.name ??

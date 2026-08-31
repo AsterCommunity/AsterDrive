@@ -126,6 +126,14 @@ impl UploadExecutionPreference {
     }
 }
 
+pub(crate) fn parse_execution_preference(value: &str) -> Option<UploadExecutionPreference> {
+    match value {
+        "automatic" => Some(UploadExecutionPreference::Automatic),
+        "force_server_stream" => Some(UploadExecutionPreference::ForceServerStream),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum TargetExclusionReason {
@@ -552,7 +560,7 @@ fn apply_admission(
     context: &StoragePlacementContext,
 ) -> Result<(), PlacementRejection> {
     if context.extension.is_empty() {
-        if !admission.accept_extensionless {
+        if !admission.allowed_extensions.is_empty() || !admission.accept_extensionless {
             return Err(PlacementRejection::AdmissionExtensionlessDenied);
         }
     } else {
@@ -728,6 +736,16 @@ mod tests {
     fn extensionless_can_be_explicitly_rejected() {
         let mut profile = profile();
         profile.admission.accept_extensionless = false;
+        assert_eq!(
+            resolve_placement(&profile, &context("README", 10), None).unwrap_err(),
+            PlacementRejection::AdmissionExtensionlessDenied
+        );
+    }
+
+    #[test]
+    fn extension_whitelist_rejects_extensionless_files() {
+        let mut profile = profile();
+        profile.admission.allowed_extensions = vec!["jpg".to_string()];
         assert_eq!(
             resolve_placement(&profile, &context("README", 10), None).unwrap_err(),
             PlacementRejection::AdmissionExtensionlessDenied

@@ -12,8 +12,8 @@ use crate::errors::{AsterError, Result};
 use crate::services::storage_policy::policy::placement::{
     CompiledPlacementProfile, PLACEMENT_PAYLOAD_FORMAT_VERSION, PLACEMENT_PAYLOAD_SCHEMA_VERSION,
     PlacementMatcher, PlacementPayloadEnvelope, PlacementRule, PlacementSelectionMode,
-    PlacementTarget, PlacementUnavailableBehavior, StorageAdmissionConstraints,
-    UploadExecutionPreference, compile_admission, compile_matcher,
+    PlacementTarget, PlacementUnavailableBehavior, StorageAdmissionConstraints, compile_admission,
+    compile_matcher, parse_execution_preference,
 };
 use aster_drive_model::entities::{
     storage_policy, storage_policy_group, storage_policy_group_rule,
@@ -101,6 +101,11 @@ impl PolicySnapshot {
         let mut targets_by_rule_id: HashMap<i64, Vec<PlacementTarget>> = HashMap::new();
         for target in placement_targets {
             let Some(policy) = policies_by_id.get(&target.policy_id) else {
+                tracing::warn!(
+                    rule_id = target.rule_id,
+                    policy_id = target.policy_id,
+                    "placement target references a missing policy"
+                );
                 continue;
             };
             let capability_exclusion = crate::storage::connectors::resolve_policy_upload_transport(
@@ -125,8 +130,20 @@ impl PolicySnapshot {
                 .push(PlacementTarget {
                     id: target.id,
                     policy_id: target.policy_id,
-                    weight: u32::try_from(target.weight).unwrap_or_default(),
-                    stable_order: u32::try_from(target.stable_order).unwrap_or_default(),
+                    weight: match u32::try_from(target.weight) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            tracing::error!(target_id = target.id, policy_id = target.policy_id, error = %error, "excluding placement target with invalid weight");
+                            continue;
+                        }
+                    },
+                    stable_order: match u32::try_from(target.stable_order) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            tracing::error!(target_id = target.id, policy_id = target.policy_id, error = %error, "excluding placement target with invalid stable order");
+                            continue;
+                        }
+                    },
                     is_enabled: target.is_enabled,
                     accepting_new_writes: target.accepting_new_writes,
                     policy_max_file_size: policy.max_file_size,
@@ -136,40 +153,46 @@ impl PolicySnapshot {
 
         let mut rules_by_group_id: HashMap<i64, Vec<PlacementRule>> = HashMap::new();
         for rule in placement_rules {
-            let envelope: PlacementPayloadEnvelope<PlacementMatcher> =
-                serde_json::from_str(&rule.matcher).map_err(|error| {
-                    AsterError::database_operation(format!(
-                        "placement rule #{} has invalid matcher payload: {error}",
-                        rule.id
-                    ))
-                })?;
+            let envelope: PlacementPayloadEnvelope<PlacementMatcher> = match serde_json::from_str(
+                &rule.matcher,
+            ) {
+                Ok(value) => value,
+                Err(error) => {
+                    tracing::error!(rule_id = rule.id, error = %error, "skipping placement rule with invalid matcher payload");
+                    continue;
+                }
+            };
             if envelope.format_version != PLACEMENT_PAYLOAD_FORMAT_VERSION
                 || envelope.schema_version != PLACEMENT_PAYLOAD_SCHEMA_VERSION
             {
-                return Err(AsterError::database_operation(format!(
-                    "placement rule #{} has unsupported matcher version",
-                    rule.id
-                )));
+                tracing::error!(
+                    rule_id = rule.id,
+                    "skipping placement rule with unsupported matcher version"
+                );
+                continue;
             }
-            let matcher = compile_matcher(envelope.values).map_err(|error| {
-                AsterError::database_operation(format!(
-                    "placement rule #{} matcher validation failed: {error}",
-                    rule.id
-                ))
-            })?;
-            let selection_mode = parse_selection_mode(&rule.selection_mode).ok_or_else(|| {
-                AsterError::database_operation(format!(
-                    "placement rule #{} has invalid selection mode",
-                    rule.id
-                ))
-            })?;
-            let unavailable_behavior = parse_unavailable_behavior(&rule.unavailable_behavior)
-                .ok_or_else(|| {
-                    AsterError::database_operation(format!(
-                        "placement rule #{} has invalid unavailable behavior",
-                        rule.id
-                    ))
-                })?;
+            let matcher = match compile_matcher(envelope.values) {
+                Ok(value) => value,
+                Err(error) => {
+                    tracing::error!(rule_id = rule.id, error = %error, "skipping placement rule with invalid matcher");
+                    continue;
+                }
+            };
+            let Some(selection_mode) = parse_selection_mode(&rule.selection_mode) else {
+                tracing::error!(
+                    rule_id = rule.id,
+                    "skipping placement rule with invalid selection mode"
+                );
+                continue;
+            };
+            let Some(unavailable_behavior) = parse_unavailable_behavior(&rule.unavailable_behavior)
+            else {
+                tracing::error!(
+                    rule_id = rule.id,
+                    "skipping placement rule with invalid unavailable behavior"
+                );
+                continue;
+            };
             rules_by_group_id
                 .entry(rule.group_id)
                 .or_default()
@@ -189,26 +212,38 @@ impl PolicySnapshot {
         let mut placement_profiles_by_id = HashMap::new();
         for group in &policy_groups {
             let admission_envelope: PlacementPayloadEnvelope<StorageAdmissionConstraints> =
-                serde_json::from_str(&group.admission_config).map_err(|error| {
-                    AsterError::database_operation(format!(
-                        "placement profile #{} has invalid admission payload: {error}",
-                        group.id
-                    ))
-                })?;
+                match serde_json::from_str(&group.admission_config) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        tracing::error!(profile_id = group.id, error = %error, "skipping placement profile with invalid admission payload");
+                        continue;
+                    }
+                };
             if admission_envelope.format_version != PLACEMENT_PAYLOAD_FORMAT_VERSION
                 || admission_envelope.schema_version != PLACEMENT_PAYLOAD_SCHEMA_VERSION
             {
-                return Err(AsterError::database_operation(format!(
-                    "placement profile #{} has unsupported admission version",
-                    group.id
-                )));
+                tracing::error!(
+                    profile_id = group.id,
+                    "skipping placement profile with unsupported admission version"
+                );
+                continue;
             }
-            let admission = compile_admission(admission_envelope.values).map_err(|error| {
-                AsterError::database_operation(format!(
-                    "placement profile #{} admission validation failed: {error}",
-                    group.id
-                ))
-            })?;
+            let admission = match compile_admission(admission_envelope.values) {
+                Ok(value) => value,
+                Err(error) => {
+                    tracing::error!(profile_id = group.id, error = %error, "skipping placement profile with invalid admission");
+                    continue;
+                }
+            };
+            let Some(execution_preference) =
+                parse_execution_preference(&group.upload_execution_preference)
+            else {
+                tracing::error!(
+                    profile_id = group.id,
+                    "skipping placement profile with invalid execution preference"
+                );
+                continue;
+            };
             placement_profiles_by_id.insert(
                 group.id,
                 CompiledPlacementProfile {
@@ -216,15 +251,7 @@ impl PolicySnapshot {
                     revision: group.routing_revision,
                     is_enabled: group.is_enabled,
                     admission,
-                    execution_preference: parse_execution_preference(
-                        &group.upload_execution_preference,
-                    )
-                    .ok_or_else(|| {
-                        AsterError::database_operation(format!(
-                            "placement profile #{} has invalid execution preference",
-                            group.id
-                        ))
-                    })?,
+                    execution_preference,
                     rules: rules_by_group_id.remove(&group.id).unwrap_or_default(),
                 },
             );
@@ -426,14 +453,6 @@ fn parse_unavailable_behavior(value: &str) -> Option<PlacementUnavailableBehavio
     match value {
         "next_rule" => Some(PlacementUnavailableBehavior::NextRule),
         "reject" => Some(PlacementUnavailableBehavior::Reject),
-        _ => None,
-    }
-}
-
-fn parse_execution_preference(value: &str) -> Option<UploadExecutionPreference> {
-    match value {
-        "automatic" => Some(UploadExecutionPreference::Automatic),
-        "force_server_stream" => Some(UploadExecutionPreference::ForceServerStream),
         _ => None,
     }
 }

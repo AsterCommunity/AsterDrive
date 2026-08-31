@@ -9,7 +9,9 @@
 //! applied this migration and the placement API is authoritative.
 
 use sea_orm_migration::prelude::*;
-use sea_orm_migration::sea_orm::{ConnectionTrait, Statement, TransactionTrait};
+use sea_orm_migration::sea_orm::{
+    ConnectionTrait, DbBackend, Statement, TransactionTrait, prelude::DateTimeUtc,
+};
 use serde_json::json;
 
 #[derive(DeriveMigrationName)]
@@ -322,7 +324,7 @@ async fn materialize_legacy_items(manager: &SchemaManager<'_>) -> Result<(), DbE
         let priority: i32 = row.try_get_by_index(3)?;
         let min_file_size: i64 = row.try_get_by_index(4)?;
         let max_file_size: i64 = row.try_get_by_index(5)?;
-        let created_at: String = row.try_get_by_index(6)?;
+        let created_at: DateTimeUtc = row.try_get_by_index(6)?;
         let matcher = json!({
             "format_version": 1,
             "schema_version": 1,
@@ -393,7 +395,21 @@ async fn materialize_legacy_items(manager: &SchemaManager<'_>) -> Result<(), DbE
             ]);
         transaction.execute(&target).await?;
     }
-    transaction.commit().await
+    transaction.commit().await?;
+    if manager.get_database_backend() == DbBackend::Postgres {
+        for table in [
+            "storage_policy_group_rules",
+            "storage_policy_group_rule_targets",
+        ] {
+            manager
+                .get_connection()
+                .execute_unprepared(&format!(
+                    "SELECT setval(pg_get_serial_sequence('{table}', 'id'), COALESCE((SELECT MAX(id) FROM {table}), 0) + 1, false)"
+                ))
+                .await?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(DeriveIden)]

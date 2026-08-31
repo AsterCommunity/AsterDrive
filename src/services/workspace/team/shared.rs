@@ -437,8 +437,7 @@ pub(super) async fn ensure_assignable_policy_group(
         ));
     }
 
-    let rules = policy_placement_repo::find_all_rules(state.writer_db()).await?;
-    if !rules.iter().any(|rule| rule.group_id == group_id) {
+    if !policy_placement_repo::group_has_rules(state.writer_db(), group_id).await? {
         return Err(AsterError::validation_error(
             "cannot assign a storage policy group without policies",
         ));

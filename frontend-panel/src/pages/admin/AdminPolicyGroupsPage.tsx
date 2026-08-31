@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -168,6 +168,7 @@ export default function AdminPolicyGroupsPage() {
 		useState<StoragePlacementSimulationResult | null>(null);
 	const [simulationError, setSimulationError] = useState<string | null>(null);
 	const [simulationSubmitting, setSimulationSubmitting] = useState(false);
+	const simulationRequestVersion = useRef(0);
 	const { pendingId: deletingGroupId, runWithPending: runWithDeletingGroup } =
 		usePendingId<number>();
 	const refreshing = loading || policiesLoading;
@@ -316,6 +317,7 @@ export default function AdminPolicyGroupsPage() {
 	};
 
 	const openSimulationDialog = (group: StoragePolicyGroup) => {
+		simulationRequestVersion.current += 1;
 		resetSimulationState();
 		setSimulationGroup(group);
 	};
@@ -329,6 +331,7 @@ export default function AdminPolicyGroupsPage() {
 
 	const handleSimulationDialogOpenChange = (open: boolean) => {
 		if (!open) {
+			simulationRequestVersion.current += 1;
 			setSimulationGroup(null);
 			resetSimulationState();
 		}
@@ -338,6 +341,7 @@ export default function AdminPolicyGroupsPage() {
 		setter: (value: string) => void,
 		value: string,
 	) => {
+		simulationRequestVersion.current += 1;
 		setter(value);
 		setSimulationResult(null);
 		setSimulationError(null);
@@ -345,6 +349,7 @@ export default function AdminPolicyGroupsPage() {
 
 	const runSimulation = async () => {
 		if (!simulationGroup) return;
+		const requestVersion = ++simulationRequestVersion.current;
 		const filename = simulationFilename.trim();
 		if (!filename) {
 			setSimulationError(t("policy_group_simulator_filename_required"));
@@ -371,19 +376,25 @@ export default function AdminPolicyGroupsPage() {
 		try {
 			setSimulationSubmitting(true);
 			setSimulationError(null);
-			setSimulationResult(
-				await adminPolicyGroupService.simulate(simulationGroup.id, {
+			const result = await adminPolicyGroupService.simulate(
+				simulationGroup.id,
+				{
 					filename,
 					file_size: fileSize,
 					mime_type: simulationMimeType.trim(),
 					folder_policy_id: folderPolicyId,
-				}),
+				},
 			);
+			if (requestVersion !== simulationRequestVersion.current) return;
+			setSimulationResult(result);
 		} catch (error) {
+			if (requestVersion !== simulationRequestVersion.current) return;
 			setSimulationResult(null);
 			setSimulationError(getApiErrorMessage(error));
 		} finally {
-			setSimulationSubmitting(false);
+			if (requestVersion === simulationRequestVersion.current) {
+				setSimulationSubmitting(false);
+			}
 		}
 	};
 

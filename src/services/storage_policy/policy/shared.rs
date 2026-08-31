@@ -82,7 +82,15 @@ pub(super) fn build_group_info(
                         .targets
                         .iter()
                         .filter_map(|target| {
-                            let policy = state.policy_snapshot().get_policy(target.policy_id)?;
+                            let Some(policy) = state.policy_snapshot().get_policy(target.policy_id)
+                            else {
+                                tracing::warn!(
+                                    target_id = target.id,
+                                    policy_id = target.policy_id,
+                                    "placement target references a missing policy"
+                                );
+                                return None;
+                            };
                             Some(StoragePlacementTargetInfo {
                                 id: target.id,
                                 policy_id: target.policy_id,
@@ -110,7 +118,8 @@ pub(super) fn build_group_info(
         .unwrap_or_else(|| {
             (
                 StorageAdmissionConstraints::default(),
-                super::placement::UploadExecutionPreference::Automatic,
+                super::placement::parse_execution_preference(&group.upload_execution_preference)
+                    .unwrap_or(super::placement::UploadExecutionPreference::Automatic),
                 group.routing_revision,
                 Vec::new(),
             )
@@ -142,6 +151,7 @@ pub(super) async fn validate_placement_rules<C: sea_orm::ConnectionTrait>(
     }
     let mut priorities = std::collections::HashSet::new();
     for rule in rules {
+        validate_rule_name(&rule.name)?;
         if rule.priority <= 0 || !priorities.insert(rule.priority) {
             return Err(AsterError::validation_error(
                 "placement rule priorities must be unique positive integers",
@@ -169,6 +179,27 @@ pub(super) async fn validate_placement_rules<C: sea_orm::ConnectionTrait>(
         }
     }
     Ok(())
+}
+
+fn validate_rule_name(name: &str) -> Result<()> {
+    if name.trim().is_empty() {
+        return Err(AsterError::validation_error(
+            "placement rule name must not be empty",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_rule_name;
+
+    #[test]
+    fn rule_name_rejects_blank_values() {
+        assert!(validate_rule_name("").is_err());
+        assert!(validate_rule_name("  \t").is_err());
+        assert!(validate_rule_name("Images").is_ok());
+    }
 }
 
 pub(super) async fn replace_placement_rules<C: sea_orm::ConnectionTrait>(

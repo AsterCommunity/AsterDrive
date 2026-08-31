@@ -20,8 +20,14 @@ export interface PolicyGroupRuleTargetForm {
 export interface PolicyGroupRuleForm {
 	key: string;
 	name: string;
+	description: string;
+	isEnabled: boolean;
 	minFileSizeMb: string;
 	maxFileSizeMb: string;
+	extensions: string[];
+	compoundExtensions: string[];
+	extensionless: boolean | null;
+	categories: components["schemas"]["FileCategory"][];
 	originalMinFileSizeBytes?: number;
 	originalMaxFileSizeBytes?: number;
 	selectionMode: "first_available" | "weighted_random";
@@ -109,15 +115,27 @@ export function buildPolicyGroupRuleForm(
 	maxFileSize = 0,
 	rule?: Pick<
 		StoragePlacementRuleInfo,
-		"name" | "selection_mode" | "unavailable_behavior" | "targets"
+		| "name"
+		| "description"
+		| "is_enabled"
+		| "matcher"
+		| "selection_mode"
+		| "unavailable_behavior"
+		| "targets"
 	>,
 	defaultName = "Rule 1",
 ): PolicyGroupRuleForm {
 	return {
 		key: generateRuleKey(),
 		name: rule?.name?.trim() || defaultName,
+		description: rule?.description ?? "",
+		isEnabled: rule?.is_enabled ?? true,
 		minFileSizeMb: bytesToMbInput(minFileSize),
 		maxFileSizeMb: bytesToMbInput(maxFileSize),
+		extensions: rule?.matcher?.extensions ?? [],
+		compoundExtensions: rule?.matcher?.compound_extensions ?? [],
+		extensionless: rule?.matcher?.extensionless ?? null,
+		categories: rule?.matcher?.categories ?? [],
 		originalMinFileSizeBytes: minFileSize || undefined,
 		originalMaxFileSizeBytes: maxFileSize || undefined,
 		selectionMode: rule?.selection_mode ?? "first_available",
@@ -269,9 +287,9 @@ export function buildPolicyGroupPayload(
 		execution_preference: form.executionPreference ?? "automatic",
 		rules: form.items.map((item, index) => ({
 			name: item.name.trim() || `Rule ${index + 1}`,
-			description: "",
+			description: item.description.trim(),
 			priority: index + 1,
-			is_enabled: true,
+			is_enabled: item.isEnabled,
 			matcher: {
 				min_file_size: mbInputToBytes(
 					item.minFileSizeMb,
@@ -281,10 +299,10 @@ export function buildPolicyGroupPayload(
 					item.maxFileSizeMb,
 					item.originalMaxFileSizeBytes,
 				),
-				extensions: [],
-				compound_extensions: [],
-				extensionless: null,
-				categories: [],
+				extensions: item.extensions,
+				compound_extensions: item.compoundExtensions,
+				extensionless: item.extensionless,
+				categories: item.categories,
 			},
 			selection_mode: item.selectionMode ?? "first_available",
 			unavailable_behavior: item.unavailableBehavior ?? "next_rule",

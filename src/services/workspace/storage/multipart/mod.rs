@@ -85,7 +85,9 @@ pub(crate) async fn upload_with_hints(
         "resolved upload target"
     );
 
-    if let Some(declared_size) = declared_size {
+    if let Some(declared_size) = declared_size
+        && relative_path.is_some()
+    {
         let resolution = resolve_blob_policy_for_write(
             state,
             crate::services::workspace::storage::BlobPolicyRequest {

@@ -4,6 +4,7 @@ import {
 	buildPolicyGroupRuleForm,
 	bytesToMbInput,
 	getDefaultPolicyGroupForm,
+	getPolicyGroupForm,
 	validatePolicyGroupForm,
 } from "@/components/admin/policyGroupEditorShared";
 import type { StoragePolicy } from "@/types/api";
@@ -77,6 +78,50 @@ describe("policyGroupEditorShared", () => {
 				t,
 			),
 		).toBe("policy_group_rule_name_too_long");
+	});
+
+	it("preserves disabled rules and complex matcher fields when editing", () => {
+		const form = getPolicyGroupForm({
+			name: "Named",
+			description: "",
+			is_enabled: true,
+			is_default: false,
+			admission: {} as never,
+			execution_preference: "automatic",
+			rules: [
+				{
+					id: 1,
+					name: "Archives",
+					description: "Cold path",
+					priority: 1,
+					is_enabled: false,
+					matcher: {
+						min_file_size: 1,
+						max_file_size: 2,
+						extensions: ["zip"],
+						compound_extensions: ["tar.gz"],
+						extensionless: false,
+						categories: ["archive"],
+					},
+					selection_mode: "first_available",
+					unavailable_behavior: "next_rule",
+					targets: [],
+				},
+			],
+		} as never);
+		const rule = form.items[0];
+		expect(rule?.description).toBe("Cold path");
+		expect(rule?.isEnabled).toBe(false);
+		expect(rule?.extensions).toEqual(["zip"]);
+		expect(rule?.compoundExtensions).toEqual(["tar.gz"]);
+		expect(rule?.extensionless).toBe(false);
+		expect(rule?.categories).toEqual(["archive"]);
+		expect(buildPolicyGroupPayload(form).rules?.[0]).toMatchObject({
+			name: "Archives",
+			description: "Cold path",
+			is_enabled: false,
+			matcher: expect.objectContaining({ extensions: ["zip"] }),
+		});
 	});
 
 	it("validates duplicate primary policies across rules", () => {
@@ -262,6 +307,12 @@ describe("policyGroupEditorShared", () => {
 					{
 						key: "a",
 						name: "Small files",
+						description: "",
+						isEnabled: true,
+						extensions: [],
+						compoundExtensions: [],
+						extensionless: null,
+						categories: [],
 						minFileSizeMb: "",
 						maxFileSizeMb: "10",
 						selectionMode: "first_available",
@@ -279,6 +330,12 @@ describe("policyGroupEditorShared", () => {
 					{
 						key: "b",
 						name: "Large files",
+						description: "",
+						isEnabled: true,
+						extensions: [],
+						compoundExtensions: [],
+						extensionless: null,
+						categories: [],
 						minFileSizeMb: "10",
 						maxFileSizeMb: "",
 						selectionMode: "first_available",
@@ -391,6 +448,12 @@ describe("policyGroupEditorShared", () => {
 					{
 						key: "a",
 						name: "Exact bytes",
+						description: "",
+						isEnabled: true,
+						extensions: [],
+						compoundExtensions: [],
+						extensionless: null,
+						categories: [],
 						minFileSizeMb: bytesToMbInput(preciseBytes),
 						maxFileSizeMb: "",
 						originalMinFileSizeBytes: preciseBytes,
@@ -430,6 +493,12 @@ describe("policyGroupEditorShared", () => {
 				{
 					key: "weighted-rule",
 					name: "Weighted",
+					description: "",
+					isEnabled: true,
+					extensions: [],
+					compoundExtensions: [],
+					extensionless: null,
+					categories: [],
 					minFileSizeMb: "",
 					maxFileSizeMb: "",
 					selectionMode: "weighted_random",

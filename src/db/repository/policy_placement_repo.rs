@@ -23,6 +23,15 @@ pub async fn find_all_targets<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+pub async fn group_has_rules<C: ConnectionTrait>(db: &C, group_id: i64) -> Result<bool> {
+    storage_policy_group_rule::Entity::find()
+        .filter(storage_policy_group_rule::Column::GroupId.eq(group_id))
+        .one(db)
+        .await
+        .map(|rule| rule.is_some())
+        .map_err(AsterError::from)
+}
+
 pub async fn create_rule<C: ConnectionTrait>(
     db: &C,
     model: storage_policy_group_rule::ActiveModel,
