@@ -7,6 +7,7 @@ import type {
 } from "@/types/api";
 
 const BYTES_PER_MB = 1024 * 1024;
+export const MAX_POLICY_GROUP_RULE_NAME_LENGTH = 64;
 
 export interface PolicyGroupRuleTargetForm {
 	key: string;
@@ -18,6 +19,7 @@ export interface PolicyGroupRuleTargetForm {
 
 export interface PolicyGroupRuleForm {
 	key: string;
+	name: string;
 	minFileSizeMb: string;
 	maxFileSizeMb: string;
 	originalMinFileSizeBytes?: number;
@@ -107,11 +109,13 @@ export function buildPolicyGroupRuleForm(
 	maxFileSize = 0,
 	rule?: Pick<
 		StoragePlacementRuleInfo,
-		"selection_mode" | "unavailable_behavior" | "targets"
+		"name" | "selection_mode" | "unavailable_behavior" | "targets"
 	>,
+	defaultName = "Rule 1",
 ): PolicyGroupRuleForm {
 	return {
 		key: generateRuleKey(),
+		name: rule?.name?.trim() || defaultName,
 		minFileSizeMb: bytesToMbInput(minFileSize),
 		maxFileSizeMb: bytesToMbInput(maxFileSize),
 		originalMinFileSizeBytes: minFileSize || undefined,
@@ -134,7 +138,15 @@ export function getDefaultPolicyGroupForm(
 		description: "",
 		isEnabled: true,
 		isDefault: false,
-		items: [buildPolicyGroupRuleForm(policies[0]?.id ?? null)],
+		items: [
+			buildPolicyGroupRuleForm(
+				policies[0]?.id ?? null,
+				0,
+				0,
+				undefined,
+				"Rule 1",
+			),
+		],
 		admission: {
 			allowed_extensions: [],
 			denied_extensions: [],
@@ -191,6 +203,13 @@ export function validatePolicyGroupForm(
 	const seenPrimaryPolicyIds = new Set<number>();
 
 	for (const item of form.items) {
+		const ruleName = item.name.trim();
+		if (!ruleName) {
+			return t("policy_group_rule_name_required");
+		}
+		if (ruleName.length > MAX_POLICY_GROUP_RULE_NAME_LENGTH) {
+			return t("policy_group_rule_name_too_long");
+		}
 		if (item.targets.length === 0) {
 			return t("policy_group_rule_target_required");
 		}
@@ -249,7 +268,7 @@ export function buildPolicyGroupPayload(
 		},
 		execution_preference: form.executionPreference ?? "automatic",
 		rules: form.items.map((item, index) => ({
-			name: `Rule ${index + 1}`,
+			name: item.name.trim() || `Rule ${index + 1}`,
 			description: "",
 			priority: index + 1,
 			is_enabled: true,

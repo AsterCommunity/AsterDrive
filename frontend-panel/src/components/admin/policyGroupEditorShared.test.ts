@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	buildPolicyGroupPayload,
+	buildPolicyGroupRuleForm,
 	bytesToMbInput,
 	getDefaultPolicyGroupForm,
 	validatePolicyGroupForm,
@@ -19,6 +20,63 @@ describe("policyGroupEditorShared", () => {
 		expect(form.items[0]?.targets).toHaveLength(1);
 		expect(form.items[0]?.targets[0]?.policyId).toBe("8");
 		expect(form.items[0]?.targets[0]?.weight).toBe("100");
+		expect(form.items[0]?.name).toBe("Rule 1");
+	});
+
+	it("preserves custom rule names and sends edited names", () => {
+		const rule = buildPolicyGroupRuleForm(1, 0, 0, {
+			name: "Images to primary",
+			selection_mode: "first_available",
+			unavailable_behavior: "next_rule",
+			targets: [],
+		});
+
+		expect(rule.name).toBe("Images to primary");
+		const payload = buildPolicyGroupPayload({
+			name: "Named",
+			description: "",
+			isEnabled: true,
+			isDefault: false,
+			items: [rule],
+		});
+		expect(payload.rules?.[0]?.name).toBe("Images to primary");
+	});
+
+	it("validates blank and oversized rule names", () => {
+		const rule = {
+			name: " ",
+			key: "a",
+			minFileSizeMb: "",
+			maxFileSizeMb: "",
+			selectionMode: "first_available" as const,
+			unavailableBehavior: "next_rule" as const,
+			targets: [
+				{
+					key: "a-1",
+					policyId: "1",
+					weight: "100",
+					isEnabled: true,
+					acceptingNewWrites: true,
+				},
+			],
+		};
+		const form = {
+			name: "Named",
+			description: "",
+			isEnabled: true,
+			isDefault: false,
+			items: [rule],
+		};
+		expect(validatePolicyGroupForm(form, 1, t)).toBe(
+			"policy_group_rule_name_required",
+		);
+		expect(
+			validatePolicyGroupForm(
+				{ ...form, items: [{ ...rule, name: "x".repeat(65) }] },
+				1,
+				t,
+			),
+		).toBe("policy_group_rule_name_too_long");
 	});
 
 	it("validates duplicate primary policies across rules", () => {
@@ -32,6 +90,7 @@ describe("policyGroupEditorShared", () => {
 					items: [
 						{
 							key: "a",
+							name: "Primary",
 							minFileSizeMb: "",
 							maxFileSizeMb: "",
 							selectionMode: "first_available",
@@ -48,6 +107,7 @@ describe("policyGroupEditorShared", () => {
 						},
 						{
 							key: "b",
+							name: "Fallback",
 							minFileSizeMb: "",
 							maxFileSizeMb: "",
 							selectionMode: "first_available",
@@ -72,6 +132,7 @@ describe("policyGroupEditorShared", () => {
 
 	it("rejects invalid policy ids, empty targets and in-rule duplicates", () => {
 		const baseRule = {
+			name: "Rule",
 			minFileSizeMb: "",
 			maxFileSizeMb: "",
 			selectionMode: "first_available" as const,
@@ -167,6 +228,7 @@ describe("policyGroupEditorShared", () => {
 					items: [
 						{
 							key: "a",
+							name: "Bad weight",
 							minFileSizeMb: "",
 							maxFileSizeMb: "",
 							selectionMode: "first_available",
@@ -199,6 +261,7 @@ describe("policyGroupEditorShared", () => {
 				items: [
 					{
 						key: "a",
+						name: "Small files",
 						minFileSizeMb: "",
 						maxFileSizeMb: "10",
 						selectionMode: "first_available",
@@ -215,6 +278,7 @@ describe("policyGroupEditorShared", () => {
 					},
 					{
 						key: "b",
+						name: "Large files",
 						minFileSizeMb: "10",
 						maxFileSizeMb: "",
 						selectionMode: "first_available",
@@ -254,7 +318,7 @@ describe("policyGroupEditorShared", () => {
 			execution_preference: "automatic",
 			rules: [
 				{
-					name: "Rule 1",
+					name: "Small files",
 					description: "",
 					priority: 1,
 					is_enabled: true,
@@ -279,7 +343,7 @@ describe("policyGroupEditorShared", () => {
 					],
 				},
 				{
-					name: "Rule 2",
+					name: "Large files",
 					description: "",
 					priority: 2,
 					is_enabled: true,
@@ -326,6 +390,7 @@ describe("policyGroupEditorShared", () => {
 				items: [
 					{
 						key: "a",
+						name: "Exact bytes",
 						minFileSizeMb: bytesToMbInput(preciseBytes),
 						maxFileSizeMb: "",
 						originalMinFileSizeBytes: preciseBytes,
@@ -364,6 +429,7 @@ describe("policyGroupEditorShared", () => {
 			items: [
 				{
 					key: "weighted-rule",
+					name: "Weighted",
 					minFileSizeMb: "",
 					maxFileSizeMb: "",
 					selectionMode: "weighted_random",

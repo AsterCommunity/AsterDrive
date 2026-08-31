@@ -590,9 +590,9 @@ describe("AdminPolicyGroupEditPage", () => {
 			expect(screen.getByDisplayValue("Existing Group")).toBeInTheDocument();
 		});
 		expect(screen.getByDisplayValue("Already there")).toBeInTheDocument();
-		// 表单按 priority 排序渲染：规则 1 是 Hot Storage (policy 1)
-		const ruleTitles = await screen.findAllByText(/policy_group_rule_title/);
-		expect(ruleTitles).toHaveLength(2);
+		// 表单按 priority 排序渲染，卡片只展示顺序，不重复显示“规则 N”标题。
+		const ruleOrders = await screen.findAllByText(/policy_group_rule_order/);
+		expect(ruleOrders).toHaveLength(2);
 
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: "Renamed Group" },
@@ -690,9 +690,7 @@ describe("AdminPolicyGroupEditPage", () => {
 		await waitFor(() => {
 			expect(screen.getByDisplayValue("Default Group")).toBeInTheDocument();
 		});
-		expect(
-			screen.getAllByText(/policy_group_rule_title/),
-		).toHaveLength(2);
+		expect(screen.getAllByText(/policy_group_rule_order/)).toHaveLength(2);
 
 		// 第一次点击：进入确认态，规则仍在
 		fireEvent.click(
@@ -700,9 +698,7 @@ describe("AdminPolicyGroupEditPage", () => {
 				name: "policy_group_remove_rule",
 			})[0],
 		);
-		expect(
-			screen.getAllByText(/policy_group_rule_title/),
-		).toHaveLength(2);
+		expect(screen.getAllByText(/policy_group_rule_order/)).toHaveLength(2);
 		expect(
 			screen.getByRole("button", {
 				name: "policy_group_remove_rule_confirm",
@@ -716,9 +712,7 @@ describe("AdminPolicyGroupEditPage", () => {
 			}),
 		);
 		await waitFor(() => {
-			expect(
-				screen.getAllByText(/policy_group_rule_title/),
-			).toHaveLength(1);
+			expect(screen.getAllByText(/policy_group_rule_order/)).toHaveLength(1);
 		});
 	});
 

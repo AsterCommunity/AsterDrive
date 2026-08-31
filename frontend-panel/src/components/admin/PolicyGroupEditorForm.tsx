@@ -8,6 +8,7 @@ import type {
 import {
 	buildPolicyGroupRuleTargetForm,
 	bytesToMbInput,
+	MAX_POLICY_GROUP_RULE_NAME_LENGTH,
 	mbInputToBytes,
 } from "@/components/admin/policyGroupEditorShared";
 import { Badge } from "@/components/ui/badge";
@@ -94,12 +95,24 @@ function matchesPolicySearch(policy: PolicyLookup, query: string) {
 	);
 }
 
-function findPolicyName(policies: PolicyLookup[], policyId: string) {
+function findPolicy(policies: PolicyLookup[], policyId: string) {
 	if (!policyId) return null;
+	return policies.find((candidate) => String(candidate.id) === policyId) ?? null;
+}
+
+function formatPolicyTarget(policy: PolicyLookup) {
 	return (
-		policies.find((policy) => String(policy.id) === policyId)?.name ??
-		`#${policyId}`
+		<>
+			<span className="truncate">{policy.name}</span>
+			<span className="shrink-0 text-xs text-muted-foreground">
+				#{policy.id} · {policy.connector_id}
+			</span>
+		</>
 	);
+}
+
+function formatPolicyTargetLabel(policy: PolicyLookup) {
+	return `${policy.name} (#${policy.id} · ${policy.connector_id})`;
 }
 
 interface CategoryCheckboxGroupProps {
@@ -392,9 +405,15 @@ function RuleCard({
 						>
 							<DragHandleIcon />
 						</button>
-						<p className="text-sm font-semibold text-foreground">
-							{t("policy_group_rule_title", { index: index + 1 })}
-						</p>
+						<Input
+							value={item.name}
+							maxLength={MAX_POLICY_GROUP_RULE_NAME_LENGTH}
+							className={`${ADMIN_CONTROL_HEIGHT_CLASS} h-8! w-44 sm:w-56`}
+							aria-label={t("policy_group_rule_name")}
+							onChange={(event) =>
+								onRuleFieldChange(item.key, "name", event.target.value)
+							}
+						/>
 						<Badge variant="outline" className="text-muted-foreground">
 							{t("policy_group_rule_order", { index: index + 1 })}
 						</Badge>
@@ -495,11 +514,11 @@ function RuleCard({
 						const selectablePolicies = getSelectablePolicies(target.policyId);
 						const selectablePolicyOptions = selectablePolicies.map(
 							(policy) => ({
-								label: policy.name,
+								label: formatPolicyTargetLabel(policy),
 								value: String(policy.id),
 							}),
 						);
-						const selectedPolicyName = findPolicyName(
+						const selectedPolicy = findPolicy(
 							policies,
 							target.policyId,
 						);
@@ -521,7 +540,11 @@ function RuleCard({
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-full`}
 									>
 										<SelectValue placeholder={t("select_policy")}>
-											{selectedPolicyName}
+											{selectedPolicy
+												? formatPolicyTarget(selectedPolicy)
+												: target.policyId
+													? `#${target.policyId}`
+													: undefined}
 										</SelectValue>
 									</SelectTrigger>
 									<SelectContent
@@ -530,7 +553,7 @@ function RuleCard({
 									>
 										{selectablePolicies.map((policy) => (
 											<SelectItem key={policy.id} value={String(policy.id)}>
-												{policy.name}
+												{formatPolicyTarget(policy)}
 											</SelectItem>
 										))}
 										{selectablePolicies.length === 0 ? (

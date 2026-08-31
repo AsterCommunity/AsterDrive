@@ -240,7 +240,16 @@ export default function AdminPolicyGroupEditPage() {
 	const addRule = () => {
 		setForm((prev) => ({
 			...prev,
-			items: [...prev.items, buildPolicyGroupRuleForm(getNextPolicyId())],
+			items: [
+				...prev.items,
+				buildPolicyGroupRuleForm(
+					getNextPolicyId(),
+					0,
+					0,
+					undefined,
+					`Rule ${prev.items.length + 1}`,
+				),
+			],
 		}));
 		setFormError(null);
 	};
