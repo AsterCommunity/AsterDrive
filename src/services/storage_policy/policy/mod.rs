@@ -259,7 +259,6 @@ pub async fn create_group_with_audit(
             audit::details(audit::PolicyGroupAuditDetails {
                 is_default: group.is_default,
                 is_enabled: group.is_enabled,
-                item_count: group.rules.len(),
                 rule_count: group.rules.len(),
                 target_count: group.rules.iter().map(|rule| rule.targets.len()).sum(),
                 routing_revision: group.routing_revision,
@@ -288,7 +287,6 @@ pub async fn update_group_with_audit(
             audit::details(audit::PolicyGroupAuditDetails {
                 is_default: group.is_default,
                 is_enabled: group.is_enabled,
-                item_count: group.rules.len(),
                 rule_count: group.rules.len(),
                 target_count: group.rules.iter().map(|rule| rule.targets.len()).sum(),
                 routing_revision: group.routing_revision,
@@ -317,7 +315,6 @@ pub async fn delete_group_with_audit(
             audit::details(audit::PolicyGroupAuditDetails {
                 is_default: group.is_default,
                 is_enabled: group.is_enabled,
-                item_count: group.rules.len(),
                 rule_count: group.rules.len(),
                 target_count: group.rules.iter().map(|rule| rule.targets.len()).sum(),
                 routing_revision: group.routing_revision,

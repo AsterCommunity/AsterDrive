@@ -727,20 +727,18 @@ pub async fn simulate_policy_group_placement(
         input.file_size,
         &input.mime_type,
     );
+    let snapshot = state.policy_snapshot();
     let folder_override = input.folder_policy_id.map(|policy_id| {
-        let policy = state.policy_snapshot().get_policy(policy_id);
+        let policy = snapshot.get_policy(policy_id);
         policy::placement::FolderPlacementOverride {
             policy_id,
             policy_max_file_size: policy.as_ref().map_or(0, |value| value.max_file_size),
-            is_available: policy.as_ref().is_some_and(|value| {
-                state
-                    .policy_snapshot()
-                    .is_policy_available_for_outbound(value)
-            }),
+            is_available: policy
+                .as_ref()
+                .is_some_and(|value| snapshot.is_policy_available_for_outbound(value)),
         }
     });
-    let profile = state
-        .policy_snapshot()
+    let profile = snapshot
         .get_placement_profile(*path)
         .ok_or_else(|| crate::errors::AsterError::record_not_found("placement profile"))?;
     let result =

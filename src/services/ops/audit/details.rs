@@ -81,7 +81,6 @@ pub struct AdminForceDeleteUserDetails {
 pub struct PolicyGroupAuditDetails {
     pub is_default: bool,
     pub is_enabled: bool,
-    pub item_count: usize,
     pub rule_count: usize,
     pub target_count: usize,
     pub routing_revision: i64,

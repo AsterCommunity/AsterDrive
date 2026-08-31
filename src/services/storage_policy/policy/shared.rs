@@ -280,23 +280,21 @@ pub(super) async fn ensure_singleton_group_for_policy<C: sea_orm::ConnectionTrai
         policy_id
     );
     let groups = policy_group_repo::find_all_groups(db).await?;
-    let rules = policy_placement_repo::find_all_rules(db).await?;
-    let targets = policy_placement_repo::find_all_targets(db).await?;
     for group in groups {
         if group.description != singleton_description || !group.is_enabled {
             continue;
         }
-        let group_rules = rules
-            .iter()
-            .filter(|rule| rule.group_id == group.id)
-            .collect::<Vec<_>>();
-        let matching_targets = targets
-            .iter()
-            .filter(|target| {
-                group_rules.iter().any(|rule| rule.id == target.rule_id)
-                    && target.policy_id == policy_id
-            })
-            .count();
+        let group_rules = policy_placement_repo::find_rules_by_group_id(db, group.id).await?;
+        let matching_targets = if group_rules.len() == 1 {
+            policy_placement_repo::count_targets_by_rule_and_policy(
+                db,
+                group_rules[0].id,
+                policy_id,
+            )
+            .await?
+        } else {
+            0
+        };
         if group_rules.len() == 1 && matching_targets == 1 {
             return Ok(group.id);
         }

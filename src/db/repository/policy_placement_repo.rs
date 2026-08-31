@@ -32,6 +32,30 @@ pub async fn group_has_rules<C: ConnectionTrait>(db: &C, group_id: i64) -> Resul
         .map_err(AsterError::from)
 }
 
+pub async fn find_rules_by_group_id<C: ConnectionTrait>(
+    db: &C,
+    group_id: i64,
+) -> Result<Vec<storage_policy_group_rule::Model>> {
+    storage_policy_group_rule::Entity::find()
+        .filter(storage_policy_group_rule::Column::GroupId.eq(group_id))
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
+pub async fn count_targets_by_rule_and_policy<C: ConnectionTrait>(
+    db: &C,
+    rule_id: i64,
+    policy_id: i64,
+) -> Result<u64> {
+    storage_policy_group_rule_target::Entity::find()
+        .filter(storage_policy_group_rule_target::Column::RuleId.eq(rule_id))
+        .filter(storage_policy_group_rule_target::Column::PolicyId.eq(policy_id))
+        .count(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 pub async fn create_rule<C: ConnectionTrait>(
     db: &C,
     model: storage_policy_group_rule::ActiveModel,

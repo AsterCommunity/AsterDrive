@@ -275,11 +275,7 @@ fn detail_message(
         AuditAction::AdminCreatePolicyGroup
         | AuditAction::AdminUpdatePolicyGroup
         | AuditAction::AdminDeletePolicyGroup => {
-            copy_params(
-                details,
-                &mut params,
-                &["is_default", "is_enabled", "item_count"],
-            );
+            copy_params(details, &mut params, &["is_default", "is_enabled"]);
             Some(message("policy_group_snapshot", params))
         }
         AuditAction::AdminMigratePolicyGroupUsers => {
