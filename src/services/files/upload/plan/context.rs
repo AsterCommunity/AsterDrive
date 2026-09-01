@@ -384,6 +384,10 @@ pub(super) async fn try_persist_upload_session(
     params: UploadSessionRecordParams<'_>,
 ) -> Result<bool> {
     let txn = aster_forge_db::transaction::begin(db).await?;
+    // Directory compensation acquires this same folder-row lock before checking for active
+    // sessions and deleting an empty folder. Keeping the lock and session insert in one
+    // transaction makes the race deterministic: either the session is visible to compensation,
+    // or the folder was deleted first and this insert fails instead of creating a dangling ref.
     if let Some(folder_id) = params.folder_id {
         let _ = crate::db::repository::folder_repo::lock_by_id(&txn, folder_id).await?;
     }
