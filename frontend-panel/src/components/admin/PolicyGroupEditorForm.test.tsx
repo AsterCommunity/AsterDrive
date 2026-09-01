@@ -287,6 +287,10 @@ describe("PolicyGroupEditorForm", () => {
 		if (!imageCategory) throw new Error("image category button missing");
 		fireEvent.click(imageCategory);
 		fireEvent.click(screen.getAllByRole("checkbox")[0]);
+		const [, deniedCategory] = screen.getAllByRole("button", {
+			name: "policy_group_category_image",
+		});
+		if (deniedCategory) fireEvent.click(deniedCategory);
 		fireEvent.change(screen.getByLabelText("policy_group_allowed_extensions"), {
 			target: { value: "jpg, png" },
 		});
@@ -433,6 +437,19 @@ describe("PolicyGroupEditorForm", () => {
 		const cardContent = card.firstElementChild;
 		if (!cardContent) throw new Error("second rule content missing");
 		fireEvent.dragOver(cardContent, { clientY: 100 });
+		const secondHandle = screen.getAllByRole("button", {
+			name: "policy_group_rule_drag_handle",
+		})[1];
+		if (secondHandle) {
+			fireEvent.dragStart(secondHandle, {
+				dataTransfer: { effectAllowed: "" },
+			});
+			fireEvent.dragOver(
+				document.querySelector('[data-rule-key="rule-1"]')?.firstElementChild ??
+					cardContent,
+				{ clientY: 0 },
+			);
+		}
 		expect(mockState.ruleFieldChange).toHaveBeenCalledWith(
 			expect.any(String),
 			"targets",

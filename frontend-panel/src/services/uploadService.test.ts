@@ -384,6 +384,80 @@ describe("uploadService", () => {
 		});
 	});
 
+	it("uploads stream bodies with csrf and progress handling", async () => {
+		setTestCookie("aster_csrf=stream-csrf; path=/");
+		const { uploadService } = await import("@/services/uploadService");
+		const progress = vi.fn();
+		const onCreateXhr = vi.fn();
+		const body = new Blob(["stream-body"]);
+		const promise = uploadService.streamUploadBody(
+			"stream-1",
+			body,
+			progress,
+			onCreateXhr,
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+		xhr.upload.onprogress?.({ lengthComputable: false, loaded: 1, total: 2 });
+		xhr.upload.onprogress?.({ lengthComputable: true, loaded: 2, total: 10 });
+		xhr.status = 201;
+		xhr.responseText = JSON.stringify({
+			code: ApiErrorCode.Success,
+			data: { id: 12, name: "stream.txt" },
+		});
+		xhr.onload?.();
+
+		await expect(promise).resolves.toEqual({ id: 12, name: "stream.txt" });
+		expect(progress).toHaveBeenCalledWith(2, 10);
+		expect(onCreateXhr).toHaveBeenCalledWith(xhr);
+		expect(xhr.method).toBe("PUT");
+		expect(xhr.url).toBe("/api/v1/files/upload/stream-1/body");
+		expect(xhr.withCredentials).toBe(true);
+		expect(xhr.headers["Content-Type"]).toBe("application/octet-stream");
+		expect(xhr.headers["X-CSRF-Token"]).toBe("stream-csrf");
+		expect(xhr.sentBody).toBe(body);
+	});
+
+	it("maps stream body API, network, and abort failures", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const apiFailure = uploadService.streamUploadBody(
+			"stream-1",
+			new Blob(["a"]),
+		);
+		const xhrApi = MockXMLHttpRequest.instances[0];
+		xhrApi.status = 422;
+		xhrApi.responseText = JSON.stringify({
+			code: ApiErrorCode.FileUploadFailed,
+			msg: "stream rejected",
+			error: { retryable: true },
+		});
+		xhrApi.onload?.();
+		await expect(apiFailure).rejects.toMatchObject({
+			message: "stream rejected",
+			retryable: true,
+			status: 422,
+		});
+
+		const networkFailure = uploadService.streamUploadBody(
+			"stream-1",
+			new Blob(["b"]),
+		);
+		MockXMLHttpRequest.instances[1].onerror?.();
+		await expect(networkFailure).rejects.toMatchObject({
+			message: "network error",
+			retryable: true,
+		});
+
+		const aborted = uploadService.streamUploadBody("stream-1", new Blob(["c"]));
+		const xhrAbort = MockXMLHttpRequest.instances[2];
+		xhrAbort.status = 0;
+		xhrAbort.abort();
+		await expect(aborted).rejects.toMatchObject({
+			message: "upload aborted",
+			isAborted: true,
+			status: 0,
+		});
+	});
+
 	it("rejects presigned uploads when the caller aborts the XHR", async () => {
 		const { UploadRequestError, uploadService } = await import(
 			"@/services/uploadService"

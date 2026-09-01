@@ -894,6 +894,19 @@ describe("AdminPolicyGroupsPage", () => {
 		});
 	});
 
+	it("refreshes groups and policies together", async () => {
+		mockState.groupItems = [createGroup({ id: 1, name: "Refreshable" })];
+		render(<AdminPolicyGroupsPage />);
+		await screen.findByText("Refreshable");
+		mockState.listGroups.mockClear();
+		mockState.listPolicies.mockClear();
+		fireEvent.click(screen.getByRole("button", { name: /core:refresh/ }));
+		await waitFor(() => {
+			expect(mockState.listGroups).toHaveBeenCalled();
+			expect(mockState.listPolicies).toHaveBeenCalled();
+		});
+	});
+
 	it("shows simulation validation errors and routes delete failures", async () => {
 		mockState.groupItems = [createGroup({ id: 1, name: "Routing Group" })];
 		render(<AdminPolicyGroupsPage />);

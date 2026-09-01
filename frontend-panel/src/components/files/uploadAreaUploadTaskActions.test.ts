@@ -12,6 +12,7 @@ const {
 	loadSessions,
 	removePendingEmptyFile,
 	removeSession,
+	saveSession,
 } = vi.hoisted(() => ({
 	cancelUpload: vi.fn(),
 	completeUpload: vi.fn(),
@@ -22,6 +23,7 @@ const {
 	loadSessions: vi.fn(() => []),
 	removePendingEmptyFile: vi.fn(),
 	removeSession: vi.fn(),
+	saveSession: vi.fn(),
 }));
 
 vi.mock("@/services/uploadService", () => ({
@@ -39,7 +41,7 @@ vi.mock("@/lib/uploadPersistence", () => ({
 	loadSessions,
 	removePendingEmptyFile,
 	removeSession,
-	saveSession: vi.fn(),
+	saveSession,
 }));
 
 import {
@@ -525,6 +527,92 @@ describe("clearTerminalUploadTasks", () => {
 });
 
 describe("runQueuedUploadTask", () => {
+	it("dispatches each initialized transport and persists resumable sessions", async () => {
+		for (const mode of [
+			"chunked",
+			"presigned_multipart",
+			"provider_resumable",
+			"presigned",
+			"stream",
+		] as const) {
+			initUpload.mockReset();
+			initUpload.mockResolvedValue({
+				mode,
+				upload_id: `${mode}-session`,
+				chunk_size: 4,
+				total_chunks: 2,
+				presigned_request:
+					mode === "presigned"
+						? { url: "https://storage.example/upload" }
+						: undefined,
+			});
+			saveSession.mockReset();
+			const runners = {
+				runChunkedUpload: vi.fn(),
+				runMultipartUpload: vi.fn(),
+				runProviderResumableUpload: vi.fn(),
+				runPresignedUpload: vi.fn(),
+				runStreamUpload: vi.fn(),
+			};
+			const queued = task(`new-${mode}`, "queued", null);
+			queued.file = new File(["body"], `${mode}.bin`);
+			queued.mode = null;
+			await runQueuedUploadTask(`new-${mode}`, {
+				markTaskFailed: vi.fn(),
+				patchTask: vi.fn(),
+				resumeCompletionTask: vi.fn(),
+				tasksRef: { current: [queued] },
+				workspace: { kind: "personal" },
+				...runners,
+			} as unknown as UploadTaskActionsContext);
+			if (mode === "chunked")
+				expect(runners.runChunkedUpload).toHaveBeenCalled();
+			if (mode === "presigned_multipart")
+				expect(runners.runMultipartUpload).toHaveBeenCalled();
+			if (mode === "provider_resumable")
+				expect(runners.runProviderResumableUpload).toHaveBeenCalled();
+			if (mode === "presigned")
+				expect(runners.runPresignedUpload).toHaveBeenCalled();
+			if (mode === "stream") expect(runners.runStreamUpload).toHaveBeenCalled();
+			if (mode !== "presigned")
+				expect(saveSession).toHaveBeenCalledWith(
+					expect.objectContaining({ uploadId: `${mode}-session`, mode }),
+				);
+		}
+	});
+
+	it("restarts stale persisted sessions before initializing a new upload", async () => {
+		const stale = task("stale", "queued", "stale-session");
+		stale.file = new File(["body"], "stale.bin");
+		stale.mode = "chunked";
+		getProgress.mockReset();
+		getProgress.mockResolvedValue({ status: "expired" });
+		initUpload.mockReset();
+		initUpload.mockResolvedValue({
+			mode: "stream",
+			upload_id: "fresh-session",
+		});
+		const runStreamUpload = vi.fn();
+		const patchTask = vi.fn();
+		await runQueuedUploadTask("stale", {
+			markTaskFailed: vi.fn(),
+			patchTask,
+			runChunkedUpload: vi.fn(),
+			runMultipartUpload: vi.fn(),
+			runProviderResumableUpload: vi.fn(),
+			runPresignedUpload: vi.fn(),
+			runStreamUpload,
+			tasksRef: { current: [stale] },
+			workspace: { kind: "personal" },
+		} as unknown as UploadTaskActionsContext);
+		expect(removeSession).toHaveBeenCalledWith("stale-session");
+		expect(initUpload).toHaveBeenCalled();
+		expect(runStreamUpload).toHaveBeenCalledWith(
+			expect.objectContaining({ uploadId: "fresh-session" }),
+			expect.objectContaining({ mode: "stream" }),
+		);
+	});
+
 	it("creates zero-byte files without initializing upload data planes", async () => {
 		createEmptyFile.mockReset();
 		createEmptyFile.mockResolvedValue({ id: 42 });

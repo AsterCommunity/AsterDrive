@@ -5,6 +5,7 @@ import {
 	bytesToMbInput,
 	getDefaultPolicyGroupForm,
 	getPolicyGroupForm,
+	mbInputToBytes,
 	validatePolicyGroupForm,
 } from "@/components/admin/policyGroupEditorShared";
 import type { StoragePolicy } from "@/types/api";
@@ -12,6 +13,92 @@ import type { StoragePolicy } from "@/types/api";
 const t = (key: string) => key;
 
 describe("policyGroupEditorShared", () => {
+	it("covers empty and invalid form boundaries", () => {
+		const base = {
+			name: "Named",
+			description: "",
+			isEnabled: true,
+			isDefault: false,
+			items: [],
+		};
+		expect(validatePolicyGroupForm({ ...base, name: " " }, 1, t)).toBe(
+			"policy_group_name_required",
+		);
+		expect(
+			validatePolicyGroupForm(
+				{ ...base, isDefault: true, isEnabled: false },
+				1,
+				t,
+			),
+		).toBe("policy_group_default_requires_enabled");
+		expect(validatePolicyGroupForm(base, 0, t)).toBe(
+			"policy_group_no_policies_available",
+		);
+		expect(validatePolicyGroupForm(base, 1, t)).toBe(
+			"policy_group_rule_required",
+		);
+
+		const validRule = {
+			key: "rule",
+			name: "Rule",
+			description: "",
+			minFileSizeMb: "1",
+			maxFileSizeMb: "",
+			selectionMode: "first_available" as const,
+			unavailableBehavior: "next_rule" as const,
+			targets: [
+				{
+					key: "target",
+					policyId: "1",
+					weight: "100",
+					isEnabled: true,
+					acceptingNewWrites: true,
+				},
+			],
+		};
+		expect(
+			validatePolicyGroupForm(
+				{ ...base, items: [{ ...validRule, minFileSizeMb: "x" }] },
+				1,
+				t,
+			),
+		).toBe("policy_group_rule_size_invalid");
+		expect(
+			validatePolicyGroupForm(
+				{
+					...base,
+					items: [{ ...validRule, minFileSizeMb: "2", maxFileSizeMb: "2" }],
+				},
+				1,
+				t,
+			),
+		).toBe("policy_group_rule_range_invalid");
+	});
+
+	it("normalizes size inputs and generates defaults", () => {
+		expect(bytesToMbInput(0)).toBe("");
+		expect(bytesToMbInput(-1)).toBe("");
+		expect(mbInputToBytes(" ")).toBe(0);
+		expect(mbInputToBytes("not-a-number")).toBe(0);
+		expect(mbInputToBytes("2.5")).toBe(2.5 * 1024 * 1024);
+		const fallback = buildPolicyGroupRuleForm(
+			null,
+			0,
+			0,
+			{
+				name: " ",
+				description: "",
+				is_enabled: true,
+				matcher: undefined,
+				selection_mode: undefined,
+				unavailable_behavior: undefined,
+				targets: [],
+			} as never,
+			"Fallback",
+		);
+		expect(fallback.name).toBe("Fallback");
+		expect(fallback.targets[0]?.policyId).toBe("");
+	});
 	it("creates a default form seeded from the first policy", () => {
 		const form = getDefaultPolicyGroupForm([
 			{ id: 8, name: "Primary" } as StoragePolicy,

@@ -3,8 +3,9 @@ import type { InitUploadResponse } from "@/services/uploadService";
 import type { UploadTask } from "./uploadAreaManagerShared";
 import type { UploadTransportRunnerContext } from "./uploadAreaUploadRunnerShared";
 
-const { completeUpload, removeSession } = vi.hoisted(() => ({
+const { completeUpload, getProgress, removeSession } = vi.hoisted(() => ({
 	completeUpload: vi.fn(),
+	getProgress: vi.fn(),
 	removeSession: vi.fn(),
 }));
 
@@ -15,6 +16,7 @@ vi.mock("@/services/uploadService", () => ({
 	uploadService: {
 		cancelUpload: vi.fn(),
 		completeUpload,
+		getProgress,
 		presignParts: vi.fn(),
 		presignedUpload: vi.fn(),
 		uploadChunk: vi.fn(),
@@ -92,6 +94,96 @@ describe("resolveChunkConcurrency", () => {
 });
 
 describe("resumeCompletionTask", () => {
+	it("publishes an already completed stream session", async () => {
+		getProgress.mockReset();
+		getProgress.mockResolvedValue({ status: "completed" });
+		completeUpload.mockReset();
+		removeSession.mockReset();
+		const markFolderForRefresh = vi.fn();
+		const patchTask = vi.fn();
+		const context: UploadTransportRunnerContext = {
+			abortFlagsRef: { current: new Map() },
+			metadataAbortRef: { current: new Map() },
+			flushProgress: vi.fn(),
+			markFolderForRefresh,
+			markTaskFailed: vi.fn(),
+			multipartInFlightRef: { current: new Map() },
+			patchTask,
+			patchTaskThrottled: vi.fn(),
+			uploadRequestRef: { current: new Map() },
+			t: (key) => key,
+			workspace: { kind: "personal" },
+		};
+		const task: UploadTask = {
+			id: "stream-completed",
+			file: new File(["body"], "stream.bin"),
+			filename: "stream.bin",
+			relativePath: null,
+			baseFolderId: null,
+			baseFolderName: "Root",
+			totalBytes: 4,
+			mode: "stream",
+			status: "processing",
+			progress: 95,
+			error: null,
+			uploadId: "stream-session",
+		};
+
+		const { resumeCompletionTask } = createResumableUploadRunners(context);
+		await resumeCompletionTask(task);
+
+		expect(getProgress).toHaveBeenCalledWith("stream-session");
+		expect(removeSession).toHaveBeenCalledWith("stream-session");
+		expect(patchTask).toHaveBeenLastCalledWith(
+			"stream-completed",
+			expect.objectContaining({ status: "completed", uploadedBytes: 4 }),
+		);
+		expect(markFolderForRefresh).toHaveBeenCalledWith(task);
+	});
+
+	it("reports a terminal stream status for a file-backed task", async () => {
+		getProgress.mockReset();
+		getProgress.mockResolvedValue({ status: "uploading" });
+		const markTaskFailed = vi.fn();
+		const context: UploadTransportRunnerContext = {
+			abortFlagsRef: { current: new Map() },
+			metadataAbortRef: { current: new Map() },
+			flushProgress: vi.fn(),
+			markFolderForRefresh: vi.fn(),
+			markTaskFailed,
+			multipartInFlightRef: { current: new Map() },
+			patchTask: vi.fn(),
+			patchTaskThrottled: vi.fn(),
+			uploadRequestRef: { current: new Map() },
+			t: (key) => key,
+			workspace: { kind: "personal" },
+		};
+		const task: UploadTask = {
+			id: "stream-uploading",
+			file: new File(["body"], "stream.bin"),
+			filename: "stream.bin",
+			relativePath: null,
+			baseFolderId: null,
+			baseFolderName: "Root",
+			totalBytes: 4,
+			mode: "stream",
+			status: "processing",
+			progress: 95,
+			error: null,
+			uploadId: "stream-session",
+		};
+
+		const { resumeCompletionTask } = createResumableUploadRunners(context);
+		await resumeCompletionTask(task);
+
+		expect(markTaskFailed).toHaveBeenCalledWith(
+			"stream-uploading",
+			expect.objectContaining({
+				message: "stream publication ended in uploading",
+			}),
+		);
+	});
+
 	it("passes the original completion error to file-backed task failure handling", async () => {
 		const error = Object.assign(new Error("complete failed"), {
 			retryable: false,

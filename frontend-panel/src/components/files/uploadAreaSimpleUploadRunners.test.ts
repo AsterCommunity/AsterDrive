@@ -38,6 +38,44 @@ vi.mock("@/services/uploadService", () => ({
 import { createSimpleUploadRunners } from "./uploadAreaSimpleUploadRunners";
 
 describe("createSimpleUploadRunners", () => {
+	it("fails a stream task before issuing a request when its session is missing", async () => {
+		const markTaskFailed = vi.fn();
+		const context: UploadTransportRunnerContext = {
+			abortFlagsRef: { current: new Map() },
+			metadataAbortRef: { current: new Map() },
+			flushProgress: vi.fn(),
+			markFolderForRefresh: vi.fn(),
+			markTaskFailed,
+			multipartInFlightRef: { current: new Map() },
+			patchTask: vi.fn(),
+			patchTaskThrottled: vi.fn(),
+			uploadRequestRef: { current: new Map() },
+			t: (key) => key,
+			workspace: { kind: "personal" },
+		};
+		const task: UploadTask = {
+			id: "missing-stream",
+			file: new File(["content"], "missing.bin"),
+			filename: "missing.bin",
+			relativePath: null,
+			baseFolderId: null,
+			baseFolderName: "Root",
+			totalBytes: 7,
+			mode: "stream",
+			status: "queued",
+			progress: 0,
+			error: null,
+			uploadId: null,
+		};
+		const { runStreamUpload } = createSimpleUploadRunners(context);
+		await runStreamUpload(task);
+		expect(markTaskFailed).toHaveBeenCalledWith(
+			"missing-stream",
+			expect.objectContaining({ message: "Missing stream upload session" }),
+		);
+		expect(put).not.toHaveBeenCalled();
+	});
+
 	it("publishes a stream session through its body endpoint without a second complete", async () => {
 		put.mockReset();
 		put.mockResolvedValue({});

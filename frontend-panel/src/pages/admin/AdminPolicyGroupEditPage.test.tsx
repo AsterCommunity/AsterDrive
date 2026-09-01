@@ -758,4 +758,31 @@ describe("AdminPolicyGroupEditPage", () => {
 			expect(screen.getByText("simulation failed")).toBeInTheDocument(),
 		);
 	});
+
+	it("redirects malformed routes and resets simulation state on close", async () => {
+		mockState.groupId = "not-a-number";
+		const malformed = render(<AdminPolicyGroupEditPage />);
+		expect(malformed.container).toBeEmptyDOMElement();
+		malformed.unmount();
+
+		mockState.groupId = "7";
+		mockState.getGroup.mockResolvedValue(createGroup({ name: "Resettable" }));
+		const view = render(<AdminPolicyGroupEditPage />);
+		await waitFor(() =>
+			expect(screen.getByDisplayValue("Resettable")).toBeInTheDocument(),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: /policy_group_simulator_open/ }),
+		);
+		fireEvent.change(screen.getByLabelText("policy_group_simulator_filename"), {
+			target: { value: "changed.bin" },
+		});
+		const cancelButtons = screen.getAllByRole("button", {
+			name: "core:cancel",
+		});
+		const simulationCancel = cancelButtons.at(-1);
+		if (!simulationCancel) throw new Error("simulation cancel button missing");
+		fireEvent.click(simulationCancel);
+		view.unmount();
+	});
 });
