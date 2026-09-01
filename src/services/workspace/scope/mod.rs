@@ -371,6 +371,7 @@ pub(crate) async fn require_team_access_with_db<C: ConnectionTrait>(
         .map(|_| ())
 }
 
+#[cfg(test)]
 pub(crate) async fn require_team_policy_group_id(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -502,13 +503,16 @@ pub(crate) async fn list_files_in_folder(
 mod tests {
     use super::{WorkspaceStorageScope, require_team_access, require_team_policy_group_id};
     use crate::config::{Config, RuntimeConfig};
-    use crate::db::repository::{policy_group_repo, policy_repo, team_member_repo, team_repo};
+    use crate::db::repository::{
+        policy_group_repo, policy_placement_repo, policy_repo, team_member_repo, team_repo,
+    };
     use crate::runtime::PrimaryAppState;
     use crate::services::workspace::scope::SharedRuntimeState;
     use crate::services::{files::folder, mail::sender};
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use aster_drive_model::entities::{
-        storage_policy_group, storage_policy_group_item, team, team_member, user,
+        storage_policy_group, storage_policy_group_rule, storage_policy_group_rule_target, team,
+        team_member, user,
     };
     use aster_drive_model::types::{TeamMemberRole, UserRole, UserStatus};
     use aster_forge_cache as cache;
@@ -614,6 +618,9 @@ mod tests {
                 description: Set(String::new()),
                 is_enabled: Set(true),
                 is_default: Set(false),
+                admission_config: Set(serde_json::to_string(&crate::services::storage_policy::policy::placement::PlacementPayloadEnvelope::new(crate::services::storage_policy::policy::placement::StorageAdmissionConstraints::default())).unwrap()),
+                upload_execution_preference: Set("automatic".to_string()),
+                routing_revision: Set(1),
                 created_at: Set(now),
                 updated_at: Set(now),
                 ..Default::default()
@@ -621,20 +628,40 @@ mod tests {
         )
         .await
         .expect("test policy group should insert");
-        policy_group_repo::create_group_item(
+        let rule = policy_placement_repo::create_rule(
             state.writer_db(),
-            storage_policy_group_item::ActiveModel {
+            storage_policy_group_rule::ActiveModel {
                 group_id: Set(group.id),
-                policy_id: Set(policy.id),
-                priority: Set(0),
-                min_file_size: Set(0),
-                max_file_size: Set(0),
+                name: Set("Test Rule".to_string()),
+                description: Set(String::new()),
+                priority: Set(1),
+                is_enabled: Set(true),
+                matcher: Set(serde_json::to_string(&crate::services::storage_policy::policy::placement::PlacementPayloadEnvelope::new(crate::services::storage_policy::policy::placement::PlacementMatcher::default())).unwrap()),
+                selection_mode: Set("first_available".to_string()),
+                unavailable_behavior: Set("reject".to_string()),
                 created_at: Set(now),
+                updated_at: Set(now),
                 ..Default::default()
             },
         )
         .await
-        .expect("test policy group item should insert");
+        .expect("test placement rule should insert");
+        policy_placement_repo::create_target(
+            state.writer_db(),
+            storage_policy_group_rule_target::ActiveModel {
+                rule_id: Set(rule.id),
+                policy_id: Set(policy.id),
+                weight: Set(100),
+                is_enabled: Set(true),
+                accepting_new_writes: Set(true),
+                stable_order: Set(1),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("test placement target should insert");
         state
             .policy_snapshot()
             .reload(state.writer_db(), state.driver_registry().connectors())

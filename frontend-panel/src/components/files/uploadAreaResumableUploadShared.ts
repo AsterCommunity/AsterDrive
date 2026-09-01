@@ -8,11 +8,11 @@ import {
 	MULTIPART_DRAIN_TIMEOUT_MS,
 	type UploadTask,
 } from "./uploadAreaManagerShared";
-import type { UploadModeRunnerContext } from "./uploadAreaUploadRunnerShared";
+import type { UploadTransportRunnerContext } from "./uploadAreaUploadRunnerShared";
 import { createUploadSpeedTracker } from "./uploadSpeed";
 
 type ResumableUploadSharedContext = Pick<
-	UploadModeRunnerContext,
+	UploadTransportRunnerContext,
 	| "abortFlagsRef"
 	| "flushProgress"
 	| "markFolderForRefresh"

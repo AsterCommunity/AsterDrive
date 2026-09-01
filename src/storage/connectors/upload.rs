@@ -1,7 +1,7 @@
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
-    ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy, UploadMode,
-    effective_object_multipart_chunk_size,
+    ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy,
+    UploadTransport, effective_object_multipart_chunk_size,
 };
 
 /// Connector 对 upload service 暴露的上传传输模型。
@@ -25,6 +25,25 @@ pub enum StorageConnectorUploadTransport {
 }
 
 impl StorageConnectorUploadTransport {
+    /// Apply the policy-group execution preference to the connector transport.
+    ///
+    /// This changes only the upload data plane for the current operation; the
+    /// connector configuration remains untouched.
+    pub fn force_server_stream(self) -> Self {
+        match self {
+            Self::ObjectStorage(ObjectStorageUploadStrategy::Presigned) => {
+                Self::ObjectStorage(ObjectStorageUploadStrategy::RelayStream)
+            }
+            Self::Remote(RemoteUploadStrategy::Presigned) => {
+                Self::Remote(RemoteUploadStrategy::RelayStream)
+            }
+            Self::ProviderResumable(ProviderResumableUploadStrategy::FrontendDirect) => {
+                Self::ProviderResumable(ProviderResumableUploadStrategy::ServerRelay)
+            }
+            transport => transport,
+        }
+    }
+
     /// 返回当前传输模型下实际使用的 chunk size。
     ///
     /// 对象存储 multipart 需要满足 provider 最小 part size，因此会走专门的修正逻辑。
@@ -41,20 +60,24 @@ impl StorageConnectorUploadTransport {
     ///
     /// 这里只做调度决策；真正创建 multipart upload、presigned URL 或 session 的逻辑在
     /// upload service 后续步骤和具体 driver 中。
-    pub fn resolve_init_mode(self, policy: &storage_policy::Model, total_size: i64) -> UploadMode {
+    pub fn resolve_init_mode(
+        self,
+        policy: &storage_policy::Model,
+        total_size: i64,
+    ) -> UploadTransport {
         let fits_single_request = self.fits_single_request(policy, total_size);
         match (self, fits_single_request) {
             (Self::ObjectStorage(ObjectStorageUploadStrategy::Presigned), true)
-            | (Self::Remote(RemoteUploadStrategy::Presigned), true) => UploadMode::Presigned,
+            | (Self::Remote(RemoteUploadStrategy::Presigned), true) => UploadTransport::Presigned,
             (Self::ObjectStorage(ObjectStorageUploadStrategy::Presigned), false)
             | (Self::Remote(RemoteUploadStrategy::Presigned), false) => {
-                UploadMode::PresignedMultipart
+                UploadTransport::PresignedMultipart
             }
             (Self::ProviderResumable(ProviderResumableUploadStrategy::FrontendDirect), _) => {
-                UploadMode::ProviderResumable
+                UploadTransport::ProviderResumable
             }
-            (_, true) => UploadMode::Direct,
-            (_, false) => UploadMode::Chunked,
+            (_, true) => UploadTransport::Stream,
+            (_, false) => UploadTransport::Chunked,
         }
     }
 
@@ -72,7 +95,7 @@ impl StorageConnectorUploadTransport {
         }
 
         match self {
-            Self::Local => false,
+            Self::Local => self.fits_single_request(policy, declared_size),
             Self::ObjectStorage(ObjectStorageUploadStrategy::RelayStream) => {
                 self.fits_single_request(policy, declared_size)
             }

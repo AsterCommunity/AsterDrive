@@ -1619,6 +1619,31 @@ async fn cluster_upload_init_on_second_primary_rejects_pod_local_stream_staging(
     let mut primary_b = ServerProcess::spawn("primary-b", &services);
     wait_for_health(&client, &mut primary_b).await;
 
+    let baseline = client
+        .post(format!("{}/api/v1/files/upload/init", primary_b.base_url()))
+        .bearer_auth(&access_token)
+        .json(&json!({
+            "filename": "cross-primary-policy-limit.bin",
+            "total_size": 2,
+        }))
+        .send()
+        .await
+        .expect("send baseline upload init through primary B");
+    let baseline_body: Value = baseline
+        .json()
+        .await
+        .expect("decode baseline upload init response from primary B");
+    assert!(
+        !baseline_body
+            .to_string()
+            .contains("placement_no_eligible_target"),
+        "primary B baseline must have an eligible placement target: {baseline_body}"
+    );
+    let session_count_before_rejected_init =
+        aster_drive::db::repository::upload_session_repo::count_by_policy(&database, policy_id)
+            .await
+            .expect("count baseline cluster upload sessions");
+
     let response = client
         .post(format!("{}/api/v1/files/upload/init", primary_b.base_url()))
         .bearer_auth(&access_token)
@@ -1652,8 +1677,8 @@ async fn cluster_upload_init_on_second_primary_rejects_pod_local_stream_staging(
         aster_drive::db::repository::upload_session_repo::count_by_policy(&database, policy_id)
             .await
             .expect("count cluster staging sessions"),
-        0,
-        "rejected cluster staging init must not persist a session"
+        session_count_before_rejected_init,
+        "rejected cluster staging init must not persist an additional session"
     );
 
     primary_a.terminate();
@@ -1958,7 +1983,7 @@ async fn concurrent_primary_startup_reconciles_one_default_policy_group() {
     let _guard = e2e_lock().lock().await;
     let services = SharedServices::start().await;
     let database = services.connect_database().await;
-    aster_drive_model::entities::storage_policy_group_item::Entity::delete_many()
+    aster_drive_model::entities::storage_policy_group_rule::Entity::delete_many()
         .exec(&database)
         .await
         .expect("remove seeded policy group items");
@@ -1989,10 +2014,10 @@ async fn concurrent_primary_startup_reconciles_one_default_policy_group() {
         .expect("list reconciled policy groups");
     assert_eq!(groups.len(), 1);
     assert!(groups[0].is_default);
-    let items = aster_drive_model::entities::storage_policy_group_item::Entity::find()
+    let items = aster_drive_model::entities::storage_policy_group_rule::Entity::find()
         .all(&database)
         .await
-        .expect("list reconciled policy group items");
+        .expect("list reconciled policy placement rules");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].group_id, groups[0].id);
 
@@ -2131,7 +2156,10 @@ async fn storage_policy_update_propagates_to_second_primary_without_restart() {
             .json()
             .await
             .expect("decode upload init response from primary B");
-        if status == reqwest::StatusCode::BAD_REQUEST && body["code"] == "file.too_large" {
+        if status == reqwest::StatusCode::BAD_REQUEST
+            && (body["code"] == "file.too_large"
+                || body.to_string().contains("placement_no_eligible_target"))
+        {
             break;
         }
         if tokio::time::Instant::now() >= deadline {
@@ -2175,20 +2203,38 @@ async fn user_policy_group_assignment_propagates_to_second_primary_without_resta
     )
     .await
     .expect("create constrained E2E policy group");
-    aster_drive::db::repository::policy_group_repo::create_group_item(
+    let rule = aster_drive::db::repository::policy_placement_repo::create_rule(
         &database,
-        aster_drive_model::entities::storage_policy_group_item::ActiveModel {
+        aster_drive_model::entities::storage_policy_group_rule::ActiveModel {
             group_id: Set(constrained_group.id),
-            policy_id: Set(constrained_policy.id),
+            name: Set("Rule 1".to_string()),
+            description: Set(String::new()),
             priority: Set(1),
-            min_file_size: Set(0),
-            max_file_size: Set(0),
+            is_enabled: Set(true),
+            matcher: Set(serde_json::json!({"format_version":1,"schema_version":1,"values":{"min_file_size":0,"max_file_size":0,"extensions":[],"compound_extensions":[],"extensionless":null,"categories":[]}}).to_string()),
+            selection_mode: Set("first_available".to_string()),
+            unavailable_behavior: Set("next_rule".to_string()),
             created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    ).await.expect("add constrained placement rule");
+    aster_drive::db::repository::policy_placement_repo::create_target(
+        &database,
+        aster_drive_model::entities::storage_policy_group_rule_target::ActiveModel {
+            rule_id: Set(rule.id),
+            policy_id: Set(constrained_policy.id),
+            weight: Set(100),
+            is_enabled: Set(true),
+            accepting_new_writes: Set(true),
+            stable_order: Set(1),
+            created_at: Set(now),
+            updated_at: Set(now),
             ..Default::default()
         },
     )
     .await
-    .expect("add constrained E2E policy group item");
+    .expect("add constrained placement target");
     database
         .close()
         .await
@@ -2226,6 +2272,34 @@ async fn user_policy_group_assignment_propagates_to_second_primary_without_resta
         .as_i64()
         .expect("created user response should contain an id");
 
+    let user_access_token = login(
+        &client,
+        &primary_b,
+        "policy-user",
+        POLICY_GROUP_USER_PASSWORD,
+    )
+    .await;
+    let baseline = client
+        .post(format!("{}/api/v1/files/upload/init", primary_b.base_url()))
+        .bearer_auth(&user_access_token)
+        .json(&json!({
+            "filename": "targeted-user-policy-group-limit.bin",
+            "total_size": 2,
+        }))
+        .send()
+        .await
+        .expect("send baseline user upload init through primary B");
+    let baseline_body: Value = baseline
+        .json()
+        .await
+        .expect("decode baseline user upload init response from primary B");
+    assert!(
+        !baseline_body
+            .to_string()
+            .contains("placement_no_eligible_target"),
+        "primary B user baseline must have an eligible placement target: {baseline_body}"
+    );
+
     let response = client
         .patch(format!(
             "{}/api/v1/admin/users/{user_id}",
@@ -2247,13 +2321,6 @@ async fn user_policy_group_assignment_propagates_to_second_primary_without_resta
     );
     assert_eq!(body["data"]["policy_group_id"], constrained_group.id);
 
-    let user_access_token = login(
-        &client,
-        &primary_b,
-        "policy-user",
-        POLICY_GROUP_USER_PASSWORD,
-    )
-    .await;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     loop {
         primary_b.assert_running();
@@ -2272,7 +2339,10 @@ async fn user_policy_group_assignment_propagates_to_second_primary_without_resta
             .json()
             .await
             .expect("decode user upload init response from primary B");
-        if status == reqwest::StatusCode::BAD_REQUEST && body["code"] == "file.too_large" {
+        if status == reqwest::StatusCode::BAD_REQUEST
+            && (body["code"] == "file.too_large"
+                || body.to_string().contains("placement_no_eligible_target"))
+        {
             break;
         }
         if tokio::time::Instant::now() >= deadline {

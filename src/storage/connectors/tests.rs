@@ -1612,17 +1612,93 @@ fn upload_transport_boundaries_preserve_chunk_and_direct_semantics() {
         .unwrap();
     assert_eq!(
         transport.resolve_init_mode(&policy, 5_242_880),
-        aster_drive_model::types::UploadMode::Presigned
+        aster_drive_model::types::UploadTransport::Presigned
     );
     assert_eq!(
         transport.resolve_init_mode(&policy, 5_242_881),
-        aster_drive_model::types::UploadMode::PresignedMultipart
+        aster_drive_model::types::UploadTransport::PresignedMultipart
     );
     assert!(!transport.supports_streaming_direct_upload(&policy, 1));
 
     let remote = StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::Presigned);
     assert!(!remote.supports_streaming_direct_upload(&policy, 0));
     assert!(remote.supports_streaming_direct_upload(&policy, 1));
+}
+
+#[test]
+fn force_server_stream_overrides_client_direct_strategies() {
+    assert_eq!(
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned)
+            .force_server_stream(),
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream)
+    );
+    assert_eq!(
+        StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::Presigned)
+            .force_server_stream(),
+        StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::RelayStream)
+    );
+    assert_eq!(
+        StorageConnectorUploadTransport::ProviderResumable(
+            ProviderResumableUploadStrategy::FrontendDirect,
+        )
+        .force_server_stream(),
+        StorageConnectorUploadTransport::ProviderResumable(
+            ProviderResumableUploadStrategy::ServerRelay,
+        )
+    );
+
+    for transport in [
+        StorageConnectorUploadTransport::Local,
+        StorageConnectorUploadTransport::Sftp,
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream),
+        StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::RelayStream),
+        StorageConnectorUploadTransport::ProviderResumable(
+            ProviderResumableUploadStrategy::ServerRelay,
+        ),
+    ] {
+        assert_eq!(transport.force_server_stream(), transport);
+    }
+}
+
+#[test]
+fn local_transport_uses_stream_for_single_request_and_chunked_above_boundary() {
+    let mut policy = policy(LocalConnector::ID, local_config("/tmp/uploads"));
+    policy.chunk_size = 1024;
+    let transport = StorageConnectorUploadTransport::Local;
+
+    assert_eq!(
+        transport.resolve_init_mode(&policy, 1024),
+        aster_drive_model::types::UploadTransport::Stream
+    );
+    assert_eq!(
+        transport.resolve_init_mode(&policy, 1025),
+        aster_drive_model::types::UploadTransport::Chunked
+    );
+    assert!(transport.supports_streaming_direct_upload(&policy, 1024));
+    assert!(!transport.supports_streaming_direct_upload(&policy, 0));
+}
+
+#[test]
+fn force_server_stream_preserves_effective_mode_boundaries() {
+    let mut policy = policy(
+        S3Connector::ID,
+        s3_config(ObjectStorageUploadStrategy::Presigned),
+    );
+    policy.chunk_size = 5 * 1024 * 1024;
+    let transport =
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned)
+            .force_server_stream();
+
+    assert_eq!(
+        transport.resolve_init_mode(&policy, policy.chunk_size),
+        aster_drive_model::types::UploadTransport::Stream
+    );
+    assert_eq!(
+        transport.resolve_init_mode(&policy, policy.chunk_size + 1),
+        aster_drive_model::types::UploadTransport::Chunked
+    );
+    assert!(transport.supports_streaming_direct_upload(&policy, 1));
+    assert!(!transport.supports_streaming_direct_upload(&policy, 0));
 }
 
 #[test]

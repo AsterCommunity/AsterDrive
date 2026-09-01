@@ -3,26 +3,30 @@
 use std::collections::{HashMap, HashSet};
 
 use parking_lot::RwLock;
-use sea_orm::DatabaseConnection;
+use sea_orm::{DatabaseConnection, EntityTrait, QueryOrder};
 
-use crate::db::repository::{managed_follower_repo, policy_group_repo, policy_repo, user_repo};
-use crate::errors::{AsterError, Result};
-use aster_drive_model::entities::{
-    storage_policy, storage_policy_group, storage_policy_group_item,
+use crate::db::repository::{
+    managed_follower_repo, policy_group_repo, policy_repo, team_repo, user_repo,
 };
-
-#[derive(Clone, Debug)]
-pub struct ResolvedPolicyGroupItem {
-    pub item: storage_policy_group_item::Model,
-    pub policy: storage_policy::Model,
-}
+use crate::errors::{AsterError, Result};
+use crate::services::storage_policy::policy::placement::{
+    CompiledPlacementProfile, PLACEMENT_PAYLOAD_FORMAT_VERSION, PLACEMENT_PAYLOAD_SCHEMA_VERSION,
+    PlacementMatcher, PlacementPayloadEnvelope, PlacementRule, PlacementSelectionMode,
+    PlacementTarget, PlacementUnavailableBehavior, StorageAdmissionConstraints, compile_admission,
+    compile_matcher, parse_execution_preference,
+};
+use aster_drive_model::entities::{
+    storage_policy, storage_policy_group, storage_policy_group_rule,
+    storage_policy_group_rule_target,
+};
 
 #[derive(Default)]
 struct PolicySnapshotData {
     policies_by_id: HashMap<i64, storage_policy::Model>,
     policy_groups_by_id: HashMap<i64, storage_policy_group::Model>,
-    policy_group_items_by_group_id: HashMap<i64, Vec<ResolvedPolicyGroupItem>>,
+    placement_profiles_by_id: HashMap<i64, CompiledPlacementProfile>,
     user_policy_group_by_user_id: HashMap<i64, i64>,
+    team_policy_group_by_team_id: HashMap<i64, i64>,
     enabled_remote_node_ids: HashSet<i64>,
     remote_node_id_by_policy_id: HashMap<i64, Option<i64>>,
     system_default_policy_group_id: Option<i64>,
@@ -47,9 +51,26 @@ impl PolicySnapshot {
     ) -> Result<()> {
         let policies = policy_repo::find_all(db).await?;
         let policy_groups = policy_group_repo::find_all_groups(db).await?;
-        let policy_group_items = policy_group_repo::find_all_group_items(db).await?;
+        let placement_rules = storage_policy_group_rule::Entity::find()
+            .order_by_asc(storage_policy_group_rule::Column::Priority)
+            .order_by_asc(storage_policy_group_rule::Column::Id)
+            .all(db)
+            .await
+            .map_err(AsterError::from)?;
+        let placement_targets = storage_policy_group_rule_target::Entity::find()
+            .order_by_asc(storage_policy_group_rule_target::Column::StableOrder)
+            .order_by_asc(storage_policy_group_rule_target::Column::Id)
+            .all(db)
+            .await
+            .map_err(AsterError::from)?;
         let managed_followers = managed_follower_repo::find_all(db).await?;
         let users = user_repo::find_all(db).await?;
+        let teams = team_repo::find_all(db).await?;
+        let enabled_remote_node_ids = managed_followers
+            .iter()
+            .filter(|node| node.is_enabled)
+            .map(|node| node.id)
+            .collect::<HashSet<_>>();
 
         let system_default_policy_id = policies
             .iter()
@@ -72,40 +93,184 @@ impl PolicySnapshot {
             .find(|group| group.is_default)
             .map(|group| group.id);
         let policy_groups_by_id = policy_groups
-            .into_iter()
+            .iter()
+            .cloned()
             .map(|group| (group.id, group))
             .collect::<HashMap<_, _>>();
 
-        let mut policy_group_items_by_group_id: HashMap<i64, Vec<ResolvedPolicyGroupItem>> =
-            HashMap::new();
-        for item in policy_group_items {
-            let Some(policy) = policies_by_id.get(&item.policy_id).cloned() else {
+        let mut targets_by_rule_id: HashMap<i64, Vec<PlacementTarget>> = HashMap::new();
+        for target in placement_targets {
+            let Some(policy) = policies_by_id.get(&target.policy_id) else {
+                tracing::warn!(
+                    rule_id = target.rule_id,
+                    policy_id = target.policy_id,
+                    "placement target references a missing policy"
+                );
                 continue;
             };
-            policy_group_items_by_group_id
-                .entry(item.group_id)
+            let capability_exclusion = crate::storage::connectors::resolve_policy_upload_transport(
+                connectors,
+                policy,
+            )
+            .err()
+            .map(|_| {
+                crate::services::storage_policy::policy::placement::TargetExclusionReason::Incompatible
+            });
+            let exclusion = capability_exclusion.or_else(|| match remote_node_id_by_policy_id.get(&policy.id) {
+                None => None,
+                Some(None) => Some(crate::services::storage_policy::policy::placement::TargetExclusionReason::Unavailable),
+                Some(Some(node_id)) if !enabled_remote_node_ids.contains(node_id) => {
+                    Some(crate::services::storage_policy::policy::placement::TargetExclusionReason::Unavailable)
+                }
+                Some(Some(_)) => None,
+            });
+            targets_by_rule_id
+                .entry(target.rule_id)
                 .or_default()
-                .push(ResolvedPolicyGroupItem { item, policy });
+                .push(PlacementTarget {
+                    id: target.id,
+                    policy_id: target.policy_id,
+                    weight: match u32::try_from(target.weight) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            tracing::error!(target_id = target.id, policy_id = target.policy_id, error = %error, "excluding placement target with invalid weight");
+                            continue;
+                        }
+                    },
+                    stable_order: match u32::try_from(target.stable_order) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            tracing::error!(target_id = target.id, policy_id = target.policy_id, error = %error, "excluding placement target with invalid stable order");
+                            continue;
+                        }
+                    },
+                    is_enabled: target.is_enabled,
+                    accepting_new_writes: target.accepting_new_writes,
+                    policy_max_file_size: policy.max_file_size,
+                    exclusion,
+                });
         }
-        for items in policy_group_items_by_group_id.values_mut() {
-            items.sort_by_key(|resolved| (resolved.item.priority, resolved.item.id));
+
+        let mut rules_by_group_id: HashMap<i64, Vec<PlacementRule>> = HashMap::new();
+        for rule in placement_rules {
+            let envelope: PlacementPayloadEnvelope<PlacementMatcher> = match serde_json::from_str(
+                &rule.matcher,
+            ) {
+                Ok(value) => value,
+                Err(error) => {
+                    tracing::error!(rule_id = rule.id, error = %error, "skipping placement rule with invalid matcher payload");
+                    continue;
+                }
+            };
+            if envelope.format_version != PLACEMENT_PAYLOAD_FORMAT_VERSION
+                || envelope.schema_version != PLACEMENT_PAYLOAD_SCHEMA_VERSION
+            {
+                tracing::error!(
+                    rule_id = rule.id,
+                    "skipping placement rule with unsupported matcher version"
+                );
+                continue;
+            }
+            let matcher = match compile_matcher(envelope.values) {
+                Ok(value) => value,
+                Err(error) => {
+                    tracing::error!(rule_id = rule.id, error = %error, "skipping placement rule with invalid matcher");
+                    continue;
+                }
+            };
+            let Some(selection_mode) = parse_selection_mode(&rule.selection_mode) else {
+                tracing::error!(
+                    rule_id = rule.id,
+                    "skipping placement rule with invalid selection mode"
+                );
+                continue;
+            };
+            let Some(unavailable_behavior) = parse_unavailable_behavior(&rule.unavailable_behavior)
+            else {
+                tracing::error!(
+                    rule_id = rule.id,
+                    "skipping placement rule with invalid unavailable behavior"
+                );
+                continue;
+            };
+            rules_by_group_id
+                .entry(rule.group_id)
+                .or_default()
+                .push(PlacementRule {
+                    id: rule.id,
+                    name: rule.name,
+                    description: rule.description,
+                    priority: rule.priority,
+                    is_enabled: rule.is_enabled,
+                    matcher,
+                    selection_mode,
+                    unavailable_behavior,
+                    targets: targets_by_rule_id.remove(&rule.id).unwrap_or_default(),
+                });
+        }
+
+        let mut placement_profiles_by_id = HashMap::new();
+        for group in &policy_groups {
+            let admission_envelope: PlacementPayloadEnvelope<StorageAdmissionConstraints> =
+                match serde_json::from_str(&group.admission_config) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        tracing::error!(profile_id = group.id, error = %error, "skipping placement profile with invalid admission payload");
+                        continue;
+                    }
+                };
+            if admission_envelope.format_version != PLACEMENT_PAYLOAD_FORMAT_VERSION
+                || admission_envelope.schema_version != PLACEMENT_PAYLOAD_SCHEMA_VERSION
+            {
+                tracing::error!(
+                    profile_id = group.id,
+                    "skipping placement profile with unsupported admission version"
+                );
+                continue;
+            }
+            let admission = match compile_admission(admission_envelope.values) {
+                Ok(value) => value,
+                Err(error) => {
+                    tracing::error!(profile_id = group.id, error = %error, "skipping placement profile with invalid admission");
+                    continue;
+                }
+            };
+            let Some(execution_preference) =
+                parse_execution_preference(&group.upload_execution_preference)
+            else {
+                tracing::error!(
+                    profile_id = group.id,
+                    "skipping placement profile with invalid execution preference"
+                );
+                continue;
+            };
+            placement_profiles_by_id.insert(
+                group.id,
+                CompiledPlacementProfile {
+                    id: group.id,
+                    revision: group.routing_revision,
+                    is_enabled: group.is_enabled,
+                    admission,
+                    execution_preference,
+                    rules: rules_by_group_id.remove(&group.id).unwrap_or_default(),
+                },
+            );
         }
 
         let user_policy_group_by_user_id = users
             .into_iter()
             .filter_map(|user| user.policy_group_id.map(|group_id| (user.id, group_id)))
             .collect();
-        let enabled_remote_node_ids = managed_followers
+        let team_policy_group_by_team_id = teams
             .into_iter()
-            .filter(|node| node.is_enabled)
-            .map(|node| node.id)
+            .filter_map(|team| team.policy_group_id.map(|group_id| (team.id, group_id)))
             .collect();
-
         *self.snapshot.write() = PolicySnapshotData {
             policies_by_id,
             policy_groups_by_id,
-            policy_group_items_by_group_id,
+            placement_profiles_by_id,
             user_policy_group_by_user_id,
+            team_policy_group_by_team_id,
             enabled_remote_node_ids,
             remote_node_id_by_policy_id,
             system_default_policy_group_id,
@@ -173,13 +338,41 @@ impl PolicySnapshot {
         })
     }
 
-    pub fn get_policy_group_items(&self, group_id: i64) -> Vec<ResolvedPolicyGroupItem> {
+    pub fn get_placement_profile(&self, profile_id: i64) -> Option<CompiledPlacementProfile> {
         self.snapshot
             .read()
-            .policy_group_items_by_group_id
-            .get(&group_id)
+            .placement_profiles_by_id
+            .get(&profile_id)
             .cloned()
-            .unwrap_or_default()
+    }
+
+    pub fn resolve_placement(
+        &self,
+        profile_id: i64,
+        context: &crate::services::storage_policy::policy::placement::StoragePlacementContext,
+        folder_override: Option<
+            &crate::services::storage_policy::policy::placement::FolderPlacementOverride,
+        >,
+    ) -> Result<crate::services::storage_policy::policy::placement::StorageRoutingDecision> {
+        let profile = self.get_placement_profile(profile_id).ok_or_else(|| {
+            AsterError::storage_policy_not_found(format!("placement profile #{profile_id}"))
+        })?;
+        crate::services::storage_policy::policy::placement::resolve_placement(
+            &profile,
+            context,
+            folder_override,
+        )
+        .map_err(|rejection| {
+            AsterError::validation_error(format!("{}: {}", rejection.code(), profile_id))
+        })
+    }
+
+    pub fn resolve_team_policy_group_id(&self, team_id: i64) -> Option<i64> {
+        self.snapshot
+            .read()
+            .team_policy_group_by_team_id
+            .get(&team_id)
+            .copied()
     }
 
     pub fn resolve_default_policy_group_id(&self, user_id: i64) -> Option<i64> {
@@ -207,94 +400,6 @@ impl PolicySnapshot {
             })
     }
 
-    pub fn resolve_policy_in_group(
-        &self,
-        group_id: i64,
-        file_size: i64,
-    ) -> Result<storage_policy::Model> {
-        let group = self.get_policy_group_or_err(group_id)?;
-        if !group.is_enabled {
-            return Err(AsterError::validation_error(format!(
-                "storage policy group #{} is disabled",
-                group.id
-            )));
-        }
-
-        let items = self.get_policy_group_items(group_id);
-        if items.is_empty() {
-            return Err(AsterError::storage_policy_not_found(format!(
-                "policy group #{} has no policies",
-                group_id
-            )));
-        }
-
-        let mut skipped_disabled_remote = false;
-        for resolved in &items {
-            if matches_size_rule(&resolved.item, file_size)
-                && self.policy_available_for_outbound(&resolved.policy)
-            {
-                return Ok(resolved.policy.clone());
-            }
-            if matches_size_rule(&resolved.item, file_size)
-                && self
-                    .snapshot
-                    .read()
-                    .remote_node_id_by_policy_id
-                    .contains_key(&resolved.policy.id)
-            {
-                skipped_disabled_remote = true;
-            }
-        }
-
-        if skipped_disabled_remote {
-            return Err(AsterError::validation_error(format!(
-                "no enabled storage policy rule in group #{} matches file size {}",
-                group_id, file_size
-            )));
-        }
-
-        Err(AsterError::validation_error(format!(
-            "no storage policy rule in group #{} matches file size {}",
-            group_id, file_size
-        )))
-    }
-
-    pub fn resolve_user_policy_id_for_size(&self, user_id: i64, file_size: i64) -> Result<i64> {
-        let group_id = self.require_user_policy_group_id(user_id)?;
-        self.resolve_policy_in_group(group_id, file_size)
-            .map(|policy| policy.id)
-    }
-
-    pub fn resolve_user_policy_for_size(
-        &self,
-        user_id: i64,
-        file_size: i64,
-    ) -> Result<storage_policy::Model> {
-        let group_id = self.require_user_policy_group_id(user_id)?;
-        self.resolve_policy_in_group(group_id, file_size)
-    }
-
-    pub fn resolve_default_policy_id(&self, user_id: i64) -> Option<i64> {
-        self.resolve_default_policy_id_for_size(user_id, 0)
-    }
-
-    pub fn resolve_default_policy_id_for_size(&self, user_id: i64, file_size: i64) -> Option<i64> {
-        self.resolve_user_policy_id_for_size(user_id, file_size)
-            .ok()
-    }
-
-    pub fn resolve_default_policy(&self, user_id: i64) -> Option<storage_policy::Model> {
-        self.resolve_default_policy_for_size(user_id, 0)
-    }
-
-    pub fn resolve_default_policy_for_size(
-        &self,
-        user_id: i64,
-        file_size: i64,
-    ) -> Option<storage_policy::Model> {
-        self.resolve_user_policy_for_size(user_id, file_size).ok()
-    }
-
     pub fn system_default_policy(&self) -> Option<storage_policy::Model> {
         let policy_id = self.snapshot.read().system_default_policy_id?;
         self.get_policy(policy_id)
@@ -310,6 +415,13 @@ impl PolicySnapshot {
             .write()
             .user_policy_group_by_user_id
             .insert(user_id, group_id);
+    }
+
+    pub fn set_team_policy_group(&self, team_id: i64, group_id: i64) {
+        self.snapshot
+            .write()
+            .team_policy_group_by_team_id
+            .insert(team_id, group_id);
     }
 
     pub fn remove_user_policy_group(&self, user_id: i64) {
@@ -336,11 +448,20 @@ impl PolicySnapshot {
     }
 }
 
-fn matches_size_rule(item: &storage_policy_group_item::Model, file_size: i64) -> bool {
-    if file_size < item.min_file_size {
-        return false;
+fn parse_selection_mode(value: &str) -> Option<PlacementSelectionMode> {
+    match value {
+        "first_available" => Some(PlacementSelectionMode::FirstAvailable),
+        "weighted_random" => Some(PlacementSelectionMode::WeightedRandom),
+        _ => None,
     }
-    item.max_file_size == 0 || file_size < item.max_file_size
+}
+
+fn parse_unavailable_behavior(value: &str) -> Option<PlacementUnavailableBehavior> {
+    match value {
+        "next_rule" => Some(PlacementUnavailableBehavior::NextRule),
+        "reject" => Some(PlacementUnavailableBehavior::Reject),
+        _ => None,
+    }
 }
 
 impl Default for PolicySnapshot {
@@ -350,11 +471,51 @@ impl Default for PolicySnapshot {
 }
 
 #[cfg(test)]
+impl PolicySnapshot {
+    fn resolve_compiled_profile_for_test(
+        &self,
+        group_id: i64,
+        file_size: i64,
+    ) -> Result<storage_policy::Model> {
+        let profile = self.get_placement_profile(group_id).ok_or_else(|| {
+            AsterError::storage_policy_not_found(format!("placement profile #{group_id}"))
+        })?;
+        let context = crate::services::storage_policy::policy::placement::StoragePlacementContext {
+            profile_id: group_id,
+            filename: "file.bin".to_string(),
+            file_size,
+            extension: "bin".to_string(),
+            compound_extension: None,
+            category: aster_forge_file_classification::FileCategory::Other,
+        };
+        let decision = crate::services::storage_policy::policy::placement::resolve_placement(
+            &profile, &context, None,
+        )
+        .map_err(|error| AsterError::validation_error(error.code()))?;
+        self.get_policy_or_err(decision.policy_id)
+    }
+
+    fn resolve_default_policy_for_size_for_test(
+        &self,
+        user_id: i64,
+        file_size: i64,
+    ) -> Option<storage_policy::Model> {
+        let group_id = self.resolve_default_policy_group_id(user_id)?;
+        self.resolve_compiled_profile_for_test(group_id, file_size)
+            .ok()
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::PolicySnapshot;
     use crate::config::DatabaseConfig;
     use crate::db;
     use crate::db::repository::{managed_follower_repo, policy_group_repo, policy_repo, user_repo};
+    use crate::services::storage_policy::policy::placement::{
+        PlacementMatcher, PlacementPayloadEnvelope, StorageAdmissionConstraints,
+        StoragePlacementContext,
+    };
     use crate::storage::connectors::builtin_storage_connector_registry;
     use aster_drive_model::types::{
         RemoteDownloadStrategy, RemoteUploadStrategy, UserRole, UserStatus,
@@ -481,6 +642,12 @@ mod tests {
                 description: Set(String::new()),
                 is_enabled: Set(true),
                 is_default: Set(is_default),
+                admission_config: Set(serde_json::to_string(&PlacementPayloadEnvelope::new(
+                    StorageAdmissionConstraints::default(),
+                ))
+                .unwrap()),
+                upload_execution_preference: Set("automatic".to_string()),
+                routing_revision: Set(1),
                 created_at: Set(now),
                 updated_at: Set(now),
                 ..Default::default()
@@ -488,18 +655,40 @@ mod tests {
         )
         .await
         .unwrap();
-        policy_group_repo::create_group_item(
-            db,
-            aster_drive_model::entities::storage_policy_group_item::ActiveModel {
-                group_id: Set(group.id),
-                policy_id: Set(policy_id),
-                priority: Set(1),
-                min_file_size: Set(min_file_size),
-                max_file_size: Set(max_file_size),
-                created_at: Set(now),
-                ..Default::default()
-            },
-        )
+        let matcher = serde_json::to_string(&PlacementPayloadEnvelope::new(PlacementMatcher {
+            min_file_size,
+            max_file_size,
+            ..Default::default()
+        }))
+        .unwrap();
+        let rule = aster_drive_model::entities::storage_policy_group_rule::ActiveModel {
+            group_id: Set(group.id),
+            name: Set("Test Rule".to_string()),
+            description: Set(String::new()),
+            priority: Set(1),
+            is_enabled: Set(true),
+            matcher: Set(matcher),
+            selection_mode: Set("first_available".to_string()),
+            unavailable_behavior: Set("next_rule".to_string()),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .unwrap();
+        aster_drive_model::entities::storage_policy_group_rule_target::ActiveModel {
+            rule_id: Set(rule.id),
+            policy_id: Set(policy_id),
+            weight: Set(100),
+            is_enabled: Set(true),
+            accepting_new_writes: Set(true),
+            stable_order: Set(1),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(db)
         .await
         .unwrap();
         group
@@ -530,6 +719,131 @@ mod tests {
         )
         .await
         .unwrap()
+    }
+
+    async fn create_test_rule(
+        db: &sea_orm::DatabaseConnection,
+        group_id: i64,
+        policy_id: i64,
+        priority: i32,
+        min_file_size: i64,
+        max_file_size: i64,
+    ) {
+        let now = Utc::now();
+        let rule = aster_drive_model::entities::storage_policy_group_rule::ActiveModel {
+            group_id: Set(group_id),
+            name: Set(format!("Rule {priority}")),
+            description: Set(String::new()),
+            priority: Set(priority),
+            is_enabled: Set(true),
+            matcher: Set(
+                serde_json::to_string(&PlacementPayloadEnvelope::new(PlacementMatcher {
+                    min_file_size,
+                    max_file_size,
+                    ..Default::default()
+                }))
+                .unwrap(),
+            ),
+            selection_mode: Set("first_available".to_string()),
+            unavailable_behavior: Set("next_rule".to_string()),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .unwrap();
+        aster_drive_model::entities::storage_policy_group_rule_target::ActiveModel {
+            rule_id: Set(rule.id),
+            policy_id: Set(policy_id),
+            weight: Set(100),
+            is_enabled: Set(true),
+            accepting_new_writes: Set(true),
+            stable_order: Set(priority),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn reload_compiles_rule_targets_and_resolves_without_legacy_items() {
+        let db = setup_db().await;
+        let policy = create_policy(&db, "Placement Policy", "/tmp/placement-policy", true).await;
+        let now = Utc::now();
+        let group = policy_group_repo::create_group(
+            &db,
+            aster_drive_model::entities::storage_policy_group::ActiveModel {
+                name: Set("Placement Profile".to_string()),
+                description: Set(String::new()),
+                is_enabled: Set(true),
+                is_default: Set(true),
+                admission_config: Set(serde_json::to_string(&PlacementPayloadEnvelope::new(
+                    StorageAdmissionConstraints::default(),
+                ))
+                .unwrap()),
+                upload_execution_preference: Set("automatic".to_string()),
+                routing_revision: Set(9),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let rule = aster_drive_model::entities::storage_policy_group_rule::ActiveModel {
+            group_id: Set(group.id),
+            name: Set("Images".to_string()),
+            description: Set(String::new()),
+            priority: Set(1),
+            is_enabled: Set(true),
+            matcher: Set(
+                serde_json::to_string(&PlacementPayloadEnvelope::new(PlacementMatcher {
+                    extensions: vec!["jpg".to_string()],
+                    ..Default::default()
+                }))
+                .unwrap(),
+            ),
+            selection_mode: Set("first_available".to_string()),
+            unavailable_behavior: Set("reject".to_string()),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await
+        .unwrap();
+        aster_drive_model::entities::storage_policy_group_rule_target::ActiveModel {
+            rule_id: Set(rule.id),
+            policy_id: Set(policy.id),
+            weight: Set(100),
+            is_enabled: Set(true),
+            accepting_new_writes: Set(true),
+            stable_order: Set(1),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await
+        .unwrap();
+
+        let snapshot = PolicySnapshot::new();
+        let connectors = builtin_storage_connector_registry().unwrap();
+        snapshot.reload(&db, &connectors).await.unwrap();
+        let profile = snapshot.get_placement_profile(group.id).unwrap();
+        let context =
+            StoragePlacementContext::from_filename(group.id, "photo.jpg", 10, "image/jpeg");
+        let decision = crate::services::storage_policy::policy::placement::resolve_placement(
+            &profile, &context, None,
+        )
+        .unwrap();
+        assert_eq!(decision.policy_id, policy.id);
+        assert_eq!(decision.revision, 9);
+        assert_eq!(decision.rule_id, Some(rule.id));
     }
 
     #[tokio::test]
@@ -581,12 +895,16 @@ mod tests {
         );
         assert_eq!(
             snapshot
-                .resolve_default_policy_for_size(user.id, 16)
+                .resolve_default_policy_for_size_for_test(user.id, 16)
                 .unwrap()
                 .id,
             user_default.id
         );
-        assert!(snapshot.resolve_default_policy_for_size(9999, 16).is_none());
+        assert!(
+            snapshot
+                .resolve_default_policy_for_size_for_test(9999, 16)
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -612,20 +930,15 @@ mod tests {
         for (priority, policy_id, min_file_size, max_file_size) in
             [(1, small.id, 0, 10), (2, large.id, 10, 0)]
         {
-            policy_group_repo::create_group_item(
+            create_test_rule(
                 &db,
-                aster_drive_model::entities::storage_policy_group_item::ActiveModel {
-                    group_id: Set(group.id),
-                    policy_id: Set(policy_id),
-                    priority: Set(priority),
-                    min_file_size: Set(min_file_size),
-                    max_file_size: Set(max_file_size),
-                    created_at: Set(now),
-                    ..Default::default()
-                },
+                group.id,
+                policy_id,
+                priority,
+                min_file_size,
+                max_file_size,
             )
-            .await
-            .unwrap();
+            .await;
         }
 
         let snapshot = PolicySnapshot::new();
@@ -633,11 +946,17 @@ mod tests {
         snapshot.reload(&db, &connectors).await.unwrap();
 
         assert_eq!(
-            snapshot.resolve_policy_in_group(group.id, 5).unwrap().id,
+            snapshot
+                .resolve_compiled_profile_for_test(group.id, 5)
+                .unwrap()
+                .id,
             small.id
         );
         assert_eq!(
-            snapshot.resolve_policy_in_group(group.id, 1024).unwrap().id,
+            snapshot
+                .resolve_compiled_profile_for_test(group.id, 1024)
+                .unwrap()
+                .id,
             large.id
         );
     }
@@ -665,29 +984,26 @@ mod tests {
         for (priority, policy_id, min_file_size, max_file_size) in
             [(1, small.id, 0, 10), (2, large.id, 20, 0)]
         {
-            policy_group_repo::create_group_item(
+            create_test_rule(
                 &db,
-                aster_drive_model::entities::storage_policy_group_item::ActiveModel {
-                    group_id: Set(group.id),
-                    policy_id: Set(policy_id),
-                    priority: Set(priority),
-                    min_file_size: Set(min_file_size),
-                    max_file_size: Set(max_file_size),
-                    created_at: Set(now),
-                    ..Default::default()
-                },
+                group.id,
+                policy_id,
+                priority,
+                min_file_size,
+                max_file_size,
             )
-            .await
-            .unwrap();
+            .await;
         }
 
         let snapshot = PolicySnapshot::new();
         let connectors = builtin_storage_connector_registry().unwrap();
         snapshot.reload(&db, &connectors).await.unwrap();
 
-        let err = snapshot.resolve_policy_in_group(group.id, 15).unwrap_err();
+        let err = snapshot
+            .resolve_compiled_profile_for_test(group.id, 15)
+            .unwrap_err();
         assert_eq!(err.code(), "E005");
-        assert!(err.message().contains("no storage policy rule"));
+        assert!(err.message().contains("placement_no_matching_rule"));
     }
 
     #[tokio::test]
@@ -714,20 +1030,7 @@ mod tests {
         .await
         .unwrap();
         for (priority, policy_id) in [(1, remote_policy.id), (2, fallback_policy.id)] {
-            policy_group_repo::create_group_item(
-                &db,
-                aster_drive_model::entities::storage_policy_group_item::ActiveModel {
-                    group_id: Set(group.id),
-                    policy_id: Set(policy_id),
-                    priority: Set(priority),
-                    min_file_size: Set(0),
-                    max_file_size: Set(0),
-                    created_at: Set(now),
-                    ..Default::default()
-                },
-            )
-            .await
-            .unwrap();
+            create_test_rule(&db, group.id, policy_id, priority, 0, 0).await;
         }
 
         let snapshot = PolicySnapshot::new();
@@ -735,7 +1038,10 @@ mod tests {
         snapshot.reload(&db, &connectors).await.unwrap();
 
         assert_eq!(
-            snapshot.resolve_policy_in_group(group.id, 5).unwrap().id,
+            snapshot
+                .resolve_compiled_profile_for_test(group.id, 5)
+                .unwrap()
+                .id,
             fallback_policy.id
         );
     }

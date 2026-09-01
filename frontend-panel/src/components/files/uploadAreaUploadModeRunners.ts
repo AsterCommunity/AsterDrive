@@ -1,18 +1,18 @@
 import { createResumableUploadRunners } from "./uploadAreaResumableUploadRunners";
 import { createSimpleUploadRunners } from "./uploadAreaSimpleUploadRunners";
 import type {
-	UploadModeRunnerContext,
-	UploadModeRunners,
+	UploadTransportRunnerContext,
+	UploadTransportRunners,
 } from "./uploadAreaUploadRunnerShared";
 
 export type {
-	UploadModeRunnerContext,
-	UploadModeRunners,
+	UploadTransportRunnerContext,
+	UploadTransportRunners,
 } from "./uploadAreaUploadRunnerShared";
 
-export function createUploadModeRunners(
-	context: UploadModeRunnerContext,
-): UploadModeRunners {
+export function createUploadTransportRunners(
+	context: UploadTransportRunnerContext,
+): UploadTransportRunners {
 	return {
 		...createSimpleUploadRunners(context),
 		...createResumableUploadRunners(context),

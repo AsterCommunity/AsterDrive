@@ -169,33 +169,12 @@ where
             Error = actix_web::Error,
         >,
 {
-    let boundary = "----ArchivePreviewBoundary";
     let uri = folder_id
-        .map(|id| format!("/api/v1/files/upload?folder_id={id}"))
-        .unwrap_or_else(|| "/api/v1/files/upload".to_string());
-    let mut payload = Vec::new();
-    payload.extend_from_slice(b"------ArchivePreviewBoundary\r\n");
-    payload.extend_from_slice(
-        format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n")
-            .as_bytes(),
-    );
-    payload.extend_from_slice(format!("Content-Type: {mime}\r\n\r\n").as_bytes());
-    payload.extend_from_slice(&bytes);
-    payload.extend_from_slice(b"\r\n------ArchivePreviewBoundary--\r\n");
-
-    let req = test::TestRequest::post()
-        .uri(&uri)
-        .insert_header(("Cookie", common::access_cookie_header(token)))
-        .insert_header(common::csrf_header_for(token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(app, req).await;
-    assert_eq!(resp.status(), 201, "upload should return 201");
-    let body: Value = test::read_body_json(resp).await;
+        .map(|id| format!("/api/v1/files?folder_id={id}"))
+        .unwrap_or_else(|| "/api/v1/files".to_string());
+    let (status, body) =
+        common::upload_via_server_session(app, token, &uri, filename, mime, &bytes).await;
+    assert_eq!(status, 201, "upload should return 201");
     body["data"]["id"].as_i64().unwrap()
 }
 

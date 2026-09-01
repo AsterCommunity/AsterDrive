@@ -637,12 +637,12 @@ async fn enforce_immutable_if(
     request_head: &DavRequestHead,
     etag: &str,
     prefix: &str,
-) -> Result<(), HttpResponse> {
+) -> Result<(), aster_forge_webdav::DavIfEvaluationError> {
     let resolver = ImmutableIfResolver {
         target_path: &request_head.target,
         etag,
     };
-    match aster_forge_webdav::enforce_if_header(
+    aster_forge_webdav::enforce_if_header(
         request_head.if_header.as_ref(),
         &resolver,
         &request_head.target,
@@ -651,17 +651,6 @@ async fn enforce_immutable_if(
         &request_head.origin.host,
     )
     .await
-    {
-        Ok(()) => Ok(()),
-        Err(aster_forge_webdav::DavIfEvaluationError::Protocol(error)) => {
-            Err(aster_forge_webdav::actix::protocol_error_response(error))
-        }
-        Err(aster_forge_webdav::DavIfEvaluationError::Backend(error)) => {
-            Err(aster_forge_webdav::actix::into_response(
-                aster_forge_webdav::backend_error_response(&error),
-            ))
-        }
-    }
 }
 
 struct ImmutableRevisionSource<'a> {
@@ -739,8 +728,17 @@ pub(crate) async fn handle_version_get_head(
             );
         }
     };
-    if let Err(response) = enforce_immutable_if(request_head, &target.revision.etag, prefix).await {
-        return response;
+    if let Err(error) = enforce_immutable_if(request_head, &target.revision.etag, prefix).await {
+        return match error {
+            aster_forge_webdav::DavIfEvaluationError::Protocol(error) => {
+                aster_forge_webdav::actix::protocol_error_response(error)
+            }
+            aster_forge_webdav::DavIfEvaluationError::Backend(error) => {
+                aster_forge_webdav::actix::into_response(
+                    aster_forge_webdav::backend_error_response(&error),
+                )
+            }
+        };
     }
     let source = ImmutableRevisionSource {
         filesystem,

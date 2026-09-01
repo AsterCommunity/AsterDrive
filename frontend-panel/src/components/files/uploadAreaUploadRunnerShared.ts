@@ -9,9 +9,9 @@ import type {
 	UploadTask,
 } from "./uploadAreaManagerShared";
 
-export interface UploadModeRunnerContext {
+export interface UploadTransportRunnerContext {
 	abortFlagsRef: MutableRefObject<Map<string, boolean>>;
-	directAbortRef: MutableRefObject<Map<string, AbortController>>;
+	metadataAbortRef: MutableRefObject<Map<string, AbortController>>;
 	flushProgress: () => void;
 	markFolderForRefresh: (task: UploadTask) => void;
 	markTaskFailed: (taskId: string, error: unknown) => void;
@@ -23,7 +23,7 @@ export interface UploadModeRunnerContext {
 	workspace: Workspace;
 }
 
-export interface UploadModeRunners {
+export interface UploadTransportRunners {
 	cancelMultipartSession: (task: UploadTask) => Promise<void>;
 	resumeCompletionTask: (
 		task: UploadTask,
@@ -34,7 +34,10 @@ export interface UploadModeRunners {
 		init: InitUploadResponse,
 		alreadyReceived?: number[],
 	) => Promise<void>;
-	runDirectUpload: (task: UploadTask) => Promise<void>;
+	runStreamUpload: (
+		task: UploadTask,
+		init?: InitUploadResponse,
+	) => Promise<void>;
 	runMultipartUpload: (
 		task: UploadTask,
 		init: InitUploadResponse,

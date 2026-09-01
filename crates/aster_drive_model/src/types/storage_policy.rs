@@ -21,22 +21,22 @@ pub enum UploadSessionStatus {
     Presigned,
 }
 
-/// 上传模式（不存 DB，仅 API 响应用）
+/// Upload data plane fixed by upload initialization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
-pub enum UploadMode {
-    Direct,
+pub enum UploadTransport {
+    Stream,
     Chunked,
     Presigned,
     PresignedMultipart,
     ProviderResumable,
 }
 
-impl UploadMode {
+impl UploadTransport {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Direct => "direct",
+            Self::Stream => "stream",
             Self::Chunked => "chunked",
             Self::Presigned => "presigned",
             Self::PresignedMultipart => "presigned_multipart",

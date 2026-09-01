@@ -21,7 +21,7 @@ import {
 	resolveRootFolderId,
 	search,
 	uniqueName,
-	uploadDirect,
+	uploadViaSession,
 } from "./lib/client.js";
 import { createSummary } from "./lib/summary.js";
 
@@ -127,7 +127,7 @@ export default function (data) {
 			mixedRampOperations.add(1, { operation: "download" });
 			break;
 		case 3:
-			uploadDirect(state.session, {
+			uploadViaSession(state.session, {
 				filename: uniqueName("ramp-upload", "bin"),
 				content: uploadPayload,
 				mimeType: "application/octet-stream",

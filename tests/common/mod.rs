@@ -1889,9 +1889,6 @@ macro_rules! register_and_login {
 #[macro_export]
 macro_rules! admin_create_user {
     ($app:expr, $admin_token:expr, $username:expr, $email:expr, $password:expr) => {{
-        use actix_web::test;
-        use serde_json::Value;
-
         let req = test::TestRequest::post()
             .uri("/api/v1/admin/users")
             .insert_header(("Cookie", common::access_cookie_header(&$admin_token)))
@@ -1964,33 +1961,126 @@ macro_rules! confirm_latest_contact_verification {
 }
 
 /// 上传测试文件，返回 file_id
+/// Drives server-owned stream/chunked data planes for integration fixtures.
+/// Browser-owned presigned/provider transports require dedicated provider fixtures.
+pub async fn upload_via_server_session(
+    app: &impl actix_web::dev::Service<
+        actix_http::Request,
+        Response = actix_web::dev::ServiceResponse,
+        Error = actix_web::Error,
+    >,
+    token: &str,
+    files_uri: &str,
+    filename: &str,
+    mime_type: &str,
+    content: &[u8],
+) -> (actix_web::http::StatusCode, serde_json::Value) {
+    use actix_web::test;
+
+    let (files_uri, query) = files_uri.split_once('?').unwrap_or((files_uri, ""));
+    let mut folder_id = None;
+    let mut relative_path = None;
+    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        match key {
+            "folder_id" => folder_id = value.parse::<i64>().ok(),
+            "relative_path" => {
+                relative_path = urlencoding::decode(value)
+                    .ok()
+                    .map(|value| value.into_owned())
+            }
+            _ => {}
+        }
+    }
+
+    let init_req = test::TestRequest::post()
+        .uri(&format!("{files_uri}/upload/init"))
+        .insert_header(("Cookie", access_cookie_header(token)))
+        .insert_header(csrf_header_for(token))
+        .set_json(serde_json::json!({
+            "filename": filename,
+            "mime_type": mime_type,
+            "total_size": content.len(),
+            "folder_id": folder_id,
+            "relative_path": relative_path,
+        }))
+        .to_request();
+    let init_resp = test::call_service(app, init_req).await;
+    let init_status = init_resp.status();
+    let init_body: serde_json::Value = test::read_body_json(init_resp).await;
+    if init_status != actix_web::http::StatusCode::CREATED {
+        return (init_status, init_body);
+    }
+
+    let upload_id = init_body["data"]["upload_id"]
+        .as_str()
+        .expect("non-empty upload init must return upload_id");
+    let mode = init_body["data"]["mode"]
+        .as_str()
+        .expect("upload init must return mode");
+    match mode {
+        "stream" => {
+            let body_req = test::TestRequest::put()
+                .uri(&format!("{files_uri}/upload/{upload_id}/body"))
+                .insert_header(("Cookie", access_cookie_header(token)))
+                .insert_header(csrf_header_for(token))
+                .insert_header(("Content-Type", "application/octet-stream"))
+                .set_payload(content.to_vec())
+                .to_request();
+            let body_resp = test::call_service(app, body_req).await;
+            let status = body_resp.status();
+            return (status, test::read_body_json(body_resp).await);
+        }
+        "chunked" => {
+            let chunk_size = usize::try_from(
+                init_body["data"]["chunk_size"]
+                    .as_u64()
+                    .expect("chunked init must return chunk_size"),
+            )
+            .expect("chunk_size must fit usize");
+            for (index, chunk) in content.chunks(chunk_size).enumerate() {
+                let chunk_req = test::TestRequest::put()
+                    .uri(&format!("{files_uri}/upload/{upload_id}/{index}"))
+                    .insert_header(("Cookie", access_cookie_header(token)))
+                    .insert_header(csrf_header_for(token))
+                    .insert_header(("Content-Type", "application/octet-stream"))
+                    .set_payload(chunk.to_vec())
+                    .to_request();
+                let chunk_resp = test::call_service(app, chunk_req).await;
+                if chunk_resp.status() != actix_web::http::StatusCode::OK {
+                    let status = chunk_resp.status();
+                    return (status, test::read_body_json(chunk_resp).await);
+                }
+            }
+        }
+        other => {
+            panic!("server-session test helper requires stream or chunked transport, got {other}")
+        }
+    }
+
+    let complete_req = test::TestRequest::post()
+        .uri(&format!("{files_uri}/upload/{upload_id}/complete"))
+        .insert_header(("Cookie", access_cookie_header(token)))
+        .insert_header(csrf_header_for(token))
+        .to_request();
+    let complete_resp = test::call_service(app, complete_req).await;
+    let status = complete_resp.status();
+    (status, test::read_body_json(complete_resp).await)
+}
+
 #[macro_export]
 macro_rules! upload_test_file {
     ($app:expr, $token:expr) => {{
-        use actix_web::test;
-        use serde_json::Value;
-
-        let boundary = "----TestBoundary123";
-        let payload = format!(
-            "------TestBoundary123\r\n\
-             Content-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\n\
-             Content-Type: text/plain\r\n\r\n\
-             test content\r\n\
-             ------TestBoundary123--\r\n"
-        );
-        let req = test::TestRequest::post()
-            .uri("/api/v1/files/upload")
-            .insert_header(("Cookie", common::access_cookie_header(&$token)))
-            .insert_header(common::csrf_header_for(&$token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request();
-        let resp = test::call_service(&$app, req).await;
-        assert_eq!(resp.status(), 201, "upload should return 201");
-        let body: Value = test::read_body_json(resp).await;
+        let (status, body) = common::upload_via_server_session(
+            &$app,
+            &$token,
+            "/api/v1/files",
+            "test.txt",
+            "text/plain",
+            b"test content",
+        )
+        .await;
+        assert_eq!(status, 201, "upload should return 201");
         body["data"]["id"].as_i64().unwrap()
     }};
 }
@@ -1999,31 +2089,16 @@ macro_rules! upload_test_file {
 #[macro_export]
 macro_rules! upload_test_file_named {
     ($app:expr, $token:expr, $name:expr) => {{
-        use actix_web::test;
-        use serde_json::Value;
-
-        let boundary = "----TestBoundary123";
-        let payload = format!(
-            "------TestBoundary123\r\n\
-             Content-Disposition: form-data; name=\"file\"; filename=\"{name}\"\r\n\
-             Content-Type: text/plain\r\n\r\n\
-             test content\r\n\
-             ------TestBoundary123--\r\n",
-            name = $name
-        );
-        let req = test::TestRequest::post()
-            .uri("/api/v1/files/upload")
-            .insert_header(("Cookie", common::access_cookie_header(&$token)))
-            .insert_header(common::csrf_header_for(&$token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request();
-        let resp = test::call_service(&$app, req).await;
-        assert_eq!(resp.status(), 201, "upload should return 201");
-        let body: Value = test::read_body_json(resp).await;
+        let (status, body) = common::upload_via_server_session(
+            &$app,
+            &$token,
+            "/api/v1/files",
+            $name,
+            "text/plain",
+            b"test content",
+        )
+        .await;
+        assert_eq!(status, 201, "upload should return 201");
         body["data"]["id"].as_i64().unwrap()
     }};
 }
@@ -2032,30 +2107,17 @@ macro_rules! upload_test_file_named {
 #[macro_export]
 macro_rules! upload_test_file_to_folder {
     ($app:expr, $token:expr, $folder_id:expr) => {{
-        use actix_web::test;
-        use serde_json::Value;
-
-        let boundary = "----TestBoundary123";
-        let payload = format!(
-            "------TestBoundary123\r\n\
-             Content-Disposition: form-data; name=\"file\"; filename=\"test-in-folder.txt\"\r\n\
-             Content-Type: text/plain\r\n\r\n\
-             test content in folder\r\n\
-             ------TestBoundary123--\r\n"
-        );
-        let req = test::TestRequest::post()
-            .uri(&format!("/api/v1/files/upload?folder_id={}", $folder_id))
-            .insert_header(("Cookie", common::access_cookie_header(&$token)))
-            .insert_header(common::csrf_header_for(&$token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request();
-        let resp = test::call_service(&$app, req).await;
-        assert_eq!(resp.status(), 201, "upload to folder should return 201");
-        let body: Value = test::read_body_json(resp).await;
+        let uri = format!("/api/v1/files?folder_id={}", $folder_id);
+        let (status, body) = common::upload_via_server_session(
+            &$app,
+            &$token,
+            &uri,
+            "test-in-folder.txt",
+            "text/plain",
+            b"test content in folder",
+        )
+        .await;
+        assert_eq!(status, 201, "upload to folder should return 201");
         body["data"]["id"].as_i64().unwrap()
     }};
 }

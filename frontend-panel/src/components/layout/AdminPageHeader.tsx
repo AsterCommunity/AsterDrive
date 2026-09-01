@@ -52,11 +52,7 @@ export function AdminPageHeader({
 
 	return (
 		<div
-			className={cn(
-				"space-y-4 border-b pb-4",
-				PAGE_SECTION_PADDING_CLASS,
-				className,
-			)}
+			className={cn("space-y-4 pb-4", PAGE_SECTION_PADDING_CLASS, className)}
 		>
 			<div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
 				<div className="space-y-1">

@@ -1319,14 +1319,13 @@ async fn test_admin_team_crud() {
             description: Some("Secondary team routing".to_string()),
             is_enabled: true,
             is_default: false,
-            items: vec![
-                aster_drive::services::storage_policy::policy::StoragePolicyGroupItemInput {
-                    policy_id: default_policy_id,
-                    priority: 1,
-                    min_file_size: 0,
-                    max_file_size: 0,
-                },
-            ],
+            admission: None,
+            execution_preference: None,
+            rules: Some(vec![aster_drive::services::storage_policy::policy::StoragePlacementRuleInput {
+                name: "Rule 1".to_string(), description: None, priority: 1, is_enabled: true,
+                matcher: Default::default(), selection_mode: Default::default(), unavailable_behavior: Default::default(),
+                targets: vec![aster_drive::services::storage_policy::policy::StoragePlacementTargetInput { policy_id: default_policy_id, weight: 100, is_enabled: true, accepting_new_writes: true, stable_order: 1 }],
+            }]),
         },
     )
     .await
@@ -2145,11 +2144,26 @@ async fn test_admin_policy_groups_support_explicit_sorting() {
                 "description": "sort regression",
                 "is_enabled": enabled,
                 "is_default": false,
-                "items": [{
-                    "policy_id": default_policy_id,
+                "rules": [{
+                    "name": "Default route",
+                    "description": "",
                     "priority": 1,
-                    "min_file_size": 0,
-                    "max_file_size": 0
+                    "is_enabled": true,
+                    "matcher": {
+                        "min_file_size": 0,
+                        "max_file_size": 0,
+                        "extensions": [],
+                        "compound_extensions": [],
+                        "extensionless": null,
+                        "categories": []
+                    },
+                    "targets": [{
+                        "policy_id": default_policy_id,
+                        "weight": 100,
+                        "is_enabled": true,
+                        "accepting_new_writes": true,
+                        "stable_order": 1
+                    }]
                 }]
             }))
             .to_request();
@@ -2179,6 +2193,81 @@ async fn test_admin_policy_groups_support_explicit_sorting() {
 }
 
 #[actix_web::test]
+async fn test_admin_policy_group_simulation_returns_rejection_diagnostics() {
+    let state = common::setup().await;
+    let default_policy_id = policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .expect("default policy should exist")
+        .id;
+    let group = aster_drive::services::storage_policy::policy::create_group(
+        &state,
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyGroupInput {
+            name: "Simulation Diagnostics Group".to_string(),
+            description: Some("reject executable names".to_string()),
+            is_enabled: true,
+            is_default: false,
+            admission: Some(
+                aster_drive::services::storage_policy::policy::placement::StorageAdmissionConstraints {
+                    denied_extensions: vec!["exe".to_string()],
+                    ..Default::default()
+                },
+            ),
+            execution_preference: None,
+            rules: Some(vec![
+                aster_drive::services::storage_policy::policy::StoragePlacementRuleInput {
+                    name: "Catch all".to_string(),
+                    description: None,
+                    priority: 1,
+                    is_enabled: true,
+                    matcher: Default::default(),
+                    selection_mode: Default::default(),
+                    unavailable_behavior: Default::default(),
+                    targets: vec![
+                        aster_drive::services::storage_policy::policy::StoragePlacementTargetInput {
+                            policy_id: default_policy_id,
+                            weight: 100,
+                            is_enabled: true,
+                            accepting_new_writes: true,
+                            stable_order: 1,
+                        },
+                    ],
+                },
+            ]),
+        },
+    )
+    .await
+    .expect("simulation policy group should be created");
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/policy-groups/{}/simulate",
+            group.id
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "filename": "SETUP.EXE",
+            "file_size": 4096,
+            "mime_type": "application/octet-stream"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+
+    assert_eq!(body["code"], "success", "{body}");
+    assert_eq!(body["data"]["classification"]["filename"], "SETUP.EXE");
+    assert_eq!(body["data"]["classification"]["extension"], "exe");
+    assert_eq!(body["data"]["admitted"], false);
+    assert_eq!(body["data"]["rejection_code"], "placement_extension_denied");
+    assert!(body["data"]["decision"].is_null());
+    assert_eq!(body["data"]["evaluated_rules"], serde_json::json!([]));
+}
+
+#[actix_web::test]
 async fn test_admin_policy_group_migration_updates_users_and_teams() {
     let state = common::setup().await;
     let default_policy_id = policy_repo::find_default(state.writer_db())
@@ -2193,14 +2282,13 @@ async fn test_admin_policy_group_migration_updates_users_and_teams() {
             description: Some("source assignments".to_string()),
             is_enabled: true,
             is_default: false,
-            items: vec![
-                aster_drive::services::storage_policy::policy::StoragePolicyGroupItemInput {
-                    policy_id: default_policy_id,
-                    priority: 1,
-                    min_file_size: 0,
-                    max_file_size: 0,
-                },
-            ],
+            admission: None,
+            execution_preference: None,
+            rules: Some(vec![aster_drive::services::storage_policy::policy::StoragePlacementRuleInput {
+                name: "Rule 1".to_string(), description: None, priority: 1, is_enabled: true,
+                matcher: Default::default(), selection_mode: Default::default(), unavailable_behavior: Default::default(),
+                targets: vec![aster_drive::services::storage_policy::policy::StoragePlacementTargetInput { policy_id: default_policy_id, weight: 100, is_enabled: true, accepting_new_writes: true, stable_order: 1 }],
+            }]),
         },
     )
     .await
@@ -2212,14 +2300,13 @@ async fn test_admin_policy_group_migration_updates_users_and_teams() {
             description: Some("target assignments".to_string()),
             is_enabled: true,
             is_default: false,
-            items: vec![
-                aster_drive::services::storage_policy::policy::StoragePolicyGroupItemInput {
-                    policy_id: default_policy_id,
-                    priority: 1,
-                    min_file_size: 0,
-                    max_file_size: 0,
-                },
-            ],
+            admission: None,
+            execution_preference: None,
+            rules: Some(vec![aster_drive::services::storage_policy::policy::StoragePlacementRuleInput {
+                name: "Rule 1".to_string(), description: None, priority: 1, is_enabled: true,
+                matcher: Default::default(), selection_mode: Default::default(), unavailable_behavior: Default::default(),
+                targets: vec![aster_drive::services::storage_policy::policy::StoragePlacementTargetInput { policy_id: default_policy_id, weight: 100, is_enabled: true, accepting_new_writes: true, stable_order: 1 }],
+            }]),
         },
     )
     .await

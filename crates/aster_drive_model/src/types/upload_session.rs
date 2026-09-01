@@ -9,6 +9,8 @@ use utoipa::ToSchema;
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(32))")]
 #[serde(rename_all = "snake_case")]
 pub enum UploadSessionKind {
+    #[sea_orm(string_value = "stream")]
+    Stream,
     #[sea_orm(string_value = "offset_staging")]
     OffsetStaging,
     #[sea_orm(string_value = "stream_staging")]
@@ -49,6 +51,7 @@ pub struct UploadScheduling {
 impl UploadSessionKind {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::Stream => "stream",
             Self::OffsetStaging => "offset_staging",
             Self::StreamStaging => "stream_staging",
             Self::ProviderRelayMultipart => "provider_relay_multipart",

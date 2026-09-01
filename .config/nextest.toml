@@ -16,7 +16,9 @@ final-status-level = "slow"
 
 [profile.database]
 inherits = "ci"
-test-threads = 16
+# PostgreSQL integration tests share one testcontainer. GitHub-hosted Docker gives
+# that container a small /dev/shm; higher fan-out can exhaust it during parallel queries.
+test-threads = 4
 slow-timeout = { period = "120s", terminate-after = 4 }
 
 [profile.external]

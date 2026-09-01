@@ -12,6 +12,7 @@ import {
 	type InitUploadResponse,
 	uploadService,
 } from "@/services/uploadService";
+import { ApiErrorCode } from "@/types/api-helpers";
 import {
 	shouldRemovePersistedSession,
 	TERMINAL_UPLOAD_STATUS_SET,
@@ -20,8 +21,8 @@ import {
 } from "./uploadAreaManagerShared";
 import {
 	abortUploadRequests,
-	type UploadModeRunners,
 	type UploadRequestRef,
+	type UploadTransportRunners,
 } from "./uploadAreaUploadRunnerShared";
 
 export type UploadTaskOperation = "clear" | "retry";
@@ -37,10 +38,11 @@ function tryAcquireTaskOperation(
 	return true;
 }
 
-export interface UploadTaskActionsContext extends UploadModeRunners {
+export interface UploadTaskActionsContext extends UploadTransportRunners {
 	abortFlagsRef: MutableRefObject<Map<string, boolean>>;
-	directAbortRef: MutableRefObject<Map<string, AbortController>>;
+	metadataAbortRef: MutableRefObject<Map<string, AbortController>>;
 	markTaskFailed: (taskId: string, error: unknown) => void;
+	markFolderForRefresh?: (task: UploadTask) => void;
 	patchTask: (taskId: string, patch: Partial<UploadTask>) => void;
 	setTasks: Dispatch<SetStateAction<UploadTask[]>>;
 	setUploadPanelOpen: Dispatch<SetStateAction<boolean>>;
@@ -55,8 +57,49 @@ interface RunQueuedUploadTaskContext extends UploadTaskActionsContext {
 	markFolderForRefresh: (task: UploadTask) => void;
 }
 
+type StreamReconciliation =
+	| {
+			state: "completed";
+			file: Awaited<ReturnType<typeof uploadService.completeUpload>>;
+	  }
+	| { state: "active" }
+	| { state: "missing" };
+
+/** Reconcile ambiguous network failures before destructive stream actions. */
+async function reconcileStreamSession(
+	uploadId: string,
+): Promise<StreamReconciliation> {
+	for (let attempt = 0; attempt < 20; attempt += 1) {
+		try {
+			const file = await uploadService.completeUpload(uploadId);
+			if (!file) return { state: "active" };
+			return { state: "completed", file };
+		} catch (error) {
+			const code =
+				typeof error === "object" && error !== null && "code" in error
+					? (error as { code?: string }).code
+					: undefined;
+			if (code === ApiErrorCode.UploadAssembling) {
+				await new Promise((resolve) => window.setTimeout(resolve, 250));
+				continue;
+			}
+			if (
+				code === ApiErrorCode.UploadIncompleteChunks ||
+				code === ApiErrorCode.UploadPreviousFailure
+			) {
+				return { state: "active" };
+			}
+			if (code === ApiErrorCode.UploadSessionNotFound)
+				return { state: "missing" };
+			throw error;
+		}
+	}
+	return { state: "active" };
+}
+
 interface ClearTerminalUploadTasksContext {
 	setTasks: Dispatch<SetStateAction<UploadTask[]>>;
+	markFolderForRefresh?: (task: UploadTask) => void;
 	taskOperationLocks: UploadTaskOperationLocks;
 	tasksRef: MutableRefObject<UploadTask[]>;
 }
@@ -78,24 +121,26 @@ function createSavedSession(
 		savedAt: Date.now(),
 		workspace,
 		mode:
-			init.mode === "presigned_multipart"
-				? ("presigned_multipart" as const)
-				: init.mode === "provider_resumable"
-					? ("provider_resumable" as const)
-					: ("chunked" as const),
+			init.mode === "stream"
+				? ("stream" as const)
+				: init.mode === "presigned_multipart"
+					? ("presigned_multipart" as const)
+					: init.mode === "provider_resumable"
+						? ("provider_resumable" as const)
+						: ("chunked" as const),
 	};
 }
 
 export async function runQueuedUploadTask(
 	taskId: string,
 	{
-		directAbortRef,
+		metadataAbortRef,
 		markTaskFailed,
 		markFolderForRefresh,
 		patchTask,
 		resumeCompletionTask,
 		runChunkedUpload,
-		runDirectUpload,
+		runStreamUpload,
 		runMultipartUpload,
 		runPresignedUpload,
 		runProviderResumableUpload,
@@ -110,7 +155,7 @@ export async function runQueuedUploadTask(
 	if (!isEmptyFile && !task.file) return;
 	const file = task.file;
 	patchTask(taskId, {
-		...(isEmptyFile ? { mode: "direct" as const } : {}),
+		...(isEmptyFile ? { mode: "stream" as const } : {}),
 		status: "initializing",
 		error: null,
 		progress: 0,
@@ -128,12 +173,12 @@ export async function runQueuedUploadTask(
 				baseFolderId: task.baseFolderId,
 				relativePath: task.relativePath,
 				workspace,
-				requests: directAbortRef.current,
+				requests: metadataAbortRef.current,
 			});
 			if (result === "aborted") return;
 
 			patchTask(taskId, {
-				mode: "direct",
+				mode: "stream",
 				status: "completed",
 				progress: 100,
 				uploadedBytes: 0,
@@ -146,7 +191,8 @@ export async function runQueuedUploadTask(
 
 		if (
 			task.uploadId &&
-			(task.mode === "chunked" ||
+			(task.mode === "stream" ||
+				task.mode === "chunked" ||
 				task.mode === "presigned_multipart" ||
 				task.mode === "provider_resumable")
 		) {
@@ -173,6 +219,10 @@ export async function runQueuedUploadTask(
 								? (saved?.completedParts ?? [])
 								: undefined,
 						);
+						return;
+					}
+					if (task.mode === "stream") {
+						await runStreamUpload(task);
 						return;
 					}
 
@@ -245,12 +295,14 @@ export async function runQueuedUploadTask(
 			// `file` is proven above for every non-empty task.
 			filename: file?.name ?? task.filename,
 			total_size: file?.size ?? task.totalBytes,
+			mime_type: file?.type || undefined,
 			folder_id: task.baseFolderId,
 			relative_path: task.relativePath ?? undefined,
 		});
 
 		if (
-			(init.mode === "chunked" ||
+			(init.mode === "stream" ||
+				init.mode === "chunked" ||
 				init.mode === "presigned_multipart" ||
 				init.mode === "provider_resumable") &&
 			init.upload_id
@@ -274,7 +326,11 @@ export async function runQueuedUploadTask(
 			await runPresignedUpload(task, init);
 			return;
 		}
-		await runDirectUpload(task);
+		if (init.upload_id) patchTask(task.id, { uploadId: init.upload_id });
+		await runStreamUpload(
+			init.upload_id ? { ...task, uploadId: init.upload_id } : task,
+			init,
+		);
 	} catch (error) {
 		markTaskFailed(taskId, error);
 	}
@@ -285,7 +341,9 @@ export async function cancelUploadTask(
 	{
 		abortFlagsRef,
 		cancelMultipartSession,
-		directAbortRef,
+		markFolderForRefresh,
+		markTaskFailed,
+		metadataAbortRef,
 		patchTask,
 		setTasks,
 		tasksRef,
@@ -298,8 +356,32 @@ export async function cancelUploadTask(
 		removePendingEmptyFile(task.id);
 	}
 
-	if (task.mode === "direct") {
-		directAbortRef.current.get(taskId)?.abort();
+	if (task.mode === "stream") {
+		metadataAbortRef.current.get(taskId)?.abort();
+		abortUploadRequests(uploadRequestRef, taskId);
+		if (task.uploadId) {
+			try {
+				const reconciled = await reconcileStreamSession(task.uploadId);
+				if (reconciled.state === "completed") {
+					removeSession(task.uploadId);
+					markFolderForRefresh?.(task);
+					patchTask(taskId, {
+						status: "completed",
+						progress: 100,
+						uploadedBytes: reconciled.file.size,
+						error: null,
+					});
+					return;
+				}
+			} catch (error) {
+				markTaskFailed(taskId, error);
+				return;
+			}
+			try {
+				await uploadService.cancelUpload(task.uploadId);
+			} catch {}
+			removeSession(task.uploadId);
+		}
 		patchTask(taskId, { status: "cancelled", error: null });
 		return;
 	}
@@ -348,7 +430,12 @@ export async function cancelUploadTask(
 
 export async function clearTerminalUploadTasks(
 	taskIds: readonly string[],
-	{ setTasks, taskOperationLocks, tasksRef }: ClearTerminalUploadTasksContext,
+	{
+		setTasks,
+		markFolderForRefresh,
+		taskOperationLocks,
+		tasksRef,
+	}: ClearTerminalUploadTasksContext,
 ) {
 	const requestedIds = new Set(taskIds);
 	const tasksToClear = tasksRef.current.filter(
@@ -364,6 +451,19 @@ export async function clearTerminalUploadTasks(
 		await Promise.allSettled(
 			tasksToClear.map(async (task) => {
 				if (task.status === "failed" && task.uploadId) {
+					if (task.mode === "stream") {
+						try {
+							const reconciled = await reconcileStreamSession(task.uploadId);
+							if (reconciled.state === "completed") {
+								removeSession(task.uploadId);
+								markFolderForRefresh?.(task);
+								clearedIds.add(task.id);
+								return;
+							}
+						} catch {
+							return;
+						}
+					}
 					try {
 						await uploadService.cancelUpload(task.uploadId);
 					} catch {}
@@ -405,6 +505,7 @@ export async function retryUploadTask(
 	taskId: string,
 	{
 		cancelMultipartSession,
+		markFolderForRefresh,
 		patchTask,
 		resumeCompletionTask,
 		setUploadPanelOpen,
@@ -433,6 +534,21 @@ export async function retryUploadTask(
 		}
 
 		if (task.uploadId) {
+			if (task.mode === "stream") {
+				const reconciled = await reconcileStreamSession(task.uploadId);
+				if (reconciled.state === "completed") {
+					removeSession(task.uploadId);
+					markFolderForRefresh?.(task);
+					patchTask(taskId, {
+						status: "completed",
+						progress: 100,
+						uploadedBytes: reconciled.file.size,
+						error: null,
+					});
+					setUploadPanelOpen(true);
+					return;
+				}
+			}
 			if (
 				task.mode === "chunked" ||
 				task.mode === "presigned_multipart" ||

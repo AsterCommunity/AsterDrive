@@ -228,6 +228,14 @@ describe("router", () => {
 		).toBe("/admin/settings/file-processing");
 	});
 
+	it("registers the dedicated policy group editor route", async () => {
+		const routes = await loadRoutes();
+		const allRoutes = flattenRoutes(routes as TestRoute[]);
+		expect(
+			allRoutes.some((route) => route.path === "/admin/policy-groups/:groupId"),
+		).toBe(true);
+	});
+
 	it("keeps settings routes outside workspace routes so they preserve the active workspace", async () => {
 		const routes = (await loadRoutes()) as TestRoute[];
 		const protectedRoute = routes.find((route) => {

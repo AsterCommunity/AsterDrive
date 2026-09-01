@@ -143,6 +143,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 		initUpload: (data: {
 			filename: string;
 			total_size: number;
+			mime_type?: string;
 			folder_id?: number | null;
 			relative_path?: string;
 		}) =>
@@ -252,6 +253,70 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 				xhr.send(data);
 			});
 		},
+
+		streamUploadBody: (
+			uploadId: string,
+			data: Blob,
+			onProgress?: (loaded: number, total: number) => void,
+			onCreateXhr?: (xhr: XMLHttpRequest) => void,
+		): Promise<FileInfo> =>
+			new Promise((resolve, reject) => {
+				const xhr = new XMLHttpRequest();
+				onCreateXhr?.(xhr);
+				xhr.open(
+					"PUT",
+					`${config.apiBaseUrl}${buildUploadPath(
+						workspace,
+						`/files/upload/${uploadId}/body`,
+					)}`,
+				);
+				xhr.withCredentials = true;
+				xhr.setRequestHeader("Content-Type", "application/octet-stream");
+				const csrfToken = getCsrfToken();
+				if (csrfToken) xhr.setRequestHeader(CSRF_HEADER_NAME, csrfToken);
+				if (onProgress) {
+					xhr.upload.onprogress = (event) => {
+						if (event.lengthComputable) onProgress(event.loaded, event.total);
+					};
+				}
+				xhr.onload = () => {
+					const apiError = parseApiErrorResponse(xhr.responseText);
+					if (xhr.status >= 200 && xhr.status < 300) {
+						try {
+							const parsed = JSON.parse(
+								xhr.responseText,
+							) as ApiResponse<FileInfo>;
+							if (parsed.code === ApiErrorCodeValue.Success && parsed.data) {
+								resolve(parsed.data);
+								return;
+							}
+						} catch {}
+					}
+					reject(
+						new UploadRequestError(
+							apiError?.msg ?? `stream upload failed: ${xhr.status}`,
+							{
+								status: xhr.status,
+								authFailure: isTokenUploadErrorCode(apiError?.code),
+								retryable:
+									apiError?.retryable === true ||
+									isRetryableHttpStatus(xhr.status),
+							},
+						),
+					);
+				};
+				xhr.onerror = () =>
+					reject(new UploadRequestError("network error", { retryable: true }));
+				xhr.onabort = () =>
+					reject(
+						new UploadRequestError("upload aborted", {
+							isAborted: true,
+							retryable: false,
+							status: xhr.status,
+						}),
+					);
+				xhr.send(data);
+			}),
 
 		completeUpload: async (
 			uploadId: string,

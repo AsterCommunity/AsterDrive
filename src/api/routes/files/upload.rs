@@ -3,7 +3,6 @@
 pub use crate::api::dto::files::*;
 use crate::api::dto::validate_request;
 use crate::api::response::ApiResponse;
-use crate::api::routes::team_scope;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
@@ -11,14 +10,6 @@ use crate::services::{
     workspace::storage::WorkspaceStorageScope,
 };
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
-
-#[derive(Clone, Copy)]
-pub(crate) struct UploadResponseParams<'a> {
-    pub scope: WorkspaceStorageScope,
-    pub folder_id: Option<i64>,
-    pub relative_path: Option<&'a str>,
-    pub declared_size: Option<i64>,
-}
 
 fn upload_file_created_response(file: FileInfo) -> HttpResponse {
     HttpResponse::Created()
@@ -28,46 +19,9 @@ fn upload_file_created_response(file: FileInfo) -> HttpResponse {
 
 #[aster_forge_api_docs_macros::path(
     post,
-    path = "/api/v1/files/upload",
-    tag = "files",
-    operation_id = "upload_file",
-    params(FileQuery),
-    request_body(content = String, content_type = "multipart/form-data", description = "File to upload"),
-    responses(
-        (status = 201, description = "File uploaded", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
-        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
-    ),
-    security(("bearer" = [])),
-)]
-pub async fn upload(
-    state: web::Data<PrimaryAppState>,
-    claims: web::ReqData<Claims>,
-    req: HttpRequest,
-    query: web::Query<FileQuery>,
-    mut payload: actix_multipart::Multipart,
-) -> Result<HttpResponse> {
-    upload_response(
-        state.get_ref(),
-        &claims,
-        &req,
-        &mut payload,
-        UploadResponseParams {
-            scope: WorkspaceStorageScope::Personal {
-                user_id: claims.user_id,
-            },
-            folder_id: query.folder_id,
-            relative_path: query.relative_path.as_deref(),
-            declared_size: query.declared_size,
-        },
-    )
-    .await
-}
-
-#[aster_forge_api_docs_macros::path(
-    post,
     path = "/api/v1/files/upload/init",
     tag = "files",
-    operation_id = "init_chunked_upload",
+    operation_id = "init_upload_session",
     request_body = InitUploadReq,
     responses(
         (status = 201, description = "Upload session created", body = inline(ApiResponse<upload::InitUploadResponse>)),
@@ -75,7 +29,7 @@ pub async fn upload(
     ),
     security(("bearer" = [])),
 )]
-pub async fn init_chunked_upload(
+pub async fn init_upload_session(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
     body: web::Json<InitUploadReq>,
@@ -90,6 +44,7 @@ pub async fn init_chunked_upload(
             body.folder_id,
             body.relative_path.as_deref(),
         )
+        .with_mime_type(body.mime_type.as_deref())
         .with_frontend_client(body.frontend_client_id.as_deref()),
     )
     .await?;
@@ -158,10 +113,41 @@ pub async fn upload_chunk(
 }
 
 #[aster_forge_api_docs_macros::path(
+    put,
+    path = "/api/v1/files/upload/{upload_id}/body",
+    tag = "files",
+    operation_id = "upload_stream_body",
+    params(("upload_id" = String, Path, description = "Upload session ID")),
+    request_body(content = Vec<u8>, content_type = "application/octet-stream"),
+    responses((status = 201, description = "Stream body published", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>))),
+    security(("bearer" = [])),
+)]
+pub async fn upload_stream_body(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    path: web::Path<UploadIdPath>,
+    payload: web::Payload,
+) -> Result<HttpResponse> {
+    let audit_ctx = AuditContext::from_request(&req, &claims);
+    let file = upload::ingest_stream(
+        state.get_ref(),
+        &path.upload_id,
+        WorkspaceStorageScope::Personal {
+            user_id: claims.user_id,
+        },
+        payload,
+        &audit_ctx,
+    )
+    .await?;
+    Ok(upload_file_created_response(file))
+}
+
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/upload/{upload_id}/complete",
     tag = "files",
-    operation_id = "complete_chunked_upload",
+    operation_id = "complete_upload_session",
     params(("upload_id" = String, Path, description = "Upload session ID")),
     request_body(content = CompleteUploadReq, description = "Multipart completion data (optional, only for presigned_multipart mode)", content_type = "application/json"),
     responses(
@@ -292,49 +278,9 @@ pub async fn presign_parts(
 
 #[aster_forge_api_docs_macros::path(
     post,
-    path = "/api/v1/teams/{team_id}/files/upload",
-    tag = "teams",
-    operation_id = "upload_team_file",
-    params(
-        ("team_id" = i64, Path, description = "Team ID"),
-        FileQuery
-    ),
-    request_body(content = String, content_type = "multipart/form-data", description = "File to upload"),
-    responses(
-        (status = 201, description = "Team file uploaded", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
-        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
-        (status = 403, description = "Forbidden"),
-    ),
-    security(("bearer" = [])),
-)]
-pub(crate) async fn team_upload(
-    state: web::Data<PrimaryAppState>,
-    claims: web::ReqData<Claims>,
-    req: HttpRequest,
-    path: web::Path<i64>,
-    query: web::Query<FileQuery>,
-    mut payload: actix_multipart::Multipart,
-) -> Result<HttpResponse> {
-    upload_response(
-        state.get_ref(),
-        &claims,
-        &req,
-        &mut payload,
-        UploadResponseParams {
-            scope: team_scope(*path, claims.user_id),
-            folder_id: query.folder_id,
-            relative_path: query.relative_path.as_deref(),
-            declared_size: query.declared_size,
-        },
-    )
-    .await
-}
-
-#[aster_forge_api_docs_macros::path(
-    post,
     path = "/api/v1/teams/{team_id}/files/upload/init",
     tag = "teams",
-    operation_id = "init_team_chunked_upload",
+    operation_id = "init_team_upload_session",
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = InitUploadReq,
     responses(
@@ -344,7 +290,7 @@ pub(crate) async fn team_upload(
     ),
     security(("bearer" = [])),
 )]
-pub(crate) async fn team_init_chunked_upload(
+pub(crate) async fn team_init_upload_session(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
     path: web::Path<i64>,
@@ -361,6 +307,7 @@ pub(crate) async fn team_init_chunked_upload(
             body.folder_id,
             body.relative_path.as_deref(),
         )
+        .with_mime_type(body.mime_type.as_deref())
         .with_frontend_client(body.frontend_client_id.as_deref()),
     )
     .await?;
@@ -436,10 +383,43 @@ pub(crate) async fn team_upload_chunk(
 }
 
 #[aster_forge_api_docs_macros::path(
+    put,
+    path = "/api/v1/teams/{team_id}/files/upload/{upload_id}/body",
+    tag = "teams",
+    operation_id = "upload_team_stream_body",
+    params(("team_id" = i64, Path, description = "Team ID"), ("upload_id" = String, Path, description = "Upload session ID")),
+    request_body(content = Vec<u8>, content_type = "application/octet-stream"),
+    responses((status = 201, description = "Stream body published", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>))),
+    security(("bearer" = [])),
+)]
+pub(crate) async fn team_upload_stream_body(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    path: web::Path<(i64, String)>,
+    payload: web::Payload,
+) -> Result<HttpResponse> {
+    let (team_id, upload_id) = path.into_inner();
+    let audit_ctx = AuditContext::from_request(&req, &claims);
+    let file = upload::ingest_stream(
+        state.get_ref(),
+        &upload_id,
+        WorkspaceStorageScope::Team {
+            team_id,
+            actor_user_id: claims.user_id,
+        },
+        payload,
+        &audit_ctx,
+    )
+    .await?;
+    Ok(upload_file_created_response(file))
+}
+
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/upload/{upload_id}/complete",
     tag = "teams",
-    operation_id = "complete_team_chunked_upload",
+    operation_id = "complete_team_upload_session",
     params(
         ("team_id" = i64, Path, description = "Team ID"),
         ("upload_id" = String, Path, description = "Upload session ID")
@@ -589,27 +569,4 @@ pub(crate) async fn team_presign_parts(
     )
     .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(urls)))
-}
-
-pub(crate) async fn upload_response(
-    state: &PrimaryAppState,
-    claims: &Claims,
-    req: &HttpRequest,
-    payload: &mut actix_multipart::Multipart,
-    params: UploadResponseParams<'_>,
-) -> Result<HttpResponse> {
-    let ctx = AuditContext::from_request(req, claims);
-    let file = upload::upload_in_scope_with_audit(
-        state,
-        payload,
-        upload::UploadInScopeParams {
-            scope: params.scope,
-            folder_id: params.folder_id,
-            relative_path: params.relative_path,
-            declared_size: params.declared_size,
-        },
-        &ctx,
-    )
-    .await?;
-    Ok(upload_file_created_response(file))
 }

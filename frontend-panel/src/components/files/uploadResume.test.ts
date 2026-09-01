@@ -5,7 +5,6 @@ import {
 	getResumePlan,
 	SERVER_FINALIZE_PROGRESS,
 } from "@/components/files/uploadResume";
-import type { UploadSessionStatus } from "@/types/api";
 
 describe("uploadResume", () => {
 	it("maps chunked session statuses to the expected resume plan", () => {
@@ -31,18 +30,12 @@ describe("uploadResume", () => {
 		expect(getResumePlan("provider_resumable", "failed")).toBe("restart");
 	});
 
-	it("maps direct and single-request presigned statuses conservatively", () => {
-		const statuses: UploadSessionStatus[] = [
-			"uploading",
-			"assembling",
-			"completed",
-			"failed",
-			"presigned",
-		];
-
-		for (const status of statuses) {
-			expect(getResumePlan("direct", status)).toBe("restart");
-		}
+	it("maps stream and single-request presigned statuses conservatively", () => {
+		expect(getResumePlan("stream", "uploading")).toBe("upload");
+		expect(getResumePlan("stream", "assembling")).toBe("complete");
+		expect(getResumePlan("stream", "completed")).toBe("complete");
+		expect(getResumePlan("stream", "failed")).toBe("restart");
+		expect(getResumePlan("stream", "presigned")).toBe("restart");
 		expect(getResumePlan("presigned", "presigned")).toBe("complete");
 		expect(getResumePlan("presigned", "assembling")).toBe("complete");
 		expect(getResumePlan("presigned", "completed")).toBe("complete");
@@ -59,7 +52,7 @@ describe("uploadResume", () => {
 		expect(getProcessingProgress("provider_resumable")).toBe(
 			SERVER_FINALIZE_PROGRESS,
 		);
-		expect(getProcessingProgress("direct")).toBe(SERVER_FINALIZE_PROGRESS);
+		expect(getProcessingProgress("stream")).toBe(SERVER_FINALIZE_PROGRESS);
 		expect(getProcessingProgress(null)).toBe(SERVER_FINALIZE_PROGRESS);
 	});
 });

@@ -97,27 +97,16 @@ async fn upload_file_at(
     filename: &str,
     content: &str,
 ) -> i64 {
-    let boundary = "----TagBoundary123";
-    let payload = format!(
-        "------TagBoundary123\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n\
-         Content-Type: text/plain\r\n\r\n\
-         {content}\r\n\
-         ------TagBoundary123--\r\n"
-    );
-    let req = test::TestRequest::post()
-        .uri(uri)
-        .insert_header(("Cookie", common::access_cookie_header(token)))
-        .insert_header(common::csrf_header_for(token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(app, req).await;
-    assert_eq!(resp.status(), 201, "upload should return 201");
-    let body: Value = test::read_body_json(resp).await;
+    let (status, body) = common::upload_via_server_session(
+        app,
+        token,
+        uri,
+        filename,
+        "text/plain",
+        content.as_bytes(),
+    )
+    .await;
+    assert_eq!(status, 201, "upload should return 201");
     body["data"]["id"].as_i64().unwrap()
 }
 
@@ -948,7 +937,7 @@ async fn test_team_tags_attach_to_team_entities_and_reject_cross_scope_tags() {
     let team_file_id = upload_file_at(
         &app,
         &owner_token,
-        &format!("/api/v1/teams/{team_id}/files/upload?folder_id={team_folder_id}"),
+        &format!("/api/v1/teams/{team_id}/files?folder_id={team_folder_id}"),
         "team-tagged.txt",
         "team content",
     )

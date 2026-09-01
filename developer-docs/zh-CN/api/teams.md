@@ -60,10 +60,10 @@
 | `DELETE` | `/teams/{team_id}/folders/{id}` | 软删除团队文件夹 |
 | `POST` | `/teams/{team_id}/folders/{id}/lock` | 锁定 / 解锁团队文件夹 |
 | `POST` | `/teams/{team_id}/folders/{id}/copy` | 递归复制团队文件夹 |
-| `POST` | `/teams/{team_id}/files/upload` | 团队空间 multipart 直传 |
 | `POST` | `/teams/{team_id}/files/new` | 在团队空间创建空文件 |
 | `POST` | `/teams/{team_id}/files/upload/init` | 协商团队上传模式 |
 | `GET` | `/teams/{team_id}/files/upload/sessions` | 列出团队空间可恢复上传 session |
+| `PUT` | `/teams/{team_id}/files/upload/{upload_id}/body` | 提交团队 stream session 的原始 body 并原子发布文件 |
 | `PUT` | `/teams/{team_id}/files/upload/{upload_id}/{chunk_number}` | 上传团队分片 |
 | `POST` | `/teams/{team_id}/files/upload/{upload_id}/presign-parts` | 批量申请团队对象存储 / remote multipart part URL |
 | `POST` | `/teams/{team_id}/files/upload/{upload_id}/complete` | 完成团队上传 |

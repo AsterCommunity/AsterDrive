@@ -1,0 +1,226 @@
+use chrono::{Duration, Utc};
+
+use crate::api::constants::HOUR_SECS;
+use crate::errors::{AsterError, Result};
+use crate::runtime::PrimaryAppState;
+use crate::services::files::upload::session::responses::InitUploadResponse;
+use crate::services::files::upload::session::shared::{
+    UniqueUuidAttempt, delete_upload_session_record_after_init_error, with_unique_upload_id,
+};
+use crate::services::workspace::storage::{
+    PolicyUploadTransport, resolve_policy_upload_transport_for_execution,
+};
+use aster_drive_model::types::{ObjectStorageUploadStrategy, UploadSessionStatus, UploadTransport};
+use aster_forge_utils::numbers;
+
+use super::context::{
+    InitUploadContext, MultipartSessionInitParams, UploadSessionRecordParams,
+    init_multipart_session_with_retry, session_kind_for_transport, try_persist_upload_session,
+};
+
+pub(super) async fn init_object_storage_upload(
+    state: &PrimaryAppState,
+    ctx: &InitUploadContext,
+) -> Result<Option<InitUploadResponse>> {
+    let transport = resolve_policy_upload_transport_for_execution(
+        state.driver_registry().connectors(),
+        &ctx.policy,
+        ctx.routing_decision.execution_preference,
+    )?;
+    let PolicyUploadTransport::ObjectStorage(strategy) = transport else {
+        return Ok(None);
+    };
+    match strategy {
+        ObjectStorageUploadStrategy::Presigned => {
+            init_presigned_object_storage_upload(state, ctx, transport)
+                .await
+                .map(Some)
+        }
+        ObjectStorageUploadStrategy::RelayStream => {
+            init_relay_stream_object_storage_upload(state, ctx, transport)
+                .await
+                .map(Some)
+        }
+    }
+}
+
+async fn init_presigned_object_storage_upload(
+    state: &PrimaryAppState,
+    ctx: &InitUploadContext,
+    transport: PolicyUploadTransport,
+) -> Result<InitUploadResponse> {
+    let driver = state.driver_registry().get_driver(&ctx.policy)?;
+    let chunk_size = transport.effective_chunk_size(&ctx.policy);
+
+    // 小文件 presigned：客户端直接 PUT 到最终 temp object，不经过服务端 relay，
+    // 也不需要 chunk bookkeeping。
+    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadTransport::Presigned {
+        return init_presigned_object_storage_single_upload(state, ctx, driver.as_ref()).await;
+    }
+
+    // 大文件 presigned multipart：服务端仍然不接管数据流，但必须保留 session，
+    // 用来记录 multipart upload_id、分片总数以及后续 complete 阶段的收口点。
+    let multipart = state.driver_registry().get_multipart_driver(&ctx.policy)?;
+    let total_chunks =
+        numbers::calc_total_chunks(ctx.total_size, chunk_size, "presigned multipart upload")?;
+
+    init_multipart_session_with_retry(
+        state,
+        ctx,
+        multipart.as_ref(),
+        MultipartSessionInitParams {
+            mode: UploadTransport::PresignedMultipart,
+            status: UploadSessionStatus::Presigned,
+            session_kind: session_kind_for_transport(transport, UploadTransport::PresignedMultipart)?,
+            chunk_size,
+            total_chunks,
+            expires_in: Duration::hours(24),
+            log_label: "presigned multipart",
+            abort_db_error_context: "upload session DB initialization error",
+            abort_db_error_message:
+                "failed to abort multipart upload after DB initialization error",
+            abort_collision_context: "upload session id collision",
+        },
+    )
+    .await
+}
+
+async fn init_presigned_object_storage_single_upload(
+    state: &PrimaryAppState,
+    ctx: &InitUploadContext,
+    driver: &dyn aster_drive_storage::StorageDriver,
+) -> Result<InitUploadResponse> {
+    with_unique_upload_id(|upload_id| async {
+        let temp_key = format!("files/{upload_id}");
+        let inserted = try_persist_upload_session(
+            state.writer_db(),
+            UploadSessionRecordParams {
+                upload_id: &upload_id,
+                scope: ctx.scope,
+                filename: &ctx.target.filename,
+                mime_type: &ctx.mime_type,
+                total_size: ctx.total_size,
+                chunk_size: 0,
+                total_chunks: 0,
+                folder_id: ctx.target.folder_id,
+                policy_id: ctx.policy.id,
+                placement_profile_id: Some(ctx.routing_decision.profile_id),
+                placement_rule_id: ctx.routing_decision.rule_id,
+                placement_revision: Some(ctx.routing_decision.revision),
+                placement_execution_preference: ctx.routing_decision.execution_preference.as_str(),
+                frontend_client_id: ctx.frontend_client_id.as_deref(),
+                status: UploadSessionStatus::Presigned,
+                session_kind: session_kind_for_transport(
+                    PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
+                    UploadTransport::Presigned,
+                )?,
+                object_temp_key: Some(&temp_key),
+                object_multipart_id: None,
+                provider_session_ciphertext: None,
+                expires_at: Utc::now() + Duration::hours(1),
+            },
+        )
+        .await?;
+        if !inserted {
+            return Ok(UniqueUuidAttempt::Collision);
+        }
+
+        let (presigned_request, presigned_require_etag) =
+            match presigned_put_request(driver, &temp_key).await {
+                Ok(request) => request,
+                Err(error) => {
+                    delete_upload_session_record_after_init_error(
+                        state.writer_db(),
+                        &upload_id,
+                        "presigned URL initialization error",
+                    )
+                    .await;
+                    return Err(error);
+                }
+            };
+
+        tracing::debug!(
+            scope = ?ctx.scope,
+            upload_id = %upload_id,
+            policy_id = ctx.policy.id,
+            mode = ?UploadTransport::Presigned,
+            folder_id = ctx.target.folder_id,
+            "initialized presigned upload session"
+        );
+
+        Ok(UniqueUuidAttempt::Accepted(InitUploadResponse {
+            mode: UploadTransport::Presigned,
+            upload_id: Some(upload_id),
+            chunk_size: None,
+            total_chunks: None,
+            presigned_request: Some(presigned_request),
+            presigned_require_etag: Some(presigned_require_etag),
+            provider_resumable: None,
+            upload_scheduling: None,
+        }))
+    })
+    .await
+}
+
+async fn init_relay_stream_object_storage_upload(
+    state: &PrimaryAppState,
+    ctx: &InitUploadContext,
+    transport: PolicyUploadTransport,
+) -> Result<InitUploadResponse> {
+    let chunk_size = transport.effective_chunk_size(&ctx.policy);
+
+    // relay_stream + 小文件：直接走普通上传接口，让服务端把字节流转发到驱动。
+    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadTransport::Stream {
+        tracing::debug!(
+            scope = ?ctx.scope,
+            policy_id = ctx.policy.id,
+            mode = ?UploadTransport::Stream,
+            folder_id = ctx.target.folder_id,
+            "selected direct relay upload mode"
+        );
+        return super::context::init_stream_session(state, ctx).await;
+    }
+
+    // relay_stream + 大文件：客户端仍然分片传给服务端，服务端再逐片上传到对象存储 multipart。
+    let multipart = state.driver_registry().get_multipart_driver(&ctx.policy)?;
+    let total_chunks =
+        numbers::calc_total_chunks(ctx.total_size, chunk_size, "relay multipart upload")?;
+
+    init_multipart_session_with_retry(
+        state,
+        ctx,
+        multipart.as_ref(),
+        MultipartSessionInitParams {
+            mode: UploadTransport::Chunked,
+            status: UploadSessionStatus::Uploading,
+            session_kind: session_kind_for_transport(transport, UploadTransport::Chunked)?,
+            chunk_size,
+            total_chunks,
+            expires_in: Duration::hours(24),
+            log_label: "relay multipart",
+            abort_db_error_context: "upload session DB initialization error",
+            abort_db_error_message:
+                "failed to abort multipart upload after DB initialization error",
+            abort_collision_context: "upload session id collision",
+        },
+    )
+    .await
+}
+
+async fn presigned_put_request(
+    driver: &dyn aster_drive_storage::StorageDriver,
+    temp_key: &str,
+) -> Result<(aster_drive_storage::PresignedUploadRequest, bool)> {
+    let presigned_driver = driver
+        .extensions()
+        .presigned
+        .ok_or_else(|| AsterError::storage_driver_error("presigned PUT not supported by driver"))?;
+    let request = presigned_driver
+        .presigned_put_request(temp_key, std::time::Duration::from_secs(HOUR_SECS))
+        .await?
+        .ok_or_else(|| AsterError::storage_driver_error("presigned PUT not supported by driver"))?;
+    Ok((
+        request,
+        presigned_driver.presigned_single_put_requires_etag(),
+    ))
+}

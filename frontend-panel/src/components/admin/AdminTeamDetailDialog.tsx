@@ -19,6 +19,7 @@ import type { AdminTeamDetailTab } from "@/components/admin/admin-team-detail/ty
 import { useAdminTeamDetailData } from "@/components/admin/admin-team-detail/useAdminTeamDetailData";
 import { useAdminTeamDetailScrollRestoration } from "@/components/admin/admin-team-detail/useAdminTeamDetailScrollRestoration";
 import { useAdminTeamDetailTabs } from "@/components/admin/admin-team-detail/useAdminTeamDetailTabs";
+import { policyGroupRuleCount } from "@/components/admin/user-detail-dialog/types";
 import { handleApiError } from "@/hooks/useApiError";
 import type { SortOrder } from "@/lib/pagination";
 import {
@@ -269,7 +270,7 @@ export function AdminTeamDetailDialog({
 		team?.policy_group_id != null &&
 		(currentPolicyGroup === null ||
 			!currentPolicyGroup.is_enabled ||
-			currentPolicyGroup.items.length === 0);
+			policyGroupRuleCount(currentPolicyGroup) === 0);
 	const canMutateTeam = team != null && team.archived_at == null;
 	const nextQuota = quotaValueToBytes(quotaValue, quotaUnit, team);
 	const quotaHasError = !storageQuotaDraftIsValid(quotaValue, quotaUnit);

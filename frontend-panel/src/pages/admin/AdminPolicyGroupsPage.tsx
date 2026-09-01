@@ -1,29 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import {
-	PolicyGroupDialog,
-	type PolicyLookup,
-} from "@/components/admin/PolicyGroupDialog";
+import type { PolicyLookup } from "@/components/admin/PolicyGroupEditorForm";
 import { PolicyGroupMigrationDialog } from "@/components/admin/PolicyGroupMigrationDialog";
+import { PolicyGroupSimulationDialog } from "@/components/admin/PolicyGroupSimulationDialog";
 import { PolicyGroupsTable } from "@/components/admin/PolicyGroupsTable";
-import {
-	buildPolicyGroupPayload,
-	buildPolicyGroupRuleForm,
-	getDefaultPolicyGroupForm,
-	getPolicyGroupForm,
-	type PolicyGroupFormData,
-	type PolicyGroupRuleForm,
-	validatePolicyGroupForm,
-} from "@/components/admin/policyGroupDialogShared";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { handleApiError } from "@/hooks/useApiError";
+import { getApiErrorMessage, handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import {
 	useManagedAdminList,
@@ -53,6 +42,7 @@ import { adminPolicyGroupService } from "@/services/adminService";
 import type { AdminPolicyGroupSortBy } from "@/types/adminSort";
 import type {
 	PolicyGroupAssignmentMigrationResult,
+	StoragePlacementSimulationResult,
 	StoragePolicyGroup,
 } from "@/types/api";
 
@@ -60,6 +50,7 @@ const POLICY_GROUP_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const DEFAULT_POLICY_GROUP_PAGE_SIZE = 20 as const;
 const POLICY_GROUP_LOOKUP_PAGE_SIZE = 100;
 const POLICY_LOOKUP_PAGE_SIZE = 100;
+const BYTES_PER_MB = 1024 * 1024;
 const POLICY_GROUP_SORT_BY_OPTIONS = [
 	"id",
 	"name",
@@ -114,24 +105,10 @@ function getMigrationSuccessMessage(
 	});
 }
 
-function mergePolicies(
-	current: PolicyLookup[],
-	incoming: PolicyLookup[],
-): PolicyLookup[] {
-	if (incoming.length === 0) return current;
-	const merged = [...current];
-	const seen = new Set(current.map((policy) => policy.id));
-	for (const policy of incoming) {
-		if (seen.has(policy.id)) continue;
-		seen.add(policy.id);
-		merged.push(policy);
-	}
-	return merged;
-}
-
 export default function AdminPolicyGroupsPage() {
 	const { t } = useTranslation("admin");
 	usePageTitle(t("policy_groups"));
+	const navigate = useNavigate();
 	const [searchParams, setSearchParams] = useSearchParams();
 	const { query, setQuery } = useManagedListQueryState({
 		defaults: MANAGED_POLICY_GROUP_QUERY_DEFAULTS,
@@ -165,19 +142,8 @@ export default function AdminPolicyGroupsPage() {
 	const [policies, setPolicies] = useState<PolicyLookup[]>(
 		initialPolicies ?? [],
 	);
-	const [loadedPoliciesCount, setLoadedPoliciesCount] = useState(
-		initialPolicies?.length ?? 0,
-	);
-	const [policiesTotal, setPoliciesTotal] = useState(
-		initialPolicies?.length ?? 0,
-	);
 	const [policiesLoading, setPoliciesLoading] = useState(
 		initialPolicies == null,
-	);
-	const [policiesLoadingMore, setPoliciesLoadingMore] = useState(false);
-	const [dialogOpen, setDialogOpen] = useState(false);
-	const [editingGroup, setEditingGroup] = useState<StoragePolicyGroup | null>(
-		null,
 	);
 	const [migrationDialogOpen, setMigrationDialogOpen] = useState(false);
 	const [migrationError, setMigrationError] = useState<string | null>(null);
@@ -190,15 +156,22 @@ export default function AdminPolicyGroupsPage() {
 		StoragePolicyGroup[] | null
 	>(null);
 	const [migrationGroupsLoading, setMigrationGroupsLoading] = useState(false);
-	const [form, setForm] = useState<PolicyGroupFormData>(() =>
-		getDefaultPolicyGroupForm([]),
+	const [simulationGroup, setSimulationGroup] =
+		useState<StoragePolicyGroup | null>(null);
+	const [simulationFilename, setSimulationFilename] = useState("example.pdf");
+	const [simulationFileSizeMb, setSimulationFileSizeMb] = useState("1");
+	const [simulationMimeType, setSimulationMimeType] = useState(
+		"application/octet-stream",
 	);
-	const [formError, setFormError] = useState<string | null>(null);
-	const [submitting, setSubmitting] = useState(false);
+	const [simulationFolderPolicyId, setSimulationFolderPolicyId] = useState("");
+	const [simulationResult, setSimulationResult] =
+		useState<StoragePlacementSimulationResult | null>(null);
+	const [simulationError, setSimulationError] = useState<string | null>(null);
+	const [simulationSubmitting, setSimulationSubmitting] = useState(false);
+	const simulationRequestVersion = useRef(0);
 	const { pendingId: deletingGroupId, runWithPending: runWithDeletingGroup } =
 		usePendingId<number>();
-	const hasMorePolicies = loadedPoliciesCount < policiesTotal;
-	const refreshing = loading || policiesLoading || policiesLoadingMore;
+	const refreshing = loading || policiesLoading;
 	const pageSizeOptions = POLICY_GROUP_PAGE_SIZE_OPTIONS.map((size) => ({
 		label: t("page_size_option", { count: size }),
 		value: String(size),
@@ -245,19 +218,15 @@ export default function AdminPolicyGroupsPage() {
 		async ({ force = false }: { force?: boolean } = {}) => {
 			try {
 				setPoliciesLoading(true);
-				setPoliciesLoadingMore(false);
 				const policyLookup = await loadAdminPolicyLookup({
 					force,
 					limit: POLICY_LOOKUP_PAGE_SIZE,
 				});
-				setPoliciesTotal(policyLookup.length);
-				setLoadedPoliciesCount(policyLookup.length);
 				setPolicies(policyLookup);
 			} catch (e) {
 				handleApiError(e);
 			} finally {
 				setPoliciesLoading(false);
-				setPoliciesLoadingMore(false);
 			}
 		},
 		[],
@@ -297,13 +266,6 @@ export default function AdminPolicyGroupsPage() {
 		migrationTargetId,
 	]);
 
-	const reloadPolicies = useCallback(
-		async (options?: { force?: boolean }) => {
-			await loadPolicies(options);
-		},
-		[loadPolicies],
-	);
-
 	const loadAllPolicyGroups = useCallback(async () => {
 		try {
 			setMigrationGroupsLoading(true);
@@ -319,73 +281,9 @@ export default function AdminPolicyGroupsPage() {
 		}
 	}, []);
 
-	const loadMorePolicies = useCallback(async () => {
-		if (policiesLoading || policiesLoadingMore || !hasMorePolicies) {
-			return;
-		}
-		await loadPolicies();
-	}, [hasMorePolicies, loadPolicies, policiesLoading, policiesLoadingMore]);
-
 	const handleRefresh = async () => {
 		invalidateAdminPolicyGroupLookup();
-		await Promise.all([reload(), reloadPolicies({ force: true })]);
-	};
-
-	const setField = <K extends keyof PolicyGroupFormData>(
-		key: K,
-		value: PolicyGroupFormData[K],
-	) => {
-		setForm((prev) => ({ ...prev, [key]: value }));
-		setFormError(null);
-	};
-
-	const setRuleField = <K extends Exclude<keyof PolicyGroupRuleForm, "key">>(
-		ruleKey: string,
-		key: K,
-		value: PolicyGroupRuleForm[K],
-	) => {
-		setForm((prev) => ({
-			...prev,
-			items: prev.items.map((item) =>
-				item.key === ruleKey ? { ...item, [key]: value } : item,
-			),
-		}));
-		setFormError(null);
-	};
-
-	const getNextPolicyId = () => {
-		const selected = new Set(
-			form.items.flatMap((item) => (item.policyId ? [item.policyId] : [])),
-		);
-		return (
-			policies.find((policy) => !selected.has(String(policy.id)))?.id ??
-			policies[0]?.id ??
-			null
-		);
-	};
-
-	const addRule = () => {
-		setForm((prev) => ({
-			...prev,
-			items: [
-				...prev.items,
-				buildPolicyGroupRuleForm(getNextPolicyId(), prev.items.length + 1),
-			],
-		}));
-		setFormError(null);
-	};
-
-	const removeRule = (ruleKey: string) => {
-		setForm((prev) => ({
-			...prev,
-			items: prev.items.filter((item) => item.key !== ruleKey),
-		}));
-		setFormError(null);
-	};
-
-	const resetDialogState = () => {
-		setFormError(null);
-		setSubmitting(false);
+		await Promise.all([reload(), loadPolicies({ force: true })]);
 	};
 
 	const resetMigrationState = () => {
@@ -397,24 +295,14 @@ export default function AdminPolicyGroupsPage() {
 		setMigrationTargetId("");
 	};
 
-	const openCreate = () => {
-		setEditingGroup(null);
-		setForm(getDefaultPolicyGroupForm(policies));
-		resetDialogState();
-		setDialogOpen(true);
-	};
-
-	const openEdit = (group: StoragePolicyGroup) => {
-		setPolicies((prev) =>
-			mergePolicies(
-				prev,
-				group.items.map((item) => item.policy),
-			),
-		);
-		setEditingGroup(group);
-		setForm(getPolicyGroupForm(group));
-		resetDialogState();
-		setDialogOpen(true);
+	const resetSimulationState = () => {
+		setSimulationFilename("example.pdf");
+		setSimulationFileSizeMb("1");
+		setSimulationMimeType("application/octet-stream");
+		setSimulationFolderPolicyId("");
+		setSimulationResult(null);
+		setSimulationError(null);
+		setSimulationSubmitting(false);
 	};
 
 	const openMigrationDialog = (group: StoragePolicyGroup) => {
@@ -428,11 +316,10 @@ export default function AdminPolicyGroupsPage() {
 		}
 	};
 
-	const handleDialogOpenChange = (open: boolean) => {
-		setDialogOpen(open);
-		if (!open) {
-			resetDialogState();
-		}
+	const openSimulationDialog = (group: StoragePolicyGroup) => {
+		simulationRequestVersion.current += 1;
+		resetSimulationState();
+		setSimulationGroup(group);
 	};
 
 	const handleMigrationDialogOpenChange = (open: boolean) => {
@@ -442,42 +329,73 @@ export default function AdminPolicyGroupsPage() {
 		}
 	};
 
-	const submitForm = async () => {
-		const validationError = validatePolicyGroupForm(form, policies.length, t);
-		if (validationError) {
-			setFormError(validationError);
+	const handleSimulationDialogOpenChange = (open: boolean) => {
+		if (!open) {
+			simulationRequestVersion.current += 1;
+			setSimulationGroup(null);
+			resetSimulationState();
+		}
+	};
+
+	const handleSimulationInputChange = (
+		setter: (value: string) => void,
+		value: string,
+	) => {
+		simulationRequestVersion.current += 1;
+		setter(value);
+		setSimulationResult(null);
+		setSimulationError(null);
+		setSimulationSubmitting(false);
+	};
+
+	const runSimulation = async () => {
+		if (!simulationGroup) return;
+		const requestVersion = ++simulationRequestVersion.current;
+		const filename = simulationFilename.trim();
+		if (!filename) {
+			setSimulationError(t("policy_group_simulator_filename_required"));
+			return;
+		}
+		const fileSizeMb = Number(simulationFileSizeMb);
+		const fileSize = Math.round(fileSizeMb * BYTES_PER_MB);
+		if (
+			!Number.isFinite(fileSizeMb) ||
+			fileSizeMb < 0 ||
+			!Number.isSafeInteger(fileSize)
+		) {
+			setSimulationError(t("policy_group_simulator_size_invalid"));
+			return;
+		}
+		const folderPolicyId = simulationFolderPolicyId
+			? Number(simulationFolderPolicyId)
+			: null;
+		if (folderPolicyId !== null && !Number.isSafeInteger(folderPolicyId)) {
+			setSimulationError(t("policy_group_simulator_folder_policy_invalid"));
 			return;
 		}
 
-		const payload = buildPolicyGroupPayload(form);
-
 		try {
-			setSubmitting(true);
-			if (editingGroup) {
-				await adminPolicyGroupService.update(editingGroup.id, payload);
-				invalidateAdminPolicyGroupLookup();
-				await reload();
-				toast.success(t("policy_group_updated"));
-			} else {
-				await adminPolicyGroupService.create(payload);
-				invalidateAdminPolicyGroupLookup();
-				const nextTotal = total + 1;
-				const nextLastOffset = Math.max(
-					0,
-					Math.floor((nextTotal - 1) / pageSize) * pageSize,
-				);
-				if (nextLastOffset !== offset) {
-					setOffset(nextLastOffset);
-				} else {
-					await reload();
-				}
-				toast.success(t("policy_group_created"));
-			}
-			handleDialogOpenChange(false);
-		} catch (e) {
-			handleApiError(e);
+			setSimulationSubmitting(true);
+			setSimulationError(null);
+			const result = await adminPolicyGroupService.simulate(
+				simulationGroup.id,
+				{
+					filename,
+					file_size: fileSize,
+					mime_type: simulationMimeType.trim(),
+					folder_policy_id: folderPolicyId,
+				},
+			);
+			if (requestVersion !== simulationRequestVersion.current) return;
+			setSimulationResult(result);
+		} catch (error) {
+			if (requestVersion !== simulationRequestVersion.current) return;
+			setSimulationResult(null);
+			setSimulationError(getApiErrorMessage(error));
 		} finally {
-			setSubmitting(false);
+			if (requestVersion === simulationRequestVersion.current) {
+				setSimulationSubmitting(false);
+			}
 		}
 	};
 
@@ -568,8 +486,11 @@ export default function AdminPolicyGroupsPage() {
 							<Button
 								size="sm"
 								className={ADMIN_CONTROL_HEIGHT_CLASS}
-								onClick={openCreate}
-								disabled={policiesLoading || policies.length === 0}
+								onClick={() =>
+									navigate("/admin/policy-groups/new", {
+										viewTransition: false,
+									})
+								}
 							>
 								<Icon name="Plus" className="mr-1 size-4" />
 								{t("new_policy_group")}
@@ -609,8 +530,13 @@ export default function AdminPolicyGroupsPage() {
 						setOffset((current) => Math.max(0, current - pageSize))
 					}
 					onNextPage={() => setOffset((current) => current + pageSize)}
-					onOpenEdit={openEdit}
+					onOpenEdit={(group) =>
+						navigate(`/admin/policy-groups/${group.id}`, {
+							viewTransition: false,
+						})
+					}
 					onOpenMigration={openMigrationDialog}
+					onOpenSimulation={openSimulationDialog}
 					onRequestDelete={requestConfirm}
 					onSortChange={handleSortChange}
 				/>
@@ -631,33 +557,39 @@ export default function AdminPolicyGroupsPage() {
 					onConfirm={() => void handleMigrateUsers()}
 				/>
 
+				<PolicyGroupSimulationDialog
+					open={simulationGroup !== null}
+					group={simulationGroup}
+					policies={policies}
+					filename={simulationFilename}
+					fileSizeMb={simulationFileSizeMb}
+					mimeType={simulationMimeType}
+					folderPolicyId={simulationFolderPolicyId}
+					result={simulationResult}
+					error={simulationError}
+					submitting={simulationSubmitting}
+					onOpenChange={handleSimulationDialogOpenChange}
+					onFilenameChange={(value) =>
+						handleSimulationInputChange(setSimulationFilename, value)
+					}
+					onFileSizeMbChange={(value) =>
+						handleSimulationInputChange(setSimulationFileSizeMb, value)
+					}
+					onMimeTypeChange={(value) =>
+						handleSimulationInputChange(setSimulationMimeType, value)
+					}
+					onFolderPolicyIdChange={(value) =>
+						handleSimulationInputChange(setSimulationFolderPolicyId, value)
+					}
+					onSimulate={() => void runSimulation()}
+				/>
+
 				<ConfirmDialog
 					{...dialogProps}
 					title={`${t("delete_policy_group")} "${deleteGroupName}"?`}
 					description={t("delete_policy_group_desc")}
 					confirmLabel={t("core:delete")}
 					variant="destructive"
-				/>
-
-				<PolicyGroupDialog
-					open={dialogOpen}
-					mode={editingGroup ? "edit" : "create"}
-					form={form}
-					formError={formError}
-					submitting={submitting}
-					policies={policies}
-					policiesTotal={policiesTotal}
-					policiesLoading={policiesLoading}
-					policiesLoadingMore={policiesLoadingMore}
-					hasMorePolicies={hasMorePolicies}
-					onOpenChange={handleDialogOpenChange}
-					onSubmit={() => void submitForm()}
-					onRefreshPolicies={reloadPolicies}
-					onLoadMorePolicies={loadMorePolicies}
-					onFieldChange={setField}
-					onRuleFieldChange={setRuleField}
-					onAddRule={addRule}
-					onRemoveRule={removeRule}
 				/>
 			</AdminPageShell>
 		</AdminLayout>

@@ -15,7 +15,7 @@ pub use crate::api::dto::admin::{
     CreatePolicyGroupReq, CreatePolicyReq, CreateRemoteNodeReq, CreateStoragePolicyMigrationReq,
     CreateUserInvitationReq, CreateUserReq, DeletePolicyQuery, DryRunStoragePolicyMigrationReq,
     ExecuteConfigActionReq, ExecuteConfigActionResp, MigratePolicyGroupAssignmentsReq,
-    PatchPolicyGroupReq, PatchPolicyReq, PatchRemoteNodeReq, PatchUserReq, PolicyGroupItemReq,
+    PatchPolicyGroupReq, PatchPolicyReq, PatchRemoteNodeReq, PatchUserReq,
     PromoteStoragePolicyConnectorReq, ResetUserPasswordReq, SetConfigReq, SetFolderPolicyReq,
     StorageConnectorCatalogContext, StorageConnectorCatalogQuery,
     StorageConnectorLocalizationCatalogQuery, TestPolicyParamsReq, TestRemoteNodeParamsReq,
@@ -60,8 +60,9 @@ pub use policies::{
     finish_storage_authorization, get_policy, get_policy_capacity, get_policy_group, list_policies,
     list_policy_groups, list_storage_driver_descriptors, list_storage_driver_localizations,
     list_storage_policy_credentials, migrate_policy_group_assignments,
-    promote_storage_policy_connector, start_storage_authorization, test_policy_connection,
-    test_policy_params, update_policy, update_policy_group, validate_storage_policy_credential,
+    promote_storage_policy_connector, simulate_policy_group_placement, start_storage_authorization,
+    test_policy_connection, test_policy_params, update_policy, update_policy_group,
+    validate_storage_policy_credential,
 };
 pub use remote_nodes::{
     create_remote_node, create_remote_node_enrollment_token, create_remote_node_storage_target,
@@ -226,6 +227,10 @@ pub fn routes(
                     .route("/policy-groups", web::post().to(create_policy_group))
                     .route("/policy-groups/{id}", web::get().to(get_policy_group))
                     .route("/policy-groups/{id}", web::patch().to(update_policy_group))
+                    .route(
+                        "/policy-groups/{id}/simulate",
+                        web::post().to(simulate_policy_group_placement),
+                    )
                     .route("/policy-groups/{id}", web::delete().to(delete_policy_group))
                     .route(
                         "/policy-groups/{id}/migrate-assignments",

@@ -79,9 +79,9 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::public::redeem_remote_enrollment,
         crate::api::routes::public::ack_remote_enrollment,
 
-        // files::upload：个人空间文件上传生命周期，包括直传、分片和进度控制。
-        crate::api::routes::files::upload::upload,
-        crate::api::routes::files::upload::init_chunked_upload,
+        // files::upload：个人空间统一上传 session 生命周期和数据面。
+        crate::api::routes::files::upload::init_upload_session,
+        crate::api::routes::files::upload::upload_stream_body,
         crate::api::routes::files::upload::upload_chunk,
         crate::api::routes::files::upload::complete_upload,
         crate::api::routes::files::upload::presign_parts,
@@ -220,8 +220,8 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::folders::team_copy_folder,
 
         // files：团队文件的上传、下载、预览、版本和变更操作。
-        crate::api::routes::files::upload::team_upload,
-        crate::api::routes::files::upload::team_init_chunked_upload,
+        crate::api::routes::files::upload::team_init_upload_session,
+        crate::api::routes::files::upload::team_upload_stream_body,
         crate::api::routes::files::upload::team_upload_chunk,
         crate::api::routes::files::upload::team_complete_upload,
         crate::api::routes::files::upload::team_presign_parts,
@@ -297,6 +297,7 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::admin::policies::list_policy_groups,
         crate::api::routes::admin::policies::create_policy_group,
         crate::api::routes::admin::policies::get_policy_group,
+        crate::api::routes::admin::policies::simulate_policy_group_placement,
         crate::api::routes::admin::policies::update_policy_group,
         crate::api::routes::admin::policies::delete_policy_group,
         crate::api::routes::admin::policies::migrate_policy_group_assignments,
@@ -615,14 +616,12 @@ use utoipa::{Modify, OpenApi};
 
             // api::routes::admin / services::{ops::config,storage_policy::policy,preview::apps} / entities::storage_policy_group：后台配置与存储策略模型。
             aster_drive_model::entities::storage_policy_group::Model,
-            aster_drive_model::entities::storage_policy_group_item::Model,
             crate::api::routes::admin::CreatePolicyReq,
             crate::api::routes::admin::PatchPolicyReq,
             crate::api::routes::admin::PromoteStoragePolicyConnectorReq,
             crate::api::routes::admin::DeletePolicyQuery,
             crate::api::routes::admin::StorageConnectorCatalogContext,
             crate::api::routes::admin::StorageConnectorLocalizationCatalogQuery,
-            crate::api::routes::admin::PolicyGroupItemReq,
             crate::api::routes::admin::CreatePolicyGroupReq,
             crate::api::routes::admin::PatchPolicyGroupReq,
             crate::api::routes::admin::MigratePolicyGroupAssignmentsReq,
@@ -687,9 +686,7 @@ use utoipa::{Modify, OpenApi};
             crate::services::storage_policy::policy::StoragePolicy,
             crate::services::storage_policy::policy::StoragePolicyActionResult,
             crate::services::storage_policy::policy::StoragePolicyDiagnostic,
-            crate::services::storage_policy::policy::StoragePolicyGroupItemInfo,
             crate::services::storage_policy::policy::StoragePolicyGroupInfo,
-            crate::services::storage_policy::policy::StoragePolicyGroupItemInput,
             crate::services::storage_policy::policy::PolicyGroupAssignmentMigrationResult,
             crate::services::remote::remote_node::RemoteNodeInfo,
             crate::storage::remote_protocol::RemoteStorageTargetInfo,

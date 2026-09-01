@@ -190,25 +190,16 @@ async fn test_trash_purge_all() {
     let f1 = upload_test_file!(app, token);
     let _upload_f1_event = rx.recv().await.expect("first upload should publish event");
     // 第二个用不同名字
-    let boundary = "----TestBoundary123";
-    let payload = "------TestBoundary123\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"second.txt\"\r\n\
-         Content-Type: text/plain\r\n\r\n\
-         second\r\n\
-         ------TestBoundary123--\r\n";
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    let (status, body) = common::upload_via_server_session(
+        &app,
+        &token,
+        "/api/v1/files",
+        "second.txt",
+        "text/plain",
+        b"second",
+    )
+    .await;
+    assert_eq!(status, 201);
     let f2 = body["data"]["id"].as_i64().unwrap();
     let _upload_f2_event = rx.recv().await.expect("second upload should publish event");
 

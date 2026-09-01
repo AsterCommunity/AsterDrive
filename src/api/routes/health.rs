@@ -175,7 +175,9 @@ mod tests {
     use crate::services::mail::sender;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use actix_web::{body, http::StatusCode, web};
-    use aster_drive_model::entities::{storage_policy_group, storage_policy_group_item, user};
+    use aster_drive_model::entities::{
+        storage_policy_group, storage_policy_group_rule, storage_policy_group_rule_target, user,
+    };
     use aster_drive_model::types::{UserRole, UserStatus};
     use aster_drive_storage::{BlobMetadata, StorageDriver};
     use aster_forge_cache as cache;
@@ -333,6 +335,9 @@ mod tests {
                 description: Set(String::new()),
                 is_enabled: Set(true),
                 is_default: Set(true),
+                admission_config: Set(serde_json::to_string(&crate::services::storage_policy::policy::placement::PlacementPayloadEnvelope::new(crate::services::storage_policy::policy::placement::StorageAdmissionConstraints::default())).unwrap()),
+                upload_execution_preference: Set("automatic".to_string()),
+                routing_revision: Set(1),
                 created_at: Set(now),
                 updated_at: Set(now),
                 ..Default::default()
@@ -340,18 +345,36 @@ mod tests {
             .insert(&db)
             .await
             .expect("health test policy group should insert");
-            storage_policy_group_item::ActiveModel {
+            let rule = storage_policy_group_rule::ActiveModel {
                 group_id: Set(group.id),
-                policy_id: Set(policy.id),
+                name: Set("Default Rule".to_string()),
+                description: Set(String::new()),
                 priority: Set(1),
-                min_file_size: Set(0),
-                max_file_size: Set(0),
+                is_enabled: Set(true),
+                matcher: Set(serde_json::to_string(&crate::services::storage_policy::policy::placement::PlacementPayloadEnvelope::new(crate::services::storage_policy::policy::placement::PlacementMatcher::default())).unwrap()),
+                selection_mode: Set("first_available".to_string()),
+                unavailable_behavior: Set("reject".to_string()),
                 created_at: Set(now),
+                updated_at: Set(now),
                 ..Default::default()
             }
             .insert(&db)
             .await
-            .expect("health test policy group item should insert");
+            .expect("health test policy rule should insert");
+            storage_policy_group_rule_target::ActiveModel {
+                rule_id: Set(rule.id),
+                policy_id: Set(policy.id),
+                weight: Set(100),
+                is_enabled: Set(true),
+                accepting_new_writes: Set(true),
+                stable_order: Set(1),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            }
+            .insert(&db)
+            .await
+            .expect("health test policy target should insert");
             Some(group.id)
         } else {
             None

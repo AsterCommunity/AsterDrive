@@ -1274,24 +1274,16 @@ async fn test_folder_copy() {
     let body: Value = test::read_body_json(resp).await;
     let src_id = body["data"]["id"].as_i64().unwrap();
 
-    let boundary = "----TestBoundary123";
-    let payload = "------TestBoundary123\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"inside.txt\"\r\n\
-         Content-Type: text/plain\r\n\r\n\
-         folder content\r\n\
-         ------TestBoundary123--\r\n";
-    let req = test::TestRequest::post()
-        .uri(&format!("/api/v1/files/upload?folder_id={src_id}"))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    let (status, _) = common::upload_via_server_session(
+        &app,
+        &token,
+        &format!("/api/v1/files?folder_id={src_id}"),
+        "inside.txt",
+        "text/plain",
+        b"folder content",
+    )
+    .await;
+    assert_eq!(status, 201);
 
     // 复制文件夹到根目录（null = root，与根目录同名冲突时应递增）
     let req = test::TestRequest::post()

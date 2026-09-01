@@ -41,6 +41,98 @@ const ALLOW_CONNECTOR_POLICY_WRITES_WITH_LEGACY_SCHEMA_MIGRATION: &str =
 const CANONICAL_FILE_REVISION_LEDGER_MIGRATION: &str =
     "m20260813_000001_canonical_file_revision_ledger";
 const VIRTUAL_EMPTY_FILE_BLOBS_MIGRATION: &str = "m20260815_000001_virtual_empty_file_blobs";
+const STORAGE_PLACEMENT_PROFILES_MIGRATION: &str = "m20260825_000001_storage_placement_profiles";
+
+#[tokio::test]
+async fn storage_placement_migration_preserves_legacy_rule_semantics() {
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite memory database should connect");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(STORAGE_PLACEMENT_PROFILES_MIGRATION)),
+    )
+    .await
+    .expect("schema before storage placement migration should apply");
+    insert_current_storage_policy(&db, "legacy-placement-policy")
+        .await
+        .expect("legacy placement policy should insert");
+    let policy_id: i64 = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT id FROM storage_policies WHERE name = 'legacy-placement-policy'",
+        ))
+        .await
+        .expect("legacy placement policy should query")
+        .expect("legacy placement policy should exist")
+        .try_get_by_index(0)
+        .expect("legacy placement policy id should decode");
+    db.execute_unprepared(&format!(
+        "INSERT INTO storage_policy_groups \
+         (id, name, description, is_enabled, is_default, created_at, updated_at) \
+         VALUES (4441, 'Legacy placement group', '', 1, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP); \
+         INSERT INTO storage_policy_group_items \
+         (id, group_id, policy_id, priority, min_file_size, max_file_size, created_at) \
+         VALUES (4442, 4441, {policy_id}, 7, 1024, 8192, CURRENT_TIMESTAMP)"
+    ))
+    .await
+    .expect("legacy placement topology should insert");
+
+    CurrentMigrator::up(&db, Some(1))
+        .await
+        .expect("storage placement migration should apply");
+
+    let rule = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT id, group_id, priority, matcher, selection_mode, unavailable_behavior \
+             FROM storage_policy_group_rules WHERE id = 4442",
+        ))
+        .await
+        .expect("materialized placement rule should query")
+        .expect("materialized placement rule should exist");
+    assert_eq!(rule.try_get_by_index::<i64>(0).unwrap(), 4442);
+    assert_eq!(rule.try_get_by_index::<i64>(1).unwrap(), 4441);
+    assert_eq!(rule.try_get_by_index::<i32>(2).unwrap(), 7);
+    let matcher: serde_json::Value =
+        serde_json::from_str(&rule.try_get_by_index::<String>(3).unwrap())
+            .expect("materialized matcher should be valid JSON");
+    assert_eq!(matcher["values"]["min_file_size"], 1024);
+    assert_eq!(matcher["values"]["max_file_size"], 8192);
+    assert_eq!(
+        rule.try_get_by_index::<String>(4).unwrap(),
+        "first_available"
+    );
+    assert_eq!(rule.try_get_by_index::<String>(5).unwrap(), "next_rule");
+
+    let target = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT rule_id, policy_id, weight, is_enabled, accepting_new_writes, stable_order \
+             FROM storage_policy_group_rule_targets WHERE id = 4442",
+        ))
+        .await
+        .expect("materialized placement target should query")
+        .expect("materialized placement target should exist");
+    assert_eq!(target.try_get_by_index::<i64>(0).unwrap(), 4442);
+    assert_eq!(target.try_get_by_index::<i64>(1).unwrap(), policy_id);
+    assert_eq!(target.try_get_by_index::<i32>(2).unwrap(), 100);
+    assert!(target.try_get_by_index::<bool>(3).unwrap());
+    assert!(target.try_get_by_index::<bool>(4).unwrap());
+    assert_eq!(target.try_get_by_index::<i32>(5).unwrap(), 1);
+
+    let legacy_count: i64 = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT COUNT(*) FROM storage_policy_group_items WHERE id = 4442",
+        ))
+        .await
+        .expect("legacy compatibility row should query")
+        .expect("legacy compatibility count should exist")
+        .try_get_by_index(0)
+        .expect("legacy compatibility count should decode");
+    assert_eq!(legacy_count, 1);
+}
 
 #[tokio::test]
 async fn virtual_empty_blob_migration_backfills_stored_rows_and_enforces_backing_contract() {

@@ -111,12 +111,17 @@ async fn create_upload_session(
             team_id: Set(spec.team_id),
             frontend_client_id: Set(None),
             filename: Set("manual-upload.bin".to_string()),
+            mime_type: Set("application/octet-stream".to_string()),
             total_size: Set(10),
             chunk_size: Set(5),
             total_chunks: Set(2),
             received_count: Set(2),
             folder_id: Set(None),
             policy_id: Set(policy.id),
+            placement_profile_id: Set(None),
+            placement_rule_id: Set(None),
+            placement_revision: Set(None),
+            placement_execution_preference: Set("automatic".to_string()),
             status: Set(spec.status),
             session_kind: Set(match (spec.object_temp_key, spec.object_multipart_id) {
                 (Some(_), Some(_)) => {

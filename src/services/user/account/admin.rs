@@ -258,12 +258,14 @@ async fn update_with_audit_diff(
                 "cannot assign a disabled storage policy group",
             ));
         }
-        let items =
-            crate::db::repository::policy_group_repo::find_group_items(state.writer_db(), group_id)
-                .await?;
-        if items.is_empty() {
+        if !crate::db::repository::policy_placement_repo::group_has_assignable_target(
+            state.writer_db(),
+            group_id,
+        )
+        .await?
+        {
             return Err(AsterError::validation_error(
-                "cannot assign a storage policy group without policies",
+                "cannot assign a storage policy group without an assignable target",
             ));
         }
         active.policy_group_id = Set(Some(group_id));

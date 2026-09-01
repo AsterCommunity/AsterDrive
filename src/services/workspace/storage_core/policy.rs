@@ -1,7 +1,10 @@
 use crate::api::api_error_code::ApiErrorCode;
-use crate::db::repository::{folder_repo, team_repo, user_repo};
+use crate::db::repository::{file_repo, folder_repo, team_repo, user_repo};
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::services::storage_policy::policy::placement::{
+    FolderPlacementOverride, StoragePlacementContext, StorageRoutingDecision,
+};
 use crate::services::workspace::scope::{
     WorkspaceStorageScope, require_team_policy_group_id_with_db, verify_folder_access,
 };
@@ -45,6 +48,72 @@ pub(crate) struct VerifiedFolderPolicyHint {
     policy_id: Option<i64>,
 }
 
+pub(crate) struct BlobPolicyRequest<'a> {
+    pub scope: WorkspaceStorageScope,
+    pub folder_id: Option<i64>,
+    pub folder_hint: Option<VerifiedFolderPolicyHint>,
+    pub filename: &'a str,
+    pub file_size: i64,
+    pub mime_type: &'a str,
+    pub existing_file_id: Option<i64>,
+}
+
+pub(crate) struct BlobPolicyResolution {
+    pub policy: aster_drive_model::entities::storage_policy::Model,
+    pub routing_decision: Option<StorageRoutingDecision>,
+}
+
+pub(crate) async fn resolve_blob_policy_for_write(
+    state: &PrimaryAppState,
+    request: BlobPolicyRequest<'_>,
+) -> Result<BlobPolicyResolution> {
+    resolve_blob_policy_for_write_on(state, state.writer_db(), request).await
+}
+
+pub(crate) async fn resolve_blob_policy_for_write_on<C: sea_orm::ConnectionTrait>(
+    state: &PrimaryAppState,
+    db: &C,
+    request: BlobPolicyRequest<'_>,
+) -> Result<BlobPolicyResolution> {
+    if let Some(existing_file_id) = request.existing_file_id {
+        let file = crate::services::workspace::scope::verify_file_access(
+            state,
+            request.scope,
+            existing_file_id,
+        )
+        .await?;
+        let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id).await?;
+        let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
+        return Ok(BlobPolicyResolution {
+            policy,
+            routing_decision: None,
+        });
+    }
+
+    let folder_hint = match (request.folder_hint, request.folder_id) {
+        (Some(hint), _) => Some(hint),
+        (None, Some(folder_id)) => {
+            let folder = verify_folder_access(state, request.scope, folder_id).await?;
+            Some(resolve_verified_folder_policy_hint(state, request.scope, folder).await?)
+        }
+        (None, None) => None,
+    };
+    let (policy, routing_decision) = resolve_new_blob_policy_from_snapshot(
+        state,
+        db,
+        request.scope,
+        folder_hint,
+        request.filename,
+        request.file_size,
+        request.mime_type,
+    )
+    .await?;
+    Ok(BlobPolicyResolution {
+        policy,
+        routing_decision: Some(routing_decision),
+    })
+}
+
 impl VerifiedFolderPolicyHint {
     pub(crate) fn policy_id(&self) -> Option<i64> {
         self.policy_id
@@ -73,59 +142,123 @@ impl From<folder::Model> for VerifiedFolderPolicyHint {
     }
 }
 
-async fn resolve_scope_policy_for_size_on<C: ConnectionTrait>(
-    state: &PrimaryAppState,
-    db: &C,
+/// Resolve a new blob placement entirely from the in-memory policy snapshot.
+///
+/// Database access remains at the surrounding upload boundary for permissions,
+/// quota and session persistence. Profile/rule/target matching itself is kept
+/// off the upload hot path database lookup.
+async fn resolve_new_blob_policy_from_snapshot<C: sea_orm::ConnectionTrait>(
+    state: &impl SharedRuntimeState,
+    fallback_db: &C,
     scope: WorkspaceStorageScope,
+    folder: Option<VerifiedFolderPolicyHint>,
+    filename: &str,
     file_size: i64,
-) -> Result<aster_drive_model::entities::storage_policy::Model> {
-    match scope {
+    mime_type: &str,
+) -> Result<(
+    aster_drive_model::entities::storage_policy::Model,
+    StorageRoutingDecision,
+)> {
+    let profile_id = match scope {
         WorkspaceStorageScope::Personal { user_id } => state
-            .policy_snapshot
-            .resolve_user_policy_for_size(user_id, file_size),
+            .policy_snapshot()
+            .require_user_policy_group_id(user_id)?,
         WorkspaceStorageScope::Team {
             team_id,
             actor_user_id,
-        } => {
-            let policy_group_id =
-                require_team_policy_group_id_with_db(state, db, team_id, actor_user_id).await?;
-            state
-                .policy_snapshot
-                .resolve_policy_in_group(policy_group_id, file_size)
-        }
-    }
-}
-
-pub(crate) async fn resolve_policy_for_size_with_verified_folder(
-    state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
-    folder: Option<VerifiedFolderPolicyHint>,
-    file_size: i64,
-) -> Result<aster_drive_model::entities::storage_policy::Model> {
-    resolve_policy_for_size_with_verified_folder_on(
-        state,
-        state.reader_db(),
-        scope,
-        folder,
-        file_size,
-    )
-    .await
-}
-
-pub(crate) async fn resolve_policy_for_size_with_verified_folder_on<C: ConnectionTrait>(
-    state: &PrimaryAppState,
-    db: &C,
-    scope: WorkspaceStorageScope,
-    folder: Option<VerifiedFolderPolicyHint>,
-    file_size: i64,
-) -> Result<aster_drive_model::entities::storage_policy::Model> {
-    if let Some(folder) = folder
-        && let Some(policy_id) = folder.policy_id()
+        } => match state
+            .policy_snapshot()
+            .resolve_team_policy_group_id(team_id)
+        {
+            Some(profile_id) => profile_id,
+            None => {
+                // TODO(0.6.0): remove this cache-miss compatibility read once
+                // all team assignment mutation paths publish snapshot updates.
+                require_team_policy_group_id_with_db(state, fallback_db, team_id, actor_user_id)
+                    .await?
+            }
+        },
+    };
+    let context =
+        StoragePlacementContext::from_filename(profile_id, filename, file_size, mime_type);
+    let folder_override = folder
+        .and_then(|hint| hint.policy_id())
+        .map(|policy_id| -> Result<FolderPlacementOverride> {
+            let policy = state.policy_snapshot().get_policy_or_err(policy_id)?;
+            Ok(FolderPlacementOverride {
+                policy_id,
+                policy_max_file_size: policy.max_file_size,
+                is_available: state
+                    .policy_snapshot()
+                    .is_policy_available_for_outbound(&policy),
+            })
+        })
+        .transpose()?;
+    if let Some(folder) = folder_override.as_ref()
+        && folder.policy_max_file_size > 0
+        && file_size > folder.policy_max_file_size
     {
-        return resolve_bound_folder_policy(state, policy_id);
+        return Err(AsterError::file_too_large(format!(
+            "file size {} exceeds limit {}",
+            file_size, folder.policy_max_file_size
+        )));
     }
-
-    resolve_scope_policy_for_size_on(state, db, scope, file_size).await
+    let decision = match state.policy_snapshot().resolve_placement(
+        profile_id,
+        &context,
+        folder_override.as_ref(),
+    ) {
+        Ok(decision) => decision,
+        Err(error) => {
+            state.metrics().record_storage_routing("none", error.code());
+            state.metrics().record_storage_routing_detail(
+                &profile_id.to_string(),
+                "none",
+                "none",
+                "none",
+                error.code(),
+            );
+            return Err(error);
+        }
+    };
+    state.metrics().record_storage_routing(
+        decision.selection_mode.as_str(),
+        if decision.folder_override {
+            "folder_override"
+        } else {
+            "selected"
+        },
+    );
+    let rule_id = decision
+        .rule_id
+        .map_or_else(|| "none".to_string(), |id| id.to_string());
+    let profile_id = decision.profile_id.to_string();
+    let policy_id = decision.policy_id.to_string();
+    state.metrics().record_storage_routing_detail(
+        &profile_id,
+        &rule_id,
+        &policy_id,
+        decision.selection_mode.as_str(),
+        if decision.folder_override {
+            "folder_override"
+        } else {
+            "selected"
+        },
+    );
+    tracing::debug!(
+        placement_profile_id = decision.profile_id,
+        placement_revision = decision.revision,
+        placement_rule_id = decision.rule_id,
+        policy_id = decision.policy_id,
+        selection_mode = decision.selection_mode.as_str(),
+        folder_override = decision.folder_override,
+        excluded_target_count = decision.excluded_targets.len(),
+        "storage placement decision selected"
+    );
+    let policy = state
+        .policy_snapshot()
+        .get_policy_or_err(decision.policy_id)?;
+    Ok((policy, decision))
 }
 
 pub(crate) async fn resolve_verified_folder_policy_hint(
@@ -165,15 +298,6 @@ pub(crate) fn ensure_policy_available_for_folder_binding(
         ApiErrorCode::BadRequest,
         format!("storage policy #{} is not available: {reason}", policy.id),
     ))
-}
-
-fn resolve_bound_folder_policy(
-    state: &PrimaryAppState,
-    policy_id: i64,
-) -> Result<aster_drive_model::entities::storage_policy::Model> {
-    let policy = state.policy_snapshot().get_policy_or_err(policy_id)?;
-    ensure_policy_available_for_folder_binding(state, &policy)?;
-    Ok(policy)
 }
 
 async fn resolve_effective_folder_policy_id_on<C: ConnectionTrait>(
@@ -218,25 +342,4 @@ async fn resolve_effective_folder_policy_id_on<C: ConnectionTrait>(
     }
 
     Ok(closest_policy_id)
-}
-
-pub(crate) async fn resolve_policy_for_size(
-    state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
-    folder_id: Option<i64>,
-    file_size: i64,
-) -> Result<aster_drive_model::entities::storage_policy::Model> {
-    // 文件夹级策略覆盖优先级最高。
-    // 只有目标文件夹没有显式绑定策略时，才回退到个人默认策略 / 团队策略组。
-    if let Some(folder_id) = folder_id {
-        let folder = verify_folder_access(state, scope, folder_id).await?;
-
-        if let Some(policy_id) =
-            resolve_effective_folder_policy_id_on(state.reader_db(), scope, folder).await?
-        {
-            return resolve_bound_folder_policy(state, policy_id);
-        }
-    }
-
-    resolve_scope_policy_for_size_on(state, state.reader_db(), scope, file_size).await
 }

@@ -209,26 +209,16 @@ async fn test_force_delete_user_preserves_team_upload_and_blob_ref() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
 
-    let boundary = "----ForceDeleteTeamBoundary";
-    let payload = "------ForceDeleteTeamBoundary\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"team-owned.txt\"\r\n\
-         Content-Type: text/plain\r\n\r\n\
-         still team data\r\n\
-         ------ForceDeleteTeamBoundary--\r\n"
-        .to_string();
-    let req = test::TestRequest::post()
-        .uri(&format!("/api/v1/teams/{team_id}/files/upload"))
-        .insert_header(("Cookie", common::access_cookie_header(&victim_token)))
-        .insert_header(common::csrf_header_for(&victim_token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    let (status, body) = common::upload_via_server_session(
+        &app,
+        &victim_token,
+        &format!("/api/v1/teams/{team_id}/files"),
+        "team-owned.txt",
+        "text/plain",
+        b"still team data",
+    )
+    .await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let before_file = aster_drive::db::repository::file_repo::find_by_id(&db, file_id)

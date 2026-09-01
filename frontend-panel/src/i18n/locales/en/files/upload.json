@@ -23,7 +23,7 @@
 	"upload_processing": "Processing file...",
 	"uploading_to_storage": "Uploading file...",
 	"upload_progress_chunked": "{{progress}}% chunked upload",
-	"upload_progress_direct": "{{progress}}% direct upload",
+	"upload_progress_stream": "{{progress}}% stream upload",
 	"drop_files": "Drop files here to upload",
 	"drop_files_desc": "Files will be uploaded to the current folder.",
 	"drop_files_or_folders": "Drop files or folders here to upload",

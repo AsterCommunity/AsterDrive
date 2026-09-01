@@ -29,6 +29,23 @@ pub async fn create_or_find_by_name_in_parent<C: ConnectionTrait>(
     .await
 }
 
+pub async fn create_or_find_by_name_in_parent_with_created<C: ConnectionTrait>(
+    db: &C,
+    model: folder::ActiveModel,
+    user_id: i64,
+    parent_id: Option<i64>,
+    name: &str,
+) -> Result<(folder::Model, bool)> {
+    create_or_find_in_scope_with_created(
+        db,
+        model,
+        FolderScope::Personal { user_id },
+        parent_id,
+        name,
+    )
+    .await
+}
+
 pub async fn create_or_find_by_name_in_team_parent<C: ConnectionTrait>(
     db: &C,
     model: folder::ActiveModel,
@@ -37,6 +54,17 @@ pub async fn create_or_find_by_name_in_team_parent<C: ConnectionTrait>(
     name: &str,
 ) -> Result<folder::Model> {
     create_or_find_in_scope(db, model, FolderScope::Team { team_id }, parent_id, name).await
+}
+
+pub async fn create_or_find_by_name_in_team_parent_with_created<C: ConnectionTrait>(
+    db: &C,
+    model: folder::ActiveModel,
+    team_id: i64,
+    parent_id: Option<i64>,
+    name: &str,
+) -> Result<(folder::Model, bool)> {
+    create_or_find_in_scope_with_created(db, model, FolderScope::Team { team_id }, parent_id, name)
+        .await
 }
 
 async fn create_or_find_in_scope<C: ConnectionTrait>(
@@ -59,6 +87,29 @@ async fn create_or_find_in_scope<C: ConnectionTrait>(
         }
     };
     existing
+        .ok_or_else(|| AsterError::internal_error("folder insert conflict could not be reloaded"))
+}
+
+async fn create_or_find_in_scope_with_created<C: ConnectionTrait>(
+    db: &C,
+    model: folder::ActiveModel,
+    scope: FolderScope,
+    parent_id: Option<i64>,
+    name: &str,
+) -> Result<(folder::Model, bool)> {
+    if let Some(created) = insert_without_conflict(db, model).await? {
+        return Ok((created, true));
+    }
+    let existing = match scope {
+        FolderScope::Personal { user_id } => {
+            super::query::lock_by_name_in_parent(db, user_id, parent_id, name).await?
+        }
+        FolderScope::Team { team_id } => {
+            super::query::lock_by_name_in_team_parent(db, team_id, parent_id, name).await?
+        }
+    };
+    existing
+        .map(|folder| (folder, false))
         .ok_or_else(|| AsterError::internal_error("folder insert conflict could not be reloaded"))
 }
 

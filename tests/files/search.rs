@@ -5,16 +5,6 @@ use crate::common;
 use actix_web::test;
 use serde_json::Value;
 
-fn upload_named_file(name: &str, content: &str, mime: &str, boundary: &str) -> String {
-    format!(
-        "--{boundary}\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"{name}\"\r\n\
-         Content-Type: {mime}\r\n\r\n\
-         {content}\r\n\
-         --{boundary}--\r\n"
-    )
-}
-
 async fn upload_search_file(
     app: &impl actix_web::dev::Service<
         actix_http::Request,
@@ -27,21 +17,10 @@ async fn upload_search_file(
     content: &str,
     mime: &str,
 ) -> Value {
-    let boundary = "----SearchUploadBoundary123";
-    let payload = upload_named_file(name, content, mime, boundary);
-    let req = test::TestRequest::post()
-        .uri(uri)
-        .insert_header(("Cookie", common::access_cookie_header(token)))
-        .insert_header(common::csrf_header_for(token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(app, req).await;
-    assert_eq!(resp.status(), 201, "upload failed for {name}");
-    test::read_body_json(resp).await
+    let (status, body) =
+        common::upload_via_server_session(app, token, uri, name, mime, content.as_bytes()).await;
+    assert_eq!(status, 201, "upload failed for {name}");
+    body
 }
 
 #[actix_web::test]
@@ -61,21 +40,15 @@ async fn test_search_includes_share_and_lock_status() {
     let folder_body: Value = test::read_body_json(folder_resp).await;
     let folder_id = folder_body["data"]["id"].as_i64().unwrap();
 
-    let boundary = "----TestBoundary123";
-    let payload = upload_named_file("status-report.txt", "status", "text/plain", boundary);
-    let upload_req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let upload_resp = test::call_service(&app, upload_req).await;
-    assert_eq!(upload_resp.status(), 201);
-    let upload_body: Value = test::read_body_json(upload_resp).await;
+    let upload_body = upload_search_file(
+        &app,
+        &token,
+        "/api/v1/files",
+        "status-report.txt",
+        "status",
+        "text/plain",
+    )
+    .await;
     let file_id = upload_body["data"]["id"].as_i64().unwrap();
 
     let lock_file_req = test::TestRequest::post()
@@ -161,37 +134,27 @@ async fn test_search_by_name() {
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    let boundary = "----TestBoundary123";
-
     // Upload "report.pdf"
-    let payload = upload_named_file("report.pdf", "pdf content", "application/pdf", boundary);
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    upload_search_file(
+        &app,
+        &token,
+        "/api/v1/files",
+        "report.pdf",
+        "pdf content",
+        "application/pdf",
+    )
+    .await;
 
     // Upload "notes.txt"
-    let payload = upload_named_file("notes.txt", "some notes", "text/plain", boundary);
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    upload_search_file(
+        &app,
+        &token,
+        "/api/v1/files",
+        "notes.txt",
+        "some notes",
+        "text/plain",
+    )
+    .await;
 
     // Search for "rep" — should only match report.pdf
     let req = test::TestRequest::get()
@@ -215,21 +178,15 @@ async fn test_search_by_name_preserves_substring_and_short_query_behavior() {
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    let boundary = "----TestBoundary123";
-    let payload = upload_named_file("report.pdf", "pdf content", "application/pdf", boundary);
-    let upload_req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let upload_resp = test::call_service(&app, upload_req).await;
-    assert_eq!(upload_resp.status(), 201);
-    let upload_body: Value = test::read_body_json(upload_resp).await;
+    let upload_body = upload_search_file(
+        &app,
+        &token,
+        "/api/v1/files",
+        "report.pdf",
+        "pdf content",
+        "application/pdf",
+    )
+    .await;
     let file_id = upload_body["data"]["id"].as_i64().unwrap();
 
     let middle_substring_req = test::TestRequest::get()
@@ -330,37 +287,27 @@ async fn test_search_by_mime_type() {
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    let boundary = "----TestBoundary123";
-
     // Upload text file
-    let payload = upload_named_file("doc.txt", "text content", "text/plain", boundary);
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    upload_search_file(
+        &app,
+        &token,
+        "/api/v1/files",
+        "doc.txt",
+        "text content",
+        "text/plain",
+    )
+    .await;
 
     // Upload PDF file
-    let payload = upload_named_file("report.pdf", "pdf content", "application/pdf", boundary);
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    upload_search_file(
+        &app,
+        &token,
+        "/api/v1/files",
+        "report.pdf",
+        "pdf content",
+        "application/pdf",
+    )
+    .await;
 
     // Search by MIME type — only PDF should match
     let req = test::TestRequest::get()
@@ -387,7 +334,7 @@ async fn test_search_by_category_and_extensions() {
     upload_search_file(
         &app,
         &token,
-        "/api/v1/files/upload",
+        "/api/v1/files",
         "photo.JPG",
         "image",
         "image/jpeg",
@@ -396,7 +343,7 @@ async fn test_search_by_category_and_extensions() {
     upload_search_file(
         &app,
         &token,
-        "/api/v1/files/upload",
+        "/api/v1/files",
         "clip.mp4",
         "video",
         "video/mp4",
@@ -405,7 +352,7 @@ async fn test_search_by_category_and_extensions() {
     upload_search_file(
         &app,
         &token,
-        "/api/v1/files/upload",
+        "/api/v1/files",
         "song.mp3",
         "audio",
         "audio/mpeg",
@@ -414,7 +361,7 @@ async fn test_search_by_category_and_extensions() {
     upload_search_file(
         &app,
         &token,
-        "/api/v1/files/upload",
+        "/api/v1/files",
         "report.pdf",
         "pdf",
         "application/pdf",
@@ -423,7 +370,7 @@ async fn test_search_by_category_and_extensions() {
     upload_search_file(
         &app,
         &token,
-        "/api/v1/files/upload",
+        "/api/v1/files",
         "pdf-notes.txt",
         "not pdf",
         "text/plain",
@@ -432,7 +379,7 @@ async fn test_search_by_category_and_extensions() {
     upload_search_file(
         &app,
         &token,
-        "/api/v1/files/upload",
+        "/api/v1/files",
         "sheet.xlsx",
         "sheet",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -441,7 +388,7 @@ async fn test_search_by_category_and_extensions() {
     upload_search_file(
         &app,
         &token,
-        "/api/v1/files/upload",
+        "/api/v1/files",
         "backup.tar.gz",
         "archive",
         "application/gzip",
@@ -533,7 +480,7 @@ async fn test_search_sorts_file_results() {
     upload_search_file(
         &app,
         &token,
-        "/api/v1/files/upload",
+        "/api/v1/files",
         "small-photo.jpg",
         "tiny",
         "image/jpeg",
@@ -542,7 +489,7 @@ async fn test_search_sorts_file_results() {
     upload_search_file(
         &app,
         &token,
-        "/api/v1/files/upload",
+        "/api/v1/files",
         "large-photo.jpg",
         "large image content",
         "image/jpeg",
@@ -588,7 +535,7 @@ async fn test_search_category_combines_with_folder_scope_and_rename_updates_fiel
     let outside = upload_search_file(
         &app,
         &token,
-        "/api/v1/files/upload",
+        "/api/v1/files",
         "outside.pdf",
         "pdf",
         "application/pdf",
@@ -598,7 +545,7 @@ async fn test_search_category_combines_with_folder_scope_and_rename_updates_fiel
     upload_search_file(
         &app,
         &token,
-        &format!("/api/v1/files/upload?folder_id={folder_id}"),
+        &format!("/api/v1/files?folder_id={folder_id}"),
         "inside.pdf",
         "pdf",
         "application/pdf",
@@ -751,23 +698,16 @@ async fn test_search_excludes_deleted() {
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    let boundary = "----TestBoundary123";
-
     // Upload a file
-    let payload = upload_named_file("searchable.txt", "find me", "text/plain", boundary);
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    let body = upload_search_file(
+        &app,
+        &token,
+        "/api/v1/files",
+        "searchable.txt",
+        "find me",
+        "text/plain",
+    )
+    .await;
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     // Verify file is searchable before deletion
@@ -815,22 +755,16 @@ async fn test_search_only_own_files() {
     // Register user1 (first user = admin)
     let (token1, _) = register_and_login!(app);
 
-    let boundary = "----TestBoundary123";
-
     // Upload file as user1
-    let payload = upload_named_file("user1_report.txt", "user1 data", "text/plain", boundary);
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token1)))
-        .insert_header(common::csrf_header_for(&token1))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    upload_search_file(
+        &app,
+        &token1,
+        "/api/v1/files",
+        "user1_report.txt",
+        "user1 data",
+        "text/plain",
+    )
+    .await;
 
     // Register user2 (non-admin)
     let req = test::TestRequest::post()
@@ -861,19 +795,15 @@ async fn test_search_only_own_files() {
     let token2 = common::extract_cookie(&resp, "aster_access").unwrap();
 
     // Upload file as user2
-    let payload = upload_named_file("user2_report.txt", "user2 data", "text/plain", boundary);
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token2)))
-        .insert_header(common::csrf_header_for(&token2))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    upload_search_file(
+        &app,
+        &token2,
+        "/api/v1/files",
+        "user2_report.txt",
+        "user2 data",
+        "text/plain",
+    )
+    .await;
 
     // User1 searches for "report" — should only see own file
     let req = test::TestRequest::get()

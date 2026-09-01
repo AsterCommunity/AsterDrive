@@ -2,7 +2,7 @@ import { ApiError } from "@/services/http";
 import { type CompletedPart, uploadService } from "@/services/uploadService";
 import type { FileInfo } from "@/types/api";
 import { ApiErrorCode } from "@/types/api-helpers";
-import type { UploadMode } from "./uploadResume";
+import type { UploadTransport } from "./uploadResume";
 
 export type UploadStatus =
 	| "pending_file"
@@ -22,7 +22,7 @@ export interface UploadTask {
 	baseFolderId: number | null;
 	baseFolderName: string;
 	totalBytes: number;
-	mode: UploadMode | null;
+	mode: UploadTransport | null;
 	status: UploadStatus;
 	progress: number;
 	uploadedBytes?: number;

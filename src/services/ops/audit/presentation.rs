@@ -278,7 +278,7 @@ fn detail_message(
             copy_params(
                 details,
                 &mut params,
-                &["is_default", "is_enabled", "item_count"],
+                &["is_default", "is_enabled", "rule_count", "target_count"],
             );
             Some(message("policy_group_snapshot", params))
         }

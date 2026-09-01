@@ -365,8 +365,12 @@ export type StoragePolicyCredentialValidationResult =
 	components["schemas"]["StoragePolicyCredentialValidationResult"];
 export type MigratePolicyGroupAssignmentsRequest =
 	components["schemas"]["MigratePolicyGroupAssignmentsReq"];
-export type PolicyGroupItemRequest =
-	components["schemas"]["PolicyGroupItemReq"];
+export type StoragePlacementRuleInfo =
+	components["schemas"]["StoragePlacementRuleInfo"];
+export type StoragePlacementSimulationInput =
+	components["schemas"]["StoragePlacementSimulationInput"];
+export type StoragePlacementSimulationResult =
+	OperationData<"simulate_policy_group_placement">;
 export type AdminPolicyGroupListQuery = OperationQuery<"list_policy_groups">;
 export type UpdatePolicyGroupRequest =
 	components["schemas"]["PatchPolicyGroupReq"];
@@ -453,8 +457,6 @@ export type ObjectStorageDownloadStrategy =
 	components["schemas"]["ObjectStorageDownloadStrategy"];
 export type StoragePolicySummaryInfo =
 	components["schemas"]["StoragePolicySummaryInfo"];
-export type StoragePolicyGroupItem =
-	components["schemas"]["StoragePolicyGroupItemInfo"];
 export type StoragePolicyGroup =
 	components["schemas"]["StoragePolicyGroupInfo"];
 export type PolicyGroupAssignmentMigrationResult =
@@ -586,7 +588,7 @@ export type RecoverableUploadSession = NonNullable<
 		ApiOperations["list_recoverable_upload_sessions"]["responses"][200]["content"]
 	>["application/json"]["data"]
 >[number];
-export type UploadMode = components["schemas"]["UploadMode"];
+export type UploadTransport = components["schemas"]["UploadTransport"];
 export type UploadProgressResponse =
 	components["schemas"]["UploadProgressResponse"];
 export type UploadSessionStatus = components["schemas"]["UploadSessionStatus"];

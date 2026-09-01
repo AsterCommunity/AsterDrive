@@ -251,7 +251,7 @@ export function findFileInFolder(session, folderId, filename) {
 	return file ? file.id : null;
 }
 
-export function uploadDirect(
+export function uploadViaSession(
 	session,
 	{
 		filename,
@@ -261,34 +261,69 @@ export function uploadDirect(
 		relativePath = null,
 	},
 ) {
-	const payload = {
-		file: http.file(content, filename, mimeType),
-	};
-	const response = http.post(
-		url(
-			`/api/v1/files/upload${buildQuery({
-				folder_id: folderId,
-				relative_path: relativePath,
-			})}`,
-		),
-		payload,
-		{
-			headers: authHeaders(session),
-		},
+	const { body: init } = initChunkedUpload(session, {
+		filename,
+		totalSize: content.length,
+		folderId,
+		relativePath,
+		mimeType,
+	});
+	const uploadId = init.data.upload_id;
+	if (!uploadId) {
+		fail(`files.upload_init returned ${init.data.mode} without upload_id`);
+	}
+
+	if (init.data.mode === "stream") {
+		const response = http.put(
+			url(`/api/v1/files/upload/${uploadId}/body`),
+			content,
+			{
+				headers: authHeaders(session, {
+					"Content-Type": "application/octet-stream",
+				}),
+			},
+		);
+		const body = assertApi(response, "files.upload_stream", 201);
+		return { response, body, mode: init.data.mode };
+	}
+
+	if (init.data.mode === "chunked") {
+		const chunkSize = init.data.chunk_size;
+		const totalChunks = init.data.total_chunks;
+		for (let chunkNumber = 0; chunkNumber < totalChunks; chunkNumber += 1) {
+			const start = chunkNumber * chunkSize;
+			uploadChunk(
+				session,
+				uploadId,
+				chunkNumber,
+				content.slice(start, Math.min(start + chunkSize, content.length)),
+			);
+		}
+		const { response, body } = completeUpload(session, uploadId);
+		return { response, body, mode: init.data.mode };
+	}
+
+	fail(
+		`performance upload fixture supports server data planes only; negotiated ${init.data.mode}`,
 	);
-	const body = assertApi(response, "files.upload_direct", 201);
-	return { response, body };
 }
 
 export function initChunkedUpload(
 	session,
-	{ filename, totalSize, folderId = null, relativePath = null },
+	{
+		filename,
+		totalSize,
+		folderId = null,
+		relativePath = null,
+		mimeType = "application/octet-stream",
+	},
 ) {
 	const response = http.post(
 		url("/api/v1/files/upload/init"),
 		JSON.stringify({
 			filename,
 			total_size: totalSize,
+			mime_type: mimeType,
 			folder_id: folderId,
 			relative_path: relativePath,
 		}),

@@ -380,16 +380,25 @@ pub async fn webdav_handler(
     observation::observe_response(response, observation)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SystemFileNameBlocked;
+
+impl SystemFileNameBlocked {
+    pub(crate) fn into_response(self) -> HttpResponse {
+        responses::system_file_name_blocked()
+    }
+}
+
 pub(crate) fn ensure_system_file_name_allowed(
     system_file_policy: &system_file::SystemFileBlockPolicy,
     relative: &str,
-) -> Result<(), HttpResponse> {
+) -> Result<(), SystemFileNameBlocked> {
     let name = display_name(relative);
     if name.is_empty() || !system_file_policy.is_blocked_name(name) {
         return Ok(());
     }
 
-    Err(responses::system_file_name_blocked())
+    Err(SystemFileNameBlocked)
 }
 
 /// 注册 WebDAV 路由

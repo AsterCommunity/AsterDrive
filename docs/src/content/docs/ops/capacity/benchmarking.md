@@ -84,7 +84,7 @@ ASTER_BENCH_LIST_SIZE=10000 k6 run tests/performance/k6/folder-list.js
 k6 run tests/performance/k6/search.js
 k6 run tests/performance/k6/download.js
 ASTER_BENCH_RANGE_BYTES=262144 k6 run tests/performance/k6/download-range.js
-k6 run tests/performance/k6/upload-direct.js
+k6 run tests/performance/k6/upload-stream.js
 k6 run tests/performance/k6/upload-chunked.js
 k6 run tests/performance/k6/batch-move.js
 k6 run tests/performance/k6/webdav-rw.js
@@ -121,7 +121,7 @@ k6 run tests/performance/k6/download.js
 
 - `mixed-background-archive-download.js`：前台 REST 下载，后台持续创建归档压缩任务。
 - `mixed-background-thumbnail-webdav.js`：前台 WebDAV GET，后台持续请求图片缩略图并触发 thumbnail task。
-- `mixed-background-storage-migration-upload.js`：前台 direct upload，后台启动 storage policy migration。这个脚本必须显式设置 `ASTER_BENCH_STORAGE_MIGRATION_SOURCE_POLICY_ID` 和 `ASTER_BENCH_STORAGE_MIGRATION_TARGET_POLICY_ID`。
+- `mixed-background-storage-migration-upload.js`：前台执行 session upload，后台启动 storage policy migration。这个脚本必须显式设置 `ASTER_BENCH_STORAGE_MIGRATION_SOURCE_POLICY_ID` 和 `ASTER_BENCH_STORAGE_MIGRATION_TARGET_POLICY_ID`。
 - `mixed-background-rest-webdav.js`：前台 REST 下载、REST 上传、WebDAV GET 混跑，后台同时派发归档和缩略图任务。
 
 这些脚本会采样 `/api/v1/admin/tasks` 的 `pending` / `processing` / `retry` 总数，所以 benchmark 用户必须有管理员权限。建议把 summary 保存到单独目录：
@@ -271,7 +271,7 @@ k6 run tests/performance/k6/soak-mixed.js
 | Folder list 10000 | `folder-list.js` | `11.93 ms` | `13.12 ms` | `490.28 req/s` |
 | Search | `search.js` | `13.24 ms` | `14.09 ms` | `445.35 req/s` |
 | Download 5 MiB | `download.js` | `5.37 ms` | `6.61 ms` | `733.75 req/s` |
-| Direct upload 1 MiB | `upload-direct.js` | `3.80 ms` | `9.30 ms` | `715.24 req/s` |
+| Stream upload 1 MiB | `upload-stream.js` | `3.80 ms` | `9.30 ms` | `715.24 req/s` |
 | Chunked upload 10 MiB | flow metric | `61.91 ms` | `74.00 ms` | 单次 flow 样本 |
 | Batch move 10 files | flow metric | `13.12 ms` | `21.91 ms` | 单次 flow 样本 |
 | WebDAV PUT 64 KiB | `webdav-rw.js` | `52.81 ms` | `65.15 ms` | 单次 flow 样本 |

@@ -13,7 +13,9 @@ use sea_orm::{ConnectionTrait, DbErr, IntoActiveModel, Set, SqlErr};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::operations;
-use crate::db::repository::{policy_group_repo, team_member_repo, team_repo, user_repo};
+use crate::db::repository::{
+    policy_group_repo, policy_placement_repo, team_member_repo, team_repo, user_repo,
+};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{user::account, user::profile};
@@ -435,10 +437,9 @@ pub(super) async fn ensure_assignable_policy_group(
         ));
     }
 
-    let items = policy_group_repo::find_group_items(state.writer_db(), group_id).await?;
-    if items.is_empty() {
+    if !policy_placement_repo::group_has_assignable_target(state.writer_db(), group_id).await? {
         return Err(AsterError::validation_error(
-            "cannot assign a storage policy group without policies",
+            "cannot assign a storage policy group without an assignable target",
         ));
     }
 
@@ -519,6 +520,13 @@ pub(super) async fn create_team_record(
         initial_member_user_id,
     )
     .await;
+    crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+        state,
+        "create",
+        "team_storage_placement_profile",
+        created_team.id,
+    )
+    .await;
     tracing::info!(
         team_id = created_team.id,
         created_by_user_id,
@@ -538,6 +546,7 @@ pub(super) async fn update_team_record(
     policy_group_id: Option<i64>,
     storage_quota: Option<i64>,
 ) -> Result<team::Model> {
+    let previous_policy_group_id = team.policy_group_id;
     let mut active = team.into_active_model();
     if let Some(name) = input.name {
         active.name = Set(validate_team_name(&name)?);
@@ -557,6 +566,20 @@ pub(super) async fn update_team_record(
     let updated = team_repo::update(state.writer_db(), active).await?;
     crate::services::workspace::storage::invalidate_team_access_cache_for_team(state, updated.id)
         .await;
+    if previous_policy_group_id != updated.policy_group_id {
+        if let Some(policy_group_id) = updated.policy_group_id {
+            state
+                .policy_snapshot()
+                .set_team_policy_group(updated.id, policy_group_id);
+        }
+        crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+            state,
+            "update",
+            "team_storage_placement_profile",
+            updated.id,
+        )
+        .await;
+    }
     tracing::debug!(
         team_id = updated.id,
         storage_quota = updated.storage_quota,

@@ -2,9 +2,7 @@
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::pagination::{AdminPolicySortBy, load_offset_page};
-use crate::db::repository::{
-    file_repo, policy_group_repo, policy_repo, system_initialization_repo,
-};
+use crate::db::repository::{file_repo, policy_repo, system_initialization_repo};
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::runtime::{
     RemoteProtocolRuntimeState, SharedRuntimeState, StorageConnectorRuntimeState, TaskRuntimeState,
@@ -245,11 +243,14 @@ pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool
         )));
     }
 
-    let group_ref_count =
-        policy_group_repo::count_group_items_by_policy(state.writer_db(), id).await?;
+    let group_ref_count = crate::db::repository::policy_placement_repo::count_targets_by_policy(
+        state.writer_db(),
+        id,
+    )
+    .await?;
     if group_ref_count > 0 {
         return Err(AsterError::validation_error(format!(
-            "cannot delete policy: {group_ref_count} policy group item(s) still reference it"
+            "cannot delete policy: {group_ref_count} placement target(s) still reference it"
         )));
     }
 
@@ -296,10 +297,11 @@ pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool
         )));
     }
 
-    let group_ref_count = policy_group_repo::count_group_items_by_policy(&txn, id).await?;
+    let group_ref_count =
+        crate::db::repository::policy_placement_repo::count_targets_by_policy(&txn, id).await?;
     if group_ref_count > 0 {
         return Err(AsterError::validation_error(format!(
-            "cannot delete policy: {group_ref_count} policy group item(s) still reference it"
+            "cannot delete policy: {group_ref_count} placement target(s) still reference it"
         )));
     }
 

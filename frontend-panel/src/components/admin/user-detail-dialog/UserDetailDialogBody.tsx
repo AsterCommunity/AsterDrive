@@ -21,7 +21,11 @@ import type {
 	UserRole,
 	UserStatus,
 } from "@/types/api";
-import { buildPolicyGroupOptions, type UserPasswordErrors } from "./types";
+import {
+	buildPolicyGroupOptions,
+	policyGroupRuleCount,
+	type UserPasswordErrors,
+} from "./types";
 import { UserDetailSidebar } from "./UserDetailSidebar";
 import { UserPolicyGroupSection } from "./UserPolicyGroupSection";
 import { UserProfileSection } from "./UserProfileSection";
@@ -433,7 +437,7 @@ export function UserDetailDialogBody({
 		user.policy_group_id != null &&
 		(currentAssignedPolicyGroup === null ||
 			!currentAssignedPolicyGroup.is_enabled ||
-			currentAssignedPolicyGroup.items.length === 0);
+			policyGroupRuleCount(currentAssignedPolicyGroup) === 0);
 	const statusOptions = [
 		{ label: t("core:active"), value: "active" },
 		{ label: t("core:disabled_status"), value: "disabled" },

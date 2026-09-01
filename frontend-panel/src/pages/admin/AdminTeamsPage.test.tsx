@@ -288,17 +288,34 @@ describe("AdminTeamsPage", () => {
 				id: 5,
 				is_default: true,
 				is_enabled: true,
-				items: [
+				rules: [
 					{
 						id: 1,
-						max_file_size: 0,
-						min_file_size: 0,
-						policy: {
-							id: 7,
-							name: "Default",
-						},
-						policy_id: 7,
+						name: "Default rule",
+						description: "",
 						priority: 1,
+						is_enabled: true,
+						matcher: {
+							min_file_size: 0,
+							max_file_size: 0,
+							extensions: [],
+							compound_extensions: [],
+							extensionless: null,
+							categories: [],
+						},
+						selection_mode: "first_available",
+						unavailable_behavior: "next_rule",
+						targets: [
+							{
+								id: 7,
+								policy_id: 7,
+								weight: 100,
+								is_enabled: true,
+								accepting_new_writes: true,
+								stable_order: 1,
+								policy: { id: 7, name: "Default" },
+							},
+						],
 					},
 				],
 				name: "Primary",

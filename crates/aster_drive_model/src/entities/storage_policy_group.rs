@@ -19,6 +19,13 @@ pub struct Model {
     pub description: String,
     pub is_enabled: bool,
     pub is_default: bool,
+    /// Versioned typed admission payload. Legacy groups keep an empty/default
+    /// payload until the placement migration materializes their rules.
+    pub admission_config: String,
+    /// Serialized UploadExecutionPreference; parsed at snapshot reload.
+    pub upload_execution_preference: String,
+    /// Monotonic topology revision persisted with every profile mutation.
+    pub routing_revision: i64,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
@@ -29,6 +36,8 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(has_many = "super::storage_policy_group_item::Entity")]
     StoragePolicyGroupItems,
+    #[sea_orm(has_many = "super::storage_policy_group_rule::Entity")]
+    StoragePolicyGroupRules,
     #[sea_orm(has_many = "super::user::Entity")]
     Users,
 }
@@ -36,6 +45,12 @@ pub enum Relation {
 impl Related<super::storage_policy_group_item::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::StoragePolicyGroupItems.def()
+    }
+}
+
+impl Related<super::storage_policy_group_rule::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::StoragePolicyGroupRules.def()
     }
 }
 

@@ -104,28 +104,16 @@ macro_rules! admin_create_user_with_credentials {
 }
 
 macro_rules! team_upload_request {
-    ($team_id:expr, $token:expr, $filename:expr, $content:expr $(,)?) => {{
-        let boundary = "----TeamStorageEventBoundary";
-        let payload = format!(
-            "------TeamStorageEventBoundary\r\n\
-             Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n\
-             Content-Type: text/plain\r\n\r\n\
-             {content}\r\n\
-             ------TeamStorageEventBoundary--\r\n",
-            filename = $filename,
-            content = $content,
-        );
-
-        test::TestRequest::post()
-            .uri(&format!("/api/v1/teams/{}/files/upload", $team_id))
-            .insert_header(("Cookie", common::access_cookie_header(&$token)))
-            .insert_header(common::csrf_header_for(&$token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request()
+    ($app:expr, $team_id:expr, $token:expr, $filename:expr, $content:expr $(,)?) => {{
+        common::upload_via_server_session(
+            &$app,
+            &$token,
+            &format!("/api/v1/teams/{}/files", $team_id),
+            $filename,
+            "text/plain",
+            ($content).as_bytes(),
+        )
+        .await
     }};
 }
 
@@ -3795,9 +3783,9 @@ async fn test_storage_events_stream_receives_team_file_change_frames_for_member(
     let (_req, resp) = resp.into_parts();
     let mut body = resp.into_body();
 
-    let req = team_upload_request!(team_id, &owner_token, "team-event.txt", "team event");
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    let (status, _) =
+        team_upload_request!(app, team_id, &owner_token, "team-event.txt", "team event");
+    assert_eq!(status, 201);
 
     let event = read_next_sse_json(&mut body).await;
     assert_eq!(event["kind"], "file.created");
@@ -3848,9 +3836,9 @@ async fn test_storage_events_stream_hides_team_frames_from_non_members() {
     let (_req, resp) = resp.into_parts();
     let mut body = resp.into_body();
 
-    let req = team_upload_request!(team_id, &owner_token, "hidden.txt", "hidden event");
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    let (status, _) =
+        team_upload_request!(app, team_id, &owner_token, "hidden.txt", "hidden event");
+    assert_eq!(status, 201);
 
     let hidden_event = read_next_sse_json_with_timeout(&mut body, Duration::from_millis(500)).await;
     assert!(
@@ -4029,14 +4017,14 @@ async fn test_storage_events_stream_refreshes_team_visibility_after_member_remov
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let req = team_upload_request!(
+    let (status, _) = team_upload_request!(
+        app,
         team_id,
         &owner_token,
         "removed-member-hidden.txt",
         "team event"
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    assert_eq!(status, 201);
 
     let hidden_event = read_next_sse_json_with_timeout(&mut body, Duration::from_millis(500)).await;
     assert!(

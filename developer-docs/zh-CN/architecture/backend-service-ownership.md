@@ -120,7 +120,7 @@ repo 不应该知道：
 - HTTP、WebDAV、WOPI 或 internal storage 协议
 - storage driver 类型如何构造
 - remote storage target 应该显示哪些字段
-- 上传模式如何协商
+- 上传 transport 如何协商
 - 用户界面如何展示 diagnostic
 - policy target 应该由哪个页面创建
 
@@ -234,25 +234,26 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 
 当前职责：
 
-- 上传入口 facade：direct multipart body、init、chunk、complete、cancel、progress、recoverable sessions、presign parts
+- 统一 upload session facade：init、stream body ingest、chunk ingest、complete、cancel、progress、recoverable sessions、presign parts
 - 把个人空间和团队空间请求映射到 `WorkspaceStorageScope`
-- 根据策略和 driver capability 协商上传模式：direct、chunked、presigned single、presigned multipart、relay multipart、remote presigned
-- 在 `complete/*` 下选择 completion plan，并把临时上传状态转为正式文件
-- 处理上传级 metrics 和 route 级 audit wrapper
+- 按 `plan -> session -> ingest -> complete / cleanup` 组织生命周期：plan 固化 filename、MIME、placement、policy 和 connector-owned transport；session 管持久状态；ingest 接收字节；complete 发布非 stream transport；cleanup 负责取消和过期清理
+- 对客户端只暴露 `stream`、`chunked`、`presigned`、`presigned_multipart`、`provider_resumable`，不泄漏 connector 内部 relay strategy
+- stream body 通过 `workspace::storage` 原子发布，在同一数据库事务内创建 file/blob、更新 quota 并绑定 completed session；chunked、presigned、multipart 和 provider-resumable 通过 `complete/*` 发布
+- 处理上传级 metrics 和 route 级 audit context，不把文件或存储一致性搬回 route
 
 应该保留：
 
 - 上传生命周期 use case 编排
 - upload session 状态流转
-- completion plan 选择
-- upload mode 的对外响应模型
+- 需要显式 complete 请求的 transport 的 completion plan 选择
+- upload transport 的对外响应模型
 - cancel / cleanup / recoverable session 的统一入口
 
 应该下沉或继续收口：
 
-- finalization contract：trusted size、actual size、hash、blob、file version、quota charge、cleanup 必须形成可审查的统一契约
-- 不同 completion path 对 `workspace::storage` 的调用差异，后续应尽量收敛到同一 finalization shape
-- remote / object multipart 细节应留在 `init/remote.rs`、`complete/object_multipart.rs` 等子模块，不回流到 facade
+- finalization contract：trusted size、actual size、hash、blob、file version、quota charge、session binding、cleanup 必须形成可审查的统一契约
+- stream 和显式 complete 路径应继续使用 verified input，并保持事务一致的 `workspace::storage` 发布边界
+- connector 专用的 plan、ingest 和 completion 细节应留在聚焦的 `plan/*`、`ingest/*`、`complete/*` 子模块，不回流到 facade
 
 必须显式的副作用：
 
@@ -268,14 +269,15 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 当前职责：
 
 - 统一工作空间文件链路 facade
-- 重新导出 scope helper、storage core、multipart/store/blob upload 能力
-- 处理 REST direct upload、WebDAV flush、预上传 blob、multipart/staged/streaming direct 等入口
-- 为文件创建、内容写入、临时文件持久化提供统一入口
+- 重新导出 scope helper、storage core、store/blob upload 能力和 session-bound stream ingest
+- 处理 local / connector stream ingest、WebDAV flush、预上传 blob、临时文件持久化及其他 scope-aware 文件写入
+- 持有数据库发布边界：创建或更新 blob/file record、落账 quota，并按需在同一事务内完成绑定的 upload session
+- validation 或数据库发布失败时补偿清理已经发生的存储对象副作用
 
 应该保留：
 
 - `WorkspaceStorageScope` 入口和 scope-aware 文件写入流程
-- 不同上传入口到统一 storage core 的编排
+- stream、临时文件、预上传对象、WebDAV 和内部文件写入入口到统一 storage core 的编排
 - storage operation cancellation / cleanup 的边界
 - 对 route、WebDAV、file service 暴露稳定 facade
 

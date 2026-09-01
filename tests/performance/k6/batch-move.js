@@ -14,7 +14,7 @@ import {
 	login,
 	maybeRefreshSession,
 	uniqueName,
-	uploadDirect,
+	uploadViaSession,
 } from "./lib/client.js";
 import { createSummary } from "./lib/summary.js";
 
@@ -56,7 +56,7 @@ export default function (data) {
 	).body.data;
 	const fileIds = [];
 	for (let index = 0; index < fileCount; index += 1) {
-		const { body } = uploadDirect(state.session, {
+		const { body } = uploadViaSession(state.session, {
 			filename: uniqueName(`batch-file-${index}`, "txt"),
 			content: `batch-${index}`,
 			folderId: sourceFolder.id,

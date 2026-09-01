@@ -152,12 +152,13 @@ fn enforce_http_conditionals(
     headers: &actix_web::http::header::HeaderMap,
     method: DavMethod,
     metadata: &dyn DavMetaData,
-) -> Result<(), HttpResponse> {
+) -> Result<Option<DavResponse>, aster_forge_webdav::DavConditionalPlanError> {
     let last_modified = metadata.modified().ok();
     let etag = metadata.etag();
-    let plan = aster_forge_webdav::actix::plan_http_conditionals(
-        headers,
+    let headers = aster_forge_webdav::actix::convert_header_map(headers)?;
+    let plan = aster_forge_webdav::plan_http_conditionals(
         method,
+        &headers,
         DavConditionalResource {
             exists: true,
             etag: etag.as_deref(),
@@ -165,7 +166,7 @@ fn enforce_http_conditionals(
         },
     )?;
     let status = match plan.outcome {
-        DavConditionalOutcome::Proceed => return Ok(()),
+        DavConditionalOutcome::Proceed => return Ok(None),
         DavConditionalOutcome::NotModified => http::StatusCode::NOT_MODIFIED,
         DavConditionalOutcome::PreconditionFailed => http::StatusCode::PRECONDITION_FAILED,
     };
@@ -175,7 +176,7 @@ fn enforce_http_conditionals(
         http::HeaderValue::from_static("no-store"),
     );
     plan.apply_response_headers(status, &mut response.headers);
-    Err(aster_forge_webdav::actix::into_response(response))
+    Ok(Some(response))
 }
 
 pub(crate) async fn handle_mkcol(
@@ -190,8 +191,8 @@ pub(crate) async fn handle_mkcol(
     if let Err(error) = validate_collection_create_target(&relative) {
         return aster_forge_webdav::actix::into_response(mutation_plan_error_response(error));
     }
-    if let Err(resp) = ensure_system_file_name_allowed(system_file_policy, &relative) {
-        return resp;
+    if let Err(error) = ensure_system_file_name_allowed(system_file_policy, &relative) {
+        return error.into_response();
     }
 
     if let Err(response) = aster_forge_webdav::enforce_parent_collection(dav_fs, &path).await {
@@ -281,8 +282,14 @@ pub(crate) async fn handle_delete(
     if let Err(error) = validate_delete_target(resource_kind, depth) {
         return aster_forge_webdav::actix::into_response(mutation_plan_error_response(error));
     }
-    if let Err(resp) = enforce_http_conditionals(req.headers(), DavMethod::Delete, &meta) {
-        return resp;
+    match enforce_http_conditionals(req.headers(), DavMethod::Delete, &meta) {
+        Ok(None) => {}
+        Ok(Some(response)) => return aster_forge_webdav::actix::into_response(response),
+        Err(error) => {
+            return aster_forge_webdav::actix::into_response(
+                aster_forge_webdav::conditional_plan_error_response(&error),
+            );
+        }
     }
     let request_scheme = request_head.origin.scheme.as_str();
     let request_host = request_head.origin.host.as_str();
@@ -384,8 +391,8 @@ pub(crate) async fn handle_copy_move(
     };
     let destination_relative = destination.relative.clone();
     let destination = destination.path.clone();
-    if let Err(resp) = ensure_system_file_name_allowed(system_file_policy, &destination_relative) {
-        return resp;
+    if let Err(error) = ensure_system_file_name_allowed(system_file_policy, &destination_relative) {
+        return error.into_response();
     }
     if let Err(response) = aster_forge_webdav::enforce_parent_collection(dav_fs, &destination).await
     {
@@ -406,10 +413,14 @@ pub(crate) async fn handle_copy_move(
             Err(err) => return fs_error_response(err),
         }
     };
-    if let Err(resp) =
-        enforce_http_conditionals(req.headers(), request_head.method, source_meta.as_ref())
-    {
-        return resp;
+    match enforce_http_conditionals(req.headers(), request_head.method, source_meta.as_ref()) {
+        Ok(None) => {}
+        Ok(Some(response)) => return aster_forge_webdav::actix::into_response(response),
+        Err(error) => {
+            return aster_forge_webdav::actix::into_response(
+                aster_forge_webdav::conditional_plan_error_response(&error),
+            );
+        }
     }
     if let Err(resp) = aster_forge_webdav::actix::enforce_if_header_with_backends(
         request_head.if_header.as_ref(),

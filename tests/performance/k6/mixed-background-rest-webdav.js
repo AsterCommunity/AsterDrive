@@ -21,7 +21,7 @@ import {
 	maybeRefreshSession,
 	resolveRootFolderId,
 	uniqueName,
-	uploadDirect,
+	uploadViaSession,
 	webdavRequest,
 } from "./lib/client.js";
 import { createSummary } from "./lib/summary.js";
@@ -193,7 +193,7 @@ export function foregroundMixed(data) {
 		});
 		foregroundOperations.add(1, { operation: "rest_download" });
 	} else if (op === 1) {
-		uploadDirect(foregroundState.session, {
+		uploadViaSession(foregroundState.session, {
 			filename: uniqueName("mixed-bg-upload", "bin"),
 			content: uploadPayload,
 			mimeType: "application/octet-stream",

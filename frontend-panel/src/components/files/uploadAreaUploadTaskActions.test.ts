@@ -4,24 +4,30 @@ import type { UploadTask } from "./uploadAreaManagerShared";
 
 const {
 	cancelUpload,
+	completeUpload,
 	createEmptyFile,
 	createFileService,
 	initUpload,
+	getProgress,
 	loadSessions,
 	removePendingEmptyFile,
 	removeSession,
+	saveSession,
 } = vi.hoisted(() => ({
 	cancelUpload: vi.fn(),
+	completeUpload: vi.fn(),
 	createEmptyFile: vi.fn(),
 	createFileService: vi.fn(),
 	initUpload: vi.fn(),
+	getProgress: vi.fn(async () => ({ status: "uploading" })),
 	loadSessions: vi.fn(() => []),
 	removePendingEmptyFile: vi.fn(),
 	removeSession: vi.fn(),
+	saveSession: vi.fn(),
 }));
 
 vi.mock("@/services/uploadService", () => ({
-	uploadService: { cancelUpload, initUpload },
+	uploadService: { cancelUpload, completeUpload, initUpload, getProgress },
 }));
 
 vi.mock("@/services/fileService", () => ({
@@ -35,7 +41,7 @@ vi.mock("@/lib/uploadPersistence", () => ({
 	loadSessions,
 	removePendingEmptyFile,
 	removeSession,
-	saveSession: vi.fn(),
+	saveSession,
 }));
 
 import {
@@ -59,7 +65,7 @@ function task(
 		baseFolderId: null,
 		baseFolderName: "Root",
 		totalBytes: 1,
-		mode: uploadId ? "chunked" : "direct",
+		mode: uploadId ? "chunked" : "stream",
 		status,
 		progress: status === "completed" ? 100 : 0,
 		error: status === "failed" ? "failed" : null,
@@ -72,7 +78,7 @@ function createZeroByteTaskActionsFixture(taskId: string) {
 	tasks[0].file = new File([], `${taskId}.txt`);
 	tasks[0].mode = null;
 	const tasksRef = { current: tasks };
-	const directAbortRef = { current: new Map<string, AbortController>() };
+	const metadataAbortRef = { current: new Map<string, AbortController>() };
 	const markFolderForRefresh = vi.fn();
 	const markTaskFailed = vi.fn();
 	const patchTask = vi.fn(
@@ -90,13 +96,13 @@ function createZeroByteTaskActionsFixture(taskId: string) {
 	const context = {
 		abortFlagsRef: { current: new Map<string, boolean>() },
 		cancelMultipartSession: vi.fn(),
-		directAbortRef,
+		metadataAbortRef,
 		markFolderForRefresh,
 		markTaskFailed,
 		patchTask,
 		resumeCompletionTask: vi.fn(),
 		runChunkedUpload: vi.fn(),
-		runDirectUpload: vi.fn(),
+		runStreamUpload: vi.fn(),
 		runMultipartUpload: vi.fn(),
 		runPresignedUpload: vi.fn(),
 		runProviderResumableUpload: vi.fn(),
@@ -113,7 +119,7 @@ function createZeroByteTaskActionsFixture(taskId: string) {
 
 	return {
 		context,
-		directAbortRef,
+		metadataAbortRef,
 		markFolderForRefresh,
 		markTaskFailed,
 		tasksRef,
@@ -121,6 +127,99 @@ function createZeroByteTaskActionsFixture(taskId: string) {
 }
 
 describe("clearTerminalUploadTasks", () => {
+	it("keeps an already committed stream result during retry reconciliation", async () => {
+		const taskItem = task("stream", "failed", "committed-stream");
+		taskItem.file = new File(["body"], "stream.bin");
+		taskItem.mode = "stream";
+		const tasksRef = { current: [taskItem] };
+		const taskOperationLocks = new Map();
+		const patchTask = vi.fn();
+		const markFolderForRefresh = vi.fn();
+		completeUpload.mockReset();
+		completeUpload.mockResolvedValue({ id: 77, size: 4 });
+		cancelUpload.mockReset();
+		cancelUpload.mockResolvedValue(undefined);
+
+		await retryUploadTask("stream", {
+			cancelMultipartSession: vi.fn(),
+			markFolderForRefresh,
+			patchTask,
+			resumeCompletionTask: vi.fn(),
+			setUploadPanelOpen: vi.fn(),
+			taskOperationLocks,
+			tasksRef,
+			workspace: { kind: "personal" },
+		} as unknown as UploadTaskActionsContext);
+
+		expect(completeUpload).toHaveBeenCalledWith("committed-stream");
+		expect(cancelUpload).not.toHaveBeenCalled();
+		expect(markFolderForRefresh).toHaveBeenCalledWith(taskItem);
+		expect(patchTask).toHaveBeenCalledWith(
+			"stream",
+			expect.objectContaining({ status: "completed", uploadedBytes: 4 }),
+		);
+	});
+
+	it("waits for an assembling stream result before retry cleanup", async () => {
+		const taskItem = task("stream", "failed", "assembling-stream");
+		taskItem.file = new File(["body"], "stream.bin");
+		taskItem.mode = "stream";
+		const tasksRef = { current: [taskItem] };
+		const taskOperationLocks = new Map();
+		const patchTask = vi.fn();
+		const markFolderForRefresh = vi.fn();
+		completeUpload.mockReset();
+		completeUpload
+			.mockRejectedValueOnce({ code: "upload.assembling" })
+			.mockResolvedValueOnce({ id: 88, size: 4 });
+		cancelUpload.mockReset();
+
+		await retryUploadTask("stream", {
+			cancelMultipartSession: vi.fn(),
+			markFolderForRefresh,
+			patchTask,
+			resumeCompletionTask: vi.fn(),
+			setUploadPanelOpen: vi.fn(),
+			taskOperationLocks,
+			tasksRef,
+			workspace: { kind: "personal" },
+		} as unknown as UploadTaskActionsContext);
+
+		expect(completeUpload).toHaveBeenCalledTimes(2);
+		expect(cancelUpload).not.toHaveBeenCalled();
+		expect(markFolderForRefresh).toHaveBeenCalledWith(taskItem);
+	});
+
+	it("does not cancel a stream session when authoritative reconciliation is unavailable", async () => {
+		const taskItem = task("stream", "failed", "unknown-stream");
+		taskItem.file = new File(["body"], "stream.bin");
+		taskItem.mode = "stream";
+		const tasksRef = { current: [taskItem] };
+		const patchTask = vi.fn();
+		completeUpload.mockReset();
+		completeUpload.mockRejectedValue(new Error("network unavailable"));
+		cancelUpload.mockReset();
+		const markTaskFailed = vi.fn();
+
+		await cancelUploadTask("stream", {
+			abortFlagsRef: { current: new Map() },
+			cancelMultipartSession: vi.fn(),
+			markFolderForRefresh: vi.fn(),
+			metadataAbortRef: { current: new Map() },
+			markTaskFailed,
+			patchTask,
+			setTasks: vi.fn(),
+			setUploadPanelOpen: vi.fn(),
+			taskOperationLocks: new Map(),
+			tasksRef,
+			uploadRequestRef: { current: new Map() },
+			workspace: { kind: "personal" },
+		} as unknown as UploadTaskActionsContext);
+
+		expect(cancelUpload).not.toHaveBeenCalled();
+		expect(markTaskFailed).toHaveBeenCalledWith("stream", expect.any(Error));
+	});
+
 	it("clears every terminal state, preserves active work, and tolerates cleanup errors", async () => {
 		cancelUpload.mockReset();
 		cancelUpload.mockRejectedValue(new Error("cleanup unavailable"));
@@ -320,19 +419,21 @@ describe("clearTerminalUploadTasks", () => {
 		expect(removeSession).not.toHaveBeenCalled();
 	});
 
-	it("restarts direct sessions after best-effort server cleanup", async () => {
-		const failedTask = task("direct", "failed", "direct-session");
+	it("restarts stream sessions after best-effort server cleanup", async () => {
+		const failedTask = task("stream", "failed", "direct-session");
 		failedTask.file = new File(["retry"], "direct.bin");
-		failedTask.mode = "direct";
+		failedTask.mode = "stream";
 		const tasksRef = { current: [failedTask] };
 		const taskOperationLocks = new Map();
 		const patchTask = vi.fn();
 		const setUploadPanelOpen = vi.fn();
+		completeUpload.mockReset();
+		completeUpload.mockRejectedValue({ code: "upload.incomplete_chunks" });
 		cancelUpload.mockReset();
 		cancelUpload.mockRejectedValue(new Error("cleanup unavailable"));
 		removeSession.mockReset();
 
-		await retryUploadTask("direct", {
+		await retryUploadTask("stream", {
 			cancelMultipartSession: vi.fn(),
 			patchTask,
 			resumeCompletionTask: vi.fn(),
@@ -345,7 +446,7 @@ describe("clearTerminalUploadTasks", () => {
 		expect(cancelUpload).toHaveBeenCalledWith("direct-session");
 		expect(removeSession).toHaveBeenCalledWith("direct-session");
 		expect(patchTask).toHaveBeenCalledWith(
-			"direct",
+			"stream",
 			expect.objectContaining({
 				status: "queued",
 				uploadId: null,
@@ -426,6 +527,92 @@ describe("clearTerminalUploadTasks", () => {
 });
 
 describe("runQueuedUploadTask", () => {
+	it("dispatches each initialized transport and persists resumable sessions", async () => {
+		for (const mode of [
+			"chunked",
+			"presigned_multipart",
+			"provider_resumable",
+			"presigned",
+			"stream",
+		] as const) {
+			initUpload.mockReset();
+			initUpload.mockResolvedValue({
+				mode,
+				upload_id: `${mode}-session`,
+				chunk_size: 4,
+				total_chunks: 2,
+				presigned_request:
+					mode === "presigned"
+						? { url: "https://storage.example/upload" }
+						: undefined,
+			});
+			saveSession.mockReset();
+			const runners = {
+				runChunkedUpload: vi.fn(),
+				runMultipartUpload: vi.fn(),
+				runProviderResumableUpload: vi.fn(),
+				runPresignedUpload: vi.fn(),
+				runStreamUpload: vi.fn(),
+			};
+			const queued = task(`new-${mode}`, "queued", null);
+			queued.file = new File(["body"], `${mode}.bin`);
+			queued.mode = null;
+			await runQueuedUploadTask(`new-${mode}`, {
+				markTaskFailed: vi.fn(),
+				patchTask: vi.fn(),
+				resumeCompletionTask: vi.fn(),
+				tasksRef: { current: [queued] },
+				workspace: { kind: "personal" },
+				...runners,
+			} as unknown as UploadTaskActionsContext);
+			if (mode === "chunked")
+				expect(runners.runChunkedUpload).toHaveBeenCalled();
+			if (mode === "presigned_multipart")
+				expect(runners.runMultipartUpload).toHaveBeenCalled();
+			if (mode === "provider_resumable")
+				expect(runners.runProviderResumableUpload).toHaveBeenCalled();
+			if (mode === "presigned")
+				expect(runners.runPresignedUpload).toHaveBeenCalled();
+			if (mode === "stream") expect(runners.runStreamUpload).toHaveBeenCalled();
+			if (mode !== "presigned")
+				expect(saveSession).toHaveBeenCalledWith(
+					expect.objectContaining({ uploadId: `${mode}-session`, mode }),
+				);
+		}
+	});
+
+	it("restarts stale persisted sessions before initializing a new upload", async () => {
+		const stale = task("stale", "queued", "stale-session");
+		stale.file = new File(["body"], "stale.bin");
+		stale.mode = "chunked";
+		getProgress.mockReset();
+		getProgress.mockResolvedValue({ status: "expired" });
+		initUpload.mockReset();
+		initUpload.mockResolvedValue({
+			mode: "stream",
+			upload_id: "fresh-session",
+		});
+		const runStreamUpload = vi.fn();
+		const patchTask = vi.fn();
+		await runQueuedUploadTask("stale", {
+			markTaskFailed: vi.fn(),
+			patchTask,
+			runChunkedUpload: vi.fn(),
+			runMultipartUpload: vi.fn(),
+			runProviderResumableUpload: vi.fn(),
+			runPresignedUpload: vi.fn(),
+			runStreamUpload,
+			tasksRef: { current: [stale] },
+			workspace: { kind: "personal" },
+		} as unknown as UploadTaskActionsContext);
+		expect(removeSession).toHaveBeenCalledWith("stale-session");
+		expect(initUpload).toHaveBeenCalled();
+		expect(runStreamUpload).toHaveBeenCalledWith(
+			expect.objectContaining({ uploadId: "fresh-session" }),
+			expect.objectContaining({ mode: "stream" }),
+		);
+	});
+
 	it("creates zero-byte files without initializing upload data planes", async () => {
 		createEmptyFile.mockReset();
 		createEmptyFile.mockResolvedValue({ id: 42 });
@@ -439,19 +626,19 @@ describe("runQueuedUploadTask", () => {
 		const patchTask = vi.fn();
 		const markFolderForRefresh = vi.fn();
 		const runChunkedUpload = vi.fn();
-		const runDirectUpload = vi.fn();
+		const runStreamUpload = vi.fn();
 		const runMultipartUpload = vi.fn();
 		const runPresignedUpload = vi.fn();
 		const runProviderResumableUpload = vi.fn();
 		const resumeCompletionTask = vi.fn();
 
 		await runQueuedUploadTask("empty", {
-			directAbortRef: { current: new Map() },
+			metadataAbortRef: { current: new Map() },
 			markFolderForRefresh,
 			markTaskFailed: vi.fn(),
 			patchTask,
 			runChunkedUpload,
-			runDirectUpload,
+			runStreamUpload,
 			runMultipartUpload,
 			runPresignedUpload,
 			runProviderResumableUpload,
@@ -472,14 +659,14 @@ describe("runQueuedUploadTask", () => {
 		expect(createFileService).toHaveBeenCalledWith({ kind: "personal" });
 		expect(initUpload).not.toHaveBeenCalled();
 		expect(runChunkedUpload).not.toHaveBeenCalled();
-		expect(runDirectUpload).not.toHaveBeenCalled();
+		expect(runStreamUpload).not.toHaveBeenCalled();
 		expect(runMultipartUpload).not.toHaveBeenCalled();
 		expect(runPresignedUpload).not.toHaveBeenCalled();
 		expect(runProviderResumableUpload).not.toHaveBeenCalled();
 		expect(resumeCompletionTask).not.toHaveBeenCalled();
 		expect(patchTask).toHaveBeenLastCalledWith(
 			"empty",
-			expect.objectContaining({ mode: "direct", status: "completed" }),
+			expect.objectContaining({ mode: "stream", status: "completed" }),
 		);
 		expect(markFolderForRefresh).toHaveBeenCalledWith(queuedTask);
 		expect(removePendingEmptyFile).toHaveBeenCalledWith("empty");
@@ -496,12 +683,12 @@ describe("runQueuedUploadTask", () => {
 		restored.emptyFileIdempotencyKey = "persisted-key";
 
 		await runQueuedUploadTask("restored-empty", {
-			directAbortRef: { current: new Map() },
+			metadataAbortRef: { current: new Map() },
 			markFolderForRefresh: vi.fn(),
 			markTaskFailed: vi.fn(),
 			patchTask: vi.fn(),
 			runChunkedUpload: vi.fn(),
-			runDirectUpload: vi.fn(),
+			runStreamUpload: vi.fn(),
 			runMultipartUpload: vi.fn(),
 			runPresignedUpload: vi.fn(),
 			runProviderResumableUpload: vi.fn(),
@@ -550,7 +737,7 @@ describe("runQueuedUploadTask", () => {
 		expect(fixture.tasksRef.current[0]?.status).toBe("cancelled");
 		expect(fixture.markTaskFailed).not.toHaveBeenCalled();
 		expect(fixture.markFolderForRefresh).not.toHaveBeenCalled();
-		expect(fixture.directAbortRef.current).toEqual(new Map());
+		expect(fixture.metadataAbortRef.current).toEqual(new Map());
 	});
 
 	it("reports zero-byte creation failures and releases the abort controller", async () => {
@@ -563,7 +750,7 @@ describe("runQueuedUploadTask", () => {
 
 		expect(fixture.markTaskFailed).toHaveBeenCalledWith("failed-empty", error);
 		expect(fixture.markFolderForRefresh).not.toHaveBeenCalled();
-		expect(fixture.directAbortRef.current).toEqual(new Map());
+		expect(fixture.metadataAbortRef.current).toEqual(new Map());
 	});
 
 	it("passes the original initialization error to task failure handling", async () => {
@@ -579,7 +766,7 @@ describe("runQueuedUploadTask", () => {
 			markTaskFailed,
 			patchTask: vi.fn(),
 			runChunkedUpload: vi.fn(),
-			runDirectUpload: vi.fn(),
+			runStreamUpload: vi.fn(),
 			runMultipartUpload: vi.fn(),
 			runPresignedUpload: vi.fn(),
 			runProviderResumableUpload: vi.fn(),

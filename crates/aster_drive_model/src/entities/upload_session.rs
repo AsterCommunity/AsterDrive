@@ -20,12 +20,20 @@ pub struct Model {
     /// Used only for recoverable-session visibility; auth still uses user/team scope.
     pub frontend_client_id: Option<String>,
     pub filename: String,
+    /// MIME type resolved and frozen during upload initialization.
+    pub mime_type: String,
     pub total_size: i64,
     pub chunk_size: i64,
     pub total_chunks: i32,
     pub received_count: i32,
     pub folder_id: Option<i64>,
     pub policy_id: i64,
+    /// Placement profile/rule revision selected during upload initialization.
+    /// Nullable for sessions created before the placement migration.
+    pub placement_profile_id: Option<i64>,
+    pub placement_rule_id: Option<i64>,
+    pub placement_revision: Option<i64>,
+    pub placement_execution_preference: String,
     pub status: UploadSessionStatus,
     /// Explicit data-plane kind selected and persisted during upload initialization.
     pub session_kind: UploadSessionKind,

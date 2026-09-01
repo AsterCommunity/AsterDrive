@@ -22,8 +22,8 @@ pub use self::mutations::{
 };
 pub use self::upload::{
     ChunkPath, CompleteUploadReq, CompletedPartReq, FileQuery, InitUploadReq, PresignPartsReq,
-    UploadIdPath, cancel_upload, complete_upload, get_upload_progress, init_chunked_upload,
-    list_recoverable_upload_sessions, presign_parts, upload, upload_chunk,
+    UploadIdPath, cancel_upload, complete_upload, get_upload_progress, init_upload_session,
+    list_recoverable_upload_sessions, presign_parts, upload_chunk, upload_stream_body,
 };
 pub use self::versions::{delete_version, list_versions, restore_version};
 // DTO types that need explicit import (not re-exported from submodules)
@@ -40,8 +40,9 @@ pub(crate) use self::mutations::{
     team_set_lock, team_update_content,
 };
 pub(crate) use self::upload::{
-    team_cancel_upload, team_complete_upload, team_get_upload_progress, team_init_chunked_upload,
-    team_list_recoverable_upload_sessions, team_presign_parts, team_upload, team_upload_chunk,
+    team_cancel_upload, team_complete_upload, team_get_upload_progress, team_init_upload_session,
+    team_list_recoverable_upload_sessions, team_presign_parts, team_upload_chunk,
+    team_upload_stream_body,
 };
 pub(crate) use self::versions::{team_delete_version, team_list_versions, team_restore_version};
 
@@ -54,12 +55,14 @@ pub fn routes(
     web::scope("/files")
         .wrap(JwtAuth)
         .wrap(Condition::new(rl.enabled, Governor::new(&limiter)))
-        // Web app upload drop-zone fallback: direct browser-to-server upload.
-        .route("/upload", web::post().to(upload))
         // Web app "new file" action for empty text/document placeholders.
         .route("/new", web::post().to(create_empty))
         // Web app resumable upload bootstrap; placed before /{id} to avoid conflicts.
-        .route("/upload/init", web::post().to(init_chunked_upload))
+        .route("/upload/init", web::post().to(init_upload_session))
+        .route(
+            "/upload/{upload_id}/body",
+            web::put().to(upload_stream_body),
+        )
         // Web app upload recovery list, used after reload or tab restore.
         .route(
             "/upload/sessions",
@@ -136,9 +139,12 @@ pub fn routes(
 pub fn team_routes() -> actix_web::Scope {
     web::scope("/files")
         // Team workspace variants mirror personal file routes for team-scoped callers.
-        .route("/upload", web::post().to(team_upload))
         // Team resumable upload bootstrap.
-        .route("/upload/init", web::post().to(team_init_chunked_upload))
+        .route("/upload/init", web::post().to(team_init_upload_session))
+        .route(
+            "/upload/{upload_id}/body",
+            web::put().to(team_upload_stream_body),
+        )
         // Team upload recovery list.
         .route(
             "/upload/sessions",

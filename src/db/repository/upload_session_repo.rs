@@ -92,6 +92,42 @@ pub async fn delete<C: ConnectionTrait>(db: &C, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Delete a session only while it is still cancellable. Completed sessions are
+/// retained for response-loss reconciliation and result replay.
+pub async fn delete_if_cancellable<C: ConnectionTrait>(db: &C, id: &str) -> Result<bool> {
+    let result = UploadSession::delete_many()
+        .filter(upload_session::Column::Id.eq(id))
+        .filter(upload_session::Column::Status.is_in([
+            UploadSessionStatus::Uploading,
+            UploadSessionStatus::Presigned,
+            UploadSessionStatus::Failed,
+        ]))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected == 1)
+}
+
+pub async fn exists_by_folder_id<C: ConnectionTrait>(db: &C, folder_id: i64) -> Result<bool> {
+    let now = chrono::Utc::now();
+    Ok(UploadSession::find()
+        .select_only()
+        .column(upload_session::Column::Id)
+        .filter(upload_session::Column::FolderId.eq(folder_id))
+        .filter(upload_session::Column::ExpiresAt.gt(now))
+        .filter(upload_session::Column::Status.is_in([
+            UploadSessionStatus::Uploading,
+            UploadSessionStatus::Assembling,
+            UploadSessionStatus::Presigned,
+        ]))
+        .limit(1)
+        .into_tuple::<String>()
+        .one(db)
+        .await
+        .map_err(AsterError::from)?
+        .is_some())
+}
+
 pub async fn increment_received_count_if_uploading<C: ConnectionTrait>(
     db: &C,
     id: &str,
@@ -221,6 +257,37 @@ pub async fn try_fail_with_expiration<C: ConnectionTrait>(
     Ok(result.rows_affected > 0)
 }
 
+/// Atomically fail an assembling session only when its completion lease is stale.
+pub async fn try_fail_with_expiration_if_lease_stale<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+    lease_deadline: chrono::DateTime<chrono::Utc>,
+    expires_at: chrono::DateTime<chrono::Utc>,
+) -> Result<bool> {
+    use sea_orm::ActiveEnum;
+    let now = chrono::Utc::now();
+    let result = UploadSession::update_many()
+        .col_expr(
+            upload_session::Column::Status,
+            sea_orm::sea_query::Expr::value(UploadSessionStatus::Failed.to_value()),
+        )
+        .col_expr(
+            upload_session::Column::ExpiresAt,
+            sea_orm::sea_query::Expr::value(expires_at),
+        )
+        .col_expr(
+            upload_session::Column::UpdatedAt,
+            sea_orm::sea_query::Expr::value(now),
+        )
+        .filter(upload_session::Column::Id.eq(id))
+        .filter(upload_session::Column::Status.eq(UploadSessionStatus::Assembling))
+        .filter(upload_session::Column::UpdatedAt.lte(lease_deadline))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected > 0)
+}
+
 /// 原子状态转换：只有状态匹配且 session 尚未过期时才更新。
 pub async fn try_transition_status_before_expiry<C: ConnectionTrait>(
     db: &C,
@@ -248,6 +315,25 @@ pub async fn try_transition_status_before_expiry<C: ConnectionTrait>(
     Ok(result.rows_affected > 0)
 }
 
+/// Refresh the lease of an upload assembly while it is actively running.
+pub async fn touch_assembling<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<bool> {
+    let result = UploadSession::update_many()
+        .col_expr(
+            upload_session::Column::UpdatedAt,
+            sea_orm::sea_query::Expr::value(now),
+        )
+        .filter(upload_session::Column::Id.eq(id))
+        .filter(upload_session::Column::Status.eq(UploadSessionStatus::Assembling))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected == 1)
+}
+
 /// 查找所有过期且未完成的 session
 pub async fn find_expired<C: ConnectionTrait>(db: &C) -> Result<Vec<upload_session::Model>> {
     let now = chrono::Utc::now();
@@ -257,6 +343,7 @@ pub async fn find_expired<C: ConnectionTrait>(db: &C) -> Result<Vec<upload_sessi
             UploadSessionStatus::Uploading,
             UploadSessionStatus::Presigned,
             UploadSessionStatus::Failed,
+            UploadSessionStatus::Assembling,
         ]))
         .all(db)
         .await
@@ -423,12 +510,17 @@ mod tests {
             team_id: None,
             frontend_client_id: Some("frontend-1".to_string()),
             filename: format!("{id}.bin"),
+            mime_type: "application/octet-stream".to_string(),
             total_size: 10,
             chunk_size: 5,
             total_chunks: 2,
             received_count: 0,
             folder_id: None,
             policy_id: 1,
+            placement_profile_id: None,
+            placement_rule_id: None,
+            placement_revision: None,
+            placement_execution_preference: "automatic".to_string(),
             status,
             session_kind: UploadSessionKind::OffsetStaging,
             object_temp_key: None,
@@ -501,6 +593,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delete_if_cancellable_preserves_completed_sessions() {
+        let db = build_test_db().await;
+        let completed = session("completed", UploadSessionStatus::Completed);
+        completed
+            .clone()
+            .into_active_model()
+            .insert(&db)
+            .await
+            .unwrap();
+        let uploading = session("uploading", UploadSessionStatus::Uploading);
+        uploading
+            .clone()
+            .into_active_model()
+            .insert(&db)
+            .await
+            .unwrap();
+
+        assert!(!delete_if_cancellable(&db, "completed").await.unwrap());
+        assert!(delete_if_cancellable(&db, "uploading").await.unwrap());
+        assert!(find_by_id(&db, "completed").await.is_ok());
+        assert!(find_by_id(&db, "uploading").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn exists_by_folder_id_ignores_completed_sessions_but_keeps_active_ones() {
+        let db = build_test_db().await;
+        let mut active = session("folder-active", UploadSessionStatus::Uploading);
+        active.folder_id = Some(42);
+        active.into_active_model().insert(&db).await.unwrap();
+        assert!(exists_by_folder_id(&db, 42).await.unwrap());
+
+        let mut expired = session("folder-expired", UploadSessionStatus::Assembling);
+        expired.folder_id = Some(44);
+        expired.expires_at = Utc::now() - Duration::seconds(1);
+        expired.into_active_model().insert(&db).await.unwrap();
+        assert!(
+            !exists_by_folder_id(&db, 44).await.unwrap(),
+            "expired sessions must not prevent empty-directory compensation"
+        );
+
+        let mut completed = session("folder-completed", UploadSessionStatus::Completed);
+        completed.folder_id = Some(43);
+        completed.into_active_model().insert(&db).await.unwrap();
+        assert!(!exists_by_folder_id(&db, 43).await.unwrap());
+    }
+
+    #[tokio::test]
     async fn fail_with_expiration_does_not_overwrite_a_concurrent_state_change() {
         let db = build_test_db().await;
         let model = session("assembling", UploadSessionStatus::Assembling);
@@ -526,5 +665,99 @@ mod tests {
         let unchanged = find_by_id(&db, &model.id).await.unwrap();
         assert_eq!(unchanged.status, UploadSessionStatus::Assembling);
         assert_eq!(unchanged.expires_at, original_expiry);
+    }
+
+    #[tokio::test]
+    async fn fail_with_expiration_does_not_overwrite_completed_assembly() {
+        let db = build_test_db().await;
+        let model = session("assembly-race", UploadSessionStatus::Assembling);
+        model
+            .clone()
+            .into_active_model()
+            .insert(&db)
+            .await
+            .expect("assembling session should insert");
+        assert!(complete_if_assembling(&db, &model.id, 99).await.unwrap());
+
+        assert!(
+            !try_fail_with_expiration(
+                &db,
+                &model.id,
+                UploadSessionStatus::Assembling,
+                Utc::now() + Duration::seconds(15),
+            )
+            .await
+            .unwrap(),
+            "cancellation CAS must lose to completed finalization"
+        );
+        let completed = find_by_id(&db, &model.id).await.unwrap();
+        assert_eq!(completed.status, UploadSessionStatus::Completed);
+        assert_eq!(completed.file_id, Some(99));
+    }
+
+    #[tokio::test]
+    async fn stale_assembly_failure_requires_lease_timestamp_match() {
+        let db = build_test_db().await;
+        let mut model = session("lease-race", UploadSessionStatus::Assembling);
+        model.updated_at = Utc::now();
+        model.clone().into_active_model().insert(&db).await.unwrap();
+
+        let lease_deadline = model.updated_at - Duration::seconds(1);
+        assert!(touch_assembling(&db, &model.id, Utc::now()).await.unwrap());
+
+        assert!(
+            !try_fail_with_expiration_if_lease_stale(
+                &db,
+                &model.id,
+                lease_deadline,
+                Utc::now() + Duration::seconds(15),
+            )
+            .await
+            .unwrap()
+        );
+        assert_eq!(
+            find_by_id(&db, &model.id).await.unwrap().status,
+            UploadSessionStatus::Assembling
+        );
+    }
+
+    #[tokio::test]
+    async fn cancellation_cas_wins_before_completion_commit_and_blocks_late_finalize() {
+        let db = build_test_db().await;
+        let model = session("multipart-cancel-race", UploadSessionStatus::Assembling);
+        model.clone().into_active_model().insert(&db).await.unwrap();
+
+        let remote_started = std::sync::Arc::new(tokio::sync::Notify::new());
+        let remote_release = std::sync::Arc::new(tokio::sync::Notify::new());
+        let completion_db = db.clone();
+        let completion_id = model.id.clone();
+        let started = remote_started.clone();
+        let release = remote_release.clone();
+        let completion = tokio::spawn(async move {
+            started.notify_one();
+            release.notified().await;
+            complete_if_assembling(&completion_db, &completion_id, 123)
+                .await
+                .unwrap()
+        });
+
+        remote_started.notified().await;
+        assert!(
+            try_fail_with_expiration(
+                &db,
+                &model.id,
+                UploadSessionStatus::Assembling,
+                Utc::now() + Duration::seconds(60),
+            )
+            .await
+            .unwrap(),
+            "cancel should claim the assembling session before completion commit"
+        );
+        remote_release.notify_one();
+        assert!(!completion.await.unwrap());
+
+        let canceled = find_by_id(&db, &model.id).await.unwrap();
+        assert_eq!(canceled.status, UploadSessionStatus::Failed);
+        assert_eq!(canceled.file_id, None);
     }
 }

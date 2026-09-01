@@ -235,6 +235,7 @@ image = { version = "0.25", default-features = false, features = ["bmp", "dds", 
 governor = "0.10"
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 mime_guess = "2"
+mime = "0.3"
 moka = { version = "0.12.16", features = ["future"] }
 md-5 = "0.11.0"
 num_cpus = "1.17.0"
@@ -267,7 +268,7 @@ utoipa = { workspace = true, features = ["actix_extras"], optional = true }
 utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"], optional = true }
 urlencoding = "2"
 url = "2"
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "v7"] }
 validator = { workspace = true }
 webauthn-rs = { version = "0.6.1-dev", default-features = false, features = ["conditional-ui", "danger-allow-state-serialisation"] }
 webauthn-rs-proto = "0.6.1-dev"

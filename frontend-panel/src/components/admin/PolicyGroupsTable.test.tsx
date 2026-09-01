@@ -10,6 +10,8 @@ const mockState = vi.hoisted(() => ({
 	onPageSizeChange: vi.fn(),
 	onPreviousPage: vi.fn(),
 	onRequestDelete: vi.fn(),
+	onOpenSimulation: vi.fn(),
+	onSortChange: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -245,14 +247,34 @@ function createGroup(overrides: Record<string, unknown> = {}) {
 		id: 1,
 		is_default: false,
 		is_enabled: true,
-		items: [
+		rules: [
 			{
 				id: 11,
-				max_file_size: 0,
-				min_file_size: 0,
-				policy: { id: 7, name: "Alpha Policy" },
-				policy_id: 7,
+				name: "Rule 1",
+				description: "",
 				priority: 1,
+				is_enabled: true,
+				matcher: {
+					min_file_size: 0,
+					max_file_size: 0,
+					extensions: [],
+					compound_extensions: [],
+					extensionless: null,
+					categories: [],
+				},
+				selection_mode: "first_available",
+				unavailable_behavior: "next_rule",
+				targets: [
+					{
+						id: 21,
+						policy_id: 7,
+						weight: 100,
+						is_enabled: true,
+						accepting_new_writes: true,
+						stable_order: 1,
+						policy: { id: 7, name: "Alpha Policy", connector_id: "local" },
+					},
+				],
 			},
 		],
 		name: "Engineering",
@@ -280,9 +302,11 @@ function createProps(
 		onNextPage: mockState.onNextPage,
 		onOpenEdit: mockState.onOpenEdit,
 		onOpenMigration: mockState.onOpenMigration,
+		onOpenSimulation: mockState.onOpenSimulation,
 		onPageSizeChange: mockState.onPageSizeChange,
 		onPreviousPage: mockState.onPreviousPage,
 		onRequestDelete: mockState.onRequestDelete,
+		onSortChange: mockState.onSortChange,
 		...overrides,
 	};
 }
@@ -295,6 +319,8 @@ describe("PolicyGroupsTable", () => {
 		mockState.onPageSizeChange.mockReset();
 		mockState.onPreviousPage.mockReset();
 		mockState.onRequestDelete.mockReset();
+		mockState.onOpenSimulation.mockReset();
+		mockState.onSortChange.mockReset();
 	});
 
 	it("opens edit from rows and action buttons while keeping destructive actions scoped", () => {
@@ -303,14 +329,34 @@ describe("PolicyGroupsTable", () => {
 			description: "",
 			id: 2,
 			is_default: true,
-			items: [
+			rules: [
 				{
 					id: 21,
-					max_file_size: 200,
-					min_file_size: 100,
-					policy: { id: 9, name: "Beta Policy" },
-					policy_id: 9,
+					name: "Rule 2",
+					description: "",
 					priority: 2,
+					is_enabled: true,
+					matcher: {
+						min_file_size: 100,
+						max_file_size: 200,
+						extensions: [],
+						compound_extensions: [],
+						extensionless: null,
+						categories: [],
+					},
+					selection_mode: "first_available",
+					unavailable_behavior: "next_rule",
+					targets: [
+						{
+							id: 22,
+							policy_id: 9,
+							weight: 100,
+							is_enabled: true,
+							accepting_new_writes: true,
+							stable_order: 1,
+							policy: { id: 9, name: "Beta Policy", connector_id: "local" },
+						},
+					],
 				},
 			],
 			name: "Default Group",
@@ -410,5 +456,72 @@ describe("PolicyGroupsTable", () => {
 		expect(mockState.onPreviousPage).toHaveBeenCalledTimes(1);
 		expect(mockState.onNextPage).toHaveBeenCalledTimes(1);
 		expect(screen.getByText("entries_page")).toBeInTheDocument();
+	});
+
+	it("formats all rule ranges and exposes simulation and sort actions", () => {
+		const base = createGroup();
+		const rules = [
+			base.rules[0],
+			{
+				...base.rules[0],
+				id: 12,
+				priority: 2,
+				matcher: {
+					...base.rules[0].matcher,
+					min_file_size: 1,
+					max_file_size: 0,
+				},
+			},
+			{
+				...base.rules[0],
+				id: 13,
+				priority: 3,
+				matcher: {
+					...base.rules[0].matcher,
+					min_file_size: 0,
+					max_file_size: 2,
+				},
+			},
+			{
+				...base.rules[0],
+				id: 14,
+				priority: 4,
+				matcher: {
+					...base.rules[0].matcher,
+					min_file_size: 1,
+					max_file_size: 2,
+				},
+			},
+		];
+		const groups = rules.map((rule, index) =>
+			createGroup({ id: index + 1, name: `Range ${index}`, rules: [rule] }),
+		);
+		groups.push(createGroup({ id: 9, rules }));
+		render(<PolicyGroupsTable {...createProps({ groups })} />);
+		expect(
+			screen.getAllByText("policy_group_range_any").length,
+		).toBeGreaterThan(0);
+		expect(
+			screen.getAllByText("policy_group_range_min").length,
+		).toBeGreaterThan(0);
+		expect(
+			screen.getAllByText("policy_group_range_max").length,
+		).toBeGreaterThan(0);
+		expect(
+			screen.getAllByText("policy_group_range_between").length,
+		).toBeGreaterThan(0);
+		expect(screen.getByText("+2 more")).toBeInTheDocument();
+		const [simulate] = screen.getAllByRole("button", {
+			name: "policy_group_simulator_open",
+		});
+		if (!simulate) throw new Error("simulation button missing");
+		fireEvent.click(simulate);
+		expect(mockState.onOpenSimulation).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 1 }),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "core:nameSortDescending" }),
+		);
+		expect(mockState.onSortChange).toHaveBeenCalled();
 	});
 });

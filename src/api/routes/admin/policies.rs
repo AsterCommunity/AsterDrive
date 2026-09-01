@@ -3,14 +3,14 @@
 use crate::api::dto::admin::{
     AdminPolicyGroupListQuery, AdminPolicyListQuery, CreatePolicyGroupReq, CreatePolicyReq,
     DeletePolicyQuery, MigratePolicyGroupAssignmentsReq, PatchPolicyGroupReq, PatchPolicyReq,
-    PolicyGroupItemReq, PromoteStoragePolicyConnectorReq, StorageConnectorCatalogQuery,
+    PromoteStoragePolicyConnectorReq, StorageConnectorCatalogQuery,
     StorageConnectorLocalizationCatalogQuery, TestPolicyParamsReq,
 };
 use crate::api::dto::validate_request;
 use crate::api::response::{ApiEmptyData, ApiResponse};
 use crate::config::site_url;
 use crate::errors::Result;
-use crate::runtime::PrimaryAppState;
+use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::storage_policy::credential;
 use crate::services::{auth::local::Claims, ops::audit, storage_policy::policy};
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
@@ -66,21 +66,6 @@ impl From<TestPolicyParamsReq> for policy::TestDraftStorageConnectorConnectionIn
     }
 }
 
-fn map_group_items(items: Vec<PolicyGroupItemReq>) -> Vec<policy::StoragePolicyGroupItemInput> {
-    items.into_iter().map(Into::into).collect()
-}
-
-impl From<PolicyGroupItemReq> for policy::StoragePolicyGroupItemInput {
-    fn from(value: PolicyGroupItemReq) -> Self {
-        Self {
-            policy_id: value.policy_id,
-            priority: value.priority,
-            min_file_size: value.min_file_size,
-            max_file_size: value.max_file_size,
-        }
-    }
-}
-
 impl From<CreatePolicyGroupReq> for policy::CreateStoragePolicyGroupInput {
     fn from(value: CreatePolicyGroupReq) -> Self {
         Self {
@@ -88,7 +73,9 @@ impl From<CreatePolicyGroupReq> for policy::CreateStoragePolicyGroupInput {
             description: value.description,
             is_enabled: value.is_enabled,
             is_default: value.is_default,
-            items: map_group_items(value.items),
+            admission: value.admission,
+            execution_preference: value.execution_preference,
+            rules: value.rules,
         }
     }
 }
@@ -100,7 +87,9 @@ impl From<PatchPolicyGroupReq> for policy::UpdateStoragePolicyGroupInput {
             description: value.description,
             is_enabled: value.is_enabled,
             is_default: value.is_default,
-            items: value.items.map(map_group_items),
+            admission: value.admission,
+            execution_preference: value.execution_preference,
+            rules: value.rules,
         }
     }
 }
@@ -702,6 +691,59 @@ pub async fn get_policy_group(
 ) -> Result<HttpResponse> {
     let group = policy::get_group(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(group)))
+}
+
+#[aster_forge_api_docs_macros::path(
+    post,
+    path = "/api/v1/admin/policy-groups/{id}/simulate",
+    tag = "admin",
+    operation_id = "simulate_policy_group_placement",
+    params(("id" = i64, Path, description = "Placement profile ID")),
+    request_body = policy::StoragePlacementSimulationInput,
+    responses(
+        (status = 200, description = "Placement simulation result", body = inline(ApiResponse<crate::services::storage_policy::policy::StoragePlacementSimulationResult>)),
+        (status = 400, description = "Invalid simulation input"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Placement profile not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn simulate_policy_group_placement(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<i64>,
+    body: web::Json<policy::StoragePlacementSimulationInput>,
+) -> Result<HttpResponse> {
+    let input = body.into_inner();
+    if input.file_size < 0 {
+        return Err(crate::errors::AsterError::validation_error(
+            "simulation file_size cannot be negative",
+        ));
+    }
+    let filename = aster_forge_validation::filename::normalize_validate_name(&input.filename)?;
+    let context = policy::placement::StoragePlacementContext::from_filename(
+        *path,
+        &filename,
+        input.file_size,
+        &input.mime_type,
+    );
+    let snapshot = state.policy_snapshot();
+    let folder_override = input.folder_policy_id.map(|policy_id| {
+        let policy = snapshot.get_policy(policy_id);
+        policy::placement::FolderPlacementOverride {
+            policy_id,
+            policy_max_file_size: policy.as_ref().map_or(0, |value| value.max_file_size),
+            is_available: policy
+                .as_ref()
+                .is_some_and(|value| snapshot.is_policy_available_for_outbound(value)),
+        }
+    });
+    let profile = snapshot
+        .get_placement_profile(*path)
+        .ok_or_else(|| crate::errors::AsterError::record_not_found("placement profile"))?;
+    let result =
+        policy::placement::simulate_placement(&profile, &context, folder_override.as_ref());
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
 }
 
 #[aster_forge_api_docs_macros::path(

@@ -7,10 +7,12 @@ use crate::runtime::PrimaryAppState;
 use crate::services::mail::sender;
 use crate::storage::{DriverRegistry, PolicySnapshot};
 use crate::test_support::snapshot_dir_tree;
-use aster_drive_model::entities::{file, file_blob, folder, storage_policy, team, user};
+use aster_drive_model::entities::{
+    file, file_blob, folder, storage_policy, team, upload_session, user,
+};
 use aster_drive_model::types::{
     ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy, ProviderDownloadFilenameMode,
-    ProviderDownloadStrategy, UserRole, UserStatus,
+    ProviderDownloadStrategy, UploadSessionKind, UploadSessionStatus, UserRole, UserStatus,
 };
 use aster_drive_storage::{
     BlobMetadata, ListStorageDriver, LocalPathStorageDriver, StorageDriver, StoragePathVisitor,
@@ -1749,6 +1751,7 @@ async fn exact_name_conflict_cleans_preuploaded_local_blob() {
             resolved_policy: Some(policy.clone()),
             precomputed_hash: None,
             actor_username: None,
+            complete_upload_id: None,
             ..Default::default()
         },
     )
@@ -1796,6 +1799,107 @@ async fn exact_name_conflict_cleans_preuploaded_local_blob() {
     let upload_tree_after = snapshot_dir_tree(&uploads_root).unwrap();
     assert_eq!(blob_count_after, blob_count_before);
     assert_eq!(upload_tree_after, upload_tree_before);
+}
+
+#[tokio::test]
+async fn stream_publish_rolls_back_file_blob_quota_when_session_completion_loses_claim() {
+    let (state, temp_root, policy, user) = build_test_state().await;
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+    let upload_id = "stream-finalize-lost-claim";
+    let now = Utc::now();
+    crate::db::repository::upload_session_repo::create(
+        state.writer_db(),
+        upload_session::ActiveModel {
+            id: Set(upload_id.to_string()),
+            user_id: Set(user.id),
+            team_id: Set(None),
+            frontend_client_id: Set(None),
+            filename: Set("atomic-stream.bin".to_string()),
+            mime_type: Set("application/octet-stream".to_string()),
+            total_size: Set(6),
+            chunk_size: Set(0),
+            total_chunks: Set(0),
+            received_count: Set(0),
+            folder_id: Set(None),
+            policy_id: Set(policy.id),
+            placement_profile_id: Set(None),
+            placement_rule_id: Set(None),
+            placement_revision: Set(None),
+            placement_execution_preference: Set("automatic".to_string()),
+            status: Set(UploadSessionStatus::Failed),
+            session_kind: Set(UploadSessionKind::Stream),
+            object_temp_key: Set(None),
+            object_multipart_id: Set(None),
+            provider_session_ciphertext: Set(None),
+            file_id: Set(None),
+            created_at: Set(now),
+            expires_at: Set(now + chrono::Duration::hours(1)),
+            updated_at: Set(now),
+        },
+    )
+    .await
+    .unwrap();
+
+    let temp_path = temp_root.join("atomic-stream.bin");
+    tokio::fs::write(&temp_path, b"atomic").await.unwrap();
+    let files_before = file::Entity::find().count(state.writer_db()).await.unwrap();
+    let blobs_before = file_blob::Entity::find()
+        .count(state.writer_db())
+        .await
+        .unwrap();
+    let storage_used_before = user::Entity::find_by_id(user.id)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap()
+        .storage_used;
+
+    let error = store_from_temp_with_hints(
+        &state,
+        StoreFromTempParams::new(
+            scope,
+            None,
+            "atomic-stream.bin",
+            &temp_path.to_string_lossy(),
+            6,
+        ),
+        StoreFromTempHints {
+            resolved_policy: Some(policy),
+            mime_type: Some("application/octet-stream"),
+            complete_upload_id: Some(upload_id),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect_err("lost stream session claim must roll back publication");
+
+    assert_eq!(error.api_error_code(), ApiErrorCode::UploadStatusConflict);
+    assert_eq!(
+        file::Entity::find().count(state.writer_db()).await.unwrap(),
+        files_before
+    );
+    assert_eq!(
+        file_blob::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        blobs_before
+    );
+    assert_eq!(
+        user::Entity::find_by_id(user.id)
+            .one(state.writer_db())
+            .await
+            .unwrap()
+            .unwrap()
+            .storage_used,
+        storage_used_before
+    );
+    let session =
+        crate::db::repository::upload_session_repo::find_by_id(state.writer_db(), upload_id)
+            .await
+            .unwrap();
+    assert_eq!(session.status, UploadSessionStatus::Failed);
+    assert!(session.file_id.is_none());
 }
 
 #[tokio::test]
@@ -1964,12 +2068,14 @@ async fn preuploaded_quota_failure_cleans_local_blob() {
             scope,
             folder_id: None,
             filename: "quota-fail-preuploaded.bin",
+            mime_type: None,
             size: payload.len() as i64,
             existing_file_id: None,
             lock_credentials: crate::services::files::lock::LockMutationCredentials::None,
             policy: &policy,
             preuploaded_blob: prepared,
             actor_username: None,
+            complete_upload_id: None,
         },
     )
     .await

@@ -15,7 +15,7 @@ import {
 	login,
 	maybeRefreshSession,
 	uniqueName,
-	uploadDirect,
+	uploadViaSession,
 } from "./lib/client.js";
 import { createSummary } from "./lib/summary.js";
 
@@ -119,7 +119,7 @@ export function foregroundUpload(data) {
 	}
 
 	uploadState.session = maybeRefreshSession(uploadState.session);
-	const { response } = uploadDirect(uploadState.session, {
+	const { response } = uploadViaSession(uploadState.session, {
 		filename: uniqueName("migration-mixed-upload", "bin"),
 		content: uploadPayload,
 		mimeType: "application/octet-stream",

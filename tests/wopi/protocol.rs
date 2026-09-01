@@ -67,28 +67,16 @@ macro_rules! register_named_user_and_login {
 }
 
 macro_rules! team_multipart_request {
-    ($uri:expr, $token:expr, $filename:expr, $content:expr $(,)?) => {{
-        let boundary = "----WopiTeamBoundary123";
-        let payload = format!(
-            "------WopiTeamBoundary123\r\n\
-             Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n\
-             Content-Type: text/plain\r\n\r\n\
-             {content}\r\n\
-             ------WopiTeamBoundary123--\r\n",
-            filename = $filename,
-            content = $content,
-        );
-
-        test::TestRequest::post()
-            .uri($uri)
-            .insert_header(("Cookie", common::access_cookie_header(&$token)))
-            .insert_header(common::csrf_header_for(&$token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request()
+    ($app:expr, $uri:expr, $token:expr, $filename:expr, $content:expr $(,)?) => {{
+        common::upload_via_server_session(
+            &$app,
+            &$token,
+            $uri,
+            $filename,
+            "text/plain",
+            ($content).as_bytes(),
+        )
+        .await
     }};
 }
 
@@ -202,6 +190,38 @@ fn nonempty_files_under(path: &std::path::Path) -> BTreeSet<std::path::PathBuf> 
     let mut files = BTreeSet::new();
     collect(path, &mut files);
     files
+}
+
+async fn upload_write_roots(
+    state: &aster_drive::runtime::PrimaryAppState,
+    file_id: i64,
+) -> Vec<std::path::PathBuf> {
+    let file = file_repo::find_by_id(state.writer_db(), file_id)
+        .await
+        .unwrap();
+    let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id)
+        .await
+        .unwrap();
+    let policy = state
+        .policy_snapshot
+        .get_policy_or_err(blob.policy_id)
+        .unwrap();
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    let mut roots = vec![std::path::PathBuf::from(&state.config.server.temp_dir)];
+    if let Some(local_path) = driver.extensions().local_path {
+        let staging_probe = local_path
+            .resolve_local_path(".staging/wopi-probe")
+            .unwrap();
+        roots.push(staging_probe.parent().unwrap().to_path_buf());
+    }
+    roots
+}
+
+fn nonempty_files_under_roots(roots: &[std::path::PathBuf]) -> BTreeSet<std::path::PathBuf> {
+    roots
+        .iter()
+        .flat_map(|root| nonempty_files_under(root))
+        .collect()
 }
 
 fn use_isolated_wopi_temp_root(
@@ -1661,7 +1681,7 @@ async fn test_wopi_put_relative_rejects_target_changed_while_body_is_streaming()
         .await
         .unwrap();
 
-    let temp_dir = std::path::PathBuf::from(&state.config.server.temp_dir);
+    let upload_roots = upload_write_roots(&state, target_file_id).await;
     let fixture_dir =
         std::env::temp_dir().join(format!("asterdrive-wopi-race-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&fixture_dir).unwrap();
@@ -1669,7 +1689,7 @@ async fn test_wopi_put_relative_rejects_target_changed_while_body_is_streaming()
         aster_forge_utils::raii::TempDirGuard::new(fixture_dir.clone(), "wopi race fixture");
     let concurrent_path = fixture_dir.join("winner.docx");
     std::fs::write(&concurrent_path, b"concurrent winner").unwrap();
-    let baseline_temp_files = nonempty_files_under(&temp_dir);
+    let baseline_temp_files = nonempty_files_under_roots(&upload_roots);
 
     let put_relative = put_relative_file(
         &state,
@@ -1692,7 +1712,7 @@ async fn test_wopi_put_relative_rejects_target_changed_while_body_is_streaming()
     let concurrent_update = async {
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
-                if nonempty_files_under(&temp_dir)
+                if nonempty_files_under_roots(&upload_roots)
                     .iter()
                     .any(|path| !baseline_temp_files.contains(path))
                 {
@@ -1776,7 +1796,7 @@ async fn test_wopi_put_relative_rejects_target_created_while_body_is_streaming()
         .await
         .unwrap();
 
-    let temp_dir = std::path::PathBuf::from(&state.config.server.temp_dir);
+    let upload_roots = upload_write_roots(&state, source_file_id).await;
     let fixture_dir =
         std::env::temp_dir().join(format!("asterdrive-wopi-race-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&fixture_dir).unwrap();
@@ -1784,7 +1804,7 @@ async fn test_wopi_put_relative_rejects_target_created_while_body_is_streaming()
         aster_forge_utils::raii::TempDirGuard::new(fixture_dir.clone(), "wopi race fixture");
     let concurrent_path = fixture_dir.join("winner.docx");
     std::fs::write(&concurrent_path, b"concurrent creator").unwrap();
-    let baseline_temp_files = nonempty_files_under(&temp_dir);
+    let baseline_temp_files = nonempty_files_under_roots(&upload_roots);
 
     let put_relative = put_relative_file(
         &state,
@@ -1807,7 +1827,7 @@ async fn test_wopi_put_relative_rejects_target_created_while_body_is_streaming()
     let concurrent_create = async {
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
-                if nonempty_files_under(&temp_dir)
+                if nonempty_files_under_roots(&upload_roots)
                     .iter()
                     .any(|path| !baseline_temp_files.contains(path))
                 {
@@ -2704,15 +2724,14 @@ async fn test_team_file_wopi_open_persists_team_scope_and_allows_check_file_info
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
 
-    let req = team_multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = team_multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "team-report.docx",
         "team content",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let launch = open_wopi_session!(
@@ -2791,15 +2810,14 @@ async fn test_team_wopi_access_token_is_rejected_after_member_removal() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
 
-    let req = team_multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = team_multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "team-report.docx",
         "team content",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let launch = open_wopi_session!(
@@ -2871,15 +2889,14 @@ async fn test_team_wopi_put_relative_is_rejected_after_member_removal() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
 
-    let req = team_multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = team_multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "team-report.docx",
         "team content",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let launch = open_wopi_session!(
@@ -2954,15 +2971,14 @@ async fn test_team_wopi_put_relative_accepts_body_larger_than_global_payload_lim
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
 
-    let req = team_multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = team_multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "team-report.docx",
         "team content",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let launch = open_wopi_session!(
@@ -3050,15 +3066,14 @@ async fn test_team_file_wopi_open_rejects_non_member() {
     let body: Value = test::read_body_json(resp).await;
     let team_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = team_multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = team_multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "team-report.docx",
         "team content",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::post()

@@ -23,7 +23,7 @@
 	"upload_processing": "正在处理文件...",
 	"uploading_to_storage": "正在上传文件...",
 	"upload_progress_chunked": "{{progress}}% 分片上传",
-	"upload_progress_direct": "{{progress}}% 直接上传",
+	"upload_progress_stream": "{{progress}}% 流式上传",
 	"drop_files": "拖放文件到此处上传",
 	"drop_files_desc": "文件将上传到当前文件夹。",
 	"drop_files_or_folders": "拖放文件或文件夹到此处上传",

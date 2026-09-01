@@ -4,7 +4,7 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::upload_session_part_repo;
 use crate::errors::{AsterError, Result, upload_assembly_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::files::upload::shared::run_upload_completion_stage;
+use crate::services::files::upload::session::shared::run_upload_completion_stage;
 use crate::services::workspace::scope::WorkspaceStorageScope;
 use crate::services::workspace::storage;
 use aster_drive_model::entities::{file, storage_policy, upload_session};
@@ -888,12 +888,17 @@ mod tests {
             team_id: None,
             frontend_client_id: None,
             filename: "file.bin".to_string(),
+            mime_type: "application/octet-stream".to_string(),
             total_size,
             chunk_size: 5,
             total_chunks,
             received_count: 0,
             folder_id: None,
             policy_id: 1,
+            placement_profile_id: None,
+            placement_rule_id: None,
+            placement_revision: None,
+            placement_execution_preference: "automatic".to_string(),
             status: aster_drive_model::types::UploadSessionStatus::Assembling,
             session_kind: aster_drive_model::types::UploadSessionKind::ProviderRelayMultipart,
             object_temp_key: Some("temp".to_string()),

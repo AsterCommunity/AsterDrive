@@ -1422,20 +1422,6 @@ fn parse_raw_http_response(raw: &[u8]) -> RawHttpResponse {
     }
 }
 
-fn build_multipart_payload(filename: &str, data: &[u8]) -> (String, Vec<u8>) {
-    let boundary = format!("----AsterRemoteBoundary{}", uuid::Uuid::new_v4().simple());
-    let mut payload = Vec::new();
-    payload.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
-    payload.extend_from_slice(
-        format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n")
-            .as_bytes(),
-    );
-    payload.extend_from_slice(b"Content-Type: application/octet-stream\r\n\r\n");
-    payload.extend_from_slice(data);
-    payload.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
-    (boundary, payload)
-}
-
 fn snapshot_dir_tree(path: &Path) -> std::io::Result<std::collections::BTreeSet<String>> {
     fn walk(
         root: &Path,
@@ -6739,7 +6725,10 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
     )
     .await
     .expect("remote presigned upload should initialize");
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Presigned);
+    assert_eq!(
+        init.mode,
+        aster_drive_model::types::UploadTransport::Presigned
+    );
 
     let upload_id = init
         .upload_id
@@ -6933,7 +6922,10 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
     )
     .await
     .expect("remote presigned upload should initialize");
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Presigned);
+    assert_eq!(
+        init.mode,
+        aster_drive_model::types::UploadTransport::Presigned
+    );
     let upload_id = init
         .upload_id
         .expect("presigned mode should return upload id");
@@ -7026,7 +7018,7 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
 }
 
 #[actix_web::test]
-async fn test_remote_relay_stream_direct_upload_e2e() {
+async fn test_remote_relay_stream_upload_e2e() {
     let provider_state = common::setup().await;
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
@@ -7116,7 +7108,7 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
     )
     .await
     .expect("remote relay direct upload should initialize");
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Direct);
+    assert_eq!(init.mode, aster_drive_model::types::UploadTransport::Stream);
 
     let temp_roots = vec![
         consumer_state.config.server.temp_dir.clone(),
@@ -7125,20 +7117,13 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
     let temp_snapshot_before = snapshot_temp_roots(&temp_roots).unwrap();
     let app = create_test_app!(consumer_state.clone());
 
-    let (boundary, payload) = build_multipart_payload("relay-direct.bin", &body);
-    let req = test::TestRequest::post()
-        .uri(&format!(
-            "/api/v1/files/upload?folder_id={}&declared_size={}",
-            folder.id,
-            body.len()
-        ))
+    let upload_id = init.upload_id.expect("stream upload id");
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/upload/{upload_id}/body"))
         .insert_header(("Cookie", common::access_cookie_header(&login.access_token)))
         .insert_header(common::csrf_header_for(&login.access_token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload(body.clone())
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
@@ -7150,7 +7135,7 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
     let temp_snapshot_after = snapshot_temp_roots(&temp_roots).unwrap();
     assert_eq!(
         temp_snapshot_after, temp_snapshot_before,
-        "remote relay direct upload should not create local temp files or upload temp dirs"
+        "remote relay stream upload should not create local temp files or upload temp dirs"
     );
 
     let created_file = file_repo::find_by_id(consumer_state.writer_db(), file_id)
@@ -7809,7 +7794,10 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
     )
     .await
     .expect("remote relay chunked upload should initialize");
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
+    assert_eq!(
+        init.mode,
+        aster_drive_model::types::UploadTransport::Chunked
+    );
     assert_eq!(init.chunk_size, Some(4));
 
     let app = create_test_app!(consumer_state.clone());
@@ -8685,7 +8673,7 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
     .expect("remote presigned multipart upload should initialize");
     assert_eq!(
         init.mode,
-        aster_drive_model::types::UploadMode::PresignedMultipart
+        aster_drive_model::types::UploadTransport::PresignedMultipart
     );
 
     let upload_id = init

@@ -111,31 +111,22 @@ async fn test_create_empty_with_invalid_relative_parent_leaves_no_partial_path()
 }
 
 #[actix_web::test]
-async fn test_direct_upload_with_relative_path_creates_nested_folders() {
+async fn test_stream_upload_with_relative_path_creates_nested_folders() {
     let state = common::setup().await;
     let db = state.writer_db().clone();
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    let boundary = "----DirUploadBoundary123";
-    let payload = "------DirUploadBoundary123\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"hello.txt\"\r\n\
-         Content-Type: text/plain\r\n\r\n\
-         hello nested world\r\n\
-         ------DirUploadBoundary123--\r\n";
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload?relative_path=docs/guides/hello.txt")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    let (status, body) = common::upload_via_server_session(
+        &app,
+        &token,
+        "/api/v1/files?relative_path=docs/guides/hello.txt",
+        "hello.txt",
+        "text/plain",
+        b"hello nested world",
+    )
+    .await;
+    assert_eq!(status, 201);
     assert_eq!(body["data"]["name"], "hello.txt");
 
     let req = test::TestRequest::get()
@@ -186,26 +177,16 @@ async fn test_direct_upload_with_relative_path_creates_nested_folders() {
 }
 
 #[actix_web::test]
-async fn test_staged_empty_upload_without_declared_size_uses_name_mode_for_relative_path() {
+async fn test_empty_file_creation_preserves_plain_and_relative_path_name_modes() {
     let state = common::setup().await;
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    let boundary = "----StagedEmptyUploadBoundary";
-    let plain_payload = "------StagedEmptyUploadBoundary\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"plain-empty.txt\"\r\n\
-         Content-Type: application/octet-stream\r\n\r\n\
-         \r\n\
-         ------StagedEmptyUploadBoundary--\r\n";
     let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
+        .uri("/api/v1/files/new")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(plain_payload)
+        .set_json(serde_json::json!({ "name": "plain-empty.txt" }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
@@ -213,20 +194,14 @@ async fn test_staged_empty_upload_without_declared_size_uses_name_mode_for_relat
     assert_eq!(body["data"]["name"], "plain-empty.txt");
     assert_eq!(body["data"]["size"], 0);
 
-    let relative_payload = "------StagedEmptyUploadBoundary\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"ignored.txt\"\r\n\
-         Content-Type: application/octet-stream\r\n\r\n\
-         \r\n\
-         ------StagedEmptyUploadBoundary--\r\n";
     let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload?relative_path=exact-empty.txt")
+        .uri("/api/v1/files/new")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(relative_payload)
+        .set_json(serde_json::json!({
+            "name": "ignored.txt",
+            "relative_path": "exact-empty.txt"
+        }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
@@ -622,6 +597,81 @@ async fn test_init_upload_with_relative_path_uses_parent_folder_policy() {
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["msg"], "file size 9 exceeds limit 8");
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/folders/{folder_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    assert!(
+        body["data"]["folders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|folder| folder["name"] != "nested")
+    );
+}
+
+#[actix_web::test]
+async fn test_zero_size_and_quota_rejected_init_do_not_create_relative_directories() {
+    use aster_drive::db::repository::user_repo;
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let zero_req = test::TestRequest::post()
+        .uri("/api/v1/files/upload/init")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "filename": "zero.txt",
+            "relative_path": "zero-rejected/zero.txt",
+            "total_size": 0
+        }))
+        .to_request();
+    assert_eq!(test::call_service(&app, zero_req).await.status(), 400);
+
+    let user = user_repo::find_by_username(&db, "testuser")
+        .await
+        .unwrap()
+        .unwrap();
+    let mut active: aster_drive_model::entities::user::ActiveModel = user.into();
+    active.storage_quota = Set(1);
+    active.update(&db).await.unwrap();
+    let quota_req = test::TestRequest::post()
+        .uri("/api/v1/files/upload/init")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "filename": "quota.txt",
+            "relative_path": "quota-rejected/quota.txt",
+            "total_size": 2
+        }))
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, quota_req).await.status(),
+        actix_web::http::StatusCode::INSUFFICIENT_STORAGE
+    );
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let names = body["data"]["folders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|folder| folder["name"].as_str())
+        .collect::<Vec<_>>();
+    assert!(!names.contains(&"zero-rejected"));
+    assert!(!names.contains(&"quota-rejected"));
 }
 
 #[actix_web::test]
@@ -739,26 +789,16 @@ async fn test_relative_path_normalizes_nfd_segments_to_nfc() {
     let (token, _) = register_and_login!(app);
     let relative_path = urlencoding::encode("cafe\u{0301}/hello.txt");
 
-    let boundary = "----DirUploadBoundaryNormalize";
-    let payload = "------DirUploadBoundaryNormalize\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"hello.txt\"\r\n\
-         Content-Type: text/plain\r\n\r\n\
-         hello nested world\r\n\
-         ------DirUploadBoundaryNormalize--\r\n";
-    let req = test::TestRequest::post()
-        .uri(&format!(
-            "/api/v1/files/upload?relative_path={relative_path}"
-        ))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    let (status, _) = common::upload_via_server_session(
+        &app,
+        &token,
+        &format!("/api/v1/files?relative_path={relative_path}"),
+        "hello.txt",
+        "text/plain",
+        b"hello nested world",
+    )
+    .await;
+    assert_eq!(status, 201);
 
     let req = test::TestRequest::get()
         .uri("/api/v1/folders")

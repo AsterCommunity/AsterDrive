@@ -26,7 +26,6 @@ use crate::services::{
     },
     workspace::storage::{self, WorkspaceStorageScope},
 };
-use crate::storage::PolicySnapshot;
 use aster_drive_model::entities::file;
 use aster_drive_model::types::ArchiveFilenameEncoding;
 
@@ -108,39 +107,8 @@ impl ArchiveStagingProgressSink<'_, '_> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(super) enum ArchiveExtractPolicyResolver {
-    Personal { user_id: i64 },
-    Team { policy_group_id: i64 },
-}
-
-impl ArchiveExtractPolicyResolver {
-    fn ensure_entry_size_allowed(
-        self,
-        policy_snapshot: &PolicySnapshot,
-        entry_size: i64,
-    ) -> Result<()> {
-        let policy = match self {
-            Self::Personal { user_id } => {
-                policy_snapshot.resolve_user_policy_for_size(user_id, entry_size)?
-            }
-            Self::Team { policy_group_id } => {
-                policy_snapshot.resolve_policy_in_group(policy_group_id, entry_size)?
-            }
-        };
-        if policy.max_file_size > 0 && entry_size > policy.max_file_size {
-            return Err(AsterError::file_too_large(format!(
-                "archive entry size {} exceeds limit {}",
-                entry_size, policy.max_file_size
-            )));
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
 pub(super) struct ArchiveExtractStageOptions {
     pub(super) scope: WorkspaceStorageScope,
-    pub(super) policy_resolver: ArchiveExtractPolicyResolver,
     pub(super) source_archive_size: i64,
     pub(super) max_staging_bytes: i64,
     pub(super) limits: ArchiveExtractLimits,
@@ -205,7 +173,6 @@ impl ArchiveExtractLimits {
 pub(super) struct StageArchiveForExtractParams<'a> {
     pub(super) handle: &'a tokio::runtime::Handle,
     pub(super) db: &'a sea_orm::DatabaseConnection,
-    pub(super) policy_snapshot: &'a PolicySnapshot,
     pub(super) context: &'a TaskExecutionContext,
     pub(super) archive_path: &'a Path,
     pub(super) stage_root: &'a Path,
@@ -311,7 +278,6 @@ pub(super) fn stage_zip_archive_for_extract(
     let StageArchiveForExtractParams {
         handle,
         db,
-        policy_snapshot,
         context,
         archive_path,
         stage_root,
@@ -330,9 +296,13 @@ pub(super) fn stage_zip_archive_for_extract(
         options.filename_encoding,
         ArchiveScanNamePolicy::StrictAsterName,
         |entry_size| {
-            options
-                .policy_resolver
-                .ensure_entry_size_allowed(policy_snapshot, entry_size)
+            if entry_size < 0 {
+                Err(AsterError::validation_error(
+                    "archive entry size cannot be negative",
+                ))
+            } else {
+                Ok(())
+            }
         },
     )?;
     let mut progress = prepare_archive_staging_after_preflight(

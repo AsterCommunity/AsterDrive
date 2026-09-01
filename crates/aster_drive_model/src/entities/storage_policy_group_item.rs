@@ -1,4 +1,7 @@
 //! SeaORM 实体定义：`storage_policy_group_item`。
+//!
+//! Deprecated compatibility projection for Issue #444. TODO(0.6.0): remove
+//! this entity after placement rules and targets are authoritative everywhere.
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};

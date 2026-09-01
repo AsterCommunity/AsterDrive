@@ -177,7 +177,7 @@ where
     };
     let request_kind = match parse_propfind_request(body) {
         Ok(kind) => kind,
-        Err(response) => return response,
+        Err(error) => return forge_response(propfind_xml_error_response(error)),
     };
 
     let request_started_at = Instant::now();
@@ -348,7 +348,12 @@ pub(crate) async fn handle_proppatch(
 
     let patches = match parse_proppatch_request(body) {
         Ok(patches) => patches,
-        Err(response) => return response,
+        Err(ProppatchRequestError::Request(error)) => {
+            return forge_response(proppatch_xml_error_response(error));
+        }
+        Err(ProppatchRequestError::Serialization) => {
+            return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
+        }
     };
     let results = match dav_fs.patch_props(&path, patches).await {
         Ok(results) => results,
@@ -709,21 +714,28 @@ fn lock_xml(lock: &DavLock, prefix: &str) -> DavLockXml {
     }
 }
 
-fn parse_propfind_request(body: &[u8]) -> Result<DavPropfindRequest, HttpResponse> {
+fn parse_propfind_request(
+    body: &[u8],
+) -> Result<DavPropfindRequest, aster_forge_webdav::DavXmlError> {
     aster_forge_webdav::parse_propfind_request(body)
-        .map_err(|error| forge_response(propfind_xml_error_response(error)))
 }
 
-fn parse_proppatch_request(body: &[u8]) -> Result<Vec<(bool, DavProp)>, HttpResponse> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProppatchRequestError {
+    Request(aster_forge_webdav::DavXmlError),
+    Serialization,
+}
+
+fn parse_proppatch_request(body: &[u8]) -> Result<Vec<(bool, DavProp)>, ProppatchRequestError> {
     aster_forge_webdav::parse_proppatch_request(body)
-        .map_err(|error| forge_response(proppatch_xml_error_response(error)))?
+        .map_err(ProppatchRequestError::Request)?
         .into_iter()
         .map(|patch| {
             let xml = patch
                 .property
                 .element
                 .to_bytes()
-                .map_err(|_| responses::empty(StatusCode::INTERNAL_SERVER_ERROR))?;
+                .map_err(|_| ProppatchRequestError::Serialization)?;
             Ok((
                 patch.set,
                 DavProp {

@@ -21,7 +21,7 @@ function createTask(overrides: Partial<UploadTask>): UploadTask {
 		baseFolderId: 1,
 		baseFolderName: "Projects",
 		totalBytes: 100,
-		mode: "direct",
+		mode: "stream",
 		status: "queued",
 		progress: 0,
 		error: null,

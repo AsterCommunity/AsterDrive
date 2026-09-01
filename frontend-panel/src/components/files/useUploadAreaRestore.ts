@@ -3,7 +3,7 @@ import { useCallback, useEffect } from "react";
 import {
 	getProcessingProgress,
 	getResumePlan,
-	type UploadMode,
+	type UploadTransport,
 } from "@/components/files/uploadResume";
 import { logger } from "@/lib/logger";
 import {
@@ -57,10 +57,11 @@ export function mergeRestoredUploadTasks(
 	];
 }
 
-function recoverableSessionMode(
+export function recoverableSessionMode(
 	mode: RecoverableUploadSession["mode"],
 ): NonNullable<ResumableSession["mode"]> | null {
 	if (
+		mode === "stream" ||
 		mode === "chunked" ||
 		mode === "presigned" ||
 		mode === "presigned_multipart" ||
@@ -153,7 +154,7 @@ function serverSessionToProgress(
 }
 
 function restoredCompletedCount(
-	mode: UploadMode,
+	mode: UploadTransport,
 	progress: UploadProgressResponse,
 ) {
 	if (mode === "presigned_multipart" || mode === "provider_resumable") {

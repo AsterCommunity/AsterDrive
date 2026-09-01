@@ -3,10 +3,43 @@
 use crate::common;
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::config::site_url;
+use aster_drive::errors::{AsterError, Result as AsterResult};
+use aster_drive::services::storage_policy::policy::placement::{
+    StoragePlacementContext, resolve_placement,
+};
+use aster_forge_file_classification::FileCategory;
 
 use actix_web::test;
 use chrono::{Duration, Utc};
 use serde_json::Value;
+
+fn resolve_policy_id_from_snapshot(
+    state: &aster_drive::runtime::PrimaryAppState,
+    user_id: i64,
+    file_size: i64,
+) -> AsterResult<i64> {
+    let group_id = state
+        .policy_snapshot
+        .require_user_policy_group_id(user_id)?;
+    let profile = state
+        .policy_snapshot
+        .get_placement_profile(group_id)
+        .ok_or_else(|| AsterError::storage_policy_not_found("placement profile missing"))?;
+    let decision = resolve_placement(
+        &profile,
+        &StoragePlacementContext {
+            profile_id: group_id,
+            filename: "file.bin".to_string(),
+            file_size,
+            extension: "bin".to_string(),
+            compound_extension: None,
+            category: FileCategory::Other,
+        },
+        None,
+    )
+    .map_err(|error| AsterError::validation_error(error.code()))?;
+    Ok(decision.policy_id)
+}
 
 async fn list_storage_driver_descriptors_via_admin<S, B>(
     app: &S,
@@ -1697,7 +1730,7 @@ async fn test_initial_storage_setup_rejects_connectors_requiring_post_setup_conf
         .await
         .expect("load default policy group")
         .expect("default policy group should exist");
-    aster_drive::db::repository::policy_group_repo::delete_group_items_by_group(
+    aster_drive::db::repository::policy_placement_repo::delete_rules_by_group(
         &db,
         default_group.id,
     )
@@ -1888,12 +1921,17 @@ async fn create_policy_upload_session(
             team_id: Set(None),
             frontend_client_id: Set(None),
             filename: Set("pending-policy-upload.bin".to_string()),
+            mime_type: Set("application/octet-stream".to_string()),
             total_size: Set(10),
             chunk_size: Set(5),
             total_chunks: Set(2),
             received_count: Set(1),
             folder_id: Set(None),
             policy_id: Set(spec.policy_id),
+            placement_profile_id: Set(None),
+            placement_rule_id: Set(None),
+            placement_revision: Set(None),
+            placement_execution_preference: Set("automatic".to_string()),
             status: Set(spec
                 .status
                 .unwrap_or(aster_drive_model::types::UploadSessionStatus::Uploading)),
@@ -1917,7 +1955,7 @@ async fn create_policy_upload_session(
 
 #[actix_web::test]
 async fn test_user_default_policy_switch_updates_snapshot_immediately() {
-    use aster_drive::services::{files::file, storage_policy::policy, user::account};
+    use aster_drive::services::{storage_policy::policy, user::account};
 
     let state = common::setup().await;
     let user = common::create_test_account(
@@ -1929,9 +1967,7 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
     .await
     .unwrap();
 
-    let initial_policy = file::resolve_policy_for_size(&state, user.id, None, 0)
-        .await
-        .unwrap();
+    let initial_policy_id = resolve_policy_id_from_snapshot(&state, user.id, 0).unwrap();
 
     let alternate_base_path = format!("/tmp/asterdrive-policy-switch-{}", uuid::Uuid::new_v4());
     std::fs::create_dir_all(&alternate_base_path).unwrap();
@@ -1949,7 +1985,7 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
     .await
     .unwrap();
 
-    assert_ne!(alternate_policy.id, initial_policy.id);
+    assert_ne!(alternate_policy.id, initial_policy_id);
 
     let alternate_group = policy::create_group(
         &state,
@@ -1958,12 +1994,24 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
             description: Some("Snapshot switch target".to_string()),
             is_enabled: true,
             is_default: false,
-            items: vec![policy::StoragePolicyGroupItemInput {
-                policy_id: alternate_policy.id,
+            admission: None,
+            execution_preference: None,
+            rules: Some(vec![policy::StoragePlacementRuleInput {
+                name: "Rule 1".to_string(),
+                description: None,
                 priority: 1,
-                min_file_size: 0,
-                max_file_size: 0,
-            }],
+                is_enabled: true,
+                matcher: Default::default(),
+                selection_mode: Default::default(),
+                unavailable_behavior: Default::default(),
+                targets: vec![policy::StoragePlacementTargetInput {
+                    policy_id: alternate_policy.id,
+                    weight: 100,
+                    is_enabled: true,
+                    accepting_new_writes: true,
+                    stable_order: 1,
+                }],
+            }]),
         },
     )
     .await
@@ -1985,14 +2033,14 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
     .unwrap();
 
     assert_eq!(
-        state.policy_snapshot.resolve_default_policy_id(user.id),
-        Some(alternate_policy.id)
+        resolve_policy_id_from_snapshot(&state, user.id, 0).unwrap(),
+        alternate_policy.id
     );
 
-    let resolved_after_switch = file::resolve_policy_for_size(&state, user.id, None, 0)
-        .await
-        .unwrap();
-    assert_eq!(resolved_after_switch.id, alternate_policy.id);
+    assert_eq!(
+        resolve_policy_id_from_snapshot(&state, user.id, 0).unwrap(),
+        alternate_policy.id
+    );
 }
 
 #[actix_web::test]
@@ -2109,8 +2157,8 @@ async fn test_creating_first_default_policy_backfills_bootstrap_admin() {
         .policy_group_id
         .expect("first default policy should backfill the bootstrap admin");
     assert_eq!(
-        state.policy_snapshot.resolve_default_policy_id(updated.id),
-        Some(created.id)
+        resolve_policy_id_from_snapshot(&state, updated.id, 0).unwrap(),
+        created.id
     );
     assert_eq!(
         state
@@ -2180,8 +2228,8 @@ async fn test_promoting_policy_backfills_unassigned_users() {
         .expect("unassigned user should still exist");
     assert!(updated.policy_group_id.is_some());
     assert_eq!(
-        state.policy_snapshot.resolve_default_policy_id(updated.id),
-        Some(policy.id)
+        resolve_policy_id_from_snapshot(&state, updated.id, 0).unwrap(),
+        policy.id
     );
 }
 
@@ -2675,12 +2723,24 @@ async fn test_policy_force_delete_still_rejects_blob_references() {
             description: None,
             is_enabled: true,
             is_default: false,
-            items: vec![policy::StoragePolicyGroupItemInput {
-                policy_id: policy.id,
+            admission: None,
+            execution_preference: None,
+            rules: Some(vec![policy::StoragePlacementRuleInput {
+                name: "Rule 1".to_string(),
+                description: None,
                 priority: 1,
-                min_file_size: 0,
-                max_file_size: 0,
-            }],
+                is_enabled: true,
+                matcher: Default::default(),
+                selection_mode: Default::default(),
+                unavailable_behavior: Default::default(),
+                targets: vec![policy::StoragePlacementTargetInput {
+                    policy_id: policy.id,
+                    weight: 100,
+                    is_enabled: true,
+                    accepting_new_writes: true,
+                    stable_order: 1,
+                }],
+            }]),
         },
     )
     .await
@@ -3143,14 +3203,11 @@ async fn test_user_policy_assignment() {
             "description": "Single binding target",
             "is_enabled": true,
             "is_default": false,
-            "items": [
-                {
-                    "policy_id": policy_id,
-                    "priority": 1,
-                    "min_file_size": 0,
-                    "max_file_size": 0
-                }
-            ]
+            "rules": [{
+                "name": "Rule 1", "priority": 1, "is_enabled": true,
+                "matcher": {"min_file_size": 0, "max_file_size": 0},
+                "targets": [{"policy_id": policy_id, "weight": 100}]
+            }]
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -3250,11 +3307,33 @@ async fn test_system_policy_default_uniqueness() {
         .await
         .unwrap()
         .expect("default group should exist");
-    let items = policy_group_repo::find_group_items(&db, default_group.id)
+    let rules = aster_drive::db::repository::policy_placement_repo::find_all_rules(&db)
         .await
         .unwrap();
-    assert_eq!(items.len(), 1);
-    assert_eq!(items[0].policy_id, new_default_id);
+    let group_rules: Vec<_> = rules
+        .iter()
+        .filter(|rule| rule.group_id == default_group.id)
+        .collect();
+    assert_eq!(group_rules.len(), 1);
+    let rule = group_rules[0];
+    let targets = aster_drive::db::repository::policy_placement_repo::find_all_targets(&db)
+        .await
+        .unwrap();
+    assert_eq!(
+        targets
+            .iter()
+            .filter(|target| target.rule_id == rule.id)
+            .count(),
+        1
+    );
+    assert_eq!(
+        targets
+            .iter()
+            .find(|target| target.rule_id == rule.id)
+            .unwrap()
+            .policy_id,
+        new_default_id
+    );
 }
 
 #[actix_web::test]
@@ -3313,11 +3392,33 @@ async fn test_patch_policy_promotes_existing_policy_to_default() {
         .await
         .unwrap()
         .expect("default group should exist");
-    let items = policy_group_repo::find_group_items(&db, default_group.id)
+    let rules = aster_drive::db::repository::policy_placement_repo::find_all_rules(&db)
         .await
         .unwrap();
-    assert_eq!(items.len(), 1);
-    assert_eq!(items[0].policy_id, policy_id);
+    let group_rules: Vec<_> = rules
+        .iter()
+        .filter(|rule| rule.group_id == default_group.id)
+        .collect();
+    assert_eq!(group_rules.len(), 1);
+    let rule = group_rules[0];
+    let targets = aster_drive::db::repository::policy_placement_repo::find_all_targets(&db)
+        .await
+        .unwrap();
+    assert_eq!(
+        targets
+            .iter()
+            .find(|target| target.rule_id == rule.id)
+            .unwrap()
+            .policy_id,
+        policy_id
+    );
+    assert_eq!(
+        targets
+            .iter()
+            .filter(|target| target.rule_id == rule.id)
+            .count(),
+        1
+    );
 }
 
 #[actix_web::test]
@@ -3406,14 +3507,11 @@ async fn test_policy_groups_are_sorted_by_created_at_desc() {
                 "description": format!("{group_name} description"),
                 "is_enabled": true,
                 "is_default": false,
-                "items": [
-                    {
-                        "policy_id": policy_id,
-                        "priority": 1,
-                        "min_file_size": 0,
-                        "max_file_size": 0
-                    }
-                ]
+                "rules": [{
+                    "name": "Rule 1", "priority": 1, "is_enabled": true,
+                    "matcher": {"min_file_size": 0, "max_file_size": 0},
+                    "targets": [{"policy_id": policy_id, "weight": 100}]
+                }]
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -3460,14 +3558,7 @@ async fn test_cannot_disable_assigned_policy_group() {
             "description": "Used by one user",
             "is_enabled": true,
             "is_default": false,
-            "items": [
-                {
-                    "policy_id": policy_id,
-                    "priority": 1,
-                    "min_file_size": 0,
-                    "max_file_size": 0
-                }
-            ]
+            "rules": [{ "name": "Rule 1", "priority": 1, "is_enabled": true, "matcher": { "min_file_size": 0, "max_file_size": 0 }, "targets": [{ "policy_id": policy_id, "weight": 100 }] }]
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -3549,14 +3640,7 @@ async fn test_cannot_assign_disabled_policy_group_to_user() {
             "description": "Disabled after assignment",
             "is_enabled": true,
             "is_default": false,
-            "items": [
-                {
-                    "policy_id": policy_id,
-                    "priority": 1,
-                    "min_file_size": 0,
-                    "max_file_size": 0
-                }
-            ]
+            "rules": [{ "name": "Rule 1", "priority": 1, "is_enabled": true, "matcher": { "min_file_size": 0, "max_file_size": 0 }, "targets": [{ "policy_id": policy_id, "weight": 100 }] }]
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -3619,14 +3703,7 @@ async fn test_cannot_disable_or_delete_policy_group_assigned_to_team() {
             "description": "Referenced by a team",
             "is_enabled": true,
             "is_default": false,
-            "items": [
-                {
-                    "policy_id": policy_id,
-                    "priority": 1,
-                    "min_file_size": 0,
-                    "max_file_size": 0
-                }
-            ]
+            "rules": [{ "name": "Rule 1", "priority": 1, "is_enabled": true, "matcher": { "min_file_size": 0, "max_file_size": 0 }, "targets": [{ "policy_id": policy_id, "weight": 100 }] }]
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -3765,14 +3842,7 @@ async fn test_migrate_policy_group_assignments_moves_assignments_and_preserves_d
             "description": "Users will be migrated away",
             "is_enabled": true,
             "is_default": false,
-            "items": [
-                {
-                    "policy_id": policy_id,
-                    "priority": 1,
-                    "min_file_size": 0,
-                    "max_file_size": 0
-                }
-            ]
+            "rules": [{ "name": "Rule 1", "priority": 1, "is_enabled": true, "matcher": { "min_file_size": 0, "max_file_size": 0 }, "targets": [{ "policy_id": policy_id, "weight": 100 }] }]
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -3789,14 +3859,7 @@ async fn test_migrate_policy_group_assignments_moves_assignments_and_preserves_d
             "description": "Users land here after migration",
             "is_enabled": true,
             "is_default": false,
-            "items": [
-                {
-                    "policy_id": policy_id,
-                    "priority": 1,
-                    "min_file_size": 0,
-                    "max_file_size": 0
-                }
-            ]
+            "rules": [{ "name": "Rule 1", "priority": 1, "is_enabled": true, "matcher": { "min_file_size": 0, "max_file_size": 0 }, "targets": [{ "policy_id": policy_id, "weight": 100 }] }]
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -3917,14 +3980,7 @@ async fn test_cannot_migrate_policy_group_assignments_to_disabled_group() {
             "description": "source",
             "is_enabled": true,
             "is_default": false,
-            "items": [
-                {
-                    "policy_id": policy_id,
-                    "priority": 1,
-                    "min_file_size": 0,
-                    "max_file_size": 0
-                }
-            ]
+            "rules": [{ "name": "Rule 1", "priority": 1, "is_enabled": true, "matcher": { "min_file_size": 0, "max_file_size": 0 }, "targets": [{ "policy_id": policy_id, "weight": 100 }] }]
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -3941,14 +3997,7 @@ async fn test_cannot_migrate_policy_group_assignments_to_disabled_group() {
             "description": "target",
             "is_enabled": false,
             "is_default": false,
-            "items": [
-                {
-                    "policy_id": policy_id,
-                    "priority": 1,
-                    "min_file_size": 0,
-                    "max_file_size": 0
-                }
-            ]
+            "rules": [{ "name": "Rule 1", "priority": 1, "is_enabled": true, "matcher": { "min_file_size": 0, "max_file_size": 0 }, "targets": [{ "policy_id": policy_id, "weight": 100 }] }]
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -4049,12 +4098,7 @@ async fn test_delete_only_default_policy_group_and_policy_returns_to_storage_set
             "description": "Keeps setup assignments during policy replacement",
             "is_enabled": true,
             "is_default": false,
-            "items": [{
-                "policy_id": replacement_policy_id,
-                "priority": 1,
-                "min_file_size": 0,
-                "max_file_size": 0
-            }]
+            "rules": [{ "name": "Rule 1", "priority": 1, "is_enabled": true, "matcher": { "min_file_size": 0, "max_file_size": 0 }, "targets": [{ "policy_id": replacement_policy_id, "weight": 100 }] }]
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -4198,7 +4242,7 @@ async fn test_policy_delete_keeps_policy_group_references_protected() {
     assert!(
         body["msg"]
             .as_str()
-            .is_some_and(|message| message.contains("policy group item"))
+            .is_some_and(|message| message.contains("placement target"))
     );
 
     let req = test::TestRequest::get()
@@ -4257,7 +4301,6 @@ async fn test_cannot_unset_only_default_policy() {
 #[actix_web::test]
 async fn test_resolve_policy_fails_without_user_policy_group() {
     use aster_drive::db::repository::user_repo;
-    use aster_drive::services::files::file;
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
@@ -4283,9 +4326,7 @@ async fn test_resolve_policy_fails_without_user_policy_group() {
         .await
         .unwrap();
 
-    let err = file::resolve_policy_for_size(&state, user.id, None, 0)
-        .await
-        .unwrap_err();
+    let err = resolve_policy_id_from_snapshot(&state, user.id, 0).unwrap_err();
     assert_eq!(err.code(), "E030");
     assert!(err.message().contains("no storage policy group assigned"));
 }
@@ -4293,7 +4334,7 @@ async fn test_resolve_policy_fails_without_user_policy_group() {
 #[actix_web::test]
 async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
     use aster_drive::db::repository::{policy_group_repo, user_repo};
-    use aster_drive::services::files::file;
+    use aster_drive::services::storage_policy::policy;
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
@@ -4310,31 +4351,31 @@ async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
         .await
         .unwrap()
         .unwrap();
-    let now = chrono::Utc::now();
-    let group = policy_group_repo::create_group(
-        state.writer_db(),
-        aster_drive_model::entities::storage_policy_group::ActiveModel {
-            name: Set("Disabled Assigned Group".to_string()),
-            description: Set(String::new()),
-            is_enabled: Set(true),
-            is_default: Set(false),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap();
-    policy_group_repo::create_group_item(
-        state.writer_db(),
-        aster_drive_model::entities::storage_policy_group_item::ActiveModel {
-            group_id: Set(group.id),
-            policy_id: Set(default_policy.id),
-            priority: Set(1),
-            min_file_size: Set(0),
-            max_file_size: Set(0),
-            created_at: Set(now),
-            ..Default::default()
+    let group = policy::create_group(
+        &state,
+        policy::CreateStoragePolicyGroupInput {
+            name: "Disabled Assigned Group".to_string(),
+            description: None,
+            is_enabled: true,
+            is_default: false,
+            admission: None,
+            execution_preference: None,
+            rules: Some(vec![policy::StoragePlacementRuleInput {
+                name: "Rule 1".to_string(),
+                description: None,
+                priority: 1,
+                is_enabled: true,
+                matcher: Default::default(),
+                selection_mode: Default::default(),
+                unavailable_behavior: Default::default(),
+                targets: vec![policy::StoragePlacementTargetInput {
+                    policy_id: default_policy.id,
+                    weight: 100,
+                    is_enabled: true,
+                    accepting_new_writes: true,
+                    stable_order: 1,
+                }],
+            }]),
         },
     )
     .await
@@ -4363,17 +4404,15 @@ async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
         .await
         .unwrap();
 
-    let err = file::resolve_policy_for_size(&state, user.id, None, 0)
-        .await
-        .unwrap_err();
+    let err = resolve_policy_id_from_snapshot(&state, user.id, 0).unwrap_err();
     assert_eq!(err.code(), "E005");
-    assert!(err.message().contains("is disabled"));
+    assert!(err.message().contains("placement_profile_disabled"));
 }
 
 #[actix_web::test]
 async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
-    use aster_drive::db::repository::{policy_group_repo, policy_repo, user_repo};
-    use aster_drive::services::{files::file, storage_policy::policy};
+    use aster_drive::db::repository::{policy_repo, user_repo};
+    use aster_drive::services::storage_policy::policy;
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
@@ -4406,41 +4445,63 @@ async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
     .await
     .unwrap();
 
-    let now = chrono::Utc::now();
-    let group = policy_group_repo::create_group(
-        state.writer_db(),
-        aster_drive_model::entities::storage_policy_group::ActiveModel {
-            name: Set("Gap Rule Group".to_string()),
-            description: Set(String::new()),
-            is_enabled: Set(true),
-            is_default: Set(false),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
+    let group = policy::create_group(
+        &state,
+        policy::CreateStoragePolicyGroupInput {
+            name: "Gap Rule Group".to_string(),
+            description: None,
+            is_enabled: true,
+            is_default: false,
+            admission: None,
+            execution_preference: None,
+            rules: Some(vec![
+                policy::StoragePlacementRuleInput {
+                    name: "Rule 1".to_string(),
+                    description: None,
+                    priority: 1,
+                    is_enabled: true,
+                    matcher: policy::placement::PlacementMatcher {
+                        min_file_size: 0,
+                        max_file_size: 10,
+                        ..Default::default()
+                    },
+                    selection_mode: Default::default(),
+                    unavailable_behavior: Default::default(),
+                    targets: vec![policy::StoragePlacementTargetInput {
+                        policy_id: default_policy.id,
+                        weight: 100,
+                        is_enabled: true,
+                        accepting_new_writes: true,
+                        stable_order: 1,
+                    }],
+                },
+                policy::StoragePlacementRuleInput {
+                    name: "Rule 2".to_string(),
+                    description: None,
+                    priority: 2,
+                    is_enabled: true,
+                    matcher: policy::placement::PlacementMatcher {
+                        min_file_size: 20,
+                        max_file_size: 0,
+                        ..Default::default()
+                    },
+                    selection_mode: Default::default(),
+                    unavailable_behavior: Default::default(),
+                    targets: vec![policy::StoragePlacementTargetInput {
+                        policy_id: overflow_policy.id,
+                        weight: 100,
+                        is_enabled: true,
+                        accepting_new_writes: true,
+                        stable_order: 1,
+                    }],
+                },
+            ]),
         },
     )
     .await
     .unwrap();
-    for (priority, policy_id, min_file_size, max_file_size) in [
-        (1, default_policy.id, 0, 10),
-        (2, overflow_policy.id, 20, 0),
-    ] {
-        policy_group_repo::create_group_item(
-            state.writer_db(),
-            aster_drive_model::entities::storage_policy_group_item::ActiveModel {
-                group_id: Set(group.id),
-                policy_id: Set(policy_id),
-                priority: Set(priority),
-                min_file_size: Set(min_file_size),
-                max_file_size: Set(max_file_size),
-                created_at: Set(now),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
-    }
 
+    let now = chrono::Utc::now();
     let user_model = user_repo::find_by_id(state.writer_db(), user.id)
         .await
         .unwrap();
@@ -4454,11 +4515,9 @@ async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
         .await
         .unwrap();
 
-    let err = file::resolve_policy_for_size(&state, user.id, None, 15)
-        .await
-        .unwrap_err();
+    let err = resolve_policy_id_from_snapshot(&state, user.id, 15).unwrap_err();
     assert_eq!(err.code(), "E005");
-    assert!(err.message().contains("no storage policy rule"));
+    assert!(err.message().contains("placement_no_matching_rule"));
 }
 
 #[actix_web::test]

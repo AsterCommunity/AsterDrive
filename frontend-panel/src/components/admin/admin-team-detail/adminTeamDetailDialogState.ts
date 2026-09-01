@@ -50,7 +50,7 @@ export function buildPolicyGroupOptions(
 ): PolicyGroupOption[] {
 	const options: PolicyGroupOption[] = [];
 	for (const group of policyGroups) {
-		if (!group.is_enabled || group.items.length === 0) {
+		if (!group.is_enabled || (group.rules ?? []).length === 0) {
 			continue;
 		}
 		options.push({

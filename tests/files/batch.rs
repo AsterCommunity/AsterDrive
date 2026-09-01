@@ -168,67 +168,46 @@ macro_rules! create_team_folder {
 
 macro_rules! upload_personal_file {
     ($app:expr, $token:expr, $folder_id:expr, $name:expr, $content:expr) => {{
-        let boundary = "----WorkspaceTransferBoundary";
-        let payload = upload_named_file($name, $content, "text/plain", boundary);
-        let uri = match $folder_id {
-            Some(folder_id) => format!("/api/v1/files/upload?folder_id={folder_id}"),
-            None => "/api/v1/files/upload".to_string(),
+        let folder_id: Option<i64> = $folder_id;
+        let uri = match folder_id {
+            Some(folder_id) => format!("/api/v1/files?folder_id={folder_id}"),
+            None => "/api/v1/files".to_string(),
         };
-        let req = test::TestRequest::post()
-            .uri(&uri)
-            .insert_header(("Cookie", common::access_cookie_header(&$token)))
-            .insert_header(common::csrf_header_for(&$token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request();
-        let resp = test::call_service(&$app, req).await;
-        assert_eq!(resp.status(), 201);
-        let body: Value = test::read_body_json(resp).await;
+        let (status, body) = common::upload_via_server_session(
+            &$app,
+            &$token,
+            &uri,
+            $name,
+            "text/plain",
+            ($content).as_bytes(),
+        )
+        .await;
+        assert_eq!(status, 201);
         body["data"]["id"].as_i64().unwrap()
     }};
 }
 
 macro_rules! upload_team_file {
     ($app:expr, $token:expr, $team_id:expr, $folder_id:expr, $name:expr, $content:expr) => {{
-        let boundary = "----WorkspaceTransferTeamBoundary";
-        let payload = upload_named_file($name, $content, "text/plain", boundary);
-        let uri = match $folder_id {
+        let folder_id: Option<i64> = $folder_id;
+        let uri = match folder_id {
             Some(folder_id) => {
-                format!(
-                    "/api/v1/teams/{}/files/upload?folder_id={folder_id}",
-                    $team_id
-                )
+                format!("/api/v1/teams/{}/files?folder_id={folder_id}", $team_id)
             }
-            None => format!("/api/v1/teams/{}/files/upload", $team_id),
+            None => format!("/api/v1/teams/{}/files", $team_id),
         };
-        let req = test::TestRequest::post()
-            .uri(&uri)
-            .insert_header(("Cookie", common::access_cookie_header(&$token)))
-            .insert_header(common::csrf_header_for(&$token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request();
-        let resp = test::call_service(&$app, req).await;
-        assert_eq!(resp.status(), 201);
-        let body: Value = test::read_body_json(resp).await;
+        let (status, body) = common::upload_via_server_session(
+            &$app,
+            &$token,
+            &uri,
+            $name,
+            "text/plain",
+            ($content).as_bytes(),
+        )
+        .await;
+        assert_eq!(status, 201);
         body["data"]["id"].as_i64().unwrap()
     }};
-}
-
-fn upload_named_file(name: &str, content: &str, mime: &str, boundary: &str) -> String {
-    format!(
-        "--{boundary}\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"{name}\"\r\n\
-         Content-Type: {mime}\r\n\r\n\
-         {content}\r\n\
-         --{boundary}--\r\n"
-    )
 }
 
 #[actix_web::test]
@@ -237,27 +216,16 @@ async fn test_batch_delete_files() {
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    let boundary = "----TestBoundary123";
-
     // Upload 3 files
     let mut file_ids = Vec::new();
     for name in ["file1.txt", "file2.txt", "file3.txt"] {
-        let payload =
-            upload_named_file(name, &format!("content of {name}"), "text/plain", boundary);
-        let req = test::TestRequest::post()
-            .uri("/api/v1/files/upload")
-            .insert_header(("Cookie", common::access_cookie_header(&token)))
-            .insert_header(common::csrf_header_for(&token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 201);
-        let body: Value = test::read_body_json(resp).await;
-        file_ids.push(body["data"]["id"].as_i64().unwrap());
+        file_ids.push(upload_personal_file!(
+            app,
+            token,
+            None,
+            name,
+            &format!("content of {name}")
+        ));
     }
 
     // Batch delete first two files
@@ -278,19 +246,7 @@ async fn test_batch_delete_files() {
 
     // 批量删除后应能重新创建同名文件
     for name in ["file1.txt", "file2.txt"] {
-        let payload = upload_named_file(name, &format!("recreated {name}"), "text/plain", boundary);
-        let req = test::TestRequest::post()
-            .uri("/api/v1/files/upload")
-            .insert_header(("Cookie", common::access_cookie_header(&token)))
-            .insert_header(common::csrf_header_for(&token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 201, "recreating {name} should succeed");
+        upload_personal_file!(app, token, None, name, &format!("recreated {name}"));
     }
     assert_eq!(body["data"]["failed"], 0);
 
@@ -310,24 +266,8 @@ async fn test_batch_delete_mixed() {
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    let boundary = "----TestBoundary123";
-
     // Upload a file
-    let payload = upload_named_file("mixed1.txt", "content1", "text/plain", boundary);
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    let file_id = body["data"]["id"].as_i64().unwrap();
+    let file_id = upload_personal_file!(app, token, None, "mixed1.txt", "content1");
 
     // Create a folder
     let req = test::TestRequest::post()
@@ -376,27 +316,16 @@ async fn test_batch_move_files() {
     let body: Value = test::read_body_json(resp).await;
     let source_id = body["data"]["id"].as_i64().unwrap();
 
-    let boundary = "----TestBoundary123";
-
     // Upload 2 files in source folder
     let mut file_ids = Vec::new();
     for name in ["move1.txt", "move2.txt"] {
-        let payload =
-            upload_named_file(name, &format!("content of {name}"), "text/plain", boundary);
-        let req = test::TestRequest::post()
-            .uri(&format!("/api/v1/files/upload?folder_id={source_id}"))
-            .insert_header(("Cookie", common::access_cookie_header(&token)))
-            .insert_header(common::csrf_header_for(&token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 201);
-        let body: Value = test::read_body_json(resp).await;
-        file_ids.push(body["data"]["id"].as_i64().unwrap());
+        file_ids.push(upload_personal_file!(
+            app,
+            token,
+            Some(source_id),
+            name,
+            &format!("content of {name}")
+        ));
     }
 
     // Create target folder
@@ -450,19 +379,7 @@ async fn test_batch_move_files() {
     assert_eq!(body["data"]["files"].as_array().unwrap().len(), 0);
 
     // 批量移动后，原目录应能重新创建同名文件
-    let payload = upload_named_file("move1.txt", "recreated move1", "text/plain", boundary);
-    let req = test::TestRequest::post()
-        .uri(&format!("/api/v1/files/upload?folder_id={source_id}"))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    upload_personal_file!(app, token, Some(source_id), "move1.txt", "recreated move1");
 
     // Batch move both files back to root (null = root)
     let req = test::TestRequest::post()
@@ -520,27 +437,16 @@ async fn test_batch_copy_files() {
     let body: Value = test::read_body_json(resp).await;
     let source_id = body["data"]["id"].as_i64().unwrap();
 
-    let boundary = "----TestBoundary123";
-
     // Upload 2 files in source folder
     let mut file_ids = Vec::new();
     for name in ["copy1.txt", "copy2.txt"] {
-        let payload =
-            upload_named_file(name, &format!("content of {name}"), "text/plain", boundary);
-        let req = test::TestRequest::post()
-            .uri(&format!("/api/v1/files/upload?folder_id={source_id}"))
-            .insert_header(("Cookie", common::access_cookie_header(&token)))
-            .insert_header(common::csrf_header_for(&token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 201);
-        let body: Value = test::read_body_json(resp).await;
-        file_ids.push(body["data"]["id"].as_i64().unwrap());
+        file_ids.push(upload_personal_file!(
+            app,
+            token,
+            Some(source_id),
+            name,
+            &format!("content of {name}")
+        ));
     }
 
     // Batch copy both files to root (null = root)
@@ -634,38 +540,8 @@ async fn test_batch_move_preserves_per_item_conflict_reporting() {
     let body: Value = test::read_body_json(resp).await;
     let target_id = body["data"]["id"].as_i64().unwrap();
 
-    let boundary = "----TestBoundary123";
-    let payload = upload_named_file("dup.txt", "same-name", "text/plain", boundary);
-    let req = test::TestRequest::post()
-        .uri(&format!("/api/v1/files/upload?folder_id={source_a}"))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    let file_a = body["data"]["id"].as_i64().unwrap();
-
-    let payload = upload_named_file("dup.txt", "same-name", "text/plain", boundary);
-    let req = test::TestRequest::post()
-        .uri(&format!("/api/v1/files/upload?folder_id={source_b}"))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    let file_b = body["data"]["id"].as_i64().unwrap();
+    let file_a = upload_personal_file!(app, token, Some(source_a), "dup.txt", "same-name");
+    let file_b = upload_personal_file!(app, token, Some(source_b), "dup.txt", "same-name");
 
     let req = test::TestRequest::post()
         .uri("/api/v1/batch/move")
@@ -729,24 +605,7 @@ async fn test_batch_move_detects_target_conflicts_without_full_target_listing() 
     }
 
     macro_rules! upload_file {
-        ($folder_id:expr, $name:expr, $content:expr) => {{
-            let boundary = "----TestBoundary123";
-            let payload = upload_named_file($name, $content, "text/plain", boundary);
-            let req = test::TestRequest::post()
-                .uri(&format!("/api/v1/files/upload?folder_id={}", $folder_id))
-                .insert_header(("Cookie", common::access_cookie_header(&token)))
-                .insert_header(common::csrf_header_for(&token))
-                .insert_header((
-                    "Content-Type",
-                    format!("multipart/form-data; boundary={boundary}"),
-                ))
-                .set_payload(payload)
-                .to_request();
-            let resp = test::call_service(&app, req).await;
-            assert_eq!(resp.status(), 201);
-            let body: Value = test::read_body_json(resp).await;
-            body["data"]["id"].as_i64().unwrap()
-        }};
+        ($folder_id:expr, $name:expr, $content:expr) => {{ upload_personal_file!(app, token, Some($folder_id), $name, $content) }};
     }
 
     let source_id = create_folder!("ConflictSource", Value::Null);
@@ -875,22 +734,8 @@ async fn test_batch_copy_duplicate_ids_allocate_unique_names() {
     let body: Value = test::read_body_json(resp).await;
     let source_id = body["data"]["id"].as_i64().unwrap();
 
-    let boundary = "----TestBoundary123";
-    let payload = upload_named_file("repeat.txt", "repeat-content", "text/plain", boundary);
-    let req = test::TestRequest::post()
-        .uri(&format!("/api/v1/files/upload?folder_id={source_id}"))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    let file_id = body["data"]["id"].as_i64().unwrap();
+    let file_id =
+        upload_personal_file!(app, token, Some(source_id), "repeat.txt", "repeat-content");
 
     let req = test::TestRequest::post()
         .uri("/api/v1/batch/copy")
@@ -956,24 +801,11 @@ async fn test_batch_copy_duplicate_folder_ids_allocate_unique_names_and_preserve
     let body: Value = test::read_body_json(resp).await;
     let nested_id = body["data"]["id"].as_i64().unwrap();
 
-    let boundary = "----TestBoundary123";
     for (folder_id, name, content) in [
         (source_id, "root.txt", "root-content"),
         (nested_id, "nested.txt", "nested-content"),
     ] {
-        let payload = upload_named_file(name, content, "text/plain", boundary);
-        let req = test::TestRequest::post()
-            .uri(&format!("/api/v1/files/upload?folder_id={folder_id}"))
-            .insert_header(("Cookie", common::access_cookie_header(&token)))
-            .insert_header(common::csrf_header_for(&token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 201);
+        upload_personal_file!(app, token, Some(folder_id), name, content);
     }
 
     let req = test::TestRequest::post()
@@ -1045,39 +877,8 @@ async fn test_batch_delete_preserves_partial_failures_for_locked_items() {
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    let boundary = "----TestBoundary123";
-
-    let payload = upload_named_file("delete-ok.txt", "delete-ok", "text/plain", boundary);
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    let file_ok = body["data"]["id"].as_i64().unwrap();
-
-    let payload = upload_named_file("delete-locked.txt", "delete-locked", "text/plain", boundary);
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    let file_locked = body["data"]["id"].as_i64().unwrap();
+    let file_ok = upload_personal_file!(app, token, None, "delete-ok.txt", "delete-ok");
+    let file_locked = upload_personal_file!(app, token, None, "delete-locked.txt", "delete-locked");
 
     let req = test::TestRequest::post()
         .uri("/api/v1/folders")
@@ -1295,22 +1096,7 @@ async fn test_batch_move_normalizes_descendants_of_selected_folders() {
     let body: Value = test::read_body_json(resp).await;
     let target_id = body["data"]["id"].as_i64().unwrap();
 
-    let boundary = "----TestBoundary123";
-    let payload = upload_named_file("nested.txt", "nested content", "text/plain", boundary);
-    let req = test::TestRequest::post()
-        .uri(&format!("/api/v1/files/upload?folder_id={child_id}"))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    let file_id = body["data"]["id"].as_i64().unwrap();
+    let file_id = upload_personal_file!(app, token, Some(child_id), "nested.txt", "nested content");
 
     let req = test::TestRequest::post()
         .uri("/api/v1/batch/move")
@@ -1389,39 +1175,20 @@ async fn test_batch_copy_preserves_partial_failures_for_quota() {
     let body: Value = test::read_body_json(resp).await;
     let source_id = body["data"]["id"].as_i64().unwrap();
 
-    let boundary = "----TestBoundary123";
-
-    let payload = upload_named_file("quota-a.txt", "quota-a-content", "text/plain", boundary);
-    let req = test::TestRequest::post()
-        .uri(&format!("/api/v1/files/upload?folder_id={source_id}"))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    let file_a = body["data"]["id"].as_i64().unwrap();
-
-    let payload = upload_named_file("quota-b.txt", "quota-b-content", "text/plain", boundary);
-    let req = test::TestRequest::post()
-        .uri(&format!("/api/v1/files/upload?folder_id={source_id}"))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    let file_b = body["data"]["id"].as_i64().unwrap();
+    let file_a = upload_personal_file!(
+        app,
+        token,
+        Some(source_id),
+        "quota-a.txt",
+        "quota-a-content"
+    );
+    let file_b = upload_personal_file!(
+        app,
+        token,
+        Some(source_id),
+        "quota-b.txt",
+        "quota-b-content"
+    );
 
     let user = aster_drive::db::repository::user_repo::find_by_username(&db, "testuser")
         .await
@@ -3035,28 +2802,14 @@ async fn test_batch_archive_download_ticket_respects_user_runtime_switch() {
     let body: Value = test::read_body_json(resp).await;
     let team_id = body["data"]["id"].as_i64().unwrap();
 
-    let boundary = "----TeamArchiveDownloadBoundary";
-    let payload = format!(
-        "--{boundary}\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"team-download.txt\"\r\n\
-         Content-Type: text/plain\r\n\r\n\
-         team download content\r\n\
-         --{boundary}--\r\n"
+    let team_file_id = upload_team_file!(
+        app,
+        token,
+        team_id,
+        None,
+        "download.txt",
+        "team download content"
     );
-    let req = test::TestRequest::post()
-        .uri(&format!("/api/v1/teams/{team_id}/files/upload"))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    let team_file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::post()
         .uri("/api/v1/batch/archive-download")

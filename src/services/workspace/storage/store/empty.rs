@@ -6,8 +6,8 @@ use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::events::storage_change;
 use crate::services::workspace::storage::{
-    WorkspaceStorageScope, create_exact_file_from_blob, create_new_file_from_blob,
-    lock_folder_access_on, resolve_policy_for_size_with_verified_folder_on,
+    BlobPolicyRequest, WorkspaceStorageScope, create_exact_file_from_blob,
+    create_new_file_from_blob, lock_folder_access_on, resolve_blob_policy_for_write,
     resolve_verified_folder_policy_hint_on,
 };
 use aster_drive_model::entities::{file, file_blob};
@@ -75,10 +75,20 @@ impl PreparedEmptyFile {
             }
             None => None,
         };
-        let policy = resolve_policy_for_size_with_verified_folder_on(
-            state, txn, self.scope, folder, EMPTY_SIZE,
+        let policy = resolve_blob_policy_for_write(
+            state,
+            BlobPolicyRequest {
+                scope: self.scope,
+                folder_id: self.folder_id,
+                folder_hint: folder,
+                filename: &self.filename,
+                file_size: EMPTY_SIZE,
+                mime_type: "application/octet-stream",
+                existing_file_id: None,
+            },
         )
-        .await?;
+        .await?
+        .policy;
         let mut resolved = self.clone();
         resolved.policy_id = Some(policy.id);
         Ok(resolved)

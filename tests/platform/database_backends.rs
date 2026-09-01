@@ -529,16 +529,6 @@ async fn assert_revision_property_namespace_case_sensitivity<S, B, E>(
     assert_eq!(value("urn:case-sensitive", "color"), Some("lower-name-old"));
 }
 
-fn upload_named_file(name: &str, content: &str, mime: &str, boundary: &str) -> String {
-    format!(
-        "--{boundary}\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"{name}\"\r\n\
-         Content-Type: {mime}\r\n\r\n\
-         {content}\r\n\
-         --{boundary}--\r\n"
-    )
-}
-
 async fn wait_for_database(database_url: &str) {
     let mut last_err: Option<String> = None;
     let ready = tokio::time::timeout(std::time::Duration::from_secs(60), async {
@@ -962,33 +952,18 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
-    let share_file_boundary = "----BackendShareBoundary123";
-    let share_payload = upload_named_file(
+    let (share_upload_status, share_upload_body) = common::upload_via_server_session(
+        &app,
+        &token,
+        "/api/v1/files",
         "shared.txt",
-        "shared content",
         "text/plain",
-        share_file_boundary,
-    );
-    let share_upload_req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={share_file_boundary}"),
-        ))
-        .set_payload(share_payload)
-        .to_request();
-    let share_upload_resp = test::call_service(&app, share_upload_req).await;
-    let share_upload_status = share_upload_resp.status();
+        b"shared content",
+    )
+    .await;
     if share_upload_status != 201 {
-        let body = test::read_body(share_upload_resp).await;
-        panic!(
-            "share upload returned {share_upload_status}: {}",
-            String::from_utf8_lossy(&body)
-        );
+        panic!("share upload returned {share_upload_status}: {share_upload_body}");
     }
-    let share_upload_body: Value = test::read_body_json(share_upload_resp).await;
     let share_file_id = share_upload_body["data"]["id"]
         .as_i64()
         .expect("share upload should return file id");
@@ -1120,33 +1095,23 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
         "backend-user"
     );
 
-    let boundary = "----BackendBoundary123";
     let mut report_file_id = None;
     for (name, mime, content) in [
         ("report.pdf", "application/pdf", "pdf content"),
         ("notes.txt", "text/plain", "notes content"),
     ] {
-        let payload = upload_named_file(name, content, mime, boundary);
-        let req = test::TestRequest::post()
-            .uri("/api/v1/files/upload")
-            .insert_header(("Cookie", common::access_cookie_header(&token)))
-            .insert_header(common::csrf_header_for(&token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-        let status = resp.status();
+        let (status, body) = common::upload_via_server_session(
+            &app,
+            &token,
+            "/api/v1/files",
+            name,
+            mime,
+            content.as_bytes(),
+        )
+        .await;
         if status != 201 {
-            let body = test::read_body(resp).await;
-            panic!(
-                "upload {name} returned {status}: {}",
-                String::from_utf8_lossy(&body)
-            );
+            panic!("upload {name} returned {status}: {body}");
         }
-        let body: Value = test::read_body_json(resp).await;
         if name == "report.pdf" {
             report_file_id = body["data"]["id"].as_i64();
         }
@@ -1161,30 +1126,17 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     let delete_resp = test::call_service(&app, delete_req).await;
     assert_eq!(delete_resp.status(), 200);
 
-    let payload = upload_named_file(
+    let (recreate_status, body) = common::upload_via_server_session(
+        &app,
+        &token,
+        "/api/v1/files",
         "report.pdf",
-        "pdf content again",
         "application/pdf",
-        boundary,
-    );
-    let recreate_req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let recreate_resp = test::call_service(&app, recreate_req).await;
-    let recreate_status = recreate_resp.status();
+        b"pdf content again",
+    )
+    .await;
     if recreate_status != 201 {
-        let body = test::read_body(recreate_resp).await;
-        panic!(
-            "recreate report.pdf returned {recreate_status}: {}",
-            String::from_utf8_lossy(&body)
-        );
+        panic!("recreate report.pdf returned {recreate_status}: {body}");
     }
 
     let mut documents_folder_id = None;
@@ -1463,7 +1415,9 @@ async fn assert_remote_node_telemetry_rename_round_trip(database_url: String, ba
         "2026-08-20T02:03:04+00:00"
     );
 
-    CurrentMigrator::down(&database, Some(1))
+    let rollback_steps =
+        u32::try_from(migrations.len() - rename_index).expect("rollback step count should fit u32");
+    CurrentMigrator::down(&database, Some(rollback_steps))
         .await
         .expect("database should roll back telemetry rename");
     let row = database

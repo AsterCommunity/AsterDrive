@@ -10,7 +10,7 @@ Issue `#120` uses `k6` as the primary benchmark runner.
 - `search.js`: search latency against the seeded corpus
 - `download.js`: authenticated file download throughput
 - `download-range.js`: authenticated repeated ranged download throughput
-- `upload-direct.js`: direct multipart upload throughput
+- `upload-stream.js`: negotiated single-request stream upload throughput
 - `upload-chunked.js`: chunked upload throughput
 - `batch-move.js`: concurrent batch move operations
 - `webdav-rw.js`: WebDAV concurrent read/write flow
@@ -20,7 +20,7 @@ Issue `#120` uses `k6` as the primary benchmark runner.
 - `mixed-ramp.js`: staged mixed workload ramp for latency / error curve observation
 - `mixed-background-archive-download.js`: foreground REST downloads while archive compression tasks are dispatched
 - `mixed-background-thumbnail-webdav.js`: foreground WebDAV reads while thumbnail tasks are dispatched
-- `mixed-background-storage-migration-upload.js`: foreground direct uploads while a storage policy migration runs
+- `mixed-background-storage-migration-upload.js`: foreground session uploads while a storage policy migration runs
 - `mixed-background-rest-webdav.js`: mixed REST download/upload and WebDAV reads while archive and thumbnail tasks are dispatched
 - `soak-mixed.js`: long-running mixed workload for memory / pool observation
 
@@ -118,10 +118,10 @@ ASTER_BENCH_RANGE_BYTES=262144 \
 k6 run tests/performance/k6/download-range.js
 ```
 
-Direct upload:
+Stream upload:
 
 ```bash
-k6 run tests/performance/k6/upload-direct.js
+k6 run tests/performance/k6/upload-stream.js
 ```
 
 Chunked upload:
@@ -437,7 +437,7 @@ Data-plane scripts now emit byte counters in the compact summary, so you can der
 
 - `download.js` → `aster_download_bytes`
 - `download-range.js` → `aster_download_range_bytes`
-- `upload-direct.js` → `aster_upload_direct_bytes`
+- `upload-stream.js` → `aster_upload_stream_bytes`
 - `upload-chunked.js` → `aster_upload_chunked_bytes`
 - `webdav-rw.js` → `aster_webdav_put_bytes`, `aster_webdav_get_bytes`
 - `webdav-concurrent-read.js` → `aster_webdav_read_bytes`
