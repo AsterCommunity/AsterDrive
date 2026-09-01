@@ -591,6 +591,34 @@ async fn install_probe_s3_policy_with_upload_strategy(
     policy
 }
 
+async fn install_probe_onedrive_frontend_direct_policy(
+    state: &aster_drive::runtime::PrimaryAppState,
+) -> aster_drive_model::entities::storage_policy::Model {
+    use sea_orm::{ActiveModelTrait, Set};
+
+    let policy = policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .expect("default policy should exist in test setup");
+    let mut active: aster_drive_model::entities::storage_policy::ActiveModel = policy.into();
+    active.connector_id = Set("asterdrive.storage.onedrive".to_string());
+    active.storage_config = Set(common::encoded_policy_config(
+        "asterdrive.storage.onedrive",
+        serde_json::json!({
+            "base_path": "",
+            "provider_resumable_upload_strategy": "frontend_direct",
+            "provider_download_strategy": "server_relay",
+            "provider_download_filename_mode": "provider_native",
+            "cloud": "global",
+            "account_mode": "personal"
+        }),
+        aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+    ));
+    let policy = active.update(state.writer_db()).await.unwrap();
+    reload_policy_snapshot(state).await;
+    policy
+}
+
 async fn upload_same_content_direct_and_chunked(
     state: &aster_drive::runtime::PrimaryAppState,
     user_id: i64,
@@ -2103,6 +2131,123 @@ async fn test_upload_init_rejects_insufficient_target_capacity_without_creating_
         1
     );
     exact_driver.assert_no_data_plane_calls();
+}
+
+#[tokio::test]
+async fn test_multipart_init_failure_cleans_new_relative_directories() {
+    use aster_drive::db::repository::{folder_repo, upload_session_repo};
+    use aster_drive::services::files::upload;
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "mpinitfail",
+        "multipart-init-failure@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let policy = install_probe_s3_policy_with_upload_strategy(
+        &state,
+        aster_drive_model::types::ObjectStorageUploadStrategy::RelayStream,
+    )
+    .await;
+    let driver = Arc::new(UploadDataPlaneProbe::default());
+    state
+        .driver_registry
+        .insert_for_test(policy.id, driver.clone());
+
+    let error = match upload::init_upload(
+        &state,
+        user.id,
+        "multipart.bin",
+        10 * 1024 * 1024,
+        None,
+        Some("multipart-init-failure/nested/multipart.bin"),
+    )
+    .await
+    {
+        Ok(_) => panic!("injected multipart initialization failure should be returned"),
+        Err(error) => error,
+    };
+    assert!(
+        error.to_string().contains("does not support multipart"),
+        "unexpected init error: {error}"
+    );
+    assert_eq!(
+        upload_session_repo::count_by_policy(state.writer_db(), policy.id)
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(
+        folder_repo::find_by_name_in_parent(
+            state.writer_db(),
+            user.id,
+            None,
+            "multipart-init-failure",
+        )
+        .await
+        .unwrap()
+        .is_none(),
+        "failed multipart initialization must remove newly-created parents"
+    );
+    assert_eq!(driver.multipart_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn test_provider_init_failure_cleans_new_relative_directories() {
+    use aster_drive::db::repository::{folder_repo, upload_session_repo};
+    use aster_drive::services::files::upload;
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "providerfail",
+        "provider-init-failure@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let policy = install_probe_onedrive_frontend_direct_policy(&state).await;
+    let driver = Arc::new(UploadDataPlaneProbe::default());
+    state.driver_registry.insert_for_test(policy.id, driver);
+
+    let error = match upload::init_upload(
+        &state,
+        user.id,
+        "provider.bin",
+        1024,
+        None,
+        Some("provider-init-failure/nested/provider.bin"),
+    )
+    .await
+    {
+        Ok(_) => panic!("injected provider initialization failure should be returned"),
+        Err(error) => error,
+    };
+    assert!(
+        error.to_string().contains("frontend-direct") || error.to_string().contains("provider"),
+        "unexpected provider init error: {error}"
+    );
+    assert_eq!(
+        upload_session_repo::count_by_policy(state.writer_db(), policy.id)
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(
+        folder_repo::find_by_name_in_parent(
+            state.writer_db(),
+            user.id,
+            None,
+            "provider-init-failure",
+        )
+        .await
+        .unwrap()
+        .is_none(),
+        "failed provider initialization must remove newly-created parents"
+    );
 }
 
 #[actix_web::test]

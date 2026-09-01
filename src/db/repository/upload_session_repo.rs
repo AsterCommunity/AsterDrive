@@ -109,8 +109,10 @@ pub async fn delete_if_cancellable<C: ConnectionTrait>(db: &C, id: &str) -> Resu
 }
 
 pub async fn exists_by_folder_id<C: ConnectionTrait>(db: &C, folder_id: i64) -> Result<bool> {
+    let now = chrono::Utc::now();
     Ok(UploadSession::find()
         .filter(upload_session::Column::FolderId.eq(folder_id))
+        .filter(upload_session::Column::ExpiresAt.gt(now))
         .filter(upload_session::Column::Status.is_in([
             UploadSessionStatus::Uploading,
             UploadSessionStatus::Assembling,
@@ -566,6 +568,15 @@ mod tests {
         active.folder_id = Some(42);
         active.into_active_model().insert(&db).await.unwrap();
         assert!(exists_by_folder_id(&db, 42).await.unwrap());
+
+        let mut expired = session("folder-expired", UploadSessionStatus::Assembling);
+        expired.folder_id = Some(44);
+        expired.expires_at = Utc::now() - Duration::seconds(1);
+        expired.into_active_model().insert(&db).await.unwrap();
+        assert!(
+            !exists_by_folder_id(&db, 44).await.unwrap(),
+            "expired sessions must not prevent empty-directory compensation"
+        );
 
         let mut completed = session("folder-completed", UploadSessionStatus::Completed);
         completed.folder_id = Some(43);

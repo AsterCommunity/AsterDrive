@@ -148,20 +148,24 @@ async fn init_upload_for_scope(
     validate_storage_capacity(state, &ctx.policy, ctx.total_size).await?;
     materialize_upload_target(state, &mut ctx).await?;
 
-    let result = if transport.resolve_init_mode(&ctx.policy, ctx.total_size)
-        == UploadTransport::Stream
-        && transport.supports_streaming_direct_upload(&ctx.policy, ctx.total_size)
-    {
-        init_stream_session(state, &ctx).await
-    } else if let Some(response) = provider::init_provider_resumable_upload(state, &ctx).await? {
-        Ok(response)
-    } else if let Some(response) = object_storage::init_object_storage_upload(state, &ctx).await? {
-        Ok(response)
-    } else if let Some(response) = remote::init_remote_upload(state, &ctx).await? {
-        Ok(response)
-    } else {
+    let result: Result<InitUploadResponse> = async {
+        if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadTransport::Stream
+            && transport.supports_streaming_direct_upload(&ctx.policy, ctx.total_size)
+        {
+            return init_stream_session(state, &ctx).await;
+        }
+        if let Some(response) = provider::init_provider_resumable_upload(state, &ctx).await? {
+            return Ok(response);
+        }
+        if let Some(response) = object_storage::init_object_storage_upload(state, &ctx).await? {
+            return Ok(response);
+        }
+        if let Some(response) = remote::init_remote_upload(state, &ctx).await? {
+            return Ok(response);
+        }
         init_chunked_upload_session(state, &ctx).await
-    };
+    }
+    .await;
 
     match result {
         Ok(response) => {
