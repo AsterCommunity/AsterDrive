@@ -33,6 +33,7 @@ pub(super) struct InitUploadContext {
     pub(super) policy: storage_policy::Model,
     pub(super) routing_decision: StorageRoutingDecision,
     pub(super) frontend_client_id: Option<String>,
+    pub(super) created_folder_ids: Vec<i64>,
 }
 
 pub(super) struct UploadSessionRecordParams<'a> {
@@ -193,6 +194,7 @@ pub(super) async fn resolve_init_upload_context(
         policy,
         routing_decision,
         frontend_client_id: frontend_client_id.map(str::to_string),
+        created_folder_ids: Vec::new(),
     })
 }
 
@@ -290,12 +292,56 @@ pub(super) async fn materialize_upload_target(
     } else {
         Some(storage::load_scope_actor_username_cached(state, ctx.scope).await?)
     };
-    let resolved =
-        storage::ensure_upload_parent_path(state, ctx.scope, &parsed, actor_username.as_deref())
-            .await?;
+    let txn = aster_forge_db::transaction::begin(state.writer_db()).await?;
+    let (resolved, created) = storage::ensure_upload_parent_path_with_created(
+        state,
+        &txn,
+        ctx.scope,
+        &parsed,
+        actor_username.as_deref(),
+    )
+    .await?;
+    aster_forge_db::transaction::commit(txn).await?;
     ctx.target.folder_id = resolved.folder_id;
     ctx.target.folder = resolved.folder;
+    ctx.created_folder_ids = created;
     Ok(())
+}
+
+pub(super) async fn cleanup_created_folders(state: &PrimaryAppState, ctx: &InitUploadContext) {
+    for folder_id in ctx.created_folder_ids.iter().rev().copied() {
+        let empty = match ctx.scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                storage::find_children(state.writer_db(), user_id, Some(folder_id))
+                    .await
+                    .map(|items| items.is_empty())
+                    .unwrap_or(false)
+                    && storage::find_by_folder(state.writer_db(), user_id, Some(folder_id))
+                        .await
+                        .map(|items| items.is_empty())
+                        .unwrap_or(false)
+            }
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                storage::find_team_children(state.writer_db(), team_id, Some(folder_id))
+                    .await
+                    .map(|items| items.is_empty())
+                    .unwrap_or(false)
+                    && storage::find_by_team_folder(state.writer_db(), team_id, Some(folder_id))
+                        .await
+                        .map(|items| items.is_empty())
+                        .unwrap_or(false)
+            }
+        };
+        if empty
+            && let Err(error) =
+                crate::db::repository::folder_repo::delete(state.writer_db(), folder_id).await
+        {
+            tracing::warn!(
+                folder_id,
+                "failed to compensate empty upload directory: {error}"
+            );
+        }
+    }
 }
 
 fn validate_policy_upload_size(policy: &storage_policy::Model, total_size: i64) -> Result<()> {

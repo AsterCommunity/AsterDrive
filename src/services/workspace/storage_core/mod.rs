@@ -19,7 +19,7 @@ pub(crate) use finalize::{
     finalize_upload_session_file,
 };
 pub(crate) use path::{
-    ParsedUploadPath, ensure_upload_parent_path, ensure_upload_parent_path_on,
+    ParsedUploadPath, ensure_upload_parent_path_on, ensure_upload_parent_path_with_created,
     parse_relative_upload_path, resolve_existing_upload_parent,
 };
 pub(crate) use policy::{

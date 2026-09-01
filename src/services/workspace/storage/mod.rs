@@ -16,6 +16,8 @@ mod tests;
 
 // 调用方只需要依赖 `workspace::storage`，不必同时了解 scope helper
 // 和底层核心实现分别散落在哪个文件里。
+pub(crate) use crate::db::repository::file_repo::{find_by_folder, find_by_team_folder};
+pub(crate) use crate::db::repository::folder_repo::{find_children, find_team_children};
 pub(crate) use crate::services::workspace::scope::{
     WorkspaceResourceScope, WorkspaceStorageScope, ensure_active_file_scope,
     ensure_active_folder_scope, ensure_file_resource_scope, ensure_file_scope,
@@ -31,7 +33,7 @@ pub(crate) use crate::services::workspace::storage_core::{
     ParsedUploadPath, VerifiedFolderPolicyHint, check_quota, create_exact_file_from_blob,
     create_file_from_blob_with_mime, create_new_file_from_blob, create_nondedup_blob_with_key,
     create_opaque_nondedup_blob, ensure_policy_available_for_folder_binding,
-    ensure_upload_parent_path, ensure_upload_parent_path_on,
+    ensure_upload_parent_path_on, ensure_upload_parent_path_with_created,
     finalize_upload_session_blob_with_actor_username, finalize_upload_session_file,
     load_storage_limits, local_content_dedup_enabled, lock_storage_usage,
     lock_storage_usage_for_resource_scope, parse_relative_upload_path,

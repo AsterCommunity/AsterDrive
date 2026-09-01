@@ -148,36 +148,31 @@ async fn init_upload_for_scope(
     validate_storage_capacity(state, &ctx.policy, ctx.total_size).await?;
     materialize_upload_target(state, &mut ctx).await?;
 
-    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadTransport::Stream
+    let result = if transport.resolve_init_mode(&ctx.policy, ctx.total_size)
+        == UploadTransport::Stream
         && transport.supports_streaming_direct_upload(&ctx.policy, ctx.total_size)
     {
-        let response = init_stream_session(state, &ctx).await?;
-        record_upload_session_if_created(state, &response);
-        return Ok(response);
-    }
+        init_stream_session(state, &ctx).await
+    } else if let Some(response) = provider::init_provider_resumable_upload(state, &ctx).await? {
+        Ok(response)
+    } else if let Some(response) = object_storage::init_object_storage_upload(state, &ctx).await? {
+        Ok(response)
+    } else if let Some(response) = remote::init_remote_upload(state, &ctx).await? {
+        Ok(response)
+    } else {
+        init_chunked_upload_session(state, &ctx).await
+    };
 
-    if let Some(response) = provider::init_provider_resumable_upload(state, &ctx).await? {
-        record_upload_session_if_created(state, &response);
-        return Ok(response);
+    match result {
+        Ok(response) => {
+            record_upload_session_if_created(state, &response);
+            Ok(response)
+        }
+        Err(error) => {
+            context::cleanup_created_folders(state, &ctx).await;
+            Err(error)
+        }
     }
-
-    // Object-storage and remote transports have protocol-level upload session
-    // setup. Generic stream-upload connectors fall through to direct/chunked
-    // modes; any provider-native resumable session stays inside the concrete
-    // driver instead of leaking into upload-service dispatch.
-    if let Some(response) = object_storage::init_object_storage_upload(state, &ctx).await? {
-        record_upload_session_if_created(state, &response);
-        return Ok(response);
-    }
-
-    if let Some(response) = remote::init_remote_upload(state, &ctx).await? {
-        record_upload_session_if_created(state, &response);
-        return Ok(response);
-    }
-
-    let response = init_chunked_upload_session(state, &ctx).await?;
-    record_upload_session_if_created(state, &response);
-    Ok(response)
 }
 
 fn record_upload_session_if_created(

@@ -1,4 +1,3 @@
-use aster_forge_db::transaction;
 use chrono::Utc;
 use sea_orm::Set;
 
@@ -67,22 +66,111 @@ pub(crate) async fn parse_relative_upload_path(
     })
 }
 
-pub(crate) async fn ensure_upload_parent_path(
+pub(crate) async fn ensure_upload_parent_path_with_created<C: sea_orm::ConnectionTrait>(
     state: &PrimaryAppState,
+    db: &C,
     scope: WorkspaceStorageScope,
     parsed: &ParsedUploadPath,
     actor_username: Option<&str>,
-) -> Result<ResolvedUploadParent> {
+) -> Result<(ResolvedUploadParent, Vec<i64>)> {
     if parsed.parent_segments.is_empty() {
-        return Ok(ResolvedUploadParent {
-            folder_id: parsed.base_folder_id,
-            folder: parsed.base_folder,
+        return Ok((
+            ResolvedUploadParent {
+                folder_id: parsed.base_folder_id,
+                folder: parsed.base_folder,
+            },
+            Vec::new(),
+        ));
+    }
+    let mut current_parent = parsed.base_folder_id;
+    let mut current_folder = parsed.base_folder;
+    let mut created = Vec::new();
+    for segment in &parsed.parent_segments {
+        let existing = match scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                folder_repo::find_by_name_in_parent(db, user_id, current_parent, segment).await?
+            }
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                folder_repo::find_by_name_in_team_parent(db, team_id, current_parent, segment)
+                    .await?
+            }
+        };
+        let (folder, was_created) = if let Some(folder) = existing {
+            (folder, false)
+        } else {
+            let created_by_username = match actor_username {
+                Some(username) => username.to_string(),
+                None => load_scope_actor_username_cached(state, scope).await?,
+            };
+            let now = Utc::now();
+            let model = match scope {
+                WorkspaceStorageScope::Personal { user_id } => folder::ActiveModel {
+                    name: Set(segment.clone()),
+                    parent_id: Set(current_parent),
+                    owner_user_id: Set(Some(user_id)),
+                    created_by_user_id: Set(Some(user_id)),
+                    created_by_username: Set(created_by_username),
+                    policy_id: Set(None),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                    ..Default::default()
+                },
+                WorkspaceStorageScope::Team {
+                    team_id,
+                    actor_user_id,
+                } => folder::ActiveModel {
+                    name: Set(segment.clone()),
+                    parent_id: Set(current_parent),
+                    team_id: Set(Some(team_id)),
+                    owner_user_id: Set(None),
+                    created_by_user_id: Set(Some(actor_user_id)),
+                    created_by_username: Set(created_by_username),
+                    policy_id: Set(None),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                    ..Default::default()
+                },
+            };
+            let (folder, was_created) = match scope {
+                WorkspaceStorageScope::Personal { user_id } => {
+                    folder_repo::create_or_find_by_name_in_parent_with_created(
+                        db,
+                        model,
+                        user_id,
+                        current_parent,
+                        segment,
+                    )
+                    .await?
+                }
+                WorkspaceStorageScope::Team { team_id, .. } => {
+                    folder_repo::create_or_find_by_name_in_team_parent_with_created(
+                        db,
+                        model,
+                        team_id,
+                        current_parent,
+                        segment,
+                    )
+                    .await?
+                }
+            };
+            (folder, was_created)
+        };
+        if was_created {
+            created.push(folder.id);
+        }
+        current_parent = Some(folder.id);
+        current_folder = Some(match current_folder {
+            Some(parent_hint) => parent_hint.merge_child(&folder),
+            None => (&folder).into(),
         });
     }
-    let txn = transaction::begin(state.writer_db()).await?;
-    let resolved = ensure_upload_parent_path_on(state, &txn, scope, parsed, actor_username).await?;
-    transaction::commit(txn).await?;
-    Ok(resolved)
+    Ok((
+        ResolvedUploadParent {
+            folder_id: current_parent,
+            folder: current_folder,
+        },
+        created,
+    ))
 }
 
 pub(crate) async fn resolve_existing_upload_parent(
@@ -137,95 +225,7 @@ pub(crate) async fn ensure_upload_parent_path_on<C: sea_orm::ConnectionTrait>(
     parsed: &ParsedUploadPath,
     actor_username: Option<&str>,
 ) -> Result<ResolvedUploadParent> {
-    let mut current_parent = parsed.base_folder_id;
-    let mut current_folder = parsed.base_folder;
-
-    for segment in &parsed.parent_segments {
-        let folder =
-            ensure_folder_in_parent(state, db, scope, current_parent, segment, actor_username)
-                .await?;
-        current_parent = Some(folder.id);
-        current_folder = Some(match current_folder {
-            Some(parent_hint) => parent_hint.merge_child(&folder),
-            None => (&folder).into(),
-        });
-    }
-
-    Ok(ResolvedUploadParent {
-        folder_id: current_parent,
-        folder: current_folder,
-    })
-}
-
-async fn ensure_folder_in_parent<C: sea_orm::ConnectionTrait>(
-    state: &PrimaryAppState,
-    db: &C,
-    scope: WorkspaceStorageScope,
-    parent_id: Option<i64>,
-    name: &str,
-    actor_username: Option<&str>,
-) -> Result<folder::Model> {
-    // 目录上传 / 解压导入会并发命中同一路径。
-    // 这里先查后建，并在插入冲突后回读，保证“得到该目录”的语义是幂等的。
-    let name = aster_forge_validation::filename::normalize_validate_name(name)?;
-
-    match scope {
-        WorkspaceStorageScope::Personal { user_id } => {
-            if let Some(existing) =
-                folder_repo::find_by_name_in_parent(db, user_id, parent_id, &name).await?
-            {
-                return Ok(existing);
-            }
-
-            let created_by_username = match actor_username {
-                Some(username) => username.to_string(),
-                None => load_scope_actor_username_cached(state, scope).await?,
-            };
-            let now = Utc::now();
-            let model = folder::ActiveModel {
-                name: Set(name.clone()),
-                parent_id: Set(parent_id),
-                owner_user_id: Set(Some(user_id)),
-                created_by_user_id: Set(Some(user_id)),
-                created_by_username: Set(created_by_username),
-                policy_id: Set(None),
-                created_at: Set(now),
-                updated_at: Set(now),
-                ..Default::default()
-            };
-
-            folder_repo::create_or_find_by_name_in_parent(db, model, user_id, parent_id, &name)
-                .await
-        }
-        WorkspaceStorageScope::Team {
-            team_id,
-            actor_user_id,
-        } => {
-            if let Some(existing) =
-                folder_repo::find_by_name_in_team_parent(db, team_id, parent_id, &name).await?
-            {
-                return Ok(existing);
-            }
-            let created_by_username = match actor_username {
-                Some(username) => username.to_string(),
-                None => load_scope_actor_username_cached(state, scope).await?,
-            };
-            let now = Utc::now();
-            let model = folder::ActiveModel {
-                name: Set(name.clone()),
-                parent_id: Set(parent_id),
-                team_id: Set(Some(team_id)),
-                owner_user_id: Set(None),
-                created_by_user_id: Set(Some(actor_user_id)),
-                created_by_username: Set(created_by_username),
-                policy_id: Set(None),
-                created_at: Set(now),
-                updated_at: Set(now),
-                ..Default::default()
-            };
-
-            folder_repo::create_or_find_by_name_in_team_parent(db, model, team_id, parent_id, &name)
-                .await
-        }
-    }
+    ensure_upload_parent_path_with_created(state, db, scope, parsed, actor_username)
+        .await
+        .map(|(resolved, _)| resolved)
 }

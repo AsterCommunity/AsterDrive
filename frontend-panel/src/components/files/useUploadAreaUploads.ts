@@ -118,6 +118,7 @@ export function useUploadAreaUploads({
 				...modeRunners,
 				abortFlagsRef,
 				metadataAbortRef,
+				markFolderForRefresh,
 				markTaskFailed,
 				patchTask,
 				setTasks,
@@ -133,6 +134,7 @@ export function useUploadAreaUploads({
 			modeRunners,
 			abortFlagsRef,
 			metadataAbortRef,
+			markFolderForRefresh,
 			markTaskFailed,
 			patchTask,
 			setTasks,
@@ -148,11 +150,12 @@ export function useUploadAreaUploads({
 		async (taskIds: readonly string[]) => {
 			await clearTerminalUploadTasks(taskIds, {
 				setTasks,
+				markFolderForRefresh,
 				taskOperationLocks: taskOperationLocksRef.current,
 				tasksRef,
 			});
 		},
-		[setTasks, tasksRef],
+		[markFolderForRefresh, setTasks, tasksRef],
 	);
 
 	const retryTask = useCallback(
@@ -161,6 +164,7 @@ export function useUploadAreaUploads({
 				...modeRunners,
 				abortFlagsRef,
 				metadataAbortRef,
+				markFolderForRefresh,
 				markTaskFailed,
 				patchTask,
 				setTasks,
@@ -176,6 +180,7 @@ export function useUploadAreaUploads({
 			modeRunners,
 			abortFlagsRef,
 			metadataAbortRef,
+			markFolderForRefresh,
 			markTaskFailed,
 			patchTask,
 			setTasks,

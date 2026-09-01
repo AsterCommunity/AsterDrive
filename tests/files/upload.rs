@@ -4055,7 +4055,7 @@ async fn test_cluster_chunked_init_rejects_pod_local_staging_before_side_effects
         "cluster-staging.bin",
         10 * 1024 * 1024,
         None,
-        None,
+        Some("failed-init/nested/cluster-staging.bin"),
     )
     .await
     {
@@ -4079,6 +4079,15 @@ async fn test_cluster_chunked_init_rejects_pod_local_staging_before_side_effects
     assert!(
         entries.next_entry().await.unwrap().is_none(),
         "cluster staging rejection must happen before temp directory creation"
+    );
+    let user_folders =
+        aster_drive::db::repository::folder_repo::find_all_by_user(state.writer_db(), user.id)
+            .await
+            .unwrap();
+    assert!(
+        user_folders
+            .iter()
+            .all(|folder| folder.name != "failed-init" && folder.name != "nested")
     );
 }
 

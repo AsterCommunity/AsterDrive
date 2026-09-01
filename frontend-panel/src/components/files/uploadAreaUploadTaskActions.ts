@@ -12,6 +12,7 @@ import {
 	type InitUploadResponse,
 	uploadService,
 } from "@/services/uploadService";
+import { ApiErrorCode } from "@/types/api-helpers";
 import {
 	shouldRemovePersistedSession,
 	TERMINAL_UPLOAD_STATUS_SET,
@@ -41,6 +42,7 @@ export interface UploadTaskActionsContext extends UploadTransportRunners {
 	abortFlagsRef: MutableRefObject<Map<string, boolean>>;
 	metadataAbortRef: MutableRefObject<Map<string, AbortController>>;
 	markTaskFailed: (taskId: string, error: unknown) => void;
+	markFolderForRefresh?: (task: UploadTask) => void;
 	patchTask: (taskId: string, patch: Partial<UploadTask>) => void;
 	setTasks: Dispatch<SetStateAction<UploadTask[]>>;
 	setUploadPanelOpen: Dispatch<SetStateAction<boolean>>;
@@ -69,25 +71,35 @@ async function reconcileStreamSession(
 ): Promise<StreamReconciliation> {
 	for (let attempt = 0; attempt < 20; attempt += 1) {
 		try {
-			const progress = await uploadService.getProgress(uploadId);
-			if (progress.status === "completed") {
-				return {
-					state: "completed",
-					file: await uploadService.completeUpload(uploadId),
-				};
-			}
-			if (progress.status !== "assembling") return { state: "active" };
+			const file = await uploadService.completeUpload(uploadId);
+			if (!file) return { state: "active" };
+			return { state: "completed", file };
 		} catch (error) {
-			if (shouldRemovePersistedSession(error)) return { state: "missing" };
+			const code =
+				typeof error === "object" && error !== null && "code" in error
+					? (error as { code?: string }).code
+					: undefined;
+			if (code === ApiErrorCode.UploadAssembling) {
+				await new Promise((resolve) => window.setTimeout(resolve, 250));
+				continue;
+			}
+			if (
+				code === ApiErrorCode.UploadIncompleteChunks ||
+				code === ApiErrorCode.UploadPreviousFailure
+			) {
+				return { state: "active" };
+			}
+			if (code === ApiErrorCode.UploadSessionNotFound)
+				return { state: "missing" };
 			throw error;
 		}
-		await new Promise((resolve) => window.setTimeout(resolve, 250));
 	}
 	return { state: "active" };
 }
 
 interface ClearTerminalUploadTasksContext {
 	setTasks: Dispatch<SetStateAction<UploadTask[]>>;
+	markFolderForRefresh?: (task: UploadTask) => void;
 	taskOperationLocks: UploadTaskOperationLocks;
 	tasksRef: MutableRefObject<UploadTask[]>;
 }
@@ -329,6 +341,8 @@ export async function cancelUploadTask(
 	{
 		abortFlagsRef,
 		cancelMultipartSession,
+		markFolderForRefresh,
+		markTaskFailed,
 		metadataAbortRef,
 		patchTask,
 		setTasks,
@@ -350,15 +364,19 @@ export async function cancelUploadTask(
 				const reconciled = await reconcileStreamSession(task.uploadId);
 				if (reconciled.state === "completed") {
 					removeSession(task.uploadId);
+					markFolderForRefresh?.(task);
 					patchTask(taskId, {
 						status: "completed",
 						progress: 100,
-						uploadedBytes: task.totalBytes,
+						uploadedBytes: reconciled.file.size,
 						error: null,
 					});
 					return;
 				}
-			} catch {}
+			} catch (error) {
+				markTaskFailed(taskId, error);
+				return;
+			}
 			try {
 				await uploadService.cancelUpload(task.uploadId);
 			} catch {}
@@ -412,7 +430,12 @@ export async function cancelUploadTask(
 
 export async function clearTerminalUploadTasks(
 	taskIds: readonly string[],
-	{ setTasks, taskOperationLocks, tasksRef }: ClearTerminalUploadTasksContext,
+	{
+		setTasks,
+		markFolderForRefresh,
+		taskOperationLocks,
+		tasksRef,
+	}: ClearTerminalUploadTasksContext,
 ) {
 	const requestedIds = new Set(taskIds);
 	const tasksToClear = tasksRef.current.filter(
@@ -433,10 +456,13 @@ export async function clearTerminalUploadTasks(
 							const reconciled = await reconcileStreamSession(task.uploadId);
 							if (reconciled.state === "completed") {
 								removeSession(task.uploadId);
+								markFolderForRefresh?.(task);
 								clearedIds.add(task.id);
 								return;
 							}
-						} catch {}
+						} catch {
+							return;
+						}
 					}
 					try {
 						await uploadService.cancelUpload(task.uploadId);
@@ -479,6 +505,7 @@ export async function retryUploadTask(
 	taskId: string,
 	{
 		cancelMultipartSession,
+		markFolderForRefresh,
 		patchTask,
 		resumeCompletionTask,
 		setUploadPanelOpen,
@@ -511,10 +538,11 @@ export async function retryUploadTask(
 				const reconciled = await reconcileStreamSession(task.uploadId);
 				if (reconciled.state === "completed") {
 					removeSession(task.uploadId);
+					markFolderForRefresh?.(task);
 					patchTask(taskId, {
 						status: "completed",
 						progress: 100,
-						uploadedBytes: task.totalBytes,
+						uploadedBytes: reconciled.file.size,
 						error: null,
 					});
 					setUploadPanelOpen(true);

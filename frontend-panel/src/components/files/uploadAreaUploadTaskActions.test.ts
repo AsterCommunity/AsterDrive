@@ -4,6 +4,7 @@ import type { UploadTask } from "./uploadAreaManagerShared";
 
 const {
 	cancelUpload,
+	completeUpload,
 	createEmptyFile,
 	createFileService,
 	initUpload,
@@ -13,6 +14,7 @@ const {
 	removeSession,
 } = vi.hoisted(() => ({
 	cancelUpload: vi.fn(),
+	completeUpload: vi.fn(),
 	createEmptyFile: vi.fn(),
 	createFileService: vi.fn(),
 	initUpload: vi.fn(),
@@ -23,7 +25,7 @@ const {
 }));
 
 vi.mock("@/services/uploadService", () => ({
-	uploadService: { cancelUpload, initUpload, getProgress },
+	uploadService: { cancelUpload, completeUpload, initUpload, getProgress },
 }));
 
 vi.mock("@/services/fileService", () => ({
@@ -123,6 +125,99 @@ function createZeroByteTaskActionsFixture(taskId: string) {
 }
 
 describe("clearTerminalUploadTasks", () => {
+	it("keeps an already committed stream result during retry reconciliation", async () => {
+		const taskItem = task("stream", "failed", "committed-stream");
+		taskItem.file = new File(["body"], "stream.bin");
+		taskItem.mode = "stream";
+		const tasksRef = { current: [taskItem] };
+		const taskOperationLocks = new Map();
+		const patchTask = vi.fn();
+		const markFolderForRefresh = vi.fn();
+		completeUpload.mockReset();
+		completeUpload.mockResolvedValue({ id: 77, size: 4 });
+		cancelUpload.mockReset();
+		cancelUpload.mockResolvedValue(undefined);
+
+		await retryUploadTask("stream", {
+			cancelMultipartSession: vi.fn(),
+			markFolderForRefresh,
+			patchTask,
+			resumeCompletionTask: vi.fn(),
+			setUploadPanelOpen: vi.fn(),
+			taskOperationLocks,
+			tasksRef,
+			workspace: { kind: "personal" },
+		} as unknown as UploadTaskActionsContext);
+
+		expect(completeUpload).toHaveBeenCalledWith("committed-stream");
+		expect(cancelUpload).not.toHaveBeenCalled();
+		expect(markFolderForRefresh).toHaveBeenCalledWith(taskItem);
+		expect(patchTask).toHaveBeenCalledWith(
+			"stream",
+			expect.objectContaining({ status: "completed", uploadedBytes: 4 }),
+		);
+	});
+
+	it("waits for an assembling stream result before retry cleanup", async () => {
+		const taskItem = task("stream", "failed", "assembling-stream");
+		taskItem.file = new File(["body"], "stream.bin");
+		taskItem.mode = "stream";
+		const tasksRef = { current: [taskItem] };
+		const taskOperationLocks = new Map();
+		const patchTask = vi.fn();
+		const markFolderForRefresh = vi.fn();
+		completeUpload.mockReset();
+		completeUpload
+			.mockRejectedValueOnce({ code: "upload.assembling" })
+			.mockResolvedValueOnce({ id: 88, size: 4 });
+		cancelUpload.mockReset();
+
+		await retryUploadTask("stream", {
+			cancelMultipartSession: vi.fn(),
+			markFolderForRefresh,
+			patchTask,
+			resumeCompletionTask: vi.fn(),
+			setUploadPanelOpen: vi.fn(),
+			taskOperationLocks,
+			tasksRef,
+			workspace: { kind: "personal" },
+		} as unknown as UploadTaskActionsContext);
+
+		expect(completeUpload).toHaveBeenCalledTimes(2);
+		expect(cancelUpload).not.toHaveBeenCalled();
+		expect(markFolderForRefresh).toHaveBeenCalledWith(taskItem);
+	});
+
+	it("does not cancel a stream session when authoritative reconciliation is unavailable", async () => {
+		const taskItem = task("stream", "failed", "unknown-stream");
+		taskItem.file = new File(["body"], "stream.bin");
+		taskItem.mode = "stream";
+		const tasksRef = { current: [taskItem] };
+		const patchTask = vi.fn();
+		completeUpload.mockReset();
+		completeUpload.mockRejectedValue(new Error("network unavailable"));
+		cancelUpload.mockReset();
+		const markTaskFailed = vi.fn();
+
+		await cancelUploadTask("stream", {
+			abortFlagsRef: { current: new Map() },
+			cancelMultipartSession: vi.fn(),
+			markFolderForRefresh: vi.fn(),
+			metadataAbortRef: { current: new Map() },
+			markTaskFailed,
+			patchTask,
+			setTasks: vi.fn(),
+			setUploadPanelOpen: vi.fn(),
+			taskOperationLocks: new Map(),
+			tasksRef,
+			uploadRequestRef: { current: new Map() },
+			workspace: { kind: "personal" },
+		} as unknown as UploadTaskActionsContext);
+
+		expect(cancelUpload).not.toHaveBeenCalled();
+		expect(markTaskFailed).toHaveBeenCalledWith("stream", expect.any(Error));
+	});
+
 	it("clears every terminal state, preserves active work, and tolerates cleanup errors", async () => {
 		cancelUpload.mockReset();
 		cancelUpload.mockRejectedValue(new Error("cleanup unavailable"));
@@ -330,6 +425,8 @@ describe("clearTerminalUploadTasks", () => {
 		const taskOperationLocks = new Map();
 		const patchTask = vi.fn();
 		const setUploadPanelOpen = vi.fn();
+		completeUpload.mockReset();
+		completeUpload.mockRejectedValue({ code: "upload.incomplete_chunks" });
 		cancelUpload.mockReset();
 		cancelUpload.mockRejectedValue(new Error("cleanup unavailable"));
 		removeSession.mockReset();
