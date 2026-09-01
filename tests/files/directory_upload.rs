@@ -597,6 +597,81 @@ async fn test_init_upload_with_relative_path_uses_parent_folder_policy() {
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["msg"], "file size 9 exceeds limit 8");
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/folders/{folder_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    assert!(
+        body["data"]["folders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|folder| folder["name"] != "nested")
+    );
+}
+
+#[actix_web::test]
+async fn test_zero_size_and_quota_rejected_init_do_not_create_relative_directories() {
+    use aster_drive::db::repository::user_repo;
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let zero_req = test::TestRequest::post()
+        .uri("/api/v1/files/upload/init")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "filename": "zero.txt",
+            "relative_path": "zero-rejected/zero.txt",
+            "total_size": 0
+        }))
+        .to_request();
+    assert_eq!(test::call_service(&app, zero_req).await.status(), 400);
+
+    let user = user_repo::find_by_username(&db, "testuser")
+        .await
+        .unwrap()
+        .unwrap();
+    let mut active: aster_drive_model::entities::user::ActiveModel = user.into();
+    active.storage_quota = Set(1);
+    active.update(&db).await.unwrap();
+    let quota_req = test::TestRequest::post()
+        .uri("/api/v1/files/upload/init")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "filename": "quota.txt",
+            "relative_path": "quota-rejected/quota.txt",
+            "total_size": 2
+        }))
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, quota_req).await.status(),
+        actix_web::http::StatusCode::INSUFFICIENT_STORAGE
+    );
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let names = body["data"]["folders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|folder| folder["name"].as_str())
+        .collect::<Vec<_>>();
+    assert!(!names.contains(&"zero-rejected"));
+    assert!(!names.contains(&"quota-rejected"));
 }
 
 #[actix_web::test]

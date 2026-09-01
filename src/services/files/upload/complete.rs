@@ -125,7 +125,9 @@ async fn complete_upload_impl_with_hints(
         success = result.is_ok(),
         "upload completion plan finished"
     );
-    record_upload_completion_metric(state, mode, result.is_ok());
+    if !completed_retry {
+        record_upload_completion_metric(state, mode, result.is_ok());
+    }
     result
 }
 

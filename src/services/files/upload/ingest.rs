@@ -87,16 +87,20 @@ pub(crate) async fn ingest_stream(
     {
         Ok(file) => file,
         Err(error) => {
-            crate::db::repository::upload_session_repo::try_fail_with_expiration(
+            let transition = crate::db::repository::upload_session_repo::try_fail_with_expiration(
                 state.writer_db(),
                 upload_id,
                 UploadSessionStatus::Assembling,
                 chrono::Utc::now() + chrono::Duration::seconds(15),
             )
-            .await?;
+            .await;
+            record_stream_completion_metric(state, false);
+            transition?;
             return Err(error);
         }
     };
+
+    record_stream_completion_metric(state, true);
 
     let details =
         crate::services::files::file::audit_location_details_for_model(state, scope, &file).await;
@@ -111,4 +115,12 @@ pub(crate) async fn ingest_stream(
     )
     .await;
     Ok(file.into())
+}
+
+fn record_stream_completion_metric(state: &impl SharedRuntimeState, success: bool) {
+    let status = if success { "success" } else { "failure" };
+    state
+        .metrics()
+        .record_upload_session_event("stream", "complete", status);
+    state.metrics().record_file_upload("stream", status);
 }

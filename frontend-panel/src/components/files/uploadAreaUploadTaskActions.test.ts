@@ -7,6 +7,7 @@ const {
 	createEmptyFile,
 	createFileService,
 	initUpload,
+	getProgress,
 	loadSessions,
 	removePendingEmptyFile,
 	removeSession,
@@ -15,13 +16,14 @@ const {
 	createEmptyFile: vi.fn(),
 	createFileService: vi.fn(),
 	initUpload: vi.fn(),
+	getProgress: vi.fn(async () => ({ status: "uploading" })),
 	loadSessions: vi.fn(() => []),
 	removePendingEmptyFile: vi.fn(),
 	removeSession: vi.fn(),
 }));
 
 vi.mock("@/services/uploadService", () => ({
-	uploadService: { cancelUpload, initUpload },
+	uploadService: { cancelUpload, initUpload, getProgress },
 }));
 
 vi.mock("@/services/fileService", () => ({

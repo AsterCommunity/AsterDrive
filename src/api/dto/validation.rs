@@ -22,6 +22,12 @@ pub(crate) fn validate_uuid(value: &str) -> std::result::Result<(), ValidationEr
     Ok(())
 }
 
+pub(crate) fn validate_upload_mime_type(value: &str) -> std::result::Result<(), ValidationError> {
+    crate::services::files::upload::plan::mime::normalize_upload_mime_type(value)
+        .map(|_| ())
+        .map_err(aster_to_validation_error)
+}
+
 pub(crate) fn validate_non_blank(value: &str) -> std::result::Result<(), ValidationError> {
     if value.trim().is_empty() {
         return Err(message_validation_error("value cannot be empty"));

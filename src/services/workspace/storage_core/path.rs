@@ -12,7 +12,7 @@ use aster_drive_model::entities::folder;
 
 use super::policy::{VerifiedFolderPolicyHint, resolve_verified_folder_policy_hint};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct ParsedUploadPath {
     pub base_folder_id: Option<i64>,
     pub base_folder: Option<VerifiedFolderPolicyHint>,
@@ -83,6 +83,51 @@ pub(crate) async fn ensure_upload_parent_path(
     let resolved = ensure_upload_parent_path_on(state, &txn, scope, parsed, actor_username).await?;
     transaction::commit(txn).await?;
     Ok(resolved)
+}
+
+pub(crate) async fn resolve_existing_upload_parent(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    parsed: &ParsedUploadPath,
+) -> Result<ResolvedUploadParent> {
+    let mut current_parent = parsed.base_folder_id;
+    let mut current_folder = parsed.base_folder;
+
+    for segment in &parsed.parent_segments {
+        let existing = match scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                folder_repo::find_by_name_in_parent(
+                    state.writer_db(),
+                    user_id,
+                    current_parent,
+                    segment,
+                )
+                .await?
+            }
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                folder_repo::find_by_name_in_team_parent(
+                    state.writer_db(),
+                    team_id,
+                    current_parent,
+                    segment,
+                )
+                .await?
+            }
+        };
+        let Some(folder) = existing else {
+            break;
+        };
+        current_parent = Some(folder.id);
+        current_folder = Some(match current_folder {
+            Some(parent_hint) => parent_hint.merge_child(&folder),
+            None => (&folder).into(),
+        });
+    }
+
+    Ok(ResolvedUploadParent {
+        folder_id: current_parent,
+        folder: current_folder,
+    })
 }
 
 pub(crate) async fn ensure_upload_parent_path_on<C: sea_orm::ConnectionTrait>(

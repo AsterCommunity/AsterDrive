@@ -351,6 +351,15 @@ describe("UploadArea", () => {
 				},
 			});
 		});
+		getProgress.mockResolvedValue({
+			status: "uploading",
+			upload_id: "stream-session",
+			received_count: 0,
+			chunks_on_disk: [],
+			chunk_size: 0,
+			total_chunks: 0,
+			filename: "stream.bin",
+		});
 		uploadPanelSpy.mockReset();
 		useUploadAreaControlsStore.getState().setControls(null);
 		useUploadAreaControlsStore.getState().setUploadPanelPresence({

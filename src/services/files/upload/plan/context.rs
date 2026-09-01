@@ -22,6 +22,7 @@ pub(super) struct ResolvedUploadTarget {
     pub(super) folder_id: Option<i64>,
     pub(super) folder: Option<storage::VerifiedFolderPolicyHint>,
     pub(super) filename: String,
+    pending_relative_path: Option<storage::ParsedUploadPath>,
 }
 
 pub(super) struct InitUploadContext {
@@ -197,11 +198,7 @@ pub(super) async fn resolve_init_upload_context(
 
 fn resolve_upload_mime_type(filename: &str, declared: Option<&str>) -> Result<String> {
     if let Some(value) = declared {
-        let value = value.trim();
-        if value.is_empty() || value.len() > 255 || !value.contains('/') {
-            return Err(AsterError::validation_error("invalid upload MIME type"));
-        }
-        return Ok(value.to_ascii_lowercase());
+        return super::mime::normalize_upload_mime_type(value);
     }
     Ok(mime_guess::from_path(filename)
         .first_or_octet_stream()
@@ -252,25 +249,14 @@ async fn resolve_upload_target(
 ) -> Result<ResolvedUploadTarget> {
     match relative_path {
         Some(path) => {
-            // 目录上传会把 `relative_path` 拆成“父目录链 + 最终文件名”。
-            // 这里就把目录路径补齐，后续模式选择和 session 记录都只看解析后的最终目标。
             let parsed = storage::parse_relative_upload_path(state, scope, folder_id, path).await?;
-            let actor_username = if parsed.parent_segments.is_empty() {
-                None
-            } else {
-                Some(storage::load_scope_actor_username_cached(state, scope).await?)
-            };
-            let resolved_parent = storage::ensure_upload_parent_path(
-                state,
-                scope,
-                &parsed,
-                actor_username.as_deref(),
-            )
-            .await?;
+            let resolved_parent =
+                storage::resolve_existing_upload_parent(state, scope, &parsed).await?;
             Ok(ResolvedUploadTarget {
                 folder_id: resolved_parent.folder_id,
                 folder: resolved_parent.folder,
-                filename: parsed.filename,
+                filename: parsed.filename.clone(),
+                pending_relative_path: Some(parsed),
             })
         }
         None => {
@@ -286,9 +272,30 @@ async fn resolve_upload_target(
                 folder_id,
                 folder,
                 filename,
+                pending_relative_path: None,
             })
         }
     }
+}
+
+pub(super) async fn materialize_upload_target(
+    state: &PrimaryAppState,
+    ctx: &mut InitUploadContext,
+) -> Result<()> {
+    let Some(parsed) = ctx.target.pending_relative_path.take() else {
+        return Ok(());
+    };
+    let actor_username = if parsed.parent_segments.is_empty() {
+        None
+    } else {
+        Some(storage::load_scope_actor_username_cached(state, ctx.scope).await?)
+    };
+    let resolved =
+        storage::ensure_upload_parent_path(state, ctx.scope, &parsed, actor_username.as_deref())
+            .await?;
+    ctx.target.folder_id = resolved.folder_id;
+    ctx.target.folder = resolved.folder;
+    Ok(())
 }
 
 fn validate_policy_upload_size(policy: &storage_policy::Model, total_size: i64) -> Result<()> {

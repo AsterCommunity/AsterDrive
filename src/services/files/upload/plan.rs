@@ -7,6 +7,7 @@
 //! - 在需要 session 的模式下预先写入 upload_sessions
 
 mod context;
+pub(crate) mod mime;
 mod object_storage;
 mod provider;
 mod remote;
@@ -31,8 +32,9 @@ use aster_forge_utils::numbers;
 use aster_forge_utils::paths;
 
 use self::context::{
-    InitUploadContext, UploadSessionRecordParams, init_stream_session, resolve_init_upload_context,
-    session_kind_for_transport, try_persist_upload_session, validate_storage_capacity,
+    InitUploadContext, UploadSessionRecordParams, init_stream_session, materialize_upload_target,
+    resolve_init_upload_context, session_kind_for_transport, try_persist_upload_session,
+    validate_storage_capacity,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,7 +132,7 @@ async fn init_upload_for_scope(
         "initializing upload session"
     );
 
-    let ctx = resolve_init_upload_context(state, scope, params).await?;
+    let mut ctx = resolve_init_upload_context(state, scope, params).await?;
     let transport = resolve_policy_upload_transport_for_execution(
         state.driver_registry().connectors(),
         &ctx.policy,
@@ -144,6 +146,7 @@ async fn init_upload_for_scope(
     }
 
     validate_storage_capacity(state, &ctx.policy, ctx.total_size).await?;
+    materialize_upload_target(state, &mut ctx).await?;
 
     if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadTransport::Stream
         && transport.supports_streaming_direct_upload(&ctx.policy, ctx.total_size)

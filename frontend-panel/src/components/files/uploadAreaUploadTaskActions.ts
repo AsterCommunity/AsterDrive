@@ -55,6 +55,37 @@ interface RunQueuedUploadTaskContext extends UploadTaskActionsContext {
 	markFolderForRefresh: (task: UploadTask) => void;
 }
 
+type StreamReconciliation =
+	| {
+			state: "completed";
+			file: Awaited<ReturnType<typeof uploadService.completeUpload>>;
+	  }
+	| { state: "active" }
+	| { state: "missing" };
+
+/** Reconcile ambiguous network failures before destructive stream actions. */
+async function reconcileStreamSession(
+	uploadId: string,
+): Promise<StreamReconciliation> {
+	for (let attempt = 0; attempt < 20; attempt += 1) {
+		try {
+			const progress = await uploadService.getProgress(uploadId);
+			if (progress.status === "completed") {
+				return {
+					state: "completed",
+					file: await uploadService.completeUpload(uploadId),
+				};
+			}
+			if (progress.status !== "assembling") return { state: "active" };
+		} catch (error) {
+			if (shouldRemovePersistedSession(error)) return { state: "missing" };
+			throw error;
+		}
+		await new Promise((resolve) => window.setTimeout(resolve, 250));
+	}
+	return { state: "active" };
+}
+
 interface ClearTerminalUploadTasksContext {
 	setTasks: Dispatch<SetStateAction<UploadTask[]>>;
 	taskOperationLocks: UploadTaskOperationLocks;
@@ -316,6 +347,19 @@ export async function cancelUploadTask(
 		abortUploadRequests(uploadRequestRef, taskId);
 		if (task.uploadId) {
 			try {
+				const reconciled = await reconcileStreamSession(task.uploadId);
+				if (reconciled.state === "completed") {
+					removeSession(task.uploadId);
+					patchTask(taskId, {
+						status: "completed",
+						progress: 100,
+						uploadedBytes: task.totalBytes,
+						error: null,
+					});
+					return;
+				}
+			} catch {}
+			try {
 				await uploadService.cancelUpload(task.uploadId);
 			} catch {}
 			removeSession(task.uploadId);
@@ -384,6 +428,16 @@ export async function clearTerminalUploadTasks(
 		await Promise.allSettled(
 			tasksToClear.map(async (task) => {
 				if (task.status === "failed" && task.uploadId) {
+					if (task.mode === "stream") {
+						try {
+							const reconciled = await reconcileStreamSession(task.uploadId);
+							if (reconciled.state === "completed") {
+								removeSession(task.uploadId);
+								clearedIds.add(task.id);
+								return;
+							}
+						} catch {}
+					}
 					try {
 						await uploadService.cancelUpload(task.uploadId);
 					} catch {}
@@ -453,6 +507,20 @@ export async function retryUploadTask(
 		}
 
 		if (task.uploadId) {
+			if (task.mode === "stream") {
+				const reconciled = await reconcileStreamSession(task.uploadId);
+				if (reconciled.state === "completed") {
+					removeSession(task.uploadId);
+					patchTask(taskId, {
+						status: "completed",
+						progress: 100,
+						uploadedBytes: task.totalBytes,
+						error: null,
+					});
+					setUploadPanelOpen(true);
+					return;
+				}
+			}
 			if (
 				task.mode === "chunked" ||
 				task.mode === "presigned_multipart" ||

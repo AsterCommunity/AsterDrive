@@ -824,6 +824,7 @@ dependencies = [
  "jsonwebtoken",
  "lofty",
  "md-5",
+ "mime",
  "mime_guess",
  "moka",
  "nom-exif",

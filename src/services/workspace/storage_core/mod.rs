@@ -20,7 +20,7 @@ pub(crate) use finalize::{
 };
 pub(crate) use path::{
     ParsedUploadPath, ensure_upload_parent_path, ensure_upload_parent_path_on,
-    parse_relative_upload_path,
+    parse_relative_upload_path, resolve_existing_upload_parent,
 };
 pub(crate) use policy::{
     BlobPolicyRequest, VerifiedFolderPolicyHint, ensure_policy_available_for_folder_binding,

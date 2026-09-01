@@ -441,6 +441,15 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
         "canceling upload session"
     );
 
+    if session.status == UploadSessionStatus::Completed {
+        tracing::debug!(
+            upload_id,
+            file_id = session.file_id,
+            "completed upload session cancel is an idempotent no-op"
+        );
+        return Ok(());
+    }
+
     let defer_active_multipart_cleanup = session.object_multipart_id.is_some()
         && matches!(session.status, UploadSessionStatus::Assembling);
     if defer_active_multipart_cleanup {

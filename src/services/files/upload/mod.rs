@@ -7,7 +7,7 @@
 mod cleanup;
 mod complete;
 mod ingest;
-mod plan;
+pub(crate) mod plan;
 mod session;
 
 pub use cleanup::{

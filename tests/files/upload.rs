@@ -2049,6 +2049,7 @@ async fn test_upload_init_rejects_insufficient_target_capacity_without_creating_
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "filename": "too-large.bin",
+            "relative_path": "capacity-rejected/too-large.bin",
             "total_size": 4
         }))
         .to_request();
@@ -2062,6 +2063,20 @@ async fn test_upload_init_rejects_insufficient_target_capacity_without_creating_
     );
     assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
     driver.assert_no_data_plane_calls();
+    let user =
+        aster_drive::db::repository::user_repo::find_by_username(state.writer_db(), "testuser")
+            .await
+            .unwrap()
+            .unwrap();
+    let folder = aster_drive::db::repository::folder_repo::find_by_name_in_parent(
+        state.writer_db(),
+        user.id,
+        None,
+        "capacity-rejected",
+    )
+    .await
+    .unwrap();
+    assert!(folder.is_none());
 
     let exact_driver = Arc::new(UploadDataPlaneProbe {
         capacity_available: Some(4),

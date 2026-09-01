@@ -200,6 +200,7 @@ pub struct InitUploadReq {
     pub filename: String,
     #[validate(range(min = 0, message = "total_size cannot be negative"))]
     pub total_size: i64,
+    #[validate(custom(function = "crate::api::dto::validation::validate_upload_mime_type"))]
     pub mime_type: Option<String>,
     pub folder_id: Option<i64>,
     pub relative_path: Option<String>,
