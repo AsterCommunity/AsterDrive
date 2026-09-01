@@ -3,7 +3,7 @@ import type {
 	StorageConnectorFieldDescriptor,
 	StorageConnectorFieldValue,
 } from "@/types/api";
-import type { ConnectorFormValue } from "./formTypes";
+import type { ConnectorFormValue, PolicyFormData } from "./formTypes";
 
 type FieldValues = Record<string, ConnectorFormValue | undefined>;
 
@@ -51,6 +51,43 @@ export function connectorSelectOptions(
 	return (field.select?.options ?? []).filter((option) =>
 		connectorFieldConditionsMatch(option.available_when, values),
 	);
+}
+
+/**
+ * 列出当前缺失的必填字段（可见、条件必填命中、无默认值兜底）。
+ * 编辑模式传 allowSavedCredentials：secret/credential 字段留空表示沿用
+ * 已保存凭证，不算缺失。
+ */
+export function missingRequiredConnectorFields(
+	form: PolicyFormData,
+	descriptor: StorageConnectorDescriptor | null | undefined,
+	{ allowSavedCredentials = false }: { allowSavedCredentials?: boolean } = {},
+): StorageConnectorFieldDescriptor[] {
+	if (!descriptor) {
+		return [];
+	}
+	const configValues = form.connector_config_values;
+	return descriptor.fields.filter((field) => {
+		if (field.scope === "action_input") {
+			return false;
+		}
+		if (!isConnectorFieldVisible(field, configValues)) {
+			return false;
+		}
+		if (!isConnectorFieldRequired(field, configValues)) {
+			return false;
+		}
+		if (allowSavedCredentials && field.scope !== "connector_config") {
+			return false;
+		}
+		const value =
+			field.scope === "connector_config"
+				? configValues[field.name]
+				: form.credential_values[field.name];
+		const resolved =
+			value ?? resolvedConnectorFieldDefault(field, configValues);
+		return resolved === undefined || resolved === null || resolved === "";
+	});
 }
 
 export function normalizeConnectorConfigValues(

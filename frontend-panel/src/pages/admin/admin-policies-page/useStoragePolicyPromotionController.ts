@@ -5,14 +5,14 @@ import { toast } from "sonner";
 import {
 	getPolicyForm,
 	type PolicyFormData,
-} from "@/components/admin/storage-policy-dialog/formTypes";
-import { policyFormHasUnsavedChanges } from "@/components/admin/storage-policy-dialog/policyFormComparison";
+} from "@/components/admin/storage-policy-editor/formTypes";
+import { policyFormHasUnsavedChanges } from "@/components/admin/storage-policy-editor/policyFormComparison";
 import {
 	applyStorageConnectorPromotion,
 	findStorageConnectorPromotionCandidates,
 	type StorageConnectorPromotionCandidate,
 	storageConnectorPromotionKey,
-} from "@/components/admin/storage-policy-dialog/policyPromotion";
+} from "@/components/admin/storage-policy-editor/policyPromotion";
 import { handleApiError } from "@/hooks/useApiError";
 import { invalidateAdminPolicyLookup } from "@/lib/adminPolicyLookup";
 import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
@@ -29,7 +29,6 @@ interface StoragePolicyPromotionControllerInput {
 	onPromoted: () => void;
 	setEditingPolicy: Dispatch<SetStateAction<StoragePolicy | null>>;
 	setForm: Dispatch<SetStateAction<PolicyFormData>>;
-	setPolicies: Dispatch<SetStateAction<StoragePolicy[]>>;
 	storageDriverDescriptors: StorageConnectorDescriptor[];
 }
 
@@ -43,7 +42,6 @@ export function useStoragePolicyPromotionController({
 	onPromoted,
 	setEditingPolicy,
 	setForm,
-	setPolicies,
 	storageDriverDescriptors,
 }: StoragePolicyPromotionControllerInput) {
 	const { t } = useTranslation("admin");
@@ -128,9 +126,6 @@ export function useStoragePolicyPromotionController({
 				promotion_id: savedCandidate.promotion.promotion_id,
 			});
 			invalidateAdminPolicyLookup();
-			setPolicies((current) =>
-				current.map((policy) => (policy.id === updated.id ? updated : policy)),
-			);
 			if (!isCurrentRequest()) {
 				return;
 			}

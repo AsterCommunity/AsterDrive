@@ -31,7 +31,6 @@ function renderShell(
 ) {
 	const handlers = {
 		onContentScroll: vi.fn(),
-		onOpenChange: vi.fn(),
 		onPageBack: vi.fn(),
 		onSidebarScroll: vi.fn(),
 		onTabChange: vi.fn(),
@@ -44,9 +43,7 @@ function renderShell(
 			currentPolicyGroupName="Primary"
 			currentTab="audit"
 			dangerSection={<div>danger content</div>}
-			isPageLayout
 			membersSection={<div>members content</div>}
-			open
 			overviewSection={<div>overview content</div>}
 			ownerCount={2}
 			managerCount={3}
@@ -96,18 +93,5 @@ describe("AdminTeamDetailShell", () => {
 			"members",
 			expect.anything(),
 		);
-	});
-
-	it("renders every section together in dialog layout", () => {
-		renderShell({
-			currentTab: "overview",
-			isPageLayout: false,
-		});
-
-		expect(screen.getByText("team_details_title")).toBeInTheDocument();
-		expect(screen.getByText("overview content")).toBeInTheDocument();
-		expect(screen.getByText("members content")).toBeInTheDocument();
-		expect(screen.getByText("audit content")).toBeInTheDocument();
-		expect(screen.getByText("danger content")).toBeInTheDocument();
 	});
 });

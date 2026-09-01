@@ -37,6 +37,7 @@ import { Switch } from "@/components/ui/switch";
 import {
 	ADMIN_CONTROL_HEIGHT_CLASS,
 	ADMIN_ICON_BUTTON_CLASS,
+	adminPageEnterAnimationClass,
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { components } from "@/services/api.generated";
@@ -805,7 +806,12 @@ export function PolicyGroupEditorForm({
 	return (
 		<div className="grid gap-8 lg:grid-cols-[300px_minmax(0,1fr)]">
 			{/* ── 左栏：基本信息 ── */}
-			<aside className="animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards motion-reduce:animate-none space-y-4 lg:sticky lg:top-6 lg:self-start">
+			<aside
+				className={cn(
+					adminPageEnterAnimationClass(),
+					"space-y-4 lg:sticky lg:top-6 lg:self-start",
+				)}
+			>
 				<div className="space-y-4 rounded-xl bg-muted/30 p-4">
 					<p className="text-[15px] font-semibold">
 						{t("policy_group_basic_info")}
@@ -911,7 +917,12 @@ export function PolicyGroupEditorForm({
 			{/* ── 右栏主区 ── */}
 			<div className="min-w-0 space-y-8">
 				{/* 准入 */}
-				<section className="animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards motion-reduce:animate-none delay-75 space-y-5 rounded-xl bg-muted/30 p-5">
+				<section
+					className={cn(
+						adminPageEnterAnimationClass("delay-75"),
+						"space-y-5 rounded-xl bg-muted/30 p-5",
+					)}
+				>
 					<div>
 						<h2 className="text-[15px] font-semibold">
 							{t("policy_group_admission_title")}
@@ -1110,7 +1121,9 @@ export function PolicyGroupEditorForm({
 				</section>
 
 				{/* 规则 */}
-				<section className="animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards motion-reduce:animate-none delay-150 space-y-4">
+				<section
+					className={cn(adminPageEnterAnimationClass("delay-150"), "space-y-4")}
+				>
 					<div className="flex items-start justify-between gap-4">
 						<div>
 							<h2 className="text-[15px] font-semibold">

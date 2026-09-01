@@ -4,9 +4,9 @@ import { toast } from "sonner";
 import {
 	findStorageConnectorAction,
 	supportsStorageCredentialLifecycle,
-} from "@/components/admin/storage-policy-dialog/descriptorPredicates";
-import type { PolicyFormData } from "@/components/admin/storage-policy-dialog/formTypes";
-import { policyFormHasUnsavedChanges } from "@/components/admin/storage-policy-dialog/policyFormComparison";
+} from "@/components/admin/storage-policy-editor/descriptorPredicates";
+import type { PolicyFormData } from "@/components/admin/storage-policy-editor/formTypes";
+import { policyFormHasUnsavedChanges } from "@/components/admin/storage-policy-editor/policyFormComparison";
 import { handleApiError } from "@/hooks/useApiError";
 import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
 import { adminPolicyService } from "@/services/adminService";
@@ -18,7 +18,6 @@ import type {
 
 interface StoragePolicyCredentialControllerInput {
 	currentStorageDriverDescriptor: StorageConnectorDescriptor | null | undefined;
-	dialogOpen: boolean;
 	editingPolicy: StoragePolicy | null;
 	form: PolicyFormData;
 	loadPolicyCapacity: (policyId: number) => void;
@@ -50,9 +49,8 @@ function upsertCredential(
  * Owns the credential resource and credential actions for one saved-policy
  * dialog session.
  *
- * A session is identified by dialog visibility, policy ID, and the saved
- * connector ID rather than the `StoragePolicy` object identity. Closing the
- * dialog or switching policies/connectors invalidates the generation so late
+ * A session is identified by policy ID, and the saved
+ * connector ID rather than the `StoragePolicy` object identity. Switching policies/connectors invalidates the generation so late
  * list, authorization, validation, and `finally` completions cannot mutate a
  * newer session. Validation failures reload the writer-backed credential
  * status because the backend may persist an expired or reauthorization state
@@ -60,7 +58,6 @@ function upsertCredential(
  */
 export function useStoragePolicyCredentialController({
 	currentStorageDriverDescriptor,
-	dialogOpen,
 	editingPolicy,
 	form,
 	loadPolicyCapacity,
@@ -90,7 +87,6 @@ export function useStoragePolicyCredentialController({
 		currentStorageDriverDescriptor,
 	);
 	const activeSessionKey =
-		dialogOpen &&
 		editingPolicyId !== null &&
 		savedConnectorId === displayedConnectorId &&
 		hasCredentialLifecycle

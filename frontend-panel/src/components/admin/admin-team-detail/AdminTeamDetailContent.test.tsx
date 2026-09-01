@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AdminTeamDetailDialog } from "@/components/admin/AdminTeamDetailDialog";
 import { formatStorageQuotaDraft } from "@/lib/storageQuota";
 import type { UserSummary } from "@/types/api";
+import { AdminTeamDetailContent } from "./AdminTeamDetailContent";
 
 const mockState = vi.hoisted(() => ({
 	handleApiError: vi.fn(),
@@ -59,7 +59,7 @@ vi.mock("@/services/adminService", () => ({
 	adminTeamService: adminTeamServiceMocks,
 }));
 
-describe("AdminTeamDetailDialog", () => {
+describe("AdminTeamDetailContent", () => {
 	beforeEach(() => {
 		mockState.handleApiError.mockReset();
 		mockState.toastError.mockReset();
@@ -101,13 +101,11 @@ describe("AdminTeamDetailDialog", () => {
 
 	it("uses a fixed shell and a native scrollable detail column in page layout", async () => {
 		const { container } = render(
-			<AdminTeamDetailDialog
-				layout="page"
+			<AdminTeamDetailContent
 				onListChange={async () => undefined}
-				onOpenChange={vi.fn()}
+				onPageBack={vi.fn()}
 				onPageTabChange={vi.fn()}
 				onRefreshPolicyGroups={async () => undefined}
-				open
 				pageTab="overview"
 				policyGroups={[
 					{
@@ -187,13 +185,11 @@ describe("AdminTeamDetailDialog", () => {
 
 	it("keeps the overview name input mounted while editing in page layout", async () => {
 		render(
-			<AdminTeamDetailDialog
-				layout="page"
+			<AdminTeamDetailContent
 				onListChange={async () => undefined}
-				onOpenChange={vi.fn()}
+				onPageBack={vi.fn()}
 				onPageTabChange={vi.fn()}
 				onRefreshPolicyGroups={async () => undefined}
-				open
 				pageTab="overview"
 				policyGroups={[
 					{
@@ -253,13 +249,11 @@ describe("AdminTeamDetailDialog", () => {
 		});
 
 		render(
-			<AdminTeamDetailDialog
-				layout="page"
+			<AdminTeamDetailContent
 				onListChange={async () => undefined}
-				onOpenChange={vi.fn()}
+				onPageBack={vi.fn()}
 				onPageTabChange={vi.fn()}
 				onRefreshPolicyGroups={async () => undefined}
-				open
 				pageTab="overview"
 				policyGroups={[
 					{
@@ -329,13 +323,11 @@ describe("AdminTeamDetailDialog", () => {
 
 	it("sends zero quota when the overview quota field is set to zero", async () => {
 		render(
-			<AdminTeamDetailDialog
-				layout="page"
+			<AdminTeamDetailContent
 				onListChange={async () => undefined}
-				onOpenChange={vi.fn()}
+				onPageBack={vi.fn()}
 				onPageTabChange={vi.fn()}
 				onRefreshPolicyGroups={async () => undefined}
-				open
 				pageTab="overview"
 				policyGroups={[
 					{
@@ -398,13 +390,11 @@ describe("AdminTeamDetailDialog", () => {
 		});
 
 		render(
-			<AdminTeamDetailDialog
-				layout="page"
+			<AdminTeamDetailContent
 				onListChange={async () => undefined}
-				onOpenChange={vi.fn()}
+				onPageBack={vi.fn()}
 				onPageTabChange={vi.fn()}
 				onRefreshPolicyGroups={async () => undefined}
-				open
 				pageTab="overview"
 				policyGroups={[
 					{
@@ -460,13 +450,11 @@ describe("AdminTeamDetailDialog", () => {
 		});
 
 		render(
-			<AdminTeamDetailDialog
-				layout="page"
+			<AdminTeamDetailContent
 				onListChange={async () => undefined}
-				onOpenChange={vi.fn()}
+				onPageBack={vi.fn()}
 				onPageTabChange={vi.fn()}
 				onRefreshPolicyGroups={async () => undefined}
-				open
 				pageTab="overview"
 				policyGroups={[
 					{
@@ -522,13 +510,11 @@ describe("AdminTeamDetailDialog", () => {
 
 	it("rejects overflowing overview quota values before saving", async () => {
 		render(
-			<AdminTeamDetailDialog
-				layout="page"
+			<AdminTeamDetailContent
 				onListChange={async () => undefined}
-				onOpenChange={vi.fn()}
+				onPageBack={vi.fn()}
 				onPageTabChange={vi.fn()}
 				onRefreshPolicyGroups={async () => undefined}
-				open
 				pageTab="overview"
 				policyGroups={[
 					{

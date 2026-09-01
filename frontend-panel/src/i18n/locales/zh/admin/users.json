@@ -71,6 +71,8 @@
 	"user_deleted": "用户已删除",
 	"view_details": "查看详情",
 	"user_details": "用户详情",
+	"user_not_found": "用户不存在或已被删除。",
+	"user_back_to_list": "用户列表",
 	"storage_quota_settings": "存储与配额",
 	"storage_quota_settings_desc": "在此调整用户的角色、状态、总配额和策略组绑定。",
 	"security_actions": "安全操作",

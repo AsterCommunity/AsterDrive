@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { userDetailDraftKey } from "./userDetailDialogState";
+import { userDetailDraftKey } from "./userDetailState";
 
 describe("userDetailDraftKey", () => {
 	it("captures user fields that should reset the detail draft", () => {

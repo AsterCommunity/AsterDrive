@@ -6,12 +6,13 @@ import {
 	within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { UserDetailDialog } from "@/components/admin/UserDetailDialog";
+import AdminUserDetailPage from "@/pages/admin/AdminUserDetailPage";
 
 const mockState = vi.hoisted(() => ({
 	handleApiError: vi.fn(),
 	listPolicies: vi.fn(),
-	onUpdate: vi.fn(),
+	get: vi.fn(),
+	update: vi.fn(),
 	resetMfa: vi.fn(),
 	revokeSessions: vi.fn(),
 	resetPassword: vi.fn(),
@@ -58,6 +59,36 @@ vi.mock("@/components/common/UserStatusBadge", () => ({
 	getStatusBadgeClass: (status: string) => `status:${status}`,
 }));
 
+vi.mock("react-router-dom", () => ({
+	Navigate: ({ to }: { to: string }) => <div data-testid="navigate">{to}</div>,
+	useNavigate: () => vi.fn(),
+	useParams: () => ({ userId: "2" }),
+}));
+
+vi.mock("@/components/layout/AdminLayout", () => ({
+	AdminLayout: ({ children }: { children: React.ReactNode }) => (
+		<div>{children}</div>
+	),
+}));
+
+vi.mock("@/components/layout/AdminPageShell", () => ({
+	AdminPageShell: ({
+		children,
+		className,
+	}: {
+		children: React.ReactNode;
+		className?: string;
+	}) => (
+		<div data-testid="admin-page-shell" className={className}>
+			{children}
+		</div>
+	),
+}));
+
+vi.mock("@/hooks/usePageTitle", () => ({
+	usePageTitle: vi.fn(),
+}));
+
 vi.mock("@/components/ui/badge", () => ({
 	Badge: ({ children }: { children: React.ReactNode }) => (
 		<span>{children}</span>
@@ -86,31 +117,6 @@ vi.mock("@/components/ui/button", () => ({
 		>
 			{children}
 		</button>
-	),
-}));
-
-vi.mock("@/components/ui/dialog", () => ({
-	Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
-		open ? <div>{children}</div> : null,
-	DialogContent: ({
-		children,
-		className,
-	}: {
-		children: React.ReactNode;
-		className?: string;
-	}) => <div className={className}>{children}</div>,
-	DialogFooter: ({
-		children,
-		className,
-	}: {
-		children: React.ReactNode;
-		className?: string;
-	}) => <div className={className}>{children}</div>,
-	DialogHeader: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
-	),
-	DialogTitle: ({ children }: { children: React.ReactNode }) => (
-		<h2>{children}</h2>
 	),
 }));
 
@@ -329,6 +335,8 @@ vi.mock("@/lib/format", () => ({
 
 vi.mock("@/services/adminService", () => ({
 	adminUserService: {
+		get: (...args: unknown[]) => mockState.get(...args),
+		update: (...args: unknown[]) => mockState.update(...args),
 		resetMfa: (...args: unknown[]) => mockState.resetMfa(...args),
 		revokeSessions: (...args: unknown[]) => mockState.revokeSessions(...args),
 		resetPassword: (...args: unknown[]) => mockState.resetPassword(...args),
@@ -409,14 +417,8 @@ function createPolicyGroup(overrides: Record<string, unknown> = {}) {
 }
 
 function renderDialog(userOverrides: Record<string, unknown> = {}) {
-	return render(
-		<UserDetailDialog
-			user={createUser(userOverrides)}
-			open
-			onOpenChange={vi.fn()}
-			onUpdate={mockState.onUpdate}
-		/>,
-	);
+	mockState.get.mockResolvedValue(createUser(userOverrides));
+	return render(<AdminUserDetailPage />);
 }
 
 async function waitForPolicyLoad(selectedPolicyLabel = "Primary") {
@@ -443,17 +445,19 @@ async function waitForPolicyLoad(selectedPolicyLabel = "Primary") {
 	);
 }
 
-describe("UserDetailDialog", () => {
+describe("AdminUserDetailPage", () => {
 	beforeEach(() => {
 		mockState.handleApiError.mockReset();
 		mockState.listPolicies.mockReset();
-		mockState.onUpdate.mockReset();
+		mockState.get.mockReset();
+		mockState.update.mockReset();
 		mockState.resetMfa.mockReset();
 		mockState.revokeSessions.mockReset();
 		mockState.resetPassword.mockReset();
 		mockState.toastError.mockReset();
 		mockState.toastSuccess.mockReset();
 
+		mockState.get.mockResolvedValue(createUser());
 		mockState.listPolicies.mockResolvedValue({
 			items: [
 				createPolicyGroup(),
@@ -464,7 +468,7 @@ describe("UserDetailDialog", () => {
 			],
 			total: 2,
 		});
-		mockState.onUpdate.mockResolvedValue(undefined);
+		mockState.update.mockResolvedValue(undefined);
 		mockState.resetMfa.mockResolvedValue(undefined);
 		mockState.revokeSessions.mockResolvedValue(undefined);
 		mockState.resetPassword.mockResolvedValue(undefined);
@@ -490,7 +494,7 @@ describe("UserDetailDialog", () => {
 		fireEvent.click(screen.getByRole("button", { name: /save_changes/i }));
 
 		await waitFor(() => {
-			expect(mockState.onUpdate).toHaveBeenCalledWith(2, {
+			expect(mockState.update).toHaveBeenCalledWith(2, {
 				email_verified: false,
 				role: "admin",
 				status: "disabled",
@@ -597,7 +601,9 @@ describe("UserDetailDialog", () => {
 		expect(
 			screen.getByRole("button", { name: "select-item:user" }),
 		).toBeDisabled();
-		expect(screen.queryByRole("button", { name: /save_changes/i })).toBeNull();
+		expect(
+			screen.getByRole("button", { name: /save_changes/i }),
+		).toBeDisabled();
 		expect(
 			screen.getByText("policy_group_no_assignable_groups"),
 		).toBeInTheDocument();
@@ -625,11 +631,13 @@ describe("UserDetailDialog", () => {
 		});
 
 		expect(screen.getByText("quota_invalid")).toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: /save_changes/i })).toBeNull();
-		expect(mockState.onUpdate).not.toHaveBeenCalled();
+		expect(
+			screen.getByRole("button", { name: /save_changes/i }),
+		).toBeDisabled();
+		expect(mockState.update).not.toHaveBeenCalled();
 	});
 
-	it("caps the dialog height and keeps the two columns independently scrollable on desktop", async () => {
+	it("fixes the page shell and keeps the two columns independently scrollable on desktop", async () => {
 		const { container } = renderDialog();
 
 		await waitForPolicyLoad();
@@ -643,13 +651,11 @@ describe("UserDetailDialog", () => {
 		const rightColumn = container.querySelector(
 			".min-h-0.min-w-0.lg\\:flex-1.lg\\:overflow-y-auto",
 		);
-		const footer = screen.getByText("user_details_footer_hint").parentElement;
+		const headerHint = screen.getByText("user_details_footer_hint");
 
-		expect(
-			container.querySelector(
-				".overflow-hidden.max-h-\\[min\\(860px\\,calc\\(100vh-2rem\\)\\)\\]",
-			),
-		).not.toBeNull();
+		expect(screen.getByTestId("admin-page-shell")).toHaveClass(
+			"overflow-hidden",
+		);
 		expect(shell).not.toBeNull();
 		expect(
 			container.querySelector(
@@ -662,18 +668,11 @@ describe("UserDetailDialog", () => {
 		expect(
 			container.querySelector(".min-w-0.p-6.lg\\:overflow-y-auto"),
 		).toBeNull();
-		expect(
-			container.querySelector(
-				".mx-0.mb-0.w-full.shrink-0.border-t.bg-muted\\/10.px-6.py-4",
-			),
-		).not.toBeNull();
-		expect(footer).not.toBeNull();
-		expect(shell?.contains(footer as Node)).toBe(false);
-		expect(leftColumn?.contains(footer as Node)).toBe(false);
-		expect(rightColumn?.contains(footer as Node)).toBe(false);
+		expect(leftColumn?.contains(headerHint)).toBe(false);
+		expect(rightColumn?.contains(headerHint)).toBe(false);
 	});
 
-	it("resets the user's password from the detail dialog", async () => {
+	it("resets the user's password from the detail page", async () => {
 		renderDialog();
 
 		await waitForPolicyLoad();
@@ -726,7 +725,7 @@ describe("UserDetailDialog", () => {
 		expect(mockState.resetPassword).not.toHaveBeenCalled();
 	});
 
-	it("resets user MFA from the detail dialog", async () => {
+	it("resets user MFA from the detail page", async () => {
 		renderDialog();
 
 		await waitForPolicyLoad();
@@ -745,7 +744,7 @@ describe("UserDetailDialog", () => {
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("reset_mfa_success");
 	});
 
-	it("revokes user sessions from the detail dialog", async () => {
+	it("revokes user sessions from the detail page", async () => {
 		renderDialog();
 
 		await waitForPolicyLoad();

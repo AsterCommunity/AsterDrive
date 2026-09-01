@@ -1,23 +1,24 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { presentStorageConnectorActionOutput } from "@/components/admin/storage-policy-dialog/actionResultPresentation";
+import { presentStorageConnectorActionOutput } from "@/components/admin/storage-policy-editor/actionResultPresentation";
 import {
 	getEndpointValidationMessage,
 	getPolicyConnectionTestKey,
-} from "@/components/admin/storage-policy-dialog/connectionNormalization";
-import { findStorageConnectorAction } from "@/components/admin/storage-policy-dialog/descriptorPredicates";
-import type { PolicyFormData } from "@/components/admin/storage-policy-dialog/formTypes";
+} from "@/components/admin/storage-policy-editor/connectionNormalization";
+import { findStorageConnectorAction } from "@/components/admin/storage-policy-editor/descriptorPredicates";
+import type { PolicyFormData } from "@/components/admin/storage-policy-editor/formTypes";
 import {
 	buildPolicyTestPayload,
 	buildStorageConnectorActionPayload,
-} from "@/components/admin/storage-policy-dialog/payloadBuilders";
+} from "@/components/admin/storage-policy-editor/payloadBuilders";
 import {
 	selectStorageConnectorCustomActionExecutionMode,
 	selectStoragePolicyActionValueSource,
 	selectStoragePolicyConnectionTestMode,
-} from "@/components/admin/storage-policy-dialog/policyActionSelection";
-import type { StorageConnectorActionValues } from "@/components/admin/storage-policy-dialog/StorageConnectorActionsPanel";
+} from "@/components/admin/storage-policy-editor/policyActionSelection";
+import { toastMissingRequiredConnectorFields } from "@/components/admin/storage-policy-editor/requiredFieldsToast";
+import type { StorageConnectorActionValues } from "@/components/admin/storage-policy-editor/StorageConnectorActionsPanel";
 import { handleApiError } from "@/hooks/useApiError";
 import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
 import { getStorageConnectorDescriptor } from "@/lib/adminStorageDriverDescriptors";
@@ -101,6 +102,15 @@ export function useStoragePolicyActionController({
 			if (showFailureError) {
 				toast.error(currentEndpointValidationMessage);
 			}
+			setValidatedConnectionKey(null);
+			return false;
+		}
+
+		if (
+			toastMissingRequiredConnectorFields(t, currentForm, descriptor, {
+				allowSavedCredentials: editingId !== null,
+			})
+		) {
 			setValidatedConnectionKey(null);
 			return false;
 		}

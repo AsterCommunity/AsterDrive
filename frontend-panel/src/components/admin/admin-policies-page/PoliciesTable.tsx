@@ -23,8 +23,8 @@ import {
 import type { SortOrder } from "@/lib/pagination";
 import type { AdminPolicySortBy } from "@/types/adminSort";
 import type { StorageConnectorDescriptor, StoragePolicy } from "@/types/api";
-import { policyConnectorSelection } from "../storage-policy-dialog/connectionNormalization";
-import type { ConnectorFormValue } from "../storage-policy-dialog/formTypes";
+import { policyConnectorSelection } from "../storage-policy-editor/connectionNormalization";
+import type { ConnectorFormValue } from "../storage-policy-editor/formTypes";
 import { getStorageConnectorBadgePresentation } from "./policyPresentation";
 
 interface PoliciesTableProps {

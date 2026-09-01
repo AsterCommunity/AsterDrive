@@ -9,7 +9,6 @@ import { cloneElement, isValidElement } from "react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminUsersPage from "@/pages/admin/AdminUsersPage";
-import type { UpdateUserRequest } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
 	create: vi.fn(),
@@ -18,7 +17,6 @@ const mockState = vi.hoisted(() => ({
 	handleApiError: vi.fn(),
 	list: vi.fn(),
 	toastSuccess: vi.fn(),
-	update: vi.fn(),
 	writeTextToClipboard: vi.fn(),
 }));
 
@@ -63,29 +61,6 @@ vi.mock("@/lib/adminPolicyGroupLookup", () => ({
 
 vi.mock("@/lib/idleTask", () => ({
 	runWhenIdle: () => () => undefined,
-}));
-
-vi.mock("@/components/admin/UserDetailDialog", () => ({
-	UserDetailDialog: ({
-		onUpdate,
-		open,
-		user,
-	}: {
-		onUpdate: (id: number, data: UpdateUserRequest) => Promise<void>;
-		open: boolean;
-		user: { id: number; username: string } | null;
-	}) =>
-		open && user ? (
-			<div>
-				<div>{`detail:${user.username}`}</div>
-				<button
-					type="button"
-					onClick={() => void onUpdate(user.id, { role: "admin" })}
-				>
-					detail-update
-				</button>
-			</div>
-		) : null,
 }));
 
 vi.mock("@/components/common/ConfirmDialog", () => ({
@@ -507,7 +482,6 @@ vi.mock("@/services/adminService", () => ({
 			mockState.createInvitation(...args),
 		delete: (...args: unknown[]) => mockState.deleteUser(...args),
 		list: (...args: unknown[]) => mockState.list(...args),
-		update: (...args: unknown[]) => mockState.update(...args),
 	},
 }));
 
@@ -580,7 +554,6 @@ describe("AdminUsersPage", () => {
 		mockState.handleApiError.mockReset();
 		mockState.list.mockReset();
 		mockState.toastSuccess.mockReset();
-		mockState.update.mockReset();
 		mockState.writeTextToClipboard.mockReset();
 
 		mockState.create.mockResolvedValue({ user: createUser() });
@@ -590,16 +563,10 @@ describe("AdminUsersPage", () => {
 			items: [createUser()],
 			total: 1,
 		});
-		mockState.update.mockImplementation(async (id, data) =>
-			createUser({
-				...(data as Record<string, unknown>),
-				id,
-			}),
-		);
 		mockState.writeTextToClipboard.mockResolvedValue(undefined);
 	});
 
-	it("loads from search params, refreshes, opens the detail dialog, and updates the selected user", async () => {
+	it("loads from search params, refreshes, and navigates to the detail page", async () => {
 		mockState.list
 			.mockResolvedValueOnce({
 				items: [createUser()],
@@ -633,7 +600,9 @@ describe("AdminUsersPage", () => {
 		expect(storageSummary).toBeInTheDocument();
 		fireEvent.click(storageSummary);
 
-		expect(screen.getByText("detail:alice")).toBeInTheDocument();
+		expect(screen.getByTestId("location-path")).toHaveTextContent(
+			"/admin/users/11",
+		);
 
 		const refreshButtons = screen.getAllByRole("button", { name: /refresh/i });
 		fireEvent.click(refreshButtons[0] as HTMLElement);
@@ -641,13 +610,6 @@ describe("AdminUsersPage", () => {
 		await waitFor(() => {
 			expect(mockState.list).toHaveBeenCalledTimes(2);
 		});
-
-		fireEvent.click(screen.getByRole("button", { name: "detail-update" }));
-
-		await waitFor(() => {
-			expect(mockState.update).toHaveBeenCalledWith(11, { role: "admin" });
-		});
-		expect(mockState.toastSuccess).toHaveBeenCalledWith("user_updated");
 	});
 
 	it("does not reset the initial page offset from the keyword debounce effect", async () => {

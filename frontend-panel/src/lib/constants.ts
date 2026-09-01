@@ -23,6 +23,16 @@ export const ADMIN_CONTROL_HEIGHT_CLASS = "h-8";
 export const ADMIN_ICON_BUTTON_CLASS = "size-8";
 export const ADMIN_TABLE_ACTIONS_WIDTH_CLASS = "w-24";
 
+/** Admin 编辑页入场动效：上浮淡入，支持 delay-75/delay-150 级联 */
+export const ADMIN_PAGE_ENTER_ANIMATION_CLASS =
+	"animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards motion-reduce:animate-none";
+
+export function adminPageEnterAnimationClass(delay?: "delay-75" | "delay-150") {
+	return delay
+		? `${ADMIN_PAGE_ENTER_ANIMATION_CLASS} ${delay}`
+		: ADMIN_PAGE_ENTER_ANIMATION_CLASS;
+}
+
 /** 侧栏 / 列表内边距 */
 export const SIDEBAR_SECTION_PADDING_CLASS = "px-2";
 export const PAGE_SECTION_PADDING_CLASS = "px-4 md:px-6";

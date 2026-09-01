@@ -2,7 +2,6 @@ import { createTeamViaApi } from "./support/api";
 import { authenticate, gotoAdminPage } from "./support/auth";
 import {
 	clickRowAction,
-	closeActiveDialog,
 	createPageShare,
 	dialogByTitle,
 	fileNameCell,
@@ -46,16 +45,13 @@ test.describe
 			});
 
 			await tableRowByCellText(page, username).click();
-			const detailDialog = dialogByTitle(page, "User details");
-			await expect(detailDialog).toBeVisible();
-			await expect(
-				detailDialog.getByText(email, { exact: true }),
-			).toBeVisible();
-			await detailDialog
-				.locator('[data-slot="dialog-footer"]')
-				.getByRole("button", { name: "Close" })
+			await expect(page).toHaveURL(/\/admin\/users\/\d+/);
+			await expect(page.getByText(email, { exact: true })).toBeVisible();
+			await page
+				.getByRole("button", { name: "Back", exact: true })
+				.first()
 				.click();
-			await expect(detailDialog).toBeHidden();
+			await expect(page).toHaveURL(/\/admin\/users$/);
 
 			await clickRowAction(tableRowByCellText(page, username), "Delete user");
 			const deleteDialog = page.getByRole("alertdialog", {
@@ -81,17 +77,14 @@ test.describe
 			await gotoAdminPage(page, "/admin/policies", "Storage Policies");
 
 			await page.getByRole("button", { name: "New Policy" }).click();
-			const createDialog = dialogByTitle(page, "Create Policy");
-			await expect(createDialog).toBeVisible();
-			await createDialog.getByRole("button", { name: "Local" }).click();
-			await expect(createDialog.locator("#name")).toBeVisible();
-			await createDialog.locator("#name").fill(policyName);
-			await createDialog.locator("#base_path").fill(initialBasePath);
-			await createDialog
-				.getByRole("button", { exact: true, name: "Review" })
-				.click();
-			await createDialog.getByRole("button", { name: "Create" }).click();
-			await expect(createDialog).toBeHidden();
+			await expect(page).toHaveURL(/\/admin\/policies\/new/);
+			await page.getByRole("button", { name: "Local" }).click();
+			await expect(page.locator("#name")).toBeVisible();
+			await page.locator("#name").fill(policyName);
+			await page.locator("#base_path").fill(initialBasePath);
+			await page.getByRole("button", { exact: true, name: "Review" }).click();
+			await page.getByRole("button", { name: "Create" }).click();
+			await expect(page).toHaveURL(/\/admin\/policies$/);
 
 			await expect(tableRowByCellText(page, policyName)).toBeVisible({
 				timeout: 30_000,
@@ -101,9 +94,9 @@ test.describe
 			);
 
 			await tableRowByCellText(page, policyName).click();
-			const editDialog = dialogByTitle(page, "Edit Policy");
-			await expect(editDialog).toBeVisible();
-			await editDialog.locator("#base_path").fill(updatedBasePath);
+			await expect(page).toHaveURL(/\/admin\/policies\/\d+/);
+			await expect(page.locator("#base_path")).toBeVisible();
+			await page.locator("#base_path").fill(updatedBasePath);
 			await Promise.all([
 				page.waitForResponse(
 					(response) =>
@@ -111,10 +104,13 @@ test.describe
 						response.url().includes("/api/v1/admin/policies/") &&
 						response.ok(),
 				),
-				editDialog.getByRole("button", { name: "Save Changes" }).click(),
+				page.getByRole("button", { name: "Save Changes" }).click(),
 			]);
-			await expect(editDialog).toBeVisible();
-			await closeActiveDialog(page);
+			await page
+				.getByRole("button", { name: "Policies", exact: true })
+				.first()
+				.click();
+			await expect(page).toHaveURL(/\/admin\/policies$/);
 			await expect(tableRowByCellText(page, policyName)).toContainText(
 				updatedBasePath,
 			);
@@ -186,26 +182,19 @@ test.describe
 
 			await gotoAdminPage(page, "/admin/policies", "Storage Policies");
 			await page.getByRole("button", { name: "New Policy" }).click();
-			const createDialog = dialogByTitle(page, "Create Policy");
-			await expect(createDialog).toBeVisible();
-			await createDialog
-				.getByRole("button", { name: /Alibaba Cloud OSS/ })
-				.click();
+			await expect(page).toHaveURL(/\/admin\/policies\/new/);
+			await page.getByRole("button", { name: /Alibaba Cloud OSS/ }).click();
 
-			const endpoint = createDialog.getByLabel("Public endpoint");
-			const serverSideEndpoint = createDialog.getByLabel(
-				"Server-side endpoint",
-			);
-			const region = createDialog.getByLabel("OSS region");
-			const bucket = createDialog.getByLabel("Bucket");
-			const basePath = createDialog.getByLabel("Base Path");
-			const useCname = createDialog.getByRole("switch", {
+			const endpoint = page.getByLabel("Public endpoint");
+			const serverSideEndpoint = page.getByLabel("Server-side endpoint");
+			const region = page.getByLabel("OSS region");
+			const bucket = page.getByLabel("Bucket");
+			const basePath = page.getByLabel("Base Path");
+			const useCname = page.getByRole("switch", {
 				name: "Use CNAME custom domain",
 			});
-			const accessKeyId = createDialog.getByLabel("Alibaba Cloud AccessKey ID");
-			const accessKeySecret = createDialog.getByLabel(
-				"Alibaba Cloud AccessKey Secret",
-			);
+			const accessKeyId = page.getByLabel("Alibaba Cloud AccessKey ID");
+			const accessKeySecret = page.getByLabel("Alibaba Cloud AccessKey Secret");
 
 			await expect(endpoint).toBeVisible();
 			await expect(serverSideEndpoint).toBeVisible();
@@ -214,16 +203,16 @@ test.describe
 			await expect(basePath).toBeVisible();
 			await expect(useCname).not.toBeChecked();
 			await expect(
-				createDialog.getByLabel("Object Storage Upload Strategy"),
+				page.getByLabel("Object Storage Upload Strategy"),
 			).toBeVisible();
 			await expect(
-				createDialog.getByLabel("Object Storage Download Strategy"),
+				page.getByLabel("Object Storage Download Strategy"),
 			).toBeVisible();
 			await expect(accessKeySecret).toHaveAttribute("type", "password");
 
 			const policyName = uniqueName("pw-oss-policy");
 			const testSecret = "playwright-oss-secret";
-			await createDialog.locator("#name").fill(policyName);
+			await page.locator("#name").fill(policyName);
 			await endpoint.fill("http://127.0.0.1:9");
 			await region.fill("cn-beijing");
 			await bucket.fill("asterdrive-e2e");
@@ -231,7 +220,7 @@ test.describe
 			await accessKeyId.fill("playwright-access-key");
 			await accessKeySecret.fill(testSecret);
 
-			const testConnection = createDialog.getByRole("button", {
+			const testConnection = page.getByRole("button", {
 				name: "Test Connection",
 			});
 			const [invalidEndpointResponse] = await Promise.all([
@@ -292,10 +281,8 @@ test.describe
 				"unless CNAME mode is enabled",
 			);
 
-			await createDialog
-				.getByRole("button", { exact: true, name: "Review" })
-				.click();
-			const summary = createDialog.getByTestId("policy-summary-card");
+			await page.getByRole("button", { exact: true, name: "Review" }).click();
+			const summary = page.getByTestId("policy-summary-card");
 			await expect(summary).toContainText(policyName);
 			await expect(summary).toContainText("http://127.0.0.1:9");
 			await expect(summary).toContainText("cn-beijing");
@@ -304,7 +291,11 @@ test.describe
 				0,
 			);
 
-			await closeActiveDialog(page);
+			await page
+				.getByRole("button", { name: "Policies", exact: true })
+				.first()
+				.click();
+			await expect(page).toHaveURL(/\/admin\/policies$/);
 		});
 
 		test("surfaces team and share records in admin pages", async ({

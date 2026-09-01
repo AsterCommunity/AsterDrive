@@ -2,13 +2,13 @@ import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { findConnectorFieldByDataSource } from "@/components/admin/storage-policy-dialog/descriptorPredicates";
+import { findConnectorFieldByDataSource } from "@/components/admin/storage-policy-editor/descriptorPredicates";
 import {
 	connectorNumberValue,
 	connectorStringValue,
 	type PolicyFormData,
 	updatedConnectorConfigValues,
-} from "@/components/admin/storage-policy-dialog/formTypes";
+} from "@/components/admin/storage-policy-editor/formTypes";
 import { handleApiError } from "@/hooks/useApiError";
 import {
 	loadAdminRemoteNodeLookup,
@@ -35,14 +35,12 @@ import type {
 } from "@/types/api";
 
 interface StoragePolicyDescriptorControllerInput {
-	dialogOpen: boolean;
 	form: PolicyFormData;
 	setForm: Dispatch<SetStateAction<PolicyFormData>>;
 	setupMode: boolean;
 }
 
 export function useStoragePolicyDescriptorController({
-	dialogOpen,
 	form,
 	setForm,
 	setupMode,
@@ -302,7 +300,6 @@ export function useStoragePolicyDescriptorController({
 		: null;
 	useEffect(() => {
 		const canLoadTargets =
-			dialogOpen &&
 			remoteStorageTargetFieldName != null &&
 			selectedRemoteNodeId != null &&
 			Number.isSafeInteger(selectedRemoteNodeId) &&
@@ -317,7 +314,6 @@ export function useStoragePolicyDescriptorController({
 			selectedRemoteNodeId,
 		);
 	}, [
-		dialogOpen,
 		loadRemoteStorageTargetDriverDescriptorsForPolicy,
 		loadRemoteStorageTargetsForPolicy,
 		resetRemoteStorageTargets,

@@ -12,7 +12,6 @@ import {
 	UsersTableRow,
 } from "@/components/admin/admin-users-page/UsersTable";
 import { UsersToolbar } from "@/components/admin/admin-users-page/UsersToolbar";
-import { UserDetailDialog } from "@/components/admin/UserDetailDialog";
 import { AdminTableList } from "@/components/common/AdminTableList";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { AdminLayout } from "@/components/layout/AdminLayout";
@@ -50,7 +49,6 @@ import type {
 	AdminUserInvitationInfo,
 	CreateUserInvitationRequest,
 	CreateUserReq,
-	UpdateUserRequest,
 	UserInfo,
 	UserRole,
 	UserStatus,
@@ -149,9 +147,6 @@ export default function AdminUsersPage() {
 		status: statusFilter,
 	} = query;
 	const [keyword, setKeyword] = useState(debouncedKeyword);
-	const [detailDialogUserId, setDetailDialogUserId] = useState<number | null>(
-		null,
-	);
 	const [createDialogOpen, setCreateDialogOpen] = useState(false);
 	const [createErrors, setCreateErrors] = useState<Partial<CreateUserReq>>({});
 	const [createForm, setCreateForm] = useState<CreateUserReq>({
@@ -433,16 +428,6 @@ export default function AdminUsersPage() {
 		}
 	};
 
-	const updateUser = async (id: number, data: UpdateUserRequest) => {
-		try {
-			await adminUserService.update(id, data);
-			await reloadUsers();
-			toast.success(t("user_updated"));
-		} catch (e) {
-			handleApiError(e);
-		}
-	};
-
 	const deleteUser = async (id: number) => {
 		await runWithDeletingUser(id, async () => {
 			try {
@@ -452,9 +437,6 @@ export default function AdminUsersPage() {
 					isLastItemOnPage && offset > 0
 						? Math.max(0, offset - pageSize)
 						: offset;
-				if (detailDialogUserId === id) {
-					setDetailDialogUserId(null);
-				}
 				if (nextOffset !== offset) {
 					setOffset(nextOffset);
 				} else {
@@ -477,10 +459,6 @@ export default function AdminUsersPage() {
 		}
 	});
 
-	const selectedUser = useMemo(
-		() => users.find((user) => user.id === detailDialogUserId) ?? null,
-		[users, detailDialogUserId],
-	);
 	const deleteTargetUser = useMemo(
 		() => users.find((user) => user.id === deleteUserId) ?? null,
 		[users, deleteUserId],
@@ -611,7 +589,9 @@ export default function AdminUsersPage() {
 							key={user.id}
 							deletingUserId={deletingUserId}
 							onDeleteUser={requestDeleteUserConfirm}
-							onOpenUserDetail={setDetailDialogUserId}
+							onOpenUserDetail={(id) =>
+								navigate(`/admin/users/${id}`, { viewTransition: false })
+							}
 							user={user}
 						/>
 					)}
@@ -659,14 +639,6 @@ export default function AdminUsersPage() {
 				onFieldChange={handleInviteFormChange}
 				onFieldValidate={validateInviteField}
 				onSubmit={handleInviteUser}
-			/>
-			<UserDetailDialog
-				user={selectedUser}
-				open={detailDialogUserId !== null}
-				onOpenChange={(open) => {
-					if (!open) setDetailDialogUserId(null);
-				}}
-				onUpdate={updateUser}
 			/>
 			<ConfirmDialog
 				{...deleteDialogProps}

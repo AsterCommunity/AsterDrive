@@ -28,7 +28,11 @@ import {
 	loadAdminPolicyLookup,
 	readAdminPolicyLookup,
 } from "@/lib/adminPolicyLookup";
-import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
+import {
+	ADMIN_CONTROL_HEIGHT_CLASS,
+	adminPageEnterAnimationClass,
+} from "@/lib/constants";
+import { cn } from "@/lib/utils";
 import { adminPolicyGroupService } from "@/services/adminService";
 import type {
 	StoragePlacementSimulationResult,
@@ -401,12 +405,13 @@ export default function AdminPolicyGroupEditPage() {
 			<AdminPageShell>
 				<form
 					autoComplete="off"
+					noValidate
 					onSubmit={(event) => {
 						event.preventDefault();
 						void submitForm();
 					}}
 				>
-					<div className="animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards motion-reduce:animate-none mb-2">
+					<div className={cn(adminPageEnterAnimationClass(), "mb-2")}>
 						<Button
 							type="button"
 							variant="ghost"
@@ -419,7 +424,7 @@ export default function AdminPolicyGroupEditPage() {
 						</Button>
 					</div>
 					<AdminPageHeader
-						className="animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards motion-reduce:animate-none px-0 md:px-0"
+						className={cn(adminPageEnterAnimationClass(), "px-0 md:px-0")}
 						title={pageTitle}
 						description={t("policy_group_page_desc")}
 						actions={

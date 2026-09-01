@@ -14,11 +14,8 @@ import type {
 	StorageConnectorFieldDescriptor,
 	StoragePolicyCapacityInfo,
 } from "@/types/api";
-import { StoragePolicyDialog } from "./StoragePolicyDialog";
-import {
-	emptyForm,
-	type PolicyFormData,
-} from "./storage-policy-dialog/formTypes";
+import { emptyForm, type PolicyFormData } from "./formTypes";
+import { StoragePolicyEditorForm } from "./StoragePolicyEditorForm";
 
 const connectorMessages = vi.hoisted(() => new Map<string, string>());
 const interactionMocks = vi.hoisted(() => ({
@@ -219,12 +216,11 @@ function policyCapacity(
 	};
 }
 
-function dialogProps(
-	overrides: Partial<ComponentProps<typeof StoragePolicyDialog>> = {},
-): ComponentProps<typeof StoragePolicyDialog> {
+function editorFormProps(
+	overrides: Partial<ComponentProps<typeof StoragePolicyEditorForm>> = {},
+): ComponentProps<typeof StoragePolicyEditorForm> {
 	const plugin = descriptor("plugin.example");
 	return {
-		open: true,
 		mode: "create",
 		form: policyForm(),
 		storageDriverDescriptor: plugin,
@@ -254,7 +250,6 @@ function dialogProps(
 		connectorActionValues: {},
 		saveAnywayConfirmOpen: false,
 		onCancelConnectorAction: vi.fn(),
-		onOpenChange: vi.fn(),
 		onCancelSaveAnyway: vi.fn(),
 		onConfirmSaveAnyway: vi.fn(),
 		onConfirmConnectorAction: vi.fn(),
@@ -274,7 +269,7 @@ function dialogProps(
 	};
 }
 
-describe("StoragePolicyDialog", () => {
+describe("StoragePolicyEditorForm", () => {
 	beforeEach(() => {
 		connectorMessages.clear();
 		interactionMocks.clipboard.mockReset();
@@ -298,13 +293,13 @@ describe("StoragePolicyDialog", () => {
 				label_key: "post_setup_label",
 			},
 		});
-		const props = dialogProps({
+		const props = editorFormProps({
 			form: policyForm({ connector_id: "" }),
-			presentation: "setup",
+			setup: true,
 			storageDriverDescriptor: null,
 			storageDriverDescriptors: [available, postSetup],
 		});
-		render(<StoragePolicyDialog {...props} />);
+		render(<StoragePolicyEditorForm {...props} />);
 
 		const options = screen.getByTestId("storage-driver-options");
 		expect(options).toHaveClass("md:grid-cols-2");
@@ -324,8 +319,8 @@ describe("StoragePolicyDialog", () => {
 	});
 
 	it("keeps the configuration helper sidebar and descriptor-driven connection controls", () => {
-		const props = dialogProps({ createStep: 1 });
-		render(<StoragePolicyDialog {...props} />);
+		const props = editorFormProps({ createStep: 1 });
+		render(<StoragePolicyEditorForm {...props} />);
 
 		expect(screen.getByText("plugin_helper")).toBeVisible();
 		expect(screen.getByLabelText("core:name")).toHaveValue("Plugin policy");
@@ -342,17 +337,11 @@ describe("StoragePolicyDialog", () => {
 			"type",
 			"password",
 		);
-		expect(
-			screen.getByRole("button", { name: "test_connection" }),
-		).toBeVisible();
-		expect(
-			screen.getByRole("button", { name: "policy_wizard_review" }),
-		).toBeVisible();
 	});
 
 	it("keeps the review summary while excluding connector-owned secrets", () => {
-		const props = dialogProps({ createStep: 2 });
-		render(<StoragePolicyDialog {...props} />);
+		const props = editorFormProps({ createStep: 2 });
+		render(<StoragePolicyEditorForm {...props} />);
 
 		const summary = screen.getByTestId("policy-summary-card");
 		expect(within(summary).getByText("Plugin policy")).toBeVisible();
@@ -360,7 +349,6 @@ describe("StoragePolicyDialog", () => {
 			within(summary).getByText("https://plugin.example.test"),
 		).toBeVisible();
 		expect(within(summary).queryByText("SECRET_TOKEN")).toBeNull();
-		expect(screen.getByRole("button", { name: "core:create" })).toBeVisible();
 	});
 
 	it("falls back to the persisted id for an unavailable remote node", () => {
@@ -374,8 +362,8 @@ describe("StoragePolicyDialog", () => {
 		});
 
 		const view = render(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					createStep: 2,
 					form: policyForm({
 						connector_config_values: { remote_node_id: 404 },
@@ -392,8 +380,8 @@ describe("StoragePolicyDialog", () => {
 		).toBeVisible();
 
 		view.rerender(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					createStep: 2,
 					form: policyForm({ connector_config_values: {} }),
 					remoteNodes: [],
@@ -408,8 +396,8 @@ describe("StoragePolicyDialog", () => {
 	});
 
 	it("restores the edit context, capacity summary, and separate overview, connection, and rules sections", () => {
-		const props = dialogProps({ mode: "edit" });
-		render(<StoragePolicyDialog {...props} />);
+		const props = editorFormProps({ mode: "edit" });
+		render(<StoragePolicyEditorForm {...props} />);
 
 		expect(screen.getByTestId("policy-edit-shell")).toBeVisible();
 		expect(screen.getByTestId("policy-edit-context-bar")).toBeVisible();
@@ -435,13 +423,12 @@ describe("StoragePolicyDialog", () => {
 			"placeholder",
 			"policy_editor_credentials_keep_placeholder",
 		);
-		expect(screen.getByRole("button", { name: "save_changes" })).toBeVisible();
 	});
 
 	it("renders schema-valid supported capacity values and an accessible segmented progress bar", () => {
 		render(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					mode: "edit",
 					policyCapacity: policyCapacity(),
 				})}
@@ -488,8 +475,8 @@ describe("StoragePolicyDialog", () => {
 
 	it("clamps inconsistent provider capacity before formatting and sizing segments", () => {
 		render(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					mode: "edit",
 					policyCapacity: policyCapacity({
 						blob_total_bytes: 2000,
@@ -527,8 +514,8 @@ describe("StoragePolicyDialog", () => {
 
 	it("renders zero-total metrics without dividing or exposing progress semantics", () => {
 		render(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					mode: "edit",
 					policyCapacity: policyCapacity({
 						capacity: {
@@ -559,8 +546,8 @@ describe("StoragePolicyDialog", () => {
 
 	it("normalizes a negative total to the zero-total presentation", () => {
 		render(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					mode: "edit",
 					policyCapacity: policyCapacity({
 						capacity: {
@@ -594,8 +581,8 @@ describe("StoragePolicyDialog", () => {
 
 	it("keeps loading, unsupported, unavailable, and null-field capacity fallbacks explicit", () => {
 		const view = render(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					mode: "edit",
 					policyCapacity: policyCapacity(),
 					policyCapacityLoading: true,
@@ -610,8 +597,8 @@ describe("StoragePolicyDialog", () => {
 		).toBeNull();
 
 		view.rerender(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					mode: "edit",
 					policyCapacity: policyCapacity({
 						capacity: {
@@ -633,8 +620,8 @@ describe("StoragePolicyDialog", () => {
 		expect(within(summary).queryByRole("progressbar")).toBeNull();
 
 		view.rerender(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					mode: "edit",
 					policyCapacity: policyCapacity({
 						capacity: {
@@ -655,8 +642,8 @@ describe("StoragePolicyDialog", () => {
 		).toBeVisible();
 
 		view.rerender(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					mode: "edit",
 					policyCapacity: policyCapacity({
 						capacity: {
@@ -679,8 +666,8 @@ describe("StoragePolicyDialog", () => {
 		expect(within(summary).queryByTestId("policy-capacity-total")).toBeNull();
 
 		view.rerender(
-			<StoragePolicyDialog
-				{...dialogProps({ mode: "edit", policyCapacity: null })}
+			<StoragePolicyEditorForm
+				{...editorFormProps({ mode: "edit", policyCapacity: null })}
 			/>,
 		);
 		summary = screen.getByTestId("policy-edit-capacity-summary");
@@ -794,8 +781,8 @@ describe("StoragePolicyDialog", () => {
 		} satisfies StorageConnectorCredentialInfo;
 
 		const view = render(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					mode: "edit",
 					storageDriverDescriptor: plugin,
 					storageDriverDescriptors: [plugin],
@@ -849,8 +836,8 @@ describe("StoragePolicyDialog", () => {
 		);
 
 		view.rerender(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					mode: "edit",
 					storageDriverDescriptor: plugin,
 					storageDriverDescriptors: [plugin],
@@ -875,8 +862,8 @@ describe("StoragePolicyDialog", () => {
 		expect(screen.queryByText("INVALID_CLIENT: provider detail")).toBeNull();
 
 		view.rerender(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					mode: "edit",
 					storageDriverDescriptor: plugin,
 					storageDriverDescriptors: [plugin],
@@ -890,8 +877,8 @@ describe("StoragePolicyDialog", () => {
 		).toBeVisible();
 
 		view.rerender(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					mode: "edit",
 					storageDriverDescriptor: plugin,
 					storageDriverDescriptors: [plugin],
@@ -903,8 +890,8 @@ describe("StoragePolicyDialog", () => {
 		expect(screen.getByText("Credential loading")).toBeVisible();
 
 		view.rerender(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					mode: "edit",
 					storageDriverDescriptor: plugin,
 					storageDriverDescriptors: [plugin],
@@ -939,8 +926,8 @@ describe("StoragePolicyDialog", () => {
 			},
 		});
 		view.rerender(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					mode: "edit",
 					storageAuthorizationSubmitting: true,
 					storageCredentialValidationSubmitting: true,
@@ -967,8 +954,8 @@ describe("StoragePolicyDialog", () => {
 		});
 		const onValidateStorageCredential = vi.fn();
 		view.rerender(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					mode: "edit",
 					onValidateStorageCredential,
 					storageDriverDescriptor: validationOnlyPlugin,
@@ -988,8 +975,8 @@ describe("StoragePolicyDialog", () => {
 
 	it("covers connector loading and error states before selection", () => {
 		const loading = render(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					form: policyForm({ connector_id: "" }),
 					storageDriverDescriptor: null,
 					storageDriverDescriptors: [],
@@ -1001,8 +988,8 @@ describe("StoragePolicyDialog", () => {
 		loading.unmount();
 
 		render(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					form: policyForm({ connector_id: "" }),
 					storageDriverDescriptor: null,
 					storageDriverDescriptors: [],
@@ -1021,7 +1008,7 @@ describe("StoragePolicyDialog", () => {
 				storage_native_thumbnail: true,
 			},
 		});
-		const props = dialogProps({
+		const props = editorFormProps({
 			createStep: 1,
 			createStepTouched: true,
 			endpointValidationMessage: "endpoint invalid",
@@ -1040,30 +1027,21 @@ describe("StoragePolicyDialog", () => {
 			storageDriverDescriptor: plugin,
 			storageDriverDescriptors: [plugin],
 		});
-		const view = render(<StoragePolicyDialog {...props} />);
+		const view = render(<StoragePolicyEditorForm {...props} />);
 
-		const formElement = screen.getByTestId("policy-step-panel").closest("form");
-		expect(formElement).not.toBeNull();
-		if (formElement) fireEvent.submit(formElement);
 		expect(screen.getByText("policy_wizard_name_required")).toBeVisible();
 		expect(screen.getByText("endpoint invalid")).toBeVisible();
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: "Renamed" },
 		});
-		fireEvent.click(
-			screen.getByRole("button", { name: "policy_wizard_review" }),
-		);
-		fireEvent.click(screen.getByRole("button", { name: "core:back" }));
 		fireEvent.click(screen.getByRole("button", { name: "core:cancel" }));
 		fireEvent.click(screen.getByRole("button", { name: "save_anyway" }));
 		expect(props.onFieldChange).toHaveBeenCalledWith("name", "Renamed");
-		expect(props.onCreateNext).toHaveBeenCalledOnce();
-		expect(props.onCreateBack).toHaveBeenCalledOnce();
 		expect(props.onCancelSaveAnyway).toHaveBeenCalledOnce();
 		expect(props.onConfirmSaveAnyway).toHaveBeenCalledOnce();
 
 		view.rerender(
-			<StoragePolicyDialog
+			<StoragePolicyEditorForm
 				{...props}
 				createStep={2}
 				form={policyForm({
@@ -1098,7 +1076,6 @@ describe("StoragePolicyDialog", () => {
 			screen.getByLabelText("storage_native_media_metadata_extensions"),
 			{ target: { value: "mp4, mov" } },
 		);
-		fireEvent.click(screen.getByRole("button", { name: "core:create" }));
 		expect(props.onFieldChange).toHaveBeenCalledWith("max_file_size", "2048");
 		expect(props.onFieldChange).toHaveBeenCalledWith("chunk_size", "16");
 		expect(props.onFieldChange).toHaveBeenCalledWith("is_default", true);
@@ -1110,7 +1087,6 @@ describe("StoragePolicyDialog", () => {
 			"storage_native_media_metadata_extensions",
 			["mp4", "mov"],
 		);
-		expect(props.onSubmit).toHaveBeenCalledOnce();
 	});
 
 	it("renders independent core behavior controls strictly from descriptor capabilities", () => {
@@ -1130,7 +1106,7 @@ describe("StoragePolicyDialog", () => {
 					storage_native_media_metadata: item.metadata,
 				},
 			});
-			const props = dialogProps({
+			const props = editorFormProps({
 				createStep: 2,
 				form: policyForm({
 					storage_native_thumbnail_enabled: false,
@@ -1141,7 +1117,7 @@ describe("StoragePolicyDialog", () => {
 				storageDriverDescriptor: plugin,
 				storageDriverDescriptors: [plugin],
 			});
-			const view = render(<StoragePolicyDialog {...props} />);
+			const view = render(<StoragePolicyEditorForm {...props} />);
 
 			expect(
 				screen.queryByRole("switch", {
@@ -1199,7 +1175,7 @@ describe("StoragePolicyDialog", () => {
 				storage_native_media_metadata: true,
 			},
 		});
-		const props = dialogProps({
+		const props = editorFormProps({
 			createStep: 2,
 			form: policyForm({
 				storage_native_thumbnail_enabled: false,
@@ -1210,7 +1186,7 @@ describe("StoragePolicyDialog", () => {
 			storageDriverDescriptor: plugin,
 			storageDriverDescriptors: [plugin],
 		});
-		render(<StoragePolicyDialog {...props} />);
+		render(<StoragePolicyEditorForm {...props} />);
 
 		const thumbnailGroup = screen.getByRole("group", {
 			name: "storage_native_thumbnail_enabled",
@@ -1291,8 +1267,8 @@ describe("StoragePolicyDialog", () => {
 			},
 		});
 		render(
-			<StoragePolicyDialog
-				{...dialogProps({
+			<StoragePolicyEditorForm
+				{...editorFormProps({
 					createStep: 2,
 					form: policyForm({
 						storage_native_thumbnail_enabled: false,
@@ -1332,12 +1308,12 @@ describe("StoragePolicyDialog", () => {
 				storage_native_media_metadata: true,
 			},
 		});
-		const props = dialogProps({
+		const props = editorFormProps({
 			createStep: 2,
 			storageDriverDescriptor: plugin,
 			storageDriverDescriptors: [plugin],
 		});
-		render(<StoragePolicyDialog {...props} />);
+		render(<StoragePolicyEditorForm {...props} />);
 
 		fireEvent.click(
 			screen.getByRole("switch", { name: "storage_native_thumbnail_enabled" }),
@@ -1399,7 +1375,7 @@ describe("StoragePolicyDialog", () => {
 				icon_src: null,
 			},
 		});
-		const props = dialogProps({
+		const props = editorFormProps({
 			connectorActionConfirmId: "plugin.repair",
 			connectorActionSubmittingId: "plugin.repair",
 			form: policyForm({
@@ -1425,9 +1401,8 @@ describe("StoragePolicyDialog", () => {
 			remoteStorageTargetsLoading: true,
 			storageDriverDescriptor: plugin,
 			storageDriverDescriptors: [plugin],
-			submitting: true,
 		});
-		render(<StoragePolicyDialog {...props} />);
+		render(<StoragePolicyEditorForm {...props} />);
 
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: "Edited policy" },
@@ -1440,7 +1415,6 @@ describe("StoragePolicyDialog", () => {
 		expect(
 			screen.getByRole("button", { name: "plugin.repair" }),
 		).toBeDisabled();
-		expect(screen.getByRole("button", { name: "save_changes" })).toBeDisabled();
 		expect(props.onFieldChange).toHaveBeenCalledWith("name", "Edited policy");
 	});
 });

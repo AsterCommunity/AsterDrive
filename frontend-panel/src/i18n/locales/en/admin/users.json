@@ -71,6 +71,8 @@
 	"user_deleted": "User deleted",
 	"view_details": "View details",
 	"user_details": "User details",
+	"user_not_found": "This user does not exist or has been deleted.",
+	"user_back_to_list": "Users",
 	"storage_quota_settings": "Storage & quota",
 	"storage_quota_settings_desc": "Adjust the user's role, status, total quota, and policy group binding here.",
 	"security_actions": "Security actions",

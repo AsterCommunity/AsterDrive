@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { UserDetailDialogBody } from "@/components/admin/user-detail-dialog/UserDetailDialogBody";
+import { UserDetailContent } from "@/components/admin/user-detail/UserDetailContent";
 import type { StoragePolicyGroup, UserInfo } from "@/types/api";
 
 vi.mock("react-i18next", () => ({
@@ -30,12 +30,6 @@ vi.mock("@/components/ui/button", () => ({
 		<button type={type ?? "button"} disabled={disabled} onClick={onClick}>
 			{children}
 		</button>
-	),
-}));
-
-vi.mock("@/components/ui/dialog", () => ({
-	DialogFooter: ({ children }: { children: React.ReactNode }) => (
-		<footer>{children}</footer>
 	),
 }));
 
@@ -106,13 +100,13 @@ vi.mock("@/services/adminService", () => ({
 	},
 }));
 
-vi.mock("@/components/admin/user-detail-dialog/UserDetailSidebar", () => ({
+vi.mock("@/components/admin/user-detail/UserDetailSidebar", () => ({
 	UserDetailSidebar: ({ user }: { user: UserInfo }) => (
 		<aside>{user.username}</aside>
 	),
 }));
 
-vi.mock("@/components/admin/user-detail-dialog/UserProfileSection", () => ({
+vi.mock("@/components/admin/user-detail/UserProfileSection", () => ({
 	UserProfileSection: ({
 		children,
 		onDraftEmailVerifiedChange,
@@ -140,7 +134,7 @@ vi.mock("@/components/admin/user-detail-dialog/UserProfileSection", () => ({
 	),
 }));
 
-vi.mock("@/components/admin/user-detail-dialog/UserPolicyGroupSection", () => ({
+vi.mock("@/components/admin/user-detail/UserPolicyGroupSection", () => ({
 	UserPolicyGroupSection: ({
 		onDraftPolicyGroupIdChange,
 	}: {
@@ -186,8 +180,8 @@ function user(overrides: Partial<UserInfo> = {}): UserInfo {
 function renderDialog(overrides: Partial<UserInfo> = {}) {
 	const onUpdate = vi.fn().mockResolvedValue(undefined);
 	render(
-		<UserDetailDialogBody
-			onClose={vi.fn()}
+		<UserDetailContent
+			onPageBack={vi.fn()}
 			onRefreshPolicyGroups={vi.fn().mockResolvedValue(undefined)}
 			onUpdate={onUpdate}
 			policyGroups={[] satisfies StoragePolicyGroup[]}
@@ -198,7 +192,7 @@ function renderDialog(overrides: Partial<UserInfo> = {}) {
 	return { onUpdate };
 }
 
-describe("UserDetailDialogBody forced password-change control", () => {
+describe("UserDetailContent forced password-change control", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});
@@ -206,14 +200,13 @@ describe("UserDetailDialogBody forced password-change control", () => {
 	it("saves enabling the forced password-change flag through the user PATCH payload", async () => {
 		const { onUpdate } = renderDialog();
 
-		expect(
-			screen.queryByRole("button", { name: "save_changes" }),
-		).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: /save_changes/ })).toBeDisabled();
 
 		fireEvent.click(
 			screen.getByRole("switch", { name: "force_password_change" }),
 		);
-		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+		expect(screen.getByRole("button", { name: /save_changes/ })).toBeEnabled();
+		fireEvent.click(screen.getByRole("button", { name: /save_changes/ }));
 
 		await waitFor(() => {
 			expect(onUpdate).toHaveBeenCalledWith(11, {
@@ -231,7 +224,7 @@ describe("UserDetailDialogBody forced password-change control", () => {
 		fireEvent.click(
 			screen.getByRole("switch", { name: "force_password_change" }),
 		);
-		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+		fireEvent.click(screen.getByRole("button", { name: /save_changes/ }));
 
 		await waitFor(() => {
 			expect(onUpdate).toHaveBeenCalledWith(11, {
@@ -243,8 +236,8 @@ describe("UserDetailDialogBody forced password-change control", () => {
 	it("saves profile field and policy group changes into one PATCH payload", async () => {
 		const onUpdate = vi.fn().mockResolvedValue(undefined);
 		render(
-			<UserDetailDialogBody
-				onClose={vi.fn()}
+			<UserDetailContent
+				onPageBack={vi.fn()}
 				onRefreshPolicyGroups={vi.fn().mockResolvedValue(undefined)}
 				onUpdate={onUpdate}
 				policyGroups={[
@@ -282,7 +275,7 @@ describe("UserDetailDialogBody forced password-change control", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "assign-policy-group" }),
 		);
-		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+		fireEvent.click(screen.getByRole("button", { name: /save_changes/ }));
 
 		await waitFor(() => {
 			expect(onUpdate).toHaveBeenCalledWith(11, {
@@ -294,20 +287,16 @@ describe("UserDetailDialogBody forced password-change control", () => {
 		});
 	});
 
-	it("does not show a save action when the toggle returns to its original value", () => {
+	it("disables the save action when the toggle returns to its original value", () => {
 		renderDialog();
 
 		const toggle = screen.getByRole("switch", {
 			name: "force_password_change",
 		});
 		fireEvent.click(toggle);
-		expect(
-			screen.getByRole("button", { name: "save_changes" }),
-		).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: /save_changes/ })).toBeEnabled();
 		fireEvent.click(toggle);
 
-		expect(
-			screen.queryByRole("button", { name: "save_changes" }),
-		).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: /save_changes/ })).toBeDisabled();
 	});
 });

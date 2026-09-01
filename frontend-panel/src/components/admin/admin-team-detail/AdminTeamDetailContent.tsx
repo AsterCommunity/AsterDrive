@@ -1,25 +1,7 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import {
-	AdminTeamDetailAuditSection,
-	AdminTeamDetailDangerSection,
-	AdminTeamDetailMembersSection,
-	AdminTeamDetailOverviewSection,
-} from "@/components/admin/admin-team-detail/AdminTeamDetailSections";
-import { AdminTeamDetailShell } from "@/components/admin/admin-team-detail/AdminTeamDetailShell";
-import {
-	ADMIN_TEAM_DETAIL_AUDIT_PAGE_SIZE,
-	ADMIN_TEAM_DETAIL_MEMBER_PAGE_SIZE,
-	adminTeamDetailContentScrollPositions,
-	adminTeamDetailSidebarScrollPositions,
-	buildPolicyGroupOptions,
-} from "@/components/admin/admin-team-detail/adminTeamDetailDialogState";
-import type { AdminTeamDetailTab } from "@/components/admin/admin-team-detail/types";
-import { useAdminTeamDetailData } from "@/components/admin/admin-team-detail/useAdminTeamDetailData";
-import { useAdminTeamDetailScrollRestoration } from "@/components/admin/admin-team-detail/useAdminTeamDetailScrollRestoration";
-import { useAdminTeamDetailTabs } from "@/components/admin/admin-team-detail/useAdminTeamDetailTabs";
-import { policyGroupRuleCount } from "@/components/admin/user-detail-dialog/types";
+import { policyGroupRuleCount } from "@/components/admin/user-detail/types";
 import { handleApiError } from "@/hooks/useApiError";
 import type { SortOrder } from "@/lib/pagination";
 import {
@@ -36,23 +18,39 @@ import type {
 	TeamMemberRole,
 	UserStatus,
 } from "@/types/api";
+import {
+	AdminTeamDetailAuditSection,
+	AdminTeamDetailDangerSection,
+	AdminTeamDetailMembersSection,
+	AdminTeamDetailOverviewSection,
+} from "./AdminTeamDetailSections";
+import { AdminTeamDetailShell } from "./AdminTeamDetailShell";
+import {
+	ADMIN_TEAM_DETAIL_AUDIT_PAGE_SIZE,
+	ADMIN_TEAM_DETAIL_MEMBER_PAGE_SIZE,
+	adminTeamDetailContentScrollPositions,
+	adminTeamDetailSidebarScrollPositions,
+	buildPolicyGroupOptions,
+} from "./adminTeamDetailState";
+import type { AdminTeamDetailTab } from "./types";
+import { useAdminTeamDetailData } from "./useAdminTeamDetailData";
+import { useAdminTeamDetailScrollRestoration } from "./useAdminTeamDetailScrollRestoration";
+import { useAdminTeamDetailTabs } from "./useAdminTeamDetailTabs";
 
-export type { AdminTeamDetailTab } from "@/components/admin/admin-team-detail/types";
+export type { AdminTeamDetailTab } from "./types";
 
-interface AdminTeamDetailDialogProps {
-	layout?: "dialog" | "page";
-	open: boolean;
-	teamId: number | null;
+interface AdminTeamDetailContentProps {
+	teamId: number;
 	policyGroups: StoragePolicyGroup[];
 	policyGroupsLoading: boolean;
 	onListChange: () => Promise<void>;
-	onOpenChange: (open: boolean) => void;
-	onPageTabChange?: (
+	onPageBack: () => void;
+	onPageTabChange: (
 		tab: AdminTeamDetailTab,
 		options?: { replace?: boolean },
 	) => void;
 	onRefreshPolicyGroups: () => Promise<void>;
-	pageTab?: AdminTeamDetailTab;
+	pageTab: AdminTeamDetailTab;
 }
 
 function quotaDraftValue(team: AdminTeamInfo | null) {
@@ -83,23 +81,19 @@ interface QuotaDraftOverride {
 	value: string;
 }
 
-export function AdminTeamDetailDialog({
-	layout = "dialog",
-	open,
+export function AdminTeamDetailContent({
 	teamId,
 	policyGroups,
 	policyGroupsLoading,
 	onListChange,
-	onOpenChange,
+	onPageBack,
 	onPageTabChange,
 	onRefreshPolicyGroups,
 	pageTab,
-}: AdminTeamDetailDialogProps) {
+}: AdminTeamDetailContentProps) {
 	const { t } = useTranslation(["admin", "core", "settings"]);
-	const isPageLayout = layout === "page";
-	const { currentTab, handleTabChange, panelAnimationClass, resetDialogTab } =
+	const { currentTab, handleTabChange, panelAnimationClass } =
 		useAdminTeamDetailTabs({
-			isPageLayout,
 			onPageTabChange,
 			pageTab,
 		});
@@ -185,13 +179,11 @@ export function AdminTeamDetailDialog({
 		memberOffset,
 		memberSortBy,
 		memberSortOrder,
-		open,
 		teamId,
 	});
 
 	useAdminTeamDetailScrollRestoration({
 		contentRef,
-		isPageLayout,
 		pageTab,
 		sidebarRef,
 		teamId,
@@ -406,7 +398,7 @@ export function AdminTeamDetailDialog({
 
 	const handleAddMember = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
-		if (teamId == null || !canMutateTeam) {
+		if (!canMutateTeam) {
 			return;
 		}
 
@@ -442,7 +434,7 @@ export function AdminTeamDetailDialog({
 		memberUserId: number,
 		role: TeamMemberRole,
 	) => {
-		if (teamId == null || !canMutateTeam) {
+		if (!canMutateTeam) {
 			return;
 		}
 
@@ -470,7 +462,7 @@ export function AdminTeamDetailDialog({
 	};
 
 	const handleRemoveMember = async (memberUserId: number) => {
-		if (teamId == null || !canMutateTeam) {
+		if (!canMutateTeam) {
 			return;
 		}
 
@@ -497,53 +489,18 @@ export function AdminTeamDetailDialog({
 		}
 	};
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: teamId switches reset pagination state for the newly opened team even though the effect body only calls stable setters
 	useEffect(() => {
-		if (!open || teamId == null) {
-			overviewSyncAllowedRef.current = true;
-			setArchiveConfirmValue("");
-			setArchiving(false);
-			setAuditOffset(0);
-			setDescription("");
-			setMemberIdentifier("");
-			setMemberMutating(false);
-			setMemberOffset(0);
-			setMemberQuery("");
-			setMemberRole("member");
-			setMemberRoleFilter("__all__");
-			setMemberSortBy("role");
-			setMemberSortOrder("asc");
-			setMemberStatusFilter("__all__");
-			setName("");
-			setPolicyGroupId("");
-			setQuotaDraftOverride(null);
-			setRestoring(false);
-			setSaving(false);
-			resetDialogTab();
-			return;
-		}
-
 		overviewSyncAllowedRef.current = true;
 		setAuditOffset(0);
 		setMemberOffset(0);
 		setMemberSortBy("role");
 		setMemberSortOrder("asc");
 		setQuotaDraftOverride(null);
-		resetDialogTab();
-	}, [open, resetDialogTab, teamId]);
-
-	if (teamId == null) {
-		return null;
-	}
-
-	const handleDialogOpenChange = (nextOpen: boolean) => {
-		if (!nextOpen) {
-			setQuotaDraftOverride(null);
-		}
-		onOpenChange(nextOpen);
-	};
+	}, [teamId]);
 
 	const handleContentScroll = () => {
-		if (teamId == null || contentRef.current == null) {
+		if (contentRef.current == null) {
 			return;
 		}
 
@@ -554,7 +511,7 @@ export function AdminTeamDetailDialog({
 	};
 
 	const handleSidebarScroll = () => {
-		if (teamId == null || sidebarRef.current == null) {
+		if (sidebarRef.current == null) {
 			return;
 		}
 
@@ -644,7 +601,7 @@ export function AdminTeamDetailDialog({
 
 	const auditSection = (
 		<AdminTeamDetailAuditSection
-			teamId={teamId ?? 0}
+			teamId={teamId}
 			auditCurrentPage={auditCurrentPage}
 			auditEntries={auditEntries}
 			auditLoading={auditLoading}
@@ -680,14 +637,11 @@ export function AdminTeamDetailDialog({
 			currentPolicyGroupName={currentPolicyGroup?.name ?? null}
 			currentTab={currentTab}
 			dangerSection={dangerSection}
-			isPageLayout={isPageLayout}
 			membersSection={membersSection}
 			onContentScroll={handleContentScroll}
-			onOpenChange={handleDialogOpenChange}
-			onPageBack={() => handleDialogOpenChange(false)}
+			onPageBack={onPageBack}
 			onSidebarScroll={handleSidebarScroll}
 			onTabChange={handleTabChange}
-			open={open}
 			overviewSection={overviewSection}
 			ownerCount={ownerCount}
 			managerCount={managerCount}

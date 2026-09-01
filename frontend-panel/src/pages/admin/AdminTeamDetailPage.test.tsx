@@ -7,7 +7,7 @@ const mockState = vi.hoisted(() => ({
 	handleApiError: vi.fn(),
 	listPolicyGroups: vi.fn(),
 	navigate: vi.fn(),
-	adminTeamDetailDialogProps: null as null | {
+	adminTeamDetailContentProps: null as null | {
 		onPageTabChange?: (tab: string, options?: { replace?: boolean }) => void;
 	},
 }));
@@ -21,13 +21,15 @@ vi.mock("react-router-dom", () => ({
 	}),
 }));
 
-vi.mock("@/components/admin/AdminTeamDetailDialog", () => ({
-	AdminTeamDetailDialog: (props: {
+vi.mock("@/components/admin/admin-team-detail/AdminTeamDetailContent", () => ({
+	AdminTeamDetailContent: (props: {
 		onPageTabChange?: (tab: string, options?: { replace?: boolean }) => void;
 	}) => {
-		mockState.adminTeamDetailDialogProps = props;
+		mockState.adminTeamDetailContentProps = props;
 		return (
-			<div data-testid="admin-team-detail-dialog">admin-team-detail-dialog</div>
+			<div data-testid="admin-team-detail-content">
+				admin-team-detail-content
+			</div>
 		);
 	},
 }));
@@ -64,7 +66,7 @@ describe("AdminTeamDetailPage", () => {
 		mockState.handleApiError.mockReset();
 		mockState.listPolicyGroups.mockReset();
 		mockState.navigate.mockReset();
-		mockState.adminTeamDetailDialogProps = null;
+		mockState.adminTeamDetailContentProps = null;
 
 		mockState.listPolicyGroups.mockResolvedValue([]);
 	});
@@ -79,7 +81,7 @@ describe("AdminTeamDetailPage", () => {
 		expect(screen.getByTestId("admin-page-shell")).toHaveClass(
 			"overflow-hidden",
 		);
-		expect(screen.getByTestId("admin-team-detail-dialog")).toBeInTheDocument();
+		expect(screen.getByTestId("admin-team-detail-content")).toBeInTheDocument();
 	});
 
 	it("changes tabs without enabling a view transition", async () => {
@@ -87,11 +89,11 @@ describe("AdminTeamDetailPage", () => {
 
 		await waitFor(() => {
 			expect(
-				mockState.adminTeamDetailDialogProps?.onPageTabChange,
+				mockState.adminTeamDetailContentProps?.onPageTabChange,
 			).toBeDefined();
 		});
 
-		mockState.adminTeamDetailDialogProps?.onPageTabChange?.("audit", {
+		mockState.adminTeamDetailContentProps?.onPageTabChange?.("audit", {
 			replace: false,
 		});
 

@@ -2,29 +2,24 @@ import { type RefObject, useLayoutEffect } from "react";
 import {
 	adminTeamDetailContentScrollPositions,
 	adminTeamDetailSidebarScrollPositions,
-} from "./adminTeamDetailDialogState";
+} from "./adminTeamDetailState";
 import type { AdminTeamDetailTab } from "./types";
 
 interface UseAdminTeamDetailScrollRestorationArgs {
 	contentRef: RefObject<HTMLDivElement | null>;
-	isPageLayout: boolean;
-	pageTab?: AdminTeamDetailTab;
+	pageTab: AdminTeamDetailTab;
 	sidebarRef: RefObject<HTMLElement | null>;
-	teamId: number | null;
+	teamId: number;
 }
 
 export function useAdminTeamDetailScrollRestoration({
 	contentRef,
-	isPageLayout,
 	pageTab,
 	sidebarRef,
 	teamId,
 }: UseAdminTeamDetailScrollRestorationArgs) {
+	// biome-ignore lint/correctness/useExhaustiveDependencies: pageTab re-runs position save/restore on every tab switch even though the effect body only reads refs
 	useLayoutEffect(() => {
-		if (!isPageLayout || teamId == null || pageTab == null) {
-			return;
-		}
-
 		const content = contentRef.current;
 		if (content != null) {
 			content.scrollTop =
@@ -53,5 +48,5 @@ export function useAdminTeamDetailScrollRestoration({
 				adminTeamDetailSidebarScrollPositions.set(teamId, sidebar.scrollTop);
 			}
 		};
-	}, [contentRef, isPageLayout, pageTab, sidebarRef, teamId]);
+	}, [contentRef, pageTab, sidebarRef, teamId]);
 }

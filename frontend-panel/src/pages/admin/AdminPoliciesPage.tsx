@@ -1,59 +1,34 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type Dispatch, type SetStateAction, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
 import { PoliciesTable } from "@/components/admin/admin-policies-page/PoliciesTable";
-import { PolicyDialogs } from "@/components/admin/admin-policies-page/PolicyDialogs";
 import { StoragePolicyMigrationDialog } from "@/components/admin/admin-policies-page/StoragePolicyMigrationDialog";
-import {
-	getEndpointValidationMessage,
-	normalizePolicyForm,
-} from "@/components/admin/storage-policy-dialog/connectionNormalization";
-import {
-	emptyForm,
-	getPolicyForm,
-	type PolicyFormData,
-} from "@/components/admin/storage-policy-dialog/formTypes";
-import {
-	applyPolicyConnectorTransition,
-	applyPolicyFormFieldChange,
-} from "@/components/admin/storage-policy-dialog/policyFormTransition";
+import type { PolicyFormData } from "@/components/admin/storage-policy-editor/formTypes";
+import { emptyForm } from "@/components/admin/storage-policy-editor/formTypes";
+import { StoragePolicyEditorActions } from "@/components/admin/storage-policy-editor/StoragePolicyEditorActions";
+import { StoragePolicyEditorForm } from "@/components/admin/storage-policy-editor/StoragePolicyEditorForm";
+import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { config } from "@/config/app";
 import { handleApiError } from "@/hooks/useApiError";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { invalidateAdminPolicyLookup } from "@/lib/adminPolicyLookup";
-import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
-import { getStorageConnectorDescriptor } from "@/lib/adminStorageDriverDescriptors";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
-import { adminPolicyService } from "@/services/adminService";
 import { useAuthStore } from "@/stores/authStore";
 import { useSystemSetupStore } from "@/stores/systemSetupStore";
-import type {
-	StorageConnectorFieldValue,
-	StoragePolicy,
-	StoragePolicyCapacityInfo,
-} from "@/types/api";
-import { useStoragePolicyActionController } from "./admin-policies-page/useStoragePolicyActionController";
-import { useStoragePolicyCredentialController } from "./admin-policies-page/useStoragePolicyCredentialController";
+import type { StoragePolicy } from "@/types/api";
 import { useStoragePolicyDescriptorController } from "./admin-policies-page/useStoragePolicyDescriptorController";
-import { useStoragePolicyEditorController } from "./admin-policies-page/useStoragePolicyEditorController";
+import { useStoragePolicyEditorWorkspace } from "./admin-policies-page/useStoragePolicyEditorWorkspace";
 import { useStoragePolicyListController } from "./admin-policies-page/useStoragePolicyListController";
 import { useStoragePolicyMigrationController } from "./admin-policies-page/useStoragePolicyMigrationController";
-import { useStoragePolicyPromotionController } from "./admin-policies-page/useStoragePolicyPromotionController";
 
-function getStorageAuthorizationCallbackUrl() {
-	const apiBaseUrl = new URL(config.apiBaseUrl, window.location.origin);
-	return new URL(
-		"admin/policies/storage-authorization/callback",
-		apiBaseUrl.href.endsWith("/") ? apiBaseUrl.href : `${apiBaseUrl.href}/`,
-	).toString();
-}
+export type AdminPoliciesPageVariant = "admin" | "setup";
 
 function consumeStorageAuthorizationSearchParams(
 	searchParams: URLSearchParams,
@@ -98,273 +73,25 @@ function storageAuthorizationFailureI18nKey(reason: string | null) {
 	}
 }
 
-export type AdminPoliciesPageVariant = "admin" | "setup";
+const noopSetPolicyForm: Dispatch<SetStateAction<PolicyFormData>> = () =>
+	undefined;
 
-function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
+function AdminPoliciesListPage() {
 	const { t } = useTranslation("admin");
-	const setupMode = variant === "setup";
-	usePageTitle(setupMode ? t("auth:storage_setup_page_title") : t("policies"));
-	const logout = useAuthStore((state) => state.logout);
-	const refreshSetupState = useSystemSetupStore((state) => state.refresh);
+	const navigate = useNavigate();
+	usePageTitle(t("policies"));
 	const [searchParams, setSearchParams] = useSearchParams();
 	const policyList = useStoragePolicyListController();
 	const migrationController = useStoragePolicyMigrationController();
-	const [dialogOpen, setDialogOpen] = useState(setupMode);
-	const [editingId, setEditingId] = useState<number | null>(null);
-	const [editingPolicy, setEditingPolicy] = useState<StoragePolicy | null>(
-		null,
-	);
-	const [policyCapacity, setPolicyCapacity] =
-		useState<StoragePolicyCapacityInfo | null>(null);
-	const [policyCapacityLoading, setPolicyCapacityLoading] = useState(false);
-	const policyCapacityRequestSerial = useRef(0);
-	const consumedStorageAuthorizationSearchRef = useRef<string | null>(null);
-	const [form, setForm] = useState<PolicyFormData>(() =>
-		setupMode ? { ...emptyForm, is_default: true } : emptyForm,
-	);
+	// 列表页只需要驱动目录与远端节点 lookup（表格徽标、节点名列、手动刷新）；
+	// 空表单常量与稳定 noop 使远端存储目标加载永不触发（内联箭头会导致
+	// controller 内的 effect 因 setForm 引用漂移而反复重跑）。
 	const descriptorController = useStoragePolicyDescriptorController({
-		dialogOpen,
-		form,
-		setForm,
-		setupMode,
+		form: emptyForm,
+		setForm: noopSetPolicyForm,
+		setupMode: false,
 	});
-	useEffect(() => {
-		if (editingId !== null || !dialogOpen) {
-			return;
-		}
-		const creatableDescriptors =
-			descriptorController.creatableStorageDriverDescriptors;
-		if (
-			creatableDescriptors.length === 0 ||
-			creatableDescriptors.some(
-				(descriptor) => descriptor.connector_id === form.connector_id,
-			)
-		) {
-			return;
-		}
-
-		const firstDescriptor = creatableDescriptors[0];
-		setForm((current) => {
-			const transitioned = applyPolicyConnectorTransition(
-				current,
-				firstDescriptor.connector_id,
-				firstDescriptor,
-			);
-			return setupMode ? { ...transitioned, is_default: true } : transitioned;
-		});
-	}, [
-		descriptorController.creatableStorageDriverDescriptors,
-		dialogOpen,
-		editingId,
-		form.connector_id,
-		setupMode,
-	]);
-	const [submitting, setSubmitting] = useState(false);
-
-	const [saveAnywayConfirmOpen, setSaveAnywayConfirmOpen] = useState(false);
-	const [createStep, setCreateStep] = useState(0);
-	const [createStepTouched, setCreateStepTouched] = useState(false);
-	const currentStorageDriverDescriptor =
-		descriptorController.currentStorageDriverDescriptor;
-	const endpointValidationMessage = getEndpointValidationMessage(
-		form,
-		(key) =>
-			translateStorageConnectorMessage(
-				t,
-				currentStorageDriverDescriptor?.connector_id,
-				key,
-			),
-		currentStorageDriverDescriptor,
-	);
-	const storageAuthorizationRedirectUri = getStorageAuthorizationCallbackUrl();
-	const remoteNodeNameById = new Map(
-		descriptorController.remoteNodes.map(
-			(node) => [node.id, node.name] as const,
-		),
-	);
-	const loadPolicyCapacity = useCallback((policyId: number) => {
-		const capacityRequestSerial = ++policyCapacityRequestSerial.current;
-		setPolicyCapacityLoading(true);
-		void adminPolicyService
-			.getCapacity(policyId)
-			.then((capacity) => {
-				if (capacityRequestSerial === policyCapacityRequestSerial.current) {
-					setPolicyCapacity(capacity);
-				}
-			})
-			.catch((error) => {
-				if (capacityRequestSerial === policyCapacityRequestSerial.current) {
-					handleApiError(error);
-					setPolicyCapacity(null);
-				}
-			})
-			.finally(() => {
-				if (capacityRequestSerial === policyCapacityRequestSerial.current) {
-					setPolicyCapacityLoading(false);
-				}
-			});
-	}, []);
-	const actionController = useStoragePolicyActionController({
-		currentStorageDriverDescriptor,
-		editingId,
-		editingPolicy,
-		storageDriverDescriptors: descriptorController.storageDriverDescriptors,
-		syncNormalizedPolicyForm,
-	});
-	const credentialController = useStoragePolicyCredentialController({
-		currentStorageDriverDescriptor,
-		dialogOpen,
-		editingPolicy,
-		form,
-		loadPolicyCapacity,
-	});
-	const setConnectorActionValue = useCallback(
-		(
-			actionId: string,
-			fieldName: string,
-			value: StorageConnectorFieldValue | undefined,
-		) => {
-			actionController.setConnectorActionValue(actionId, fieldName, value);
-			const action = currentStorageDriverDescriptor?.actions.find(
-				(candidate) => candidate.action_id === actionId,
-			);
-			const controlsRemoteTargets = action?.fields?.some(
-				(field) =>
-					field.select?.data_source === "remote_storage_targets" &&
-					field.select.depends_on === fieldName,
-			);
-			if (!controlsRemoteTargets) {
-				return;
-			}
-			if (
-				typeof value === "number" &&
-				Number.isSafeInteger(value) &&
-				value > 0
-			) {
-				void descriptorController.loadRemoteStorageTargetsForPolicy(value, {
-					showErrorToast: false,
-					syncPolicySelection: false,
-				});
-			} else {
-				descriptorController.resetRemoteStorageTargets();
-			}
-		},
-		[actionController, currentStorageDriverDescriptor, descriptorController],
-	);
-	const editorController = useStoragePolicyEditorController({
-		allowSaveWithoutConnectionTest: !setupMode,
-		currentStorageDriverDescriptor,
-		createStep,
-		editingId,
-		editingPolicy,
-		endpointValidationMessage,
-		form,
-		list: {
-			offset: policyList.offset,
-			pageSize: policyList.pageSize,
-			reload: policyList.reload,
-			setOffset: policyList.setOffset,
-			setPolicies: policyList.setPolicies,
-			setTotal: policyList.setTotal,
-			total: policyList.total,
-		},
-		loadPolicyCapacity,
-		onCloseDialog: () => handleDialogOpenChange(false),
-		onPolicyCreated: setupMode
-			? async () => {
-					await refreshSetupState().catch(handleApiError);
-				}
-			: undefined,
-		setCreateStep,
-		setCreateStepTouched,
-		setEditingId,
-		setEditingPolicy,
-		setForm,
-		setSaveAnywayConfirmOpen,
-		setSubmitting,
-		storageDriverDescriptors: descriptorController.storageDriverDescriptors,
-		submitting,
-		syncNormalizedPolicyForm,
-	});
-	const promotionController = useStoragePolicyPromotionController({
-		currentDescriptor: currentStorageDriverDescriptor,
-		editingId,
-		editingPolicy,
-		form,
-		loadPolicyCapacity,
-		onDraftApplied: () => {
-			actionController.resetActionState();
-			credentialController.reset();
-			setSaveAnywayConfirmOpen(false);
-			setCreateStepTouched(false);
-		},
-		onPromoted: () => {
-			actionController.resetActionState();
-			credentialController.reset();
-			setSaveAnywayConfirmOpen(false);
-		},
-		setEditingPolicy,
-		setForm,
-		setPolicies: policyList.setPolicies,
-		storageDriverDescriptors:
-			editingId !== null
-				? descriptorController.storageDriverDescriptors
-				: descriptorController.creatableStorageDriverDescriptors,
-	});
-
-	const resetDialogState = useCallback(() => {
-		policyCapacityRequestSerial.current += 1;
-		setSaveAnywayConfirmOpen(false);
-		setPolicyCapacity(null);
-		setPolicyCapacityLoading(false);
-		credentialController.reset();
-		actionController.resetActionState();
-		promotionController.reset();
-		descriptorController.resetRemoteStorageTargets();
-		setCreateStep(0);
-		setCreateStepTouched(false);
-	}, [
-		actionController,
-		credentialController,
-		descriptorController,
-		promotionController,
-	]);
-
-	const openCreate = () => {
-		setEditingId(null);
-		setEditingPolicy(null);
-		resetDialogState();
-		setForm(setupMode ? { ...emptyForm, is_default: true } : emptyForm);
-		void descriptorController.refreshRemoteNodeLookup();
-		setDialogOpen(true);
-	};
-
-	const openEdit = useCallback(
-		(policy: StoragePolicy) => {
-			setEditingId(policy.id);
-			setEditingPolicy(policy);
-			resetDialogState();
-			setForm(getPolicyForm(policy));
-			void descriptorController.refreshRemoteNodeLookup();
-			loadPolicyCapacity(policy.id);
-			setDialogOpen(true);
-		},
-		[descriptorController, loadPolicyCapacity, resetDialogState],
-	);
-
-	const openPolicyById = useCallback(
-		async (policyId: number) => {
-			const policy = await adminPolicyService.get(policyId);
-			openEdit(policy);
-			policyList.setPolicies((prev) => {
-				const exists = prev.some((item) => item.id === policy.id);
-				return exists
-					? prev.map((item) => (item.id === policy.id ? policy : item))
-					: prev;
-			});
-		},
-		[openEdit, policyList],
-	);
+	const consumedStorageAuthorizationSearchRef = useRef<string | null>(null);
 
 	useEffect(() => {
 		const callback = consumeStorageAuthorizationSearchParams(searchParams);
@@ -391,66 +118,13 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 			void policyList.reload().catch(handleApiError);
 			const policyId = Number(callback.policyId);
 			if (Number.isSafeInteger(policyId) && policyId > 0) {
-				void openPolicyById(policyId).catch(handleApiError);
+				navigate(`/admin/policies/${policyId}`, { viewTransition: false });
 			}
 			return;
 		}
 
 		toast.error(t(storageAuthorizationFailureI18nKey(callback.reason)));
-	}, [openPolicyById, policyList, searchParams, setSearchParams, t]);
-
-	const handleDialogOpenChange = (open: boolean) => {
-		if (setupMode && !open) return;
-		setDialogOpen(open);
-		if (!open) {
-			resetDialogState();
-		}
-	};
-
-	const setField = <K extends keyof PolicyFormData>(
-		key: K,
-		value: PolicyFormData[K],
-	) => {
-		setSaveAnywayConfirmOpen(false);
-		actionController.clearActionConfirms();
-		setForm((prev) => {
-			const next = applyPolicyFormFieldChange(prev, key, value);
-			return setupMode ? { ...next, is_default: true } : next;
-		});
-	};
-
-	function setConnectorId(connectorId: string) {
-		setSaveAnywayConfirmOpen(false);
-		actionController.resetActionState();
-		setCreateStepTouched(false);
-		setForm((prev) => {
-			const nextDriverDescriptor = getStorageConnectorDescriptor(
-				descriptorController.storageDriverDescriptors,
-				connectorId,
-			);
-			const next = applyPolicyConnectorTransition(
-				prev,
-				connectorId,
-				nextDriverDescriptor,
-			);
-			return setupMode ? { ...next, is_default: true } : next;
-		});
-	}
-
-	function syncNormalizedPolicyForm() {
-		const descriptor = getStorageConnectorDescriptor(
-			descriptorController.storageDriverDescriptors,
-			form.connector_id,
-		);
-		const normalizedForm = normalizePolicyForm(
-			setupMode ? { ...form, is_default: true } : form,
-			descriptor,
-		);
-		if (normalizedForm !== form) {
-			setForm(normalizedForm);
-		}
-		return normalizedForm;
-	}
+	}, [navigate, policyList, searchParams, setSearchParams, t]);
 
 	const deletePolicyName =
 		policyList.deleteId !== null
@@ -474,112 +148,6 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 			descriptorController.refreshLookups().catch(handleApiError),
 		]);
 	};
-	const policyDialogs = (
-		<PolicyDialogs
-			deleteDialogProps={policyList.deleteDialogProps}
-			deletePolicyName={deletePolicyName}
-			forceDeleteDialogProps={policyList.forceDeleteDialogProps}
-			forceDeletePolicyName={forceDeletePolicyName}
-			dialogOpen={dialogOpen}
-			editMode={editingId !== null}
-			form={form}
-			storageDriverDescriptor={currentStorageDriverDescriptor}
-			storageDriverDescriptors={
-				editingId !== null
-					? descriptorController.storageDriverDescriptors
-					: descriptorController.creatableStorageDriverDescriptors
-			}
-			storageDriverDescriptorsError={
-				editingId !== null
-					? descriptorController.storageDriverDescriptorsError
-					: descriptorController.creatableStorageDriverDescriptorsError
-			}
-			storageDriverDescriptorsLoading={
-				editingId !== null
-					? descriptorController.storageDriverDescriptorsLoading
-					: descriptorController.creatableStorageDriverDescriptorsLoading
-			}
-			policyCapacity={policyCapacity}
-			policyCapacityLoading={policyCapacityLoading}
-			storageCredentials={credentialController.credentials}
-			storageCredentialsLoading={credentialController.loading}
-			storageAuthorizationSubmitting={
-				credentialController.authorizationSubmitting
-			}
-			storageCredentialValidationSubmitting={
-				credentialController.validationSubmitting
-			}
-			storageAuthorizationRedirectUri={storageAuthorizationRedirectUri}
-			connectorActionConfirmId={actionController.connectorActionConfirmId}
-			connectorActionSubmittingId={actionController.connectorActionSubmittingId}
-			connectorActionValues={actionController.connectorActionValues}
-			connectorPromotionBlocked={promotionController.blocked}
-			connectorPromotionCandidates={promotionController.candidates}
-			connectorPromotionConfirmKey={promotionController.confirmKey}
-			connectorPromotionSubmittingKey={promotionController.submittingKey}
-			remoteNodes={descriptorController.remoteNodes}
-			remoteStorageTargetDriverDescriptors={
-				descriptorController.remoteStorageTargetDriverDescriptors
-			}
-			remoteStorageTargetDriverDescriptorsError={
-				descriptorController.remoteStorageTargetDriverDescriptorsError
-			}
-			remoteStorageTargetDriverDescriptorsLoading={
-				descriptorController.remoteStorageTargetDriverDescriptorsLoading
-			}
-			remoteStorageTargets={descriptorController.remoteStorageTargets}
-			remoteStorageTargetsError={descriptorController.remoteStorageTargetsError}
-			remoteStorageTargetsLoading={
-				descriptorController.remoteStorageTargetsLoading
-			}
-			submitting={submitting}
-			createStep={createStep}
-			createStepTouched={createStepTouched}
-			endpointValidationMessage={endpointValidationMessage}
-			saveAnywayConfirmOpen={saveAnywayConfirmOpen}
-			showStorageDialogCloseButton={!setupMode}
-			forceDefaultPolicy={setupMode}
-			storageDialogPresentation={setupMode ? "setup" : "dialog"}
-			onStorageSetupLogout={setupMode ? () => void logout() : undefined}
-			onCancelConnectorAction={actionController.cancelConnectorAction}
-			onApplyDraftConnectorPromotion={promotionController.applyDraft}
-			onCancelConnectorPromotion={promotionController.cancel}
-			onCancelSaveAnyway={editorController.cancelSaveAnyway}
-			onConfirmSaveAnyway={() =>
-				editorController.confirmSaveAnyway(actionController)
-			}
-			onConfirmConnectorAction={(actionId) => {
-				setSaveAnywayConfirmOpen(false);
-				void actionController.executeConnectorAction(actionId);
-			}}
-			onConfirmConnectorPromotion={(candidate) => {
-				void promotionController.confirm(candidate);
-			}}
-			onStartStorageAuthorization={credentialController.startAuthorization}
-			onValidateStorageCredential={credentialController.validate}
-			onCreateRemoteStorageTarget={
-				descriptorController.createRemoteStorageTargetForPolicy
-			}
-			onDialogOpenChange={handleDialogOpenChange}
-			onConnectorActionValueChange={setConnectorActionValue}
-			onSubmit={() => editorController.handleSubmit(actionController)}
-			onRequestConnectorAction={(actionId) => {
-				setSaveAnywayConfirmOpen(false);
-				actionController.requestConnectorAction(actionId);
-			}}
-			onRequestConnectorPromotion={promotionController.request}
-			onRunConnectionTest={() => actionController.runConnectionTest()}
-			onFieldChange={setField}
-			onConnectorIdChange={setConnectorId}
-			onCreateBack={editorController.handleCreateBack}
-			onCreateStepChange={editorController.handleCreateStepChange}
-			onCreateNext={editorController.handleCreateNext}
-		/>
-	);
-
-	if (setupMode) {
-		return policyDialogs;
-	}
 
 	return (
 		<AdminLayout>
@@ -593,7 +161,9 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 							<Button
 								size="sm"
 								className={ADMIN_CONTROL_HEIGHT_CLASS}
-								onClick={openCreate}
+								onClick={() =>
+									navigate("/admin/policies/new", { viewTransition: false })
+								}
 							>
 								<Icon name="Plus" className="mr-1 size-4" />
 								{t("new_policy")}
@@ -629,9 +199,17 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 					loading={policyList.loading}
 					deletingPolicyId={policyList.deletingPolicyId}
 					onDeletePolicy={policyList.requestDeleteConfirm}
-					onEditPolicy={openEdit}
+					onEditPolicy={(policy: StoragePolicy) =>
+						navigate(`/admin/policies/${policy.id}`, { viewTransition: false })
+					}
 					policies={policyList.policies}
-					remoteNodeNameById={remoteNodeNameById}
+					remoteNodeNameById={
+						new Map(
+							descriptorController.remoteNodes.map(
+								(node) => [node.id, node.name] as const,
+							),
+						)
+					}
 					sortBy={policyList.sortBy}
 					sortOrder={policyList.sortOrder}
 					storageDriverDescriptors={
@@ -659,7 +237,20 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 					}
 				/>
 
-				{policyDialogs}
+				<ConfirmDialog
+					{...policyList.deleteDialogProps}
+					title={`${t("delete_policy")} "${deletePolicyName}"?`}
+					description={t("delete_policy_desc")}
+					confirmLabel={t("core:delete")}
+					variant="destructive"
+				/>
+				<ConfirmDialog
+					{...policyList.forceDeleteDialogProps}
+					title={`${t("force_delete_policy")} "${forceDeletePolicyName}"?`}
+					description={t("force_delete_policy_desc")}
+					confirmLabel={t("force_delete_policy_confirm")}
+					variant="destructive"
+				/>
 				<StoragePolicyMigrationDialog
 					dryRun={migrationController.dryRun}
 					dryRunLoading={migrationController.dryRunLoading}
@@ -679,10 +270,195 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 	);
 }
 
+function StoragePolicySetupWorkspace() {
+	const { t } = useTranslation(["admin", "auth", "core"]);
+	const logout = useAuthStore((state) => state.logout);
+	const refreshSetupState = useSystemSetupStore((state) => state.refresh);
+	usePageTitle(t("auth:storage_setup_page_title"));
+
+	const workspace = useStoragePolicyEditorWorkspace({
+		variant: "setup",
+		policyId: null,
+		onExit: () => undefined,
+		onPolicyCreated: async () => {
+			await refreshSetupState().catch(handleApiError);
+		},
+	});
+
+	return (
+		<div className="min-h-svh bg-background">
+			<div className="flex shrink-0 items-center justify-between gap-4 border-b border-border/70 px-6 py-4">
+				<AsterDriveWordmark alt="AsterDrive" className="h-8 w-auto max-w-44" />
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					onClick={() => void logout()}
+				>
+					{t("core:logout")}
+				</Button>
+			</div>
+			<main className="mx-auto w-full max-w-4xl px-6 py-8">
+				<form
+					autoComplete="off"
+					noValidate
+					onSubmit={(event) => {
+						event.preventDefault();
+						workspace.submit();
+					}}
+				>
+					<div className="flex flex-wrap items-end justify-between gap-4">
+						<div className="space-y-2">
+							<p className="text-xs font-semibold tracking-[0.18em] text-primary uppercase">
+								{t("auth:storage_setup_eyebrow")}
+							</p>
+							<h1 className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">
+								{t("auth:storage_setup_page_title")}
+							</h1>
+							<p className="text-sm leading-6 text-muted-foreground sm:text-base">
+								{t("auth:storage_setup_page_desc")}
+							</p>
+						</div>
+						<div className="flex items-center gap-2">
+							<StoragePolicyEditorActions
+								mode="create"
+								createStep={workspace.createStep}
+								submitting={workspace.submitting}
+								descriptor={
+									workspace.descriptorController.currentStorageDriverDescriptor
+								}
+								onBack={workspace.editorController.handleCreateBack}
+								onRunConnectionTest={workspace.runConnectionTest}
+							/>
+						</div>
+					</div>
+					<div className="mt-8">
+						<StoragePolicyEditorForm
+							mode="create"
+							setup
+							forceDefaultPolicy
+							form={workspace.form}
+							storageDriverDescriptor={
+								workspace.descriptorController.currentStorageDriverDescriptor
+							}
+							storageDriverDescriptors={
+								workspace.descriptorController.creatableStorageDriverDescriptors
+							}
+							storageDriverDescriptorsError={
+								workspace.descriptorController
+									.creatableStorageDriverDescriptorsError
+							}
+							storageDriverDescriptorsLoading={
+								workspace.descriptorController
+									.creatableStorageDriverDescriptorsLoading
+							}
+							policyCapacity={workspace.policyCapacity}
+							policyCapacityLoading={workspace.policyCapacityLoading}
+							storageCredentials={workspace.credentialController.credentials}
+							storageCredentialsLoading={workspace.credentialController.loading}
+							storageAuthorizationSubmitting={
+								workspace.credentialController.authorizationSubmitting
+							}
+							storageCredentialValidationSubmitting={
+								workspace.credentialController.validationSubmitting
+							}
+							storageAuthorizationRedirectUri={
+								workspace.storageAuthorizationRedirectUri
+							}
+							connectorActionConfirmId={
+								workspace.actionController.connectorActionConfirmId
+							}
+							connectorActionSubmittingId={
+								workspace.actionController.connectorActionSubmittingId
+							}
+							connectorActionValues={
+								workspace.actionController.connectorActionValues
+							}
+							connectorPromotionBlocked={workspace.promotionController.blocked}
+							connectorPromotionCandidates={
+								workspace.promotionController.candidates
+							}
+							connectorPromotionConfirmKey={
+								workspace.promotionController.confirmKey
+							}
+							connectorPromotionSubmittingKey={
+								workspace.promotionController.submittingKey
+							}
+							remoteNodes={workspace.descriptorController.remoteNodes}
+							remoteStorageTargetDriverDescriptors={
+								workspace.descriptorController
+									.remoteStorageTargetDriverDescriptors
+							}
+							remoteStorageTargetDriverDescriptorsError={
+								workspace.descriptorController
+									.remoteStorageTargetDriverDescriptorsError
+							}
+							remoteStorageTargetDriverDescriptorsLoading={
+								workspace.descriptorController
+									.remoteStorageTargetDriverDescriptorsLoading
+							}
+							remoteStorageTargets={
+								workspace.descriptorController.remoteStorageTargets
+							}
+							remoteStorageTargetsError={
+								workspace.descriptorController.remoteStorageTargetsError
+							}
+							remoteStorageTargetsLoading={
+								workspace.descriptorController.remoteStorageTargetsLoading
+							}
+							createStep={workspace.createStep}
+							createStepTouched={workspace.createStepTouched}
+							endpointValidationMessage={workspace.endpointValidationMessage}
+							saveAnywayConfirmOpen={workspace.saveAnywayConfirmOpen}
+							onCancelConnectorAction={
+								workspace.actionController.cancelConnectorAction
+							}
+							onApplyDraftConnectorPromotion={
+								workspace.promotionController.applyDraft
+							}
+							onCancelConnectorPromotion={workspace.promotionController.cancel}
+							onCancelSaveAnyway={workspace.editorController.cancelSaveAnyway}
+							onConfirmSaveAnyway={workspace.confirmSaveAnyway}
+							onConfirmConnectorAction={workspace.confirmConnectorAction}
+							onConfirmConnectorPromotion={(candidate) =>
+								void workspace.promotionController.confirm(candidate)
+							}
+							onStartStorageAuthorization={
+								workspace.credentialController.startAuthorization
+							}
+							onValidateStorageCredential={
+								workspace.credentialController.validate
+							}
+							onCreateRemoteStorageTarget={
+								workspace.descriptorController
+									.createRemoteStorageTargetForPolicy
+							}
+							onFieldChange={workspace.setField}
+							onConnectorActionValueChange={workspace.setConnectorActionValue}
+							onRequestConnectorAction={workspace.requestConnectorAction}
+							onRequestConnectorPromotion={
+								workspace.promotionController.request
+							}
+							onConnectorIdChange={workspace.setConnectorId}
+							onCreateStepChange={
+								workspace.editorController.handleCreateStepChange
+							}
+						/>
+					</div>
+				</form>
+			</main>
+		</div>
+	);
+}
+
 export default function AdminPoliciesPage({
 	variant = "admin",
 }: {
 	variant?: AdminPoliciesPageVariant;
 }) {
-	return useAdminPoliciesPageContent(variant);
+	return variant === "setup" ? (
+		<StoragePolicySetupWorkspace />
+	) : (
+		<AdminPoliciesListPage />
+	);
 }

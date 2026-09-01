@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	getPolicyForm,
 	type PolicyFormData,
-} from "@/components/admin/storage-policy-dialog/formTypes";
-import type { StorageConnectorPromotionCandidate } from "@/components/admin/storage-policy-dialog/policyPromotion";
+} from "@/components/admin/storage-policy-editor/formTypes";
+import type { StorageConnectorPromotionCandidate } from "@/components/admin/storage-policy-editor/policyPromotion";
 import type { StorageConnectorDescriptor, StoragePolicy } from "@/types/api";
 import { useStoragePolicyPromotionController } from "./useStoragePolicyPromotionController";
 
@@ -102,7 +102,6 @@ function controllerInput(props: HookProps) {
 		onPromoted: vi.fn(),
 		setEditingPolicy: vi.fn() as Dispatch<SetStateAction<StoragePolicy | null>>,
 		setForm: vi.fn() as Dispatch<SetStateAction<PolicyFormData>>,
-		setPolicies: vi.fn() as Dispatch<SetStateAction<StoragePolicy[]>>,
 		storageDriverDescriptors: props.descriptors,
 	};
 }
@@ -125,7 +124,6 @@ describe("useStoragePolicyPromotionController guards", () => {
 			SetStateAction<StoragePolicy | null>
 		>;
 		const setForm = vi.fn() as Dispatch<SetStateAction<PolicyFormData>>;
-		const setPolicies = vi.fn() as Dispatch<SetStateAction<StoragePolicy[]>>;
 		const initialProps: HookProps = {
 			editingId: 7,
 			editingPolicy: savedPolicy,
@@ -138,7 +136,6 @@ describe("useStoragePolicyPromotionController guards", () => {
 					...controllerInput(props),
 					setEditingPolicy,
 					setForm,
-					setPolicies,
 				}),
 			{ initialProps },
 		);
@@ -166,7 +163,6 @@ describe("useStoragePolicyPromotionController guards", () => {
 
 		expect(setEditingPolicy).not.toHaveBeenCalled();
 		expect(setForm).not.toHaveBeenCalled();
-		expect(setPolicies).toHaveBeenCalledTimes(1);
 		expect(result.current.submittingKey).toBe(
 			`${target.connector_id}:promote_from_s3`,
 		);

@@ -1,17 +1,14 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { supportsStorageCredentialLifecycle } from "@/components/admin/storage-policy-dialog/descriptorPredicates";
-import {
-	connectorFormValue,
-	getPolicyForm,
-	type PolicyFormData,
-} from "@/components/admin/storage-policy-dialog/formTypes";
+import { supportsStorageCredentialLifecycle } from "@/components/admin/storage-policy-editor/descriptorPredicates";
+import type { PolicyFormData } from "@/components/admin/storage-policy-editor/formTypes";
 import {
 	buildCreatePolicyPayload,
 	buildUpdatePolicyPayload,
-} from "@/components/admin/storage-policy-dialog/payloadBuilders";
-import { shouldRunPolicyConnectionSaveTest } from "@/components/admin/storage-policy-dialog/policyActionSelection";
+} from "@/components/admin/storage-policy-editor/payloadBuilders";
+import { shouldRunPolicyConnectionSaveTest } from "@/components/admin/storage-policy-editor/policyActionSelection";
+import { toastMissingRequiredConnectorFields } from "@/components/admin/storage-policy-editor/requiredFieldsToast";
 import { handleApiError } from "@/hooks/useApiError";
 import { invalidateAdminPolicyLookup } from "@/lib/adminPolicyLookup";
 import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
@@ -20,16 +17,6 @@ import { adminPolicyService } from "@/services/adminService";
 import type { StorageConnectorDescriptor, StoragePolicy } from "@/types/api";
 
 const CREATE_LAST_STEP = 2;
-
-interface StoragePolicyEditorListBridge {
-	offset: number;
-	pageSize: number;
-	reload: () => Promise<unknown>;
-	setOffset: (updater: number | ((current: number) => number)) => void;
-	setPolicies: Dispatch<SetStateAction<StoragePolicy[]>>;
-	setTotal: Dispatch<SetStateAction<number>>;
-	total: number;
-}
 
 interface SubmitPolicyActionBridge {
 	runConnectionTest: (options?: {
@@ -47,15 +34,12 @@ interface StoragePolicyEditorControllerInput {
 	editingPolicy: StoragePolicy | null;
 	endpointValidationMessage: string | null;
 	form: PolicyFormData;
-	list: StoragePolicyEditorListBridge;
-	loadPolicyCapacity: (policyId: number) => void;
-	onCloseDialog: () => void;
+	onExit: () => void;
 	onPolicyCreated?: (policy: StoragePolicy) => Promise<void> | void;
+	onEnterCredentialSetup?: (policyId: number) => void;
+	onUpdated: (policy: StoragePolicy) => void;
 	setCreateStep: Dispatch<SetStateAction<number>>;
 	setCreateStepTouched: Dispatch<SetStateAction<boolean>>;
-	setEditingId: Dispatch<SetStateAction<number | null>>;
-	setEditingPolicy: Dispatch<SetStateAction<StoragePolicy | null>>;
-	setForm: Dispatch<SetStateAction<PolicyFormData>>;
 	setSaveAnywayConfirmOpen: Dispatch<SetStateAction<boolean>>;
 	setSubmitting: Dispatch<SetStateAction<boolean>>;
 	storageDriverDescriptors: StorageConnectorDescriptor[];
@@ -72,15 +56,12 @@ export function useStoragePolicyEditorController({
 	editingPolicy,
 	endpointValidationMessage,
 	form,
-	list,
-	loadPolicyCapacity,
-	onCloseDialog,
+	onExit,
 	onPolicyCreated,
+	onEnterCredentialSetup,
+	onUpdated,
 	setCreateStep,
 	setCreateStepTouched,
-	setEditingId,
-	setEditingPolicy,
-	setForm,
 	setSaveAnywayConfirmOpen,
 	setSubmitting,
 	storageDriverDescriptors,
@@ -107,14 +88,8 @@ export function useStoragePolicyEditorController({
 					buildUpdatePolicyPayload(currentForm, descriptor),
 				);
 				invalidateAdminPolicyLookup();
-				setEditingId(updated.id);
-				setEditingPolicy(updated);
-				setForm(getPolicyForm(updated));
 				setValidatedConnectionKey(null);
-				loadPolicyCapacity(updated.id);
-				list.setPolicies((prev) =>
-					prev.map((policy) => (policy.id === editingId ? updated : policy)),
-				);
+				onUpdated(updated);
 				toast.success(t("policy_updated"));
 			} else {
 				const created = await adminPolicyService.create(
@@ -123,22 +98,6 @@ export function useStoragePolicyEditorController({
 				invalidateAdminPolicyLookup();
 				await onPolicyCreated?.(created);
 				if (supportsStorageCredentialLifecycle(descriptor)) {
-					setEditingId(created.id);
-					setEditingPolicy(created);
-					setForm(getPolicyForm(created));
-					setValidatedConnectionKey(null);
-					setCreateStep(0);
-					setCreateStepTouched(false);
-					list.setPolicies((prev) => {
-						const existing = prev.some((policy) => policy.id === created.id);
-						return existing
-							? prev.map((policy) =>
-									policy.id === created.id ? created : policy,
-								)
-							: [created, ...prev];
-					});
-					list.setTotal((current) => current + 1);
-					loadPolicyCapacity(created.id);
 					toast.success(
 						descriptor.credential_management?.created_authorize_next_key
 							? translateStorageConnectorMessage(
@@ -148,20 +107,11 @@ export function useStoragePolicyEditorController({
 								)
 							: t("policy_created"),
 					);
+					onEnterCredentialSetup?.(created.id);
 					return;
 				}
-				const nextTotal = list.total + 1;
-				const nextLastOffset = Math.max(
-					0,
-					Math.floor((nextTotal - 1) / list.pageSize) * list.pageSize,
-				);
-				if (nextLastOffset !== list.offset) {
-					list.setOffset(nextLastOffset);
-				} else {
-					await list.reload();
-				}
 				toast.success(t("policy_created"));
-				onCloseDialog();
+				onExit();
 			}
 		} catch (e) {
 			handleApiError(e);
@@ -186,6 +136,19 @@ export function useStoragePolicyEditorController({
 		forceSave = false,
 	) => {
 		if (submitting) {
+			return;
+		}
+
+		if (
+			toastMissingRequiredConnectorFields(
+				t,
+				form,
+				currentStorageDriverDescriptor,
+				{
+					allowSavedCredentials: editingId !== null,
+				},
+			)
+		) {
 			return;
 		}
 
@@ -236,7 +199,11 @@ export function useStoragePolicyEditorController({
 		}
 
 		if (
-			hasMissingRequiredConnectorField(form, currentStorageDriverDescriptor)
+			toastMissingRequiredConnectorFields(
+				t,
+				form,
+				currentStorageDriverDescriptor,
+			)
 		) {
 			return;
 		}
@@ -257,7 +224,11 @@ export function useStoragePolicyEditorController({
 		}
 		if (
 			editingId === null &&
-			hasMissingRequiredConnectorField(form, currentStorageDriverDescriptor)
+			toastMissingRequiredConnectorFields(
+				t,
+				form,
+				currentStorageDriverDescriptor,
+			)
 		) {
 			setCreateStepTouched(true);
 			setCreateStep(1);
@@ -283,23 +254,4 @@ export function useStoragePolicyEditorController({
 		handleCreateStepChange,
 		handleSubmit,
 	};
-}
-
-function hasMissingRequiredConnectorField(
-	form: PolicyFormData,
-	descriptor: StorageConnectorDescriptor | null | undefined,
-) {
-	return (
-		descriptor?.fields.some((field) => {
-			if (!field.required || field.scope === "action_input") {
-				return false;
-			}
-			const value =
-				field.scope === "connector_config"
-					? connectorFormValue(form, field.name)
-					: form.credential_values[field.name];
-			const resolved = value ?? field.default_value;
-			return resolved === undefined || resolved === null || resolved === "";
-		}) ?? true
-	);
 }

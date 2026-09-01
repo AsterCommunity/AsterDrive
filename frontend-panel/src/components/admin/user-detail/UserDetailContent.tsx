@@ -3,15 +3,19 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { AdminStorageQuotaInput } from "@/components/admin/AdminStorageQuotaInput";
 import { Button } from "@/components/ui/button";
-import { DialogFooter } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
+import {
+	ADMIN_CONTROL_HEIGHT_CLASS,
+	adminPageEnterAnimationClass,
+} from "@/lib/constants";
 import {
 	formatStorageQuotaDraft,
 	parseStorageQuotaValueToBytes,
 	type StorageQuotaUnit,
 	storageQuotaDraftIsValid,
 } from "@/lib/storageQuota";
+import { cn } from "@/lib/utils";
 import { passwordSchema } from "@/lib/validation";
 import { adminUserService } from "@/services/adminService";
 import type {
@@ -69,8 +73,8 @@ type UserDetailDraftAction =
 	| { type: "set_quota_unit"; value: StorageQuotaUnit }
 	| { type: "set_quota_value"; value: string };
 
-interface UserDetailDialogBodyProps {
-	onClose: () => void;
+interface UserDetailContentProps {
+	onPageBack: () => void;
 	onRefreshPolicyGroups: () => Promise<void>;
 	onUpdate: (id: number, data: UpdateUserRequest) => Promise<void>;
 	policyGroups: StoragePolicyGroup[];
@@ -78,7 +82,7 @@ interface UserDetailDialogBodyProps {
 	user: UserInfo;
 }
 
-interface UserDetailDialogContentProps {
+interface UserDetailLayoutProps {
 	children: ReactNode;
 	quota: number;
 	usagePercentage: number;
@@ -86,13 +90,13 @@ interface UserDetailDialogContentProps {
 	user: UserInfo;
 }
 
-function UserDetailDialogContent({
+function UserDetailLayout({
 	children,
 	quota,
 	usagePercentage,
 	used,
 	user,
-}: UserDetailDialogContentProps) {
+}: UserDetailLayoutProps) {
 	return (
 		<div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden">
 			<div className="flex min-h-full flex-col lg:h-full lg:min-h-0 lg:flex-1 lg:flex-row">
@@ -108,43 +112,6 @@ function UserDetailDialogContent({
 				</div>
 			</div>
 		</div>
-	);
-}
-
-interface UserDetailDialogFooterProps {
-	hasProfileChanges: boolean;
-	onClose: () => void;
-	onSave: () => void;
-	savingProfile: boolean;
-}
-
-function UserDetailDialogFooter({
-	hasProfileChanges,
-	onClose,
-	onSave,
-	savingProfile,
-}: UserDetailDialogFooterProps) {
-	const { t } = useTranslation(["admin", "core"]);
-
-	return (
-		<DialogFooter className="mx-0 mb-0 w-full shrink-0 border-t bg-muted/10 px-6 py-4 max-lg:px-4 max-lg:py-3 sm:flex-row sm:items-center sm:justify-between">
-			<p className="text-xs text-muted-foreground">
-				{t("user_details_footer_hint")}
-			</p>
-			<div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
-				<Button variant="outline" onClick={onClose}>
-					{t("core:close")}
-				</Button>
-				{hasProfileChanges ? (
-					<Button onClick={onSave} disabled={savingProfile}>
-						{savingProfile ? (
-							<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
-						) : null}
-						{t("save_changes")}
-					</Button>
-				) : null}
-			</div>
-		</DialogFooter>
 	);
 }
 
@@ -374,14 +341,14 @@ function userDetailDraftReducer(
 	}
 }
 
-export function UserDetailDialogBody({
-	onClose,
+export function UserDetailContent({
+	onPageBack,
 	onRefreshPolicyGroups,
 	onUpdate,
 	policyGroups,
 	policyGroupsLoading,
 	user,
-}: UserDetailDialogBodyProps) {
+}: UserDetailContentProps) {
 	const { t } = useTranslation(["admin", "core"]);
 	const [state, dispatch] = useReducer(
 		userDetailDraftReducer,
@@ -548,8 +515,52 @@ export function UserDetailDialogBody({
 	};
 
 	return (
-		<>
-			<UserDetailDialogContent
+		<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+			<div
+				className={cn(
+					adminPageEnterAnimationClass(),
+					"px-6 pt-6 max-lg:px-4 max-lg:pt-4",
+				)}
+			>
+				<Button
+					type="button"
+					variant="ghost"
+					size="sm"
+					className="-ml-2 text-muted-foreground"
+					onClick={onPageBack}
+				>
+					<Icon name="ArrowLeft" className="mr-1 size-4" />
+					{t("user_back_to_list")}
+				</Button>
+			</div>
+			<div className="flex flex-wrap items-start justify-between gap-3 px-6 pt-2 pb-4 max-lg:px-4">
+				<div className="space-y-1">
+					<p className="text-xs uppercase tracking-wide text-muted-foreground">
+						{t("users")}
+					</p>
+					<h1 className="text-xl font-semibold tracking-tight">
+						{user.username}
+					</h1>
+					<p className="text-sm text-muted-foreground">
+						{t("user_details_footer_hint")}
+					</p>
+				</div>
+				<Button
+					type="button"
+					size="sm"
+					className={ADMIN_CONTROL_HEIGHT_CLASS}
+					disabled={!hasProfileChanges || savingProfile}
+					onClick={() => void handleProfileSave()}
+				>
+					{savingProfile ? (
+						<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
+					) : (
+						<Icon name="FloppyDisk" className="mr-1 size-4" />
+					)}
+					{t("save_changes")}
+				</Button>
+			</div>
+			<UserDetailLayout
 				quota={quota}
 				usagePercentage={pct}
 				used={used}
@@ -634,13 +645,7 @@ export function UserDetailDialogBody({
 					savingPassword={savingPassword}
 					savingProfile={savingProfile}
 				/>
-			</UserDetailDialogContent>
-			<UserDetailDialogFooter
-				hasProfileChanges={hasProfileChanges}
-				onClose={onClose}
-				onSave={() => void handleProfileSave()}
-				savingProfile={savingProfile}
-			/>
-		</>
+			</UserDetailLayout>
+		</div>
 	);
 }

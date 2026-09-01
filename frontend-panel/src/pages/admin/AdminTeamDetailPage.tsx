@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import {
-	AdminTeamDetailDialog,
+	AdminTeamDetailContent,
 	type AdminTeamDetailTab,
-} from "@/components/admin/AdminTeamDetailDialog";
+} from "@/components/admin/admin-team-detail/AdminTeamDetailContent";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { handleApiError } from "@/hooks/useApiError";
@@ -101,18 +101,12 @@ export default function AdminTeamDetailPage() {
 	return (
 		<AdminLayout>
 			<AdminPageShell className="overflow-hidden px-0 md:px-0">
-				<AdminTeamDetailDialog
-					layout="page"
-					open
+				<AdminTeamDetailContent
 					teamId={parsedTeamId}
 					policyGroups={policyGroups}
 					policyGroupsLoading={policyGroupsLoading}
 					onListChange={async () => undefined}
-					onOpenChange={(open) => {
-						if (!open) {
-							navigate("/admin/teams", { viewTransition: false });
-						}
-					}}
+					onPageBack={() => navigate("/admin/teams", { viewTransition: false })}
 					onPageTabChange={(tab, options) => {
 						navigate(`/admin/teams/${parsedTeamId}/${tab}`, {
 							replace: options?.replace,

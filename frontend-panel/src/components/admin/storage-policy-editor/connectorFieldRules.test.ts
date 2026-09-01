@@ -8,8 +8,10 @@ import {
 	connectorSelectOptions,
 	isConnectorFieldRequired,
 	isConnectorFieldVisible,
+	missingRequiredConnectorFields,
 	normalizeConnectorConfigValues,
 } from "./connectorFieldRules";
+import { emptyForm } from "./formTypes";
 
 function field(
 	name: string,
@@ -357,5 +359,84 @@ describe("connector field rules", () => {
 			descriptor,
 		);
 		expect(withoutDefault).not.toHaveProperty("account_mode");
+	});
+});
+
+describe("missingRequiredConnectorFields", () => {
+	function descriptor(
+		fields: StorageConnectorFieldDescriptor[],
+	): StorageConnectorDescriptor {
+		return { connector_id: "plugin.test", fields } as never;
+	}
+
+	function form(overrides: Record<string, unknown> = {}) {
+		return { ...emptyForm, ...overrides } as never;
+	}
+
+	it("lists required fields whose values and defaults are empty", () => {
+		const missing = missingRequiredConnectorFields(
+			form({ connector_config_values: { bucket: "" } }),
+			descriptor([
+				field("bucket", { required: true }),
+				field("endpoint", {
+					required: true,
+					default_value: "https://s3.local",
+				}),
+				field("region"),
+			]),
+		);
+
+		expect(missing.map((item) => item.name)).toEqual(["bucket"]);
+	});
+
+	it("honors required_when conditions and visibility rules", () => {
+		const target = descriptor([
+			field("mode", { kind: "select" }),
+			field("account", {
+				required_when: [condition("mode", "account")],
+			}),
+			field("hidden_secret", {
+				required: true,
+				visible_when: [condition("mode", "advanced")],
+			}),
+		]);
+
+		expect(
+			missingRequiredConnectorFields(
+				form({ connector_config_values: { mode: "key" } }),
+				target,
+			).map((item) => item.name),
+		).toEqual([]);
+		expect(
+			missingRequiredConnectorFields(
+				form({ connector_config_values: { mode: "account" } }),
+				target,
+			).map((item) => item.name),
+		).toEqual(["account"]);
+	});
+
+	it("skips credential scopes when saved credentials are allowed (edit mode)", () => {
+		const target = descriptor([
+			field("bucket", { required: true }),
+			field("access_key", { required: true, scope: "static_credential" }),
+		]);
+		const draft = form({ connector_config_values: { bucket: "assets" } });
+
+		expect(missingRequiredConnectorFields(draft, target)).toHaveLength(1);
+		expect(
+			missingRequiredConnectorFields(draft, target, {
+				allowSavedCredentials: true,
+			}),
+		).toHaveLength(0);
+	});
+
+	it("ignores action inputs and returns nothing without a descriptor", () => {
+		expect(
+			missingRequiredConnectorFields(
+				form(),
+				descriptor([field("query", { required: true, scope: "action_input" })]),
+			),
+		).toEqual([]);
+		expect(missingRequiredConnectorFields(form(), null)).toEqual([]);
 	});
 });
