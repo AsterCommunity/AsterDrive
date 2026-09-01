@@ -1921,6 +1921,7 @@ async fn create_policy_upload_session(
             team_id: Set(None),
             frontend_client_id: Set(None),
             filename: Set("pending-policy-upload.bin".to_string()),
+            mime_type: Set("application/octet-stream".to_string()),
             total_size: Set(10),
             chunk_size: Set(5),
             total_chunks: Set(2),

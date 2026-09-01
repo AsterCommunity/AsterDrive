@@ -67,6 +67,14 @@ pub(crate) async fn resolve_blob_policy_for_write(
     state: &PrimaryAppState,
     request: BlobPolicyRequest<'_>,
 ) -> Result<BlobPolicyResolution> {
+    resolve_blob_policy_for_write_on(state, state.writer_db(), request).await
+}
+
+pub(crate) async fn resolve_blob_policy_for_write_on<C: sea_orm::ConnectionTrait>(
+    state: &PrimaryAppState,
+    db: &C,
+    request: BlobPolicyRequest<'_>,
+) -> Result<BlobPolicyResolution> {
     if let Some(existing_file_id) = request.existing_file_id {
         let file = crate::services::workspace::scope::verify_file_access(
             state,
@@ -92,6 +100,7 @@ pub(crate) async fn resolve_blob_policy_for_write(
     };
     let (policy, routing_decision) = resolve_new_blob_policy_from_snapshot(
         state,
+        db,
         request.scope,
         folder_hint,
         request.filename,
@@ -138,8 +147,9 @@ impl From<folder::Model> for VerifiedFolderPolicyHint {
 /// Database access remains at the surrounding upload boundary for permissions,
 /// quota and session persistence. Profile/rule/target matching itself is kept
 /// off the upload hot path database lookup.
-async fn resolve_new_blob_policy_from_snapshot(
+async fn resolve_new_blob_policy_from_snapshot<C: sea_orm::ConnectionTrait>(
     state: &impl SharedRuntimeState,
+    fallback_db: &C,
     scope: WorkspaceStorageScope,
     folder: Option<VerifiedFolderPolicyHint>,
     filename: &str,
@@ -164,13 +174,8 @@ async fn resolve_new_blob_policy_from_snapshot(
             None => {
                 // TODO(0.6.0): remove this cache-miss compatibility read once
                 // all team assignment mutation paths publish snapshot updates.
-                require_team_policy_group_id_with_db(
-                    state,
-                    state.reader_db(),
-                    team_id,
-                    actor_user_id,
-                )
-                .await?
+                require_team_policy_group_id_with_db(state, fallback_db, team_id, actor_user_id)
+                    .await?
             }
         },
     };

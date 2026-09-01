@@ -79,9 +79,9 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::public::redeem_remote_enrollment,
         crate::api::routes::public::ack_remote_enrollment,
 
-        // files::upload：个人空间文件上传生命周期，包括直传、分片和进度控制。
-        crate::api::routes::files::upload::upload,
-        crate::api::routes::files::upload::init_chunked_upload,
+        // files::upload：个人空间统一上传 session 生命周期和数据面。
+        crate::api::routes::files::upload::init_upload_session,
+        crate::api::routes::files::upload::upload_stream_body,
         crate::api::routes::files::upload::upload_chunk,
         crate::api::routes::files::upload::complete_upload,
         crate::api::routes::files::upload::presign_parts,
@@ -220,8 +220,8 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::folders::team_copy_folder,
 
         // files：团队文件的上传、下载、预览、版本和变更操作。
-        crate::api::routes::files::upload::team_upload,
-        crate::api::routes::files::upload::team_init_chunked_upload,
+        crate::api::routes::files::upload::team_init_upload_session,
+        crate::api::routes::files::upload::team_upload_stream_body,
         crate::api::routes::files::upload::team_upload_chunk,
         crate::api::routes::files::upload::team_complete_upload,
         crate::api::routes::files::upload::team_presign_parts,

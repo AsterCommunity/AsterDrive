@@ -21,9 +21,11 @@ use std::time::Instant;
 
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::files::upload::kind::resolve_upload_session_kind;
-use crate::services::files::upload::scope::{load_upload_session, personal_scope, team_scope};
-use crate::services::files::upload::shared::find_file_by_session;
+use crate::services::files::upload::session::kind::resolve_upload_session_kind;
+use crate::services::files::upload::session::scope::{
+    load_upload_session, personal_scope, team_scope,
+};
+use crate::services::files::upload::session::shared::find_file_by_session;
 use crate::services::ops::audit::AuditContext;
 use crate::services::{workspace::models::FileInfo, workspace::storage};
 use aster_drive_model::entities::{file, upload_session};
@@ -78,7 +80,8 @@ async fn complete_upload_impl_with_hints(
     if session_kind == aster_drive_model::types::UploadSessionKind::ProviderRelayResumable
         && !is_terminal
     {
-        crate::services::files::upload::provider_relay::reconcile_progress(state, &session).await?;
+        crate::services::files::upload::ingest::provider_relay::reconcile_progress(state, &session)
+            .await?;
         session =
             crate::db::repository::upload_session_repo::find_by_id(state.writer_db(), &session.id)
                 .await?;

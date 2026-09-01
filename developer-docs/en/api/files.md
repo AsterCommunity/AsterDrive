@@ -6,7 +6,7 @@ The following paths are relative to `/api/v1` and require authentication.
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `POST` | `/files/upload` | Ordinary multipart direct upload |
+| `PUT` | `/files/upload/{upload_id}/body` | Single-request streaming body upload after init |
 | `POST` | `/files/new` | Create an empty file |
 | `POST` | `/files/upload/init` | Negotiate upload mode |
 | `GET` | `/files/upload/sessions` | List recoverable upload sessions |
@@ -41,48 +41,50 @@ Primary upload entries:
 
 - `POST /files/new`: create a product-level empty file
 - `POST /files/upload/init`: negotiate mode first
-- `POST /files/upload`: ordinary multipart upload
+- `PUT /files/upload/{upload_id}/body`: streams a raw `application/octet-stream` body to the target fixed by init without a full-file server staging copy
 - `GET /files/upload/sessions`: recover unfinished sessions after refresh
 
 Creation and upload parameters include:
 
 - `POST /files/new`: `folder_id` and `relative_path` request body fields
 - `POST /files/new` and its team counterpart accept an optional `Idempotency-Key` header. Keys are limited to 255 bytes and cannot contain ASCII whitespace.
-- `POST /files/upload`: `folder_id`, `relative_path`, and `declared_size` query parameters
+- The legacy `POST /files/upload` multipart endpoint is removed; nonempty files must initialize a session first.
 - `POST /files/upload/init`: `relative_path` and `frontend_client_id`
 
 `folder_id = null` means root. Missing directories in `relative_path` are created automatically. Empty path segments such as `docs//bad.txt` are rejected.
 
 `GET /files/upload/sessions` is a separate recoverable-session listing endpoint. Its optional `frontend_client_id` query parameter filters sessions created by the same frontend instance; it does not accept `folder_id` or `relative_path` and does not perform directory uploads.
 
-Negotiation returns one of four modes:
+Negotiation returns one of five transports:
 
-- `direct`: small-file direct upload
+- `stream`: single-request upload through the initialized session
 - `chunked`: resumable chunked upload
 - `presigned`: single object-storage or remote presigned `PUT`
 - `presigned_multipart`: object-storage or remote multipart direct upload; the client must request part URLs separately
+- `provider_resumable`: provider-native resumable upload session
 
 The frontend never sees an additional `relay_stream` mode. Actual transfer strategy is decided by storage connectors and policy options:
 
 - `options.object_storage_upload_strategy`: transfer strategy for S3-compatible, Azure Blob, and Tencent COS object-storage connectors
 - `options.remote_upload_strategy`
 - OneDrive uses Microsoft Graph native upload capabilities and follows the upload workflow exposed by the connector
-- `relay_stream`: `init` still returns `direct` / `chunked`, but the server relays bytes straight to object storage / follower instead of writing a local temp file
+- `relay_stream`: `init` returns `stream` / `chunked`; the server relays bytes straight to object storage or a follower
 - `presigned`: `init` returns `presigned` / `presigned_multipart`
 
 Object-storage and remote uploads fall back to `relay_stream` by default. Legacy `{"presigned_upload":true}` and `{"s3_upload_strategy":"presigned"}` are accepted as compatibility inputs for object-storage presigned upload; new clients should send `{"object_storage_upload_strategy":"presigned"}`.
 
 Presigned browser uploads require usable CORS on the object storage or follower internal storage endpoint. Azure Blob presigned upload uses SAS URLs and requires `x-ms-blob-type: BlockBlob`; S3-compatible, Tencent COS, and Remote multipart parts usually require returned ETags. Remote presigned upload only works for directly reachable remote nodes; reverse-tunnel remote nodes reject `remote_upload_strategy = "presigned"`.
 
-## Direct, chunked, and completion stages
+## Stream, chunked, and completion stages
 
-- `POST /files/new`: the canonical empty-file API. The file picker and folder-upload queue call it directly for 0-byte `File` values without initializing an upload session or running direct, chunked, presigned, or provider-resumable runners. Its body accepts `folder_id` and `relative_path`.
-- `POST /files/upload`: ordinary multipart upload. For legacy clients, `declared_size = 0` with an actually empty file field is fully consumed and delegated to the same empty-file use case. Declared zero with nonempty content returns `upload.request_size_mismatch` before any storage-object mutation. Nonempty same-folder same-name files are not overwritten. With object-storage / Remote `relay_stream`, the body is relayed directly to the target driver.
+- `POST /files/new`: the canonical empty-file API. The file picker and folder-upload queue call it directly for 0-byte `File` values without initializing an upload session. Its body accepts `folder_id` and `relative_path`.
+- `PUT /files/upload/{upload_id}/body`: accepts exactly one raw body for a `stream` session. Filename, MIME, declared size, placement, and transport come only from init; duplicate bodies are rejected.
+- A successful stream body atomically creates file/blob metadata, updates quota, and marks the session `completed(file_id)`, then returns `201 FileInfo`; stream does not call `/complete`.
 - `GET /files/upload/sessions`: lists unexpired, recoverable sessions in `uploading` / `assembling` / `presigned` status; `frontend_client_id` can filter sessions created by the same frontend instance
 - `PUT /files/upload/{upload_id}/{chunk_number}`: uploads one chunk, with `chunk_number` starting at `0`
 - `POST /files/upload/{upload_id}/presign-parts`: used only for `presigned_multipart`
 - `GET /files/upload/{upload_id}`: returns upload progress used by resumable upload
-- `POST /files/upload/{upload_id}/complete`: completes `chunked`, `presigned`, or `presigned_multipart`
+- `POST /files/upload/{upload_id}/complete`: completes `chunked`, `presigned`, `presigned_multipart`, or `provider_resumable`
 
 Recoverable session fields include:
 
@@ -111,7 +113,7 @@ An `Idempotency-Key` is isolated by authenticated actor, workspace kind/id, and 
 
 The browser persists one key per zero-byte upload task for 23 hours. Retries, token refresh, request timeout, and page restore reuse it; success, cancellation, and explicit terminal-task cleanup remove the record.
 
-Empty multipart compatibility still delegates to the same product-level empty-file use case. WebDAV PUT/LOCK staging, storage migration, internal-storage ingress, remote-follower writes, and prepared-blob restore/copy paths continue using zero-length object primitives when their protocols explicitly require a real object.
+WebDAV PUT/LOCK staging, storage migration, internal-storage ingress, remote-follower writes, and prepared-blob restore/copy paths continue using zero-length object primitives when their protocols explicitly require a real object.
 
 `presigned_multipart` completion must include object-storage returned `parts`; other modes may omit the body.
 

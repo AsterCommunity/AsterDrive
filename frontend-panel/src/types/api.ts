@@ -588,7 +588,7 @@ export type RecoverableUploadSession = NonNullable<
 		ApiOperations["list_recoverable_upload_sessions"]["responses"][200]["content"]
 	>["application/json"]["data"]
 >[number];
-export type UploadMode = components["schemas"]["UploadMode"];
+export type UploadTransport = components["schemas"]["UploadTransport"];
 export type UploadProgressResponse =
 	components["schemas"]["UploadProgressResponse"];
 export type UploadSessionStatus = components["schemas"]["UploadSessionStatus"];

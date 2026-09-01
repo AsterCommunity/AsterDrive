@@ -15,12 +15,11 @@ use crate::services::events::storage_change;
 use aster_drive_model::entities::file;
 
 use super::{
-    BlobPolicyRequest, NewFileMode, ParsedUploadPath, PreparedNonDedupBlobUpload,
-    WorkspaceStorageScope, check_quota, cleanup_preuploaded_blob_upload, create_new_file_from_blob,
-    create_new_file_from_blob_with_actor_username, ensure_upload_parent_path_on,
+    BlobPolicyRequest, CreateFileFromBlobWithMimeParams, NewFileMode, ParsedUploadPath,
+    PreparedNonDedupBlobUpload, WorkspaceStorageScope, check_quota,
+    cleanup_preuploaded_blob_upload, create_file_from_blob_with_mime, ensure_upload_parent_path_on,
     lock_folder_access_on, lock_storage_usage, persist_preuploaded_blob,
-    resolve_blob_policy_for_write, resolve_verified_folder_policy_hint_on, update_storage_used,
-    verify_file_access,
+    resolve_verified_folder_policy_hint_on, update_storage_used, verify_file_access,
 };
 
 #[derive(Clone, Copy)]
@@ -121,18 +120,22 @@ pub(crate) struct StoreFromTempHints<'a> {
     pub actor_username: Option<&'a str>,
     pub operation_context: crate::services::workspace::storage::StorageOperationContext,
     pub revision_etag: Option<&'a str>,
+    pub mime_type: Option<&'a str>,
+    pub complete_upload_id: Option<&'a str>,
 }
 
 pub(crate) struct StorePreuploadedNondedupParams<'a> {
     pub scope: WorkspaceStorageScope,
     pub folder_id: Option<i64>,
     pub filename: &'a str,
+    pub mime_type: Option<&'a str>,
     pub size: i64,
     pub existing_file_id: Option<i64>,
     pub lock_credentials: crate::services::files::lock::LockMutationCredentials,
     pub policy: &'a aster_drive_model::entities::storage_policy::Model,
     pub preuploaded_blob: PreparedNonDedupBlobUpload,
     pub actor_username: Option<&'a str>,
+    pub complete_upload_id: Option<&'a str>,
 }
 
 pub(crate) async fn store_from_temp_with_hints(
@@ -160,6 +163,7 @@ pub(crate) async fn store_from_temp_exact_name_silent_with_hints(
     from_temp::store_from_temp_internal(state, params, hints, NewFileMode::Exact, false).await
 }
 
+#[cfg(test)]
 pub(crate) async fn create_empty(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
@@ -373,8 +377,9 @@ async fn create_empty_transactional(
                 } else {
                     (folder_id, base_folder)
                 };
-            let policy = resolve_blob_policy_for_write(
+            let policy = crate::services::workspace::storage::resolve_blob_policy_for_write_on(
                 &state,
+                txn,
                 BlobPolicyRequest {
                     scope,
                     folder_id: resolved_folder_id,
@@ -433,12 +438,14 @@ pub(crate) async fn store_preuploaded_nondedup(
         scope,
         folder_id,
         filename,
+        mime_type,
         size,
         existing_file_id,
         lock_credentials,
         policy,
         preuploaded_blob,
         actor_username,
+        complete_upload_id,
     } = params;
     let db = state.writer_db();
 
@@ -517,9 +524,11 @@ pub(crate) async fn store_preuploaded_nondedup(
         .as_ref()
         .map_or(verified_blob.size(), |_| verified_blob.size());
 
-    let mime = mime_guess::from_path(&filename)
-        .first_or_octet_stream()
-        .to_string();
+    let mime = mime_type.map(str::to_string).unwrap_or_else(|| {
+        mime_guess::from_path(&filename)
+            .first_or_octet_stream()
+            .to_string()
+    });
 
     let retry_on_mysql_deadlock = state.writer_db().get_database_backend() == DbBackend::MySql;
     let transaction_verified_blob = verified_blob.clone();
@@ -528,6 +537,7 @@ pub(crate) async fn store_preuploaded_nondedup(
     let transaction_filename = filename.clone();
     let transaction_actor_username = actor_username.map(str::to_owned);
     let transaction_lock_credentials = lock_credentials.clone();
+    let transaction_complete_upload_id = complete_upload_id.map(str::to_owned);
     let transaction_now = now;
     let create_result = aster_forge_db::transaction::with_transaction_retry(
         state.writer_db(),
@@ -539,6 +549,7 @@ pub(crate) async fn store_preuploaded_nondedup(
             let filename = transaction_filename.clone();
             let actor_username = transaction_actor_username.clone();
             let lock_credentials = transaction_lock_credentials.clone();
+            let complete_upload_id = transaction_complete_upload_id.clone();
             let now = transaction_now;
             Box::pin(async move {
                 let workspace = match scope {
@@ -632,23 +643,37 @@ pub(crate) async fn store_preuploaded_nondedup(
                         txn, workspace, folder_id, &submitted,
                     )
                     .await?;
-                    let created = match actor_username.as_deref() {
-                        Some(username) => {
-                            create_new_file_from_blob_with_actor_username(
-                                txn, scope, folder_id, &filename, &blob, now, username,
-                            )
-                            .await?
-                        }
-                        None => {
-                            create_new_file_from_blob(txn, scope, folder_id, &filename, &blob, now)
-                                .await?
-                        }
-                    };
+                    let created = create_file_from_blob_with_mime(
+                        txn,
+                        CreateFileFromBlobWithMimeParams {
+                            scope,
+                            folder_id,
+                            filename: &filename,
+                            mime_type: &mime,
+                            blob: &blob,
+                            now,
+                            actor_username: actor_username.as_deref(),
+                            exact_name: false,
+                        },
+                    )
+                    .await?;
                     if storage_delta != 0 {
                         update_storage_used(txn, scope, storage_delta).await?;
                     }
                     created
                 };
+
+                if let Some(upload_id) = complete_upload_id.as_deref()
+                    && !crate::db::repository::upload_session_repo::complete_if_assembling(
+                        txn, upload_id, result.id,
+                    )
+                    .await?
+                {
+                    return Err(AsterError::conflict(
+                        "upload session changed while publishing the file",
+                    )
+                    .with_api_error_code(ApiErrorCode::UploadStatusConflict));
+                }
 
                 Ok::<file::Model, AsterError>(result)
             })

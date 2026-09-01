@@ -12,10 +12,8 @@ mod policy;
 mod quota;
 
 pub(crate) use blob::{create_nondedup_blob_with_key, create_opaque_nondedup_blob};
+pub(crate) use file_record::{CreateFileFromBlobWithMimeParams, create_file_from_blob_with_mime};
 pub(crate) use file_record::{create_exact_file_from_blob, create_new_file_from_blob};
-pub(crate) use file_record::{
-    create_exact_file_from_blob_with_actor_username, create_new_file_from_blob_with_actor_username,
-};
 pub(crate) use finalize::{
     FinalizeUploadSessionFileParams, finalize_upload_session_blob_with_actor_username,
     finalize_upload_session_file,
@@ -27,7 +25,8 @@ pub(crate) use path::{
 pub(crate) use policy::{
     BlobPolicyRequest, VerifiedFolderPolicyHint, ensure_policy_available_for_folder_binding,
     load_storage_limits, local_content_dedup_enabled, resolve_blob_policy_for_write,
-    resolve_verified_folder_policy_hint, resolve_verified_folder_policy_hint_on,
+    resolve_blob_policy_for_write_on, resolve_verified_folder_policy_hint,
+    resolve_verified_folder_policy_hint_on,
 };
 pub(crate) use quota::{
     check_quota, lock_storage_usage, lock_storage_usage_for_resource_scope, update_storage_used,

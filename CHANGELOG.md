@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **WebP EXIF 元数据** — 内置图片元数据处理器支持从 WebP `EXIF` chunk 提取相机、拍摄参数、时间、方向和 GPS 等信息；不含 EXIF 的 WebP 仍可返回图片尺寸与格式。
 
+### Changed
+
+- **统一上传 session 协议** — 非空文件统一先 init：init 固化 filename、MIME、大小、存储策略、placement profile/rule/revision 和 `stream` / `chunked` / `presigned` / `presigned_multipart` / `provider_resumable` transport。单请求 stream 改用 `PUT /files/upload/{upload_id}/body` 的 `application/octet-stream` 原始 body，并在同一数据库事务内创建 file/blob、更新 quota 和完成 session；其他 transport 继续由 `/complete` 幂等发布。重复或过期 stream body 在写入前通过原子 session claim 拒绝。目标存储可报告容量时，init 会执行 advisory 容量预检；实际写入仍以 driver 结果为准，不提供并发容量预占。0 字节文件统一使用 `/files/new`。
+- **上传 session schema 与 ID** — 新 migration 为 `upload_sessions` 增加 init 时解析并固化的 `mime_type`，续传、恢复和完成不再从后续 body 或默认文件名重新推断上传计划。新建 upload session 使用内嵌毫秒时间戳的标准 UUIDv7，保持现有 36 字符 UUID、URL、数据库和旧 UUIDv4 session 兼容性。
+
+### Removed
+
+- **单次 multipart 上传入口** — 删除个人与团队的 `POST /files/upload` 兼容入口以及服务端 staged multipart fallback；客户端必须先初始化 upload session，再使用协商出的数据面提交内容。
+
 ## [v0.5.1] - 2026-08-24
 
 ### Added

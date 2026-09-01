@@ -12,16 +12,6 @@ use serde_json::Value;
 const SQLI_PAYLOAD: &str = "%27%20OR%201%3D1%20--";
 const SORT_BY_SQLI_PAYLOAD: &str = "name%3Bdrop%20table%20users%3B--";
 
-fn upload_named_file(name: &str, content: &str, mime: &str, boundary: &str) -> String {
-    format!(
-        "--{boundary}\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"{name}\"\r\n\
-         Content-Type: {mime}\r\n\r\n\
-         {content}\r\n\
-         --{boundary}--\r\n"
-    )
-}
-
 // ─── Fix 1: 越权上传被拒 ───────────────────────────────────
 
 /// 注册第二个用户并登录，返回 access_token
@@ -79,27 +69,17 @@ async fn test_upload_to_other_users_folder_returns_403() {
     let folder_id = body["data"]["id"].as_i64().unwrap();
 
     // user2 尝试上传到 user1 的文件夹 → 403
-    let boundary = "----CrossUserBoundary";
-    let payload = "------CrossUserBoundary\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"evil.txt\"\r\n\
-         Content-Type: text/plain\r\n\r\n\
-         pwned\r\n\
-         ------CrossUserBoundary--\r\n"
-        .to_string();
-    let req = test::TestRequest::post()
-        .uri(&format!("/api/v1/files/upload?folder_id={folder_id}"))
-        .insert_header(("Cookie", common::access_cookie_header(&token2)))
-        .insert_header(common::csrf_header_for(&token2))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
+    let (status, _) = common::upload_via_server_session(
+        &app,
+        &token2,
+        &format!("/api/v1/files?folder_id={folder_id}"),
+        "evil.txt",
+        "text/plain",
+        b"pwned",
+    )
+    .await;
     assert_eq!(
-        resp.status(),
-        403,
+        status, 403,
         "uploading to another user's folder should return 403"
     );
 }
@@ -166,29 +146,17 @@ async fn test_directory_upload_to_other_users_base_folder_returns_403() {
     let folder_id = body["data"]["id"].as_i64().unwrap();
 
     // user2 尝试目录上传到 user1 的文件夹 → 403
-    let boundary = "----DirCrossBoundary";
-    let payload = "------DirCrossBoundary\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"sneaky.txt\"\r\n\
-         Content-Type: text/plain\r\n\r\n\
-         pwned via directory upload\r\n\
-         ------DirCrossBoundary--\r\n"
-        .to_string();
-    let req = test::TestRequest::post()
-        .uri(&format!(
-            "/api/v1/files/upload?folder_id={folder_id}&relative_path=sub/sneaky.txt"
-        ))
-        .insert_header(("Cookie", common::access_cookie_header(&token2)))
-        .insert_header(common::csrf_header_for(&token2))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
+    let (status, _) = common::upload_via_server_session(
+        &app,
+        &token2,
+        &format!("/api/v1/files?folder_id={folder_id}&relative_path=sub/sneaky.txt"),
+        "sneaky.txt",
+        "text/plain",
+        b"pwned via directory upload",
+    )
+    .await;
     assert_eq!(
-        resp.status(),
-        403,
+        status, 403,
         "directory upload to another user's base folder should return 403"
     );
 }
@@ -310,20 +278,16 @@ async fn test_search_query_sql_injection_payload_is_treated_as_literal() {
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    let boundary = "----SearchSqlInjectionBoundary";
-    let payload = upload_named_file("quarterly-report.txt", "safe", "text/plain", boundary);
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    let (status, _) = common::upload_via_server_session(
+        &app,
+        &token,
+        "/api/v1/files",
+        "quarterly-report.txt",
+        "text/plain",
+        b"safe",
+    )
+    .await;
+    assert_eq!(status, 201);
 
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/search?q={SQLI_PAYLOAD}"))
@@ -488,22 +452,14 @@ async fn test_multipart_upload_rejects_path_traversal_in_filename() {
     let (token, _) = register_and_login!(app);
 
     // multipart 上传接口对 filename 的 Content-Disposition 头同样要拒绝路径穿越
-    let boundary = "----TraversalBoundary";
-    let payload = "------TraversalBoundary\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"../../etc/passwd\"\r\n\
-         Content-Type: text/plain\r\n\r\n\
-         evil\r\n\
-         ------TraversalBoundary--\r\n"
-        .to_string();
     let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
+        .uri("/api/v1/files/upload/init")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
+        .set_json(serde_json::json!({
+            "filename": "../../etc/passwd",
+            "total_size": 4
+        }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert!(

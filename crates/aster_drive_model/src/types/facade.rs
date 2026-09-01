@@ -35,7 +35,7 @@ pub use super::storage_policy::{
     ObjectStorageUploadStrategy, ProviderDownloadFilenameMode, ProviderDownloadStrategy,
     ProviderResumableUploadStrategy, RemoteDownloadStrategy, RemoteNodeTransportMode,
     RemoteUploadStrategy, ResolvedRemoteTransport, StoredStoragePolicyAllowedTypes,
-    StoredStoragePolicyConfig, UploadMode, UploadSessionStatus,
+    StoredStoragePolicyConfig, UploadSessionStatus, UploadTransport,
     effective_object_multipart_chunk_size, parse_storage_policy_allowed_types,
     serialize_storage_policy_allowed_types,
 };

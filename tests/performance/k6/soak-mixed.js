@@ -17,7 +17,7 @@ import {
 	resolveRootFolderId,
 	search,
 	uniqueName,
-	uploadDirect,
+	uploadViaSession,
 	listFolder,
 } from "./lib/client.js";
 import { createSummary } from "./lib/summary.js";
@@ -110,7 +110,7 @@ export default function (data) {
 			soakOps.add(1, { operation: "download" });
 			break;
 		case 3:
-			uploadDirect(state.session, {
+			uploadViaSession(state.session, {
 				filename: uniqueName("soak-upload", "txt"),
 				content: "soak-payload",
 				folderId: state.uploadFolderId,

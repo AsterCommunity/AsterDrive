@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { UploadTask } from "./uploadAreaManagerShared";
-import { mergeRestoredUploadTasks } from "./useUploadAreaRestore";
+import {
+	mergeRestoredUploadTasks,
+	recoverableSessionMode,
+} from "./useUploadAreaRestore";
 
 function task(id: string): UploadTask {
 	return {
@@ -21,6 +24,10 @@ function task(id: string): UploadTask {
 }
 
 describe("mergeRestoredUploadTasks", () => {
+	it("maps stream sessions returned by the server", () => {
+		expect(recoverableSessionMode("stream")).toBe("stream");
+	});
+
 	it("does not duplicate a pending empty-file task already queued by this session", () => {
 		const current = task("same-id");
 		const restored = { ...task("same-id"), filename: "stale-name.txt" };

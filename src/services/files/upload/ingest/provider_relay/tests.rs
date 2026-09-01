@@ -13,7 +13,7 @@ use tokio::sync::Notify;
 
 use super::*;
 use crate::db::repository::{upload_session_part_repo, upload_session_repo};
-use crate::services::files::upload::provider_session::{
+use crate::services::files::upload::session::provider::{
     ProviderSessionSecret, encrypt_provider_session,
 };
 use aster_drive_model::entities::{upload_session, upload_session_part, user};
@@ -419,6 +419,7 @@ impl Fixture {
                 team_id: Set(None),
                 frontend_client_id: Set(None),
                 filename: Set("relay.bin".to_string()),
+                mime_type: Set("application/octet-stream".to_string()),
                 total_size: Set(10),
                 chunk_size: Set(5),
                 total_chunks: Set(2),

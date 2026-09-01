@@ -1,7 +1,7 @@
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
-    ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy, UploadMode,
-    effective_object_multipart_chunk_size,
+    ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy,
+    UploadTransport, effective_object_multipart_chunk_size,
 };
 
 /// Connector 对 upload service 暴露的上传传输模型。
@@ -60,20 +60,24 @@ impl StorageConnectorUploadTransport {
     ///
     /// 这里只做调度决策；真正创建 multipart upload、presigned URL 或 session 的逻辑在
     /// upload service 后续步骤和具体 driver 中。
-    pub fn resolve_init_mode(self, policy: &storage_policy::Model, total_size: i64) -> UploadMode {
+    pub fn resolve_init_mode(
+        self,
+        policy: &storage_policy::Model,
+        total_size: i64,
+    ) -> UploadTransport {
         let fits_single_request = self.fits_single_request(policy, total_size);
         match (self, fits_single_request) {
             (Self::ObjectStorage(ObjectStorageUploadStrategy::Presigned), true)
-            | (Self::Remote(RemoteUploadStrategy::Presigned), true) => UploadMode::Presigned,
+            | (Self::Remote(RemoteUploadStrategy::Presigned), true) => UploadTransport::Presigned,
             (Self::ObjectStorage(ObjectStorageUploadStrategy::Presigned), false)
             | (Self::Remote(RemoteUploadStrategy::Presigned), false) => {
-                UploadMode::PresignedMultipart
+                UploadTransport::PresignedMultipart
             }
             (Self::ProviderResumable(ProviderResumableUploadStrategy::FrontendDirect), _) => {
-                UploadMode::ProviderResumable
+                UploadTransport::ProviderResumable
             }
-            (_, true) => UploadMode::Direct,
-            (_, false) => UploadMode::Chunked,
+            (_, true) => UploadTransport::Stream,
+            (_, false) => UploadTransport::Chunked,
         }
     }
 
@@ -91,7 +95,7 @@ impl StorageConnectorUploadTransport {
         }
 
         match self {
-            Self::Local => false,
+            Self::Local => self.fits_single_request(policy, declared_size),
             Self::ObjectStorage(ObjectStorageUploadStrategy::RelayStream) => {
                 self.fits_single_request(policy, declared_size)
             }

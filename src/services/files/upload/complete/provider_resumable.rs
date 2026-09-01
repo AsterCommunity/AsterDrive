@@ -1,7 +1,7 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{Result, upload_assembly_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::files::upload::shared::run_upload_completion_stage;
+use crate::services::files::upload::session::shared::run_upload_completion_stage;
 use aster_drive_model::entities::{file, upload_session};
 use aster_drive_model::types::UploadSessionStatus;
 

@@ -120,7 +120,7 @@ Repositories should not know:
 - HTTP, WebDAV, WOPI, or internal storage protocols
 - How storage drivers are built
 - Which remote storage target fields should be displayed
-- How upload modes are negotiated
+- How upload transports are negotiated
 - How diagnostics should be shown in the UI
 - Which page creates a policy target
 
@@ -233,25 +233,26 @@ Use this inventory during review to decide whether logic belongs in the current 
 
 Current responsibilities:
 
-- Upload facade for direct multipart body upload, init, chunk, complete, cancel, progress, recoverable sessions, and presigned parts
+- Unified upload-session facade for init, stream-body ingest, chunk ingest, complete, cancel, progress, recoverable sessions, and presigned parts
 - Maps personal and team requests into `WorkspaceStorageScope`
-- Negotiates upload modes from storage policy and driver capabilities: direct, chunked, presigned single, presigned multipart, relay multipart, and remote presigned
-- Chooses a completion plan under `complete/*` and turns temporary upload state into a final file
-- Records upload metrics and route-level audit wrappers
+- Organizes the lifecycle as `plan -> session -> ingest -> complete / cleanup`: plan freezes filename, MIME, placement, policy, and connector-owned transport; session owns durable state; ingest accepts bytes; complete publishes non-stream transports; cleanup owns cancellation and expiry
+- Exposes `stream`, `chunked`, `presigned`, `presigned_multipart`, and `provider_resumable` transports without exposing connector-specific relay strategies to clients
+- Publishes a stream body through `workspace::storage` in the same database transaction that creates file/blob records, updates quota, and binds the completed session; chunked, presigned, multipart, and provider-resumable transports publish through `complete/*`
+- Records upload metrics and route-level audit context without moving file or storage consistency into routes
 
 Should stay:
 
 - Upload lifecycle orchestration
 - Upload session state transitions
-- Completion plan selection
-- Public upload-mode response models
+- Completion plan selection for transports that require an explicit complete request
+- Public upload-transport response models
 - Unified cancel, cleanup, and recoverable session entry points
 
 Should move down or continue to converge:
 
-- The finalization contract for trusted size, actual size, hash, blob, file version, quota charge, and cleanup must stay reviewable in one shape
-- Different completion paths should converge toward the same `workspace::storage` finalization shape
-- Remote and object multipart details should remain in focused init/complete submodules, not flow back into the facade
+- The finalization contract for trusted size, actual size, hash, blob, file version, quota charge, session binding, and cleanup must stay reviewable in one shape
+- Stream and explicit-complete paths should continue to use verified inputs and transactionally consistent `workspace::storage` publication boundaries
+- Connector-specific planning, ingest, and completion details should remain in focused `plan/*`, `ingest/*`, and `complete/*` submodules, not flow back into the facade
 
 Side effects that must be explicit:
 
@@ -267,14 +268,15 @@ Side effects that must be explicit:
 Current responsibilities:
 
 - Unified workspace file facade
-- Re-exports scope helpers, storage core, multipart/store/blob upload capabilities
-- Handles REST direct upload, WebDAV flush, preuploaded blob, multipart/staged, and streaming direct entries
-- Provides stable entries for file creation, content writes, and temporary file persistence
+- Re-exports scope helpers, storage core, store/blob upload capabilities, and session-bound stream ingest
+- Handles local and connector-backed stream ingest, WebDAV flush, preuploaded blobs, temporary-file persistence, and other scope-aware file writes
+- Owns the database publication boundary that creates or updates blob/file records, accounts quota, and optionally completes the bound upload session atomically
+- Compensates storage-object side effects when validation or database publication fails
 
 Should stay:
 
 - `WorkspaceStorageScope` entry point and scope-aware file writes
-- Orchestration from multiple upload entries into the storage core
+- Orchestration from stream, temporary-file, preuploaded-object, WebDAV, and internal file-write entries into the storage core
 - Storage operation cancellation and cleanup boundaries
 - Stable facade exposed to routes, WebDAV, and file services
 

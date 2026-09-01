@@ -42,6 +42,7 @@ pub(super) async fn persist_temp_store(
         expected_current_revision_id,
         expected_current_revision_etag,
         revision_etag,
+        complete_upload_id,
     } = prepared;
 
     operation_context.checkpoint()?;
@@ -100,6 +101,7 @@ pub(super) async fn persist_temp_store(
     let transaction_expected_current_revision_id = expected_current_revision_id;
     let transaction_expected_current_revision_etag = expected_current_revision_etag;
     let transaction_revision_etag = revision_etag;
+    let transaction_complete_upload_id = complete_upload_id;
     let transaction_now = now;
     let create_result = aster_forge_db::transaction::with_transaction_retry(
         state.writer_db(),
@@ -116,6 +118,7 @@ pub(super) async fn persist_temp_store(
             let expected_current_revision_id = transaction_expected_current_revision_id;
             let expected_current_revision_etag = transaction_expected_current_revision_etag.clone();
             let revision_etag = transaction_revision_etag.clone();
+            let complete_upload_id = transaction_complete_upload_id.clone();
             let now = transaction_now;
             Box::pin(async move {
                 let workspace = match scope {
@@ -182,6 +185,19 @@ pub(super) async fn persist_temp_store(
                     },
                 )
                 .await?;
+                if let Some(upload_id) = complete_upload_id.as_deref()
+                    && !crate::db::repository::upload_session_repo::complete_if_assembling(
+                        txn, upload_id, result.id,
+                    )
+                    .await?
+                {
+                    return Err(AsterError::conflict(
+                        "upload session changed while publishing the file",
+                    )
+                    .with_api_error_code(
+                        crate::api::api_error_code::ApiErrorCode::UploadStatusConflict,
+                    ));
+                }
                 operation_context.checkpoint()?;
                 Ok::<file::Model, AsterError>(result)
             })

@@ -45,70 +45,31 @@ macro_rules! login_user {
 }
 
 macro_rules! multipart_request {
-    ($uri:expr, $token:expr, $filename:expr, $content:expr $(,)?) => {{
-        let boundary = "----TeamBoundary123";
-        let payload = format!(
-            "------TeamBoundary123\r\n\
-             Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n\
-             Content-Type: text/plain\r\n\r\n\
-             {content}\r\n\
-             ------TeamBoundary123--\r\n",
-            filename = $filename,
-            content = $content,
-        );
-
-        test::TestRequest::post()
-            .uri($uri)
-            .insert_header(("Cookie", common::access_cookie_header(&$token)))
-            .insert_header(common::csrf_header_for(&$token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request()
+    ($app:expr, $uri:expr, $token:expr, $filename:expr, $content:expr $(,)?) => {{
+        common::upload_via_server_session(
+            &$app,
+            &$token,
+            $uri,
+            $filename,
+            "text/plain",
+            ($content).as_bytes(),
+        )
+        .await
     }};
 }
 
 macro_rules! multipart_request_with_mime {
-    ($uri:expr, $token:expr, $filename:expr, $content:expr, $mime:expr $(,)?) => {{
-        let boundary = "----TeamMimeBoundary123";
-        let payload = format!(
-            "------TeamMimeBoundary123\r\n\
-             Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n\
-             Content-Type: {mime}\r\n\r\n\
-             {content}\r\n\
-             ------TeamMimeBoundary123--\r\n",
-            filename = $filename,
-            mime = $mime,
-            content = $content,
-        );
-
-        test::TestRequest::post()
-            .uri($uri)
-            .insert_header(("Cookie", common::access_cookie_header(&$token)))
-            .insert_header(common::csrf_header_for(&$token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request()
+    ($app:expr, $uri:expr, $token:expr, $filename:expr, $content:expr, $mime:expr $(,)?) => {{
+        common::upload_via_server_session(
+            &$app,
+            &$token,
+            $uri,
+            $filename,
+            $mime,
+            ($content).as_bytes(),
+        )
+        .await
     }};
-}
-
-fn build_binary_multipart_payload(filename: &str, data: &[u8]) -> (String, Vec<u8>) {
-    let boundary = format!("----AsterTeamBoundary{}", uuid::Uuid::new_v4().simple());
-    let mut payload = Vec::new();
-    payload.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
-    payload.extend_from_slice(
-        format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n")
-            .as_bytes(),
-    );
-    payload.extend_from_slice(b"Content-Type: application/octet-stream\r\n\r\n");
-    payload.extend_from_slice(data);
-    payload.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
-    (boundary, payload)
 }
 
 async fn set_default_policy_chunk_size(
@@ -159,16 +120,15 @@ async fn test_team_file_resource_handle_resolves_team_scoped_paths_and_rejects_p
     let body: Value = test::read_body_json(resp).await;
     let team_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request_with_mime!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = multipart_request_with_mime!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "team-resource.png",
         "png-ish",
         "image/png",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let team_file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::post()
@@ -206,15 +166,14 @@ async fn test_team_file_resource_handle_resolves_team_scoped_paths_and_rejects_p
     assert_eq!(body["data"]["delivery"]["mode"], "blob_url");
     assert_eq!(body["data"]["delivery"]["mime_type"], "image/webp");
 
-    let req = multipart_request!(
-        "/api/v1/files/upload",
+    let (status, body) = multipart_request!(
+        app,
+        "/api/v1/files",
         &owner_token,
         "personal-resource.txt",
         "personal"
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let personal_file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::post()
@@ -301,17 +260,23 @@ async fn test_team_space_upload_browse_download_and_personal_separation() {
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 403);
+    let status = resp.status();
+    let error_body = test::read_body(resp).await;
+    assert_eq!(
+        status,
+        403,
+        "outsider empty-file create failed: {}",
+        String::from_utf8_lossy(&error_body)
+    );
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload?folder_id={docs_id}"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files?folder_id={docs_id}"),
         &owner_token,
         "team.txt",
         "hello team",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::get()
@@ -460,7 +425,14 @@ async fn test_team_space_delete_folder_and_non_member_forbidden() {
         .set_json(serde_json::json!({ "name": "forbidden-empty.md" }))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 403);
+    let status = resp.status();
+    let error_body = test::read_body(resp).await;
+    assert_eq!(
+        status,
+        403,
+        "outsider empty-file create failed: {}",
+        String::from_utf8_lossy(&error_body)
+    );
 
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/teams/{team_id}/folders"))
@@ -480,14 +452,14 @@ async fn test_team_space_delete_folder_and_non_member_forbidden() {
     let body: Value = test::read_body_json(resp).await;
     let nested_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload?folder_id={nested_id}"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files?folder_id={nested_id}"),
         &owner_token,
         "ops.txt",
         "ops notes",
     );
-    let resp = test::call_service(&app, req).await;
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::delete()
@@ -546,8 +518,9 @@ async fn test_team_space_delete_folder_and_non_member_forbidden() {
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    let status = resp.status();
     let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201, "empty team file failed: {body}");
     assert_eq!(body["data"]["name"], "empty.md");
     let empty_file_id = body["data"]["id"].as_i64().unwrap();
     let empty_blob_id = body["data"]["blob_id"].as_i64().unwrap();
@@ -687,15 +660,14 @@ async fn test_team_space_patch_file_and_folder() {
     let body: Value = test::read_body_json(resp).await;
     let drafts_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload?folder_id={docs_id}"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files?folder_id={docs_id}"),
         &owner_token,
         "draft.txt",
         "draft body",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::patch()
@@ -826,15 +798,14 @@ async fn test_team_file_direct_link_supports_public_access_and_team_deactivation
     let body: Value = test::read_body_json(resp).await;
     let team_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "stream.m3u8",
         "team direct body",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::get()
@@ -957,25 +928,24 @@ async fn test_team_space_copy_file_and_folder() {
     let body: Value = test::read_body_json(resp).await;
     let nested_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload?folder_id={source_id}"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files?folder_id={source_id}"),
         &owner_token,
         "plan.txt",
         "rootcopy",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload?folder_id={nested_id}"),
+    let (status, _body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files?folder_id={nested_id}"),
         &owner_token,
         "nested.txt",
         "nestedcopy",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    assert_eq!(status, 201);
 
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/teams/{team_id}/folders/{source_id}/copy"))
@@ -1132,15 +1102,14 @@ async fn test_team_space_content_versions_and_locks() {
     let body: Value = test::read_body_json(resp).await;
     let docs_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload?folder_id={docs_id}"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files?folder_id={docs_id}"),
         &member_token,
         "editor.txt",
         "v1",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::put()
@@ -1418,15 +1387,14 @@ async fn test_team_update_content_allows_body_larger_than_global_payload_limit()
     let body: Value = test::read_body_json(resp).await;
     let team_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "large-team.txt",
         "seed",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let payload = vec![b't'; OVER_LIMIT_BODY_SIZE];
@@ -1490,15 +1458,14 @@ async fn test_team_versions_enforce_scope_and_membership() {
     let body: Value = test::read_body_json(resp).await;
     let team_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "team-version-guard.txt",
         "team-v1",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::put()
@@ -1680,23 +1647,23 @@ async fn test_team_shares_support_public_folder_access_and_team_management() {
     let body: Value = test::read_body_json(resp).await;
     let nested_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload?folder_id={docs_id}"),
+    let (status, _body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files?folder_id={docs_id}"),
         &owner_token,
         "team-share.txt",
         "team-share-body",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    assert_eq!(status, 201);
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload?folder_id={nested_id}"),
+    let (status, _body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files?folder_id={nested_id}"),
         &owner_token,
         "nested-share.txt",
         "nested-share-body",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    assert_eq!(status, 201);
 
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/teams/{team_id}/shares"))
@@ -1910,24 +1877,24 @@ async fn test_team_trash_restore_file_to_root_and_purge_deleted_folder_tree() {
     let body: Value = test::read_body_json(resp).await;
     let child_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload?folder_id={parent_id}"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files?folder_id={parent_id}"),
         &owner_token,
         "restore-me.txt",
         "restore-me-body",
     );
-    let resp = test::call_service(&app, req).await;
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let restored_file_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload?folder_id={child_id}"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files?folder_id={child_id}"),
         &owner_token,
         "purge-me.txt",
         "purge-me-body",
     );
-    let resp = test::call_service(&app, req).await;
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let purged_file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::delete()
@@ -2040,15 +2007,14 @@ async fn test_team_trash_purge_all_schedules_background_task() {
     let body: Value = test::read_body_json(resp).await;
     let team_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "team-trash-purge-all.txt",
         "team trash purge all body",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::delete()
@@ -2148,15 +2114,14 @@ async fn test_team_trash_purge_all_rejects_non_member_without_creating_task() {
     let body: Value = test::read_body_json(resp).await;
     let team_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "guard-trash.txt",
         "guard trash body",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::delete()
@@ -2224,26 +2189,24 @@ async fn test_team_trash_rejects_active_and_out_of_scope_items() {
     let body: Value = test::read_body_json(resp).await;
     let team_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "active-team.txt",
         "active team body",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let active_team_file_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "trashed-team.txt",
         "trashed team body",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let trashed_team_file_id = body["data"]["id"].as_i64().unwrap();
 
     let personal_file_id = upload_test_file_named!(app, owner_token, "personal-trash.txt");
@@ -2375,15 +2338,14 @@ async fn test_team_trash_pagination_preserves_totals_and_membership() {
     }
 
     for i in 0..4 {
-        let req = multipart_request!(
-            &format!("/api/v1/teams/{team_id}/files/upload"),
+        let (status, body) = multipart_request!(
+            app,
+            &format!("/api/v1/teams/{team_id}/files"),
             &owner_token,
             &format!("trash-file-{i}.txt"),
             "team trash body",
         );
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 201);
-        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(status, 201);
         let file_id = body["data"]["id"].as_i64().unwrap();
 
         let req = test::TestRequest::delete()
@@ -2716,7 +2678,7 @@ async fn test_team_chunk_upload_endpoint_keeps_duplicate_size_validation() {
 }
 
 #[actix_web::test]
-async fn test_team_empty_upload_flow_uses_direct_and_creates_file() {
+async fn test_team_empty_file_uses_resource_creation_endpoint() {
     let state = common::setup().await;
     let db = state.writer_db().clone();
     let mail_sender = state.mail_sender.clone();
@@ -2744,36 +2706,15 @@ async fn test_team_empty_upload_flow_uses_direct_and_creates_file() {
     let team_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::post()
-        .uri(&format!("/api/v1/teams/{team_id}/files/upload/init"))
+        .uri(&format!("/api/v1/teams/{team_id}/files/new"))
         .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
         .insert_header(common::csrf_header_for(&owner_token))
-        .set_json(serde_json::json!({
-            "filename": "empty-team.txt",
-            "total_size": 0
-        }))
+        .set_json(serde_json::json!({ "name": "empty-team.txt" }))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    let status = resp.status();
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["mode"], "direct");
-    assert!(body["data"]["upload_id"].is_null());
-
-    let (boundary, payload) = build_binary_multipart_payload("empty-team.txt", b"");
-    let req = test::TestRequest::post()
-        .uri(&format!(
-            "/api/v1/teams/{team_id}/files/upload?declared_size=0"
-        ))
-        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
-        .insert_header(common::csrf_header_for(&owner_token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201, "empty team file failed: {body}");
     assert_eq!(body["data"]["name"], "empty-team.txt");
     assert_eq!(body["data"]["team_id"].as_i64().unwrap(), team_id);
     assert_eq!(body["data"]["size"], 0);
@@ -2947,34 +2888,25 @@ async fn test_team_search_scopes_results_to_workspace_and_enforces_membership() 
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload?folder_id={docs_id}"),
+    let (status, _body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files?folder_id={docs_id}"),
         &owner_token,
         "roadmap-team.txt",
         "team roadmap",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    assert_eq!(status, 201);
 
-    let boundary = "----PersonalBoundary123";
-    let payload = "------PersonalBoundary123\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"roadmap-personal.txt\"\r\n\
-         Content-Type: text/plain\r\n\r\n\
-         personal roadmap\r\n\
-         ------PersonalBoundary123--\r\n"
-        .to_string();
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
-        .insert_header(common::csrf_header_for(&owner_token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    let (status, _) = common::upload_via_server_session(
+        &app,
+        &owner_token,
+        "/api/v1/files",
+        "roadmap-personal.txt",
+        "text/plain",
+        b"personal roadmap",
+    )
+    .await;
+    assert_eq!(status, 201);
 
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/teams/{team_id}/search?q=roadmap"))
@@ -3082,35 +3014,35 @@ async fn test_team_search_supports_category_and_extension_filters() {
     let body: Value = test::read_body_json(resp).await;
     let team_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request_with_mime!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, _body) = multipart_request_with_mime!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "team-photo.jpg",
         "image",
         "image/jpeg"
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    assert_eq!(status, 201);
 
-    let req = multipart_request_with_mime!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, _body) = multipart_request_with_mime!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "team-report.pdf",
         "pdf",
         "application/pdf"
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    assert_eq!(status, 201);
 
-    let req = multipart_request_with_mime!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, _body) = multipart_request_with_mime!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "team-pdf-notes.txt",
         "text",
         "text/plain"
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    assert_eq!(status, 201);
 
     let image_req = test::TestRequest::get()
         .uri(&format!("/api/v1/teams/{team_id}/search?category=image"))
@@ -3221,26 +3153,24 @@ async fn test_team_batch_routes_support_copy_move_and_delete() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload?folder_id={source_id}"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files?folder_id={source_id}"),
         &owner_token,
         "batch-team.txt",
         "batch team body",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload?folder_id={source_id}"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files?folder_id={source_id}"),
         &owner_token,
         "batch-team-2.txt",
         "batch team body 2",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id_two = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::post()
@@ -3367,26 +3297,24 @@ async fn test_team_batch_delete_preserves_scope_and_locked_failures() {
     let body: Value = test::read_body_json(resp).await;
     let team_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "team-ok.txt",
         "team ok body",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let team_file_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "team-locked.txt",
         "team locked body",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let locked_team_file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::post()
@@ -3487,15 +3415,14 @@ async fn test_team_share_batch_delete_preserves_partial_failures() {
     let body: Value = test::read_body_json(resp).await;
     let team_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &owner_token,
         "team-share-batch.txt",
         "share batch body",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::post()

@@ -423,6 +423,7 @@ mod tests {
             team_id: None,
             frontend_client_id: Some("frontend-1".to_string()),
             filename: format!("{id}.bin"),
+            mime_type: "application/octet-stream".to_string(),
             total_size: 10,
             chunk_size: 5,
             total_chunks: 2,

@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 
 use chrono::{DateTime, Utc};
 
-use aster_drive_model::types::{UploadMode, UploadScheduling, UploadSessionStatus};
+use aster_drive_model::types::{UploadScheduling, UploadSessionStatus, UploadTransport};
 use aster_drive_storage::PresignedUploadRequest;
 
 #[derive(Clone, Serialize)]
@@ -21,7 +21,7 @@ pub struct ProviderResumableUploadResponse {
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct InitUploadResponse {
-    pub mode: UploadMode,
+    pub mode: UploadTransport,
     pub upload_id: Option<String>,
     pub chunk_size: Option<i64>,
     pub total_chunks: Option<i32>,
@@ -71,9 +71,10 @@ pub struct RecoverableUploadPartResponse {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RecoverableUploadSessionResponse {
     pub upload_id: String,
-    pub mode: UploadMode,
+    pub mode: UploadTransport,
     pub status: UploadSessionStatus,
     pub filename: String,
+    pub mime_type: String,
     pub total_size: i64,
     pub chunk_size: i64,
     pub total_chunks: i32,

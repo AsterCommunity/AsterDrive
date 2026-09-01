@@ -14,9 +14,9 @@ use crate::errors::{
     validation_error_with_code,
 };
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::files::upload::provider_session::decrypt_provider_session;
-use crate::services::files::upload::responses::ChunkUploadResponse;
-use crate::services::files::upload::shared::{
+use crate::services::files::upload::session::provider::decrypt_provider_session;
+use crate::services::files::upload::session::responses::ChunkUploadResponse;
+use crate::services::files::upload::session::shared::{
     expected_chunk_size_for_upload, upload_session_chunk_unavailable_error,
 };
 use aster_drive_model::entities::upload_session;
@@ -291,7 +291,7 @@ async fn reconcile_after_payload_error(
     }
 }
 
-pub(super) async fn reconcile_progress(
+pub(crate) async fn reconcile_progress(
     state: &PrimaryAppState,
     session: &upload_session::Model,
 ) -> Result<Vec<i32>> {

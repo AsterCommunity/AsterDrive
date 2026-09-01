@@ -16,24 +16,67 @@ use chrono::{Duration, Utc};
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{MapAsterErr, Result, chunk_upload_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::files::upload::responses::InitUploadResponse;
-use crate::services::files::upload::scope::{personal_scope, team_scope};
-use crate::services::files::upload::shared::{
+use crate::services::files::upload::ingest::staging;
+use crate::services::files::upload::session::responses::InitUploadResponse;
+use crate::services::files::upload::session::scope::{personal_scope, team_scope};
+use crate::services::files::upload::session::shared::{
     UniqueUuidAttempt, delete_upload_session_record_after_init_error, with_unique_upload_id,
 };
-use crate::services::files::upload::staging;
 use crate::services::ops::deployment;
 use crate::services::workspace::storage::{
     WorkspaceStorageScope, resolve_policy_upload_transport_for_execution,
 };
-use aster_drive_model::types::{UploadMode, UploadSessionStatus};
+use aster_drive_model::types::{UploadSessionStatus, UploadTransport};
 use aster_forge_utils::numbers;
 use aster_forge_utils::paths;
 
 use self::context::{
-    InitUploadContext, UploadSessionRecordParams, direct_upload_response,
-    resolve_init_upload_context, session_kind_for_transport, try_persist_upload_session,
+    InitUploadContext, UploadSessionRecordParams, init_stream_session, resolve_init_upload_context,
+    session_kind_for_transport, try_persist_upload_session, validate_storage_capacity,
 };
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UploadPlan {
+    pub upload_id: String,
+    pub filename: String,
+    pub mime_type: String,
+    pub total_size: i64,
+    pub policy_id: i64,
+    pub placement_profile_id: i64,
+    pub placement_rule_id: Option<i64>,
+    pub placement_revision: i64,
+    pub transport: aster_drive_model::types::UploadTransport,
+}
+
+impl UploadPlan {
+    pub(crate) fn try_from_session(
+        session: &aster_drive_model::entities::upload_session::Model,
+    ) -> Result<Self> {
+        let placement_profile_id = session.placement_profile_id.ok_or_else(|| {
+            crate::errors::AsterError::validation_error(
+                "upload session is missing its placement profile binding",
+            )
+        })?;
+        let placement_revision = session.placement_revision.ok_or_else(|| {
+            crate::errors::AsterError::validation_error(
+                "upload session is missing its placement revision binding",
+            )
+        })?;
+        Ok(Self {
+            upload_id: session.id.clone(),
+            filename: session.filename.clone(),
+            mime_type: session.mime_type.clone(),
+            total_size: session.total_size,
+            policy_id: session.policy_id,
+            placement_profile_id,
+            placement_rule_id: session.placement_rule_id,
+            placement_revision,
+            transport: crate::services::files::upload::session::kind::mode_for_kind(
+                session.session_kind,
+            ),
+        })
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct InitUploadParams<'a> {
@@ -41,6 +84,7 @@ pub struct InitUploadParams<'a> {
     pub total_size: i64,
     pub folder_id: Option<i64>,
     pub relative_path: Option<&'a str>,
+    pub mime_type: Option<&'a str>,
     pub frontend_client_id: Option<&'a str>,
 }
 
@@ -56,12 +100,18 @@ impl<'a> InitUploadParams<'a> {
             total_size,
             folder_id,
             relative_path,
+            mime_type: None,
             frontend_client_id: None,
         }
     }
 
     pub fn with_frontend_client(mut self, frontend_client_id: Option<&'a str>) -> Self {
         self.frontend_client_id = frontend_client_id;
+        self
+    }
+
+    pub fn with_mime_type(mut self, mime_type: Option<&'a str>) -> Self {
+        self.mime_type = mime_type;
         self
     }
 }
@@ -80,16 +130,7 @@ async fn init_upload_for_scope(
         "initializing upload session"
     );
 
-    let ctx = resolve_init_upload_context(
-        state,
-        scope,
-        params.filename,
-        params.total_size,
-        params.folder_id,
-        params.relative_path,
-        params.frontend_client_id,
-    )
-    .await?;
+    let ctx = resolve_init_upload_context(state, scope, params).await?;
     let transport = resolve_policy_upload_transport_for_execution(
         state.driver_registry().connectors(),
         &ctx.policy,
@@ -97,14 +138,19 @@ async fn init_upload_for_scope(
     )?;
 
     if ctx.total_size == 0 {
-        tracing::debug!(
-            scope = ?ctx.scope,
-            policy_id = ctx.policy.id,
-            mode = ?UploadMode::Direct,
-            folder_id = ctx.target.folder_id,
-            "selected direct upload mode for empty file"
-        );
-        return Ok(direct_upload_response());
+        return Err(crate::errors::AsterError::validation_error(
+            "zero-byte files must be created through /files/new",
+        ));
+    }
+
+    validate_storage_capacity(state, &ctx.policy, ctx.total_size).await?;
+
+    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadTransport::Stream
+        && transport.supports_streaming_direct_upload(&ctx.policy, ctx.total_size)
+    {
+        let response = init_stream_session(state, &ctx).await?;
+        record_upload_session_if_created(state, &response);
+        return Ok(response);
     }
 
     if let Some(response) = provider::init_provider_resumable_upload(state, &ctx).await? {
@@ -124,17 +170,6 @@ async fn init_upload_for_scope(
     if let Some(response) = remote::init_remote_upload(state, &ctx).await? {
         record_upload_session_if_created(state, &response);
         return Ok(response);
-    }
-
-    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadMode::Direct {
-        tracing::debug!(
-            scope = ?ctx.scope,
-            policy_id = ctx.policy.id,
-            mode = ?UploadMode::Direct,
-            folder_id = ctx.target.folder_id,
-            "selected direct upload mode"
-        );
-        return Ok(direct_upload_response());
     }
 
     let response = init_chunked_upload_session(state, &ctx).await?;
@@ -168,7 +203,7 @@ async fn init_chunked_upload_session(
     let chunk_size = ctx.policy.chunk_size;
     let total_chunks = numbers::calc_total_chunks(ctx.total_size, chunk_size, "chunked upload")?;
     let expires_at = Utc::now() + Duration::hours(24);
-    let session_kind = session_kind_for_transport(transport, UploadMode::Chunked)?;
+    let session_kind = session_kind_for_transport(transport, UploadTransport::Chunked)?;
     deployment::validate_upload_session_kind(state.config(), session_kind)?;
 
     let upload_id = with_unique_upload_id(|upload_id| async {
@@ -178,6 +213,7 @@ async fn init_chunked_upload_session(
                 upload_id: &upload_id,
                 scope: ctx.scope,
                 filename: &ctx.target.filename,
+                mime_type: &ctx.mime_type,
                 total_size: ctx.total_size,
                 chunk_size,
                 total_chunks,
@@ -221,7 +257,7 @@ async fn init_chunked_upload_session(
         scope = ?ctx.scope,
         upload_id = %upload_id,
         policy_id = ctx.policy.id,
-        mode = ?UploadMode::Chunked,
+        mode = ?UploadTransport::Chunked,
         chunk_size,
         total_chunks,
         folder_id = ctx.target.folder_id,
@@ -229,7 +265,7 @@ async fn init_chunked_upload_session(
     );
 
     Ok(context::chunked_upload_response(
-        UploadMode::Chunked,
+        UploadTransport::Chunked,
         upload_id,
         chunk_size,
         total_chunks,

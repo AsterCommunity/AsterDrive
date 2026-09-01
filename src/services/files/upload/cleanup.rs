@@ -8,10 +8,12 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::upload_session_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::files::upload::kind::resolve_upload_session_kind;
-use crate::services::files::upload::provider_session::decrypt_provider_session;
-use crate::services::files::upload::scope::{load_upload_session, personal_scope, team_scope};
-use crate::services::files::upload::shared::{
+use crate::services::files::upload::session::kind::resolve_upload_session_kind;
+use crate::services::files::upload::session::provider::decrypt_provider_session;
+use crate::services::files::upload::session::scope::{
+    load_upload_session, personal_scope, team_scope,
+};
+use crate::services::files::upload::session::shared::{
     UploadStorageErrorClass, classify_storage_error_kind, classify_upload_storage_error,
     cleanup_upload_temp_dir, mark_session_failed_with_expiration, upload_storage_error_class_label,
 };

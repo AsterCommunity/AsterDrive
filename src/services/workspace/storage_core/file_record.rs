@@ -22,6 +22,7 @@ struct CreateFileFromBlobParams<'a> {
     now: chrono::DateTime<Utc>,
     name_mode: NewFileNameMode,
     actor_username: Option<&'a str>,
+    mime_type: Option<&'a str>,
 }
 
 async fn create_file_from_blob_with_name_mode<C: ConnectionTrait>(
@@ -36,6 +37,7 @@ async fn create_file_from_blob_with_name_mode<C: ConnectionTrait>(
         now,
         name_mode,
         actor_username,
+        mime_type,
     } = params;
     let normalized_filename = aster_forge_validation::filename::normalize_validate_name(filename)?;
     let created_by_username = match actor_username {
@@ -70,9 +72,11 @@ async fn create_file_from_blob_with_name_mode<C: ConnectionTrait>(
             (final_name, Some(team_id))
         }
     };
-    let mime = mime_guess::from_path(&final_name)
-        .first_or_octet_stream()
-        .to_string();
+    let mime = mime_type.map(str::to_string).unwrap_or_else(|| {
+        mime_guess::from_path(&final_name)
+            .first_or_octet_stream()
+            .to_string()
+    });
     let max_attempts = match name_mode {
         NewFileNameMode::ResolveUnique => MAX_AUTO_NAME_RETRIES,
         NewFileNameMode::Exact => 1,
@@ -152,6 +156,7 @@ pub(crate) async fn create_new_file_from_blob<C: ConnectionTrait>(
             now,
             name_mode: NewFileNameMode::ResolveUnique,
             actor_username: None,
+            mime_type: None,
         },
     )
     .await
@@ -176,6 +181,7 @@ pub(crate) async fn create_new_file_from_blob_with_actor_username<C: ConnectionT
             now,
             name_mode: NewFileNameMode::ResolveUnique,
             actor_username: Some(actor_username),
+            mime_type: None,
         },
     )
     .await
@@ -199,20 +205,37 @@ pub(crate) async fn create_exact_file_from_blob<C: ConnectionTrait>(
             now,
             name_mode: NewFileNameMode::Exact,
             actor_username: None,
+            mime_type: None,
         },
     )
     .await
 }
 
-pub(crate) async fn create_exact_file_from_blob_with_actor_username<C: ConnectionTrait>(
+pub(crate) struct CreateFileFromBlobWithMimeParams<'a> {
+    pub scope: WorkspaceStorageScope,
+    pub folder_id: Option<i64>,
+    pub filename: &'a str,
+    pub mime_type: &'a str,
+    pub blob: &'a file_blob::Model,
+    pub now: chrono::DateTime<Utc>,
+    pub actor_username: Option<&'a str>,
+    pub exact_name: bool,
+}
+
+pub(crate) async fn create_file_from_blob_with_mime<C: ConnectionTrait>(
     db: &C,
-    scope: WorkspaceStorageScope,
-    folder_id: Option<i64>,
-    filename: &str,
-    blob: &file_blob::Model,
-    now: chrono::DateTime<Utc>,
-    actor_username: &str,
+    params: CreateFileFromBlobWithMimeParams<'_>,
 ) -> Result<file::Model> {
+    let CreateFileFromBlobWithMimeParams {
+        scope,
+        folder_id,
+        filename,
+        mime_type,
+        blob,
+        now,
+        actor_username,
+        exact_name,
+    } = params;
     create_file_from_blob_with_name_mode(
         db,
         CreateFileFromBlobParams {
@@ -221,8 +244,13 @@ pub(crate) async fn create_exact_file_from_blob_with_actor_username<C: Connectio
             filename,
             blob,
             now,
-            name_mode: NewFileNameMode::Exact,
-            actor_username: Some(actor_username),
+            name_mode: if exact_name {
+                NewFileNameMode::Exact
+            } else {
+                NewFileNameMode::ResolveUnique
+            },
+            actor_username,
+            mime_type: Some(mime_type),
         },
     )
     .await

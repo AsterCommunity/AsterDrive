@@ -1,7 +1,7 @@
 import type { UploadProgressResponse } from "@/types/api";
 
-export type UploadMode =
-	| "direct"
+export type UploadTransport =
+	| "stream"
 	| "chunked"
 	| "presigned"
 	| "presigned_multipart"
@@ -13,9 +13,14 @@ export const CHUNK_PROCESSING_PROGRESS = 95;
 export const SERVER_FINALIZE_PROGRESS = 95;
 
 export function getResumePlan(
-	mode: UploadMode,
+	mode: UploadTransport,
 	status: UploadProgressResponse["status"],
 ): ResumePlan {
+	if (mode === "stream") {
+		if (status === "uploading") return "upload";
+		if (status === "assembling" || status === "completed") return "complete";
+		return "restart";
+	}
 	if (mode === "chunked") {
 		if (status === "uploading") return "upload";
 		if (status === "assembling" || status === "completed") return "complete";
@@ -48,7 +53,7 @@ export function getResumePlan(
 	return "restart";
 }
 
-export function getProcessingProgress(mode: UploadMode | null): number {
+export function getProcessingProgress(mode: UploadTransport | null): number {
 	return mode === "chunked"
 		? CHUNK_PROCESSING_PROGRESS
 		: SERVER_FINALIZE_PROGRESS;

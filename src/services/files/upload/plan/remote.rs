@@ -3,20 +3,19 @@ use chrono::{Duration, Utc};
 use crate::api::constants::HOUR_SECS;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
-use crate::services::files::upload::responses::InitUploadResponse;
-use crate::services::files::upload::shared::{
+use crate::services::files::upload::session::responses::InitUploadResponse;
+use crate::services::files::upload::session::shared::{
     UniqueUuidAttempt, delete_upload_session_record_after_init_error, with_unique_upload_id,
 };
 use crate::services::workspace::storage::{
     PolicyUploadTransport, resolve_policy_upload_transport_for_execution,
 };
-use aster_drive_model::types::{RemoteUploadStrategy, UploadMode, UploadSessionStatus};
+use aster_drive_model::types::{RemoteUploadStrategy, UploadSessionStatus, UploadTransport};
 use aster_forge_utils::numbers;
 
 use super::context::{
     InitUploadContext, MultipartSessionInitParams, UploadSessionRecordParams,
-    direct_upload_response, init_multipart_session_with_retry, session_kind_for_transport,
-    try_persist_upload_session,
+    init_multipart_session_with_retry, session_kind_for_transport, try_persist_upload_session,
 };
 
 pub(super) async fn init_remote_upload(
@@ -48,15 +47,15 @@ async fn init_relay_stream_remote_upload(
 ) -> Result<InitUploadResponse> {
     let chunk_size = transport.effective_chunk_size(&ctx.policy);
 
-    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadMode::Direct {
+    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadTransport::Stream {
         tracing::debug!(
             scope = ?ctx.scope,
             policy_id = ctx.policy.id,
-            mode = ?UploadMode::Direct,
+            mode = ?UploadTransport::Stream,
             folder_id = ctx.target.folder_id,
             "selected remote relay stream direct upload mode"
         );
-        return Ok(direct_upload_response());
+        return super::context::init_stream_session(state, ctx).await;
     }
 
     let multipart = state.driver_registry().get_multipart_driver(&ctx.policy)?;
@@ -68,9 +67,9 @@ async fn init_relay_stream_remote_upload(
         ctx,
         multipart.as_ref(),
         MultipartSessionInitParams {
-            mode: UploadMode::Chunked,
+            mode: UploadTransport::Chunked,
             status: UploadSessionStatus::Uploading,
-            session_kind: session_kind_for_transport(transport, UploadMode::Chunked)?,
+            session_kind: session_kind_for_transport(transport, UploadTransport::Chunked)?,
             chunk_size,
             total_chunks,
             expires_in: Duration::hours(24),
@@ -92,7 +91,7 @@ async fn init_presigned_remote_upload(
     let driver = state.driver_registry().get_driver(&ctx.policy)?;
     let chunk_size = transport.effective_chunk_size(&ctx.policy);
 
-    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadMode::Presigned {
+    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadTransport::Presigned {
         return init_remote_presigned_single_upload(state, ctx, driver.as_ref()).await;
     }
 
@@ -108,9 +107,9 @@ async fn init_presigned_remote_upload(
         ctx,
         multipart.as_ref(),
         MultipartSessionInitParams {
-            mode: UploadMode::PresignedMultipart,
+            mode: UploadTransport::PresignedMultipart,
             status: UploadSessionStatus::Presigned,
-            session_kind: session_kind_for_transport(transport, UploadMode::PresignedMultipart)?,
+            session_kind: session_kind_for_transport(transport, UploadTransport::PresignedMultipart)?,
             chunk_size,
             total_chunks,
             expires_in: Duration::hours(24),
@@ -137,6 +136,7 @@ async fn init_remote_presigned_single_upload(
                 upload_id: &upload_id,
                 scope: ctx.scope,
                 filename: &ctx.target.filename,
+                mime_type: &ctx.mime_type,
                 total_size: ctx.total_size,
                 chunk_size: 0,
                 total_chunks: 0,
@@ -150,7 +150,7 @@ async fn init_remote_presigned_single_upload(
                 status: UploadSessionStatus::Presigned,
                 session_kind: session_kind_for_transport(
                     PolicyUploadTransport::Remote(RemoteUploadStrategy::Presigned),
-                    UploadMode::Presigned,
+                    UploadTransport::Presigned,
                 )?,
                 object_temp_key: Some(&temp_key),
                 object_multipart_id: None,
@@ -180,13 +180,13 @@ async fn init_remote_presigned_single_upload(
             scope = ?ctx.scope,
             upload_id = %upload_id,
             policy_id = ctx.policy.id,
-            mode = ?UploadMode::Presigned,
+            mode = ?UploadTransport::Presigned,
             folder_id = ctx.target.folder_id,
             "initialized remote presigned upload session"
         );
 
         Ok(UniqueUuidAttempt::Accepted(InitUploadResponse {
-            mode: UploadMode::Presigned,
+            mode: UploadTransport::Presigned,
             upload_id: Some(upload_id),
             chunk_size: None,
             total_chunks: None,

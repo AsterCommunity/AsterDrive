@@ -21,8 +21,13 @@ export interface ResumableSession {
 	relativePath: string | null;
 	savedAt: number;
 	workspace?: Workspace;
-	/** 可恢复上传模式。direct 没有 session，不会写入这里。 */
-	mode?: "chunked" | "presigned" | "presigned_multipart" | "provider_resumable";
+	/** 可恢复上传模式。 */
+	mode?:
+		| "stream"
+		| "chunked"
+		| "presigned"
+		| "presigned_multipart"
+		| "provider_resumable";
 	/** S3 multipart: 已上传 part 的 {partNumber, etag} */
 	completedParts?: { part_number: number; etag: string }[];
 }

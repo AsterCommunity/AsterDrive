@@ -2,16 +2,16 @@ use chrono::{Duration, Utc};
 
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
-use crate::services::files::upload::provider_session::{
+use crate::services::files::upload::session::provider::{
     ProviderSessionSecret, encrypt_provider_session,
 };
-use crate::services::files::upload::responses::{
+use crate::services::files::upload::session::responses::{
     InitUploadResponse, ProviderResumableUploadResponse,
 };
-use crate::services::files::upload::shared::{UniqueUuidAttempt, with_unique_upload_id};
+use crate::services::files::upload::session::shared::{UniqueUuidAttempt, with_unique_upload_id};
 use crate::services::workspace::storage::PolicyUploadTransport;
 use aster_drive_model::types::{
-    ProviderResumableUploadStrategy, UploadMode, UploadSessionKind, UploadSessionStatus,
+    ProviderResumableUploadStrategy, UploadSessionKind, UploadSessionStatus, UploadTransport,
 };
 use aster_forge_utils::numbers;
 
@@ -35,12 +35,13 @@ pub(super) async fn init_provider_resumable_upload(
         _ => return Ok(None),
     };
     let mode = match strategy {
-        ProviderResumableUploadStrategy::FrontendDirect => UploadMode::ProviderResumable,
+        ProviderResumableUploadStrategy::FrontendDirect => UploadTransport::ProviderResumable,
         ProviderResumableUploadStrategy::ServerRelay => {
-            if transport.resolve_init_mode(&ctx.policy, ctx.total_size) != UploadMode::Chunked {
+            if transport.resolve_init_mode(&ctx.policy, ctx.total_size) != UploadTransport::Chunked
+            {
                 return Ok(None);
             }
-            UploadMode::Chunked
+            UploadTransport::Chunked
         }
     };
 
@@ -122,6 +123,7 @@ pub(super) async fn init_provider_resumable_upload(
                 upload_id: &upload_id,
                 scope: ctx.scope,
                 filename: &ctx.target.filename,
+                mime_type: &ctx.mime_type,
                 total_size: ctx.total_size,
                 chunk_size,
                 total_chunks,
@@ -203,7 +205,7 @@ pub(super) async fn init_provider_resumable_upload(
 
 fn provider_upload_response(
     strategy: ProviderResumableUploadStrategy,
-    mode: UploadMode,
+    mode: UploadTransport,
     upload_id: String,
     chunk_size: i64,
     total_chunks: i32,
@@ -223,7 +225,9 @@ fn provider_upload_response(
                 expires_at: provider_session.expires_at,
                 next_expected_ranges: provider_session.next_expected_ranges,
             }),
-        upload_scheduling: crate::services::files::upload::kind::scheduling_for_kind(session_kind),
+        upload_scheduling: crate::services::files::upload::session::kind::scheduling_for_kind(
+            session_kind,
+        ),
     }
 }
 
@@ -277,7 +281,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use aster_drive_model::types::{
-        ProviderResumableUploadStrategy, UploadMode, UploadSessionKind,
+        ProviderResumableUploadStrategy, UploadSessionKind, UploadTransport,
     };
     use aster_drive_storage::{
         BlobMetadata, ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
@@ -288,7 +292,7 @@ mod tests {
     fn server_relay_response_keeps_provider_url_private_and_sequential() {
         let response = provider_upload_response(
             ProviderResumableUploadStrategy::ServerRelay,
-            UploadMode::Chunked,
+            UploadTransport::Chunked,
             "upload-1".to_string(),
             10 * 1024 * 1024,
             2,

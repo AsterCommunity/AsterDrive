@@ -5,7 +5,7 @@ import type {
 	UploadAreaManagerTranslationFn,
 	UploadTask,
 } from "./uploadAreaManagerShared";
-import { createUploadModeRunners } from "./uploadAreaUploadModeRunners";
+import { createUploadTransportRunners } from "./uploadAreaUploadModeRunners";
 import type { UploadRequestRef } from "./uploadAreaUploadRunnerShared";
 import {
 	cancelUploadTask,
@@ -16,7 +16,7 @@ import {
 
 interface UseUploadAreaUploadsOptions {
 	abortFlagsRef: MutableRefObject<Map<string, boolean>>;
-	directAbortRef: MutableRefObject<Map<string, AbortController>>;
+	metadataAbortRef: MutableRefObject<Map<string, AbortController>>;
 	flushProgress: () => void;
 	markFolderForRefresh: (task: UploadTask) => void;
 	markTaskFailed: (taskId: string, error: unknown) => void;
@@ -33,7 +33,7 @@ interface UseUploadAreaUploadsOptions {
 
 export function useUploadAreaUploads({
 	abortFlagsRef,
-	directAbortRef,
+	metadataAbortRef,
 	flushProgress,
 	markFolderForRefresh,
 	markTaskFailed,
@@ -50,9 +50,9 @@ export function useUploadAreaUploads({
 	const taskOperationLocksRef = useRef(new Map<string, "clear" | "retry">());
 	const modeRunners = useMemo(
 		() =>
-			createUploadModeRunners({
+			createUploadTransportRunners({
 				abortFlagsRef,
-				directAbortRef,
+				metadataAbortRef,
 				flushProgress,
 				markFolderForRefresh,
 				markTaskFailed,
@@ -65,7 +65,7 @@ export function useUploadAreaUploads({
 			}),
 		[
 			abortFlagsRef,
-			directAbortRef,
+			metadataAbortRef,
 			flushProgress,
 			markFolderForRefresh,
 			markTaskFailed,
@@ -83,7 +83,7 @@ export function useUploadAreaUploads({
 			await runQueuedUploadTask(taskId, {
 				...modeRunners,
 				abortFlagsRef,
-				directAbortRef,
+				metadataAbortRef,
 				markFolderForRefresh,
 				markTaskFailed,
 				patchTask,
@@ -99,7 +99,7 @@ export function useUploadAreaUploads({
 		[
 			modeRunners,
 			abortFlagsRef,
-			directAbortRef,
+			metadataAbortRef,
 			markFolderForRefresh,
 			markTaskFailed,
 			patchTask,
@@ -117,7 +117,7 @@ export function useUploadAreaUploads({
 			await cancelUploadTask(taskId, {
 				...modeRunners,
 				abortFlagsRef,
-				directAbortRef,
+				metadataAbortRef,
 				markTaskFailed,
 				patchTask,
 				setTasks,
@@ -132,7 +132,7 @@ export function useUploadAreaUploads({
 		[
 			modeRunners,
 			abortFlagsRef,
-			directAbortRef,
+			metadataAbortRef,
 			markTaskFailed,
 			patchTask,
 			setTasks,
@@ -160,7 +160,7 @@ export function useUploadAreaUploads({
 			await retryUploadTask(taskId, {
 				...modeRunners,
 				abortFlagsRef,
-				directAbortRef,
+				metadataAbortRef,
 				markTaskFailed,
 				patchTask,
 				setTasks,
@@ -175,7 +175,7 @@ export function useUploadAreaUploads({
 		[
 			modeRunners,
 			abortFlagsRef,
-			directAbortRef,
+			metadataAbortRef,
 			markTaskFailed,
 			patchTask,
 			setTasks,

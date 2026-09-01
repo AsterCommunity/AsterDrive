@@ -60,10 +60,10 @@ They are not a separate "team filesystem" implementation. They reuse the persona
 | `DELETE` | `/teams/{team_id}/folders/{id}` | Soft-delete a team folder |
 | `POST` | `/teams/{team_id}/folders/{id}/lock` | Lock / unlock a team folder |
 | `POST` | `/teams/{team_id}/folders/{id}/copy` | Recursively copy a team folder |
-| `POST` | `/teams/{team_id}/files/upload` | Team multipart direct upload |
 | `POST` | `/teams/{team_id}/files/new` | Create an empty team file |
 | `POST` | `/teams/{team_id}/files/upload/init` | Negotiate team upload mode |
 | `GET` | `/teams/{team_id}/files/upload/sessions` | List recoverable team upload sessions |
+| `PUT` | `/teams/{team_id}/files/upload/{upload_id}/body` | Publish a team stream session from a raw body |
 | `PUT` | `/teams/{team_id}/files/upload/{upload_id}/{chunk_number}` | Upload a team chunk |
 | `POST` | `/teams/{team_id}/files/upload/{upload_id}/presign-parts` | Presign object-storage / remote multipart part URLs |
 | `POST` | `/teams/{team_id}/files/upload/{upload_id}/complete` | Complete team upload |

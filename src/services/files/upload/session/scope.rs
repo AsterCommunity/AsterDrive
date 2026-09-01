@@ -7,11 +7,11 @@ use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 use aster_drive_model::entities::upload_session;
 use sea_orm::ConnectionTrait;
 
-pub(super) fn personal_scope(user_id: i64) -> WorkspaceStorageScope {
+pub(crate) fn personal_scope(user_id: i64) -> WorkspaceStorageScope {
     WorkspaceStorageScope::Personal { user_id }
 }
 
-pub(super) fn team_scope(team_id: i64, actor_user_id: i64) -> WorkspaceStorageScope {
+pub(crate) fn team_scope(team_id: i64, actor_user_id: i64) -> WorkspaceStorageScope {
     WorkspaceStorageScope::Team {
         team_id,
         actor_user_id,
@@ -61,7 +61,7 @@ async fn load_upload_session_with_db<C: ConnectionTrait>(
     Ok(session)
 }
 
-pub(super) async fn load_upload_session(
+pub(crate) async fn load_upload_session(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     upload_id: &str,
@@ -69,7 +69,7 @@ pub(super) async fn load_upload_session(
     load_upload_session_with_db(state, state.writer_db(), scope, upload_id).await
 }
 
-pub(super) async fn load_upload_session_for_read(
+pub(crate) async fn load_upload_session_for_read(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     upload_id: &str,

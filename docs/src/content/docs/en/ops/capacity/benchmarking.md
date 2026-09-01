@@ -22,7 +22,7 @@ Current benchmarks cover the core scenarios listed in issue `#120`:
 - search queries
 - concurrent file downloads
 - repeated Range file downloads
-- concurrent direct uploads
+- concurrent negotiated stream uploads
 - concurrent chunked uploads
 - batch move concurrency
 - WebDAV read/write concurrency
@@ -32,7 +32,7 @@ Current benchmarks cover the core scenarios listed in issue `#120`:
 - staged mixed workload ramp (watch latency/failure rate as concurrency increases)
 - background archive compression + foreground REST download mixed load
 - background thumbnail tasks + foreground WebDAV read mixed load
-- background storage migration + foreground direct upload mixed load
+- background storage migration + foreground session upload mixed load
 - REST download / upload + WebDAV read mixed load while background tasks are being dispatched
 - long-running mixed workload soak test
 
@@ -84,7 +84,7 @@ ASTER_BENCH_LIST_SIZE=10000 k6 run tests/performance/k6/folder-list.js
 k6 run tests/performance/k6/search.js
 k6 run tests/performance/k6/download.js
 ASTER_BENCH_RANGE_BYTES=262144 k6 run tests/performance/k6/download-range.js
-k6 run tests/performance/k6/upload-direct.js
+k6 run tests/performance/k6/upload-stream.js
 k6 run tests/performance/k6/upload-chunked.js
 k6 run tests/performance/k6/batch-move.js
 k6 run tests/performance/k6/webdav-rw.js
@@ -121,7 +121,7 @@ Background tasks are dispatched per lane, but lane concurrency does not mean for
 
 - `mixed-background-archive-download.js`: foreground REST downloads while archive compression tasks are continuously created in the background.
 - `mixed-background-thumbnail-webdav.js`: foreground WebDAV GET while image thumbnails are continuously requested, triggering thumbnail tasks.
-- `mixed-background-storage-migration-upload.js`: foreground direct upload while a storage policy migration runs in the background. This script requires explicitly setting `ASTER_BENCH_STORAGE_MIGRATION_SOURCE_POLICY_ID` and `ASTER_BENCH_STORAGE_MIGRATION_TARGET_POLICY_ID`.
+- `mixed-background-storage-migration-upload.js`: foreground session uploads while a storage policy migration runs in the background. This script requires explicitly setting `ASTER_BENCH_STORAGE_MIGRATION_SOURCE_POLICY_ID` and `ASTER_BENCH_STORAGE_MIGRATION_TARGET_POLICY_ID`.
 - `mixed-background-rest-webdav.js`: foreground REST download, REST upload, and WebDAV GET together, while archive and thumbnail tasks are dispatched in the background.
 
 These scripts sample the `pending` / `processing` / `retry` totals from `/api/v1/admin/tasks`, so the benchmark user must have administrator privileges. Save summaries to a separate directory:
@@ -271,7 +271,7 @@ Core results:
 | Folder list 10000 | `folder-list.js` | `11.93 ms` | `13.12 ms` | `490.28 req/s` |
 | Search | `search.js` | `13.24 ms` | `14.09 ms` | `445.35 req/s` |
 | Download 5 MiB | `download.js` | `5.37 ms` | `6.61 ms` | `733.75 req/s` |
-| Direct upload 1 MiB | `upload-direct.js` | `3.80 ms` | `9.30 ms` | `715.24 req/s` |
+| Stream upload 1 MiB | `upload-stream.js` | `3.80 ms` | `9.30 ms` | `715.24 req/s` |
 | Chunked upload 10 MiB | flow metric | `61.91 ms` | `74.00 ms` | single flow sample |
 | Batch move 10 files | flow metric | `13.12 ms` | `21.91 ms` | single flow sample |
 | WebDAV PUT 64 KiB | `webdav-rw.js` | `52.81 ms` | `65.15 ms` | single flow sample |

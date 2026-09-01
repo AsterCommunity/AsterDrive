@@ -2,7 +2,7 @@ import {
 	CHUNK_PROCESSING_PROGRESS,
 	getProcessingProgress,
 	SERVER_FINALIZE_PROGRESS,
-	type UploadMode,
+	type UploadTransport,
 } from "@/components/files/uploadResume";
 import { getApiErrorMessage } from "@/hooks/useApiError";
 import { appendCompletedPart, removeSession } from "@/lib/uploadPersistence";
@@ -10,6 +10,7 @@ import {
 	type CompletedPart,
 	type InitUploadResponse,
 	type PresignedUploadRequest,
+	type UploadProgressResponse,
 	UploadRequestError,
 	uploadService,
 } from "@/services/uploadService";
@@ -21,8 +22,8 @@ import {
 } from "./uploadAreaManagerShared";
 import { createResumableUploadShared } from "./uploadAreaResumableUploadShared";
 import type {
-	UploadModeRunnerContext,
-	UploadModeRunners,
+	UploadTransportRunnerContext,
+	UploadTransportRunners,
 } from "./uploadAreaUploadRunnerShared";
 import {
 	abortUploadRequests,
@@ -56,8 +57,8 @@ export function createResumableUploadRunners({
 	patchTask,
 	patchTaskThrottled,
 	uploadRequestRef,
-}: UploadModeRunnerContext): Pick<
-	UploadModeRunners,
+}: UploadTransportRunnerContext): Pick<
+	UploadTransportRunners,
 	| "cancelMultipartSession"
 	| "resumeCompletionTask"
 	| "runChunkedUpload"
@@ -106,7 +107,24 @@ export function createResumableUploadRunners({
 		});
 
 		try {
-			await completeWithRetry(uploadId, parts);
+			if (task.mode === "stream") {
+				let status: UploadProgressResponse["status"] = "assembling";
+				for (
+					let attempt = 0;
+					attempt < 40 && status === "assembling";
+					attempt += 1
+				) {
+					status = (await uploadService.getProgress(uploadId)).status;
+					if (status === "assembling") {
+						await new Promise((resolve) => window.setTimeout(resolve, 250));
+					}
+				}
+				if (status !== "completed") {
+					throw new Error(`stream publication ended in ${status}`);
+				}
+			} else {
+				await completeWithRetry(uploadId, parts);
+			}
 			if (abortFlagsRef.current.get(task.id)) {
 				patchTask(task.id, {
 					status: "cancelled",
@@ -251,7 +269,7 @@ export function createResumableUploadRunners({
 		);
 
 		patchTask(task.id, {
-			mode: "presigned_multipart" as UploadMode,
+			mode: "presigned_multipart" as UploadTransport,
 			status: "uploading",
 			uploadId,
 			totalChunks,
@@ -383,7 +401,7 @@ export function createResumableUploadRunners({
 				appendCompletedPart(uploadId, part);
 			},
 			uploadingPatch: {
-				mode: "presigned_multipart" as UploadMode,
+				mode: "presigned_multipart" as UploadTransport,
 				status: "uploading",
 				uploadId,
 				totalChunks,

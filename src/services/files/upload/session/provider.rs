@@ -6,16 +6,16 @@ use crate::services::storage_policy::credential::crypto;
 use aster_drive_model::entities::upload_session;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct ProviderSessionSecret {
-    pub(super) provider: String,
-    pub(super) upload_url: String,
+pub(crate) struct ProviderSessionSecret {
+    pub(crate) provider: String,
+    pub(crate) upload_url: String,
 }
 
 fn provider_session_aad(upload_id: &str) -> String {
     format!("upload_session:{upload_id}:provider_resumable")
 }
 
-pub(super) fn encrypt_provider_session(
+pub(crate) fn encrypt_provider_session(
     state: &impl SharedRuntimeState,
     upload_id: &str,
     secret: &ProviderSessionSecret,
@@ -30,7 +30,7 @@ pub(super) fn encrypt_provider_session(
     )
 }
 
-pub(super) fn decrypt_provider_session(
+pub(crate) fn decrypt_provider_session(
     state: &impl SharedRuntimeState,
     session: &upload_session::Model,
 ) -> Result<ProviderSessionSecret> {

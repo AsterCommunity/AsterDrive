@@ -10,10 +10,10 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{file_repo, upload_session_part_repo};
 use crate::errors::{AsterError, MapAsterErr, Result, upload_assembly_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::files::upload::shared::{
+use crate::services::files::upload::ingest::staging;
+use crate::services::files::upload::session::shared::{
     cleanup_upload_temp_dir, expected_chunk_size_for_upload, run_upload_completion_stage,
 };
-use crate::services::files::upload::staging;
 use crate::services::workspace::storage;
 use aster_drive_model::entities::{file, storage_policy, upload_session};
 use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};

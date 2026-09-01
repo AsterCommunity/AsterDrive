@@ -16,65 +16,32 @@ use std::time::Duration;
 
 macro_rules! upload_test_file_with_name_and_mime {
     ($app:expr, $token:expr, $name:expr, $mime:expr, $content:expr) => {{
-        use actix_web::test;
-        use serde_json::Value;
-
-        let boundary = "----InlineUnsafeBoundary";
-        let payload = format!(
-            "------InlineUnsafeBoundary\r\n\
-             Content-Disposition: form-data; name=\"file\"; filename=\"{name}\"\r\n\
-             Content-Type: {mime}\r\n\r\n\
-             {content}\r\n\
-             ------InlineUnsafeBoundary--\r\n",
-            name = $name,
-            mime = $mime,
-            content = $content
-        );
-        let req = test::TestRequest::post()
-            .uri("/api/v1/files/upload")
-            .insert_header(("Cookie", common::access_cookie_header(&$token)))
-            .insert_header(common::csrf_header_for(&$token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request();
-        let resp = test::call_service(&$app, req).await;
-        assert_eq!(resp.status(), 201, "upload should return 201");
-        let body: Value = test::read_body_json(resp).await;
+        let (status, body) = common::upload_via_server_session(
+            &$app,
+            &$token,
+            "/api/v1/files",
+            $name,
+            $mime,
+            ($content).as_bytes(),
+        )
+        .await;
+        assert_eq!(status, 201, "upload should return 201");
         body["data"]["id"].as_i64().unwrap()
     }};
 }
 
 macro_rules! upload_test_file_to_uri_with_content {
     ($app:expr, $token:expr, $uri:expr, $name:expr, $content:expr, $message:expr) => {{
-        use actix_web::test;
-        use serde_json::Value;
-
-        let boundary = "----StorageUsedBoundary";
-        let payload = format!(
-            "------StorageUsedBoundary\r\n\
-             Content-Disposition: form-data; name=\"file\"; filename=\"{name}\"\r\n\
-             Content-Type: text/plain\r\n\r\n\
-             {content}\r\n\
-             ------StorageUsedBoundary--\r\n",
-            name = $name,
-            content = $content
-        );
-        let req = test::TestRequest::post()
-            .uri($uri)
-            .insert_header(("Cookie", common::access_cookie_header(&$token)))
-            .insert_header(common::csrf_header_for(&$token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request();
-        let resp = test::call_service(&$app, req).await;
-        assert_eq!(resp.status(), 201, $message);
-        let body: Value = test::read_body_json(resp).await;
+        let (status, body) = common::upload_via_server_session(
+            &$app,
+            &$token,
+            $uri,
+            $name,
+            "text/plain",
+            ($content).as_bytes(),
+        )
+        .await;
+        assert_eq!(status, 201, $message);
         body["data"]["id"].as_i64().unwrap()
     }};
 }
@@ -84,7 +51,7 @@ macro_rules! upload_test_file_to_folder_with_content {
         upload_test_file_to_uri_with_content!(
             $app,
             $token,
-            &format!("/api/v1/files/upload?folder_id={}", $folder_id),
+            &format!("/api/v1/files?folder_id={}", $folder_id),
             $name,
             $content,
             "upload to folder should return 201"
@@ -97,22 +64,12 @@ macro_rules! upload_test_file_with_content {
         upload_test_file_to_uri_with_content!(
             $app,
             $token,
-            "/api/v1/files/upload",
+            "/api/v1/files",
             $name,
             $content,
             "upload should return 201"
         )
     }};
-}
-
-fn upload_payload(filename: &str, content: &str) -> String {
-    format!(
-        "------UnicodeBoundary123\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n\
-         Content-Type: text/plain\r\n\r\n\
-         {content}\r\n\
-         ------UnicodeBoundary123--\r\n"
-    )
 }
 
 #[actix_web::test]
@@ -213,31 +170,19 @@ async fn test_file_upload_download_delete() {
 
     let (token, _) = register_and_login!(app);
 
-    // 上传文件（multipart）
-    let boundary = "----TestBoundary123";
+    // Upload through the negotiated session data plane.
     let file_content = b"Hello AsterDrive!";
-    let upload_payload = format!(
-        "------TestBoundary123\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"hello.txt\"\r\n\
-         Content-Type: text/plain\r\n\r\n\
-         {}\r\n\
-         ------TestBoundary123--\r\n",
-        std::str::from_utf8(file_content).unwrap()
-    );
 
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(upload_payload.clone())
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201, "upload should return 201 Created");
-    let upload_body: Value = test::read_body_json(resp).await;
+    let (status, upload_body) = common::upload_via_server_session(
+        &app,
+        &token,
+        "/api/v1/files",
+        "hello.txt",
+        "text/plain",
+        file_content,
+    )
+    .await;
+    assert_eq!(status, 201, "upload should return 201 Created");
     assert_eq!(upload_body["code"], "success");
     let file_id = upload_body["data"]["id"].as_i64().unwrap();
     assert_eq!(upload_body["data"]["name"], "hello.txt");
@@ -298,19 +243,16 @@ async fn test_file_upload_download_delete() {
     assert_eq!(resp.status(), 404);
 
     // 删除后应能再次创建同名文件
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(upload_payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let upload_body: Value = test::read_body_json(resp).await;
+    let (status, upload_body) = common::upload_via_server_session(
+        &app,
+        &token,
+        "/api/v1/files",
+        "hello.txt",
+        "text/plain",
+        file_content,
+    )
+    .await;
+    assert_eq!(status, 201);
     assert_eq!(upload_body["data"]["name"], "hello.txt");
 }
 
@@ -986,19 +928,16 @@ async fn test_upload_normalizes_nfd_filename_and_auto_renames_nfc_duplicates() {
     let copy_name = "caf\u{00e9} (1).txt";
 
     for (requested_name, expected_name) in [(nfd, nfc), (nfc, copy_name)] {
-        let req = test::TestRequest::post()
-            .uri("/api/v1/files/upload")
-            .insert_header(("Cookie", common::access_cookie_header(&token)))
-            .insert_header(common::csrf_header_for(&token))
-            .insert_header((
-                "Content-Type",
-                "multipart/form-data; boundary=----UnicodeBoundary123",
-            ))
-            .set_payload(upload_payload(requested_name, "unicode content"))
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 201);
-        let body: Value = test::read_body_json(resp).await;
+        let (status, body) = common::upload_via_server_session(
+            &app,
+            &token,
+            "/api/v1/files",
+            requested_name,
+            "text/plain",
+            b"unicode content",
+        )
+        .await;
+        assert_eq!(status, 201);
         assert_eq!(body["data"]["name"], expected_name);
     }
 
@@ -1025,18 +964,16 @@ async fn test_upload_rejects_windows_reserved_filename() {
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            "multipart/form-data; boundary=----UnicodeBoundary123",
-        ))
-        .set_payload(upload_payload("CON.txt", "reserved"))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 400);
+    let (status, _) = common::upload_via_server_session(
+        &app,
+        &token,
+        "/api/v1/files",
+        "CON.txt",
+        "text/plain",
+        b"reserved",
+    )
+    .await;
+    assert_eq!(status, 400);
 }
 
 #[actix_web::test]
@@ -1204,27 +1141,16 @@ async fn test_file_copy() {
     let body: Value = test::read_body_json(resp).await;
     let source_folder_id = body["data"]["id"].as_i64().unwrap();
 
-    let boundary = "----TestBoundary123";
-    let payload = "------TestBoundary123\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\n\
-         Content-Type: text/plain\r\n\r\n\
-         copy content\r\n\
-         ------TestBoundary123--\r\n";
-    let req = test::TestRequest::post()
-        .uri(&format!(
-            "/api/v1/files/upload?folder_id={source_folder_id}"
-        ))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    let (status, body) = common::upload_via_server_session(
+        &app,
+        &token,
+        &format!("/api/v1/files?folder_id={source_folder_id}"),
+        "test.txt",
+        "text/plain",
+        b"copy content",
+    )
+    .await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     // 复制到根目录（null = root）
@@ -1327,31 +1253,22 @@ async fn test_file_versions() {
     assert_eq!(revisions[0]["version"], 1);
     assert_eq!(revisions[0]["current"], true);
 
-    // 覆盖上传（同名文件 → 产生 v1 版本记录）
-    let boundary = "----TestBoundary123";
-    let payload = "------TestBoundary123\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\n\
-         Content-Type: text/plain\r\n\r\n\
-         version 2 content\r\n\
-         ------TestBoundary123--\r\n"
-        .to_string();
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
+    // Re-uploading the same name exercises the conflict contract.
+    let (status, _) = common::upload_via_server_session(
+        &app,
+        &token,
+        "/api/v1/files",
+        "versioned.txt",
+        "text/plain",
+        b"version 2 content",
+    )
+    .await;
     // 同名文件应被覆盖（store_from_temp 的 existing_file_id 逻辑）
     // 但 REST upload 不走覆盖逻辑——会报同名冲突
     // 版本溯源只在 WebDAV PUT 覆盖时触发
     // 所以这里用不同名字测试版本功能不太合适
     // 改为：直接检查版本列表 API 可用性
-    assert!(resp.status() == 201 || resp.status() == 400);
+    assert!(status == 201 || status == 400);
 
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/files/{file_id}/versions"))

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { InitUploadResponse } from "@/services/uploadService";
 import type { UploadTask } from "./uploadAreaManagerShared";
-import type { UploadModeRunnerContext } from "./uploadAreaUploadRunnerShared";
+import type { UploadTransportRunnerContext } from "./uploadAreaUploadRunnerShared";
 
 const { completeUpload, removeSession } = vi.hoisted(() => ({
 	completeUpload: vi.fn(),
@@ -102,9 +102,9 @@ describe("resumeCompletionTask", () => {
 		const markTaskFailed = vi.fn();
 		const patchTask = vi.fn();
 		const abortFlagsRef = { current: new Map<string, boolean>() };
-		const context: UploadModeRunnerContext = {
+		const context: UploadTransportRunnerContext = {
 			abortFlagsRef,
-			directAbortRef: { current: new Map() },
+			metadataAbortRef: { current: new Map() },
 			flushProgress: vi.fn(),
 			markFolderForRefresh: vi.fn(),
 			markTaskFailed,

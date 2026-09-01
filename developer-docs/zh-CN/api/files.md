@@ -6,7 +6,7 @@
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `POST` | `/files/upload` | 普通 multipart 直传 |
+| `PUT` | `/files/upload/{upload_id}/body` | 先 init 后进行单请求流式上传 |
 | `POST` | `/files/new` | 创建空文件 |
 | `POST` | `/files/upload/init` | 协商上传模式 |
 | `GET` | `/files/upload/sessions` | 列出当前用户可恢复的上传 session |
@@ -41,57 +41,57 @@
 
 - `POST /files/new`：创建产品级空文件
 - `POST /files/upload/init`：先协商模式
-- `POST /files/upload`：直接走普通 multipart 上传
+- `PUT /files/upload/{upload_id}/body`：将原始 `application/octet-stream` body 流式写入 init 固化的目标
 - `GET /files/upload/sessions`：刷新页面后恢复仍未完成的上传 session
 
 创建和上传入口的相关参数如下：
 
 - `POST /files/new` 可在请求体里传 `folder_id` 和 `relative_path`
 - `POST /files/new` 和团队对应入口可传可选 `Idempotency-Key` header；key 最长 255 字节，不能包含 ASCII 空白
-- `POST /files/upload` 可通过 query 传 `folder_id`
-- `POST /files/upload` 可通过 query 传 `relative_path`
-- `POST /files/upload` 可通过 query 传 `declared_size`
+- 旧 `POST /files/upload` multipart 入口已移除；非空文件必须先 init
 - `POST /files/upload/init` 可在请求体里传 `relative_path`
 - `POST /files/upload/init` 可在请求体里传 `frontend_client_id`
 - `folder_id = null` 或不传时表示上传到根目录
-- `declared_size` 是可选的客户端声明大小；当前前端普通 multipart 直传会带上它
+- `total_size`、`filename` 和可选 `mime_type` 在 init 时固定；body 阶段不再传文件名
 - `frontend_client_id` 是前端实例 UUID，只用于断点续传列表过滤；用户 / 团队作用域仍然由登录态和路由决定
 - 服务端会按相对路径自动创建缺失目录、复用已存在目录
 - `relative_path` 中的空 segment 会被拒绝，例如 `docs//bad.txt`
 
 `GET /files/upload/sessions` 是独立的可恢复 session 列表接口。它可通过 query 传 `frontend_client_id`，只列出同一前端实例创建的可恢复 session，不接收 `folder_id` 或 `relative_path`，也不执行目录上传。
 
-协商接口会返回四种模式之一：
+协商接口会返回五种 transport 之一：
 
-- `direct`：小文件直接上传
+- `stream`：通过已初始化 session 执行单请求原始字节流上传
 - `chunked`：大文件分片上传，可断点续传
 - `presigned`：对象存储或 remote 单次预签名 `PUT`
 - `presigned_multipart`：对象存储或 remote multipart 直传，客户端需要再申请每个 part 的 URL
+- `provider_resumable`：使用 provider 原生可恢复上传 session
 
-前端仍然只会看到这四种模式，不会额外出现一个 `relay_stream` 模式。实际传输策略由存储 connector 和策略 options 共同决定：
+前端只会看到 `stream`、`chunked`、`presigned`、`presigned_multipart` 和 `provider_resumable`。实际传输策略由存储 connector 和策略 options 共同决定：
 
 - `options.object_storage_upload_strategy`：控制 S3-compatible、Azure Blob、Tencent COS 这类对象存储 connector 的传输策略
 - `options.remote_upload_strategy`：控制 remote follower 策略
 - OneDrive 使用 Microsoft Graph 原生上传能力，按 connector 暴露的 upload workflow 决定普通上传或 provider resumable upload
-- `relay_stream`：`init` 仍返回 `direct` / `chunked`，但服务端直接把字节流中继到对象存储 / follower，不落本地临时文件
+- `relay_stream`：`init` 返回 `stream` / `chunked`，服务端直接把字节流中继到对象存储 / follower
 - `presigned`：`init` 才会返回 `presigned` / `presigned_multipart`
 
 缺省时对象存储和 Remote 上传都会回退为 `relay_stream`。旧配置 `{"presigned_upload":true}` 和 `{"s3_upload_strategy":"presigned"}` 仍作为兼容输入接受；新客户端应发送 `{"object_storage_upload_strategy":"presigned"}`。旧的 `{"s3_upload_strategy":"proxy_tempfile"}` 会回退为 `relay_stream`。使用预签名模式时，对象存储侧或 follower 内部存储接口还必须配置好浏览器可用的 CORS。Azure Blob 预签名上传使用 SAS URL，客户端必须带 `x-ms-blob-type: BlockBlob`；S3-compatible、Tencent COS 和 Remote multipart part 通常要求回传 ETag。Remote 预签名上传只适用于可直连的远端节点；如果远端节点解析为 reverse tunnel，服务端会拒绝 `remote_upload_strategy = "presigned"` 这类策略组合。
 
-### 直传、分片和完成阶段
+### Stream、分片和完成阶段
 
-- `POST /files/new`：canonical 空文件创建 API；文件选择器和目录上传队列遇到 0 字节 `File` 时会直接调用它，不会初始化 upload session 或运行 direct/chunked/presigned/provider-resumable runner
-- `POST /files/upload`：普通 multipart 上传；`declared_size = 0` 且实际 file field 为空时，为兼容旧客户端完整消费 field 后委托同一个空文件 use case；声明为 0 但实际非空时，在任何存储对象变更前返回 `upload.request_size_mismatch`。非零文件同目录同名不会覆盖；命中对象存储 / Remote `relay_stream` 策略时会直接把请求体中继到对应驱动
+- `POST /files/new`：canonical 空文件创建 API；0 字节 `File` 不初始化 upload session
+- `PUT /files/upload/{upload_id}/body`：仅接受 `application/octet-stream` 原始 body；filename、MIME、大小、placement 和 transport 全部以 init 固化的 plan 为准，重复提交 body 会被拒绝
+- stream body 成功时在同一数据库事务内创建 file/blob、更新 quota 并把 session 标为 `completed(file_id)`，返回 `201 FileInfo`；stream 不再调用 `/complete`
 - `GET /files/upload/sessions`：列出当前用户个人空间下未过期、状态为 `uploading` / `assembling` / `presigned` 的 session，按 `updated_at` 和 `upload_id` 倒序返回；传 `frontend_client_id` 时只返回同一前端实例创建的 session
 - `PUT /files/upload/{upload_id}/{chunk_number}`：上传单个分片，`chunk_number` 从 `0` 开始
 - `POST /files/upload/{upload_id}/presign-parts`：只用于 `presigned_multipart`，请求体里传 `part_numbers`
 - `GET /files/upload/{upload_id}`：查询上传进度，也是前端断点续传依赖的接口；返回会带 `status`、`received_count`、`chunks_on_disk`、`chunk_size`、`total_chunks`、`filename`
-- `POST /files/upload/{upload_id}/complete`：完成 `chunked`、`presigned` 或 `presigned_multipart` 上传
+- `POST /files/upload/{upload_id}/complete`：完成 `chunked`、`presigned`、`presigned_multipart` 或 `provider_resumable` 上传
 
 `GET /files/upload/sessions` 返回的是 `RecoverableUploadSessionResponse` 数组，主要字段包括：
 
 - `upload_id`
-- `mode`：`chunked`、`presigned` 或 `presigned_multipart`
+- `mode`：`stream`、`chunked`、`presigned`、`presigned_multipart` 或 `provider_resumable`
 - `status`
 - `filename`
 - `total_size`
@@ -125,7 +125,7 @@
 
 浏览器对零字节 upload task 生成并持久化一次 key，记录保留 23 小时；retry、token refresh、请求超时和页面恢复复用该 key，成功、取消或明确清理 terminal task 时删除记录。
 
-空 multipart compatibility 仍委托同一个产品级空文件 use case。WebDAV PUT/LOCK staging、storage migration、internal storage ingress、remote follower object write 以及已准备 Blob 的恢复/复制若协议明确要求真实对象，继续使用 driver 的零长度 object primitive。
+WebDAV PUT/LOCK staging、storage migration、internal-storage ingress、remote follower object write 以及已准备 Blob 的恢复/复制若协议明确要求真实对象，继续使用 driver 的零长度 object primitive。
 
 `relay_stream` 的 multipart 场景下，服务端会把每个 part 的 `part_number + etag` 持久化到数据库；`complete` 时直接使用这些服务端记录完成对象存储 / Remote multipart，不依赖客户端再回传 `parts`。
 

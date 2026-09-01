@@ -84,7 +84,7 @@ export function useUploadAreaManager({
 	const [hasUploadActivity, setHasUploadActivity] = useState(false);
 	const tasksRef = useRef<UploadTask[]>([]);
 	const abortFlagsRef = useRef(new Map<string, boolean>());
-	const directAbortRef = useRef(new Map<string, AbortController>());
+	const metadataAbortRef = useRef(new Map<string, AbortController>());
 	const uploadRequestRef = useRef(new Map<string, Set<XMLHttpRequest>>());
 	const multipartInFlightRef = useRef(new Map<string, number>());
 	const pendingRefreshFolderIdsRef = useRef(new Set<number | null>());
@@ -114,13 +114,13 @@ export function useUploadAreaManager({
 	}, [setUploadPanelOpen, tasks.length]);
 
 	useEffect(() => {
-		const directAbortControllers = directAbortRef.current;
+		const metadataAbortControllers = metadataAbortRef.current;
 		const progressFlushTimerState = progressFlushTimerRef;
 		const queueWasActiveState = queueWasActiveRef;
 		const uploadRequests = uploadRequestRef;
 
 		return () => {
-			for (const controller of directAbortControllers.values()) {
+			for (const controller of metadataAbortControllers.values()) {
 				controller.abort();
 			}
 			abortAllUploadRequests(uploadRequests);
@@ -355,7 +355,7 @@ export function useUploadAreaManager({
 	const { cancelTask, clearTasks, resumeCompletionTask, retryTask, runTask } =
 		useUploadAreaUploads({
 			abortFlagsRef,
-			directAbortRef,
+			metadataAbortRef,
 			flushProgress,
 			markFolderForRefresh,
 			markTaskFailed,

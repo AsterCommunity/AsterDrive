@@ -10,20 +10,20 @@ use crate::errors::{
     validation_error_with_code,
 };
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::files::upload::kind::{
+use crate::services::files::upload::cleanup::run_upload_stage_operation;
+use crate::services::files::upload::ingest::staging;
+use crate::services::files::upload::session::kind::{
     mode_for_kind, resolve_upload_session_kind, scheduling_for_kind,
 };
-use crate::services::files::upload::lifecycle::run_upload_stage_operation;
-use crate::services::files::upload::provider_session::decrypt_provider_session;
-use crate::services::files::upload::responses::{
+use crate::services::files::upload::session::provider::decrypt_provider_session;
+use crate::services::files::upload::session::responses::{
     ProviderResumableUploadResponse, RecoverableUploadPartResponse,
     RecoverableUploadSessionResponse, UploadProgressResponse,
 };
-use crate::services::files::upload::scope::{
+use crate::services::files::upload::session::scope::{
     load_upload_session, load_upload_session_for_read, personal_scope, team_scope,
 };
-use crate::services::files::upload::shared::expected_chunk_size_for_upload;
-use crate::services::files::upload::staging;
+use crate::services::files::upload::session::shared::expected_chunk_size_for_upload;
 use crate::services::workspace::storage;
 use aster_drive_model::entities::upload_session;
 use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
@@ -50,6 +50,7 @@ async fn get_progress_impl(
 
     let kind = resolve_upload_session_kind(&session)?;
     let (chunks_on_disk, provider_resumable) = match kind {
+        UploadSessionKind::Stream => (Vec::new(), None),
         UploadSessionKind::ProviderPresignedMultipart
         | UploadSessionKind::RemotePresignedMultipart => {
             let (temp_key, multipart_id) = presigned_multipart_fields(&session)?;
@@ -82,8 +83,10 @@ async fn get_progress_impl(
             (chunks, None)
         }
         UploadSessionKind::ProviderRelayResumable => (
-            crate::services::files::upload::provider_relay::reconcile_progress(state, &session)
-                .await?,
+            crate::services::files::upload::ingest::provider_relay::reconcile_progress(
+                state, &session,
+            )
+            .await?,
             None,
         ),
         UploadSessionKind::OffsetStaging | UploadSessionKind::StreamStaging => {
@@ -238,6 +241,7 @@ async fn recoverable_session_response(
         mode,
         status: progress.status,
         filename: progress.filename,
+        mime_type: session.mime_type,
         total_size: session.total_size,
         chunk_size: progress.chunk_size,
         total_chunks: progress.total_chunks,
@@ -507,6 +511,7 @@ mod tests {
             team_id: None,
             frontend_client_id: None,
             filename: "progress-test.bin".to_string(),
+            mime_type: "application/octet-stream".to_string(),
             total_size: 10,
             chunk_size: 5,
             total_chunks: 2,

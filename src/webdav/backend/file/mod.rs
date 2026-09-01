@@ -520,6 +520,7 @@ impl DavWriteHandle for AsterDavWriteHandle {
                         resolved_policy: resolved_policy_hint,
                         precomputed_hash: precomputed_hash.as_deref(),
                         actor_username: None,
+                        complete_upload_id: None,
                         ..Default::default()
                     },
                 )
@@ -608,6 +609,7 @@ impl DavWriteHandle for AsterDavWriteHandle {
                         scope: *scope,
                         folder_id: *folder_id,
                         filename,
+                        mime_type: None,
                         size: *declared_size,
                         existing_file_id: *existing_file_id,
                         lock_credentials:
@@ -617,6 +619,7 @@ impl DavWriteHandle for AsterDavWriteHandle {
                         policy,
                         preuploaded_blob: prepared_upload,
                         actor_username: None,
+                        complete_upload_id: None,
                     },
                 )
                 .await

@@ -24,14 +24,16 @@ use crate::errors::{
     validation_error_with_code,
 };
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::files::upload::kind::resolve_upload_session_kind;
-use crate::services::files::upload::lifecycle::run_upload_stage_operation;
-use crate::services::files::upload::responses::ChunkUploadResponse;
-use crate::services::files::upload::scope::{load_upload_session, personal_scope, team_scope};
-use crate::services::files::upload::shared::{
+use crate::services::files::upload::cleanup::run_upload_stage_operation;
+use crate::services::files::upload::ingest::staging;
+use crate::services::files::upload::session::kind::resolve_upload_session_kind;
+use crate::services::files::upload::session::responses::ChunkUploadResponse;
+use crate::services::files::upload::session::scope::{
+    load_upload_session, personal_scope, team_scope,
+};
+use crate::services::files::upload::session::shared::{
     expected_chunk_size_for_upload, upload_session_chunk_unavailable_error,
 };
-use crate::services::files::upload::staging;
 use aster_drive_model::entities::upload_session;
 use aster_drive_model::types::UploadSessionStatus;
 use aster_forge_utils::numbers::usize_to_i64;
@@ -502,7 +504,7 @@ async fn upload_chunk_impl(
     }
 
     if session_kind == aster_drive_model::types::UploadSessionKind::ProviderRelayResumable {
-        return crate::services::files::upload::provider_relay::upload_bytes(
+        return crate::services::files::upload::ingest::provider_relay::upload_bytes(
             state,
             session,
             chunk_number,
@@ -719,7 +721,7 @@ async fn upload_chunk_payload_impl(
     }
 
     if session_kind == aster_drive_model::types::UploadSessionKind::ProviderRelayResumable {
-        return crate::services::files::upload::provider_relay::upload_payload(
+        return crate::services::files::upload::ingest::provider_relay::upload_payload(
             state,
             session,
             chunk_number,
@@ -1175,14 +1177,14 @@ pub mod test_support {
     }
 
     pub fn offset_staging_file_path(upload_temp_dir: &str, upload_id: &str) -> String {
-        crate::services::files::upload::staging::file_path_in_upload_temp_dir(
+        crate::services::files::upload::ingest::staging::file_path_in_upload_temp_dir(
             upload_temp_dir,
             upload_id,
         )
     }
 
     pub fn offset_staging_receipt_etag() -> &'static str {
-        crate::services::files::upload::staging::chunk_receipt_etag()
+        crate::services::files::upload::ingest::staging::chunk_receipt_etag()
     }
 }
 
@@ -1203,6 +1205,7 @@ mod tests {
             team_id: None,
             frontend_client_id: None,
             filename: "chunk-test.bin".to_string(),
+            mime_type: "application/octet-stream".to_string(),
             total_size: 10,
             chunk_size: 5,
             total_chunks: 2,

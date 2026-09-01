@@ -12,31 +12,31 @@ import {
 	login,
 	maybeRefreshSession,
 	uniqueName,
-	uploadDirect,
+	uploadViaSession,
 } from "./lib/client.js";
 import { createSummary } from "./lib/summary.js";
 
-const uploadDuration = new Trend("aster_upload_direct_duration", true);
-const uploadTransferredBytes = new Counter("aster_upload_direct_bytes");
-const uploadBytes = intEnv("ASTER_BENCH_DIRECT_UPLOAD_BYTES", 1024 * 1024);
+const uploadDuration = new Trend("aster_upload_stream_duration", true);
+const uploadTransferredBytes = new Counter("aster_upload_stream_bytes");
+const uploadBytes = intEnv("ASTER_BENCH_STREAM_UPLOAD_BYTES", 1024 * 1024);
 const payload = "U".repeat(uploadBytes);
 let state;
 
 export const options = {
 	summaryTrendStats: benchSummaryTrendStats,
-	vus: intEnv("ASTER_BENCH_DIRECT_UPLOAD_VUS", 4),
-	duration: durationEnv("ASTER_BENCH_DIRECT_UPLOAD_DURATION", "30s"),
+	vus: intEnv("ASTER_BENCH_STREAM_UPLOAD_VUS", 4),
+	duration: durationEnv("ASTER_BENCH_STREAM_UPLOAD_DURATION", "30s"),
 	thresholds: {
 		http_req_failed: ["rate<0.01"],
-		aster_upload_direct_duration: [
-			`p(95)<${intEnv("ASTER_BENCH_DIRECT_UPLOAD_P95_MS", 1500)}`,
+		aster_upload_stream_duration: [
+			`p(95)<${intEnv("ASTER_BENCH_STREAM_UPLOAD_P95_MS", 1500)}`,
 		],
 	},
 };
 
 export function setup() {
 	const session = login();
-	const folderId = ensureRootFolder(session, benchConfig.directUploadFolder);
+	const folderId = ensureRootFolder(session, benchConfig.streamUploadFolder);
 	return {
 		session,
 		folderId,
@@ -49,7 +49,7 @@ export default function (data) {
 	}
 
 	state.session = maybeRefreshSession(state.session);
-	const { response } = uploadDirect(state.session, {
+	const { response } = uploadViaSession(state.session, {
 		filename: uniqueName("direct-upload", "bin"),
 		content: payload,
 		mimeType: "application/octet-stream",
@@ -63,7 +63,7 @@ export default function (data) {
 	}
 }
 
-export const handleSummary = createSummary("upload-direct", [
-	"aster_upload_direct_duration",
-	"aster_upload_direct_bytes",
+export const handleSummary = createSummary("upload-stream", [
+	"aster_upload_stream_duration",
+	"aster_upload_stream_bytes",
 ]);

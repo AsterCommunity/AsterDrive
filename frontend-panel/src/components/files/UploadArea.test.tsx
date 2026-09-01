@@ -32,6 +32,7 @@ const removePendingEmptyFile = vi.fn();
 const savePendingEmptyFiles = vi.fn();
 const saveSession = vi.fn();
 const uploadChunk = vi.fn();
+const streamUploadBody = vi.fn();
 const uploadPanelSpy = vi.fn();
 const apiClientPost = vi.fn();
 const mockAuthUser = {
@@ -187,6 +188,9 @@ vi.mock("@/lib/uploadPersistence", () => ({
 
 vi.mock("@/services/uploadService", () => ({
 	buildUploadPath: (_workspace: unknown, path: string) => path,
+	UploadRequestError: class UploadRequestError extends Error {
+		isAborted = false;
+	},
 	isRetryableUploadError: (error: unknown) =>
 		typeof error === "object" &&
 		error !== null &&
@@ -201,6 +205,7 @@ vi.mock("@/services/uploadService", () => ({
 		presignParts,
 		presignedUpload,
 		uploadChunk,
+		streamUploadBody,
 	},
 }));
 
@@ -225,6 +230,7 @@ async function uploadOneFile() {
 		expect(initUpload).toHaveBeenCalledWith({
 			filename: "hello.txt",
 			total_size: file.size,
+			mime_type: "text/plain",
 			folder_id: 42,
 			relative_path: undefined,
 		});
@@ -310,6 +316,7 @@ describe("UploadArea", () => {
 		appendCompletedPart.mockReset();
 		apiClientPost.mockReset();
 		cancelUpload.mockReset();
+		cancelUpload.mockResolvedValue(undefined);
 		completeUpload.mockReset();
 		createEmptyFile.mockReset();
 		createFileService.mockClear();
@@ -335,6 +342,15 @@ describe("UploadArea", () => {
 		removeSession.mockReset();
 		saveSession.mockReset();
 		uploadChunk.mockReset();
+		streamUploadBody.mockReset();
+		streamUploadBody.mockImplementation((_id, data, onProgress) => {
+			return apiClientPost(`/files/upload/${_id}/body`, data, {
+				timeout: 0,
+				onUploadProgress: (event: { loaded: number; total?: number }) => {
+					if (event.total) onProgress?.(event.loaded, event.total);
+				},
+			});
+		});
 		uploadPanelSpy.mockReset();
 		useUploadAreaControlsStore.getState().setControls(null);
 		useUploadAreaControlsStore.getState().setUploadPanelPresence({
@@ -384,27 +400,30 @@ describe("UploadArea", () => {
 		).toHaveClass("z-(--z-fixed)");
 	});
 
-	it("handles direct uploads through the form-data endpoint", async () => {
-		initUpload.mockResolvedValue({ mode: "direct" });
+	it("uploads a raw stream body through its initialized session", async () => {
+		initUpload.mockResolvedValue({
+			mode: "stream",
+			upload_id: "stream-session",
+		});
 		apiClientPost.mockResolvedValue({});
 
 		await uploadOneFile();
 
-		await screen.findByText("hello.txt:Direct:files:upload_success");
+		await screen.findByText("hello.txt:Stream:files:upload_success");
 
 		expect(apiClientPost).toHaveBeenCalledTimes(1);
 		expect(apiClientPost.mock.calls[0]?.[0]).toBe(
-			"/files/upload?folder_id=42&declared_size=5",
+			"/files/upload/stream-session/body",
 		);
-		expect(apiClientPost.mock.calls[0]?.[1]).toBeInstanceOf(FormData);
+		expect(apiClientPost.mock.calls[0]?.[1]).toBeInstanceOf(File);
 		expect(apiClientPost.mock.calls[0]?.[2]).toEqual(
 			expect.objectContaining({
-				headers: { "Content-Type": "multipart/form-data" },
 				timeout: 0,
 			}),
 		);
 		expect(completeUpload).not.toHaveBeenCalled();
-		expect(saveSession).not.toHaveBeenCalled();
+		expect(removeSession).toHaveBeenCalledWith("stream-session");
+		expect(saveSession).toHaveBeenCalled();
 	});
 
 	it("creates empty picker files without initializing an upload session", async () => {
@@ -412,7 +431,7 @@ describe("UploadArea", () => {
 
 		await renderUploadAreaWithFiles([new File([], "empty.txt")]);
 
-		await screen.findByText("empty.txt:Direct:files:upload_success");
+		await screen.findByText("empty.txt:Stream:files:upload_success");
 		expect(createEmptyFile).toHaveBeenCalledWith("empty.txt", 42, undefined, {
 			signal: expect.any(AbortSignal),
 			idempotencyKey: expect.stringMatching(/^empty-upload:/),
@@ -437,7 +456,7 @@ describe("UploadArea", () => {
 
 		await renderUploadAreaWithFiles([new File([], "cancel-empty.txt")]);
 
-		await screen.findByText("cancel-empty.txt:Direct:files:processing:0");
+		await screen.findByText("cancel-empty.txt:Stream:files:processing:0");
 		const signal = createEmptyFile.mock.calls[0]?.[3]?.signal as AbortSignal;
 		expect(signal.aborted).toBe(false);
 
@@ -445,7 +464,7 @@ describe("UploadArea", () => {
 			screen.getByRole("button", { name: "files:upload_dismiss" }),
 		);
 
-		await screen.findByText("cancel-empty.txt:Direct:files:upload_cancelled:0");
+		await screen.findByText("cancel-empty.txt:Stream:files:upload_cancelled:0");
 		expect(signal.aborted).toBe(true);
 
 		await act(async () => {
@@ -454,10 +473,10 @@ describe("UploadArea", () => {
 		});
 
 		expect(
-			screen.getByText("cancel-empty.txt:Direct:files:upload_cancelled:0"),
+			screen.getByText("cancel-empty.txt:Stream:files:upload_cancelled:0"),
 		).toBeInTheDocument();
 		expect(
-			screen.queryByText("cancel-empty.txt:Direct:files:upload_success:100"),
+			screen.queryByText("cancel-empty.txt:Stream:files:upload_success:100"),
 		).not.toBeInTheDocument();
 		expect(refresh).not.toHaveBeenCalled();
 	});
@@ -470,7 +489,7 @@ describe("UploadArea", () => {
 			teamId: 9,
 		});
 
-		await screen.findByText("team-empty.txt:Direct:files:upload_success");
+		await screen.findByText("team-empty.txt:Stream:files:upload_success");
 		expect(createFileService).toHaveBeenCalledWith({ kind: "team", teamId: 9 });
 		expect(createEmptyFile).toHaveBeenCalledWith(
 			"team-empty.txt",
@@ -496,7 +515,10 @@ describe("UploadArea", () => {
 			value: "docs/content.txt",
 		});
 		createEmptyFile.mockResolvedValue({ id: 1002 });
-		initUpload.mockResolvedValue({ mode: "direct" });
+		initUpload.mockResolvedValue({
+			mode: "stream",
+			upload_id: "stream-session",
+		});
 		apiClientPost.mockResolvedValue({});
 
 		const [{ UploadArea }, { UploadAreaHost }] = await Promise.all([
@@ -518,8 +540,8 @@ describe("UploadArea", () => {
 			target: { files: [emptyFile, contentFile] },
 		});
 
-		await screen.findByText("empty.txt:Direct:files:upload_success");
-		await screen.findByText("content.txt:Direct:files:upload_success");
+		await screen.findByText("empty.txt:Stream:files:upload_success");
+		await screen.findByText("content.txt:Stream:files:upload_success");
 		expect(createEmptyFile).toHaveBeenCalledWith(
 			"empty.txt",
 			42,
@@ -543,7 +565,10 @@ describe("UploadArea", () => {
 			type: "text/plain",
 		});
 
-		initUpload.mockResolvedValue({ mode: "direct" });
+		initUpload.mockResolvedValue({
+			mode: "stream",
+			upload_id: "stream-session",
+		});
 		apiClientPost
 			.mockReturnValueOnce(firstUpload.promise)
 			.mockReturnValueOnce(secondUpload.promise);
@@ -554,12 +579,12 @@ describe("UploadArea", () => {
 		});
 
 		firstUpload.resolve({});
-		await screen.findByText("first.txt:Direct:files:upload_success");
+		await screen.findByText("first.txt:Stream:files:upload_success");
 		expect(refresh).not.toHaveBeenCalled();
 		expect(refreshUser).not.toHaveBeenCalled();
 
 		secondUpload.reject(new Error("upload failed"));
-		await screen.findByText("second.txt:Direct:files:upload_failed");
+		await screen.findByText("second.txt:Stream:files:upload_failed");
 
 		await waitFor(() => {
 			expect(refresh).toHaveBeenCalledTimes(1);
@@ -571,12 +596,15 @@ describe("UploadArea", () => {
 		mockAuthUser.preferences.storage_event_stream_enabled = false;
 		const file = new File(["hello"], "hello.txt", { type: "text/plain" });
 
-		initUpload.mockResolvedValue({ mode: "direct" });
+		initUpload.mockResolvedValue({
+			mode: "stream",
+			upload_id: "stream-session",
+		});
 		apiClientPost.mockResolvedValue({});
 
 		await renderUploadAreaWithFiles([file]);
 
-		await screen.findByText("hello.txt:Direct:files:upload_success");
+		await screen.findByText("hello.txt:Stream:files:upload_success");
 
 		await waitFor(() => {
 			expect(refresh).toHaveBeenCalledTimes(1);
@@ -595,7 +623,10 @@ describe("UploadArea", () => {
 			type: "text/plain",
 		});
 
-		initUpload.mockResolvedValue({ mode: "direct" });
+		initUpload.mockResolvedValue({
+			mode: "stream",
+			upload_id: "stream-session",
+		});
 		apiClientPost.mockReturnValue(upload.promise);
 
 		const view = render(
@@ -625,7 +656,7 @@ describe("UploadArea", () => {
 		expect(screen.getByText("tasks route")).toBeInTheDocument();
 		upload.resolve({});
 
-		await screen.findByText("route-switch.txt:Direct:files:upload_success");
+		await screen.findByText("route-switch.txt:Stream:files:upload_success");
 		await waitFor(() => {
 			expect(refresh).toHaveBeenCalledTimes(1);
 		});
@@ -640,7 +671,10 @@ describe("UploadArea", () => {
 			type: "text/plain",
 		});
 
-		initUpload.mockResolvedValue({ mode: "direct" });
+		initUpload.mockResolvedValue({
+			mode: "stream",
+			upload_id: "stream-session",
+		});
 		apiClientPost
 			.mockReturnValueOnce(firstUpload.promise)
 			.mockReturnValueOnce(secondUpload.promise);
@@ -653,8 +687,8 @@ describe("UploadArea", () => {
 		firstUpload.reject(new Error("first upload failed"));
 		secondUpload.reject(new Error("second upload failed"));
 
-		await screen.findByText("first.txt:Direct:files:upload_failed");
-		await screen.findByText("second.txt:Direct:files:upload_failed");
+		await screen.findByText("first.txt:Stream:files:upload_failed");
+		await screen.findByText("second.txt:Stream:files:upload_failed");
 
 		expect(refresh).not.toHaveBeenCalled();
 		expect(refreshUser).not.toHaveBeenCalled();
@@ -669,7 +703,10 @@ describe("UploadArea", () => {
 			type: "text/plain",
 		});
 
-		initUpload.mockResolvedValue({ mode: "direct" });
+		initUpload.mockResolvedValue({
+			mode: "stream",
+			upload_id: "stream-session",
+		});
 		apiClientPost
 			.mockReturnValueOnce(firstUpload.promise)
 			.mockReturnValueOnce(secondUpload.promise);
@@ -681,7 +718,7 @@ describe("UploadArea", () => {
 		});
 		expect(initUpload).toHaveBeenCalledTimes(1);
 		expect(apiClientPost.mock.calls[0]?.[0]).toBe(
-			"/files/upload?folder_id=42&declared_size=5",
+			"/files/upload/stream-session/body",
 		);
 
 		firstUpload.resolve({});
@@ -692,14 +729,17 @@ describe("UploadArea", () => {
 		expect(initUpload).toHaveBeenCalledTimes(2);
 
 		secondUpload.resolve({});
-		await screen.findByText("second.txt:Direct:files:upload_success");
+		await screen.findByText("second.txt:Stream:files:upload_success");
 	});
 
 	it("auto-removes completed tasks when the setting is enabled", async () => {
 		window.localStorage.setItem("aster-upload-auto-clear-completed", "true");
 		const file = new File(["hello"], "hello.txt", { type: "text/plain" });
 
-		initUpload.mockResolvedValue({ mode: "direct" });
+		initUpload.mockResolvedValue({
+			mode: "stream",
+			upload_id: "stream-session",
+		});
 		apiClientPost.mockResolvedValue({});
 
 		await renderUploadAreaWithFiles([file]);
@@ -729,11 +769,14 @@ describe("UploadArea", () => {
 	});
 
 	it("removes existing completed tasks when auto-clear is enabled", async () => {
-		initUpload.mockResolvedValue({ mode: "direct" });
+		initUpload.mockResolvedValue({
+			mode: "stream",
+			upload_id: "stream-session",
+		});
 		apiClientPost.mockResolvedValue({});
 
 		await uploadOneFile();
-		await screen.findByText("hello.txt:Direct:files:upload_success");
+		await screen.findByText("hello.txt:Stream:files:upload_success");
 
 		const panelProps = uploadPanelSpy.mock.calls.at(-1)?.[0] as
 			| { onAutoClearCompletedChange?: (value: boolean) => void }
@@ -747,7 +790,7 @@ describe("UploadArea", () => {
 			expect(screen.getByText("files:upload_empty")).toBeInTheDocument();
 		});
 		expect(
-			screen.queryByText("hello.txt:Direct:files:upload_success"),
+			screen.queryByText("hello.txt:Stream:files:upload_success"),
 		).not.toBeInTheDocument();
 	});
 
@@ -776,6 +819,58 @@ describe("UploadArea", () => {
 		expect(getProgress).not.toHaveBeenCalled();
 	});
 
+	it("restores a server stream session and resumes it without chunk metadata", async () => {
+		listRecoverableSessions.mockResolvedValue([
+			{
+				upload_id: "server-stream",
+				mode: "stream",
+				status: "uploading",
+				filename: "server-stream.bin",
+				total_size: 7,
+				chunk_size: 0,
+				total_chunks: 0,
+				received_count: 0,
+				folder_id: 42,
+				chunks_on_disk: [],
+				completed_parts: [],
+				expires_at: new Date(Date.now() + 60_000).toISOString(),
+				updated_at: new Date().toISOString(),
+			},
+		]);
+		apiClientPost.mockResolvedValue({});
+		getProgress.mockResolvedValue({
+			upload_id: "server-stream",
+			status: "uploading",
+			received_count: 0,
+			chunks_on_disk: [],
+			chunk_size: 0,
+			total_chunks: 0,
+			filename: "server-stream.bin",
+		});
+
+		await renderUploadAreaWithRestoreTimer();
+		await screen.findByText(
+			"server-stream.bin:Stream:files:upload_pending_file",
+		);
+		fireEvent.click(screen.getByText("files:upload_resume_select"));
+		const file = new File(["content"], "server-stream.bin", {
+			type: "application/octet-stream",
+		});
+		fireEvent.change(screen.getByTestId("resume-input"), {
+			target: { files: [file] },
+		});
+
+		await waitFor(() => {
+			expect(streamUploadBody).toHaveBeenCalledWith(
+				"server-stream",
+				file,
+				expect.any(Function),
+				expect.any(Function),
+			);
+		});
+		expect(completeUpload).not.toHaveBeenCalled();
+	});
+
 	it("replays a persisted empty-file create with its original key after reload", async () => {
 		loadPendingEmptyFiles.mockReturnValue([
 			{
@@ -792,7 +887,7 @@ describe("UploadArea", () => {
 		createEmptyFile.mockResolvedValue({ id: 2001 });
 
 		await renderUploadAreaWithRestoreTimer();
-		await screen.findByText("restored-empty.txt:Direct:files:upload_success");
+		await screen.findByText("restored-empty.txt:Stream:files:upload_success");
 		expect(createEmptyFile).toHaveBeenCalledWith(
 			"restored-empty.txt",
 			42,
@@ -942,11 +1037,14 @@ describe("UploadArea", () => {
 		await screen.findByText("chunk-progress.bin:Chunked:files:upload_success");
 	});
 
-	it("reports direct upload speed from browser upload progress", async () => {
+	it("reports stream upload speed from browser upload progress", async () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 		vi.setSystemTime(new Date("2026-05-19T00:00:00Z"));
 		const directUpload = createDeferred<unknown>();
-		initUpload.mockResolvedValue({ mode: "direct" });
+		initUpload.mockResolvedValue({
+			mode: "stream",
+			upload_id: "stream-session",
+		});
 		apiClientPost.mockReturnValue(directUpload.promise);
 
 		await renderUploadAreaWithFiles([
@@ -985,7 +1083,7 @@ describe("UploadArea", () => {
 		});
 
 		directUpload.resolve({});
-		await screen.findByText("direct-speed.bin:Direct:files:upload_success");
+		await screen.findByText("direct-speed.bin:Stream:files:upload_success");
 	});
 
 	it("weights the overall upload progress by file size", async () => {
@@ -2013,23 +2111,38 @@ describe("UploadArea", () => {
 				retryable: true,
 			},
 		);
-		initUpload.mockResolvedValue({ mode: "direct" });
-		apiClientPost
-			.mockRejectedValueOnce(terminalError)
-			.mockRejectedValueOnce(retryableError)
-			.mockRejectedValue(new Error("retry attempt failed"));
+		initUpload.mockResolvedValue({
+			mode: "stream",
+			upload_id: "stream-session",
+		});
+		streamUploadBody.mockImplementation((_id, data: File) => {
+			if (data.name === "terminal.txt") return Promise.reject(terminalError);
+			if (streamUploadBody.mock.calls.length <= 2) {
+				return Promise.reject(retryableError);
+			}
+			return Promise.reject(new Error("retry attempt failed"));
+		});
 
 		await uploadFiles([
 			new File(["terminal"], "terminal.txt"),
 			new File(["retryable"], "retryable.txt"),
 		]);
-		await screen.findByText("terminal.txt:Direct:files:upload_failed");
-		await screen.findByText("retryable.txt:Direct:files:upload_failed");
+		await screen.findByText("terminal.txt:Stream:files:upload_failed");
+		await screen.findByText("retryable.txt:Stream:files:upload_failed");
 
 		const panelProps = uploadPanelSpy.mock.calls.at(-1)?.[0] as
-			| { onRetryFailed?: () => void }
+			| {
+					onRetryFailed?: () => void;
+					tasks?: Array<{ title: string; retryable?: boolean }>;
+			  }
 			| undefined;
 		expect(panelProps?.onRetryFailed).toBeTypeOf("function");
+		expect(panelProps?.tasks).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ title: "terminal.txt", retryable: false }),
+				expect.objectContaining({ title: "retryable.txt", retryable: true }),
+			]),
+		);
 		await act(async () => {
 			panelProps?.onRetryFailed?.();
 		});
@@ -2044,10 +2157,13 @@ describe("UploadArea", () => {
 
 	it("batch-clears finished tasks while preserving active uploads", async () => {
 		const activeUpload = createDeferred<unknown>();
-		initUpload.mockResolvedValue({ mode: "direct" });
+		initUpload.mockResolvedValue({
+			mode: "stream",
+			upload_id: "stream-session",
+		});
 		apiClientPost
 			.mockResolvedValueOnce({})
-			.mockRejectedValueOnce(new Error("direct upload failed"))
+			.mockRejectedValueOnce(new Error("stream upload failed"))
 			.mockReturnValueOnce(activeUpload.promise);
 
 		await uploadFiles([
@@ -2055,25 +2171,25 @@ describe("UploadArea", () => {
 			new File(["failed"], "failed.txt"),
 			new File(["active"], "active.txt"),
 		]);
-		await screen.findByText("done.txt:Direct:files:upload_success");
-		await screen.findByText("failed.txt:Direct:files:upload_failed");
-		await screen.findByText("active.txt:Direct:files:uploading_to_storage");
+		await screen.findByText("done.txt:Stream:files:upload_success");
+		await screen.findByText("failed.txt:Stream:files:upload_failed");
+		await screen.findByText("active.txt:Stream:files:uploading_to_storage");
 
 		fireEvent.click(screen.getByText("files:upload_clear_finished"));
 
 		await waitFor(() => {
 			expect(
-				screen.queryByText("done.txt:Direct:files:upload_success"),
+				screen.queryByText("done.txt:Stream:files:upload_success"),
 			).not.toBeInTheDocument();
 			expect(
-				screen.queryByText("failed.txt:Direct:files:upload_failed"),
+				screen.queryByText("failed.txt:Stream:files:upload_failed"),
 			).not.toBeInTheDocument();
 		});
 		expect(
-			screen.getByText("active.txt:Direct:files:uploading_to_storage"),
+			screen.getByText("active.txt:Stream:files:uploading_to_storage"),
 		).toBeInTheDocument();
 
 		activeUpload.resolve({});
-		await screen.findByText("active.txt:Direct:files:upload_success");
+		await screen.findByText("active.txt:Stream:files:upload_success");
 	});
 });

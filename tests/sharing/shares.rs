@@ -42,29 +42,16 @@ fn tiny_png() -> Vec<u8> {
 macro_rules! upload_png {
     ($app:expr, $token:expr) => {{
         let png_bytes = tiny_png();
-        let boundary = "----ShareThumbnailBound";
-        let mut payload = Vec::new();
-        payload.extend_from_slice(b"------ShareThumbnailBound\r\n");
-        payload.extend_from_slice(
-            b"Content-Disposition: form-data; name=\"file\"; filename=\"shared-thumb.png\"\r\n",
-        );
-        payload.extend_from_slice(b"Content-Type: image/png\r\n\r\n");
-        payload.extend_from_slice(&png_bytes);
-        payload.extend_from_slice(b"\r\n------ShareThumbnailBound--\r\n");
-
-        let req = test::TestRequest::post()
-            .uri("/api/v1/files/upload")
-            .insert_header(("Cookie", common::access_cookie_header(&$token)))
-            .insert_header(common::csrf_header_for(&$token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request();
-        let resp: actix_web::dev::ServiceResponse = test::call_service(&$app, req).await;
-        assert_eq!(resp.status(), 201, "upload should return 201");
-        let body: Value = test::read_body_json(resp).await;
+        let (status, body) = common::upload_via_server_session(
+            &$app,
+            &$token,
+            "/api/v1/files",
+            "shared-thumb.png",
+            "image/png",
+            &png_bytes,
+        )
+        .await;
+        assert_eq!(status, 201, "upload should return 201");
         body["data"]["id"].as_i64().unwrap()
     }};
 }
@@ -1426,32 +1413,22 @@ async fn test_folder_share_archive_download_rolls_back_when_client_drops_stream(
     let body: Value = test::read_body_json(resp).await;
     let folder_id = body["data"]["id"].as_i64().unwrap();
 
-    let boundary = "----ShareArchiveAbortBoundary";
-    let mut payload = format!(
-        "--{boundary}\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"large-abort.bin\"\r\n\
-         Content-Type: application/octet-stream\r\n\r\n"
-    )
-    .into_bytes();
+    let mut payload = Vec::with_capacity(2 * 1024 * 1024);
     let mut seed = 0x1234_5678_u32;
     for _ in 0..(2 * 1024 * 1024) {
         seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
         payload.push((seed >> 24) as u8);
     }
-    payload.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
-    let req = test::TestRequest::post()
-        .uri(&format!("/api/v1/files/upload?folder_id={folder_id}"))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    let (status, body) = common::upload_via_server_session(
+        &app,
+        &token,
+        &format!("/api/v1/files?folder_id={folder_id}"),
+        "large-abort.bin",
+        "application/octet-stream",
+        &payload,
+    )
+    .await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::post()

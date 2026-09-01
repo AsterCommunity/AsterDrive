@@ -12,6 +12,7 @@ fn mock_session(status: UploadSessionStatus) -> upload_session::Model {
         team_id: None,
         frontend_client_id: None,
         filename: "demo.bin".to_string(),
+        mime_type: "application/octet-stream".to_string(),
         total_size: 12,
         chunk_size: 4,
         total_chunks: 3,

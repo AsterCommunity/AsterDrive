@@ -22,20 +22,34 @@ use aster_forge_utils::paths;
 const INIT_MULTIPART_ABORT_MAX_ATTEMPTS: u32 = 3;
 const INIT_MULTIPART_ABORT_INITIAL_BACKOFF_MS: u64 = 50;
 
-pub(super) use id::UniqueUuidAttempt;
+pub(crate) use id::UniqueUuidAttempt;
 
-pub(super) async fn with_unique_upload_id<F, Fut, T>(mut try_upload_id: F) -> Result<T>
+pub(crate) async fn with_unique_upload_id<F, Fut, T>(mut try_upload_id: F) -> Result<T>
 where
     F: FnMut(String) -> Fut,
     Fut: Future<Output = Result<UniqueUuidAttempt<T>>>,
 {
-    id::with_unique_uuid("upload session", |candidate| {
-        try_upload_id(candidate.to_string())
-    })
-    .await
+    for attempt in 1..=id::UNIQUE_UUID_MAX_ATTEMPTS {
+        let candidate = uuid::Uuid::now_v7().to_string();
+        match try_upload_id(candidate.clone()).await? {
+            UniqueUuidAttempt::Accepted(value) => return Ok(value),
+            UniqueUuidAttempt::Collision => {
+                tracing::warn!(
+                    attempt,
+                    upload_id = %candidate,
+                    "upload session UUIDv7 collision, retrying"
+                );
+            }
+        }
+    }
+
+    Err(AsterError::database_operation(format!(
+        "failed to create unique upload session UUIDv7 after {} attempts",
+        id::UNIQUE_UUID_MAX_ATTEMPTS
+    )))
 }
 
-pub(super) async fn delete_upload_session_record_after_init_error<C: ConnectionTrait>(
+pub(crate) async fn delete_upload_session_record_after_init_error<C: ConnectionTrait>(
     db: &C,
     upload_id: &str,
     context: &str,
@@ -48,7 +62,7 @@ pub(super) async fn delete_upload_session_record_after_init_error<C: ConnectionT
     }
 }
 
-pub(super) async fn abort_created_multipart_upload_after_init_error(
+pub(crate) async fn abort_created_multipart_upload_after_init_error(
     multipart: &dyn MultipartStorageDriver,
     temp_key: &str,
     multipart_id: &str,
@@ -101,7 +115,7 @@ pub(super) async fn abort_created_multipart_upload_after_init_error(
     Err(error.into())
 }
 
-pub(super) fn upload_session_chunk_unavailable_error(
+pub(crate) fn upload_session_chunk_unavailable_error(
     session: &upload_session::Model,
 ) -> AsterError {
     match session.status {
@@ -124,7 +138,7 @@ pub(super) fn upload_session_chunk_unavailable_error(
     }
 }
 
-pub(super) fn expected_chunk_size_for_upload(
+pub(crate) fn expected_chunk_size_for_upload(
     session: &upload_session::Model,
     chunk_number: i32,
 ) -> Result<i64> {
@@ -156,7 +170,7 @@ pub(super) fn expected_chunk_size_for_upload(
     Ok(expected)
 }
 
-pub(super) fn upload_session_status_label(status: UploadSessionStatus) -> &'static str {
+pub(crate) fn upload_session_status_label(status: UploadSessionStatus) -> &'static str {
     match status {
         UploadSessionStatus::Uploading => "uploading",
         UploadSessionStatus::Assembling => "assembling",
@@ -166,7 +180,7 @@ pub(super) fn upload_session_status_label(status: UploadSessionStatus) -> &'stat
     }
 }
 
-pub(super) async fn transition_upload_session_to_assembling<C: ConnectionTrait>(
+pub(crate) async fn transition_upload_session_to_assembling<C: ConnectionTrait>(
     db: &C,
     upload_id: &str,
     actual_status: UploadSessionStatus,
@@ -207,7 +221,7 @@ pub(super) async fn transition_upload_session_to_assembling<C: ConnectionTrait>(
     Ok(())
 }
 
-pub(super) async fn run_upload_completion_stage<C, Fut>(
+pub(crate) async fn run_upload_completion_stage<C, Fut>(
     db: &C,
     session: &upload_session::Model,
     expected_status: UploadSessionStatus,
@@ -259,13 +273,13 @@ where
     }
 }
 
-pub(super) async fn cleanup_upload_temp_dir(state: &impl SharedRuntimeState, upload_id: &str) {
+pub(crate) async fn cleanup_upload_temp_dir(state: &impl SharedRuntimeState, upload_id: &str) {
     let temp_dir = paths::upload_temp_dir(&state.config().server.upload_temp_dir, upload_id);
     aster_forge_utils::fs::cleanup_temp_dir(&temp_dir).await;
 }
 
 /// 根据 session 查找已完成的文件（幂等重试用）
-pub(super) async fn find_file_by_session<C: ConnectionTrait>(
+pub(crate) async fn find_file_by_session<C: ConnectionTrait>(
     db: &C,
     session: &upload_session::Model,
 ) -> Result<file::Model> {
@@ -279,7 +293,7 @@ pub(super) async fn find_file_by_session<C: ConnectionTrait>(
 }
 
 /// 将 session 标记为 Failed（best-effort，失败只记录日志）
-pub(super) async fn mark_session_failed<C: ConnectionTrait>(db: &C, upload_id: &str) {
+pub(crate) async fn mark_session_failed<C: ConnectionTrait>(db: &C, upload_id: &str) {
     if let Ok(session) = upload_session_repo::find_by_id(db, upload_id).await {
         let mut active: upload_session::ActiveModel = session.into();
         active.status = Set(UploadSessionStatus::Failed);
@@ -291,14 +305,14 @@ pub(super) async fn mark_session_failed<C: ConnectionTrait>(db: &C, upload_id: &
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum UploadStorageErrorClass {
+pub(crate) enum UploadStorageErrorClass {
     Retryable,
     RequiresIntervention,
     NotFound,
     Terminal,
 }
 
-pub(super) fn classify_storage_error_kind(kind: StorageErrorKind) -> UploadStorageErrorClass {
+pub(crate) fn classify_storage_error_kind(kind: StorageErrorKind) -> UploadStorageErrorClass {
     match kind {
         StorageErrorKind::Transient | StorageErrorKind::RateLimited => {
             UploadStorageErrorClass::Retryable
@@ -313,7 +327,7 @@ pub(super) fn classify_storage_error_kind(kind: StorageErrorKind) -> UploadStora
     }
 }
 
-pub(super) fn classify_upload_storage_error(error: &AsterError) -> UploadStorageErrorClass {
+pub(crate) fn classify_upload_storage_error(error: &AsterError) -> UploadStorageErrorClass {
     match error {
         AsterError::RecordNotFound(_) => UploadStorageErrorClass::NotFound,
         AsterError::PreconditionFailed(_)
@@ -327,14 +341,14 @@ pub(super) fn classify_upload_storage_error(error: &AsterError) -> UploadStorage
     }
 }
 
-pub(super) fn upload_completion_error_is_retryable(error: &AsterError) -> bool {
+pub(crate) fn upload_completion_error_is_retryable(error: &AsterError) -> bool {
     matches!(
         classify_upload_storage_error(error),
         UploadStorageErrorClass::Retryable
     )
 }
 
-pub(super) fn upload_storage_error_class_label(class: UploadStorageErrorClass) -> &'static str {
+pub(crate) fn upload_storage_error_class_label(class: UploadStorageErrorClass) -> &'static str {
     match class {
         UploadStorageErrorClass::Retryable => "retryable",
         UploadStorageErrorClass::RequiresIntervention => "requires_operator_intervention",
@@ -389,7 +403,7 @@ async fn restore_session_status_after_retryable_completion_error<C: ConnectionTr
     Ok(())
 }
 
-pub(super) async fn handle_completion_error<C: ConnectionTrait>(
+pub(crate) async fn handle_completion_error<C: ConnectionTrait>(
     db: &C,
     upload_id: &str,
     restore_status: UploadSessionStatus,
@@ -412,7 +426,7 @@ pub(super) async fn handle_completion_error<C: ConnectionTrait>(
     mark_session_failed(db, upload_id).await;
 }
 
-pub(super) async fn mark_session_failed_with_expiration<C: ConnectionTrait>(
+pub(crate) async fn mark_session_failed_with_expiration<C: ConnectionTrait>(
     db: &C,
     upload_id: &str,
     expires_at: DateTime<Utc>,
@@ -430,7 +444,67 @@ pub(super) async fn mark_session_failed_with_expiration<C: ConnectionTrait>(
 mod tests {
     use super::*;
     use aster_drive_model::types::UploadSessionStatus;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    #[tokio::test]
+    async fn upload_session_ids_are_standard_uuid_v7_with_current_timestamp() {
+        let before = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let upload_id =
+            with_unique_upload_id(
+                |candidate| async move { Ok(UniqueUuidAttempt::Accepted(candidate)) },
+            )
+            .await
+            .unwrap();
+        let after = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+
+        let parsed = uuid::Uuid::parse_str(&upload_id).unwrap();
+        assert_eq!(upload_id.len(), 36);
+        assert_eq!(parsed.get_version_num(), 7);
+        let (seconds, nanos) = parsed.get_timestamp().unwrap().to_unix();
+        let timestamp_millis = u128::from(seconds) * 1000 + u128::from(nanos) / 1_000_000;
+        assert!((before..=after).contains(&timestamp_millis));
+    }
+
+    #[tokio::test]
+    async fn upload_session_uuid_v7_generation_retries_collisions() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let candidates = Arc::new(Mutex::new(Vec::new()));
+        let upload_id = with_unique_upload_id({
+            let attempts = Arc::clone(&attempts);
+            let candidates = Arc::clone(&candidates);
+            move |candidate| {
+                let attempts = Arc::clone(&attempts);
+                let candidates = Arc::clone(&candidates);
+                async move {
+                    candidates.lock().unwrap().push(candidate.clone());
+                    if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                        Ok(UniqueUuidAttempt::Collision)
+                    } else {
+                        Ok(UniqueUuidAttempt::Accepted(candidate))
+                    }
+                }
+            }
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        let candidates = candidates.lock().unwrap();
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(upload_id, candidates[1]);
+        assert!(candidates.iter().all(|candidate| {
+            uuid::Uuid::parse_str(candidate).is_ok_and(|parsed| parsed.get_version_num() == 7)
+        }));
+    }
 
     struct NotFoundAbortMultipart {
         abort_calls: AtomicUsize,
@@ -503,6 +577,7 @@ mod tests {
             team_id: None,
             frontend_client_id: None,
             filename: "test.bin".to_string(),
+            mime_type: "application/octet-stream".to_string(),
             total_size,
             chunk_size,
             total_chunks,

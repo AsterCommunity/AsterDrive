@@ -4,7 +4,7 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{Result, upload_assembly_error_with_code};
 use aster_drive_model::entities::upload_session;
 use aster_drive_model::types::{
-    UploadChunkOrdering, UploadMode, UploadScheduling, UploadSessionKind,
+    UploadChunkOrdering, UploadScheduling, UploadSessionKind, UploadTransport,
 };
 
 pub(crate) fn resolve_upload_session_kind(
@@ -65,15 +65,16 @@ fn corrupted(message: impl Into<String>) -> crate::errors::AsterError {
     upload_assembly_error_with_code(ApiErrorCode::UploadSessionCorrupted, message)
 }
 
-pub(crate) fn mode_for_kind(kind: UploadSessionKind) -> UploadMode {
+pub(crate) fn mode_for_kind(kind: UploadSessionKind) -> UploadTransport {
     match kind {
+        UploadSessionKind::Stream => UploadTransport::Stream,
         UploadSessionKind::ProviderPresignedSingle | UploadSessionKind::RemotePresignedSingle => {
-            UploadMode::Presigned
+            UploadTransport::Presigned
         }
         UploadSessionKind::ProviderPresignedMultipart
-        | UploadSessionKind::RemotePresignedMultipart => UploadMode::PresignedMultipart,
-        UploadSessionKind::ProviderDirectResumable => UploadMode::ProviderResumable,
-        _ => UploadMode::Chunked,
+        | UploadSessionKind::RemotePresignedMultipart => UploadTransport::PresignedMultipart,
+        UploadSessionKind::ProviderDirectResumable => UploadTransport::ProviderResumable,
+        _ => UploadTransport::Chunked,
     }
 }
 
@@ -97,6 +98,7 @@ pub(crate) fn scheduling_for_kind(kind: UploadSessionKind) -> Option<UploadSched
         UploadSessionKind::ProviderPresignedSingle | UploadSessionKind::RemotePresignedSingle => {
             None
         }
+        UploadSessionKind::Stream => None,
     }
 }
 
@@ -104,7 +106,7 @@ pub(crate) fn scheduling_for_kind(kind: UploadSessionKind) -> Option<UploadSched
 mod tests {
     use super::{mode_for_kind, scheduling_for_kind, validate_persisted_kind};
     use aster_drive_model::entities::upload_session;
-    use aster_drive_model::types::{UploadMode, UploadSessionKind, UploadSessionStatus};
+    use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus, UploadTransport};
 
     fn session(
         kind: UploadSessionKind,
@@ -118,6 +120,7 @@ mod tests {
             team_id: None,
             frontend_client_id: None,
             filename: "kind-test.bin".to_string(),
+            mime_type: "application/octet-stream".to_string(),
             total_size: 10,
             chunk_size: 5,
             total_chunks: 2,
@@ -143,28 +146,32 @@ mod tests {
     #[test]
     fn mode_for_kind_covers_presigned_and_chunked_data_planes() {
         assert_eq!(
+            mode_for_kind(UploadSessionKind::Stream),
+            UploadTransport::Stream
+        );
+        assert_eq!(
             mode_for_kind(UploadSessionKind::ProviderPresignedSingle),
-            UploadMode::Presigned
+            UploadTransport::Presigned
         );
         assert_eq!(
             mode_for_kind(UploadSessionKind::RemotePresignedSingle),
-            UploadMode::Presigned
+            UploadTransport::Presigned
         );
         assert_eq!(
             mode_for_kind(UploadSessionKind::ProviderPresignedMultipart),
-            UploadMode::PresignedMultipart
+            UploadTransport::PresignedMultipart
         );
         assert_eq!(
             mode_for_kind(UploadSessionKind::RemotePresignedMultipart),
-            UploadMode::PresignedMultipart
+            UploadTransport::PresignedMultipart
         );
         assert_eq!(
             mode_for_kind(UploadSessionKind::OffsetStaging),
-            UploadMode::Chunked
+            UploadTransport::Chunked
         );
         assert_eq!(
             mode_for_kind(UploadSessionKind::ProviderRelayResumable),
-            UploadMode::Chunked
+            UploadTransport::Chunked
         );
     }
 

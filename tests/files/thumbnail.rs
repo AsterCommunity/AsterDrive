@@ -119,33 +119,16 @@ fn write_fake_vips_thumbnail_command() -> (std::path::PathBuf, std::path::PathBu
 
 macro_rules! upload_file_bytes {
     ($app:expr, $token:expr, $filename:expr, $content_type:expr, $bytes:expr) => {{
-        let boundary = "----TestBound";
-        let mut payload = Vec::new();
-        payload.extend_from_slice(b"------TestBound\r\n");
-        payload.extend_from_slice(
-            format!(
-                "Content-Disposition: form-data; name=\"file\"; filename=\"{}\"\r\n",
-                $filename
-            )
-            .as_bytes(),
-        );
-        payload.extend_from_slice(format!("Content-Type: {}\r\n\r\n", $content_type).as_bytes());
-        payload.extend_from_slice(($bytes).as_ref());
-        payload.extend_from_slice(b"\r\n------TestBound--\r\n");
-
-        let req = test::TestRequest::post()
-            .uri("/api/v1/files/upload")
-            .insert_header(("Cookie", common::access_cookie_header(&$token)))
-            .insert_header(common::csrf_header_for(&$token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request();
-        let resp: actix_web::dev::ServiceResponse = test::call_service(&$app, req).await;
-        assert_eq!(resp.status(), 201, "upload should return 201");
-        let body: Value = test::read_body_json(resp).await;
+        let (status, body) = common::upload_via_server_session(
+            &$app,
+            &$token,
+            "/api/v1/files",
+            $filename,
+            $content_type,
+            ($bytes).as_ref(),
+        )
+        .await;
+        assert_eq!(status, 201, "upload should return 201");
         body["data"]["id"].as_i64().unwrap()
     }};
 }

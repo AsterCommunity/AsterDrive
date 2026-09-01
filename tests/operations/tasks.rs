@@ -126,28 +126,16 @@ macro_rules! login_user {
 }
 
 macro_rules! multipart_request {
-    ($uri:expr, $token:expr, $filename:expr, $content:expr $(,)?) => {{
-        let boundary = "----TaskBoundary123";
-        let payload = format!(
-            "------TaskBoundary123\r\n\
-             Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n\
-             Content-Type: text/plain\r\n\r\n\
-             {content}\r\n\
-             ------TaskBoundary123--\r\n",
-            filename = $filename,
-            content = $content,
-        );
-
-        test::TestRequest::post()
-            .uri($uri)
-            .insert_header(("Cookie", common::access_cookie_header(&$token)))
-            .insert_header(common::csrf_header_for(&$token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
-            .to_request()
+    ($app:expr, $uri:expr, $token:expr, $filename:expr, $content:expr $(,)?) => {{
+        common::upload_via_server_session(
+            &$app,
+            &$token,
+            $uri,
+            $filename,
+            "text/plain",
+            ($content).as_bytes(),
+        )
+        .await
     }};
 }
 
@@ -2712,14 +2700,14 @@ async fn test_personal_archive_stream_preserves_empty_folders() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
 
-    let req = multipart_request!(
-        &format!("/api/v1/files/upload?folder_id={docs_id}"),
+    let (status, _body) = multipart_request!(
+        app,
+        &format!("/api/v1/files?folder_id={docs_id}"),
         &token,
         "note.txt",
         "hello from archive task",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    assert_eq!(status, 201);
 
     let req = test::TestRequest::post()
         .uri("/api/v1/batch/archive-download")
@@ -2811,14 +2799,14 @@ async fn test_personal_archive_stream_marks_chinese_names_as_utf8() {
     let body: Value = test::read_body_json(resp).await;
     let folder_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/files/upload?folder_id={folder_id}"),
+    let (status, _body) = multipart_request!(
+        app,
+        &format!("/api/v1/files?folder_id={folder_id}"),
         &token,
         "说明.txt",
         "中文 archive payload",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    assert_eq!(status, 201);
 
     let req = test::TestRequest::post()
         .uri("/api/v1/batch/archive-download")
@@ -2906,15 +2894,14 @@ async fn test_team_archive_stream_is_scoped_to_team_routes() {
     let body: Value = test::read_body_json(resp).await;
     let team_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &token,
         "team.txt",
         "team archive payload",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::post()
@@ -3028,14 +3015,14 @@ async fn test_personal_archive_compress_task_creates_workspace_file() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
 
-    let req = multipart_request!(
-        &format!("/api/v1/files/upload?folder_id={docs_id}"),
+    let (status, _body) = multipart_request!(
+        app,
+        &format!("/api/v1/files?folder_id={docs_id}"),
         &token,
         "note.txt",
         "hello from archive compress task",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    assert_eq!(status, 201);
 
     let archive_wakeup = state.background_task_dispatch_wakeup.notified();
     tokio::pin!(archive_wakeup);
@@ -3132,10 +3119,8 @@ async fn test_archive_compress_disabled_rejects_personal_task_without_creating_r
         .expect("archive compress enabled config should update");
     let (token, _) = register_and_login!(app);
 
-    let req = multipart_request!("/api/v1/files/upload", &token, "source.txt", "payload");
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    let (status, body) = multipart_request!(app, "/api/v1/files", &token, "source.txt", "payload");
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::post()
@@ -3230,15 +3215,14 @@ async fn test_archive_compress_disabled_rejects_team_task_without_creating_recor
     let body: Value = test::read_body_json(resp).await;
     let team_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = multipart_request!(
-        &format!("/api/v1/teams/{team_id}/files/upload"),
+    let (status, body) = multipart_request!(
+        app,
+        &format!("/api/v1/teams/{team_id}/files"),
         &token,
         "team-source.txt",
         "payload",
     );
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::post()
@@ -3359,14 +3343,14 @@ async fn test_archive_compress_task_rejects_expanded_selection_too_large() {
     let folder_id = body["data"]["id"].as_i64().unwrap();
 
     for index in 0..2 {
-        let req = multipart_request!(
-            &format!("/api/v1/files/upload?folder_id={folder_id}"),
+        let (status, _body) = multipart_request!(
+            app,
+            &format!("/api/v1/files?folder_id={folder_id}"),
             &token,
             &format!("file-{index}.txt"),
             "payload",
         );
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 201);
+        assert_eq!(status, 201);
     }
 
     let req = test::TestRequest::post()
@@ -3416,10 +3400,8 @@ async fn test_archive_compress_task_rejects_quota_before_building_archive() {
         .expect("background task max attempts config should update");
     let (token, _) = register_and_login!(app);
 
-    let req = multipart_request!("/api/v1/files/upload", &token, "source.txt", "payload");
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    let (status, body) = multipart_request!(app, "/api/v1/files", &token, "source.txt", "payload");
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let owner =
@@ -3499,10 +3481,8 @@ async fn test_archive_download_rejects_expanded_selection_source_too_large() {
         .expect("archive build source size config should update");
     let (token, _) = register_and_login!(app);
 
-    let req = multipart_request!("/api/v1/files/upload", &token, "large.txt", "12345");
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    let (status, body) = multipart_request!(app, "/api/v1/files", &token, "large.txt", "12345");
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::post()
@@ -3536,10 +3516,8 @@ async fn test_archive_download_rejects_estimated_output_too_large() {
         .expect("archive build temp size config should update");
     let (token, _) = register_and_login!(app);
 
-    let req = multipart_request!("/api/v1/files/upload", &token, "tiny.txt", "1");
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    let (status, body) = multipart_request!(app, "/api/v1/files", &token, "tiny.txt", "1");
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
     let req = test::TestRequest::post()

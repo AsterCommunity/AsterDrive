@@ -1,19 +1,19 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use sea_orm::Set;
 
 use crate::db::repository::upload_session_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
-use crate::services::files::upload::responses::InitUploadResponse;
-use crate::services::files::upload::shared::{
+use crate::services::files::upload::session::responses::InitUploadResponse;
+use crate::services::files::upload::session::shared::{
     UniqueUuidAttempt, abort_created_multipart_upload_after_init_error, with_unique_upload_id,
 };
 use crate::services::storage_policy::policy::placement::StorageRoutingDecision;
 use crate::services::workspace::storage::{self, PolicyUploadTransport, WorkspaceStorageScope};
 use aster_drive_model::entities::{storage_policy, upload_session};
 use aster_drive_model::types::{
-    ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy, UploadMode,
-    UploadSessionKind, UploadSessionStatus,
+    ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy,
+    UploadSessionKind, UploadSessionStatus, UploadTransport,
 };
 use aster_drive_storage::MultipartStorageDriver;
 
@@ -28,6 +28,7 @@ pub(super) struct InitUploadContext {
     pub(super) scope: WorkspaceStorageScope,
     pub(super) target: ResolvedUploadTarget,
     pub(super) total_size: i64,
+    pub(super) mime_type: String,
     pub(super) policy: storage_policy::Model,
     pub(super) routing_decision: StorageRoutingDecision,
     pub(super) frontend_client_id: Option<String>,
@@ -37,6 +38,7 @@ pub(super) struct UploadSessionRecordParams<'a> {
     pub(super) upload_id: &'a str,
     pub(super) scope: WorkspaceStorageScope,
     pub(super) filename: &'a str,
+    pub(super) mime_type: &'a str,
     pub(super) total_size: i64,
     pub(super) chunk_size: i64,
     pub(super) total_chunks: i32,
@@ -56,7 +58,7 @@ pub(super) struct UploadSessionRecordParams<'a> {
 }
 
 pub(super) struct MultipartSessionInitParams {
-    pub(super) mode: UploadMode,
+    pub(super) mode: UploadTransport,
     pub(super) status: UploadSessionStatus,
     pub(super) session_kind: UploadSessionKind,
     pub(super) chunk_size: i64,
@@ -75,42 +77,46 @@ pub(super) struct MultipartSessionInitParams {
 /// what determines the session lifecycle and cleanup contract.
 pub(super) fn session_kind_for_transport(
     transport: PolicyUploadTransport,
-    mode: UploadMode,
+    mode: UploadTransport,
 ) -> Result<UploadSessionKind> {
     let kind = match (transport, mode) {
-        (PolicyUploadTransport::Local, UploadMode::Chunked) => UploadSessionKind::OffsetStaging,
+        (PolicyUploadTransport::Local, UploadTransport::Chunked) => {
+            UploadSessionKind::OffsetStaging
+        }
         (
             PolicyUploadTransport::ProviderResumable(ProviderResumableUploadStrategy::ServerRelay),
-            UploadMode::Chunked,
+            UploadTransport::Chunked,
         ) => UploadSessionKind::ProviderRelayResumable,
-        (PolicyUploadTransport::Sftp, UploadMode::Chunked) => UploadSessionKind::StreamStaging,
+        (PolicyUploadTransport::Sftp, UploadTransport::Chunked) => UploadSessionKind::StreamStaging,
         (
             PolicyUploadTransport::ProviderResumable(
                 ProviderResumableUploadStrategy::FrontendDirect,
             ),
-            UploadMode::ProviderResumable,
+            UploadTransport::ProviderResumable,
         ) => UploadSessionKind::ProviderDirectResumable,
         (
             PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream),
-            UploadMode::Chunked,
+            UploadTransport::Chunked,
         ) => UploadSessionKind::ProviderRelayMultipart,
         (
             PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
-            UploadMode::Presigned,
+            UploadTransport::Presigned,
         ) => UploadSessionKind::ProviderPresignedSingle,
         (
             PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
-            UploadMode::PresignedMultipart,
+            UploadTransport::PresignedMultipart,
         ) => UploadSessionKind::ProviderPresignedMultipart,
-        (PolicyUploadTransport::Remote(RemoteUploadStrategy::RelayStream), UploadMode::Chunked) => {
-            UploadSessionKind::RemoteRelayMultipart
-        }
-        (PolicyUploadTransport::Remote(RemoteUploadStrategy::Presigned), UploadMode::Presigned) => {
-            UploadSessionKind::RemotePresignedSingle
-        }
+        (
+            PolicyUploadTransport::Remote(RemoteUploadStrategy::RelayStream),
+            UploadTransport::Chunked,
+        ) => UploadSessionKind::RemoteRelayMultipart,
         (
             PolicyUploadTransport::Remote(RemoteUploadStrategy::Presigned),
-            UploadMode::PresignedMultipart,
+            UploadTransport::Presigned,
+        ) => UploadSessionKind::RemotePresignedSingle,
+        (
+            PolicyUploadTransport::Remote(RemoteUploadStrategy::Presigned),
+            UploadTransport::PresignedMultipart,
         ) => UploadSessionKind::RemotePresignedMultipart,
         _ => {
             return Err(AsterError::validation_error(format!(
@@ -124,18 +130,23 @@ pub(super) fn session_kind_for_transport(
 pub(super) async fn resolve_init_upload_context(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
-    filename: &str,
-    total_size: i64,
-    folder_id: Option<i64>,
-    relative_path: Option<&str>,
-    frontend_client_id: Option<&str>,
+    params: super::InitUploadParams<'_>,
 ) -> Result<InitUploadContext> {
+    let super::InitUploadParams {
+        filename,
+        total_size,
+        folder_id,
+        relative_path,
+        mime_type: declared_mime_type,
+        frontend_client_id,
+    } = params;
     if total_size < 0 {
         return Err(AsterError::validation_error(
             "total_size cannot be negative",
         ));
     }
     let target = resolve_upload_target(state, scope, filename, folder_id, relative_path).await?;
+    let mime_type = resolve_upload_mime_type(&target.filename, declared_mime_type)?;
 
     tracing::debug!(
         scope = ?scope,
@@ -152,7 +163,7 @@ pub(super) async fn resolve_init_upload_context(
             folder_hint: target.folder,
             filename: &target.filename,
             file_size: total_size,
-            mime_type: "application/octet-stream",
+            mime_type: &mime_type,
             existing_file_id: None,
         },
     )
@@ -169,6 +180,7 @@ pub(super) async fn resolve_init_upload_context(
         connector_id = %policy.connector_id,
         chunk_size = policy.chunk_size,
         total_size,
+        mime_type,
         "resolved upload storage policy"
     );
 
@@ -176,10 +188,59 @@ pub(super) async fn resolve_init_upload_context(
         scope,
         target,
         total_size,
+        mime_type,
         policy,
         routing_decision,
         frontend_client_id: frontend_client_id.map(str::to_string),
     })
+}
+
+fn resolve_upload_mime_type(filename: &str, declared: Option<&str>) -> Result<String> {
+    if let Some(value) = declared {
+        let value = value.trim();
+        if value.is_empty() || value.len() > 255 || !value.contains('/') {
+            return Err(AsterError::validation_error("invalid upload MIME type"));
+        }
+        return Ok(value.to_ascii_lowercase());
+    }
+    Ok(mime_guess::from_path(filename)
+        .first_or_octet_stream()
+        .essence_str()
+        .to_string())
+}
+
+pub(super) async fn validate_storage_capacity(
+    state: &PrimaryAppState,
+    policy: &storage_policy::Model,
+    total_size: i64,
+) -> Result<()> {
+    let capacity = match state
+        .driver_registry()
+        .get_driver(policy)?
+        .capacity_info()
+        .await
+    {
+        Ok(capacity) => capacity,
+        Err(error) => {
+            tracing::warn!(
+                policy_id = policy.id,
+                error = %error,
+                "storage capacity preflight unavailable; continuing without reservation"
+            );
+            return Ok(());
+        }
+    };
+    if capacity.status == aster_drive_storage::traits::extensions::StorageCapacityStatus::Supported
+        && capacity
+            .available_bytes
+            .is_some_and(|available| available < total_size)
+    {
+        return Err(AsterError::storage_driver_error(format!(
+            "storage policy #{} has insufficient capacity for a {total_size} byte upload",
+            policy.id
+        )));
+    }
+    Ok(())
 }
 
 async fn resolve_upload_target(
@@ -276,6 +337,7 @@ pub(super) async fn init_multipart_session_with_retry(
                 upload_id: &upload_id,
                 scope: ctx.scope,
                 filename: &ctx.target.filename,
+                mime_type: &ctx.mime_type,
                 total_size: ctx.total_size,
                 chunk_size,
                 total_chunks,
@@ -358,6 +420,7 @@ fn upload_session_active_model(
         upload_id,
         scope,
         filename,
+        mime_type,
         total_size,
         chunk_size,
         total_chunks,
@@ -383,6 +446,7 @@ fn upload_session_active_model(
         team_id: Set(scope.team_id()),
         frontend_client_id: Set(frontend_client_id.map(str::to_string)),
         filename: Set(filename.to_string()),
+        mime_type: Set(mime_type.to_string()),
         total_size: Set(total_size),
         chunk_size: Set(chunk_size),
         total_chunks: Set(total_chunks),
@@ -405,21 +469,56 @@ fn upload_session_active_model(
     }
 }
 
-pub(super) fn direct_upload_response() -> InitUploadResponse {
-    InitUploadResponse {
-        mode: UploadMode::Direct,
-        upload_id: None,
-        chunk_size: None,
-        total_chunks: None,
-        presigned_request: None,
-        presigned_require_etag: None,
-        provider_resumable: None,
-        upload_scheduling: None,
-    }
+pub(super) async fn init_stream_session(
+    state: &PrimaryAppState,
+    ctx: &InitUploadContext,
+) -> Result<InitUploadResponse> {
+    with_unique_upload_id(|upload_id| async move {
+        let inserted = try_persist_upload_session(
+            state.writer_db(),
+            UploadSessionRecordParams {
+                upload_id: &upload_id,
+                scope: ctx.scope,
+                filename: &ctx.target.filename,
+                mime_type: &ctx.mime_type,
+                total_size: ctx.total_size,
+                chunk_size: 0,
+                total_chunks: 0,
+                folder_id: ctx.target.folder_id,
+                policy_id: ctx.policy.id,
+                placement_profile_id: Some(ctx.routing_decision.profile_id),
+                placement_rule_id: ctx.routing_decision.rule_id,
+                placement_revision: Some(ctx.routing_decision.revision),
+                placement_execution_preference: ctx.routing_decision.execution_preference.as_str(),
+                frontend_client_id: ctx.frontend_client_id.as_deref(),
+                status: UploadSessionStatus::Uploading,
+                session_kind: UploadSessionKind::Stream,
+                object_temp_key: None,
+                object_multipart_id: None,
+                provider_session_ciphertext: None,
+                expires_at: Utc::now() + Duration::hours(24),
+            },
+        )
+        .await?;
+        if !inserted {
+            return Ok(UniqueUuidAttempt::Collision);
+        }
+        Ok(UniqueUuidAttempt::Accepted(InitUploadResponse {
+            mode: UploadTransport::Stream,
+            upload_id: Some(upload_id),
+            chunk_size: None,
+            total_chunks: None,
+            presigned_request: None,
+            presigned_require_etag: None,
+            provider_resumable: None,
+            upload_scheduling: None,
+        }))
+    })
+    .await
 }
 
 pub(super) fn chunked_upload_response(
-    mode: UploadMode,
+    mode: UploadTransport,
     upload_id: String,
     chunk_size: i64,
     total_chunks: i32,
@@ -433,7 +532,9 @@ pub(super) fn chunked_upload_response(
         presigned_request: None,
         presigned_require_etag: None,
         provider_resumable: None,
-        upload_scheduling: crate::services::files::upload::kind::scheduling_for_kind(session_kind),
+        upload_scheduling: crate::services::files::upload::session::kind::scheduling_for_kind(
+            session_kind,
+        ),
     }
 }
 
@@ -443,7 +544,7 @@ mod tests {
     use crate::services::workspace::storage::PolicyUploadTransport;
     use aster_drive_model::types::{
         ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy,
-        UploadMode, UploadSessionKind,
+        UploadSessionKind, UploadTransport,
     };
 
     #[test]
@@ -451,56 +552,56 @@ mod tests {
         let cases = [
             (
                 PolicyUploadTransport::Local,
-                UploadMode::Chunked,
+                UploadTransport::Chunked,
                 UploadSessionKind::OffsetStaging,
             ),
             (
                 PolicyUploadTransport::ProviderResumable(
                     ProviderResumableUploadStrategy::ServerRelay,
                 ),
-                UploadMode::Chunked,
+                UploadTransport::Chunked,
                 UploadSessionKind::ProviderRelayResumable,
             ),
             (
                 PolicyUploadTransport::ProviderResumable(
                     ProviderResumableUploadStrategy::FrontendDirect,
                 ),
-                UploadMode::ProviderResumable,
+                UploadTransport::ProviderResumable,
                 UploadSessionKind::ProviderDirectResumable,
             ),
             (
                 PolicyUploadTransport::Sftp,
-                UploadMode::Chunked,
+                UploadTransport::Chunked,
                 UploadSessionKind::StreamStaging,
             ),
             (
                 PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream),
-                UploadMode::Chunked,
+                UploadTransport::Chunked,
                 UploadSessionKind::ProviderRelayMultipart,
             ),
             (
                 PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
-                UploadMode::Presigned,
+                UploadTransport::Presigned,
                 UploadSessionKind::ProviderPresignedSingle,
             ),
             (
                 PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
-                UploadMode::PresignedMultipart,
+                UploadTransport::PresignedMultipart,
                 UploadSessionKind::ProviderPresignedMultipart,
             ),
             (
                 PolicyUploadTransport::Remote(RemoteUploadStrategy::RelayStream),
-                UploadMode::Chunked,
+                UploadTransport::Chunked,
                 UploadSessionKind::RemoteRelayMultipart,
             ),
             (
                 PolicyUploadTransport::Remote(RemoteUploadStrategy::Presigned),
-                UploadMode::Presigned,
+                UploadTransport::Presigned,
                 UploadSessionKind::RemotePresignedSingle,
             ),
             (
                 PolicyUploadTransport::Remote(RemoteUploadStrategy::Presigned),
-                UploadMode::PresignedMultipart,
+                UploadTransport::PresignedMultipart,
                 UploadSessionKind::RemotePresignedMultipart,
             ),
         ];
@@ -516,20 +617,20 @@ mod tests {
     #[test]
     fn session_kind_mapping_rejects_impossible_mode_combinations() {
         let invalid = [
-            (PolicyUploadTransport::Local, UploadMode::Direct),
+            (PolicyUploadTransport::Local, UploadTransport::Stream),
             (
                 PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
-                UploadMode::Chunked,
+                UploadTransport::Chunked,
             ),
             (
                 PolicyUploadTransport::Remote(RemoteUploadStrategy::RelayStream),
-                UploadMode::Presigned,
+                UploadTransport::Presigned,
             ),
             (
                 PolicyUploadTransport::ProviderResumable(
                     ProviderResumableUploadStrategy::FrontendDirect,
                 ),
-                UploadMode::Chunked,
+                UploadTransport::Chunked,
             ),
         ];
         for (transport, mode) in invalid {

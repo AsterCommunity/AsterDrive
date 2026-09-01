@@ -7,6 +7,7 @@ use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::db::repository::policy_repo;
 use aster_drive::services::auth::local;
 use aster_drive_model::types::UploadSessionKind;
+use aster_drive_storage::traits::extensions::{StorageCapacityInfo, StorageCapacityStatus};
 use aster_drive_storage::{
     BlobMetadata, MultipartStorageDriver, PresignedStorageDriver, PresignedUploadRequest,
     ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
@@ -41,6 +42,7 @@ struct UploadDataPlaneProbe {
     multipart_calls: AtomicUsize,
     presigned_calls: AtomicUsize,
     provider_calls: AtomicUsize,
+    capacity_available: Option<i64>,
 }
 
 impl UploadDataPlaneProbe {
@@ -118,6 +120,23 @@ impl StorageDriver for UploadDataPlaneProbe {
             multipart: Some(self),
             ..Default::default()
         }
+    }
+
+    async fn capacity_info(&self) -> aster_drive_storage::Result<StorageCapacityInfo> {
+        let Some(available_bytes) = self.capacity_available else {
+            return Err(StorageError::new(
+                StorageErrorKind::Unsupported,
+                "capacity probe is disabled",
+            ));
+        };
+        Ok(StorageCapacityInfo {
+            status: StorageCapacityStatus::Supported,
+            total_bytes: Some(available_bytes),
+            available_bytes: Some(available_bytes),
+            used_bytes: Some(0),
+            source: "test".to_string(),
+            observed_at: chrono::Utc::now(),
+        })
     }
 }
 
@@ -538,16 +557,6 @@ async fn set_default_local_content_dedup(
     reload_policy_snapshot(state).await;
 }
 
-async fn install_probe_s3_policy(
-    state: &aster_drive::runtime::PrimaryAppState,
-) -> aster_drive_model::entities::storage_policy::Model {
-    install_probe_s3_policy_with_upload_strategy(
-        state,
-        aster_drive_model::types::ObjectStorageUploadStrategy::Presigned,
-    )
-    .await
-}
-
 async fn install_probe_s3_policy_with_upload_strategy(
     state: &aster_drive::runtime::PrimaryAppState,
     upload_strategy: aster_drive_model::types::ObjectStorageUploadStrategy,
@@ -622,7 +631,10 @@ async fn upload_same_content_direct_and_chunked(
     )
     .await
     .unwrap();
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
+    assert_eq!(
+        init.mode,
+        aster_drive_model::types::UploadTransport::Chunked
+    );
 
     let upload_id = init.upload_id.unwrap();
     let total_chunks = init.total_chunks.unwrap();
@@ -750,6 +762,7 @@ async fn create_upload_session(
             team_id: Set(spec.team_id),
             frontend_client_id: Set(None),
             filename: Set("manual-upload.bin".to_string()),
+            mime_type: Set("application/octet-stream".to_string()),
             total_size: Set(10),
             chunk_size: Set(5),
             total_chunks: Set(spec.total_chunks),
@@ -798,6 +811,7 @@ async fn test_upload_session_try_create_reports_id_conflict() {
         team_id: Set(None),
         frontend_client_id: Set(None),
         filename: Set("try-create.bin".to_string()),
+        mime_type: Set("application/octet-stream".to_string()),
         total_size: Set(1),
         chunk_size: Set(1),
         total_chunks: Set(1),
@@ -866,6 +880,7 @@ async fn test_upload_session_try_create_preserves_non_id_unique_conflict() {
             team_id: Set(None),
             frontend_client_id: Set(None),
             filename: Set(filename.clone()),
+            mime_type: Set("application/octet-stream".to_string()),
             total_size: Set(1),
             chunk_size: Set(1),
             total_chunks: Set(1),
@@ -1344,49 +1359,6 @@ async fn create_s3_default_policy(
     policy
 }
 
-fn build_multipart_payload(filename: &str, data: &[u8]) -> (String, Vec<u8>) {
-    let boundary = format!("----AsterTestBoundary{}", uuid::Uuid::new_v4().simple());
-    let mut payload = Vec::new();
-    payload.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
-    payload.extend_from_slice(
-        format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n")
-            .as_bytes(),
-    );
-    payload.extend_from_slice(b"Content-Type: application/octet-stream\r\n\r\n");
-    payload.extend_from_slice(data);
-    payload.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
-    (boundary, payload)
-}
-
-fn build_multi_file_multipart_payload(fields: &[(&str, &[u8])]) -> (String, Vec<u8>) {
-    let boundary = format!("----AsterTestBoundary{}", uuid::Uuid::new_v4().simple());
-    let mut payload = Vec::new();
-    for (filename, data) in fields {
-        payload.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
-        payload.extend_from_slice(
-            format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n")
-                .as_bytes(),
-        );
-        payload.extend_from_slice(b"Content-Type: application/octet-stream\r\n\r\n");
-        payload.extend_from_slice(data);
-        payload.extend_from_slice(b"\r\n");
-    }
-    payload.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
-    (boundary, payload)
-}
-
-fn build_malformed_multipart_headers_over_parser_buffer() -> (String, Vec<u8>) {
-    let boundary = format!(
-        "----AsterMalformedBoundary{}",
-        uuid::Uuid::new_v4().simple()
-    );
-    let mut payload = Vec::new();
-    payload.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
-    payload.extend_from_slice(b"X-Long: ");
-    payload.extend_from_slice(&vec![b'a'; 70 * 1024]);
-    (boundary, payload)
-}
-
 async fn store_temp_file_in_personal_space(
     state: &aster_drive::runtime::PrimaryAppState,
     user_id: i64,
@@ -1429,7 +1401,10 @@ async fn prepare_chunked_upload_for_personal_scope(
     let init = upload::init_upload(state, user_id, filename, total_size, None, None)
         .await
         .unwrap();
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
+    assert_eq!(
+        init.mode,
+        aster_drive_model::types::UploadTransport::Chunked
+    );
     let upload_id = init.upload_id.unwrap();
     let chunk = vec![fill; TEST_CHUNK_SIZE];
     for chunk_number in 0..2 {
@@ -1454,7 +1429,10 @@ async fn prepare_chunked_upload_for_team_scope(
         upload::init_upload_for_team(state, team_id, user_id, filename, total_size, None, None)
             .await
             .unwrap();
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
+    assert_eq!(
+        init.mode,
+        aster_drive_model::types::UploadTransport::Chunked
+    );
     let upload_id = init.upload_id.unwrap();
     let chunk = vec![fill; TEST_CHUNK_SIZE];
     for chunk_number in 0..2 {
@@ -1642,10 +1620,20 @@ async fn test_concurrent_store_from_temp_same_owner_serializes_quota_row() {
 #[actix_web::test]
 async fn test_chunked_upload_flow() {
     let state = common::setup().await;
+    let policy = policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    let mut active: aster_drive_model::entities::storage_policy::ActiveModel = policy.into();
+    active.chunk_size = sea_orm::Set(4096);
+    sea_orm::ActiveModelTrait::update(active, state.writer_db())
+        .await
+        .unwrap();
+    reload_policy_snapshot(&state).await;
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    // 1. 初始化分片上传（10KB 文件，chunk_size=5MB → 直传模式）
+    // 1. 初始化分片上传（10KB 文件，chunk_size=4KB）。
     let req = test::TestRequest::post()
         .uri("/api/v1/files/upload/init")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
@@ -1658,20 +1646,19 @@ async fn test_chunked_upload_flow() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
     let body: Value = test::read_body_json(resp).await;
-    // 小文件可能返回 direct 模式
     let mode = body["data"]["mode"].as_str().unwrap();
-    assert!(
-        mode == "direct" || mode == "chunked",
-        "mode should be direct or chunked, got {mode}"
-    );
+    assert_eq!(mode, "chunked");
 
     if mode == "chunked" {
         let upload_id = body["data"]["upload_id"].as_str().unwrap().to_string();
         let total_chunks = body["data"]["total_chunks"].as_i64().unwrap();
+        let chunk_size = usize::try_from(body["data"]["chunk_size"].as_i64().unwrap()).unwrap();
 
         // 2. 上传分片
         for i in 0..total_chunks {
-            let chunk_data = vec![b'A'; 5120]; // 5KB per chunk
+            let start = usize::try_from(i).unwrap() * chunk_size;
+            let end = (start + chunk_size).min(10240);
+            let chunk_data = vec![b'A'; end - start];
             let req = test::TestRequest::put()
                 .uri(&format!("/api/v1/files/upload/{upload_id}/{i}"))
                 .insert_header(("Cookie", common::access_cookie_header(&token)))
@@ -1988,10 +1975,13 @@ async fn test_init_upload_validates_filename_and_total_size() {
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["mode"], "direct");
-    assert!(body["data"]["upload_id"].is_null());
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|message| message.contains("/files/new"))
+    );
 
     let req = test::TestRequest::post()
         .uri("/api/v1/files/upload/init")
@@ -2009,37 +1999,7 @@ async fn test_init_upload_validates_filename_and_total_size() {
 }
 
 #[actix_web::test]
-async fn test_malformed_multipart_headers_returns_upload_error_contract() {
-    let state = common::setup().await;
-    let app = create_test_app!(state);
-    let (token, _) = register_and_login!(app);
-
-    let (boundary, payload) = build_malformed_multipart_headers_over_parser_buffer();
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    let status = resp.status();
-    let body_bytes = test::read_body(resp).await;
-    assert_eq!(
-        status,
-        actix_web::http::StatusCode::BAD_REQUEST,
-        "unexpected status body: {}",
-        String::from_utf8_lossy(&body_bytes)
-    );
-    let body: Value = serde_json::from_slice(&body_bytes).unwrap();
-    assert_upload_error_contract(&body, ApiErrorCode::UploadFieldReadFailed.as_str());
-}
-
-#[actix_web::test]
-async fn test_empty_file_upload_flow_uses_direct_and_creates_file() {
+async fn test_zero_byte_upload_init_requires_file_creation_endpoint() {
     let state = common::setup().await;
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
@@ -2054,51 +2014,32 @@ async fn test_empty_file_upload_flow_uses_direct_and_creates_file() {
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["mode"], "direct");
-    assert!(body["data"]["upload_id"].is_null());
-
-    let (boundary, payload) = build_multipart_payload("empty-upload.txt", b"");
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload?declared_size=0")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    let file_id = body["data"]["id"].as_i64().unwrap();
-    assert_eq!(body["data"]["name"], "empty-upload.txt");
-    assert_eq!(body["data"]["size"], 0);
-
-    let req = test::TestRequest::get()
-        .uri(&format!("/api/v1/files/{file_id}/download"))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
-    let bytes = test::read_body(resp).await;
-    assert!(bytes.is_empty());
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|message| message.contains("/files/new"))
+    );
 }
 
 #[actix_web::test]
-async fn test_declared_empty_compatibility_bypasses_upload_data_planes_and_matches_create_empty() {
-    use aster_drive::services::events::storage_change::StorageChangeKind;
+async fn test_upload_init_rejects_insufficient_target_capacity_without_creating_session() {
+    use aster_drive::db::repository::upload_session_repo;
 
     let state = common::setup().await;
-    let policy = install_probe_s3_policy(&state).await;
-    let driver = Arc::new(UploadDataPlaneProbe::default());
+    let policy = install_probe_s3_policy_with_upload_strategy(
+        &state,
+        aster_drive_model::types::ObjectStorageUploadStrategy::RelayStream,
+    )
+    .await;
+    let driver = Arc::new(UploadDataPlaneProbe {
+        capacity_available: Some(3),
+        ..Default::default()
+    });
     state
         .driver_registry
         .insert_for_test(policy.id, driver.clone());
-    let mut storage_events = state.storage_change_bus.subscribe();
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
@@ -2107,263 +2048,214 @@ async fn test_declared_empty_compatibility_bypasses_upload_data_planes_and_match
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "filename": "compat-empty.txt",
-            "total_size": 0
+            "filename": "too-large.bin",
+            "total_size": 4
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status().is_server_error());
+    assert_eq!(
+        upload_session_repo::count_by_policy(state.writer_db(), policy.id)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
+    driver.assert_no_data_plane_calls();
+
+    let exact_driver = Arc::new(UploadDataPlaneProbe {
+        capacity_available: Some(4),
+        ..Default::default()
+    });
+    state
+        .driver_registry
+        .insert_for_test(policy.id, exact_driver.clone());
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload/init")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "filename": "exact-fit.bin",
+            "total_size": 4
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["mode"], "direct");
-    assert!(body["data"]["upload_id"].is_null());
-    assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
-    driver.assert_no_data_plane_calls();
-
-    let req = test::TestRequest::get()
-        .uri("/api/v1/files/upload/sessions")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
-    let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"], serde_json::json!([]));
-
-    let (boundary, payload) = build_multipart_payload("compat-empty.txt", b"x");
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload?declared_size=0")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
-    let body: Value = test::read_body_json(resp).await;
-    assert_upload_error_contract(&body, ApiErrorCode::UploadRequestSizeMismatch.as_str());
-    assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
-    driver.assert_no_data_plane_calls();
-
-    let (boundary, payload) = build_multipart_payload("compat-empty.txt", b"");
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload?declared_size=0")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let compatibility_file: Value = test::read_body_json(resp).await;
-    let compatibility_event = timeout(Duration::from_secs(1), storage_events.recv())
-        .await
-        .expect("multipart compatibility should publish a storage event")
-        .expect("storage event bus should stay open");
-
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/new")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({ "name": "canonical-empty.txt" }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let canonical_file: Value = test::read_body_json(resp).await;
-    let canonical_event = timeout(Duration::from_secs(1), storage_events.recv())
-        .await
-        .expect("canonical empty creation should publish a storage event")
-        .expect("storage event bus should stay open");
-
-    assert_eq!(compatibility_file["data"]["name"], "compat-empty.txt");
-    assert_eq!(canonical_file["data"]["name"], "canonical-empty.txt");
-    assert_eq!(compatibility_file["data"]["size"], 0);
-    assert_eq!(canonical_file["data"]["size"], 0);
-    assert_eq!(
-        compatibility_file["data"]["blob_id"],
-        canonical_file["data"]["blob_id"]
-    );
-    assert_eq!(compatibility_event.kind, StorageChangeKind::FileCreated);
-    assert_eq!(canonical_event.kind, StorageChangeKind::FileCreated);
-    assert_eq!(compatibility_event.workspace, canonical_event.workspace);
-    assert_eq!(compatibility_event.storage_delta, Some(0));
-    assert_eq!(canonical_event.storage_delta, Some(0));
-    assert!(!compatibility_event.affects_quota);
-    assert!(!canonical_event.affects_quota);
-    assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
-    assert_eq!(
-        driver
-            .objects
-            .lock()
-            .expect("upload probe object lock should succeed")
-            .values()
-            .filter(|data| data.is_empty())
-            .count(),
-        0
-    );
-    driver.assert_no_data_plane_calls();
-}
-
-#[actix_web::test]
-async fn test_declared_empty_upload_rejects_nonempty_field_with_stable_error() {
-    let state = common::setup().await;
-    let app = create_test_app!(state);
-    let (token, _) = register_and_login!(app);
-
-    let (boundary, payload) = build_multipart_payload("not-empty.txt", b"x");
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload?declared_size=0")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
-    let body: Value = test::read_body_json(resp).await;
-    assert_upload_error_contract(&body, ApiErrorCode::UploadRequestSizeMismatch.as_str());
-}
-
-#[actix_web::test]
-async fn test_declared_empty_upload_rejects_later_nonempty_file_before_creation() {
-    use aster_drive::db::repository::{file_repo, upload_session_repo};
-
-    let state = common::setup().await;
-    let policy = install_probe_s3_policy(&state).await;
-    let driver = Arc::new(UploadDataPlaneProbe::default());
-    state
-        .driver_registry
-        .insert_for_test(policy.id, driver.clone());
-    let app = create_test_app!(state.clone());
-    let (token, _) = register_and_login!(app);
-    let (boundary, payload) = build_multi_file_multipart_payload(&[
-        ("first-empty.txt", b""),
-        ("later-nonempty.txt", b"x"),
-    ]);
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload?declared_size=0")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
-    let body: Value = test::read_body_json(resp).await;
-    assert_upload_error_contract(&body, ApiErrorCode::UploadRequestSizeMismatch.as_str());
-    assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
     assert_eq!(
         upload_session_repo::count_by_policy(state.writer_db(), policy.id)
             .await
             .unwrap(),
-        0
+        1
     );
-    assert_eq!(
-        file_repo::count_live_files(state.writer_db())
-            .await
-            .unwrap(),
-        0
-    );
+    exact_driver.assert_no_data_plane_calls();
 }
 
 #[actix_web::test]
-async fn test_declared_empty_upload_rejects_multiple_empty_file_fields_before_creation() {
+async fn test_stream_body_rejects_short_and_oversized_payloads_and_fails_sessions() {
+    use aster_drive::db::repository::upload_session_repo;
+    use aster_drive_model::types::UploadSessionStatus;
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for (filename, declared_size, body) in [
+        ("short.bin", 4_i64, b"abc".as_slice()),
+        ("oversized.bin", 3_i64, b"abcd".as_slice()),
+    ] {
+        let init_req = test::TestRequest::post()
+            .uri("/api/v1/files/upload/init")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "filename": filename,
+                "mime_type": "application/x-boundary-test",
+                "total_size": declared_size
+            }))
+            .to_request();
+        let init_resp = test::call_service(&app, init_req).await;
+        assert_eq!(init_resp.status(), 201);
+        let init_body: Value = test::read_body_json(init_resp).await;
+        assert_eq!(init_body["data"]["mode"], "stream");
+        let upload_id = init_body["data"]["upload_id"].as_str().unwrap();
+
+        let body_req = test::TestRequest::put()
+            .uri(&format!("/api/v1/files/upload/{upload_id}/body"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .insert_header(("Content-Type", "application/octet-stream"))
+            .set_payload(body)
+            .to_request();
+        let body_resp = test::call_service(&app, body_req).await;
+        assert!(body_resp.status().is_client_error());
+
+        let session = upload_session_repo::find_by_id(&db, upload_id)
+            .await
+            .unwrap();
+        assert_eq!(session.status, UploadSessionStatus::Failed);
+        assert_eq!(session.mime_type, "application/x-boundary-test");
+        assert!(session.file_id.is_none());
+    }
+}
+
+#[actix_web::test]
+async fn test_expired_stream_body_is_rejected_before_storage_side_effects() {
     use aster_drive::db::repository::{file_repo, upload_session_repo};
+    use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, Set};
 
     let state = common::setup().await;
-    let policy = install_probe_s3_policy(&state).await;
-    let driver = Arc::new(UploadDataPlaneProbe::default());
-    state
-        .driver_registry
-        .insert_for_test(policy.id, driver.clone());
-    let app = create_test_app!(state.clone());
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
-    let (boundary, payload) =
-        build_multi_file_multipart_payload(&[("first-empty.txt", b""), ("second-empty.txt", b"")]);
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload?declared_size=0")
+    let files_before = file_repo::count_live_files(&db).await.unwrap();
+    let blobs_before = aster_drive_model::entities::file_blob::Entity::find()
+        .count(&db)
+        .await
+        .unwrap();
+
+    let init_req = test::TestRequest::post()
+        .uri("/api/v1/files/upload/init")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
+        .set_json(serde_json::json!({
+            "filename": "expired-stream.bin",
+            "total_size": 4
+        }))
         .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
-    let body: Value = test::read_body_json(resp).await;
-    assert_upload_error_contract(&body, ApiErrorCode::BadRequest.as_str());
-    assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
+    let init_resp = test::call_service(&app, init_req).await;
+    assert_eq!(init_resp.status(), 201);
+    let init_body: Value = test::read_body_json(init_resp).await;
+    let upload_id = init_body["data"]["upload_id"].as_str().unwrap();
+
+    let session = upload_session_repo::find_by_id(&db, upload_id)
+        .await
+        .unwrap();
+    let mut active: aster_drive_model::entities::upload_session::ActiveModel = session.into();
+    active.expires_at = Set(chrono::Utc::now() - chrono::Duration::seconds(1));
+    active.update(&db).await.unwrap();
+
+    let body_req = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/upload/{upload_id}/body"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload(b"data".as_slice())
+        .to_request();
+    let body_resp = test::call_service(&app, body_req).await;
+    assert_eq!(body_resp.status(), actix_web::http::StatusCode::GONE);
+    let body: Value = test::read_body_json(body_resp).await;
+    assert_upload_error_contract(&body, ApiErrorCode::UploadSessionExpired.as_str());
     assert_eq!(
-        upload_session_repo::count_by_policy(state.writer_db(), policy.id)
-            .await
-            .unwrap(),
-        0
+        file_repo::count_live_files(&db).await.unwrap(),
+        files_before
     );
     assert_eq!(
-        file_repo::count_live_files(state.writer_db())
+        aster_drive_model::entities::file_blob::Entity::find()
+            .count(&db)
             .await
             .unwrap(),
-        0
+        blobs_before
     );
+
+    let session = upload_session_repo::find_by_id(&db, upload_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        session.status,
+        aster_drive_model::types::UploadSessionStatus::Uploading
+    );
+    assert!(session.file_id.is_none());
 }
 
 #[actix_web::test]
-async fn test_declared_empty_upload_rejects_missing_file_field() {
+async fn test_stream_body_is_single_claim_and_publishes_completed_session() {
+    use aster_drive::db::repository::upload_session_repo;
     let state = common::setup().await;
+    let db = state.writer_db().clone();
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
+    let content = b"one body";
 
-    let boundary = format!("----AsterTestBoundary{}", uuid::Uuid::new_v4().simple());
-    let payload = format!(
-        "--{boundary}\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\nempty\r\n--{boundary}--\r\n"
+    let init_req = test::TestRequest::post()
+        .uri("/api/v1/files/upload/init")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "filename": "single-claim.txt",
+            "mime_type": "text/custom",
+            "total_size": content.len()
+        }))
+        .to_request();
+    let init_resp = test::call_service(&app, init_req).await;
+    assert_eq!(init_resp.status(), 201);
+    let init_body: Value = test::read_body_json(init_resp).await;
+    let upload_id = init_body["data"]["upload_id"].as_str().unwrap();
+
+    let upload_body = || {
+        test::TestRequest::put()
+            .uri(&format!("/api/v1/files/upload/{upload_id}/body"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .insert_header(("Content-Type", "application/octet-stream"))
+            .set_payload(content.as_slice())
+            .to_request()
+    };
+    let first = test::call_service(&app, upload_body()).await;
+    assert_eq!(first.status(), 201);
+    let first_body: Value = test::read_body_json(first).await;
+    assert_eq!(first_body["data"]["mime_type"], "text/custom");
+
+    let duplicate = test::call_service(&app, upload_body()).await;
+    assert_eq!(duplicate.status(), actix_web::http::StatusCode::CONFLICT);
+    let session = upload_session_repo::find_by_id(&db, upload_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        session.status,
+        aster_drive_model::types::UploadSessionStatus::Completed
     );
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload?declared_size=0")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
-    let body: Value = test::read_body_json(resp).await;
-    assert_upload_error_contract(&body, ApiErrorCode::UploadEmptyFile.as_str());
-}
-
-#[actix_web::test]
-async fn test_declared_empty_upload_rejects_empty_filename() {
-    let state = common::setup().await;
-    let app = create_test_app!(state);
-    let (token, _) = register_and_login!(app);
-
-    let (boundary, payload) = build_multipart_payload("", b"");
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload?declared_size=0")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
+    assert_eq!(session.file_id, first_body["data"]["id"].as_i64());
 }
 
 #[actix_web::test]
@@ -2384,7 +2276,10 @@ async fn test_file_upload_init_upload_normalizes_nfd_filename_and_rejects_window
     let init = upload::init_upload(&state, user.id, "cafe\u{0301}.txt", 10_485_760, None, None)
         .await
         .unwrap();
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
+    assert_eq!(
+        init.mode,
+        aster_drive_model::types::UploadTransport::Chunked
+    );
     let upload_id = init
         .upload_id
         .expect("chunked upload should return upload_id");
@@ -2822,7 +2717,10 @@ async fn test_chunked_upload_offset_staging_preserves_content() {
     let init = upload::init_upload(&state, user.id, "streamed.txt", 10_485_760, None, None)
         .await
         .unwrap();
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
+    assert_eq!(
+        init.mode,
+        aster_drive_model::types::UploadTransport::Chunked
+    );
 
     let upload_id = init.upload_id.unwrap();
     let chunk0 = vec![b'A'; TEST_CHUNK_SIZE];
@@ -3872,7 +3770,7 @@ async fn test_concurrent_chunked_complete_same_team_quota_boundary_rolls_back_lo
 }
 
 #[actix_web::test]
-async fn test_local_direct_upload_with_declared_size_avoids_global_temp_dirs_and_reuses_blob() {
+async fn test_local_stream_upload_avoids_global_temp_dirs_and_reuses_blob() {
     use aster_drive::db::repository::{file_repo, policy_repo};
 
     let state = common::setup().await;
@@ -3888,48 +3786,34 @@ async fn test_local_direct_upload_with_declared_size_avoids_global_temp_dirs_and
     let (token, _) = register_and_login!(app);
 
     let data = b"hello local direct dedup";
-    let (boundary, payload) = build_multipart_payload("local-a.txt", data);
-    let req = test::TestRequest::post()
-        .uri(&format!(
-            "/api/v1/files/upload?declared_size={}",
-            data.len()
-        ))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    let (status, body) = common::upload_via_server_session(
+        &app,
+        &token,
+        "/api/v1/files",
+        "local-a.txt",
+        "text/plain",
+        data,
+    )
+    .await;
+    assert_eq!(status, 201);
     let file_id = body["data"]["id"].as_i64().unwrap();
 
-    let (boundary2, payload2) = build_multipart_payload("local-b.txt", data);
-    let req = test::TestRequest::post()
-        .uri(&format!(
-            "/api/v1/files/upload?declared_size={}",
-            data.len()
-        ))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary2}"),
-        ))
-        .set_payload(payload2)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    let (status, body) = common::upload_via_server_session(
+        &app,
+        &token,
+        "/api/v1/files",
+        "local-b.txt",
+        "text/plain",
+        data,
+    )
+    .await;
+    assert_eq!(status, 201);
     let file_id2 = body["data"]["id"].as_i64().unwrap();
 
     let temp_snapshot_after = snapshot_temp_roots(&temp_roots).unwrap();
     assert_eq!(
         temp_snapshot_after, temp_snapshot_before,
-        "local direct upload fast path should not touch global temp/upload temp dirs"
+        "local stream upload path should not touch global temp/upload temp dirs"
     );
 
     let file = file_repo::find_by_id(&db, file_id).await.unwrap();
@@ -3974,26 +3858,31 @@ async fn test_streaming_direct_failure_boundaries_abort_only_owned_attempts() {
         let driver = Arc::new(DirectStreamFailureDriver::new(failure_point));
         driver_registry.insert_for_test(policy.id, driver.clone());
         let filename = format!("direct-failure-{failure_point:?}.bin").to_ascii_lowercase();
-        let (boundary, payload) = build_multipart_payload(&filename, data);
         let request = test::TestRequest::post()
-            .uri(&format!(
-                "/api/v1/files/upload?declared_size={}",
-                data.len()
-            ))
+            .uri("/api/v1/files/upload/init")
             .insert_header(("Cookie", common::access_cookie_header(&token)))
             .insert_header(common::csrf_header_for(&token))
-            .insert_header((
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            ))
-            .set_payload(payload)
+            .set_json(serde_json::json!({
+                "filename": filename,
+                "total_size": data.len()
+            }))
             .to_request();
-
+        let response = test::call_service(&app, request).await;
+        assert_eq!(response.status(), 201);
+        let init_body: Value = test::read_body_json(response).await;
+        let upload_id = init_body["data"]["upload_id"].as_str().unwrap();
+        let request = test::TestRequest::put()
+            .uri(&format!("/api/v1/files/upload/{upload_id}/body"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .insert_header(("Content-Type", "application/octet-stream"))
+            .set_payload(data.as_slice())
+            .to_request();
         let response = test::call_service(&app, request).await;
 
         assert!(
             response.status().is_client_error() || response.status().is_server_error(),
-            "{failure_point:?} should fail the direct upload"
+            "{failure_point:?} should fail the stream upload"
         );
         assert_eq!(driver.stage_calls.load(Ordering::SeqCst), 1);
         assert_eq!(
@@ -4088,7 +3977,7 @@ async fn test_init_upload_local_never_presigned() {
 async fn test_chunked_init_persists_explicit_offset_staging_kind() {
     use aster_drive::db::repository::upload_session_repo;
     use aster_drive::services::files::upload;
-    use aster_drive_model::types::{UploadMode, UploadSessionKind};
+    use aster_drive_model::types::{UploadSessionKind, UploadTransport};
 
     let state = common::setup().await;
     let user = common::create_test_account(&state, "kindinit", "kind-init@test.com", "password123")
@@ -4104,7 +3993,7 @@ async fn test_chunked_init_persists_explicit_offset_staging_kind() {
     )
     .await
     .unwrap();
-    assert_eq!(response.mode, UploadMode::Chunked);
+    assert_eq!(response.mode, UploadTransport::Chunked);
     let session =
         upload_session_repo::find_by_id(state.writer_db(), response.upload_id.as_deref().unwrap())
             .await
@@ -4635,7 +4524,10 @@ async fn test_upload_chunk_rejects_wrong_chunk_size() {
     let init = upload::init_upload(&state, user.id, "size-check.bin", 10_485_760, None, None)
         .await
         .unwrap();
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
+    assert_eq!(
+        init.mode,
+        aster_drive_model::types::UploadTransport::Chunked
+    );
 
     let upload_id = init.upload_id.unwrap();
     let err = match upload::upload_chunk(&state, &upload_id, 0, user.id, b"short").await {
@@ -4727,7 +4619,10 @@ async fn test_complete_upload_is_idempotent_after_completion() {
     let init = upload::init_upload(&state, user.id, "idempotent.txt", 10_485_760, None, None)
         .await
         .unwrap();
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
+    assert_eq!(
+        init.mode,
+        aster_drive_model::types::UploadTransport::Chunked
+    );
     assert_eq!(init.total_chunks, Some(2));
 
     let upload_id = init.upload_id.unwrap();
@@ -4828,7 +4723,10 @@ async fn test_complete_chunked_upload_quota_failure_does_not_complete_session_or
     )
     .await
     .unwrap();
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
+    assert_eq!(
+        init.mode,
+        aster_drive_model::types::UploadTransport::Chunked
+    );
     assert_eq!(init.total_chunks, Some(2));
 
     let upload_id = init.upload_id.unwrap();
@@ -4907,7 +4805,10 @@ async fn test_complete_upload_marks_session_failed_after_missing_chunk_receipt()
     let init = upload::init_upload(&state, user.id, "broken.txt", 10_485_760, None, None)
         .await
         .unwrap();
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
+    assert_eq!(
+        init.mode,
+        aster_drive_model::types::UploadTransport::Chunked
+    );
 
     let upload_id = init.upload_id.unwrap();
     let chunk0 = vec![b'A'; TEST_CHUNK_SIZE];
@@ -5346,6 +5247,7 @@ async fn test_file_upload_get_progress_uses_db_parts_for_terminal_relay_multipar
                 team_id: Set(None),
                 frontend_client_id: Set(None),
                 filename: Set("relay-progress.bin".to_string()),
+                mime_type: Set("application/octet-stream".to_string()),
                 total_size: Set(15),
                 chunk_size: Set(5),
                 total_chunks: Set(3),
@@ -5877,7 +5779,7 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
     .unwrap();
     assert_eq!(
         init.mode,
-        aster_drive_model::types::UploadMode::PresignedMultipart
+        aster_drive_model::types::UploadTransport::PresignedMultipart
     );
     assert_eq!(init.total_chunks, Some(2));
     let upload_id = init.upload_id.clone().unwrap();
@@ -6114,7 +6016,10 @@ async fn test_presigned_upload_s3_e2e() {
     let init = upload::init_upload(&state, user.id, "hello.txt", data.len() as i64, None, None)
         .await
         .unwrap();
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Presigned);
+    assert_eq!(
+        init.mode,
+        aster_drive_model::types::UploadTransport::Presigned
+    );
     assert!(init.presigned_request.is_some());
     assert!(init.upload_id.is_some());
 
@@ -6258,7 +6163,10 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
     )
     .await
     .unwrap();
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Presigned);
+    assert_eq!(
+        init.mode,
+        aster_drive_model::types::UploadTransport::Presigned
+    );
     let upload_id = init.upload_id.unwrap();
     let presigned_request = init.presigned_request.unwrap();
     let session = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
@@ -6388,7 +6296,7 @@ async fn test_presigned_multipart_upload_s3_e2e() {
     .unwrap();
     assert_eq!(
         init.mode,
-        aster_drive_model::types::UploadMode::PresignedMultipart
+        aster_drive_model::types::UploadTransport::PresignedMultipart
     );
     assert_eq!(init.total_chunks, Some(2));
     assert!(init.presigned_request.is_none());
@@ -6554,9 +6462,9 @@ async fn test_create_empty_file_s3_no_dedup() {
     assert!(stored_paths.is_empty());
 }
 
-/// S3 relay_stream 小文件直传：走 /files/upload，服务端直接中继到 S3，不做去重
+/// S3 relay_stream 小文件上传：init 固化 plan，raw body 直接中继到 S3，不做去重。
 #[tokio::test]
-async fn test_relay_stream_direct_upload_s3_e2e() {
+async fn test_relay_stream_upload_s3_e2e() {
     use aster_drive::db::repository::file_repo;
     use aster_drive::services::files::upload;
     use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
@@ -6600,7 +6508,8 @@ async fn test_relay_stream_direct_upload_s3_e2e() {
     let init = upload::init_upload(&state, user.id, "relay.txt", data.len() as i64, None, None)
         .await
         .unwrap();
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Direct);
+    assert_eq!(init.mode, aster_drive_model::types::UploadTransport::Stream);
+    let stream_upload_id = init.upload_id.clone().expect("stream session id");
 
     let db = state.writer_db().clone();
     let driver_registry = state.driver_registry.clone();
@@ -6611,48 +6520,33 @@ async fn test_relay_stream_direct_upload_s3_e2e() {
     let temp_snapshot_before = snapshot_temp_roots(&temp_roots).unwrap();
     let app = create_test_app!(state);
 
-    let (boundary, payload) = build_multipart_payload("relay.txt", data);
-    let req = test::TestRequest::post()
-        .uri(&format!(
-            "/api/v1/files/upload?declared_size={}",
-            data.len()
-        ))
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/upload/{stream_upload_id}/body"))
         .insert_header(("Cookie", common::access_cookie_header(&login.access_token)))
         .insert_header(common::csrf_header_for(&login.access_token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload(data.as_slice())
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
     let body: Value = test::read_body_json(resp).await;
     let file_id = body["data"]["id"].as_i64().unwrap();
-
-    let (boundary2, payload2) = build_multipart_payload("relay-copy.txt", data);
-    let req = test::TestRequest::post()
-        .uri(&format!(
-            "/api/v1/files/upload?declared_size={}",
-            data.len()
-        ))
-        .insert_header(("Cookie", common::access_cookie_header(&login.access_token)))
-        .insert_header(common::csrf_header_for(&login.access_token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary2}"),
-        ))
-        .set_payload(payload2)
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
+    let (status, body) = common::upload_via_server_session(
+        &app,
+        &login.access_token,
+        "/api/v1/files",
+        "relay-copy.txt",
+        "text/plain",
+        data,
+    )
+    .await;
+    assert_eq!(status, 201);
     let file_id2 = body["data"]["id"].as_i64().unwrap();
     let temp_snapshot_after = snapshot_temp_roots(&temp_roots).unwrap();
 
     assert_eq!(
         temp_snapshot_after, temp_snapshot_before,
-        "relay_stream direct upload should not create local temp files or upload temp dirs"
+        "relay stream upload should not create local temp files or upload temp dirs"
     );
 
     let file = file_repo::find_by_id(&db, file_id).await.unwrap();
@@ -6687,9 +6581,9 @@ async fn test_relay_stream_direct_upload_s3_e2e() {
     assert_eq!(stored2, data);
 }
 
-/// S3 relay_stream 直传：文件大小刚好等于 chunk_size 时仍应走 direct upload。
+/// S3 relay_stream 单请求上传：文件大小刚好等于 chunk_size 时仍应走 stream transport。
 #[tokio::test]
-async fn test_relay_stream_direct_upload_s3_exact_part_size_e2e() {
+async fn test_relay_stream_upload_s3_exact_part_size_e2e() {
     use aster_drive::db::repository::file_repo;
     use aster_drive::services::files::upload;
     use aster_drive_model::entities::{upload_session, upload_session_part};
@@ -6760,15 +6654,15 @@ async fn test_relay_stream_direct_upload_s3_exact_part_size_e2e() {
     )
     .await
     .unwrap();
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Direct);
+    assert_eq!(init.mode, aster_drive_model::types::UploadTransport::Stream);
     assert_eq!(
         upload_session::Entity::find()
             .filter(upload_session::Column::UserId.eq(user.id))
             .count(&db)
             .await
             .unwrap(),
-        sessions_before,
-        "direct init should not create upload sessions at the exact chunk boundary"
+        sessions_before + 1,
+        "stream init should create one upload session at the exact chunk boundary"
     );
     assert_eq!(
         upload_session_part::Entity::find()
@@ -6786,19 +6680,13 @@ async fn test_relay_stream_direct_upload_s3_exact_part_size_e2e() {
     let driver = state.driver_registry.get_driver(&policy).unwrap();
     let app = create_test_app!(state);
 
-    let (boundary, payload) = build_multipart_payload("relay-exact.bin", &data);
-    let req = test::TestRequest::post()
-        .uri(&format!(
-            "/api/v1/files/upload?declared_size={}",
-            data.len()
-        ))
+    let stream_upload_id = init.upload_id.expect("stream session id");
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/upload/{stream_upload_id}/body"))
         .insert_header(("Cookie", common::access_cookie_header(&login.access_token)))
         .insert_header(common::csrf_header_for(&login.access_token))
-        .insert_header((
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        ))
-        .set_payload(payload)
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload(data.clone())
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
@@ -6818,8 +6706,8 @@ async fn test_relay_stream_direct_upload_s3_exact_part_size_e2e() {
             .count(&db)
             .await
             .unwrap(),
-        sessions_before,
-        "direct /files/upload should not create upload sessions at the exact chunk boundary"
+        sessions_before + 1,
+        "stream init should leave one session at the exact chunk boundary"
     );
     assert_eq!(
         upload_session_part::Entity::find()
@@ -6893,7 +6781,10 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
     )
     .await
     .unwrap();
-    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
+    assert_eq!(
+        init.mode,
+        aster_drive_model::types::UploadTransport::Chunked
+    );
     assert_eq!(init.chunk_size, Some(5_242_880));
     assert_eq!(init.total_chunks, Some(2));
 

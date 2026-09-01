@@ -89,9 +89,9 @@ export const benchConfig = {
 	downloadFile: env("ASTER_BENCH_DOWNLOAD_FILE", "payload-5mb.bin"),
 	rangeBytes: intEnv("ASTER_BENCH_RANGE_BYTES", 256 * 1024),
 	rangeStrideBytes: intEnv("ASTER_BENCH_RANGE_STRIDE_BYTES", 1024 * 1024),
-	directUploadFolder: env(
-		"ASTER_BENCH_DIRECT_UPLOAD_FOLDER",
-		"bench-upload-direct",
+	streamUploadFolder: env(
+		"ASTER_BENCH_STREAM_UPLOAD_FOLDER",
+		"bench-upload-stream",
 	),
 	chunkedUploadFolder: env(
 		"ASTER_BENCH_CHUNKED_UPLOAD_FOLDER",

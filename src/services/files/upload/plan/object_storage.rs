@@ -3,20 +3,19 @@ use chrono::{Duration, Utc};
 use crate::api::constants::HOUR_SECS;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
-use crate::services::files::upload::responses::InitUploadResponse;
-use crate::services::files::upload::shared::{
+use crate::services::files::upload::session::responses::InitUploadResponse;
+use crate::services::files::upload::session::shared::{
     UniqueUuidAttempt, delete_upload_session_record_after_init_error, with_unique_upload_id,
 };
 use crate::services::workspace::storage::{
     PolicyUploadTransport, resolve_policy_upload_transport_for_execution,
 };
-use aster_drive_model::types::{ObjectStorageUploadStrategy, UploadMode, UploadSessionStatus};
+use aster_drive_model::types::{ObjectStorageUploadStrategy, UploadSessionStatus, UploadTransport};
 use aster_forge_utils::numbers;
 
 use super::context::{
     InitUploadContext, MultipartSessionInitParams, UploadSessionRecordParams,
-    direct_upload_response, init_multipart_session_with_retry, session_kind_for_transport,
-    try_persist_upload_session,
+    init_multipart_session_with_retry, session_kind_for_transport, try_persist_upload_session,
 };
 
 pub(super) async fn init_object_storage_upload(
@@ -55,7 +54,7 @@ async fn init_presigned_object_storage_upload(
 
     // 小文件 presigned：客户端直接 PUT 到最终 temp object，不经过服务端 relay，
     // 也不需要 chunk bookkeeping。
-    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadMode::Presigned {
+    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadTransport::Presigned {
         return init_presigned_object_storage_single_upload(state, ctx, driver.as_ref()).await;
     }
 
@@ -70,9 +69,9 @@ async fn init_presigned_object_storage_upload(
         ctx,
         multipart.as_ref(),
         MultipartSessionInitParams {
-            mode: UploadMode::PresignedMultipart,
+            mode: UploadTransport::PresignedMultipart,
             status: UploadSessionStatus::Presigned,
-            session_kind: session_kind_for_transport(transport, UploadMode::PresignedMultipart)?,
+            session_kind: session_kind_for_transport(transport, UploadTransport::PresignedMultipart)?,
             chunk_size,
             total_chunks,
             expires_in: Duration::hours(24),
@@ -99,6 +98,7 @@ async fn init_presigned_object_storage_single_upload(
                 upload_id: &upload_id,
                 scope: ctx.scope,
                 filename: &ctx.target.filename,
+                mime_type: &ctx.mime_type,
                 total_size: ctx.total_size,
                 chunk_size: 0,
                 total_chunks: 0,
@@ -112,7 +112,7 @@ async fn init_presigned_object_storage_single_upload(
                 status: UploadSessionStatus::Presigned,
                 session_kind: session_kind_for_transport(
                     PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
-                    UploadMode::Presigned,
+                    UploadTransport::Presigned,
                 )?,
                 object_temp_key: Some(&temp_key),
                 object_multipart_id: None,
@@ -143,13 +143,13 @@ async fn init_presigned_object_storage_single_upload(
             scope = ?ctx.scope,
             upload_id = %upload_id,
             policy_id = ctx.policy.id,
-            mode = ?UploadMode::Presigned,
+            mode = ?UploadTransport::Presigned,
             folder_id = ctx.target.folder_id,
             "initialized presigned upload session"
         );
 
         Ok(UniqueUuidAttempt::Accepted(InitUploadResponse {
-            mode: UploadMode::Presigned,
+            mode: UploadTransport::Presigned,
             upload_id: Some(upload_id),
             chunk_size: None,
             total_chunks: None,
@@ -170,15 +170,15 @@ async fn init_relay_stream_object_storage_upload(
     let chunk_size = transport.effective_chunk_size(&ctx.policy);
 
     // relay_stream + 小文件：直接走普通上传接口，让服务端把字节流转发到驱动。
-    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadMode::Direct {
+    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadTransport::Stream {
         tracing::debug!(
             scope = ?ctx.scope,
             policy_id = ctx.policy.id,
-            mode = ?UploadMode::Direct,
+            mode = ?UploadTransport::Stream,
             folder_id = ctx.target.folder_id,
             "selected direct relay upload mode"
         );
-        return Ok(direct_upload_response());
+        return super::context::init_stream_session(state, ctx).await;
     }
 
     // relay_stream + 大文件：客户端仍然分片传给服务端，服务端再逐片上传到对象存储 multipart。
@@ -191,9 +191,9 @@ async fn init_relay_stream_object_storage_upload(
         ctx,
         multipart.as_ref(),
         MultipartSessionInitParams {
-            mode: UploadMode::Chunked,
+            mode: UploadTransport::Chunked,
             status: UploadSessionStatus::Uploading,
-            session_kind: session_kind_for_transport(transport, UploadMode::Chunked)?,
+            session_kind: session_kind_for_transport(transport, UploadTransport::Chunked)?,
             chunk_size,
             total_chunks,
             expires_in: Duration::hours(24),

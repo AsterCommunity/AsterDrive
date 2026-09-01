@@ -29,7 +29,7 @@ function getModeLabel(task: UploadTask) {
 	if (task.mode === "presigned") return "Presigned";
 	if (task.mode === "presigned_multipart") return "Presigned Multipart";
 	if (task.mode === "provider_resumable") return "Provider Resumable";
-	if (task.mode === "direct") return "Direct";
+	if (task.mode === "stream") return "Stream";
 	return "Pending";
 }
 

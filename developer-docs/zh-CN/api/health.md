@@ -106,7 +106,7 @@ HTTP 和数据库：
 | 指标 | 标签 | 说明 |
 | --- | --- | --- |
 | `auth_events_total` | `action`, `status`, `reason` | 登录和 refresh token 事件，包含成功与主要失败原因 |
-| `file_uploads_total` | `mode`, `status` | 文件上传结果，覆盖 direct / chunked / presigned / presigned multipart 等模式 |
+| `file_uploads_total` | `mode`, `status` | 文件上传结果，覆盖 stream / chunked / presigned / presigned multipart / provider resumable 等 transport |
 | `file_downloads_total` | `source`, `outcome`, `range` | 文件下载结果，区分登录下载、公开分享、直链、预览链接和 share stream |
 | `upload_sessions_total` | `mode` | 创建的上传 session 数量 |
 | `upload_session_events_total` | `mode`, `event`, `status` | 上传 session 生命周期事件，例如 complete / cancel |

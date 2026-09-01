@@ -44,6 +44,16 @@ pub(super) fn determine_completion_plan(
     }
 
     match kind {
+        UploadSessionKind::Stream => {
+            if session.status == UploadSessionStatus::Completed {
+                Ok(CompletionPlan::ReturnCompleted)
+            } else {
+                Err(upload_assembly_error_with_code(
+                    ApiErrorCode::UploadIncompleteChunks,
+                    "stream body must be uploaded before completion",
+                ))
+            }
+        }
         UploadSessionKind::ProviderPresignedMultipart
         | UploadSessionKind::RemotePresignedMultipart => {
             let parts = parts.ok_or_else(|| {

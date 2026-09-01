@@ -20,6 +20,8 @@ pub struct Model {
     /// Used only for recoverable-session visibility; auth still uses user/team scope.
     pub frontend_client_id: Option<String>,
     pub filename: String,
+    /// MIME type resolved and frozen during upload initialization.
+    pub mime_type: String,
     pub total_size: i64,
     pub chunk_size: i64,
     pub total_chunks: i32,
