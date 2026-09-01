@@ -441,25 +441,46 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
         "canceling upload session"
     );
 
-    if session.status == UploadSessionStatus::Completed {
-        tracing::debug!(
-            upload_id,
-            file_id = session.file_id,
-            "completed upload session cancel is an idempotent no-op"
-        );
-        return Ok(());
-    }
-
-    let defer_active_multipart_cleanup = session.object_multipart_id.is_some()
-        && matches!(session.status, UploadSessionStatus::Assembling);
-    if defer_active_multipart_cleanup {
-        defer_upload_session_cleanup(
-            state,
-            upload_id,
-            "canceled assembling multipart upload session",
-        )
-        .await?;
-        return Ok(());
+    match session.status {
+        UploadSessionStatus::Completed => {
+            tracing::debug!(
+                upload_id,
+                file_id = session.file_id,
+                "completed upload session cancel is an idempotent no-op"
+            );
+            return Ok(());
+        }
+        UploadSessionStatus::Assembling if session.object_multipart_id.is_some() => {
+            defer_upload_session_cleanup(
+                state,
+                upload_id,
+                "canceled assembling multipart upload session",
+            )
+            .await?;
+            return Ok(());
+        }
+        UploadSessionStatus::Assembling => {
+            let transitioned = upload_session_repo::try_fail_with_expiration(
+                state.writer_db(),
+                upload_id,
+                UploadSessionStatus::Assembling,
+                Utc::now() + Duration::seconds(DEFERRED_UPLOAD_SESSION_CLEANUP_GRACE_SECS),
+            )
+            .await?;
+            if transitioned {
+                cleanup_upload_temp_dir(state, upload_id).await;
+                tracing::debug!(upload_id, "canceled assembling stream upload session");
+            } else {
+                tracing::debug!(
+                    upload_id,
+                    "assembling upload session changed state during cancellation"
+                );
+            }
+            return Ok(());
+        }
+        UploadSessionStatus::Uploading
+        | UploadSessionStatus::Presigned
+        | UploadSessionStatus::Failed => {}
     }
 
     let cleanup_outcome = cleanup_remote_upload_state(state, &session, false).await;
@@ -564,6 +585,21 @@ pub async fn cleanup_expired(state: &PrimaryAppState) -> Result<u32> {
     let mut cleaned = 0usize;
     for session in expired {
         if session.status == UploadSessionStatus::Assembling {
+            if session.session_kind == UploadSessionKind::Stream {
+                let transitioned = upload_session_repo::try_fail_with_expiration(
+                    state.writer_db(),
+                    &session.id,
+                    UploadSessionStatus::Assembling,
+                    Utc::now() + Duration::seconds(DEFERRED_UPLOAD_SESSION_CLEANUP_GRACE_SECS),
+                )
+                .await?;
+                if transitioned {
+                    tracing::debug!(
+                        session_id = %session.id,
+                        "expired assembling stream session moved to failed for cleanup retry"
+                    );
+                }
+            }
             tracing::debug!(
                 session_id = %session.id,
                 "skipping expired upload session because assembly is in progress"

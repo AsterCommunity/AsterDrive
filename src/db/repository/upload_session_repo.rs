@@ -111,6 +111,8 @@ pub async fn delete_if_cancellable<C: ConnectionTrait>(db: &C, id: &str) -> Resu
 pub async fn exists_by_folder_id<C: ConnectionTrait>(db: &C, folder_id: i64) -> Result<bool> {
     let now = chrono::Utc::now();
     Ok(UploadSession::find()
+        .select_only()
+        .column(upload_session::Column::Id)
         .filter(upload_session::Column::FolderId.eq(folder_id))
         .filter(upload_session::Column::ExpiresAt.gt(now))
         .filter(upload_session::Column::Status.is_in([
@@ -118,10 +120,12 @@ pub async fn exists_by_folder_id<C: ConnectionTrait>(db: &C, folder_id: i64) -> 
             UploadSessionStatus::Assembling,
             UploadSessionStatus::Presigned,
         ]))
-        .count(db)
+        .limit(1)
+        .into_tuple::<String>()
+        .one(db)
         .await
         .map_err(AsterError::from)?
-        > 0)
+        .is_some())
 }
 
 pub async fn increment_received_count_if_uploading<C: ConnectionTrait>(
@@ -289,6 +293,7 @@ pub async fn find_expired<C: ConnectionTrait>(db: &C) -> Result<Vec<upload_sessi
             UploadSessionStatus::Uploading,
             UploadSessionStatus::Presigned,
             UploadSessionStatus::Failed,
+            UploadSessionStatus::Assembling,
         ]))
         .all(db)
         .await

@@ -5797,6 +5797,19 @@ async fn test_file_upload_cleanup_expired_removes_local_sessions_only() {
     )
     .await;
 
+    let stream_assembling_id = new_test_upload_id();
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            &stream_assembling_id,
+            aster_drive_model::types::UploadSessionStatus::Assembling,
+            chrono::Utc::now() - chrono::Duration::minutes(5),
+            UploadSessionKind::Stream,
+        ),
+    )
+    .await;
+
     let expired_dir = aster_forge_utils::paths::upload_temp_dir(
         &state.config.server.upload_temp_dir,
         &expired_id,
@@ -5831,6 +5844,14 @@ async fn test_file_upload_cleanup_expired_removes_local_sessions_only() {
             .await
             .is_ok()
     );
+    assert_eq!(
+        upload_session_repo::find_by_id(state.writer_db(), &stream_assembling_id)
+            .await
+            .unwrap()
+            .status,
+        aster_drive_model::types::UploadSessionStatus::Failed,
+        "expired stream assembly must enter the cleanup retry state"
+    );
     assert!(
         !std::path::Path::new(&expired_dir).exists(),
         "expired temp dir should be removed"
@@ -5840,6 +5861,44 @@ async fn test_file_upload_cleanup_expired_removes_local_sessions_only() {
         "assembling temp dir must not be removed while completion is in progress"
     );
     aster_forge_utils::fs::cleanup_temp_dir(&assembling_dir).await;
+}
+
+#[actix_web::test]
+async fn test_cancel_assembling_stream_marks_session_failed_for_cleanup() {
+    use aster_drive::db::repository::upload_session_repo;
+    use aster_drive::services::files::upload;
+    use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "cancelassembling",
+        "cancel-assembling@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let upload_id = new_test_upload_id();
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            &upload_id,
+            UploadSessionStatus::Assembling,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::Stream,
+        ),
+    )
+    .await;
+
+    upload::cancel_upload(&state, &upload_id, user.id)
+        .await
+        .expect("assembling stream cancellation should succeed");
+    let session = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+        .await
+        .expect("canceled stream session should remain for cleanup retry");
+    assert_eq!(session.status, UploadSessionStatus::Failed);
+    assert!(session.expires_at <= chrono::Utc::now() + chrono::Duration::seconds(16));
 }
 
 #[actix_web::test]
