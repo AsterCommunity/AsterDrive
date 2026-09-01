@@ -5747,6 +5747,7 @@ async fn test_team_presign_parts_terminal_error_cleans_session_and_temp_object()
 async fn test_file_upload_cleanup_expired_removes_local_sessions_only() {
     use aster_drive::db::repository::upload_session_repo;
     use aster_drive::services::files::upload;
+    use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 
     let state = common::setup().await;
     let user =
@@ -5805,10 +5806,17 @@ async fn test_file_upload_cleanup_expired_removes_local_sessions_only() {
             &stream_assembling_id,
             aster_drive_model::types::UploadSessionStatus::Assembling,
             chrono::Utc::now() - chrono::Duration::minutes(5),
-            UploadSessionKind::Stream,
+            UploadSessionKind::OffsetStaging,
         ),
     )
     .await;
+    let mut stale_assembly =
+        upload_session_repo::find_by_id(state.writer_db(), &stream_assembling_id)
+            .await
+            .unwrap()
+            .into_active_model();
+    stale_assembly.updated_at = Set(chrono::Utc::now() - chrono::Duration::minutes(5));
+    stale_assembly.update(state.writer_db()).await.unwrap();
 
     let expired_dir = aster_forge_utils::paths::upload_temp_dir(
         &state.config.server.upload_temp_dir,
@@ -5828,7 +5836,7 @@ async fn test_file_upload_cleanup_expired_removes_local_sessions_only() {
         .unwrap();
 
     let cleaned = upload::cleanup_expired(&state).await.unwrap();
-    assert_eq!(cleaned, 1);
+    assert_eq!(cleaned, 2);
     assert!(
         upload_session_repo::find_by_id(state.writer_db(), &expired_id)
             .await
@@ -5844,13 +5852,11 @@ async fn test_file_upload_cleanup_expired_removes_local_sessions_only() {
             .await
             .is_ok()
     );
-    assert_eq!(
+    assert!(
         upload_session_repo::find_by_id(state.writer_db(), &stream_assembling_id)
             .await
-            .unwrap()
-            .status,
-        aster_drive_model::types::UploadSessionStatus::Failed,
-        "expired stream assembly must enter the cleanup retry state"
+            .is_err(),
+        "stale non-stream assembly must have a crash-recovery cleanup path"
     );
     assert!(
         !std::path::Path::new(&expired_dir).exists(),

@@ -417,6 +417,13 @@ impl PolicySnapshot {
             .insert(user_id, group_id);
     }
 
+    pub fn set_team_policy_group(&self, team_id: i64, group_id: i64) {
+        self.snapshot
+            .write()
+            .team_policy_group_by_team_id
+            .insert(team_id, group_id);
+    }
+
     pub fn remove_user_policy_group(&self, user_id: i64) {
         self.snapshot
             .write()

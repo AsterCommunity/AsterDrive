@@ -284,6 +284,25 @@ pub async fn try_transition_status_before_expiry<C: ConnectionTrait>(
     Ok(result.rows_affected > 0)
 }
 
+/// Refresh the lease of an upload assembly while it is actively running.
+pub async fn touch_assembling<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<bool> {
+    let result = UploadSession::update_many()
+        .col_expr(
+            upload_session::Column::UpdatedAt,
+            sea_orm::sea_query::Expr::value(now),
+        )
+        .filter(upload_session::Column::Id.eq(id))
+        .filter(upload_session::Column::Status.eq(UploadSessionStatus::Assembling))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected == 1)
+}
+
 /// 查找所有过期且未完成的 session
 pub async fn find_expired<C: ConnectionTrait>(db: &C) -> Result<Vec<upload_session::Model>> {
     let now = chrono::Utc::now();
@@ -615,5 +634,33 @@ mod tests {
         let unchanged = find_by_id(&db, &model.id).await.unwrap();
         assert_eq!(unchanged.status, UploadSessionStatus::Assembling);
         assert_eq!(unchanged.expires_at, original_expiry);
+    }
+
+    #[tokio::test]
+    async fn fail_with_expiration_does_not_overwrite_completed_assembly() {
+        let db = build_test_db().await;
+        let model = session("assembly-race", UploadSessionStatus::Assembling);
+        model
+            .clone()
+            .into_active_model()
+            .insert(&db)
+            .await
+            .expect("assembling session should insert");
+        assert!(complete_if_assembling(&db, &model.id, 99).await.unwrap());
+
+        assert!(
+            !try_fail_with_expiration(
+                &db,
+                &model.id,
+                UploadSessionStatus::Assembling,
+                Utc::now() + Duration::seconds(15),
+            )
+            .await
+            .unwrap(),
+            "cancellation CAS must lose to completed finalization"
+        );
+        let completed = find_by_id(&db, &model.id).await.unwrap();
+        assert_eq!(completed.status, UploadSessionStatus::Completed);
+        assert_eq!(completed.file_id, Some(99));
     }
 }

@@ -17,7 +17,9 @@ mod provider_resumable;
 #[cfg(test)]
 mod tests;
 
+use std::future::Future;
 use std::time::Instant;
+use tokio::time::{Duration, MissedTickBehavior};
 
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -42,6 +44,33 @@ use self::plan::{CompletionPlan, completion_plan_label, determine_completion_pla
 use self::provider_resumable::complete_provider_resumable_upload;
 
 const UNRESOLVED_UPLOAD_ACTOR_USERNAME: &str = "<unresolved>";
+const ASSEMBLY_LEASE_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
+
+async fn run_with_assembly_lease<T, F>(
+    state: &PrimaryAppState,
+    upload_id: &str,
+    operation: F,
+) -> Result<T>
+where
+    F: Future<Output = Result<T>>,
+{
+    let mut refresh = tokio::time::interval(ASSEMBLY_LEASE_REFRESH_INTERVAL);
+    refresh.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    refresh.tick().await;
+    tokio::pin!(operation);
+    loop {
+        tokio::select! {
+            result = &mut operation => return result,
+            _ = refresh.tick() => {
+                if !crate::db::repository::upload_session_repo::touch_assembling(
+                    state.writer_db(), upload_id, chrono::Utc::now()
+                ).await? {
+                    tracing::debug!(upload_id, "upload assembly lease is no longer active");
+                }
+            }
+        }
+    }
+}
 
 /// 完成分片上传：组装 → 按策略决定是否计算 hash / 去重 → 写入最终存储
 async fn complete_upload_impl(
@@ -88,34 +117,44 @@ async fn complete_upload_impl_with_hints(
     }
     let plan = determine_completion_plan(&session, session_kind, parts)?;
     let plan_label = completion_plan_label(&plan);
+    let should_refresh_lease = session.status != UploadSessionStatus::Completed;
     let mode = if is_terminal {
         "completed_retry"
     } else {
         session_kind.as_str()
     };
-    let result = match plan {
-        CompletionPlan::ReturnCompleted => find_file_by_session(state.writer_db(), &session).await,
-        CompletionPlan::CompletePresigned => {
-            complete_presigned_upload(state, session, hints.actor_username).await
+    let completion = async move {
+        match plan {
+            CompletionPlan::ReturnCompleted => {
+                find_file_by_session(state.writer_db(), &session).await
+            }
+            CompletionPlan::CompletePresigned => {
+                complete_presigned_upload(state, session, hints.actor_username).await
+            }
+            CompletionPlan::CompletePresignedMultipart { parts } => {
+                complete_presigned_multipart(state, session, parts, hints.actor_username).await
+            }
+            CompletionPlan::CompleteRelayMultipart => {
+                complete_relay_multipart(state, session, hints.actor_username).await
+            }
+            CompletionPlan::CompleteProviderResumable => {
+                complete_provider_resumable_upload(state, session, hints.actor_username).await
+            }
+            CompletionPlan::CompleteChunked => {
+                complete_chunked_upload_with_actor_username(
+                    state,
+                    session,
+                    session_kind,
+                    hints.actor_username,
+                )
+                .await
+            }
         }
-        CompletionPlan::CompletePresignedMultipart { parts } => {
-            complete_presigned_multipart(state, session, parts, hints.actor_username).await
-        }
-        CompletionPlan::CompleteRelayMultipart => {
-            complete_relay_multipart(state, session, hints.actor_username).await
-        }
-        CompletionPlan::CompleteProviderResumable => {
-            complete_provider_resumable_upload(state, session, hints.actor_username).await
-        }
-        CompletionPlan::CompleteChunked => {
-            complete_chunked_upload_with_actor_username(
-                state,
-                session,
-                session_kind,
-                hints.actor_username,
-            )
-            .await
-        }
+    };
+    let result = if !should_refresh_lease {
+        completion.await
+    } else {
+        run_with_assembly_lease(state, &upload_id, completion).await
     };
     tracing::debug!(
         upload_id = %upload_id,

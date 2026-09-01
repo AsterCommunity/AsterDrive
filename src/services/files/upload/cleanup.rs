@@ -15,7 +15,7 @@ use crate::services::files::upload::session::scope::{
 };
 use crate::services::files::upload::session::shared::{
     UploadStorageErrorClass, classify_storage_error_kind, classify_upload_storage_error,
-    cleanup_upload_temp_dir, mark_session_failed_with_expiration, upload_storage_error_class_label,
+    cleanup_upload_temp_dir, upload_storage_error_class_label,
 };
 use aster_drive_model::entities::upload_session;
 use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
@@ -23,6 +23,7 @@ use aster_drive_storage::{StorageDriver, StorageError};
 use aster_forge_utils::numbers::usize_to_u32;
 
 const DEFERRED_UPLOAD_SESSION_CLEANUP_GRACE_SECS: i64 = 15;
+const ASSEMBLY_LEASE_TIMEOUT_SECS: i64 = 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UploadStageErrorDisposition {
@@ -326,23 +327,6 @@ async fn cleanup_resolved_remote_upload_state(
     delete_temp_object_for_cleanup(driver, session_id, temp_key, "upload cleanup").await
 }
 
-async fn defer_upload_session_cleanup(
-    state: &PrimaryAppState,
-    upload_id: &str,
-    reason: &str,
-) -> Result<()> {
-    let expires_at = Utc::now() + Duration::seconds(DEFERRED_UPLOAD_SESSION_CLEANUP_GRACE_SECS);
-    mark_session_failed_with_expiration(state.writer_db(), upload_id, expires_at).await?;
-    cleanup_upload_temp_dir(state, upload_id).await;
-    tracing::debug!(
-        upload_id,
-        expires_at = %expires_at,
-        reason,
-        "deferred upload session cleanup"
-    );
-    Ok(())
-}
-
 async fn terminate_upload_stage_session(
     state: &PrimaryAppState,
     session: &upload_session::Model,
@@ -450,15 +434,6 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
             );
             return Ok(());
         }
-        UploadSessionStatus::Assembling if session.object_multipart_id.is_some() => {
-            defer_upload_session_cleanup(
-                state,
-                upload_id,
-                "canceled assembling multipart upload session",
-            )
-            .await?;
-            return Ok(());
-        }
         UploadSessionStatus::Assembling => {
             let transitioned = upload_session_repo::try_fail_with_expiration(
                 state.writer_db(),
@@ -469,10 +444,17 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
             .await?;
             if transitioned {
                 cleanup_upload_temp_dir(state, upload_id).await;
-                tracing::debug!(upload_id, "canceled assembling stream upload session");
-            } else {
                 tracing::debug!(
                     upload_id,
+                    has_multipart_id = session.object_multipart_id.is_some(),
+                    "canceled assembling upload session; deferred destructive cleanup"
+                );
+            } else {
+                let latest = upload_session_repo::find_by_id(state.writer_db(), upload_id).await?;
+                tracing::debug!(
+                    upload_id,
+                    current_status = ?latest.status,
+                    file_id = latest.file_id,
                     "assembling upload session changed state during cancellation"
                 );
             }
@@ -483,10 +465,35 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
         | UploadSessionStatus::Failed => {}
     }
 
+    let expires_at = Utc::now() + Duration::seconds(DEFERRED_UPLOAD_SESSION_CLEANUP_GRACE_SECS);
+    let claimed = upload_session_repo::try_fail_with_expiration(
+        state.writer_db(),
+        upload_id,
+        session.status,
+        expires_at,
+    )
+    .await?;
+    if !claimed {
+        let latest = upload_session_repo::find_by_id(state.writer_db(), upload_id).await?;
+        tracing::debug!(
+            upload_id,
+            expected_status = ?session.status,
+            current_status = ?latest.status,
+            file_id = latest.file_id,
+            "upload session changed state before cancellation claim"
+        );
+        return Ok(());
+    }
+
     let cleanup_outcome = cleanup_remote_upload_state(state, &session, false).await;
     if !cleanup_outcome.is_complete() {
-        return defer_upload_session_cleanup(state, upload_id, "canceled upload cleanup blocked")
-            .await;
+        tracing::debug!(
+            upload_id,
+            expires_at = %expires_at,
+            cleanup_outcome = ?cleanup_outcome,
+            "canceled upload cleanup deferred"
+        );
+        return Ok(());
     }
 
     cleanup_upload_temp_dir(state, upload_id).await;
@@ -585,26 +592,34 @@ pub async fn cleanup_expired(state: &PrimaryAppState) -> Result<u32> {
     let mut cleaned = 0usize;
     for session in expired {
         if session.status == UploadSessionStatus::Assembling {
-            if session.session_kind == UploadSessionKind::Stream {
-                let transitioned = upload_session_repo::try_fail_with_expiration(
-                    state.writer_db(),
-                    &session.id,
-                    UploadSessionStatus::Assembling,
-                    Utc::now() + Duration::seconds(DEFERRED_UPLOAD_SESSION_CLEANUP_GRACE_SECS),
-                )
-                .await?;
-                if transitioned {
-                    tracing::debug!(
-                        session_id = %session.id,
-                        "expired assembling stream session moved to failed for cleanup retry"
-                    );
-                }
+            let lease_deadline = Utc::now() - Duration::seconds(ASSEMBLY_LEASE_TIMEOUT_SECS);
+            if session.updated_at > lease_deadline {
+                tracing::debug!(
+                    session_id = %session.id,
+                    session_kind = ?session.session_kind,
+                    "skipping expired upload session while assembly lease is active"
+                );
+                continue;
+            }
+            let transitioned = upload_session_repo::try_fail_with_expiration(
+                state.writer_db(),
+                &session.id,
+                UploadSessionStatus::Assembling,
+                Utc::now() + Duration::seconds(DEFERRED_UPLOAD_SESSION_CLEANUP_GRACE_SECS),
+            )
+            .await?;
+            if !transitioned {
+                tracing::debug!(
+                    session_id = %session.id,
+                    "assembly session changed state before expiry cleanup"
+                );
+                continue;
             }
             tracing::debug!(
                 session_id = %session.id,
-                "skipping expired upload session because assembly is in progress"
+                session_kind = ?session.session_kind,
+                "stale assembling upload session moved to failed for cleanup"
             );
-            continue;
         }
         let cleanup_outcome = cleanup_remote_upload_state(state, &session, false).await;
         cleanup_upload_temp_dir(state, &session.id).await;

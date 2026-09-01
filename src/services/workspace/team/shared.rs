@@ -567,6 +567,11 @@ pub(super) async fn update_team_record(
     crate::services::workspace::storage::invalidate_team_access_cache_for_team(state, updated.id)
         .await;
     if previous_policy_group_id != updated.policy_group_id {
+        if let Some(policy_group_id) = updated.policy_group_id {
+            state
+                .policy_snapshot()
+                .set_team_policy_group(updated.id, policy_group_id);
+        }
         crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
             state,
             "update",

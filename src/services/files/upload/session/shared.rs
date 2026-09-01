@@ -1,6 +1,6 @@
 //! 上传服务子模块：`shared`。
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use sea_orm::{ConnectionTrait, Set};
 use std::future::Future;
 use std::time::Instant;
@@ -424,20 +424,6 @@ pub(crate) async fn handle_completion_error<C: ConnectionTrait>(
     }
 
     mark_session_failed(db, upload_id).await;
-}
-
-pub(crate) async fn mark_session_failed_with_expiration<C: ConnectionTrait>(
-    db: &C,
-    upload_id: &str,
-    expires_at: DateTime<Utc>,
-) -> Result<()> {
-    let session = upload_session_repo::find_by_id(db, upload_id).await?;
-    let mut active: upload_session::ActiveModel = session.into();
-    active.status = Set(UploadSessionStatus::Failed);
-    active.expires_at = Set(expires_at);
-    active.updated_at = Set(Utc::now());
-    upload_session_repo::update(db, active).await?;
-    Ok(())
 }
 
 #[cfg(test)]

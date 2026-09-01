@@ -24,6 +24,9 @@ use super::placement::{
     StorageAdmissionConstraints, compile_admission, compile_matcher,
 };
 
+const MAX_PLACEMENT_RULE_NAME_CHARS: usize = 128;
+const MAX_PLACEMENT_RULE_DESCRIPTION_CHARS: usize = 512;
+
 pub(super) fn serialize_allowed_types(
     allowed_types: &[String],
 ) -> Result<StoredStoragePolicyAllowedTypes> {
@@ -152,12 +155,21 @@ pub(super) async fn validate_placement_rules<C: sea_orm::ConnectionTrait>(
     let mut priorities = std::collections::HashSet::new();
     for rule in rules {
         validate_rule_name(&rule.name)?;
+        if rule
+            .description
+            .as_deref()
+            .is_some_and(|value| value.chars().count() > MAX_PLACEMENT_RULE_DESCRIPTION_CHARS)
+        {
+            return Err(AsterError::validation_error(
+                "placement rule description must be at most 512 characters",
+            ));
+        }
         if rule.priority <= 0 || !priorities.insert(rule.priority) {
             return Err(AsterError::validation_error(
                 "placement rule priorities must be unique positive integers",
             ));
         }
-        compile_matcher(rule.matcher.clone()).map_err(AsterError::validation_error)?;
+        serialize_matcher(rule.matcher.clone())?;
         if rule.targets.is_empty() {
             return Err(AsterError::validation_error(
                 "placement rule must contain at least one target",
@@ -187,7 +199,26 @@ fn validate_rule_name(name: &str) -> Result<()> {
             "placement rule name must not be empty",
         ));
     }
+    if name.trim().chars().count() > MAX_PLACEMENT_RULE_NAME_CHARS {
+        return Err(AsterError::validation_error(
+            "placement rule name must be at most 128 characters",
+        ));
+    }
     Ok(())
+}
+
+fn serialize_matcher(matcher: PlacementMatcher) -> Result<String> {
+    let matcher = compile_matcher(matcher).map_err(AsterError::validation_error)?;
+    let payload =
+        serde_json::to_string(&PlacementPayloadEnvelope::new(matcher)).map_err(|error| {
+            AsterError::internal_error(format!("serialize placement matcher: {error}"))
+        })?;
+    if payload.len() > MAX_PLACEMENT_PAYLOAD_BYTES {
+        return Err(AsterError::validation_error(
+            "placement matcher payload exceeds 4000 bytes",
+        ));
+    }
+    Ok(payload)
 }
 
 pub(super) async fn replace_placement_rules<C: sea_orm::ConnectionTrait>(
@@ -199,12 +230,7 @@ pub(super) async fn replace_placement_rules<C: sea_orm::ConnectionTrait>(
     policy_placement_repo::delete_rules_by_group(db, group_id).await?;
     let now = Utc::now();
     for rule in rules {
-        let matcher = serde_json::to_string(&PlacementPayloadEnvelope::new(
-            compile_matcher(rule.matcher.clone()).map_err(AsterError::validation_error)?,
-        ))
-        .map_err(|error| {
-            AsterError::internal_error(format!("serialize placement matcher: {error}"))
-        })?;
+        let matcher = serialize_matcher(rule.matcher.clone())?;
         let created = policy_placement_repo::create_rule(
             db,
             storage_policy_group_rule::ActiveModel {
