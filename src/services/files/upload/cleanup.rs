@@ -25,6 +25,10 @@ use aster_forge_utils::numbers::usize_to_u32;
 const DEFERRED_UPLOAD_SESSION_CLEANUP_GRACE_SECS: i64 = 15;
 const ASSEMBLY_LEASE_TIMEOUT_SECS: i64 = 60;
 
+fn assembly_cancellation_expiry() -> chrono::DateTime<Utc> {
+    Utc::now() + Duration::seconds(ASSEMBLY_LEASE_TIMEOUT_SECS)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UploadStageErrorDisposition {
     PreserveSession,
@@ -439,7 +443,7 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
                 state.writer_db(),
                 upload_id,
                 UploadSessionStatus::Assembling,
-                Utc::now() + Duration::seconds(DEFERRED_UPLOAD_SESSION_CLEANUP_GRACE_SECS),
+                assembly_cancellation_expiry(),
             )
             .await?;
             if transitioned {
@@ -591,6 +595,15 @@ pub async fn cleanup_expired(state: &PrimaryAppState) -> Result<u32> {
     let expired = upload_session_repo::find_expired(state.writer_db()).await?;
     let mut cleaned = 0usize;
     for session in expired {
+        if session.status == UploadSessionStatus::Failed
+            && session.updated_at > Utc::now() - Duration::seconds(ASSEMBLY_LEASE_TIMEOUT_SECS)
+        {
+            tracing::debug!(
+                session_id = %session.id,
+                "skipping failed upload session while cancellation cleanup lease is active"
+            );
+            continue;
+        }
         if session.status == UploadSessionStatus::Assembling {
             let lease_deadline = Utc::now() - Duration::seconds(ASSEMBLY_LEASE_TIMEOUT_SECS);
             if session.updated_at > lease_deadline {
@@ -601,10 +614,10 @@ pub async fn cleanup_expired(state: &PrimaryAppState) -> Result<u32> {
                 );
                 continue;
             }
-            let transitioned = upload_session_repo::try_fail_with_expiration(
+            let transitioned = upload_session_repo::try_fail_with_expiration_if_lease_stale(
                 state.writer_db(),
                 &session.id,
-                UploadSessionStatus::Assembling,
+                lease_deadline,
                 Utc::now() + Duration::seconds(DEFERRED_UPLOAD_SESSION_CLEANUP_GRACE_SECS),
             )
             .await?;

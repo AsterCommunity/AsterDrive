@@ -257,6 +257,37 @@ pub async fn try_fail_with_expiration<C: ConnectionTrait>(
     Ok(result.rows_affected > 0)
 }
 
+/// Atomically fail an assembling session only when its completion lease is stale.
+pub async fn try_fail_with_expiration_if_lease_stale<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+    lease_deadline: chrono::DateTime<chrono::Utc>,
+    expires_at: chrono::DateTime<chrono::Utc>,
+) -> Result<bool> {
+    use sea_orm::ActiveEnum;
+    let now = chrono::Utc::now();
+    let result = UploadSession::update_many()
+        .col_expr(
+            upload_session::Column::Status,
+            sea_orm::sea_query::Expr::value(UploadSessionStatus::Failed.to_value()),
+        )
+        .col_expr(
+            upload_session::Column::ExpiresAt,
+            sea_orm::sea_query::Expr::value(expires_at),
+        )
+        .col_expr(
+            upload_session::Column::UpdatedAt,
+            sea_orm::sea_query::Expr::value(now),
+        )
+        .filter(upload_session::Column::Id.eq(id))
+        .filter(upload_session::Column::Status.eq(UploadSessionStatus::Assembling))
+        .filter(upload_session::Column::UpdatedAt.lte(lease_deadline))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected > 0)
+}
+
 /// 原子状态转换：只有状态匹配且 session 尚未过期时才更新。
 pub async fn try_transition_status_before_expiry<C: ConnectionTrait>(
     db: &C,
@@ -662,5 +693,28 @@ mod tests {
         let completed = find_by_id(&db, &model.id).await.unwrap();
         assert_eq!(completed.status, UploadSessionStatus::Completed);
         assert_eq!(completed.file_id, Some(99));
+    }
+
+    #[tokio::test]
+    async fn stale_assembly_failure_requires_lease_timestamp_match() {
+        let db = build_test_db().await;
+        let mut model = session("lease-race", UploadSessionStatus::Assembling);
+        model.updated_at = Utc::now();
+        model.clone().into_active_model().insert(&db).await.unwrap();
+
+        assert!(
+            !try_fail_with_expiration_if_lease_stale(
+                &db,
+                &model.id,
+                model.updated_at - Duration::seconds(1),
+                Utc::now() + Duration::seconds(15),
+            )
+            .await
+            .unwrap()
+        );
+        assert_eq!(
+            find_by_id(&db, &model.id).await.unwrap().status,
+            UploadSessionStatus::Assembling
+        );
     }
 }

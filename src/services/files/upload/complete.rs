@@ -21,7 +21,7 @@ use std::future::Future;
 use std::time::Instant;
 use tokio::time::{Duration, MissedTickBehavior};
 
-use crate::errors::Result;
+use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::upload::session::kind::resolve_upload_session_kind;
 use crate::services::files::upload::session::scope::{
@@ -65,7 +65,10 @@ where
                 if !crate::db::repository::upload_session_repo::touch_assembling(
                     state.writer_db(), upload_id, chrono::Utc::now()
                 ).await? {
-                    tracing::debug!(upload_id, "upload assembly lease is no longer active");
+                    tracing::debug!(upload_id, "upload assembly lease is no longer active; aborting completion");
+                    return Err(AsterError::conflict(
+                        "upload assembly was canceled or completed by another request",
+                    ));
                 }
             }
         }

@@ -5904,7 +5904,7 @@ async fn test_cancel_assembling_stream_marks_session_failed_for_cleanup() {
         .await
         .expect("canceled stream session should remain for cleanup retry");
     assert_eq!(session.status, UploadSessionStatus::Failed);
-    assert!(session.expires_at <= chrono::Utc::now() + chrono::Duration::seconds(16));
+    assert!(session.expires_at <= chrono::Utc::now() + chrono::Duration::seconds(61));
 }
 
 #[actix_web::test]
