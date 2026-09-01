@@ -92,6 +92,36 @@ pub async fn delete<C: ConnectionTrait>(db: &C, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Delete a session only while it is still cancellable. Completed sessions are
+/// retained for response-loss reconciliation and result replay.
+pub async fn delete_if_cancellable<C: ConnectionTrait>(db: &C, id: &str) -> Result<bool> {
+    let result = UploadSession::delete_many()
+        .filter(upload_session::Column::Id.eq(id))
+        .filter(upload_session::Column::Status.is_in([
+            UploadSessionStatus::Uploading,
+            UploadSessionStatus::Presigned,
+            UploadSessionStatus::Failed,
+        ]))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected == 1)
+}
+
+pub async fn exists_by_folder_id<C: ConnectionTrait>(db: &C, folder_id: i64) -> Result<bool> {
+    Ok(UploadSession::find()
+        .filter(upload_session::Column::FolderId.eq(folder_id))
+        .filter(upload_session::Column::Status.is_in([
+            UploadSessionStatus::Uploading,
+            UploadSessionStatus::Assembling,
+            UploadSessionStatus::Presigned,
+        ]))
+        .count(db)
+        .await
+        .map_err(AsterError::from)?
+        > 0)
+}
+
 pub async fn increment_received_count_if_uploading<C: ConnectionTrait>(
     db: &C,
     id: &str,
@@ -503,6 +533,44 @@ mod tests {
             );
             assert_eq!(find_by_id(&db, &model.id).await.unwrap().received_count, 0);
         }
+    }
+
+    #[tokio::test]
+    async fn delete_if_cancellable_preserves_completed_sessions() {
+        let db = build_test_db().await;
+        let completed = session("completed", UploadSessionStatus::Completed);
+        completed
+            .clone()
+            .into_active_model()
+            .insert(&db)
+            .await
+            .unwrap();
+        let uploading = session("uploading", UploadSessionStatus::Uploading);
+        uploading
+            .clone()
+            .into_active_model()
+            .insert(&db)
+            .await
+            .unwrap();
+
+        assert!(!delete_if_cancellable(&db, "completed").await.unwrap());
+        assert!(delete_if_cancellable(&db, "uploading").await.unwrap());
+        assert!(find_by_id(&db, "completed").await.is_ok());
+        assert!(find_by_id(&db, "uploading").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn exists_by_folder_id_ignores_completed_sessions_but_keeps_active_ones() {
+        let db = build_test_db().await;
+        let mut active = session("folder-active", UploadSessionStatus::Uploading);
+        active.folder_id = Some(42);
+        active.into_active_model().insert(&db).await.unwrap();
+        assert!(exists_by_folder_id(&db, 42).await.unwrap());
+
+        let mut completed = session("folder-completed", UploadSessionStatus::Completed);
+        completed.folder_id = Some(43);
+        completed.into_active_model().insert(&db).await.unwrap();
+        assert!(!exists_by_folder_id(&db, 43).await.unwrap());
     }
 
     #[tokio::test]

@@ -310,35 +310,60 @@ pub(super) async fn materialize_upload_target(
 
 pub(super) async fn cleanup_created_folders(state: &PrimaryAppState, ctx: &InitUploadContext) {
     for folder_id in ctx.created_folder_ids.iter().rev().copied() {
+        let txn = match aster_forge_db::transaction::begin(state.writer_db()).await {
+            Ok(txn) => txn,
+            Err(error) => {
+                tracing::warn!(
+                    folder_id,
+                    "failed to begin upload directory compensation: {error}"
+                );
+                continue;
+            }
+        };
         let empty = match ctx.scope {
             WorkspaceStorageScope::Personal { user_id } => {
-                storage::find_children(state.writer_db(), user_id, Some(folder_id))
+                crate::db::repository::folder_repo::lock_by_id(&txn, folder_id)
                     .await
-                    .map(|items| items.is_empty())
-                    .unwrap_or(false)
-                    && storage::find_by_folder(state.writer_db(), user_id, Some(folder_id))
+                    .is_ok()
+                    && storage::find_children(&txn, user_id, Some(folder_id))
+                        .await
+                        .map(|items| items.is_empty())
+                        .unwrap_or(false)
+                    && storage::find_by_folder(&txn, user_id, Some(folder_id))
                         .await
                         .map(|items| items.is_empty())
                         .unwrap_or(false)
             }
             WorkspaceStorageScope::Team { team_id, .. } => {
-                storage::find_team_children(state.writer_db(), team_id, Some(folder_id))
+                crate::db::repository::folder_repo::lock_by_id(&txn, folder_id)
                     .await
-                    .map(|items| items.is_empty())
-                    .unwrap_or(false)
-                    && storage::find_by_team_folder(state.writer_db(), team_id, Some(folder_id))
+                    .is_ok()
+                    && storage::find_team_children(&txn, team_id, Some(folder_id))
+                        .await
+                        .map(|items| items.is_empty())
+                        .unwrap_or(false)
+                    && storage::find_by_team_folder(&txn, team_id, Some(folder_id))
                         .await
                         .map(|items| items.is_empty())
                         .unwrap_or(false)
             }
         };
+        let active_session = upload_session_repo::exists_by_folder_id(&txn, folder_id)
+            .await
+            .unwrap_or(true);
         if empty
-            && let Err(error) =
-                crate::db::repository::folder_repo::delete(state.writer_db(), folder_id).await
+            && !active_session
+            && let Err(error) = crate::db::repository::folder_repo::delete(&txn, folder_id).await
         {
             tracing::warn!(
                 folder_id,
                 "failed to compensate empty upload directory: {error}"
+            );
+        }
+        if let Err(error) = aster_forge_db::transaction::commit(txn).await {
+            tracing::warn!(
+                folder_id,
+                "failed to commit upload directory compensation: {error}"
             );
         }
     }
@@ -358,8 +383,14 @@ pub(super) async fn try_persist_upload_session(
     db: &sea_orm::DatabaseConnection,
     params: UploadSessionRecordParams<'_>,
 ) -> Result<bool> {
+    let txn = aster_forge_db::transaction::begin(db).await?;
+    if let Some(folder_id) = params.folder_id {
+        let _ = crate::db::repository::folder_repo::lock_by_id(&txn, folder_id).await?;
+    }
     let session = upload_session_active_model(params);
-    upload_session_repo::try_create(db, session).await
+    let inserted = upload_session_repo::try_create(&txn, session).await?;
+    aster_forge_db::transaction::commit(txn).await?;
+    Ok(inserted)
 }
 
 pub(super) async fn init_multipart_session_with_retry(

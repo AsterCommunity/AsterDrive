@@ -469,7 +469,7 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
     }
 
     cleanup_upload_temp_dir(state, upload_id).await;
-    upload_session_repo::delete(state.writer_db(), upload_id).await?;
+    let _ = upload_session_repo::delete_if_cancellable(state.writer_db(), upload_id).await?;
     tracing::debug!(upload_id, "canceled upload session");
     Ok(())
 }
