@@ -150,3 +150,48 @@ fn size_mismatch(expected: i64, actual: i64) -> AsterError {
         "size mismatch: declared {expected} bytes, received {actual} bytes"
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_stream_error_helpers_preserve_specific_api_codes() {
+        for (error, expected) in [
+            (
+                upload_body_read_failed("read".to_string()),
+                ApiErrorCode::UploadFieldReadFailed,
+            ),
+            (
+                upload_local_staging_path_failed("path".to_string()),
+                ApiErrorCode::UploadLocalStagingPathResolveFailed,
+            ),
+            (
+                upload_local_staging_dir_failed("dir".to_string()),
+                ApiErrorCode::UploadLocalStagingDirCreateFailed,
+            ),
+            (
+                upload_local_staging_file_failed("file".to_string()),
+                ApiErrorCode::UploadLocalStagingFileCreateFailed,
+            ),
+            (
+                upload_local_staging_write_failed("write".to_string()),
+                ApiErrorCode::UploadLocalStagingWriteFailed,
+            ),
+            (
+                upload_local_staging_flush_failed("flush".to_string()),
+                ApiErrorCode::UploadLocalStagingFlushFailed,
+            ),
+        ] {
+            assert_eq!(error.api_error_code(), expected);
+        }
+    }
+
+    #[test]
+    fn local_stream_size_mismatch_reports_declared_and_actual_sizes() {
+        let error = size_mismatch(8, 9);
+        assert_eq!(error.code(), "E005");
+        assert!(error.message().contains("declared 8"));
+        assert!(error.message().contains("received 9"));
+    }
+}

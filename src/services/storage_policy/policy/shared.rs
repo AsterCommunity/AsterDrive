@@ -155,15 +155,7 @@ pub(super) async fn validate_placement_rules<C: sea_orm::ConnectionTrait>(
     let mut priorities = std::collections::HashSet::new();
     for rule in rules {
         validate_rule_name(&rule.name)?;
-        if rule
-            .description
-            .as_deref()
-            .is_some_and(|value| value.chars().count() > MAX_PLACEMENT_RULE_DESCRIPTION_CHARS)
-        {
-            return Err(AsterError::validation_error(
-                "placement rule description must be at most 512 characters",
-            ));
-        }
+        validate_rule_description(rule.description.as_deref())?;
         if rule.priority <= 0 || !priorities.insert(rule.priority) {
             return Err(AsterError::validation_error(
                 "placement rule priorities must be unique positive integers",
@@ -202,6 +194,16 @@ fn validate_rule_name(name: &str) -> Result<()> {
     if name.trim().chars().count() > MAX_PLACEMENT_RULE_NAME_CHARS {
         return Err(AsterError::validation_error(
             "placement rule name must be at most 128 characters",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_rule_description(description: Option<&str>) -> Result<()> {
+    if description.is_some_and(|value| value.chars().count() > MAX_PLACEMENT_RULE_DESCRIPTION_CHARS)
+    {
+        return Err(AsterError::validation_error(
+            "placement rule description must be at most 512 characters",
         ));
     }
     Ok(())
@@ -295,6 +297,42 @@ pub(super) async fn lock_default_group_assignment<C: sea_orm::ConnectionTrait>(
     db: &C,
 ) -> Result<()> {
     system_initialization_repo::acquire_storage_topology_lock(db).await
+}
+
+#[cfg(test)]
+mod validation_tests {
+    use super::*;
+
+    #[test]
+    fn placement_rule_text_limits_count_unicode_characters() {
+        assert!(validate_rule_name(&"界".repeat(128)).is_ok());
+        assert!(validate_rule_name(&"界".repeat(129)).is_err());
+        assert!(validate_rule_name(" \t ").is_err());
+
+        assert!(validate_rule_description(Some(&"述".repeat(512))).is_ok());
+        assert!(validate_rule_description(Some(&"述".repeat(513))).is_err());
+        assert!(validate_rule_description(None).is_ok());
+    }
+
+    #[test]
+    fn placement_matcher_payload_enforces_database_byte_limit() {
+        let small = PlacementMatcher {
+            extensions: vec!["txt".to_string(), "tar.gz".to_string()],
+            ..Default::default()
+        };
+        let serialized = serialize_matcher(small).expect("small matcher should serialize");
+        assert!(serialized.len() <= MAX_PLACEMENT_PAYLOAD_BYTES);
+
+        let oversized = PlacementMatcher {
+            extensions: (0..700).map(|index| format!("ext{index:04}")).collect(),
+            ..Default::default()
+        };
+        let error = serialize_matcher(oversized).expect_err("oversized matcher must be rejected");
+        assert_eq!(
+            error.message(),
+            "placement matcher payload exceeds 4000 bytes"
+        );
+    }
 }
 
 pub(super) async fn ensure_singleton_group_for_policy<C: sea_orm::ConnectionTrait>(
