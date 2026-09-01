@@ -491,6 +491,7 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
 
     let cleanup_outcome = cleanup_remote_upload_state(state, &session, false).await;
     if !cleanup_outcome.is_complete() {
+        cleanup_upload_temp_dir(state, upload_id).await;
         tracing::debug!(
             upload_id,
             expires_at = %expires_at,

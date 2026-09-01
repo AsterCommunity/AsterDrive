@@ -1639,6 +1639,10 @@ async fn cluster_upload_init_on_second_primary_rejects_pod_local_stream_staging(
             .contains("placement_no_eligible_target"),
         "primary B baseline must have an eligible placement target: {baseline_body}"
     );
+    let session_count_before_rejected_init =
+        aster_drive::db::repository::upload_session_repo::count_by_policy(&database, policy_id)
+            .await
+            .expect("count baseline cluster upload sessions");
 
     let response = client
         .post(format!("{}/api/v1/files/upload/init", primary_b.base_url()))
@@ -1673,8 +1677,8 @@ async fn cluster_upload_init_on_second_primary_rejects_pod_local_stream_staging(
         aster_drive::db::repository::upload_session_repo::count_by_policy(&database, policy_id)
             .await
             .expect("count cluster staging sessions"),
-        0,
-        "rejected cluster staging init must not persist a session"
+        session_count_before_rejected_init,
+        "rejected cluster staging init must not persist an additional session"
     );
 
     primary_a.terminate();
