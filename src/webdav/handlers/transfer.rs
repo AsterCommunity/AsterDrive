@@ -151,8 +151,8 @@ pub(crate) async fn handle_put(
 ) -> HttpResponse {
     let path = request_head.target.clone();
     let relative = path.as_str().to_owned();
-    if let Err(resp) = ensure_system_file_name_allowed(system_file_policy, &relative) {
-        return resp;
+    if let Err(error) = ensure_system_file_name_allowed(system_file_policy, &relative) {
+        return error.into_response();
     }
     let target_meta = match dav_fs.metadata_for_write(&path).await {
         Ok(meta) => Some(meta),

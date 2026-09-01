@@ -56,7 +56,7 @@ pub async fn check_file_info(
     }
     let access_token = match wopi_access_token(&req, &query) {
         Ok(access_token) => access_token,
-        Err(response) => return response,
+        Err(error) => return error.into_response(),
     };
     match wopi::check_file_info(
         state.get_ref(),
@@ -82,7 +82,7 @@ pub async fn get_file_contents(
     }
     let access_token = match wopi_access_token(&req, &query) {
         Ok(access_token) => access_token,
-        Err(response) => return response,
+        Err(error) => return error.into_response(),
     };
     let audit_info = audit::AuditRequestInfo::from_request(&req);
     let if_none_match = req
@@ -130,7 +130,7 @@ pub async fn put_file_contents(
     }
     let access_token = match wopi_access_token(&req, &query) {
         Ok(access_token) => access_token,
-        Err(response) => return response,
+        Err(error) => return error.into_response(),
     };
     let audit_info = audit::AuditRequestInfo::from_request(&req);
     let override_value = header_value(&req, "X-WOPI-Override");
@@ -176,7 +176,7 @@ pub async fn file_operation(
     }
     let access_token = match wopi_access_token(&req, &query) {
         Ok(access_token) => access_token,
-        Err(response) => return response,
+        Err(error) => return error.into_response(),
     };
     let audit_info = audit::AuditRequestInfo::from_request(&req);
     let override_value = header_value(&req, "X-WOPI-Override");
@@ -330,25 +330,39 @@ pub async fn file_operation(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WopiAccessTokenError {
+    Empty,
+    Missing,
+}
+
+impl WopiAccessTokenError {
+    fn into_response(self) -> HttpResponse {
+        let message = match self {
+            Self::Empty => "value cannot be empty",
+            Self::Missing => "access_token is required",
+        };
+        wopi_no_store(protocol_error_response(
+            crate::errors::AsterError::validation_error(message),
+        ))
+    }
+}
+
 fn wopi_access_token<'a>(
     req: &'a HttpRequest,
     query: &'a WopiAccessQuery,
-) -> Result<&'a str, HttpResponse> {
+) -> Result<&'a str, WopiAccessTokenError> {
     if let Some(token) = optional_header_value(req, "X-WOPI-Token") {
         return Ok(token);
     }
     if let Some(token) = query.access_token.as_deref() {
         let token = token.trim();
         if token.is_empty() {
-            return Err(wopi_no_store(protocol_error_response(
-                crate::errors::AsterError::validation_error("value cannot be empty"),
-            )));
+            return Err(WopiAccessTokenError::Empty);
         }
         return Ok(token);
     }
-    Err(wopi_no_store(protocol_error_response(
-        crate::errors::AsterError::validation_error("access_token is required"),
-    )))
+    Err(WopiAccessTokenError::Missing)
 }
 
 fn conflict_response(conflict: &wopi::WopiConflict) -> HttpResponse {
@@ -479,7 +493,9 @@ mod tests {
         let req = actix_web::test::TestRequest::default().to_http_request();
         let query = WopiAccessQuery { access_token: None };
 
-        let response = wopi_access_token(&req, &query).expect_err("missing token should fail");
+        let response = wopi_access_token(&req, &query)
+            .expect_err("missing token should fail")
+            .into_response();
 
         assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
         assert_eq!(
