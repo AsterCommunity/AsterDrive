@@ -702,11 +702,14 @@ mod tests {
         model.updated_at = Utc::now();
         model.clone().into_active_model().insert(&db).await.unwrap();
 
+        let lease_deadline = model.updated_at - Duration::seconds(1);
+        assert!(touch_assembling(&db, &model.id, Utc::now()).await.unwrap());
+
         assert!(
             !try_fail_with_expiration_if_lease_stale(
                 &db,
                 &model.id,
-                model.updated_at - Duration::seconds(1),
+                lease_deadline,
                 Utc::now() + Duration::seconds(15),
             )
             .await
@@ -716,5 +719,45 @@ mod tests {
             find_by_id(&db, &model.id).await.unwrap().status,
             UploadSessionStatus::Assembling
         );
+    }
+
+    #[tokio::test]
+    async fn cancellation_cas_wins_before_completion_commit_and_blocks_late_finalize() {
+        let db = build_test_db().await;
+        let model = session("multipart-cancel-race", UploadSessionStatus::Assembling);
+        model.clone().into_active_model().insert(&db).await.unwrap();
+
+        let remote_started = std::sync::Arc::new(tokio::sync::Notify::new());
+        let remote_release = std::sync::Arc::new(tokio::sync::Notify::new());
+        let completion_db = db.clone();
+        let completion_id = model.id.clone();
+        let started = remote_started.clone();
+        let release = remote_release.clone();
+        let completion = tokio::spawn(async move {
+            started.notify_one();
+            release.notified().await;
+            complete_if_assembling(&completion_db, &completion_id, 123)
+                .await
+                .unwrap()
+        });
+
+        remote_started.notified().await;
+        assert!(
+            try_fail_with_expiration(
+                &db,
+                &model.id,
+                UploadSessionStatus::Assembling,
+                Utc::now() + Duration::seconds(60),
+            )
+            .await
+            .unwrap(),
+            "cancel should claim the assembling session before completion commit"
+        );
+        remote_release.notify_one();
+        assert!(!completion.await.unwrap());
+
+        let canceled = find_by_id(&db, &model.id).await.unwrap();
+        assert_eq!(canceled.status, UploadSessionStatus::Failed);
+        assert_eq!(canceled.file_id, None);
     }
 }
