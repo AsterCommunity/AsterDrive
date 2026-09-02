@@ -172,6 +172,52 @@ pub(crate) trait StorageConnector: Send + Sync {
         Ok(normalized)
     }
 
+    /// Whether this provider can back a follower-side remote storage target.
+    ///
+    /// Static and credential-free storage providers are reusable by default.
+    /// Connectors whose descriptor represents remote-node routing or delegated
+    /// OAuth remain policy-only until their target credential lifecycle exists.
+    fn supports_remote_storage_target(&self) -> bool {
+        let descriptor = self.descriptor();
+        !descriptor.capabilities.remote_node_binding
+            && descriptor.credential_mode
+                != aster_drive_storage::StorageConnectorCredentialMode::OauthDelegated
+    }
+
+    /// Construct a provider driver from connector-owned config and credentials
+    /// without requiring a storage-policy or remote-target entity.
+    async fn build_driver_from_connection(
+        &self,
+        context: &StorageConnectorContext<'_>,
+        connector_config: &ConnectorConfigEnvelope<serde_json::Value>,
+        credential: &StorageConnectorCredentialInput,
+    ) -> Result<StorageConnectorDriver> {
+        let connector_config = ConnectorConfigEnvelope::new(
+            connector_config.connector_id.clone(),
+            connector_config.schema_version,
+            serde_json::from_value(serde_json::to_value(&connector_config.values).map_err(
+                |error| {
+                    AsterError::validation_error(format!(
+                        "invalid connector config values: {error}"
+                    ))
+                },
+            )?)
+            .map_err(|error| {
+                AsterError::validation_error(format!("invalid connector config values: {error}"))
+            })?,
+        );
+        let connector_config = self.validate_connector_config(&connector_config)?;
+        self.validate_credential_input(credential)?;
+        let policy = common::build_connection_test_policy(
+            connector_config,
+            StoragePolicyBehaviorConfig::default(),
+        )?;
+        let driver = self
+            .build_draft_driver(context, &policy, credential)
+            .await?;
+        Ok(StorageConnectorDriver::storage(Arc::from(driver)))
+    }
+
     /// Validate core-owned policy behavior against connector-declared capabilities.
     ///
     /// Connectors advertise the executable capability; core owns the behavior
@@ -702,6 +748,66 @@ impl StorageConnectorRegistry {
                 connector_id
             ))
         })
+    }
+
+    pub(crate) fn remote_target_connectors(&self) -> Vec<&dyn StorageConnector> {
+        self.ordered
+            .iter()
+            .filter(|connector| connector.supports_remote_storage_target())
+            .map(AsRef::as_ref)
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn remote_target_driver_types(
+        &self,
+    ) -> Vec<aster_drive_model::types::RemoteStorageTargetDriverKind> {
+        self.remote_target_connectors()
+            .into_iter()
+            .filter_map(
+                |connector| match connector.descriptor().connector_id.as_str() {
+                    "asterdrive.storage.local" => {
+                        Some(aster_drive_model::types::RemoteStorageTargetDriverKind::Local)
+                    }
+                    "asterdrive.storage.s3" => {
+                        Some(aster_drive_model::types::RemoteStorageTargetDriverKind::S3)
+                    }
+                    "asterdrive.storage.sftp" => {
+                        Some(aster_drive_model::types::RemoteStorageTargetDriverKind::Sftp)
+                    }
+                    "asterdrive.storage.tencent_cos" => {
+                        Some(aster_drive_model::types::RemoteStorageTargetDriverKind::TencentCos)
+                    }
+                    "asterdrive.storage.alibaba_oss" => {
+                        Some(aster_drive_model::types::RemoteStorageTargetDriverKind::AlibabaOss)
+                    }
+                    "asterdrive.storage.qiniu" => {
+                        Some(aster_drive_model::types::RemoteStorageTargetDriverKind::Qiniu)
+                    }
+                    "asterdrive.storage.azure_blob" => {
+                        Some(aster_drive_model::types::RemoteStorageTargetDriverKind::AzureBlob)
+                    }
+                    "asterdrive.storage.huawei_obs" => {
+                        Some(aster_drive_model::types::RemoteStorageTargetDriverKind::HuaweiObs)
+                    }
+                    _ => None,
+                },
+            )
+            .collect()
+    }
+
+    pub(crate) fn require_remote_target_connector(
+        &self,
+        connector_id: &ConnectorId,
+    ) -> Result<&dyn StorageConnector> {
+        let connector = self.require_input_connector(connector_id)?;
+        if connector.supports_remote_storage_target() {
+            return Ok(connector);
+        }
+        Err(AsterError::validation_error(format!(
+            "storage connector '{}' is not available for remote targets",
+            connector_id
+        )))
     }
 
     /// Resolve connector-owned metadata for a provider policy action.

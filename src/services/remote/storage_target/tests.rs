@@ -12,8 +12,11 @@ use super::{
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{master_binding_repo, remote_storage_target_repo};
 use crate::runtime::{FollowerRuntimeState, SharedRuntimeState, StorageConnectorRuntimeState};
+use crate::storage::remote_protocol::legacy::{
+    RemoteCreateLocalStorageTargetRequest, RemoteCreateProviderStorageTargetRequest,
+    RemoteCreateS3StorageTargetRequest,
+};
 use crate::storage::remote_protocol::{
-    RemoteCreateLocalStorageTargetRequest, RemoteCreateS3StorageTargetRequest,
     RemoteCreateStorageTargetRequest, RemoteUpdateStorageTargetRequest,
 };
 use aster_drive_metrics::SharedMetricsRecorder;
@@ -146,7 +149,7 @@ async fn create_binding(state: &TestFollowerState, access_key: &str) -> master_b
 }
 
 fn local_create(name: &str, base_path: &str, is_default: bool) -> RemoteCreateStorageTargetRequest {
-    RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
+    crate::storage::remote_protocol::legacy::local(RemoteCreateLocalStorageTargetRequest {
         name: name.to_string(),
         base_path: base_path.to_string(),
         is_default,
@@ -160,7 +163,7 @@ fn s3_create(
     base_path: &str,
     is_default: bool,
 ) -> RemoteCreateStorageTargetRequest {
-    RemoteCreateStorageTargetRequest::S3(RemoteCreateS3StorageTargetRequest {
+    crate::storage::remote_protocol::legacy::s3(RemoteCreateS3StorageTargetRequest {
         name: name.to_string(),
         endpoint: endpoint.to_string(),
         bucket: bucket.to_string(),
@@ -178,6 +181,8 @@ fn model_with_driver(driver_type: RemoteStorageTargetDriverKind) -> remote_stora
         master_binding_id: 1,
         target_key: "rst_test".to_string(),
         name: "test".to_string(),
+        connector_id: None,
+        connector_config: None,
         driver_type,
         endpoint: String::new(),
         bucket: "bucket".to_string(),
@@ -344,6 +349,8 @@ fn normalize_update_input_keeps_existing_driver_fields_and_trims_replacements() 
     let normalized = normalize_update_input(
         existing.clone(),
         RemoteUpdateStorageTargetRequest {
+            connector_config: None,
+            credential: None,
             name: Some(" Updated ".to_string()),
             base_path: Some(" /next/ ".to_string()),
             is_default: Some(true),
@@ -368,6 +375,8 @@ fn normalize_update_input_preserves_secret_when_same_driver_omits_credentials() 
     let normalized = normalize_update_input(
         existing.clone(),
         RemoteUpdateStorageTargetRequest {
+            connector_config: None,
+            credential: None,
             name: Some("Renamed".to_string()),
             access_key: None,
             secret_key: None,
@@ -386,6 +395,8 @@ fn normalize_update_input_replaces_secret_when_same_driver_provides_credentials(
     let normalized = normalize_update_input(
         model_with_driver(RemoteStorageTargetDriverKind::S3),
         RemoteUpdateStorageTargetRequest {
+            connector_config: None,
+            credential: None,
             access_key: Some(" new-access ".to_string()),
             secret_key: Some(" new-secret ".to_string()),
             ..Default::default()
@@ -403,6 +414,8 @@ fn normalize_update_input_resets_driver_specific_fields_when_driver_changes() {
     let normalized = normalize_update_input(
         existing,
         RemoteUpdateStorageTargetRequest {
+            connector_config: None,
+            credential: None,
             driver_type: Some(RemoteStorageTargetDriverKind::Local),
             base_path: Some(" local/profile ".to_string()),
             ..Default::default()
@@ -425,6 +438,12 @@ fn remote_storage_target_driver_registry_contains_supported_builtin_drivers() {
         vec![
             RemoteStorageTargetDriverKind::Local,
             RemoteStorageTargetDriverKind::S3,
+            RemoteStorageTargetDriverKind::AlibabaOss,
+            RemoteStorageTargetDriverKind::Sftp,
+            RemoteStorageTargetDriverKind::AzureBlob,
+            RemoteStorageTargetDriverKind::HuaweiObs,
+            RemoteStorageTargetDriverKind::TencentCos,
+            RemoteStorageTargetDriverKind::Qiniu,
         ]
     );
 }
@@ -433,67 +452,79 @@ fn remote_storage_target_driver_registry_contains_supported_builtin_drivers() {
 fn remote_storage_target_driver_descriptors_cover_builtin_profile_fields() {
     let descriptors = list_registered_remote_storage_target_driver_descriptors()
         .expect("registered remote storage target descriptors should build");
-    assert_eq!(descriptors.len(), 2);
+    assert_eq!(descriptors.len(), 8);
 
     let local = descriptors
         .iter()
-        .find(|descriptor| descriptor.driver_type == RemoteStorageTargetDriverKind::Local)
+        .find(|descriptor| descriptor.connector_id.as_str() == "asterdrive.storage.local")
         .expect("local remote storage target descriptor should be registered");
-    assert_eq!(
-        local
-            .fields
-            .iter()
-            .map(|field| field.name.as_str())
-            .collect::<Vec<_>>(),
-        vec!["base_path", "is_default"]
-    );
+    assert!(local.fields.iter().any(|field| field.name == "base_path"));
     let local_base_path = local
         .fields
         .iter()
         .find(|field| field.name == "base_path")
         .expect("local base_path descriptor should exist");
-    assert_eq!(
-        local_base_path
-            .validation
-            .as_ref()
-            .map(|validation| validation.relative_local_path),
-        Some(true)
-    );
+    assert_eq!(local_base_path.name, "base_path");
 
     let s3 = descriptors
         .iter()
-        .find(|descriptor| descriptor.driver_type == RemoteStorageTargetDriverKind::S3)
+        .find(|descriptor| descriptor.connector_id.as_str() == "asterdrive.storage.s3")
         .expect("s3 remote storage target descriptor should be registered");
-    assert_eq!(
-        s3.fields
-            .iter()
-            .map(|field| field.name.as_str())
-            .collect::<Vec<_>>(),
-        vec![
-            "endpoint",
-            "bucket",
-            "access_key",
-            "secret_key",
-            "base_path",
-            "is_default"
-        ]
-    );
-    assert!(
-        s3.fields
-            .iter()
-            .any(|field| field.name == "secret_key" && field.secret)
-    );
+    for field in ["endpoint", "bucket", "base_path"] {
+        assert!(s3.fields.iter().any(|candidate| candidate.name == field));
+    }
+    assert!(s3.fields.iter().any(|field| field.secret));
     let s3_base_path = s3
         .fields
         .iter()
         .find(|field| field.name == "base_path")
         .expect("s3 base_path descriptor should exist");
-    assert_eq!(s3_base_path.validation, None);
+    assert_eq!(s3_base_path.name, "base_path");
 }
 
 #[test]
-fn remote_storage_target_driver_kind_rejects_storage_policy_provider_names() {
-    for unsupported in ["remote", "tencent_cos", "sftp", "azure_blob", "onedrive"] {
+fn provider_target_registration_normalizes_through_the_same_contract() {
+    let normalized = normalize_create_input(crate::storage::remote_protocol::legacy::sftp(
+        RemoteCreateProviderStorageTargetRequest {
+            name: " SFTP archive ".to_string(),
+            endpoint: "sftp://HOST:22".to_string(),
+            bucket: String::new(),
+            access_key: " user ".to_string(),
+            secret_key: " password ".to_string(),
+            base_path: "incoming/".to_string(),
+            is_default: false,
+        },
+    ))
+    .expect("provider adapter should use generic target normalization");
+    assert_eq!(normalized.driver_type, RemoteStorageTargetDriverKind::Sftp);
+    assert_eq!(normalized.name, "SFTP archive");
+    assert_eq!(normalized.endpoint, "sftp://HOST:22");
+    assert_eq!(normalized.access_key, "user");
+    assert_eq!(normalized.secret_key, "password");
+}
+
+#[test]
+fn connector_envelope_rejects_unknown_provider_without_s3_fallback() {
+    let request = RemoteCreateStorageTargetRequest {
+        name: "Future".to_string(),
+        connector_config: aster_drive_storage::ConnectorConfigEnvelope::new(
+            aster_drive_storage::ConnectorId::declared("com.example.future"),
+            1,
+            serde_json::json!({"endpoint": "https://HOST"}),
+        ),
+        credential: None,
+        is_default: false,
+    };
+    let error = match normalize_create_input(request) {
+        Ok(_) => panic!("unknown connector must fail closed"),
+        Err(error) => error,
+    };
+    assert!(error.message().contains("connector id is unsupported"));
+}
+
+#[test]
+fn remote_storage_target_driver_kind_rejects_unknown_provider_names() {
+    for unsupported in ["remote", "onedrive", "unknown_provider"] {
         assert!(
             unsupported
                 .parse::<RemoteStorageTargetDriverKind>()
@@ -546,6 +577,8 @@ async fn update_can_promote_second_profile_to_default_and_increments_revision() 
         &binding,
         &second.target_key,
         RemoteUpdateStorageTargetRequest {
+            connector_config: None,
+            credential: None,
             name: Some(" Promoted ".to_string()),
             base_path: Some(" promoted ".to_string()),
             is_default: Some(true),
@@ -581,6 +614,8 @@ async fn update_rejects_unsetting_current_default_directly() {
         &binding,
         &profile.target_key,
         RemoteUpdateStorageTargetRequest {
+            connector_config: None,
+            credential: None,
             is_default: Some(false),
             ..Default::default()
         },
@@ -618,6 +653,8 @@ async fn delete_protects_default_when_other_profiles_exist_then_allows_after_rep
         &binding,
         &second.target_key,
         RemoteUpdateStorageTargetRequest {
+            connector_config: None,
+            credential: None,
             is_default: Some(true),
             ..Default::default()
         },

@@ -6,7 +6,6 @@ import {
 	emptyRemoteStorageTargetForm,
 	getRemoteStorageTargetForm,
 	isRemoteStorageTargetDriverType,
-	type RemoteStorageTargetDriverType,
 	type RemoteStorageTargetFormData,
 } from "@/components/admin/remoteStorageTargetDialogShared";
 import { AnimatedCollapsible } from "@/components/common/AnimatedCollapsible";
@@ -16,16 +15,11 @@ import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
 	RemoteCreateStorageTargetRequest,
 	RemoteStorageTargetDriverDescriptor,
-	RemoteStorageTargetInfo,
+		RemoteStorageTargetInfo,
 	RemoteUpdateStorageTargetRequest,
 } from "@/types/api";
 import { RemoteNodeRemoteStorageTargetForm } from "./RemoteNodeRemoteStorageTargetForm";
 import { RemoteNodeRemoteStorageTargetsList } from "./RemoteNodeRemoteStorageTargetsList";
-
-type SupportedRemoteStorageTargetDriverDescriptor =
-	RemoteStorageTargetDriverDescriptor & {
-		driver_type: RemoteStorageTargetDriverType;
-	};
 
 interface RemoteNodeRemoteStorageTargetSectionProps {
 	allowCreate?: boolean;
@@ -86,20 +80,16 @@ export function RemoteNodeRemoteStorageTargetSection({
 			: draftMode;
 	const canCreateTargets =
 		Boolean(onCreateTarget) && (!readOnly || allowCreate);
-	const supportedDriverDescriptors = driverDescriptors.flatMap(
-		(descriptor): SupportedRemoteStorageTargetDriverDescriptor[] =>
-			isRemoteStorageTargetDriverType(descriptor.driver_type)
-				? [{ ...descriptor, driver_type: descriptor.driver_type }]
-				: [],
+	const supportedDriverDescriptors = driverDescriptors.filter((descriptor) =>
+		isRemoteStorageTargetDriverType(descriptor.connector_id),
 	);
 	const activeDriverDescriptor =
 		supportedDriverDescriptors.find(
-			(descriptor) => descriptor.driver_type === form.driver_type,
+			(descriptor) => descriptor.connector_id === form.driver_type,
 		) ?? null;
-	const firstSupportedDriverType =
-		supportedDriverDescriptors[0]?.driver_type ?? null;
-	const supportedDriverTypes = new Set(
-		supportedDriverDescriptors.map((descriptor) => descriptor.driver_type),
+	const firstSupportedDriverType = supportedDriverDescriptors[0]?.connector_id ?? null;
+	const supportedDriverTypes = new Set<string>(
+		supportedDriverDescriptors.map((descriptor) => descriptor.connector_id),
 	);
 	const driverTypeError =
 		activeDraftMode != null && !supportedDriverTypes.has(form.driver_type)
@@ -158,8 +148,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 		? null
 		: t("remote_node_ingress_profile_name_required");
 	const localPathCandidate = form.base_path.trim().replaceAll("\\", "/");
-	const requiresLocalRelativePath =
-		basePathField?.validation?.relative_local_path === true;
+	const requiresLocalRelativePath = false;
 	const localPathError =
 		basePathField?.required && !form.base_path.trim()
 			? t("remote_node_ingress_profile_base_path_required")
@@ -182,7 +171,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 			: null;
 	const preservesExistingSecretValue =
 		activeDraftMode === "edit" &&
-		editingTarget?.driver_type === form.driver_type &&
+		(editingTarget?.connector_id ?? (editingTarget as unknown as { driver_type?: string } | null)?.driver_type) === form.driver_type &&
 		secretKeyField?.secret === true;
 	const accessKeyError =
 		accessKeyField?.required && !form.access_key.trim()
@@ -265,6 +254,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 			setPendingDeleteTargetKey(target.target_key),
 		onEditTarget: startEdit,
 		targets,
+		driverDescriptors,
 	};
 
 	return (

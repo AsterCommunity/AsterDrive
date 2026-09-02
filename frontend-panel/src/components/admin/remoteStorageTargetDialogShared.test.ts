@@ -62,12 +62,9 @@ describe("remoteStorageTargetDialogShared", () => {
 			),
 		).toEqual({
 			name: "Archive",
-			driver_type: "s3",
-			endpoint: "https://s3.example.test/uploads",
-			bucket: "uploads",
-			access_key: "ACCESS",
-			secret_key: "SECRET",
-			base_path: "tenant-a/incoming",
+			driver_type: "connector",
+			connector_config: expect.objectContaining({ connector_id: "asterdrive.storage.s3", values: expect.objectContaining({ endpoint: "https://s3.example.test/uploads", bucket: "uploads", base_path: "tenant-a/incoming" }) }),
+			credential: { access_key: "ACCESS", secret_key: "SECRET" },
 			is_default: false,
 		});
 	});
@@ -103,10 +100,7 @@ describe("remoteStorageTargetDialogShared", () => {
 			),
 		).toEqual({
 			name: "Archive",
-			driver_type: "s3",
-			endpoint: "https://s3.example.test/uploads",
-			bucket: "uploads",
-			base_path: "tenant-a/incoming",
+			connector_config: expect.objectContaining({ connector_id: "asterdrive.storage.s3" }),
 			is_default: true,
 		});
 	});
@@ -142,12 +136,8 @@ describe("remoteStorageTargetDialogShared", () => {
 			),
 		).toEqual({
 			name: "Promoted",
-			driver_type: "s3",
-			endpoint: "https://s3.example.com",
-			bucket: "bucket-a",
-			access_key: "ROTATED",
-			secret_key: "SECRET",
-			base_path: "tenant-a/incoming",
+			connector_config: expect.objectContaining({ connector_id: "asterdrive.storage.s3" }),
+			credential: { access_key: "ROTATED", secret_key: "SECRET" },
 			is_default: false,
 		});
 	});
@@ -169,12 +159,9 @@ describe("remoteStorageTargetDialogShared", () => {
 			),
 		).toEqual({
 			name: "Local",
-			driver_type: "local",
-			endpoint: "",
-			bucket: "",
-			access_key: "",
-			secret_key: "",
-			base_path: "tenant-a/local",
+			driver_type: "connector",
+			connector_config: expect.objectContaining({ connector_id: "asterdrive.storage.local" }),
+			credential: { access_key: "", secret_key: "" },
 			is_default: true,
 		});
 	});

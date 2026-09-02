@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-	getRemoteNodeRemoteStorageTargetDriverBadgeTone,
-	getRemoteNodeRemoteStorageTargetProfileStatus,
-} from "@/components/admin/admin-remote-nodes-page/remoteNodeRemoteStorageTargetPresentation";
+import { getRemoteNodeRemoteStorageTargetProfileStatus } from "@/components/admin/admin-remote-nodes-page/remoteNodeRemoteStorageTargetPresentation";
 import type { RemoteStorageTargetInfo } from "@/types/api";
 
 const profile = (
@@ -54,14 +51,5 @@ describe("remoteNodeRemoteStorageTargetPresentation", () => {
 			labelKey: "remote_node_ingress_profile_status_ready",
 			toneClass: expect.stringContaining("emerald"),
 		});
-	});
-
-	it("maps driver types to badge tones", () => {
-		expect(getRemoteNodeRemoteStorageTargetDriverBadgeTone("s3")).toContain(
-			"blue",
-		);
-		expect(getRemoteNodeRemoteStorageTargetDriverBadgeTone("local")).toContain(
-			"slate",
-		);
 	});
 });

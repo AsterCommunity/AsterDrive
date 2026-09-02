@@ -18,10 +18,26 @@ use utoipa::ToSchema;
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(32))")]
 #[serde(rename_all = "lowercase")]
 pub enum RemoteStorageTargetDriverKind {
+    // TODO(remote-storage-target-0.7.0): remove this enum after all runtime
+    // paths use ConnectorId directly.
     #[sea_orm(string_value = "local")]
     Local,
     #[sea_orm(string_value = "s3")]
     S3,
+    #[sea_orm(string_value = "sftp")]
+    Sftp,
+    #[sea_orm(string_value = "tencent_cos")]
+    #[serde(rename = "tencent_cos")]
+    TencentCos,
+    #[sea_orm(string_value = "alibaba_oss")]
+    #[serde(rename = "alibaba_oss")]
+    AlibabaOss,
+    #[sea_orm(string_value = "qiniu")]
+    Qiniu,
+    #[sea_orm(string_value = "azure_blob")]
+    AzureBlob,
+    #[sea_orm(string_value = "huawei_obs")]
+    HuaweiObs,
 }
 
 impl RemoteStorageTargetDriverKind {
@@ -29,6 +45,12 @@ impl RemoteStorageTargetDriverKind {
         match self {
             Self::Local => "local",
             Self::S3 => "s3",
+            Self::Sftp => "sftp",
+            Self::TencentCos => "tencent_cos",
+            Self::AlibabaOss => "alibaba_oss",
+            Self::Qiniu => "qiniu",
+            Self::AzureBlob => "azure_blob",
+            Self::HuaweiObs => "huawei_obs",
         }
     }
 
@@ -36,6 +58,12 @@ impl RemoteStorageTargetDriverKind {
         match value {
             "local" => Some(Self::Local),
             "s3" => Some(Self::S3),
+            "sftp" => Some(Self::Sftp),
+            "tencent_cos" => Some(Self::TencentCos),
+            "alibaba_oss" => Some(Self::AlibabaOss),
+            "qiniu" => Some(Self::Qiniu),
+            "azure_blob" => Some(Self::AzureBlob),
+            "huawei_obs" => Some(Self::HuaweiObs),
             _ => None,
         }
     }
@@ -69,7 +97,7 @@ mod tests {
             assert_eq!(expected.as_str(), raw);
         }
 
-        for unsupported in ["sftp", "remote", "onedrive", "tencent_cos", "azure_blob"] {
+        for unsupported in ["remote", "onedrive", "unknown_provider"] {
             assert!(
                 unsupported
                     .parse::<RemoteStorageTargetDriverKind>()

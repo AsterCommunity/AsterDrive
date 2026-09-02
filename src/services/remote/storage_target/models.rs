@@ -14,7 +14,15 @@ impl From<remote_storage_target::Model> for RemoteStorageTargetInfo {
         Self {
             target_key: model.target_key,
             name: model.name,
-            driver_type: model.driver_type,
+            connector_id: model.connector_id.or_else(|| {
+                super::driver::remote_storage_target_connector_id(model.driver_type)
+                    .ok()
+                    .map(|id| id.to_string())
+            }),
+            connector_config: model
+                .connector_config
+                .as_deref()
+                .and_then(|raw| serde_json::from_str(raw).ok()),
             endpoint: model.endpoint,
             bucket: model.bucket,
             base_path: model.base_path,

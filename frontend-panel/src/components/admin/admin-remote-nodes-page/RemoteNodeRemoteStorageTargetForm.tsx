@@ -18,9 +18,10 @@ import { Switch } from "@/components/ui/switch";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
 	RemoteStorageTargetDriverDescriptor,
-	RemoteStorageTargetDriverFieldDescriptor,
 	RemoteStorageTargetInfo,
 } from "@/types/api";
+import type { components } from "@/services/api.generated";
+type StorageConnectorFieldDescriptor = components["schemas"]["StorageConnectorFieldDescriptor"];
 import type {
 	RemoteNodeRemoteStorageTargetDraftMode,
 	RemoteNodeRemoteStorageTargetFieldChangeHandler,
@@ -67,22 +68,22 @@ export function RemoteNodeRemoteStorageTargetForm({
 }: RemoteNodeRemoteStorageTargetFormProps) {
 	const { t } = useTranslation("admin");
 	const driverTypeOptions = driverDescriptors.map((descriptor) => ({
-		label: t(descriptor.label_key),
-		value: descriptor.driver_type,
+		label: t(descriptor.ui?.label_key ?? descriptor.connector_id),
+		value: descriptor.connector_id,
 	}));
 	const activeDriverDescriptor =
 		driverDescriptors.find(
-			(descriptor) => descriptor.driver_type === form.driver_type,
+			(descriptor) => descriptor.connector_id === form.driver_type,
 		) ?? null;
 	const fieldByName = new Map(
 		activeDriverDescriptor?.fields.map((field) => [field.name, field]) ?? [],
 	);
 	const field = (name: string) => fieldByName.get(name);
 	const fieldHelp = (
-		descriptor: RemoteStorageTargetDriverFieldDescriptor | undefined,
+		descriptor: StorageConnectorFieldDescriptor | undefined,
 	) => (descriptor?.help_key ? t(descriptor.help_key) : null);
 	const fieldPlaceholder = (
-		descriptor: RemoteStorageTargetDriverFieldDescriptor | undefined,
+		descriptor: StorageConnectorFieldDescriptor | undefined,
 	) => descriptor?.placeholder ?? undefined;
 	const basePathField = field("base_path");
 	const endpointField = field("endpoint");
@@ -92,7 +93,7 @@ export function RemoteNodeRemoteStorageTargetForm({
 	const isDefaultField = field("is_default");
 	const canPreserveSecretOnEdit =
 		draftMode === "edit" &&
-		editingProfile?.driver_type === form.driver_type &&
+		editingProfile?.connector_id === form.driver_type &&
 		secretKeyField?.secret === true;
 
 	return (
@@ -280,9 +281,9 @@ export function RemoteNodeRemoteStorageTargetForm({
 				) : activeDriverDescriptor ? (
 					<div className="rounded-2xl border border-dashed border-border/70 bg-background/70 p-4 md:col-span-2">
 						<p className="text-sm leading-6 text-muted-foreground">
-							{activeDriverDescriptor.description_key
-								? t(activeDriverDescriptor.description_key)
-								: t(activeDriverDescriptor.label_key)}
+								{activeDriverDescriptor.ui.description_key
+									? t(activeDriverDescriptor.ui.description_key)
+									: t(activeDriverDescriptor.ui.label_key)}
 						</p>
 					</div>
 				) : null}

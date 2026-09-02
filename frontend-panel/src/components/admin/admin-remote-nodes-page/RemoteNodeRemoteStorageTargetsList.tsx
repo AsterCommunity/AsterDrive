@@ -4,11 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { ADMIN_ICON_BUTTON_CLASS } from "@/lib/constants";
 import { formatDateTime } from "@/lib/format";
-import type { RemoteStorageTargetInfo } from "@/types/api";
-import {
-	getRemoteNodeRemoteStorageTargetDriverBadgeTone,
-	getRemoteNodeRemoteStorageTargetProfileStatus,
-} from "./remoteNodeRemoteStorageTargetPresentation";
+import type {
+	RemoteStorageTargetDriverDescriptor,
+	RemoteStorageTargetInfo,
+} from "@/types/api";
+import { getStorageConnectorBadgePresentation } from "../admin-policies-page/policyPresentation";
+import { getRemoteNodeRemoteStorageTargetProfileStatus } from "./remoteNodeRemoteStorageTargetPresentation";
 
 interface RemoteNodeRemoteStorageTargetsListProps {
 	errorMessage: string | null;
@@ -20,6 +21,7 @@ interface RemoteNodeRemoteStorageTargetsListProps {
 	onRequestDeleteTarget: (target: RemoteStorageTargetInfo) => void;
 	onEditTarget: (target: RemoteStorageTargetInfo) => void;
 	targets: RemoteStorageTargetInfo[];
+	driverDescriptors: RemoteStorageTargetDriverDescriptor[];
 }
 
 export function RemoteNodeRemoteStorageTargetsList({
@@ -32,6 +34,7 @@ export function RemoteNodeRemoteStorageTargetsList({
 	onRequestDeleteTarget,
 	onEditTarget,
 	targets,
+	driverDescriptors,
 }: RemoteNodeRemoteStorageTargetsListProps) {
 	const { t } = useTranslation("admin");
 
@@ -64,6 +67,9 @@ export function RemoteNodeRemoteStorageTargetsList({
 						onEdit={() => onEditTarget(target)}
 						readOnly={readOnly}
 						target={target}
+						driverDescriptor={driverDescriptors.find(
+							(descriptor) => descriptor.connector_id === target.connector_id,
+						)}
 					/>
 				))
 			)}
@@ -79,6 +85,7 @@ interface RemoteNodeRemoteStorageTargetCardProps {
 	onEdit: () => void;
 	readOnly: boolean;
 	target: RemoteStorageTargetInfo;
+	driverDescriptor?: RemoteStorageTargetDriverDescriptor;
 }
 
 function RemoteNodeRemoteStorageTargetCard({
@@ -89,9 +96,13 @@ function RemoteNodeRemoteStorageTargetCard({
 	onEdit,
 	readOnly,
 	target,
+	driverDescriptor,
 }: RemoteNodeRemoteStorageTargetCardProps) {
 	const { t } = useTranslation("admin");
 	const status = getRemoteNodeRemoteStorageTargetProfileStatus(target);
+	const badgePresentation = getStorageConnectorBadgePresentation(
+		(driverDescriptor as any)?.ui?.badge_rgb ?? (driverDescriptor as any)?.badge_rgb,
+	);
 
 	return (
 		<article className="rounded-2xl border border-border/70 bg-muted/10 p-4">
@@ -103,13 +114,10 @@ function RemoteNodeRemoteStorageTargetCard({
 						</h4>
 						<Badge
 							variant="outline"
-							className={getRemoteNodeRemoteStorageTargetDriverBadgeTone(
-								target.driver_type,
-							)}
+							className={badgePresentation.className}
+							style={badgePresentation.style}
 						>
-							{target.driver_type === "s3"
-								? t("remote_node_ingress_profile_driver_s3")
-								: t("remote_node_ingress_profile_driver_local")}
+							{target.connector_id ?? "unknown"}
 						</Badge>
 						{target.is_default ? (
 							<Badge
@@ -193,22 +201,22 @@ function RemoteNodeRemoteStorageTargetCard({
 						{t("base_path")}
 					</dt>
 					<dd className="mt-1 break-all font-medium">
-						{target.base_path || "."}
+						{String(target.connector_config?.values?.base_path ?? ".")}
 					</dd>
 				</div>
-				{target.driver_type === "s3" ? (
+				{target.connector_config?.values?.endpoint || target.connector_config?.values?.bucket ? (
 					<>
 						<div>
 							<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
 								{t("endpoint")}
 							</dt>
-							<dd className="mt-1 break-all font-medium">{target.endpoint}</dd>
+							<dd className="mt-1 break-all font-medium">{String(target.connector_config?.values?.endpoint ?? "")}</dd>
 						</div>
 						<div>
 							<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
 								{t("bucket")}
 							</dt>
-							<dd className="mt-1 break-all font-medium">{target.bucket}</dd>
+							<dd className="mt-1 break-all font-medium">{String(target.connector_config?.values?.bucket ?? "")}</dd>
 						</div>
 					</>
 				) : null}

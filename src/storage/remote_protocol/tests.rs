@@ -441,7 +441,7 @@ fn remote_api_error_maps_storage_quota_exceeded() {
 
 #[test]
 fn s3_ingress_profile_create_debug_redacts_credentials() {
-    let request = RemoteCreateS3StorageTargetRequest {
+    let request = crate::storage::remote_protocol::legacy::S3Request {
         name: "s3".to_string(),
         endpoint: "https://s3.example.com".to_string(),
         bucket: "bucket-a".to_string(),
@@ -462,6 +462,8 @@ fn s3_ingress_profile_create_debug_redacts_credentials() {
 #[test]
 fn ingress_profile_update_debug_redacts_optional_credentials() {
     let request = RemoteUpdateStorageTargetRequest {
+        connector_config: None,
+        credential: None,
         name: Some("s3".to_string()),
         driver_type: Some(RemoteStorageTargetDriverKind::S3),
         endpoint: Some("https://s3.example.com".to_string()),
@@ -473,9 +475,9 @@ fn ingress_profile_update_debug_redacts_optional_credentials() {
     };
 
     let rendered = format!("{request:?}");
-    assert!(rendered.contains("access_key"));
-    assert!(rendered.contains("secret_key"));
-    assert!(rendered.contains("<redacted>"));
+    assert!(rendered.contains("RemoteUpdateStorageTargetRequest"));
+    assert!(!rendered.contains("access_key"));
+    assert!(!rendered.contains("secret_key"));
     assert!(!rendered.contains("plain-access-key"));
     assert!(!rendered.contains("plain-secret-key"));
 }
@@ -697,8 +699,8 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
         .probe_capabilities()
         .await
         .expect("capabilities should load");
-    assert_eq!(capabilities.protocol_version, "v5");
-    assert_eq!(capabilities.min_supported_protocol_version, "v4");
+    assert_eq!(capabilities.protocol_version, "v6");
+    assert_eq!(capabilities.min_supported_protocol_version, "v6");
     assert!(capabilities.features.object_get);
     assert!(capabilities.features.object_head);
     assert!(capabilities.features.range_get);
@@ -792,8 +794,8 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
     assert_eq!(profiles[0].target_key, "profile-a");
 
     let created = client
-        .create_storage_target(&RemoteCreateStorageTargetRequest::Local(
-            RemoteCreateLocalStorageTargetRequest {
+        .create_storage_target(&crate::storage::remote_protocol::legacy::local(
+            crate::storage::remote_protocol::legacy::LocalRequest {
                 name: "Managed local".to_string(),
                 base_path: "ingress-base".to_string(),
                 is_default: true,
@@ -807,6 +809,8 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
         .update_storage_target(
             "profile/a",
             &RemoteUpdateStorageTargetRequest {
+                connector_config: None,
+                credential: None,
                 name: Some("Updated".to_string()),
                 ..Default::default()
             },
@@ -1061,7 +1065,7 @@ async fn remote_client_probe_rejects_v2_capabilities_without_capacity_support() 
         Some(StorageErrorKind::Misconfigured)
     );
     assert!(
-        capabilities.message().contains("local supports v4-v5"),
+        capabilities.message().contains("local supports v6-v6"),
         "unexpected error message: {}",
         capabilities.message()
     );
@@ -1183,7 +1187,7 @@ fn capabilities_validation_rejects_incompatible_protocol_versions() {
         error.message()
     );
     assert!(
-        error.message().contains("local supports v4-v5"),
+        error.message().contains("local supports v6-v6"),
         "unexpected error message: {}",
         error.message()
     );
@@ -1202,7 +1206,7 @@ fn capabilities_validation_rejects_v2_remote_nodes() {
         .validate_protocol("test remote node")
         .expect_err("v2 discovery should be incompatible with v4");
     assert!(
-        error.message().contains("local supports v4-v5"),
+        error.message().contains("local supports v6-v6"),
         "unexpected error message: {}",
         error.message()
     );
@@ -1211,9 +1215,9 @@ fn capabilities_validation_rejects_v2_remote_nodes() {
 #[test]
 fn remote_storage_target_capabilities_accept_unknown_driver_ids() {
     let capabilities: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
-        "protocol_version": "v5",
+        "protocol_version": "v6",
         "min_supported_protocol_version": "v4",
-        "managed_ingress": {
+        "remote_storage_target": {
             "enabled": true,
             "driver_types": ["local", "plugin.example.archive"]
         }
@@ -1241,11 +1245,31 @@ fn remote_storage_target_capabilities_accept_unknown_driver_ids() {
 }
 
 #[test]
+fn remote_storage_target_capabilities_accept_connector_ids_without_core_enum() {
+    let capabilities: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
+        "protocol_version": "v6",
+        "min_supported_protocol_version": "v6",
+        "remote_storage_target": {
+            "enabled": true,
+            "connector_ids": ["asterdrive.remote-target.sftp"]
+        }
+    }))
+    .expect("connector-id capability payload should decode");
+    assert!(
+        capabilities
+            .remote_storage_target
+            .as_ref()
+            .expect("target capabilities")
+            .supports_known_driver(RemoteStorageTargetDriverKind::Sftp)
+    );
+}
+
+#[test]
 fn remote_storage_target_capabilities_require_enabled_and_matching_driver() {
     let disabled: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
-        "protocol_version": "v5",
+        "protocol_version": "v6",
         "min_supported_protocol_version": "v4",
-        "managed_ingress": {
+        "remote_storage_target": {
             "enabled": false,
             "driver_types": ["local", "s3"]
         }
@@ -1261,9 +1285,9 @@ fn remote_storage_target_capabilities_require_enabled_and_matching_driver() {
 
     let enabled_without_driver_types: RemoteStorageCapabilities =
         serde_json::from_value(serde_json::json!({
-            "protocol_version": "v5",
+            "protocol_version": "v6",
             "min_supported_protocol_version": "v4",
-            "managed_ingress": {
+            "remote_storage_target": {
                 "enabled": true
             }
         }))
@@ -1278,9 +1302,9 @@ fn remote_storage_target_capabilities_require_enabled_and_matching_driver() {
 
     let enabled_with_unknown_only: RemoteStorageCapabilities =
         serde_json::from_value(serde_json::json!({
-            "protocol_version": "v5",
+            "protocol_version": "v6",
             "min_supported_protocol_version": "v4",
-            "managed_ingress": {
+            "remote_storage_target": {
                 "enabled": true,
                 "driver_types": ["plugin.example.archive"]
             }
@@ -1296,6 +1320,45 @@ fn remote_storage_target_capabilities_require_enabled_and_matching_driver() {
 }
 
 #[test]
+fn v6_target_info_does_not_serialize_legacy_flattened_fields() {
+    let now = chrono::Utc::now();
+    let info = RemoteStorageTargetInfo {
+        target_key: "rst_v6".into(),
+        name: "V6 target".into(),
+        connector_id: Some("asterdrive.storage.s3".into()),
+        connector_config: Some(aster_drive_storage::ConnectorConfigEnvelope::new(
+            aster_drive_storage::ConnectorId::declared("asterdrive.storage.s3"),
+            1,
+            [
+                (
+                    "endpoint".to_string(),
+                    serde_json::json!("https://s3.example.test"),
+                ),
+                ("bucket".to_string(), serde_json::json!("bucket")),
+                ("base_path".to_string(), serde_json::json!("prefix")),
+            ]
+            .into_iter()
+            .collect(),
+        )),
+        endpoint: "legacy-endpoint".into(),
+        bucket: "legacy-bucket".into(),
+        base_path: "legacy-prefix".into(),
+        is_default: true,
+        desired_revision: 1,
+        applied_revision: 1,
+        last_error: String::new(),
+        created_at: now,
+        updated_at: now,
+    };
+    let json = serde_json::to_value(info).unwrap();
+    assert!(json.get("driver_type").is_none());
+    assert!(json.get("endpoint").is_none());
+    assert!(json.get("bucket").is_none());
+    assert!(json.get("base_path").is_none());
+    assert_eq!(json["connector_id"], "asterdrive.storage.s3");
+}
+
+#[test]
 fn remote_storage_target_capabilities_serialize_known_driver_ids_as_strings() {
     let capabilities = RemoteStorageCapabilities::current()
         .with_remote_storage_target_driver_types(vec![
@@ -1306,14 +1369,14 @@ fn remote_storage_target_capabilities_serialize_known_driver_ids_as_strings() {
     let value = serde_json::to_value(&capabilities)
         .expect("remote storage target capabilities should serialize");
     assert_eq!(
-        value["managed_ingress"]["driver_types"],
+        value["remote_storage_target"]["driver_types"],
         serde_json::json!(["local", "s3"])
     );
-    assert_eq!(value["managed_ingress"]["enabled"], serde_json::json!(true));
-    assert!(
-        value.get("remote_storage_target").is_none(),
-        "protocol v5 compatibility keeps serializing the legacy managed_ingress key"
+    assert_eq!(
+        value["remote_storage_target"]["enabled"],
+        serde_json::json!(true)
     );
+    assert!(value.get("managed_ingress").is_none());
 
     let roundtripped: RemoteStorageCapabilities =
         serde_json::from_value(value).expect("serialized capabilities should roundtrip");
@@ -1328,7 +1391,7 @@ fn remote_storage_target_capabilities_serialize_known_driver_ids_as_strings() {
 #[test]
 fn remote_storage_target_capabilities_decode_new_alias() {
     let capabilities: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
-        "protocol_version": "v5",
+        "protocol_version": "v6",
         "min_supported_protocol_version": "v4",
         "remote_storage_target": {
             "enabled": true,
@@ -1360,31 +1423,31 @@ fn missing_remote_storage_target_capabilities_remain_wire_missing() {
     let empty = RemoteStorageCapabilities::from_stored_json("{}");
     assert!(empty.remote_storage_target.is_none());
 
-    let v5_without_field: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
-        "protocol_version": "v5",
+    let v6_without_field: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
+        "protocol_version": "v6",
         "min_supported_protocol_version": "v4"
     }))
     .expect("v5 capabilities without managed ingress should decode");
-    assert!(v5_without_field.remote_storage_target.is_none());
+    assert!(v6_without_field.remote_storage_target.is_none());
 
     let v4_with_null_field: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
         "protocol_version": "v4",
         "min_supported_protocol_version": "v4",
-        "managed_ingress": null
+        "remote_storage_target": null
     }))
-    .expect("legacy v4 capabilities with explicit null managed_ingress should decode");
+    .expect("legacy v4 capabilities with explicit null remote_storage_target should decode");
     assert!(v4_with_null_field.remote_storage_target.is_none());
 
     let v4_with_explicit_empty_field: RemoteStorageCapabilities =
         serde_json::from_value(serde_json::json!({
             "protocol_version": "v4",
             "min_supported_protocol_version": "v4",
-            "managed_ingress": {
+            "remote_storage_target": {
                 "enabled": false,
                 "driver_types": []
             }
         }))
-        .expect("legacy v4 capabilities with explicit managed_ingress should decode");
+        .expect("legacy v4 capabilities with explicit remote_storage_target should decode");
     assert!(
         !v4_with_explicit_empty_field
             .remote_storage_target

@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **远程存储目标 connector 注册中心** — follower 侧远程存储目标统一通过共享 connector registry 根入口解析，使用稳定 connector ID、descriptor 校验和 typed configuration envelope；Local、S3、SFTP、腾讯云 COS、阿里云 OSS、七牛 Kodo、Azure Blob 和 Huawei OBS 均通过同一注册路径接入。内部 capability discovery 发送 V6 `remote_storage_target` 元数据；一次性的 0.5.0 数据转换会在启动前加密旧 S3 凭据，转换清理逻辑标记为 0.7.0 移除。
+
 - **统一上传 session 协议** — 非空文件统一先 init：init 固化 filename、MIME、大小、存储策略、placement profile/rule/revision 和 `stream` / `chunked` / `presigned` / `presigned_multipart` / `provider_resumable` transport。单请求 stream 改用 `PUT /files/upload/{upload_id}/body` 的 `application/octet-stream` 原始 body，并在同一数据库事务内创建 file/blob、更新 quota 和完成 session；其他 transport 继续由 `/complete` 幂等发布。重复或过期 stream body 在写入前通过原子 session claim 拒绝。目标存储可报告容量时，init 会执行 advisory 容量预检；实际写入仍以 driver 结果为准，不提供并发容量预占。0 字节文件统一使用 `/files/new`。
 - **上传 session schema 与 ID** — 新 migration 为 `upload_sessions` 增加 init 时解析并固化的 `mime_type`，续传、恢复和完成不再从后续 body 或默认文件名重新推断上传计划。新建 upload session 使用内嵌毫秒时间戳的标准 UUIDv7，保持现有 36 字符 UUID、URL、数据库和旧 UUIDv4 session 兼容性。
 

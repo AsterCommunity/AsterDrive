@@ -1,26 +1,16 @@
 use std::sync::Arc;
-use std::time::Duration;
 
-use crate::api::api_error_code::ApiErrorCode;
-use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
+use crate::errors::{AsterError, Result};
 use crate::runtime::FollowerRuntimeState;
-use crate::storage::drivers::s3_config::normalize_s3_endpoint_and_bucket;
-use crate::storage::drivers::{
-    local::LocalDriver,
-    s3::{S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials},
-};
 use aster_drive_model::entities::remote_storage_target;
 use aster_drive_model::types::RemoteStorageTargetDriverKind;
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::field_contract::{
-    StorageDescriptorFieldKind, StorageDescriptorFieldSemantics, normalize_object_storage_prefix,
-    normalize_required_storage_field,
+    normalize_object_storage_prefix, normalize_required_storage_field,
 };
-use serde::{Deserialize, Serialize};
-#[cfg(all(debug_assertions, feature = "openapi"))]
-use utoipa::ToSchema;
+use aster_drive_storage::{ConnectorConfigEnvelope, ConnectorId};
 
-use super::paths::{normalize_relative_local_path, resolve_remote_storage_target_local_path};
+use super::paths::normalize_relative_local_path;
 
 pub(in crate::services::remote::storage_target) struct RemoteStorageTargetDriverFields {
     pub driver_type: RemoteStorageTargetDriverKind,
@@ -40,487 +30,375 @@ pub(in crate::services::remote::storage_target) struct NormalizedRemoteStorageTa
     pub base_path: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub enum RemoteStorageTargetDriverFieldKind {
-    Text,
-    Secret,
-    Boolean,
-    Number,
-}
+pub type RemoteStorageTargetDriverDescriptor = aster_drive_storage::StorageConnectorDescriptor;
 
-impl TryFrom<StorageDescriptorFieldKind> for RemoteStorageTargetDriverFieldKind {
-    type Error = &'static str;
-
-    fn try_from(value: StorageDescriptorFieldKind) -> std::result::Result<Self, Self::Error> {
-        match value {
-            StorageDescriptorFieldKind::Text => Ok(Self::Text),
-            StorageDescriptorFieldKind::Secret => Ok(Self::Secret),
-            StorageDescriptorFieldKind::Boolean => Ok(Self::Boolean),
-            StorageDescriptorFieldKind::Number => Ok(Self::Number),
-            StorageDescriptorFieldKind::Select => {
-                Err("remote storage target descriptors do not support select fields")
-            }
-        }
-    }
-}
-
-fn remote_storage_target_field_kind(
-    kind: StorageDescriptorFieldKind,
-) -> Result<RemoteStorageTargetDriverFieldKind> {
-    RemoteStorageTargetDriverFieldKind::try_from(kind).map_err(|message| {
-        AsterError::internal_error(format!(
-            "build remote storage target descriptor field: {message}"
-        ))
-    })
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct RemoteStorageTargetDriverFieldValidation {
-    pub relative_local_path: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct RemoteStorageTargetDriverFieldDescriptor {
-    pub name: String,
-    pub kind: RemoteStorageTargetDriverFieldKind,
-    pub required: bool,
-    pub secret: bool,
-    pub label_key: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub placeholder: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub help_key: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub validation: Option<RemoteStorageTargetDriverFieldValidation>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct RemoteStorageTargetDriverDescriptor {
-    pub driver_type: RemoteStorageTargetDriverKind,
-    pub label_key: String,
-    pub description_key: String,
-    pub fields: Vec<RemoteStorageTargetDriverFieldDescriptor>,
-}
-
-fn remote_storage_target_text_field(
-    name: &str,
-    label_key: &str,
-    placeholder: Option<&str>,
-    help_key: Option<&str>,
-    required: bool,
-    secret: bool,
-) -> Result<RemoteStorageTargetDriverFieldDescriptor> {
-    remote_storage_target_text_field_with_validation(
-        name,
-        label_key,
-        placeholder,
-        help_key,
-        required,
-        secret,
-        None,
-    )
-}
-
-fn remote_storage_target_text_field_with_validation(
-    name: &str,
-    label_key: &str,
-    placeholder: Option<&str>,
-    help_key: Option<&str>,
-    required: bool,
-    secret: bool,
-    validation: Option<RemoteStorageTargetDriverFieldValidation>,
-) -> Result<RemoteStorageTargetDriverFieldDescriptor> {
-    let semantics = if secret {
-        StorageDescriptorFieldSemantics::secret(required)
-    } else {
-        StorageDescriptorFieldSemantics::text(required)
-    };
-    Ok(RemoteStorageTargetDriverFieldDescriptor {
-        name: name.to_string(),
-        kind: remote_storage_target_field_kind(semantics.kind)?,
-        required: semantics.required,
-        secret: semantics.secret,
-        label_key: label_key.to_string(),
-        placeholder: placeholder.map(str::to_string),
-        help_key: help_key.map(str::to_string),
-        validation,
-    })
-}
-
-fn remote_storage_target_boolean_field(
-    name: &str,
-    label_key: &str,
-    help_key: Option<&str>,
-    required: bool,
-) -> Result<RemoteStorageTargetDriverFieldDescriptor> {
-    let semantics = StorageDescriptorFieldSemantics::boolean(required);
-    Ok(RemoteStorageTargetDriverFieldDescriptor {
-        name: name.to_string(),
-        kind: remote_storage_target_field_kind(semantics.kind)?,
-        required: semantics.required,
-        secret: semantics.secret,
-        label_key: label_key.to_string(),
-        placeholder: None,
-        help_key: help_key.map(str::to_string),
-        validation: None,
-    })
-}
-
-trait RemoteStorageTargetDriverConnector {
-    fn driver_type() -> RemoteStorageTargetDriverKind;
-
-    fn descriptor() -> Result<RemoteStorageTargetDriverDescriptor>;
-
-    fn normalize_fields(
-        fields: RemoteStorageTargetDriverFields,
-    ) -> Result<NormalizedRemoteStorageTargetDriverFields>;
-
-    fn validate_target<S: FollowerRuntimeState>(
-        state: &S,
-        target: &remote_storage_target::Model,
-    ) -> Result<()>;
-
-    fn build_driver<S: FollowerRuntimeState>(
-        state: &S,
-        target: &remote_storage_target::Model,
-    ) -> Result<Arc<dyn StorageDriver>>;
-}
-
-struct LocalRemoteStorageTargetDriverConnector;
-
-impl RemoteStorageTargetDriverConnector for LocalRemoteStorageTargetDriverConnector {
-    fn driver_type() -> RemoteStorageTargetDriverKind {
-        RemoteStorageTargetDriverKind::Local
-    }
-
-    fn descriptor() -> Result<RemoteStorageTargetDriverDescriptor> {
-        Ok(RemoteStorageTargetDriverDescriptor {
-            driver_type: Self::driver_type(),
-            label_key: "remote_node_ingress_profile_driver_local".to_string(),
-            description_key: "remote_node_ingress_profile_local_scope_hint".to_string(),
-            fields: vec![
-                remote_storage_target_text_field_with_validation(
-                    "base_path",
-                    "base_path",
-                    Some("tenant-a/incoming"),
-                    Some("remote_node_ingress_profile_local_path_hint"),
-                    true,
-                    false,
-                    Some(RemoteStorageTargetDriverFieldValidation {
-                        relative_local_path: true,
-                    }),
-                )?,
-                remote_storage_target_boolean_field(
-                    "is_default",
-                    "remote_node_ingress_profile_default_toggle",
-                    Some("remote_node_ingress_profile_default_hint"),
-                    false,
-                )?,
-            ],
-        })
-    }
-
-    fn normalize_fields(
-        fields: RemoteStorageTargetDriverFields,
-    ) -> Result<NormalizedRemoteStorageTargetDriverFields> {
-        Ok(NormalizedRemoteStorageTargetDriverFields {
-            driver_type: Self::driver_type(),
-            endpoint: String::new(),
-            bucket: String::new(),
-            access_key: String::new(),
-            secret_key: String::new(),
-            base_path: normalize_relative_local_path(&fields.base_path)?,
-        })
-    }
-
-    fn validate_target<S: FollowerRuntimeState>(
-        state: &S,
-        target: &remote_storage_target::Model,
-    ) -> Result<()> {
-        let base_path = resolve_remote_storage_target_local_path(
-            &state
-                .config()
-                .server
-                .follower
-                .remote_storage_target_local_root,
-            &target.base_path,
-        )?;
-        std::fs::create_dir_all(&base_path).map_aster_err_ctx(
-            &format!(
-                "create remote storage target local path '{}'",
-                base_path.display()
-            ),
-            AsterError::storage_driver_error,
-        )
-    }
-
-    fn build_driver<S: FollowerRuntimeState>(
-        state: &S,
-        target: &remote_storage_target::Model,
-    ) -> Result<Arc<dyn StorageDriver>> {
-        Self::validate_target(state, target)?;
-        let base_path = resolve_remote_storage_target_local_path(
-            &state
-                .config()
-                .server
-                .follower
-                .remote_storage_target_local_root,
-            &target.base_path,
-        )?;
-        Ok(Arc::new(LocalDriver::new(&base_path.to_string_lossy())?))
-    }
-}
-
-struct S3RemoteStorageTargetDriverConnector;
-
-impl RemoteStorageTargetDriverConnector for S3RemoteStorageTargetDriverConnector {
-    fn driver_type() -> RemoteStorageTargetDriverKind {
-        RemoteStorageTargetDriverKind::S3
-    }
-
-    fn descriptor() -> Result<RemoteStorageTargetDriverDescriptor> {
-        Ok(RemoteStorageTargetDriverDescriptor {
-            driver_type: Self::driver_type(),
-            label_key: "remote_node_ingress_profile_driver_s3".to_string(),
-            description_key: "remote_node_ingress_profile_s3_path_hint".to_string(),
-            fields: vec![
-                remote_storage_target_text_field(
-                    "endpoint",
-                    "endpoint",
-                    Some("https://s3.example.com"),
-                    None,
-                    true,
-                    false,
-                )?,
-                remote_storage_target_text_field("bucket", "bucket", None, None, true, false)?,
-                remote_storage_target_text_field(
-                    "access_key",
-                    "access_key",
-                    None,
-                    None,
-                    true,
-                    false,
-                )?,
-                remote_storage_target_text_field(
-                    "secret_key",
-                    "secret_key",
-                    None,
-                    None,
-                    true,
-                    true,
-                )?,
-                remote_storage_target_text_field(
-                    "base_path",
-                    "base_path",
-                    Some("prefix"),
-                    Some("remote_node_ingress_profile_s3_path_hint"),
-                    false,
-                    false,
-                )?,
-                remote_storage_target_boolean_field(
-                    "is_default",
-                    "remote_node_ingress_profile_default_toggle",
-                    Some("remote_node_ingress_profile_default_hint"),
-                    false,
-                )?,
-            ],
-        })
-    }
-
-    fn normalize_fields(
-        fields: RemoteStorageTargetDriverFields,
-    ) -> Result<NormalizedRemoteStorageTargetDriverFields> {
-        let normalized = normalize_s3_endpoint_and_bucket(&fields.endpoint, &fields.bucket)
-            .map_err(|error| error.into_aster_error())?;
-        Ok(NormalizedRemoteStorageTargetDriverFields {
-            driver_type: Self::driver_type(),
-            endpoint: normalized.endpoint,
-            bucket: normalized.bucket,
-            access_key: normalize_required_storage_field("access_key", &fields.access_key)?,
-            secret_key: normalize_required_storage_field("secret_key", &fields.secret_key)?,
-            base_path: normalize_object_storage_prefix(&fields.base_path),
-        })
-    }
-
-    fn validate_target<S: FollowerRuntimeState>(
-        _state: &S,
-        target: &remote_storage_target::Model,
-    ) -> Result<()> {
-        let (config, credentials) = s3_target_runtime(target);
-        Ok(S3Driver::validate_config(&config, &credentials)?)
-    }
-
-    fn build_driver<S: FollowerRuntimeState>(
-        _state: &S,
-        target: &remote_storage_target::Model,
-    ) -> Result<Arc<dyn StorageDriver>> {
-        let (config, credentials) = s3_target_runtime(target);
-        Ok(Arc::new(S3Driver::new(
-            config,
-            credentials,
-            S3DriverOptions::default(),
-            std::convert::identity,
-        )?))
-    }
-}
-
-fn s3_target_runtime(
-    target: &remote_storage_target::Model,
-) -> (S3DriverConfig, S3StaticCredentials) {
-    (
-        S3DriverConfig {
-            endpoint: target.endpoint.clone(),
-            bucket: target.bucket.clone(),
-            base_path: target.base_path.clone(),
-            region: "auto".to_string(),
-            path_style: true,
-            connect_timeout: Duration::from_secs(5),
-            read_timeout: Duration::from_secs(30),
-            operation_timeout: Duration::from_secs(3_600),
-        },
-        S3StaticCredentials {
-            access_key: target.access_key.clone(),
-            secret_key: target.secret_key.clone(),
-        },
-    )
-}
-
-struct RemoteStorageTargetDriverRegistration {
-    driver_type: RemoteStorageTargetDriverKind,
+fn normalize_generic_remote_fields(
     connector: BuiltinRemoteStorageTargetDriverConnector,
+    fields: RemoteStorageTargetDriverFields,
+) -> Result<NormalizedRemoteStorageTargetDriverFields> {
+    let base_path = normalize_object_storage_prefix(&fields.base_path);
+    let endpoint = fields.endpoint.trim().trim_end_matches('/').to_string();
+    let bucket = if matches!(connector, BuiltinRemoteStorageTargetDriverConnector::Sftp) {
+        String::new()
+    } else {
+        normalize_required_storage_field("bucket", &fields.bucket)?
+    };
+    let access_key = normalize_required_storage_field("access_key", &fields.access_key)?;
+    let secret_key = normalize_required_storage_field("secret_key", &fields.secret_key)?;
+    if endpoint.is_empty() {
+        return Err(AsterError::validation_error("endpoint cannot be empty"));
+    }
+    Ok(NormalizedRemoteStorageTargetDriverFields {
+        driver_type: match connector {
+            BuiltinRemoteStorageTargetDriverConnector::Sftp => RemoteStorageTargetDriverKind::Sftp,
+            BuiltinRemoteStorageTargetDriverConnector::TencentCos => {
+                RemoteStorageTargetDriverKind::TencentCos
+            }
+            BuiltinRemoteStorageTargetDriverConnector::AlibabaOss => {
+                RemoteStorageTargetDriverKind::AlibabaOss
+            }
+            BuiltinRemoteStorageTargetDriverConnector::Qiniu => {
+                RemoteStorageTargetDriverKind::Qiniu
+            }
+            BuiltinRemoteStorageTargetDriverConnector::AzureBlob => {
+                RemoteStorageTargetDriverKind::AzureBlob
+            }
+            BuiltinRemoteStorageTargetDriverConnector::HuaweiObs => {
+                RemoteStorageTargetDriverKind::HuaweiObs
+            }
+        },
+        endpoint,
+        bucket,
+        access_key,
+        secret_key,
+        base_path,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BuiltinRemoteStorageTargetDriverConnector {
-    Local,
-    S3,
+    Sftp,
+    TencentCos,
+    AlibabaOss,
+    Qiniu,
+    AzureBlob,
+    HuaweiObs,
 }
 
-impl BuiltinRemoteStorageTargetDriverConnector {
-    fn descriptor(self) -> Result<RemoteStorageTargetDriverDescriptor> {
-        match self {
-            Self::Local => LocalRemoteStorageTargetDriverConnector::descriptor(),
-            Self::S3 => S3RemoteStorageTargetDriverConnector::descriptor(),
-        }
-    }
+impl BuiltinRemoteStorageTargetDriverConnector {}
 
-    fn normalize_fields(
-        self,
-        fields: RemoteStorageTargetDriverFields,
-    ) -> Result<NormalizedRemoteStorageTargetDriverFields> {
-        match self {
-            Self::Local => LocalRemoteStorageTargetDriverConnector::normalize_fields(fields),
-            Self::S3 => S3RemoteStorageTargetDriverConnector::normalize_fields(fields),
-        }
-    }
-
-    fn validate_target<S: FollowerRuntimeState>(
-        self,
-        state: &S,
-        target: &remote_storage_target::Model,
-    ) -> Result<()> {
-        match self {
-            Self::Local => LocalRemoteStorageTargetDriverConnector::validate_target(state, target),
-            Self::S3 => S3RemoteStorageTargetDriverConnector::validate_target(state, target),
-        }
-    }
-
-    fn build_driver<S: FollowerRuntimeState>(
-        self,
-        state: &S,
-        target: &remote_storage_target::Model,
-    ) -> Result<Arc<dyn StorageDriver>> {
-        match self {
-            Self::Local => LocalRemoteStorageTargetDriverConnector::build_driver(state, target),
-            Self::S3 => S3RemoteStorageTargetDriverConnector::build_driver(state, target),
-        }
-    }
-}
-
-static REMOTE_STORAGE_TARGET_DRIVER_REGISTRATIONS: &[RemoteStorageTargetDriverRegistration] = &[
-    RemoteStorageTargetDriverRegistration {
+fn normalize_local_fields(
+    fields: RemoteStorageTargetDriverFields,
+) -> Result<NormalizedRemoteStorageTargetDriverFields> {
+    Ok(NormalizedRemoteStorageTargetDriverFields {
         driver_type: RemoteStorageTargetDriverKind::Local,
-        connector: BuiltinRemoteStorageTargetDriverConnector::Local,
-    },
-    RemoteStorageTargetDriverRegistration {
-        driver_type: RemoteStorageTargetDriverKind::S3,
-        connector: BuiltinRemoteStorageTargetDriverConnector::S3,
-    },
-];
-
-fn registration_for(
-    driver_type: RemoteStorageTargetDriverKind,
-) -> Result<&'static RemoteStorageTargetDriverRegistration> {
-    REMOTE_STORAGE_TARGET_DRIVER_REGISTRATIONS
-        .iter()
-        .find(|registration| registration.driver_type == driver_type)
-        .ok_or_else(|| remote_storage_target_unsupported_driver_error(driver_type))
+        endpoint: String::new(),
+        bucket: String::new(),
+        access_key: String::new(),
+        secret_key: String::new(),
+        base_path: normalize_relative_local_path(&fields.base_path)?,
+    })
 }
 
+fn normalize_s3_fields(
+    fields: RemoteStorageTargetDriverFields,
+) -> Result<NormalizedRemoteStorageTargetDriverFields> {
+    let normalized = crate::storage::drivers::s3_config::normalize_s3_endpoint_and_bucket(
+        &fields.endpoint,
+        &fields.bucket,
+    )
+    .map_err(|error| error.into_aster_error())?;
+    Ok(NormalizedRemoteStorageTargetDriverFields {
+        driver_type: RemoteStorageTargetDriverKind::S3,
+        endpoint: normalized.endpoint,
+        bucket: normalized.bucket,
+        access_key: aster_drive_storage::field_contract::normalize_required_storage_field(
+            "access_key",
+            &fields.access_key,
+        )?,
+        secret_key: aster_drive_storage::field_contract::normalize_required_storage_field(
+            "secret_key",
+            &fields.secret_key,
+        )?,
+        base_path: aster_drive_storage::field_contract::normalize_object_storage_prefix(
+            &fields.base_path,
+        ),
+    })
+}
+
+pub(crate) fn remote_storage_target_connector_id(
+    driver_type: RemoteStorageTargetDriverKind,
+) -> Result<ConnectorId> {
+    Ok(ConnectorId::declared(match driver_type {
+        RemoteStorageTargetDriverKind::Local => "asterdrive.storage.local",
+        RemoteStorageTargetDriverKind::S3 => "asterdrive.storage.s3",
+        RemoteStorageTargetDriverKind::Sftp => "asterdrive.storage.sftp",
+        RemoteStorageTargetDriverKind::TencentCos => "asterdrive.storage.tencent_cos",
+        RemoteStorageTargetDriverKind::AlibabaOss => "asterdrive.storage.alibaba_oss",
+        RemoteStorageTargetDriverKind::Qiniu => "asterdrive.storage.qiniu",
+        RemoteStorageTargetDriverKind::AzureBlob => "asterdrive.storage.azure_blob",
+        RemoteStorageTargetDriverKind::HuaweiObs => "asterdrive.storage.huawei_obs",
+    }))
+}
+
+#[cfg(test)]
+pub(crate) fn remote_storage_target_driver_type_for_connector_id(
+    connector_id: &ConnectorId,
+) -> Option<RemoteStorageTargetDriverKind> {
+    match connector_id.as_str() {
+        "asterdrive.storage.local" => Some(RemoteStorageTargetDriverKind::Local),
+        "asterdrive.storage.s3" => Some(RemoteStorageTargetDriverKind::S3),
+        "asterdrive.storage.sftp" => Some(RemoteStorageTargetDriverKind::Sftp),
+        "asterdrive.storage.tencent_cos" => Some(RemoteStorageTargetDriverKind::TencentCos),
+        "asterdrive.storage.alibaba_oss" => Some(RemoteStorageTargetDriverKind::AlibabaOss),
+        "asterdrive.storage.qiniu" => Some(RemoteStorageTargetDriverKind::Qiniu),
+        "asterdrive.storage.azure_blob" => Some(RemoteStorageTargetDriverKind::AzureBlob),
+        "asterdrive.storage.huawei_obs" => Some(RemoteStorageTargetDriverKind::HuaweiObs),
+        _ => None,
+    }
+}
+
+pub(crate) fn remote_storage_target_descriptor_from_connector(
+    connector: &dyn crate::storage::connectors::StorageConnector,
+) -> Result<RemoteStorageTargetDriverDescriptor> {
+    if !connector.supports_remote_storage_target() {
+        return Err(AsterError::validation_error(format!(
+            "storage connector '{}' is not a remote target provider",
+            connector.descriptor().connector_id
+        )));
+    }
+    Ok(connector.descriptor())
+}
+
+#[cfg(test)]
 pub(crate) fn registered_remote_storage_target_driver_types() -> Vec<RemoteStorageTargetDriverKind>
 {
-    REMOTE_STORAGE_TARGET_DRIVER_REGISTRATIONS
-        .iter()
-        .map(|registration| registration.driver_type)
-        .collect()
+    crate::storage::connectors::builtin_storage_connector_registry()
+        .map(|registry| registry.remote_target_driver_types())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
 pub(crate) fn list_registered_remote_storage_target_driver_descriptors()
 -> Result<Vec<RemoteStorageTargetDriverDescriptor>> {
-    REMOTE_STORAGE_TARGET_DRIVER_REGISTRATIONS
-        .iter()
-        .map(|registration| registration.connector.descriptor())
-        .collect::<Result<Vec<_>>>()
+    crate::storage::connectors::builtin_storage_connector_registry()?
+        .remote_target_connectors()
+        .into_iter()
+        .map(remote_storage_target_descriptor_from_connector)
+        .collect()
 }
 
 pub fn remote_storage_target_driver_descriptor(
     driver_type: RemoteStorageTargetDriverKind,
 ) -> Result<RemoteStorageTargetDriverDescriptor> {
-    registration_for(driver_type)?.connector.descriptor()
+    let connector_id = remote_storage_target_connector_id(driver_type)?;
+    let registry = crate::storage::connectors::builtin_storage_connector_registry()?;
+    remote_storage_target_descriptor_from_connector(
+        registry.require_remote_target_connector(&connector_id)?,
+    )
 }
 
 pub(in crate::services::remote::storage_target) fn normalize_driver_fields(
     fields: RemoteStorageTargetDriverFields,
 ) -> Result<NormalizedRemoteStorageTargetDriverFields> {
-    registration_for(fields.driver_type)?
-        .connector
-        .normalize_fields(fields)
+    match fields.driver_type {
+        RemoteStorageTargetDriverKind::Local => normalize_local_fields(fields),
+        RemoteStorageTargetDriverKind::S3 => normalize_s3_fields(fields),
+        RemoteStorageTargetDriverKind::Sftp => {
+            normalize_generic_remote_fields(BuiltinRemoteStorageTargetDriverConnector::Sftp, fields)
+        }
+        RemoteStorageTargetDriverKind::TencentCos => normalize_generic_remote_fields(
+            BuiltinRemoteStorageTargetDriverConnector::TencentCos,
+            fields,
+        ),
+        RemoteStorageTargetDriverKind::AlibabaOss => normalize_generic_remote_fields(
+            BuiltinRemoteStorageTargetDriverConnector::AlibabaOss,
+            fields,
+        ),
+        RemoteStorageTargetDriverKind::Qiniu => normalize_generic_remote_fields(
+            BuiltinRemoteStorageTargetDriverConnector::Qiniu,
+            fields,
+        ),
+        RemoteStorageTargetDriverKind::AzureBlob => normalize_generic_remote_fields(
+            BuiltinRemoteStorageTargetDriverConnector::AzureBlob,
+            fields,
+        ),
+        RemoteStorageTargetDriverKind::HuaweiObs => normalize_generic_remote_fields(
+            BuiltinRemoteStorageTargetDriverConnector::HuaweiObs,
+            fields,
+        ),
+    }
 }
 
-pub(in crate::services::remote::storage_target) fn validate_driver_from_target<
+pub(in crate::services::remote::storage_target) async fn validate_driver_from_target<
     S: FollowerRuntimeState,
 >(
     state: &S,
     target: &remote_storage_target::Model,
 ) -> Result<()> {
-    let registration = registration_for(target.driver_type)?;
-    registration.connector.validate_target(state, target)
+    build_driver_from_target(state, target).await.map(|_| ())
 }
 
-pub(in crate::services::remote::storage_target) fn build_driver_from_target<
+pub(in crate::services::remote::storage_target) async fn build_driver_from_target<
     S: FollowerRuntimeState,
 >(
     state: &S,
     target: &remote_storage_target::Model,
 ) -> Result<Arc<dyn StorageDriver>> {
-    let registration = registration_for(target.driver_type)?;
-    registration.connector.build_driver(state, target)
+    let connector_id = target
+        .connector_id
+        .as_deref()
+        .map(ConnectorId::declared)
+        .ok_or_else(|| {
+            AsterError::from(aster_drive_storage::storage_driver_error(
+                aster_drive_storage::StorageErrorKind::Misconfigured,
+                format!("remote storage target #{} has no connector id", target.id),
+            ))
+        })?;
+    let connector = state
+        .driver_registry()
+        .connectors()
+        .require_remote_target_connector(&connector_id)?;
+    let config: ConnectorConfigEnvelope<serde_json::Value> = target
+        .connector_config
+        .as_deref()
+        .ok_or_else(|| {
+            AsterError::from(aster_drive_storage::storage_driver_error(
+                aster_drive_storage::StorageErrorKind::Misconfigured,
+                format!(
+                    "remote storage target #{} has no connector config",
+                    target.id
+                ),
+            ))
+        })
+        .and_then(|raw| {
+            serde_json::from_str(raw).map_err(|error| {
+                AsterError::from(aster_drive_storage::storage_driver_error(
+                    aster_drive_storage::StorageErrorKind::Misconfigured,
+                    format!(
+                        "remote storage target #{} connector config is invalid: {error}",
+                        target.id
+                    ),
+                ))
+            })
+        })?;
+    if config.connector_id != connector_id {
+        return Err(AsterError::validation_error(format!(
+            "remote storage target #{} connector config id '{}' does not match target connector '{}'",
+            target.id, config.connector_id, connector_id
+        )));
+    }
+    let mut config = config;
+    if connector_id.as_str() == "asterdrive.storage.local" {
+        if let Some(values) = config.values.as_object_mut() {
+            let relative = values
+                .get("base_path")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(".");
+            let resolved = super::paths::resolve_remote_storage_target_local_path(
+                &state
+                    .config()
+                    .server
+                    .follower
+                    .remote_storage_target_local_root,
+                relative,
+            )?;
+            values.insert(
+                "base_path".to_string(),
+                serde_json::Value::String(resolved.to_string_lossy().into_owned()),
+            );
+        }
+    }
+    let context = crate::storage::connectors::StorageConnectorContext::new(
+        state.writer_db(),
+        state.config(),
+        state.runtime_config(),
+        state.driver_registry(),
+        None,
+    );
+    let credential = if connector.descriptor().credential_mode
+        == aster_drive_storage::StorageConnectorCredentialMode::None
+    {
+        crate::storage::connectors::StorageConnectorCredentialInput::None
+    } else if let Some(saved) =
+        crate::db::repository::remote_storage_target_credential_repo::find_by_target(
+            state.writer_db(),
+            target.id,
+        )
+        .await?
+    {
+        if saved.connector_id != connector_id.as_str() {
+            return Err(AsterError::database_operation(format!(
+                "remote storage target #{} credential connector '{}' does not match target connector '{}'",
+                target.id, saved.connector_id, connector_id
+            )));
+        }
+        if saved.schema_version as u32 != config.schema_version {
+            return Err(AsterError::database_operation(format!(
+                "remote storage target #{} credential schema {} does not match config schema {}",
+                target.id, saved.schema_version, config.schema_version
+            )));
+        }
+        let plaintext =
+            crate::services::storage_policy::credential::crypto::decrypt_connector_credential(
+                &state.config().auth.storage_credential_secret_key,
+                target.id,
+                &saved.connector_id,
+                saved.schema_version as u32,
+                &saved.ciphertext,
+            )?;
+        let values: serde_json::Value = serde_json::from_str(&plaintext).map_err(|error| {
+            AsterError::database_operation(format!(
+                "invalid remote target credential payload: {error}"
+            ))
+        })?;
+        crate::storage::connectors::StorageConnectorCredentialInput::Static(
+            remap_legacy_credential_values(values, connector)?,
+        )
+    } else {
+        return Err(AsterError::database_operation(format!(
+            "remote storage target #{} is missing encrypted credentials",
+            target.id
+        )));
+    };
+    connector
+        .build_driver_from_connection(&context, &config, &credential)
+        .await
+        .map(|driver| driver.storage)
 }
 
-fn remote_storage_target_unsupported_driver_error(
-    driver_type: RemoteStorageTargetDriverKind,
-) -> AsterError {
-    validation_error_with_code(
-        ApiErrorCode::ManagedIngressDriverUnsupported,
-        format!(
-            "managed remote storage targets do not support the {} driver",
-            driver_type.as_str()
-        ),
-    )
+fn remap_legacy_credential_values(
+    values: serde_json::Value,
+    connector: &dyn crate::storage::connectors::StorageConnector,
+) -> Result<serde_json::Value> {
+    let object = values.as_object().ok_or_else(|| {
+        AsterError::database_operation("remote target credential payload must be an object")
+    })?;
+    let fields = connector
+        .descriptor()
+        .fields
+        .into_iter()
+        .filter(|field| {
+            field.scope == aster_drive_storage::StorageConnectorFieldScope::StaticCredential
+        })
+        .collect::<Vec<_>>();
+    if fields.is_empty() {
+        return Ok(serde_json::json!({}));
+    }
+    let access = object
+        .iter()
+        .find(|(key, value)| key.contains("access_key") && value.is_string())
+        .map(|(_, value)| value.clone())
+        .unwrap_or_default();
+    let secret = object
+        .iter()
+        .find(|(key, value)| key.contains("secret_key") && value.is_string())
+        .map(|(_, value)| value.clone())
+        .unwrap_or_default();
+    let mut mapped = serde_json::Map::new();
+    mapped.insert(fields[0].name.clone(), access);
+    if fields.len() > 1 {
+        mapped.insert(fields[1].name.clone(), secret);
+    }
+    Ok(serde_json::Value::Object(mapped))
 }

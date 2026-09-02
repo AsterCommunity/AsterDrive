@@ -109,8 +109,8 @@ vi.mock("@/components/ui/select", () => ({
 				value={value}
 				onChange={(event) => onValueChange?.(event.currentTarget.value)}
 			>
-				<option value="local">local</option>
-				<option value="s3">s3</option>
+			<option value="asterdrive.storage.local">local</option>
+			<option value="asterdrive.storage.s3">s3</option>
 				<option value="__all__">__all__</option>
 			</select>
 			{children}
@@ -169,12 +169,32 @@ const profile = (
 	name: "Local ingress",
 	target_key: "local-default",
 	updated_at: "2026-05-02T00:00:00Z",
+	connector_id: "asterdrive.storage.local",
 	...overrides,
 });
 
 const localDriverDescriptor: RemoteStorageTargetDriverDescriptor = {
-	description_key: "remote_node_ingress_profile_local_scope_hint",
-	driver_type: "local",
+	connector_id: "asterdrive.storage.local",
+	label: "Local",
+	description: "Local storage",
+	ui: {
+		label_key: "remote_node_ingress_profile_driver_local",
+		description_key: "remote_node_ingress_profile_local_scope_hint",
+		badge_rgb: { red: 16, green: 185, blue: 129 },
+		helper_key: "remote_node_ingress_profile_local_scope_hint",
+		config_step_title_key: "remote_node_ingress_profile_driver_local",
+		config_step_description_key: "remote_node_ingress_profile_local_scope_hint",
+		edit_context_key: "remote_node_ingress_profile_local_scope_hint",
+		base_path_empty_display: ".",
+		base_path_placeholder: "tenant-a/incoming",
+	},
+	credential_mode: "none",
+	deployment_scope: "instance_local",
+	supports_initial_setup: true,
+	requires_authorization: false,
+	capabilities: { efficient_range: true, capacity: false, list: true, presigned_download: false, storage_native_thumbnail: false, storage_native_media_metadata: false, remote_node_binding: false, object_storage_transfer_strategy: false, object_naming: "opaque_uuid" },
+	upload_workflows: { simple_upload: true, simple_upload_capabilities: { server_side_relay: true, policy_limited: true }, stream_upload: true, object_multipart_upload: false, provider_resumable_upload: false, presigned_upload: false, frontend_direct_provider_resumable_upload: false },
+	config_schema_version: 1,
 	fields: [
 		{
 			help_key: "remote_node_ingress_profile_local_path_hint",
@@ -195,12 +215,34 @@ const localDriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 			secret: false,
 		},
 	],
-	label_key: "remote_node_ingress_profile_driver_local",
+	actions: [],
+	promotions: [],
+	related_issues: [],
 };
 
 const s3DriverDescriptor: RemoteStorageTargetDriverDescriptor = {
-	description_key: "remote_node_ingress_profile_s3_path_hint",
-	driver_type: "s3",
+	connector_id: "asterdrive.storage.s3",
+	label: "S3",
+	description: "S3 storage",
+	ui: {
+		label_key: "remote_node_ingress_profile_driver_s3",
+		description_key: "remote_node_ingress_profile_s3_path_hint",
+		badge_rgb: { red: 59, green: 130, blue: 246 },
+		helper_key: "remote_node_ingress_profile_s3_path_hint",
+		config_step_title_key: "remote_node_ingress_profile_driver_s3",
+		config_step_description_key: "remote_node_ingress_profile_s3_path_hint",
+		edit_context_key: "remote_node_ingress_profile_s3_path_hint",
+		base_path_empty_display: ".",
+		base_path_placeholder: "prefix",
+	},
+	credential_mode: "static_secret",
+	deployment_scope: "shared_across_primary_instances",
+	supports_initial_setup: true,
+	requires_authorization: false,
+	capabilities: { efficient_range: true, capacity: true, list: true, presigned_download: true, storage_native_thumbnail: false, storage_native_media_metadata: false, remote_node_binding: false, object_storage_transfer_strategy: true, object_naming: "opaque_uuid" },
+	upload_workflows: { simple_upload: true, simple_upload_capabilities: { server_side_relay: true, policy_limited: true }, stream_upload: true, object_multipart_upload: true, object_multipart_upload_capabilities: { min_part_size: 1, policy_limited_part_size: true, relay_part_upload: true, presigned_part_upload: true, presigned_part_etag_required: true, explicit_complete_required: true, abort_supported: true }, provider_resumable_upload: false, presigned_upload: true, frontend_direct_provider_resumable_upload: false },
+	config_schema_version: 1,
+	credential_schema_version: 1,
 	fields: [
 		{
 			help_key: null,
@@ -257,7 +299,9 @@ const s3DriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 			secret: false,
 		},
 	],
-	label_key: "remote_node_ingress_profile_driver_s3",
+	actions: [],
+	promotions: [],
+	related_issues: [],
 };
 
 const defaultDriverDescriptors = [localDriverDescriptor, s3DriverDescriptor];
@@ -420,8 +464,8 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		await waitFor(() => {
 			expect(onCreateTarget).toHaveBeenCalledWith(
 				expect.objectContaining({
-					base_path: "policy/incoming",
-					driver_type: "local",
+					connector_config: expect.objectContaining({ values: expect.objectContaining({ base_path: "policy/incoming" }) }),
+					driver_type: "connector",
 					is_default: false,
 					name: "Policy quick target",
 				}),
@@ -448,16 +492,12 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: /core:create/ }));
 
 		await waitFor(() => {
-			expect(onCreateTarget).toHaveBeenCalledWith({
-				access_key: "",
-				base_path: "teams/incoming",
-				bucket: "",
-				driver_type: "local",
-				endpoint: "",
-				is_default: true,
-				name: "Local upload",
-				secret_key: "",
-			});
+				expect(onCreateTarget).toHaveBeenCalledWith(expect.objectContaining({
+					connector_config: expect.objectContaining({ connector_id: "asterdrive.storage.local", values: expect.objectContaining({ base_path: "teams/incoming" }) }),
+					driver_type: "connector",
+					is_default: true,
+					name: "Local upload",
+				}));
 		});
 		expect(
 			screen.queryByText("remote_node_ingress_profile_form_create_title"),
@@ -503,8 +543,8 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 				name: /remote_node_ingress_profiles_create/,
 			}),
 		);
-		fireEvent.change(screen.getByLabelText("select:local"), {
-			target: { value: "s3" },
+		fireEvent.change(screen.getByLabelText("select:asterdrive.storage.local"), {
+			target: { value: "asterdrive.storage.s3" },
 		});
 
 		expect(screen.getByRole("button", { name: /core:create/ })).toBeDisabled();
@@ -538,12 +578,10 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		await waitFor(() => {
 			expect(onCreateTarget).toHaveBeenCalledWith(
 				expect.objectContaining({
-					access_key: "access",
-					bucket: "raw-bucket",
-					driver_type: "s3",
-					endpoint: "https://s3.example.test/raw-bucket",
+					connector_config: expect.objectContaining({ connector_id: "asterdrive.storage.s3", values: expect.objectContaining({ bucket: "raw-bucket", endpoint: "https://s3.example.test/raw-bucket" }) }),
+					credential: { access_key: "access", secret_key: "secret" },
+					driver_type: "connector",
 					name: "S3 upload",
-					secret_key: "secret",
 				}),
 			);
 		});
@@ -554,6 +592,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 			base_path: "prefix",
 			bucket: "bucket-a",
 			driver_type: "s3",
+			connector_id: "asterdrive.storage.s3",
 			endpoint: "https://s3.example.com",
 			is_default: true,
 			name: "S3 ingress",
@@ -581,15 +620,12 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: /save_changes/ }));
 
 		await waitFor(() => {
-			expect(onUpdateTarget).toHaveBeenCalledWith("s3-default", {
-				base_path: "next-prefix",
-				access_key: "rotated-access",
-				bucket: "bucket-a",
-				driver_type: "s3",
-				endpoint: "https://s3.example.com",
-				is_default: true,
-				name: "S3 renamed",
-			});
+				expect(onUpdateTarget).toHaveBeenCalledWith("s3-default", expect.objectContaining({
+					connector_config: expect.objectContaining({ connector_id: "asterdrive.storage.s3", values: expect.objectContaining({ base_path: "next-prefix" }) }),
+					credential: { access_key: "rotated-access" },
+					is_default: true,
+					name: "S3 renamed",
+				}));
 		});
 	});
 

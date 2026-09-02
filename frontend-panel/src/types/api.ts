@@ -328,8 +328,6 @@ export type RemoteEnrollmentCommandInfo =
 	components["schemas"]["RemoteEnrollmentCommandInfo"];
 export type RemoteStorageTargetInfo =
 	components["schemas"]["RemoteStorageTargetInfo"];
-export type RemoteStorageTargetDriverFieldDescriptor =
-	components["schemas"]["RemoteStorageTargetDriverFieldDescriptor"];
 export type RemoteStorageTargetDriverDescriptor =
 	OperationData<"list_remote_node_storage_target_drivers">[number];
 export type RemoteNodeEnrollmentStatus =

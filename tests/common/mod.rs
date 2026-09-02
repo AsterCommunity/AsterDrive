@@ -1525,6 +1525,9 @@ async fn setup_with_database_url_and_pool_size(
         server: aster_drive::config::ServerConfig {
             temp_dir,
             upload_temp_dir,
+            follower: aster_drive::config::ServerFollowerConfig {
+                remote_storage_target_local_root: format!("{test_dir}/remote-storage-targets"),
+            },
             ..Default::default()
         },
         auth: aster_drive::config::AuthConfig {

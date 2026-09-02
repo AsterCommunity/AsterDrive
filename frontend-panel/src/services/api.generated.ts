@@ -5208,6 +5208,23 @@ export interface components {
             };
         };
         /**
+         * @description Persisted configuration for exactly one connector.
+         *
+         *     A storage policy currently has one active connector, so a map of historical
+         *     namespaces would only create ambiguous ownership. If the connector is
+         *     temporarily unavailable, this entire envelope is preserved byte-for-byte.
+         */
+        ConnectorConfigEnvelope_Value: {
+            connector_id: components["schemas"]["ConnectorId"];
+            /** Format: int32 */
+            format_version: number;
+            /** Format: int32 */
+            schema_version: number;
+            values: {
+                [key: string]: components["schemas"]["StorageConnectorFieldValue"];
+            };
+        };
+        /**
          * @description Stable connector/plugin identifier.
          *
          *     Built-in connectors use reverse-DNS-style identifiers such as
@@ -7394,27 +7411,12 @@ export interface components {
             password: string;
             username: string;
         };
-        RemoteCreateLocalStorageTargetRequest: {
-            base_path: string;
+        RemoteCreateStorageTargetRequest: {
+            connector_config: components["schemas"]["ConnectorConfigEnvelope_Value"];
+            credential?: unknown;
             is_default?: boolean;
             name: string;
         };
-        RemoteCreateS3StorageTargetRequest: {
-            access_key: string;
-            base_path: string;
-            bucket: string;
-            endpoint: string;
-            is_default?: boolean;
-            name: string;
-            secret_key: string;
-        };
-        RemoteCreateStorageTargetRequest: (components["schemas"]["RemoteCreateLocalStorageTargetRequest"] & {
-            /** @enum {string} */
-            driver_type: "local";
-        }) | (components["schemas"]["RemoteCreateS3StorageTargetRequest"] & {
-            /** @enum {string} */
-            driver_type: "s3";
-        });
         /**
          * @description Remote 下载传输策略（存储策略 options JSON）
          * @enum {string}
@@ -7489,9 +7491,9 @@ export interface components {
             browser_cors?: components["schemas"]["RemoteStorageBrowserCorsContract"];
             features?: components["schemas"]["RemoteStorageFeatureFlags"];
             limits?: components["schemas"]["RemoteStorageProtocolLimits"];
-            managed_ingress?: null | components["schemas"]["RemoteStorageTargetCapabilities"];
             min_supported_protocol_version?: string;
             protocol_version?: string;
+            remote_storage_target?: null | components["schemas"]["RemoteStorageTargetCapabilities"];
             server_version?: string | null;
             supports_capacity?: boolean;
             supports_list?: boolean;
@@ -7520,37 +7522,30 @@ export interface components {
             max_ingress_size?: number | null;
         };
         RemoteStorageTargetCapabilities: {
+            /**
+             * @description V6 connector identities. `driver_types` is retained in the Rust model
+             *     only for decoding old fixtures and will be removed with the 0.7.0
+             *     cleanup once all protocol snapshots are connector-id based.
+             */
+            connector_ids?: string[];
             driver_types?: components["schemas"]["RemoteStorageTargetDriverType"][];
             enabled: boolean;
         };
-        RemoteStorageTargetDriverFieldDescriptor: {
-            help_key?: string | null;
-            kind: components["schemas"]["RemoteStorageTargetDriverFieldKind"];
-            label_key: string;
-            name: string;
-            placeholder?: string | null;
-            required: boolean;
-            secret: boolean;
-            validation?: null | components["schemas"]["RemoteStorageTargetDriverFieldValidation"];
-        };
         /** @enum {string} */
-        RemoteStorageTargetDriverFieldKind: "text" | "secret" | "boolean" | "number";
-        RemoteStorageTargetDriverFieldValidation: {
-            relative_local_path: boolean;
-        };
-        /** @enum {string} */
-        RemoteStorageTargetDriverKind: "local" | "s3";
+        RemoteStorageTargetDriverKind: "local" | "s3" | "sftp" | "tencent_cos" | "alibaba_oss" | "qiniu" | "azureblob" | "huaweiobs";
         RemoteStorageTargetDriverType: string;
         RemoteStorageTargetInfo: {
             /** Format: int64 */
             applied_revision: number;
-            base_path: string;
-            bucket: string;
+            connector_config?: null | components["schemas"]["ConnectorConfigEnvelope"];
+            /**
+             * @description Stable connector identity. Optional only for decoding pre-V6 fixtures;
+             *     all V6 responses populate it.
+             */
+            connector_id?: string | null;
             created_at: string;
             /** Format: int64 */
             desired_revision: number;
-            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
-            endpoint: string;
             is_default: boolean;
             last_error: string;
             name: string;
@@ -7574,6 +7569,8 @@ export interface components {
             access_key?: string | null;
             base_path?: string | null;
             bucket?: string | null;
+            connector_config?: null | components["schemas"]["ConnectorConfigEnvelope_Value"];
+            credential?: unknown;
             driver_type?: null | components["schemas"]["RemoteStorageTargetDriverKind"];
             endpoint?: string | null;
             is_default?: boolean | null;
@@ -12853,9 +12850,9 @@ export interface operations {
                             browser_cors?: components["schemas"]["RemoteStorageBrowserCorsContract"];
                             features?: components["schemas"]["RemoteStorageFeatureFlags"];
                             limits?: components["schemas"]["RemoteStorageProtocolLimits"];
-                            managed_ingress?: null | components["schemas"]["RemoteStorageTargetCapabilities"];
                             min_supported_protocol_version?: string;
                             protocol_version?: string;
+                            remote_storage_target?: null | components["schemas"]["RemoteStorageTargetCapabilities"];
                             server_version?: string | null;
                             supports_capacity?: boolean;
                             supports_list?: boolean;
@@ -13161,10 +13158,56 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
-                            description_key: string;
-                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
-                            fields: components["schemas"]["RemoteStorageTargetDriverFieldDescriptor"][];
-                            label_key: string;
+                            /** @description 管理端/服务端可执行动作声明。 */
+                            actions: components["schemas"]["StorageConnectorActionDescriptor"][];
+                            /** @description 授权 provider，例如 `microsoft_graph`。 */
+                            authorization_provider?: string | null;
+                            /** @description 存储对象能力。 */
+                            capabilities: components["schemas"]["StorageConnectorCapabilities"];
+                            /**
+                             * Format: int32
+                             * @description 当前 connector 能解析并输出的配置 schema 版本。
+                             */
+                            config_schema_version: number;
+                            /** @description 持久化到 policy 的稳定 connector/plugin id。 */
+                            connector_id: components["schemas"]["ConnectorId"];
+                            credential_management?: null | components["schemas"]["StorageConnectorCredentialManagementDescriptor"];
+                            /** @description connector 的主要凭据模式。 */
+                            credential_mode: components["schemas"]["StorageConnectorCredentialMode"];
+                            /**
+                             * Format: int32
+                             * @description 凭据 payload 的独立 schema 版本。配置字段演进不应使已保存凭据失效。
+                             */
+                            credential_schema_version?: number | null;
+                            /** @description policy 数据相对于多个 Primary 的可见范围。 */
+                            deployment_scope: components["schemas"]["StorageConnectorDeploymentScope"];
+                            /** @description 人类可读说明。 */
+                            description: string;
+                            /** @description 管理端配置字段声明。 */
+                            fields: components["schemas"]["StorageConnectorFieldDescriptor"][];
+                            /** @description 人类可读名称。 */
+                            label: string;
+                            /** @description Target-owned in-place promotion contracts from compatible connectors. */
+                            promotions?: components["schemas"]["StorageConnectorPromotionDescriptor"][];
+                            /** @description 用于开发追踪的相关 issue 编号，不参与业务逻辑。 */
+                            related_issues?: number[];
+                            /** @description 是否需要额外授权才能成为可用 policy。 */
+                            requires_authorization: boolean;
+                            /**
+                             * @description 是否能在首次系统初始化中直接创建一个可用的默认 policy。
+                             *
+                             *     需要先保存 policy、再跳转授权或完成其他后置配置的 connector 应设为 false。
+                             */
+                            supports_initial_setup: boolean;
+                            /**
+                             * @description 管理端展示元数据。
+                             *
+                             *     这类 label/icon/helper 虽然最终由前端渲染，但语义上属于 connector：
+                             *     新 connector 不应该要求前端再维护一份 driver 展示矩阵。
+                             */
+                            ui: components["schemas"]["StorageConnectorUiDescriptor"];
+                            /** @description 上传工作流能力。 */
+                            upload_workflows: components["schemas"]["StorageConnectorUploadWorkflows"];
                         }[];
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -13217,13 +13260,15 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             applied_revision: number;
-                            base_path: string;
-                            bucket: string;
+                            connector_config?: null | components["schemas"]["ConnectorConfigEnvelope"];
+                            /**
+                             * @description Stable connector identity. Optional only for decoding pre-V6 fixtures;
+                             *     all V6 responses populate it.
+                             */
+                            connector_id?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             desired_revision: number;
-                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
-                            endpoint: string;
                             is_default: boolean;
                             last_error: string;
                             name: string;
@@ -13292,13 +13337,15 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             applied_revision: number;
-                            base_path: string;
-                            bucket: string;
+                            connector_config?: null | components["schemas"]["ConnectorConfigEnvelope"];
+                            /**
+                             * @description Stable connector identity. Optional only for decoding pre-V6 fixtures;
+                             *     all V6 responses populate it.
+                             */
+                            connector_id?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             desired_revision: number;
-                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
-                            endpoint: string;
                             is_default: boolean;
                             last_error: string;
                             name: string;
@@ -13420,13 +13467,15 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             applied_revision: number;
-                            base_path: string;
-                            bucket: string;
+                            connector_config?: null | components["schemas"]["ConnectorConfigEnvelope"];
+                            /**
+                             * @description Stable connector identity. Optional only for decoding pre-V6 fixtures;
+                             *     all V6 responses populate it.
+                             */
+                            connector_id?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             desired_revision: number;
-                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
-                            endpoint: string;
                             is_default: boolean;
                             last_error: string;
                             name: string;

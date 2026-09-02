@@ -12,7 +12,7 @@ pub(super) async fn reconcile_target<S: FollowerRuntimeState>(
     state: &S,
     target: remote_storage_target::Model,
 ) -> Result<remote_storage_target::Model> {
-    let apply_result = validate_driver_from_target(state, &target);
+    let apply_result = validate_driver_from_target(state, &target).await;
 
     let mut active: remote_storage_target::ActiveModel = target.clone().into();
     match apply_result {

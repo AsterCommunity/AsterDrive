@@ -11,6 +11,7 @@ use crate::storage::remote_protocol::{
 };
 use aster_drive_model::entities::{master_binding, remote_storage_target};
 
+use super::driver::remote_storage_target_connector_id;
 use super::normalization::{new_target_key, normalize_create_input, normalize_update_input};
 use super::reconciliation::reconcile_target;
 
@@ -33,6 +34,21 @@ pub async fn create<S: FollowerRuntimeState>(
     input: RemoteCreateStorageTargetRequest,
 ) -> Result<RemoteStorageTargetInfo> {
     let normalized = normalize_create_input(input)?;
+    let connector_id = remote_storage_target_connector_id(normalized.driver_type)?;
+    let connector_config = normalized
+        .connector_config
+        .clone()
+        .map(|config| {
+            serde_json::to_string(&config)
+                .map_err(|error| AsterError::validation_error(error.to_string()))
+        })
+        .transpose()?;
+    let credential_values = normalized.credential.clone().unwrap_or_else(|| {
+        serde_json::json!({
+            "access_key": normalized.access_key,
+            "secret_key": normalized.secret_key,
+        })
+    });
     let target_id = transaction::with_transaction(state.writer_db(), async |txn| {
         let should_set_default = normalized.is_default == Some(true)
             || remote_storage_target_repo::count_by_binding(txn, binding.id).await? == 0;
@@ -43,11 +59,22 @@ pub async fn create<S: FollowerRuntimeState>(
                 master_binding_id: Set(binding.id),
                 target_key: Set(new_target_key()),
                 name: Set(normalized.name),
+                connector_id: Set(Some(connector_id.to_string())),
+                connector_config: Set(Some(connector_config.unwrap_or_else(|| {
+                    target_connector_config(
+                        &connector_id,
+                        &normalized.endpoint,
+                        &normalized.bucket,
+                        &normalized.base_path,
+                    )
+                }))),
                 driver_type: Set(normalized.driver_type),
                 endpoint: Set(normalized.endpoint),
                 bucket: Set(normalized.bucket),
-                access_key: Set(normalized.access_key),
-                secret_key: Set(normalized.secret_key),
+                // Credentials are persisted only in the encrypted target
+                // credential table; legacy columns stay empty for new rows.
+                access_key: Set(String::new()),
+                secret_key: Set(String::new()),
                 base_path: Set(normalized.base_path),
                 is_default: Set(false),
                 desired_revision: Set(1),
@@ -59,6 +86,29 @@ pub async fn create<S: FollowerRuntimeState>(
             },
         )
         .await?;
+        if !credential_values
+            .as_object()
+            .is_none_or(serde_json::Map::is_empty)
+        {
+            let plaintext = serde_json::to_string(&credential_values)
+                .map_err(|error| AsterError::internal_error(error.to_string()))?;
+            let ciphertext =
+                crate::services::storage_policy::credential::crypto::encrypt_connector_credential(
+                    &state.config().auth.storage_credential_secret_key,
+                    created.id,
+                    connector_id.as_str(),
+                    1,
+                    &plaintext,
+                )?;
+            crate::db::repository::remote_storage_target_credential_repo::upsert(
+                txn,
+                created.id,
+                connector_id.to_string(),
+                1,
+                ciphertext,
+            )
+            .await?;
+        }
         if should_set_default {
             remote_storage_target_repo::set_only_default_for_binding(txn, binding.id, created.id)
                 .await?;
@@ -78,6 +128,21 @@ pub async fn update<S: FollowerRuntimeState>(
 ) -> Result<RemoteStorageTargetInfo> {
     let existing = find_target_or_err(state, binding.id, target_key).await?;
     let normalized = normalize_update_input(existing.clone(), input)?;
+    let connector_id = remote_storage_target_connector_id(normalized.driver_type)?;
+    let connector_config = normalized
+        .connector_config
+        .clone()
+        .map(|config| {
+            serde_json::to_string(&config)
+                .map_err(|error| AsterError::validation_error(error.to_string()))
+        })
+        .transpose()?;
+    let credential_values = normalized.credential.clone().unwrap_or_else(|| {
+        serde_json::json!({
+            "access_key": normalized.access_key,
+            "secret_key": normalized.secret_key,
+        })
+    });
 
     if existing.is_default && normalized.is_default == Some(false) {
         return Err(precondition_failed_with_code(
@@ -89,11 +154,20 @@ pub async fn update<S: FollowerRuntimeState>(
     let target_id = transaction::with_transaction(state.writer_db(), async |txn| {
         let mut active: remote_storage_target::ActiveModel = existing.clone().into();
         active.name = Set(normalized.name);
+        active.connector_id = Set(Some(connector_id.to_string()));
+        active.connector_config = Set(Some(connector_config.clone().unwrap_or_else(|| {
+            target_connector_config(
+                &connector_id,
+                &normalized.endpoint,
+                &normalized.bucket,
+                &normalized.base_path,
+            )
+        })));
         active.driver_type = Set(normalized.driver_type);
         active.endpoint = Set(normalized.endpoint);
         active.bucket = Set(normalized.bucket);
-        active.access_key = Set(normalized.access_key);
-        active.secret_key = Set(normalized.secret_key);
+        active.access_key = Set(String::new());
+        active.secret_key = Set(String::new());
         active.base_path = Set(normalized.base_path);
         active.desired_revision =
             Set(existing.desired_revision.checked_add(1).ok_or_else(|| {
@@ -101,6 +175,35 @@ pub async fn update<S: FollowerRuntimeState>(
             })?);
         active.updated_at = Set(Utc::now());
         let updated = remote_storage_target_repo::update(txn, active).await?;
+        if existing.connector_id.as_deref() != Some(connector_id.as_str()) {
+            crate::db::repository::remote_storage_target_credential_repo::delete_by_target(
+                txn, updated.id,
+            )
+            .await?;
+        }
+        if !credential_values
+            .as_object()
+            .is_none_or(serde_json::Map::is_empty)
+        {
+            let plaintext = serde_json::to_string(&credential_values)
+                .map_err(|error| AsterError::internal_error(error.to_string()))?;
+            let ciphertext =
+                crate::services::storage_policy::credential::crypto::encrypt_connector_credential(
+                    &state.config().auth.storage_credential_secret_key,
+                    updated.id,
+                    connector_id.as_str(),
+                    1,
+                    &plaintext,
+                )?;
+            crate::db::repository::remote_storage_target_credential_repo::upsert(
+                txn,
+                updated.id,
+                connector_id.to_string(),
+                1,
+                ciphertext,
+            )
+            .await?;
+        }
         if normalized.is_default == Some(true) {
             remote_storage_target_repo::set_only_default_for_binding(txn, binding.id, updated.id)
                 .await?;
@@ -157,4 +260,28 @@ async fn find_target_or_err<S: FollowerRuntimeState>(
     )
     .await?
     .ok_or_else(|| AsterError::record_not_found(format!("remote_storage_target '{target_key}'")))
+}
+
+fn target_connector_config(
+    connector_id: &aster_drive_storage::ConnectorId,
+    endpoint: &str,
+    bucket: &str,
+    base_path: &str,
+) -> String {
+    let values = if connector_id.as_str() == "asterdrive.storage.local" {
+        serde_json::json!({ "base_path": base_path })
+    } else {
+        serde_json::json!({
+            "endpoint": endpoint,
+            "bucket": bucket,
+            "base_path": base_path,
+        })
+    };
+    serde_json::json!({
+        "format_version": 1,
+        "connector_id": connector_id,
+        "schema_version": 1,
+        "values": values,
+    })
+    .to_string()
 }

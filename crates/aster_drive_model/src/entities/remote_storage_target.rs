@@ -17,13 +17,24 @@ pub struct Model {
     pub master_binding_id: i64,
     pub target_key: String,
     pub name: String,
+    pub connector_id: Option<String>,
+    pub connector_config: Option<String>,
+    /// TODO(remote-storage-target-0.7.0): remove after connector_config is
+    /// authoritative for all target rows.
     pub driver_type: RemoteStorageTargetDriverKind,
+    /// TODO(remote-storage-target-0.7.0): legacy flattened config column.
     pub endpoint: String,
+    /// TODO(remote-storage-target-0.7.0): legacy flattened config column.
     pub bucket: String,
     #[serde(skip_serializing)]
+    /// TODO(remote-storage-target-0.7.0): plaintext legacy credential column;
+    /// use remote_storage_target_credentials instead.
     pub access_key: String,
     #[serde(skip_serializing)]
+    /// TODO(remote-storage-target-0.7.0): plaintext legacy credential column;
+    /// use remote_storage_target_credentials instead.
     pub secret_key: String,
+    /// TODO(remote-storage-target-0.7.0): legacy flattened config column.
     pub base_path: String,
     pub is_default: bool,
     pub desired_revision: i64,
@@ -90,6 +101,8 @@ mod tests {
             master_binding_id: 2,
             target_key: "profile".to_string(),
             name: "ingress".to_string(),
+            connector_id: Some("asterdrive.storage.s3".to_string()),
+            connector_config: None,
             driver_type: RemoteStorageTargetDriverKind::S3,
             endpoint: "https://s3.example.test".to_string(),
             bucket: "bucket".to_string(),

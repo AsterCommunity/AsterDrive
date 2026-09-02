@@ -44,7 +44,7 @@ fn remote_storage_target_audit_details(
     // remote ingress profile strings for stored audit compatibility.
     audit::details(audit::RemoteIngressProfileAuditDetails {
         target_key: &target.target_key,
-        driver_type: target.driver_type.as_str(),
+        driver_type: target.connector_id.as_deref().unwrap_or("unknown"),
         is_default: target.is_default,
     })
 }
