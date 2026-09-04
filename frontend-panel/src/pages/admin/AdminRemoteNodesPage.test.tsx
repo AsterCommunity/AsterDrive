@@ -134,6 +134,14 @@ vi.mock("@/components/admin/admin-remote-nodes-page/RemoteNodeDialog", () => ({
 				<div data-testid="managed-ingress-driver-count">
 					{remoteStorageTargetConnectorDescriptors.length}
 				</div>
+				<div data-testid="managed-ingress-driver-ids">
+					{remoteStorageTargetConnectorDescriptors
+						.map(
+							(descriptor) =>
+								(descriptor as { connector_id?: string }).connector_id ?? "",
+						)
+						.join(",")}
+				</div>
 				<div data-testid="managed-ingress-driver-error">
 					{remoteStorageTargetConnectorDescriptorsError ?? ""}
 				</div>
@@ -966,10 +974,16 @@ describe("AdminRemoteNodesPage", () => {
 				screen.getByTestId("managed-ingress-driver-count"),
 			).toHaveTextContent("1"),
 		);
+		expect(screen.getByTestId("managed-ingress-driver-ids")).toHaveTextContent(
+			"second",
+		);
 		await act(async () => first.resolve([{ connector_id: "first" }]));
 		expect(
 			screen.getByTestId("managed-ingress-driver-count"),
 		).toHaveTextContent("1");
+		expect(screen.getByTestId("managed-ingress-driver-ids")).toHaveTextContent(
+			"second",
+		);
 	});
 
 	it("ignores stale connector descriptor failures after switching nodes", async () => {
