@@ -46,9 +46,9 @@ export default function AdminRemoteNodesPage() {
 		handleVerifyEnrollmentConnection,
 		loading,
 		remoteStorageTargets,
-		remoteStorageTargetDriverDescriptors,
-		remoteStorageTargetDriverDescriptorsError,
-		remoteStorageTargetDriverDescriptorsLoading,
+		remoteStorageTargetConnectorDescriptors,
+		remoteStorageTargetConnectorDescriptorsError,
+		remoteStorageTargetConnectorDescriptorsLoading,
 		remoteStorageTargetsError,
 		remoteStorageTargetsLoading,
 		nextPageDisabled,
@@ -157,14 +157,14 @@ export default function AdminRemoteNodesPage() {
 						hasCompletedRemoteNodeEnrollment(editingNode)
 					}
 					remoteStorageTargets={remoteStorageTargets}
-					remoteStorageTargetDriverDescriptors={
-						remoteStorageTargetDriverDescriptors
+					remoteStorageTargetConnectorDescriptors={
+						remoteStorageTargetConnectorDescriptors
 					}
-					remoteStorageTargetDriverDescriptorsError={
-						remoteStorageTargetDriverDescriptorsError
+					remoteStorageTargetConnectorDescriptorsError={
+						remoteStorageTargetConnectorDescriptorsError
 					}
-					remoteStorageTargetDriverDescriptorsLoading={
-						remoteStorageTargetDriverDescriptorsLoading
+					remoteStorageTargetConnectorDescriptorsLoading={
+						remoteStorageTargetConnectorDescriptorsLoading
 					}
 					remoteStorageTargetsLoading={remoteStorageTargetsLoading}
 					remoteStorageTargetsError={remoteStorageTargetsError}

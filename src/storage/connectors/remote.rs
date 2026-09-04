@@ -112,14 +112,11 @@ impl RemoteConnector {
             .map(|(config, _behavior)| config)
     }
 
-    fn driver_config(
-        policy: &storage_policy::Model,
-        config: &RemoteConnectorConfigV1,
-    ) -> RemoteDriverConfig {
+    fn driver_config(max_file_size: i64, config: &RemoteConnectorConfigV1) -> RemoteDriverConfig {
         RemoteDriverConfig {
             base_path: config.base_path.clone(),
             remote_storage_target_key: config.remote_storage_target_key.clone(),
-            max_file_size: policy.max_file_size,
+            max_file_size,
         }
     }
 }
@@ -245,14 +242,15 @@ impl StorageConnector for RemoteConnector {
         Ok(())
     }
 
-    async fn build_draft_driver(
+    async fn build_driver_from_connection(
         &self,
         context: &super::StorageConnectorContext<'_>,
-        policy: &storage_policy::Model,
+        connector_config: &aster_drive_storage::ConnectorConfigEnvelope,
         credential: &StorageConnectorCredentialInput,
     ) -> Result<Box<dyn StorageDriver>> {
         let _ = credential;
-        let config = Self::decode_config(policy)?;
+        let config: RemoteConnectorConfigV1 =
+            super::common::decode_normalized_connector_config(connector_config)?;
         let remote_node_id = config.remote_node_id.ok_or_else(|| {
             validation_error_with_code(
                 ApiErrorCode::PolicyRemoteNodeRequired,
@@ -262,7 +260,7 @@ impl StorageConnector for RemoteConnector {
         let remote_node =
             managed_follower_repo::find_by_id(context.writer_db(), remote_node_id).await?;
         Ok(Box::new(context.remote_protocol()?.driver_for_config(
-            &Self::driver_config(policy, &config),
+            &Self::driver_config(0, &config),
             &remote_node,
         )?))
     }
@@ -308,7 +306,7 @@ impl StorageConnector for RemoteConnector {
             );
             return Err(error);
         }
-        let driver_config = Self::driver_config(policy, &config);
+        let driver_config = Self::driver_config(policy.max_file_size, &config);
         let driver = if let Some(remote_protocol) = registry.remote_protocol() {
             Arc::new(remote_protocol.driver_for_config(&driver_config, &remote_node)?)
         } else {
@@ -428,7 +426,7 @@ impl StorageConnector for RemoteConnector {
         };
         let config = Self::decode_config(policy)?;
         Ok(Arc::new(context.remote_protocol()?.driver_for_config(
-            &Self::driver_config(policy, &config),
+            &Self::driver_config(policy.max_file_size, &config),
             &follower,
         )?))
     }

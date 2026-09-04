@@ -17,7 +17,7 @@ use super::local::{LocalConnector, LocalConnectorConfigV1};
 use super::onedrive::{OneDriveAccountMode, OneDriveConnector, OneDriveConnectorConfigV1};
 use super::remote::{RemoteConnector, RemoteConnectorConfigV1};
 use super::s3::{S3Connector, S3ConnectorConfigV1};
-use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorCredentialInput};
+use super::{StorageConnector, StorageConnectorCredentialInput, StoragePolicyConnectionInput};
 
 /// Build the current database shape used by connector tests.
 pub(crate) async fn migrate_current_storage_test_schema(database: &DatabaseConnection) {
@@ -234,18 +234,20 @@ pub(crate) fn remote_policy(
     )
 }
 
-pub(crate) fn local_connection(base_path: impl Into<String>) -> StorageConnectorConnectionInput {
-    StorageConnectorConnectionInput {
-        connector_config: connection_config(
-            LocalConnector::ID,
-            1,
-            LocalConnectorConfigV1 {
-                base_path: base_path.into(),
-                content_dedup: false,
-            },
-        ),
+pub(crate) fn local_connection(base_path: impl Into<String>) -> StoragePolicyConnectionInput {
+    StoragePolicyConnectionInput {
+        storage: super::StorageConnectionInput {
+            connector_config: connection_config(
+                LocalConnector::ID,
+                1,
+                LocalConnectorConfigV1 {
+                    base_path: base_path.into(),
+                    content_dedup: false,
+                },
+            ),
+            credential: StorageConnectorCredentialInput::None,
+        },
         behavior: StoragePolicyBehaviorConfig::default(),
-        credential: StorageConnectorCredentialInput::None,
     }
 }
 
@@ -253,20 +255,22 @@ pub(crate) fn remote_connection(
     base_path: impl Into<String>,
     remote_node_id: Option<i64>,
     remote_storage_target_key: Option<String>,
-) -> StorageConnectorConnectionInput {
-    StorageConnectorConnectionInput {
-        connector_config: connection_config(
-            RemoteConnector::ID,
-            1,
-            RemoteConnectorConfigV1 {
-                base_path: base_path.into(),
-                remote_node_id,
-                remote_storage_target_key,
-                remote_download_strategy: RemoteDownloadStrategy::RelayStream,
-                remote_upload_strategy: RemoteUploadStrategy::RelayStream,
-            },
-        ),
+) -> StoragePolicyConnectionInput {
+    StoragePolicyConnectionInput {
+        storage: super::StorageConnectionInput {
+            connector_config: connection_config(
+                RemoteConnector::ID,
+                1,
+                RemoteConnectorConfigV1 {
+                    base_path: base_path.into(),
+                    remote_node_id,
+                    remote_storage_target_key,
+                    remote_download_strategy: RemoteDownloadStrategy::RelayStream,
+                    remote_upload_strategy: RemoteUploadStrategy::RelayStream,
+                },
+            ),
+            credential: StorageConnectorCredentialInput::None,
+        },
         behavior: StoragePolicyBehaviorConfig::default(),
-        credential: StorageConnectorCredentialInput::None,
     }
 }

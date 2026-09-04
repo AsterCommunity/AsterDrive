@@ -114,7 +114,7 @@ pub async fn set_only_default_for_binding(
     let existing = find_by_id(db, target_id).await?;
     if existing.master_binding_id != master_binding_id {
         return Err(validation_error_with_code(
-            ApiErrorCode::ManagedIngressBindingMismatch,
+            ApiErrorCode::RemoteStorageTargetBindingMismatch,
             format!(
                 "remote storage target #{target_id} does not belong to master_binding #{master_binding_id}"
             ),

@@ -74,8 +74,8 @@ pub async fn convert_legacy_rows(db: &DatabaseConnection, encryption_key: &str) 
 
         if connector_id == S3_CONNECTOR_ID {
             let plaintext = serde_json::to_string(&serde_json::json!({
-                "access_key": access_key,
-                "secret_key": secret_key,
+                "s3_access_key_id": access_key,
+                "s3_secret_access_key": secret_key,
             }))
             .map_err(|error| AsterError::database_operation(error.to_string()))?;
             let ciphertext =
@@ -163,10 +163,11 @@ mod tests {
         .await
         .unwrap();
         remote_storage_target::ActiveModel {
+            id: Set(1),
             master_binding_id: Set(1),
             target_key: Set("legacy-s3".into()),
             name: Set("Legacy S3".into()),
-            driver_type: Set(aster_drive_model::types::RemoteStorageTargetDriverKind::S3),
+            driver_type: Set("s3".to_string()),
             endpoint: Set("https://s3.example.test".into()),
             bucket: Set("bucket".into()),
             access_key: Set("ACCESS".into()),
@@ -193,8 +194,13 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(target.connector_id.as_deref(), Some(S3_CONNECTOR_ID));
-        assert_eq!(target.access_key, "");
-        assert_eq!(target.secret_key, "");
+        let legacy = remote_storage_target::Entity::find()
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(legacy.access_key, "");
+        assert_eq!(legacy.secret_key, "");
         let config: serde_json::Value =
             serde_json::from_str(target.connector_config.as_deref().unwrap()).unwrap();
         assert_eq!(config["connector_id"], S3_CONNECTOR_ID);

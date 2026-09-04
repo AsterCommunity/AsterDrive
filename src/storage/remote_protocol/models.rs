@@ -1,6 +1,7 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::Result;
-use aster_drive_model::types::{RemoteStorageTargetDriverKind, ResolvedRemoteTransport};
+use crate::storage::StorageConnectionInput;
+use aster_drive_model::types::ResolvedRemoteTransport;
 use aster_drive_storage::StorageCapacityInfo;
 use aster_drive_storage::StorageErrorKind;
 use serde::{Deserialize, Serialize};
@@ -87,20 +88,9 @@ impl RemoteStorageCapabilities {
         }
     }
 
-    pub fn with_remote_storage_target_driver_types(
-        mut self,
-        driver_types: Vec<RemoteStorageTargetDriverKind>,
-    ) -> Self {
-        self.remote_storage_target = Some(
-            RemoteStorageTargetCapabilities::from_known_driver_types(driver_types),
-        );
-        self
-    }
-
     pub fn with_remote_storage_target_connector_ids(mut self, connector_ids: Vec<String>) -> Self {
         self.remote_storage_target = Some(RemoteStorageTargetCapabilities {
             enabled: !connector_ids.is_empty(),
-            driver_types: Vec::new(),
             connector_ids,
         });
         self
@@ -177,91 +167,21 @@ impl RemoteStorageCapabilities {
 pub struct RemoteStorageTargetCapabilities {
     pub enabled: bool,
     #[serde(default)]
-    pub driver_types: Vec<RemoteStorageTargetDriverType>,
-    /// V6 connector identities. `driver_types` is retained in the Rust model
-    /// only for decoding old fixtures and will be removed with the 0.7.0
-    /// cleanup once all protocol snapshots are connector-id based.
-    #[serde(default)]
     pub connector_ids: Vec<String>,
 }
 
 impl RemoteStorageTargetCapabilities {
-    pub fn from_known_driver_types(driver_types: Vec<RemoteStorageTargetDriverKind>) -> Self {
-        Self {
-            enabled: !driver_types.is_empty(),
-            driver_types: driver_types
-                .into_iter()
-                .map(RemoteStorageTargetDriverType::from_known_driver_type)
-                .collect(),
-            connector_ids: Vec::new(),
-        }
-    }
-
     pub fn with_connector_ids(mut self, connector_ids: Vec<String>) -> Self {
         self.connector_ids = connector_ids;
         self
     }
 
-    /// Returns whether a connector identity is advertised by the follower.
-    /// V6 peers use connector IDs as the source of truth; the legacy
-    /// `driver_types` list is consulted only when no IDs are present so old
-    /// snapshots remain readable during the migration window.
     pub fn supports_connector_id(&self, connector_id: &str) -> bool {
-        if !self.enabled {
-            return false;
-        }
-        if !self.connector_ids.is_empty() {
-            return self.connector_ids.iter().any(|candidate| {
-                candidate == connector_id
-                    || candidate
-                        .rsplit_once('.')
-                        .map(|(_, suffix)| {
-                            connector_id
-                                .rsplit_once('.')
-                                .map(|(_, wanted)| suffix.replace('-', "_") == wanted)
-                                .unwrap_or(false)
-                        })
-                        .unwrap_or(false)
-            });
-        }
-        connector_id
-            .rsplit_once('.')
-            .and_then(|(_, suffix)| suffix.parse::<RemoteStorageTargetDriverKind>().ok())
-            .is_some_and(|driver| self.supports_known_driver_legacy(driver))
-    }
-
-    fn supports_known_driver_legacy(&self, driver_type: RemoteStorageTargetDriverKind) -> bool {
-        self.driver_types
-            .iter()
-            .any(|candidate| candidate.matches_known_driver(driver_type))
-    }
-
-    pub fn supports_known_driver(&self, driver_type: RemoteStorageTargetDriverKind) -> bool {
-        let connector_id = format!("asterdrive.storage.{}", driver_type.as_str());
-        self.supports_connector_id(&connector_id)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(transparent)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct RemoteStorageTargetDriverType(String);
-
-impl RemoteStorageTargetDriverType {
-    pub fn from_known_driver_type(driver_type: RemoteStorageTargetDriverKind) -> Self {
-        Self(driver_type.as_str().to_string())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    pub fn as_known_driver_type(&self) -> Option<RemoteStorageTargetDriverKind> {
-        self.0.parse().ok()
-    }
-
-    pub fn matches_known_driver(&self, driver_type: RemoteStorageTargetDriverKind) -> bool {
-        self.as_str() == driver_type.as_str()
+        self.enabled
+            && self
+                .connector_ids
+                .iter()
+                .any(|candidate| candidate == connector_id)
     }
 }
 
@@ -433,20 +353,8 @@ pub struct RemoteBindingDesiredState {
 pub struct RemoteStorageTargetInfo {
     pub target_key: String,
     pub name: String,
-    /// Stable connector identity. Optional only for decoding pre-V6 fixtures;
-    /// all V6 responses populate it.
-    #[serde(default)]
-    pub connector_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub connector_config: Option<aster_drive_storage::ConnectorConfigEnvelope>,
-    /// Legacy flattened presentation field retained for in-process migration
-    /// and old fixtures only. It is deliberately omitted from V6 wire output.
-    #[serde(skip)]
-    pub endpoint: String,
-    #[serde(skip)]
-    pub bucket: String,
-    #[serde(skip)]
-    pub base_path: String,
+    pub connector_id: String,
+    pub connector_config: aster_drive_storage::ConnectorConfigEnvelope,
     pub is_default: bool,
     pub desired_revision: i64,
     pub applied_revision: i64,
@@ -461,16 +369,14 @@ pub struct RemoteStorageTargetInfo {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RemoteCreateStorageTargetRequest {
     pub name: String,
-    pub connector_config: aster_drive_storage::ConnectorConfigEnvelope<serde_json::Value>,
-    #[serde(default)]
-    pub credential: Option<serde_json::Value>,
+    pub connection: StorageConnectionInput,
     #[serde(default)]
     pub is_default: bool,
 }
 
 impl RemoteCreateStorageTargetRequest {
     pub fn connector_id(&self) -> &aster_drive_storage::ConnectorId {
-        &self.connector_config.connector_id
+        &self.connection.connector_config.connector_id
     }
 }
 
@@ -479,17 +385,7 @@ impl RemoteCreateStorageTargetRequest {
 pub struct RemoteUpdateStorageTargetRequest {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub connector_config: Option<aster_drive_storage::ConnectorConfigEnvelope<serde_json::Value>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub credential: Option<serde_json::Value>,
-    /// Legacy 0.5.0 fields retained only for in-process migration fixtures.
-    /// TODO(remote-storage-target-0.7.0): remove these members entirely.
-    pub driver_type: Option<RemoteStorageTargetDriverKind>,
-    pub endpoint: Option<String>,
-    pub bucket: Option<String>,
-    pub access_key: Option<String>,
-    pub secret_key: Option<String>,
-    pub base_path: Option<String>,
+    pub connection: Option<StorageConnectionInput>,
     pub is_default: Option<bool>,
 }
 
@@ -497,10 +393,9 @@ impl fmt::Debug for RemoteUpdateStorageTargetRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RemoteUpdateStorageTargetRequest")
             .field("name", &self.name)
-            .field("connector_config", &self.connector_config)
             .field(
-                "credential",
-                &self.credential.as_ref().map(|_| "<redacted>"),
+                "connection",
+                &self.connection.as_ref().map(|_| "<redacted>"),
             )
             .field("is_default", &self.is_default)
             .finish()

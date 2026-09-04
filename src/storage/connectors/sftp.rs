@@ -244,14 +244,14 @@ impl StorageConnector for SftpConnector {
         )
     }
 
-    async fn build_draft_driver(
+    async fn build_driver_from_connection(
         &self,
         context: &super::StorageConnectorContext<'_>,
-        policy: &storage_policy::Model,
+        connector_config: &aster_drive_storage::ConnectorConfigEnvelope,
         credential: &StorageConnectorCredentialInput,
     ) -> Result<Box<dyn StorageDriver>> {
         let _ = context;
-        let config = Self::decode_config(policy)?;
+        let config = super::common::decode_normalized_connector_config(connector_config)?;
         let credentials = super::common::decode_static_credential(credential, Self::ID)?;
         Ok(Box::new(SftpDriver::new(
             Self::driver_config(config),

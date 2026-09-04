@@ -101,7 +101,7 @@ pub(in crate::services::remote::storage_target) fn normalize_relative_local_path
             "base_path cannot be blank for local remote storage targets",
         )),
         Err(RelativeLocalPathNormalizationError::EscapesRoot) => Err(validation_error_with_code(
-            ApiErrorCode::ManagedIngressLocalPathInvalid,
+            ApiErrorCode::RemoteStorageTargetLocalPathInvalid,
             "local remote storage target base_path must stay within server.follower.remote_storage_target_local_root",
         )),
     }

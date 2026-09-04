@@ -45,13 +45,14 @@ use aster_drive_storage::connector_descriptor::{
 
 use alibaba_oss::AlibabaOssConnector;
 use azure_blob::AzureBlobConnector;
+pub(crate) use common::merge_saved_static_credential;
 pub use common::unsupported_multipart_error;
 use huawei_obs::HuaweiObsConnector;
 use local::LocalConnector;
 pub use models::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
-    StorageConnectorActionOutput, StorageConnectorActionResult, StorageConnectorConnectionInput,
-    StorageConnectorCredentialInfo, StorageConnectorCredentialInput,
+    StorageConnectionInput, StorageConnectorActionOutput, StorageConnectorActionResult,
+    StorageConnectorCredentialInfo, StorageConnectorCredentialInput, StoragePolicyConnectionInput,
     TestDraftStorageConnectorConnectionInput,
 };
 pub(crate) use models::{
@@ -94,8 +95,17 @@ pub(crate) fn builtin_storage_connector_registry() -> Result<StorageConnectorReg
 pub(crate) async fn normalize_connection(
     registry: &StorageConnectorRegistry,
     db: &sea_orm::DatabaseConnection,
-    mut input: StorageConnectorConnectionInput,
-) -> Result<StorageConnectorConnectionInput> {
+    mut input: StoragePolicyConnectionInput,
+) -> Result<StoragePolicyConnectionInput> {
+    input.storage = normalize_storage_connection(registry, db, input.storage).await?;
+    Ok(input)
+}
+
+pub(crate) async fn normalize_storage_connection(
+    registry: &StorageConnectorRegistry,
+    db: &sea_orm::DatabaseConnection,
+    mut input: StorageConnectionInput,
+) -> Result<StorageConnectionInput> {
     validate_credential_input(
         registry,
         &input.connector_config.connector_id,
@@ -453,7 +463,12 @@ pub(crate) async fn test_draft_connection<S: RemoteProtocolRuntimeState + Sync>(
     input: TestDraftStorageConnectorConnectionInput,
 ) -> Result<()> {
     let context = remote_connector_context(state);
-    let connector_id = input.connection.connector_config.connector_id.clone();
+    let connector_id = input
+        .connection
+        .storage
+        .connector_config
+        .connector_id
+        .clone();
     registry
         .require_input_connector(&connector_id)?
         .test_draft_connection(&context, input)
@@ -497,7 +512,12 @@ pub(crate) async fn execute_draft_action<S: RemoteProtocolRuntimeState + Sync>(
     state: &S,
     input: ExecuteDraftStorageConnectorActionInput,
 ) -> Result<StorageConnectorActionResult> {
-    let connector_id = input.connection.connector_config.connector_id.clone();
+    let connector_id = input
+        .connection
+        .storage
+        .connector_config
+        .connector_id
+        .clone();
     let connector = registry.require_input_connector(&connector_id)?;
     let descriptor = connector.descriptor();
     let mut input = input;

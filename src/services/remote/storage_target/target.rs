@@ -20,12 +20,8 @@ pub async fn resolve_effective_target<S: FollowerRuntimeState>(
     let targets =
         remote_storage_target_repo::find_all_by_binding(state.writer_db(), binding.id).await?;
     if targets.is_empty() {
-        // Keep the legacy managed_ingress.* wire code here: this branch is the
-        // follower-side compatibility fallback for old policies without an
-        // explicit remote_storage_target_key, not the storage policy editor
-        // validation path.
         return Err(precondition_failed_with_code(
-            ApiErrorCode::ManagedIngressRequired,
+            ApiErrorCode::RemoteStorageTargetRequired,
             "remote storage target is required before follower can accept remote writes",
         ));
     }
@@ -34,7 +30,7 @@ pub async fn resolve_effective_target<S: FollowerRuntimeState>(
         .await?
         .ok_or_else(|| {
             precondition_failed_with_code(
-                ApiErrorCode::ManagedIngressDefaultMissing,
+                ApiErrorCode::RemoteStorageTargetDefaultMissing,
                 "remote storage targets exist but no default target is configured",
             )
         })?;
@@ -67,7 +63,7 @@ async fn build_resolved_target<S: FollowerRuntimeState>(
 ) -> Result<ResolvedRemoteStorageTarget> {
     if !target.last_error.trim().is_empty() {
         return Err(precondition_failed_with_code(
-            ApiErrorCode::ManagedIngressDefaultError,
+            ApiErrorCode::RemoteStorageTargetDefaultError,
             format!(
                 "remote storage target '{}' is not ready: {}",
                 target.target_key, target.last_error
@@ -76,7 +72,7 @@ async fn build_resolved_target<S: FollowerRuntimeState>(
     }
     if target.applied_revision < target.desired_revision {
         return Err(precondition_failed_with_code(
-            ApiErrorCode::ManagedIngressDefaultNotApplied,
+            ApiErrorCode::RemoteStorageTargetDefaultNotApplied,
             format!(
                 "remote storage target '{}' is pending apply",
                 target.target_key

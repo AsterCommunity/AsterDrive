@@ -416,38 +416,7 @@ impl RemoteStorageClient {
         target: &RemoteUpdateStorageTargetRequest,
     ) -> Result<RemoteStorageTargetInfo> {
         let path = self.storage_target_path(target_key);
-        let wire_target = if target.connector_config.is_none()
-            && (target.driver_type.is_some()
-                || target.endpoint.is_some()
-                || target.bucket.is_some()
-                || target.base_path.is_some())
-        {
-            let driver = target
-                .driver_type
-                .unwrap_or(aster_drive_model::types::RemoteStorageTargetDriverKind::S3);
-            let connector_id = aster_drive_storage::ConnectorId::declared(format!(
-                "asterdrive.storage.{}",
-                driver.as_str()
-            ));
-            let values = if matches!(
-                driver,
-                aster_drive_model::types::RemoteStorageTargetDriverKind::Local
-            ) {
-                serde_json::json!({"base_path": target.base_path.clone().unwrap_or_default()})
-            } else {
-                serde_json::json!({"endpoint": target.endpoint.clone().unwrap_or_default(), "bucket": target.bucket.clone().unwrap_or_default(), "base_path": target.base_path.clone().unwrap_or_default()})
-            };
-            let mut converted = target.clone();
-            converted.connector_config = Some(aster_drive_storage::ConnectorConfigEnvelope::new(
-                connector_id,
-                1,
-                values,
-            ));
-            converted
-        } else {
-            target.clone()
-        };
-        let body = serde_json::to_vec(&wire_target).map_err(|e| {
+        let body = serde_json::to_vec(target).map_err(|e| {
             crate::errors::storage_driver_error(
                 StorageErrorKind::Unknown,
                 format!("encode remote storage target update request: {e}"),

@@ -27,7 +27,6 @@ import { cn } from "@/lib/utils";
 import type {
 	RemoteCreateStorageTargetRequest,
 	RemoteNodeInfo,
-	RemoteStorageTargetDriverDescriptor,
 	RemoteStorageTargetInfo,
 	StorageConnectorCredentialInfo,
 	StorageConnectorCredentialManagementDescriptor,
@@ -70,9 +69,9 @@ interface StoragePolicyDialogProps {
 	storageCredentialValidationSubmitting: boolean;
 	storageAuthorizationRedirectUri: string;
 	remoteNodes: RemoteNodeInfo[];
-	remoteStorageTargetDriverDescriptors: RemoteStorageTargetDriverDescriptor[];
-	remoteStorageTargetDriverDescriptorsError: string | null;
-	remoteStorageTargetDriverDescriptorsLoading: boolean;
+	remoteStorageTargetConnectorDescriptors: StorageConnectorDescriptor[];
+	remoteStorageTargetConnectorDescriptorsError: string | null;
+	remoteStorageTargetConnectorDescriptorsLoading: boolean;
 	remoteStorageTargets: RemoteStorageTargetInfo[];
 	remoteStorageTargetsError: string | null;
 	remoteStorageTargetsLoading: boolean;
@@ -146,9 +145,9 @@ export function StoragePolicyDialog({
 	storageCredentialValidationSubmitting,
 	storageAuthorizationRedirectUri,
 	remoteNodes,
-	remoteStorageTargetDriverDescriptors,
-	remoteStorageTargetDriverDescriptorsError,
-	remoteStorageTargetDriverDescriptorsLoading,
+	remoteStorageTargetConnectorDescriptors,
+	remoteStorageTargetConnectorDescriptorsError,
+	remoteStorageTargetConnectorDescriptorsLoading,
 	remoteStorageTargets,
 	remoteStorageTargetsError,
 	remoteStorageTargetsLoading,
@@ -419,14 +418,14 @@ export function StoragePolicyDialog({
 														/>
 														{remoteNodeId ? (
 															<RemoteTargets
-																driverDescriptors={
-																	remoteStorageTargetDriverDescriptors
+																connectorDescriptors={
+																	remoteStorageTargetConnectorDescriptors
 																}
 																driverError={
-																	remoteStorageTargetDriverDescriptorsError
+																	remoteStorageTargetConnectorDescriptorsError
 																}
 																driverLoading={
-																	remoteStorageTargetDriverDescriptorsLoading
+																	remoteStorageTargetConnectorDescriptorsLoading
 																}
 																targets={remoteStorageTargets}
 																targetsError={remoteStorageTargetsError}
@@ -566,14 +565,14 @@ export function StoragePolicyDialog({
 											) : null}
 											{remoteNodeId ? (
 												<RemoteTargets
-													driverDescriptors={
-														remoteStorageTargetDriverDescriptors
+													connectorDescriptors={
+														remoteStorageTargetConnectorDescriptors
 													}
 													driverError={
-														remoteStorageTargetDriverDescriptorsError
+														remoteStorageTargetConnectorDescriptorsError
 													}
 													driverLoading={
-														remoteStorageTargetDriverDescriptorsLoading
+														remoteStorageTargetConnectorDescriptorsLoading
 													}
 													targets={remoteStorageTargets}
 													targetsError={remoteStorageTargetsError}
@@ -1013,7 +1012,7 @@ function ConnectorHelper({
 }
 
 function RemoteTargets({
-	driverDescriptors,
+	connectorDescriptors,
 	driverError,
 	driverLoading,
 	targets,
@@ -1021,7 +1020,7 @@ function RemoteTargets({
 	targetsLoading,
 	onCreate,
 }: {
-	driverDescriptors: RemoteStorageTargetDriverDescriptor[];
+	connectorDescriptors: StorageConnectorDescriptor[];
 	driverError: string | null;
 	driverLoading: boolean;
 	targets: RemoteStorageTargetInfo[];
@@ -1034,7 +1033,7 @@ function RemoteTargets({
 			allowCreate
 			createLabelKey="policy_remote_storage_targets_quick_create"
 			descriptionKey="policy_remote_storage_targets_view_desc"
-			driverDescriptors={driverDescriptors}
+			connectorDescriptors={connectorDescriptors}
 			errorMessage={targetsError ?? driverError}
 			loading={targetsLoading || driverLoading}
 			onCreateTarget={onCreate}

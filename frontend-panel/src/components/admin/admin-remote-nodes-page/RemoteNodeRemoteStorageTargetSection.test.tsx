@@ -10,8 +10,8 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RemoteNodeRemoteStorageTargetSection } from "@/components/admin/admin-remote-nodes-page/RemoteNodeRemoteStorageTargetSection";
 import type {
-	RemoteStorageTargetDriverDescriptor,
 	RemoteStorageTargetInfo,
+	StorageConnectorDescriptor,
 } from "@/types/api";
 
 vi.mock("react-i18next", () => ({
@@ -109,8 +109,8 @@ vi.mock("@/components/ui/select", () => ({
 				value={value}
 				onChange={(event) => onValueChange?.(event.currentTarget.value)}
 			>
-			<option value="asterdrive.storage.local">local</option>
-			<option value="asterdrive.storage.s3">s3</option>
+				<option value="asterdrive.storage.local">local</option>
+				<option value="asterdrive.storage.s3">s3</option>
 				<option value="__all__">__all__</option>
 			</select>
 			{children}
@@ -158,22 +158,24 @@ const profile = (
 	overrides: Partial<RemoteStorageTargetInfo> = {},
 ): RemoteStorageTargetInfo => ({
 	applied_revision: 2,
-	base_path: "incoming",
-	bucket: "",
 	created_at: "2026-05-01T00:00:00Z",
 	desired_revision: 2,
-	driver_type: "local",
-	endpoint: "",
 	is_default: false,
 	last_error: "",
 	name: "Local ingress",
 	target_key: "local-default",
 	updated_at: "2026-05-02T00:00:00Z",
 	connector_id: "asterdrive.storage.local",
+	connector_config: {
+		format_version: 1,
+		connector_id: "asterdrive.storage.local",
+		schema_version: 1,
+		values: { base_path: "incoming" },
+	},
 	...overrides,
 });
 
-const localDriverDescriptor: RemoteStorageTargetDriverDescriptor = {
+const localConnectorDescriptor: StorageConnectorDescriptor = {
 	connector_id: "asterdrive.storage.local",
 	label: "Local",
 	description: "Local storage",
@@ -192,8 +194,29 @@ const localDriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 	deployment_scope: "instance_local",
 	supports_initial_setup: true,
 	requires_authorization: false,
-	capabilities: { efficient_range: true, capacity: false, list: true, presigned_download: false, storage_native_thumbnail: false, storage_native_media_metadata: false, remote_node_binding: false, object_storage_transfer_strategy: false, object_naming: "opaque_uuid" },
-	upload_workflows: { simple_upload: true, simple_upload_capabilities: { server_side_relay: true, policy_limited: true }, stream_upload: true, object_multipart_upload: false, provider_resumable_upload: false, presigned_upload: false, frontend_direct_provider_resumable_upload: false },
+	capabilities: {
+		efficient_range: true,
+		capacity: false,
+		list: true,
+		presigned_download: false,
+		storage_native_thumbnail: false,
+		storage_native_media_metadata: false,
+		remote_node_binding: false,
+		object_storage_transfer_strategy: false,
+		object_naming: "opaque_uuid",
+	},
+	upload_workflows: {
+		simple_upload: true,
+		simple_upload_capabilities: {
+			server_side_relay: true,
+			policy_limited: true,
+		},
+		stream_upload: true,
+		object_multipart_upload: false,
+		provider_resumable_upload: false,
+		presigned_upload: false,
+		frontend_direct_provider_resumable_upload: false,
+	},
 	config_schema_version: 1,
 	fields: [
 		{
@@ -201,6 +224,7 @@ const localDriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 			kind: "text",
 			label_key: "base_path",
 			name: "base_path",
+			scope: "connector_config",
 			placeholder: "tenant-a/incoming",
 			required: true,
 			secret: false,
@@ -210,6 +234,7 @@ const localDriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 			kind: "boolean",
 			label_key: "remote_node_ingress_profile_default_toggle",
 			name: "is_default",
+			scope: "connector_config",
 			placeholder: null,
 			required: false,
 			secret: false,
@@ -220,7 +245,7 @@ const localDriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 	related_issues: [],
 };
 
-const s3DriverDescriptor: RemoteStorageTargetDriverDescriptor = {
+const s3ConnectorDescriptor: StorageConnectorDescriptor = {
 	connector_id: "asterdrive.storage.s3",
 	label: "S3",
 	description: "S3 storage",
@@ -239,8 +264,38 @@ const s3DriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 	deployment_scope: "shared_across_primary_instances",
 	supports_initial_setup: true,
 	requires_authorization: false,
-	capabilities: { efficient_range: true, capacity: true, list: true, presigned_download: true, storage_native_thumbnail: false, storage_native_media_metadata: false, remote_node_binding: false, object_storage_transfer_strategy: true, object_naming: "opaque_uuid" },
-	upload_workflows: { simple_upload: true, simple_upload_capabilities: { server_side_relay: true, policy_limited: true }, stream_upload: true, object_multipart_upload: true, object_multipart_upload_capabilities: { min_part_size: 1, policy_limited_part_size: true, relay_part_upload: true, presigned_part_upload: true, presigned_part_etag_required: true, explicit_complete_required: true, abort_supported: true }, provider_resumable_upload: false, presigned_upload: true, frontend_direct_provider_resumable_upload: false },
+	capabilities: {
+		efficient_range: true,
+		capacity: true,
+		list: true,
+		presigned_download: true,
+		storage_native_thumbnail: false,
+		storage_native_media_metadata: false,
+		remote_node_binding: false,
+		object_storage_transfer_strategy: true,
+		object_naming: "opaque_uuid",
+	},
+	upload_workflows: {
+		simple_upload: true,
+		simple_upload_capabilities: {
+			server_side_relay: true,
+			policy_limited: true,
+		},
+		stream_upload: true,
+		object_multipart_upload: true,
+		object_multipart_upload_capabilities: {
+			min_part_size: 1,
+			policy_limited_part_size: true,
+			relay_part_upload: true,
+			presigned_part_upload: true,
+			presigned_part_etag_required: true,
+			explicit_complete_required: true,
+			abort_supported: true,
+		},
+		provider_resumable_upload: false,
+		presigned_upload: true,
+		frontend_direct_provider_resumable_upload: false,
+	},
 	config_schema_version: 1,
 	credential_schema_version: 1,
 	fields: [
@@ -249,6 +304,7 @@ const s3DriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 			kind: "text",
 			label_key: "endpoint",
 			name: "endpoint",
+			scope: "connector_config",
 			placeholder: "https://s3.example.com",
 			required: true,
 			secret: false,
@@ -258,6 +314,7 @@ const s3DriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 			kind: "text",
 			label_key: "bucket",
 			name: "bucket",
+			scope: "connector_config",
 			placeholder: null,
 			required: true,
 			secret: false,
@@ -266,7 +323,8 @@ const s3DriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 			help_key: null,
 			kind: "text",
 			label_key: "access_key",
-			name: "access_key",
+			name: "s3_access_key_id",
+			scope: "static_credential",
 			placeholder: null,
 			required: true,
 			secret: false,
@@ -275,7 +333,8 @@ const s3DriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 			help_key: null,
 			kind: "secret",
 			label_key: "secret_key",
-			name: "secret_key",
+			name: "s3_secret_access_key",
+			scope: "static_credential",
 			placeholder: null,
 			required: true,
 			secret: true,
@@ -285,6 +344,7 @@ const s3DriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 			kind: "text",
 			label_key: "base_path",
 			name: "base_path",
+			scope: "connector_config",
 			placeholder: "prefix",
 			required: false,
 			secret: false,
@@ -294,6 +354,7 @@ const s3DriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 			kind: "boolean",
 			label_key: "remote_node_ingress_profile_default_toggle",
 			name: "is_default",
+			scope: "connector_config",
 			placeholder: null,
 			required: false,
 			secret: false,
@@ -304,12 +365,15 @@ const s3DriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 	related_issues: [],
 };
 
-const defaultDriverDescriptors = [localDriverDescriptor, s3DriverDescriptor];
+const defaultConnectorDescriptors = [
+	localConnectorDescriptor,
+	s3ConnectorDescriptor,
+];
 
 function renderSection({
 	allowCreate = false,
 	createLabelKey,
-	driverDescriptors = defaultDriverDescriptors,
+	connectorDescriptors = defaultConnectorDescriptors,
 	errorMessage = null,
 	loading = false,
 	onCreateTarget = vi.fn().mockResolvedValue(undefined),
@@ -322,7 +386,7 @@ function renderSection({
 		<RemoteNodeRemoteStorageTargetSection
 			allowCreate={allowCreate}
 			createLabelKey={createLabelKey}
-			driverDescriptors={driverDescriptors}
+			connectorDescriptors={connectorDescriptors}
 			errorMessage={errorMessage}
 			loading={loading}
 			onCreateTarget={onCreateTarget}
@@ -347,7 +411,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 	it("shows loading, empty and error states", () => {
 		const { rerender } = render(
 			<RemoteNodeRemoteStorageTargetSection
-				driverDescriptors={defaultDriverDescriptors}
+				connectorDescriptors={defaultConnectorDescriptors}
 				errorMessage={null}
 				loading
 				onCreateTarget={vi.fn()}
@@ -361,7 +425,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 
 		rerender(
 			<RemoteNodeRemoteStorageTargetSection
-				driverDescriptors={defaultDriverDescriptors}
+				connectorDescriptors={defaultConnectorDescriptors}
 				errorMessage={null}
 				loading={false}
 				onCreateTarget={vi.fn()}
@@ -377,7 +441,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 
 		rerender(
 			<RemoteNodeRemoteStorageTargetSection
-				driverDescriptors={defaultDriverDescriptors}
+				connectorDescriptors={defaultConnectorDescriptors}
 				errorMessage="cannot reach node"
 				loading={false}
 				onCreateTarget={vi.fn()}
@@ -464,8 +528,11 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		await waitFor(() => {
 			expect(onCreateTarget).toHaveBeenCalledWith(
 				expect.objectContaining({
-					connector_config: expect.objectContaining({ values: expect.objectContaining({ base_path: "policy/incoming" }) }),
-					driver_type: "connector",
+					connection: expect.objectContaining({
+						connector_config: expect.objectContaining({
+							values: expect.objectContaining({ base_path: "policy/incoming" }),
+						}),
+					}),
 					is_default: false,
 					name: "Policy quick target",
 				}),
@@ -492,12 +559,18 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: /core:create/ }));
 
 		await waitFor(() => {
-				expect(onCreateTarget).toHaveBeenCalledWith(expect.objectContaining({
-					connector_config: expect.objectContaining({ connector_id: "asterdrive.storage.local", values: expect.objectContaining({ base_path: "teams/incoming" }) }),
-					driver_type: "connector",
+			expect(onCreateTarget).toHaveBeenCalledWith(
+				expect.objectContaining({
+					connection: expect.objectContaining({
+						connector_config: expect.objectContaining({
+							connector_id: "asterdrive.storage.local",
+							values: expect.objectContaining({ base_path: "teams/incoming" }),
+						}),
+					}),
 					is_default: true,
 					name: "Local upload",
-				}));
+				}),
+			);
 		});
 		expect(
 			screen.queryByText("remote_node_ingress_profile_form_create_title"),
@@ -505,7 +578,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 	});
 
 	it("does not create targets when no supported driver descriptor is returned", () => {
-		renderSection({ driverDescriptors: [] });
+		renderSection({ connectorDescriptors: [] });
 
 		expect(
 			screen.getByRole("button", {
@@ -517,7 +590,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 	it("keeps the create draft closed when no create handler is available", () => {
 		render(
 			<RemoteNodeRemoteStorageTargetSection
-				driverDescriptors={defaultDriverDescriptors}
+				connectorDescriptors={defaultConnectorDescriptors}
 				errorMessage={null}
 				loading={false}
 				targets={[]}
@@ -551,12 +624,9 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		expect(
 			screen.getByText("remote_node_ingress_profile_name_required"),
 		).toBeInTheDocument();
-		expect(
-			screen.getByText("remote_node_ingress_profile_endpoint_required"),
-		).toBeInTheDocument();
-		expect(
-			screen.getByText("remote_node_ingress_profile_access_key_required"),
-		).toBeInTheDocument();
+		expect(screen.getAllByText("policy_connector_field_required")).toHaveLength(
+			4,
+		);
 
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: "S3 upload" },
@@ -578,9 +648,22 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		await waitFor(() => {
 			expect(onCreateTarget).toHaveBeenCalledWith(
 				expect.objectContaining({
-					connector_config: expect.objectContaining({ connector_id: "asterdrive.storage.s3", values: expect.objectContaining({ bucket: "raw-bucket", endpoint: "https://s3.example.test/raw-bucket" }) }),
-					credential: { access_key: "access", secret_key: "secret" },
-					driver_type: "connector",
+					connection: {
+						connector_config: expect.objectContaining({
+							connector_id: "asterdrive.storage.s3",
+							values: expect.objectContaining({
+								bucket: " raw-bucket ",
+								endpoint: "https://s3.example.test/raw-bucket",
+							}),
+						}),
+						credential: {
+							mode: "static",
+							values: {
+								s3_access_key_id: " access ",
+								s3_secret_access_key: " secret ",
+							},
+						},
+					},
 					name: "S3 upload",
 				}),
 			);
@@ -589,11 +672,17 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 
 	it("edits existing S3 targets while requiring access key but preserving secret", async () => {
 		const existing = profile({
-			base_path: "prefix",
-			bucket: "bucket-a",
-			driver_type: "s3",
 			connector_id: "asterdrive.storage.s3",
-			endpoint: "https://s3.example.com",
+			connector_config: {
+				format_version: 1,
+				connector_id: "asterdrive.storage.s3",
+				schema_version: 1,
+				values: {
+					base_path: "prefix",
+					bucket: "bucket-a",
+					endpoint: "https://s3.example.com",
+				},
+			},
 			is_default: true,
 			name: "S3 ingress",
 			target_key: "s3-default",
@@ -604,10 +693,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		expect(
 			screen.getByLabelText("remote_node_ingress_profile_default_toggle"),
 		).toBeDisabled();
-		expect(screen.getByRole("button", { name: /save_changes/ })).toBeDisabled();
-		expect(
-			screen.getByText("remote_node_ingress_profile_access_key_required"),
-		).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: /save_changes/ })).toBeEnabled();
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: "S3 renamed" },
 		});
@@ -620,12 +706,23 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: /save_changes/ }));
 
 		await waitFor(() => {
-				expect(onUpdateTarget).toHaveBeenCalledWith("s3-default", expect.objectContaining({
-					connector_config: expect.objectContaining({ connector_id: "asterdrive.storage.s3", values: expect.objectContaining({ base_path: "next-prefix" }) }),
-					credential: { access_key: "rotated-access" },
+			expect(onUpdateTarget).toHaveBeenCalledWith(
+				"s3-default",
+				expect.objectContaining({
+					connection: {
+						connector_config: expect.objectContaining({
+							connector_id: "asterdrive.storage.s3",
+							values: expect.objectContaining({ base_path: "next-prefix" }),
+						}),
+						credential: {
+							mode: "static",
+							values: { s3_access_key_id: "rotated-access" },
+						},
+					},
 					is_default: true,
 					name: "S3 renamed",
-				}));
+				}),
+			);
 		});
 	});
 
@@ -634,7 +731,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		const onDeleteTarget = vi.fn().mockResolvedValue(undefined);
 		const { rerender } = render(
 			<RemoteNodeRemoteStorageTargetSection
-				driverDescriptors={defaultDriverDescriptors}
+				connectorDescriptors={defaultConnectorDescriptors}
 				errorMessage={null}
 				loading={false}
 				onCreateTarget={vi.fn()}
@@ -651,7 +748,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 
 		rerender(
 			<RemoteNodeRemoteStorageTargetSection
-				driverDescriptors={defaultDriverDescriptors}
+				connectorDescriptors={defaultConnectorDescriptors}
 				errorMessage={null}
 				loading={false}
 				onCreateTarget={vi.fn()}
@@ -667,7 +764,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 
 		rerender(
 			<RemoteNodeRemoteStorageTargetSection
-				driverDescriptors={defaultDriverDescriptors}
+				connectorDescriptors={defaultConnectorDescriptors}
 				errorMessage={null}
 				loading={false}
 				onCreateTarget={vi.fn()}
@@ -703,7 +800,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		const existing = profile();
 		render(
 			<RemoteNodeRemoteStorageTargetSection
-				driverDescriptors={defaultDriverDescriptors}
+				connectorDescriptors={defaultConnectorDescriptors}
 				errorMessage={null}
 				loading={false}
 				onCreateTarget={vi.fn()}

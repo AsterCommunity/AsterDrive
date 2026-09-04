@@ -41,7 +41,7 @@ const mockState = vi.hoisted(() => ({
 	listStorageCredentials: vi.fn(),
 	listStorageDriverDescriptors: vi.fn(),
 	listStorageDriverLocalizations: vi.fn(),
-	listStorageTargetDrivers: vi.fn(),
+	listStorageTargetConnectors: vi.fn(),
 	listStorageTargets: vi.fn(),
 	logout: vi.fn(),
 	manageDescriptors: [] as unknown[],
@@ -232,8 +232,8 @@ vi.mock("@/services/adminService", () => ({
 	adminRemoteNodeService: {
 		createStorageTarget: vi.fn(),
 		list: (...args: unknown[]) => mockState.listRemoteNodes(...args),
-		listStorageTargetDrivers: (...args: unknown[]) =>
-			mockState.listStorageTargetDrivers(...args),
+		listStorageTargetConnectors: (...args: unknown[]) =>
+			mockState.listStorageTargetConnectors(...args),
 		listStorageTargets: (...args: unknown[]) =>
 			mockState.listStorageTargets(...args),
 	},
@@ -608,7 +608,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.listStorageCredentials.mockReset();
 		mockState.listStorageDriverDescriptors.mockReset();
 		mockState.listStorageDriverLocalizations.mockReset();
-		mockState.listStorageTargetDrivers.mockReset();
+		mockState.listStorageTargetConnectors.mockReset();
 		mockState.listStorageTargets.mockReset();
 		mockState.logout.mockReset();
 		mockState.searchParams = new URLSearchParams();
@@ -653,7 +653,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			items: mockState.remoteNodes,
 			total: mockState.remoteNodes.length,
 		}));
-		mockState.listStorageTargetDrivers.mockResolvedValue([]);
+		mockState.listStorageTargetConnectors.mockResolvedValue([]);
 		mockState.listStorageTargets.mockResolvedValue([]);
 		mockState.listStorageCredentials.mockResolvedValue([]);
 		mockState.getCapacity.mockResolvedValue({

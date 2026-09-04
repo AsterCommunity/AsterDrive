@@ -143,14 +143,15 @@ impl StorageConnector for LocalConnector {
         )
     }
 
-    async fn build_draft_driver(
+    async fn build_driver_from_connection(
         &self,
         context: &super::StorageConnectorContext<'_>,
-        policy: &storage_policy::Model,
+        connector_config: &aster_drive_storage::ConnectorConfigEnvelope,
         credential: &StorageConnectorCredentialInput,
     ) -> Result<Box<dyn StorageDriver>> {
         let _ = (context, credential);
-        let config = Self::decode_config(policy)?;
+        let config: LocalConnectorConfigV1 =
+            super::common::decode_normalized_connector_config(connector_config)?;
         Ok(Box::new(LocalDriver::new(&config.base_path)?))
     }
 

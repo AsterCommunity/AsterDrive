@@ -13,8 +13,8 @@ pub mod registry;
 pub mod remote_protocol;
 pub use connectors::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
-    StorageConnectorActionOutput, StorageConnectorActionResult, StorageConnectorConnectionInput,
-    StorageConnectorCredentialInfo, StorageConnectorCredentialInput,
+    StorageConnectionInput, StorageConnectorActionOutput, StorageConnectorActionResult,
+    StorageConnectorCredentialInfo, StorageConnectorCredentialInput, StoragePolicyConnectionInput,
     TestDraftStorageConnectorConnectionInput,
 };
 pub use policy_snapshot::PolicySnapshot;

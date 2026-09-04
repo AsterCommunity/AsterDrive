@@ -5,8 +5,8 @@ import { Icon } from "@/components/ui/icon";
 import { ADMIN_ICON_BUTTON_CLASS } from "@/lib/constants";
 import { formatDateTime } from "@/lib/format";
 import type {
-	RemoteStorageTargetDriverDescriptor,
 	RemoteStorageTargetInfo,
+	StorageConnectorDescriptor,
 } from "@/types/api";
 import { getStorageConnectorBadgePresentation } from "../admin-policies-page/policyPresentation";
 import { getRemoteNodeRemoteStorageTargetProfileStatus } from "./remoteNodeRemoteStorageTargetPresentation";
@@ -21,7 +21,7 @@ interface RemoteNodeRemoteStorageTargetsListProps {
 	onRequestDeleteTarget: (target: RemoteStorageTargetInfo) => void;
 	onEditTarget: (target: RemoteStorageTargetInfo) => void;
 	targets: RemoteStorageTargetInfo[];
-	driverDescriptors: RemoteStorageTargetDriverDescriptor[];
+	connectorDescriptors: StorageConnectorDescriptor[];
 }
 
 export function RemoteNodeRemoteStorageTargetsList({
@@ -34,7 +34,7 @@ export function RemoteNodeRemoteStorageTargetsList({
 	onRequestDeleteTarget,
 	onEditTarget,
 	targets,
-	driverDescriptors,
+	connectorDescriptors,
 }: RemoteNodeRemoteStorageTargetsListProps) {
 	const { t } = useTranslation("admin");
 
@@ -67,7 +67,7 @@ export function RemoteNodeRemoteStorageTargetsList({
 						onEdit={() => onEditTarget(target)}
 						readOnly={readOnly}
 						target={target}
-						driverDescriptor={driverDescriptors.find(
+						connectorDescriptor={connectorDescriptors.find(
 							(descriptor) => descriptor.connector_id === target.connector_id,
 						)}
 					/>
@@ -85,7 +85,7 @@ interface RemoteNodeRemoteStorageTargetCardProps {
 	onEdit: () => void;
 	readOnly: boolean;
 	target: RemoteStorageTargetInfo;
-	driverDescriptor?: RemoteStorageTargetDriverDescriptor;
+	connectorDescriptor?: StorageConnectorDescriptor;
 }
 
 function RemoteNodeRemoteStorageTargetCard({
@@ -96,12 +96,12 @@ function RemoteNodeRemoteStorageTargetCard({
 	onEdit,
 	readOnly,
 	target,
-	driverDescriptor,
+	connectorDescriptor,
 }: RemoteNodeRemoteStorageTargetCardProps) {
 	const { t } = useTranslation("admin");
 	const status = getRemoteNodeRemoteStorageTargetProfileStatus(target);
 	const badgePresentation = getStorageConnectorBadgePresentation(
-		(driverDescriptor as any)?.ui?.badge_rgb ?? (driverDescriptor as any)?.badge_rgb,
+		connectorDescriptor?.ui.badge_rgb,
 	);
 
 	return (
@@ -196,30 +196,20 @@ function RemoteNodeRemoteStorageTargetCard({
 			) : null}
 
 			<dl className="mt-4 grid gap-3 text-sm md:grid-cols-2">
-				<div>
-					<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-						{t("base_path")}
-					</dt>
-					<dd className="mt-1 break-all font-medium">
-						{String(target.connector_config?.values?.base_path ?? ".")}
-					</dd>
-				</div>
-				{target.connector_config?.values?.endpoint || target.connector_config?.values?.bucket ? (
-					<>
-						<div>
-							<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-								{t("endpoint")}
-							</dt>
-							<dd className="mt-1 break-all font-medium">{String(target.connector_config?.values?.endpoint ?? "")}</dd>
-						</div>
-						<div>
-							<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-								{t("bucket")}
-							</dt>
-							<dd className="mt-1 break-all font-medium">{String(target.connector_config?.values?.bucket ?? "")}</dd>
-						</div>
-					</>
-				) : null}
+				{(connectorDescriptor?.fields ?? [])
+					.filter((field) => field.scope === "connector_config")
+					.map((field) => {
+						const value = target.connector_config?.values?.[field.name];
+						if (value == null || value === "") return null;
+						return (
+							<div key={field.name}>
+								<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+									{t(field.label_key)}
+								</dt>
+								<dd className="mt-1 break-all font-medium">{String(value)}</dd>
+							</div>
+						);
+					})}
 				<div>
 					<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
 						{t("core:updated_at")}

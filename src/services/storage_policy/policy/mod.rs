@@ -13,7 +13,7 @@ use crate::services::ops::audit::{self, AuditContext};
 
 pub use crate::storage::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
-    StorageConnectorConnectionInput, TestDraftStorageConnectorConnectionInput,
+    StoragePolicyConnectionInput, TestDraftStorageConnectorConnectionInput,
 };
 pub use aster_drive_storage::{
     StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionId,
@@ -209,7 +209,12 @@ pub async fn execute_draft_action_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicyActionResult> {
     let action_id = input.action_id.clone();
-    let connector_id = input.connection.connector_config.connector_id.clone();
+    let connector_id = input
+        .connection
+        .storage
+        .connector_config
+        .connector_id
+        .clone();
     let mutates_remote_state =
         connector_action_mutates_remote_state(state, &connector_id, &action_id);
     let result = execute_draft_action(state, input).await;

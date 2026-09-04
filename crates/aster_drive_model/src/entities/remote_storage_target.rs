@@ -6,8 +6,6 @@ use std::fmt;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::types::RemoteStorageTargetDriverKind;
-
 #[derive(Clone, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[sea_orm(table_name = "remote_storage_targets")]
@@ -19,22 +17,16 @@ pub struct Model {
     pub name: String,
     pub connector_id: Option<String>,
     pub connector_config: Option<String>,
-    /// TODO(remote-storage-target-0.7.0): remove after connector_config is
-    /// authoritative for all target rows.
-    pub driver_type: RemoteStorageTargetDriverKind,
-    /// TODO(remote-storage-target-0.7.0): legacy flattened config column.
+    /// TODO(remote-storage-target-0.7.0): remove the flattened compatibility
+    /// columns after the supported 0.5.0 upgrade window. Runtime code never
+    /// reads them; new rows write empty values only for the old NOT NULL schema.
+    pub driver_type: String,
     pub endpoint: String,
-    /// TODO(remote-storage-target-0.7.0): legacy flattened config column.
     pub bucket: String,
     #[serde(skip_serializing)]
-    /// TODO(remote-storage-target-0.7.0): plaintext legacy credential column;
-    /// use remote_storage_target_credentials instead.
     pub access_key: String,
     #[serde(skip_serializing)]
-    /// TODO(remote-storage-target-0.7.0): plaintext legacy credential column;
-    /// use remote_storage_target_credentials instead.
     pub secret_key: String,
-    /// TODO(remote-storage-target-0.7.0): legacy flattened config column.
     pub base_path: String,
     pub is_default: bool,
     pub desired_revision: i64,
@@ -53,12 +45,8 @@ impl fmt::Debug for Model {
             .field("master_binding_id", &self.master_binding_id)
             .field("target_key", &self.target_key)
             .field("name", &self.name)
-            .field("driver_type", &self.driver_type)
-            .field("endpoint", &self.endpoint)
-            .field("bucket", &self.bucket)
-            .field("access_key", &"***REDACTED***")
-            .field("secret_key", &"***REDACTED***")
-            .field("base_path", &self.base_path)
+            .field("connector_id", &self.connector_id)
+            .field("connector_config", &self.connector_config)
             .field("is_default", &self.is_default)
             .field("desired_revision", &self.desired_revision)
             .field("applied_revision", &self.applied_revision)
@@ -94,7 +82,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn debug_redacts_remote_storage_target_credentials() {
+    fn debug_uses_only_connector_owned_storage_fields() {
         let now = chrono::Utc::now();
         let model = Model {
             id: 1,
@@ -102,13 +90,13 @@ mod tests {
             target_key: "profile".to_string(),
             name: "ingress".to_string(),
             connector_id: Some("asterdrive.storage.s3".to_string()),
-            connector_config: None,
-            driver_type: RemoteStorageTargetDriverKind::S3,
-            endpoint: "https://s3.example.test".to_string(),
-            bucket: "bucket".to_string(),
-            access_key: "plain-access-key".to_string(),
-            secret_key: "plain-secret-key".to_string(),
-            base_path: "base".to_string(),
+            connector_config: Some(r#"{"format_version":1}"#.to_string()),
+            driver_type: String::new(),
+            endpoint: String::new(),
+            bucket: String::new(),
+            access_key: String::new(),
+            secret_key: String::new(),
+            base_path: String::new(),
             is_default: false,
             desired_revision: 1,
             applied_revision: 1,
@@ -118,9 +106,8 @@ mod tests {
         };
 
         let debug = format!("{model:?}");
-        assert!(debug.contains(r#"access_key: "***REDACTED***""#));
-        assert!(debug.contains(r#"secret_key: "***REDACTED***""#));
-        assert!(!debug.contains("plain-access-key"));
-        assert!(!debug.contains("plain-secret-key"));
+        assert!(debug.contains(r#"connector_id: "asterdrive.storage.s3""#));
+        assert!(!debug.contains("driver_type"));
+        assert!(!debug.contains("access_key"));
     }
 }

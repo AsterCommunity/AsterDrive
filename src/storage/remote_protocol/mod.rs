@@ -4,7 +4,6 @@ mod auth;
 mod client;
 mod errors;
 mod follower_auth;
-pub mod legacy;
 mod models;
 mod primary_auth;
 mod runtime;

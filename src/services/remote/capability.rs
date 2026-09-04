@@ -1,18 +1,11 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{Result, validation_error_with_code};
-#[cfg(test)]
-use crate::services::remote::storage_target::remote_storage_target_driver_type_for_connector_id;
-use crate::services::remote::storage_target::{
-    RemoteStorageTargetDriverDescriptor, remote_storage_target_descriptor_from_connector,
-    remote_storage_target_driver_descriptor,
-};
+use crate::services::remote::storage_target::remote_storage_target_descriptor_from_connector;
 use crate::storage::remote_protocol::{RemoteStorageCapabilities, RemoteStorageTargetCapabilities};
 use aster_drive_model::entities::managed_follower;
-use aster_drive_model::types::{
-    RemoteDownloadStrategy, RemoteStorageTargetDriverKind, RemoteUploadStrategy,
-};
-use aster_drive_storage::ConnectorId;
+use aster_drive_model::types::{RemoteDownloadStrategy, RemoteUploadStrategy};
 use aster_drive_storage::StorageErrorKind;
+use aster_drive_storage::{ConnectorId, StorageConnectorDescriptor};
 
 #[derive(Debug, Clone)]
 pub struct RemoteCapabilityResolver {
@@ -100,66 +93,49 @@ impl RemoteCapabilityResolver {
         Ok(())
     }
 
-    pub fn remote_storage_target_driver_descriptors(
+    pub fn remote_storage_target_connector_descriptors(
         &self,
-    ) -> Vec<RemoteStorageTargetDriverDescriptor> {
+        registry: &crate::storage::connectors::StorageConnectorRegistry,
+    ) -> Vec<StorageConnectorDescriptor> {
         let capabilities = self.effective_remote_storage_target_capabilities();
-        crate::storage::connectors::builtin_storage_connector_registry()
-            .ok()
-            .map(|registry| {
-                registry
-                    .remote_target_connectors()
-                    .into_iter()
-                    .filter_map(|connector| {
-                        remote_storage_target_descriptor_from_connector(connector).ok()
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default()
+        registry
+            .remote_target_connectors()
             .into_iter()
+            .filter_map(|connector| remote_storage_target_descriptor_from_connector(connector).ok())
             .filter(|descriptor| {
                 capabilities.supports_connector_id(descriptor.connector_id.as_str())
             })
             .collect()
     }
 
-    pub fn supports_remote_storage_target_connector(&self, connector_id: &ConnectorId) -> bool {
+    pub fn supports_remote_storage_target_connector(
+        &self,
+        registry: &crate::storage::connectors::StorageConnectorRegistry,
+        connector_id: &ConnectorId,
+    ) -> bool {
         self.effective_remote_storage_target_capabilities()
             .supports_connector_id(connector_id.as_str())
-            && crate::storage::connectors::builtin_storage_connector_registry()
-                .ok()
-                .is_some_and(|registry| {
-                    registry
-                        .require_remote_target_connector(connector_id)
-                        .is_ok()
-                })
+            && registry
+                .require_remote_target_connector(connector_id)
+                .is_ok()
     }
 
-    pub fn ensure_remote_storage_target_driver_supported(
+    pub fn ensure_remote_storage_target_connector_supported(
         &self,
-        driver_type: RemoteStorageTargetDriverKind,
+        registry: &crate::storage::connectors::StorageConnectorRegistry,
+        connector_id: &ConnectorId,
     ) -> Result<()> {
-        if self.supports_remote_storage_target_driver(driver_type) {
+        if self.supports_remote_storage_target_connector(registry, connector_id) {
             return Ok(());
         }
 
         Err(validation_error_with_code(
-            ApiErrorCode::ManagedIngressDriverUnsupported,
+            ApiErrorCode::RemoteStorageTargetConnectorUnsupported,
             format!(
-                "remote node #{} does not declare remote storage target support for the {} driver",
-                self.remote_node_id,
-                driver_type.as_str()
+                "remote node #{} does not declare remote storage target support for connector '{}'",
+                self.remote_node_id, connector_id
             ),
         ))
-    }
-
-    pub fn supports_remote_storage_target_driver(
-        &self,
-        driver_type: RemoteStorageTargetDriverKind,
-    ) -> bool {
-        self.effective_remote_storage_target_capabilities()
-            .supports_known_driver(driver_type)
-            && remote_storage_target_driver_descriptor(driver_type).is_ok()
     }
 
     pub fn requires_direct_transport_for_presigned(
@@ -305,219 +281,128 @@ fn contains_header(headers: &[String], expected: &str) -> bool {
 mod tests {
     use super::*;
 
-    #[test]
-    fn resolver_treats_empty_cached_capabilities_conservatively() {
-        let resolver = RemoteCapabilityResolver::from_last_capabilities(42, "");
+    fn registry() -> crate::storage::connectors::StorageConnectorRegistry {
+        crate::storage::connectors::builtin_storage_connector_registry().unwrap()
+    }
 
-        assert!(
-            resolver
-                .remote_storage_target_driver_descriptors()
-                .is_empty()
-        );
-        let error = resolver
-            .ensure_remote_storage_target_driver_supported(RemoteStorageTargetDriverKind::Local)
-            .unwrap_err();
-        assert_eq!(
-            error.api_error_code_override(),
-            Some(ApiErrorCode::ManagedIngressDriverUnsupported)
-        );
+    fn connector_id(value: &str) -> ConnectorId {
+        ConnectorId::declared(value)
     }
 
     #[test]
-    fn resolver_treats_unknown_cached_capabilities_conservatively() {
-        let resolver = RemoteCapabilityResolver::from_last_capabilities(42, "{}");
-
-        assert!(
-            resolver
-                .remote_storage_target_driver_descriptors()
-                .is_empty()
-        );
-        let error = resolver
-            .ensure_remote_storage_target_driver_supported(RemoteStorageTargetDriverKind::Local)
-            .unwrap_err();
-        assert_eq!(
-            error.api_error_code_override(),
-            Some(ApiErrorCode::ManagedIngressDriverUnsupported)
-        );
+    fn resolver_treats_missing_target_capabilities_conservatively() {
+        for raw in ["", "{}"] {
+            let resolver = RemoteCapabilityResolver::from_last_capabilities(42, raw);
+            assert!(
+                resolver
+                    .remote_storage_target_connector_descriptors(&registry())
+                    .is_empty()
+            );
+            let error = resolver
+                .ensure_remote_storage_target_connector_supported(
+                    &registry(),
+                    &connector_id("asterdrive.storage.local"),
+                )
+                .unwrap_err();
+            assert_eq!(
+                error.api_error_code_override(),
+                Some(ApiErrorCode::RemoteStorageTargetConnectorUnsupported)
+            );
+        }
     }
 
     #[test]
-    fn resolver_filters_unknown_future_remote_storage_target_driver_ids() {
+    fn resolver_filters_unknown_connectors_and_preserves_registry_order() {
         let last_capabilities = serde_json::json!({
             "protocol_version": "v6",
-            "min_supported_protocol_version": "v4",
+            "min_supported_protocol_version": "v6",
             "remote_storage_target": {
                 "enabled": true,
-                "driver_types": ["local", "plugin.example.archive", "s3"]
+                "connector_ids": [
+                    "asterdrive.storage.s3",
+                    "plugin.example.archive",
+                    "asterdrive.storage.local",
+                    "asterdrive.storage.s3"
+                ]
             }
         })
         .to_string();
-
         let descriptors = RemoteCapabilityResolver::from_last_capabilities(42, &last_capabilities)
-            .remote_storage_target_driver_descriptors();
-
+            .remote_storage_target_connector_descriptors(&registry());
         assert_eq!(
             descriptors
                 .iter()
-                .filter_map(
-                    |descriptor| remote_storage_target_driver_type_for_connector_id(
-                        &descriptor.connector_id
-                    )
-                )
+                .map(|descriptor| descriptor.connector_id.as_str())
                 .collect::<Vec<_>>(),
-            vec![
-                RemoteStorageTargetDriverKind::Local,
-                RemoteStorageTargetDriverKind::S3,
-            ]
+            vec!["asterdrive.storage.local", "asterdrive.storage.s3"]
         );
     }
 
     #[test]
-    fn resolver_uses_registered_order_and_deduplicates_descriptors() {
+    fn resolver_rejects_connector_missing_from_cached_capabilities() {
         let last_capabilities = serde_json::json!({
             "protocol_version": "v6",
-            "min_supported_protocol_version": "v4",
+            "min_supported_protocol_version": "v6",
             "remote_storage_target": {
                 "enabled": true,
-                "driver_types": ["s3", "plugin.example.archive", "local", "s3"]
+                "connector_ids": ["asterdrive.storage.local"]
             }
         })
         .to_string();
-
-        let descriptors = RemoteCapabilityResolver::from_last_capabilities(42, &last_capabilities)
-            .remote_storage_target_driver_descriptors();
-
-        assert_eq!(
-            descriptors
-                .iter()
-                .filter_map(
-                    |descriptor| remote_storage_target_driver_type_for_connector_id(
-                        &descriptor.connector_id
-                    )
-                )
-                .collect::<Vec<_>>(),
-            vec![
-                RemoteStorageTargetDriverKind::Local,
-                RemoteStorageTargetDriverKind::S3,
-            ]
-        );
-    }
-
-    #[test]
-    fn resolver_rejects_remote_storage_target_driver_missing_from_cached_capabilities() {
-        let last_capabilities = serde_json::json!({
-            "protocol_version": "v6",
-            "min_supported_protocol_version": "v4",
-            "remote_storage_target": {
-                "enabled": true,
-                "driver_types": ["local"]
-            }
-        })
-        .to_string();
-
         let error = RemoteCapabilityResolver::from_last_capabilities(42, &last_capabilities)
-            .ensure_remote_storage_target_driver_supported(RemoteStorageTargetDriverKind::S3)
+            .ensure_remote_storage_target_connector_supported(
+                &registry(),
+                &connector_id("asterdrive.storage.s3"),
+            )
             .unwrap_err();
-
         assert_eq!(
             error.api_error_code_override(),
-            Some(ApiErrorCode::ManagedIngressDriverUnsupported)
+            Some(ApiErrorCode::RemoteStorageTargetConnectorUnsupported)
         );
-        assert!(error.message().contains(
-            "remote node #42 does not declare remote storage target support for the s3 driver"
-        ));
+        assert!(error.message().contains("asterdrive.storage.s3"));
     }
 
     #[test]
-    fn resolver_does_not_fallback_for_missing_remote_storage_target_capabilities() {
-        let last_capabilities = serde_json::json!({
-            "protocol_version": "v4",
-            "min_supported_protocol_version": "v4"
-        })
-        .to_string();
-
-        let descriptors = RemoteCapabilityResolver::from_last_capabilities(42, &last_capabilities)
-            .remote_storage_target_driver_descriptors();
-
-        assert!(descriptors.is_empty());
-    }
-
-    #[test]
-    fn resolver_does_not_apply_v4_fallback_to_v5_missing_remote_storage_target_capabilities() {
-        let last_capabilities = serde_json::json!({
-            "protocol_version": "v6",
-            "min_supported_protocol_version": "v4"
-        })
-        .to_string();
-
-        let resolver = RemoteCapabilityResolver::from_last_capabilities(42, &last_capabilities);
-
-        assert!(
-            resolver
-                .remote_storage_target_driver_descriptors()
-                .is_empty()
-        );
-        assert!(
-            !resolver.supports_remote_storage_target_driver(RemoteStorageTargetDriverKind::Local)
-        );
-        assert!(!resolver.supports_remote_storage_target_driver(RemoteStorageTargetDriverKind::S3));
-    }
-
-    #[test]
-    fn resolver_honors_explicit_disabled_remote_storage_target_capabilities_on_v4() {
-        let last_capabilities = serde_json::json!({
-            "protocol_version": "v4",
-            "min_supported_protocol_version": "v4",
-            "remote_storage_target": {
+    fn resolver_honors_disabled_and_unknown_only_target_capabilities() {
+        for target in [
+            serde_json::json!({
                 "enabled": false,
-                "driver_types": ["local", "s3"]
-            }
-        })
-        .to_string();
-
-        let resolver = RemoteCapabilityResolver::from_last_capabilities(42, &last_capabilities);
-
-        assert!(
-            resolver
-                .remote_storage_target_driver_descriptors()
-                .is_empty()
-        );
-        assert!(
-            !resolver.supports_remote_storage_target_driver(RemoteStorageTargetDriverKind::Local)
-        );
-    }
-
-    #[test]
-    fn resolver_honors_unknown_only_remote_storage_target_driver_ids() {
-        let last_capabilities = serde_json::json!({
-            "protocol_version": "v6",
-            "min_supported_protocol_version": "v4",
-            "remote_storage_target": {
+                "connector_ids": ["asterdrive.storage.local"]
+            }),
+            serde_json::json!({
                 "enabled": true,
-                "driver_types": ["plugin.example.archive"]
-            }
-        })
-        .to_string();
-
-        let resolver = RemoteCapabilityResolver::from_last_capabilities(42, &last_capabilities);
-
-        assert!(
-            resolver
-                .remote_storage_target_driver_descriptors()
-                .is_empty()
-        );
-        assert!(
-            !resolver.supports_remote_storage_target_driver(RemoteStorageTargetDriverKind::Local)
-        );
+                "connector_ids": ["plugin.example.archive"]
+            }),
+        ] {
+            let raw = serde_json::json!({
+                "protocol_version": "v6",
+                "min_supported_protocol_version": "v6",
+                "remote_storage_target": target
+            })
+            .to_string();
+            let resolver = RemoteCapabilityResolver::from_last_capabilities(42, &raw);
+            assert!(
+                resolver
+                    .remote_storage_target_connector_descriptors(&registry())
+                    .is_empty()
+            );
+            assert!(!resolver.supports_remote_storage_target_connector(
+                &registry(),
+                &connector_id("asterdrive.storage.local",)
+            ));
+        }
     }
 
     #[test]
-    fn resolver_accepts_current_v5_protocol_and_relay_policy_config() {
-        let capabilities = RemoteStorageCapabilities::current();
+    fn resolver_accepts_current_v6_protocol_and_exposes_connector_descriptors() {
+        let capabilities = RemoteStorageCapabilities::current()
+            .with_remote_storage_target_connector_ids(vec![
+                "asterdrive.storage.local".to_string(),
+                "asterdrive.storage.s3".to_string(),
+            ]);
         let resolver = RemoteCapabilityResolver::from_capabilities(42, capabilities);
-
         resolver
-            .ensure_protocol_compatible("current v5 remote node")
+            .ensure_protocol_compatible("current v6 remote node")
             .expect("current capabilities should be protocol-compatible");
         resolver
             .ensure_remote_policy_config_supported(
@@ -526,31 +411,13 @@ mod tests {
                 RemoteUploadStrategy::RelayStream,
             )
             .expect("current capabilities should support relay remote policy config");
-    }
-
-    #[test]
-    fn resolver_exposes_current_v5_remote_storage_target_driver_descriptors() {
-        let capabilities = RemoteStorageCapabilities::current()
-            .with_remote_storage_target_driver_types(vec![
-                RemoteStorageTargetDriverKind::Local,
-                RemoteStorageTargetDriverKind::S3,
-            ]);
-        let resolver = RemoteCapabilityResolver::from_capabilities(42, capabilities);
-
         assert_eq!(
             resolver
-                .remote_storage_target_driver_descriptors()
+                .remote_storage_target_connector_descriptors(&registry())
                 .iter()
-                .filter_map(
-                    |descriptor| remote_storage_target_driver_type_for_connector_id(
-                        &descriptor.connector_id
-                    )
-                )
+                .map(|descriptor| descriptor.connector_id.as_str())
                 .collect::<Vec<_>>(),
-            vec![
-                RemoteStorageTargetDriverKind::Local,
-                RemoteStorageTargetDriverKind::S3,
-            ]
+            vec!["asterdrive.storage.local", "asterdrive.storage.s3"]
         );
     }
 

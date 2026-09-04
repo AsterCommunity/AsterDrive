@@ -184,39 +184,14 @@ pub(crate) trait StorageConnector: Send + Sync {
                 != aster_drive_storage::StorageConnectorCredentialMode::OauthDelegated
     }
 
-    /// Construct a provider driver from connector-owned config and credentials
-    /// without requiring a storage-policy or remote-target entity.
+    /// Construct a provider driver directly from connector-owned connection
+    /// data. Product policy and remote-target adapters both enter here.
     async fn build_driver_from_connection(
         &self,
         context: &StorageConnectorContext<'_>,
-        connector_config: &ConnectorConfigEnvelope<serde_json::Value>,
+        connector_config: &ConnectorConfigEnvelope,
         credential: &StorageConnectorCredentialInput,
-    ) -> Result<StorageConnectorDriver> {
-        let connector_config = ConnectorConfigEnvelope::new(
-            connector_config.connector_id.clone(),
-            connector_config.schema_version,
-            serde_json::from_value(serde_json::to_value(&connector_config.values).map_err(
-                |error| {
-                    AsterError::validation_error(format!(
-                        "invalid connector config values: {error}"
-                    ))
-                },
-            )?)
-            .map_err(|error| {
-                AsterError::validation_error(format!("invalid connector config values: {error}"))
-            })?,
-        );
-        let connector_config = self.validate_connector_config(&connector_config)?;
-        self.validate_credential_input(credential)?;
-        let policy = common::build_connection_test_policy(
-            connector_config,
-            StoragePolicyBehaviorConfig::default(),
-        )?;
-        let driver = self
-            .build_draft_driver(context, &policy, credential)
-            .await?;
-        Ok(StorageConnectorDriver::storage(Arc::from(driver)))
-    }
+    ) -> Result<Box<dyn StorageDriver>>;
 
     /// Validate core-owned policy behavior against connector-declared capabilities.
     ///
@@ -324,13 +299,6 @@ pub(crate) trait StorageConnector: Send + Sync {
             }
         }
     }
-
-    async fn build_draft_driver(
-        &self,
-        _context: &StorageConnectorContext<'_>,
-        policy: &storage_policy::Model,
-        credential: &StorageConnectorCredentialInput,
-    ) -> Result<Box<dyn StorageDriver>>;
 
     fn build_runtime_driver(
         &self,
@@ -510,17 +478,17 @@ pub(crate) trait StorageConnector: Send + Sync {
         }
         let connection = input.connection;
         let credential = self
-            .prepare_draft_credential(context, input.policy_id, connection.credential)
+            .prepare_draft_credential(context, input.policy_id, connection.storage.credential)
             .await?;
         self.validate_credential_input(&credential)?;
-        let connector_config = self.validate_connector_config(&connection.connector_config)?;
+        let connector_config =
+            self.validate_connector_config(&connection.storage.connector_config)?;
         self.validate_config_binding(context.writer_db(), &connector_config)
             .await?;
         let behavior = connection.behavior.normalized();
         self.validate_policy_behavior(&behavior)?;
-        let policy = common::build_connection_test_policy(connector_config, behavior)?;
         let driver = self
-            .build_draft_driver(context, &policy, &credential)
+            .build_driver_from_connection(context, &connector_config, &credential)
             .await?;
         common::probe_storage_driver(driver.as_ref(), "connection test failed").await
     }
@@ -755,44 +723,6 @@ impl StorageConnectorRegistry {
             .iter()
             .filter(|connector| connector.supports_remote_storage_target())
             .map(AsRef::as_ref)
-            .collect()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn remote_target_driver_types(
-        &self,
-    ) -> Vec<aster_drive_model::types::RemoteStorageTargetDriverKind> {
-        self.remote_target_connectors()
-            .into_iter()
-            .filter_map(
-                |connector| match connector.descriptor().connector_id.as_str() {
-                    "asterdrive.storage.local" => {
-                        Some(aster_drive_model::types::RemoteStorageTargetDriverKind::Local)
-                    }
-                    "asterdrive.storage.s3" => {
-                        Some(aster_drive_model::types::RemoteStorageTargetDriverKind::S3)
-                    }
-                    "asterdrive.storage.sftp" => {
-                        Some(aster_drive_model::types::RemoteStorageTargetDriverKind::Sftp)
-                    }
-                    "asterdrive.storage.tencent_cos" => {
-                        Some(aster_drive_model::types::RemoteStorageTargetDriverKind::TencentCos)
-                    }
-                    "asterdrive.storage.alibaba_oss" => {
-                        Some(aster_drive_model::types::RemoteStorageTargetDriverKind::AlibabaOss)
-                    }
-                    "asterdrive.storage.qiniu" => {
-                        Some(aster_drive_model::types::RemoteStorageTargetDriverKind::Qiniu)
-                    }
-                    "asterdrive.storage.azure_blob" => {
-                        Some(aster_drive_model::types::RemoteStorageTargetDriverKind::AzureBlob)
-                    }
-                    "asterdrive.storage.huawei_obs" => {
-                        Some(aster_drive_model::types::RemoteStorageTargetDriverKind::HuaweiObs)
-                    }
-                    _ => None,
-                },
-            )
             .collect()
     }
 

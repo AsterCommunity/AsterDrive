@@ -234,7 +234,7 @@ pub struct PolicyGroupAssignmentMigrationResult {
 #[derive(Debug, Clone)]
 pub struct CreateStoragePolicyInput {
     pub name: String,
-    pub connection: crate::storage::StorageConnectorConnectionInput,
+    pub connection: crate::storage::StoragePolicyConnectionInput,
     pub max_file_size: i64,
     pub chunk_size: Option<i64>,
     pub is_default: bool,

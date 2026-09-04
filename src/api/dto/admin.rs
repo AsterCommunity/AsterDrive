@@ -108,7 +108,7 @@ pub struct ResetUserPasswordReq {
 pub struct CreatePolicyReq {
     #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
     pub name: String,
-    pub connection: crate::storage::StorageConnectorConnectionInput,
+    pub connection: crate::storage::StoragePolicyConnectionInput,
     #[validate(range(min = 0, message = "max_file_size must be non-negative"))]
     pub max_file_size: Option<i64>,
     #[validate(range(min = 1, message = "chunk_size must be greater than 0"))]
@@ -210,7 +210,7 @@ impl From<StorageConnectorCatalogContext>
 pub struct TestPolicyParamsReq {
     #[validate(range(min = 1, message = "policy_id must be greater than 0"))]
     pub policy_id: Option<i64>,
-    pub connection: crate::storage::StorageConnectorConnectionInput,
+    pub connection: crate::storage::StoragePolicyConnectionInput,
 }
 
 /// Create a remote node.
@@ -887,11 +887,16 @@ mod tests {
         .expect("connector-owned application credential should deserialize");
 
         assert_eq!(
-            request.connection.connector_config.connector_id.as_str(),
+            request
+                .connection
+                .storage
+                .connector_config
+                .connector_id
+                .as_str(),
             "asterdrive.storage.onedrive"
         );
         assert!(matches!(
-            request.connection.credential,
+            request.connection.storage.credential,
             crate::storage::StorageConnectorCredentialInput::AuthorizationApplication(values)
                 if values["client_id"] == "client-id"
                     && values["client_secret"] == "client-secret"

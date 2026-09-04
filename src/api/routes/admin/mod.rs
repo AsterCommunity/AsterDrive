@@ -67,8 +67,8 @@ pub use policies::{
 pub use remote_nodes::{
     create_remote_node, create_remote_node_enrollment_token, create_remote_node_storage_target,
     delete_remote_node, delete_remote_node_storage_target, get_remote_node,
-    list_remote_node_storage_target_drivers, list_remote_node_storage_targets, list_remote_nodes,
-    test_remote_node, test_remote_node_params, update_remote_node,
+    list_remote_node_storage_target_connectors, list_remote_node_storage_targets,
+    list_remote_nodes, test_remote_node, test_remote_node_params, update_remote_node,
     update_remote_node_storage_target,
 };
 pub use shares::{admin_delete_share, list_all_shares};
@@ -170,8 +170,8 @@ pub fn routes(
                         web::get().to(list_remote_node_storage_targets),
                     )
                     .route(
-                        "/remote-nodes/{id}/storage-target-drivers",
-                        web::get().to(list_remote_node_storage_target_drivers),
+                        "/remote-nodes/{id}/storage-target-connectors",
+                        web::get().to(list_remote_node_storage_target_connectors),
                     )
                     .route(
                         "/remote-nodes/{id}/storage-targets",

@@ -74,10 +74,10 @@ impl StorageConnector for LocalizationContractConnector {
         Ok(self.localization.clone())
     }
 
-    async fn build_draft_driver(
+    async fn build_driver_from_connection(
         &self,
         _context: &StorageConnectorContext<'_>,
-        _policy: &storage_policy::Model,
+        _connector_config: &aster_drive_storage::ConnectorConfigEnvelope,
         _credential: &StorageConnectorCredentialInput,
     ) -> Result<Box<dyn StorageDriver>> {
         panic!("localization contract tests do not construct drivers")
@@ -2119,7 +2119,23 @@ async fn qiniu_connector_builds_draft_driver_and_enforces_runtime_credential_bou
     );
 
     let draft = qiniu
-        .build_draft_driver(&context, &qiniu_policy, &credential)
+        .build_driver_from_connection(
+            &context,
+            &aster_drive_storage::ConnectorConfigEnvelope::new(
+                aster_drive_storage::ConnectorId::declared(QiniuConnector::ID),
+                1,
+                serde_json::from_value(
+                    serde_json::from_str::<aster_drive_storage::StoragePolicyConfigEnvelope>(
+                        qiniu_policy.storage_config.as_ref(),
+                    )
+                    .unwrap()
+                    .connector
+                    .values,
+                )
+                .unwrap(),
+            ),
+            &credential,
+        )
         .await
         .expect("valid Qiniu draft driver should build");
     assert!(draft.extensions().presigned.is_some());
@@ -2199,8 +2215,16 @@ async fn connector_neutral_factory_builds_qiniu_without_a_policy_entity() {
         None,
     );
     let driver = qiniu
-        .build_driver_from_connection(&context, &config, &credential)
+        .build_driver_from_connection(
+            &context,
+            &aster_drive_storage::ConnectorConfigEnvelope::new(
+                config.connector_id.clone(),
+                config.schema_version,
+                serde_json::from_value(serde_json::to_value(config.values).unwrap()).unwrap(),
+            ),
+            &credential,
+        )
         .await
         .expect("connector-neutral factory should build without policy entity");
-    assert!(driver.storage.extensions().presigned.is_some());
+    assert!(driver.extensions().presigned.is_some());
 }

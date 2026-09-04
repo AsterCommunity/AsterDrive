@@ -1,9 +1,6 @@
 use super::{
     create, delete,
-    driver::{
-        list_registered_remote_storage_target_driver_descriptors,
-        registered_remote_storage_target_driver_types,
-    },
+    driver::list_registered_remote_storage_target_connector_descriptors,
     list,
     normalization::{normalize_create_input, normalize_update_input},
     paths::{normalize_relative_local_path, resolve_remote_storage_target_local_path},
@@ -12,16 +9,11 @@ use super::{
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{master_binding_repo, remote_storage_target_repo};
 use crate::runtime::{FollowerRuntimeState, SharedRuntimeState, StorageConnectorRuntimeState};
-use crate::storage::remote_protocol::legacy::{
-    RemoteCreateLocalStorageTargetRequest, RemoteCreateProviderStorageTargetRequest,
-    RemoteCreateS3StorageTargetRequest,
-};
 use crate::storage::remote_protocol::{
     RemoteCreateStorageTargetRequest, RemoteUpdateStorageTargetRequest,
 };
 use aster_drive_metrics::SharedMetricsRecorder;
 use aster_drive_model::entities::{master_binding, remote_storage_target};
-use aster_drive_model::types::RemoteStorageTargetDriverKind;
 use chrono::Utc;
 use sea_orm::{DatabaseConnection, Set};
 use std::fs;
@@ -149,11 +141,20 @@ async fn create_binding(state: &TestFollowerState, access_key: &str) -> master_b
 }
 
 fn local_create(name: &str, base_path: &str, is_default: bool) -> RemoteCreateStorageTargetRequest {
-    crate::storage::remote_protocol::legacy::local(RemoteCreateLocalStorageTargetRequest {
+    RemoteCreateStorageTargetRequest {
         name: name.to_string(),
-        base_path: base_path.to_string(),
+        connection: crate::storage::StorageConnectionInput {
+            connector_config: aster_drive_storage::ConnectorConfigEnvelope::new(
+                aster_drive_storage::ConnectorId::declared("asterdrive.storage.local"),
+                1,
+                [("base_path".to_string(), serde_json::json!(base_path))]
+                    .into_iter()
+                    .collect(),
+            ),
+            credential: crate::storage::StorageConnectorCredentialInput::None,
+        },
         is_default,
-    })
+    }
 }
 
 fn s3_create(
@@ -163,32 +164,57 @@ fn s3_create(
     base_path: &str,
     is_default: bool,
 ) -> RemoteCreateStorageTargetRequest {
-    crate::storage::remote_protocol::legacy::s3(RemoteCreateS3StorageTargetRequest {
+    RemoteCreateStorageTargetRequest {
         name: name.to_string(),
-        endpoint: endpoint.to_string(),
-        bucket: bucket.to_string(),
-        access_key: "access".to_string(),
-        secret_key: "secret".to_string(),
-        base_path: base_path.to_string(),
+        connection: crate::storage::StorageConnectionInput {
+            connector_config: aster_drive_storage::ConnectorConfigEnvelope::new(
+                aster_drive_storage::ConnectorId::declared("asterdrive.storage.s3"),
+                1,
+                [
+                    ("endpoint".to_string(), serde_json::json!(endpoint)),
+                    ("bucket".to_string(), serde_json::json!(bucket)),
+                    ("base_path".to_string(), serde_json::json!(base_path)),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            credential: crate::storage::StorageConnectorCredentialInput::Static(
+                serde_json::json!({
+                    "s3_access_key_id": "access",
+                    "s3_secret_access_key": "secret"
+                }),
+            ),
+        },
         is_default,
-    })
+    }
 }
 
-fn model_with_driver(driver_type: RemoteStorageTargetDriverKind) -> remote_storage_target::Model {
+fn s3_model() -> remote_storage_target::Model {
     let now = Utc::now();
     remote_storage_target::Model {
         id: 1,
         master_binding_id: 1,
         target_key: "rst_test".to_string(),
         name: "test".to_string(),
-        connector_id: None,
-        connector_config: None,
-        driver_type,
+        connector_id: Some("asterdrive.storage.s3".to_string()),
+        connector_config: Some(
+            aster_drive_storage::encode_connector_config(
+                aster_drive_storage::ConnectorId::declared("asterdrive.storage.s3"),
+                1,
+                serde_json::json!({
+                    "endpoint": "https://s3.example.test",
+                    "bucket": "bucket",
+                    "base_path": "profile"
+                }),
+            )
+            .unwrap(),
+        ),
+        driver_type: String::new(),
         endpoint: String::new(),
-        bucket: "bucket".to_string(),
-        access_key: "access".to_string(),
-        secret_key: "secret".to_string(),
-        base_path: "profile".to_string(),
+        bucket: String::new(),
+        access_key: String::new(),
+        secret_key: String::new(),
+        base_path: String::new(),
         is_default: true,
         desired_revision: 1,
         applied_revision: 1,
@@ -304,153 +330,131 @@ fn resolve_remote_storage_target_local_path_rejects_empty_root() {
     );
 }
 
-#[test]
-fn normalize_create_input_trims_local_and_s3_fields() {
-    let local = normalize_create_input(local_create(" Local ", " ./dropbox/ ", true)).unwrap();
-    assert_eq!(local.name, "Local");
-    assert_eq!(local.driver_type, RemoteStorageTargetDriverKind::Local);
-    assert_eq!(local.base_path, "dropbox");
-    assert_eq!(local.is_default, Some(true));
-
-    let s3 = normalize_create_input(s3_create(
-        " S3 ",
-        " https://s3.example.com/path ",
-        " bucket ",
-        " /prefix/ ",
-        false,
-    ))
-    .unwrap();
-    assert_eq!(s3.name, "S3");
-    assert_eq!(s3.driver_type, RemoteStorageTargetDriverKind::S3);
-    assert_eq!(s3.endpoint, "https://s3.example.com/path");
-    assert_eq!(s3.bucket, "bucket");
-    assert_eq!(s3.base_path, "prefix");
-    assert_eq!(s3.is_default, Some(false));
+#[tokio::test]
+async fn normalize_create_input_uses_connector_validation_and_envelope() {
+    let state = setup_state().await;
+    let normalized = normalize_create_input(&state, local_create(" Local ", " ./dropbox/ ", true))
+        .await
+        .unwrap();
+    assert_eq!(normalized.name, "Local");
+    assert_eq!(normalized.is_default, Some(true));
+    let connection = normalized.connection.unwrap();
+    assert_eq!(
+        connection.connector_config.connector_id.as_str(),
+        "asterdrive.storage.local"
+    );
+    assert_eq!(connection.connector_config.values["base_path"], "dropbox");
 }
 
-#[test]
-fn normalize_create_input_rejects_invalid_values() {
-    let error = expect_aster_err(normalize_create_input(local_create(" ", "profile", false)));
-    assert!(error.message().contains("name cannot be blank"));
-
-    let error = expect_aster_err(normalize_create_input(s3_create(
-        "S3",
-        "https://s3.example.com",
-        "",
-        "",
-        false,
-    )));
-    assert!(error.message().contains("bucket is required"));
+#[tokio::test]
+async fn normalize_create_input_rejects_invalid_connector_values() {
+    let state = setup_state().await;
+    let error = normalize_create_input(
+        &state,
+        s3_create("S3", "https://s3.example.com", "", "", false),
+    )
+    .await
+    .unwrap_err();
+    assert!(error.message().contains("bucket"));
 }
 
-#[test]
-fn normalize_update_input_keeps_existing_driver_fields_and_trims_replacements() {
-    let existing = model_with_driver(RemoteStorageTargetDriverKind::S3);
+#[tokio::test]
+async fn normalize_update_input_keeps_connection_opaque_when_omitted() {
+    let state = setup_state().await;
+    let existing = s3_model();
     let normalized = normalize_update_input(
-        existing.clone(),
+        &state,
+        &existing,
         RemoteUpdateStorageTargetRequest {
-            connector_config: None,
-            credential: None,
+            connection: None,
             name: Some(" Updated ".to_string()),
-            base_path: Some(" /next/ ".to_string()),
             is_default: Some(true),
             ..Default::default()
         },
     )
+    .await
     .unwrap();
-
     assert_eq!(normalized.name, "Updated");
-    assert_eq!(normalized.driver_type, RemoteStorageTargetDriverKind::S3);
-    assert_eq!(normalized.endpoint, existing.endpoint);
-    assert_eq!(normalized.bucket, existing.bucket);
-    assert_eq!(normalized.access_key, existing.access_key);
-    assert_eq!(normalized.secret_key, existing.secret_key);
-    assert_eq!(normalized.base_path, "next");
+    assert!(normalized.connection.is_none());
     assert_eq!(normalized.is_default, Some(true));
 }
 
-#[test]
-fn normalize_update_input_preserves_secret_when_same_driver_omits_credentials() {
-    let existing = model_with_driver(RemoteStorageTargetDriverKind::S3);
+#[tokio::test]
+async fn normalize_update_input_merges_partial_static_credentials_from_saved_connection() {
+    let state = setup_state().await;
+    let binding = create_binding(&state, "ak-credential-merge").await;
+    let created = create(
+        &state,
+        &binding,
+        s3_create(
+            "Archive",
+            "https://s3.example.test",
+            "bucket",
+            "prefix",
+            true,
+        ),
+    )
+    .await
+    .unwrap();
+    let existing = remote_storage_target_repo::find_by_binding_and_target_key(
+        state.writer_db(),
+        binding.id,
+        &created.target_key,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let connector_config = created.connector_config;
+
     let normalized = normalize_update_input(
-        existing.clone(),
+        &state,
+        &existing,
         RemoteUpdateStorageTargetRequest {
-            connector_config: None,
-            credential: None,
-            name: Some("Renamed".to_string()),
-            access_key: None,
-            secret_key: None,
+            connection: Some(crate::storage::StorageConnectionInput {
+                connector_config,
+                credential: crate::storage::StorageConnectorCredentialInput::Static(
+                    serde_json::json!({"s3_access_key_id": "rotated"}),
+                ),
+            }),
             ..Default::default()
         },
     )
+    .await
     .unwrap();
 
-    assert_eq!(normalized.driver_type, RemoteStorageTargetDriverKind::S3);
-    assert_eq!(normalized.access_key, existing.access_key);
-    assert_eq!(normalized.secret_key, existing.secret_key);
+    let crate::storage::StorageConnectorCredentialInput::Static(values) =
+        normalized.connection.unwrap().credential
+    else {
+        panic!("S3 credential should remain static")
+    };
+    assert_eq!(values["s3_access_key_id"], "rotated");
+    assert_eq!(values["s3_secret_access_key"], "secret");
 }
 
 #[test]
-fn normalize_update_input_replaces_secret_when_same_driver_provides_credentials() {
-    let normalized = normalize_update_input(
-        model_with_driver(RemoteStorageTargetDriverKind::S3),
-        RemoteUpdateStorageTargetRequest {
-            connector_config: None,
-            credential: None,
-            access_key: Some(" new-access ".to_string()),
-            secret_key: Some(" new-secret ".to_string()),
-            ..Default::default()
-        },
-    )
-    .unwrap();
-
-    assert_eq!(normalized.access_key, "new-access");
-    assert_eq!(normalized.secret_key, "new-secret");
-}
-
-#[test]
-fn normalize_update_input_resets_driver_specific_fields_when_driver_changes() {
-    let existing = model_with_driver(RemoteStorageTargetDriverKind::S3);
-    let normalized = normalize_update_input(
-        existing,
-        RemoteUpdateStorageTargetRequest {
-            connector_config: None,
-            credential: None,
-            driver_type: Some(RemoteStorageTargetDriverKind::Local),
-            base_path: Some(" local/profile ".to_string()),
-            ..Default::default()
-        },
-    )
-    .unwrap();
-
-    assert_eq!(normalized.driver_type, RemoteStorageTargetDriverKind::Local);
-    assert_eq!(normalized.endpoint, "");
-    assert_eq!(normalized.bucket, "");
-    assert_eq!(normalized.access_key, "");
-    assert_eq!(normalized.secret_key, "");
-    assert_eq!(normalized.base_path, "local/profile");
-}
-
-#[test]
-fn remote_storage_target_driver_registry_contains_supported_builtin_drivers() {
+fn remote_storage_target_registry_contains_supported_builtin_connectors() {
     assert_eq!(
-        registered_remote_storage_target_driver_types(),
+        list_registered_remote_storage_target_connector_descriptors()
+            .unwrap()
+            .into_iter()
+            .map(|descriptor| descriptor.connector_id.to_string())
+            .collect::<Vec<_>>(),
         vec![
-            RemoteStorageTargetDriverKind::Local,
-            RemoteStorageTargetDriverKind::S3,
-            RemoteStorageTargetDriverKind::AlibabaOss,
-            RemoteStorageTargetDriverKind::Sftp,
-            RemoteStorageTargetDriverKind::AzureBlob,
-            RemoteStorageTargetDriverKind::HuaweiObs,
-            RemoteStorageTargetDriverKind::TencentCos,
-            RemoteStorageTargetDriverKind::Qiniu,
+            "asterdrive.storage.local",
+            "asterdrive.storage.s3",
+            "asterdrive.storage.alibaba_oss",
+            "asterdrive.storage.sftp",
+            "asterdrive.storage.azure_blob",
+            "asterdrive.storage.huawei_obs",
+            "asterdrive.storage.tencent_cos",
+            "asterdrive.storage.qiniu",
         ]
     );
 }
 
 #[test]
-fn remote_storage_target_driver_descriptors_cover_builtin_profile_fields() {
-    let descriptors = list_registered_remote_storage_target_driver_descriptors()
+fn remote_storage_target_connector_descriptors_cover_builtin_fields() {
+    let descriptors = list_registered_remote_storage_target_connector_descriptors()
         .expect("registered remote storage target descriptors should build");
     assert_eq!(descriptors.len(), 8);
 
@@ -482,56 +486,61 @@ fn remote_storage_target_driver_descriptors_cover_builtin_profile_fields() {
     assert_eq!(s3_base_path.name, "base_path");
 }
 
-#[test]
-fn provider_target_registration_normalizes_through_the_same_contract() {
-    let normalized = normalize_create_input(crate::storage::remote_protocol::legacy::sftp(
-        RemoteCreateProviderStorageTargetRequest {
+#[tokio::test]
+async fn provider_target_registration_normalizes_through_the_same_contract() {
+    let state = setup_state().await;
+    let normalized = normalize_create_input(
+        &state,
+        RemoteCreateStorageTargetRequest {
             name: " SFTP archive ".to_string(),
-            endpoint: "sftp://HOST:22".to_string(),
-            bucket: String::new(),
-            access_key: " user ".to_string(),
-            secret_key: " password ".to_string(),
-            base_path: "incoming/".to_string(),
+            connection: crate::storage::StorageConnectionInput {
+                connector_config: aster_drive_storage::ConnectorConfigEnvelope::new(
+                    aster_drive_storage::ConnectorId::declared("asterdrive.storage.sftp"),
+                    1,
+                    [
+                        ("endpoint".to_string(), serde_json::json!("sftp://HOST:22")),
+                        ("base_path".to_string(), serde_json::json!("incoming/")),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+                credential: crate::storage::StorageConnectorCredentialInput::Static(
+                    serde_json::json!({
+                        "sftp_username": "user",
+                        "sftp_password": "password"
+                    }),
+                ),
+            },
             is_default: false,
         },
-    ))
+    )
+    .await
     .expect("provider adapter should use generic target normalization");
-    assert_eq!(normalized.driver_type, RemoteStorageTargetDriverKind::Sftp);
     assert_eq!(normalized.name, "SFTP archive");
-    assert_eq!(normalized.endpoint, "sftp://HOST:22");
-    assert_eq!(normalized.access_key, "user");
-    assert_eq!(normalized.secret_key, "password");
+    let connection = normalized.connection.unwrap();
+    assert_eq!(
+        connection.connector_config.connector_id.as_str(),
+        "asterdrive.storage.sftp"
+    );
 }
 
-#[test]
-fn connector_envelope_rejects_unknown_provider_without_s3_fallback() {
+#[tokio::test]
+async fn connector_envelope_rejects_unknown_provider_without_s3_fallback() {
+    let state = setup_state().await;
     let request = RemoteCreateStorageTargetRequest {
         name: "Future".to_string(),
-        connector_config: aster_drive_storage::ConnectorConfigEnvelope::new(
-            aster_drive_storage::ConnectorId::declared("com.example.future"),
-            1,
-            serde_json::json!({"endpoint": "https://HOST"}),
-        ),
-        credential: None,
+        connection: crate::storage::StorageConnectionInput {
+            connector_config: aster_drive_storage::ConnectorConfigEnvelope::new(
+                aster_drive_storage::ConnectorId::declared("com.example.future"),
+                1,
+                serde_json::from_value(serde_json::json!({"endpoint": "https://HOST"})).unwrap(),
+            ),
+            credential: crate::storage::StorageConnectorCredentialInput::None,
+        },
         is_default: false,
     };
-    let error = match normalize_create_input(request) {
-        Ok(_) => panic!("unknown connector must fail closed"),
-        Err(error) => error,
-    };
-    assert!(error.message().contains("connector id is unsupported"));
-}
-
-#[test]
-fn remote_storage_target_driver_kind_rejects_unknown_provider_names() {
-    for unsupported in ["remote", "onedrive", "unknown_provider"] {
-        assert!(
-            unsupported
-                .parse::<RemoteStorageTargetDriverKind>()
-                .is_err(),
-            "{unsupported} must not enter the remote target driver domain"
-        );
-    }
+    let error = normalize_create_input(&state, request).await.unwrap_err();
+    assert!(error.message().contains("com.example.future"));
 }
 
 #[tokio::test]
@@ -549,7 +558,10 @@ async fn create_sets_first_profile_as_default_and_applies_local_driver() {
 
     assert!(profile.target_key.starts_with("rst_"));
     assert_eq!(profile.name, "First");
-    assert_eq!(profile.base_path, "first/profile");
+    assert_eq!(
+        profile.connector_config.values["base_path"],
+        "first/profile"
+    );
     assert!(profile.is_default);
     assert_eq!(profile.desired_revision, 1);
     assert_eq!(profile.applied_revision, 1);
@@ -577,10 +589,8 @@ async fn update_can_promote_second_profile_to_default_and_increments_revision() 
         &binding,
         &second.target_key,
         RemoteUpdateStorageTargetRequest {
-            connector_config: None,
-            credential: None,
+            connection: Some(local_create("Promoted", " promoted ", true).connection),
             name: Some(" Promoted ".to_string()),
-            base_path: Some(" promoted ".to_string()),
             is_default: Some(true),
             ..Default::default()
         },
@@ -590,7 +600,7 @@ async fn update_can_promote_second_profile_to_default_and_increments_revision() 
 
     assert!(updated.is_default);
     assert_eq!(updated.name, "Promoted");
-    assert_eq!(updated.base_path, "promoted");
+    assert_eq!(updated.connector_config.values["base_path"], "promoted");
     assert_eq!(updated.desired_revision, 2);
     assert_eq!(updated.applied_revision, 2);
 
@@ -614,8 +624,7 @@ async fn update_rejects_unsetting_current_default_directly() {
         &binding,
         &profile.target_key,
         RemoteUpdateStorageTargetRequest {
-            connector_config: None,
-            credential: None,
+            connection: None,
             is_default: Some(false),
             ..Default::default()
         },
@@ -625,7 +634,7 @@ async fn update_rejects_unsetting_current_default_directly() {
 
     assert_eq!(
         error.api_error_code_override(),
-        Some(ApiErrorCode::ManagedIngressDefaultUpdateRequiresReplacement)
+        Some(ApiErrorCode::RemoteStorageTargetDefaultUpdateRequiresReplacement)
     );
 }
 
@@ -645,7 +654,7 @@ async fn delete_protects_default_when_other_profiles_exist_then_allows_after_rep
         .unwrap_err();
     assert_eq!(
         error.api_error_code_override(),
-        Some(ApiErrorCode::ManagedIngressDefaultDeleteRequiresReplacement)
+        Some(ApiErrorCode::RemoteStorageTargetDefaultDeleteRequiresReplacement)
     );
 
     update(
@@ -653,8 +662,7 @@ async fn delete_protects_default_when_other_profiles_exist_then_allows_after_rep
         &binding,
         &second.target_key,
         RemoteUpdateStorageTargetRequest {
-            connector_config: None,
-            credential: None,
+            connection: None,
             is_default: Some(true),
             ..Default::default()
         },
@@ -677,7 +685,7 @@ async fn resolve_effective_target_reports_required_default_and_pending_states() 
     let missing_error = expect_aster_err(resolve_effective_target(&state, &binding).await);
     assert_eq!(
         missing_error.api_error_code_override(),
-        Some(ApiErrorCode::ManagedIngressRequired)
+        Some(ApiErrorCode::RemoteStorageTargetRequired)
     );
 
     let profile = create(&state, &binding, local_create("Default", "default", true))
@@ -699,7 +707,7 @@ async fn resolve_effective_target_reports_required_default_and_pending_states() 
     let error = expect_aster_err(resolve_effective_target(&state, &binding).await);
     assert_eq!(
         error.api_error_code_override(),
-        Some(ApiErrorCode::ManagedIngressDefaultError)
+        Some(ApiErrorCode::RemoteStorageTargetDefaultError)
     );
 
     stored = remote_storage_target_repo::find_by_binding_and_target_key(
@@ -720,7 +728,7 @@ async fn resolve_effective_target_reports_required_default_and_pending_states() 
     let error = expect_aster_err(resolve_effective_target(&state, &binding).await);
     assert_eq!(
         error.api_error_code_override(),
-        Some(ApiErrorCode::ManagedIngressDefaultNotApplied)
+        Some(ApiErrorCode::RemoteStorageTargetDefaultNotApplied)
     );
 }
 
@@ -756,7 +764,7 @@ async fn resolve_target_by_key_reports_missing_error_and_unready_states() {
         expect_aster_err(resolve_target_by_key(&state, &binding, &profile.target_key).await);
     assert_eq!(
         error.api_error_code_override(),
-        Some(ApiErrorCode::ManagedIngressDefaultError)
+        Some(ApiErrorCode::RemoteStorageTargetDefaultError)
     );
 
     let stored = remote_storage_target_repo::find_by_binding_and_target_key(
@@ -778,6 +786,6 @@ async fn resolve_target_by_key_reports_missing_error_and_unready_states() {
         expect_aster_err(resolve_target_by_key(&state, &binding, &profile.target_key).await);
     assert_eq!(
         error.api_error_code_override(),
-        Some(ApiErrorCode::ManagedIngressDefaultNotApplied)
+        Some(ApiErrorCode::RemoteStorageTargetDefaultNotApplied)
     );
 }

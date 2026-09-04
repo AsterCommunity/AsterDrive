@@ -1,190 +1,100 @@
-import { normalizeObjectStorageConnectionFields } from "@/lib/objectStorageConnectionFields";
+import { normalizePolicyForm } from "@/components/admin/storage-policy-dialog/connectionNormalization";
+import {
+	emptyForm,
+	type PolicyFormData,
+} from "@/components/admin/storage-policy-dialog/formTypes";
+import { buildStorageConnectorConnection } from "@/components/admin/storage-policy-dialog/payloadBuilders";
 import type {
 	RemoteCreateStorageTargetRequest,
-	RemoteStorageTargetDriverDescriptor,
 	RemoteStorageTargetInfo,
 	RemoteUpdateStorageTargetRequest,
+	StorageConnectorDescriptor,
 } from "@/types/api";
 
-export type RemoteStorageTargetDriverType = string;
+export type RemoteStorageTargetFormData = PolicyFormData;
 
-export function isRemoteStorageTargetDriverType(
-	driverType: unknown,
-): driverType is RemoteStorageTargetDriverType {
-	return typeof driverType === "string" && driverType.trim().length > 0;
-}
-
-export interface RemoteStorageTargetFormData {
-	name: string;
-	driver_type: RemoteStorageTargetDriverType;
-	endpoint: string;
-	bucket: string;
-	access_key: string;
-	secret_key: string;
-	base_path: string;
-	is_default: boolean;
-}
-
-export type RemoteStorageTargetSupportedFields =
-	| ReadonlySet<string>
-	| Pick<RemoteStorageTargetDriverDescriptor, "fields">;
-
-function toRemoteStorageTargetFieldSet(
-	supportedFields: RemoteStorageTargetSupportedFields,
-): ReadonlySet<string> {
-	return "fields" in supportedFields
-		? new Set(supportedFields.fields.map((field) => field.name))
-		: supportedFields;
-}
-
-function supportedFieldValue(
-	form: RemoteStorageTargetFormData,
-	fieldNames: ReadonlySet<string>,
-	fieldName: "access_key" | "bucket" | "endpoint" | "secret_key",
-): string {
-	return fieldNames.has(fieldName) ? form[fieldName].trim() : "";
+export function isRemoteStorageTargetConnectorId(
+	value: unknown,
+): value is string {
+	return typeof value === "string" && value.trim().length > 0;
 }
 
 export function getRemoteStorageTargetForm(
-	profile: RemoteStorageTargetInfo,
+	target: RemoteStorageTargetInfo,
 ): RemoteStorageTargetFormData {
-	const legacy = profile as unknown as {
-		driver_type?: string;
-		endpoint?: string;
-		bucket?: string;
-		base_path?: string;
-	};
 	return {
-		name: profile.name,
-		driver_type: profile.connector_id ?? legacy.driver_type ?? "asterdrive.storage.local",
-		endpoint: String(profile.connector_config?.values?.endpoint ?? legacy.endpoint ?? ""),
-		bucket: String(profile.connector_config?.values?.bucket ?? legacy.bucket ?? ""),
-		access_key: "",
-		secret_key: "",
-		base_path: String(profile.connector_config?.values?.base_path ?? legacy.base_path ?? "."),
-		is_default: profile.is_default,
+		...emptyForm,
+		name: target.name,
+		connector_id: target.connector_id ?? "",
+		connector_config_values: Object.fromEntries(
+			Object.entries(target.connector_config?.values ?? {}).filter(
+				(entry): entry is [string, string | number | boolean] => {
+					const value = entry[1];
+					return (
+						typeof value === "string" ||
+						typeof value === "number" ||
+						typeof value === "boolean"
+					);
+				},
+			),
+		),
+		credential_values: {},
+		is_default: target.is_default,
 	};
 }
 
-function normalizeRemoteStorageTargetForm(
+function buildStorageConnection(
 	form: RemoteStorageTargetFormData,
-	supportedFields: RemoteStorageTargetSupportedFields,
-): RemoteStorageTargetFormData {
-	const fieldNames = toRemoteStorageTargetFieldSet(supportedFields);
-	const endpoint = supportedFieldValue(form, fieldNames, "endpoint");
-	const bucket = supportedFieldValue(form, fieldNames, "bucket");
-	const shouldNormalizeObjectStorageFields =
-		fieldNames.has("endpoint") && fieldNames.has("bucket");
-
-	const normalized = shouldNormalizeObjectStorageFields
-		? normalizeObjectStorageConnectionFields(endpoint, bucket)
-		: { endpoint, bucket };
+	descriptor: StorageConnectorDescriptor,
+	requireCredential: boolean,
+) {
+	const policyConnection = buildStorageConnectorConnection(
+		form,
+		descriptor,
+		requireCredential,
+	);
 	return {
-		...form,
-		name: form.name.trim(),
-		endpoint: normalized.endpoint,
-		bucket: normalized.bucket,
-		access_key: supportedFieldValue(form, fieldNames, "access_key"),
-		secret_key: supportedFieldValue(form, fieldNames, "secret_key"),
-		base_path: form.base_path.trim(),
+		connector_config: policyConnection.connector_config,
+		credential: policyConnection.credential,
 	};
-}
-
-function connectorIdForDriverType(driverType: RemoteStorageTargetDriverType): string {
-	if (driverType.startsWith("asterdrive.")) {
-		return driverType;
-	}
-	const suffix =
-		driverType === "azureblob"
-			? "azure_blob"
-			: driverType === "tencentcos"
-				? "tencent_cos"
-				: driverType === "alibabaoss"
-					? "alibaba_oss"
-					: driverType;
-	return `asterdrive.storage.${suffix}`;
 }
 
 export function buildCreateRemoteStorageTargetPayload(
 	form: RemoteStorageTargetFormData,
-	supportedFields: RemoteStorageTargetSupportedFields,
+	descriptor: StorageConnectorDescriptor,
 ): RemoteCreateStorageTargetRequest {
-	const normalized = normalizeRemoteStorageTargetForm(form, supportedFields);
-
+	const normalized = normalizePolicyForm(form, descriptor);
 	return {
-		name: normalized.name,
-		driver_type: "connector",
-		connector_config: {
-			format_version: 1,
-			connector_id: normalized.driver_type.startsWith("asterdrive.") ? normalized.driver_type : connectorIdForDriverType(normalized.driver_type),
-			schema_version: 1,
-			values: {
-				endpoint: normalized.endpoint,
-				bucket: normalized.bucket,
-				base_path: normalized.base_path,
-			},
-		},
-		credential: {
-			access_key: normalized.access_key,
-			secret_key: normalized.secret_key,
-		},
+		name: normalized.name.trim(),
+		connection: buildStorageConnection(normalized, descriptor, true),
 		is_default: normalized.is_default,
-	} as RemoteCreateStorageTargetRequest;
+	};
 }
 
 export function buildUpdateRemoteStorageTargetPayload(
 	form: RemoteStorageTargetFormData,
-	supportedFields: RemoteStorageTargetSupportedFields,
+	descriptor: StorageConnectorDescriptor,
 	editingTarget: RemoteStorageTargetInfo,
 ): RemoteUpdateStorageTargetRequest {
-	const fieldNames = toRemoteStorageTargetFieldSet(supportedFields);
-	const normalized = normalizeRemoteStorageTargetForm(form, fieldNames);
-	const supportsAccessKey = fieldNames.has("access_key");
-	const supportsSecretKey = fieldNames.has("secret_key");
-	const legacyEditing = editingTarget as unknown as { driver_type?: string };
-	const sameDriverType =
-		(editingTarget.connector_id ??
-			(legacyEditing.driver_type
-				? connectorIdForDriverType(legacyEditing.driver_type)
-				: "")) === connectorIdForDriverType(normalized.driver_type);
-	const payload = {
-		name: normalized.name,
-		connector_config: {
-			format_version: 1,
-			connector_id: normalized.driver_type.startsWith("asterdrive.") ? normalized.driver_type : connectorIdForDriverType(normalized.driver_type),
-			schema_version: 1,
-			values: {
-				endpoint: normalized.endpoint,
-				bucket: normalized.bucket,
-				base_path: normalized.base_path,
-			},
-		},
+	const normalized = normalizePolicyForm(form, descriptor);
+	const connectorChanged =
+		editingTarget.connector_id !== descriptor.connector_id;
+	const hasCredentialValues = Object.values(normalized.credential_values).some(
+		(value) => value.trim().length > 0,
+	);
+	return {
+		name: normalized.name.trim(),
+		connection: buildStorageConnection(
+			normalized,
+			descriptor,
+			connectorChanged || hasCredentialValues,
+		),
 		is_default: normalized.is_default,
-	} as unknown as RemoteUpdateStorageTargetRequest & { driver_type?: string };
-
-	if (!supportsAccessKey && !supportsSecretKey) {
-		return payload;
-	}
-
-	const accessKey = normalized.access_key;
-	const secretKey = normalized.secret_key;
-	if (supportsAccessKey && (!sameDriverType || accessKey)) {
-		payload.credential = { access_key: accessKey };
-	}
-	if (supportsSecretKey && (!sameDriverType || secretKey)) {
-		payload.credential = { ...(payload.credential ?? {}), secret_key: secretKey };
-	}
-
-	return payload;
+	};
 }
 
 export const emptyRemoteStorageTargetForm: RemoteStorageTargetFormData = {
-	name: "",
-	driver_type: "asterdrive.storage.local",
-	endpoint: "",
-	bucket: "",
-	access_key: "",
-	secret_key: "",
-	base_path: ".",
+	...emptyForm,
+	connector_id: "",
 	is_default: false,
 };

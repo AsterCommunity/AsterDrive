@@ -26,8 +26,7 @@ use aster_drive_storage::{
 };
 
 use super::common::{
-    StorageTransferDirection, build_connection_test_policy,
-    decode_normalized_connector_action_input, transfer_strategy_field,
+    StorageTransferDirection, decode_normalized_connector_action_input, transfer_strategy_field,
     unsupported_connector_action_error,
 };
 use super::{
@@ -370,14 +369,14 @@ impl StorageConnector for TencentCosConnector {
         )
     }
 
-    async fn build_draft_driver(
+    async fn build_driver_from_connection(
         &self,
         context: &super::StorageConnectorContext<'_>,
-        policy: &storage_policy::Model,
+        connector_config: &aster_drive_storage::ConnectorConfigEnvelope,
         credential: &StorageConnectorCredentialInput,
     ) -> Result<Box<dyn StorageDriver>> {
         let _ = context;
-        let config = Self::decode_config(policy)?;
+        let config = super::common::decode_normalized_connector_config(connector_config)?;
         let credentials = super::common::decode_static_credential(credential, Self::ID)?;
         Ok(Box::new(TencentCosDriver::new(
             Self::driver_config(config),
@@ -456,12 +455,12 @@ impl StorageConnector for TencentCosConnector {
             &input.values,
         )?;
         let connection = input.connection;
-        self.validate_credential_input(&connection.credential)?;
-        let connector_config = self.validate_connector_config(&connection.connector_config)?;
-        let policy = build_connection_test_policy(connector_config, connection.behavior)?;
-        let config = Self::decode_config(&policy)?;
+        self.validate_credential_input(&connection.storage.credential)?;
+        let connector_config =
+            self.validate_connector_config(&connection.storage.connector_config)?;
+        let config = super::common::decode_normalized_connector_config(&connector_config)?;
         let credentials =
-            super::common::decode_static_credential(&connection.credential, Self::ID)?;
+            super::common::decode_static_credential(&connection.storage.credential, Self::ID)?;
         let driver = TencentCosDriver::new(
             Self::driver_config(config),
             Self::driver_credentials(credentials),

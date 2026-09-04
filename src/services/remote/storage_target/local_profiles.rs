@@ -11,7 +11,6 @@ use crate::storage::remote_protocol::{
 };
 use aster_drive_model::entities::{master_binding, remote_storage_target};
 
-use super::driver::remote_storage_target_connector_id;
 use super::normalization::{new_target_key, normalize_create_input, normalize_update_input};
 use super::reconciliation::reconcile_target;
 
@@ -19,13 +18,11 @@ pub async fn list<S: FollowerRuntimeState>(
     state: &S,
     binding: &master_binding::Model,
 ) -> Result<Vec<RemoteStorageTargetInfo>> {
-    Ok(
-        remote_storage_target_repo::find_all_by_binding(state.writer_db(), binding.id)
-            .await?
-            .into_iter()
-            .map(Into::into)
-            .collect(),
-    )
+    remote_storage_target_repo::find_all_by_binding(state.writer_db(), binding.id)
+        .await?
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect()
 }
 
 pub async fn create<S: FollowerRuntimeState>(
@@ -33,22 +30,12 @@ pub async fn create<S: FollowerRuntimeState>(
     binding: &master_binding::Model,
     input: RemoteCreateStorageTargetRequest,
 ) -> Result<RemoteStorageTargetInfo> {
-    let normalized = normalize_create_input(input)?;
-    let connector_id = remote_storage_target_connector_id(normalized.driver_type)?;
-    let connector_config = normalized
-        .connector_config
-        .clone()
-        .map(|config| {
-            serde_json::to_string(&config)
-                .map_err(|error| AsterError::validation_error(error.to_string()))
-        })
-        .transpose()?;
-    let credential_values = normalized.credential.clone().unwrap_or_else(|| {
-        serde_json::json!({
-            "access_key": normalized.access_key,
-            "secret_key": normalized.secret_key,
-        })
-    });
+    let normalized = normalize_create_input(state, input).await?;
+    let connection = normalized.connection.ok_or_else(|| {
+        AsterError::internal_error("normalized remote storage target has no connection")
+    })?;
+    let connector_id = connection.connector_config.connector_id.clone();
+    let connector_config = encode_connector_config(&connection.connector_config)?;
     let target_id = transaction::with_transaction(state.writer_db(), async |txn| {
         let should_set_default = normalized.is_default == Some(true)
             || remote_storage_target_repo::count_by_binding(txn, binding.id).await? == 0;
@@ -60,22 +47,13 @@ pub async fn create<S: FollowerRuntimeState>(
                 target_key: Set(new_target_key()),
                 name: Set(normalized.name),
                 connector_id: Set(Some(connector_id.to_string())),
-                connector_config: Set(Some(connector_config.unwrap_or_else(|| {
-                    target_connector_config(
-                        &connector_id,
-                        &normalized.endpoint,
-                        &normalized.bucket,
-                        &normalized.base_path,
-                    )
-                }))),
-                driver_type: Set(normalized.driver_type),
-                endpoint: Set(normalized.endpoint),
-                bucket: Set(normalized.bucket),
-                // Credentials are persisted only in the encrypted target
-                // credential table; legacy columns stay empty for new rows.
+                connector_config: Set(Some(connector_config)),
+                driver_type: Set(String::new()),
+                endpoint: Set(String::new()),
+                bucket: Set(String::new()),
                 access_key: Set(String::new()),
                 secret_key: Set(String::new()),
-                base_path: Set(normalized.base_path),
+                base_path: Set(String::new()),
                 is_default: Set(false),
                 desired_revision: Set(1),
                 applied_revision: Set(0),
@@ -86,29 +64,7 @@ pub async fn create<S: FollowerRuntimeState>(
             },
         )
         .await?;
-        if !credential_values
-            .as_object()
-            .is_none_or(serde_json::Map::is_empty)
-        {
-            let plaintext = serde_json::to_string(&credential_values)
-                .map_err(|error| AsterError::internal_error(error.to_string()))?;
-            let ciphertext =
-                crate::services::storage_policy::credential::crypto::encrypt_connector_credential(
-                    &state.config().auth.storage_credential_secret_key,
-                    created.id,
-                    connector_id.as_str(),
-                    1,
-                    &plaintext,
-                )?;
-            crate::db::repository::remote_storage_target_credential_repo::upsert(
-                txn,
-                created.id,
-                connector_id.to_string(),
-                1,
-                ciphertext,
-            )
-            .await?;
-        }
+        persist_credential(state, txn, created.id, &connection).await?;
         if should_set_default {
             remote_storage_target_repo::set_only_default_for_binding(txn, binding.id, created.id)
                 .await?;
@@ -117,7 +73,7 @@ pub async fn create<S: FollowerRuntimeState>(
     })
     .await?;
     let target = remote_storage_target_repo::find_by_id(state.writer_db(), target_id).await?;
-    Ok(reconcile_target(state, target).await?.into())
+    reconcile_target(state, target).await?.try_into()
 }
 
 pub async fn update<S: FollowerRuntimeState>(
@@ -127,26 +83,11 @@ pub async fn update<S: FollowerRuntimeState>(
     input: RemoteUpdateStorageTargetRequest,
 ) -> Result<RemoteStorageTargetInfo> {
     let existing = find_target_or_err(state, binding.id, target_key).await?;
-    let normalized = normalize_update_input(existing.clone(), input)?;
-    let connector_id = remote_storage_target_connector_id(normalized.driver_type)?;
-    let connector_config = normalized
-        .connector_config
-        .clone()
-        .map(|config| {
-            serde_json::to_string(&config)
-                .map_err(|error| AsterError::validation_error(error.to_string()))
-        })
-        .transpose()?;
-    let credential_values = normalized.credential.clone().unwrap_or_else(|| {
-        serde_json::json!({
-            "access_key": normalized.access_key,
-            "secret_key": normalized.secret_key,
-        })
-    });
+    let normalized = normalize_update_input(state, &existing, input).await?;
 
     if existing.is_default && normalized.is_default == Some(false) {
         return Err(precondition_failed_with_code(
-            ApiErrorCode::ManagedIngressDefaultUpdateRequiresReplacement,
+            ApiErrorCode::RemoteStorageTargetDefaultUpdateRequiresReplacement,
             "cannot unset the default remote storage target directly; set another target as default first",
         ));
     }
@@ -154,55 +95,27 @@ pub async fn update<S: FollowerRuntimeState>(
     let target_id = transaction::with_transaction(state.writer_db(), async |txn| {
         let mut active: remote_storage_target::ActiveModel = existing.clone().into();
         active.name = Set(normalized.name);
-        active.connector_id = Set(Some(connector_id.to_string()));
-        active.connector_config = Set(Some(connector_config.clone().unwrap_or_else(|| {
-            target_connector_config(
-                &connector_id,
-                &normalized.endpoint,
-                &normalized.bucket,
-                &normalized.base_path,
-            )
-        })));
-        active.driver_type = Set(normalized.driver_type);
-        active.endpoint = Set(normalized.endpoint);
-        active.bucket = Set(normalized.bucket);
-        active.access_key = Set(String::new());
-        active.secret_key = Set(String::new());
-        active.base_path = Set(normalized.base_path);
+        if let Some(connection) = normalized.connection.as_ref() {
+            active.connector_id = Set(Some(connection.connector_config.connector_id.to_string()));
+            active.connector_config =
+                Set(Some(encode_connector_config(&connection.connector_config)?));
+        }
         active.desired_revision =
             Set(existing.desired_revision.checked_add(1).ok_or_else(|| {
                 AsterError::internal_error("remote storage target desired_revision overflow")
             })?);
         active.updated_at = Set(Utc::now());
         let updated = remote_storage_target_repo::update(txn, active).await?;
-        if existing.connector_id.as_deref() != Some(connector_id.as_str()) {
-            crate::db::repository::remote_storage_target_credential_repo::delete_by_target(
-                txn, updated.id,
-            )
-            .await?;
-        }
-        if !credential_values
-            .as_object()
-            .is_none_or(serde_json::Map::is_empty)
-        {
-            let plaintext = serde_json::to_string(&credential_values)
-                .map_err(|error| AsterError::internal_error(error.to_string()))?;
-            let ciphertext =
-                crate::services::storage_policy::credential::crypto::encrypt_connector_credential(
-                    &state.config().auth.storage_credential_secret_key,
-                    updated.id,
-                    connector_id.as_str(),
-                    1,
-                    &plaintext,
-                )?;
-            crate::db::repository::remote_storage_target_credential_repo::upsert(
-                txn,
-                updated.id,
-                connector_id.to_string(),
-                1,
-                ciphertext,
-            )
-            .await?;
+        if let Some(connection) = normalized.connection.as_ref() {
+            if existing.connector_id.as_deref()
+                != Some(connection.connector_config.connector_id.as_str())
+            {
+                crate::db::repository::remote_storage_target_credential_repo::delete_by_target(
+                    txn, updated.id,
+                )
+                .await?;
+            }
+            persist_credential(state, txn, updated.id, connection).await?;
         }
         if normalized.is_default == Some(true) {
             remote_storage_target_repo::set_only_default_for_binding(txn, binding.id, updated.id)
@@ -212,7 +125,7 @@ pub async fn update<S: FollowerRuntimeState>(
     })
     .await?;
     let target = remote_storage_target_repo::find_by_id(state.writer_db(), target_id).await?;
-    Ok(reconcile_target(state, target).await?.into())
+    reconcile_target(state, target).await?.try_into()
 }
 
 pub async fn delete<S: FollowerRuntimeState>(
@@ -230,7 +143,7 @@ pub async fn delete<S: FollowerRuntimeState>(
     let count = remote_storage_target_repo::count_by_binding(state.writer_db(), binding.id).await?;
     if existing.is_default && count > 1 {
         return Err(precondition_failed_with_code(
-            ApiErrorCode::ManagedIngressDefaultDeleteRequiresReplacement,
+            ApiErrorCode::RemoteStorageTargetDefaultDeleteRequiresReplacement,
             "cannot delete the default remote storage target while other targets still exist; set another target as default first",
         ));
     }
@@ -245,7 +158,7 @@ pub async fn delete<S: FollowerRuntimeState>(
         target_key = %existing.target_key,
         "deleted managed remote storage target"
     );
-    Ok(existing.into())
+    existing.try_into()
 }
 
 async fn find_target_or_err<S: FollowerRuntimeState>(
@@ -262,26 +175,74 @@ async fn find_target_or_err<S: FollowerRuntimeState>(
     .ok_or_else(|| AsterError::record_not_found(format!("remote_storage_target '{target_key}'")))
 }
 
-fn target_connector_config(
-    connector_id: &aster_drive_storage::ConnectorId,
-    endpoint: &str,
-    bucket: &str,
-    base_path: &str,
-) -> String {
-    let values = if connector_id.as_str() == "asterdrive.storage.local" {
-        serde_json::json!({ "base_path": base_path })
-    } else {
-        serde_json::json!({
-            "endpoint": endpoint,
-            "bucket": bucket,
-            "base_path": base_path,
-        })
-    };
-    serde_json::json!({
-        "format_version": 1,
-        "connector_id": connector_id,
-        "schema_version": 1,
-        "values": values,
-    })
-    .to_string()
+fn encode_connector_config(
+    config: &aster_drive_storage::ConnectorConfigEnvelope,
+) -> Result<String> {
+    aster_drive_storage::encode_connector_config(
+        config.connector_id.clone(),
+        config.schema_version,
+        &config.values,
+    )
+    .map_err(|error| AsterError::internal_error(format!("serialize connector config: {error}")))
+}
+
+async fn persist_credential<S: FollowerRuntimeState>(
+    state: &S,
+    txn: &sea_orm::DatabaseTransaction,
+    target_id: i64,
+    connection: &crate::storage::StorageConnectionInput,
+) -> Result<()> {
+    let connector = state
+        .driver_registry()
+        .connectors()
+        .require_remote_target_connector(&connection.connector_config.connector_id)?;
+    match &connection.credential {
+        crate::storage::StorageConnectorCredentialInput::None => {
+            crate::db::repository::remote_storage_target_credential_repo::delete_by_target(
+                txn, target_id,
+            )
+            .await
+        }
+        crate::storage::StorageConnectorCredentialInput::Static(values) => {
+            let schema_version = connector
+                .descriptor()
+                .credential_schema_version
+                .ok_or_else(|| {
+                    AsterError::internal_error(format!(
+                        "storage connector '{}' has no credential schema version",
+                        connection.connector_config.connector_id
+                    ))
+                })?;
+            let plaintext = serde_json::to_string(values).map_err(|error| {
+                AsterError::internal_error(format!("serialize connector credential: {error}"))
+            })?;
+            let ciphertext =
+                crate::services::storage_policy::credential::crypto::encrypt_connector_credential(
+                    &state.config().auth.storage_credential_secret_key,
+                    target_id,
+                    connection.connector_config.connector_id.as_str(),
+                    schema_version,
+                    &plaintext,
+                )?;
+            let schema_version = i32::try_from(schema_version).map_err(|_| {
+                AsterError::validation_error(
+                    "connector credential schema version exceeds database range",
+                )
+            })?;
+            crate::db::repository::remote_storage_target_credential_repo::upsert(
+                txn,
+                target_id,
+                connection.connector_config.connector_id.to_string(),
+                schema_version,
+                ciphertext,
+            )
+            .await
+            .map(|_| ())
+        }
+        crate::storage::StorageConnectorCredentialInput::AuthorizationApplication(_) => {
+            Err(AsterError::validation_error(
+                "remote storage targets do not support authorization application credentials",
+            ))
+        }
+    }
 }

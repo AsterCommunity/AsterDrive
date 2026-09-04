@@ -827,7 +827,7 @@ async fn create_storage_target(
     tracing::info!(
         binding_id = binding.id,
         target_key = %target.target_key,
-        connector_id = target.connector_id.as_deref().unwrap_or("unknown"),
+        connector_id = %target.connector_id,
         is_default = target.is_default,
         "follower remote storage target created"
     );
@@ -842,7 +842,7 @@ async fn create_storage_target(
             audit::details(audit::FollowerIngressProfileAuditDetails {
                 binding_id: binding.id,
                 target_key: &target.target_key,
-                driver_type: target.connector_id.as_deref().unwrap_or("unknown"),
+                driver_type: &target.connector_id,
                 is_default: target.is_default,
             })
         },
@@ -864,7 +864,7 @@ async fn update_storage_target(
     tracing::info!(
         binding_id = binding.id,
         target_key = %target.target_key,
-        connector_id = target.connector_id.as_deref().unwrap_or("unknown"),
+        connector_id = %target.connector_id,
         is_default = target.is_default,
         "follower remote storage target updated"
     );
@@ -879,7 +879,7 @@ async fn update_storage_target(
             audit::details(audit::FollowerIngressProfileAuditDetails {
                 binding_id: binding.id,
                 target_key: &target.target_key,
-                driver_type: target.connector_id.as_deref().unwrap_or("unknown"),
+                driver_type: &target.connector_id,
                 is_default: target.is_default,
             })
         },
@@ -912,7 +912,7 @@ async fn delete_storage_target(
             audit::details(audit::FollowerIngressProfileAuditDetails {
                 binding_id: binding.id,
                 target_key: &deleted_target.target_key,
-                driver_type: deleted_target.connector_id.as_deref().unwrap_or("unknown"),
+                driver_type: &deleted_target.connector_id,
                 is_default: deleted_target.is_default,
             })
         },
