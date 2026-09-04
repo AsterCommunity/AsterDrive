@@ -1,9 +1,6 @@
-use chrono::Utc;
-
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::StoredStoragePolicyAllowedTypes;
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionId,
     StorageConnectorActionKind, StorageConnectorDescriptor, StorageConnectorFieldDescriptor,
@@ -282,38 +279,6 @@ pub(super) fn static_credential_from_cleanup_snapshot<T: DeserializeOwned>(
     })
 }
 
-pub(super) fn build_connection_test_policy(
-    connector_config: ConnectorConfigEnvelope,
-    behavior: StoragePolicyBehaviorConfig,
-) -> Result<storage_policy::Model> {
-    let connector_id = connector_config.connector_id.clone();
-    let connector_config = ConnectorConfigEnvelope::new(
-        connector_id.clone(),
-        connector_config.schema_version,
-        serde_json::to_value(connector_config.values).map_err(|error| {
-            AsterError::internal_error(format!("serialize draft connector config: {error}"))
-        })?,
-    );
-    let storage_config =
-        aster_drive_storage::encode_storage_policy_config(connector_config, behavior)
-            .map(aster_drive_model::types::StoredStoragePolicyConfig)
-            .map_err(|error| {
-                AsterError::internal_error(format!("serialize storage policy config: {error}"))
-            })?;
-    Ok(storage_policy::Model {
-        id: 0,
-        name: String::new(),
-        connector_id: connector_id.as_str().to_string(),
-        storage_config,
-        max_file_size: 0,
-        allowed_types: StoredStoragePolicyAllowedTypes::empty(),
-        is_default: false,
-        chunk_size: 0,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-    })
-}
-
 pub(super) fn encode_normalized_connector_config<T: Serialize>(
     connector_id: ConnectorId,
     schema_version: u32,
@@ -432,7 +397,7 @@ pub(super) fn validate_required_credential_field(
 /// unchanged. The connector contract applies this object-level merge before a
 /// draft connection test, without teaching orchestration code any provider
 /// field names.
-pub(super) fn merge_saved_static_credential(
+pub(crate) fn merge_saved_static_credential(
     input: StorageConnectorCredentialInput,
     saved: serde_json::Value,
 ) -> Result<StorageConnectorCredentialInput> {

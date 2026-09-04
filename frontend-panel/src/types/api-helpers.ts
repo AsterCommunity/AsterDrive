@@ -118,20 +118,23 @@ export const ApiErrorCode = {
 	FolderNameConflict: "folder.name_conflict",
 	LockNotOwner: "lock.not_owner",
 	ShareScopeDenied: "share.scope_denied",
-	RemoteStorageTargetBindingMismatch: "managed_ingress.binding_mismatch",
+	RemoteStorageTargetBindingMismatch: "remote_storage_target.binding_mismatch",
 	RemoteStorageTargetDefaultDeleteRequiresReplacement:
-		"managed_ingress.default_delete_requires_replacement",
-	RemoteStorageTargetDefaultError: "managed_ingress.default_error",
-	RemoteStorageTargetDefaultMissing: "managed_ingress.default_missing",
-	RemoteStorageTargetDefaultNotApplied: "managed_ingress.default_not_applied",
+		"remote_storage_target.default_delete_requires_replacement",
+	RemoteStorageTargetDefaultError: "remote_storage_target.default_error",
+	RemoteStorageTargetDefaultMissing: "remote_storage_target.default_missing",
+	RemoteStorageTargetDefaultNotApplied:
+		"remote_storage_target.default_not_applied",
 	RemoteStorageTargetDefaultUpdateRequiresReplacement:
-		"managed_ingress.default_update_requires_replacement",
-	RemoteStorageTargetDriverUnsupported: "managed_ingress.driver_unsupported",
-	RemoteStorageTargetLocalPathInvalid: "managed_ingress.local_path_invalid",
-	RemoteStorageTargetRequired: "managed_ingress.required",
+		"remote_storage_target.default_update_requires_replacement",
+	RemoteStorageTargetConnectorUnsupported:
+		"remote_storage_target.connector_unsupported",
+	RemoteStorageTargetLocalPathInvalid:
+		"remote_storage_target.local_path_invalid",
+	RemoteStorageTargetRequired: "remote_storage_target.required",
 	RemoteStorageTargetNotFound: "remote_storage_target.not_found",
 	RemoteStorageTargetSinglePrimaryRequired:
-		"managed_ingress.single_primary_required",
+		"remote_storage_target.single_primary_required",
 	MasterBindingDisabled: "master_binding.disabled",
 	PasskeyNameInvalid: "passkey.name_invalid",
 	PasskeyNameTooLong: "passkey.name_too_long",

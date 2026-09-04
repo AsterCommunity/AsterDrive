@@ -85,15 +85,12 @@ impl AzureBlobConnector {
             .map(|(config, _behavior)| config)
     }
 
-    fn driver_config(
-        policy: &storage_policy::Model,
-        config: AzureBlobConnectorConfigV1,
-    ) -> AzureBlobDriverConfig {
+    fn driver_config(chunk_size: i64, config: AzureBlobConnectorConfigV1) -> AzureBlobDriverConfig {
         AzureBlobDriverConfig {
             endpoint: config.endpoint,
             container: config.bucket,
             base_path: config.base_path,
-            chunk_size: policy.chunk_size,
+            chunk_size,
         }
     }
 
@@ -202,17 +199,17 @@ impl StorageConnector for AzureBlobConnector {
         )
     }
 
-    async fn build_draft_driver(
+    async fn build_driver_from_connection(
         &self,
         context: &super::StorageConnectorContext<'_>,
-        policy: &storage_policy::Model,
+        connector_config: &aster_drive_storage::ConnectorConfigEnvelope,
         credential: &StorageConnectorCredentialInput,
     ) -> Result<Box<dyn StorageDriver>> {
         let _ = context;
-        let config = Self::decode_config(policy)?;
+        let config = super::common::decode_normalized_connector_config(connector_config)?;
         let credentials = super::common::decode_static_credential(credential, Self::ID)?;
         Ok(Box::new(AzureBlobDriver::new(
-            Self::driver_config(policy, config),
+            Self::driver_config(0, config),
             Self::driver_credentials(credentials),
         )?))
     }
@@ -227,7 +224,7 @@ impl StorageConnector for AzureBlobConnector {
             super::common::runtime_static_credential(registry, policy, Self::ID)?;
         Ok(super::StorageConnectorDriver::multipart(
             std::sync::Arc::new(AzureBlobDriver::new(
-                Self::driver_config(policy, config),
+                Self::driver_config(policy.chunk_size, config),
                 Self::driver_credentials(credentials),
             )?),
         ))
@@ -249,7 +246,7 @@ impl StorageConnector for AzureBlobConnector {
                 1,
             )?;
         Ok(std::sync::Arc::new(AzureBlobDriver::new(
-            Self::driver_config(policy, config),
+            Self::driver_config(policy.chunk_size, config),
             Self::driver_credentials(credentials),
         )?))
     }

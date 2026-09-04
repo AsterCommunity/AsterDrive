@@ -300,8 +300,8 @@ async fn reverse_tunnel_driver_rejects_presigned_browser_urls() {
     let remote_protocol = crate::runtime::PrimaryAppState::new_remote_protocol();
     let follower = build_reverse_follower_with_capabilities(
         r#"{
-            "protocol_version":"v4",
-            "min_supported_protocol_version":"v4",
+            "protocol_version":"v6",
+            "min_supported_protocol_version":"v6",
             "supports_stream_upload":true,
             "supports_list":true,
             "supports_range_read":true
@@ -386,7 +386,7 @@ async fn get_range_forwards_offset_and_length_to_remote_object_request() {
 }
 
 #[tokio::test]
-async fn v4_remote_driver_rejects_v2_node_without_capacity_support() {
+async fn v6_remote_driver_rejects_v2_node_without_capacity_support() {
     let error = build_driver_with_capabilities_err(
         "http://127.0.0.1:9",
         "base",
@@ -403,7 +403,7 @@ async fn v4_remote_driver_rejects_v2_node_without_capacity_support() {
         Some(StorageErrorKind::Misconfigured)
     );
     assert!(
-        error.message().contains("local supports v4-v5"),
+        error.message().contains("local supports v6-v6"),
         "unexpected error message: {}",
         error.message()
     );

@@ -23,7 +23,7 @@ use super::shared::{
 };
 use crate::storage::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
-    StorageConnectorConnectionInput, TestDraftStorageConnectorConnectionInput,
+    StoragePolicyConnectionInput, TestDraftStorageConnectorConnectionInput,
 };
 
 pub async fn list_paginated(
@@ -130,10 +130,13 @@ pub async fn create(
     let connection =
         crate::storage::connectors::normalize_connection(connectors, state.writer_db(), connection)
             .await?;
-    let StorageConnectorConnectionInput {
-        connector_config,
+    let StoragePolicyConnectionInput {
         behavior,
-        credential,
+        storage:
+            crate::storage::StorageConnectionInput {
+                connector_config,
+                credential,
+            },
     } = connection;
     let behavior = behavior.normalized();
     let connector_id = connector_config.connector_id.as_str().to_string();

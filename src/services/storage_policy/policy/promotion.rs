@@ -165,13 +165,10 @@ pub(super) async fn execute_connector_promotion(
                     "serialize promoted storage policy config: {error}"
                 ))
             })?;
-    let mut candidate = existing.clone();
-    candidate.connector_id = target_connector_id.as_str().to_string();
-    candidate.storage_config = encoded_storage_config.clone();
     let candidate_driver = target_connector
-        .build_draft_driver(
+        .build_driver_from_connection(
             &crate::storage::connectors::remote_connector_context(state),
-            &candidate,
+            &target_config,
             &target_credential,
         )
         .await?;

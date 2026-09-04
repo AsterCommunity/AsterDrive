@@ -101,7 +101,7 @@ Typical fields include:
 - `supports_stream_upload`
 - `supports_capacity`
 
-The current protocol version is `v5`, with `v4` as the compatibility floor, so the current local supported range is `v4-v5`. `v4` / `v5` are not wire-compatible with `v2` or `v3`: internal storage JSON envelopes now use the stable string `ApiErrorCode` in the top-level `code` field instead of the old numeric code. Upgrade both primary and follower before binding remote policies across this boundary.
+The current protocol version and compatibility floor are both `v6`. Internal storage JSON envelopes use the stable string `ApiErrorCode` in the top-level `code` field instead of the old numeric code. Primary and follower must run the same protocol generation before binding remote policies.
 
 Current followers explicitly advertise `features.binding_state_pull`. The capability defaults to `false`, which defines the rolling-upgrade boundary:
 
@@ -109,17 +109,16 @@ Current followers explicitly advertise `features.binding_state_pull`. The capabi
 - When the capability is absent or `false`, the primary retains the legacy `PUT /binding` push.
 - When a new follower calls an old primary and receives `404` for binding-state, it keeps its locally persisted legacy push state.
 
-Protocol `v5` adds remote-storage-target driver capabilities. The Rust model field is named `remote_storage_target`, but the `v4` / `v5` wire JSON still serializes it as `managed_ingress` and also accepts `remote_storage_target` as a deserialization alias. The legacy wire key is a compatibility detail, not a separate product model.
+Protocol `v6` declares remote-storage-target connector capabilities through `remote_storage_target.connector_ids`. Capability resolution is descriptor-driven and does not expose a separate driver-type matrix.
 
-The compatibility boundary is explicit:
+The capability boundary is explicit:
 
-- When a `v4` follower omits this capability, the primary applies the legacy assumption that Local and S3 drivers are available.
-- A `v5` follower must declare remote-storage-target capability explicitly. Missing or disabled capability does not receive the implicit `v4` Local / S3 fallback.
-- The primary exposes only drivers both declared by the follower and backed by a descriptor registered in the current build. Unknown future driver IDs remain protocol data but do not automatically become configurable choices.
+- The primary exposes only connectors both declared by the follower and backed by a descriptor registered in the current build.
+- Unknown future connector IDs remain protocol data but do not automatically become configurable choices.
 
 During policy loading and binding refresh, the primary validates:
 
-- `protocol_version` / `min_supported_protocol_version` must overlap with the local supported range, currently `v4-v5`
+- `protocol_version` / `min_supported_protocol_version` must overlap with the local supported range, currently `v6-v6`
 - Base remote policies require `object_get`, `object_head`, `object_put`, `object_delete`, `metadata`, `range_get`, `accept_ranges_header`, `list`, and `compose`
 - Browser presigned download requires `browser_cors` to allow the `range` request header and expose `Accept-Ranges`, `Content-Range`, and `Content-Length`
 - Browser presigned upload requires `browser_cors` to allow the `content-type` request header and expose `ETag`
@@ -166,9 +165,16 @@ Local target request:
 
 ```json
 {
-  "driver_type": "local",
   "name": "local-default",
-  "base_path": "data/storage",
+  "connection": {
+    "connector_config": {
+      "format_version": 1,
+      "connector_id": "asterdrive.storage.local",
+      "schema_version": 1,
+      "values": { "base_path": "data/storage" }
+    },
+    "credential": { "mode": "none" }
+  },
   "is_default": true
 }
 ```
@@ -177,18 +183,28 @@ S3 target request:
 
 ```json
 {
-  "driver_type": "s3",
   "name": "edge-s3",
-  "endpoint": "https://s3.example.com",
-  "bucket": "aster-edge",
-  "access_key": "AKIA...",
-  "secret_key": "...",
-  "base_path": "objects/",
+  "connection": {
+    "connector_config": {
+      "format_version": 1,
+      "connector_id": "asterdrive.storage.s3",
+      "schema_version": 1,
+      "values": {
+        "endpoint": "https://s3.example.com",
+        "bucket": "aster-edge",
+        "base_path": "objects/"
+      }
+    },
+    "credential": {
+      "mode": "static",
+      "values": { "access_key": "AKIA...", "secret_key": "..." }
+    }
+  },
   "is_default": false
 }
 ```
 
-Updates use a flat request shape and can change `name`, `driver_type`, connection fields, `base_path`, and `is_default`. The current target drivers are `local` and `s3`; the actual choices are also constrained by the follower's `remote_storage_target` capability declaration. These control-plane endpoints accept only signed primary headers, not presigned query access.
+Create and update requests use the shared `StorageConnectionInput` envelope. They carry connector-owned configuration and credentials alongside `name` and `is_default`; the actual choices are constrained by the follower's `remote_storage_target.connector_ids` capability declaration. These control-plane endpoints accept only signed primary headers, not presigned query access.
 
 ## Object operations
 

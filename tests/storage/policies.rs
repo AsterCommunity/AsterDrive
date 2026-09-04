@@ -293,7 +293,7 @@ fn tencent_cos_action_connection() -> Value {
     })
 }
 
-fn connection_json(connection: aster_drive::storage::StorageConnectorConnectionInput) -> Value {
+fn connection_json(connection: aster_drive::storage::StoragePolicyConnectionInput) -> Value {
     serde_json::to_value(connection).expect("typed storage connector connection should serialize")
 }
 

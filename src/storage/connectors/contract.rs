@@ -172,6 +172,27 @@ pub(crate) trait StorageConnector: Send + Sync {
         Ok(normalized)
     }
 
+    /// Whether this provider can back a follower-side remote storage target.
+    ///
+    /// Static and credential-free storage providers are reusable by default.
+    /// Connectors whose descriptor represents remote-node routing or delegated
+    /// OAuth remain policy-only until their target credential lifecycle exists.
+    fn supports_remote_storage_target(&self) -> bool {
+        let descriptor = self.descriptor();
+        !descriptor.capabilities.remote_node_binding
+            && descriptor.credential_mode
+                != aster_drive_storage::StorageConnectorCredentialMode::OauthDelegated
+    }
+
+    /// Construct a provider driver directly from connector-owned connection
+    /// data. Product policy and remote-target adapters both enter here.
+    async fn build_driver_from_connection(
+        &self,
+        context: &StorageConnectorContext<'_>,
+        connector_config: &ConnectorConfigEnvelope,
+        credential: &StorageConnectorCredentialInput,
+    ) -> Result<Box<dyn StorageDriver>>;
+
     /// Validate core-owned policy behavior against connector-declared capabilities.
     ///
     /// Connectors advertise the executable capability; core owns the behavior
@@ -278,13 +299,6 @@ pub(crate) trait StorageConnector: Send + Sync {
             }
         }
     }
-
-    async fn build_draft_driver(
-        &self,
-        _context: &StorageConnectorContext<'_>,
-        policy: &storage_policy::Model,
-        credential: &StorageConnectorCredentialInput,
-    ) -> Result<Box<dyn StorageDriver>>;
 
     fn build_runtime_driver(
         &self,
@@ -464,17 +478,17 @@ pub(crate) trait StorageConnector: Send + Sync {
         }
         let connection = input.connection;
         let credential = self
-            .prepare_draft_credential(context, input.policy_id, connection.credential)
+            .prepare_draft_credential(context, input.policy_id, connection.storage.credential)
             .await?;
         self.validate_credential_input(&credential)?;
-        let connector_config = self.validate_connector_config(&connection.connector_config)?;
+        let connector_config =
+            self.validate_connector_config(&connection.storage.connector_config)?;
         self.validate_config_binding(context.writer_db(), &connector_config)
             .await?;
         let behavior = connection.behavior.normalized();
         self.validate_policy_behavior(&behavior)?;
-        let policy = common::build_connection_test_policy(connector_config, behavior)?;
         let driver = self
-            .build_draft_driver(context, &policy, &credential)
+            .build_driver_from_connection(context, &connector_config, &credential)
             .await?;
         common::probe_storage_driver(driver.as_ref(), "connection test failed").await
     }
@@ -702,6 +716,28 @@ impl StorageConnectorRegistry {
                 connector_id
             ))
         })
+    }
+
+    pub(crate) fn remote_target_connectors(&self) -> Vec<&dyn StorageConnector> {
+        self.ordered
+            .iter()
+            .filter(|connector| connector.supports_remote_storage_target())
+            .map(AsRef::as_ref)
+            .collect()
+    }
+
+    pub(crate) fn require_remote_target_connector(
+        &self,
+        connector_id: &ConnectorId,
+    ) -> Result<&dyn StorageConnector> {
+        let connector = self.require_input_connector(connector_id)?;
+        if connector.supports_remote_storage_target() {
+            return Ok(connector);
+        }
+        Err(AsterError::validation_error(format!(
+            "storage connector '{}' is not available for remote targets",
+            connector_id
+        )))
     }
 
     /// Resolve connector-owned metadata for a provider policy action.

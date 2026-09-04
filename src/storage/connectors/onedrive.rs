@@ -1311,13 +1311,13 @@ impl StorageConnector for OneDriveConnector {
         })
     }
 
-    async fn build_draft_driver(
+    async fn build_driver_from_connection(
         &self,
         context: &super::StorageConnectorContext<'_>,
-        policy: &storage_policy::Model,
+        connector_config: &aster_drive_storage::ConnectorConfigEnvelope,
         credential: &StorageConnectorCredentialInput,
     ) -> Result<Box<dyn StorageDriver>> {
-        let _ = (context, policy, credential);
+        let _ = (context, connector_config, credential);
         Err(unsupported_draft_connection_test_error(self.descriptor()))
     }
 

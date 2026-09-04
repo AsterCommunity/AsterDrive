@@ -1,6 +1,7 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::Result;
-use aster_drive_model::types::{RemoteStorageTargetDriverKind, ResolvedRemoteTransport};
+use crate::storage::StorageConnectionInput;
+use aster_drive_model::types::ResolvedRemoteTransport;
 use aster_drive_storage::StorageCapacityInfo;
 use aster_drive_storage::StorageErrorKind;
 use serde::{Deserialize, Serialize};
@@ -8,10 +9,10 @@ use std::fmt;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-pub const INTERNAL_STORAGE_PROTOCOL_VERSION: u16 = 5;
-pub const INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION: u16 = 4;
-pub const INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL: &str = "v5";
-pub const INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION_LABEL: &str = "v4";
+pub const INTERNAL_STORAGE_PROTOCOL_VERSION: u16 = 6;
+pub const INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION: u16 = 6;
+pub const INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL: &str = "v6";
+pub const INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION_LABEL: &str = "v6";
 pub const REMOTE_BROWSER_PRESIGNED_CORS_ALLOWED_HEADERS: &str = "content-type, range";
 pub const REMOTE_BROWSER_PRESIGNED_CORS_GET_EXPOSE_HEADERS: &str = "Accept-Ranges, Cache-Control, Content-Disposition, Content-Length, Content-Range, Content-Type, ETag";
 pub const REMOTE_BROWSER_PRESIGNED_CORS_PUT_EXPOSE_HEADERS: &str = "ETag";
@@ -31,14 +32,9 @@ pub struct RemoteStorageCapabilities {
     pub browser_cors: RemoteStorageBrowserCorsContract,
     #[serde(default)]
     pub limits: RemoteStorageProtocolLimits,
-    // TODO(remote-storage-target-v6): switch the primary wire key to
-    // `remote_storage_target` when protocol v6 drops the legacy v4/v5
-    // `managed_ingress` capability key. Until then, serialize the old key for
-    // compatibility while accepting the new key as an alias.
     #[serde(
         default,
-        rename = "managed_ingress",
-        alias = "remote_storage_target",
+        rename = "remote_storage_target",
         skip_serializing_if = "Option::is_none"
     )]
     pub remote_storage_target: Option<RemoteStorageTargetCapabilities>,
@@ -92,13 +88,11 @@ impl RemoteStorageCapabilities {
         }
     }
 
-    pub fn with_remote_storage_target_driver_types(
-        mut self,
-        driver_types: Vec<RemoteStorageTargetDriverKind>,
-    ) -> Self {
-        self.remote_storage_target = Some(
-            RemoteStorageTargetCapabilities::from_known_driver_types(driver_types),
-        );
+    pub fn with_remote_storage_target_connector_ids(mut self, connector_ids: Vec<String>) -> Self {
+        self.remote_storage_target = Some(RemoteStorageTargetCapabilities {
+            enabled: !connector_ids.is_empty(),
+            connector_ids,
+        });
         self
     }
 
@@ -173,49 +167,21 @@ impl RemoteStorageCapabilities {
 pub struct RemoteStorageTargetCapabilities {
     pub enabled: bool,
     #[serde(default)]
-    pub driver_types: Vec<RemoteStorageTargetDriverType>,
+    pub connector_ids: Vec<String>,
 }
 
 impl RemoteStorageTargetCapabilities {
-    pub fn from_known_driver_types(driver_types: Vec<RemoteStorageTargetDriverKind>) -> Self {
-        Self {
-            enabled: !driver_types.is_empty(),
-            driver_types: driver_types
-                .into_iter()
-                .map(RemoteStorageTargetDriverType::from_known_driver_type)
-                .collect(),
-        }
+    pub fn with_connector_ids(mut self, connector_ids: Vec<String>) -> Self {
+        self.connector_ids = connector_ids;
+        self
     }
 
-    pub fn supports_known_driver(&self, driver_type: RemoteStorageTargetDriverKind) -> bool {
+    pub fn supports_connector_id(&self, connector_id: &str) -> bool {
         self.enabled
             && self
-                .driver_types
+                .connector_ids
                 .iter()
-                .any(|candidate| candidate.matches_known_driver(driver_type))
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(transparent)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct RemoteStorageTargetDriverType(String);
-
-impl RemoteStorageTargetDriverType {
-    pub fn from_known_driver_type(driver_type: RemoteStorageTargetDriverKind) -> Self {
-        Self(driver_type.as_str().to_string())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    pub fn as_known_driver_type(&self) -> Option<RemoteStorageTargetDriverKind> {
-        self.0.parse().ok()
-    }
-
-    pub fn matches_known_driver(&self, driver_type: RemoteStorageTargetDriverKind) -> bool {
-        self.as_str() == driver_type.as_str()
+                .any(|candidate| candidate == connector_id)
     }
 }
 
@@ -387,10 +353,8 @@ pub struct RemoteBindingDesiredState {
 pub struct RemoteStorageTargetInfo {
     pub target_key: String,
     pub name: String,
-    pub driver_type: RemoteStorageTargetDriverKind,
-    pub endpoint: String,
-    pub bucket: String,
-    pub base_path: String,
+    pub connector_id: String,
+    pub connector_config: aster_drive_storage::ConnectorConfigEnvelope,
     pub is_default: bool,
     pub desired_revision: i64,
     pub applied_revision: i64,
@@ -402,55 +366,17 @@ pub struct RemoteStorageTargetInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "driver_type", rename_all = "lowercase")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub enum RemoteCreateStorageTargetRequest {
-    Local(RemoteCreateLocalStorageTargetRequest),
-    S3(RemoteCreateS3StorageTargetRequest),
+pub struct RemoteCreateStorageTargetRequest {
+    pub name: String,
+    pub connection: StorageConnectionInput,
+    #[serde(default)]
+    pub is_default: bool,
 }
 
 impl RemoteCreateStorageTargetRequest {
-    pub fn driver_type(&self) -> RemoteStorageTargetDriverKind {
-        match self {
-            Self::Local(_) => RemoteStorageTargetDriverKind::Local,
-            Self::S3(_) => RemoteStorageTargetDriverKind::S3,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct RemoteCreateLocalStorageTargetRequest {
-    pub name: String,
-    pub base_path: String,
-    #[serde(default)]
-    pub is_default: bool,
-}
-
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct RemoteCreateS3StorageTargetRequest {
-    pub name: String,
-    pub endpoint: String,
-    pub bucket: String,
-    pub access_key: String,
-    pub secret_key: String,
-    pub base_path: String,
-    #[serde(default)]
-    pub is_default: bool,
-}
-
-impl fmt::Debug for RemoteCreateS3StorageTargetRequest {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RemoteCreateS3StorageTargetRequest")
-            .field("name", &self.name)
-            .field("endpoint", &self.endpoint)
-            .field("bucket", &self.bucket)
-            .field("access_key", &"<redacted>")
-            .field("secret_key", &"<redacted>")
-            .field("base_path", &self.base_path)
-            .field("is_default", &self.is_default)
-            .finish()
+    pub fn connector_id(&self) -> &aster_drive_storage::ConnectorId {
+        &self.connection.connector_config.connector_id
     }
 }
 
@@ -458,12 +384,8 @@ impl fmt::Debug for RemoteCreateS3StorageTargetRequest {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RemoteUpdateStorageTargetRequest {
     pub name: Option<String>,
-    pub driver_type: Option<RemoteStorageTargetDriverKind>,
-    pub endpoint: Option<String>,
-    pub bucket: Option<String>,
-    pub access_key: Option<String>,
-    pub secret_key: Option<String>,
-    pub base_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<StorageConnectionInput>,
     pub is_default: Option<bool>,
 }
 
@@ -471,18 +393,10 @@ impl fmt::Debug for RemoteUpdateStorageTargetRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RemoteUpdateStorageTargetRequest")
             .field("name", &self.name)
-            .field("driver_type", &self.driver_type)
-            .field("endpoint", &self.endpoint)
-            .field("bucket", &self.bucket)
             .field(
-                "access_key",
-                &self.access_key.as_ref().map(|_| "<redacted>"),
+                "connection",
+                &self.connection.as_ref().map(|_| "<redacted>"),
             )
-            .field(
-                "secret_key",
-                &self.secret_key.as_ref().map(|_| "<redacted>"),
-            )
-            .field("base_path", &self.base_path)
             .field("is_default", &self.is_default)
             .finish()
     }

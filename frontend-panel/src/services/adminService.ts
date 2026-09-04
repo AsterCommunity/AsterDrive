@@ -66,7 +66,6 @@ import type {
 	RemoteNodeInfo,
 	RemoteNodePage,
 	RemoteStorageCapabilities,
-	RemoteStorageTargetDriverDescriptor,
 	RemoteStorageTargetInfo,
 	RemoteUpdateStorageTargetRequest,
 	RemovedCountResponse,
@@ -445,9 +444,9 @@ export const adminRemoteNodeService = {
 			`/admin/remote-nodes/${id}/storage-targets`,
 		),
 
-	listStorageTargetDrivers: (id: number) =>
-		api.get<RemoteStorageTargetDriverDescriptor[]>(
-			`/admin/remote-nodes/${id}/storage-target-drivers`,
+	listStorageTargetConnectors: (id: number) =>
+		api.get<StorageConnectorDescriptor[]>(
+			`/admin/remote-nodes/${id}/storage-target-connectors`,
 		),
 
 	createStorageTarget: (id: number, data: RemoteCreateStorageTargetRequest) =>

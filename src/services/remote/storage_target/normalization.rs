@@ -1,161 +1,100 @@
 use crate::errors::Result;
+use crate::runtime::FollowerRuntimeState;
+use crate::storage::StorageConnectionInput;
 use crate::storage::remote_protocol::{
-    RemoteCreateLocalStorageTargetRequest, RemoteCreateS3StorageTargetRequest,
     RemoteCreateStorageTargetRequest, RemoteUpdateStorageTargetRequest,
 };
 use aster_drive_model::entities::remote_storage_target;
-use aster_drive_model::types::RemoteStorageTargetDriverKind;
-use aster_drive_storage::field_contract::{
-    normalize_required_storage_field, preserve_secret_when_omitted,
-};
+use aster_drive_storage::field_contract::normalize_required_storage_field;
 
-use super::driver::{RemoteStorageTargetDriverFields, normalize_driver_fields};
-
+#[derive(Debug)]
 pub(in crate::services::remote::storage_target) struct NormalizedStorageTargetInput {
     pub name: String,
-    pub driver_type: RemoteStorageTargetDriverKind,
-    pub endpoint: String,
-    pub bucket: String,
-    pub access_key: String,
-    pub secret_key: String,
-    pub base_path: String,
+    pub connection: Option<StorageConnectionInput>,
     pub is_default: Option<bool>,
 }
 
-struct StorageTargetFields {
-    name: String,
-    driver_type: RemoteStorageTargetDriverKind,
-    endpoint: String,
-    bucket: String,
-    access_key: String,
-    secret_key: String,
-    base_path: String,
-    is_default: Option<bool>,
-}
-
-pub(in crate::services::remote::storage_target) fn normalize_create_input(
+pub(in crate::services::remote::storage_target) async fn normalize_create_input<
+    S: FollowerRuntimeState,
+>(
+    state: &S,
     input: RemoteCreateStorageTargetRequest,
 ) -> Result<NormalizedStorageTargetInput> {
-    match input {
-        RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
-            name,
-            base_path,
-            is_default,
-        }) => normalize_target_fields(StorageTargetFields {
-            name: normalize_required_storage_field("name", &name)?,
-            driver_type: RemoteStorageTargetDriverKind::Local,
-            endpoint: String::new(),
-            bucket: String::new(),
-            access_key: String::new(),
-            secret_key: String::new(),
-            base_path,
-            is_default: Some(is_default),
-        }),
-        RemoteCreateStorageTargetRequest::S3(RemoteCreateS3StorageTargetRequest {
-            name,
-            endpoint,
-            bucket,
-            access_key,
-            secret_key,
-            base_path,
-            is_default,
-        }) => normalize_target_fields(StorageTargetFields {
-            name: normalize_required_storage_field("name", &name)?,
-            driver_type: RemoteStorageTargetDriverKind::S3,
-            endpoint,
-            bucket,
-            access_key,
-            secret_key,
-            base_path,
-            is_default: Some(is_default),
-        }),
-    }
+    Ok(NormalizedStorageTargetInput {
+        name: normalize_required_storage_field("name", &input.name)?,
+        connection: Some(normalize_connection(state, input.connection).await?),
+        is_default: Some(input.is_default),
+    })
 }
 
-pub(in crate::services::remote::storage_target) fn normalize_update_input(
-    existing: remote_storage_target::Model,
+pub(in crate::services::remote::storage_target) async fn normalize_update_input<
+    S: FollowerRuntimeState,
+>(
+    state: &S,
+    existing: &remote_storage_target::Model,
     input: RemoteUpdateStorageTargetRequest,
 ) -> Result<NormalizedStorageTargetInput> {
-    let driver_type = input.driver_type.unwrap_or(existing.driver_type);
-    let same_driver_type = driver_type == existing.driver_type;
-    let access_key = if same_driver_type {
-        preserve_secret_when_omitted("access_key", &existing.access_key, input.access_key)?
-    } else {
-        input.access_key.unwrap_or_default()
+    let connection = match input.connection {
+        Some(mut connection) => {
+            if existing.connector_id.as_deref()
+                == Some(connection.connector_config.connector_id.as_str())
+                && let Ok(saved_connection) =
+                    super::driver::load_connection_from_target(state, existing).await
+                && let crate::storage::StorageConnectorCredentialInput::Static(saved) =
+                    saved_connection.credential
+            {
+                connection.credential = crate::storage::connectors::merge_saved_static_credential(
+                    connection.credential,
+                    saved,
+                )?;
+            }
+            Some(normalize_connection(state, connection).await?)
+        }
+        None => None,
     };
-    let secret_key = if same_driver_type {
-        preserve_secret_when_omitted("secret_key", &existing.secret_key, input.secret_key)?
-    } else {
-        input.secret_key.unwrap_or_default()
-    };
-    normalize_target_fields(StorageTargetFields {
+    Ok(NormalizedStorageTargetInput {
         name: input
             .name
             .as_deref()
-            .map(|value| normalize_required_storage_field("name", value))
+            .map(|name| normalize_required_storage_field("name", name))
             .transpose()?
-            .unwrap_or(existing.name),
-        driver_type,
-        endpoint: input.endpoint.unwrap_or_else(|| {
-            if same_driver_type {
-                existing.endpoint.clone()
-            } else {
-                String::new()
-            }
-        }),
-        bucket: input.bucket.unwrap_or_else(|| {
-            if same_driver_type {
-                existing.bucket.clone()
-            } else {
-                String::new()
-            }
-        }),
-        access_key,
-        secret_key,
-        base_path: input.base_path.unwrap_or_else(|| {
-            if same_driver_type {
-                existing.base_path.clone()
-            } else {
-                ".".to_string()
-            }
-        }),
+            .unwrap_or_else(|| existing.name.clone()),
+        connection,
         is_default: input.is_default,
     })
 }
 
-pub(in crate::services::remote::storage_target) fn new_target_key() -> String {
-    format!("rst_{}", aster_forge_utils::id::new_short_token())
+async fn normalize_connection<S: FollowerRuntimeState>(
+    state: &S,
+    connection: StorageConnectionInput,
+) -> Result<StorageConnectionInput> {
+    state
+        .driver_registry()
+        .connectors()
+        .require_remote_target_connector(&connection.connector_config.connector_id)?;
+    let mut connection = crate::storage::connectors::normalize_storage_connection(
+        state.driver_registry().connectors(),
+        state.writer_db(),
+        connection,
+    )
+    .await?;
+    if connection.connector_config.connector_id.as_str()
+        == crate::storage::connectors::LocalConnector::ID
+    {
+        let base_path = connection
+            .connector_config
+            .values
+            .get("base_path")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(".");
+        connection.connector_config.values.insert(
+            "base_path".to_string(),
+            serde_json::Value::String(super::paths::normalize_relative_local_path(base_path)?),
+        );
+    }
+    Ok(connection)
 }
 
-fn normalize_target_fields(fields: StorageTargetFields) -> Result<NormalizedStorageTargetInput> {
-    let StorageTargetFields {
-        name,
-        driver_type,
-        endpoint,
-        bucket,
-        access_key,
-        secret_key,
-        base_path,
-        is_default,
-    } = fields;
-
-    let normalized = normalize_driver_fields(RemoteStorageTargetDriverFields {
-        driver_type,
-        endpoint,
-        bucket,
-        access_key,
-        secret_key,
-        base_path,
-    })?;
-
-    Ok(NormalizedStorageTargetInput {
-        name,
-        driver_type: normalized.driver_type,
-        endpoint: normalized.endpoint,
-        bucket: normalized.bucket,
-        access_key: normalized.access_key,
-        secret_key: normalized.secret_key,
-        base_path: normalized.base_path,
-        is_default,
-    })
+pub(in crate::services::remote::storage_target) fn new_target_key() -> String {
+    format!("rst_{}", aster_forge_utils::id::new_short_token())
 }

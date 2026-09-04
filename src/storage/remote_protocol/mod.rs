@@ -23,12 +23,11 @@ pub use models::{
     INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL, REMOTE_BROWSER_PRESIGNED_CORS_ALLOWED_HEADERS,
     REMOTE_BROWSER_PRESIGNED_CORS_GET_EXPOSE_HEADERS,
     REMOTE_BROWSER_PRESIGNED_CORS_PUT_EXPOSE_HEADERS, RemoteBindingDesiredState,
-    RemoteBindingSyncRequest, RemoteCreateLocalStorageTargetRequest,
-    RemoteCreateS3StorageTargetRequest, RemoteCreateStorageTargetRequest,
-    RemoteStorageBrowserCorsContract, RemoteStorageCapabilities, RemoteStorageCapacityResponse,
-    RemoteStorageComposeRequest, RemoteStorageComposeResponse, RemoteStorageFeatureFlags,
-    RemoteStorageListResponse, RemoteStorageObjectMetadata, RemoteStorageProtocolLimits,
-    RemoteStorageTargetCapabilities, RemoteStorageTargetInfo, RemoteUpdateStorageTargetRequest,
+    RemoteBindingSyncRequest, RemoteCreateStorageTargetRequest, RemoteStorageBrowserCorsContract,
+    RemoteStorageCapabilities, RemoteStorageCapacityResponse, RemoteStorageComposeRequest,
+    RemoteStorageComposeResponse, RemoteStorageFeatureFlags, RemoteStorageListResponse,
+    RemoteStorageObjectMetadata, RemoteStorageProtocolLimits, RemoteStorageTargetCapabilities,
+    RemoteStorageTargetInfo, RemoteUpdateStorageTargetRequest,
 };
 pub(crate) use primary_auth::authorize_remote_node_request;
 pub use runtime::RemoteProtocolRuntime;

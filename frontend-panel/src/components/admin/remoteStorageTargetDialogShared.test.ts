@@ -4,178 +4,198 @@ import {
 	buildUpdateRemoteStorageTargetPayload,
 	getRemoteStorageTargetForm,
 } from "@/components/admin/remoteStorageTargetDialogShared";
-import type { RemoteStorageTargetInfo } from "@/types/api";
+import { emptyForm } from "@/components/admin/storage-policy-dialog/formTypes";
+import type {
+	RemoteStorageTargetInfo,
+	StorageConnectorDescriptor,
+} from "@/types/api";
 
-const localFields = new Set(["base_path", "is_default"]);
-const s3Fields = new Set([
-	"endpoint",
-	"bucket",
-	"access_key",
-	"secret_key",
-	"base_path",
-	"is_default",
+function descriptor(
+	connectorId: string,
+	credentialMode: "none" | "static_secret",
+	fields: Array<{
+		name: string;
+		scope: "connector_config" | "static_credential";
+		required?: boolean;
+	}>,
+): StorageConnectorDescriptor {
+	return {
+		connector_id: connectorId,
+		config_schema_version: 1,
+		credential_mode: credentialMode,
+		credential_schema_version: credentialMode === "static_secret" ? 1 : null,
+		fields: fields.map((field) => ({
+			kind: field.scope === "static_credential" ? "secret" : "text",
+			label_key: field.name,
+			name: field.name,
+			required: field.required ?? false,
+			scope: field.scope,
+			secret: field.scope === "static_credential",
+		})),
+	} as StorageConnectorDescriptor;
+}
+
+const localDescriptor = descriptor("asterdrive.storage.local", "none", [
+	{ name: "base_path", scope: "connector_config", required: true },
+]);
+const s3Descriptor = descriptor("asterdrive.storage.s3", "static_secret", [
+	{ name: "endpoint", scope: "connector_config", required: true },
+	{ name: "bucket", scope: "connector_config", required: true },
+	{ name: "base_path", scope: "connector_config" },
+	{ name: "s3_access_key_id", scope: "static_credential", required: true },
+	{ name: "s3_secret_access_key", scope: "static_credential", required: true },
 ]);
 
 describe("remoteStorageTargetDialogShared", () => {
-	it("maps an existing remote storage target into form state", () => {
-		expect(
-			getRemoteStorageTargetForm({
-				target_key: "igp_demo",
-				name: "Follower Cache",
-				driver_type: "local",
-				endpoint: "",
-				bucket: "",
-				base_path: "cache/inbox",
-				is_default: true,
-				desired_revision: 3,
-				applied_revision: 3,
-				last_error: "",
-				created_at: "",
-				updated_at: "",
-			} as RemoteStorageTargetInfo),
-		).toEqual({
+	it("maps connector-owned target data into the shared policy form", () => {
+		const form = getRemoteStorageTargetForm({
+			target_key: "rst_demo",
 			name: "Follower Cache",
-			driver_type: "local",
-			endpoint: "",
-			bucket: "",
-			access_key: "",
-			secret_key: "",
-			base_path: "cache/inbox",
+			connector_id: "asterdrive.storage.local",
+			connector_config: {
+				format_version: 1,
+				connector_id: "asterdrive.storage.local",
+				schema_version: 1,
+				values: { base_path: "cache/inbox" },
+			},
 			is_default: true,
+			desired_revision: 3,
+			applied_revision: 3,
+			last_error: "",
+			created_at: "",
+			updated_at: "",
+		} as RemoteStorageTargetInfo);
+
+		expect(form.connector_id).toBe("asterdrive.storage.local");
+		expect(form.connector_config_values).toEqual({ base_path: "cache/inbox" });
+		expect(form.credential_values).toEqual({});
+		expect(form.is_default).toBe(true);
+	});
+
+	it("drops non-primitive connector values and tolerates missing connector data", () => {
+		const form = getRemoteStorageTargetForm({
+			target_key: "rst_invalid",
+			name: "Target",
+			connector_id: null,
+			connector_config: {
+				format_version: 1,
+				connector_id: "asterdrive.storage.local",
+				schema_version: 1,
+				values: {
+					valid: "value",
+					number: 1,
+					flag: true,
+					object: { ignored: true },
+					array: ["ignored"],
+					nothing: null,
+				},
+			},
+			is_default: false,
+			desired_revision: 1,
+			applied_revision: 1,
+			last_error: "",
+			created_at: "",
+			updated_at: "",
+		} as unknown as RemoteStorageTargetInfo);
+
+		expect(form.connector_id).toBe("");
+		expect(form.connector_config_values).toEqual({
+			valid: "value",
+			number: 1,
+			flag: true,
 		});
 	});
 
-	it("builds create payloads with trimmed s3 fields", () => {
-		expect(
-			buildCreateRemoteStorageTargetPayload(
-				{
-					name: "Archive",
-					driver_type: "s3",
+	it("builds create payloads with the shared storage connection contract", () => {
+		const payload = buildCreateRemoteStorageTargetPayload(
+			{
+				...emptyForm,
+				name: " Archive ",
+				connector_id: "asterdrive.storage.s3",
+				connector_config_values: {
 					endpoint: " https://s3.example.test/uploads ",
 					bucket: " uploads ",
-					access_key: "ACCESS",
-					secret_key: "SECRET",
 					base_path: "tenant-a/incoming",
-					is_default: false,
 				},
-				s3Fields,
-			),
-		).toEqual({
+				credential_values: {
+					s3_access_key_id: "ACCESS",
+					s3_secret_access_key: "SECRET",
+				},
+			},
+			s3Descriptor,
+		);
+
+		expect(payload).toEqual({
 			name: "Archive",
-			driver_type: "s3",
-			endpoint: "https://s3.example.test/uploads",
-			bucket: "uploads",
-			access_key: "ACCESS",
-			secret_key: "SECRET",
-			base_path: "tenant-a/incoming",
+			connection: {
+				connector_config: expect.objectContaining({
+					connector_id: "asterdrive.storage.s3",
+					values: expect.objectContaining({
+						endpoint: " https://s3.example.test/uploads ",
+						bucket: " uploads ",
+						base_path: "tenant-a/incoming",
+					}),
+				}),
+				credential: {
+					mode: "static",
+					values: {
+						s3_access_key_id: "ACCESS",
+						s3_secret_access_key: "SECRET",
+					},
+				},
+			},
 			is_default: false,
 		});
 	});
 
-	it("omits unchanged s3 credentials from update payloads", () => {
-		expect(
-			buildUpdateRemoteStorageTargetPayload(
-				{
-					name: "Archive",
-					driver_type: "s3",
-					endpoint: "https://s3.example.test/uploads",
-					bucket: "uploads",
-					access_key: "",
-					secret_key: "",
-					base_path: "tenant-a/incoming",
-					is_default: true,
-				},
-				s3Fields,
-				{
-					target_key: "igp_archive",
-					name: "Archive",
-					driver_type: "s3",
+	it("uses the same connection shape for updates and omits blank saved secrets", () => {
+		const payload = buildUpdateRemoteStorageTargetPayload(
+			{
+				...emptyForm,
+				name: "Archive",
+				connector_id: "asterdrive.storage.s3",
+				connector_config_values: {
 					endpoint: "https://s3.example.test",
 					bucket: "uploads",
 					base_path: "tenant-a/incoming",
-					is_default: false,
-					desired_revision: 2,
-					applied_revision: 2,
-					last_error: "",
-					created_at: "",
-					updated_at: "",
-				} as RemoteStorageTargetInfo,
-			),
-		).toEqual({
-			name: "Archive",
-			driver_type: "s3",
-			endpoint: "https://s3.example.test/uploads",
-			bucket: "uploads",
-			base_path: "tenant-a/incoming",
-			is_default: true,
-		});
-	});
-
-	it("requires explicit credentials when switching from local to s3", () => {
-		expect(
-			buildUpdateRemoteStorageTargetPayload(
-				{
-					name: "Promoted",
-					driver_type: "s3",
-					endpoint: "https://s3.example.com",
-					bucket: "bucket-a",
-					access_key: "ROTATED",
-					secret_key: "SECRET",
-					base_path: "tenant-a/incoming",
-					is_default: false,
 				},
-				s3Fields,
-				{
-					target_key: "igp_local",
-					name: "Promoted",
-					driver_type: "local",
-					endpoint: "",
-					bucket: "",
-					base_path: ".",
-					is_default: true,
-					desired_revision: 1,
-					applied_revision: 1,
-					last_error: "",
-					created_at: "",
-					updated_at: "",
-				} as RemoteStorageTargetInfo,
-			),
-		).toEqual({
-			name: "Promoted",
-			driver_type: "s3",
-			endpoint: "https://s3.example.com",
-			bucket: "bucket-a",
-			access_key: "ROTATED",
-			secret_key: "SECRET",
-			base_path: "tenant-a/incoming",
-			is_default: false,
-		});
+				credential_values: {},
+				is_default: true,
+			},
+			s3Descriptor,
+			{
+				connector_id: "asterdrive.storage.s3",
+			} as RemoteStorageTargetInfo,
+		);
+
+		expect(payload.connection?.connector_config.connector_id).toBe(
+			"asterdrive.storage.s3",
+		);
+		expect(payload.connection?.credential).toEqual({ mode: "none" });
 	});
 
-	it("clears unsupported connection fields from local payloads", () => {
-		expect(
-			buildCreateRemoteStorageTargetPayload(
-				{
-					name: "Local",
-					driver_type: "local",
-					endpoint: "https://unused.example.com",
-					bucket: "unused",
-					access_key: "unused-access",
-					secret_key: "unused-secret",
+	it("does not project unrelated provider fields into local connections", () => {
+		const payload = buildCreateRemoteStorageTargetPayload(
+			{
+				...emptyForm,
+				name: "Local",
+				connector_id: "asterdrive.storage.local",
+				connector_config_values: {
 					base_path: "tenant-a/local",
-					is_default: true,
+					endpoint: "https://unused.example.com",
 				},
-				localFields,
-			),
-		).toEqual({
-			name: "Local",
-			driver_type: "local",
-			endpoint: "",
-			bucket: "",
-			access_key: "",
-			secret_key: "",
-			base_path: "tenant-a/local",
-			is_default: true,
+				credential_values: { token: "unused" },
+				is_default: true,
+			},
+			localDescriptor,
+		);
+
+		expect(payload.connection).toEqual({
+			connector_config: expect.objectContaining({
+				connector_id: "asterdrive.storage.local",
+				values: { base_path: "tenant-a/local" },
+			}),
+			credential: { mode: "none" },
 		});
 	});
 });

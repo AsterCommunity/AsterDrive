@@ -1,20 +1,20 @@
 import { describe, expect, it } from "vitest";
-import {
-	getRemoteNodeRemoteStorageTargetDriverBadgeTone,
-	getRemoteNodeRemoteStorageTargetProfileStatus,
-} from "@/components/admin/admin-remote-nodes-page/remoteNodeRemoteStorageTargetPresentation";
+import { getRemoteNodeRemoteStorageTargetProfileStatus } from "@/components/admin/admin-remote-nodes-page/remoteNodeRemoteStorageTargetPresentation";
 import type { RemoteStorageTargetInfo } from "@/types/api";
 
 const profile = (
 	overrides: Partial<RemoteStorageTargetInfo> = {},
 ): RemoteStorageTargetInfo => ({
 	applied_revision: 3,
-	base_path: "incoming",
-	bucket: "",
+	connector_config: {
+		format_version: 1,
+		connector_id: "asterdrive.storage.local",
+		schema_version: 1,
+		values: { base_path: "incoming" },
+	},
+	connector_id: "asterdrive.storage.local",
 	created_at: "2026-05-01T00:00:00Z",
 	desired_revision: 3,
-	driver_type: "local",
-	endpoint: "",
 	is_default: false,
 	last_error: "",
 	name: "Default",
@@ -54,14 +54,5 @@ describe("remoteNodeRemoteStorageTargetPresentation", () => {
 			labelKey: "remote_node_ingress_profile_status_ready",
 			toneClass: expect.stringContaining("emerald"),
 		});
-	});
-
-	it("maps driver types to badge tones", () => {
-		expect(getRemoteNodeRemoteStorageTargetDriverBadgeTone("s3")).toContain(
-			"blue",
-		);
-		expect(getRemoteNodeRemoteStorageTargetDriverBadgeTone("local")).toContain(
-			"slate",
-		);
 	});
 });

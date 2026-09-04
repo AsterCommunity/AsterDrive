@@ -177,17 +177,19 @@ pub fn encoded_policy_config<T: Serialize>(
 
 pub fn local_connection(
     base_path: impl Into<String>,
-) -> aster_drive::storage::StorageConnectorConnectionInput {
-    aster_drive::storage::StorageConnectorConnectionInput {
-        connector_config: connector_envelope(
-            "asterdrive.storage.local",
-            TestLocalConnectorConfigV1 {
-                base_path: base_path.into(),
-                content_dedup: false,
-            },
-        ),
+) -> aster_drive::storage::StoragePolicyConnectionInput {
+    aster_drive::storage::StoragePolicyConnectionInput {
+        storage: aster_drive::storage::StorageConnectionInput {
+            connector_config: connector_envelope(
+                "asterdrive.storage.local",
+                TestLocalConnectorConfigV1 {
+                    base_path: base_path.into(),
+                    content_dedup: false,
+                },
+            ),
+            credential: aster_drive::storage::StorageConnectorCredentialInput::None,
+        },
         behavior: aster_drive_storage::StoragePolicyBehaviorConfig::default(),
-        credential: aster_drive::storage::StorageConnectorCredentialInput::None,
     }
 }
 
@@ -202,7 +204,7 @@ pub fn s3_connection(
     base_path: impl Into<String>,
     access_key: impl Into<String>,
     secret_key: impl Into<String>,
-) -> aster_drive::storage::StorageConnectorConnectionInput {
+) -> aster_drive::storage::StoragePolicyConnectionInput {
     s3_connection_with_strategies(
         endpoint,
         bucket,
@@ -235,31 +237,33 @@ pub fn s3_connection_with_strategies(
     secret_key: impl Into<String>,
     upload_strategy: aster_drive_model::types::ObjectStorageUploadStrategy,
     download_strategy: aster_drive_model::types::ObjectStorageDownloadStrategy,
-) -> aster_drive::storage::StorageConnectorConnectionInput {
-    aster_drive::storage::StorageConnectorConnectionInput {
-        connector_config: connector_envelope(
-            "asterdrive.storage.s3",
-            TestS3ConnectorConfigV1 {
-                endpoint: endpoint.into(),
-                bucket: bucket.into(),
-                base_path: base_path.into(),
-                object_storage_upload_strategy: upload_strategy,
-                object_storage_download_strategy: download_strategy,
-                s3_path_style: true,
-                s3_region: "us-east-1".to_string(),
-                s3_connect_timeout_secs: 5,
-                s3_read_timeout_secs: 30,
-                s3_operation_timeout_secs: 3_600,
-            },
-        ),
+) -> aster_drive::storage::StoragePolicyConnectionInput {
+    aster_drive::storage::StoragePolicyConnectionInput {
+        storage: aster_drive::storage::StorageConnectionInput {
+            connector_config: connector_envelope(
+                "asterdrive.storage.s3",
+                TestS3ConnectorConfigV1 {
+                    endpoint: endpoint.into(),
+                    bucket: bucket.into(),
+                    base_path: base_path.into(),
+                    object_storage_upload_strategy: upload_strategy,
+                    object_storage_download_strategy: download_strategy,
+                    s3_path_style: true,
+                    s3_region: "us-east-1".to_string(),
+                    s3_connect_timeout_secs: 5,
+                    s3_read_timeout_secs: 30,
+                    s3_operation_timeout_secs: 3_600,
+                },
+            ),
+            credential: aster_drive::storage::StorageConnectorCredentialInput::Static(
+                serde_json::to_value(TestS3StaticCredentialsV1 {
+                    s3_access_key_id: access_key.into(),
+                    s3_secret_access_key: secret_key.into(),
+                })
+                .expect("typed S3 integration credentials should serialize"),
+            ),
+        },
         behavior: aster_drive_storage::StoragePolicyBehaviorConfig::default(),
-        credential: aster_drive::storage::StorageConnectorCredentialInput::Static(
-            serde_json::to_value(TestS3StaticCredentialsV1 {
-                s3_access_key_id: access_key.into(),
-                s3_secret_access_key: secret_key.into(),
-            })
-            .expect("typed S3 integration credentials should serialize"),
-        ),
     }
 }
 
@@ -269,29 +273,31 @@ pub fn tencent_cos_connection(
     base_path: impl Into<String>,
     secret_id: impl Into<String>,
     secret_key: impl Into<String>,
-) -> aster_drive::storage::StorageConnectorConnectionInput {
-    aster_drive::storage::StorageConnectorConnectionInput {
-        connector_config: connector_envelope_with_schema(
-            "asterdrive.storage.tencent_cos",
-            1,
-            TestTencentCosConnectorConfigV1 {
-                endpoint: endpoint.into(),
-                bucket: bucket.into(),
-                base_path: base_path.into(),
-                object_storage_upload_strategy:
-                    aster_drive_model::types::ObjectStorageUploadStrategy::RelayStream,
-                object_storage_download_strategy:
-                    aster_drive_model::types::ObjectStorageDownloadStrategy::RelayStream,
-            },
-        ),
+) -> aster_drive::storage::StoragePolicyConnectionInput {
+    aster_drive::storage::StoragePolicyConnectionInput {
+        storage: aster_drive::storage::StorageConnectionInput {
+            connector_config: connector_envelope_with_schema(
+                "asterdrive.storage.tencent_cos",
+                1,
+                TestTencentCosConnectorConfigV1 {
+                    endpoint: endpoint.into(),
+                    bucket: bucket.into(),
+                    base_path: base_path.into(),
+                    object_storage_upload_strategy:
+                        aster_drive_model::types::ObjectStorageUploadStrategy::RelayStream,
+                    object_storage_download_strategy:
+                        aster_drive_model::types::ObjectStorageDownloadStrategy::RelayStream,
+                },
+            ),
+            credential: aster_drive::storage::StorageConnectorCredentialInput::Static(
+                serde_json::to_value(TestTencentCosStaticCredentialsV1 {
+                    tencent_cos_secret_id: secret_id.into(),
+                    tencent_cos_secret_key: secret_key.into(),
+                })
+                .expect("typed Tencent COS integration credentials should serialize"),
+            ),
+        },
         behavior: aster_drive_storage::StoragePolicyBehaviorConfig::default(),
-        credential: aster_drive::storage::StorageConnectorCredentialInput::Static(
-            serde_json::to_value(TestTencentCosStaticCredentialsV1 {
-                tencent_cos_secret_id: secret_id.into(),
-                tencent_cos_secret_key: secret_key.into(),
-            })
-            .expect("typed Tencent COS integration credentials should serialize"),
-        ),
     }
 }
 
@@ -301,20 +307,22 @@ pub fn remote_connection(
     remote_storage_target_key: Option<String>,
     remote_download_strategy: aster_drive_model::types::RemoteDownloadStrategy,
     remote_upload_strategy: aster_drive_model::types::RemoteUploadStrategy,
-) -> aster_drive::storage::StorageConnectorConnectionInput {
-    aster_drive::storage::StorageConnectorConnectionInput {
-        connector_config: connector_envelope(
-            "asterdrive.storage.remote",
-            TestRemoteConnectorConfigV1 {
-                base_path: base_path.into(),
-                remote_node_id,
-                remote_storage_target_key,
-                remote_download_strategy,
-                remote_upload_strategy,
-            },
-        ),
+) -> aster_drive::storage::StoragePolicyConnectionInput {
+    aster_drive::storage::StoragePolicyConnectionInput {
+        storage: aster_drive::storage::StorageConnectionInput {
+            connector_config: connector_envelope(
+                "asterdrive.storage.remote",
+                TestRemoteConnectorConfigV1 {
+                    base_path: base_path.into(),
+                    remote_node_id,
+                    remote_storage_target_key,
+                    remote_download_strategy,
+                    remote_upload_strategy,
+                },
+            ),
+            credential: aster_drive::storage::StorageConnectorCredentialInput::None,
+        },
         behavior: aster_drive_storage::StoragePolicyBehaviorConfig::default(),
-        credential: aster_drive::storage::StorageConnectorCredentialInput::None,
     }
 }
 
@@ -1525,6 +1533,9 @@ async fn setup_with_database_url_and_pool_size(
         server: aster_drive::config::ServerConfig {
             temp_dir,
             upload_temp_dir,
+            follower: aster_drive::config::ServerFollowerConfig {
+                remote_storage_target_local_root: format!("{test_dir}/remote-storage-targets"),
+            },
             ..Default::default()
         },
         auth: aster_drive::config::AuthConfig {

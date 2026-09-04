@@ -32,6 +32,39 @@ struct LocalizationContractConnector {
     localization: aster_drive_storage::StorageConnectorLocalization,
 }
 
+#[test]
+fn unified_registry_exposes_remote_target_scope_for_reusable_provider_connectors() {
+    let registry = builtin_storage_connector_registry().expect("built-in registry");
+    for connector_id in [
+        "asterdrive.storage.local",
+        "asterdrive.storage.s3",
+        "asterdrive.storage.sftp",
+        "asterdrive.storage.tencent_cos",
+        "asterdrive.storage.alibaba_oss",
+        "asterdrive.storage.qiniu",
+        "asterdrive.storage.azure_blob",
+        "asterdrive.storage.huawei_obs",
+    ] {
+        let connector = registry
+            .require_remote_target_connector(&aster_drive_storage::ConnectorId::declared(
+                connector_id,
+            ))
+            .expect("provider should be reusable for remote targets");
+        assert_eq!(connector.descriptor().connector_id.as_str(), connector_id);
+    }
+
+    let onedrive = registry
+        .require_connector(&aster_drive_storage::ConnectorId::declared(
+            "asterdrive.storage.onedrive",
+        ))
+        .expect("OneDrive connector should remain available for policies");
+    assert!(
+        registry
+            .require_remote_target_connector(&onedrive.descriptor().connector_id)
+            .is_err()
+    );
+}
+
 #[async_trait::async_trait]
 impl StorageConnector for LocalizationContractConnector {
     fn descriptor(&self) -> StorageConnectorDescriptor {
@@ -42,10 +75,10 @@ impl StorageConnector for LocalizationContractConnector {
         Ok(self.localization.clone())
     }
 
-    async fn build_draft_driver(
+    async fn build_driver_from_connection(
         &self,
         _context: &StorageConnectorContext<'_>,
-        _policy: &storage_policy::Model,
+        _connector_config: &aster_drive_storage::ConnectorConfigEnvelope,
         _credential: &StorageConnectorCredentialInput,
     ) -> Result<Box<dyn StorageDriver>> {
         panic!("localization contract tests do not construct drivers")
@@ -2087,7 +2120,23 @@ async fn qiniu_connector_builds_draft_driver_and_enforces_runtime_credential_bou
     );
 
     let draft = qiniu
-        .build_draft_driver(&context, &qiniu_policy, &credential)
+        .build_driver_from_connection(
+            &context,
+            &aster_drive_storage::ConnectorConfigEnvelope::new(
+                aster_drive_storage::ConnectorId::declared(QiniuConnector::ID),
+                1,
+                serde_json::from_value(
+                    serde_json::from_str::<aster_drive_storage::StoragePolicyConfigEnvelope>(
+                        qiniu_policy.storage_config.as_ref(),
+                    )
+                    .unwrap()
+                    .connector
+                    .values,
+                )
+                .unwrap(),
+            ),
+            &credential,
+        )
         .await
         .expect("valid Qiniu draft driver should build");
     assert!(draft.extensions().presigned.is_some());
@@ -2137,4 +2186,46 @@ async fn qiniu_connector_builds_draft_driver_and_enforces_runtime_credential_bou
         qiniu_config(ObjectStorageUploadStrategy::RelayStream),
     );
     assert!(!qiniu.presigned_download_enabled(&relay_policy).unwrap());
+}
+
+#[tokio::test]
+async fn connector_neutral_factory_builds_qiniu_without_a_policy_entity() {
+    let qiniu = connector(QiniuConnector::ID);
+    let config = ConnectorConfigEnvelope::new(
+        ConnectorId::declared(QiniuConnector::ID),
+        1,
+        serde_json::to_value(qiniu_config(ObjectStorageUploadStrategy::RelayStream))
+            .expect("Qiniu config should serialize"),
+    );
+    let credential = StorageConnectorCredentialInput::Static(serde_json::json!({
+        "qiniu_access_key": "ACCESS",
+        "qiniu_secret_key": "SECRET",
+    }));
+    let db = sea_orm::Database::connect("sqlite::memory:")
+        .await
+        .expect("connector-neutral factory test database");
+    let application_config = crate::config::Config::default();
+    let runtime_config = crate::config::RuntimeConfig::default();
+    let driver_registry =
+        crate::storage::DriverRegistry::noop().expect("built-in storage connector registry");
+    let context = StorageConnectorContext::new(
+        &db,
+        &application_config,
+        &runtime_config,
+        &driver_registry,
+        None,
+    );
+    let driver = qiniu
+        .build_driver_from_connection(
+            &context,
+            &aster_drive_storage::ConnectorConfigEnvelope::new(
+                config.connector_id.clone(),
+                config.schema_version,
+                serde_json::from_value(serde_json::to_value(config.values).unwrap()).unwrap(),
+            ),
+            &credential,
+        )
+        .await
+        .expect("connector-neutral factory should build without policy entity");
+    assert!(driver.extensions().presigned.is_some());
 }

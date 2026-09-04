@@ -28,7 +28,6 @@ import { adminRemoteNodeService } from "@/services/adminService";
 import type {
 	RemoteCreateStorageTargetRequest,
 	RemoteNodeInfo,
-	RemoteStorageTargetDriverDescriptor,
 	RemoteStorageTargetInfo,
 	StorageConnectorCatalogContext,
 	StorageConnectorDescriptor,
@@ -68,18 +67,18 @@ export function useStoragePolicyDescriptorController({
 	const remoteStorageTargetsRequestSerial = useRef(0);
 	const storageConnectorLocalizationsRequestSerial = useRef(0);
 	const [
-		remoteStorageTargetDriverDescriptors,
-		setRemoteStorageTargetDriverDescriptors,
-	] = useState<RemoteStorageTargetDriverDescriptor[]>([]);
+		remoteStorageTargetConnectorDescriptors,
+		setRemoteStorageTargetConnectorDescriptors,
+	] = useState<StorageConnectorDescriptor[]>([]);
 	const [
-		remoteStorageTargetDriverDescriptorsLoading,
-		setRemoteStorageTargetDriverDescriptorsLoading,
+		remoteStorageTargetConnectorDescriptorsLoading,
+		setRemoteStorageTargetConnectorDescriptorsLoading,
 	] = useState(false);
 	const [
-		remoteStorageTargetDriverDescriptorsError,
-		setRemoteStorageTargetDriverDescriptorsError,
+		remoteStorageTargetConnectorDescriptorsError,
+		setRemoteStorageTargetConnectorDescriptorsError,
 	] = useState<string | null>(null);
-	const remoteStorageTargetDriverDescriptorsRequestSerial = useRef(0);
+	const remoteStorageTargetConnectorDescriptorsRequestSerial = useRef(0);
 	const [storageDriverDescriptors, setStorageDriverDescriptors] = useState<
 		StorageConnectorDescriptor[]
 	>(() => readAdminStorageDriverDescriptors(primaryCatalogContext) ?? []);
@@ -239,37 +238,39 @@ export function useStoragePolicyDescriptorController({
 		[remoteNodeFieldName, remoteStorageTargetFieldName, setForm, t],
 	);
 
-	const loadRemoteStorageTargetDriverDescriptorsForPolicy = useCallback(
+	const loadRemoteStorageTargetConnectorDescriptorsForPolicy = useCallback(
 		async (
 			remoteNodeId: number,
 			{ showErrorToast = true }: { showErrorToast?: boolean } = {},
 		) => {
 			const requestSerial =
-				++remoteStorageTargetDriverDescriptorsRequestSerial.current;
-			setRemoteStorageTargetDriverDescriptorsLoading(true);
-			setRemoteStorageTargetDriverDescriptorsError(null);
+				++remoteStorageTargetConnectorDescriptorsRequestSerial.current;
+			setRemoteStorageTargetConnectorDescriptorsLoading(true);
+			setRemoteStorageTargetConnectorDescriptorsError(null);
 
 			try {
 				const descriptors =
-					await adminRemoteNodeService.listStorageTargetDrivers(remoteNodeId);
+					await adminRemoteNodeService.listStorageTargetConnectors(
+						remoteNodeId,
+					);
 				if (
 					requestSerial !==
-					remoteStorageTargetDriverDescriptorsRequestSerial.current
+					remoteStorageTargetConnectorDescriptorsRequestSerial.current
 				) {
 					return;
 				}
-				setRemoteStorageTargetDriverDescriptors(descriptors);
-				setRemoteStorageTargetDriverDescriptorsError(null);
+				setRemoteStorageTargetConnectorDescriptors(descriptors);
+				setRemoteStorageTargetConnectorDescriptorsError(null);
 			} catch (error) {
 				if (
 					requestSerial !==
-					remoteStorageTargetDriverDescriptorsRequestSerial.current
+					remoteStorageTargetConnectorDescriptorsRequestSerial.current
 				) {
 					return;
 				}
-				setRemoteStorageTargetDriverDescriptors([]);
-				setRemoteStorageTargetDriverDescriptorsError(
-					t("remote_storage_target_drivers_load_failed"),
+				setRemoteStorageTargetConnectorDescriptors([]);
+				setRemoteStorageTargetConnectorDescriptorsError(
+					t("remote_storage_target_connectors_load_failed"),
 				);
 				if (showErrorToast) {
 					handleApiError(error);
@@ -277,9 +278,9 @@ export function useStoragePolicyDescriptorController({
 			} finally {
 				if (
 					requestSerial ===
-					remoteStorageTargetDriverDescriptorsRequestSerial.current
+					remoteStorageTargetConnectorDescriptorsRequestSerial.current
 				) {
-					setRemoteStorageTargetDriverDescriptorsLoading(false);
+					setRemoteStorageTargetConnectorDescriptorsLoading(false);
 				}
 			}
 		},
@@ -288,13 +289,13 @@ export function useStoragePolicyDescriptorController({
 
 	const resetRemoteStorageTargets = useCallback(() => {
 		remoteStorageTargetsRequestSerial.current += 1;
-		remoteStorageTargetDriverDescriptorsRequestSerial.current += 1;
+		remoteStorageTargetConnectorDescriptorsRequestSerial.current += 1;
 		setRemoteStorageTargets([]);
 		setRemoteStorageTargetsLoading(false);
 		setRemoteStorageTargetsError(null);
-		setRemoteStorageTargetDriverDescriptors([]);
-		setRemoteStorageTargetDriverDescriptorsLoading(false);
-		setRemoteStorageTargetDriverDescriptorsError(null);
+		setRemoteStorageTargetConnectorDescriptors([]);
+		setRemoteStorageTargetConnectorDescriptorsLoading(false);
+		setRemoteStorageTargetConnectorDescriptorsError(null);
 	}, []);
 
 	const selectedRemoteNodeId = remoteNodeFieldName
@@ -313,12 +314,12 @@ export function useStoragePolicyDescriptorController({
 		}
 
 		void loadRemoteStorageTargetsForPolicy(selectedRemoteNodeId);
-		void loadRemoteStorageTargetDriverDescriptorsForPolicy(
+		void loadRemoteStorageTargetConnectorDescriptorsForPolicy(
 			selectedRemoteNodeId,
 		);
 	}, [
 		dialogOpen,
-		loadRemoteStorageTargetDriverDescriptorsForPolicy,
+		loadRemoteStorageTargetConnectorDescriptorsForPolicy,
 		loadRemoteStorageTargetsForPolicy,
 		resetRemoteStorageTargets,
 		remoteStorageTargetFieldName,
@@ -518,9 +519,9 @@ export function useStoragePolicyDescriptorController({
 		refreshLookups,
 		refreshRemoteNodeLookup,
 		remoteNodes,
-		remoteStorageTargetDriverDescriptors,
-		remoteStorageTargetDriverDescriptorsError,
-		remoteStorageTargetDriverDescriptorsLoading,
+		remoteStorageTargetConnectorDescriptors,
+		remoteStorageTargetConnectorDescriptorsError,
+		remoteStorageTargetConnectorDescriptorsLoading,
 		remoteStorageTargets,
 		remoteStorageTargetsError,
 		remoteStorageTargetsLoading,

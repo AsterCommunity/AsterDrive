@@ -75,17 +75,31 @@
 | `POST` | `/admin/policies/test` | 用临时参数测试连接 |
 | `POST` | `/admin/policies/action` | 用草稿策略参数执行存储 action |
 
-### 创建策略示例
+### 创建策略示例（connector-owned connection）
 
 ```json
 {
   "name": "archive-s3",
-  "driver_type": "s3",
-  "endpoint": "https://s3.example.com",
-  "bucket": "archive",
-  "access_key": "AKIA...",
-  "secret_key": "...",
-  "base_path": "asterdrive/",
+  "connection": {
+    "connector_config": {
+      "format_version": 1,
+      "connector_id": "asterdrive.storage.s3",
+      "schema_version": 1,
+      "values": {
+        "endpoint": "https://s3.example.com",
+        "bucket": "archive",
+        "base_path": "asterdrive/"
+      }
+    },
+    "credential": {
+      "mode": "static",
+      "values": {
+        "access_key": "AKIA...",
+        "secret_key": "..."
+      }
+    },
+    "behavior": {}
+  },
   "max_file_size": 10737418240,
   "chunk_size": 10485760,
   "is_default": false
@@ -347,13 +361,13 @@ POST /api/v1/admin/policies/action
 | `POST` | `/admin/remote-nodes/{id}/test` | 测试已保存远端节点连接 |
 | `POST` | `/admin/remote-nodes/test` | 用临时参数测试远端节点连接 |
 | `POST` | `/admin/remote-nodes/{id}/enrollment-token` | 生成 follower enrollment 命令 |
-| `GET` | `/admin/remote-nodes/{id}/storage-target-drivers` | 列出 follower 侧远程存储目标可用 driver descriptor |
+| `GET` | `/admin/remote-nodes/{id}/storage-target-connectors` | 列出 follower 侧远程存储目标可用 connector descriptor |
 | `GET` | `/admin/remote-nodes/{id}/storage-targets` | 列出 follower 侧远程存储目标 |
 | `POST` | `/admin/remote-nodes/{id}/storage-targets` | 创建 follower 侧远程存储目标 |
 | `PATCH` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | 更新 follower 侧远程存储目标 |
 | `DELETE` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | 删除 follower 侧远程存储目标 |
 
-`0.4.0` 已移除旧 `/ingress-profile-drivers` 和 `/ingress-profiles` 兼容路径；客户端必须使用 `/storage-target-drivers` 和 `/storage-targets`。DTO 字段名使用 `target_key`。
+远程 target API 与普通 storage policy 共用 connector descriptor 和 connection envelope。旧 `/ingress-profile-drivers`、`/ingress-profiles` 以及 `/storage-target-drivers` 路径都已移除；客户端必须使用 `/storage-target-connectors` 和 `/storage-targets`。DTO 字段名使用 `target_key`。
 
 创建远端节点示例：
 

@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminRemoteNodesPage from "@/pages/admin/AdminRemoteNodesPage";
@@ -26,7 +32,7 @@ const adminRemoteNodeServiceMocks = vi.hoisted(() => ({
 	deleteStorageTarget: vi.fn(),
 	get: vi.fn(),
 	list: vi.fn(),
-	listStorageTargetDrivers: vi.fn(),
+	listStorageTargetConnectors: vi.fn(),
 	listStorageTargets: vi.fn(),
 	testConnection: vi.fn(),
 	update: vi.fn(),
@@ -65,8 +71,8 @@ vi.mock("@/components/admin/admin-remote-nodes-page/RemoteNodeDialog", () => ({
 	RemoteNodeDialog: ({
 		editingNode,
 		form,
-		remoteStorageTargetDriverDescriptors = [],
-		remoteStorageTargetDriverDescriptorsError = null,
+		remoteStorageTargetConnectorDescriptors = [],
+		remoteStorageTargetConnectorDescriptorsError = null,
 		remoteStorageTargets = [],
 		remoteStorageTargetsEnabled,
 		remoteStorageTargetsError,
@@ -85,8 +91,8 @@ vi.mock("@/components/admin/admin-remote-nodes-page/RemoteNodeDialog", () => ({
 	}: {
 		editingNode: { id: number; name: string } | null;
 		form: { base_url: string; is_enabled: boolean; name: string };
-		remoteStorageTargetDriverDescriptors?: unknown[];
-		remoteStorageTargetDriverDescriptorsError?: string | null;
+		remoteStorageTargetConnectorDescriptors?: unknown[];
+		remoteStorageTargetConnectorDescriptorsError?: string | null;
 		remoteStorageTargets?: unknown[];
 		remoteStorageTargetsEnabled: boolean;
 		remoteStorageTargetsError: string | null;
@@ -126,10 +132,18 @@ vi.mock("@/components/admin/admin-remote-nodes-page/RemoteNodeDialog", () => ({
 					{remoteStorageTargets.length}
 				</div>
 				<div data-testid="managed-ingress-driver-count">
-					{remoteStorageTargetDriverDescriptors.length}
+					{remoteStorageTargetConnectorDescriptors.length}
+				</div>
+				<div data-testid="managed-ingress-driver-ids">
+					{remoteStorageTargetConnectorDescriptors
+						.map(
+							(descriptor) =>
+								(descriptor as { connector_id?: string }).connector_id ?? "",
+						)
+						.join(",")}
 				</div>
 				<div data-testid="managed-ingress-driver-error">
-					{remoteStorageTargetDriverDescriptorsError ?? ""}
+					{remoteStorageTargetConnectorDescriptorsError ?? ""}
 				</div>
 				<div data-testid="editing-node-name">{editingNode?.name ?? ""}</div>
 				<button
@@ -421,6 +435,16 @@ function renderPage() {
 	render(<AdminRemoteNodesPage />);
 }
 
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (reason?: unknown) => void;
+	const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+		resolve = resolvePromise;
+		reject = rejectPromise;
+	});
+	return { promise, reject, resolve };
+}
+
 describe("AdminRemoteNodesPage", () => {
 	beforeEach(() => {
 		mockState.clipboard.mockReset();
@@ -476,7 +500,7 @@ describe("AdminRemoteNodesPage", () => {
 			items: [],
 			total: 0,
 		});
-		adminRemoteNodeServiceMocks.listStorageTargetDrivers.mockResolvedValue([
+		adminRemoteNodeServiceMocks.listStorageTargetConnectors.mockResolvedValue([
 			{
 				description_key: "remote_node_ingress_profile_local_scope_hint",
 				driver_type: "local",
@@ -630,7 +654,7 @@ describe("AdminRemoteNodesPage", () => {
 			).toHaveBeenCalledWith(7);
 		});
 		expect(
-			adminRemoteNodeServiceMocks.listStorageTargetDrivers,
+			adminRemoteNodeServiceMocks.listStorageTargetConnectors,
 		).toHaveBeenCalledWith(7);
 		expect(screen.getByTestId("remote-node-dialog")).toHaveTextContent("edit");
 		expect(screen.getByTestId("managed-ingress-enabled")).toHaveTextContent(
@@ -704,7 +728,39 @@ describe("AdminRemoteNodesPage", () => {
 			adminRemoteNodeServiceMocks.listStorageTargets,
 		).not.toHaveBeenCalled();
 		expect(
-			adminRemoteNodeServiceMocks.listStorageTargetDrivers,
+			adminRemoteNodeServiceMocks.listStorageTargetConnectors,
+		).not.toHaveBeenCalled();
+	});
+
+	it("keeps target state clear until node enrollment completes", () => {
+		mockState.useApiList.mockReturnValue({
+			items: [
+				{
+					base_url: "https://edge.example.com",
+					enrollment_status: "pending",
+					id: 7,
+					name: "Pending node",
+				},
+			],
+			loading: false,
+			reload: mockState.reload,
+			setItems: mockState.setItems,
+			setTotal: mockState.setTotal,
+			total: 1,
+		});
+
+		renderPage();
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+
+		expect(screen.getByTestId("managed-ingress-error")).toBeEmptyDOMElement();
+		expect(
+			screen.getByTestId("managed-ingress-driver-error"),
+		).toBeEmptyDOMElement();
+		expect(
+			adminRemoteNodeServiceMocks.listStorageTargets,
+		).not.toHaveBeenCalled();
+		expect(
+			adminRemoteNodeServiceMocks.listStorageTargetConnectors,
 		).not.toHaveBeenCalled();
 	});
 
@@ -741,7 +797,7 @@ describe("AdminRemoteNodesPage", () => {
 			).toHaveBeenCalledWith(7);
 		});
 		expect(
-			adminRemoteNodeServiceMocks.listStorageTargetDrivers,
+			adminRemoteNodeServiceMocks.listStorageTargetConnectors,
 		).toHaveBeenCalledWith(7);
 		expect(screen.getByTestId("managed-ingress-enabled")).toHaveTextContent(
 			"true",
@@ -782,7 +838,7 @@ describe("AdminRemoteNodesPage", () => {
 			).toHaveBeenCalledWith(7);
 		});
 		expect(
-			adminRemoteNodeServiceMocks.listStorageTargetDrivers,
+			adminRemoteNodeServiceMocks.listStorageTargetConnectors,
 		).toHaveBeenCalledWith(7);
 		expect(screen.getByTestId("managed-ingress-enabled")).toHaveTextContent(
 			"true",
@@ -823,7 +879,7 @@ describe("AdminRemoteNodesPage", () => {
 	});
 
 	it("surfaces managed ingress driver descriptor errors without canceling profile loading", async () => {
-		adminRemoteNodeServiceMocks.listStorageTargetDrivers.mockRejectedValueOnce(
+		adminRemoteNodeServiceMocks.listStorageTargetConnectors.mockRejectedValueOnce(
 			new Error("descriptor failed"),
 		);
 		mockState.useApiList.mockReturnValue({
@@ -851,7 +907,7 @@ describe("AdminRemoteNodesPage", () => {
 				adminRemoteNodeServiceMocks.listStorageTargets,
 			).toHaveBeenCalledWith(7);
 			expect(
-				adminRemoteNodeServiceMocks.listStorageTargetDrivers,
+				adminRemoteNodeServiceMocks.listStorageTargetConnectors,
 			).toHaveBeenCalledWith(7);
 		});
 		await waitFor(() => {
@@ -867,6 +923,125 @@ describe("AdminRemoteNodesPage", () => {
 		).toHaveTextContent("1");
 		expect(screen.getByTestId("managed-ingress-error")).toBeEmptyDOMElement();
 		expect(mockState.handleApiError).toHaveBeenCalledWith(expect.any(Error));
+	});
+
+	it("ignores stale connector descriptor responses after switching nodes", async () => {
+		const first = deferred<unknown[]>();
+		const second = deferred<unknown[]>();
+		adminRemoteNodeServiceMocks.listStorageTargetConnectors.mockImplementation(
+			(nodeId: number) => (nodeId === 7 ? first.promise : second.promise),
+		);
+		mockState.useApiList.mockReturnValue({
+			items: [
+				{
+					base_url: "https://first.example.com",
+					enrollment_status: "completed",
+					id: 7,
+					name: "First",
+				},
+				{
+					base_url: "https://second.example.com",
+					enrollment_status: "completed",
+					id: 8,
+					name: "Second",
+				},
+			],
+			loading: false,
+			reload: mockState.reload,
+			setItems: mockState.setItems,
+			setTotal: mockState.setTotal,
+			total: 2,
+		});
+
+		renderPage();
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		await waitFor(() =>
+			expect(
+				adminRemoteNodeServiceMocks.listStorageTargetConnectors,
+			).toHaveBeenCalledWith(7),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "close-node-dialog" }));
+		fireEvent.click(screen.getByRole("button", { name: "edit:8" }));
+		await waitFor(() =>
+			expect(
+				adminRemoteNodeServiceMocks.listStorageTargetConnectors,
+			).toHaveBeenCalledWith(8),
+		);
+
+		await act(async () => second.resolve([{ connector_id: "second" }]));
+		await waitFor(() =>
+			expect(
+				screen.getByTestId("managed-ingress-driver-count"),
+			).toHaveTextContent("1"),
+		);
+		expect(screen.getByTestId("managed-ingress-driver-ids")).toHaveTextContent(
+			"second",
+		);
+		await act(async () => first.resolve([{ connector_id: "first" }]));
+		expect(
+			screen.getByTestId("managed-ingress-driver-count"),
+		).toHaveTextContent("1");
+		expect(screen.getByTestId("managed-ingress-driver-ids")).toHaveTextContent(
+			"second",
+		);
+	});
+
+	it("ignores stale connector descriptor failures after switching nodes", async () => {
+		const first = deferred<unknown[]>();
+		const second = deferred<unknown[]>();
+		adminRemoteNodeServiceMocks.listStorageTargetConnectors.mockImplementation(
+			(nodeId: number) => (nodeId === 7 ? first.promise : second.promise),
+		);
+		mockState.useApiList.mockReturnValue({
+			items: [
+				{
+					base_url: "https://first.example.com",
+					enrollment_status: "completed",
+					id: 7,
+					name: "First",
+				},
+				{
+					base_url: "https://second.example.com",
+					enrollment_status: "completed",
+					id: 8,
+					name: "Second",
+				},
+			],
+			loading: false,
+			reload: mockState.reload,
+			setItems: mockState.setItems,
+			setTotal: mockState.setTotal,
+			total: 2,
+		});
+
+		renderPage();
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		await waitFor(() =>
+			expect(
+				adminRemoteNodeServiceMocks.listStorageTargetConnectors,
+			).toHaveBeenCalledWith(7),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "close-node-dialog" }));
+		fireEvent.click(screen.getByRole("button", { name: "edit:8" }));
+		await waitFor(() =>
+			expect(
+				adminRemoteNodeServiceMocks.listStorageTargetConnectors,
+			).toHaveBeenCalledWith(8),
+		);
+
+		await act(async () => second.resolve([{ connector_id: "second" }]));
+		await waitFor(() =>
+			expect(
+				screen.getByTestId("managed-ingress-driver-count"),
+			).toHaveTextContent("1"),
+		);
+		await act(async () => first.reject(new Error("stale failure")));
+		expect(
+			screen.getByTestId("managed-ingress-driver-count"),
+		).toHaveTextContent("1");
+		expect(
+			screen.getByTestId("managed-ingress-driver-error"),
+		).toBeEmptyDOMElement();
 	});
 
 	it("handles enrollment generation, completed-node guard, refresh, sorting and deletion", async () => {

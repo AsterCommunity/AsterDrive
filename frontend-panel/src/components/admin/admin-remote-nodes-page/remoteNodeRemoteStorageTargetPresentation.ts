@@ -25,11 +25,3 @@ export function getRemoteNodeRemoteStorageTargetProfileStatus(
 			"border-emerald-500/60 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
 	};
 }
-
-export function getRemoteNodeRemoteStorageTargetDriverBadgeTone(
-	driverType: RemoteStorageTargetInfo["driver_type"],
-) {
-	return driverType === "s3"
-		? "border-blue-500/60 bg-blue-500/10 text-blue-700 dark:text-blue-300"
-		: "border-slate-500/50 bg-slate-500/10 text-slate-700 dark:text-slate-300";
-}

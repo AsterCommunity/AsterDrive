@@ -5,8 +5,6 @@ import {
 	buildUpdateRemoteStorageTargetPayload,
 	emptyRemoteStorageTargetForm,
 	getRemoteStorageTargetForm,
-	isRemoteStorageTargetDriverType,
-	type RemoteStorageTargetDriverType,
 	type RemoteStorageTargetFormData,
 } from "@/components/admin/remoteStorageTargetDialogShared";
 import { AnimatedCollapsible } from "@/components/common/AnimatedCollapsible";
@@ -15,23 +13,20 @@ import { Icon } from "@/components/ui/icon";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
 	RemoteCreateStorageTargetRequest,
-	RemoteStorageTargetDriverDescriptor,
 	RemoteStorageTargetInfo,
 	RemoteUpdateStorageTargetRequest,
+	StorageConnectorDescriptor,
 } from "@/types/api";
 import { RemoteNodeRemoteStorageTargetForm } from "./RemoteNodeRemoteStorageTargetForm";
 import { RemoteNodeRemoteStorageTargetsList } from "./RemoteNodeRemoteStorageTargetsList";
 
-type SupportedRemoteStorageTargetDriverDescriptor =
-	RemoteStorageTargetDriverDescriptor & {
-		driver_type: RemoteStorageTargetDriverType;
-	};
+const IS_DEFAULT_FIELD = "is_default";
 
 interface RemoteNodeRemoteStorageTargetSectionProps {
 	allowCreate?: boolean;
 	createLabelKey?: string;
 	descriptionKey?: string;
-	driverDescriptors?: RemoteStorageTargetDriverDescriptor[];
+	connectorDescriptors?: StorageConnectorDescriptor[];
 	errorMessage: string | null;
 	listViewportClassName?: string;
 	loading: boolean;
@@ -51,7 +46,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 	allowCreate = false,
 	createLabelKey = "remote_node_ingress_profiles_create",
 	descriptionKey = "remote_node_ingress_profiles_desc",
-	driverDescriptors = [],
+	connectorDescriptors = [],
 	errorMessage,
 	listViewportClassName,
 	loading,
@@ -86,37 +81,20 @@ export function RemoteNodeRemoteStorageTargetSection({
 			: draftMode;
 	const canCreateTargets =
 		Boolean(onCreateTarget) && (!readOnly || allowCreate);
-	const supportedDriverDescriptors = driverDescriptors.flatMap(
-		(descriptor): SupportedRemoteStorageTargetDriverDescriptor[] =>
-			isRemoteStorageTargetDriverType(descriptor.driver_type)
-				? [{ ...descriptor, driver_type: descriptor.driver_type }]
-				: [],
-	);
-	const activeDriverDescriptor =
-		supportedDriverDescriptors.find(
-			(descriptor) => descriptor.driver_type === form.driver_type,
+	const supportedConnectorDescriptors = connectorDescriptors;
+	const activeConnectorDescriptor =
+		supportedConnectorDescriptors.find(
+			(descriptor) => descriptor.connector_id === form.connector_id,
 		) ?? null;
-	const firstSupportedDriverType =
-		supportedDriverDescriptors[0]?.driver_type ?? null;
-	const supportedDriverTypes = new Set(
-		supportedDriverDescriptors.map((descriptor) => descriptor.driver_type),
+	const firstSupportedConnectorId =
+		supportedConnectorDescriptors[0]?.connector_id ?? null;
+	const supportedConnectorIds = new Set<string>(
+		supportedConnectorDescriptors.map((descriptor) => descriptor.connector_id),
 	);
-	const driverTypeError =
-		activeDraftMode != null && !supportedDriverTypes.has(form.driver_type)
+	const connectorIdError =
+		activeDraftMode != null && !supportedConnectorIds.has(form.connector_id)
 			? t("remote_node_ingress_profile_driver_unsupported")
 			: null;
-	const activeFieldNames = new Set(
-		activeDriverDescriptor?.fields.map((field) => field.name) ?? [],
-	);
-	const activeFieldByName = new Map(
-		activeDriverDescriptor?.fields.map((field) => [field.name, field]) ?? [],
-	);
-	const activeField = (name: string) => activeFieldByName.get(name);
-	const basePathField = activeField("base_path");
-	const endpointField = activeField("endpoint");
-	const bucketField = activeField("bucket");
-	const accessKeyField = activeField("access_key");
-	const secretKeyField = activeField("secret_key");
 	const activePendingDeleteTargetKey = targets.some(
 		(target) => target.target_key === pendingDeleteTargetKey,
 	)
@@ -124,7 +102,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 		: null;
 
 	const startCreate = () => {
-		if (!canCreateTargets || !firstSupportedDriverType) {
+		if (!canCreateTargets || !firstSupportedConnectorId) {
 			return;
 		}
 		setDraftMode("create");
@@ -132,7 +110,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 		setReadOnlyOpen(true);
 		setForm({
 			...emptyRemoteStorageTargetForm,
-			driver_type: firstSupportedDriverType,
+			connector_id: firstSupportedConnectorId,
 			is_default: targets.length === 0,
 		});
 	};
@@ -157,60 +135,36 @@ export function RemoteNodeRemoteStorageTargetSection({
 	const nameError = form.name.trim()
 		? null
 		: t("remote_node_ingress_profile_name_required");
-	const localPathCandidate = form.base_path.trim().replaceAll("\\", "/");
-	const requiresLocalRelativePath =
-		basePathField?.validation?.relative_local_path === true;
-	const localPathError =
-		basePathField?.required && !form.base_path.trim()
-			? t("remote_node_ingress_profile_base_path_required")
-			: basePathField && requiresLocalRelativePath
-				? !form.base_path.trim()
-					? t("remote_node_ingress_profile_base_path_required")
-					: localPathCandidate.startsWith("/") ||
-							/^[A-Za-z]:/.test(localPathCandidate) ||
-							localPathCandidate.split("/").some((segment) => segment === "..")
-						? t("remote_node_ingress_profile_base_path_relative")
-						: null
-				: null;
-	const endpointError =
-		endpointField?.required && !form.endpoint.trim()
-			? t("remote_node_ingress_profile_endpoint_required")
-			: null;
-	const bucketError =
-		bucketField?.required && !form.bucket.trim()
-			? t("remote_node_ingress_profile_bucket_required")
-			: null;
-	const preservesExistingSecretValue =
-		activeDraftMode === "edit" &&
-		editingTarget?.driver_type === form.driver_type &&
-		secretKeyField?.secret === true;
-	const accessKeyError =
-		accessKeyField?.required && !form.access_key.trim()
-			? t("remote_node_ingress_profile_access_key_required")
-			: null;
-	const secretKeyError =
-		secretKeyField?.required &&
-		!preservesExistingSecretValue &&
-		!form.secret_key.trim()
-			? t("remote_node_ingress_profile_secret_key_required")
-			: null;
+	const missingRequiredField =
+		activeConnectorDescriptor?.fields.some((field) => {
+			if (!field.required || field.name === IS_DEFAULT_FIELD) return false;
+			if (
+				field.scope !== "connector_config" &&
+				activeDraftMode === "edit" &&
+				editingTarget?.connector_id === form.connector_id
+			) {
+				return false;
+			}
+			const values =
+				field.scope === "connector_config"
+					? form.connector_config_values
+					: form.credential_values;
+			const value = values[field.name];
+			return value == null || String(value).trim().length === 0;
+		}) ?? false;
 	const defaultToggleLocked =
 		activeDraftMode === "edit" && editingTarget?.is_default;
 	const submitDisabled =
 		submitting ||
 		Boolean(errorMessage) ||
-		Boolean(
-			nameError ||
-				driverTypeError ||
-				localPathError ||
-				endpointError ||
-				bucketError ||
-				accessKeyError ||
-				secretKeyError,
-		);
+		Boolean(nameError || connectorIdError || missingRequiredField);
 
 	const handleSubmit = async () => {
-		if (activeDraftMode == null || submitDisabled) {
+		if (
+			activeDraftMode == null ||
+			activeConnectorDescriptor == null ||
+			submitDisabled
+		) {
 			return;
 		}
 
@@ -218,14 +172,17 @@ export function RemoteNodeRemoteStorageTargetSection({
 		try {
 			if (activeDraftMode === "create" && onCreateTarget) {
 				await onCreateTarget(
-					buildCreateRemoteStorageTargetPayload(form, activeFieldNames),
+					buildCreateRemoteStorageTargetPayload(
+						form,
+						activeConnectorDescriptor,
+					),
 				);
 			} else if (editingTarget != null && onUpdateTarget) {
 				await onUpdateTarget(
 					editingTarget.target_key,
 					buildUpdateRemoteStorageTargetPayload(
 						form,
-						activeFieldNames,
+						activeConnectorDescriptor,
 						editingTarget,
 					),
 				);
@@ -265,6 +222,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 			setPendingDeleteTargetKey(target.target_key),
 		onEditTarget: startEdit,
 		targets,
+		connectorDescriptors,
 	};
 
 	return (
@@ -289,7 +247,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 								disabled={
 									loading ||
 									Boolean(errorMessage) ||
-									firstSupportedDriverType == null ||
+									firstSupportedConnectorId == null ||
 									!canCreateTargets
 								}
 							>
@@ -328,7 +286,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 						disabled={
 							loading ||
 							Boolean(errorMessage) ||
-							firstSupportedDriverType == null ||
+							firstSupportedConnectorId == null ||
 							!canCreateTargets
 						}
 					>
@@ -346,23 +304,18 @@ export function RemoteNodeRemoteStorageTargetSection({
 
 			{activeDraftMode != null ? (
 				<RemoteNodeRemoteStorageTargetForm
-					accessKeyError={accessKeyError}
-					bucketError={bucketError}
 					defaultToggleLocked={Boolean(defaultToggleLocked)}
-					driverDescriptors={supportedDriverDescriptors}
-					driverTypeError={driverTypeError}
+					connectorDescriptors={supportedConnectorDescriptors}
+					connectorIdError={connectorIdError}
 					draftMode={activeDraftMode}
-					editingProfile={editingTarget}
-					endpointError={endpointError}
 					form={form}
-					localPathError={localPathError}
 					nameError={nameError}
 					onCancel={resetDraft}
 					onFieldChange={setField}
 					onSubmit={() => void handleSubmit()}
-					secretKeyError={secretKeyError}
 					submitDisabled={submitDisabled}
 					submitting={submitting}
+					targets={targets}
 				/>
 			) : null}
 

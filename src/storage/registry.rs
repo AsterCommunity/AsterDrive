@@ -441,10 +441,10 @@ mod tests {
             .map_err(|error| AsterError::internal_error(error.to_string()))
         }
 
-        async fn build_draft_driver(
+        async fn build_driver_from_connection(
             &self,
             _context: &StorageConnectorContext<'_>,
-            _policy: &storage_policy::Model,
+            _connector_config: &aster_drive_storage::ConnectorConfigEnvelope,
             _credential: &StorageConnectorCredentialInput,
         ) -> Result<Box<dyn StorageDriver>> {
             Ok(Box::new(TestMultipartDriver))

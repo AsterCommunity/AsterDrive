@@ -692,14 +692,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/remote-nodes/{id}/storage-target-drivers": {
+    "/api/v1/admin/remote-nodes/{id}/storage-target-connectors": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["list_remote_node_storage_target_drivers"];
+        get: operations["list_remote_node_storage_target_connectors"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4670,7 +4670,7 @@ export interface components {
         AdminUserSortBy: "id" | "username" | "email" | "role" | "status" | "storage_used" | "storage_quota" | "created_at" | "updated_at";
         ApiEmptyData: Record<string, never>;
         /** @enum {string} */
-        ApiErrorCode: "success" | "bad_request" | "not_found" | "internal_server_error" | "database.error" | "config.error" | "endpoint.not_found" | "rate_limited" | "operation.resource_limit_exceeded" | "mail.not_configured" | "mail.delivery_failed" | "conflict" | "config.public_site_url_required" | "config.public_site_url_invalid" | "auth.failed" | "auth.token_expired" | "auth.token_invalid" | "forbidden" | "auth.pending_activation" | "auth.contact_verification_invalid" | "auth.contact_verification_expired" | "auth.token_missing" | "auth.credentials_failed" | "auth.mfa_failed" | "auth.refresh_token_stale" | "auth.refresh_token_reuse_detected" | "file.not_found" | "file.too_large" | "file.type_not_allowed" | "file.upload_failed" | "upload.session_not_found" | "upload.session_expired" | "upload.chunk_failed" | "upload.assembly_failed" | "thumbnail.failed" | "resource.locked" | "precondition_failed" | "upload.assembling" | "storage.policy_not_found" | "storage.driver_error" | "storage.quota_exceeded" | "storage.unsupported_driver" | "storage.auth_failed" | "storage.permission_denied" | "storage.misconfigured" | "storage.object_not_found" | "storage.rate_limited" | "storage.transient_failure" | "storage.precondition_failed" | "storage.operation_unsupported" | "folder.not_found" | "share.not_found" | "share.expired" | "share.password_required" | "share.download_limit_reached" | "archive_preview.disabled" | "archive_preview.user_disabled" | "archive_preview.share_disabled" | "archive_preview.source_too_large" | "archive_preview.invalid_archive" | "archive_preview.manifest_too_large" | "archive_preview.unsupported_type" | "archive_preview.rejected" | "archive_preview.source_size_mismatch" | "archive_compress.disabled" | "archive_download.user_disabled" | "archive_download.share_disabled" | "auth.username_exists" | "auth.email_exists" | "auth.identifier_exists" | "auth.admin_required" | "auth.account_disabled" | "auth.request_source_untrusted" | "auth.request_origin_untrusted" | "auth.request_referer_untrusted" | "auth.request_source_missing" | "auth.session_user_mismatch" | "auth.csrf_cookie_missing" | "auth.csrf_header_missing" | "auth.csrf_token_invalid" | "auth.passkey_login_disabled" | "auth.password_login_disabled" | "auth.registration_disabled" | "auth.email_blocked" | "auth.email_not_allowlisted" | "auth.mfa_flow_invalid" | "auth.mfa_flow_expired" | "auth.mfa_code_invalid" | "auth.mfa_attempts_exceeded" | "auth.mfa_factor_required" | "auth.mfa_factor_already_exists" | "auth.mfa_recovery_code_used" | "auth.mfa_email_code_required" | "auth.mfa_email_code_expired" | "auth.invitation_invalid" | "auth.invitation_expired" | "auth.invitation_revoked" | "auth.invitation_accepted" | "auth.password_change_required" | "avatar.file_required" | "avatar.upload_read_failed" | "avatar.processor_unavailable" | "avatar.empty_image" | "avatar.render_failed" | "avatar.output_invalid" | "file.name_conflict" | "file.etag_mismatch" | "file.modified_during_write" | "folder.name_conflict" | "lock.not_owner" | "share.scope_denied" | "managed_ingress.binding_mismatch" | "managed_ingress.default_delete_requires_replacement" | "managed_ingress.default_error" | "managed_ingress.default_missing" | "managed_ingress.default_not_applied" | "managed_ingress.default_update_requires_replacement" | "managed_ingress.driver_unsupported" | "managed_ingress.local_path_invalid" | "managed_ingress.required" | "managed_ingress.single_primary_required" | "remote_storage_target.not_found" | "master_binding.disabled" | "passkey.name_invalid" | "passkey.name_too_long" | "passkey.not_discoverable" | "team.not_member" | "team.owner_required" | "team.admin_or_owner_required" | "policy.upload_sessions_exist" | "policy.storage_access_key_required" | "policy.storage_secret_key_required" | "policy.storage_bucket_required" | "policy.storage_endpoint_invalid" | "policy.remote_node_required" | "policy.remote_node_unexpected" | "policy.remote_storage_target_required" | "policy.remote_node_disabled" | "policy.remote_node_base_url_required" | "policy.remote_node_transfer_strategy_unsupported" | "policy.onedrive_options_unsupported" | "policy.sftp_options_unsupported" | "policy.onedrive_account_mode_required" | "policy.onedrive_personal_china_cloud_unsupported" | "policy.onedrive_sharepoint_site_required" | "policy.onedrive_group_required" | "policy.native_thumbnail_unsupported" | "policy.native_media_metadata_unsupported" | "policy.action_unsupported" | "policy.action_parameter_required" | "policy.action_parameter_invalid" | "policy.promotion_source_unsupported" | "policy.promotion_source_config_unsupported" | "policy.promotion_target_unsupported" | "workspace.scope_denied" | "external_auth.provider_disabled" | "external_auth.policy_denied" | "external_auth.callback_redirect_uri_required" | "offline_download.aria2_rpc_auth_failed" | "offline_download.aria2_rpc_probe_failed" | "remote_node.disabled" | "remote_node.enrollment_required" | "remote_node.unique_conflict" | "storage.auth" | "storage.not_found" | "storage.permission" | "storage.precondition" | "storage.transient" | "storage.unsupported" | "storage.unknown" | "task.lease_lost" | "task.lease_renewal_timed_out" | "task.worker_shutdown_requested" | "task.retry_status_conflict" | "task.retry_not_allowed" | "team.member_exists" | "thumbnail.format_guess_failed" | "thumbnail.decode_failed" | "thumbnail.encode_failed" | "thumbnail.source_open_failed" | "thumbnail.source_stream_failed" | "thumbnail.task_panicked" | "thumbnail.source_too_large" | "thumbnail.processor_unavailable" | "thumbnail.render_failed" | "thumbnail.output_invalid" | "thumbnail.source_temp_create_failed" | "thumbnail.source_temp_flush_failed" | "thumbnail.source_temp_copy_failed" | "wopi.public_site_url_required" | "wopi.app_disabled" | "wopi.request_origin_untrusted" | "wopi.request_referer_untrusted" | "upload.temp_dir_create_failed" | "upload.temp_file_create_failed" | "upload.temp_file_write_failed" | "upload.temp_file_flush_failed" | "upload.request_body_read_failed" | "upload.request_body_size_overflow" | "upload.request_size_mismatch" | "upload.hash_temp_open_failed" | "upload.hash_temp_read_failed" | "upload.field_read_failed" | "upload.local_staging_path_resolve_failed" | "upload.local_staging_dir_create_failed" | "upload.local_staging_file_create_failed" | "upload.local_staging_write_failed" | "upload.local_staging_flush_failed" | "upload.direct_relay_write_failed" | "upload.direct_relay_shutdown_failed" | "upload.direct_relay_task_failed" | "upload.body_size_overflow" | "upload.declared_size_invalid" | "upload.empty_file" | "upload.chunk_persist_failed" | "upload.chunk_relay_failed" | "upload.chunk_pending" | "upload.chunk_transport_mismatch" | "upload.chunk_session_invalid" | "upload.chunk_number_out_of_range" | "upload.chunk_size_mismatch" | "upload.chunk_too_large" | "upload.chunk_size_overflow" | "upload.status_conflict" | "upload.completed_file_missing" | "upload.previous_failure" | "upload.parts_required" | "upload.incomplete_chunks" | "upload.incomplete_parts" | "upload.missing_part" | "upload.temp_object_missing" | "upload.temp_object_size_mismatch" | "upload.final_object_size_mismatch" | "upload.session_corrupted" | "upload.part_numbers_empty" | "upload.part_numbers_too_many" | "upload.part_number_out_of_range" | "upload.assembly_io_failed" | "upload.assembly_size_overflow" | "webdav.username_exists" | "wopi.max_expected_size_exceeded" | "validation.request_origin_invalid" | "validation.request_referer_invalid" | "validation.request_host_invalid" | "validation.request_scheme_invalid" | "validation.request_header_value_invalid" | "validation.system_already_initialized" | "validation.system_not_initialized" | "search.query_empty" | "search.type_invalid" | "search.tag_match_invalid" | "search.size_range_invalid" | "search.file_filter_type_conflict" | "search.mime_type_empty" | "search.category_invalid" | "search.extensions_invalid" | "search.tag_ids_invalid" | "search.date_invalid" | "search.date_range_invalid" | "internal_storage.range_length_invalid" | "internal_storage.range_empty_object" | "internal_storage.range_offset_out_of_bounds" | "internal_storage.range_header_invalid" | "internal_storage.range_multiple_unsupported" | "internal_storage.range_bounds_invalid" | "internal_storage.content_length_required" | "internal_storage.content_length_invalid" | "internal_storage.compose_parts_required" | "internal_storage.compose_expected_size_invalid";
+        ApiErrorCode: "success" | "bad_request" | "not_found" | "internal_server_error" | "database.error" | "config.error" | "endpoint.not_found" | "rate_limited" | "operation.resource_limit_exceeded" | "mail.not_configured" | "mail.delivery_failed" | "conflict" | "config.public_site_url_required" | "config.public_site_url_invalid" | "auth.failed" | "auth.token_expired" | "auth.token_invalid" | "forbidden" | "auth.pending_activation" | "auth.contact_verification_invalid" | "auth.contact_verification_expired" | "auth.token_missing" | "auth.credentials_failed" | "auth.mfa_failed" | "auth.refresh_token_stale" | "auth.refresh_token_reuse_detected" | "file.not_found" | "file.too_large" | "file.type_not_allowed" | "file.upload_failed" | "upload.session_not_found" | "upload.session_expired" | "upload.chunk_failed" | "upload.assembly_failed" | "thumbnail.failed" | "resource.locked" | "precondition_failed" | "upload.assembling" | "storage.policy_not_found" | "storage.driver_error" | "storage.quota_exceeded" | "storage.unsupported_driver" | "storage.auth_failed" | "storage.permission_denied" | "storage.misconfigured" | "storage.object_not_found" | "storage.rate_limited" | "storage.transient_failure" | "storage.precondition_failed" | "storage.operation_unsupported" | "folder.not_found" | "share.not_found" | "share.expired" | "share.password_required" | "share.download_limit_reached" | "archive_preview.disabled" | "archive_preview.user_disabled" | "archive_preview.share_disabled" | "archive_preview.source_too_large" | "archive_preview.invalid_archive" | "archive_preview.manifest_too_large" | "archive_preview.unsupported_type" | "archive_preview.rejected" | "archive_preview.source_size_mismatch" | "archive_compress.disabled" | "archive_download.user_disabled" | "archive_download.share_disabled" | "auth.username_exists" | "auth.email_exists" | "auth.identifier_exists" | "auth.admin_required" | "auth.account_disabled" | "auth.request_source_untrusted" | "auth.request_origin_untrusted" | "auth.request_referer_untrusted" | "auth.request_source_missing" | "auth.session_user_mismatch" | "auth.csrf_cookie_missing" | "auth.csrf_header_missing" | "auth.csrf_token_invalid" | "auth.passkey_login_disabled" | "auth.password_login_disabled" | "auth.registration_disabled" | "auth.email_blocked" | "auth.email_not_allowlisted" | "auth.mfa_flow_invalid" | "auth.mfa_flow_expired" | "auth.mfa_code_invalid" | "auth.mfa_attempts_exceeded" | "auth.mfa_factor_required" | "auth.mfa_factor_already_exists" | "auth.mfa_recovery_code_used" | "auth.mfa_email_code_required" | "auth.mfa_email_code_expired" | "auth.invitation_invalid" | "auth.invitation_expired" | "auth.invitation_revoked" | "auth.invitation_accepted" | "auth.password_change_required" | "avatar.file_required" | "avatar.upload_read_failed" | "avatar.processor_unavailable" | "avatar.empty_image" | "avatar.render_failed" | "avatar.output_invalid" | "file.name_conflict" | "file.etag_mismatch" | "file.modified_during_write" | "folder.name_conflict" | "lock.not_owner" | "share.scope_denied" | "remote_storage_target.binding_mismatch" | "remote_storage_target.default_delete_requires_replacement" | "remote_storage_target.default_error" | "remote_storage_target.default_missing" | "remote_storage_target.default_not_applied" | "remote_storage_target.default_update_requires_replacement" | "remote_storage_target.connector_unsupported" | "remote_storage_target.local_path_invalid" | "remote_storage_target.required" | "remote_storage_target.single_primary_required" | "remote_storage_target.not_found" | "master_binding.disabled" | "passkey.name_invalid" | "passkey.name_too_long" | "passkey.not_discoverable" | "team.not_member" | "team.owner_required" | "team.admin_or_owner_required" | "policy.upload_sessions_exist" | "policy.storage_access_key_required" | "policy.storage_secret_key_required" | "policy.storage_bucket_required" | "policy.storage_endpoint_invalid" | "policy.remote_node_required" | "policy.remote_node_unexpected" | "policy.remote_storage_target_required" | "policy.remote_node_disabled" | "policy.remote_node_base_url_required" | "policy.remote_node_transfer_strategy_unsupported" | "policy.onedrive_options_unsupported" | "policy.sftp_options_unsupported" | "policy.onedrive_account_mode_required" | "policy.onedrive_personal_china_cloud_unsupported" | "policy.onedrive_sharepoint_site_required" | "policy.onedrive_group_required" | "policy.native_thumbnail_unsupported" | "policy.native_media_metadata_unsupported" | "policy.action_unsupported" | "policy.action_parameter_required" | "policy.action_parameter_invalid" | "policy.promotion_source_unsupported" | "policy.promotion_source_config_unsupported" | "policy.promotion_target_unsupported" | "workspace.scope_denied" | "external_auth.provider_disabled" | "external_auth.policy_denied" | "external_auth.callback_redirect_uri_required" | "offline_download.aria2_rpc_auth_failed" | "offline_download.aria2_rpc_probe_failed" | "remote_node.disabled" | "remote_node.enrollment_required" | "remote_node.unique_conflict" | "storage.auth" | "storage.not_found" | "storage.permission" | "storage.precondition" | "storage.transient" | "storage.unsupported" | "storage.unknown" | "task.lease_lost" | "task.lease_renewal_timed_out" | "task.worker_shutdown_requested" | "task.retry_status_conflict" | "task.retry_not_allowed" | "team.member_exists" | "thumbnail.format_guess_failed" | "thumbnail.decode_failed" | "thumbnail.encode_failed" | "thumbnail.source_open_failed" | "thumbnail.source_stream_failed" | "thumbnail.task_panicked" | "thumbnail.source_too_large" | "thumbnail.processor_unavailable" | "thumbnail.render_failed" | "thumbnail.output_invalid" | "thumbnail.source_temp_create_failed" | "thumbnail.source_temp_flush_failed" | "thumbnail.source_temp_copy_failed" | "wopi.public_site_url_required" | "wopi.app_disabled" | "wopi.request_origin_untrusted" | "wopi.request_referer_untrusted" | "upload.temp_dir_create_failed" | "upload.temp_file_create_failed" | "upload.temp_file_write_failed" | "upload.temp_file_flush_failed" | "upload.request_body_read_failed" | "upload.request_body_size_overflow" | "upload.request_size_mismatch" | "upload.hash_temp_open_failed" | "upload.hash_temp_read_failed" | "upload.field_read_failed" | "upload.local_staging_path_resolve_failed" | "upload.local_staging_dir_create_failed" | "upload.local_staging_file_create_failed" | "upload.local_staging_write_failed" | "upload.local_staging_flush_failed" | "upload.direct_relay_write_failed" | "upload.direct_relay_shutdown_failed" | "upload.direct_relay_task_failed" | "upload.body_size_overflow" | "upload.declared_size_invalid" | "upload.empty_file" | "upload.chunk_persist_failed" | "upload.chunk_relay_failed" | "upload.chunk_pending" | "upload.chunk_transport_mismatch" | "upload.chunk_session_invalid" | "upload.chunk_number_out_of_range" | "upload.chunk_size_mismatch" | "upload.chunk_too_large" | "upload.chunk_size_overflow" | "upload.status_conflict" | "upload.completed_file_missing" | "upload.previous_failure" | "upload.parts_required" | "upload.incomplete_chunks" | "upload.incomplete_parts" | "upload.missing_part" | "upload.temp_object_missing" | "upload.temp_object_size_mismatch" | "upload.final_object_size_mismatch" | "upload.session_corrupted" | "upload.part_numbers_empty" | "upload.part_numbers_too_many" | "upload.part_number_out_of_range" | "upload.assembly_io_failed" | "upload.assembly_size_overflow" | "webdav.username_exists" | "wopi.max_expected_size_exceeded" | "validation.request_origin_invalid" | "validation.request_referer_invalid" | "validation.request_host_invalid" | "validation.request_scheme_invalid" | "validation.request_header_value_invalid" | "validation.system_already_initialized" | "validation.system_not_initialized" | "search.query_empty" | "search.type_invalid" | "search.tag_match_invalid" | "search.size_range_invalid" | "search.file_filter_type_conflict" | "search.mime_type_empty" | "search.category_invalid" | "search.extensions_invalid" | "search.tag_ids_invalid" | "search.date_invalid" | "search.date_range_invalid" | "internal_storage.range_length_invalid" | "internal_storage.range_empty_object" | "internal_storage.range_offset_out_of_bounds" | "internal_storage.range_header_invalid" | "internal_storage.range_multiple_unsupported" | "internal_storage.range_bounds_invalid" | "internal_storage.content_length_required" | "internal_storage.content_length_invalid" | "internal_storage.compose_parts_required" | "internal_storage.compose_expected_size_invalid";
         ApiErrorDiagnostic: {
             kind: string;
             message: string;
@@ -5317,7 +5317,7 @@ export interface components {
             allowed_types?: string[] | null;
             /** Format: int64 */
             chunk_size?: number | null;
-            connection: components["schemas"]["StorageConnectorConnectionInput"];
+            connection: components["schemas"]["StoragePolicyConnectionInput"];
             is_default?: boolean | null;
             /** Format: int64 */
             max_file_size?: number | null;
@@ -5436,7 +5436,7 @@ export interface components {
         };
         ExecuteDraftStorageConnectorActionInput: {
             action_id: components["schemas"]["StorageConnectorActionId"];
-            connection: components["schemas"]["StorageConnectorConnectionInput"];
+            connection: components["schemas"]["StoragePolicyConnectionInput"];
             /** Format: int64 */
             policy_id?: number | null;
             values?: {
@@ -7394,27 +7394,11 @@ export interface components {
             password: string;
             username: string;
         };
-        RemoteCreateLocalStorageTargetRequest: {
-            base_path: string;
+        RemoteCreateStorageTargetRequest: {
+            connection: components["schemas"]["StorageConnectionInput"];
             is_default?: boolean;
             name: string;
         };
-        RemoteCreateS3StorageTargetRequest: {
-            access_key: string;
-            base_path: string;
-            bucket: string;
-            endpoint: string;
-            is_default?: boolean;
-            name: string;
-            secret_key: string;
-        };
-        RemoteCreateStorageTargetRequest: (components["schemas"]["RemoteCreateLocalStorageTargetRequest"] & {
-            /** @enum {string} */
-            driver_type: "local";
-        }) | (components["schemas"]["RemoteCreateS3StorageTargetRequest"] & {
-            /** @enum {string} */
-            driver_type: "s3";
-        });
         /**
          * @description Remote 下载传输策略（存储策略 options JSON）
          * @enum {string}
@@ -7489,9 +7473,9 @@ export interface components {
             browser_cors?: components["schemas"]["RemoteStorageBrowserCorsContract"];
             features?: components["schemas"]["RemoteStorageFeatureFlags"];
             limits?: components["schemas"]["RemoteStorageProtocolLimits"];
-            managed_ingress?: null | components["schemas"]["RemoteStorageTargetCapabilities"];
             min_supported_protocol_version?: string;
             protocol_version?: string;
+            remote_storage_target?: null | components["schemas"]["RemoteStorageTargetCapabilities"];
             server_version?: string | null;
             supports_capacity?: boolean;
             supports_list?: boolean;
@@ -7520,37 +7504,17 @@ export interface components {
             max_ingress_size?: number | null;
         };
         RemoteStorageTargetCapabilities: {
-            driver_types?: components["schemas"]["RemoteStorageTargetDriverType"][];
+            connector_ids?: string[];
             enabled: boolean;
         };
-        RemoteStorageTargetDriverFieldDescriptor: {
-            help_key?: string | null;
-            kind: components["schemas"]["RemoteStorageTargetDriverFieldKind"];
-            label_key: string;
-            name: string;
-            placeholder?: string | null;
-            required: boolean;
-            secret: boolean;
-            validation?: null | components["schemas"]["RemoteStorageTargetDriverFieldValidation"];
-        };
-        /** @enum {string} */
-        RemoteStorageTargetDriverFieldKind: "text" | "secret" | "boolean" | "number";
-        RemoteStorageTargetDriverFieldValidation: {
-            relative_local_path: boolean;
-        };
-        /** @enum {string} */
-        RemoteStorageTargetDriverKind: "local" | "s3";
-        RemoteStorageTargetDriverType: string;
         RemoteStorageTargetInfo: {
             /** Format: int64 */
             applied_revision: number;
-            base_path: string;
-            bucket: string;
+            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
+            connector_id: string;
             created_at: string;
             /** Format: int64 */
             desired_revision: number;
-            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
-            endpoint: string;
             is_default: boolean;
             last_error: string;
             name: string;
@@ -7571,14 +7535,9 @@ export interface components {
         /** @enum {string} */
         RemoteTunnelOnlineStatus: "online" | "offline";
         RemoteUpdateStorageTargetRequest: {
-            access_key?: string | null;
-            base_path?: string | null;
-            bucket?: string | null;
-            driver_type?: null | components["schemas"]["RemoteStorageTargetDriverKind"];
-            endpoint?: string | null;
+            connection?: null | components["schemas"]["StorageConnectionInput"];
             is_default?: boolean | null;
             name?: string | null;
-            secret_key?: string | null;
         };
         RemovedCountResponse: {
             /** Format: int64 */
@@ -7866,6 +7825,10 @@ export interface components {
             /** Format: int64 */
             team_id: number;
         };
+        StorageConnectionInput: {
+            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
+            credential: components["schemas"]["StorageConnectorCredentialInput"];
+        };
         StorageConnectorActionDescriptor: {
             /** @description Connector 内唯一且稳定的 action ID。 */
             action_id: components["schemas"]["StorageConnectorActionId"];
@@ -7953,11 +7916,6 @@ export interface components {
         };
         /** @enum {string} */
         StorageConnectorCatalogContext: "manage" | "create" | "setup";
-        StorageConnectorConnectionInput: {
-            behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
-            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
-            credential: components["schemas"]["StorageConnectorCredentialInput"];
-        };
         StorageConnectorCredentialInfo: {
             account_label?: string | null;
             authorized_at?: string | null;
@@ -8574,6 +8532,14 @@ export interface components {
              */
             storage_native_thumbnail_extensions?: string[];
         };
+        /**
+         * @description Full connection input for a storage policy. Remote targets use the same
+         *     connector-owned [`StorageConnectionInput`] and deliberately do not carry
+         *     policy behavior across their RPC boundary.
+         */
+        StoragePolicyConnectionInput: components["schemas"]["StorageConnectionInput"] & {
+            behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
+        };
         /** @description Successful credential validation together with the resolved provider root. */
         StoragePolicyCredentialValidationResult: {
             credential: components["schemas"]["StorageConnectorCredentialInfo"];
@@ -9001,7 +8967,7 @@ export interface components {
         };
         /** @description Test a storage policy connection by parameters (without saving). */
         TestPolicyParamsReq: {
-            connection: components["schemas"]["StorageConnectorConnectionInput"];
+            connection: components["schemas"]["StoragePolicyConnectionInput"];
             /** Format: int64 */
             policy_id?: number | null;
         };
@@ -12853,9 +12819,9 @@ export interface operations {
                             browser_cors?: components["schemas"]["RemoteStorageBrowserCorsContract"];
                             features?: components["schemas"]["RemoteStorageFeatureFlags"];
                             limits?: components["schemas"]["RemoteStorageProtocolLimits"];
-                            managed_ingress?: null | components["schemas"]["RemoteStorageTargetCapabilities"];
                             min_supported_protocol_version?: string;
                             protocol_version?: string;
+                            remote_storage_target?: null | components["schemas"]["RemoteStorageTargetCapabilities"];
                             server_version?: string | null;
                             supports_capacity?: boolean;
                             supports_list?: boolean;
@@ -13140,7 +13106,7 @@ export interface operations {
             };
         };
     };
-    list_remote_node_storage_target_drivers: {
+    list_remote_node_storage_target_connectors: {
         parameters: {
             query?: never;
             header?: never;
@@ -13152,7 +13118,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description List remote node storage target driver descriptors */
+            /** @description List remote node storage target connector descriptors */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13161,10 +13127,56 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
-                            description_key: string;
-                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
-                            fields: components["schemas"]["RemoteStorageTargetDriverFieldDescriptor"][];
-                            label_key: string;
+                            /** @description 管理端/服务端可执行动作声明。 */
+                            actions: components["schemas"]["StorageConnectorActionDescriptor"][];
+                            /** @description 授权 provider，例如 `microsoft_graph`。 */
+                            authorization_provider?: string | null;
+                            /** @description 存储对象能力。 */
+                            capabilities: components["schemas"]["StorageConnectorCapabilities"];
+                            /**
+                             * Format: int32
+                             * @description 当前 connector 能解析并输出的配置 schema 版本。
+                             */
+                            config_schema_version: number;
+                            /** @description 持久化到 policy 的稳定 connector/plugin id。 */
+                            connector_id: components["schemas"]["ConnectorId"];
+                            credential_management?: null | components["schemas"]["StorageConnectorCredentialManagementDescriptor"];
+                            /** @description connector 的主要凭据模式。 */
+                            credential_mode: components["schemas"]["StorageConnectorCredentialMode"];
+                            /**
+                             * Format: int32
+                             * @description 凭据 payload 的独立 schema 版本。配置字段演进不应使已保存凭据失效。
+                             */
+                            credential_schema_version?: number | null;
+                            /** @description policy 数据相对于多个 Primary 的可见范围。 */
+                            deployment_scope: components["schemas"]["StorageConnectorDeploymentScope"];
+                            /** @description 人类可读说明。 */
+                            description: string;
+                            /** @description 管理端配置字段声明。 */
+                            fields: components["schemas"]["StorageConnectorFieldDescriptor"][];
+                            /** @description 人类可读名称。 */
+                            label: string;
+                            /** @description Target-owned in-place promotion contracts from compatible connectors. */
+                            promotions?: components["schemas"]["StorageConnectorPromotionDescriptor"][];
+                            /** @description 用于开发追踪的相关 issue 编号，不参与业务逻辑。 */
+                            related_issues?: number[];
+                            /** @description 是否需要额外授权才能成为可用 policy。 */
+                            requires_authorization: boolean;
+                            /**
+                             * @description 是否能在首次系统初始化中直接创建一个可用的默认 policy。
+                             *
+                             *     需要先保存 policy、再跳转授权或完成其他后置配置的 connector 应设为 false。
+                             */
+                            supports_initial_setup: boolean;
+                            /**
+                             * @description 管理端展示元数据。
+                             *
+                             *     这类 label/icon/helper 虽然最终由前端渲染，但语义上属于 connector：
+                             *     新 connector 不应该要求前端再维护一份 driver 展示矩阵。
+                             */
+                            ui: components["schemas"]["StorageConnectorUiDescriptor"];
+                            /** @description 上传工作流能力。 */
+                            upload_workflows: components["schemas"]["StorageConnectorUploadWorkflows"];
                         }[];
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -13217,13 +13229,11 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             applied_revision: number;
-                            base_path: string;
-                            bucket: string;
+                            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
+                            connector_id: string;
                             created_at: string;
                             /** Format: int64 */
                             desired_revision: number;
-                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
-                            endpoint: string;
                             is_default: boolean;
                             last_error: string;
                             name: string;
@@ -13292,13 +13302,11 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             applied_revision: number;
-                            base_path: string;
-                            bucket: string;
+                            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
+                            connector_id: string;
                             created_at: string;
                             /** Format: int64 */
                             desired_revision: number;
-                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
-                            endpoint: string;
                             is_default: boolean;
                             last_error: string;
                             name: string;
@@ -13420,13 +13428,11 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             applied_revision: number;
-                            base_path: string;
-                            bucket: string;
+                            connector_config: components["schemas"]["ConnectorConfigEnvelope"];
+                            connector_id: string;
                             created_at: string;
                             /** Format: int64 */
                             desired_revision: number;
-                            driver_type: components["schemas"]["RemoteStorageTargetDriverKind"];
-                            endpoint: string;
                             is_default: boolean;
                             last_error: string;
                             name: string;

@@ -171,18 +171,16 @@ define_api_error_codes! {
     LockNotOwner => "lock.not_owner",
     ShareScopeDenied => "share.scope_denied",
 
-    // TODO(remote-storage-target): keep managed_ingress.* wire codes stable
-    // for existing clients while the service/API names use remote storage target terms.
-    ManagedIngressBindingMismatch => "managed_ingress.binding_mismatch",
-    ManagedIngressDefaultDeleteRequiresReplacement => "managed_ingress.default_delete_requires_replacement",
-    ManagedIngressDefaultError => "managed_ingress.default_error",
-    ManagedIngressDefaultMissing => "managed_ingress.default_missing",
-    ManagedIngressDefaultNotApplied => "managed_ingress.default_not_applied",
-    ManagedIngressDefaultUpdateRequiresReplacement => "managed_ingress.default_update_requires_replacement",
-    ManagedIngressDriverUnsupported => "managed_ingress.driver_unsupported",
-    ManagedIngressLocalPathInvalid => "managed_ingress.local_path_invalid",
-    ManagedIngressRequired => "managed_ingress.required",
-    ManagedIngressSinglePrimaryRequired => "managed_ingress.single_primary_required",
+    RemoteStorageTargetBindingMismatch => "remote_storage_target.binding_mismatch",
+    RemoteStorageTargetDefaultDeleteRequiresReplacement => "remote_storage_target.default_delete_requires_replacement",
+    RemoteStorageTargetDefaultError => "remote_storage_target.default_error",
+    RemoteStorageTargetDefaultMissing => "remote_storage_target.default_missing",
+    RemoteStorageTargetDefaultNotApplied => "remote_storage_target.default_not_applied",
+    RemoteStorageTargetDefaultUpdateRequiresReplacement => "remote_storage_target.default_update_requires_replacement",
+    RemoteStorageTargetConnectorUnsupported => "remote_storage_target.connector_unsupported",
+    RemoteStorageTargetLocalPathInvalid => "remote_storage_target.local_path_invalid",
+    RemoteStorageTargetRequired => "remote_storage_target.required",
+    RemoteStorageTargetSinglePrimaryRequired => "remote_storage_target.single_primary_required",
     RemoteStorageTargetNotFound => "remote_storage_target.not_found",
 
     // master binding service: master/follower binding state.

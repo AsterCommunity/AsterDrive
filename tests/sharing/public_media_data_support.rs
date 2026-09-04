@@ -15,7 +15,7 @@ fn available_test_command() -> String {
 
 async fn create_storage_native_media_metadata_policy(
     state: &aster_drive::runtime::PrimaryAppState,
-    mut connection: aster_drive::storage::StorageConnectorConnectionInput,
+    mut connection: aster_drive::storage::StoragePolicyConnectionInput,
     name: &str,
     extensions: Vec<String>,
 ) -> aster_drive_model::entities::storage_policy::Model {

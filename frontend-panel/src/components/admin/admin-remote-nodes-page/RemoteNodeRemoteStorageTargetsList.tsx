@@ -4,11 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { ADMIN_ICON_BUTTON_CLASS } from "@/lib/constants";
 import { formatDateTime } from "@/lib/format";
-import type { RemoteStorageTargetInfo } from "@/types/api";
-import {
-	getRemoteNodeRemoteStorageTargetDriverBadgeTone,
-	getRemoteNodeRemoteStorageTargetProfileStatus,
-} from "./remoteNodeRemoteStorageTargetPresentation";
+import type {
+	RemoteStorageTargetInfo,
+	StorageConnectorDescriptor,
+} from "@/types/api";
+import { getStorageConnectorBadgePresentation } from "../admin-policies-page/policyPresentation";
+import { getRemoteNodeRemoteStorageTargetProfileStatus } from "./remoteNodeRemoteStorageTargetPresentation";
 
 interface RemoteNodeRemoteStorageTargetsListProps {
 	errorMessage: string | null;
@@ -20,6 +21,7 @@ interface RemoteNodeRemoteStorageTargetsListProps {
 	onRequestDeleteTarget: (target: RemoteStorageTargetInfo) => void;
 	onEditTarget: (target: RemoteStorageTargetInfo) => void;
 	targets: RemoteStorageTargetInfo[];
+	connectorDescriptors: StorageConnectorDescriptor[];
 }
 
 export function RemoteNodeRemoteStorageTargetsList({
@@ -32,6 +34,7 @@ export function RemoteNodeRemoteStorageTargetsList({
 	onRequestDeleteTarget,
 	onEditTarget,
 	targets,
+	connectorDescriptors,
 }: RemoteNodeRemoteStorageTargetsListProps) {
 	const { t } = useTranslation("admin");
 
@@ -64,6 +67,9 @@ export function RemoteNodeRemoteStorageTargetsList({
 						onEdit={() => onEditTarget(target)}
 						readOnly={readOnly}
 						target={target}
+						connectorDescriptor={connectorDescriptors.find(
+							(descriptor) => descriptor.connector_id === target.connector_id,
+						)}
 					/>
 				))
 			)}
@@ -79,6 +85,7 @@ interface RemoteNodeRemoteStorageTargetCardProps {
 	onEdit: () => void;
 	readOnly: boolean;
 	target: RemoteStorageTargetInfo;
+	connectorDescriptor?: StorageConnectorDescriptor;
 }
 
 function RemoteNodeRemoteStorageTargetCard({
@@ -89,9 +96,13 @@ function RemoteNodeRemoteStorageTargetCard({
 	onEdit,
 	readOnly,
 	target,
+	connectorDescriptor,
 }: RemoteNodeRemoteStorageTargetCardProps) {
 	const { t } = useTranslation("admin");
 	const status = getRemoteNodeRemoteStorageTargetProfileStatus(target);
+	const badgePresentation = getStorageConnectorBadgePresentation(
+		connectorDescriptor?.ui.badge_rgb,
+	);
 
 	return (
 		<article className="rounded-2xl border border-border/70 bg-muted/10 p-4">
@@ -103,13 +114,10 @@ function RemoteNodeRemoteStorageTargetCard({
 						</h4>
 						<Badge
 							variant="outline"
-							className={getRemoteNodeRemoteStorageTargetDriverBadgeTone(
-								target.driver_type,
-							)}
+							className={badgePresentation.className}
+							style={badgePresentation.style}
 						>
-							{target.driver_type === "s3"
-								? t("remote_node_ingress_profile_driver_s3")
-								: t("remote_node_ingress_profile_driver_local")}
+							{target.connector_id ?? "unknown"}
 						</Badge>
 						{target.is_default ? (
 							<Badge
@@ -188,30 +196,20 @@ function RemoteNodeRemoteStorageTargetCard({
 			) : null}
 
 			<dl className="mt-4 grid gap-3 text-sm md:grid-cols-2">
-				<div>
-					<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-						{t("base_path")}
-					</dt>
-					<dd className="mt-1 break-all font-medium">
-						{target.base_path || "."}
-					</dd>
-				</div>
-				{target.driver_type === "s3" ? (
-					<>
-						<div>
-							<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-								{t("endpoint")}
-							</dt>
-							<dd className="mt-1 break-all font-medium">{target.endpoint}</dd>
-						</div>
-						<div>
-							<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-								{t("bucket")}
-							</dt>
-							<dd className="mt-1 break-all font-medium">{target.bucket}</dd>
-						</div>
-					</>
-				) : null}
+				{(connectorDescriptor?.fields ?? [])
+					.filter((field) => field.scope === "connector_config")
+					.map((field) => {
+						const value = target.connector_config?.values?.[field.name];
+						if (value == null || value === "") return null;
+						return (
+							<div key={field.name}>
+								<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+									{t(field.label_key)}
+								</dt>
+								<dd className="mt-1 break-all font-medium">{String(value)}</dd>
+							</div>
+						);
+					})}
 				<div>
 					<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
 						{t("core:updated_at")}

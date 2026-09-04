@@ -2,6 +2,7 @@
 
 mod driver;
 mod local_profiles;
+mod migration;
 mod models;
 mod normalization;
 mod paths;
@@ -11,16 +12,11 @@ mod target;
 #[cfg(test)]
 mod tests;
 
-pub use driver::{
-    RemoteStorageTargetDriverDescriptor, RemoteStorageTargetDriverFieldDescriptor,
-    RemoteStorageTargetDriverFieldKind,
-};
-pub(crate) use driver::{
-    registered_remote_storage_target_driver_types, remote_storage_target_driver_descriptor,
-};
+pub(crate) use driver::remote_storage_target_descriptor_from_connector;
 pub use local_profiles::{create, delete, list, update};
+pub(crate) use migration::convert_legacy_rows;
 pub use models::ResolvedRemoteStorageTarget;
 pub use remote::{
-    create_remote, delete_remote, list_remote, list_remote_driver_descriptors, update_remote,
+    create_remote, delete_remote, list_remote, list_remote_connector_descriptors, update_remote,
 };
 pub use target::{resolve_effective_target, resolve_target_by_key};

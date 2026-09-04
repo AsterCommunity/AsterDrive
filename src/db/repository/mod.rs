@@ -30,6 +30,7 @@ pub mod policy_group_repo;
 pub mod policy_placement_repo;
 pub mod policy_repo;
 pub mod property_repo;
+pub mod remote_storage_target_credential_repo;
 pub mod remote_storage_target_repo;
 pub mod remote_tunnel_owner_repo;
 pub mod revision_repo;

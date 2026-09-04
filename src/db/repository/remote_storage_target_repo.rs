@@ -83,6 +83,40 @@ pub async fn update<C: ConnectionTrait>(
     model.update(db).await.map_err(AsterError::from)
 }
 
+/// Persist reconciliation state only while the target still has the desired
+/// revision that was validated. A stale result is ignored and the latest row
+/// is returned without touching connector configuration.
+pub async fn update_reconciliation_if_revision<C: ConnectionTrait>(
+    db: &C,
+    target_id: i64,
+    desired_revision: i64,
+    applied_revision: Option<i64>,
+    last_error: &str,
+) -> Result<remote_storage_target::Model> {
+    let mut query = RemoteStorageTarget::update_many()
+        .filter(remote_storage_target::Column::Id.eq(target_id))
+        .filter(remote_storage_target::Column::DesiredRevision.eq(desired_revision))
+        .col_expr(
+            remote_storage_target::Column::LastError,
+            Expr::value(last_error.to_string()),
+        )
+        .col_expr(
+            remote_storage_target::Column::UpdatedAt,
+            Expr::value(chrono::Utc::now()),
+        );
+    if let Some(applied_revision) = applied_revision {
+        query = query.col_expr(
+            remote_storage_target::Column::AppliedRevision,
+            Expr::value(applied_revision),
+        );
+    }
+    let result = query.exec(db).await.map_err(AsterError::from)?;
+    if result.rows_affected == 0 {
+        return find_by_id(db, target_id).await;
+    }
+    find_by_id(db, target_id).await
+}
+
 pub async fn delete_by_binding_and_target_key<C: ConnectionTrait>(
     db: &C,
     master_binding_id: i64,
@@ -114,7 +148,7 @@ pub async fn set_only_default_for_binding(
     let existing = find_by_id(db, target_id).await?;
     if existing.master_binding_id != master_binding_id {
         return Err(validation_error_with_code(
-            ApiErrorCode::ManagedIngressBindingMismatch,
+            ApiErrorCode::RemoteStorageTargetBindingMismatch,
             format!(
                 "remote storage target #{target_id} does not belong to master_binding #{master_binding_id}"
             ),

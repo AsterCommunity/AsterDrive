@@ -518,14 +518,14 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 			connectorPromotionConfirmKey={promotionController.confirmKey}
 			connectorPromotionSubmittingKey={promotionController.submittingKey}
 			remoteNodes={descriptorController.remoteNodes}
-			remoteStorageTargetDriverDescriptors={
-				descriptorController.remoteStorageTargetDriverDescriptors
+			remoteStorageTargetConnectorDescriptors={
+				descriptorController.remoteStorageTargetConnectorDescriptors
 			}
-			remoteStorageTargetDriverDescriptorsError={
-				descriptorController.remoteStorageTargetDriverDescriptorsError
+			remoteStorageTargetConnectorDescriptorsError={
+				descriptorController.remoteStorageTargetConnectorDescriptorsError
 			}
-			remoteStorageTargetDriverDescriptorsLoading={
-				descriptorController.remoteStorageTargetDriverDescriptorsLoading
+			remoteStorageTargetConnectorDescriptorsLoading={
+				descriptorController.remoteStorageTargetConnectorDescriptorsLoading
 			}
 			remoteStorageTargets={descriptorController.remoteStorageTargets}
 			remoteStorageTargetsError={descriptorController.remoteStorageTargetsError}

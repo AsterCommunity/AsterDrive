@@ -104,6 +104,14 @@ pub async fn initialize_database_state(
     Migrator::up(database, None)
         .await
         .map_aster_err(AsterError::database_operation)?;
+    // 0.5.0 remote-target rows are converted before any listener is started.
+    // TODO(remote-storage-target-0.7.0): remove this call after the 0.6.0
+    // migration window and drop the legacy flattened columns.
+    crate::services::remote::storage_target::convert_legacy_rows(
+        database,
+        &cfg.auth.storage_credential_secret_key,
+    )
+    .await?;
     let connector_registry = crate::storage::connectors::builtin_storage_connector_registry()?;
 
     if let Some(sqlite_search) = db::sqlite_search::ensure_sqlite_search_ready(database).await? {

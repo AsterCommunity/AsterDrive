@@ -668,7 +668,7 @@ describe("adminService", () => {
 	});
 
 	it("uses the expected remote storage target endpoints", () => {
-		adminRemoteNodeService.listStorageTargetDrivers(6);
+		adminRemoteNodeService.listStorageTargetConnectors(6);
 		adminRemoteNodeService.listStorageTargets(6);
 		adminRemoteNodeService.createStorageTarget(6, {
 			name: "Ingress A",
@@ -687,7 +687,7 @@ describe("adminService", () => {
 		adminRemoteNodeService.deleteStorageTarget(6, "igp_demo");
 
 		expect(mockState.get).toHaveBeenCalledWith(
-			"/admin/remote-nodes/6/storage-target-drivers",
+			"/admin/remote-nodes/6/storage-target-connectors",
 		);
 		expect(mockState.get).toHaveBeenCalledWith(
 			"/admin/remote-nodes/6/storage-targets",

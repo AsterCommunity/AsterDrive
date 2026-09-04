@@ -197,10 +197,10 @@ Passkey 相关错误：
 - `remote_node.disabled`：远程节点被禁用。
 - `remote_node.enrollment_required`：follower 还没有完成接入。
 - `remote_node.unique_conflict`：远程节点绑定或唯一字段冲突。
-- `managed_ingress.required`、`managed_ingress.default_missing`、`managed_ingress.default_not_applied`：follower 缺少可用的默认远程存储目标。错误码仍保留旧前缀，用于兼容已有客户端和日志检索。
-- `managed_ingress.local_path_invalid`：follower 本地远程存储目标的路径不合法，常见于路径逃出允许根目录。
-- `managed_ingress.driver_unsupported`：当前远程存储目标驱动不支持。
-- `managed_ingress.single_primary_required`：这台 follower 需要只绑定一个 primary。
+- `remote_storage_target.required`、`remote_storage_target.default_missing`、`remote_storage_target.default_not_applied`：follower 缺少可用的默认远程存储目标。
+- `remote_storage_target.local_path_invalid`：follower 本地远程存储目标的路径不合法，常见于路径逃出允许根目录。
+- `remote_storage_target.connector_unsupported`：当前 follower 未声明支持该远程存储 connector。
+- `remote_storage_target.single_primary_required`：这台 follower 需要只绑定一个 primary。
 - `master_binding.disabled`：主从绑定被禁用。
 
 如果 remote 策略使用浏览器直传，还要确认浏览器能访问 follower 的 `base_url`，并且 follower CORS 允许上传请求需要的 header。
@@ -384,7 +384,7 @@ WebDAV：
 | `storage.precondition_failed` / `storage.precondition` | 存储前置条件失败。 |
 | `storage.operation_unsupported` | 当前存储操作不支持。 |
 | `remote_node.disabled` / `remote_node.enrollment_required` / `remote_node.unique_conflict` | 远程节点禁用、未接入或唯一性冲突。 |
-| `managed_ingress.*` | follower 远程存储目标缺失、未应用、路径不合法、驱动不支持或绑定状态不一致；前缀是保留的兼容错误码。 |
+| `remote_storage_target.*` | follower 远程存储目标缺失、未应用、路径不合法、connector 不支持或绑定状态不一致。 |
 | `master_binding.disabled` | 主从绑定被禁用。 |
 
 ### 分享、团队和工作空间
