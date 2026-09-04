@@ -106,7 +106,7 @@ mod tests {
         };
 
         let debug = format!("{model:?}");
-        assert!(debug.contains(r#"connector_id: "asterdrive.storage.s3""#));
+        assert!(debug.contains(r#"connector_id: Some("asterdrive.storage.s3")"#));
         assert!(!debug.contains("driver_type"));
         assert!(!debug.contains("access_key"));
     }
