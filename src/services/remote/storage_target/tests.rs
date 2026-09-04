@@ -369,7 +369,6 @@ async fn normalize_update_input_keeps_connection_opaque_when_omitted() {
             connection: None,
             name: Some(" Updated ".to_string()),
             is_default: Some(true),
-            ..Default::default()
         },
     )
     .await
@@ -592,7 +591,6 @@ async fn update_can_promote_second_profile_to_default_and_increments_revision() 
             connection: Some(local_create("Promoted", " promoted ", true).connection),
             name: Some(" Promoted ".to_string()),
             is_default: Some(true),
-            ..Default::default()
         },
     )
     .await

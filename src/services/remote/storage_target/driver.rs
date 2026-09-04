@@ -151,6 +151,18 @@ pub(in crate::services::remote::storage_target) async fn load_connection_from_ta
                 target.id, saved.connector_id, connector_id
             )));
         }
+        let saved_schema_version = aster_forge_utils::numbers::i32_to_usize(
+            saved.schema_version,
+            "remote storage target credential schema version",
+        )
+        .and_then(|value| {
+            u32::try_from(value).map_err(|_| {
+                aster_forge_utils::UtilsError::numeric_conversion(format!(
+                    "remote storage target credential schema version exceeds u32 range: {value}"
+                ))
+            })
+        })
+        .map_err(|error| AsterError::database_operation(error.to_string()))?;
         let expected_schema_version = connector
             .descriptor()
             .credential_schema_version
@@ -160,7 +172,7 @@ pub(in crate::services::remote::storage_target) async fn load_connection_from_ta
                     target.id
                 ))
             })?;
-        if u32::try_from(saved.schema_version).ok() != Some(expected_schema_version) {
+        if saved_schema_version != expected_schema_version {
             return Err(AsterError::database_operation(format!(
                 "remote storage target #{} credential schema {} does not match connector schema {}",
                 target.id, saved.schema_version, expected_schema_version
@@ -171,7 +183,7 @@ pub(in crate::services::remote::storage_target) async fn load_connection_from_ta
                 &state.config().auth.storage_credential_secret_key,
                 target.id,
                 &saved.connector_id,
-                saved.schema_version as u32,
+                saved_schema_version,
                 &saved.ciphertext,
             )?;
         let values: serde_json::Value = serde_json::from_str(&plaintext).map_err(|error| {
