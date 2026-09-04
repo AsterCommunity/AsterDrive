@@ -5,7 +5,6 @@ import {
 	buildUpdateRemoteStorageTargetPayload,
 	emptyRemoteStorageTargetForm,
 	getRemoteStorageTargetForm,
-	isRemoteStorageTargetConnectorId,
 	type RemoteStorageTargetFormData,
 } from "@/components/admin/remoteStorageTargetDialogShared";
 import { AnimatedCollapsible } from "@/components/common/AnimatedCollapsible";
@@ -20,6 +19,8 @@ import type {
 } from "@/types/api";
 import { RemoteNodeRemoteStorageTargetForm } from "./RemoteNodeRemoteStorageTargetForm";
 import { RemoteNodeRemoteStorageTargetsList } from "./RemoteNodeRemoteStorageTargetsList";
+
+const IS_DEFAULT_FIELD = "is_default";
 
 interface RemoteNodeRemoteStorageTargetSectionProps {
 	allowCreate?: boolean;
@@ -80,9 +81,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 			: draftMode;
 	const canCreateTargets =
 		Boolean(onCreateTarget) && (!readOnly || allowCreate);
-	const supportedConnectorDescriptors = connectorDescriptors.filter(
-		(descriptor) => isRemoteStorageTargetConnectorId(descriptor.connector_id),
-	);
+	const supportedConnectorDescriptors = connectorDescriptors;
 	const activeConnectorDescriptor =
 		supportedConnectorDescriptors.find(
 			(descriptor) => descriptor.connector_id === form.connector_id,
@@ -138,7 +137,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 		: t("remote_node_ingress_profile_name_required");
 	const missingRequiredField =
 		activeConnectorDescriptor?.fields.some((field) => {
-			if (!field.required || field.name === "is_default") return false;
+			if (!field.required || field.name === IS_DEFAULT_FIELD) return false;
 			if (
 				field.scope !== "connector_config" &&
 				activeDraftMode === "edit" &&

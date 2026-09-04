@@ -1,5 +1,6 @@
 {
 	"driver_type": "驱动类型",
+	"connector_type": "Connector",
 	"endpoint": "端点",
 	"bucket": "存储桶",
 	"base_path": "基础路径",

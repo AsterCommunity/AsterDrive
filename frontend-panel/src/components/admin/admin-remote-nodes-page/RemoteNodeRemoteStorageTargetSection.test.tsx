@@ -494,6 +494,27 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		).not.toBeInTheDocument();
 	});
 
+	it("renders targets with unknown connectors without descriptor fields", async () => {
+		const user = userEvent.setup();
+		renderSection({
+			readOnly: true,
+			targets: [
+				profile({
+					connector_id: null,
+					connector_config: null,
+					name: "Unknown target",
+				}),
+			],
+		});
+		await user.click(
+			screen.getByRole("button", {
+				name: "policy_remote_storage_targets_show",
+			}),
+		);
+		expect(screen.getByText("unknown")).toBeInTheDocument();
+		expect(screen.getByText("Unknown target")).toBeInTheDocument();
+	});
+
 	it("allows quick creation in a read-only target list without exposing management actions", async () => {
 		const user = userEvent.setup();
 		const { onCreateTarget } = renderSection({
@@ -556,6 +577,15 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		fireEvent.change(screen.getByLabelText("base_path"), {
 			target: { value: "teams/incoming" },
 		});
+		fireEvent.click(
+			screen.getByLabelText("remote_node_ingress_profile_default_toggle"),
+		);
+		expect(
+			screen.getByLabelText("remote_node_ingress_profile_default_toggle"),
+		).not.toBeChecked();
+		fireEvent.click(
+			screen.getByLabelText("remote_node_ingress_profile_default_toggle"),
+		);
 		fireEvent.click(screen.getByRole("button", { name: /core:create/ }));
 
 		await waitFor(() => {
@@ -575,6 +605,45 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		expect(
 			screen.queryByText("remote_node_ingress_profile_form_create_title"),
 		).not.toBeInTheDocument();
+	});
+
+	it("rejects connector selections that are not valid connector identifiers", () => {
+		renderSection();
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /remote_node_ingress_profiles_create/,
+			}),
+		);
+		const select = screen.getByLabelText("select:asterdrive.storage.local");
+		fireEvent.change(select, { target: { value: "" } });
+		expect(
+			screen.getByText("remote_node_ingress_profile_driver_unsupported"),
+		).toBeInTheDocument();
+		expect(screen.queryByLabelText("base_path")).not.toBeInTheDocument();
+		expect(screen.queryByLabelText("endpoint")).not.toBeInTheDocument();
+	});
+
+	it("keeps a failed create draft open for correction", async () => {
+		const onCreateTarget = vi
+			.fn()
+			.mockRejectedValueOnce(new Error("create failed"));
+		renderSection({ onCreateTarget });
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /remote_node_ingress_profiles_create/,
+			}),
+		);
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Retry target" },
+		});
+		fireEvent.change(screen.getByLabelText("base_path"), {
+			target: { value: "retry" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /core:create/ }));
+		await waitFor(() => expect(onCreateTarget).toHaveBeenCalledTimes(1));
+		expect(
+			screen.getByText("remote_node_ingress_profile_form_create_title"),
+		).toBeInTheDocument();
 	});
 
 	it("does not create targets when no supported driver descriptor is returned", () => {

@@ -72,6 +72,40 @@ describe("remoteStorageTargetDialogShared", () => {
 		expect(form.is_default).toBe(true);
 	});
 
+	it("drops non-primitive connector values and tolerates missing connector data", () => {
+		const form = getRemoteStorageTargetForm({
+			target_key: "rst_invalid",
+			name: "Target",
+			connector_id: null,
+			connector_config: {
+				format_version: 1,
+				connector_id: "asterdrive.storage.local",
+				schema_version: 1,
+				values: {
+					valid: "value",
+					number: 1,
+					flag: true,
+					object: { ignored: true },
+					array: ["ignored"],
+					nothing: null,
+				},
+			},
+			is_default: false,
+			desired_revision: 1,
+			applied_revision: 1,
+			last_error: "",
+			created_at: "",
+			updated_at: "",
+		} as unknown as RemoteStorageTargetInfo);
+
+		expect(form.connector_id).toBe("");
+		expect(form.connector_config_values).toEqual({
+			valid: "value",
+			number: 1,
+			flag: true,
+		});
+	});
+
 	it("builds create payloads with the shared storage connection contract", () => {
 		const payload = buildCreateRemoteStorageTargetPayload(
 			{

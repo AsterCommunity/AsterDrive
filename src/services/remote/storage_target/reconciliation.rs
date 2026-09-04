@@ -1,6 +1,3 @@
-use chrono::Utc;
-use sea_orm::Set;
-
 use crate::db::repository::remote_storage_target_repo;
 use crate::errors::Result;
 use crate::runtime::FollowerRuntimeState;
@@ -14,16 +11,26 @@ pub(super) async fn reconcile_target<S: FollowerRuntimeState>(
 ) -> Result<remote_storage_target::Model> {
     let apply_result = validate_driver_from_target(state, &target).await;
 
-    let mut active: remote_storage_target::ActiveModel = target.clone().into();
     match apply_result {
         Ok(()) => {
-            active.applied_revision = Set(target.desired_revision);
-            active.last_error = Set(String::new());
+            remote_storage_target_repo::update_reconciliation_if_revision(
+                state.writer_db(),
+                target.id,
+                target.desired_revision,
+                Some(target.desired_revision),
+                "",
+            )
+            .await
         }
         Err(error) => {
-            active.last_error = Set(error.message().to_string());
+            remote_storage_target_repo::update_reconciliation_if_revision(
+                state.writer_db(),
+                target.id,
+                target.desired_revision,
+                None,
+                error.message(),
+            )
+            .await
         }
     }
-    active.updated_at = Set(Utc::now());
-    remote_storage_target_repo::update(state.writer_db(), active).await
 }

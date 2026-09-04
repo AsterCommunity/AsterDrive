@@ -12,6 +12,7 @@ use sea_orm::{
 
 const LOCAL_CONNECTOR_ID: &str = "asterdrive.storage.local";
 const S3_CONNECTOR_ID: &str = "asterdrive.storage.s3";
+const UNRESOLVED_CONNECTOR_ID: &str = "asterdrive.storage.unresolved";
 
 fn legacy_connector_mapping(
     driver_type: &str,
@@ -49,7 +50,7 @@ pub async fn convert_legacy_rows(db: &DatabaseConnection, encryption_key: &str) 
         let access_key = target.access_key.clone();
         let secret_key = target.secret_key.clone();
         let base_path = target.base_path.clone();
-        let connector_id = legacy_connector_mapping(&driver_type, &access_key, &secret_key)?;
+        let mapping = legacy_connector_mapping(&driver_type, &access_key, &secret_key);
         let values = match driver_type.as_str() {
             "local" => serde_json::json!({ "base_path": base_path }),
             "s3" => {
@@ -59,7 +60,16 @@ pub async fn convert_legacy_rows(db: &DatabaseConnection, encryption_key: &str) 
                     "base_path": base_path,
                 })
             }
-            _ => serde_json::Value::Null,
+            _ => serde_json::json!({
+                "legacy_driver_type": driver_type,
+                "endpoint": endpoint,
+                "bucket": bucket,
+                "base_path": base_path,
+            }),
+        };
+        let (connector_id, migration_error) = match mapping {
+            Ok(connector_id) => (connector_id, None),
+            Err(error) => (UNRESOLVED_CONNECTOR_ID, Some(error.to_string())),
         };
         let config = serde_json::to_string(&serde_json::json!({
             "format_version": 1,
@@ -95,6 +105,11 @@ pub async fn convert_legacy_rows(db: &DatabaseConnection, encryption_key: &str) 
             )
             .await?;
         }
+        if let Some(error) = migration_error {
+            active.last_error = Set(format!(
+                "legacy remote storage target migration failed: {error}"
+            ));
+        }
         active.access_key = Set(String::new());
         active.secret_key = Set(String::new());
         active.update(&txn).await.map_err(AsterError::from)?;
@@ -103,21 +118,11 @@ pub async fn convert_legacy_rows(db: &DatabaseConnection, encryption_key: &str) 
 }
 
 #[cfg(test)]
-fn sql_escape(value: &str) -> String {
-    value.replace('\'', "''")
-}
-
-#[cfg(test)]
 mod tests {
     use super::{
-        LOCAL_CONNECTOR_ID, S3_CONNECTOR_ID, convert_legacy_rows, legacy_connector_mapping,
-        sql_escape,
+        LOCAL_CONNECTOR_ID, S3_CONNECTOR_ID, UNRESOLVED_CONNECTOR_ID, convert_legacy_rows,
+        legacy_connector_mapping,
     };
-
-    #[test]
-    fn sql_escape_quotes_without_leaking_plaintext_structure() {
-        assert_eq!(sql_escape("a'b"), "a''b");
-    }
 
     #[test]
     fn legacy_mapping_rejects_unknown_and_incomplete_rows() {
@@ -185,10 +190,55 @@ mod tests {
         .await
         .unwrap();
 
+        remote_storage_target::ActiveModel {
+            id: Set(2),
+            master_binding_id: Set(1),
+            target_key: Set("legacy-local".into()),
+            name: Set("Legacy Local".into()),
+            driver_type: Set("local".into()),
+            endpoint: Set(String::new()),
+            bucket: Set(String::new()),
+            access_key: Set(String::new()),
+            secret_key: Set(String::new()),
+            base_path: Set("local-data".into()),
+            is_default: Set(false),
+            desired_revision: Set(1),
+            applied_revision: Set(1),
+            last_error: Set(String::new()),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await
+        .unwrap();
+        remote_storage_target::ActiveModel {
+            id: Set(3),
+            master_binding_id: Set(1),
+            target_key: Set("legacy-unknown".into()),
+            name: Set("Legacy Unknown".into()),
+            driver_type: Set("gcs".into()),
+            endpoint: Set("https://gcs.example.test".into()),
+            bucket: Set("bucket".into()),
+            access_key: Set("ACCESS".into()),
+            secret_key: Set("SECRET".into()),
+            base_path: Set("unknown".into()),
+            is_default: Set(false),
+            desired_revision: Set(1),
+            applied_revision: Set(1),
+            last_error: Set(String::new()),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await
+        .unwrap();
+
         convert_legacy_rows(&db, "test-encryption-key-0123456789012345")
             .await
             .unwrap();
-        let target = remote_storage_target::Entity::find()
+        let target = remote_storage_target::Entity::find_by_id(1)
             .one(&db)
             .await
             .unwrap()
@@ -226,5 +276,30 @@ mod tests {
             .unwrap();
         assert_eq!(second.connector_id, target.connector_id);
         assert_eq!(second.connector_config, target.connector_config);
+
+        let local = remote_storage_target::Entity::find_by_id(2)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(local.connector_id.as_deref(), Some(LOCAL_CONNECTOR_ID));
+        assert_eq!(local.last_error, "");
+
+        let unresolved = remote_storage_target::Entity::find_by_id(3)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            unresolved.connector_id.as_deref(),
+            Some(UNRESOLVED_CONNECTOR_ID)
+        );
+        assert!(
+            unresolved
+                .last_error
+                .contains("unknown legacy remote target driver")
+        );
+        let _: crate::storage::remote_protocol::RemoteStorageTargetInfo =
+            unresolved.try_into().unwrap();
     }
 }

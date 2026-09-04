@@ -43,6 +43,7 @@ fn unified_registry_exposes_remote_target_scope_for_reusable_provider_connectors
         "asterdrive.storage.alibaba_oss",
         "asterdrive.storage.qiniu",
         "asterdrive.storage.azure_blob",
+        "asterdrive.storage.huawei_obs",
     ] {
         let connector = registry
             .require_remote_target_connector(&aster_drive_storage::ConnectorId::declared(

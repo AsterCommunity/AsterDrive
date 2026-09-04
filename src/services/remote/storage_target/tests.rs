@@ -13,9 +13,11 @@ use crate::storage::remote_protocol::{
     RemoteCreateStorageTargetRequest, RemoteUpdateStorageTargetRequest,
 };
 use aster_drive_metrics::SharedMetricsRecorder;
-use aster_drive_model::entities::{master_binding, remote_storage_target};
+use aster_drive_model::entities::{
+    master_binding, remote_storage_target, remote_storage_target_credential,
+};
 use chrono::Utc;
-use sea_orm::{DatabaseConnection, Set};
+use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
 use std::fs;
 use std::sync::Arc;
 
@@ -430,6 +432,107 @@ async fn normalize_update_input_merges_partial_static_credentials_from_saved_con
     assert_eq!(values["s3_secret_access_key"], "secret");
 }
 
+#[tokio::test]
+async fn normalize_update_input_allows_complete_credentials_when_saved_ciphertext_is_unreadable() {
+    let state = setup_state().await;
+    let binding = create_binding(&state, "ak-credential-corrupt").await;
+    let created = create(
+        &state,
+        &binding,
+        s3_create(
+            "Archive",
+            "https://s3.example.test",
+            "bucket",
+            "prefix",
+            true,
+        ),
+    )
+    .await
+    .unwrap();
+    let existing = remote_storage_target_repo::find_by_binding_and_target_key(
+        state.writer_db(),
+        binding.id,
+        &created.target_key,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let credential = crate::db::repository::remote_storage_target_credential_repo::find_by_target(
+        state.writer_db(),
+        existing.id,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let mut corrupted: remote_storage_target_credential::ActiveModel = credential.into();
+    corrupted.ciphertext = Set("corrupted-ciphertext".to_string());
+    corrupted.update(state.writer_db()).await.unwrap();
+
+    let normalized = normalize_update_input(
+        &state,
+        &existing,
+        RemoteUpdateStorageTargetRequest {
+            connection: Some(crate::storage::StorageConnectionInput {
+                connector_config: created.connector_config,
+                credential: crate::storage::StorageConnectorCredentialInput::Static(
+                    serde_json::json!({
+                        "s3_access_key_id": "replacement-access",
+                        "s3_secret_access_key": "replacement-secret"
+                    }),
+                ),
+            }),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let Some(crate::storage::StorageConnectionInput {
+        credential: crate::storage::StorageConnectorCredentialInput::Static(values),
+        ..
+    }) = normalized.connection
+    else {
+        panic!("complete replacement credential should remain static")
+    };
+    assert_eq!(values["s3_access_key_id"], "replacement-access");
+    assert_eq!(values["s3_secret_access_key"], "replacement-secret");
+}
+
+#[tokio::test]
+async fn reconciliation_does_not_apply_stale_desired_revision_result() {
+    let state = setup_state().await;
+    let binding = create_binding(&state, "ak-reconcile-stale").await;
+    let created = create(&state, &binding, local_create("Target", "target", true))
+        .await
+        .unwrap();
+    let existing = remote_storage_target_repo::find_by_binding_and_target_key(
+        state.writer_db(),
+        binding.id,
+        &created.target_key,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let mut updated: remote_storage_target::ActiveModel = existing.clone().into();
+    updated.desired_revision = Set(existing.desired_revision + 1);
+    updated.last_error = Set(String::new());
+    remote_storage_target_repo::update(state.writer_db(), updated)
+        .await
+        .unwrap();
+
+    let latest = remote_storage_target_repo::update_reconciliation_if_revision(
+        state.writer_db(),
+        existing.id,
+        existing.desired_revision,
+        Some(existing.desired_revision),
+        "stale validation result",
+    )
+    .await
+    .unwrap();
+    assert_eq!(latest.desired_revision, existing.desired_revision + 1);
+    assert_eq!(latest.applied_revision, existing.applied_revision);
+    assert_eq!(latest.last_error, "");
+}
+
 #[test]
 fn remote_storage_target_registry_contains_supported_builtin_connectors() {
     assert_eq!(
@@ -462,12 +565,11 @@ fn remote_storage_target_connector_descriptors_cover_builtin_fields() {
         .find(|descriptor| descriptor.connector_id.as_str() == "asterdrive.storage.local")
         .expect("local remote storage target descriptor should be registered");
     assert!(local.fields.iter().any(|field| field.name == "base_path"));
-    let local_base_path = local
+    local
         .fields
         .iter()
         .find(|field| field.name == "base_path")
         .expect("local base_path descriptor should exist");
-    assert_eq!(local_base_path.name, "base_path");
 
     let s3 = descriptors
         .iter()
@@ -477,12 +579,10 @@ fn remote_storage_target_connector_descriptors_cover_builtin_fields() {
         assert!(s3.fields.iter().any(|candidate| candidate.name == field));
     }
     assert!(s3.fields.iter().any(|field| field.secret));
-    let s3_base_path = s3
-        .fields
+    s3.fields
         .iter()
         .find(|field| field.name == "base_path")
         .expect("s3 base_path descriptor should exist");
-    assert_eq!(s3_base_path.name, "base_path");
 }
 
 #[tokio::test]

@@ -1,5 +1,6 @@
 {
 	"driver_type": "Driver",
+	"connector_type": "Connector",
 	"endpoint": "Endpoint",
 	"bucket": "Bucket",
 	"base_path": "Base Path",

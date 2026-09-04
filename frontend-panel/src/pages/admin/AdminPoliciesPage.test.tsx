@@ -1431,6 +1431,175 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		});
 	});
 
+	it("surfaces remote target connector descriptor failures independently", async () => {
+		const connector = descriptor("plugin.remote", {
+			capabilities: {
+				...descriptor("unused").capabilities,
+				remote_node_binding: true,
+			},
+			credential_mode: "remote_node",
+			fields: [
+				field("node", {
+					kind: "select",
+					required: true,
+					select: {
+						data_source: "remote_nodes",
+						value_kind: "integer",
+					},
+				}),
+				field("target", {
+					kind: "select",
+					required: true,
+					select: {
+						data_source: "remote_storage_targets",
+						depends_on: "node",
+						value_kind: "string",
+					},
+				}),
+			],
+		});
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		mockState.remoteNodes = [remoteNode(1, "Node one")];
+		mockState.listStorageTargetConnectors.mockRejectedValueOnce(
+			new Error("connector descriptors unavailable"),
+		);
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog("plugin.remote");
+		openCreateDialog();
+		await waitFor(() =>
+			expect(currentDialog().form.connector_id).toBe("plugin.remote"),
+		);
+		await setField("connector_config_values", { node: 1, target: "" });
+		await waitFor(() =>
+			expect(currentDialog().remoteStorageTargetConnectorDescriptorsError).toBe(
+				"remote_storage_target_connectors_load_failed",
+			),
+		);
+		expect(mockState.handleApiError).toHaveBeenCalledWith(expect.any(Error));
+		expect(currentDialog().remoteStorageTargetConnectorDescriptors).toEqual([]);
+	});
+
+	it("ignores stale remote target connector descriptor responses", async () => {
+		const connector = descriptor("plugin.remote", {
+			capabilities: {
+				...descriptor("unused").capabilities,
+				remote_node_binding: true,
+			},
+			credential_mode: "remote_node",
+			fields: [
+				field("node", {
+					kind: "select",
+					select: {
+						data_source: "remote_nodes",
+						value_kind: "integer",
+					},
+				}),
+				field("target", {
+					kind: "select",
+					select: {
+						data_source: "remote_storage_targets",
+						depends_on: "node",
+						value_kind: "string",
+					},
+				}),
+			],
+		});
+		const first = deferred<StorageConnectorDescriptor[]>();
+		const second = deferred<StorageConnectorDescriptor[]>();
+		const firstDescriptor = descriptor("plugin.first");
+		const secondDescriptor = descriptor("plugin.second");
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		mockState.remoteNodes = [remoteNode(1, "First"), remoteNode(2, "Second")];
+		mockState.listStorageTargetConnectors.mockImplementation(
+			(nodeId: number) => (nodeId === 1 ? first.promise : second.promise),
+		);
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog("plugin.remote");
+		openCreateDialog();
+		await setField("connector_config_values", { node: 1, target: "" });
+		await waitFor(() =>
+			expect(mockState.listStorageTargetConnectors).toHaveBeenCalledWith(1),
+		);
+		await setField("connector_config_values", { node: 2, target: "" });
+		await waitFor(() =>
+			expect(mockState.listStorageTargetConnectors).toHaveBeenCalledWith(2),
+		);
+
+		await act(async () => second.resolve([secondDescriptor]));
+		await waitFor(() =>
+			expect(currentDialog().remoteStorageTargetConnectorDescriptors).toEqual([
+				secondDescriptor,
+			]),
+		);
+		await act(async () => first.resolve([firstDescriptor]));
+		expect(currentDialog().remoteStorageTargetConnectorDescriptors).toEqual([
+			secondDescriptor,
+		]);
+	});
+
+	it("ignores stale remote target connector descriptor failures", async () => {
+		const connector = descriptor("plugin.remote", {
+			capabilities: {
+				...descriptor("unused").capabilities,
+				remote_node_binding: true,
+			},
+			credential_mode: "remote_node",
+			fields: [
+				field("node", {
+					kind: "select",
+					select: { data_source: "remote_nodes", value_kind: "integer" },
+				}),
+				field("target", {
+					kind: "select",
+					select: {
+						data_source: "remote_storage_targets",
+						depends_on: "node",
+						value_kind: "string",
+					},
+				}),
+			],
+		});
+		const first = deferred<StorageConnectorDescriptor[]>();
+		const second = deferred<StorageConnectorDescriptor[]>();
+		const secondDescriptor = descriptor("plugin.second");
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		mockState.remoteNodes = [remoteNode(1, "First"), remoteNode(2, "Second")];
+		mockState.listStorageTargetConnectors.mockImplementation(
+			(nodeId: number) => (nodeId === 1 ? first.promise : second.promise),
+		);
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog("plugin.remote");
+		openCreateDialog();
+		await setField("connector_config_values", { node: 1, target: "" });
+		await waitFor(() =>
+			expect(mockState.listStorageTargetConnectors).toHaveBeenCalledWith(1),
+		);
+		await setField("connector_config_values", { node: 2, target: "" });
+		await waitFor(() =>
+			expect(mockState.listStorageTargetConnectors).toHaveBeenCalledWith(2),
+		);
+
+		await act(async () => second.resolve([secondDescriptor]));
+		await waitFor(() =>
+			expect(currentDialog().remoteStorageTargetConnectorDescriptors).toEqual([
+				secondDescriptor,
+			]),
+		);
+		await act(async () => first.reject(new Error("stale failure")));
+		expect(currentDialog().remoteStorageTargetConnectorDescriptors).toEqual([
+			secondDescriptor,
+		]);
+		expect(
+			currentDialog().remoteStorageTargetConnectorDescriptorsError,
+		).toBeNull();
+	});
+
 	it("starts authorization only for an unchanged saved connector action", async () => {
 		const connector = descriptor("plugin.oauth", {
 			actions: [authorizationAction],

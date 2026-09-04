@@ -13,12 +13,6 @@ import type {
 
 export type RemoteStorageTargetFormData = PolicyFormData;
 
-export function isRemoteStorageTargetConnectorId(
-	value: unknown,
-): value is string {
-	return typeof value === "string" && value.trim().length > 0;
-}
-
 export function getRemoteStorageTargetForm(
 	target: RemoteStorageTargetInfo,
 ): RemoteStorageTargetFormData {

@@ -310,13 +310,9 @@ async fn get_capabilities(
         .driver_registry()
         .connectors()
         .remote_target_connectors();
-    let descriptors = target_connectors
+    let connector_ids = target_connectors
         .iter()
-        .map(|connector| connector.descriptor())
-        .collect::<Vec<_>>();
-    let connector_ids = descriptors
-        .iter()
-        .map(|descriptor| descriptor.connector_id.to_string())
+        .map(|connector| connector.descriptor().connector_id.to_string())
         .collect();
     let capabilities = RemoteStorageCapabilities::current()
         .with_remote_storage_target_connector_ids(connector_ids);

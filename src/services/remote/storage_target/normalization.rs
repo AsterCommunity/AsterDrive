@@ -38,17 +38,15 @@ pub(in crate::services::remote::storage_target) async fn normalize_update_input<
         Some(mut connection) => {
             if existing.connector_id.as_deref()
                 == Some(connection.connector_config.connector_id.as_str())
+                && let Ok(saved_connection) =
+                    super::driver::load_connection_from_target(state, existing).await
+                && let crate::storage::StorageConnectorCredentialInput::Static(saved) =
+                    saved_connection.credential
             {
-                let saved = super::driver::load_connection_from_target(state, existing)
-                    .await?
-                    .credential;
-                if let crate::storage::StorageConnectorCredentialInput::Static(saved) = saved {
-                    connection.credential =
-                        crate::storage::connectors::merge_saved_static_credential(
-                            connection.credential,
-                            saved,
-                        )?;
-                }
+                connection.credential = crate::storage::connectors::merge_saved_static_credential(
+                    connection.credential,
+                    saved,
+                )?;
             }
             Some(normalize_connection(state, connection).await?)
         }
@@ -80,7 +78,9 @@ async fn normalize_connection<S: FollowerRuntimeState>(
         connection,
     )
     .await?;
-    if connection.connector_config.connector_id.as_str() == "asterdrive.storage.local" {
+    if connection.connector_config.connector_id.as_str()
+        == crate::storage::connectors::LocalConnector::ID
+    {
         let base_path = connection
             .connector_config
             .values

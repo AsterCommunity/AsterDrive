@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::errors::{AsterError, Result};
 use crate::runtime::FollowerRuntimeState;
+use crate::storage::connectors::LocalConnector;
 use aster_drive_model::entities::remote_storage_target;
 use aster_drive_storage::{ConnectorConfigEnvelope, ConnectorId};
 use aster_drive_storage::{StorageConnectorDescriptor, StorageDriver};
@@ -51,7 +52,7 @@ pub(in crate::services::remote::storage_target) async fn build_driver_from_targe
     connection.connector_config =
         connector.validate_connector_config(&connection.connector_config)?;
     connector.validate_credential_input(&connection.credential)?;
-    if connector_id.as_str() == "asterdrive.storage.local" {
+    if connector_id.as_str() == LocalConnector::ID {
         let relative = connection
             .connector_config
             .values

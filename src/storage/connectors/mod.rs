@@ -48,7 +48,7 @@ use azure_blob::AzureBlobConnector;
 pub(crate) use common::merge_saved_static_credential;
 pub use common::unsupported_multipart_error;
 use huawei_obs::HuaweiObsConnector;
-use local::LocalConnector;
+pub(crate) use local::LocalConnector;
 pub use models::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
     StorageConnectionInput, StorageConnectorActionOutput, StorageConnectorActionResult,

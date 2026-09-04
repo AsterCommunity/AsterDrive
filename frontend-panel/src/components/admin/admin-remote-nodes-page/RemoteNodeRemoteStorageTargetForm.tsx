@@ -1,8 +1,5 @@
 import { useTranslation } from "react-i18next";
-import {
-	isRemoteStorageTargetConnectorId,
-	type RemoteStorageTargetFormData,
-} from "@/components/admin/remoteStorageTargetDialogShared";
+import type { RemoteStorageTargetFormData } from "@/components/admin/remoteStorageTargetDialogShared";
 import { StorageConnectorFieldsPanel } from "@/components/admin/storage-policy-dialog/StorageConnectorFieldsPanel";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -25,6 +22,8 @@ import type {
 	RemoteNodeRemoteStorageTargetDraftMode,
 	RemoteNodeRemoteStorageTargetFieldChangeHandler,
 } from "./RemoteNodeRemoteStorageTargetTypes";
+
+const IS_DEFAULT_FIELD = "is_default";
 
 interface RemoteNodeRemoteStorageTargetFormProps {
 	defaultToggleLocked: boolean;
@@ -100,14 +99,12 @@ export function RemoteNodeRemoteStorageTargetForm({
 					) : null}
 				</div>
 				<div className="space-y-2">
-					<Label htmlFor="remote-target-connector">{t("driver_type")}</Label>
+					<Label htmlFor="remote-target-connector">{t("connector_type")}</Label>
 					<Select
 						items={options}
 						value={form.connector_id}
 						onValueChange={(value) => {
-							if (isRemoteStorageTargetConnectorId(value)) {
-								onFieldChange("connector_id", value);
-							}
+							if (value != null) onFieldChange("connector_id", value);
 						}}
 					>
 						<SelectTrigger id="remote-target-connector">
@@ -131,7 +128,7 @@ export function RemoteNodeRemoteStorageTargetForm({
 				<StorageConnectorFieldsPanel
 					descriptor={descriptor}
 					fields={descriptor?.fields.filter(
-						(field) => field.name !== "is_default",
+						(field) => field.name !== IS_DEFAULT_FIELD,
 					)}
 					form={form}
 					mode={draftMode}
