@@ -101,7 +101,7 @@ binding 控制面和 reverse tunnel 接口都使用远端节点签名鉴权，�
 - `supports_stream_upload`
 - `supports_capacity`
 
-当前协议版本是 `v5`，最低兼容版本是 `v4`，所以当前节点声明的本地支持区间是 `v4-v5`。`v4` / `v5` 和 `v2` / `v3` 不再 wire-compatible：内部存储 JSON 包装里的顶层 `code` 已经从旧数字码改成稳定字符串 `ApiErrorCode`。跨过这个边界时，先同时升级 primary 和 follower，再绑定 remote 策略。
+当前协议版本和最低兼容版本都是 `v6`。内部存储 JSON 包装里的顶层 `code` 使用稳定字符串 `ApiErrorCode`，不再使用旧数字码。绑定 remote 策略前，primary 和 follower 必须运行同一代协议。
 
 当前 follower 在 `features.binding_state_pull` 显式声明支持独立 binding control pull。该 capability 缺省为 `false`，所以 primary 可以区分滚动升级边界：
 
@@ -109,17 +109,11 @@ binding 控制面和 reverse tunnel 接口都使用远端节点签名鉴权，�
 - capability 缺失或为 `false`：primary 保留 legacy `PUT /binding` push。
 - 新 follower 对旧 primary 请求 binding-state 得到 `404` 时，保留本地 legacy push 状态并继续运行。
 
-`v5` 在能力响应中增加了远程存储目标 driver 能力。Rust 模型字段名是 `remote_storage_target`，但为了兼容 `v4` / `v5` 节点，wire JSON 仍序列化为 `managed_ingress`，同时接受 `remote_storage_target` 作为反序列化 alias。不要根据 wire 字段的旧名字把它重新解释成另一套产品模型。
-
-兼容规则是显式且有边界的：
-
-- `v4` follower 没有声明这组能力时，primary 会按旧协议语义把 Local 和 S3 视为可用 driver。
-- `v5` follower 必须显式声明远程存储目标能力；能力缺失或禁用时，不再套用 `v4` 的隐式 Local / S3 fallback。
-- primary 只展示 follower 声明且当前版本已注册 descriptor 的 driver；未知的未来 driver id 会被保留为协议数据，但不会自动变成可配置项。
+`v6` 在能力响应中通过 `remote_storage_target.connector_ids` 声明远程存储目标 connector。primary 只展示 follower 声明且当前版本已注册 descriptor 的 connector；未知的未来 connector id 会被保留为协议数据，但不会自动变成可配置项。
 
 主节点在加载远端策略或刷新绑定时会做能力协商：
 
-- `protocol_version` / `min_supported_protocol_version` 必须和本地支持区间有交集，当前本地区间是 `v4-v5`
+- `protocol_version` / `min_supported_protocol_version` 必须和本地支持区间有交集，当前本地区间是 `v6-v6`
 - 基础远端策略要求 `object_get`、`object_head`、`object_put`、`object_delete`、`metadata`、`range_get`、`accept_ranges_header`、`list`、`compose`
 - 如果远端策略启用浏览器预签名下载，`browser_cors` 必须声明允许 `range` 请求头，并暴露 `Accept-Ranges`、`Content-Range`、`Content-Length`
 - 如果远端策略启用浏览器预签名上传，`browser_cors` 必须声明允许 `content-type` 请求头，并暴露 `ETag`
@@ -175,9 +169,16 @@ legacy push 只在当前或切换前确实存在可用数据路径时尝试；�
 
 ```json
 {
-  "driver_type": "local",
   "name": "local-default",
-  "base_path": "data/storage",
+  "connection": {
+    "connector_config": {
+      "format_version": 1,
+      "connector_id": "asterdrive.storage.local",
+      "schema_version": 1,
+      "values": { "base_path": "data/storage" }
+    },
+    "credential": { "mode": "none" }
+  },
   "is_default": true
 }
 ```
@@ -186,18 +187,28 @@ legacy push 只在当前或切换前确实存在可用数据路径时尝试；�
 
 ```json
 {
-  "driver_type": "s3",
   "name": "edge-s3",
-  "endpoint": "https://s3.example.com",
-  "bucket": "aster-edge",
-  "access_key": "AKIA...",
-  "secret_key": "...",
-  "base_path": "objects/",
+  "connection": {
+    "connector_config": {
+      "format_version": 1,
+      "connector_id": "asterdrive.storage.s3",
+      "schema_version": 1,
+      "values": {
+        "endpoint": "https://s3.example.com",
+        "bucket": "aster-edge",
+        "base_path": "objects/"
+      }
+    },
+    "credential": {
+      "mode": "static",
+      "values": { "access_key": "AKIA...", "secret_key": "..." }
+    }
+  },
   "is_default": false
 }
 ```
 
-更新接口使用扁平字段，支持修改 `name`、`driver_type`、连接参数、`base_path` 和 `is_default`。当前 target driver 只有 `local` 和 `s3`；实际可选项还会受到 follower 的 `remote_storage_target` 能力声明约束。这些控制面接口只接受主节点签名头，不使用预签名 query。
+创建和更新接口使用共享的 `StorageConnectionInput` envelope，在 `name`、`is_default` 之外承载 connector 自己的配置和凭据；实际可选项受到 follower 的 `remote_storage_target.connector_ids` 能力声明约束。这些控制面接口只接受主节点签名头，不使用预签名 query。
 
 ## `POST /compose`
 

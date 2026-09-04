@@ -392,7 +392,7 @@ Side effects that must be explicit:
 
 ### `remote::storage_target`
 
-This is the current implementation home for what older issue text called "managed ingress profile service". Legacy wire fields and error codes may still use `managed_ingress.*` for compatibility, but new product ownership should use remote storage target terminology.
+This is the current implementation home for what older issue text called "managed ingress profile service". The product and API use remote storage target terminology throughout; historical migration identifiers may still mention the former name.
 
 Current responsibilities:
 

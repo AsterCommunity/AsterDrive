@@ -60,17 +60,31 @@ The overview response includes user, file, blob, share, audit, and task summarie
 | `POST` | `/admin/policies/test` | Test connection with draft parameters |
 | `POST` | `/admin/policies/action` | Execute a storage action with draft policy parameters |
 
-Create example:
+Create example (connector-owned connection):
 
 ```json
 {
   "name": "archive-s3",
-  "driver_type": "s3",
-  "endpoint": "https://s3.example.com",
-  "bucket": "archive",
-  "access_key": "AKIA...",
-  "secret_key": "...",
-  "base_path": "asterdrive/",
+  "connection": {
+    "connector_config": {
+      "format_version": 1,
+      "connector_id": "asterdrive.storage.s3",
+      "schema_version": 1,
+      "values": {
+        "endpoint": "https://s3.example.com",
+        "bucket": "archive",
+        "base_path": "asterdrive/"
+      }
+    },
+    "credential": {
+      "mode": "static",
+      "values": {
+        "access_key": "AKIA...",
+        "secret_key": "..."
+      }
+    },
+    "behavior": {}
+  },
   "max_file_size": 10737418240,
   "chunk_size": 10485760,
   "is_default": false
@@ -328,13 +342,13 @@ Remote nodes are follower storage nodes managed by the primary, mainly for `driv
 | `POST` | `/admin/remote-nodes/{id}/test` | Test saved remote-node connection |
 | `POST` | `/admin/remote-nodes/test` | Test draft remote-node connection |
 | `POST` | `/admin/remote-nodes/{id}/enrollment-token` | Generate follower enrollment command |
-| `GET` | `/admin/remote-nodes/{id}/storage-target-drivers` | List follower remote storage target driver descriptors |
+| `GET` | `/admin/remote-nodes/{id}/storage-target-connectors` | List follower remote storage target connector descriptors |
 | `GET` | `/admin/remote-nodes/{id}/storage-targets` | List follower remote storage targets |
 | `POST` | `/admin/remote-nodes/{id}/storage-targets` | Create follower remote storage target |
 | `PATCH` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | Update follower remote storage target |
 | `DELETE` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | Delete follower remote storage target |
 
-Version `0.4.0` removed the legacy `/ingress-profile-drivers` and `/ingress-profiles` compatibility paths. Clients must use `/storage-target-drivers` and `/storage-targets`; DTO field names use `target_key`.
+The remote target API uses the same connector descriptors and connection envelope as storage policies. The legacy `/ingress-profile-drivers`, `/ingress-profiles`, and `/storage-target-drivers` paths are removed; clients must use `/storage-target-connectors` and `/storage-targets`. DTO field names use `target_key`.
 
 Create example:
 
