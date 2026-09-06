@@ -46,9 +46,14 @@ pub(crate) async fn get_connector_icon(
     {
         return Ok(HttpResponse::NotFound().finish());
     }
+    let cache_control = if query.v.is_some() {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    };
 
     Ok(HttpResponse::Ok()
-        .insert_header(("Cache-Control", "public, max-age=31536000, immutable"))
+        .insert_header(("Cache-Control", cache_control))
         .insert_header((
             "ETag",
             format!("\"connector-icon-{}-{}\"", connector_id, icon.revision),

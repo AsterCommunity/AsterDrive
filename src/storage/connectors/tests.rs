@@ -143,6 +143,26 @@ fn contract_connector(descriptor: StorageConnectorDescriptor) -> Arc<dyn Storage
     })
 }
 
+#[test]
+fn connector_icon_default_and_registry_lookup_are_explicit() {
+    let connector_without_icon = contract_connector(descriptor(LocalConnector::ID));
+    assert!(connector_without_icon.icon().is_none());
+
+    let connector_id = ConnectorId::declared(LocalConnector::ID);
+    let icon = registry()
+        .icon(&connector_id)
+        .expect("registered connector icon");
+    assert!(!icon.bytes.is_empty());
+    assert_eq!(icon.bytes, include_bytes!("assets/local-disk.svg"));
+    assert_eq!(icon.content_type, "image/svg+xml");
+    assert_eq!(icon.revision, "1");
+    assert!(
+        registry()
+            .icon(&ConnectorId::declared("example.storage.missing"))
+            .is_none()
+    );
+}
+
 fn local_config(base_path: &str) -> LocalConnectorConfigV1 {
     LocalConnectorConfigV1 {
         base_path: base_path.to_string(),

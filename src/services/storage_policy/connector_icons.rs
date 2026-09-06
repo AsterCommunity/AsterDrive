@@ -75,13 +75,17 @@ mod tests {
         let descriptors = descriptors_with_backend_icons(&registry);
         assert_eq!(descriptors.len(), 10);
         for descriptor in descriptors {
-            let icon = registry.icon(&descriptor.connector_id);
-            if icon.is_some() {
-                assert!(descriptor.ui.icon.as_ref().is_some_and(|icon| {
-                    icon.url.starts_with(ICON_ENDPOINT_PREFIX)
-                        && icon.content_type.starts_with("image/")
-                }));
-            }
+            let icon = registry
+                .icon(&descriptor.connector_id)
+                .expect("built-in connector icon");
+            assert!(!icon.bytes.is_empty());
+            let descriptor_icon = descriptor.ui.icon.expect("descriptor icon");
+            assert_eq!(
+                descriptor_icon.url,
+                icon_url(&descriptor.connector_id, icon.revision)
+            );
+            assert_eq!(descriptor_icon.content_type, icon.content_type);
+            assert_eq!(descriptor_icon.revision, icon.revision);
         }
     }
 }
