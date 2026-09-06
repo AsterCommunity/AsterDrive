@@ -2522,12 +2522,10 @@ pub struct StorageConnectorUiDescriptor {
     pub label_key: String,
     /// 前端 i18n description key。
     pub description_key: String,
-    /// driver 选择卡片/上下文条图标资源。
+    /// Connector-owned browser icon metadata. URL is filled by the serving
+    /// application after resolving the connector asset.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon_src: Option<String>,
-    /// icon 库名称兜底。
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon_name: Option<String>,
+    pub icon: Option<StorageConnectorIconDescriptor>,
     /// Connector-owned badge accent color.
     ///
     /// Keeping the color as structured RGB data lets external connectors pick
@@ -2546,6 +2544,14 @@ pub struct StorageConnectorUiDescriptor {
     pub base_path_empty_display: String,
     /// base_path input placeholder。
     pub base_path_placeholder: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StorageConnectorIconDescriptor {
+    pub url: String,
+    pub content_type: String,
+    pub revision: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2945,8 +2951,6 @@ pub fn storage_connector_dynamic_select_field(
 pub struct StorageConnectorUiDescriptorInput {
     pub label_key: &'static str,
     pub description_key: &'static str,
-    pub icon_src: Option<&'static str>,
-    pub icon_name: Option<&'static str>,
     pub badge_rgb: StorageConnectorBadgeRgb,
     pub helper_key: &'static str,
     pub config_step_title_key: &'static str,
@@ -2962,8 +2966,7 @@ pub fn storage_connector_ui_descriptor(
     StorageConnectorUiDescriptor {
         label_key: input.label_key.to_string(),
         description_key: input.description_key.to_string(),
-        icon_src: input.icon_src.map(ToOwned::to_owned),
-        icon_name: input.icon_name.map(ToOwned::to_owned),
+        icon: None,
         badge_rgb: input.badge_rgb,
         helper_key: input.helper_key.to_string(),
         config_step_title_key: input.config_step_title_key.to_string(),
@@ -3124,8 +3127,6 @@ mod tests {
             ui: StorageConnectorUiDescriptorInput {
                 label_key: "s3",
                 description_key: "s3_desc",
-                icon_src: None,
-                icon_name: None,
                 badge_rgb: StorageConnectorBadgeRgb::new(59, 130, 246),
                 helper_key: "helper",
                 config_step_title_key: "title",

@@ -59,7 +59,7 @@ function descriptor(
 			description_key: "connector_desc",
 			edit_context_key: "edit_context",
 			helper_key: "helper",
-			icon_name: "hard-drive",
+			icon: null,
 			label_key: "connector_label",
 		},
 		upload_workflows: {

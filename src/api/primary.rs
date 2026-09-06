@@ -16,6 +16,7 @@ pub fn configure_primary(cfg: &mut web::ServiceConfig, db: &sea_orm::DatabaseCon
             .service(routes::folders::routes(rl, network_trust))
             .service(routes::admin::routes(rl, network_trust))
             .service(routes::shares::routes(rl, network_trust))
+            .service(routes::storage_connectors::routes())
             .service(routes::share_public::routes(rl, network_trust))
             .service(routes::webdav_accounts::routes(rl, network_trust))
             .service(routes::trash::routes(rl, network_trust))

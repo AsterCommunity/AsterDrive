@@ -38,9 +38,10 @@ use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{StorageCredentialKind, StorageCredentialProvider};
 use aster_drive_storage::StorageConnectorActionInvocationError;
 use aster_drive_storage::StorageDriver;
+#[cfg(test)]
+use aster_drive_storage::connector_descriptor::StorageConnectorDescriptor;
 use aster_drive_storage::connector_descriptor::{
-    StorageConnectorActionEndpoint, StorageConnectorActionKind, StorageConnectorDescriptor,
-    StorageConnectorObjectNamingMode,
+    StorageConnectorActionEndpoint, StorageConnectorActionKind, StorageConnectorObjectNamingMode,
 };
 
 use alibaba_oss::AlibabaOssConnector;
@@ -74,7 +75,8 @@ use tencent_cos::TencentCosConnector;
 pub use upload::StorageConnectorUploadTransport;
 
 pub(crate) use contract::{
-    StorageConnector, StorageConnectorContext, StorageConnectorDriver, StorageConnectorRegistry,
+    StorageConnector, StorageConnectorContext, StorageConnectorDriver, StorageConnectorIcon,
+    StorageConnectorRegistry,
 };
 
 pub(crate) fn builtin_storage_connector_registry() -> Result<StorageConnectorRegistry> {
@@ -172,12 +174,6 @@ pub(crate) fn remote_connector_context<'a>(
         state.driver_registry(),
         Some(state.remote_protocol()),
     )
-}
-
-pub(crate) fn list_storage_driver_descriptors(
-    registry: &StorageConnectorRegistry,
-) -> Vec<StorageConnectorDescriptor> {
-    registry.descriptors()
 }
 
 pub(crate) fn storage_policy_supports_native_thumbnail(

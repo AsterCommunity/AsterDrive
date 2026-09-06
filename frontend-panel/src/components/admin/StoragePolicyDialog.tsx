@@ -15,7 +15,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { Icon, isIconName } from "@/components/ui/icon";
+import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -923,19 +923,18 @@ function ConnectorVisual({
 	descriptor: StorageConnectorDescriptor | null;
 	className?: string;
 }) {
-	if (descriptor?.ui.icon_src) {
+	if (descriptor?.ui.icon) {
 		return (
 			<img
-				src={descriptor.ui.icon_src}
+				src={descriptor.ui.icon.url}
 				alt=""
 				className={cn("max-h-9 w-auto object-contain", className)}
 			/>
 		);
 	}
-	const iconName = descriptor?.ui.icon_name;
 	return (
 		<Icon
-			name={iconName && isIconName(iconName) ? iconName : "Globe"}
+			name="Globe"
 			className={cn("size-8 text-amber-600 dark:text-amber-300", className)}
 		/>
 	);

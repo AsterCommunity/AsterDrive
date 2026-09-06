@@ -32,7 +32,7 @@ use super::common::{
 use super::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
     StorageConnector, StorageConnectorActionResult, StorageConnectorCredentialInput,
-    StorageConnectorUploadTransport,
+    StorageConnectorIcon, StorageConnectorUploadTransport,
 };
 
 mod localization;
@@ -253,8 +253,6 @@ impl TencentCosConnector {
                 ui: StorageConnectorUiDescriptorInput {
                     label_key: "driver_type_tencent_cos",
                     description_key: "policy_wizard_tencent_cos_storage_desc",
-                    icon_src: Some("/static/storage/tencent-cloud-cos.webp"),
-                    icon_name: None,
                     badge_rgb: StorageConnectorBadgeRgb::new(6, 182, 212),
                     helper_key: "policy_wizard_tencent_cos_helper",
                     config_step_title_key: "policy_wizard_step_connection_title",
@@ -305,6 +303,14 @@ fn resolve_cos_cors_allowed_origins(
 
 #[async_trait]
 impl StorageConnector for TencentCosConnector {
+    fn icon(&self) -> Option<StorageConnectorIcon> {
+        Some(StorageConnectorIcon {
+            bytes: include_bytes!("assets/tencent-cloud-cos.webp"),
+            content_type: "image/webp",
+            revision: "1",
+        })
+    }
+
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
     }

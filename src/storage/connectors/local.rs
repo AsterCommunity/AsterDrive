@@ -15,7 +15,10 @@ use aster_drive_storage::connector_descriptor::{
 };
 
 use super::LocalFilesystemPolicyProjection;
-use super::{StorageConnector, StorageConnectorCredentialInput, StorageConnectorUploadTransport};
+use super::{
+    StorageConnector, StorageConnectorCredentialInput, StorageConnectorIcon,
+    StorageConnectorUploadTransport,
+};
 
 mod localization;
 
@@ -77,8 +80,6 @@ impl LocalConnector {
             ui: storage_connector_ui_descriptor(StorageConnectorUiDescriptorInput {
                 label_key: "driver_type_local",
                 description_key: "policy_wizard_local_storage_desc",
-                icon_src: Some("/static/storage/local-disk.svg"),
-                icon_name: None,
                 badge_rgb: StorageConnectorBadgeRgb::new(16, 185, 129),
                 helper_key: "policy_wizard_local_helper",
                 config_step_title_key: "policy_wizard_step_local_title",
@@ -130,6 +131,14 @@ impl LocalConnector {
 
 #[async_trait]
 impl StorageConnector for LocalConnector {
+    fn icon(&self) -> Option<StorageConnectorIcon> {
+        Some(StorageConnectorIcon {
+            bytes: include_bytes!("assets/local-disk.svg"),
+            content_type: "image/svg+xml",
+            revision: "1",
+        })
+    }
+
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
     }

@@ -19,7 +19,10 @@ use aster_drive_storage::connector_descriptor::{
 use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
 
 use super::common::{StorageTransferDirection, transfer_strategy_field};
-use super::{StorageConnector, StorageConnectorCredentialInput, StorageConnectorUploadTransport};
+use super::{
+    StorageConnector, StorageConnectorCredentialInput, StorageConnectorIcon,
+    StorageConnectorUploadTransport,
+};
 
 mod localization;
 
@@ -192,8 +195,6 @@ impl AlibabaOssConnector {
                 ui: StorageConnectorUiDescriptorInput {
                     label_key: "driver_type_alibaba_oss",
                     description_key: "policy_wizard_alibaba_oss_storage_desc",
-                    icon_src: Some("/static/storage/aliyun-oss.svg"),
-                    icon_name: None,
                     badge_rgb: StorageConnectorBadgeRgb::new(255, 106, 0),
                     helper_key: "policy_wizard_alibaba_oss_helper",
                     config_step_title_key: "policy_wizard_step_connection_title",
@@ -219,6 +220,14 @@ impl AlibabaOssConnector {
 
 #[async_trait]
 impl StorageConnector for AlibabaOssConnector {
+    fn icon(&self) -> Option<StorageConnectorIcon> {
+        Some(StorageConnectorIcon {
+            bytes: include_bytes!("assets/aliyun-oss.svg"),
+            content_type: "image/svg+xml",
+            revision: "1",
+        })
+    }
+
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
     }

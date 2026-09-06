@@ -85,8 +85,7 @@ function descriptor(): StorageConnectorDescriptor {
 			description_key: "description",
 			edit_context_key: "edit_context",
 			helper_key: "helper",
-			icon_name: null,
-			icon_src: null,
+			icon: null,
 			label_key: "archive_label",
 		},
 		upload_workflows: {

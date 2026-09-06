@@ -810,7 +810,7 @@ fn descriptors_are_complete_and_keep_config_credentials_separate() {
     for descriptor in registry().descriptors() {
         assert!(!descriptor.ui.label_key.trim().is_empty());
         assert!(!descriptor.ui.description_key.trim().is_empty());
-        assert!(descriptor.ui.icon_src.is_some() || descriptor.ui.icon_name.is_some());
+        assert!(descriptor.ui.icon.is_none());
         assert!(descriptor.config_schema_version > 0);
         match descriptor.credential_mode {
             aster_drive_storage::StorageConnectorCredentialMode::None => {
@@ -1903,11 +1903,7 @@ fn qiniu_config(upload: ObjectStorageUploadStrategy) -> QiniuConnectorConfigV1 {
 fn qiniu_descriptor_declares_s3_compatible_capabilities() {
     let descriptor = QiniuConnector::descriptor_definition();
     assert_eq!(descriptor.connector_id.as_str(), QiniuConnector::ID);
-    assert_eq!(
-        descriptor.ui.icon_src.as_deref(),
-        Some("/static/storage/qiniuyun-kodo.svg")
-    );
-    assert!(descriptor.ui.icon_name.is_none());
+    assert!(descriptor.ui.icon.is_none());
     assert_eq!(descriptor.config_schema_version, 1);
     assert_eq!(descriptor.related_issues, vec![519, 474]);
     assert!(descriptor.promotions.iter().any(|promotion| {

@@ -162,8 +162,11 @@ function descriptor(
 			description_key: "plugin_description",
 			edit_context_key: "plugin_edit_context",
 			helper_key: "plugin_helper",
-			icon_name: null,
-			icon_src: "/plugin-icon.png",
+			icon: {
+				url: "/plugin-icon.png",
+				content_type: "image/png",
+				revision: "1",
+			},
 			label_key: "plugin_label",
 		},
 		upload_workflows: {
@@ -287,8 +290,7 @@ describe("StoragePolicyDialog", () => {
 		const available = descriptor("plugin.example", {
 			ui: {
 				...descriptor("plugin.example").ui,
-				icon_name: "not-an-icon",
-				icon_src: null,
+				icon: null,
 			},
 		});
 		const postSetup = descriptor("plugin.post-setup", {
@@ -1395,8 +1397,7 @@ describe("StoragePolicyDialog", () => {
 			],
 			ui: {
 				...descriptor("plugin.example").ui,
-				icon_name: "not-an-icon",
-				icon_src: null,
+				icon: null,
 			},
 		});
 		const props = dialogProps({

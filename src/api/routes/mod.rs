@@ -18,6 +18,7 @@ pub mod remote_tunnel;
 pub mod search;
 pub mod share_public;
 pub mod shares;
+pub mod storage_connectors;
 pub mod tags;
 pub mod tasks;
 pub mod teams;

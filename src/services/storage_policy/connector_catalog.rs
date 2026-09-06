@@ -25,7 +25,7 @@ pub(crate) fn list_storage_connector_catalog(
     config: &Config,
     context: StorageConnectorCatalogContext,
 ) -> Vec<StorageConnectorDescriptor> {
-    crate::storage::connectors::list_storage_driver_descriptors(registry)
+    crate::services::storage_policy::connector_icons::descriptors_with_backend_icons(registry)
         .into_iter()
         .filter(|descriptor| connector_visible_in_context(config, descriptor, context))
         .collect()
