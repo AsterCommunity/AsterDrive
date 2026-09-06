@@ -397,44 +397,7 @@ export default defineConfig({
         starlightAnnouncement({
           displayMode: 'stack',
           iconSize: 18,
-          announcements: [
-            {
-              id: 'security-advisory-cve-2026-8461',
-              content: {
-                'zh-CN':
-                  '安全更新：Docker 镜像从 v0.4.0-rc.1 起已修复 FFmpeg MagicYUV 解码器漏洞 CVE-2026-8461（高危），使用旧镜像的实例请立即升级。',
-                en: 'Security update: Docker images from v0.4.0-rc.1 fix the high-severity FFmpeg MagicYUV decoder vulnerability (CVE-2026-8461). Upgrade instances using older images immediately.'
-              },
-              link: {
-                text: {
-                  'zh-CN': '查看 CVE 公告',
-                  en: 'View CVE advisory'
-                },
-                href: 'https://nvd.nist.gov/vuln/detail/CVE-2026-8461'
-              },
-              variant: 'caution',
-              dismissible: true,
-              showOn: ['/**']
-            },
-            {
-              id: 'security-advisory-ghsa-7797-6gjx-hwgh',
-              content: {
-                'zh-CN':
-                  '安全更新：v0.4.0-beta.3 已修复 WebDAV 请求可导致服务进程终止的问题，旧版本实例请尽快升级。',
-                en: 'Security update: v0.4.0-beta.3 fixes a WebDAV request issue that can terminate the server process. Upgrade older instances promptly.'
-              },
-              link: {
-                text: {
-                  'zh-CN': '查看安全公告',
-                  en: 'View advisory'
-                },
-                href: 'https://github.com/AsterCommunity/AsterDrive/security/advisories/GHSA-7797-6gjx-hwgh'
-              },
-              variant: 'caution',
-              dismissible: true,
-              showOn: ['/**']
-            }
-          ]
+          announcements: []
         }),
         {
           name: 'asterdrive-announcement-zh-cn',
