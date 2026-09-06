@@ -23,8 +23,20 @@ pub async fn list_remote_connector_descriptors<S: RemoteProtocolRuntimeState>(
     remote_node_id: i64,
 ) -> Result<Vec<StorageConnectorDescriptor>> {
     let node = remote_node_for_storage_target_write(state, remote_node_id).await?;
-    Ok(RemoteCapabilityResolver::from_remote_node(&node)
-        .remote_storage_target_connector_descriptors(state.driver_registry().connectors()))
+    let descriptors = RemoteCapabilityResolver::from_remote_node(&node)
+        .remote_storage_target_connector_descriptors(state.driver_registry().connectors());
+    Ok(descriptors
+        .into_iter()
+        .map(|descriptor| {
+            crate::services::storage_policy::connector_icons::descriptor_with_backend_icon(
+                descriptor.clone(),
+                state
+                    .driver_registry()
+                    .connectors()
+                    .icon(&descriptor.connector_id),
+            )
+        })
+        .collect())
 }
 
 pub async fn create_remote<S: RemoteProtocolRuntimeState>(

@@ -43,7 +43,7 @@ use super::common::unsupported_draft_connection_test_error;
 use super::{
     StorageAuthorizationFailureReason, StorageConnector, StorageConnectorAuthorizationAudit,
     StorageConnectorAuthorizationCallback, StorageConnectorAuthorizationError,
-    StorageConnectorAuthorizationStart, StorageConnectorCredentialInput,
+    StorageConnectorAuthorizationStart, StorageConnectorCredentialInput, StorageConnectorIcon,
     StorageConnectorRuntimeCredential, StorageConnectorUploadTransport,
     StorageCredentialValidationOutcome, StoragePolicyCleanupDriverSnapshot,
     StoragePolicyCleanupSnapshots,
@@ -812,8 +812,6 @@ impl OneDriveConnector {
             ui: storage_connector_ui_descriptor(StorageConnectorUiDescriptorInput {
                 label_key: "driver_type_onedrive",
                 description_key: "policy_wizard_onedrive_storage_desc",
-                icon_src: Some("/static/storage/onedrive.svg"),
-                icon_name: None,
                 badge_rgb: StorageConnectorBadgeRgb::new(59, 130, 246),
                 helper_key: "policy_wizard_onedrive_helper",
                 config_step_title_key: "policy_wizard_step_onedrive_title",
@@ -1016,6 +1014,14 @@ fn onedrive_credential_reason_rules() -> Vec<StorageConnectorCredentialReasonRul
 
 #[async_trait]
 impl StorageConnector for OneDriveConnector {
+    fn icon(&self) -> Option<StorageConnectorIcon> {
+        Some(StorageConnectorIcon {
+            bytes: include_bytes!("assets/onedrive.svg"),
+            content_type: "image/svg+xml",
+            revision: "1",
+        })
+    }
+
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
     }

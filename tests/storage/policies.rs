@@ -425,6 +425,82 @@ async fn test_policy_input_rejects_invalid_and_unavailable_connectors_as_bad_req
 }
 
 #[actix_web::test]
+async fn test_storage_connector_icon_endpoint_version_and_cache_contract() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let versioned_uri = "/api/v1/storage/connectors/asterdrive.storage.alibaba_oss/icon?v=1";
+
+    let versioned = test::call_service(
+        &app,
+        test::TestRequest::get().uri(versioned_uri).to_request(),
+    )
+    .await;
+    assert_eq!(versioned.status(), 200);
+    assert_eq!(
+        versioned.headers().get("cache-control").unwrap(),
+        "public, max-age=31536000, immutable"
+    );
+    assert_eq!(
+        versioned.headers().get("content-type").unwrap(),
+        "image/svg+xml"
+    );
+    let versioned_etag = versioned
+        .headers()
+        .get("etag")
+        .expect("versioned connector icon ETag")
+        .clone();
+    let versioned_body = test::read_body(versioned).await;
+    assert!(!versioned_body.is_empty());
+
+    let not_modified = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(versioned_uri)
+            .insert_header((
+                actix_web::http::header::IF_NONE_MATCH,
+                versioned_etag.clone(),
+            ))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(
+        not_modified.status(),
+        actix_web::http::StatusCode::NOT_MODIFIED
+    );
+    assert_eq!(not_modified.headers().get("etag").unwrap(), &versioned_etag);
+    assert_eq!(
+        not_modified.headers().get("cache-control").unwrap(),
+        "public, max-age=31536000, immutable"
+    );
+    assert!(test::read_body(not_modified).await.is_empty());
+
+    let unversioned = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/v1/storage/connectors/asterdrive.storage.alibaba_oss/icon")
+            .to_request(),
+    )
+    .await;
+    assert_eq!(unversioned.status(), 200);
+    assert_eq!(
+        unversioned.headers().get("cache-control").unwrap(),
+        "no-cache"
+    );
+    assert_eq!(unversioned.headers().get("etag").unwrap(), &versioned_etag);
+    assert_eq!(test::read_body(unversioned).await, versioned_body);
+
+    for uri in [
+        "/api/v1/storage/connectors/asterdrive.storage.alibaba_oss/icon?v=stale",
+        "/api/v1/storage/connectors/example.storage.missing/icon?v=1",
+    ] {
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri(uri).to_request()).await;
+        assert_eq!(response.status(), 404, "{uri}");
+        assert!(test::read_body(response).await.is_empty(), "{uri}");
+    }
+}
+
+#[actix_web::test]
 async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     let state = common::setup().await;
     let app = create_test_app!(state);
@@ -626,9 +702,11 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     assert_eq!(alibaba_oss["credential_mode"], "static_secret");
     assert_eq!(alibaba_oss["ui"]["label_key"], "driver_type_alibaba_oss");
     assert_eq!(
-        alibaba_oss["ui"]["icon_src"],
-        "/static/storage/aliyun-oss.svg"
+        alibaba_oss["ui"]["icon"]["url"],
+        "/api/v1/storage/connectors/asterdrive.storage.alibaba_oss/icon?v=1"
     );
+    assert_eq!(alibaba_oss["ui"]["icon"]["content_type"], "image/svg+xml");
+    assert_eq!(alibaba_oss["ui"]["icon"]["revision"], "1");
     assert_eq!(
         alibaba_oss["upload_workflows"]["object_multipart_upload"],
         true

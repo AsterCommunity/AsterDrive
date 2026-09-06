@@ -93,6 +93,15 @@ pub(crate) struct StorageConnectorDriver {
     pub(crate) multipart: Option<Arc<dyn MultipartStorageDriver>>,
 }
 
+/// Connector-owned browser asset. The bytes are compiled by the connector
+/// implementation; the registry only transports them to the HTTP adapter.
+#[derive(Clone, Copy)]
+pub(crate) struct StorageConnectorIcon {
+    pub(crate) bytes: &'static [u8],
+    pub(crate) content_type: &'static str,
+    pub(crate) revision: &'static str,
+}
+
 impl StorageConnectorDriver {
     pub(crate) fn storage(storage: Arc<dyn StorageDriver>) -> Self {
         Self {
@@ -122,6 +131,12 @@ impl StorageConnectorDriver {
 /// and invoke this object-safe contract without matching concrete providers.
 pub(crate) trait StorageConnector: Send + Sync {
     fn descriptor(&self) -> StorageConnectorDescriptor;
+
+    /// Return the connector-owned icon asset, when this connector has one.
+    /// External/plugin connectors may leave the default empty implementation.
+    fn icon(&self) -> Option<StorageConnectorIcon> {
+        None
+    }
 
     /// Connector-owned UI messages. The registry validates this resource
     /// against every message id referenced by `descriptor()` before startup.
@@ -704,6 +719,12 @@ impl StorageConnectorRegistry {
             .iter()
             .map(|connector| connector.descriptor())
             .collect()
+    }
+
+    pub(crate) fn icon(&self, connector_id: &ConnectorId) -> Option<StorageConnectorIcon> {
+        self.by_connector_id
+            .get(connector_id)
+            .and_then(|connector| connector.icon())
     }
 
     pub(crate) fn require_localization(

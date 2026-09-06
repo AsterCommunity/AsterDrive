@@ -16,7 +16,10 @@ use aster_drive_storage::connector_descriptor::{
     storage_connector_field_with_display, storage_connector_ui_descriptor,
 };
 
-use super::{StorageConnector, StorageConnectorCredentialInput, StorageConnectorUploadTransport};
+use super::{
+    StorageConnector, StorageConnectorCredentialInput, StorageConnectorIcon,
+    StorageConnectorUploadTransport,
+};
 
 mod localization;
 
@@ -140,8 +143,6 @@ impl SftpConnector {
             ui: storage_connector_ui_descriptor(StorageConnectorUiDescriptorInput {
                 label_key: "driver_type_sftp",
                 description_key: "policy_wizard_sftp_storage_desc",
-                icon_src: Some("/static/storage/sftp-server.svg"),
-                icon_name: Some("ServerCog"),
                 badge_rgb: StorageConnectorBadgeRgb::new(139, 92, 246),
                 helper_key: "policy_wizard_sftp_helper",
                 config_step_title_key: "policy_wizard_step_sftp_title",
@@ -193,6 +194,14 @@ impl SftpConnector {
 
 #[async_trait]
 impl StorageConnector for SftpConnector {
+    fn icon(&self) -> Option<StorageConnectorIcon> {
+        Some(StorageConnectorIcon {
+            bytes: include_bytes!("assets/sftp-server.svg"),
+            content_type: "image/svg+xml",
+            revision: "1",
+        })
+    }
+
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
     }

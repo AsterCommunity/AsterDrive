@@ -279,6 +279,7 @@ use utoipa::{Modify, OpenApi};
         // admin::policies：存储策略、策略组及其验证相关接口。
         crate::api::routes::admin::policies::list_policies,
         crate::api::routes::admin::policies::list_storage_driver_descriptors,
+        crate::api::routes::storage_connectors::get_connector_icon,
         crate::api::routes::admin::policies::list_storage_driver_localizations,
         crate::api::routes::admin::policies::create_policy,
         crate::api::routes::admin::policies::get_policy,

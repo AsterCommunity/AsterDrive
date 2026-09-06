@@ -34,7 +34,7 @@ use aster_drive_storage::{StorageDriver, StorageErrorKind, storage_driver_error}
 use super::common::{StorageTransferDirection, transfer_strategy_field};
 use super::{
     RemotePolicyBindingProjection, StorageConnector, StorageConnectorCredentialInput,
-    StorageConnectorUploadTransport, StoragePolicyCleanupDriverSnapshot,
+    StorageConnectorIcon, StorageConnectorUploadTransport, StoragePolicyCleanupDriverSnapshot,
     StoragePolicyCleanupSnapshots,
 };
 
@@ -130,8 +130,6 @@ impl RemoteConnector {
             ui: storage_connector_ui_descriptor(StorageConnectorUiDescriptorInput {
                 label_key: "driver_type_remote",
                 description_key: "policy_wizard_remote_storage_desc",
-                icon_src: Some("/static/storage/asterfollower.svg"),
-                icon_name: None,
                 badge_rgb: StorageConnectorBadgeRgb::new(245, 158, 11),
                 helper_key: "policy_wizard_remote_helper",
                 config_step_title_key: "policy_wizard_step_remote_title",
@@ -187,6 +185,14 @@ impl RemoteConnector {
 
 #[async_trait]
 impl StorageConnector for RemoteConnector {
+    fn icon(&self) -> Option<StorageConnectorIcon> {
+        Some(StorageConnectorIcon {
+            bytes: include_bytes!("assets/asterfollower.svg"),
+            content_type: "image/svg+xml",
+            revision: "1",
+        })
+    }
+
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
     }

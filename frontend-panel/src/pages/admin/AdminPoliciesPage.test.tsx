@@ -358,8 +358,7 @@ function descriptor(
 			description_key: "connector_desc",
 			edit_context_key: "edit_context",
 			helper_key: "helper",
-			icon_name: null,
-			icon_src: null,
+			icon: null,
 			label_key: connectorId,
 		},
 		upload_workflows: {

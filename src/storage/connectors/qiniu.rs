@@ -20,7 +20,10 @@ use aster_drive_storage::{
 };
 
 use super::common::{StorageTransferDirection, transfer_strategy_field};
-use super::{StorageConnector, StorageConnectorCredentialInput, StorageConnectorUploadTransport};
+use super::{
+    StorageConnector, StorageConnectorCredentialInput, StorageConnectorIcon,
+    StorageConnectorUploadTransport,
+};
 
 mod localization;
 
@@ -168,8 +171,6 @@ impl QiniuConnector {
                 ui: StorageConnectorUiDescriptorInput {
                     label_key: "driver_type_qiniu",
                     description_key: "policy_wizard_qiniu_storage_desc",
-                    icon_src: Some("/static/storage/qiniuyun-kodo.svg"),
-                    icon_name: None,
                     badge_rgb: StorageConnectorBadgeRgb::new(0, 148, 255),
                     helper_key: "policy_wizard_qiniu_helper",
                     config_step_title_key: "policy_wizard_step_connection_title",
@@ -206,6 +207,14 @@ impl QiniuConnector {
 
 #[async_trait]
 impl StorageConnector for QiniuConnector {
+    fn icon(&self) -> Option<StorageConnectorIcon> {
+        Some(StorageConnectorIcon {
+            bytes: include_bytes!("assets/qiniuyun-kodo.svg"),
+            content_type: "image/svg+xml",
+            revision: "1",
+        })
+    }
+
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
     }

@@ -20,7 +20,10 @@ use aster_drive_storage::connector_descriptor::{
 use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
 
 use super::common::{StorageTransferDirection, transfer_strategy_field};
-use super::{StorageConnector, StorageConnectorCredentialInput, StorageConnectorUploadTransport};
+use super::{
+    StorageConnector, StorageConnectorCredentialInput, StorageConnectorIcon,
+    StorageConnectorUploadTransport,
+};
 
 mod localization;
 
@@ -246,8 +249,6 @@ impl HuaweiObsConnector {
                 ui: StorageConnectorUiDescriptorInput {
                     label_key: "driver_type_huawei_obs",
                     description_key: "policy_wizard_huawei_obs_storage_desc",
-                    icon_src: Some("/static/storage/huaweicloud-obs.webp"),
-                    icon_name: None,
                     badge_rgb: StorageConnectorBadgeRgb::new(239, 68, 68),
                     helper_key: "policy_wizard_huawei_obs_helper",
                     config_step_title_key: "policy_wizard_step_connection_title",
@@ -273,6 +274,14 @@ impl HuaweiObsConnector {
 
 #[async_trait]
 impl StorageConnector for HuaweiObsConnector {
+    fn icon(&self) -> Option<StorageConnectorIcon> {
+        Some(StorageConnectorIcon {
+            bytes: include_bytes!("assets/huaweicloud-obs.webp"),
+            content_type: "image/webp",
+            revision: "1",
+        })
+    }
+
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
     }

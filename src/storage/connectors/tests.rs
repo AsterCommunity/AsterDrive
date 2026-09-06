@@ -143,6 +143,26 @@ fn contract_connector(descriptor: StorageConnectorDescriptor) -> Arc<dyn Storage
     })
 }
 
+#[test]
+fn connector_icon_default_and_registry_lookup_are_explicit() {
+    let connector_without_icon = contract_connector(descriptor(LocalConnector::ID));
+    assert!(connector_without_icon.icon().is_none());
+
+    let connector_id = ConnectorId::declared(LocalConnector::ID);
+    let icon = registry()
+        .icon(&connector_id)
+        .expect("registered connector icon");
+    assert!(!icon.bytes.is_empty());
+    assert_eq!(icon.bytes, include_bytes!("assets/local-disk.svg"));
+    assert_eq!(icon.content_type, "image/svg+xml");
+    assert_eq!(icon.revision, "1");
+    assert!(
+        registry()
+            .icon(&ConnectorId::declared("example.storage.missing"))
+            .is_none()
+    );
+}
+
 fn local_config(base_path: &str) -> LocalConnectorConfigV1 {
     LocalConnectorConfigV1 {
         base_path: base_path.to_string(),
@@ -810,7 +830,7 @@ fn descriptors_are_complete_and_keep_config_credentials_separate() {
     for descriptor in registry().descriptors() {
         assert!(!descriptor.ui.label_key.trim().is_empty());
         assert!(!descriptor.ui.description_key.trim().is_empty());
-        assert!(descriptor.ui.icon_src.is_some() || descriptor.ui.icon_name.is_some());
+        assert!(descriptor.ui.icon.is_none());
         assert!(descriptor.config_schema_version > 0);
         match descriptor.credential_mode {
             aster_drive_storage::StorageConnectorCredentialMode::None => {
@@ -1903,11 +1923,7 @@ fn qiniu_config(upload: ObjectStorageUploadStrategy) -> QiniuConnectorConfigV1 {
 fn qiniu_descriptor_declares_s3_compatible_capabilities() {
     let descriptor = QiniuConnector::descriptor_definition();
     assert_eq!(descriptor.connector_id.as_str(), QiniuConnector::ID);
-    assert_eq!(
-        descriptor.ui.icon_src.as_deref(),
-        Some("/static/storage/qiniuyun-kodo.svg")
-    );
-    assert!(descriptor.ui.icon_name.is_none());
+    assert!(descriptor.ui.icon.is_none());
     assert_eq!(descriptor.config_schema_version, 1);
     assert_eq!(descriptor.related_issues, vec![519, 474]);
     assert!(descriptor.promotions.iter().any(|promotion| {

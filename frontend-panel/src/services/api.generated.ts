@@ -2969,6 +2969,22 @@ export interface paths {
         patch: operations["update_share"];
         trace?: never;
     };
+    "/api/v1/storage/connectors/{connector_id}/icon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_storage_connector_icon"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tags": {
         parameters: {
             query?: never;
@@ -8135,6 +8151,11 @@ export interface components {
          *     admin UI and backend validator share an inspectable schema.
          */
         StorageConnectorFieldValue: boolean | number | string;
+        StorageConnectorIconDescriptor: {
+            content_type: string;
+            revision: string;
+            url: string;
+        };
         /** @enum {string} */
         StorageConnectorInactiveValueBehavior: "preserve" | "clear";
         StorageConnectorLocalizationBundle: {
@@ -8374,10 +8395,7 @@ export interface components {
             edit_context_key: string;
             /** @description 创建向导右侧 helper 文案 key。 */
             helper_key: string;
-            /** @description icon 库名称兜底。 */
-            icon_name?: string | null;
-            /** @description driver 选择卡片/上下文条图标资源。 */
-            icon_src?: string | null;
+            icon?: null | components["schemas"]["StorageConnectorIconDescriptor"];
             /** @description 前端 i18n label key。 */
             label_key: string;
         };
@@ -22207,6 +22225,37 @@ export interface operations {
                 content?: never;
             };
             /** @description Share not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_storage_connector_icon: {
+        parameters: {
+            query?: {
+                /** @description Asset revision */
+                v?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Stable connector id */
+                connector_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Connector icon asset */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Connector icon not found */
             404: {
                 headers: {
                     [name: string]: unknown;

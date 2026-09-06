@@ -18,7 +18,10 @@ use aster_drive_storage::connector_descriptor::{
 use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
 
 use super::common::{StorageTransferDirection, transfer_strategy_field};
-use super::{StorageConnector, StorageConnectorCredentialInput, StorageConnectorUploadTransport};
+use super::{
+    StorageConnector, StorageConnectorCredentialInput, StorageConnectorIcon,
+    StorageConnectorUploadTransport,
+};
 
 mod localization;
 
@@ -111,8 +114,6 @@ impl AzureBlobConnector {
             ui: StorageConnectorUiDescriptorInput {
                 label_key: "driver_type_azure_blob",
                 description_key: "policy_wizard_azure_blob_storage_desc",
-                icon_src: Some("/static/storage/azure-blob.svg"),
-                icon_name: None,
                 badge_rgb: StorageConnectorBadgeRgb::new(14, 165, 233),
                 helper_key: "policy_wizard_azure_blob_helper",
                 config_step_title_key: "policy_wizard_step_connection_title",
@@ -136,6 +137,14 @@ impl AzureBlobConnector {
 
 #[async_trait]
 impl StorageConnector for AzureBlobConnector {
+    fn icon(&self) -> Option<StorageConnectorIcon> {
+        Some(StorageConnectorIcon {
+            bytes: include_bytes!("assets/azure-blob.svg"),
+            content_type: "image/svg+xml",
+            revision: "1",
+        })
+    }
+
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
     }
