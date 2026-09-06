@@ -444,8 +444,35 @@ async fn test_storage_connector_icon_endpoint_version_and_cache_contract() {
         versioned.headers().get("content-type").unwrap(),
         "image/svg+xml"
     );
+    let versioned_etag = versioned
+        .headers()
+        .get("etag")
+        .expect("versioned connector icon ETag")
+        .clone();
     let versioned_body = test::read_body(versioned).await;
     assert!(!versioned_body.is_empty());
+
+    let not_modified = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(versioned_uri)
+            .insert_header((
+                actix_web::http::header::IF_NONE_MATCH,
+                versioned_etag.clone(),
+            ))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(
+        not_modified.status(),
+        actix_web::http::StatusCode::NOT_MODIFIED
+    );
+    assert_eq!(not_modified.headers().get("etag").unwrap(), &versioned_etag);
+    assert_eq!(
+        not_modified.headers().get("cache-control").unwrap(),
+        "public, max-age=31536000, immutable"
+    );
+    assert!(test::read_body(not_modified).await.is_empty());
 
     let unversioned = test::call_service(
         &app,
@@ -459,6 +486,7 @@ async fn test_storage_connector_icon_endpoint_version_and_cache_contract() {
         unversioned.headers().get("cache-control").unwrap(),
         "no-cache"
     );
+    assert_eq!(unversioned.headers().get("etag").unwrap(), &versioned_etag);
     assert_eq!(test::read_body(unversioned).await, versioned_body);
 
     for uri in [
