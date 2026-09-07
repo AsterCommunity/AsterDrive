@@ -111,7 +111,6 @@ function createTask(overrides: Partial<TaskInfo> = {}): TaskInfo {
 		last_error: null,
 		max_attempts: 1,
 		payload: {
-			delete_source_after_success: false,
 			kind: "storage_policy_migration",
 			plan_hash: "plan-a",
 			source_policy_id: 1,

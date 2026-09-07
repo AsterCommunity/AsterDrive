@@ -357,6 +357,117 @@ pub async fn test_policy_connection(
     Ok(HttpResponse::Ok().json(ApiResponse::<ApiEmptyData>::ok_empty_data()))
 }
 
+/// Runs a bounded read-only recovery probe for one persisted storage policy.
+#[aster_forge_api_docs_macros::path(
+    post,
+    path = "/api/v1/admin/policies/{id}/recovery-probe",
+    tag = "admin",
+    operation_id = "probe_storage_policy_recoverability",
+    params(("id" = i64, Path, description = "Policy ID")),
+    responses(
+        (status = 200, description = "Storage policy recovery evidence", body = inline(ApiResponse<crate::services::storage_policy::recoverability::StoragePolicyRecoveryProbe>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Policy not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn probe_storage_policy_recoverability(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<i64>,
+) -> Result<HttpResponse> {
+    let probe = crate::services::storage_policy::recoverability::probe_policy_recoverability(
+        state.get_ref(),
+        *path,
+    )
+    .await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(probe)))
+}
+
+/// Returns the authoritative destructive impact that must be confirmed before policy purge.
+#[aster_forge_api_docs_macros::path(
+    post,
+    path = "/api/v1/admin/policies/{id}/forced-purge-preview",
+    tag = "admin",
+    operation_id = "preview_storage_policy_forced_purge",
+    params(("id" = i64, Path, description = "Policy ID")),
+    responses(
+        (status = 200, description = "Storage policy forced-purge impact", body = inline(ApiResponse<crate::services::task::storage_policy_forced_purge::StoragePolicyForcedPurgePreview>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Policy not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn preview_storage_policy_forced_purge(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<i64>,
+) -> Result<HttpResponse> {
+    let preview =
+        crate::services::task::storage_policy_forced_purge::preview_storage_policy_forced_purge(
+            state.get_ref(),
+            *path,
+        )
+        .await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(preview)))
+}
+
+/// Creates a fenced background task after exact forced-purge confirmation.
+#[aster_forge_api_docs_macros::path(
+    post,
+    path = "/api/v1/admin/policies/{id}/forced-purge",
+    tag = "admin",
+    operation_id = "create_storage_policy_forced_purge",
+    params(("id" = i64, Path, description = "Policy ID")),
+    request_body = crate::api::dto::admin::CreateStoragePolicyForcedPurgeReq,
+    responses(
+        (status = 200, description = "Storage policy forced-purge task created", body = inline(ApiResponse<crate::services::task::types::TaskInfo>)),
+        (status = 400, description = "Impact, confirmation, or topology validation failed"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Policy not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn create_storage_policy_forced_purge(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    path: web::Path<i64>,
+    body: web::Json<crate::api::dto::admin::CreateStoragePolicyForcedPurgeReq>,
+) -> Result<HttpResponse> {
+    let policy_id = *path;
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    let task = crate::services::task::storage_policy_forced_purge::create_storage_policy_forced_purge_task(
+        state.get_ref(),
+        crate::services::task::storage_policy_forced_purge::CreateStoragePolicyForcedPurgeInput {
+            policy_id,
+            impact_digest: body.impact_digest.clone(),
+            confirmation: body.confirmation.clone(),
+            reason: body.reason.clone(),
+            creator_user_id: claims.user_id,
+        },
+    )
+    .await?;
+    audit::log_with_details(
+        state.get_ref(),
+        &ctx,
+        audit::AuditAction::AdminCreateStoragePolicyForcedPurgeTask,
+        audit::AuditEntityType::StoragePolicy,
+        Some(policy_id),
+        None,
+        || {
+            Some(serde_json::json!({
+                "task_id": task.id,
+                "impact_digest": body.impact_digest,
+                "reason": body.reason,
+            }))
+        },
+    )
+    .await;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
+}
+
 #[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies/test",

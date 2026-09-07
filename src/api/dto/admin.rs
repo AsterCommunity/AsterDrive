@@ -155,6 +155,19 @@ pub struct DeletePolicyQuery {
     pub force: bool,
 }
 
+/// High-risk confirmation for permanently purging every remaining policy reference.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct CreateStoragePolicyForcedPurgeReq {
+    /// Digest returned by the latest forced-purge preview.
+    pub impact_digest: String,
+    /// Exact confirmation phrase returned by the latest forced-purge preview.
+    pub confirmation: String,
+    /// Administrator explanation retained in task and audit evidence.
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -373,26 +386,34 @@ pub struct AdminTaskCleanupReq {
 
 /// Create a background task that migrates blobs from one storage policy to another.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct CreateStoragePolicyMigrationReq {
     #[validate(range(min = 1, message = "source_policy_id must be greater than 0"))]
     pub source_policy_id: i64,
     #[validate(range(min = 1, message = "target_policy_id must be greater than 0"))]
     pub target_policy_id: i64,
+    /// Selects routine migration or migration of currently recoverable source data.
     #[serde(default)]
-    pub delete_source_after_success: bool,
+    pub mode: crate::services::task::types::StoragePolicyMigrationMode,
+    /// Plan hash returned by the latest source recovery probe.
+    pub recovery_plan_hash: Option<String>,
 }
 
 /// Check a storage policy migration plan without creating a task.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct DryRunStoragePolicyMigrationReq {
     #[validate(range(min = 1, message = "source_policy_id must be greater than 0"))]
     pub source_policy_id: i64,
     #[validate(range(min = 1, message = "target_policy_id must be greater than 0"))]
     pub target_policy_id: i64,
+    /// Selects routine migration or recoverable-data preflight.
     #[serde(default)]
-    pub delete_source_after_success: bool,
+    pub mode: crate::services::task::types::StoragePolicyMigrationMode,
+    /// Optional recovery evidence to revalidate during dry-run.
+    pub recovery_plan_hash: Option<String>,
 }
 
 // ── Admin Teams ─────────────────────────────────────────────────────────────

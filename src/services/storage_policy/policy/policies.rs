@@ -241,9 +241,10 @@ pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool
     let blob_count =
         crate::db::repository::file_repo::count_blobs_by_policy(state.writer_db(), id).await?;
     if blob_count > 0 {
-        return Err(AsterError::validation_error(format!(
-            "cannot delete policy: {blob_count} blob(s) still reference it"
-        )));
+        return Err(validation_error_with_code(
+            ApiErrorCode::PolicyBlobReferencesExist,
+            format!("cannot delete policy: {blob_count} blob(s) still reference it"),
+        ));
     }
 
     let group_ref_count = crate::db::repository::policy_placement_repo::count_targets_by_policy(
@@ -269,7 +270,8 @@ pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool
             ));
         }
 
-        let cleanup = crate::services::files::upload::force_cleanup_by_policy(state, id).await?;
+        let cleanup =
+            crate::services::files::upload::cleanup_before_forced_policy_delete(state, id).await?;
         let cleanup_task =
             crate::services::task::storage_policy_cleanup::create_storage_policy_temp_cleanup_task(
                 state,
@@ -295,9 +297,10 @@ pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool
 
     let blob_count = crate::db::repository::file_repo::count_blobs_by_policy(&txn, id).await?;
     if blob_count > 0 {
-        return Err(AsterError::validation_error(format!(
-            "cannot delete policy: {blob_count} blob(s) still reference it"
-        )));
+        return Err(validation_error_with_code(
+            ApiErrorCode::PolicyBlobReferencesExist,
+            format!("cannot delete policy: {blob_count} blob(s) still reference it"),
+        ));
     }
 
     let group_ref_count =

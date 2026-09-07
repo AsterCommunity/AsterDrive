@@ -22,6 +22,7 @@
 	"summary_extract_metadata_for": "Extract media metadata for",
 	"summary_purge_trash": "Empty trash",
 	"summary_migrate_storage_policy": "Migrate storage policy",
+	"summary_force_purge_storage_policy": "Permanently purge storage policy",
 	"summary_migrate_to": "to",
 	"summary_policy_id": "Policy #{{id}}",
 	"summary_cleanup_temp_files": "Clean storage temporary files",
@@ -91,5 +92,6 @@
 	"blob_maintenance_orphan_cleanup_name": "Clean orphan blobs",
 	"summary_root_folder": "My files",
 	"task_progress_title": "Task progress",
-	"task_details_title": "Task details"
+	"task_details_title": "Task details",
+	"task_name_storage_policy_forced_purge": "Permanently purge {{policy}} (#{{policyId}})"
 }

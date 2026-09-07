@@ -18,11 +18,14 @@ use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 use aster_drive::db::repository::{
-    background_task_repo, file_repo, policy_repo, revision_repo, storage_migration_checkpoint_repo,
+    background_task_repo, file_repo, policy_group_repo, policy_repo, revision_repo,
+    storage_migration_checkpoint_repo, user_repo,
 };
 use aster_drive::errors::{AsterError, MapAsterErr};
 use aster_drive::runtime::PrimaryAppState;
-use aster_drive::services::{storage_policy::policy, task};
+use aster_drive::services::{
+    files::file as file_service, storage_policy::policy, task, user::account,
+};
 use aster_drive_model::entities::{file, file_blob, file_revision, storage_policy};
 use aster_drive_model::types::{BackgroundTaskStatus, file_blob::FileBlobBacking};
 use aster_drive_storage::{
@@ -910,16 +913,10 @@ async fn create_migration_task_via_api(
     token: &str,
     source_policy_id: i64,
     target_policy_id: i64,
-    delete_source_after_success: bool,
 ) -> Value {
-    let (_, body) = create_migration_task_via_api_with_status(
-        app,
-        token,
-        source_policy_id,
-        target_policy_id,
-        delete_source_after_success,
-    )
-    .await;
+    let (_, body) =
+        create_migration_task_via_api_with_status(app, token, source_policy_id, target_policy_id)
+            .await;
     body
 }
 
@@ -932,7 +929,6 @@ async fn create_migration_task_via_api_with_status(
     token: &str,
     source_policy_id: i64,
     target_policy_id: i64,
-    delete_source_after_success: bool,
 ) -> (actix_web::http::StatusCode, Value) {
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/storage-migrations")
@@ -941,7 +937,6 @@ async fn create_migration_task_via_api_with_status(
         .set_json(serde_json::json!({
             "source_policy_id": source_policy_id,
             "target_policy_id": target_policy_id,
-            "delete_source_after_success": delete_source_after_success,
         }))
         .to_request();
     let resp = test::call_service(app, req).await;
@@ -973,6 +968,34 @@ async fn dry_run_migration_via_api(
     let status = resp.status();
     let body = test::read_body_json(resp).await;
     (status, body)
+}
+
+/// Runs the administrator read-only source probe and returns its bound plan hash.
+async fn recovery_probe_plan_hash(
+    app: &impl actix_web::dev::Service<
+        actix_http::Request,
+        Response = actix_web::dev::ServiceResponse,
+        Error = actix_web::Error,
+    >,
+    token: &str,
+    source_policy_id: i64,
+) -> String {
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/policies/{source_policy_id}/recovery-probe"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(token)))
+        .insert_header(common::csrf_header_for(token))
+        .to_request();
+    let response = test::call_service(app, req).await;
+    assert_eq!(response.status(), actix_web::http::StatusCode::OK);
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["status"], "recoverable");
+    assert_eq!(body["data"]["can_start_recovery"], true);
+    body["data"]["plan_hash"]
+        .as_str()
+        .expect("recovery probe plan hash")
+        .to_string()
 }
 
 fn assert_conflicting_storage_migration_response(
@@ -1018,7 +1041,7 @@ async fn test_storage_migration_api_creates_task_and_checkpoint() {
     let source = create_local_policy(&state, "source-create").await;
     let target = create_local_policy(&state, "target-create").await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
 
     assert_eq!(body["code"], "success");
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
@@ -1038,6 +1061,324 @@ async fn test_storage_migration_api_creates_task_and_checkpoint() {
     assert_eq!(checkpoint.source_policy_id, source.id);
     assert_eq!(checkpoint.target_policy_id, target.id);
     assert_eq!(checkpoint.last_processed_blob_id, 0);
+}
+
+#[actix_web::test]
+async fn recovery_mode_probes_and_moves_content_without_deleting_source_policy() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-recovery-delete").await;
+    let target = create_local_policy(&state, "target-recovery-delete").await;
+    let blob = create_blob_with_object(&state, &source, b"recover-me", 1).await;
+    create_file_for_blob(&state, blob.id, "recover-me.txt").await;
+    let recovery_plan_hash = recovery_probe_plan_hash(&app, &token, source.id).await;
+
+    let request = test::TestRequest::post()
+        .uri("/api/v1/admin/storage-migrations")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "source_policy_id": source.id,
+            "target_policy_id": target.id,
+            "mode": "recover_available",
+            "recovery_plan_hash": recovery_plan_hash,
+        }))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), actix_web::http::StatusCode::OK);
+    let body: Value = test::read_body_json(response).await;
+    let task_id = body["data"]["id"].as_i64().expect("recovery task id");
+
+    let stats = task::drain(&state)
+        .await
+        .expect("recovery task should drain");
+    assert_eq!(stats.succeeded, 1);
+    let migrated = file_repo::find_blob_by_id(state.writer_db(), blob.id)
+        .await
+        .expect("recovered blob should remain");
+    assert_eq!(migrated.policy_id, target.id);
+    assert!(
+        policy_repo::find_by_id(state.writer_db(), source.id)
+            .await
+            .is_ok()
+    );
+
+    let stored_task = background_task_repo::find_by_id(state.writer_db(), task_id)
+        .await
+        .expect("recovery task should remain observable");
+    let result: task::types::StoragePolicyMigrationTaskResult = serde_json::from_str(
+        stored_task
+            .result_json
+            .as_ref()
+            .map(AsRef::as_ref)
+            .expect("recovery result"),
+    )
+    .expect("decode recovery result");
+    assert_eq!(result.remaining_blobs, 0);
+}
+
+#[actix_web::test]
+async fn recovery_mode_preserves_virtual_empty_and_readable_blobs_when_an_object_is_missing() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-partial-recovery").await;
+    let target = create_local_policy(&state, "target-partial-recovery").await;
+    let missing = create_blob_record_with_storage_path(
+        &state,
+        &source,
+        &aster_forge_crypto::sha256_hex(b"missing"),
+        "missing/object",
+        b"missing",
+        1,
+    )
+    .await;
+    let readable = create_blob_with_object(&state, &source, b"readable", 1).await;
+    let virtual_empty = create_virtual_empty_blob(&state, &source, 1).await;
+    create_file_for_blob(&state, missing.id, "missing.txt").await;
+    create_file_for_blob(&state, readable.id, "readable.txt").await;
+    create_file_for_blob(&state, virtual_empty.id, "empty.txt").await;
+
+    let probe_request = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/policies/{}/recovery-probe",
+            source.id
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let probe_response = test::call_service(&app, probe_request).await;
+    assert_eq!(probe_response.status(), actix_web::http::StatusCode::OK);
+    let probe: Value = test::read_body_json(probe_response).await;
+    assert_eq!(probe["data"]["status"], "partially_recoverable");
+    let plan_hash = probe["data"]["plan_hash"]
+        .as_str()
+        .expect("partial recovery plan hash");
+
+    let create_request = test::TestRequest::post()
+        .uri("/api/v1/admin/storage-migrations")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "source_policy_id": source.id,
+            "target_policy_id": target.id,
+            "mode": "recover_available",
+            "recovery_plan_hash": plan_hash,
+        }))
+        .to_request();
+    let create_response = test::call_service(&app, create_request).await;
+    assert_eq!(create_response.status(), actix_web::http::StatusCode::OK);
+    let create_body: Value = test::read_body_json(create_response).await;
+    let task_id = create_body["data"]["id"]
+        .as_i64()
+        .expect("recovery task id");
+
+    let stats = task::drain(&state)
+        .await
+        .expect("partial recovery task should drain");
+    if stats.succeeded != 1 {
+        let failed = background_task_repo::find_by_id(state.writer_db(), task_id)
+            .await
+            .unwrap();
+        panic!(
+            "partial recovery did not succeed: stats={stats:?}, last_error={:?}",
+            failed.last_error
+        );
+    }
+    assert_eq!(
+        file_repo::find_blob_by_id(state.writer_db(), missing.id)
+            .await
+            .unwrap()
+            .policy_id,
+        source.id
+    );
+    assert_eq!(
+        file_repo::find_blob_by_id(state.writer_db(), readable.id)
+            .await
+            .unwrap()
+            .policy_id,
+        target.id
+    );
+    assert_eq!(
+        file_repo::find_blob_by_id(state.writer_db(), virtual_empty.id)
+            .await
+            .expect("virtual-empty blob should remain")
+            .policy_id,
+        target.id,
+        "virtual-empty blob must move even when a stored object is missing"
+    );
+    let stored_task = background_task_repo::find_by_id(state.writer_db(), task_id)
+        .await
+        .unwrap();
+    let result: task::types::StoragePolicyMigrationTaskResult =
+        serde_json::from_str(stored_task.result_json.as_ref().map(AsRef::as_ref).unwrap()).unwrap();
+    assert_eq!(result.failed_blobs, 1);
+    assert_eq!(result.remaining_blobs, 1);
+    assert!(
+        policy_repo::find_by_id(state.writer_db(), source.id)
+            .await
+            .is_ok()
+    );
+}
+
+#[actix_web::test]
+async fn confirmed_forced_purge_removes_file_quota_blob_and_policy_through_background_task() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let user = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .expect("registered user");
+    let source = create_local_policy(&state, "forced-purge-source").await;
+    let group = policy::create_group(
+        &state,
+        policy::CreateStoragePolicyGroupInput {
+            name: "Forced purge source group".to_string(),
+            description: None,
+            is_enabled: true,
+            is_default: false,
+            admission: None,
+            execution_preference: None,
+            rules: Some(vec![policy::StoragePlacementRuleInput {
+                name: "Forced purge source rule".to_string(),
+                description: None,
+                priority: 1,
+                is_enabled: true,
+                matcher: Default::default(),
+                selection_mode: Default::default(),
+                unavailable_behavior: Default::default(),
+                targets: vec![policy::StoragePlacementTargetInput {
+                    policy_id: source.id,
+                    weight: 100,
+                    is_enabled: true,
+                    accepting_new_writes: true,
+                    stable_order: 1,
+                }],
+            }]),
+        },
+    )
+    .await
+    .unwrap();
+    account::update(
+        &state,
+        account::UpdateUserInput {
+            id: user.id,
+            email_verified: None,
+            role: None,
+            status: None,
+            must_change_password: None,
+            storage_quota: None,
+            policy_group_id: Some(group.id),
+        },
+    )
+    .await
+    .unwrap();
+    let bytes = b"permanently lost data";
+    let temp_path = aster_forge_utils::paths::temp_file_path(
+        &state.config.server.temp_dir,
+        &uuid::Uuid::new_v4().to_string(),
+    );
+    tokio::fs::create_dir_all(&state.config.server.temp_dir)
+        .await
+        .unwrap();
+    tokio::fs::write(&temp_path, bytes).await.unwrap();
+    let file = file_service::store_from_temp(
+        &state,
+        user.id,
+        file_service::StoreFromTempRequest::new(None, "lost.txt", &temp_path, bytes.len() as i64),
+    )
+    .await
+    .unwrap();
+    let blob_id = file.blob_id;
+    assert_eq!(
+        user_repo::find_by_id(state.writer_db(), user.id)
+            .await
+            .unwrap()
+            .storage_used,
+        bytes.len() as i64
+    );
+
+    let default_group = policy_group_repo::find_default_group(state.writer_db())
+        .await
+        .unwrap()
+        .expect("default group");
+    account::update(
+        &state,
+        account::UpdateUserInput {
+            id: user.id,
+            email_verified: None,
+            role: None,
+            status: None,
+            must_change_password: None,
+            storage_quota: None,
+            policy_group_id: Some(default_group.id),
+        },
+    )
+    .await
+    .unwrap();
+    policy::delete_group(&state, group.id).await.unwrap();
+
+    let preview_request = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/policies/{}/forced-purge-preview",
+            source.id
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let preview_response = test::call_service(&app, preview_request).await;
+    assert_eq!(preview_response.status(), actix_web::http::StatusCode::OK);
+    let preview: Value = test::read_body_json(preview_response).await;
+    assert_eq!(preview["data"]["file_count"], 1);
+    assert_eq!(preview["data"]["affected_revision_count"], 1);
+    assert_eq!(preview["data"]["can_start"], true);
+
+    let create_request = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/policies/{}/forced-purge",
+            source.id
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "impact_digest": preview["data"]["impact_digest"],
+            "confirmation": preview["data"]["confirmation_phrase"],
+            "reason": "the storage backend was permanently destroyed",
+        }))
+        .to_request();
+    let create_response = test::call_service(&app, create_request).await;
+    assert_eq!(create_response.status(), actix_web::http::StatusCode::OK);
+    let create_body: Value = test::read_body_json(create_response).await;
+    assert_eq!(create_body["data"]["kind"], "storage_policy_forced_purge");
+
+    let stats = task::drain(&state)
+        .await
+        .expect("forced purge task should drain");
+    assert_eq!(stats.succeeded, 1);
+    assert!(
+        file_repo::find_by_id(state.writer_db(), file.id)
+            .await
+            .is_err()
+    );
+    assert!(
+        file_repo::find_blob_by_id(state.writer_db(), blob_id)
+            .await
+            .is_err()
+    );
+    assert!(
+        policy_repo::find_by_id(state.writer_db(), source.id)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        user_repo::find_by_id(state.writer_db(), user.id)
+            .await
+            .unwrap()
+            .storage_used,
+        0
+    );
 }
 
 #[actix_web::test]
@@ -1078,7 +1419,6 @@ async fn test_storage_migration_dry_run_reports_preflight_summary() {
             .expect("available bytes should be present")
             >= 6
     );
-    assert_eq!(data["delete_source_after_success_supported"], false);
     assert_eq!(data["can_start"], true);
     assert_eq!(data["warnings"].as_array().unwrap(), &Vec::<Value>::new());
 }
@@ -1239,7 +1579,19 @@ async fn test_storage_migration_api_rejects_source_deletion_flag() {
     let source = create_local_policy(&state, "source-delete-flag").await;
     let target = create_local_policy(&state, "target-delete-flag").await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, true).await;
+    let request = test::TestRequest::post()
+        .uri("/api/v1/admin/storage-migrations")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "source_policy_id": source.id,
+            "target_policy_id": target.id,
+            "delete_source_after_success": true,
+        }))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
+    let body: Value = test::read_body_json(response).await;
 
     let code = body["code"].as_str().expect("error code should be string");
     assert_ne!(code, "success");
@@ -1263,7 +1615,7 @@ async fn test_storage_migration_resume_reuses_checkpoint_after_failed_task() {
     create_file_for_blob(&state, first.id, "first.txt").await;
     create_file_for_blob(&state, second.id, "second.txt").await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let second_path = std::path::Path::new(&common::local_policy_base_path(&source)).join(
         second
@@ -1327,7 +1679,7 @@ async fn test_storage_migration_moves_blob_to_empty_target_policy() {
     let blob = create_blob_with_object(&state, &source, b"move-me", 1).await;
     create_file_for_blob(&state, blob.id, "move.txt").await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let stats = task::drain(&state)
         .await
@@ -1378,7 +1730,7 @@ async fn test_storage_migration_preserves_zero_length_blob() {
     active_file.size = Set(0);
     active_file.update(state.writer_db()).await.unwrap();
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let stats = task::drain(&state)
         .await
@@ -1421,7 +1773,7 @@ async fn test_storage_migration_moves_virtual_empty_blob_without_copying_an_obje
     active_file.size = Set(0);
     active_file.update(state.writer_db()).await.unwrap();
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let stats = task::drain(&state)
         .await
@@ -1465,7 +1817,7 @@ async fn test_storage_migration_merges_canonical_virtual_empty_blobs() {
     let source_file = create_file_for_blob(&state, source_blob.id, "source-empty.txt").await;
     let target_file = create_file_for_blob(&state, target_blob.id, "target-empty.txt").await;
 
-    create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let stats = task::drain(&state)
         .await
         .expect("virtual-empty merge migration should drain");
@@ -1516,7 +1868,7 @@ async fn test_storage_migration_moves_opaque_local_blob_key_without_content_hash
     .await;
     create_file_for_blob(&state, blob.id, "opaque.txt").await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let stats = task::drain(&state)
         .await
         .expect("opaque migration task should drain");
@@ -1573,7 +1925,7 @@ async fn test_storage_migration_local_to_rustfs_s3_e2e() {
     .await;
     create_file_for_blob(&state, blob.id, "rustfs-e2e.txt").await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     assert_eq!(body["code"], "success");
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let stats = task::drain(&state)
@@ -1637,7 +1989,7 @@ async fn test_storage_migration_local_to_rustfs_s3_resume_after_partial_failure_
     create_file_for_blob(&state, first.id, "resume-first.txt").await;
     create_file_for_blob(&state, second.id, "resume-second.txt").await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     assert_eq!(body["code"], "success");
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
 
@@ -1780,7 +2132,7 @@ async fn test_storage_migration_crosses_batch_boundary_and_merges_existing_targe
     let target_duplicate =
         create_blob_with_object(&state, &target, &source_bytes[merge_index], 3).await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     assert_eq!(body["code"], "success");
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let stats = task::drain(&state)
@@ -1878,7 +2230,7 @@ async fn test_storage_migration_merges_when_target_blob_already_exists() {
         })
         .collect::<Vec<_>>();
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let stats = task::drain(&state)
         .await
@@ -1956,7 +2308,7 @@ async fn test_storage_migration_fails_when_content_hash_matches_but_size_differs
         .await
         .expect("target hash should be forced for boundary test");
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let stats = task::drain(&state)
         .await
@@ -1996,7 +2348,7 @@ async fn test_storage_migration_does_not_merge_opaque_blob_key_with_same_size() 
             .await;
     create_file_for_blob(&state, source_blob.id, "opaque-source.txt").await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let stats = task::drain(&state)
         .await
@@ -2063,7 +2415,7 @@ async fn test_storage_migration_does_not_merge_opaque_blob_key_with_different_si
     )
     .await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let stats = task::drain(&state)
         .await
@@ -2093,7 +2445,7 @@ async fn test_storage_migration_empty_source_succeeds_with_zero_counts() {
     let source = create_local_policy(&state, "source-empty").await;
     let target = create_local_policy(&state, "target-empty").await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let stats = task::drain(&state)
         .await
@@ -2144,7 +2496,7 @@ async fn test_storage_migration_cleans_target_object_when_verification_fails() {
     let blob = create_blob_with_object(&state, &source, b"cleanup-me", 1).await;
     create_file_for_blob(&state, blob.id, "cleanup.txt").await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let source_full_path = std::path::Path::new(&common::local_policy_base_path(&source))
         .join(blob.storage_path_for_connector().expect("stored blob path"));
@@ -2209,7 +2561,7 @@ async fn test_storage_migration_cleans_target_object_when_stream_upload_returns_
     let blob = create_blob_with_object(&state, &source, b"cleanup-after-upload-error", 1).await;
     create_file_for_blob(&state, blob.id, "upload-error-cleanup.txt").await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let target_path =
         aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
@@ -2254,7 +2606,7 @@ async fn test_storage_migration_stream_upload_error_without_target_object_stays_
     let blob = create_blob_with_object(&state, &source, b"upload-error-before-write", 1).await;
     create_file_for_blob(&state, blob.id, "upload-error-before-write.txt").await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let target_path =
         aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
@@ -2294,7 +2646,7 @@ async fn test_storage_migration_stream_upload_cleanup_error_preserves_upload_err
     let blob = create_blob_with_object(&state, &source, b"cleanup-delete-error", 1).await;
     create_file_for_blob(&state, blob.id, "cleanup-delete-error.txt").await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let target_path =
         aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
@@ -2357,7 +2709,7 @@ async fn test_storage_migration_stream_upload_error_does_not_delete_referenced_t
     )
     .await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
 
     let stats = task::drain(&state)
@@ -2400,7 +2752,7 @@ async fn test_storage_migration_large_blob_uses_multipart_upload() {
     let blob = create_blob_with_object(&state, &source, &bytes, 1).await;
     create_file_for_blob(&state, blob.id, "multipart-success.7z").await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let target_path =
         aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
@@ -2450,7 +2802,7 @@ async fn test_storage_migration_multipart_retries_transient_part_upload() {
     let blob = create_blob_with_object(&state, &source, &bytes, 1).await;
     create_file_for_blob(&state, blob.id, "multipart-retry.7z").await;
 
-    create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let target_path =
         aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
     let stats = task::drain(&state)
@@ -2483,7 +2835,7 @@ async fn test_storage_migration_multipart_part_failure_aborts_and_keeps_source_b
     let blob = create_blob_with_object(&state, &source, &bytes, 1).await;
     create_file_for_blob(&state, blob.id, "multipart-part-fail.7z").await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let target_path =
         aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
@@ -2526,7 +2878,7 @@ async fn test_storage_migration_multipart_complete_timeout_accepts_existing_obje
     let blob = create_blob_with_object(&state, &source, &bytes, 1).await;
     create_file_for_blob(&state, blob.id, "multipart-complete-timeout.7z").await;
 
-    create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let target_path =
         aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
     let stats = task::drain(&state)
@@ -2558,7 +2910,7 @@ async fn test_storage_migration_multipart_verification_failure_cleans_object_and
     let blob = create_blob_with_object(&state, &source, &bytes, 1).await;
     create_file_for_blob(&state, blob.id, "multipart-verify-fail.7z").await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let target_path =
         aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
@@ -2602,7 +2954,7 @@ async fn test_storage_migration_fails_when_policy_changes_after_task_creation() 
     let target = create_local_policy(&state, "target-changed").await;
     create_blob_with_object(&state, &source, b"do-not-move", 1).await;
 
-    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
 
     let mut target_update: storage_policy::ActiveModel = target.clone().into();
@@ -2652,10 +3004,10 @@ async fn test_storage_migration_rejects_duplicate_active_pair() {
     let source = create_local_policy(&state, "source-duplicate").await;
     let target = create_local_policy(&state, "target-duplicate").await;
 
-    let first = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let first = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     assert_eq!(first["code"], "success");
     let (status, second) =
-        create_migration_task_via_api_with_status(&app, &token, source.id, target.id, false).await;
+        create_migration_task_via_api_with_status(&app, &token, source.id, target.id).await;
     assert_conflicting_storage_migration_response(status, &second);
 }
 
@@ -2668,49 +3020,31 @@ async fn test_storage_migration_active_conflict_matrix() {
     let source_out = create_local_policy(&state, "source-out").await;
     let target_in = create_local_policy(&state, "target-in").await;
     let other_for_out = create_local_policy(&state, "other-for-out").await;
-    let first =
-        create_migration_task_via_api(&app, &token, source_out.id, target_in.id, false).await;
+    let first = create_migration_task_via_api(&app, &token, source_out.id, target_in.id).await;
     assert_eq!(first["code"], "success");
 
-    let (status, source_with_outgoing) = create_migration_task_via_api_with_status(
-        &app,
-        &token,
-        source_out.id,
-        other_for_out.id,
-        false,
-    )
-    .await;
+    let (status, source_with_outgoing) =
+        create_migration_task_via_api_with_status(&app, &token, source_out.id, other_for_out.id)
+            .await;
     assert_conflicting_storage_migration_response(status, &source_with_outgoing);
 
-    let (status, source_with_incoming) = create_migration_task_via_api_with_status(
-        &app,
-        &token,
-        target_in.id,
-        other_for_out.id,
-        false,
-    )
-    .await;
+    let (status, source_with_incoming) =
+        create_migration_task_via_api_with_status(&app, &token, target_in.id, other_for_out.id)
+            .await;
     assert_conflicting_storage_migration_response(status, &source_with_incoming);
 
-    let (status, target_with_outgoing) = create_migration_task_via_api_with_status(
-        &app,
-        &token,
-        other_for_out.id,
-        source_out.id,
-        false,
-    )
-    .await;
+    let (status, target_with_outgoing) =
+        create_migration_task_via_api_with_status(&app, &token, other_for_out.id, source_out.id)
+            .await;
     assert_conflicting_storage_migration_response(status, &target_with_outgoing);
 
     let allowed_second_source = create_local_policy(&state, "allowed-second-source").await;
     let target_with_incoming =
-        create_migration_task_via_api(&app, &token, allowed_second_source.id, target_in.id, false)
-            .await;
+        create_migration_task_via_api(&app, &token, allowed_second_source.id, target_in.id).await;
     assert_eq!(target_with_incoming["code"], "success");
 
     let (status, reverse) =
-        create_migration_task_via_api_with_status(&app, &token, target_in.id, source_out.id, false)
-            .await;
+        create_migration_task_via_api_with_status(&app, &token, target_in.id, source_out.id).await;
     assert_conflicting_storage_migration_response(status, &reverse);
 }
 
@@ -2723,7 +3057,7 @@ async fn test_storage_migration_dry_run_uses_active_conflict_rules() {
     let target = create_local_policy(&state, "target-dry-conflict").await;
     let other = create_local_policy(&state, "other-dry-conflict").await;
 
-    let first = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let first = create_migration_task_via_api(&app, &token, source.id, target.id).await;
     assert_eq!(first["code"], "success");
 
     let (blocked_status, blocked_body) =
@@ -2754,13 +3088,12 @@ async fn test_storage_migration_terminal_tasks_do_not_block_new_migrations() {
         let new_target =
             create_local_policy(&state, &format!("terminal-new-target-{}", status.as_str())).await;
 
-        let first = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+        let first = create_migration_task_via_api(&app, &token, source.id, target.id).await;
         assert_eq!(first["code"], "success");
         let task_id = first["data"]["id"].as_i64().expect("task id should exist");
         set_background_task_status(&state, task_id, status).await;
 
-        let second =
-            create_migration_task_via_api(&app, &token, source.id, new_target.id, false).await;
+        let second = create_migration_task_via_api(&app, &token, source.id, new_target.id).await;
         assert_eq!(second["code"], "success");
     }
 }
@@ -2782,19 +3115,13 @@ async fn test_storage_migration_active_statuses_block_new_migrations() {
         let new_target =
             create_local_policy(&state, &format!("active-new-target-{}", status.as_str())).await;
 
-        let first = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+        let first = create_migration_task_via_api(&app, &token, source.id, target.id).await;
         assert_eq!(first["code"], "success");
         let task_id = first["data"]["id"].as_i64().expect("task id should exist");
         set_background_task_status(&state, task_id, status).await;
 
-        let (create_status, create_body) = create_migration_task_via_api_with_status(
-            &app,
-            &token,
-            source.id,
-            new_target.id,
-            false,
-        )
-        .await;
+        let (create_status, create_body) =
+            create_migration_task_via_api_with_status(&app, &token, source.id, new_target.id).await;
         assert_conflicting_storage_migration_response(create_status, &create_body);
 
         let (dry_run_status, dry_run_body) =

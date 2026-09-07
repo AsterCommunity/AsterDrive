@@ -6,10 +6,11 @@ use crate::services::task::{
     dispatch::TaskLane,
     steps::{
         TASK_STEP_CLEANUP_OBJECTS, TASK_STEP_FINISH, TASK_STEP_MIGRATE_BLOBS,
-        TASK_STEP_PREPARE_SOURCES, TASK_STEP_SCAN_BLOBS, TASK_STEP_WAITING,
+        TASK_STEP_PREPARE_SOURCES, TASK_STEP_PURGE_FILES, TASK_STEP_SCAN_BLOBS, TASK_STEP_WAITING,
     },
-    storage_migration, storage_policy_cleanup,
+    storage_migration, storage_policy_cleanup, storage_policy_forced_purge,
     types::{
+        StoragePolicyForcedPurgeTaskPayload, StoragePolicyForcedPurgeTaskResult,
         StoragePolicyMigrationTaskPayload, StoragePolicyMigrationTaskResult,
         StoragePolicyTempCleanupTaskPayload, StoragePolicyTempCleanupTaskPayloadInfo,
         StoragePolicyTempCleanupTaskResult, TaskPayload, TaskResult,
@@ -55,6 +56,29 @@ const STORAGE_POLICY_MIGRATION_STEPS: &[TaskStepSpec] = &[
     TaskStepSpec {
         key: TASK_STEP_FINISH,
         title: "Finish migration",
+    },
+];
+
+const STORAGE_POLICY_FORCED_PURGE_STEPS: &[TaskStepSpec] = &[
+    TaskStepSpec {
+        key: TASK_STEP_WAITING,
+        title: "Waiting",
+    },
+    TaskStepSpec {
+        key: TASK_STEP_PREPARE_SOURCES,
+        title: "Validate destructive purge plan",
+    },
+    TaskStepSpec {
+        key: TASK_STEP_PURGE_FILES,
+        title: "Purge affected file histories",
+    },
+    TaskStepSpec {
+        key: TASK_STEP_CLEANUP_OBJECTS,
+        title: "Remove unreferenced blob records",
+    },
+    TaskStepSpec {
+        key: TASK_STEP_FINISH,
+        title: "Delete storage policy",
     },
 ];
 
@@ -125,4 +149,16 @@ define_task_spec!(
     steps = STORAGE_POLICY_MIGRATION_STEPS,
     lane = TaskLane::StorageMigration,
     process = storage_migration::process_storage_policy_migration_task
+);
+
+define_task_spec!(
+    StoragePolicyForcedPurgeTask,
+    StoragePolicyForcedPurge,
+    StoragePolicyForcedPurgeTaskPayload,
+    StoragePolicyForcedPurgeTaskResult,
+    StoragePolicyForcedPurge,
+    StoragePolicyForcedPurge,
+    steps = STORAGE_POLICY_FORCED_PURGE_STEPS,
+    lane = TaskLane::StorageMigration,
+    process = storage_policy_forced_purge::process_storage_policy_forced_purge_task
 );

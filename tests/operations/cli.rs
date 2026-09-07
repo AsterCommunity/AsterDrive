@@ -1588,7 +1588,6 @@ async fn test_migration_backfills_storage_migration_result_renamed_opaque_count(
     let payload_json = serde_json::json!({
         "source_policy_id": 1,
         "target_policy_id": 2,
-        "delete_source_after_success": false,
         "plan_hash": "0".repeat(64),
         "source_policy_updated_at": now,
         "target_policy_updated_at": now

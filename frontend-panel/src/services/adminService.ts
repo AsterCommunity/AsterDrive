@@ -43,6 +43,7 @@ import type {
 	CreatePolicyGroupRequest,
 	CreatePolicyRequest,
 	CreateRemoteNodeRequest,
+	CreateStoragePolicyForcedPurgeRequest,
 	CreateStoragePolicyMigrationRequest,
 	CreateUserInvitationRequest,
 	CreateUserReq,
@@ -84,10 +85,12 @@ import type {
 	StoragePolicyCapacityInfo,
 	StoragePolicyConnectionTestResult,
 	StoragePolicyCredentialValidationResult,
+	StoragePolicyForcedPurgePreview,
 	StoragePolicyGroup,
 	StoragePolicyGroupPage,
 	StoragePolicyMigrationDryRun,
 	StoragePolicyPage,
+	StoragePolicyRecoveryProbe,
 	SystemConfig,
 	SystemConfigPage,
 	SystemInfoResponse,
@@ -361,6 +364,21 @@ export const adminPolicyService = {
 
 	testConnection: (id: number) =>
 		api.post<StoragePolicyConnectionTestResult>(`/admin/policies/${id}/test`),
+
+	probeRecovery: (id: number) =>
+		api.post<StoragePolicyRecoveryProbe>(
+			`/admin/policies/${id}/recovery-probe`,
+		),
+
+	previewForcedPurge: (id: number) =>
+		api.post<StoragePolicyForcedPurgePreview>(
+			`/admin/policies/${id}/forced-purge-preview`,
+		),
+
+	createForcedPurge: (
+		id: number,
+		data: CreateStoragePolicyForcedPurgeRequest,
+	) => api.post<TaskInfo>(`/admin/policies/${id}/forced-purge`, data),
 
 	testParams: (data: TestPolicyParamsRequest) =>
 		api.post<StoragePolicyConnectionTestResult>("/admin/policies/test", data),

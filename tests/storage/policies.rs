@@ -2575,6 +2575,91 @@ async fn test_policy_delete_rejects_upload_sessions_unless_forced() {
 }
 
 #[actix_web::test]
+async fn forced_purge_preview_ignores_completed_sessions_and_does_not_block_active_sessions() {
+    use aster_drive::db::repository::{policy_repo, upload_session_repo, user_repo};
+    use aster_drive::services::task;
+    use aster_drive_model::types::UploadSessionStatus;
+
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let user = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .expect("registered user");
+    let policy_id = create_local_policy_via_admin(&app, &token, "Purge session impact").await;
+    create_policy_upload_session(
+        &state,
+        PolicyUploadSessionSpec {
+            upload_id: "completed-purge-session",
+            policy_id,
+            user_id: user.id,
+            object_temp_key: None,
+            status: Some(UploadSessionStatus::Completed),
+            expires_at: None,
+        },
+    )
+    .await;
+    create_policy_upload_session(
+        &state,
+        PolicyUploadSessionSpec {
+            upload_id: "active-purge-session",
+            policy_id,
+            user_id: user.id,
+            object_temp_key: None,
+            status: Some(UploadSessionStatus::Uploading),
+            expires_at: None,
+        },
+    )
+    .await;
+
+    let request = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/policies/{policy_id}/forced-purge-preview"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), actix_web::http::StatusCode::OK);
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["upload_session_count"], 1);
+    assert_eq!(body["data"]["can_start"], true);
+
+    let create_request = test::TestRequest::post()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}/forced-purge"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "impact_digest": body["data"]["impact_digest"],
+            "confirmation": body["data"]["confirmation_phrase"],
+            "reason": "",
+        }))
+        .to_request();
+    let create_response = test::call_service(&app, create_request).await;
+    assert_eq!(create_response.status(), actix_web::http::StatusCode::OK);
+    let stats = task::drain(&state)
+        .await
+        .expect("policy purge task should drain");
+    assert_eq!(stats.succeeded, 1);
+    assert!(
+        upload_session_repo::find_by_id(state.writer_db(), "completed-purge-session")
+            .await
+            .is_err()
+    );
+    assert!(
+        upload_session_repo::find_by_id(state.writer_db(), "active-purge-session")
+            .await
+            .is_err()
+    );
+    assert!(
+        policy_repo::find_by_id(state.writer_db(), policy_id)
+            .await
+            .is_err()
+    );
+}
+
+#[actix_web::test]
 async fn test_policy_force_delete_schedules_late_temp_object_cleanup() {
     use aster_drive::db::repository::{background_task_repo, policy_repo, upload_session_repo};
     use aster_drive::services::task;

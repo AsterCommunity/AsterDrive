@@ -48,6 +48,8 @@ function taskIcon(task: TaskInfo): IconName {
 			return "Trash";
 		case "storage_policy_migration":
 			return "HardDrive";
+		case "storage_policy_forced_purge":
+			return "Trash";
 		case "storage_policy_temp_cleanup":
 			return "Clock";
 		case "offline_download":
@@ -200,6 +202,20 @@ function summaryParts(
 					value: t("tasks:summary_policy_id", {
 						id: task.payload.target_policy_id,
 					}),
+				},
+			];
+		case "storage_policy_forced_purge":
+			return [
+				{
+					key: "action",
+					kind: "text",
+					value: t("tasks:summary_force_purge_storage_policy"),
+				},
+				{
+					icon: "HardDrive",
+					key: "source-policy",
+					kind: "chip",
+					value: task.payload.policy_name,
 				},
 			];
 		case "storage_policy_temp_cleanup":

@@ -63,7 +63,6 @@ function dryRun(
 	return {
 		can_start: true,
 		content_sha256_blob_count: 0,
-		delete_source_after_success_supported: false,
 		estimated_copy_blob_count: 2,
 		opaque_blob_count: 2,
 		opaque_key_conflict_count: 0,
@@ -152,7 +151,6 @@ describe("useStoragePolicyMigrationController", () => {
 		});
 
 		expect(adminPolicyService.dryRunMigration).toHaveBeenCalledWith({
-			delete_source_after_success: false,
 			source_policy_id: 1,
 			target_policy_id: 2,
 		});
@@ -168,7 +166,6 @@ describe("useStoragePolicyMigrationController", () => {
 
 		await waitFor(() => {
 			expect(adminPolicyService.createMigration).toHaveBeenCalledWith({
-				delete_source_after_success: false,
 				source_policy_id: 1,
 				target_policy_id: 2,
 			});

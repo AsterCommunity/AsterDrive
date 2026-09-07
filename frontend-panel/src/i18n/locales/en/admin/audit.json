@@ -238,8 +238,8 @@
 	"audit_presentation_admin_user_created_snapshot": "Email {{email}}, role {{role}}, status {{status}}, quota {{storage_quota}}",
 	"audit_presentation_admin_user_updated_diff": "Changed {{changed_fields}}; role {{previous_role}} -> {{role}}, status {{previous_status}} -> {{status}}, quota {{previous_storage_quota}} -> {{storage_quota}}",
 	"audit_presentation_admin_force_delete_user_finished": "Removed {{file_count}} file(s), {{folder_count}} folder(s), {{share_count}} share(s)",
-	"audit_presentation_storage_policy_snapshot": "{{driver_type}} policy, max file {{max_file_size}}, chunk {{chunk_size}}, default {{is_default}}",
-	"audit_presentation_storage_policy_action_triggered": "Triggered {{driver_type}} storage action {{action}}, draft {{used_draft_values}}, remote mutation {{mutates_remote_state}}",
+	"audit_presentation_storage_policy_snapshot": "{{connector_id}} policy, max file {{max_file_size}}, chunk {{chunk_size}}, default {{is_default}}",
+	"audit_presentation_storage_policy_action_triggered": "Triggered {{connector_id}} storage action {{action}}, draft {{used_draft_values}}, remote mutation {{mutates_remote_state}}",
 	"audit_presentation_policy_group_snapshot": "{{rule_count}} routing rule(s), enabled {{is_enabled}}, default {{is_default}}",
 	"audit_presentation_policy_group_migration_finished": "{{migrated_assignments}} assignment(s) from {{source_group_name}} to {{target_group_name}}",
 	"audit_presentation_team_snapshot": "{{member_count}} member(s), quota {{storage_quota}}",
@@ -270,5 +270,7 @@
 	"audit_presentation_team_webdav_account_status_changed": "Active {{is_active}}, team {{team_id}}",
 	"audit_presentation_team_webdav_account_changed": "{{username}}, team {{team_id}}, active {{is_active}}",
 	"audit_presentation_resource_force_unlocked": "{{entity_type}} {{entity_id}}",
-	"audit_presentation_blob_maintenance_task_created": "{{action}} for {{blob_count}} blob(s)"
+	"audit_presentation_blob_maintenance_task_created": "{{action}} for {{blob_count}} blob(s)",
+	"audit_action_admin_create_storage_policy_forced_purge_task": "Admin confirmed a storage policy purge",
+	"audit_presentation_storage_policy_forced_purge_task_created": "Task {{task_id}}, reason {{reason}}"
 }

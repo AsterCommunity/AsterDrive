@@ -72,6 +72,7 @@ const TASK_KIND_FILTER_VALUES = [
 	"trash_purge_all",
 	"storage_policy_temp_cleanup",
 	"storage_policy_migration",
+	"storage_policy_forced_purge",
 	"blob_maintenance",
 	"system_runtime",
 ] as const satisfies readonly KnownTaskKind[];

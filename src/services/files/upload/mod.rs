@@ -11,8 +11,8 @@ pub(crate) mod plan;
 mod session;
 
 pub use cleanup::{
-    ForceCleanupByPolicyResult, cancel_upload, cancel_upload_for_team, cleanup_expired,
-    force_cleanup_by_policy,
+    ForceCleanupByPolicyResult, abandon_for_disaster_policy_purge, cancel_upload,
+    cancel_upload_for_team, cleanup_before_forced_policy_delete, cleanup_expired,
 };
 pub use complete::{
     complete_upload, complete_upload_for_team, complete_upload_for_team_with_audit,

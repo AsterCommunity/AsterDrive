@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getStorageConnectorBadgePresentation } from "./policyPresentation";
+import {
+	getStorageConnectorBadgePresentation,
+	getStoragePolicyRecoveryStatusPresentation,
+} from "./policyPresentation";
 
 describe("policyPresentation", () => {
 	it("renders a connector-owned RGB color without connector id branches", () => {
@@ -35,5 +38,46 @@ describe("policyPresentation", () => {
 		expect(presentation.style["--storage-connector-badge-border"]).toBe(
 			"rgb(0 255 13 / 0.55)",
 		);
+	});
+});
+
+describe("storage policy recovery status presentation", () => {
+	it("maps success, warning, danger, and neutral states centrally", () => {
+		expect(
+			getStoragePolicyRecoveryStatusPresentation("recoverable", false),
+		).toMatchObject({
+			icon: "Check",
+			toneClass: expect.stringContaining("emerald"),
+		});
+		expect(
+			getStoragePolicyRecoveryStatusPresentation(
+				"partially_recoverable",
+				false,
+			),
+		).toMatchObject({
+			icon: "Warning",
+			toneClass: expect.stringContaining("amber"),
+		});
+		expect(
+			getStoragePolicyRecoveryStatusPresentation("blocked", false),
+		).toMatchObject({
+			icon: "CircleAlert",
+			toneClass: expect.stringContaining("destructive"),
+		});
+		expect(
+			getStoragePolicyRecoveryStatusPresentation("no_stored_objects", false),
+		).toMatchObject({
+			icon: "Cloud",
+			toneClass: expect.stringContaining("muted"),
+		});
+	});
+
+	it("uses a neutral spinner presentation while a probe is running", () => {
+		expect(
+			getStoragePolicyRecoveryStatusPresentation("blocked", true),
+		).toMatchObject({
+			icon: "Spinner",
+			toneClass: expect.stringContaining("muted"),
+		});
 	});
 });

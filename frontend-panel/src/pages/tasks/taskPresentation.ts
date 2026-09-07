@@ -338,6 +338,8 @@ export function formatTaskKind(t: TaskTranslate, kind: BackgroundTaskKind) {
 			return t("tasks:kind_storage_policy_temp_cleanup");
 		case "storage_policy_migration":
 			return t("tasks:kind_storage_policy_migration");
+		case "storage_policy_forced_purge":
+			return t("tasks:kind_storage_policy_forced_purge");
 		case "blob_maintenance":
 			return t("tasks:kind_blob_maintenance");
 		case "offline_download":

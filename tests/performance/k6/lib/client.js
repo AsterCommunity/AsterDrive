@@ -454,15 +454,14 @@ export function createArchiveCompressTask(
 }
 
 export function createStoragePolicyMigrationTask(
-	session,
-	{ sourcePolicyId, targetPolicyId, deleteSourceAfterSuccess = false },
+    session,
+    { sourcePolicyId, targetPolicyId },
 ) {
 	const response = http.post(
 		url("/api/v1/admin/storage-migrations"),
 		JSON.stringify({
-			source_policy_id: sourcePolicyId,
-			target_policy_id: targetPolicyId,
-			delete_source_after_success: deleteSourceAfterSuccess,
+            source_policy_id: sourcePolicyId,
+            target_policy_id: targetPolicyId,
 		}),
 		{
 			headers: authHeaders(session, {

@@ -143,6 +143,7 @@ export const ApiErrorCode = {
 	TeamOwnerRequired: "team.owner_required",
 	TeamAdminOrOwnerRequired: "team.admin_or_owner_required",
 	PolicyUploadSessionsExist: "policy.upload_sessions_exist",
+	PolicyBlobReferencesExist: "policy.blob_references_exist",
 	PolicyStorageAccessKeyRequired: "policy.storage_access_key_required",
 	PolicyStorageSecretKeyRequired: "policy.storage_secret_key_required",
 	PolicyStorageBucketRequired: "policy.storage_bucket_required",

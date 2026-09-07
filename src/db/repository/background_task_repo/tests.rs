@@ -47,6 +47,7 @@ async fn insert_task(
         BackgroundTaskKind::FolderTreeMutation => "folder-tree-mutation",
         BackgroundTaskKind::StoragePolicyTempCleanup => "storage-policy-temp-cleanup",
         BackgroundTaskKind::StoragePolicyMigration => "storage-policy-migration",
+        BackgroundTaskKind::StoragePolicyForcedPurge => "storage-policy-forced-purge",
         BackgroundTaskKind::BlobMaintenance => "blob-maintenance",
         BackgroundTaskKind::OfflineDownload => "offline-download",
         BackgroundTaskKind::SystemRuntime => "task-cleanup",
@@ -117,10 +118,16 @@ async fn insert_task(
         BackgroundTaskKind::StoragePolicyMigration => serde_json::json!({
             "source_policy_id": 1,
             "target_policy_id": 2,
-            "delete_source_after_success": false,
             "plan_hash": "hash",
             "source_policy_updated_at": "2026-01-01T00:00:00Z",
             "target_policy_updated_at": "2026-01-01T00:00:00Z",
+        }),
+        BackgroundTaskKind::StoragePolicyForcedPurge => serde_json::json!({
+            "policy_id": 1,
+            "policy_name": "Lost policy",
+            "policy_updated_at": "2026-01-01T00:00:00Z",
+            "impact_digest": "hash",
+            "reason": "permanent storage loss",
         }),
         BackgroundTaskKind::BlobMaintenance => serde_json::json!({
             "action": "integrity_check",

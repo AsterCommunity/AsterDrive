@@ -34,7 +34,8 @@ pub async fn create_storage_policy_migration(
         task::storage_migration::CreateStoragePolicyMigrationInput {
             source_policy_id: body.source_policy_id,
             target_policy_id: body.target_policy_id,
-            delete_source_after_success: body.delete_source_after_success,
+            mode: body.mode,
+            recovery_plan_hash: body.recovery_plan_hash.clone(),
             creator_user_id: claims.user_id,
         },
     )
@@ -67,7 +68,8 @@ pub async fn dry_run_storage_policy_migration(
         task::storage_migration::CreateStoragePolicyMigrationInput {
             source_policy_id: body.source_policy_id,
             target_policy_id: body.target_policy_id,
-            delete_source_after_success: body.delete_source_after_success,
+            mode: body.mode,
+            recovery_plan_hash: body.recovery_plan_hash.clone(),
             creator_user_id: claims.user_id,
         },
     )

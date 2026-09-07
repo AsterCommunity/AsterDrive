@@ -1299,6 +1299,20 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     assert_revision_property_namespace_case_sensitivity(&state, backend, &app, &token, &test_user)
         .await;
     assert_batched_folder_copy_initial_revisions(&state, backend, &app, &token, test_user.id).await;
+
+    let default_policy = aster_drive::db::repository::policy_repo::find_default(state.writer_db())
+        .await
+        .expect("default policy query should succeed")
+        .expect("default policy should exist");
+    let purge_impact =
+        aster_drive::db::repository::file_repo::summarize_storage_policy_purge_impact(
+            state.writer_db(),
+            default_policy.id,
+        )
+        .await
+        .expect("policy purge impact SQL should execute on the production backend");
+    assert!(purge_impact.file_count >= 0);
+    assert!(purge_impact.affected_revision_count >= 0);
 }
 
 #[actix_web::test]

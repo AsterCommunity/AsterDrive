@@ -15,6 +15,7 @@
 	"kind_folder_tree_mutation": "Folder tree mutation",
 	"kind_storage_policy_temp_cleanup": "Storage temporary object cleanup",
 	"kind_storage_policy_migration": "Storage policy migration",
+	"kind_storage_policy_forced_purge": "Storage policy permanent purge",
 	"kind_blob_maintenance": "Blob maintenance",
 	"kind_offline_download": "Link import",
 	"kind_system_runtime": "System runtime task",
@@ -71,5 +72,6 @@
 	"storage_migration_renamed_opaque_blobs": "Renamed opaque keys",
 	"storage_migration_skipped_blobs": "Skipped objects",
 	"storage_migration_failed_blobs": "Failed objects",
-	"storage_migration_migrated_bytes": "Bytes"
+	"storage_migration_migrated_bytes": "Bytes",
+	"status_text_storage_policy_forced_purge_completed": "Policy #{{policyId}} purged: {{purgedFiles}} files, {{deletedBlobRecords}} blob records, {{freedLogicalBytes}} logical bytes"
 }

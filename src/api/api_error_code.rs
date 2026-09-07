@@ -97,6 +97,7 @@ define_api_error_codes! {
     StorageTransientFailure => "storage.transient_failure",
     StoragePreconditionFailed => "storage.precondition_failed",
     StorageOperationUnsupported => "storage.operation_unsupported",
+    PolicyBlobReferencesExist => "policy.blob_references_exist",
 
     // folders: legacy top-level folder categories.
     FolderNotFound => "folder.not_found",

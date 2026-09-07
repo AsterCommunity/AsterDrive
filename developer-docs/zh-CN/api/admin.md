@@ -323,6 +323,9 @@ POST /api/v1/admin/policies/action
 | `POST` | `/admin/storage-migrations` | 创建存储策略迁移任务 |
 | `POST` | `/admin/storage-migrations/dry-run` | 预检查迁移计划，不创建任务 |
 | `POST` | `/admin/storage-migrations/{task_id}/resume` | 继续执行已有迁移任务 |
+| `POST` | `/admin/policies/{id}/recovery-probe` | 只读抽样检查源策略是否有可恢复内容 |
+| `POST` | `/admin/policies/{id}/forced-purge-preview` | 生成永久清除的实时影响摘要、阻塞项和确认短语 |
+| `POST` | `/admin/policies/{id}/forced-purge` | 创建经过摘要与短语确认的永久清除任务 |
 
 创建请求体：
 
@@ -330,14 +333,17 @@ POST /api/v1/admin/policies/action
 {
   "source_policy_id": 1,
   "target_policy_id": 2,
-  "delete_source_after_success": false
+  "mode": "normal"
 }
 ```
 
 当前实现注意点：
 
 - `source_policy_id` 和 `target_policy_id` 都必须大于 0，而且不能相同
-- `delete_source_after_success` 目前只保留在请求体里，第一版实现会直接拒绝 `true`
+- 存储迁移不提供源策略删除参数；迁移完成后的源策略删除仍是独立管理员操作
+- `mode = "recover_available"` 必须提交 `/recovery-probe` 返回的 `recovery_plan_hash`；任务会重新检查 source/target policy revision
+- read probe 只执行 metadata 和有限 range 实际读取，不写入或删除源对象；`recoverable` 只证明任务值得启动，不代表所有 blob 都存在
+- 恢复任务先迁移 `VirtualEmpty`，再逐个复制 stored blob；缺失对象留在源策略下并计入结果，其余可读数据继续迁移；任务本身始终保留源策略
 - `dry-run` 会检查目标策略是否支持 stream upload，并尝试对目标存储做一次写删探测
 - `dry-run` 会返回 `target_capacity_check` 和 `target_capacity`。容量判断使用预计仍需复制的 blob 总字节数，不使用源策略总字节数；目标已有的 content SHA-256 blob 不计入预计复制量。
 - `target_capacity_check = "insufficient"` 会阻止创建任务；`unsupported` 和 `unavailable` 只会进入 warnings，调用方需要提示管理员自行确认目标容量。
@@ -346,6 +352,8 @@ POST /api/v1/admin/policies/action
 - 这类任务有独立 checkpoint，恢复入口只接受该 kind
 - 迁移任务完成后，结果里会包含扫描、迁移、合并、跳过、失败、迁移字节数和 `renamed_opaque_blobs`
 - 跨策略匹配只允许 content SHA-256 blob 参与：`hash` 必须是 64 位十六进制，且目标 blob 的 `hash` 和 `size` 都匹配。Opaque blob 永不跨策略 merge；如果目标策略已有同 opaque key，执行阶段会把源 blob 改成新的 `migration-...` key 并复制到新路径。
+- forced purge 仅由 placement target 阻塞；活动 upload session 会显示在影响摘要中，并由已确认任务放弃本地 session/临时目录。completed session 不计入活动数，也不阻塞灾害清除。
+- forced purge 会永久删除所有引用源策略 blob 的完整 file history，因此连带删除 direct share、trash entry 并回收实际全部 retained revision 配额；所有引用清零后才删除 blob 元数据和策略。
 
 ## 远端节点
 

@@ -556,7 +556,7 @@ fn record_upload_cancel_metric(state: &impl SharedRuntimeState, mode: &'static s
     );
 }
 
-pub async fn force_cleanup_by_policy(
+pub async fn cleanup_before_forced_policy_delete(
     state: &impl SharedRuntimeState,
     policy_id: i64,
 ) -> Result<ForceCleanupByPolicyResult> {
@@ -589,6 +589,26 @@ pub async fn force_cleanup_by_policy(
     }
 
     Ok(result)
+}
+
+/// Abandons every local upload session for a policy during confirmed disaster purge.
+///
+/// Unlike ordinary force cleanup, this break-glass operation deliberately performs
+/// no connector I/O: the administrator has chosen permanent policy destruction after
+/// recovery failed. It removes local session state and temporary directories so stale
+/// completed rows and unreachable remote cleanup cannot block the destructive task.
+pub async fn abandon_for_disaster_policy_purge(
+    state: &impl SharedRuntimeState,
+    policy_id: i64,
+) -> Result<u64> {
+    let sessions = upload_session_repo::find_by_policy(state.writer_db(), policy_id).await?;
+    let mut abandoned = 0_u64;
+    for session in sessions {
+        cleanup_upload_temp_dir(state, &session.id).await;
+        upload_session_repo::delete(state.writer_db(), &session.id).await?;
+        abandoned = abandoned.saturating_add(1);
+    }
+    Ok(abandoned)
 }
 
 /// 清理过期的上传 session（后台任务调用）

@@ -721,14 +721,40 @@ describe("adminService", () => {
 		adminPolicyService.createMigration({
 			source_policy_id: 3,
 			target_policy_id: 9,
-			delete_source_after_success: false,
 		});
 
 		expect(mockState.post).toHaveBeenCalledWith("/admin/storage-migrations", {
 			source_policy_id: 3,
 			target_policy_id: 9,
-			delete_source_after_success: false,
 		});
+	});
+
+	it("probes recovery and creates a confirmed forced purge task", () => {
+		adminPolicyService.probeRecovery(7);
+		adminPolicyService.previewForcedPurge(7);
+		adminPolicyService.createForcedPurge(7, {
+			impact_digest: "impact-hash",
+			confirmation: "DELETE Lost policy",
+			reason: "",
+		});
+
+		expect(mockState.post).toHaveBeenNthCalledWith(
+			1,
+			"/admin/policies/7/recovery-probe",
+		);
+		expect(mockState.post).toHaveBeenNthCalledWith(
+			2,
+			"/admin/policies/7/forced-purge-preview",
+		);
+		expect(mockState.post).toHaveBeenNthCalledWith(
+			3,
+			"/admin/policies/7/forced-purge",
+			{
+				impact_digest: "impact-hash",
+				confirmation: "DELETE Lost policy",
+				reason: "",
+			},
+		);
 	});
 
 	it("sets and clears folder policy bindings", () => {
@@ -812,7 +838,6 @@ describe("adminService", () => {
 		adminPolicyService.dryRunMigration({
 			source_policy_id: 3,
 			target_policy_id: 9,
-			delete_source_after_success: false,
 		});
 		adminTaskService.resumeStoragePolicyMigration(42);
 
@@ -822,7 +847,6 @@ describe("adminService", () => {
 			{
 				source_policy_id: 3,
 				target_policy_id: 9,
-				delete_source_after_success: false,
 			},
 		);
 		expect(mockState.post).toHaveBeenNthCalledWith(

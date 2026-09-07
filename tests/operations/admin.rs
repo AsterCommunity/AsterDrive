@@ -3313,7 +3313,11 @@ async fn test_admin_tasks_cleanup_uses_explicit_finished_before() {
                 )
             }
             BackgroundTaskKind::StoragePolicyMigration => StoredTaskPayload(
-                r#"{"source_policy_id":1,"target_policy_id":2,"delete_source_after_success":false,"plan_hash":"hash","source_policy_updated_at":"2026-01-01T00:00:00Z","target_policy_updated_at":"2026-01-01T00:00:00Z"}"#
+                r#"{"source_policy_id":1,"target_policy_id":2,"plan_hash":"hash","source_policy_updated_at":"2026-01-01T00:00:00Z","target_policy_updated_at":"2026-01-01T00:00:00Z"}"#
+                    .to_string(),
+            ),
+            BackgroundTaskKind::StoragePolicyForcedPurge => StoredTaskPayload(
+                r#"{"policy_id":1,"policy_name":"Lost policy","policy_updated_at":"2026-01-01T00:00:00Z","impact_digest":"hash","reason":"storage loss"}"#
                     .to_string(),
             ),
             BackgroundTaskKind::BlobMaintenance => StoredTaskPayload(

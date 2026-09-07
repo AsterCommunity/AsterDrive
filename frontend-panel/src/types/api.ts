@@ -281,6 +281,12 @@ export type AdminPolicySortBy = components["schemas"]["AdminPolicySortBy"];
 export type AdminPolicyGroupSortBy =
 	components["schemas"]["AdminPolicyGroupSortBy"];
 export type DeletePolicyQuery = OperationQuery<"delete_policy">;
+export type StoragePolicyRecoveryProbe =
+	OperationData<"probe_storage_policy_recoverability">;
+export type StoragePolicyForcedPurgePreview =
+	OperationData<"preview_storage_policy_forced_purge">;
+export type CreateStoragePolicyForcedPurgeRequest =
+	components["schemas"]["CreateStoragePolicyForcedPurgeReq"];
 export type CreateRemoteNodeRequest =
 	components["schemas"]["CreateRemoteNodeReq"];
 export type AdminRemoteNodeListQuery = OperationQuery<"list_remote_nodes">;

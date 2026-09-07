@@ -139,6 +139,9 @@ pub enum BackgroundTaskKind {
     StoragePolicyTempCleanup,
     #[sea_orm(string_value = "storage_policy_migration")]
     StoragePolicyMigration,
+    /// Permanently purges every file history that still references a lost policy.
+    #[sea_orm(string_value = "storage_policy_forced_purge")]
+    StoragePolicyForcedPurge,
     #[sea_orm(string_value = "blob_maintenance")]
     BlobMaintenance,
     #[sea_orm(string_value = "offline_download")]
@@ -160,6 +163,7 @@ impl BackgroundTaskKind {
             Self::FolderTreeMutation => "folder_tree_mutation",
             Self::StoragePolicyTempCleanup => "storage_policy_temp_cleanup",
             Self::StoragePolicyMigration => "storage_policy_migration",
+            Self::StoragePolicyForcedPurge => "storage_policy_forced_purge",
             Self::BlobMaintenance => "blob_maintenance",
             Self::OfflineDownload => "offline_download",
             Self::SystemRuntime => "system_runtime",

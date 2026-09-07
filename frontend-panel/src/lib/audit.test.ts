@@ -216,4 +216,29 @@ describe("audit i18n formatting", () => {
 			"Import from https://example.test/archive.zip to folder 42",
 		);
 	});
+
+	it("interpolates storage action connector ids from structured params", () => {
+		const t = createMockTWithInterpolation({
+			"admin:audit_presentation_storage_policy_action_triggered":
+				"Triggered {{connector_id}} action {{action}}, draft {{used_draft_values}}, remote mutation {{mutates_remote_state}}",
+		});
+		const entry = {
+			action: "admin_trigger_storage_action",
+			presentation: {
+				detail: {
+					code: "storage_policy_action_triggered",
+					params: {
+						action: "storage_credential_oauth",
+						connector_id: "asterdrive.storage.onedrive",
+						mutates_remote_state: false,
+						used_draft_values: false,
+					},
+				},
+			},
+		} as AuditLogEntry;
+
+		expect(formatAuditDetail(t, entry)).toBe(
+			"Triggered asterdrive.storage.onedrive action storage_credential_oauth, draft false, remote mutation false",
+		);
+	});
 });
