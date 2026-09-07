@@ -880,11 +880,18 @@ fn redact_authorization_bearer(input: &str) -> String {
             .sum::<usize>();
         let (whitespace, after_whitespace) = after_header.split_at(whitespace_len);
         if !after_whitespace.to_ascii_lowercase().starts_with("bearer") {
-            output.push_str(after_header);
-            rest = "";
-            break;
+            rest = after_header;
+            continue;
         }
         let (bearer, after_bearer) = after_whitespace.split_at("bearer".len());
+        if !after_bearer
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_whitespace())
+        {
+            rest = after_header;
+            continue;
+        }
         output.push_str(whitespace);
         output.push_str(bearer);
         let bearer_whitespace_len = after_bearer
@@ -1714,6 +1721,18 @@ mod tests {
                 "failed with Authorization: Basic credentials before retry",
                 "failed with Authorization: Basic credentials before retry",
                 vec![],
+            ),
+            (
+                "bearer prefix without scheme separator remains unchanged",
+                "failed with Authorization:Bearertoken-secret before retry",
+                "failed with authorization:Bearertoken-secret before retry",
+                vec![],
+            ),
+            (
+                "later bearer authorization is still redacted",
+                "Basic Authorization: Basic credentials; Authorization:Bearer token-secret",
+                "Basic Authorization: Basic credentials; authorization:Bearer [redacted]",
+                vec!["token-secret"],
             ),
             (
                 "non-url text untouched",

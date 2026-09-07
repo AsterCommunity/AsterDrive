@@ -1189,6 +1189,9 @@ async fn recovery_mode_moves_only_virtual_empty_without_resolving_source_driver(
             .policy_id,
         target.id
     );
+    policy_repo::find_by_id(state.writer_db(), source.id)
+        .await
+        .expect("recover_available must retain the source policy");
 }
 
 #[actix_web::test]
