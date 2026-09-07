@@ -739,6 +739,45 @@ describe("AdminTasksPage", () => {
 		expect(screen.getByText("4096")).toBeInTheDocument();
 	});
 
+	it("accepts storage policy forced purge filters from the url", async () => {
+		mockState.list.mockResolvedValueOnce({
+			items: [
+				createTask({
+					display_name: "Permanently purge Source policy",
+					kind: "storage_policy_forced_purge",
+					payload: {
+						impact_digest: "impact-hash",
+						kind: "storage_policy_forced_purge",
+						policy_id: 7,
+						policy_name: "Source policy",
+						policy_updated_at: "2026-09-07T00:00:00Z",
+						reason: "",
+					} as never,
+				}),
+			],
+			total: 1,
+		});
+
+		renderPage("/admin/tasks?kind=storage_policy_forced_purge");
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenCalledWith({
+				kind: "storage_policy_forced_purge",
+				limit: 20,
+				offset: 0,
+				sort_by: "updated_at",
+				sort_order: "desc",
+			});
+		});
+		expect(
+			screen.getAllByText("tasks:kind_storage_policy_forced_purge").length,
+		).toBeGreaterThan(0);
+		fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+		expect(
+			screen.getByText("select:storage_policy_forced_purge"),
+		).toBeInTheDocument();
+	});
+
 	it("resumes a failed storage migration from its detail dialog", async () => {
 		mockState.list
 			.mockResolvedValueOnce({

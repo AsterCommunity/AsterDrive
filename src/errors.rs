@@ -763,6 +763,8 @@ pub(crate) fn sanitize_storage_driver_client_message(message: &str) -> String {
     ] {
         sanitized = redact_key_value_after_marker(&sanitized, marker);
     }
+    sanitized =
+        redact_key_value_after_marker_ascii_case_insensitive(&sanitized, "authorization: bearer ");
 
     sanitized
 }
@@ -854,6 +856,34 @@ fn redact_key_value_after_marker(input: &str, marker: &str) -> String {
         let (redacted_value, after_value) = value.split_at(value_end);
         let _ = redacted_value;
         rest = after_value;
+    }
+
+    output.push_str(rest);
+    output
+}
+
+/// Redacts a token after an ASCII case-insensitive marker while preserving marker casing.
+fn redact_key_value_after_marker_ascii_case_insensitive(input: &str, marker: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let marker_lower = marker.to_ascii_lowercase();
+    let mut rest = input;
+
+    while let Some(index) = rest.to_ascii_lowercase().find(&marker_lower) {
+        let (before, after_before) = rest.split_at(index);
+        output.push_str(before);
+        let (actual_marker, value) = after_before.split_at(marker.len());
+        output.push_str(actual_marker);
+        output.push_str("[redacted]");
+
+        let value_end = value
+            .find(|ch: char| {
+                matches!(
+                    ch,
+                    ';' | '&' | ' ' | '\n' | '\r' | '\t' | '\'' | '"' | ')' | ']' | '>'
+                )
+            })
+            .unwrap_or(value.len());
+        rest = &value[value_end..];
     }
 
     output.push_str(rest);
@@ -1645,6 +1675,12 @@ mod tests {
                 "AccountKey=key;EndpointSuffix=core.windows.net SharedAccessSignature=sas) done",
                 "AccountKey=[redacted];EndpointSuffix=core.windows.net SharedAccessSignature=[redacted]) done",
                 vec!["key;Endpoint", "sas)"],
+            ),
+            (
+                "authorization bearer header ignores casing",
+                "failed with AUTHORIZATION: BEARER token-secret before retry",
+                "failed with AUTHORIZATION: BEARER [redacted] before retry",
+                vec!["token-secret"],
             ),
             (
                 "non-url text untouched",

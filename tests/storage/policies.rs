@@ -10,8 +10,78 @@ use aster_drive::services::storage_policy::policy::placement::{
 use aster_forge_file_classification::FileCategory;
 
 use actix_web::test;
+use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use serde_json::Value;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+use tokio::io::AsyncRead;
+
+use aster_drive_storage::{BlobMetadata, StorageDriver};
+
+#[derive(Default)]
+struct DisasterPurgeDataPlaneProbe {
+    calls: AtomicUsize,
+}
+
+impl DisasterPurgeDataPlaneProbe {
+    /// Returns the total number of storage data-plane operations observed by the probe.
+    fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+
+    /// Records one unexpected data-plane operation.
+    fn record_call(&self) {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+#[async_trait]
+impl StorageDriver for DisasterPurgeDataPlaneProbe {
+    /// Records an unexpected object write.
+    async fn put(&self, path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
+        self.record_call();
+        Ok(path.to_string())
+    }
+
+    /// Records an unexpected full-object read.
+    async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
+        self.record_call();
+        Ok(Vec::new())
+    }
+
+    /// Records an unexpected streaming read.
+    async fn get_stream(
+        &self,
+        _path: &str,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
+        self.record_call();
+        Ok(Box::new(tokio::io::empty()))
+    }
+
+    /// Records an unexpected object deletion.
+    async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
+        self.record_call();
+        Ok(())
+    }
+
+    /// Records an unexpected object existence check.
+    async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
+        self.record_call();
+        Ok(false)
+    }
+
+    /// Records an unexpected object metadata request.
+    async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
+        self.record_call();
+        Ok(BlobMetadata {
+            size: 0,
+            content_type: None,
+        })
+    }
+}
 
 fn resolve_policy_id_from_snapshot(
     state: &aster_drive::runtime::PrimaryAppState,
@@ -2588,6 +2658,10 @@ async fn forced_purge_preview_ignores_completed_sessions_and_does_not_block_acti
         .unwrap()
         .expect("registered user");
     let policy_id = create_local_policy_via_admin(&app, &token, "Purge session impact").await;
+    let data_plane_probe = Arc::new(DisasterPurgeDataPlaneProbe::default());
+    state
+        .driver_registry
+        .insert_for_test(policy_id, data_plane_probe.clone());
     create_policy_upload_session(
         &state,
         PolicyUploadSessionSpec {
@@ -2606,7 +2680,7 @@ async fn forced_purge_preview_ignores_completed_sessions_and_does_not_block_acti
             upload_id: "active-purge-session",
             policy_id,
             user_id: user.id,
-            object_temp_key: None,
+            object_temp_key: Some("files/unreachable-active-upload.bin"),
             status: Some(UploadSessionStatus::Uploading),
             expires_at: None,
         },
@@ -2656,6 +2730,11 @@ async fn forced_purge_preview_ignores_completed_sessions_and_does_not_block_acti
         policy_repo::find_by_id(state.writer_db(), policy_id)
             .await
             .is_err()
+    );
+    assert_eq!(
+        data_plane_probe.calls(),
+        0,
+        "confirmed disaster purge must not access the unavailable storage data plane"
     );
 }
 

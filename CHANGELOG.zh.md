@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **存储策略灾害恢复** — 删除仍有 Blob 引用的策略时，管理端会先通过有界只读对象探测进入恢复流程；可读内容和 `VirtualEmpty` 可复用带 fencing 的统一后台任务迁移，源策略始终保留供管理员后续明确处置。无法恢复的剩余内容只有在重新生成影响摘要并逐字确认后才能永久清除，文件、版本、分享、回收站和配额继续遵守 canonical purge 语义；普通策略删除和上传清理保护保持不变。
+- **存储策略灾害恢复** — 删除仍有 Blob 引用的策略时，管理端会先通过有界只读对象探测进入恢复流程；可读内容和 `VirtualEmpty` 可复用带 fencing 的统一后台任务迁移，源策略始终保留供管理员后续明确处置。无法恢复的剩余内容只有在重新生成影响摘要并逐字确认后才能永久清除，文件、版本、分享、回收站和配额继续遵守 canonical purge 语义。存储迁移请求已移除 `delete_source_after_success`，客户端必须改用 `mode`，并在 `recover_available` 模式提交最新的 `recovery_plan_hash`；普通策略删除和上传清理保护保持不变。
 
 - **存储放置策略引擎** — 策略组升级为带版本化上传准入、ordered matcher、`first_available` / `weighted_random` 目标选择、draining/unavailable fallback 和上传执行偏好的 placement profile；legacy item migration 保留原 size routing，用户/团队 assignment、folder override、已有 blob policy 与 upload session 决策边界保持不变。新 blob ingress 统一复用 immutable `PolicySnapshot` resolver，管理端支持 rule/target 编辑和后端 dry-run 模拟，展示规范化分类、准入结果、规则 trace、排除目标与稳定 reason code。
 

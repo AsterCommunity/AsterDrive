@@ -290,6 +290,10 @@ mod tests {
                 BackgroundTaskKind::StoragePolicyMigration,
                 "storage_policy_migration",
             ),
+            (
+                BackgroundTaskKind::StoragePolicyForcedPurge,
+                "storage_policy_forced_purge",
+            ),
             (BackgroundTaskKind::BlobMaintenance, "blob_maintenance"),
             (BackgroundTaskKind::OfflineDownload, "offline_download"),
             (BackgroundTaskKind::SystemRuntime, "system_runtime"),

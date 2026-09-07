@@ -870,7 +870,8 @@ mod tests {
     use super::{Params, TaskPresentationContext, build_task_presentation};
     use crate::services::task::types::{
         FolderTreeMutationOperation, FolderTreeMutationTaskPayload, FolderTreeMutationTaskResult,
-        TaskPayload, TaskPresentationCode, TaskResult, TrashPurgeAllTaskPayload,
+        StoragePolicyForcedPurgeTaskPayload, StoragePolicyForcedPurgeTaskResult, TaskPayload,
+        TaskPresentationCode, TaskResult, TrashPurgeAllTaskPayload,
     };
     use aster_drive_model::types::BackgroundTaskStatus;
     use serde_json::json;
@@ -970,5 +971,50 @@ mod tests {
         )
         .expect("mismatched result should not prevent the payload presentation");
         assert!(mismatched.status.is_none());
+    }
+
+    #[test]
+    fn forced_policy_purge_presentation_contains_confirmed_scope_and_result_counts() {
+        let payload = TaskPayload::StoragePolicyForcedPurge(StoragePolicyForcedPurgeTaskPayload {
+            policy_id: 7,
+            policy_name: "Lost storage".to_string(),
+            policy_updated_at: chrono::Utc::now(),
+            impact_digest: "impact-hash".to_string(),
+            reason: String::new(),
+        });
+        let result = TaskResult::StoragePolicyForcedPurge(StoragePolicyForcedPurgeTaskResult {
+            policy_id: 7,
+            purged_files: 3,
+            deleted_blob_records: 5,
+            freed_logical_bytes: 1024,
+            policy_deleted: true,
+        });
+
+        let presentation = build_task_presentation(
+            &payload,
+            Some(&result),
+            BackgroundTaskStatus::Succeeded,
+            TaskPresentationContext::default(),
+        )
+        .expect("forced purge presentation should exist");
+        let title = presentation.title.expect("forced purge title should exist");
+        assert_eq!(
+            title.code,
+            TaskPresentationCode::TaskNameStoragePolicyForcedPurge
+        );
+        assert_eq!(title.params["policy"], json!("Lost storage"));
+        assert_eq!(title.params["policyId"], json!(7));
+
+        let status = presentation
+            .status
+            .expect("forced purge completion status should exist");
+        assert_eq!(
+            status.code,
+            TaskPresentationCode::StatusTextStoragePolicyForcedPurgeCompleted
+        );
+        assert_eq!(status.params["policyId"], json!(7));
+        assert_eq!(status.params["purgedFiles"], json!(3));
+        assert_eq!(status.params["deletedBlobRecords"], json!(5));
+        assert_eq!(status.params["freedLogicalBytes"], json!(1024));
     }
 }

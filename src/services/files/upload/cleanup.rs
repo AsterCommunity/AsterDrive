@@ -556,6 +556,7 @@ fn record_upload_cancel_metric(state: &impl SharedRuntimeState, mode: &'static s
     );
 }
 
+/// Strictly cleans remote and local upload state before an ordinary forced policy delete.
 pub async fn cleanup_before_forced_policy_delete(
     state: &impl SharedRuntimeState,
     policy_id: i64,

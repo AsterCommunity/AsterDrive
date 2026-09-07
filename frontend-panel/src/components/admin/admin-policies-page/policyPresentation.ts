@@ -55,6 +55,7 @@ export function getStorageConnectorBadgePresentation(
 
 type RecoveryStatus = StoragePolicyRecoveryProbe["status"];
 type RecoveryPresentationKey =
+	| "policy_recovery_probe_pending"
 	| "policy_recovery_probe_running"
 	| "policy_recovery_probe_recoverable_title"
 	| "policy_recovery_probe_partial_title"
@@ -118,7 +119,7 @@ export function getStoragePolicyRecoveryStatusPresentation(
 			icon: loading ? "Spinner" : "Cloud",
 			titleKey: loading
 				? "policy_recovery_probe_running"
-				: "policy_recovery_probe_virtual_empty_title",
+				: "policy_recovery_probe_pending",
 			toneClass: RECOVERY_TONE_CLASSES.neutral,
 		};
 	}

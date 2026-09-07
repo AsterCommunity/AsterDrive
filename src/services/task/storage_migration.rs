@@ -72,7 +72,7 @@ struct BlobMigrationContext<'a> {
     source_policy_id: i64,
     target_policy_id: i64,
     target_multipart_part_size: i64,
-    source_driver: &'a dyn StorageDriver,
+    source_driver: Option<&'a dyn StorageDriver>,
     target_driver: &'a dyn StorageDriver,
 }
 
@@ -423,11 +423,19 @@ pub(super) async fn process_storage_policy_migration_task(
             "target storage policy does not support stream upload",
         ));
     }
-    let source_has_stored_blobs = !payload.mode.eq(&StoragePolicyMigrationMode::RecoverAvailable)
-        || !payload.source_recovery_probe.as_ref().is_some_and(|probe| {
-            probe.status
-                == crate::services::storage_policy::recoverability::StoragePolicyRecoverabilityStatus::NoStoredObjects
-        });
+    let source_has_stored_blobs = match payload.mode {
+        StoragePolicyMigrationMode::Normal => true,
+        StoragePolicyMigrationMode::RecoverAvailable => {
+            file_repo::summarize_blobs_by_policy_and_backing(
+                state.writer_db(),
+                payload.source_policy_id,
+                aster_drive_model::types::file_blob::FileBlobBacking::Stored,
+            )
+            .await?
+            .count
+                > 0
+        }
+    };
     let source_driver = source_has_stored_blobs
         .then(|| state.driver_registry().get_driver(&source_policy))
         .transpose()?;
@@ -472,7 +480,7 @@ pub(super) async fn process_storage_policy_migration_task(
         source_policy_id: payload.source_policy_id,
         target_policy_id: payload.target_policy_id,
         target_multipart_part_size: target_policy.chunk_size,
-        source_driver: source_driver.as_deref().unwrap_or(target_driver.as_ref()),
+        source_driver: source_driver.as_deref(),
         target_driver: target_driver.as_ref(),
     };
 
@@ -1042,6 +1050,11 @@ async fn copy_blob_streaming(
         return copy_blob_multipart(migration, multipart, blob, target_path).await;
     }
 
+    let source_driver = source_driver.ok_or_else(|| {
+        AsterError::storage_driver_error(
+            "source storage driver is unavailable for a stored blob migration",
+        )
+    })?;
     let source_stream = source_driver.get_stream(source_path).await?;
     context.ensure_active()?;
     let hashing_reader = HashingReader::new(source_stream, context.clone());
@@ -1102,6 +1115,11 @@ async fn copy_blob_multipart(
     context.ensure_active()?;
     let source_path = blob.storage_path_for_connector().ok_or_else(|| {
         AsterError::validation_error("virtual-empty blobs must migrate as metadata-only records")
+    })?;
+    let source_driver = source_driver.ok_or_else(|| {
+        AsterError::storage_driver_error(
+            "source storage driver is unavailable for multipart blob migration",
+        )
     })?;
     let mut source_stream = source_driver.get_stream(source_path).await?;
     let part_size = migration_multipart_part_size(blob.size, target_multipart_part_size)?;

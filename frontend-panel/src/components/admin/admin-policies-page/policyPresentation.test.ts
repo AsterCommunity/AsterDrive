@@ -65,9 +65,25 @@ describe("storage policy recovery status presentation", () => {
 			toneClass: expect.stringContaining("destructive"),
 		});
 		expect(
+			getStoragePolicyRecoveryStatusPresentation("indeterminate", false),
+		).toMatchObject({
+			icon: "Question",
+			toneClass: expect.stringContaining("amber"),
+		});
+		expect(
 			getStoragePolicyRecoveryStatusPresentation("no_stored_objects", false),
 		).toMatchObject({
 			icon: "Cloud",
+			toneClass: expect.stringContaining("muted"),
+		});
+	});
+
+	it("keeps an unrequested probe distinct from a policy with no stored objects", () => {
+		expect(
+			getStoragePolicyRecoveryStatusPresentation(undefined, false),
+		).toMatchObject({
+			icon: "Cloud",
+			titleKey: "policy_recovery_probe_pending",
 			toneClass: expect.stringContaining("muted"),
 		});
 	});

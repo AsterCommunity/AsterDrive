@@ -939,6 +939,28 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     wait_for_database(database_url).await;
 
     let state = common::setup_with_database_url(database_url).await;
+    if backend == DbBackend::Postgres {
+        for setting in [
+            "max_parallel_workers_per_gather",
+            "max_parallel_maintenance_workers",
+        ] {
+            let value = state
+                .writer_db()
+                .query_one_raw(Statement::from_string(
+                    DbBackend::Postgres,
+                    format!("SHOW {setting}"),
+                ))
+                .await
+                .expect("PostgreSQL parallel-worker setting should be queryable")
+                .expect("PostgreSQL SHOW should return one row")
+                .try_get::<String>("", setting)
+                .expect("PostgreSQL SHOW value should decode");
+            assert_eq!(
+                value, "0",
+                "PostgreSQL test session should disable {setting}"
+            );
+        }
+    }
     match backend {
         DbBackend::Postgres => assert_postgres_search_objects(state.writer_db()).await,
         DbBackend::MySql => assert_mysql_search_objects(state.writer_db()).await,
@@ -1311,8 +1333,14 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
         )
         .await
         .expect("policy purge impact SQL should execute on the production backend");
-    assert!(purge_impact.file_count >= 0);
-    assert!(purge_impact.affected_revision_count >= 0);
+    assert!(
+        purge_impact.file_count > 0,
+        "default-policy uploads should be included in forced-purge impact"
+    );
+    assert!(
+        purge_impact.affected_revision_count >= purge_impact.file_count,
+        "every affected file should contribute at least one active revision"
+    );
 }
 
 #[actix_web::test]

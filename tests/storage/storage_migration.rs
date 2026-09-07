@@ -26,8 +26,8 @@ use aster_drive::runtime::PrimaryAppState;
 use aster_drive::services::{
     files::file as file_service, storage_policy::policy, task, user::account,
 };
-use aster_drive_model::entities::{file, file_blob, file_revision, storage_policy};
-use aster_drive_model::types::{BackgroundTaskStatus, file_blob::FileBlobBacking};
+use aster_drive_model::entities::{audit_log, file, file_blob, file_revision, storage_policy};
+use aster_drive_model::types::{AuditAction, BackgroundTaskStatus, file_blob::FileBlobBacking};
 use aster_drive_storage::{
     BlobMetadata, MultipartStorageDriver, Result, StorageDriver, StorageDriverExtensions,
     StorageErrorKind, StreamUploadDriver,
@@ -1352,6 +1352,23 @@ async fn confirmed_forced_purge_removes_file_quota_blob_and_policy_through_backg
     assert_eq!(create_response.status(), actix_web::http::StatusCode::OK);
     let create_body: Value = test::read_body_json(create_response).await;
     assert_eq!(create_body["data"]["kind"], "storage_policy_forced_purge");
+    let audit = audit_log::Entity::find()
+        .filter(
+            audit_log::Column::Action
+                .eq(AuditAction::AdminCreateStoragePolicyForcedPurgeTask.as_str()),
+        )
+        .filter(audit_log::Column::EntityId.eq(source.id))
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .expect("forced purge task creation should atomically write an audit row");
+    let audit_details: Value = serde_json::from_str(audit.details.as_deref().unwrap()).unwrap();
+    assert_eq!(audit_details["task_id"], create_body["data"]["id"]);
+    assert_eq!(
+        audit_details["impact_digest"],
+        preview["data"]["impact_digest"]
+    );
+    assert!(audit_details.get("reason").is_none());
 
     let stats = task::drain(&state)
         .await

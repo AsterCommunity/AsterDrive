@@ -454,4 +454,28 @@ mod tests {
         assert_eq!(result.status, StorageReadProbeStatus::Blocked);
         assert_eq!(result.error_kind, Some(StorageErrorKind::Precondition));
     }
+
+    #[tokio::test]
+    async fn probe_diagnostics_redact_signed_query_values() {
+        let mut driver = ProbeDriver::readable(b"data");
+        driver.metadata = Err(StorageError::new(
+            StorageErrorKind::Auth,
+            "request https://objects.example.test/blob?sig=query-secret&AccountKey=account-secret failed with Authorization: Bearer bearer-secret",
+        ));
+        let result = probe_storage_object_readability(
+            &driver,
+            StorageReadProbeTarget {
+                path: "blob",
+                expected_size: 4,
+            },
+            StorageReadProbeOptions::default(),
+        )
+        .await;
+
+        let diagnostic = result.diagnostic.expect("probe diagnostic");
+        assert!(!diagnostic.contains("query-secret"));
+        assert!(!diagnostic.contains("account-secret"));
+        assert!(!diagnostic.contains("bearer-secret"));
+        assert!(diagnostic.contains("[redacted]"));
+    }
 }

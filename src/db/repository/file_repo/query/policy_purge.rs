@@ -53,13 +53,13 @@ pub async fn summarize_storage_policy_purge_impact<C: ConnectionTrait>(
                 SELECT DISTINCT h4.file_id FROM file_revision_histories h4 \
                 JOIN file_revisions r4 ON r4.history_id = h4.id \
                 JOIN file_blobs b4 ON b4.id = r4.blob_id \
-                WHERE b4.policy_id = {placeholder} \
+                WHERE b4.policy_id = {placeholder} AND r4.retired_at IS NULL \
              )) AS {integer_type}) AS affected_logical_bytes, \
             CAST((SELECT COUNT(DISTINCT s.id) FROM shares s WHERE s.file_id IN ( \
                 SELECT DISTINCT h2.file_id FROM file_revision_histories h2 \
                 JOIN file_revisions r2 ON r2.history_id = h2.id \
                 JOIN file_blobs b2 ON b2.id = r2.blob_id \
-                WHERE b2.policy_id = {placeholder} \
+                WHERE b2.policy_id = {placeholder} AND r2.retired_at IS NULL \
             )) AS {integer_type}) AS direct_share_count \
          FROM file_blobs b \
          JOIN file_revisions r ON r.blob_id = b.id \
@@ -129,4 +129,55 @@ pub async fn find_files_referencing_policy_blobs_paginated<C: ConnectionTrait>(
         .all(db)
         .await
         .map_err(AsterError::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use sea_orm::{ConnectionTrait, Database};
+
+    use super::{
+        find_files_referencing_policy_blobs_paginated, summarize_storage_policy_purge_impact,
+    };
+
+    #[tokio::test]
+    async fn retired_revisions_are_excluded_from_preview_and_execution_queries() {
+        let db = Database::connect("sqlite::memory:").await.unwrap();
+        db.execute_unprepared(
+            "CREATE TABLE files (id INTEGER PRIMARY KEY, deleted_at TEXT); \
+             CREATE TABLE file_blobs (id INTEGER PRIMARY KEY, policy_id INTEGER NOT NULL); \
+             CREATE TABLE file_revision_histories (id INTEGER PRIMARY KEY, file_id INTEGER NOT NULL); \
+             CREATE TABLE file_revisions (id INTEGER PRIMARY KEY, history_id INTEGER NOT NULL, blob_id INTEGER, logical_size INTEGER NOT NULL, retired_at TEXT); \
+             CREATE TABLE shares (id INTEGER PRIMARY KEY, file_id INTEGER); \
+             INSERT INTO files (id, deleted_at) VALUES (7, NULL); \
+             INSERT INTO file_blobs (id, policy_id) VALUES (11, 3); \
+             INSERT INTO file_revision_histories (id, file_id) VALUES (13, 7); \
+             INSERT INTO file_revisions (id, history_id, blob_id, logical_size, retired_at) \
+             VALUES (17, 13, 11, 64, '2026-09-07T00:00:00Z');",
+        )
+        .await
+        .unwrap();
+
+        let impact = summarize_storage_policy_purge_impact(&db, 3).await.unwrap();
+        assert_eq!(impact.file_count, 0);
+        assert_eq!(impact.affected_revision_count, 0);
+        assert_eq!(impact.affected_logical_bytes, 0);
+        assert_eq!(impact.direct_share_count, 0);
+        assert!(
+            find_files_referencing_policy_blobs_paginated(&db, 3, 0, 100)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn zero_sized_execution_page_skips_database_queries() {
+        let db = Database::connect("sqlite::memory:").await.unwrap();
+        assert!(
+            find_files_referencing_policy_blobs_paginated(&db, 3, 0, 0)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
 }

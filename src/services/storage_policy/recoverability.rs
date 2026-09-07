@@ -371,5 +371,20 @@ mod tests {
         );
         assert_eq!(retryable.status, StorageReadProbeStatus::Indeterminate);
         assert!(retryable.retryable);
+
+        let sanitized = sample_from_driver_resolution_error(
+            9,
+            crate::errors::storage_driver_error(
+                StorageErrorKind::Auth,
+                "request https://objects.example.test/?sig=secret failed",
+            ),
+        );
+        assert!(
+            !sanitized
+                .diagnostic
+                .as_deref()
+                .unwrap_or_default()
+                .contains("sig=secret")
+        );
     }
 }

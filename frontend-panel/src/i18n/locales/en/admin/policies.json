@@ -217,7 +217,7 @@
 	"policy_recovery_probe_retry": "Check again",
 	"policy_recovery_status_recoverable": "Sampled objects are readable.",
 	"policy_recovery_status_partially_recoverable": "Some sampled objects are readable; recovery can preserve the available data.",
-	"policy_recovery_status_blocked": "No sampled object could be recovered. Review the diagnostics or purge the affected histories.",
+	"policy_recovery_status_blocked": "No sampled object could be read. Review the diagnostics or purge the affected histories.",
 	"policy_recovery_status_indeterminate": "The source did not provide a conclusive result. Retry before destructive action.",
 	"policy_recovery_status_no_stored_objects": "Only virtual empty content remains; no source object access is required.",
 	"policy_recovery_stored_blobs": "Stored objects",

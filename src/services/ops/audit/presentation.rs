@@ -269,11 +269,7 @@ fn detail_message(
             Some(message("storage_policy_action_triggered", params))
         }
         AuditAction::AdminCreateStoragePolicyForcedPurgeTask => {
-            copy_params(
-                details,
-                &mut params,
-                &["task_id", "impact_digest", "reason"],
-            );
+            copy_params(details, &mut params, &["task_id", "impact_digest"]);
             Some(message("storage_policy_forced_purge_task_created", params))
         }
         AuditAction::AdminCreatePolicyGroup
@@ -1029,6 +1025,29 @@ mod tests {
         assert_eq!(detail.code, "folder_policy_changed");
         assert_eq!(detail.params.get("previous_policy_id"), Some(&2.into()));
         assert_eq!(detail.params.get("policy_id"), Some(&5.into()));
+    }
+
+    #[test]
+    fn forced_policy_purge_audit_exposes_digest_but_not_free_text_reason() {
+        let presentation = build_audit_presentation(
+            AuditAction::AdminCreateStoragePolicyForcedPurgeTask,
+            AuditEntityType::StoragePolicy,
+            Some(7),
+            Some("Lost storage"),
+            Some(r#"{"task_id":42,"impact_digest":"impact-hash","reason":"Bearer secret"}"#),
+        )
+        .expect("forced purge audit presentation should exist");
+
+        let detail = presentation
+            .detail
+            .expect("forced purge detail should exist");
+        assert_eq!(detail.code, "storage_policy_forced_purge_task_created");
+        assert_eq!(detail.params.get("task_id"), Some(&42.into()));
+        assert_eq!(
+            detail.params.get("impact_digest"),
+            Some(&Value::String("impact-hash".to_string()))
+        );
+        assert!(!detail.params.contains_key("reason"));
     }
 
     #[test]
