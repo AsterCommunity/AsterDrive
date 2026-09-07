@@ -272,5 +272,5 @@
 	"audit_presentation_resource_force_unlocked": "{{entity_type}} {{entity_id}}",
 	"audit_presentation_blob_maintenance_task_created": "{{action}} for {{blob_count}} blob(s)",
 	"audit_action_admin_create_storage_policy_forced_purge_task": "Admin confirmed a storage policy purge",
-	"audit_presentation_storage_policy_forced_purge_task_created": "Task {{task_id}}, reason {{reason}}"
+	"audit_presentation_storage_policy_forced_purge_task_created": "Task {{task_id}}, impact digest {{impact_digest}}"
 }

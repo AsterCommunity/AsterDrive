@@ -2700,13 +2700,58 @@ async fn forced_purge_preview_ignores_completed_sessions_and_does_not_block_acti
     assert_eq!(body["data"]["upload_session_count"], 1);
     assert_eq!(body["data"]["can_start"], true);
 
-    let create_request = test::TestRequest::post()
+    create_policy_upload_session(
+        &state,
+        PolicyUploadSessionSpec {
+            upload_id: "late-purge-session",
+            policy_id,
+            user_id: user.id,
+            object_temp_key: None,
+            status: Some(UploadSessionStatus::Uploading),
+            expires_at: None,
+        },
+    )
+    .await;
+
+    let stale_create_request = test::TestRequest::post()
         .uri(&format!("/api/v1/admin/policies/{policy_id}/forced-purge"))
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "impact_digest": body["data"]["impact_digest"],
             "confirmation": body["data"]["confirmation_phrase"],
+            "reason": "",
+        }))
+        .to_request();
+    let stale_create_response = test::call_service(&app, stale_create_request).await;
+    assert_eq!(
+        stale_create_response.status(),
+        actix_web::http::StatusCode::BAD_REQUEST,
+        "a session created after preview must invalidate the impact digest"
+    );
+
+    let refreshed_preview_request = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/policies/{policy_id}/forced-purge-preview"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let refreshed_preview_response = test::call_service(&app, refreshed_preview_request).await;
+    assert_eq!(
+        refreshed_preview_response.status(),
+        actix_web::http::StatusCode::OK
+    );
+    let refreshed_body: Value = test::read_body_json(refreshed_preview_response).await;
+    assert_eq!(refreshed_body["data"]["upload_session_count"], 2);
+
+    let create_request = test::TestRequest::post()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}/forced-purge"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "impact_digest": refreshed_body["data"]["impact_digest"],
+            "confirmation": refreshed_body["data"]["confirmation_phrase"],
             "reason": "",
         }))
         .to_request();

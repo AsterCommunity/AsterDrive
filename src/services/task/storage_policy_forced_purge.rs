@@ -485,6 +485,7 @@ fn build_forced_purge_preview(
         affected_logical_bytes: i64,
         direct_share_count: i64,
         placement_target_count: u64,
+        upload_session_count: u64,
     }
     let identity = ImpactIdentity {
         policy_id: policy.id,
@@ -498,6 +499,7 @@ fn build_forced_purge_preview(
         affected_logical_bytes: impact.affected_logical_bytes,
         direct_share_count: impact.direct_share_count,
         placement_target_count,
+        upload_session_count,
     };
     let encoded = serde_json::to_vec(&identity).map_err(|error| {
         AsterError::internal_error(format!("serialize forced purge impact: {error}"))

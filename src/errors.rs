@@ -763,8 +763,7 @@ pub(crate) fn sanitize_storage_driver_client_message(message: &str) -> String {
     ] {
         sanitized = redact_key_value_after_marker(&sanitized, marker);
     }
-    sanitized =
-        redact_key_value_after_marker_ascii_case_insensitive(&sanitized, "authorization: bearer ");
+    sanitized = redact_authorization_bearer(&sanitized);
 
     sanitized
 }
@@ -862,17 +861,39 @@ fn redact_key_value_after_marker(input: &str, marker: &str) -> String {
     output
 }
 
-/// Redacts a token after an ASCII case-insensitive marker while preserving marker casing.
-fn redact_key_value_after_marker_ascii_case_insensitive(input: &str, marker: &str) -> String {
+/// Redacts bearer credentials in an Authorization header with optional ASCII whitespace.
+fn redact_authorization_bearer(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
-    let marker_lower = marker.to_ascii_lowercase();
+    const HEADER: &str = "authorization:";
+    let header_lower = HEADER.to_ascii_lowercase();
     let mut rest = input;
 
-    while let Some(index) = rest.to_ascii_lowercase().find(&marker_lower) {
+    while let Some(index) = rest.to_ascii_lowercase().find(&header_lower) {
         let (before, after_before) = rest.split_at(index);
         output.push_str(before);
-        let (actual_marker, value) = after_before.split_at(marker.len());
+        let (actual_marker, after_header) = after_before.split_at(HEADER.len());
         output.push_str(actual_marker);
+        let whitespace_len = after_header
+            .chars()
+            .take_while(|ch| ch.is_ascii_whitespace())
+            .map(char::len_utf8)
+            .sum::<usize>();
+        let (whitespace, after_whitespace) = after_header.split_at(whitespace_len);
+        if !after_whitespace.to_ascii_lowercase().starts_with("bearer") {
+            output.push_str(after_header);
+            rest = "";
+            break;
+        }
+        let (bearer, after_bearer) = after_whitespace.split_at("bearer".len());
+        output.push_str(whitespace);
+        output.push_str(bearer);
+        let bearer_whitespace_len = after_bearer
+            .chars()
+            .take_while(|ch| ch.is_ascii_whitespace())
+            .map(char::len_utf8)
+            .sum::<usize>();
+        let (bearer_whitespace, value) = after_bearer.split_at(bearer_whitespace_len);
+        output.push_str(bearer_whitespace);
         output.push_str("[redacted]");
 
         let value_end = value
@@ -1681,6 +1702,18 @@ mod tests {
                 "failed with AUTHORIZATION: BEARER token-secret before retry",
                 "failed with AUTHORIZATION: BEARER [redacted] before retry",
                 vec!["token-secret"],
+            ),
+            (
+                "authorization bearer header permits no whitespace after colon",
+                "failed with Authorization:Bearer token-secret before retry",
+                "failed with authorization:Bearer [redacted] before retry",
+                vec!["token-secret"],
+            ),
+            (
+                "non-bearer authorization remains unchanged",
+                "failed with Authorization: Basic credentials before retry",
+                "failed with Authorization: Basic credentials before retry",
+                vec![],
             ),
             (
                 "non-url text untouched",

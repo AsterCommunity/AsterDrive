@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use chrono::Utc;
 use parking_lot::Mutex;
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set};
 use serde_json::Value;
 use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -1116,6 +1116,79 @@ async fn recovery_mode_probes_and_moves_content_without_deleting_source_policy()
     )
     .expect("decode recovery result");
     assert_eq!(result.remaining_blobs, 0);
+}
+
+#[actix_web::test]
+async fn recovery_mode_moves_only_virtual_empty_without_resolving_source_driver() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-virtual-only").await;
+    let target = create_local_policy(&state, "target-virtual-only").await;
+    let virtual_empty = create_virtual_empty_blob(&state, &source, 1).await;
+
+    // Make the source connector unresolvable before probing. With no stored blobs,
+    // recoverability should still produce a no-stored-objects plan without resolving it.
+    state
+        .writer_db()
+        .execute_unprepared(&format!(
+            "UPDATE storage_policies SET connector_id = 'asterdrive.storage.unknown', storage_config = '{{}}' WHERE id = {}",
+            source.id
+        ))
+        .await
+        .expect("source policy should be made unresolvable without changing its revision");
+    state.driver_registry.invalidate(source.id);
+
+    let probe_request = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/policies/{}/recovery-probe",
+            source.id
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let probe_response = test::call_service(&app, probe_request).await;
+    assert_eq!(probe_response.status(), actix_web::http::StatusCode::OK);
+    let probe: Value = test::read_body_json(probe_response).await;
+    assert_eq!(probe["data"]["status"], "no_stored_objects");
+
+    let create_request = test::TestRequest::post()
+        .uri("/api/v1/admin/storage-migrations")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "source_policy_id": source.id,
+            "target_policy_id": target.id,
+            "mode": "recover_available",
+            "recovery_plan_hash": probe["data"]["plan_hash"],
+        }))
+        .to_request();
+    let create_response = test::call_service(&app, create_request).await;
+    assert_eq!(create_response.status(), actix_web::http::StatusCode::OK);
+    let create_response_body: Value = test::read_body_json(create_response).await;
+
+    let stats = task::drain(&state)
+        .await
+        .expect("virtual-empty recovery task should drain");
+    if stats.succeeded != 1 {
+        let failed_task = background_task_repo::find_by_id(
+            state.writer_db(),
+            create_response_body["data"]["id"].as_i64().unwrap(),
+        )
+        .await
+        .unwrap();
+        panic!(
+            "virtual-empty recovery failed: stats={stats:?}, error={:?}",
+            failed_task.last_error
+        );
+    }
+    assert_eq!(
+        file_repo::find_blob_by_id(state.writer_db(), virtual_empty.id)
+            .await
+            .expect("virtual-empty blob should remain observable")
+            .policy_id,
+        target.id
+    );
 }
 
 #[actix_web::test]

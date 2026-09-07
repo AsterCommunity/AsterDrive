@@ -153,6 +153,26 @@ describe("audit i18n formatting", () => {
 		);
 	});
 
+	it("renders forced policy purge audit details from the exposed fields", () => {
+		const t = createMockTWithInterpolation({
+			"admin:audit_presentation_storage_policy_forced_purge_task_created":
+				"Task {{task_id}}, impact digest {{impact_digest}}",
+		});
+		const entry = {
+			action: "admin_create_storage_policy_forced_purge_task",
+			presentation: {
+				detail: {
+					code: "storage_policy_forced_purge_task_created",
+					params: { impact_digest: "impact-hash", task_id: 42 },
+				},
+			},
+		} as AuditLogEntry;
+
+		expect(formatAuditDetail(t, entry)).toBe(
+			"Task 42, impact digest impact-hash",
+		);
+	});
+
 	it("falls back safely when presentation codes are unknown or missing", () => {
 		const t = createMockTWithInterpolation({
 			"admin:audit_action_file_delete": "Deleted file",
