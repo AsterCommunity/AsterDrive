@@ -446,25 +446,10 @@ pub async fn create_storage_policy_forced_purge(
             confirmation: body.confirmation.clone(),
             reason: body.reason.clone(),
             creator_user_id: claims.user_id,
+            audit_context: ctx.clone(),
         },
     )
     .await?;
-    audit::log_with_details(
-        state.get_ref(),
-        &ctx,
-        audit::AuditAction::AdminCreateStoragePolicyForcedPurgeTask,
-        audit::AuditEntityType::StoragePolicy,
-        Some(policy_id),
-        None,
-        || {
-            Some(serde_json::json!({
-                "task_id": task.id,
-                "impact_digest": body.impact_digest,
-                "reason": body.reason,
-            }))
-        },
-    )
-    .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
 }
 

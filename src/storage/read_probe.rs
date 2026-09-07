@@ -114,7 +114,9 @@ impl StorageReadProbeResult {
                 kind,
                 StorageErrorKind::RateLimited | StorageErrorKind::Transient
             ),
-            diagnostic: Some(error.message().to_string()),
+            diagnostic: Some(crate::errors::sanitize_storage_driver_client_message(
+                error.message(),
+            )),
         }
     }
 
@@ -282,7 +284,15 @@ mod tests {
             if let Some(error) = self.range_error.clone() {
                 return Err(error);
             }
-            let limit = length.unwrap_or(self.data.len() as u64) as usize;
+            let limit = match usize::try_from(length.unwrap_or(self.data.len() as u64)) {
+                Ok(limit) => limit,
+                Err(_) => {
+                    return Err(StorageError::new(
+                        StorageErrorKind::Precondition,
+                        "test range length does not fit usize",
+                    ));
+                }
+            };
             Ok(Box::new(std::io::Cursor::new(
                 self.data[..self.data.len().min(limit)].to_vec(),
             )))

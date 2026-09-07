@@ -82,6 +82,8 @@ pub struct CreateStoragePolicyForcedPurgeInput {
     pub reason: String,
     /// Administrator creating the task.
     pub creator_user_id: i64,
+    /// Request metadata used to write the audit row in the same transaction as task creation.
+    pub audit_context: crate::services::ops::audit::AuditContext,
 }
 
 /// Durable cursor and counters stored in `background_tasks.runtime_json`.
@@ -150,6 +152,8 @@ pub async fn create_storage_policy_forced_purge_task(
         impact_digest: preview.impact_digest.clone(),
         reason: reason.chars().take(1000).collect(),
     };
+    let audit_context = input.audit_context.clone();
+    let impact_digest = preview.impact_digest.clone();
     let task = transaction::with_transaction(state.writer_db(), async |txn| {
         let locked = policy_repo::lock_by_id(txn, input.policy_id).await?;
         if locked.updated_at != preview.policy_updated_at {
@@ -157,7 +161,7 @@ pub async fn create_storage_policy_forced_purge_task(
                 "storage policy changed after forced purge preview",
             ));
         }
-        insert_typed_task_record(
+        let task = insert_typed_task_record(
             state,
             txn,
             TypedTaskCreate::<StoragePolicyForcedPurgeTask>::new(
@@ -170,7 +174,27 @@ pub async fn create_storage_policy_forced_purge_task(
             ))?)
             .creator_user_id(Some(input.creator_user_id)),
         )
+        .await?;
+        crate::services::ops::audit::log_with_transaction(
+            txn,
+            state.runtime_config(),
+            crate::services::ops::audit::AuditLogInput {
+                ctx: &audit_context,
+                action: crate::services::ops::audit::AuditAction::AdminCreateStoragePolicyForcedPurgeTask,
+                entity_type: crate::services::ops::audit::AuditEntityType::StoragePolicy,
+                entity_id: Some(input.policy_id),
+                entity_name: Some(&locked.name),
+            },
+            || {
+                crate::services::ops::audit::details(serde_json::json!({
+                    "task_id": task.id,
+                    "impact_digest": impact_digest,
+                }))
+            },
+        )
         .await
+        .map_err(|error| AsterError::database_operation(format!("write forced purge audit: {error}")))?;
+        Ok(task)
     })
     .await?;
     state.wake_background_task_dispatcher();
@@ -338,7 +362,10 @@ pub(super) async fn process_storage_policy_forced_purge_task(
         Some("Deleting storage policy"),
         None,
     )?;
-    crate::services::storage_policy::policy::delete(state, payload.policy_id, false).await?;
+    // Upload sessions were abandoned locally above, but retain ordinary policy-delete
+    // guards so a newly-created reference can never be silently bypassed.
+    let force_delete = false;
+    crate::services::storage_policy::policy::delete(state, payload.policy_id, force_delete).await?;
     set_task_step_succeeded(
         &mut steps,
         TASK_STEP_FINISH,
@@ -382,11 +409,13 @@ fn contiguous_scope_batches(files: Vec<file::Model>) -> Result<Vec<ScopedFileBat
     for file in files {
         let (key, scope) = resource_scope_for_file(&file)?;
         if current_key == Some(key) {
-            batches
-                .last_mut()
-                .expect("matching scope requires an existing batch")
-                .files
-                .push(file);
+            if let Some(batch) = batches.last_mut() {
+                batch.files.push(file);
+            } else {
+                return Err(AsterError::internal_error(
+                    "forced purge scope cursor lost its current batch",
+                ));
+            }
         } else {
             current_key = Some(key);
             batches.push(ScopedFileBatch {

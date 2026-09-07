@@ -108,7 +108,7 @@ pub async fn find_files_referencing_policy_blobs_paginated<C: ConnectionTrait>(
          FROM file_revision_histories h \
          JOIN file_revisions r ON r.history_id = h.id \
          JOIN file_blobs b ON b.id = r.blob_id \
-         WHERE b.policy_id = {policy_placeholder} AND h.file_id > {after_placeholder} \
+         WHERE b.policy_id = {policy_placeholder} AND r.retired_at IS NULL AND h.file_id > {after_placeholder} \
          ORDER BY h.file_id ASC LIMIT {limit_placeholder}"
     );
     let rows = FileIdRow::find_by_statement(sea_orm::Statement::from_sql_and_values(

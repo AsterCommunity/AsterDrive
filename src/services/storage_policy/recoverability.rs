@@ -169,7 +169,9 @@ fn sample_from_driver_resolution_error(
             kind,
             StorageErrorKind::RateLimited | StorageErrorKind::Transient
         ),
-        diagnostic: Some(error.to_string()),
+        diagnostic: Some(crate::errors::sanitize_storage_driver_client_message(
+            &error.to_string(),
+        )),
     }
 }
 
