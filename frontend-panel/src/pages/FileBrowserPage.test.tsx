@@ -109,6 +109,7 @@ const mockState = vi.hoisted(() => ({
 		deleteFile: vi.fn(),
 		deleteFolder: vi.fn(),
 		error: null as string | null,
+		unavailableFolderId: null as number | null,
 		files: [] as Array<Record<string, unknown>>,
 		folders: [] as Array<Record<string, unknown>>,
 		hasMoreFiles: vi.fn(),
@@ -1349,6 +1350,7 @@ describe("FileBrowserPage", () => {
 		];
 		mockState.store.currentFolderId = 12;
 		mockState.store.error = null;
+		mockState.store.unavailableFolderId = null;
 		mockState.store.files = [createFile()];
 		mockState.store.folders = [createFolder()];
 		mockState.store.hasMoreFiles.mockReturnValue(false);
@@ -1444,6 +1446,56 @@ describe("FileBrowserPage", () => {
 		expect(mockState.store.setSortBy).toHaveBeenCalledWith("updated_at");
 		expect(mockState.store.setSortOrder).toHaveBeenCalledWith("desc");
 	});
+
+	it.each([
+		[{ kind: "personal" } as const, "/folder/3?name=Projects"],
+		[{ kind: "team", teamId: 9 } as const, "/teams/9/folder/3?name=Projects"],
+	])(
+		"recovers an unavailable current folder in %j to its nearest ancestor",
+		async (workspace, expectedPath) => {
+			mockState.workspace = workspace;
+			mockState.store.breadcrumb = [
+				{ id: null, name: "Root" },
+				{ id: 3, name: "Projects" },
+				{ id: 12, name: "Removed" },
+			];
+			mockState.store.unavailableFolderId = 12;
+
+			render(<FileBrowserPage />);
+
+			await waitFor(() => {
+				expect(mockState.navigate).toHaveBeenCalledWith(expectedPath, {
+					replace: true,
+				});
+			});
+			expect(mockState.toastError).toHaveBeenCalledWith(
+				"errors:folder_not_found",
+			);
+		},
+	);
+
+	it.each([
+		[{ kind: "personal" } as const, "/"],
+		[{ kind: "team", teamId: 9 } as const, "/teams/9"],
+	])(
+		"recovers an unavailable folder without a known ancestor in %j to the workspace root",
+		async (workspace, expectedPath) => {
+			mockState.workspace = workspace;
+			mockState.store.breadcrumb = [{ id: null, name: "Root" }];
+			mockState.store.unavailableFolderId = 12;
+
+			render(<FileBrowserPage />);
+
+			await waitFor(() => {
+				expect(mockState.navigate).toHaveBeenCalledWith(expectedPath, {
+					replace: true,
+				});
+			});
+			expect(mockState.toastError).toHaveBeenCalledWith(
+				"errors:folder_not_found",
+			);
+		},
+	);
 
 	it("does not expose folder policy management to regular users", () => {
 		render(<FileBrowserPage />);

@@ -94,6 +94,8 @@ export interface RequestSlice {
 	workspaceRequestRevision: number;
 	_workspaceRequestId: number;
 	_workspaceRequestController: AbortController | null;
+	_workspaceRequestIntent: "navigation" | "refresh" | null;
+	_workspaceRequestFolderId: number | null;
 }
 
 export interface NavigationSlice {
@@ -103,6 +105,7 @@ export interface NavigationSlice {
 	files: FileListItem[];
 	loading: boolean;
 	error: string | null;
+	unavailableFolderId: number | null;
 	filesTotalCount: number;
 	foldersTotalCount: number;
 	loadingMore: boolean;
@@ -112,7 +115,7 @@ export interface NavigationSlice {
 		folderName?: string,
 		breadcrumbPath?: BreadcrumbItem[],
 	) => Promise<void>;
-	refresh: () => Promise<void>;
+	refresh: (folderIdSnapshot?: number | null) => Promise<void>;
 	loadMoreFiles: () => Promise<void>;
 	hasMoreFiles: () => boolean;
 }
@@ -221,6 +224,7 @@ export function createWorkspaceResetState() {
 		breadcrumb: createRootBreadcrumb(),
 		loading: false,
 		error: null as string | null,
+		unavailableFolderId: null as number | null,
 		clipboard: null as Clipboard | null,
 		...createWorkspaceContentReset(),
 		...createSelectionReset(),

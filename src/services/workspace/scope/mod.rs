@@ -331,8 +331,8 @@ pub(crate) fn ensure_active_folder_scope(
     ensure_folder_scope(folder, scope)?;
 
     if folder.deleted_at.is_some() {
-        return Err(AsterError::file_not_found(format!(
-            "folder #{} is in trash",
+        return Err(AsterError::folder_not_found(format!(
+            "Folder #{} is in trash",
             folder.id
         )));
     }
@@ -435,7 +435,14 @@ async fn verify_folder_access_with_db<C: ConnectionTrait>(
     // 先校验当前 scope 还有效，再取实体做归属检查。
     // 这样所有调用方都能拿到“存在 + 属于当前空间 + 未进回收站”的 folder。
     require_scope_access_with_db(state, db, scope).await?;
-    let folder = folder_repo::find_by_id(db, folder_id).await?;
+    let folder = folder_repo::find_by_id(db, folder_id)
+        .await
+        .map_err(|error| match error {
+            AsterError::RecordNotFound(_) => AsterError::folder_not_found(format!(
+                "Folder #{folder_id} does not exist or has been permanently removed"
+            )),
+            other => other,
+        })?;
     ensure_active_folder_scope(&folder, scope)?;
 
     Ok(folder)

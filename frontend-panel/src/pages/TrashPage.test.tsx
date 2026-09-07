@@ -640,40 +640,43 @@ describe("TrashPage", () => {
 		});
 	});
 
-	it("reloads trash contents and quota when a sync.required event arrives", async () => {
-		mockState.list
-			.mockResolvedValueOnce({
-				files: [fileItem],
-				files_total: 1,
-				folders: [],
-				folders_total: 0,
-				next_file_cursor: null,
-			} as never)
-			.mockResolvedValueOnce(emptyTrashContents());
+	it.each(["sync.required", "trash.purged_all"] as const)(
+		"reloads trash contents and quota when a %s event arrives",
+		async (kind) => {
+			mockState.list
+				.mockResolvedValueOnce({
+					files: [fileItem],
+					files_total: 1,
+					folders: [],
+					folders_total: 0,
+					next_file_cursor: null,
+				} as never)
+				.mockResolvedValueOnce(emptyTrashContents());
 
-		render(<TrashPage />);
+			render(<TrashPage />);
 
-		await screen.findByText("select:report.pdf");
+			await screen.findByText("select:report.pdf");
 
-		for (const listener of mockState.listeners) {
-			listener({
-				kind: "sync.required",
-				workspace: { kind: "personal" },
-				file_ids: [],
-				folder_ids: [],
-				affected_parent_ids: [],
-				root_affected: false,
-				affects_quota: true,
-				storage_delta: null,
-				at: "2026-05-19T00:00:00Z",
+			for (const listener of mockState.listeners) {
+				listener({
+					kind,
+					workspace: { kind: "personal" },
+					file_ids: [],
+					folder_ids: [],
+					affected_parent_ids: [],
+					root_affected: false,
+					affects_quota: true,
+					storage_delta: null,
+					at: "2026-05-19T00:00:00Z",
+				});
+			}
+
+			await waitFor(() => {
+				expect(mockState.list).toHaveBeenCalledTimes(2);
 			});
-		}
-
-		await waitFor(() => {
-			expect(mockState.list).toHaveBeenCalledTimes(2);
-		});
-		expect(mockState.refreshUser).toHaveBeenCalledWith({ fields: ["quota"] });
-	});
+			expect(mockState.refreshUser).toHaveBeenCalledWith({ fields: ["quota"] });
+		},
+	);
 
 	it("ignores storage events that do not require a full sync", async () => {
 		mockState.list.mockResolvedValueOnce({

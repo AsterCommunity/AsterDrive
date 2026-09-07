@@ -196,7 +196,7 @@ export default function TrashPage() {
 
 	useEffect(() => {
 		return subscribeStorageChange((event) => {
-			if (event.kind !== "sync.required") {
+			if (event.kind !== "sync.required" && event.kind !== "trash.purged_all") {
 				return;
 			}
 			if (syncInFlightRef.current) {

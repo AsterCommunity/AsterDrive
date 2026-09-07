@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import type { BatchTargetFolderSelection } from "@/components/files/BatchTargetFolderDialog";
 import { getImagePreviewNavigation } from "@/components/files/preview/navigation/imagePreviewNavigation";
@@ -17,7 +17,7 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { formatBatchToast } from "@/lib/formatBatchToast";
 import { runWhenIdle } from "@/lib/idleTask";
-import { workspaceKey } from "@/lib/workspace";
+import { workspaceFolderPath, workspaceKey } from "@/lib/workspace";
 import { FileBrowserDialogs } from "@/pages/file-browser/FileBrowserDialogs";
 import { FileBrowserToolbar } from "@/pages/file-browser/FileBrowserToolbar";
 import { FileBrowserWorkspace } from "@/pages/file-browser/FileBrowserWorkspace";
@@ -26,6 +26,7 @@ import {
 	FolderPolicyDialog as FolderPolicyDialogPreloader,
 	OfflineDownloadDialog as OfflineDownloadDialogPreloader,
 } from "@/pages/file-browser/fileBrowserLazy";
+import { resolveFolderRecoveryTarget } from "@/pages/file-browser/folderRecovery";
 import { useFileBrowserArchiveActions } from "@/pages/file-browser/useFileBrowserArchiveActions";
 import { useFileBrowserBatchActions } from "@/pages/file-browser/useFileBrowserBatchActions";
 import { useFileBrowserContextValue } from "@/pages/file-browser/useFileBrowserContextValue";
@@ -97,11 +98,11 @@ export default function FileBrowserPage() {
 	const { t } = useTranslation(["files", "tasks"]);
 	const params = useParams<{ folderId?: string }>();
 	const [searchParams] = useSearchParams();
+	const navigate = useNavigate();
 	const folderId = params.folderId ? Number(params.folderId) : null;
 	const folderName = searchParams.get("name") ?? undefined;
-	const currentWorkspaceKey = useWorkspaceStore((s) =>
-		workspaceKey(s.workspace),
-	);
+	const currentWorkspace = useWorkspaceStore((s) => s.workspace);
+	const currentWorkspaceKey = workspaceKey(currentWorkspace);
 	const navigationTarget = useMemo(
 		() => ({
 			folderId,
@@ -125,6 +126,7 @@ export default function FileBrowserPage() {
 	const browserOpenMode = useFileStore((s) => s.browserOpenMode);
 	const setViewMode = useFileStore((s) => s.setViewMode);
 	const error = useFileStore((s) => s.error);
+	const unavailableFolderId = useFileStore((s) => s.unavailableFolderId);
 	const clearSelection = useFileStore((s) => s.clearSelection);
 	const loadMoreFiles = useFileStore((s) => s.loadMoreFiles);
 	const loadingMore = useFileStore((s) => s.loadingMore);
@@ -154,6 +156,33 @@ export default function FileBrowserPage() {
 
 	usePageTitle(pageTitle);
 	useKeyboardShortcuts();
+
+	useEffect(() => {
+		if (unavailableFolderId === null || folderId !== unavailableFolderId) {
+			return;
+		}
+
+		const recoveryTarget = resolveFolderRecoveryTarget(
+			breadcrumb,
+			unavailableFolderId,
+		);
+		toast.error(t("errors:folder_not_found"));
+		navigate(
+			workspaceFolderPath(
+				currentWorkspace,
+				recoveryTarget.id,
+				recoveryTarget.id === null ? undefined : recoveryTarget.name,
+			),
+			{ replace: true },
+		);
+	}, [
+		breadcrumb,
+		currentWorkspace,
+		folderId,
+		navigate,
+		t,
+		unavailableFolderId,
+	]);
 
 	const uploadAreaRef = useRef<UploadAreaHandle | null>(null);
 	const uploadReadyRef = useRef(false);

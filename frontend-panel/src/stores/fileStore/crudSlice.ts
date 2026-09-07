@@ -6,30 +6,23 @@ import {
 } from "@/services/batchService";
 import { fileService } from "@/services/fileService";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
-import {
-	applyWorkspaceRequestState,
-	beginWorkspaceRequest,
-	fetchFolder,
-	getInitialPageParams,
-	isRequestCanceled,
-	resolveBreadcrumb,
-} from "./request";
 import type { CrudSlice, FileStoreSlice } from "./types";
 
 export const createCrudSlice: FileStoreSlice<CrudSlice> = (set, get) => ({
 	createFile: async (name) => {
 		const { currentFolderId } = get();
 		await fileService.createEmptyFile(name, currentFolderId);
-		await get().refresh();
+		await get().refresh(currentFolderId);
 	},
 
 	createFolder: async (name) => {
 		const { currentFolderId } = get();
 		await fileService.createFolder(name, currentFolderId);
-		await get().refresh();
+		await get().refresh(currentFolderId);
 	},
 
 	deleteFile: async (id) => {
+		const { currentFolderId } = get();
 		const mutation = beginLocalStorageDeleteMutation({
 			workspace: useWorkspaceStore.getState().workspace,
 			fileIds: [id],
@@ -43,10 +36,11 @@ export const createCrudSlice: FileStoreSlice<CrudSlice> = (set, get) => ({
 		const next = new Set(get().selectedFileIds);
 		next.delete(id);
 		set({ selectedFileIds: next });
-		await get().refresh();
+		await get().refresh(currentFolderId);
 	},
 
 	deleteFolder: async (id) => {
+		const { currentFolderId } = get();
 		const mutation = beginLocalStorageDeleteMutation({
 			workspace: useWorkspaceStore.getState().workspace,
 			folderIds: [id],
@@ -60,11 +54,12 @@ export const createCrudSlice: FileStoreSlice<CrudSlice> = (set, get) => ({
 		const next = new Set(get().selectedFolderIds);
 		next.delete(id);
 		set({ selectedFolderIds: next });
-		await get().refresh();
+		await get().refresh(currentFolderId);
 	},
 
 	moveToFolder: async (fileIds, folderIds, targetFolderId) => {
 		const revision = get().workspaceRequestRevision;
+		const sourceFolderId = get().currentFolderId;
 		const workspace = useWorkspaceStore.getState().workspace;
 		const result = await resolveMoveDispatch({
 			currentWorkspace: workspace,
@@ -87,39 +82,7 @@ export const createCrudSlice: FileStoreSlice<CrudSlice> = (set, get) => ({
 			return result;
 		}
 
-		const { currentFolderId } = get();
-		const request = beginWorkspaceRequest(set, get);
-
-		try {
-			const [contents, breadcrumb] = await Promise.all([
-				fetchFolder(
-					currentFolderId,
-					getInitialPageParams(get().sortBy, get().sortOrder),
-					request.signal,
-				),
-				resolveBreadcrumb(currentFolderId, undefined, request.signal),
-			]);
-
-			applyWorkspaceRequestState(set, get, request, {
-				folders: contents.folders,
-				files: contents.files,
-				foldersTotalCount: contents.folders_total,
-				filesTotalCount: contents.files_total,
-				nextFileCursor: contents.next_file_cursor ?? null,
-				breadcrumb,
-				loading: false,
-				loadingMore: false,
-				error: null,
-			});
-		} catch (error) {
-			if (!isRequestCanceled(error)) {
-				applyWorkspaceRequestState(set, get, request, {
-					loading: false,
-					loadingMore: false,
-				});
-				throw error;
-			}
-		}
+		await get().refresh(sourceFolderId);
 
 		return result;
 	},

@@ -85,6 +85,8 @@ pub enum StorageChangeKind {
     LockCreated,
     #[serde(rename = "lock.deleted")]
     LockDeleted,
+    #[serde(rename = "trash.purged_all")]
+    TrashPurgedAll,
     #[serde(rename = "sync.required")]
     SyncRequired,
 }
@@ -108,7 +110,7 @@ impl StorageChangeKind {
             Self::TagCreated | Self::TagUpdated | Self::TagDeleted | Self::TagAssignmentChanged => {
                 false
             }
-            Self::LockCreated | Self::LockDeleted => false,
+            Self::LockCreated | Self::LockDeleted | Self::TrashPurgedAll => false,
         }
     }
 
@@ -132,7 +134,8 @@ impl StorageChangeKind {
             | Self::TagDeleted
             | Self::TagAssignmentChanged
             | Self::LockCreated
-            | Self::LockDeleted => false,
+            | Self::LockDeleted
+            | Self::TrashPurgedAll => false,
         }
     }
 }
@@ -569,6 +572,28 @@ mod tests {
                 crate::services::files::folder::FOLDER_PATH_CACHE_PREFIX.to_string(),
             ]
         );
+        assert!(targets.keys.is_empty());
+    }
+
+    #[test]
+    fn trash_purged_all_keeps_scoped_wire_kind_without_path_cache_invalidation() {
+        let event = StorageChangeEvent::new(
+            StorageChangeKind::TrashPurgedAll,
+            WorkspaceStorageScope::Personal { user_id: 11 },
+            vec![],
+            vec![],
+            vec![],
+        )
+        .with_storage_delta(-512);
+
+        let serialized = serde_json::to_value(&event).unwrap();
+        assert_eq!(serialized["kind"], "trash.purged_all");
+        assert_eq!(serialized["workspace"]["kind"], "personal");
+        assert_eq!(serialized["storage_delta"], -512);
+        assert_eq!(serialized["affects_quota"], true);
+
+        let targets = super::cache_invalidation_targets(&event);
+        assert!(targets.prefixes.is_empty());
         assert!(targets.keys.is_empty());
     }
 

@@ -8,7 +8,7 @@ const mockState = vi.hoisted(() => ({
 	copyFolder: vi.fn(),
 	moveFile: vi.fn(),
 	moveFolder: vi.fn(),
-	fetchFolder: vi.fn(),
+	refresh: vi.fn(),
 }));
 
 vi.mock("@/services/batchService", () => ({
@@ -29,19 +29,12 @@ vi.mock("@/services/fileService", () => ({
 	},
 }));
 
-vi.mock("@/stores/fileStore/request", () => ({
-	applyWorkspaceRequestState: vi.fn(),
-	beginWorkspaceRequest: () => ({ signal: undefined }),
-	fetchFolder: (...args: unknown[]) => mockState.fetchFolder(...args),
-	getInitialPageParams: () => ({}),
-	isRequestCanceled: () => false,
-}));
-
 function createClipboardState(clipboard: unknown) {
 	let state: Record<string, unknown> = {
 		clipboard,
 		clearSelection: vi.fn(),
 		currentFolderId: 9,
+		refresh: mockState.refresh,
 		workspaceRequestRevision: 1,
 		sortBy: "name",
 		sortOrder: "asc",
@@ -70,13 +63,7 @@ describe("clipboard copy and move dispatch", () => {
 		mockState.copyFolder.mockReset().mockResolvedValue({ id: 2 });
 		mockState.moveFile.mockReset().mockResolvedValue({ id: 1 });
 		mockState.moveFolder.mockReset().mockResolvedValue({ id: 2 });
-		mockState.fetchFolder.mockReset().mockResolvedValue({
-			files: [],
-			folders: [],
-			files_total: 0,
-			folders_total: 0,
-			next_file_cursor: null,
-		});
+		mockState.refresh.mockReset().mockResolvedValue(undefined);
 	});
 
 	it("uses the single-file copy endpoint for one copied file", async () => {
@@ -90,6 +77,7 @@ describe("clipboard copy and move dispatch", () => {
 
 		expect(mockState.copyFile).toHaveBeenCalledWith(1, 9);
 		expect(mockState.batchCopy).not.toHaveBeenCalled();
+		expect(mockState.refresh).toHaveBeenCalledWith(9);
 	});
 
 	it("uses the single-folder copy endpoint for one copied folder", async () => {
@@ -103,6 +91,7 @@ describe("clipboard copy and move dispatch", () => {
 
 		expect(mockState.copyFolder).toHaveBeenCalledWith(2, 9);
 		expect(mockState.batchCopy).not.toHaveBeenCalled();
+		expect(mockState.refresh).toHaveBeenCalledWith(9);
 	});
 
 	it("uses batch copy for multiple copied resources", async () => {
@@ -116,6 +105,7 @@ describe("clipboard copy and move dispatch", () => {
 
 		expect(mockState.batchCopy).toHaveBeenCalledWith([1, 2], [], 9);
 		expect(mockState.copyFile).not.toHaveBeenCalled();
+		expect(mockState.refresh).toHaveBeenCalledWith(9);
 	});
 
 	it("uses the single-file move endpoint for one cut file", async () => {
@@ -130,6 +120,7 @@ describe("clipboard copy and move dispatch", () => {
 		expect(mockState.moveFile).toHaveBeenCalledWith(1, 9);
 		expect(mockState.batchMove).not.toHaveBeenCalled();
 		expect(mockState.copyFile).not.toHaveBeenCalled();
+		expect(mockState.refresh).toHaveBeenCalledWith(9);
 	});
 
 	it("uses the single-folder move endpoint for one cut folder", async () => {
@@ -144,6 +135,7 @@ describe("clipboard copy and move dispatch", () => {
 		expect(mockState.moveFolder).toHaveBeenCalledWith(2, 9);
 		expect(mockState.batchMove).not.toHaveBeenCalled();
 		expect(mockState.moveFile).not.toHaveBeenCalled();
+		expect(mockState.refresh).toHaveBeenCalledWith(9);
 	});
 
 	it("uses batch move for multiple cut resources", async () => {
@@ -158,5 +150,6 @@ describe("clipboard copy and move dispatch", () => {
 		expect(mockState.batchMove).toHaveBeenCalledWith([1], [2], 9);
 		expect(mockState.moveFile).not.toHaveBeenCalled();
 		expect(mockState.moveFolder).not.toHaveBeenCalled();
+		expect(mockState.refresh).toHaveBeenCalledWith(9);
 	});
 });

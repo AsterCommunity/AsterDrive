@@ -9,6 +9,8 @@ export const createRequestSlice: FileStoreSlice<RequestSlice> = (set, get) => ({
 			lastFolderContents: null,
 			_workspaceRequestId: 0,
 			_workspaceRequestController: null,
+			_workspaceRequestIntent: null,
+			_workspaceRequestFolderId: null,
 			...createWorkspaceResetState(),
 		}));
 	},
@@ -16,4 +18,6 @@ export const createRequestSlice: FileStoreSlice<RequestSlice> = (set, get) => ({
 	workspaceRequestRevision: 0,
 	_workspaceRequestId: 0,
 	_workspaceRequestController: null,
+	_workspaceRequestIntent: null,
+	_workspaceRequestFolderId: null,
 });

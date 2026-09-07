@@ -40,11 +40,11 @@ function currentPathname() {
 }
 
 async function refreshCurrentFolder() {
-	const { currentFolderId, navigateTo } = useFileStore.getState();
+	const { currentFolderId, refresh } = useFileStore.getState();
 	try {
-		await navigateTo(currentFolderId);
-	} catch {
-		await navigateTo(null);
+		await refresh(currentFolderId);
+	} catch (error) {
+		logger.warn("storage event folder refresh failed", error);
 	}
 }
 
